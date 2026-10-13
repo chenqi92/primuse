@@ -1951,6 +1951,7 @@
 		B256AF67302047A49201BC12 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 		B256AF67302047A49201BC13 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 		B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
+		B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3642,6 +3643,7 @@
 		F4815A702E2426E57FEDBDFC /* PlexSignInQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexSignInQuotaTests.swift; sourceTree = "<group>"; };
 		B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleRequestTests.swift; sourceTree = "<group>"; };
 		B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleCredentialHealthTests.swift; sourceTree = "<group>"; };
+		B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStreamResourceLoaderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4815,6 +4817,7 @@
 			children = (
 				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
 				8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */,
+				B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */,
 				11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */,
 				EC873BF121FE7CF625EABC14 /* TVKaraokeParityTests.swift */,
 				EDC8B99069FF25B8A0FF10CA /* TVKaraokeSeparationTests.swift */,
@@ -6253,6 +6256,7 @@
 			files = (
 				B255AF67302047A49201BC14 /* ScrobbleRequestTests.swift in Sources */,
 				B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */,
+				B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */,
 				1AFBE2A2D97DB36DFB683DB5 /* TVSourceHTTPFailureTests.swift in Sources */,
 				55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */,
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,

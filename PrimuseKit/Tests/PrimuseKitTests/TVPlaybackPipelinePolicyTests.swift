@@ -4,6 +4,25 @@ import Testing
 
 @Suite("tvOS playback pipeline policies")
 struct TVPlaybackPipelinePolicyTests {
+    @Test("HTTP service failures retain complete cooldowns before Range validation")
+    func serviceFailuresBeforeRanges() throws {
+        for status in [401, 403, 429, 500, 503] {
+            let response = try #require(HTTPURLResponse(url: URL(string: "https://fixture.invalid/track")!,
+                statusCode: status, httpVersion: nil, headerFields: ["Retry-After": "86400"]))
+            let failure = try #require(TVHTTPRangeResponsePolicy.httpFailure(for: response))
+            #expect(failure.statusCode == status)
+            #expect(failure.retryAfter == 86400)
+            #expect(failure.body.isEmpty)
+        }
+        let dated = try #require(HTTPURLResponse(url: URL(string: "https://fixture.invalid/track")!,
+            statusCode: 503, httpVersion: nil, headerFields: ["Retry-After": "Tue, 14 Nov 2023 23:13:20 GMT"]))
+        #expect(TVHTTPRangeResponsePolicy.httpFailure(for: dated, now: Date(timeIntervalSince1970: 1_700_000_000))?.retryAfter == 3600)
+        for status in [200, 206, 416] {
+            let response = try #require(HTTPURLResponse(url: dated.url!, statusCode: status, httpVersion: nil, headerFields: nil))
+            #expect(TVHTTPRangeResponsePolicy.httpFailure(for: response) == nil)
+        }
+    }
+
     @Test("CUE seeks and progress stay relative to the virtual track")
     func cueTimelineMapping() {
         let segment = TVPlaybackSegment(

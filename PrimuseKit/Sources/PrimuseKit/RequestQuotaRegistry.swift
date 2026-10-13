@@ -39,6 +39,11 @@ public struct RequestQuota: Sendable {
         public static let oauthToken = Service(id: "cloud.oauth.token", policy: .init(
             maximumConcurrentRequests: 1, maximumAttempts: 1, maximumRetryWait: 8,
             timeout: 30, rateLimitStatusCodes: [429], defaultCooldown: 2))
+        /// Streaming playback owns its admission slot until the range finishes.
+        /// No byte stream may be replayed after delivery to the player.
+        public static let mediaPlayback = Service(id: "media.playback", policy: .init(
+            maximumConcurrentRequests: 4, maximumAttempts: 1, timeout: 600
+        ))
         public static let podcast = Service(id: "podcast.http", policy: .init(timeout: 90))
     }
 
