@@ -236,6 +236,20 @@ struct CloudDriveHelper: Sendable {
         self.cacheNamespace = MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
     }
 
+    func tokenRequest(_ request: URLRequest, clientID: String, session: URLSession = .shared,
+                      requests: OAuthTokenRequests = .init()) async throws -> (Data, URLResponse) {
+        do {
+            return try await requests.data(for: request, clientID: clientID, session: session)
+        } catch let failure as HTTPResponseFailure {
+            let code = OAuthTokenRequests.providerErrorCode(in: failure.body)
+            guard !failure.isRateLimitFailure,
+                  CloudTokenRefreshPolicy.disposition(statusCode: failure.statusCode, providerErrorCode: code) == .permanent else {
+                throw failure
+            }
+            throw Self.tokenRefreshFailure(statusCode: failure.statusCode, providerErrorCode: code)
+        }
+    }
+
     static func formURLEncodedBody(_ items: [URLQueryItem]) -> Data? {
         var components = URLComponents()
         components.queryItems = items

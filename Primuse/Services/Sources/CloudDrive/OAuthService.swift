@@ -19,7 +19,14 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     private var currentSession: ASWebAuthenticationSession?
 
-    private override init() { super.init() }
+    private let tokenSession: URLSession
+    private let tokenRequests: OAuthTokenRequests
+
+    init(session: URLSession = .shared, tokenRequests: OAuthTokenRequests = .init()) {
+        self.tokenSession = session
+        self.tokenRequests = tokenRequests
+        super.init()
+    }
 
     // MARK: - Public API
 
@@ -243,7 +250,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 4: Exchange Code for Tokens
 
-    private func exchangeCodeForTokens(
+    func exchangeCodeForTokens(
         code: String,
         config: CloudOAuthConfig,
         codeVerifier: String?
@@ -309,22 +316,19 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             request.httpBody = bodyString.data(using: .utf8)
         }
 
-        // Mask the secret in logs but show everything else — invaluable when an
-        // OAuth provider rejects the request and you need to compare what we
-        // sent against what they registered.
+        // Log endpoint and parameter names only; codes and token bodies stay private.
         plog("☁️ OAuth token POST host=\(tokenURL.host ?? "?") path=\(tokenURL.path) paramKeys=\(bodyParams.keys.sorted())")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw OAuthError.tokenExchangeFailed("Invalid response")
-        }
-
-        if !(200...299).contains(http.statusCode) {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let safeBody = FileLogger.redactSensitiveData(String(body.prefix(500)))
-            plog("☁️ OAuth token HTTP \(http.statusCode) body=\(safeBody)")
-            throw OAuthError.tokenExchangeFailed("HTTP \(http.statusCode): \(safeBody)")
+        let data: Data
+        do {
+            (data, _) = try await tokenRequests.data(for: request, clientID: config.clientId, session: tokenSession)
+        } catch let failure as HTTPResponseFailure {
+            let code = OAuthTokenRequests.providerErrorCode(in: failure.body)
+            guard !failure.isRateLimitFailure,
+                  CloudTokenRefreshPolicy.disposition(statusCode: failure.statusCode, providerErrorCode: code) == .permanent else {
+                throw failure
+            }
+            throw OAuthError.tokenExchangeFailed(code ?? "HTTP \(failure.statusCode)")
         }
 
         var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -336,9 +340,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         guard let accessToken = json["access_token"] as? String else {
-            let rawSnippet = String(String(data: data, encoding: .utf8)?.prefix(300) ?? "")
-            let safeSnippet = FileLogger.redactSensitiveData(rawSnippet)
-            throw OAuthError.tokenExchangeFailed("No access_token in response: \(safeSnippet)")
+            throw OAuthError.tokenExchangeFailed("No access_token in response")
         }
 
         let refreshToken = json["refresh_token"] as? String

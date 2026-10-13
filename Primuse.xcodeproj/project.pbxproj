@@ -378,6 +378,7 @@
 		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		CB0F8E5C0E3979E1A4210280 /* ServerRequestScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6488DA53AC9E8F4FC41DBA94 /* ServerRequestScheduler.swift */; };
 		C77D5F9587C9488488C6A427 /* CloudResolverRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */; };
+		632AB665C7024EFECF6FA97A /* OAuthTokenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */; };
 		D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
 		D2A78F3865EBA1FD516A73F6 /* BaiduWriteReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */; };
 		D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
@@ -2316,6 +2317,7 @@
 		E48077F43523B90C9F35E6E1 /* WebDAVDirectoryRequestPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVDirectoryRequestPolicy.swift; sourceTree = "<group>"; };
 		E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderFavoriteReconciliation.swift; sourceTree = "<group>"; };
 		EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudResolverRequests.swift; sourceTree = "<group>"; };
+		2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthTokenRequests.swift; sourceTree = "<group>"; };
 		EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWallLayoutPolicy.swift; sourceTree = "<group>"; };
 		F0758171C80FAED182F55FFA /* FlyAuditoryCircuit.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = FlyAuditoryCircuit.bin; sourceTree = "<group>"; };
 		F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveSimulationRenderers.swift; sourceTree = "<group>"; };
@@ -5648,6 +5650,7 @@
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
 				EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */,
+				2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */,
 				FABA25380E65408B1259872B /* LANCloudAuthorization.swift */,
 				A6F6EF272DE4FC33E0D41998 /* LANSettingsTransfer.swift */,
 				8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */,
@@ -6384,6 +6387,7 @@
 				49102CF09832B007A378A5FC /* AsyncSlotGate.swift in Sources */,
 				CB0F8E5C0E3979E1A4210280 /* ServerRequestScheduler.swift in Sources */,
 				C77D5F9587C9488488C6A427 /* CloudResolverRequests.swift in Sources */,
+				632AB665C7024EFECF6FA97A /* OAuthTokenRequests.swift in Sources */,
 				CEF1428ED702B5B3803629D3 /* BuiltInAIQuota.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
