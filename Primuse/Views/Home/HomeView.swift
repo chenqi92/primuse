@@ -328,6 +328,14 @@ private struct HomeSectionDragPreview: View {
     }
 }
 
+/// 收藏横排上次量到的视口宽度。首页顶部切到电台、有声书再切回来时这一块是重建的,还没量到宽度的
+/// 第一帧按它分列、定行数和格子顺序;不然先按一列排(行数、顺序都和收藏里的不一样),量到以后
+/// 再在切回来的弹簧动画里挪成正确的样子(#283)。泛型视图里放不了静态存储属性,单独放这里。
+@MainActor
+private enum HomeQuickAccessCarouselWidthMemo {
+    static var lastViewportWidth: CGFloat = 0
+}
+
 /// 首页顶上的「音乐 · 电台 · 有声」筛选胶囊(照 Spotify、YouTube Music 首页的做法)。
 /// 都不选是「全部」;选中的那颗是这种听法自己的颜色、带一个 ✕,和播放条、首页卡片上的颜色一致。
 /// 首页「收藏」横排。
@@ -370,7 +378,9 @@ private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
     }
 
     var body: some View {
-        let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: Double(viewportWidth))
+        let metrics = HomeQuickAccessCarouselMetrics(
+            viewportWidth: Double(viewportWidth > 0 ? viewportWidth : HomeQuickAccessCarouselWidthMemo.lastViewportWidth)
+        )
         let rows = HomeQuickAccessCarouselMetrics.renderedRowCount(
             itemCount: items.count,
             rows: rowCount,
@@ -411,6 +421,7 @@ private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
+            HomeQuickAccessCarouselWidthMemo.lastViewportWidth = width
             viewportWidth = width
         }
     }
@@ -1129,7 +1140,7 @@ struct HomeView: View {
                         radioModeContent
                             .transition(homeFaceTransition)
                     } else if activeHomeFilter == .spokenWord {
-                        SpokenWordShelf(showsArchived: false)
+                        SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
                             .padding(.horizontal, 16)
                             .transition(homeFaceTransition)
                     } else if activeHomeFilter == .podcast {
@@ -1382,6 +1393,9 @@ struct HomeView: View {
     /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
     @State private var isSceneActive = false
     @State private var hasShownHomeContent = false
+    /// 书架分好的组。顶部切到电台、有声书时「全部」那一面整块卸下,分组结果放在这一层才留得住,
+    /// 切回来书相关的区块不再先空着再弹出来;「有声书」那一面也用同一份(#283)。
+    @State private var spokenWordBooks = SpokenWordBooksModel()
     /// 有源在扫描。扫描期间资料库版本驱动的重算放宽到更长的最小间隔。
     @State private var isLibraryScanning = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
@@ -1505,7 +1519,7 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        SpokenWordLibraryContent(showsPlaceholderUntilPrepared: false) { snapshot in
+        SpokenWordLibraryContent(showsPlaceholderUntilPrepared: false, model: spokenWordBooks) { snapshot in
             VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
                 if editorMode {
                     Text("home_editor_hint")

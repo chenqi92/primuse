@@ -29,6 +29,9 @@ struct HomeHeroCarousel: View {
     /// 居中那张在虚拟序列里的格子(不是第几首歌,同一首歌每一圈各有一格)。
     @State private var centeredSlot: Int?
     @State private var viewportWidth: CGFloat = 0
+    /// 上次量到的宽度。首页顶部切到电台、有声书再切回来时轮播是重建的,第一帧按它定卡片大小,
+    /// 不先按 393 排、量到实际宽度后再重排并重新居中一次(#283)。
+    @MainActor private static var lastViewportWidth: CGFloat = 0
     /// 刚挂上时先画和轮播同形状的骨架,等滚到居中那张、眼前三张封面也读好了(或者等够一会儿)
     /// 再整组淡进来:不露出还没滚到位的那一帧,封面也不一张张蹦出来。
     @State private var isRevealed = false
@@ -52,7 +55,7 @@ struct HomeHeroCarousel: View {
     }
 
     var body: some View {
-        let metrics = HomeHeroCarouselMetrics(viewportWidth: viewportWidth)
+        let metrics = HomeHeroCarouselMetrics(viewportWidth: viewportWidth > 0 ? viewportWidth : Self.lastViewportWidth)
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 carousel(metrics)
@@ -77,6 +80,7 @@ struct HomeHeroCarousel: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
+            Self.lastViewportWidth = width
             viewportWidth = width
         }
         .task(id: nearbySongs.map(\.id)) {
