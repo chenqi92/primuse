@@ -195,9 +195,13 @@ struct PrimuseResumeSpokenWordBookIntent: AudioPlaybackIntent {
     init() {}
     init(bookID: String) { self.bookID = bookID }
 
+    /// 小组件上点的正是在听的这本书时当播放键用: 在播就暂停, 停着就接着播。
     @MainActor
     func perform() async throws -> some IntentResult {
-        _ = await PrimuseIntentBridge.shared.resumeSpokenWordBook(bookID)
+        let bridge = PrimuseIntentBridge.shared
+        if !bridge.togglePlaybackIfCurrentBook(bookID) {
+            _ = await bridge.resumeSpokenWordBook(bookID)
+        }
         return .result()
     }
 }
@@ -222,7 +226,11 @@ struct PrimusePlayListeningWidgetIntent: AudioPlaybackIntent {
                 _ = await bridge.playRadioStation(SiriMediaIdentifier.namespaced(itemID, as: "radio"))
             }
         case .podcast, .recentPodcast:
-            _ = await PrimuseIntentBridge.shared.playPodcastEpisode(itemID)
+            // 正在播的这一集再点一下是暂停, 暂停着的原地接着播, 跟播放页的播放键一样。
+            let bridge = PrimuseIntentBridge.shared
+            if !bridge.togglePlaybackIfCurrentItem(itemID) {
+                _ = await bridge.playPodcastEpisode(itemID)
+            }
         case nil:
             break
         }

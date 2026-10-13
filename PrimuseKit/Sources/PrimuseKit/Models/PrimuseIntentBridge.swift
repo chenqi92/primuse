@@ -141,6 +141,12 @@ public final class PrimuseIntentBridge {
     /// station was playing and is now stopped.
     public var stopRadioStationIfPlaying: @MainActor (_ id: String) -> Bool = { _ in false }
     public var playPodcastEpisode: @MainActor (_ id: String) async -> Bool = { _ in false }
+    /// A widget tap on the episode the player already holds works as its
+    /// play/pause key: pauses it while it plays, resumes it in place when
+    /// paused. False when the player holds another item, so the tap starts it.
+    public var togglePlaybackIfCurrentItem: @MainActor (_ id: String) -> Bool = { _ in false }
+    /// The same for a book, by `SpokenWordBook.id`.
+    public var togglePlaybackIfCurrentBook: @MainActor (_ bookID: String) -> Bool = { _ in false }
     public var playSongRadio: @MainActor () async -> String? = { nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}
     public var setRepeatMode: @MainActor (RepeatMode) -> Void = { _ in }

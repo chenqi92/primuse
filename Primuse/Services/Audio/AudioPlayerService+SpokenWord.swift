@@ -654,6 +654,7 @@ extension AudioPlayerService {
             skipBackwardSeconds: spokenWordSkipBackwardSeconds,
             skipForwardSeconds: spokenWordSkipForwardSeconds
         )
+        info.bookID = spokenWordBookID(for: song)
         if let book = currentSpokenWordBook {
             info.bookTitle = book.title
             info.bookAuthor = book.author

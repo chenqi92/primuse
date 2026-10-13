@@ -2551,6 +2551,23 @@ final class AppServices {
             await player.play(queue: start.songs, startingAt: start.index)
             return true
         }
+        // 小组件上点的正是播放器里这一集 / 这本书时, 它就是播放键: 在播就暂停, 停着就原地接着播,
+        // 不重新装队列 (那样要重新加载)。还在连接、缓冲的不动, 免得一点又停了。
+        func togglePlaybackOfCurrent(_ isCurrent: Bool) -> Bool {
+            guard isCurrent, !player.isLiveRadio else { return false }
+            if player.isPlaybackActive {
+                player.pause()
+            } else if !player.isPlaying, !player.isLoading {
+                player.resume()
+            }
+            return true
+        }
+        bridge.togglePlaybackIfCurrentItem = { id in
+            togglePlaybackOfCurrent(player.currentSong?.id == id)
+        }
+        bridge.togglePlaybackIfCurrentBook = { bookID in
+            togglePlaybackOfCurrent(player.currentBookID == bookID)
+        }
         bridge.restorePlaybackSession = { [self] in
             await awaitPlaybackSessionRestore()
         }

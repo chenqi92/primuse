@@ -6,8 +6,8 @@ struct ListeningWidgetEntry: TimelineEntry {
     let date: Date
     let kind: ListeningWidgetKind
     let snapshot: ListeningWidgetSnapshot
-    /// 电台小组件里正在播的那个台, 跟 App 电台页一样标出来。
-    var playingStationID: String? = nil
+    /// 正在播的那个台 / 那一集, 跟 App 里一样标出来: 台的键换成停止, 单集换成暂停。
+    var playingItemID: String? = nil
 }
 
 struct ListeningWidgetProvider: TimelineProvider {
@@ -23,15 +23,15 @@ struct ListeningWidgetProvider: TimelineProvider {
     }
     private var current: ListeningWidgetEntry {
         .init(date: Date(), kind: kind, snapshot: kind.load() ?? .init(items: []),
-              playingStationID: kind == .radio ? Self.playingStationID() : nil)
+              playingItemID: Self.playingItemID(kind))
     }
 
-    /// 电台起播、停下、切台时播放器把台的 id 连同播放状态写进 App Group 并刷新全部小组件,
+    /// 起播、暂停、切台、换集时播放器把正在播的是什么连同播放状态写进 App Group 并刷新全部小组件,
     /// 这里照着读。关掉「正在播放」的数据同步时播放状态不外传, 也就不标。
-    private static func playingStationID() -> String? {
+    private static func playingItemID(_ kind: ListeningWidgetKind) -> String? {
         guard WidgetSettings.syncEnabled(),
               WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else { return nil }
-        return PlaybackState.load()?.playingRadioStationID
+        return kind.playingItemID(in: PlaybackState.load())
     }
     private var preview: ListeningWidgetEntry {
         let titles = kind.playsEpisodes ? ["The Art of Listening", "A Little Curiosity", "Slow Mornings"] : ["Jazz Radio", "Classical", "Late Night"]
@@ -96,29 +96,30 @@ struct ListeningWidgetView: View {
     private var symbol: String { entry.kind.space.systemImage }
     private var tint: Color { WidgetDesign.tint(for: entry.kind.space) }
 
+    /// 点播放键以外的地方打开 App 的电台页 / 播客页, 方便换台、挑别的节目。
     var body: some View {
+        content.widgetURL(ListeningSpaceLink.url(for: entry.kind.space))
+    }
+
+    @ViewBuilder private var content: some View {
         if let first = entry.snapshot.items.first {
             WidgetCanvas(showsContours: family == .systemSmall,
                          coverImageName: family == .systemLarge ? first.coverImageName : nil,
                          tint: family == .systemLarge ? tint : nil) {
                 if family == .systemMedium {
-                    action(first) {
-                        if entry.kind.playsEpisodes { podcastFeature(first) }
-                        else { radioFeature(first) }
-                    }
+                    if entry.kind.playsEpisodes { podcastFeature(first) }
+                    else { radioFeature(first) }
                 } else if family == .systemSmall {
-                    action(first) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .top) {
-                                artwork(first, side: 48)
-                                Spacer(minLength: 0)
-                                playIcon(first)
-                            }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top) {
+                            artwork(first, side: 48)
                             Spacer(minLength: 0)
-                            metadata(first, titleSize: 15, lines: 2)
-                            if isPlaying(first) { liveLine(first) }
-                            progress(first)
+                            playButton(first)
                         }
+                        Spacer(minLength: 0)
+                        metadata(first, titleSize: 15, lines: 2)
+                        if isPlaying(first) { liveLine(first) }
+                        progress(first)
                     }
                 } else {
                     largeShelf(first)
@@ -134,22 +135,20 @@ struct ListeningWidgetView: View {
         GeometryReader { geometry in
             let remaining = Array(entry.snapshot.items.dropFirst().prefix(3))
             if remaining.isEmpty {
-                action(first) { singleFeature(first, side: min(154, geometry.size.height * 0.47)) }
+                singleFeature(first, side: min(154, geometry.size.height * 0.47))
                     .widgetBounds(geometry.size)
             } else {
                 let shelfHeight = min(140, geometry.size.height * 0.44)
                 VStack(alignment: .leading, spacing: 18) {
-                    action(first) {
+                    Group {
                         if entry.kind.playsEpisodes { podcastHero(first) }
                         else { radioFeature(first) }
                     }
                     .frame(height: geometry.size.height - shelfHeight - 18)
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(remaining) { item in
-                            action(item) {
-                                shelfItem(item, side: min(remaining.count == 1 ? 100 : 84,
-                                                         (geometry.size.width - CGFloat(remaining.count - 1) * 12) / CGFloat(remaining.count)))
-                            }
+                            shelfItem(item, side: min(remaining.count == 1 ? 100 : 84,
+                                                     (geometry.size.width - CGFloat(remaining.count - 1) * 12) / CGFloat(remaining.count)))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -166,7 +165,7 @@ struct ListeningWidgetView: View {
                 Label(title, systemImage: symbol)
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint).widgetAccentable()
                 Spacer(minLength: 0)
-                playIcon(item)
+                playButton(item)
             }
             Group {
                 if entry.kind == .radio {
@@ -209,7 +208,7 @@ struct ListeningWidgetView: View {
                 HStack(spacing: 12) {
                     progress(item)
                     Spacer(minLength: 0)
-                    playIcon(item)
+                    playButton(item)
                 }
             }
             .widgetBounds(geometry.size)
@@ -225,9 +224,7 @@ struct ListeningWidgetView: View {
                 } else {
                     artwork(item, side: side)
                 }
-                playIcon(item)
-                    .background(playIconBackdrop, in: .circle)
-                    .overlay { Circle().strokeBorder(tint.opacity(0.12), lineWidth: 1) }
+                playButton(item, backdrop: true)
                     .offset(x: 5, y: 5)
             }
             Text(item.title).font(.system(size: 12, weight: .semibold))
@@ -265,7 +262,7 @@ struct ListeningWidgetView: View {
                     Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                playIcon(item)
+                playButton(item)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -292,8 +289,7 @@ struct ListeningWidgetView: View {
                         .padding(CGFloat(ring) * 8)
                 }
                 artwork(item, side: 82).clipShape(.circle)
-                playIcon(item)
-                    .background(playIconBackdrop, in: .circle)
+                playButton(item, backdrop: true)
                     .offset(x: 38, y: 38)
             }
             .frame(width: 118, height: 118)
@@ -301,15 +297,22 @@ struct ListeningWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func action<Content: View>(_ item: ListeningWidgetSnapshot.Item, @ViewBuilder content: () -> Content) -> some View {
+    /// 只有播放键是按钮: 正在播的台点了是停、正在播的单集点了是暂停, 由 intent 在 App 里看播放器定。
+    /// 别处点了按 `widgetURL` 打开 App 的电台页 / 播客页; 关掉小组件交互时整块都是打开 App。
+    @ViewBuilder private func playButton(_ item: ListeningWidgetSnapshot.Item, backdrop: Bool = false) -> some View {
+        let icon = playIcon(item, backdrop: backdrop)
         if WidgetSettings.clickableInteractionEnabled() {
-            // 正在播的台点了是停, 由 intent 在 App 里看播放器定。
-            Button(intent: PrimusePlayListeningWidgetIntent(itemID: item.id, kind: entry.kind.rawValue)) { content() }
+            Button(intent: PrimusePlayListeningWidgetIntent(itemID: item.id, kind: entry.kind.rawValue)) { icon }
                 .buttonStyle(.plain)
-                .accessibilityLabel(PMString(isPlaying(item) ? "widget_desk_stop" : "ext.control.play") + ", " + item.title)
+                .accessibilityLabel(PMString(playKeyLabel(item)) + ", " + item.title)
         } else {
-            content()
+            icon.accessibilityHidden(true)
         }
+    }
+
+    private func playKeyLabel(_ item: ListeningWidgetSnapshot.Item) -> String {
+        guard isPlaying(item) else { return "ext.control.play" }
+        return entry.kind == .radio ? "widget_desk_stop" : "ext.control.pause"
     }
 
     @ViewBuilder private func artwork(_ item: ListeningWidgetSnapshot.Item, side: CGFloat) -> some View {
@@ -347,24 +350,32 @@ struct ListeningWidgetView: View {
     }
 
     private func isPlaying(_ item: ListeningWidgetSnapshot.Item) -> Bool {
-        entry.playingStationID == item.id
+        entry.playingItemID == item.id
     }
 
-    /// 正在播的台换成红色停止键, 跟 App 电台页一样。
-    private func playIcon(_ item: ListeningWidgetSnapshot.Item) -> some View {
+    /// 正在播的台用红色, 跟 App 电台页一样; 单集仍是播客的颜色。
+    private var playingAccent: Color { entry.kind == .radio ? .red : tint }
+
+    /// 正在播的台换成红色停止键, 跟 App 电台页一样; 正在播的单集换成暂停键。
+    private func playIcon(_ item: ListeningWidgetSnapshot.Item, backdrop: Bool) -> some View {
         let playing = isPlaying(item)
-        return Image(systemName: playing ? "stop.fill" : "play.fill")
+        let accent = playing ? playingAccent : tint
+        let symbol = playing ? (entry.kind == .radio ? "stop.fill" : "pause.fill") : "play.fill"
+        return Image(systemName: symbol)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(playing ? Color.red : tint).widgetAccentable()
+            .foregroundStyle(accent).widgetAccentable()
             .frame(width: 32, height: 32)
-            .background((playing ? Color.red : tint).opacity(0.10), in: .circle)
+            .background(accent.opacity(0.10), in: .circle)
+            .background(backdrop ? playIconBackdrop : AnyShapeStyle(Color.clear), in: .circle)
+            .overlay { if backdrop { Circle().strokeBorder(tint.opacity(0.12), lineWidth: 1) } }
+            .contentShape(.circle)
     }
 
-    /// 「直播」那一行; 正在播的台是红点加「正在播放」。
+    /// 「直播」那一行; 正在播的台是红点加「正在播放」, 单集是播客色的点。
     private func liveLine(_ item: ListeningWidgetSnapshot.Item) -> some View {
         let playing = isPlaying(item)
         return HStack(spacing: 5) {
-            Circle().fill(playing ? Color.red : tint).frame(width: 5, height: 5).widgetAccentable()
+            Circle().fill(playing ? playingAccent : tint).frame(width: 5, height: 5).widgetAccentable()
             Text(PMString(playing ? "ext.widget.nowPlaying.playing" : "ext.widget.live"))
                 .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
         }

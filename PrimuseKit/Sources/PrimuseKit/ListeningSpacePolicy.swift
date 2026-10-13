@@ -78,6 +78,23 @@ extension ListeningSpace {
     }
 }
 
+/// The link a widget opens when tapped outside its play button: the app's
+/// page for one listening space (`primuse://open/radio`).
+public enum ListeningSpaceLink {
+    public static let scheme = "primuse"
+    public static let host = "open"
+
+    public static func url(for space: ListeningSpace) -> URL? {
+        URL(string: "\(scheme)://\(host)/\(space.rawValue)")
+    }
+
+    public static func space(from url: URL) -> ListeningSpace? {
+        guard url.scheme?.lowercased() == scheme, url.host?.lowercased() == host,
+              let name = url.pathComponents.first(where: { $0 != "/" }) else { return nil }
+        return ListeningSpace(rawValue: name)
+    }
+}
+
 /// What a sleep timer can wait for, per space.
 public enum SleepTimerOption: Hashable, Sendable {
     case minutes(Int)

@@ -1854,6 +1854,10 @@ struct PrimuseApp: App {
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")
+                    // 小组件上点播放键以外的地方: 打开电台、播客或有声书那一页。
+                    if ListeningSpaceOpenRequest.shared.handle(url) {
+                        return
+                    }
                     if let request = MediaRelayImportRequest(url: url) {
                         mediaRelayImportRequest = request
                         return

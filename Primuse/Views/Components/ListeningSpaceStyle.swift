@@ -40,6 +40,44 @@ extension ListeningSpace {
     }
 }
 
+/// Where a widget tap outside the play keys asks the app to go: the page of
+/// one listening space (`ListeningSpaceLink`). The link lands here first and
+/// the root view picks it up — on a cold launch only a placeholder may be
+/// mounted when the URL arrives.
+@MainActor
+@Observable
+final class ListeningSpaceOpenRequest {
+    static let shared = ListeningSpaceOpenRequest()
+
+    private(set) var pending: ListeningSpace?
+
+    private init() {}
+
+    /// True when `url` is such a link; the request is then recorded.
+    func handle(_ url: URL) -> Bool {
+        guard let space = ListeningSpaceLink.space(from: url) else { return false }
+        pending = space
+        return true
+    }
+
+    func consume() -> ListeningSpace? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+extension LibrarySection {
+    /// The library page of a space; music has no single page.
+    init?(listeningSpace space: ListeningSpace) {
+        switch space {
+        case .music: return nil
+        case .radio: self = .radio
+        case .spokenWord: self = .spokenWord
+        case .podcast: self = .podcasts
+        }
+    }
+}
+
 private extension Color {
     /// A colour with separate light and dark values, each 0xRRGGBB.
     init(light: UInt32, dark: UInt32) {

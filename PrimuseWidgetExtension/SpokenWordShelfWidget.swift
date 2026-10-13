@@ -7,7 +7,7 @@ import WidgetKit
 
 struct SpokenWordShelfProvider: TimelineProvider {
     func placeholder(in context: Context) -> SpokenWordShelfEntry {
-        SpokenWordShelfEntry(date: Date(), books: Self.demoBooks, includesProgress: true)
+        SpokenWordShelfEntry(date: Date(), books: Self.demoBooks, includesProgress: true, playingBookID: nil)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SpokenWordShelfEntry) -> Void) {
@@ -31,8 +31,16 @@ struct SpokenWordShelfProvider: TimelineProvider {
         return SpokenWordShelfEntry(
             date: Date(),
             books: snapshot?.books ?? [],
-            includesProgress: WidgetSettings.sharedDataScope().includesProgress
+            includesProgress: WidgetSettings.sharedDataScope().includesProgress,
+            playingBookID: playingBookID()
         )
+    }
+
+    /// 正在听的那本书, 它的播放键换成暂停。关掉「正在播放」的数据同步时播放状态不外传, 也就不标。
+    private static func playingBookID() -> String? {
+        guard WidgetSettings.syncEnabled(),
+              WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else { return nil }
+        return PlaybackState.load()?.playingSpokenWordBookID
     }
 
     private static let demoBooks: [SpokenWordShelfSnapshot.Book] = [
@@ -49,6 +57,8 @@ struct SpokenWordShelfEntry: TimelineEntry {
     let date: Date
     let books: [SpokenWordShelfSnapshot.Book]
     let includesProgress: Bool
+    /// `SpokenWordBook.id` of the book playing right now.
+    let playingBookID: String?
 }
 
 struct SpokenWordShelfWidget: Widget {
@@ -79,27 +89,36 @@ struct SpokenWordShelfWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
+    /// 点播放键以外的地方打开 App 的有声书页, 方便换一本听。
     var body: some View {
+        content.widgetURL(ListeningSpaceLink.url(for: .spokenWord))
+    }
+
+    @ViewBuilder private var content: some View {
         switch family {
         #if os(iOS)
         case .accessoryRectangular:
             if let book = entry.books.first {
-                AccessorySpokenWordBook(book: book, includesProgress: entry.includesProgress)
+                AccessorySpokenWordBook(book: book, includesProgress: entry.includesProgress,
+                                        isPlaying: entry.playingBookID == book.id)
             } else {
                 AccessorySpokenWordEmpty()
             }
         #endif
         case .systemMedium:
             if entry.books.count > 1 {
-                MediumSpokenWordShelf(books: entry.books, includesProgress: entry.includesProgress)
+                MediumSpokenWordShelf(books: entry.books, includesProgress: entry.includesProgress,
+                                      playingBookID: entry.playingBookID)
             } else if let book = entry.books.first {
-                MediumSpokenWordBook(book: book, includesProgress: entry.includesProgress)
+                MediumSpokenWordBook(book: book, includesProgress: entry.includesProgress,
+                                     isPlaying: entry.playingBookID == book.id)
             } else {
                 SpokenWordShelfEmpty(isMedium: true)
             }
         default:
             if let book = entry.books.first {
-                SmallSpokenWordBook(book: book, includesProgress: entry.includesProgress)
+                SmallSpokenWordBook(book: book, includesProgress: entry.includesProgress,
+                                    isPlaying: entry.playingBookID == book.id)
             } else {
                 SpokenWordShelfEmpty(isMedium: false)
             }
@@ -109,96 +128,95 @@ struct SpokenWordShelfWidgetView: View {
 
 // MARK: - Home screen
 
-/// 小号: 书封 + 书名作者 + 本书进度, 点整块接着听。
+/// 小号: 书封 + 书名作者 + 本书进度; 点播放键接着听 (在听的这本是暂停), 点别处打开有声书页。
 private struct SmallSpokenWordBook: View {
     let book: SpokenWordShelfSnapshot.Book
     let includesProgress: Bool
+    let isPlaying: Bool
 
     var body: some View {
-        Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
-            WidgetCanvas {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .top) {
-                        WidgetBookCover(coverImageName: book.coverImageName, width: 33)
-                        Spacer()
-                        Image(systemName: "play.fill")
+        WidgetCanvas {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    WidgetBookCover(coverImageName: book.coverImageName, width: 33)
+                    Spacer()
+                    SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(SpokenWordShelfText.tint)
                             .frame(width: 34, height: 34)
                             .background(SpokenWordShelfText.tint.opacity(0.10), in: .circle)
                     }
-                    Spacer(minLength: 0)
-                    Text(book.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                        .lineLimit(2)
-                    if let author = book.author, !author.isEmpty {
-                        Text(author).font(.system(size: 12))
-                            .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
-                    }
-                    if includesProgress {
-                        ProgressView(value: min(1, max(0, book.fractionComplete)))
-                            .progressViewStyle(WidgetHairlineBar())
-                    }
+                }
+                Spacer(minLength: 0)
+                Text(book.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(WidgetDesign.strongText)
+                    .lineLimit(2)
+                if let author = book.author, !author.isEmpty {
+                    Text(author).font(.system(size: 12))
+                        .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
+                }
+                if includesProgress {
+                    ProgressView(value: min(1, max(0, book.fractionComplete)))
+                        .progressViewStyle(WidgetHairlineBar())
                 }
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(SpokenWordShelfText.accessibilityLabel(book))
+        .accessibilityElement(children: .contain)
     }
 }
 
 private struct MediumSpokenWordBook: View {
     let book: SpokenWordShelfSnapshot.Book
     let includesProgress: Bool
+    let isPlaying: Bool
 
     var body: some View {
-        Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
-            WidgetCanvas(padding: 16) {
-                GeometryReader { geometry in
-                    let coverHeight = max(80, geometry.size.height)
-                    HStack(alignment: .top, spacing: 14) {
-                        WidgetBookCover(
-                            coverImageName: book.coverImageName,
-                            width: SpokenWordCoverLayout.width(forHeight: coverHeight),
-                            cornerRadius: 8
-                        )
-                        VStack(alignment: .leading, spacing: 4) {
-                            SpokenWordShelfEyebrow()
-                            Text(book.title)
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(WidgetDesign.strongText)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.86)
-                            if let author = book.author {
-                                Text(author)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(WidgetDesign.secondaryText)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            HStack(alignment: .bottom, spacing: 10) {
-                                SpokenWordBookProgressFooter(book: book, includesProgress: includesProgress, compact: false)
-                                Image(systemName: "play.fill")
+        WidgetCanvas(padding: 16) {
+            GeometryReader { geometry in
+                let coverHeight = max(80, geometry.size.height)
+                HStack(alignment: .top, spacing: 14) {
+                    WidgetBookCover(
+                        coverImageName: book.coverImageName,
+                        width: SpokenWordCoverLayout.width(forHeight: coverHeight),
+                        cornerRadius: 8
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        SpokenWordShelfEyebrow()
+                        Text(book.title)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(WidgetDesign.strongText)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.86)
+                        if let author = book.author {
+                            Text(author)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(WidgetDesign.secondaryText)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        HStack(alignment: .bottom, spacing: 10) {
+                            SpokenWordBookProgressFooter(book: book, includesProgress: includesProgress, compact: false)
+                            SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(WidgetDesign.strongText)
                                     .frame(width: 30, height: 30)
                                     .background(SpokenWordShelfText.tint.opacity(0.22), in: .circle)
-                                    .accessibilityHidden(true)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .widgetBounds(geometry.size)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .widgetBounds(geometry.size)
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(SpokenWordShelfText.accessibilityLabel(book))
+        .accessibilityElement(children: .contain)
     }
 }
 
-/// 中号、在听的不止一本: 最多三本并排, 每本单独一个点按区。
+/// 中号、在听的不止一本: 最多三本并排, 每本书封角上一个播放键。
 ///
 /// 书封由高度定宽(方形), 比平分出来的一列窄; 以前每本靠列的左边放, 最后一本右边空出
 /// 一大块。现在从小组件的边缘量起, 书封之间、书封和两边留一样宽的空, 进度条和书封一样宽、
@@ -206,6 +224,8 @@ private struct MediumSpokenWordBook: View {
 private struct MediumSpokenWordShelf: View {
     let books: [SpokenWordShelfSnapshot.Book]
     let includesProgress: Bool
+    let playingBookID: String?
+    @Environment(\.widgetRenderingMode) private var renderingMode
     /// The canvas padding; the even gaps are measured from the widget's edges.
     private let inset: CGFloat = 14
 
@@ -233,29 +253,38 @@ private struct MediumSpokenWordShelf: View {
                         .frame(height: eyebrowHeight)
                     HStack(alignment: .top, spacing: gap - titleExtra) {
                         ForEach(shown) { book in
-                            Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
-                                VStack(spacing: 4) {
-                                    WidgetBookCover(
-                                        coverImageName: book.coverImageName,
-                                        width: coverWidth,
-                                        cornerRadius: 6
-                                    )
-                                    if includesProgress {
-                                        ProgressView(value: min(1, max(0, book.fractionComplete)))
-                                            .progressViewStyle(WidgetHairlineBar())
-                                            .frame(width: coverWidth)
+                            let isPlaying = playingBookID == book.id
+                            VStack(spacing: 4) {
+                                WidgetBookCover(
+                                    coverImageName: book.coverImageName,
+                                    width: coverWidth,
+                                    cornerRadius: 6
+                                )
+                                .overlay(alignment: .bottomTrailing) {
+                                    SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
+                                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(SpokenWordShelfText.tint)
+                                            .frame(width: 24, height: 24)
+                                            .background(playKeyBackdrop, in: .circle)
+                                            .overlay { Circle().strokeBorder(SpokenWordShelfText.tint.opacity(0.18), lineWidth: 1) }
                                     }
-                                    Text(book.title)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(WidgetDesign.strongText)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                        .frame(width: coverWidth + titleExtra)
+                                    .padding(4)
                                 }
-                                .frame(width: coverWidth + titleExtra)
+                                if includesProgress {
+                                    ProgressView(value: min(1, max(0, book.fractionComplete)))
+                                        .progressViewStyle(WidgetHairlineBar())
+                                        .frame(width: coverWidth)
+                                }
+                                Text(book.title)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(WidgetDesign.strongText)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .frame(width: coverWidth + titleExtra)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(SpokenWordShelfText.accessibilityLabel(book))
+                            .frame(width: coverWidth + titleExtra)
+                            .accessibilityElement(children: .contain)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -263,6 +292,11 @@ private struct MediumSpokenWordShelf: View {
                 .widgetBounds(geometry.size)
             }
         }
+    }
+
+    /// 书封角上播放键垫的底色。色调、透明外观下它会被渲染成一块实心白片(#190),只在全彩时画。
+    private var playKeyBackdrop: AnyShapeStyle {
+        renderingMode == .fullColor ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear)
     }
 }
 
@@ -282,12 +316,14 @@ private struct SpokenWordShelfEmpty: View {
 private struct AccessorySpokenWordBook: View {
     let book: SpokenWordShelfSnapshot.Book
     let includesProgress: Bool
+    let isPlaying: Bool
 
+    /// 锁屏上整块是播放键: 在听的这本点了是暂停, 书名前的图标跟着换成暂停。
     var body: some View {
         Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image(systemName: ListeningSpace.spokenWord.systemImage)
+                    Image(systemName: isPlaying ? "pause.fill" : ListeningSpace.spokenWord.systemImage)
                         .font(.system(size: 11, weight: .semibold))
                         .widgetAccentable()
                     Text(book.title)
@@ -369,6 +405,27 @@ private struct SpokenWordBookProgressFooter: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 书的播放键: 点了从上次停下的地方接着听, 在听的这本是暂停。只有它是按钮, 别处点了按
+/// `widgetURL` 打开 App 的有声书页; 关掉小组件交互时不做按钮, 整块都是打开 App。
+private struct SpokenWordPlayKey<Content: View>: View {
+    let book: SpokenWordShelfSnapshot.Book
+    let isPlaying: Bool
+    @ViewBuilder let label: () -> Content
+
+    var body: some View {
+        if WidgetSettings.clickableInteractionEnabled() {
+            Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
+                label().contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(PMString(isPlaying ? "ext.control.pause" : "ext.control.play") + ", "
+                                + SpokenWordShelfText.accessibilityLabel(book))
+        } else {
+            label().accessibilityHidden(true)
+        }
     }
 }
 

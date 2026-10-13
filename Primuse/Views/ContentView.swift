@@ -1414,6 +1414,19 @@ struct ContentView: View {
             }
             selectMinimalPage(.search)
         }
+        // 小组件上点播放键以外的地方: 打开电台、播客或有声书那一页(资料库里的那一类,
+        // 极简模式下就是顶栏那一格)。同样只有外层挂着时也接得住。
+        .onChange(of: ListeningSpaceOpenRequest.shared.pending, initial: true) { _, pending in
+            guard pending != nil,
+                  let space = ListeningSpaceOpenRequest.shared.consume(),
+                  let section = LibrarySection(listeningSpace: space) else { return }
+            if navigationMode == .minimal {
+                selectMinimalPage(.librarySection(section))
+            } else {
+                showNowPlaying = false
+                openLibraryDeepLink(.section(section))
+            }
+        }
     }
 
     private var mainContent: some View {

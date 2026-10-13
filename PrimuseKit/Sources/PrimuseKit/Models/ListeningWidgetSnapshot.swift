@@ -18,9 +18,18 @@ public enum ListeningWidgetKind: String, Codable, Sendable {
     /// Plays podcast episodes (rather than stations).
     public var playsEpisodes: Bool { self != .radio }
 
-    /// The listening space the widget belongs to: its colour and its symbol.
+    /// The listening space the widget belongs to: its colour, its symbol and
+    /// the page a tap outside the play keys opens.
     public var space: ListeningSpace { self == .radio ? .radio : .podcast }
 
+    /// Which of the widget's items is playing right now: the station, or the
+    /// episode. Its key turns into stop (a station) or pause (an episode).
+    public func playingItemID(in state: PlaybackState?) -> String? {
+        switch self {
+        case .radio: state?.playingRadioStationID
+        case .podcast, .recentPodcast: state?.playingItemID
+        }
+    }
     private var key: String { "widget.listening.\(rawValue)" }
 
     public func load() -> ListeningWidgetSnapshot? {

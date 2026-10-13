@@ -724,6 +724,7 @@ extension AudioPlayerService {
             info.partIndex.map(String.init) ?? "",
             info.partCount.map(String.init) ?? "",
             info.bookFraction.map { String(Int(($0 * 100).rounded())) } ?? "",
+            info.bookID ?? "",
         ].joined(separator: ",")
     }
 }

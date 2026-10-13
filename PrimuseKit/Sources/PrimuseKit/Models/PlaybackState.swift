@@ -87,6 +87,12 @@ public struct PlaybackState: Codable, Sendable {
         isLiveStream && isPlaying ? radioStationID : nil
     }
 
+    /// The item actually playing when it is not a station — a podcast
+    /// episode, a chapter of a book. Widgets turn its play key into pause.
+    public var playingItemID: String? {
+        !isLiveStream && isPlaying ? currentSongID : nil
+    }
+
     /// The way of listening the current item belongs to, for the symbol a
     /// widget names it with. A podcast file kept in a music source reads as
     /// spoken word: only subscribed episodes carry the podcast id.
@@ -94,6 +100,11 @@ public struct PlaybackState: Codable, Sendable {
         if isLiveStream { return .radio }
         if let id = currentSongID, PodcastIdentity.isEpisodeID(id) { return .podcast }
         return isSpokenWord ? .spokenWord : .music
+    }
+
+    /// The book whose chapter is actually playing.
+    public var playingSpokenWordBookID: String? {
+        isSpokenWord && isPlaying ? spokenWord?.bookID : nil
     }
 
     public static func load() -> PlaybackState? {

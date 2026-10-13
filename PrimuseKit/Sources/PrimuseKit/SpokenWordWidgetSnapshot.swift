@@ -20,6 +20,9 @@ public struct SpokenWordPlaybackInfo: Codable, Sendable, Hashable {
     /// part's duration is known.
     public var bookFraction: Double?
     public var bookRemaining: TimeInterval?
+    /// `SpokenWordBook.id` of the book playing, so the shelf widget can mark
+    /// it. Nil in snapshots written before it was published.
+    public var bookID: String?
 
     public init(
         skipBackwardSeconds: Int,
@@ -29,7 +32,8 @@ public struct SpokenWordPlaybackInfo: Codable, Sendable, Hashable {
         partIndex: Int? = nil,
         partCount: Int? = nil,
         bookFraction: Double? = nil,
-        bookRemaining: TimeInterval? = nil
+        bookRemaining: TimeInterval? = nil,
+        bookID: String? = nil
     ) {
         self.skipBackwardSeconds = skipBackwardSeconds
         self.skipForwardSeconds = skipForwardSeconds
@@ -39,6 +43,7 @@ public struct SpokenWordPlaybackInfo: Codable, Sendable, Hashable {
         self.partCount = partCount
         self.bookFraction = bookFraction
         self.bookRemaining = bookRemaining
+        self.bookID = bookID
     }
 
     /// `gobackward.N` / `goforward.N` for the configured intervals.

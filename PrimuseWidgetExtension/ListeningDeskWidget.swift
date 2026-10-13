@@ -15,7 +15,8 @@ struct ListeningDeskTile {
     var title: String?
     var coverImageName: String?
     var action: Action?
-    /// 电台格放的正是在播的那个台: 跟电台小组件一样标出来, 点了是停。
+    /// 这一格放的正是在播的那个台 / 那一集 / 那本书: 跟电台、播客小组件一样标出来,
+    /// 点了台是停, 单集和书是暂停。
     var isPlaying = false
 }
 
@@ -75,7 +76,7 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
             let item = items[index]
             return .init(content: content, title: item.title, coverImageName: item.coverImageName,
                          action: .listening(id: item.id, kind: kind),
-                         isPlaying: kind == .radio && state?.playingRadioStationID == item.id)
+                         isPlaying: kind.playingItemID(in: state) == item.id)
         case .music:
             // Books and podcast shows are recorded as albums too; this tile is music.
             let music = albums.filter { $0.listeningSpace == .music }
@@ -90,7 +91,8 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
             let book = books[index]
             return .init(content: content, title: book.title,
                          coverImageName: scope.includesCover ? book.coverImageName : nil,
-                         action: .book(id: book.id))
+                         action: .book(id: book.id),
+                         isPlaying: state?.playingSpokenWordBookID == book.id)
         }
     }
 
@@ -158,6 +160,11 @@ extension PrimuseListeningDeskTileContent {
     /// The app's hue for each way of listening (`ListeningSpace.fixedTint`);
     /// music follows the brand accent.
     var tint: Color { WidgetDesign.tint(for: space) }
+
+    /// A playing station stops (red, as on the app's radio page); an episode
+    /// or a book pauses.
+    var playingSymbol: String { self == .radio ? "stop.fill" : "pause.fill" }
+    var playingAccessibilityKey: String { self == .radio ? "widget_desk_stop" : "ext.control.pause" }
 }
 
 struct ListeningDeskView: View {
@@ -280,7 +287,7 @@ struct ListeningDeskView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(PMString(tile.isPlaying ? "widget_desk_stop" : "ext.control.play")
+            .accessibilityLabel(PMString(tile.isPlaying ? tile.content.playingAccessibilityKey : "ext.control.play")
                                 + ", " + (tile.title ?? tile.content.label))
         } else {
             destinationLabel(tile)
@@ -289,6 +296,7 @@ struct ListeningDeskView: View {
 
     private func destinationLabel(_ tile: ListeningDeskTile) -> some View {
         let tint = tile.content.tint
+        let playingAccent = tile.content == .radio ? Color.red : tint
         return HStack(spacing: 8) {
             if large, tile.title != nil {
                 tileArtwork(tile)
@@ -300,7 +308,7 @@ struct ListeningDeskView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     if tile.isPlaying {
-                        Circle().fill(Color.red).frame(width: 5, height: 5).widgetAccentable()
+                        Circle().fill(playingAccent).frame(width: 5, height: 5).widgetAccentable()
                     }
                     Text(tile.content.label)
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
@@ -312,8 +320,8 @@ struct ListeningDeskView: View {
             }
             Spacer(minLength: 0)
             if tile.title != nil, !large {
-                Image(systemName: tile.isPlaying ? "stop.fill" : "play.fill").font(.system(size: 9))
-                    .foregroundStyle(tile.isPlaying ? Color.red : tint).widgetAccentable()
+                Image(systemName: tile.isPlaying ? tile.content.playingSymbol : "play.fill").font(.system(size: 9))
+                    .foregroundStyle(tile.isPlaying ? playingAccent : tint).widgetAccentable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

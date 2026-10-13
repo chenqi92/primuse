@@ -203,6 +203,13 @@ struct MacContentView: View {
                         .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
                             closeNowPlayingForSearch()
                         }
+                        // 小组件上点播放键以外的地方: 打开电台、播客或有声书那一页。
+                        .onChange(of: ListeningSpaceOpenRequest.shared.pending, initial: true) { _, pending in
+                            guard pending != nil,
+                                  let space = ListeningSpaceOpenRequest.shared.consume(),
+                                  let section = LibrarySection(listeningSpace: space) else { return }
+                            selectRoute(.section(section))
+                        }
                         #if DEBUG
                         // 调试脚本的 `route:<页面>`: 锁屏的编译机上按不了侧栏, 由这里换页。
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDebugSelectRoute)) { note in
