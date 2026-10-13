@@ -42,6 +42,7 @@
 "similar_songs_accessibility_hint" = "Bu parçaya benzer şarkıları gösterir.";
 "scrape_no_changes" = "Yeni veri bulunamadı";
 "home_radio_wall_manage %lld" = "Yönet · %lld";
+"home_radio_wall_stream_info" = "Biçimi ve bit hızını göster";
 "queue_title" = "Sıra";
 "source_diag_run_again" = "Tekrar Çalıştır";
 "theme_color_custom" = "Özel Renk";

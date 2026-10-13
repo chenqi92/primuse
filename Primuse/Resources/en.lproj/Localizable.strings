@@ -2693,6 +2693,7 @@
 /* MARK: - Home mode switch */
 "home_radio_wall_title" = "My Stations";
 "home_radio_wall_manage %lld" = "Manage · %lld";
+"home_radio_wall_stream_info" = "Show Format & Bitrate";
 "home_radio_wall_badge" = "LIVE";
 "select_all" = "Select All";
 

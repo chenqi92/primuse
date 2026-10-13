@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "Peças";
 "home_radio_wall_badge" = "AO VIVO";
 "home_radio_wall_manage %lld" = "Gerenciar · %lld";
+"home_radio_wall_stream_info" = "Mostrar formato e taxa de bits";
 "home_radio_wall_title" = "Minhas estações";
 "home_recently_added_subtitle" = "O mais novo em sua biblioteca";
 "home_recently_played_subtitle" = "Repetindo ultimamente";

@@ -2882,6 +2882,7 @@
 /* MARK: - Home mode switch */
 "home_radio_wall_title" = "내 방송국";
 "home_radio_wall_manage %lld" = "관리 · %lld";
+"home_radio_wall_stream_info" = "포맷 및 비트레이트 표시";
 "home_radio_wall_badge" = "라이브";
 "select_all" = "전체 선택";
 

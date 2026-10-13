@@ -666,6 +666,7 @@ final class InterfaceLayoutSync {
         ListeningIntentService.homeVisibilityKey,
         "primuse.home.showContinueListening",
         "primuse.home.showRadio",
+        "primuse.home.radioShowsStreamInfo",
         "primuse.home.showBooksInProgress",
         "primuse.home.showAudiobooks",
         "primuse.home.showPodcasts",

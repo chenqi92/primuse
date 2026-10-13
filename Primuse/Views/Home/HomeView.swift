@@ -697,6 +697,12 @@ private struct HomeRadioStationsPage: View {
     }
 }
 
+enum HomeRadioWallPreferences {
+    /// 电台卡片名字下面那行格式与码率要不要显示(首页电台墙与上面那张大卡)。
+    /// 正在播的那张照旧显示节目标题。
+    static let showsStreamInfoKey = "primuse.home.radioShowsStreamInfo"
+}
+
 /// 首页电台态的「我的电台」墙，全部电台都在这里。
 ///
 /// 照歌曲列表的做法拆成单独的视图并按电台清单判等：清单不变，首页因为播放
@@ -710,6 +716,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
 
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @AppStorage(HomeRadioWallPreferences.showsStreamInfoKey) private var showsStreamInfo = true
 
     /// 电台清单来自电台存储的排序缓存，没变化时是同一块数组存储，这里的比较
     /// 不会逐个比电台。
@@ -761,6 +768,18 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                     ))
                     .font(.subheadline.weight(.medium))
                 }
+                Menu {
+                    Toggle(isOn: $showsStreamInfo) {
+                        Label("home_radio_wall_stream_info", systemImage: "waveform")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body)
+                        .frame(width: 30, height: 30)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
+                .accessibilityIdentifier("home.radioWall.more")
             }
             .padding(.horizontal, 20)
 
@@ -783,6 +802,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                         station: station,
                         captionHeight: captionHeight,
                         titleLineLimit: titleLineLimit,
+                        showsStreamInfo: showsStreamInfo,
                         onSelect: onSelect
                     )
                 }
@@ -836,6 +856,7 @@ private struct HomeRadioWallCard: View {
     let station: RadioStation
     let captionHeight: CGFloat
     let titleLineLimit: Int
+    let showsStreamInfo: Bool
     let onSelect: (RadioStation) -> Void
 
     @Environment(AudioPlayerService.self) private var player
@@ -843,6 +864,8 @@ private struct HomeRadioWallCard: View {
     var body: some View {
         let isCurrent = player.currentRadioStation?.id == station.id
         let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        let streamInfo = showsStreamInfo ? station.streamInfoSummary : nil
+        let subtitle = isCurrent ? (player.radioMetadataTitle ?? streamInfo) : streamInfo
 
         Button {
             onSelect(station)
@@ -862,19 +885,19 @@ private struct HomeRadioWallCard: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    // 整面墙都是电台，没在播的卡不再标「电台」；只有正在播的那张亮红色 LIVE。
                     .overlay(alignment: .topLeading) {
-                        Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
-                            .font(.system(size: 9.5, weight: .bold))
-                            .tracking(0.8)
-                            .contentTransition(.opacity)
-                            .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(
-                                (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
-                                in: RoundedRectangle(cornerRadius: 5)
-                            )
-                            .padding(9)
+                        if isPlaying {
+                            Text("live_badge")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .tracking(0.8)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.red.opacity(0.9), in: RoundedRectangle(cornerRadius: 5))
+                                .padding(9)
+                                .transition(.opacity)
+                        }
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -893,12 +916,12 @@ private struct HomeRadioWallCard: View {
                         .lineLimit(titleLineLimit, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
-                    Text(isCurrent
-                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
-                         : station.playbackSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(
                     maxWidth: .infinity,
@@ -987,6 +1010,7 @@ struct HomeView: View {
         nonmutating set { storedHomeFilter = newValue?.rawValue ?? "" }
     }
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
+    @AppStorage(HomeRadioWallPreferences.showsStreamInfoKey) private var radioShowsStreamInfo = true
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
     /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
@@ -2108,10 +2132,13 @@ struct HomeView: View {
                         .font(.title3.weight(.bold))
                         .lineLimit(heightClass.pick(2, compact: 1))
 
-                    Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.76))
-                        .lineLimit(heightClass.pick(2, compact: 1))
+                    let streamInfo = radioShowsStreamInfo ? station.streamInfoSummary : nil
+                    if let subtitle = isCurrent ? (player.radioMetadataTitle ?? streamInfo) : streamInfo {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.76))
+                            .lineLimit(heightClass.pick(2, compact: 1))
+                    }
 
                     Spacer(minLength: 2)
 

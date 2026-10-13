@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "Reproducciones";
 "home_radio_wall_badge" = "EN VIVO";
 "home_radio_wall_manage %lld" = "Administrar · %lld";
+"home_radio_wall_stream_info" = "Mostrar formato y tasa de bits";
 "home_radio_wall_title" = "Mis Estaciones";
 "home_recently_added_subtitle" = "Lo más nuevo en tu biblioteca";
 "home_recently_played_subtitle" = "En repetición últimamente";

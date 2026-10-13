@@ -42,6 +42,7 @@
 "similar_songs_accessibility_hint" = "Показує пісні, схожі на цей трек.";
 "scrape_no_changes" = "Нові дані не знайдені";
 "home_radio_wall_manage %lld" = "Керувати · %lld";
+"home_radio_wall_stream_info" = "Показувати формат і бітрейт";
 "queue_title" = "Черга";
 "source_diag_run_again" = "Біжи знову";
 "theme_color_custom" = "Нестандартний колір";

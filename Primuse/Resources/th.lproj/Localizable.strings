@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "ละคร";
 "home_radio_wall_badge" = "สด";
 "home_radio_wall_manage %lld" = "จัดการ · %lld";
+"home_radio_wall_stream_info" = "แสดงรูปแบบและบิตเรต";
 "home_radio_wall_title" = "สถานีของฉัน";
 "home_recently_added_subtitle" = "ใหม่ล่าสุดในคลังเพลงของคุณ";
 "home_recently_played_subtitle" = "ทำซ้ำเมื่อเร็ว ๆ นี้";

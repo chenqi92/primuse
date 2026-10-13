@@ -42,6 +42,7 @@
 "similar_songs_accessibility_hint" = "Показывает песни, похожие на этот трек.";
 "scrape_no_changes" = "Новых данных не найдено.";
 "home_radio_wall_manage %lld" = "Управление · %lld";
+"home_radio_wall_stream_info" = "Показывать формат и битрейт";
 "queue_title" = "Очередь";
 "source_diag_run_again" = "Беги снова";
 "theme_color_custom" = "Пользовательский цвет";

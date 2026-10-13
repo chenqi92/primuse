@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "المسرحيات";
 "home_radio_wall_badge" = "مباشر";
 "home_radio_wall_manage %lld" = "الإدارة · %lld";
+"home_radio_wall_stream_info" = "إظهار التنسيق ومعدل البت";
 "home_radio_wall_title" = "محطاتي";
 "home_recently_added_subtitle" = "الأحدث في مكتبتك";
 "home_recently_played_subtitle" = "تكرر في الآونة الأخيرة";

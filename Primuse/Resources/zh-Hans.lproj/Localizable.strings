@@ -2983,6 +2983,7 @@
 /* MARK: - 首页模式切换 */
 "home_radio_wall_title" = "我的电台";
 "home_radio_wall_manage %lld" = "管理 · %lld";
+"home_radio_wall_stream_info" = "显示格式与码率";
 "home_radio_wall_badge" = "直播";
 "select_all" = "全选";
 

@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "नाटक";
 "home_radio_wall_badge" = "लाइव";
 "home_radio_wall_manage %lld" = "प्रबंधित करें · %lld";
+"home_radio_wall_stream_info" = "फ़ॉर्मैट और बिटरेट दिखाएँ";
 "home_radio_wall_title" = "मेरे स्टेशन";
 "home_recently_added_subtitle" = "आपकी लाइब्रेरी में नवीनतम";
 "home_recently_played_subtitle" = "हाल ही में दोहराया गया है";

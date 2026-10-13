@@ -2883,6 +2883,7 @@
 /* MARK: - Home mode switch */
 "home_radio_wall_title" = "マイ局";
 "home_radio_wall_manage %lld" = "管理 · %lld";
+"home_radio_wall_stream_info" = "フォーマットとビットレートを表示";
 "home_radio_wall_badge" = "ライブ";
 "select_all" = "すべて選択";
 

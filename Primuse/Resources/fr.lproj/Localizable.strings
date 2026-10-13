@@ -2882,6 +2882,7 @@
 /* MARK: - Accueil : bascule de mode */
 "home_radio_wall_title" = "Mes stations";
 "home_radio_wall_manage %lld" = "Gérer · %lld";
+"home_radio_wall_stream_info" = "Afficher le format et le débit";
 "home_radio_wall_badge" = "EN DIRECT";
 "select_all" = "Tout sélectionner";
 

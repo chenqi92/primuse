@@ -1496,6 +1496,7 @@
 "home_playable_count_short" = "Odtwarza";
 "home_radio_wall_badge" = "NA ŻYWO";
 "home_radio_wall_manage %lld" = "Zarządzaj · %lld";
+"home_radio_wall_stream_info" = "Pokaż format i bitrate";
 "home_radio_wall_title" = "Moje stacje";
 "home_recently_added_subtitle" = "Najnowsze w Twojej bibliotece";
 "home_recently_played_subtitle" = "Ostatnio powtarzam się";

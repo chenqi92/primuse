@@ -2882,6 +2882,7 @@
 /* MARK: - Startseite: Modusumschalter */
 "home_radio_wall_title" = "Meine Sender";
 "home_radio_wall_manage %lld" = "Verwalten · %lld";
+"home_radio_wall_stream_info" = "Format und Bitrate anzeigen";
 "home_radio_wall_badge" = "LIVE";
 "select_all" = "Alle auswählen";
 

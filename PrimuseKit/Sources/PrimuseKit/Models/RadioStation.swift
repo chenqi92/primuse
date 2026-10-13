@@ -259,10 +259,16 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var playbackSubtitle: String {
+        streamInfoSummary ?? "LIVE"
+    }
+
+    /// 格式与码率那行小字(「AAC · 128 kbps」)。两样都不知道时为 nil:
+    /// 电台墙这类没在播的卡片上不该拿「LIVE」凑数。
+    public var streamInfoSummary: String? {
         var parts: [String] = []
         if streamFormat != .automatic { parts.append(streamFormat.displayName) }
         if let bitRate, bitRate > 0 { parts.append("\(bitRate / 1_000) kbps") }
-        return parts.isEmpty ? "LIVE" : parts.joined(separator: " · ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
