@@ -502,7 +502,7 @@ public enum LocalReferenceRefreshPolicy {
 public enum FolderCoverNamePolicy {
     /// Broad library roots: a picture lying there is not every song's cover.
     public static let genericDirectoryNames: Set<String> = [
-        "music", "音乐", "songs", "audio", "media", "downloads",
+        "music", "\u{97F3}\u{4E50}", "songs", "audio", "media", "downloads",
     ]
 
     /// Characters a file name can't hold on common file systems; a title that
