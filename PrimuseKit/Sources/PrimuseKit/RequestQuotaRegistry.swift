@@ -41,8 +41,11 @@ public struct RequestQuota: Sendable {
             timeout: 30, rateLimitStatusCodes: [429], defaultCooldown: 2))
         /// Streaming playback owns its admission slot until the range finishes.
         /// No byte stream may be replayed after delivery to the player.
+        /// A bare 503 is not a quota: playback recovery re-resolves and must reach the
+        /// server again. Explicit Retry-After values still hold the source.
         public static let mediaPlayback = Service(id: "media.playback", policy: .init(
-            maximumConcurrentRequests: 4, maximumAttempts: 1, timeout: 600
+            maximumConcurrentRequests: 4, maximumAttempts: 1, timeout: 600,
+            rateLimitStatusCodes: [429], defaultCooldown: 2
         ))
         public static let podcast = Service(id: "podcast.http", policy: .init(timeout: 90))
     }

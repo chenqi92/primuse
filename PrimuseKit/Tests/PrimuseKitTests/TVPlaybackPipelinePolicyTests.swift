@@ -23,6 +23,31 @@ struct TVPlaybackPipelinePolicyTests {
         }
     }
 
+    @Test("A playback 503 without Retry-After leaves the source open for recovery")
+    func playbackServiceFailureDoesNotBlockRecovery() async throws {
+        let clock = ControlledClock()
+        let registry = RequestQuotaRegistry(timing: clock.timing)
+        let quota = try #require(RequestQuota(service: .mediaPlayback,
+            url: URL(string: "https://nas.invalid/stream")!, account: .init(stableID: "source")))
+        do {
+            _ = try await registry.execute(for: quota, operation: { () -> Int in throw HTTPResponseFailure(statusCode: 503) })
+            Issue.record("Expected the service failure")
+        } catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 503) }
+        // Playback recovery re-resolves right away; it has to reach the server again.
+        #expect(try await registry.execute(for: quota, operation: { clock.recordStart(); return 1 }) == 1)
+        #expect(clock.starts == [0])
+        do {
+            _ = try await registry.execute(for: quota, operation: { () -> Int in
+                throw HTTPResponseFailure(statusCode: 503, retryAfter: 3600)
+            })
+        } catch {}
+        do {
+            _ = try await registry.execute(for: quota, operation: { clock.recordStart(); return 2 })
+            Issue.record("An explicit Retry-After must still hold the source")
+        } catch let failure as HTTPResponseFailure { #expect((failure.retryAfter ?? 0) > 3590) }
+        #expect(clock.starts == [0])
+    }
+
     @Test("CUE seeks and progress stay relative to the virtual track")
     func cueTimelineMapping() {
         let segment = TVPlaybackSegment(
