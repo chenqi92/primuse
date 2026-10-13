@@ -1272,29 +1272,43 @@ struct SpokenWordBookDetailView: View {
                         .progressViewStyle(.linear)
                         .tint(ListeningSpace.spokenWord.tint)
                 }
-                HStack(spacing: 8) {
-                    Button {
-                        SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
-                    } label: {
-                        Group {
-                            if book.canContinue {
-                                Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
-                            } else {
-                                Label(String(localized: "spoken_word_start"), systemImage: "play.fill")
-                            }
-                        }
-                        .font(.subheadline.weight(.semibold))
+                // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先把语速收成
+                // 只剩倍数,再不行把语速挪到下一行,「继续收听」始终是一行字。
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        phoneContinueButton(book, songs: songs)
+                        SpokenWordBookSpeedMenu(bookID: book.id)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ListeningSpace.spokenWord.tint)
-
-                    SpokenWordBookSpeedMenu(bookID: book.id)
+                    HStack(spacing: 8) {
+                        phoneContinueButton(book, songs: songs)
+                        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        phoneContinueButton(book, songs: songs)
+                        SpokenWordBookSpeedMenu(bookID: book.id)
+                    }
                 }
                 .padding(.top, 4)
             }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 8)
+    }
+
+    private func phoneContinueButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        Button {
+            SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+        } label: {
+            Label(
+                String(localized: book.canContinue ? "spoken_word_continue" : "spoken_word_start"),
+                systemImage: "play.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(ListeningSpace.spokenWord.tint)
     }
 }
 
@@ -1904,6 +1918,8 @@ struct SpokenWordChapterItemRow: View {
 /// once if it is playing. The local podcast page uses it per show.
 struct SpokenWordBookSpeedMenu: View {
     let bookID: String
+    /// 手机上的窄版面只写倍数、不带仪表图标。
+    var showsIcon = true
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -1952,8 +1968,15 @@ struct SpokenWordBookSpeedMenu: View {
                         .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                 }
             #else
-            Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
-                .font(.subheadline.weight(.semibold).monospacedDigit())
+            Group {
+                if showsIcon {
+                    Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
+                } else {
+                    Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
+                }
+            }
+            .font(.subheadline.weight(.semibold).monospacedDigit())
+            .lineLimit(1)
             #endif
         }
         #if os(macOS)
