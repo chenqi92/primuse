@@ -77,6 +77,10 @@ struct TVNowPlayingView: View {
     @Namespace private var playerFocus
     @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
     @FocusState private var scrubberFocused: Bool
+    /// 传输键这一行里喜欢、随机、循环、浏览、更多这些键(`TVPlayerRowControl.rawValue`)。
+    @FocusState private var focusedRowControl: String?
+    /// 升起货架前焦点在哪颗键上。不参与观察:每挪一次焦点都要记。
+    @State private var shelfFocusMemory = TVPlayerShelfFocusMemory()
 
     /// 播放中静置多久自动进入沉浸展示(设计稿「展示屏」的待机语义)。
     private let immersiveIdleThreshold: TimeInterval = 20
@@ -175,9 +179,10 @@ struct TVNowPlayingView: View {
             )
             .environment(store)
         }
-        .onChange(of: focusedTransport) { _, _ in
+        .onChange(of: focusedTransport) { _, target in
             // 遥控切换焦点即视为有操作,推迟自动进入沉浸展示。
             registerInteraction()
+            if let target { shelfFocusMemory.lastFocused = .transport(target) }
         }
         .onChange(of: scrubberFocused) { _, focused in
             if focused { onProgressFocused() }
@@ -257,6 +262,8 @@ struct TVNowPlayingView: View {
     private func openShelf(_ tab: TVPlayerShelfTab) {
         guard supportsShelf else { return }
         registerInteraction()
+        // 往下走到把手升起时焦点已经在把手上,记的是把手之前的那颗键。
+        shelfFocusMemory.returnAnchor = shelfFocusMemory.lastFocused
         shelfTab = tab
         showShelf = true
     }
@@ -264,11 +271,23 @@ struct TVNowPlayingView: View {
     private func closeShelf(startedPlayback: Bool) {
         registerInteraction()
         showShelf = false
-        // 焦点回到封面:刚换的歌就在眼前,再按一下又能打开货架接着挑。
+        // 换了歌回到封面:刚换的歌就在眼前,再按一下又能打开货架接着挑。
+        // Menu 收起(没换歌)回到升起货架前的那颗键。MV 画面上 `.songPrimary` 是播放键。
+        let anchor: TVPlayerShelfFocusAnchor = startedPlayback
+            ? .transport(.songPrimary)
+            : shelfFocusMemory.returnAnchor ?? .transport(.songPrimary)
+        shelfFocusMemory.returnAnchor = nil
         Task { @MainActor in
             await Task.yield()
             scrubberFocused = false
-            // MV 画面上 `.songPrimary` 是播放键,普通播放页上是封面。
+            switch anchor {
+            case let .transport(target): focusedTransport = target
+            case let .control(control): focusedRowControl = control.rawValue
+            }
+            guard anchor != .transport(.songPrimary) else { return }
+            // 那颗键这会儿不在了(这首没有 MV、已经没有下一首)焦点就落空,退回封面。
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !showShelf, focusedTransport == nil, focusedRowControl == nil, !scrubberFocused else { return }
             focusedTransport = .songPrimary
         }
     }
@@ -948,18 +967,21 @@ struct TVNowPlayingView: View {
                 TVRoundBtn(icon: liked ? "heart.fill" : "heart", size: 56, active: liked,
                            immersiveDark: immersiveDark,
                            accessibilityLabel: PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
-                           onInteraction: registerInteraction) { store.toggleLiked(likedSongID) }
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.like.rawValue,
+                           onInteraction: rowInteraction(.like)) { store.toggleLiked(likedSongID) }
             }
             TVRoundBtn(icon: "shuffle", size: 56, active: store.shuffleEnabled,
                        immersiveDark: immersiveDark,
-                       onInteraction: registerInteraction) { store.toggleShuffle() }
+                       focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.shuffle.rawValue,
+                       onInteraction: rowInteraction(.shuffle)) { store.toggleShuffle() }
             if store.canPlayMusicVideo {
                 TVRoundBtn(icon: store.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
                            size: 56,
                            active: store.isMusicVideoModeEnabled,
                            immersiveDark: immersiveDark,
                            accessibilityLabel: PMString("playback"),
-                           onInteraction: registerInteraction) { store.toggleMusicVideoMode() }
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.musicVideo.rawValue,
+                           onInteraction: rowInteraction(.musicVideo)) { store.toggleMusicVideoMode() }
             }
             focusedRoundButton(
                 icon: isSpokenWord ? "gobackward.15" : "backward.fill",
@@ -994,7 +1016,8 @@ struct TVNowPlayingView: View {
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 56,
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark,
-                       onInteraction: registerInteraction) { store.cycleRepeatMode() }
+                       focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.repeatMode.rawValue,
+                       onInteraction: rowInteraction(.repeatMode)) { store.cycleRepeatMode() }
             // 歌词翻译直接在播放页:开关、译成什么、交给谁翻,缺翻译包时就地下载。
             if likedSongID != nil {
                 let translationOn = LyricsTranslationSettingsStore.shared.isEnabled
@@ -1005,7 +1028,8 @@ struct TVNowPlayingView: View {
                            active: translationOn,
                            immersiveDark: immersiveDark,
                            accessibilityLabel: String(localized: "lyrics_translation_title"),
-                           onInteraction: registerInteraction) { showTranslation = true }
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.translation.rawValue,
+                           onInteraction: rowInteraction(.translation)) { showTranslation = true }
                     .overlay(alignment: .topTrailing) {
                         if needsAttention {
                             Circle()
@@ -1028,14 +1052,17 @@ struct TVNowPlayingView: View {
             if supportsShelf {
                 TVRoundBtn(icon: "rectangle.stack", size: 56, immersiveDark: immersiveDark,
                            accessibilityLabel: PMString("ext.tv.player.browse"),
-                           onInteraction: registerInteraction) { openShelf(defaultShelfTab) }
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.browse.rawValue,
+                           onInteraction: rowInteraction(.browse)) { openShelf(defaultShelfTab) }
             }
             TVRoundBtn(icon: "sparkles.tv", size: 56, immersiveDark: immersiveDark,
-                       onInteraction: registerInteraction) {
+                       focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.immersive.rawValue,
+                       onInteraction: rowInteraction(.immersive)) {
                 presentImmersivePlayer(isUserInitiated: true)
             }
             TVRoundBtn(icon: "ellipsis", size: 56, immersiveDark: immersiveDark,
-                       onInteraction: registerInteraction) { showOptions = true }
+                       focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.more.rawValue,
+                       onInteraction: rowInteraction(.more)) { showOptions = true }
             Spacer()
         }
     }
@@ -1067,6 +1094,14 @@ struct TVNowPlayingView: View {
 
     private func registerInteraction() {
         interactionClock.touch()
+    }
+
+    /// 传输键这一行的圆键聚焦或按下时:算一次操作,并记下焦点在它身上(货架收起时回到它)。
+    private func rowInteraction(_ control: TVPlayerRowControl) -> () -> Void {
+        {
+            registerInteraction()
+            shelfFocusMemory.lastFocused = .control(control)
+        }
     }
 
     // MARK: 右列 — 歌词
@@ -1623,6 +1658,9 @@ struct TVRoundBtn: View {
     var active: Bool = false   // 开启态(随机/循环)——图标染品牌色
     var immersiveDark: Bool = false
     var accessibilityLabel: String?
+    /// 父视图要把焦点放回这颗键时用(播放页收起货架回到原来那颗)。
+    var focusBinding: FocusState<String?>.Binding?
+    var focusID: String?
     var onInteraction: () -> Void = {}
     var action: () -> Void = {}
 
@@ -1637,7 +1675,9 @@ struct TVRoundBtn: View {
                       },
                       onFocusChanged: { focused in
                           if focused { onInteraction() }
-                      }) { _ in
+                      },
+                      focusBinding: focusBinding,
+                      focusID: focusID) { _ in
             Image(systemName: icon)
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(primary
@@ -1790,6 +1830,25 @@ final class TVInteractionClock {
     var secondsSinceLastInteraction: TimeInterval {
         ProcessInfo.processInfo.systemUptime - lastInteraction
     }
+}
+
+/// 播放页传输键这一行里没有接进 `TVNowPlayingFocusTarget` 的圆键。
+enum TVPlayerRowControl: String {
+    case like, shuffle, musicVideo, repeatMode, translation, browse, immersive, more
+}
+
+/// 货架收起后焦点回到哪颗键。
+enum TVPlayerShelfFocusAnchor: Equatable {
+    case transport(TVNowPlayingFocusTarget)
+    case control(TVPlayerRowControl)
+}
+
+/// 和 `TVInteractionClock` 一样不参与观察:每挪一次焦点都要写,写了不该让播放页重算。
+final class TVPlayerShelfFocusMemory {
+    /// 播放页上最近拿到焦点的那颗键(把手、进度条不算)。
+    var lastFocused: TVPlayerShelfFocusAnchor?
+    /// 这次货架升起时记下的 `lastFocused`。
+    var returnAnchor: TVPlayerShelfFocusAnchor?
 }
 /// 播放页按歌手名打开的那几位艺人。
 struct TVArtistLinkPresentation: Identifiable {
