@@ -90,22 +90,11 @@ struct RadioWidget: Widget {
 struct ListeningWidgetView: View {
     let entry: ListeningWidgetEntry
     @Environment(\.widgetFamily) private var family
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.widgetRenderingMode) private var renderingMode
     private var title: String { PMString("ext.widget.\(entry.kind.rawValue).title") }
-    private var symbol: String {
-        switch entry.kind {
-        case .podcast: "mic"
-        case .recentPodcast: "clock.arrow.circlepath"
-        case .radio: "dot.radiowaves.left.and.right"
-        }
-    }
-    private var tint: Color {
-        if colorScheme == .dark {
-            return entry.kind.playsEpisodes ? Color(red: 0.75, green: 0.60, blue: 0.95) : Color(red: 1, green: 0.65, blue: 0.36)
-        }
-        return entry.kind.playsEpisodes ? Color(red: 0.49, green: 0.32, blue: 0.68) : Color(red: 0.74, green: 0.34, blue: 0.16)
-    }
+    /// 和 App 首页顶部切换里电台、播客那一类用同一个图标、同一个颜色。
+    private var symbol: String { entry.kind.space.systemImage }
+    private var tint: Color { WidgetDesign.tint(for: entry.kind.space) }
 
     var body: some View {
         if let first = entry.snapshot.items.first {

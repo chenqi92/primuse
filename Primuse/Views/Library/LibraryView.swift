@@ -39,13 +39,14 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return "tag.fill"
         case .albums: return "square.stack.fill"
         case .songs: return "music.note"
-        case .spokenWord: return "books.vertical.fill"
-        case .radio: return "radio.fill"
+        case .spokenWord: return ListeningSpace.spokenWord.systemImage
+        case .radio: return ListeningSpace.radio.systemImage
         case .releaseDate: return "calendar"
         case .podcasts: return ListeningSpace.podcast.systemImage
         }
     }
 
+    /// 电台、有声书、播客用首页顶部切换里那一类的颜色(`ListeningSpace`),两处认得出是同一个。
     var color: Color {
         switch self {
         case .recommendations: return Color(red: 0.71, green: 0.48, blue: 0.40)
@@ -57,10 +58,10 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return .teal
         case .albums: return .purple
         case .songs: return .blue
-        case .spokenWord: return .brown
-        case .radio: return .orange
+        case .spokenWord: return ListeningSpace.spokenWord.glyphTileTint
+        case .radio: return ListeningSpace.radio.glyphTileTint
         case .releaseDate: return .indigo
-        case .podcasts: return .purple
+        case .podcasts: return ListeningSpace.podcast.glyphTileTint
         }
     }
 

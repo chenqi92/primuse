@@ -37,6 +37,47 @@ public enum ListeningSpaceVisibilityPolicy {
     }
 }
 
+/// A space's fixed colour as 0xRRGGBB, one value for light appearance and one
+/// for dark. The app's chips, tabs and library, Apple TV and the widgets all
+/// draw a space from here, so it reads the same colour on every screen.
+public struct ListeningSpaceTint: Hashable, Sendable {
+    public let light: UInt32
+    public let dark: UInt32
+
+    public init(light: UInt32, dark: UInt32) {
+        self.light = light
+        self.dark = dark
+    }
+
+    /// Red, green and blue of `hex` in 0...1.
+    public static func components(_ hex: UInt32) -> (red: Double, green: Double, blue: Double) {
+        (Double((hex >> 16) & 0xFF) / 255, Double((hex >> 8) & 0xFF) / 255, Double(hex & 0xFF) / 255)
+    }
+}
+
+extension ListeningSpace {
+    /// Radio, spoken word and podcasts have fixed hues; music has none and
+    /// follows the accent the user picked.
+    public var fixedTint: ListeningSpaceTint? {
+        switch self {
+        case .music: nil
+        case .radio: ListeningSpaceTint(light: 0xD9480F, dark: 0xFF8A4C)
+        case .spokenWord: ListeningSpaceTint(light: 0x0F8A6A, dark: 0x3FD1A6)
+        case .podcast: ListeningSpaceTint(light: 0x7A3FC9, dark: 0xB98CFF)
+        }
+    }
+
+    /// The symbol a space is named with everywhere, widgets included.
+    public var systemImage: String {
+        switch self {
+        case .music: "music.note"
+        case .radio: "dot.radiowaves.left.and.right"
+        case .spokenWord: "books.vertical.fill"
+        case .podcast: "antenna.radiowaves.left.and.right"
+        }
+    }
+}
+
 /// What a sleep timer can wait for, per space.
 public enum SleepTimerOption: Hashable, Sendable {
     case minutes(Int)

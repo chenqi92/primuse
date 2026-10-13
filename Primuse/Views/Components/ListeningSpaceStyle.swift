@@ -6,18 +6,19 @@ import SwiftUI
 /// home cards, search groups) so they read the same on every screen.
 extension ListeningSpace {
     /// Music follows the app's accent; radio, spoken word and podcasts have
-    /// fixed hues that stay apart from any accent the user picks.
+    /// fixed hues (`fixedTint`, shared with Apple TV and the widgets) that
+    /// stay apart from any accent the user picks.
     var tint: Color {
-        switch self {
-        case .music:
-            return .accentColor
-        case .radio:
-            return Color(light: (0xD9, 0x48, 0x0F), dark: (0xFF, 0x8A, 0x4C))
-        case .spokenWord:
-            return Color(light: (0x0F, 0x8A, 0x6A), dark: (0x3F, 0xD1, 0xA6))
-        case .podcast:
-            return Color(light: (0x7A, 0x3F, 0xC9), dark: (0xB9, 0x8C, 0xFF))
-        }
+        guard let fixed = fixedTint else { return .accentColor }
+        return Color(light: fixed.light, dark: fixed.dark)
+    }
+
+    /// The deeper, light-appearance shade in both appearances: under a white
+    /// glyph (the library's icon tiles) the dark-mode shade is too pale to
+    /// read against.
+    var glyphTileTint: Color {
+        guard let fixed = fixedTint else { return .accentColor }
+        return Color(light: fixed.light, dark: fixed.light)
     }
 
     var titleKey: LocalizedStringKey {
@@ -37,39 +38,22 @@ extension ListeningSpace {
         case .podcast: String(localized: "listening_space_podcast")
         }
     }
-
-    var systemImage: String {
-        switch self {
-        case .music: "music.note"
-        case .radio: "dot.radiowaves.left.and.right"
-        case .spokenWord: "books.vertical.fill"
-        case .podcast: "antenna.radiowaves.left.and.right"
-        }
-    }
 }
 
 private extension Color {
-    /// A colour with separate light and dark values.
-    init(light: (Int, Int, Int), dark: (Int, Int, Int)) {
+    /// A colour with separate light and dark values, each 0xRRGGBB.
+    init(light: UInt32, dark: UInt32) {
         #if os(macOS)
         self.init(nsColor: NSColor(name: nil) { appearance in
-            let rgb = appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil ? dark : light
-            return NSColor(
-                srgbRed: CGFloat(rgb.0) / 255,
-                green: CGFloat(rgb.1) / 255,
-                blue: CGFloat(rgb.2) / 255,
-                alpha: 1
+            let rgb = ListeningSpaceTint.components(
+                appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil ? dark : light
             )
+            return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
         })
         #else
         self.init(uiColor: UIColor { traits in
-            let rgb = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(
-                red: CGFloat(rgb.0) / 255,
-                green: CGFloat(rgb.1) / 255,
-                blue: CGFloat(rgb.2) / 255,
-                alpha: 1
-            )
+            let rgb = ListeningSpaceTint.components(traits.userInterfaceStyle == .dark ? dark : light)
+            return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
         })
         #endif
     }

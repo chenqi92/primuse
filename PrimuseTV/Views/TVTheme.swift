@@ -107,11 +107,15 @@ enum TVColor {
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
     static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))
     static let bad = adaptive(light: rgb(0xB8322B), dark: rgb(0xFF7565))
-    /// 三个收听空间各自的标识色:音乐跟随品牌色,电台与有声固定。
-    static let radioSpace = adaptive(light: rgb(0xD9480F), dark: rgb(0xFF8A4C))
-    static let spokenWordSpace = adaptive(light: rgb(0x0F8A6A), dark: rgb(0x3FD1A6))
-    /// 与手机端 `ListeningSpace.podcast.tint` 同一对色值。
-    static let podcastSpace = adaptive(light: rgb(0x7A3FC9), dark: rgb(0xB98CFF))
+    /// 电台、有声、播客各自的标识色,与手机端、小组件同一份色值(`ListeningSpace.fixedTint`);音乐跟随品牌色。
+    static let radioSpace = space(.radio)
+    static let spokenWordSpace = space(.spokenWord)
+    static let podcastSpace = space(.podcast)
+
+    private static func space(_ space: ListeningSpace) -> Color {
+        guard let tint = space.fixedTint else { return .accentColor }
+        return adaptive(light: rgb(tint.light), dark: rgb(tint.dark))
+    }
 
     static func brand(hex: String) -> Color {
         let source = color(hex: hex)

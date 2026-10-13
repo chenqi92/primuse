@@ -62,6 +62,25 @@ enum WidgetDesign {
         #endif
     }
 
+    /// 电台、有声书、播客的颜色,与 App 首页顶部切换、资料库同一份色值(`ListeningSpace.fixedTint`);
+    /// 音乐跟主题色走 `brandTint`。
+    static func tint(for space: ListeningSpace) -> Color {
+        guard let fixed = space.fixedTint else { return brandTint }
+        let light = ListeningSpaceTint.components(fixed.light)
+        let dark = ListeningSpaceTint.components(fixed.dark)
+        #if canImport(UIKit)
+        return Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        })
+        #else
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let rgb = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        })
+        #endif
+    }
+
     static let canvasBase = Color(red: 0.075, green: 0.085, blue: 0.10)
     static let lightCanvasBase = Color(red: 0.97, green: 0.975, blue: 0.98)
     static let strongText = Color.primary

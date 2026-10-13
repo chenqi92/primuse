@@ -17,6 +17,10 @@ public enum ListeningWidgetKind: String, Codable, Sendable {
 
     /// Plays podcast episodes (rather than stations).
     public var playsEpisodes: Bool { self != .radio }
+
+    /// The listening space the widget belongs to: its colour and its symbol.
+    public var space: ListeningSpace { self == .radio ? .radio : .podcast }
+
     private var key: String { "widget.listening.\(rawValue)" }
 
     public func load() -> ListeningWidgetSnapshot? {

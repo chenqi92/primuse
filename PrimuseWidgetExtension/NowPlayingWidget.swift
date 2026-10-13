@@ -455,9 +455,9 @@ private func nowPlayingSubtitle(_ state: PlaybackState) -> String {
 }
 
 private func nowPlayingSymbol(_ state: PlaybackState) -> String {
-    if state.isLiveStream { return "dot.radiowaves.left.and.right" }
+    if state.isLiveStream { return ListeningSpace.radio.systemImage }
     if !state.isPlaying { return "pause.fill" }
-    return state.isSpokenWord ? "book.fill" : "waveform"
+    return state.isSpokenWord ? state.listeningSpace.systemImage : "waveform"
 }
 
 /// 「第 3/12 章」, 书只有一部分时为 nil。
@@ -769,7 +769,7 @@ private struct AccessoryCircularNowPlaying: View {
                     EmptyView()
                 }
                 .progressViewStyle(.circular)
-                Image(systemName: state.isSpokenWord ? "book.fill" : "waveform")
+                Image(systemName: state.isSpokenWord ? state.listeningSpace.systemImage : "waveform")
                     .font(.system(size: 13, weight: .semibold))
             } else if progress.duration > 0 {
                 // 暂停但有时长: 静态环停在当前比例。
@@ -861,8 +861,8 @@ private struct AccessoryInlineNowPlaying: View {
         let title = state.songTitle ?? PMString("ext.widget.unknownSong")
         let artist = state.isSpokenWord ? nowPlayingSubtitle(state) : (state.artistName ?? "")
         let symbol = state.isLiveStream
-            ? "dot.radiowaves.left.and.right"
-            : (state.isPlaying ? (state.isSpokenWord ? "book.fill" : "play.fill") : "pause.fill")
+            ? ListeningSpace.radio.systemImage
+            : (state.isPlaying ? (state.isSpokenWord ? state.listeningSpace.systemImage : "play.fill") : "pause.fill")
         Label {
             if artist.isEmpty {
                 Text(title)

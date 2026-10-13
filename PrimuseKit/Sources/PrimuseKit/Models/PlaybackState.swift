@@ -87,6 +87,15 @@ public struct PlaybackState: Codable, Sendable {
         isLiveStream && isPlaying ? radioStationID : nil
     }
 
+    /// The way of listening the current item belongs to, for the symbol a
+    /// widget names it with. A podcast file kept in a music source reads as
+    /// spoken word: only subscribed episodes carry the podcast id.
+    public var listeningSpace: ListeningSpace {
+        if isLiveStream { return .radio }
+        if let id = currentSongID, PodcastIdentity.isEpisodeID(id) { return .podcast }
+        return isSpokenWord ? .spokenWord : .music
+    }
+
     public static func load() -> PlaybackState? {
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
               let data = defaults.data(forKey: PrimuseConstants.playbackStateKey) else {

@@ -795,12 +795,12 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryFolders: return "folder.fill"
         case .libraryStatistics: return "chart.bar.fill"
         case .librarySongs: return "music.note"
-        case .librarySpokenWord: return "books.vertical.fill"
+        case .librarySpokenWord: return ListeningSpace.spokenWord.systemImage
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
         case .libraryGenres: return "tag.fill"
         case .libraryPlaylists: return "music.note.list"
-        case .libraryRadio: return "radio.fill"
+        case .libraryRadio: return ListeningSpace.radio.systemImage
         case .libraryReleaseDate: return "calendar"
         case .libraryPodcasts: return ListeningSpace.podcast.systemImage
         case .search: return "magnifyingglass"

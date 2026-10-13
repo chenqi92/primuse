@@ -134,14 +134,17 @@ struct ListeningDeskWidget: Widget {
 }
 
 extension PrimuseListeningDeskTileContent {
-    var symbol: String {
+    var space: ListeningSpace {
         switch self {
-        case .podcast: "mic"
-        case .radio: "dot.radiowaves.left.and.right"
-        case .music: "music.note"
-        case .audiobook: "book"
+        case .podcast: .podcast
+        case .radio: .radio
+        case .music: .music
+        case .audiobook: .spokenWord
         }
     }
+
+    /// 和 App 首页顶部切换里那一类同一个图标。
+    var symbol: String { space.systemImage }
 
     var label: String {
         switch self {
@@ -152,22 +155,14 @@ extension PrimuseListeningDeskTileContent {
         }
     }
 
-    /// The app's hue for each way of listening (`ListeningSpace.tint`): music
-    /// follows the brand accent; radio matches the radio widget.
-    func tint(dark: Bool) -> Color {
-        switch self {
-        case .podcast: .purple
-        case .radio: dark ? Color(red: 1, green: 0.65, blue: 0.36) : Color(red: 0.74, green: 0.34, blue: 0.16)
-        case .music: WidgetDesign.brandTint
-        case .audiobook: dark ? Color(red: 0.25, green: 0.82, blue: 0.65) : Color(red: 0.06, green: 0.54, blue: 0.42)
-        }
-    }
+    /// The app's hue for each way of listening (`ListeningSpace.fixedTint`);
+    /// music follows the brand accent.
+    var tint: Color { WidgetDesign.tint(for: space) }
 }
 
 struct ListeningDeskView: View {
     let entry: ListeningDeskEntry
     @Environment(\.widgetFamily) private var family
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var large: Bool { family == .systemLarge }
 
@@ -293,7 +288,7 @@ struct ListeningDeskView: View {
     }
 
     private func destinationLabel(_ tile: ListeningDeskTile) -> some View {
-        let tint = tile.content.tint(dark: colorScheme == .dark)
+        let tint = tile.content.tint
         return HStack(spacing: 8) {
             if large, tile.title != nil {
                 tileArtwork(tile)

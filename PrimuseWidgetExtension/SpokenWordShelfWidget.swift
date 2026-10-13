@@ -123,9 +123,9 @@ private struct SmallSpokenWordBook: View {
                         Spacer()
                         Image(systemName: "play.fill")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(WidgetDesign.brandTint)
+                            .foregroundStyle(SpokenWordShelfText.tint)
                             .frame(width: 34, height: 34)
-                            .background(WidgetDesign.brandTint.opacity(0.10), in: .circle)
+                            .background(SpokenWordShelfText.tint.opacity(0.10), in: .circle)
                     }
                     Spacer(minLength: 0)
                     Text(book.title)
@@ -183,7 +183,7 @@ private struct MediumSpokenWordBook: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(WidgetDesign.strongText)
                                     .frame(width: 30, height: 30)
-                                    .background(WidgetDesign.brandTint.opacity(0.22), in: .circle)
+                                    .background(SpokenWordShelfText.tint.opacity(0.22), in: .circle)
                                     .accessibilityHidden(true)
                             }
                         }
@@ -269,8 +269,10 @@ private struct MediumSpokenWordShelf: View {
 private struct SpokenWordShelfEmpty: View {
     let isMedium: Bool
     var body: some View {
-        WidgetEmptyState(symbol: "books.vertical", title: PMString("ext.widget.spokenWordShelf.empty.title"),
-                         subtitle: PMString("ext.widget.spokenWordShelf.empty.subtitle"))
+        WidgetEmptyState(symbol: ListeningSpace.spokenWord.systemImage,
+                         title: PMString("ext.widget.spokenWordShelf.empty.title"),
+                         subtitle: PMString("ext.widget.spokenWordShelf.empty.subtitle"),
+                         tint: SpokenWordShelfText.tint)
     }
 }
 
@@ -285,7 +287,7 @@ private struct AccessorySpokenWordBook: View {
         Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image(systemName: "book.fill")
+                    Image(systemName: ListeningSpace.spokenWord.systemImage)
                         .font(.system(size: 11, weight: .semibold))
                         .widgetAccentable()
                     Text(book.title)
@@ -314,7 +316,7 @@ private struct AccessorySpokenWordEmpty: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Image(systemName: "books.vertical.fill")
+                Image(systemName: ListeningSpace.spokenWord.systemImage)
                     .font(.system(size: 11, weight: .semibold))
                     .widgetAccentable()
                 Text(PMString("ext.widget.spokenWordShelf.eyebrow"))
@@ -334,8 +336,10 @@ private struct AccessorySpokenWordEmpty: View {
 private struct SpokenWordShelfEyebrow: View {
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "book.fill")
+            Image(systemName: ListeningSpace.spokenWord.systemImage)
                 .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(SpokenWordShelfText.tint)
+                .widgetAccentable()
             Text(verbatim: PMString("ext.widget.spokenWordShelf.eyebrow"))
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
@@ -369,6 +373,9 @@ private struct SpokenWordBookProgressFooter: View {
 }
 
 private enum SpokenWordShelfText {
+    /// 有声书这一类的颜色, 和 App 首页顶部切换、资料库同一份。
+    static var tint: Color { WidgetDesign.tint(for: .spokenWord) }
+
     static func detail(_ book: SpokenWordShelfSnapshot.Book, includesProgress: Bool) -> String? {
         var parts: [String] = []
         if let index = book.partIndex, book.partCount > 1 {
@@ -395,7 +402,7 @@ private struct WidgetHairlineBar: ProgressViewStyle {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.12))
                 Capsule()
-                    .fill(WidgetDesign.brandTint)
+                    .fill(SpokenWordShelfText.tint)
                     .frame(width: geometry.size.width * fraction)
             }
         }
