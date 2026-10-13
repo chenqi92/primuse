@@ -276,8 +276,43 @@ struct TVRow<Content: View>: View {
 
 // MARK: - 专辑卡片
 
+/// 要从这台 Apple TV 的曲库里移除的一张专辑或一首歌。
+struct TVLibraryRemovalRequest: Equatable {
+    let title: String
+    let songIDs: [String]
+}
+
+/// 移除前先确认:只动这台 Apple TV 的曲库,网盘、服务器上的文件不动。
+struct TVLibraryRemovalConfirmation: ViewModifier {
+    @Environment(TVStore.self) private var store
+    @Binding var request: TVLibraryRemovalRequest?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            String(
+                format: String(localized: "tv_remove_from_device_confirm_title_format"),
+                request?.title ?? ""
+            ),
+            isPresented: Binding(
+                get: { request != nil },
+                set: { if !$0 { request = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("song_remove_from_device", role: .destructive) {
+                if let request { store.removeSongsFromThisDevice(request.songIDs) }
+                request = nil
+            }
+            Button("cancel", role: .cancel) { request = nil }
+        } message: {
+            Text("tv_remove_from_device_confirm_message")
+        }
+    }
+}
+
 struct TVAlbumCard: View {
     @State private var pendingMedleyIDs: [String]?
+    @State private var pendingRemoval: TVLibraryRemovalRequest?
     let album: TVAlbum
     var width: CGFloat = 240
     var titleOverride: String? = nil
@@ -344,8 +379,15 @@ struct TVAlbumCard: View {
                 pendingMedleyIDs = store.songIDs(forAlbum: album.id)
             }
             .disabled(!store.canPlayMedley(songIDs: store.songIDs(forAlbum: album.id)))
+            Button("song_remove_from_device", systemImage: "minus.circle", role: .destructive) {
+                pendingRemoval = TVLibraryRemovalRequest(
+                    title: titleOverride ?? album.title,
+                    songIDs: store.songIDs(forAlbum: album.id)
+                )
+            }
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
+        .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
         .accessibilityLabel(Text(titleOverride ?? album.title))
         .accessibilityValue(Text(subtitleOverride ?? album.artist))
     }

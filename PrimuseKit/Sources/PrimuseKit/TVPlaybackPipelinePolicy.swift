@@ -155,6 +155,13 @@ public struct TVHTTPRangeResponseValidation: Equatable, Sendable {
 /// Validates response framing before bytes are associated with an AVFoundation
 /// loading request. A 200 response cannot satisfy a non-zero byte offset.
 public enum TVHTTPRangeResponsePolicy {
+    /// 416 remains a framing decision: a request beyond EOF can validly be empty.
+    public static func httpFailure(for response: HTTPURLResponse, now: Date = Date()) -> HTTPResponseFailure? {
+        guard !(200...299).contains(response.statusCode), response.statusCode != 416 else { return nil }
+        return HTTPResponseFailure(statusCode: response.statusCode,
+            retryAfter: HTTPResponseFailure.retryDelay(from: response, now: now))
+    }
+
     public static func validate(
         statusCode: Int,
         contentRange: String?,

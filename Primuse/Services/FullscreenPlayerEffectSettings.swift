@@ -461,7 +461,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case auroraVeil
     case spectrumHorizon
     case particleBloom
-    /// 封面流(#191): 当前专辑居中, 资料库里前后的专辑斜着排在两边, 下面是倒影。
+    /// 封面流(#191): 正在播的这首居中, 播放队列里前后的歌斜着排在两边, 下面是倒影;
+    /// 电视上和中间同一张专辑的那几张换成曲库里别的专辑封面。
     /// 存储值不用 "coverFlow" —— 那是旧版封面墙留下的别名, 升级用户存的就是它。
     case albumFlow
     /// 克拉尼沙画：振动金属板上的细沙随频谱重心与响度排出不同的节线花纹。

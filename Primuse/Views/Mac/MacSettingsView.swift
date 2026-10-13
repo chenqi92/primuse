@@ -900,6 +900,43 @@ private struct MacAIChoiceMenu<Items: View>: View {
     }
 }
 
+/// 选了智能翻译、它却发不出去时放在翻译方式下面:说明差哪一步,右边就地解决。
+private struct MacLyricsAITranslationReadinessRow: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    /// 已经在智能功能页里时不再给「前往智能功能」。
+    var linksToIntelligenceSettings = true
+    @State private var consentRequest: BuiltInAIConsentRequest?
+
+    var body: some View {
+        let readiness = intelligence.lyricsAITranslationReadiness
+        if readiness != .ready, readiness != .regionUnavailable {
+            MacSTRow(
+                String(localized: "lyrics_translation_ai_not_ready_title"),
+                hint: readiness.settingsExplanation,
+                hintLineLimit: 3
+            ) {
+                switch readiness {
+                case .needsBuiltInConsent:
+                    MacSTButton(title: String(localized: "ai_consent_pending_action"), prominent: true) {
+                        consentRequest = BuiltInAIConsentRequest()
+                    }
+                case .needsRemoteConsent:
+                    MacSTButton(title: String(localized: "lyrics_translation_ai_allow_sending"), prominent: true) {
+                        try? intelligence.grantRemoteConsent()
+                    }
+                case .noService where linksToIntelligenceSettings:
+                    MacSTButton(title: String(localized: "ai_settings_title")) {
+                        SettingsNavigation.shared.open(SettingsPage.intelligence.id)
+                    }
+                case .noService, .ready, .regionUnavailable:
+                    EmptyView()
+                }
+            }
+            .builtInAIConsentSheet($consentRequest)
+        }
+    }
+}
+
 private struct MacSTButton: View {
     let title: String
     var systemImage: String? = nil
@@ -1254,6 +1291,7 @@ private struct MacSTIntelligenceView: View {
                     .pmSlideTransition(edge: .top, motion: .list)
                     if lyricsTranslation.mode == .intelligentWithSystemFallback {
                         routeRow(.lyricsTranslation)
+                        MacLyricsAITranslationReadinessRow(linksToIntelligenceSettings: false)
                     }
                 }
                 MacSTRow(String(localized: "listening_intent_ai_toggle")) {
@@ -4860,6 +4898,10 @@ private struct MacSTLyricsView: View {
                             options: lyricsTranslationModeOptions
                         )
                     }
+                    if intelligence.shouldExposeRemoteConfiguration,
+                       settings.mode == .intelligentWithSystemFallback {
+                        MacLyricsAITranslationReadinessRow()
+                    }
                     MacSTRow(String(localized: "lyrics_translation_target")) {
                         MacSTPicker(
                             selection: Binding(
@@ -4878,10 +4920,10 @@ private struct MacSTLyricsView: View {
 
             if settings.isEnabled {
                 ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
-                    if localTranslation.modelState(for: pack) != .unsupportedSystem {
+                    if pack.isListedBesideSystemTranslation(localTranslation.modelState(for: pack)) {
                         MacSTSection(
-                            String(localized: "lyrics_translation_local_section"),
-                            hint: String(localized: String.LocalizationValue(pack.footerKey))
+                            String(localized: String.LocalizationValue(pack.besideSystemHeaderKey)),
+                            hint: String(localized: String.LocalizationValue(pack.besideSystemFooterKey))
                         ) {
                             MacSTGroup {
                                 MacSTRow(

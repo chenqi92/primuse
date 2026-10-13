@@ -634,7 +634,6 @@
 "directory_file_stats" = "Dosya Özeti";
 "tag_editor_field_location" = "Dosya Konumu";
 "ai_fetch_models" = "Modelleri Getir";
-"lyrics_translation_on" = "Şarkı sözü çevirisini göster";
 "mac_launch_aborted_title" = "Primuse geçen sefer açılışını tamamlayamadı";
 "mac_launch_aborted_hint" = "Nedeni bulmaya yardımcı olmak için aşağıdaki bilgileri geliştiriciye gönderin.";
 "mac_launch_copy_diagnostics" = "Bilgileri Kopyala";
@@ -914,6 +913,7 @@
 "ai_models_loading" = "Servisten modeller getiriliyor…";
 "META-04 · Filling only missing fields won't overwrite metadata you've edited manually" = "META-04 · Yalnızca eksik alanları doldurmak, manuel olarak düzenlediğiniz üst verilerin üzerine yazmaz";
 "scrobble_token_invalid" = "Geçersiz";
+"scrobble_token_unconfirmed" = "Şu anda doğrulanamıyor";
 "Cover" = "Kapak";
 "player_volume_bar" = "Ses Düzeyi Kaydırıcısı";
 "onboarding_personalization_icon" = "Ayarlar > Görünüm'de Uygulama simgenizi seçin";
@@ -1724,7 +1724,6 @@
 "metadata_status_source_unavailable_reason" = "Primuse şu anda bu kaynağa bağlanamıyor veya kimliğini doğrulayamıyor. Bağlantı kurtarıldıktan sonra yeniden deneyin.";
 "immersive_demo_lyric_13" = "Ufkun ötesindeki koroyu takip ediyoruz";
 "Mahogany" = "Maun";
-"lyrics_translation_off" = "Şarkı Sözü Çevirisini Gizle";
 "ai_settings_title" = "Zeka";
 "relay_share_token_placeholder" = "Yönetici anahtarı";
 "lyrics_translation_clear_cache" = "Çeviri Önbelleğini Temizle";
@@ -4953,7 +4952,6 @@
 "lyrics_translation_local_retry" = "İndirmeyi Yeniden Dene";
 "lyrics_translation_local_section" = "Çevrimdışı Çeviri Modeli";
 "lyrics_translation_local_pairs" = "İngilizce ↔ Farsça";
-"lyrics_translation_local_footer" = "Şarkı sözlerini bu cihazda, ağ bağlantısı olmadan İngilizce ile Farsça arasında çevirir.";
 "lyrics_translation_local_ready" = "İndirildi";
 "lyrics_translation_local_remove" = "Modeli Kaldır";
 "lyrics_translation_local_remove_confirm" = "Çevrimdışı çeviri modeli kaldırılsın mı? Daha sonra yeniden indirebilirsiniz.";
@@ -5012,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "İngilizce ↔ Çince, Japonca, Korece";
 
-"lyrics_translation_local_cjk_footer" = "Şarkı sözlerini bu cihazda İngilizce ile basitleştirilmiş veya geleneksel Çince, Japonca ve Korece arasında çevirir. Diğer dil çiftleri İngilizce üzerinden, ağ bağlantısı olmadan çevrilir.";
 
 "songs_show_column_headers" = "Sütun başlıklarını göster";
 "playlist_hide_network_notice" = "Ağ uyarısını gizle";
@@ -5900,6 +5897,43 @@
 "listening_space_tint_artwork_hint" = "Çalan içeriğin kapağıyla değişir. Widget'lar tema rengini kullanır.";
 "listening_space_tint_fixed" = "Sabit Renk";
 "listening_space_tint_fixed_hint" = "Paletten seçin veya aşağıda kendiniz ayarlayın";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "Çeviri gerekmiyor: sözler zaten hedef dilde ya da kendi çevirisini içeriyor.";
+"lyrics_translation_offline_done" = "Çevrimdışı paketle çevrildi";
+"lyrics_translation_offline_needs_pack_format" = "Bu şarkı için “%@” çevrimdışı paketi gerekiyor";
+"lyrics_translation_offline_unsupported" = "Çevrimdışı paketler bu şarkının dilini çeviremiyor. Bunun yerine Akıllı Çeviri'yi deneyin.";
+"lyrics_translation_ai_needs_builtin_consent" = "Yerleşik yapay zekâ seçili. İnceleyip onay verene kadar hiçbir söz gönderilmez.";
+"lyrics_translation_ai_needs_remote_consent" = "Yapay zekâ hizmetlerine içerik gönderimine henüz izin verilmedi, bu yüzden hiçbir söz gönderilmiyor. İzin verdiğinizde diğer akıllı özellikler de kendi anahtarlarına göre içerik gönderir.";
+"lyrics_translation_ai_no_service" = "Henüz kullanılabilir bir yapay zekâ hizmeti yok: yerleşik yapay zekâyı açın ya da kendi hizmetinizi ekleyip bir model seçin.";
+"lyrics_translation_ai_request_failed" = "Akıllı Çeviri bu sefer başarılı olmadı; kalan satırlar başka bir yöntemle çevrildi.";
+"lyrics_translation_off_status" = "Şarkı sözü çevirisi kapalı";
+"lyrics_translation_preparing" = "Çeviri hazırlanıyor";
+"lyrics_translation_preferences_section" = "Yöntem ve dil";
+"lyrics_translation_mode_smart" = "Akıllı Çeviri";
+"lyrics_translation_mode_offline" = "Çevrimdışı Paketler";
+"lyrics_translation_mode_off" = "Kapalı";
+"lyrics_translation_tv_mode_smart_footer" = "Sözler, Zeka bölümünde Şarkı sözü çevirisi için seçilen hizmete (yerleşik yapay zekâ ya da kendi hizmetiniz) gönderilir. Çevrilmeyen satırları çevrimdışı paketler çevirir.";
+"lyrics_translation_tv_mode_offline_footer" = "Bu Apple TV'de internete bağlanmadan çevirir. Bir dili ilk kez çevirmeden önce ilgili çevrimdışı paketi indirin.";
+"lyrics_translation_ai_ready" = "Akıllı Çeviri hazır: sözler, Şarkı sözü çevirisi için seçilen hizmete gönderilir.";
+"lyrics_translation_ai_allow_sending" = "İçerik gönderimine izin ver";
+"lyrics_translation_offline_unavailable_system" = "Bu cihazda şu an çevrimdışı paket indirilemiyor (tvOS 26.4 veya üstü gerekir).";
+"lyrics_translation_tv_offline_footer" = "İngilizce ile Farsça ve İngilizce ile Çince (Basitleştirilmiş, Geleneksel), Japonca ve Korece arasında doğrudan çevirir; diğer eşleşmeler İngilizce üzerinden gider. Paketler bu cihazda kalır ve istediğiniz zaman kaldırılabilir.";
+"lyrics_translation_tv_open_panel_hint" = "Denetimlerdeki Şarkı sözü çevirisi düğmesini kullanın";
+"lyrics_translation_ai_fell_back_offline" = "Akıllı Çeviri kullanılamadı; çevrimdışı paketler devraldı";
+"lyrics_translation_use_smart" = "Sözleri yapay zekâyla çevir";
+"lyrics_translation_ai_notice_builtin_consent" = "Yerleşik yapay zekâya henüz onay verilmedi; Sistem Çevirisi kullanıldı";
+"lyrics_translation_ai_notice_remote_consent" = "İçerik gönderimine izin verilmedi; Sistem Çevirisi kullanıldı";
+"lyrics_translation_ai_notice_no_service" = "Kullanılabilir yapay zekâ hizmeti yok; Sistem Çevirisi kullanıldı";
+"lyrics_translation_ai_not_ready_title" = "Akıllı Çeviri henüz hazır değil";
+"lyrics_translation_extension_section" = "Ek diller";
+"lyrics_translation_persian_extension_footer" = "Sistem Çevirisi Farsçayı desteklemiyor. İndirdikten sonra Farsça sözler ve Farsçaya çeviriler bu cihazda internetsiz yapılır.";
+"lyrics_translation_cjk_bridge_footer" = "İngilizce ile Çince, Japonca veya Korece arasında normalde Sistem Çevirisi kullanılır. Bu paket yalnızca sistem dil paketleri yüklü değilken Farsça ile Çince, Japonca ve Korece arasında köprü olur. Gerekmiyorsa kaldırabilirsiniz.";
+"lyrics_translation_offline_failed_try_smart" = "Paketler şu an indirilemiyor — Akıllı Çeviri'ye geç";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "“%@” bu Apple TV'den kaldırılsın mı?";
+"tv_remove_from_device_confirm_message" = "Yalnızca bu Apple TV'nin arşivindeki kayıt kaldırılır; bulut sürücüdeki veya sunucudaki dosyalar etkilenmez ve sonraki taramalar onu geri eklemez. Dosyası silinmiş, artık çalmayan kayıtları da böyle temizleyebilirsiniz.";
 
 "playlist_import_incomplete_format" = "%d şarkı yüklendi ancak çalma listesi eksik. Bu şarkıları şimdi içe aktarabilir veya yeniden yüklemeyi deneyebilirsiniz.";
 "playlist_import_quota_format" = "%1$d şarkı yüklendi; kalan sayfalar duraklatıldı. %2$@ Yüklenen şarkıları şimdi içe aktarabilir veya bekledikten sonra yeniden deneyebilirsiniz.";

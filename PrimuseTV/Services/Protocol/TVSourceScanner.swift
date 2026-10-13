@@ -1116,6 +1116,10 @@ struct TVScanResult: Sendable {
     /// is kept, but rows that slid past the cursor were never seen, so their
     /// absence is no reason to remove them.
     var catalogDriftObserved = false
+    /// A directory an older checkpoint still listed was gone and got skipped.
+    /// Songs under it were not listed this time, so this walk cannot vouch for
+    /// their removal either; the next full walk lists its parent and can.
+    var listingGapObserved = false
 
     /// The walk reached the end: its songs may be committed as a finished scan.
     var canCommit: Bool {
@@ -1131,7 +1135,7 @@ struct TVScanResult: Sendable {
 
     /// The walk also saw one still catalogue, so songs it did not list are gone.
     var canPrune: Bool {
-        canCommit && !catalogDriftObserved
+        canCommit && !catalogDriftObserved && !listingGapObserved
     }
 }
 
@@ -1723,8 +1727,8 @@ final class TVSourceScanner {
         var songOrder: [String] = []
         var discoveredIDs = state.encounteredSongIDs
         var pendingSkeletonBatch: [Song] = []
-        var partialEnumerationMessage: String?
-        var partialDirectories: [String] = []
+        var skippedMissingDirectory = false
+        let selectedRoots = Set(TVScanPipelinePolicy.normalizedScanRoots(dirs))
         var songsSinceCheckpoint = 0
         var lastCheckpointAt = Date()
         let readerPool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: rereadMetadata)
@@ -1753,10 +1757,29 @@ final class TVSourceScanner {
                     throw TVScanError.maximumDepthExceeded
                 }
                 state.pendingDirectories = TVScanPipelinePolicy.normalizedScanRoots(
-                    partialDirectories + queue.map(\.path)
+                    queue.map(\.path)
                 )
                 currentFile = work.path
-                let entries = try await lister.list(work.path)
+                let entries: [TVDirEntry]
+                do {
+                    entries = try await lister.list(work.path)
+                } catch {
+                    // 断点里还记着、网盘上已经删掉或挪走的子文件夹(和 iPhone、Mac 同一规则):
+                    // 跳过它接着走完,不再整次扫描失败、下次从断点续扫又卡在同一处。它底下的歌
+                    // 这次没列到也不当作删了 —— 这次不清理,下次完整扫描列到上级目录时再对上。
+                    guard !(error is CancellationError),
+                          ScanDirectoryFailurePolicy.disposition(
+                            isMissingPath: Self.isMissingPathError(error),
+                            isSelectedRoot: selectedRoots.contains(work.path)
+                          ) == .discardMissingChild else { throw error }
+                    plog("↷ TV scan dropped missing directory depth=\(work.depth)")
+                    skippedMissingDirectory = true
+                    queue.removeFirst()
+                    state.pendingDirectories = TVScanPipelinePolicy.normalizedScanRoots(
+                        queue.map(\.path)
+                    )
+                    continue
+                }
                 try Task.checkCancellation()
                 let sidecars = SidecarDirectoryIndex(entries)
                 let cueLoad = try await loadCueTracks(
@@ -1764,10 +1787,10 @@ final class TVSourceScanner {
                     using: readerPool
                 )
                 if let message = cueLoad.failureMessage {
-                    partialEnumerationMessage = partialEnumerationMessage ?? message
-                    if !partialDirectories.contains(work.path) {
-                        partialDirectories.append(work.path)
-                    }
+                    // 读不出或解析不了的 CUE 只影响这个文件夹怎么分轨(整首入库,或沿用上次的
+                    // 分轨),和 iPhone、Mac 一样跳过它。以前整次扫描因此记成失败,最后一步的
+                    // 清理也跟着跳过,网盘上删掉的歌就一直留在曲库里。
+                    plog("⚠️ TV scan skipped unreadable CUE: \(message)")
                 }
 
                 for entry in entries where entry.isDir {
@@ -1951,7 +1974,7 @@ final class TVSourceScanner {
                 }
                 queue.removeFirst()
                 state.pendingDirectories = TVScanPipelinePolicy.normalizedScanRoots(
-                    partialDirectories + queue.map(\.path)
+                    queue.map(\.path)
                 )
                 try await emitCheckpoint(state, to: onCheckpoint)
                 songsSinceCheckpoint = 0
@@ -2023,9 +2046,6 @@ final class TVSourceScanner {
             )
         }
 
-        if !partialDirectories.isEmpty {
-            state.pendingDirectories = partialDirectories
-        }
         var pendingMetadataBatch: [Song] = []
         var metadataFailureCount = 0
         let metadataItems = items
@@ -2200,12 +2220,8 @@ final class TVSourceScanner {
 
         await readerPool.closeAll()
         currentFile = ""
-        let enumerationCompleted = partialEnumerationMessage == nil
         let completion: TVScanCompletion
-        if let partialEnumerationMessage {
-            completion = .enumerationFailed(partialEnumerationMessage)
-            phase = .failed(partialEnumerationMessage)
-        } else if metadataFailureCount > 0 {
+        if metadataFailureCount > 0 {
             completion = .completedWithMetadataFailures(metadataFailureCount)
         } else {
             completion = .completed
@@ -2213,11 +2229,12 @@ final class TVSourceScanner {
         return TVScanResult(
             songs: songOrder.compactMap { songsByID[$0] },
             discoveredSongIDs: discoveredIDs,
-            enumerationCompleted: enumerationCompleted,
+            enumerationCompleted: true,
             metadataCompleted: metadataFailureCount == 0,
             metadataFailureCount: metadataFailureCount,
             completion: completion,
-            resumeState: state
+            resumeState: state,
+            listingGapObserved: skippedMissingDirectory
         )
     }
 
@@ -3060,6 +3077,17 @@ final class TVSourceScanner {
             }
         }
         return (result, failureMessage)
+    }
+
+    private nonisolated static func isMissingPathError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.fileNotFound,
+             SourceError.pathNotFound,
+             SourceError.fileNotFound:
+            return true
+        default:
+            return false
+        }
     }
 
     private func flush(

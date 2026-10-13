@@ -279,6 +279,41 @@ import Testing
         #expect(await registry.sessionEpoch(for: source.id) != prepared.sessionEpoch)
     }
 
+    @Test func loginCutShortByAnotherCallersRouteChangeIsRetriedOnce() async throws {
+        let runtime = SourceConnectionRuntime()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { _ in })
+        let source = makeSource()
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        // While the first login is in flight, a resolve after a network change resets the
+        // session under it. The account is fine, so this must not surface as "sign in again".
+        let resolver = InterruptedLoginResolver {
+            await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+            _ = try? await registry.streamURL(for: song, source: source, credential: nil)
+        }
+        await registry.register(resolver, for: [.smb])
+        let result = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(result.host == "lan.invalid")
+        #expect(await resolver.calls == 3)
+    }
+
+    @Test func externalInvalidationDuringLoginStillReportsAuthentication() async throws {
+        let registry = StreamResolverRegistry(runtime: SourceConnectionRuntime(), endpointProbe: { _ in })
+        let source = makeSource()
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        // Credentials changed or the source signed out: never log in again with the old ones,
+        // even if a route reset happened as well.
+        let resolver = InterruptedLoginResolver {
+            await registry.invalidateSession(for: source)
+            _ = try? await registry.streamURL(for: song, source: source, credential: nil)
+        }
+        await registry.register(resolver, for: [.smb])
+        do {
+            _ = try await registry.streamURL(for: song, source: source, credential: nil)
+            Issue.record("Expected the authentication error")
+        } catch { #expect((error as? URLError)?.code == .userAuthenticationRequired) }
+        #expect(await resolver.calls == 2)
+    }
+
     private func makeSource(type: MusicSourceType = .smb) -> MusicSource {
         MusicSource(id: UUID().uuidString, name: "NAS", type: type,
                     connectionConfiguration: .init(
@@ -322,6 +357,21 @@ private actor RoutingResolver: StreamResolver {
         if let error {
             self.error = nil
             throw error
+        }
+        return URL(string: "https://\(source.host!)/stream")!
+    }
+}
+
+/// The first call stands for a login that is cancelled by a session reset while in flight.
+private actor InterruptedLoginResolver: StreamResolver {
+    private(set) var calls = 0
+    private let interrupt: @Sendable () async -> Void
+    init(interrupt: @escaping @Sendable () async -> Void) { self.interrupt = interrupt }
+    func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
+        calls += 1
+        if calls == 1 {
+            await interrupt()
+            throw URLError(.userAuthenticationRequired)
         }
         return URL(string: "https://\(source.host!)/stream")!
     }

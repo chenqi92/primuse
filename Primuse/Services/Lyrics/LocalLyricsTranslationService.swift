@@ -23,13 +23,32 @@ enum LocalLyricsTranslationModel {
         var manifestFile: String { self == .persian ? "translation-model.json" : "cjk/translation-model.json" }
         var approximateDownloadBytes: Int64 { self == .persian ? 33_000_000 : 329_000_000 }
         var pairsKey: String { self == .persian ? "lyrics_translation_local_pairs" : "lyrics_translation_local_cjk_pairs" }
-        var footerKey: String { self == .persian ? "lyrics_translation_local_footer" : "lyrics_translation_local_cjk_footer" }
         var directions: [LocalLyricTranslationPolicy.Direction] {
             self == .persian ? LocalLyricTranslationPolicy.persianDirections : LocalLyricTranslationPolicy.cjkDirections
         }
 
         static func containing(_ direction: LocalLyricTranslationPolicy.Direction) -> Pack {
             LocalLyricTranslationPolicy.persianDirections.contains(direction) ? .persian : .cjk
+        }
+
+        /// iPhone、iPad、Mac 有系统翻译:波斯语包是给系统翻译补上的扩展语言;中日韩包只在
+        /// 波斯语与中日韩互译、系统又没装对应语言包时用来中转,英语与中日韩之间平时仍是系统
+        /// 翻译。没下过的中日韩包不列在设置里,免得以为下载它能换掉系统翻译;真用得上时
+        /// 歌词页会自己提示下载。
+        func isListedBesideSystemTranslation(_ state: LocalLyricsTranslationService.ModelState) -> Bool {
+            switch state {
+            case .unsupportedSystem: false
+            case .ready, .downloading, .failed: true
+            case .notDownloaded: self == .persian
+            }
+        }
+
+        var besideSystemHeaderKey: String {
+            self == .persian ? "lyrics_translation_extension_section" : "lyrics_translation_local_section"
+        }
+
+        var besideSystemFooterKey: String {
+            self == .persian ? "lyrics_translation_persian_extension_footer" : "lyrics_translation_cjk_bridge_footer"
         }
     }
 

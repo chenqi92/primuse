@@ -634,7 +634,6 @@
 "directory_file_stats" = "Сводка файла";
 "tag_editor_field_location" = "Расположение файла";
 "ai_fetch_models" = "Выбор моделей";
-"lyrics_translation_on" = "Показывать перевод текста";
 "mac_launch_aborted_title" = "В прошлый раз запуск не завершился";
 "mac_launch_aborted_hint" = "Отправьте сведения ниже разработчику, чтобы помочь найти причину.";
 "mac_launch_copy_diagnostics" = "Скопировать сведения";
@@ -914,6 +913,7 @@
 "ai_models_loading" = "Загрузка моделей из сервиса…";
 "META-04 · Filling only missing fields won't overwrite metadata you've edited manually" = "META-04 · Заполнение только недостающих полей не приведет к перезаписи метаданных, которые вы отредактировали вручную.";
 "scrobble_token_invalid" = "Недействительно";
+"scrobble_token_unconfirmed" = "Сейчас не удаётся проверить";
 "Cover" = "Обложка";
 "player_volume_bar" = "Ползунок громкости";
 "onboarding_personalization_icon" = "Выберите значок приложения в «Настройки» > «Внешний вид».";
@@ -1724,7 +1724,6 @@
 "metadata_status_source_unavailable_reason" = "Primuse в настоящее время не может подключиться к этому источнику или аутентифицировать его. Повторите попытку после восстановления соединения.";
 "immersive_demo_lyric_13" = "Мы следуем за хором за горизонтом";
 "Mahogany" = "Красное дерево";
-"lyrics_translation_off" = "Скрыть перевод текста";
 "ai_settings_title" = "Интеллект";
 "relay_share_token_placeholder" = "Ключ администратора";
 "lyrics_translation_clear_cache" = "Очистить кэш переводов";
@@ -4953,7 +4952,6 @@
 "lyrics_translation_local_retry" = "Повторить загрузку";
 "lyrics_translation_local_section" = "Офлайн-модель перевода";
 "lyrics_translation_local_pairs" = "Английский ↔ Персидский";
-"lyrics_translation_local_footer" = "Переводит тексты песен с английского на персидский и обратно на этом устройстве без подключения к сети.";
 "lyrics_translation_local_ready" = "Загружено";
 "lyrics_translation_local_remove" = "Удалить модель";
 "lyrics_translation_local_remove_confirm" = "Удалить офлайн-модель перевода? Её можно будет загрузить снова.";
@@ -5012,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "Английский ↔ Китайский, японский, корейский";
 
-"lyrics_translation_local_cjk_footer" = "Переводит тексты песен между английским и упрощённым или традиционным китайским, японским и корейским на этом устройстве. Для других пар используется английский, без подключения к сети.";
 
 "songs_show_column_headers" = "Показывать заголовки столбцов";
 "playlist_hide_network_notice" = "Скрыть уведомление о сети";
@@ -5900,6 +5897,43 @@
 "listening_space_tint_artwork_hint" = "Меняется вместе с обложкой того, что играет. Виджеты используют цвет темы.";
 "listening_space_tint_fixed" = "Фиксированный цвет";
 "listening_space_tint_fixed_hint" = "Выберите в палитре или настройте свой ниже";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "Перевод не нужен: текст уже на целевом языке или содержит свой перевод.";
+"lyrics_translation_offline_done" = "Переведено офлайн-пакетом";
+"lyrics_translation_offline_needs_pack_format" = "Для этой песни нужен офлайн-пакет «%@»";
+"lyrics_translation_offline_unsupported" = "Офлайн-пакеты не переводят язык этой песни. Попробуйте интеллектуальный перевод.";
+"lyrics_translation_ai_needs_builtin_consent" = "Выбран встроенный ИИ. Тексты не отправляются, пока вы не ознакомитесь и не согласитесь.";
+"lyrics_translation_ai_needs_remote_consent" = "Отправка контента в ИИ-сервисы пока не разрешена, поэтому тексты не отправляются. После разрешения другие интеллектуальные функции тоже будут отправлять контент согласно своим переключателям.";
+"lyrics_translation_ai_no_service" = "Нет доступного ИИ-сервиса: включите встроенный ИИ или добавьте свой сервис и выберите модель.";
+"lyrics_translation_ai_request_failed" = "На этот раз интеллектуальный перевод не удался; остальные строки переведены другим способом.";
+"lyrics_translation_off_status" = "Перевод текстов выключен";
+"lyrics_translation_preparing" = "Подготовка перевода";
+"lyrics_translation_preferences_section" = "Способ и язык";
+"lyrics_translation_mode_smart" = "Интеллектуальный перевод";
+"lyrics_translation_mode_offline" = "Офлайн-пакеты";
+"lyrics_translation_mode_off" = "Выключен";
+"lyrics_translation_tv_mode_smart_footer" = "Тексты отправляются в сервис, выбранный для перевода текстов в разделе «Интеллект», — встроенный ИИ или ваш собственный. Непереведённые строки переводят офлайн-пакеты.";
+"lyrics_translation_tv_mode_offline_footer" = "Переводит на этом Apple TV без подключения к сети. Перед первым переводом языка загрузите нужный офлайн-пакет.";
+"lyrics_translation_ai_ready" = "Интеллектуальный перевод готов: тексты отправляются в сервис, выбранный для перевода текстов.";
+"lyrics_translation_ai_allow_sending" = "Разрешить отправку контента";
+"lyrics_translation_offline_unavailable_system" = "Сейчас на этом устройстве нельзя загрузить офлайн-пакеты (нужна tvOS 26.4 или новее).";
+"lyrics_translation_tv_offline_footer" = "Переводит напрямую между английским и персидским, а также между английским и китайским (упрощённым, традиционным), японским и корейским; остальные пары — через английский. Пакеты хранятся на устройстве и их можно удалить в любой момент.";
+"lyrics_translation_tv_open_panel_hint" = "Кнопка перевода текста в элементах управления";
+"lyrics_translation_ai_fell_back_offline" = "Интеллектуальный перевод не использован; перевели офлайн-пакеты";
+"lyrics_translation_use_smart" = "Переводить тексты с ИИ";
+"lyrics_translation_ai_notice_builtin_consent" = "Нет согласия на встроенный ИИ; использован системный перевод";
+"lyrics_translation_ai_notice_remote_consent" = "Отправка контента не разрешена; использован системный перевод";
+"lyrics_translation_ai_notice_no_service" = "Нет доступного ИИ-сервиса; использован системный перевод";
+"lyrics_translation_ai_not_ready_title" = "Интеллектуальный перевод пока недоступен";
+"lyrics_translation_extension_section" = "Дополнительные языки";
+"lyrics_translation_persian_extension_footer" = "Системный перевод не поддерживает персидский. После загрузки персидские тексты и перевод на персидский выполняются на устройстве без сети.";
+"lyrics_translation_cjk_bridge_footer" = "Между английским и китайским, японским или корейским обычно используется системный перевод. Этот пакет служит только посредником между персидским и китайским, японским или корейским, когда системные языковые пакеты не установлены. Удалите его, если он не нужен.";
+"lyrics_translation_offline_failed_try_smart" = "Пакеты сейчас не загружаются — перейти на интеллектуальный перевод";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "Удалить «%@» с этого Apple TV?";
+"tv_remove_from_device_confirm_message" = "Удаляется только запись в медиатеке этого Apple TV; файлы в облаке или на сервере не затрагиваются, и последующие сканирования не вернут её. Так можно убрать записи, файлы которых удалены и больше не воспроизводятся.";
 
 "playlist_import_incomplete_format" = "Загружено %d композиций, но плейлист неполный. Можно импортировать их сейчас или повторить загрузку.";
 "playlist_import_quota_format" = "Загружено %1$d композиций; загрузка остальных страниц приостановлена. %2$@ Можно импортировать уже загруженные композиции или повторить попытку после ожидания.";

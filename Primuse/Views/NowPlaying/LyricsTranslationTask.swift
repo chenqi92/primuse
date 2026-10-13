@@ -69,6 +69,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let exposesRemoteConfiguration: Bool
         /// The offline model was downloaded or removed.
         let localModelRevision: UInt
+        /// 选了智能翻译时它此刻发不发得出去;同意了内置 AI、允许了发送或配好了服务就重来。
+        let intelligentReadiness: LyricsAITranslationReadiness?
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -83,7 +85,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             mode: settings.mode,
             systemPreparationRequestRevision: settings.systemPreparationRequestRevision,
             exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration,
-            localModelRevision: localTranslation.modelRevision
+            localModelRevision: localTranslation.modelRevision,
+            intelligentReadiness: settings.mode == .intelligentWithSystemFallback
+                ? intelligence.lyricsAITranslationReadiness : nil
         )
     }
 
@@ -148,8 +152,14 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         let cache = LyricsTranslationCache.shared
-        let usesIntelligentProvider = identity.mode == .intelligentWithSystemFallback
-            && intelligence.shouldExposeRemoteConfiguration
+        let wantsIntelligentProvider = identity.mode == .intelligentWithSystemFallback
+            && identity.exposesRemoteConfiguration
+        let usesIntelligentProvider = wantsIntelligentProvider && identity.intelligentReadiness == .ready
+        // 选了智能翻译却发不出去(没同意内置 AI、没允许发送、没有服务):照常用系统翻译,
+        // 但说清楚差哪一步,别让人以为智能翻译坏了或者根本没生效。
+        let intelligentNotice: LyricsTranslationActivity? = wantsIntelligentProvider && !usesIntelligentProvider
+            ? identity.intelligentReadiness.map(LyricsTranslationActivity.intelligentNotReady)
+            : nil
         let prefetcher = LyricsTranslationPrefetcher.shared
         if usesIntelligentProvider, let songID = identity.songID {
             // The previous song may already be translating this one; its
@@ -192,6 +202,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         translatedTextByLineID = deduplication.expanding(hits)
+        if let intelligentNotice { activity = intelligentNotice }
         guard !uncachedGroups.isEmpty else {
             if preferredCacheProvider == .intelligent, !hits.isEmpty {
                 activity = .intelligentCached
@@ -536,13 +547,13 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         )
         switch remainingState {
         case .notNeeded:
-            completionActivity = localNeedsModel ? .localModelRequired : .notNeeded
+            completionActivity = localNeedsModel ? .localModelRequired : (intelligentNotice ?? .notNeeded)
         case .preparationRequired:
             completionActivity = .systemPreparationRequired
         case .unavailable:
             completionActivity = unavailableActivity
         case .ready:
-            completionActivity = localNeedsModel ? .localModelRequired : nil
+            completionActivity = localNeedsModel ? .localModelRequired : intelligentNotice
         }
         let terminalState = LyricTranslationTerminalPolicy.resolve(
             pendingCandidateCount: systemGroups.reduce(0) { partial, group in

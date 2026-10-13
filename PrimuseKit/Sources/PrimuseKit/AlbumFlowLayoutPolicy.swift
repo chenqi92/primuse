@@ -201,3 +201,64 @@ public enum AlbumFlowLayoutPolicy {
         )
     }
 }
+
+/// 电视「封面流」两侧的封面换成曲库里别的专辑:一整张专辑连着放时,两侧每张都是同一张封面,
+/// 切歌时整排滑过去也看不出动。只换卡片上画的封面,卡片仍对应原来的队列位置,遥控器左右键
+/// 照旧是上一首、下一首。
+///
+/// 从中间往两边数,一张卡和它靠中间那张(中间这首也算)是同一张专辑时换掉;换成另一张专辑的
+/// 第一张保留原封面,让人看得到接下来是哪张专辑。换上的封面按卡片在队列里的位置取,同一张卡
+/// 滑来滑去不会换图。
+public enum AlbumFlowCoverVarietyPolicy {
+    public struct Card: Equatable, Sendable {
+        /// 在播放队列里的位置。
+        public let position: Int
+        /// 这张卡原本的专辑。
+        public let album: String
+
+        public init(position: Int, album: String) {
+            self.position = position
+            self.album = album
+        }
+    }
+
+    /// 曲库里至少有这么多张别的专辑才换,太少时换来换去都是那一两张,不如不换。
+    public static let minimumPoolSize = 2
+
+    /// - Parameters:
+    ///   - centerAlbum: 中间正在播的这首的专辑。
+    ///   - before: 左边的卡,由近到远。
+    ///   - after: 右边的卡,由近到远。
+    ///   - pool: 可以换上的曲库专辑,顺序固定(换上的图按它取,顺序一变就会换图)。
+    /// - Returns: 两边每张卡换成 `pool` 里的第几个;nil 是保留原封面。
+    public static func substitutes(
+        centerAlbum: String,
+        before: [Card],
+        after: [Card],
+        pool: [String]
+    ) -> (before: [Int?], after: [Int?]) {
+        let candidates = pool.indices.filter { pool[$0] != centerAlbum }
+        guard candidates.count >= minimumPoolSize else {
+            return (before.map { _ in nil }, after.map { _ in nil })
+        }
+        func side(_ cards: [Card]) -> [Int?] {
+            var nearerAlbum = centerAlbum
+            return cards.map { card in
+                defer { nearerAlbum = card.album }
+                guard card.album == nearerAlbum else { return nil }
+                return pick(for: card, candidates: candidates, pool: pool)
+            }
+        }
+        return (side(before), side(after))
+    }
+
+    /// 相邻位置取相邻的候选,一屏里的卡不重样(候选够多时);恰好取到卡片自己那张专辑时
+    /// 跳到候选的另一半,免得换了等于没换。
+    private static func pick(for card: Card, candidates: [Int], pool: [String]) -> Int {
+        let count = candidates.count
+        let slot = ((card.position % count) + count) % count
+        let index = candidates[slot]
+        guard pool[index] == card.album else { return index }
+        return candidates[(slot + count / 2) % count]
+    }
+}

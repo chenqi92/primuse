@@ -489,6 +489,10 @@ struct TVImmersivePlayerView: View {
                         radius: 0
                     )
                     .frame(width: side, height: side)
+                    // 卡片滑进滑出中间时会在曲库封面和这首的封面之间换图:旧图淡出、新图淡入,
+                    // 不让新图读出来之前先闪一下占位。
+                    .id(song.id)
+                    .transition(.opacity)
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },

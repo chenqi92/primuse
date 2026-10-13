@@ -29,6 +29,7 @@ private var tvDebugShelfLaunch: (show: Bool, tab: TVPlayerShelfTab) {
 /// 长按封面是喜欢、前往、随机、睡眠定时与更多。Menu 键先收起货架,再离开播放页。
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @Environment(\.resetFocus) private var resetFocus
     @Environment(\.colorScheme) private var colorScheme
@@ -50,6 +51,8 @@ struct TVNowPlayingView: View {
 
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showOptions = false
+    /// 播放控制里的「歌词翻译」键打开的面板。
+    @State private var showTranslation = false
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
     /// 按歌手名打开的艺人页(多位艺人时先选一位)。
@@ -79,7 +82,7 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
+        [showOptions, showTranslation, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
             .filter { $0 }.count
     }
 
@@ -152,6 +155,9 @@ struct TVNowPlayingView: View {
         .fullScreenCover(item: $artistLink) { link in
             TVArtistLinkView(artists: link.artists).environment(store)
         }
+        .fullScreenCover(isPresented: $showTranslation) {
+            TVLyricsTranslationPanel().environment(store).environment(intelligence)
+        }
         #if DEBUG
         .task {
             // 截图用:TV_SCREEN=nowPlayingArtist 模拟在播放页按下歌手名。
@@ -202,7 +208,8 @@ struct TVNowPlayingView: View {
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
-                      !showImmersive, !showShelf, !showOptions, !scrubberFocused else { continue }
+                      !showImmersive, !showShelf, !showOptions, !showTranslation,
+                      !scrubberFocused else { continue }
                 if interactionClock.secondsSinceLastInteraction >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
                 }
@@ -988,6 +995,16 @@ struct TVNowPlayingView: View {
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) { store.cycleRepeatMode() }
+            // 歌词翻译直接在播放页:开关、译成什么、交给谁翻,缺翻译包时就地下载。
+            if likedSongID != nil {
+                let translationOn = LyricsTranslationSettingsStore.shared.isEnabled
+                TVRoundBtn(icon: translationOn ? "character.bubble.fill" : "character.bubble", size: 56,
+                           active: translationOn,
+                           immersiveDark: immersiveDark,
+                           accessibilityLabel: String(localized: "lyrics_translation_title"),
+                           onInteraction: registerInteraction) { showTranslation = true }
+                    .accessibilityIdentifier("tv.nowPlaying.lyricsTranslation")
+            }
             // 浏览 / 沉浸 / 更多在同一行——和传输键焦点左右线性可达,不再困在右上角。
             // 浏览替代原来的队列按钮:「接下来」就是货架的第一栏。
             if supportsShelf {
@@ -1046,6 +1063,9 @@ struct TVNowPlayingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
             lyricsList
+                .overlay(alignment: .top) {
+                    TVLyricsTranslationStatusLine(songID: store.currentSongID)
+                }
         }
     }
 
@@ -1499,6 +1519,84 @@ struct TVScrubber: View {
 }
 
 // MARK: - 圆形传输按钮
+
+/// 歌词上方的一行翻译状态:正在翻、翻好了、缺离线翻译包、智能翻译没用上。不可聚焦,
+/// 要动手的事交给播放控制里的「歌词翻译」键;翻好之类的提示几秒后自己淡出。
+private struct TVLyricsTranslationStatusLine: View {
+    let songID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dismissedKey: String?
+    private var controller: TVLyricsTranslationController { .shared }
+
+    private struct Line: Equatable {
+        let key: String
+        let text: String
+        let systemImage: String
+        let tint: Color
+        let hint: String?
+        let isTransient: Bool
+    }
+
+    private var line: Line? {
+        guard LyricsTranslationSettingsStore.shared.isEnabled,
+              let songID, controller.activitySongID == songID else { return nil }
+        let activity = controller.activity
+        if case .needsModel = activity, let text = activity.statusText {
+            return Line(key: "needsModel|\(songID)", text: text, systemImage: activity.systemImage,
+                        tint: activity.tint, hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
+                        isTransient: false)
+        }
+        if controller.intelligentIssue != nil {
+            if case .translating = activity { return nil }
+            return Line(key: "aiIssue|\(songID)",
+                        text: String(localized: "lyrics_translation_ai_fell_back_offline"),
+                        systemImage: "sparkles", tint: TVColor.warn,
+                        hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
+                        isTransient: false)
+        }
+        guard let text = activity.statusText else { return nil }
+        if case .notNeeded = activity { return nil }
+        return Line(key: "\(text)|\(songID)", text: text, systemImage: activity.systemImage,
+                    tint: activity.tint, hint: nil, isTransient: activity.isTransient)
+    }
+
+    var body: some View {
+        let line = self.line.flatMap { $0.key == dismissedKey ? nil : $0 }
+        ZStack {
+            if let line {
+                HStack(spacing: 12) {
+                    Image(systemName: line.systemImage)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(line.tint)
+                    Text(verbatim: line.text)
+                        .tvFont(.caption, weight: .medium)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                    if let hint = line.hint {
+                        Text(verbatim: hint)
+                            .tvFont(.caption)
+                            .foregroundStyle(TVColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 12)
+                .background(TVColor.surfaceStrong.opacity(0.9), in: Capsule())
+                .transition(.opacity)
+                .task(id: line.key) {
+                    guard line.isTransient else { return }
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    dismissedKey = line.key
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: line)
+        .padding(.top, 8)
+        .allowsHitTesting(false)
+        .accessibilityHidden(line == nil)
+    }
+}
 
 struct TVRoundBtn: View {
     let icon: String

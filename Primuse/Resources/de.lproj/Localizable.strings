@@ -896,8 +896,6 @@
 "sleep_timer_active" = "Timer aktiv";
 "cancel_timer" = "Timer abbrechen";
 "sleep_at_track_end" = "Nach aktuellem Titel stoppen";
-"lyrics_translation_on" = "Liedtextübersetzung einblenden";
-"lyrics_translation_off" = "Liedtextübersetzung ausblenden";
 "minutes" = "Min.";
 "title_label" = "Titel";
 "artist_label" = "Künstler";
@@ -1129,6 +1127,7 @@
 "scrobble_validate" = "Überprüfen";
 "scrobble_token_valid" = "Gültig";
 "scrobble_token_invalid" = "Ungültig";
+"scrobble_token_unconfirmed" = "Derzeit nicht prüfbar";
 "scrobble_lb_get_token" = "Token bei ListenBrainz holen";
 "scrobble_lb_footer" = "Kopiere deinen Benutzer-Token von listenbrainz.org/profile und füge ihn hier ein.";
 "scrobble_lastfm_api_key_placeholder" = "API Key";
@@ -5047,7 +5046,6 @@
 "lyrics_translation_local_retry" = "Erneut laden";
 "lyrics_translation_local_section" = "Offline-Übersetzungsmodell";
 "lyrics_translation_local_pairs" = "Englisch ↔ Persisch";
-"lyrics_translation_local_footer" = "Übersetzt Songtexte zwischen Englisch und Persisch auf diesem Gerät, ohne Netzwerkverbindung.";
 "lyrics_translation_local_ready" = "Geladen";
 "lyrics_translation_local_remove" = "Modell entfernen";
 "lyrics_translation_local_remove_confirm" = "Offline-Übersetzungsmodell entfernen? Du kannst es später erneut laden.";
@@ -5106,7 +5104,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "Englisch ↔ Chinesisch, Japanisch, Koreanisch";
 
-"lyrics_translation_local_cjk_footer" = "Übersetzt Songtexte zwischen Englisch und vereinfachtem oder traditionellem Chinesisch, Japanisch und Koreanisch auf diesem Gerät. Andere Sprachpaare werden über Englisch übersetzt, ohne Netzwerkverbindung.";
 
 "songs_show_column_headers" = "Spaltenüberschriften anzeigen";
 "playlist_hide_network_notice" = "Netzwerkhinweis ausblenden";
@@ -5994,6 +5991,43 @@
 "listening_space_tint_artwork_hint" = "Ändert sich mit dem Cover der aktuellen Wiedergabe. Widgets verwenden die Themenfarbe.";
 "listening_space_tint_fixed" = "Feste Farbe";
 "listening_space_tint_fixed_hint" = "Aus der Palette wählen oder unten selbst einstellen";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "Keine Übersetzung nötig: Der Liedtext ist bereits in der Zielsprache oder enthält eine eigene Übersetzung.";
+"lyrics_translation_offline_done" = "Mit Offline-Paket übersetzt";
+"lyrics_translation_offline_needs_pack_format" = "Dieser Titel braucht das Offline-Paket „%@“";
+"lyrics_translation_offline_unsupported" = "Die Offline-Pakete können die Sprache dieses Titels nicht übersetzen. Versuche stattdessen die intelligente Übersetzung.";
+"lyrics_translation_ai_needs_builtin_consent" = "Die integrierte KI ist ausgewählt. Liedtexte werden erst gesendet, wenn du die Hinweise gelesen und zugestimmt hast.";
+"lyrics_translation_ai_needs_remote_consent" = "Das Senden von Inhalten an intelligente Dienste ist noch nicht erlaubt, daher werden keine Liedtexte gesendet. Danach senden auch andere intelligente Funktionen Inhalte gemäß ihren eigenen Schaltern.";
+"lyrics_translation_ai_no_service" = "Noch kein intelligenter Dienst verfügbar: Schalte die integrierte KI ein oder füge einen eigenen Dienst hinzu und wähle ein Modell.";
+"lyrics_translation_ai_request_failed" = "Die intelligente Übersetzung hat diesmal nicht geklappt; die übrigen Zeilen wurden anders übersetzt.";
+"lyrics_translation_off_status" = "Liedtextübersetzung ist aus";
+"lyrics_translation_preparing" = "Übersetzung wird vorbereitet";
+"lyrics_translation_preferences_section" = "Methode & Sprache";
+"lyrics_translation_mode_smart" = "Intelligente Übersetzung";
+"lyrics_translation_mode_offline" = "Offline-Pakete";
+"lyrics_translation_mode_off" = "Aus";
+"lyrics_translation_tv_mode_smart_footer" = "Liedtexte gehen an den Dienst, der unter „Intelligente Funktionen“ für die Liedtextübersetzung gewählt ist – integrierte KI oder dein eigener Dienst. Nicht übersetzte Zeilen übernehmen die Offline-Pakete.";
+"lyrics_translation_tv_mode_offline_footer" = "Übersetzt direkt auf diesem Apple TV, ohne Internet. Lade vor der ersten Übersetzung einer Sprache das passende Offline-Paket.";
+"lyrics_translation_ai_ready" = "Die intelligente Übersetzung ist bereit: Liedtexte gehen an den für die Liedtextübersetzung gewählten Dienst.";
+"lyrics_translation_ai_allow_sending" = "Senden von Inhalten erlauben";
+"lyrics_translation_offline_unavailable_system" = "Offline-Pakete können auf diesem Gerät derzeit nicht geladen werden (tvOS 26.4 oder neuer erforderlich).";
+"lyrics_translation_tv_offline_footer" = "Übersetzt direkt zwischen Englisch und Persisch sowie zwischen Englisch und Chinesisch (vereinfacht, traditionell), Japanisch und Koreanisch; andere Kombinationen laufen über Englisch. Pakete bleiben auf dem Gerät und lassen sich jederzeit entfernen.";
+"lyrics_translation_tv_open_panel_hint" = "Über die Liedtextübersetzungs-Taste in der Steuerung";
+"lyrics_translation_ai_fell_back_offline" = "Intelligente Übersetzung nicht genutzt; Offline-Pakete haben übernommen";
+"lyrics_translation_use_smart" = "Liedtexte mit KI übersetzen";
+"lyrics_translation_ai_notice_builtin_consent" = "Integrierter KI noch nicht zugestimmt; Systemübersetzung genutzt";
+"lyrics_translation_ai_notice_remote_consent" = "Senden von Inhalten nicht erlaubt; Systemübersetzung genutzt";
+"lyrics_translation_ai_notice_no_service" = "Kein intelligenter Dienst verfügbar; Systemübersetzung genutzt";
+"lyrics_translation_ai_not_ready_title" = "Intelligente Übersetzung noch nicht bereit";
+"lyrics_translation_extension_section" = "Zusätzliche Sprachen";
+"lyrics_translation_persian_extension_footer" = "Die Systemübersetzung unterstützt kein Persisch. Nach dem Laden werden persische Liedtexte und Übersetzungen ins Persische auf diesem Gerät ohne Internet erledigt.";
+"lyrics_translation_cjk_bridge_footer" = "Zwischen Englisch und Chinesisch, Japanisch oder Koreanisch wird normalerweise die Systemübersetzung genutzt. Dieses Paket vermittelt nur zwischen Persisch und Chinesisch, Japanisch oder Koreanisch, wenn die Systemsprachpakete fehlen. Entferne es, wenn du es nicht brauchst.";
+"lyrics_translation_offline_failed_try_smart" = "Pakete gerade nicht ladbar – zur intelligenten Übersetzung wechseln";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "„%@“ von diesem Apple TV entfernen?";
+"tv_remove_from_device_confirm_message" = "Entfernt nur den Eintrag aus der Mediathek dieses Apple TV; Dateien im Cloud-Speicher oder auf dem Server bleiben unberührt, und spätere Scans fügen ihn nicht wieder hinzu. So lassen sich auch Einträge entfernen, deren Dateien gelöscht wurden und nicht mehr abspielbar sind.";
 
 "playlist_import_incomplete_format" = "%d Titel geladen, aber die Playlist ist unvollständig. Du kannst diese Titel jetzt importieren oder erneut laden.";
 "playlist_import_quota_format" = "%1$d Titel geladen; weitere Seiten sind pausiert. %2$@ Du kannst die geladenen Titel jetzt importieren oder nach der Wartezeit erneut laden.";

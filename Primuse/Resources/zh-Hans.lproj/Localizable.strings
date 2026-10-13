@@ -700,8 +700,6 @@
 "sleep_timer_active" = "定时器已开启";
 "cancel_timer" = "取消定时器";
 "sleep_at_track_end" = "当前曲目结束后停止";
-"lyrics_translation_on" = "开启歌词翻译";
-"lyrics_translation_off" = "关闭歌词翻译";
 "minutes" = "分钟";
 "song_info" = "歌曲信息";
 "share" = "分享";
@@ -956,6 +954,7 @@
 "scrobble_validate" = "验证";
 "scrobble_token_valid" = "已生效";
 "scrobble_token_invalid" = "无效";
+"scrobble_token_unconfirmed" = "暂时无法验证";
 "scrobble_lb_get_token" = "在 ListenBrainz 获取令牌";
 "scrobble_lb_footer" = "在 listenbrainz.org/profile 复制 user token 粘贴到这里。";
 "scrobble_lastfm_api_key_placeholder" = "API Key";
@@ -5140,7 +5139,6 @@
 "lyrics_translation_local_retry" = "重新下载";
 "lyrics_translation_local_section" = "离线翻译模型";
 "lyrics_translation_local_pairs" = "英语 ↔ 波斯语";
-"lyrics_translation_local_footer" = "在本机完成英语与波斯语歌词互译，无需联网。";
 "lyrics_translation_local_ready" = "已下载";
 "lyrics_translation_local_remove" = "移除模型";
 "lyrics_translation_local_remove_confirm" = "移除离线翻译模型？之后可以重新下载。";
@@ -5199,7 +5197,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "英语 ↔ 中文、日语、韩语";
 
-"lyrics_translation_local_cjk_footer" = "在本机完成简繁中文、日语、韩语与英语的歌词互译，其他语言组合经英语中转，无需联网。";
 
 "songs_show_column_headers" = "显示列标题";
 "playlist_hide_network_notice" = "隐藏网络提示";
@@ -6087,6 +6084,43 @@
 "listening_space_tint_artwork_hint" = "跟着正在播放的封面变；小组件里按主题色显示。";
 "listening_space_tint_fixed" = "固定颜色";
 "listening_space_tint_fixed_hint" = "从色板里挑，或在下面自己调";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "这首歌不用翻译：已经是目标语言，或者歌词自带译文。";
+"lyrics_translation_offline_done" = "已用离线翻译包翻译";
+"lyrics_translation_offline_needs_pack_format" = "这首歌要用「%@」离线翻译包";
+"lyrics_translation_offline_unsupported" = "离线翻译包译不了这首歌的语言，可以改用智能翻译。";
+"lyrics_translation_ai_needs_builtin_consent" = "选的是内置 AI，看过说明并同意之前不会发送歌词。";
+"lyrics_translation_ai_needs_remote_consent" = "还没允许向智能服务发送内容，歌词不会发出去。允许后，其他智能功能也会按各自的开关发送内容。";
+"lyrics_translation_ai_no_service" = "还没有能用的智能服务：打开内置 AI，或者添加自己的服务并选好模型。";
+"lyrics_translation_ai_request_failed" = "智能翻译这次没有成功，没翻出来的行交给了其他翻译方式。";
+"lyrics_translation_off_status" = "歌词翻译已关闭";
+"lyrics_translation_preparing" = "正在准备翻译";
+"lyrics_translation_preferences_section" = "翻译方式与语言";
+"lyrics_translation_mode_smart" = "智能翻译";
+"lyrics_translation_mode_offline" = "离线翻译包";
+"lyrics_translation_mode_off" = "关闭";
+"lyrics_translation_tv_mode_smart_footer" = "交给智能功能里为「歌词翻译」选的服务，可以是内置 AI，也可以是你自己的服务；没翻出来的行再用离线翻译包。";
+"lyrics_translation_tv_mode_offline_footer" = "在 Apple TV 上本机翻译，不联网。第一次翻某种语言前，要先下载对应的离线翻译包。";
+"lyrics_translation_ai_ready" = "智能翻译可以用了：歌词会发给智能功能里为「歌词翻译」选的服务。";
+"lyrics_translation_ai_allow_sending" = "允许发送内容";
+"lyrics_translation_offline_unavailable_system" = "这台设备现在下载不了离线翻译包（需要 tvOS 26.4 或更新版本）。";
+"lyrics_translation_tv_offline_footer" = "英语与波斯语、英语与中文（简体、繁体）日语韩语之间直接翻译，这几种语言之间经英语中转。翻译包下载后存在本机，可以随时移除。";
+"lyrics_translation_tv_open_panel_hint" = "按播放控制里的歌词翻译键处理";
+"lyrics_translation_ai_fell_back_offline" = "智能翻译没用上，改用了离线翻译包";
+"lyrics_translation_use_smart" = "歌词用智能翻译";
+"lyrics_translation_ai_notice_builtin_consent" = "内置 AI 还没同意使用，这次用了系统翻译";
+"lyrics_translation_ai_notice_remote_consent" = "还没允许发送内容，这次用了系统翻译";
+"lyrics_translation_ai_notice_no_service" = "没有可用的智能服务，这次用了系统翻译";
+"lyrics_translation_ai_not_ready_title" = "智能翻译还不能用";
+"lyrics_translation_extension_section" = "扩展语言";
+"lyrics_translation_persian_extension_footer" = "系统翻译不支持波斯语。下载后，波斯语歌词与译成波斯语都在本机完成，不联网。";
+"lyrics_translation_cjk_bridge_footer" = "英语与中文、日语、韩语之间平时用系统翻译。这个翻译包只在波斯语与中日韩互译、又没装系统语言包时用来中转，用不到可以移除。";
+"lyrics_translation_offline_failed_try_smart" = "翻译包暂时下载不了，先改用智能翻译";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "从这台 Apple TV 移除「%@」？";
+"tv_remove_from_device_confirm_message" = "只移除这台 Apple TV 曲库里的记录，网盘或服务器上的文件不受影响，之后扫描也不会再加回来。网盘上已经删掉、放不了的失效条目也可以这样清掉。";
 
 "playlist_import_incomplete_format" = "已读取 %d 首歌曲，但歌单尚未完整加载。可以现在导入这些歌曲，或重新读取。";
 "playlist_import_quota_format" = "已读取 %1$d 首歌曲，其余页面已暂停。%2$@ 可以现在导入已读取的歌曲，或等待后重试。";

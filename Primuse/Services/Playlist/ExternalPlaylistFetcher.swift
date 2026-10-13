@@ -2,17 +2,56 @@ import Foundation
 import MusicKit
 import PrimuseKit
 
+/// The SDK owns authorization and transport. The importer only sees a page and
+/// its continuation, so cancellation/pagination can be tested without a live account.
+struct AppleMusicPlaylistPage: Sendable {
+    let name: String
+    let tracks: [ExternalPlaylistTrack]
+    var next: (@Sendable () async throws -> AppleMusicPlaylistPage?)?
+
+    static func load(id: String) async throws -> AppleMusicPlaylistPage {
+        if MusicAuthorization.currentStatus != .authorized {
+            guard await MusicAuthorization.request() == .authorized else {
+                throw ExternalPlaylistFetcher.FetchError.appleMusicNotAuthorized
+            }
+        }
+        var request = MusicCatalogResourceRequest<MusicKit.Playlist>(matching: \.id, equalTo: MusicItemID(id))
+        request.properties = [.tracks]
+        let response = try await request.response()
+        guard let playlist = response.items.first else { throw ExternalPlaylistFetcher.FetchError.notFoundOrPrivate }
+        return page(name: playlist.name, batch: playlist.tracks)
+    }
+
+    private static func page(name: String, batch: MusicItemCollection<Track>?) -> AppleMusicPlaylistPage {
+        let tracks = (batch.map(Array.init) ?? []).map { track in
+            ExternalPlaylistTrack(title: track.title, artists: [track.artistName],
+                album: track.albumTitle, duration: track.duration, externalID: track.id.rawValue)
+        }
+        var result = AppleMusicPlaylistPage(name: name, tracks: tracks)
+        if let batch, batch.hasNextBatch {
+            result.next = {
+                guard let next = try await batch.nextBatch() else { return nil }
+                return page(name: name, batch: next)
+            }
+        }
+        return result
+    }
+}
+
 /// 按分享链接读取其他音乐 App 的公开歌单(只取歌名、歌手、专辑、时长)。
 /// 链接识别、请求与响应格式都在 Kit 的 `ExternalPlaylistImport.swift` 里。
 struct ExternalPlaylistFetcher: Sendable {
     private let session: URLSession
+    private let appleMusicPage: @Sendable (String) async throws -> AppleMusicPlaylistPage
     private let quotaRegistry: RequestQuotaRegistry
     private static let service = RequestQuota.Service(id: "playlist.public-http", policy: .init(
         maximumConcurrentRequests: 2, maximumAttempts: 2, timeout: 60
     ))
 
-    init(session: URLSession = .shared, quotaRegistry: RequestQuotaRegistry = .shared) {
+    init(session: URLSession = .shared, quotaRegistry: RequestQuotaRegistry = .shared,
+         appleMusicPage: @escaping @Sendable (String) async throws -> AppleMusicPlaylistPage = AppleMusicPlaylistPage.load) {
         self.session = session
+        self.appleMusicPage = appleMusicPage
         self.quotaRegistry = quotaRegistry
     }
 
@@ -287,37 +326,22 @@ struct ExternalPlaylistFetcher: Sendable {
 
     /// Apple Music 走系统 MusicKit 的目录接口，能分页取全。要先得到「媒体与 Apple Music」授权。
     private func fetchAppleMusic(id: String) async throws -> ExternalPlaylist {
-        if MusicAuthorization.currentStatus != .authorized {
-            guard await MusicAuthorization.request() == .authorized else {
-                throw FetchError.appleMusicNotAuthorized
-            }
-        }
-        var request = MusicCatalogResourceRequest<MusicKit.Playlist>(matching: \.id, equalTo: MusicItemID(id))
-        request.properties = [.tracks]
-        let response: MusicCatalogResourceResponse<MusicKit.Playlist>
         do {
-            response = try await request.response()
-        } catch {
-            throw FetchError.network(error.localizedDescription)
-        }
-        guard let playlist = response.items.first else { throw FetchError.notFoundOrPrivate }
-        var tracks: [ExternalPlaylistTrack] = []
-        var batch = playlist.tracks
-        while let current = batch, tracks.count < Self.maximumTracks {
             try Task.checkCancellation()
-            for track in current {
-                tracks.append(ExternalPlaylistTrack(
-                    title: track.title,
-                    artists: [track.artistName],
-                    album: track.albumTitle,
-                    duration: track.duration,
-                    externalID: track.id.rawValue
-                ))
+            let playlist = try await appleMusicPage(id)
+            var tracks: [ExternalPlaylistTrack] = []
+            var batch = playlist
+            while true {
+                try Task.checkCancellation()
+                tracks.append(contentsOf: batch.tracks.prefix(Self.maximumTracks - tracks.count))
+                guard tracks.count < Self.maximumTracks, let next = batch.next else { break }
+                guard let nextPage = try await next() else { throw FetchError.unexpectedResponse }
+                batch = nextPage
             }
-            guard current.hasNextBatch else { break }
-            batch = try? await current.nextBatch()
+            return ExternalPlaylist(name: playlist.name, platform: .appleMusic, tracks: tracks)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         }
-        return ExternalPlaylist(name: playlist.name, platform: .appleMusic, tracks: Array(tracks.prefix(Self.maximumTracks)))
     }
 
     private func fetchDeezer(id: String) async throws -> ExternalPlaylist {

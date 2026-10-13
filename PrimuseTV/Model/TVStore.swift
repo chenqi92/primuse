@@ -869,6 +869,8 @@ final class TVStore {
     @ObservationIgnored private var syncTask: Task<TVSyncOutcome, Never>?
     private var locallyRemovedSourceIDs: Set<String>
     private var locallyScannedSourceIDs: Set<String>
+    /// 封面流两侧换图用的曲库专辑,见 `albumFlowCoverPool()`。
+    @ObservationIgnored private var albumFlowCoverPoolCache: (albumCount: Int, songs: [Song]) = (-1, [])
     private var sourceAuthenticationFailures: Set<String> = []
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
@@ -1573,6 +1575,27 @@ final class TVStore {
     }
 
     func isLiked(_ id: String) -> Bool { library.isLiked(songID: id) }
+    /// 从这台 Apple TV 的曲库里移除这些歌,网盘、服务器上的文件不动。网盘上已经删掉、扫描又没
+    /// 清掉的失效条目靠它清;记在本机排除表里,之后的扫描和手机同步过来的曲库都不会再加回来。
+    func removeSongsFromThisDevice(_ songIDs: [String]) {
+        let songs = songIDs.compactMap { library.song(id: $0) }
+        guard !songs.isEmpty else { return }
+        if let current = currentSongID, songs.contains(where: { $0.id == current }) {
+            transportForward()
+        }
+        do {
+            let remaining = try library.removeSongsFromThisDevice(songs, reason: .userKeptRemoteFile)
+            for (sourceID, count) in remaining {
+                sourcesStore.updateLocal(sourceID) { $0.songCount = count }
+            }
+            plog("TVStore: removed \(songs.count) songs from this device")
+        } catch {
+            plog("⚠️ TVStore: remove from this device failed \(LogRedactionPolicy.errorSummary(error))")
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+        }
+        refreshVisibility()
+    }
+
     func toggleLiked(_ id: String) {
         guard canMutateLibrary else {
             playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
@@ -2783,6 +2806,7 @@ final class TVStore {
         if await canonicalizeLegacySongIDs(), library.songs.count < beforeCanonicalCount {
             plog("TVStore: collapsed \(beforeCanonicalCount - library.songs.count) phone-ID duplicates after sync")
         }
+        await adoptTVSongIDsForLocallyScannedFiles(before: before)
         let incomingIDs = Set(library.songs.map(\.id))
         let tvOnly = before.filter {
             locallyScannedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
@@ -2800,6 +2824,29 @@ final class TVStore {
         // 电视上匹配 / 补全过的信息只存在本机,快照整份覆盖之后按台账补回来。放在
         // 音乐源重载之后:这里会让出主 actor,不能夹在事务写盘与重载音乐源之间。
         await metadataScraper.replayOverrides()
+    }
+
+    /// 网盘歌曲的 ID 两端算法不同:手机按文件路径算(百度按文件 ID,但没有截成电视的长度),
+    /// 电视按网盘的文件 ID 算。快照装进来后,同一个文件就有手机那行和电视自己扫的那行,
+    /// 曲库里成了两份,标签不同时还会分成两张专辑。电视扫过的源按文件位置把手机那行换成
+    /// 电视的 ID,两行并成一行(播放记录、喜欢、歌单跟着换)。
+    private func adoptTVSongIDsForLocallyScannedFiles(before: [Song]) async {
+        let tvIDByFile = Dictionary(
+            before.lazy
+                .filter { self.locallyScannedSourceIDs.contains($0.sourceID) }
+                .map { (Self.scanFileIdentity($0), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !tvIDByFile.isEmpty else { return }
+        // 安装时电视自己扫的那行已经接在手机那些行后面;换 ID 撞上时留排在前面的手机那行。
+        var replacements: [String: String] = [:]
+        for song in library.songs where locallyScannedSourceIDs.contains(song.sourceID) {
+            guard let tvID = tvIDByFile[Self.scanFileIdentity(song)], tvID != song.id else { continue }
+            replacements[song.id] = tvID
+        }
+        guard !replacements.isEmpty, await library.remapSongIDsInBackground(replacements) else { return }
+        applySongIDReplacements(replacements, remapLibrary: false)
+        plog("TVStore: matched \(replacements.count) phone rows to TV-scanned files after sync")
     }
 
     /// 快照里的电台进本机。本机已有清单时逐条按修改时间合并:电视上的增删改名排序、
@@ -4295,17 +4342,16 @@ final class TVStore {
         return outcome
     }
 
-    /// 只重扫一个文件夹时交给剪枝的整源清单:这次列到的歌 + 文件夹外原样带过去的行
-    /// (含这台设备上移除过、留着备恢复的行)。剪掉的只会是文件夹里没再列到的歌。
-    private func folderScanIncoming(_ scanned: [Song], folder: String, sourceID: String) -> [Song] {
+    /// 只重扫一个(或增量扫描所选的几个)文件夹时交给剪枝的整源清单:这次列到的歌 + 文件夹外
+    /// 原样带过去的行(含这台设备上移除过、留着备恢复的行)。剪掉的只会是文件夹里没再列到的歌。
+    private func folderScanIncoming(_ scanned: [Song], folders: [String], sourceID: String) -> [Song] {
         var seen = Set(scanned.map(\.id))
         var incoming = scanned
-        let outside = library.songs.lazy.filter {
-            $0.sourceID == sourceID && !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
+        func isOutside(_ song: Song) -> Bool {
+            !folders.contains { TVFolderRescanPolicy.contains(filePath: song.filePath, inDirectory: $0) }
         }
-        let retainedOutside = library.locallyRemovedEntries(forSourceID: sourceID).lazy.map(\.song).filter {
-            !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
-        }
+        let outside = library.songs.lazy.filter { $0.sourceID == sourceID && isOutside($0) }
+        let retainedOutside = library.locallyRemovedEntries(forSourceID: sourceID).lazy.map(\.song).filter(isOutside)
         for song in outside where seen.insert(song.id).inserted { incoming.append(song) }
         for song in retainedOutside where seen.insert(song.id).inserted { incoming.append(song) }
         return incoming
@@ -4591,7 +4637,14 @@ final class TVStore {
                 pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
             } else if let folder, result.canPrune {
                 pruningRecovery = library.beginScanPruning(
-                    folderScanIncoming(result.songs, folder: folder, sourceID: source.id),
+                    folderScanIncoming(result.songs, folders: [folder], sourceID: source.id),
+                    sourceID: source.id
+                )
+            } else if mode == .incremental, result.canPrune, TVFolderRescanPolicy.supports(source.type) {
+                // 增量扫描只走了所选目录:目录里没再列到的歌(网盘、NAS 上已经删掉)清掉,
+                // 目录外的照留。网盘按文件 ID 定位、看不出哪首在哪个目录底下,只能交给完整扫描。
+                pruningRecovery = library.beginScanPruning(
+                    folderScanIncoming(result.songs, folders: roots, sourceID: source.id),
                     sourceID: source.id
                 )
             }
@@ -6086,20 +6139,72 @@ final class TVStore {
 
     /// 全屏「封面流」(#191)两侧：队列里刚放过的几首在左、接下来的在右，按离当前由近到远。
     /// 身份带上队列位置，同一首歌在队列里出现两次也是两张；换歌时每张沿用自己的身份，整排滑过去。
+    /// 和中间同一张专辑的卡换成曲库里别的专辑封面(`AlbumFlowCoverVarietyPolicy`):整张专辑连着放时
+    /// 两侧不再一排同样的封面。只换画面,遥控器左右键仍是上一首、下一首,不看卡片画的是什么。
     func albumFlowNeighbors(perSide: Int) -> AlbumFlowNeighbors {
         guard !isLiveRadio, perSide > 0, queue.indices.contains(queueIndex) else {
             return AlbumFlowNeighbors(centerID: nowPlaying.songID.isEmpty ? nil : nowPlaying.songID)
         }
-        func item(_ index: Int) -> AlbumFlowNeighbors.Item? {
-            library.song(id: queue[index]).map { AlbumFlowNeighbors.Item(id: "\(index):\(queue[index])", song: $0) }
+        func entries(_ indices: some Sequence<Int>) -> [(index: Int, song: Song)] {
+            indices.compactMap { index in library.song(id: queue[index]).map { (index, $0) } }
         }
-        let before = (max(0, queueIndex - perSide)..<queueIndex).reversed().compactMap(item)
-        let after = (queueIndex + 1 ..< min(queue.count, queueIndex + 1 + perSide)).compactMap(item)
+        let before = entries((max(0, queueIndex - perSide)..<queueIndex).reversed())
+        let after = entries(queueIndex + 1 ..< min(queue.count, queueIndex + 1 + perSide))
+        let center = library.song(id: queue[queueIndex])
+        let pool = center == nil ? [] : albumFlowCoverPool()
+        var picks: (before: [Int?], after: [Int?]) = (before.map { _ in nil }, after.map { _ in nil })
+        if let center, !pool.isEmpty {
+            picks = AlbumFlowCoverVarietyPolicy.substitutes(
+                centerAlbum: Self.albumFlowAlbumKey(center),
+                before: before.map { .init(position: $0.index, album: Self.albumFlowAlbumKey($0.song)) },
+                after: after.map { .init(position: $0.index, album: Self.albumFlowAlbumKey($0.song)) },
+                pool: pool.map(Self.albumFlowAlbumKey)
+            )
+        }
+        func items(_ entries: [(index: Int, song: Song)], _ picks: [Int?]) -> [AlbumFlowNeighbors.Item] {
+            zip(entries, picks).map { entry, pick in
+                AlbumFlowNeighbors.Item(
+                    id: "\(entry.index):\(queue[entry.index])",
+                    song: pick.map { pool[$0] } ?? entry.song
+                )
+            }
+        }
         return AlbumFlowNeighbors(
             centerID: "\(queueIndex):\(queue[queueIndex])",
-            before: before,
-            after: after
+            before: items(before, picks.before),
+            after: items(after, picks.after)
         )
+    }
+
+    private static func albumFlowAlbumKey(_ song: Song) -> String {
+        song.albumID ?? song.albumTitle ?? song.id
+    }
+
+    /// 封面流两侧换上的曲库专辑:有封面、不是有声书,隔着取遍整个曲库,顺序固定 ——
+    /// 换上的图按队列位置从这里取,顺序一变卡片就会换图,所以只在专辑数变了时重取。
+    private func albumFlowCoverPool() -> [Song] {
+        let albums = library.visibleAlbums
+        if albumFlowCoverPoolCache.albumCount == albums.count { return albumFlowCoverPoolCache.songs }
+        let limit = 40
+        let step = max(1, albums.count / (limit * 2))
+        var songs: [Song] = []
+        var index = 0
+        while index < albums.count, songs.count < limit {
+            if let song = library.preferredArtworkSong(forAlbumID: albums[index].id),
+               !(song.coverArtFileName ?? "").isEmpty,
+               !isSpokenWord(songID: song.id) {
+                songs.append(song)
+            }
+            index += step
+        }
+        // 按专辑键打散:曲库按名字排,挨着取会是同一位艺人的一串专辑。
+        songs.sort { Self.stableHash(Self.albumFlowAlbumKey($0)) < Self.stableHash(Self.albumFlowAlbumKey($1)) }
+        albumFlowCoverPoolCache = (albums.count, songs)
+        return songs
+    }
+
+    private static func stableHash(_ value: String) -> UInt64 {
+        value.utf8.reduce(14_695_981_039_346_656_037) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
     }
 
     private func refreshUpNext() {
@@ -7084,6 +7189,14 @@ final class TVStore {
               let index = lyrics.firstIndex(where: { $0.id == lineID }),
               lyrics[index].translation.isEmpty else { return }
         lyrics[index] = lyrics[index].withTranslation(translation)
+    }
+
+    /// 智能翻译流式重来时撤回这一轮已经上屏的机器译文(歌词文件自带的译文不会走到这里)。
+    func removeLyricTranslation(lineID: String, forSongID songID: String) {
+        guard currentSongID == songID,
+              let index = lyrics.firstIndex(where: { $0.id == lineID }),
+              !lyrics[index].translation.isEmpty else { return }
+        lyrics[index] = lyrics[index].withTranslation("")
     }
 
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。

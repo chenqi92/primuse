@@ -19,6 +19,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
+    /// 迷你播放器在独立窗口里,环境里不一定有它;没有时菜单不给「智能翻译」。
+    @Environment(MusicIntelligenceService.self) private var intelligence: MusicIntelligenceService?
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
@@ -50,6 +52,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// Button 是真 Button,整个 frame 都是 hit-testable。
     @State private var menuShown = false
     @State private var fontPickerShown = false
+    @State private var translationPickerShown = false
     @State private var equalizerPickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
@@ -431,6 +434,32 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .popover(isPresented: $fontPickerShown, arrowEdge: .leading) {
                 fontPickerPopover
             }
+            // 歌词翻译:关闭 / 系统翻译 / 智能翻译直接在这里选,和 iPhone 播放页菜单一致。
+            if !isSpokenWord {
+                Button { translationPickerShown.toggle() } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: LyricsTranslationSettingsStore.shared.isEnabled
+                              ? "character.bubble.fill" : "character.bubble")
+                            .frame(width: 18)
+                            .foregroundStyle(PMColor.textMuted)
+                        Text("lyrics_translation_title")
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        Text(lyricsTranslationChoiceTitle(selectedLyricsTranslationChoice))
+                            .font(.caption)
+                            .foregroundStyle(PMColor.textFaint)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $translationPickerShown, arrowEdge: .leading) {
+                    translationPickerPopover
+                }
+            }
             divider()
             if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
                 menuRow(title: "karaoke_title", symbol: "music.mic.circle") {
@@ -716,6 +745,64 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             )
         }
+    }
+
+    private var offersSmartLyricsTranslation: Bool {
+        intelligence?.shouldExposeRemoteConfiguration == true
+    }
+
+    /// nil 是关闭。
+    private var selectedLyricsTranslationChoice: LyricsTranslationMode? {
+        let settings = LyricsTranslationSettingsStore.shared
+        guard settings.isEnabled else { return nil }
+        return offersSmartLyricsTranslation ? settings.mode : .system
+    }
+
+    private func lyricsTranslationChoiceTitle(_ choice: LyricsTranslationMode?) -> LocalizedStringKey {
+        switch choice {
+        case nil: "lyrics_translation_mode_off"
+        case .system: "lyrics_translation_mode_system"
+        case .intelligentWithSystemFallback: "lyrics_translation_mode_smart"
+        }
+    }
+
+    private var translationPickerPopover: some View {
+        let choices: [LyricsTranslationMode?] = offersSmartLyricsTranslation
+            ? [nil, .system, .intelligentWithSystemFallback]
+            : [nil, .system]
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(choices, id: \.self) { choice in
+                Button {
+                    let settings = LyricsTranslationSettingsStore.shared
+                    if let choice {
+                        settings.mode = choice
+                        settings.isEnabled = true
+                    } else {
+                        settings.isEnabled = false
+                    }
+                    translationPickerShown = false
+                } label: {
+                    HStack {
+                        Text(lyricsTranslationChoiceTitle(choice))
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        if choice == selectedLyricsTranslationChoice {
+                            Image(systemName: "checkmark")
+                                .font(.caption)
+                                .foregroundStyle(PMColor.brand)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 180)
+        .focusEffectDisabled()
     }
 
     private var fontPickerPopover: some View {

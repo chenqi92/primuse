@@ -1483,6 +1483,7 @@ struct AISettingsView: View {
                 }
                 if lyricsTranslation.mode == .intelligentWithSystemFallback {
                     routeRow(.lyricsTranslation)
+                    LyricsAITranslationReadinessRow(linksToIntelligenceSettings: false)
                 }
             }
 

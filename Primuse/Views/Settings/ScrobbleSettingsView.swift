@@ -16,6 +16,8 @@ struct ScrobbleSettingsView: View {
 
     @State private var listenBrainzToken: String = ""
     @State private var listenBrainzValid: Bool? = nil  // nil=未测试, true=有效, false=无效
+    /// 点了验证但限流、服务故障或断网,确认不了 token 有效还是无效。
+    @State private var listenBrainzUnconfirmed = false
     @State private var isValidatingLB = false
 
     @State private var lastFmAPIKey: String = ""
@@ -321,6 +323,10 @@ struct ScrobbleSettingsView: View {
                             Label(valid ? String(localized: "scrobble_token_valid") : String(localized: "scrobble_token_invalid"), systemImage: valid ? "checkmark.circle.fill" : "xmark.circle.fill")
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(valid ? PMColor.ok : PMColor.bad)
+                        } else if listenBrainzUnconfirmed {
+                            Label(String(localized: "scrobble_token_unconfirmed"), systemImage: "exclamationmark.circle.fill")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(PMColor.textMuted)
                         }
 
                         Spacer()
@@ -688,6 +694,9 @@ struct ScrobbleSettingsView: View {
                             Label("scrobble_token_invalid", systemImage: "xmark.circle.fill")
                                 .font(.caption).foregroundStyle(.red)
                         }
+                    } else if listenBrainzUnconfirmed {
+                        Label("scrobble_token_unconfirmed", systemImage: "exclamationmark.circle.fill")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
@@ -937,6 +946,7 @@ struct ScrobbleSettingsView: View {
         // 已有 token 默认显示 valid (不强制立即触发网络验证)。
         if !listenBrainzToken.isEmpty {
             listenBrainzValid = true
+            listenBrainzUnconfirmed = false
         }
 
         lastFmAPIKey = LastFmCredentialsStore.loadAPIKey()
@@ -964,6 +974,7 @@ struct ScrobbleSettingsView: View {
                 return
             }
             listenBrainzValid = nil
+            listenBrainzUnconfirmed = false
         } else {
             guard KeychainService.setPassword(
                 trimmed,
@@ -1006,6 +1017,7 @@ struct ScrobbleSettingsView: View {
         let provider = ListenBrainzProvider(userToken: trimmed)
         let result = await provider.validateCredentials()
         listenBrainzValid = result
+        listenBrainzUnconfirmed = result == nil
     }
 }
 

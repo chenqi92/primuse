@@ -85,9 +85,7 @@ struct TVSettingsView: View {
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
-    @State private var showsTranslationModelRemoval = false
-    @State private var translationModelRemovalPack: LocalLyricsTranslationModel.Pack = .persian
-    private var localTranslation: LocalLyricsTranslationService { .shared }
+    @State private var showsTranslationPanel = false
     @State private var appleMusic = TVAppleMusicCatalog()
 
     private var immersiveEffect: FullscreenPlayerEffect {
@@ -296,8 +294,8 @@ struct TVSettingsView: View {
                 .padding(.vertical, 48)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .disabled(showsEffectPicker || showsThemePicker || showsTranslationModelRemoval)
-            .accessibilityHidden(showsEffectPicker || showsThemePicker || showsTranslationModelRemoval)
+            .disabled(showsEffectPicker || showsThemePicker)
+            .accessibilityHidden(showsEffectPicker || showsThemePicker)
 
             if showsEffectPicker {
                 TVFullscreenEffectPicker(
@@ -307,12 +305,6 @@ struct TVSettingsView: View {
                 )
                 .transition(.opacity)
                 .zIndex(10)
-            }
-
-            if showsTranslationModelRemoval {
-                translationModelRemovalConfirmation
-                    .transition(.opacity)
-                    .zIndex(12)
             }
 
             if showsThemePicker {
@@ -327,7 +319,6 @@ struct TVSettingsView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsTranslationModelRemoval)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
         .fullScreenCover(isPresented: $showsHomeSectionsSettings) {
@@ -336,6 +327,11 @@ struct TVSettingsView: View {
         .fullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
+                .environment(intelligence)
+        }
+        .fullScreenCover(isPresented: $showsTranslationPanel) {
+            TVLyricsTranslationPanel(showsCurrentSong: false)
+                .environment(store)
                 .environment(intelligence)
         }
         .fullScreenCover(isPresented: $showsMetadata) {
@@ -354,8 +350,8 @@ struct TVSettingsView: View {
                 showsMetadata = false
             } else if showsScraperSettings {
                 showsScraperSettings = false
-            } else if showsTranslationModelRemoval {
-                showsTranslationModelRemoval = false
+            } else if showsTranslationPanel {
+                showsTranslationPanel = false
             } else if showsAISettings {
                 showsAISettings = false
             } else if showsThemePicker {
@@ -375,20 +371,8 @@ struct TVSettingsView: View {
 
     // MARK: Lyrics translation
 
-    /// Apple TV has no system translator: lyrics are translated only by the
-    /// downloadable offline model, so the targets are the languages it covers.
-    private static let translationTargets = [
-        LocalLyricTranslationPolicy.persianIdentity,
-        LocalLyricTranslationPolicy.englishIdentity,
-    ]
-
-    private var translationTarget: String {
-        let current = LyricsTranslationSettingsStore.normalizedLanguageCode(translationSettings.targetLanguageCode)
-        return Self.translationTargets.first {
-            LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, current)
-        } ?? Self.translationTargets[0]
-    }
-
+    /// 开关留在这一页;译成什么、离线翻译包还是智能翻译、下载翻译包都在面板里,
+    /// 和播放页「歌词翻译」键打开的是同一个。
     @ViewBuilder
     private var lyricsTranslationSection: some View {
         settingsSection(String(localized: "lyrics_translation_section")) {
@@ -399,7 +383,13 @@ struct TVSettingsView: View {
                     get: { translationSettings.isEnabled },
                     set: { enabled in
                         if enabled {
-                            translationSettings.targetLanguageCode = translationTarget
+                            let codes = LyricsTranslationSettingsStore.tvTargetLanguages(
+                                intelligent: usesSmartLyricsTranslation
+                            )
+                            translationSettings.targetLanguageCode = LyricsTranslationSettingsStore.target(
+                                translationSettings.targetLanguageCode,
+                                within: codes
+                            )
                         }
                         translationSettings.isEnabled = enabled
                     }
@@ -408,94 +398,28 @@ struct TVSettingsView: View {
             if translationSettings.isEnabled {
                 settingDivider
                 navRow(
-                    "globe",
-                    String(localized: "lyrics_translation_target"),
-                    Locale.current.localizedString(forIdentifier: translationTarget) ?? translationTarget,
-                    trailing: "arrow.left.arrow.right"
+                    "slider.horizontal.3",
+                    String(localized: "lyrics_translation_preferences_section"),
+                    lyricsTranslationSummary
                 ) {
-                    let index = Self.translationTargets.firstIndex(of: translationTarget) ?? 0
-                    translationSettings.targetLanguageCode =
-                        Self.translationTargets[(index + 1) % Self.translationTargets.count]
-                }
-                ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
-                    if localTranslation.modelState(for: pack) != .unsupportedSystem {
-                        settingDivider
-                        navRow(
-                            "arrow.down.circle",
-                            String(localized: String.LocalizationValue(pack.pairsKey)),
-                            translationModelStatus(for: pack),
-                            trailing: translationModelTrailingIcon(for: pack)
-                        ) { translationModelAction(for: pack) }
-                    }
+                    showsTranslationPanel = true
                 }
             }
         }
-        .task { localTranslation.refreshAvailability() }
     }
 
-    private func translationModelStatus(for pack: LocalLyricsTranslationModel.Pack) -> String {
-        switch localTranslation.modelState(for: pack) {
-        case .ready:
-            return String(localized: "lyrics_translation_local_ready")
-        case .downloading(let fraction):
-            return fraction.formatted(.percent.precision(.fractionLength(0)))
-        case .failed:
-            return localTranslation.modelFailureReason(for: pack) ?? String(localized: "lyrics_translation_local_retry")
-        case .notDownloaded, .unsupportedSystem:
-            return String(
-                format: String(localized: "lyrics_translation_local_download_size_format"),
-                ByteCountFormatter.string(
-                    fromByteCount: pack.approximateDownloadBytes,
-                    countStyle: .file
-                )
-            )
-        }
+    private var usesSmartLyricsTranslation: Bool {
+        intelligence.shouldExposeRemoteConfiguration
+            && translationSettings.mode == .intelligentWithSystemFallback
     }
 
-    private func translationModelTrailingIcon(for pack: LocalLyricsTranslationModel.Pack) -> String {
-        switch localTranslation.modelState(for: pack) {
-        case .ready: return "trash"
-        case .failed: return "arrow.clockwise"
-        case .downloading: return "hourglass"
-        case .notDownloaded, .unsupportedSystem: return "arrow.down.circle"
-        }
-    }
-
-    private func translationModelAction(for pack: LocalLyricsTranslationModel.Pack) {
-        switch localTranslation.modelState(for: pack) {
-        case .notDownloaded, .failed:
-            localTranslation.downloadModel(pack)
-        case .ready:
-            translationModelRemovalPack = pack
-            showsTranslationModelRemoval = true
-        case .downloading, .unsupportedSystem:
-            break
-        }
-    }
-
-    private var translationModelRemovalConfirmation: some View {
-        ZStack {
-            TVColor.bg.opacity(0.62).ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 24) {
-                Text("lyrics_translation_local_remove_confirm").tvFont(.sectionTitle)
-                HStack(spacing: 18) {
-                    TVPillButton(
-                        title: String(localized: "lyrics_translation_local_remove"),
-                        systemImage: "trash",
-                        style: .solid
-                    ) {
-                        showsTranslationModelRemoval = false
-                        Task { await localTranslation.removeModel(translationModelRemovalPack) }
-                    }
-                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") {
-                        showsTranslationModelRemoval = false
-                    }
-                }
-            }
-            .padding(36)
-            .frame(width: 780, alignment: .leading)
-            .tvPanel(radius: 22)
-        }
+    private var lyricsTranslationSummary: String {
+        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: usesSmartLyricsTranslation)
+        let target = LyricsTranslationSettingsStore.target(translationSettings.targetLanguageCode, within: codes)
+        let mode = String(localized: usesSmartLyricsTranslation
+                          ? "lyrics_translation_mode_smart"
+                          : "lyrics_translation_mode_offline")
+        return TVLyricsTranslationPanel.languageName(target) + " · " + mode
     }
 
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

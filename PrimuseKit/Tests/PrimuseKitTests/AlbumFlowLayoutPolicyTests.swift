@@ -184,3 +184,82 @@ struct AlbumFlowLayoutPolicyTests {
         #expect(AlbumFlowLayoutPolicy.releaseStep(shift: 0.2, predictedShift: -0.9) == 0)
     }
 }
+
+@Suite("Album flow cover variety")
+struct AlbumFlowCoverVarietyPolicyTests {
+    private typealias Card = AlbumFlowCoverVarietyPolicy.Card
+
+    @Test("Side cards from the playing album take library covers, one per queue position")
+    func sameAlbumCardsAreReplaced() {
+        let pool = ["B", "C", "D", "E", "F", "G"]
+        let result = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [Card(position: 4, album: "A"), Card(position: 3, album: "A")],
+            after: [Card(position: 6, album: "A"), Card(position: 7, album: "A")],
+            pool: pool
+        )
+        let shown = (result.before + result.after).map { $0.map { pool[$0] } }
+        #expect(shown.allSatisfy { $0 != nil && $0 != "A" })
+        #expect(Set(shown.compactMap { $0 }).count == 4)
+    }
+
+    @Test("A card keeps its substitute while the row slides along the queue")
+    func substituteFollowsQueuePosition() {
+        let pool = ["B", "C", "D", "E", "F", "G"]
+        let first = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [],
+            after: [Card(position: 6, album: "A"), Card(position: 7, album: "A")],
+            pool: pool
+        )
+        let moved = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [],
+            after: [Card(position: 7, album: "A"), Card(position: 8, album: "A")],
+            pool: pool
+        )
+        #expect(first.after[1] == moved.after[0])
+    }
+
+    @Test("The first card of the next album keeps its own cover, the rest of that album are replaced")
+    func nextAlbumIsPreviewed() {
+        let result = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [],
+            after: [
+                Card(position: 1, album: "A"),
+                Card(position: 2, album: "B"),
+                Card(position: 3, album: "B"),
+            ],
+            pool: ["B", "C", "D", "E"]
+        )
+        #expect(result.after[0] != nil)
+        #expect(result.after[1] == nil)
+        #expect(result.after[2] != nil)
+        #expect(result.after[2].map { ["B", "C", "D", "E"][$0] } != "B")
+    }
+
+    @Test("A queue of different albums is left as it is")
+    func mixedQueueUnchanged() {
+        let result = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [Card(position: 0, album: "Z")],
+            after: [Card(position: 2, album: "B"), Card(position: 3, album: "C")],
+            pool: ["B", "C", "D"]
+        )
+        #expect(result.before == [nil])
+        #expect(result.after == [nil, nil])
+    }
+
+    @Test("Too small a library keeps the original covers")
+    func smallLibrary() {
+        let result = AlbumFlowCoverVarietyPolicy.substitutes(
+            centerAlbum: "A",
+            before: [Card(position: 0, album: "A")],
+            after: [Card(position: 2, album: "A")],
+            pool: ["A", "B"]
+        )
+        #expect(result.before == [nil])
+        #expect(result.after == [nil])
+    }
+}

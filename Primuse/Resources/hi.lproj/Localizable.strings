@@ -2083,8 +2083,6 @@
 "lyrics_translation_mode_intelligent_footer" = "पहले वर्तमान इंटेलिजेंट सेवा का उपयोग करता है, फिर अनुपलब्ध होने पर स्वचालित रूप से सिस्टम अनुवाद पर स्विच करता है। वे कभी एक साथ नहीं चलते.";
 "lyrics_translation_mode_system" = "सिस्टम अनुवाद";
 "lyrics_translation_mode_system_footer" = "Apple के अनुवाद ढांचे का उपयोग करता है। भाषा पैक पहली बार डाउनलोड किया जा सकता है।";
-"lyrics_translation_off" = "गीत के बोल अनुवाद छुपाएं";
-"lyrics_translation_on" = "गीत के बोल अनुवाद दिखाएँ";
 "lyrics_translation_overall_footer" = "सिस्टम या बुद्धिमान अनुवाद का उपयोग करके प्रत्येक पंक्ति के नीचे अनुवादित पाठ दिखाएं।";
 "lyrics_translation_section" = "अनुवाद";
 "lyrics_romanization_section" = "रोमनीकरण";
@@ -2948,6 +2946,7 @@
 "scrobble_send_now_playing" = "अभी भेजें चल रहा है";
 "scrobble_title" = "स्क्रोबल";
 "scrobble_token_invalid" = "अमान्य";
+"scrobble_token_unconfirmed" = "अभी जाँच नहीं हो सकती";
 "scrobble_token_valid" = "मान्य";
 "scrobble_user_token" = "उपयोगकर्ता टोकन";
 "scrobble_validate" = "मान्य करें";
@@ -4953,7 +4952,6 @@
 "lyrics_translation_local_retry" = "फिर से डाउनलोड करें";
 "lyrics_translation_local_section" = "ऑफ़लाइन अनुवाद मॉडल";
 "lyrics_translation_local_pairs" = "अंग्रेज़ी ↔ फ़ारसी";
-"lyrics_translation_local_footer" = "इस डिवाइस पर, बिना नेटवर्क कनेक्शन के, बोलों का अंग्रेज़ी और फ़ारसी के बीच अनुवाद करता है।";
 "lyrics_translation_local_ready" = "डाउनलोड हो गया";
 "lyrics_translation_local_remove" = "मॉडल हटाएँ";
 "lyrics_translation_local_remove_confirm" = "ऑफ़लाइन अनुवाद मॉडल हटाएँ? आप इसे बाद में फिर से डाउनलोड कर सकते हैं।";
@@ -5012,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "अंग्रेज़ी ↔ चीनी, जापानी, कोरियाई";
 
-"lyrics_translation_local_cjk_footer" = "इस डिवाइस पर अंग्रेज़ी और सरलीकृत या पारंपरिक चीनी, जापानी तथा कोरियाई के बीच बोलों का अनुवाद करता है। अन्य जोड़ियाँ अंग्रेज़ी के माध्यम से अनुवादित होती हैं, बिना नेटवर्क कनेक्शन के।";
 
 "songs_show_column_headers" = "कॉलम शीर्षक दिखाएँ";
 "playlist_hide_network_notice" = "नेटवर्क सूचना छिपाएँ";
@@ -5900,6 +5897,43 @@
 "listening_space_tint_artwork_hint" = "जो चल रहा है उसके कवर के साथ बदलता है। विजेट थीम रंग का उपयोग करते हैं।";
 "listening_space_tint_fixed" = "निश्चित रंग";
 "listening_space_tint_fixed_hint" = "पैलेट से चुनें या नीचे अपना रंग बनाएँ";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "अनुवाद की ज़रूरत नहीं: बोल पहले से लक्ष्य भाषा में हैं या उनमें अपना अनुवाद है।";
+"lyrics_translation_offline_done" = "ऑफ़लाइन पैक से अनुवाद किया गया";
+"lyrics_translation_offline_needs_pack_format" = "इस गाने के लिए “%@” ऑफ़लाइन पैक चाहिए";
+"lyrics_translation_offline_unsupported" = "ऑफ़लाइन पैक इस गाने की भाषा का अनुवाद नहीं कर सकते। इसके बजाय इंटेलिजेंट ट्रांसलेशन आज़माएँ।";
+"lyrics_translation_ai_needs_builtin_consent" = "बिल्ट-इन AI चुना गया है। जब तक आप देखकर सहमति नहीं देते, कोई बोल नहीं भेजे जाते।";
+"lyrics_translation_ai_needs_remote_consent" = "AI सेवाओं को सामग्री भेजने की अनुमति अभी नहीं दी गई है, इसलिए बोल नहीं भेजे जाते। अनुमति देने के बाद अन्य इंटेलिजेंट सुविधाएँ भी अपने-अपने स्विच के अनुसार सामग्री भेजेंगी।";
+"lyrics_translation_ai_no_service" = "अभी कोई AI सेवा उपलब्ध नहीं है: बिल्ट-इन AI चालू करें, या अपनी सेवा जोड़कर मॉडल चुनें।";
+"lyrics_translation_ai_request_failed" = "इस बार इंटेलिजेंट ट्रांसलेशन सफल नहीं हुआ; बाकी पंक्तियाँ दूसरे तरीके से अनूदित हुईं।";
+"lyrics_translation_off_status" = "बोलों का अनुवाद बंद है";
+"lyrics_translation_preparing" = "अनुवाद तैयार हो रहा है";
+"lyrics_translation_preferences_section" = "तरीका और भाषा";
+"lyrics_translation_mode_smart" = "इंटेलिजेंट ट्रांसलेशन";
+"lyrics_translation_mode_offline" = "ऑफ़लाइन पैक";
+"lyrics_translation_mode_off" = "बंद";
+"lyrics_translation_tv_mode_smart_footer" = "बोल इंटेलिजेंस में गीत अनुवाद के लिए चुनी गई सेवा को जाते हैं — बिल्ट-इन AI या आपकी अपनी सेवा। जो पंक्तियाँ अनूदित न हों, उन्हें ऑफ़लाइन पैक संभालते हैं।";
+"lyrics_translation_tv_mode_offline_footer" = "इसी Apple TV पर बिना इंटरनेट के अनुवाद होता है। किसी भाषा का पहली बार अनुवाद करने से पहले संबंधित ऑफ़लाइन पैक डाउनलोड करें।";
+"lyrics_translation_ai_ready" = "इंटेलिजेंट ट्रांसलेशन तैयार है: बोल गीत अनुवाद के लिए चुनी गई सेवा को भेजे जाते हैं।";
+"lyrics_translation_ai_allow_sending" = "सामग्री भेजने की अनुमति दें";
+"lyrics_translation_offline_unavailable_system" = "इस डिवाइस पर अभी ऑफ़लाइन पैक डाउनलोड नहीं हो सकते (tvOS 26.4 या बाद का चाहिए)।";
+"lyrics_translation_tv_offline_footer" = "अंग्रेज़ी और फ़ारसी, तथा अंग्रेज़ी और चीनी (सरलीकृत, पारंपरिक), जापानी और कोरियाई के बीच सीधे अनुवाद होता है; इनमें बाकी जोड़े अंग्रेज़ी से होकर जाते हैं। पैक इसी डिवाइस पर रहते हैं और कभी भी हटाए जा सकते हैं।";
+"lyrics_translation_tv_open_panel_hint" = "कंट्रोल में गीत अनुवाद बटन का उपयोग करें";
+"lyrics_translation_ai_fell_back_offline" = "इंटेलिजेंट ट्रांसलेशन इस्तेमाल नहीं हुआ; ऑफ़लाइन पैक ने अनुवाद किया";
+"lyrics_translation_use_smart" = "बोलों का AI से अनुवाद";
+"lyrics_translation_ai_notice_builtin_consent" = "बिल्ट-इन AI के लिए अभी सहमति नहीं; सिस्टम अनुवाद इस्तेमाल हुआ";
+"lyrics_translation_ai_notice_remote_consent" = "सामग्री भेजने की अनुमति नहीं; सिस्टम अनुवाद इस्तेमाल हुआ";
+"lyrics_translation_ai_notice_no_service" = "कोई AI सेवा उपलब्ध नहीं; सिस्टम अनुवाद इस्तेमाल हुआ";
+"lyrics_translation_ai_not_ready_title" = "इंटेलिजेंट ट्रांसलेशन अभी तैयार नहीं";
+"lyrics_translation_extension_section" = "अतिरिक्त भाषाएँ";
+"lyrics_translation_persian_extension_footer" = "सिस्टम अनुवाद फ़ारसी को सपोर्ट नहीं करता। डाउनलोड करने के बाद फ़ारसी बोल और फ़ारसी में अनुवाद इसी डिवाइस पर बिना इंटरनेट के होते हैं।";
+"lyrics_translation_cjk_bridge_footer" = "अंग्रेज़ी और चीनी, जापानी या कोरियाई के बीच सामान्यतः सिस्टम अनुवाद इस्तेमाल होता है। यह पैक सिर्फ़ तब फ़ारसी और चीनी, जापानी या कोरियाई के बीच माध्यम बनता है जब सिस्टम भाषा पैक इंस्टॉल न हों। ज़रूरत न हो तो इसे हटा दें।";
+"lyrics_translation_offline_failed_try_smart" = "अभी पैक डाउनलोड नहीं हो सकते — इंटेलिजेंट ट्रांसलेशन पर जाएँ";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "क्या इस Apple TV से “%@” हटाएँ?";
+"tv_remove_from_device_confirm_message" = "सिर्फ़ इस Apple TV की लाइब्रेरी की प्रविष्टि हटती है; क्लाउड ड्राइव या सर्वर की फ़ाइलें नहीं बदलतीं और आगे के स्कैन इसे वापस नहीं जोड़ेंगे। जिन प्रविष्टियों की फ़ाइलें हट चुकी हैं और अब नहीं चलतीं, उन्हें भी ऐसे साफ़ कर सकते हैं।";
 
 "playlist_import_incomplete_format" = "%d गाने लोड हुए, लेकिन प्लेलिस्ट अधूरी है। आप इन गानों को अभी इंपोर्ट कर सकते हैं या फिर से लोड कर सकते हैं।";
 "playlist_import_quota_format" = "%1$d गाने लोड हुए; बाकी पेज रुके हुए हैं। %2$@ आप लोड हुए गानों को अभी इंपोर्ट कर सकते हैं या प्रतीक्षा के बाद फिर कोशिश कर सकते हैं।";

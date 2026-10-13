@@ -897,7 +897,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             URLQueryItem(name: "refresh_token", value: rt),
             URLQueryItem(name: "client_id", value: creds.clientId),
         ])
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.tokenRequest(request, clientID: creds.clientId, session: URLSession.shared)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         guard let at = json["access_token"] as? String else {
             throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)

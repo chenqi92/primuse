@@ -685,8 +685,6 @@
 "sleep_timer_active" = "Timer Active";
 "cancel_timer" = "Cancel Timer";
 "sleep_at_track_end" = "Stop after current track";
-"lyrics_translation_on" = "Show Lyrics Translation";
-"lyrics_translation_off" = "Hide Lyrics Translation";
 "minutes" = "min";
 "song_info" = "Song Info";
 "share" = "Share";
@@ -942,6 +940,7 @@
 "scrobble_validate" = "Validate";
 "scrobble_token_valid" = "Valid";
 "scrobble_token_invalid" = "Invalid";
+"scrobble_token_unconfirmed" = "Can't verify right now";
 "scrobble_lb_get_token" = "Get token at ListenBrainz";
 "scrobble_lb_footer" = "Copy your user token from listenbrainz.org/profile and paste it here.";
 "scrobble_lastfm_api_key_placeholder" = "API Key";
@@ -4810,7 +4809,6 @@
 "lyrics_translation_local_retry" = "Retry Download";
 "lyrics_translation_local_section" = "Offline Translation Model";
 "lyrics_translation_local_pairs" = "English ↔ Persian";
-"lyrics_translation_local_footer" = "Translates lyrics between English and Persian on this device, without a network connection.";
 "lyrics_translation_local_ready" = "Downloaded";
 "lyrics_translation_local_remove" = "Remove Model";
 "lyrics_translation_local_remove_confirm" = "Remove the offline translation model? You can download it again later.";
@@ -4869,7 +4867,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "English ↔ Chinese, Japanese, Korean";
 
-"lyrics_translation_local_cjk_footer" = "Translates lyrics between English and Simplified or Traditional Chinese, Japanese and Korean on this device. Other pairs translate through English, without a network connection.";
 
 "songs_show_column_headers" = "Show column headers";
 "playlist_hide_network_notice" = "Hide network notice";
@@ -5754,6 +5751,43 @@
 "listening_space_tint_artwork_hint" = "Changes with the cover of what’s playing. Widgets use the theme color.";
 "listening_space_tint_fixed" = "Fixed Color";
 "listening_space_tint_fixed_hint" = "Pick one from the palette or adjust your own below";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "No translation needed: the lyrics are already in the target language or include their own translation.";
+"lyrics_translation_offline_done" = "Translated with an offline pack";
+"lyrics_translation_offline_needs_pack_format" = "This song needs the “%@” offline pack";
+"lyrics_translation_offline_unsupported" = "The offline packs can't translate this song's language. Try Intelligent Translation instead.";
+"lyrics_translation_ai_needs_builtin_consent" = "Built-in AI is selected. No lyrics are sent until you review and agree.";
+"lyrics_translation_ai_needs_remote_consent" = "Sending content to AI services isn't allowed yet, so no lyrics are sent. Once allowed, other intelligent features also send content according to their own switches.";
+"lyrics_translation_ai_no_service" = "No AI service is available yet: turn on built-in AI, or add your own service and choose a model.";
+"lyrics_translation_ai_request_failed" = "Intelligent Translation didn't succeed this time; the remaining lines went to another method.";
+"lyrics_translation_off_status" = "Lyrics translation is off";
+"lyrics_translation_preparing" = "Preparing translation";
+"lyrics_translation_preferences_section" = "Method & Language";
+"lyrics_translation_mode_smart" = "Intelligent Translation";
+"lyrics_translation_mode_offline" = "Offline Packs";
+"lyrics_translation_mode_off" = "Off";
+"lyrics_translation_tv_mode_smart_footer" = "Lyrics go to the service chosen for Lyrics Translation in Intelligence — built-in AI or your own service. Lines it doesn't translate fall back to the offline packs.";
+"lyrics_translation_tv_mode_offline_footer" = "Translates on this Apple TV without going online. Download the matching offline pack before translating a language for the first time.";
+"lyrics_translation_ai_ready" = "Intelligent Translation is ready: lyrics go to the service chosen for Lyrics Translation in Intelligence.";
+"lyrics_translation_ai_allow_sending" = "Allow Sending Content";
+"lyrics_translation_offline_unavailable_system" = "Offline packs can't be downloaded on this device right now (requires tvOS 26.4 or later).";
+"lyrics_translation_tv_offline_footer" = "Translates directly between English and Persian, and between English and Chinese (Simplified, Traditional), Japanese and Korean; other pairs among these go through English. Packs stay on this device and can be removed anytime.";
+"lyrics_translation_tv_open_panel_hint" = "Use the Lyrics Translation button in the controls";
+"lyrics_translation_ai_fell_back_offline" = "Intelligent Translation wasn't used; offline packs took over";
+"lyrics_translation_use_smart" = "Translate Lyrics with AI";
+"lyrics_translation_ai_notice_builtin_consent" = "Built-in AI isn't agreed to yet; used System Translation";
+"lyrics_translation_ai_notice_remote_consent" = "Sending content isn't allowed; used System Translation";
+"lyrics_translation_ai_notice_no_service" = "No AI service available; used System Translation";
+"lyrics_translation_ai_not_ready_title" = "Intelligent Translation Isn't Ready";
+"lyrics_translation_extension_section" = "Extra Languages";
+"lyrics_translation_persian_extension_footer" = "System Translation doesn't support Persian. After downloading, Persian lyrics and translations into Persian are handled on this device without going online.";
+"lyrics_translation_cjk_bridge_footer" = "Translations between English and Chinese, Japanese or Korean normally use System Translation. This pack only bridges Persian to and from Chinese, Japanese and Korean when the system language packs aren't installed. Remove it if you don't need it.";
+"lyrics_translation_offline_failed_try_smart" = "Can't download packs right now — use Intelligent Translation";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "Remove “%@” from this Apple TV?";
+"tv_remove_from_device_confirm_message" = "Only this Apple TV's library entry is removed; files on the cloud drive or server are untouched, and later scans won't add it back. Use this to clear entries whose files were deleted and no longer play.";
 
 "playlist_import_incomplete_format" = "Loaded %d songs, but the playlist is incomplete. You can import these songs now or retry loading.";
 "playlist_import_quota_format" = "Loaded %1$d songs; the remaining pages are paused. %2$@ You can import the loaded songs now or retry after the wait.";

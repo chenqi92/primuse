@@ -44,16 +44,16 @@ struct LocalTranslationModelSection: View {
 
     var body: some View {
         ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
-            if service.modelState(for: pack) != .unsupportedSystem {
+            if pack.isListedBesideSystemTranslation(service.modelState(for: pack)) {
                 Section {
                     LabeledContent(LocalizedStringKey(pack.pairsKey)) {
                         status(for: pack)
                     }
                     actions(for: pack)
                 } header: {
-                    Text("lyrics_translation_local_section")
+                    Text(LocalizedStringKey(pack.besideSystemHeaderKey))
                 } footer: {
-                    Text(LocalizedStringKey(pack.footerKey))
+                    Text(LocalizedStringKey(pack.besideSystemFooterKey))
                 }
             }
         }

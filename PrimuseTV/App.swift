@@ -196,6 +196,8 @@ struct PrimuseTVApp: App {
                     // 也靠它重新载入;电视上以前从没建过它,地址列表一直到不了。
                     _ = LyricsAPIServerStore.shared
                     musicIntelligence.start()
+                    // 歌词选了智能翻译时交给它;没有它时电视只用离线翻译包。
+                    TVLyricsTranslationController.shared.intelligence = musicIntelligence
                     FullscreenPlayerEffectSync.shared.install()
                     // 播客:订阅读盘、按店面判定能用哪些入口;刷新等启动忙完再做。
                     PodcastAvailabilityService.shared.start()

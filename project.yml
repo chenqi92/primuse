@@ -360,6 +360,8 @@ targets:
     sources:
       - path: PrimuseMacTests
       - path: PrimuseTests/DirectoryScanCooldownTests.swift
+      - path: PrimuseTests/ScrobbleRequestTests.swift
+      - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
       - path: PrimuseTests/CloudRequestTests.swift
       - path: PrimuseTests/BaiduWriteReplayTests.swift
       - path: PrimuseTests/SubsonicFavoriteWritebackTests.swift
@@ -371,8 +373,10 @@ targets:
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/ExternalPlaylistQuotaTests.swift
+      - path: PrimuseTests/AppleMusicPlaylistPaginationTests.swift
       - path: PrimuseTests/PlaylistPartialImportNoticeTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
+      - path: PrimuseTests/GeminiAudioQuotaTests.swift
     dependencies:
       - target: PrimuseMac
     settings:
@@ -994,11 +998,14 @@ targets:
     type: bundle.unit-test
     platform: tvOS
     sources:
+      - path: PrimuseTests/ScrobbleRequestTests.swift
+      - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
       - path: PrimuseTVTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
+      - path: PrimuseTests/GeminiAudioQuotaTests.swift
     dependencies:
       - target: PrimuseTV
     settings:
