@@ -223,37 +223,21 @@ struct TVCloudAuthView: View {
     }
 
     private func pollLoop(_ started: CloudDeviceAuthSession) async {
-        let deadline = Date().addingTimeInterval(started.expiresIn)
-        let step = UInt64(max(1, started.interval) * 1_000_000_000)
-        while !Task.isCancelled, Date() < deadline {
-            try? await Task.sleep(nanoseconds: step)
-            guard !Task.isCancelled else { return }
-            do {
-                let progress = try await CloudDeviceAuthService.shared.poll(
-                    started, clientID: clientID, clientSecret: clientSecret
-                )
-                switch progress {
-                case .pending:
-                    continue
-                case .scanned:
-                    phase = .scanned
-                case .denied:
-                    phase = .failed(PMString("ext.tv.cloud.auth.denied"))
-                    return
-                case .expired:
-                    phase = .failed(PMString("ext.tv.cloud.auth.expired"))
-                    return
-                case .authorized(let result):
-                    await finish(result)
-                    return
-                }
-            } catch {
-                phase = .failed(Self.describe(error))
-                return
+        do {
+            let progress = try await CloudDeviceAuthService.shared.pollUntilFinished(
+                started, clientID: clientID, clientSecret: clientSecret,
+                onProgress: { progress in if progress == .scanned { phase = .scanned } }
+            )
+            try Task.checkCancellation()
+            switch progress {
+            case .denied: phase = .failed(PMString("ext.tv.cloud.auth.denied"))
+            case .expired: phase = .failed(PMString("ext.tv.cloud.auth.expired"))
+            case .authorized(let result): await finish(result)
+            case .pending, .scanned, .slowDown: break
             }
-        }
-        if !Task.isCancelled {
-            phase = .failed(PMString("ext.tv.cloud.auth.expired"))
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { return }
+            phase = .failed(Self.describe(error))
         }
     }
 
