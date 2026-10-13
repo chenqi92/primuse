@@ -1900,27 +1900,15 @@ private struct MacNowPlayingMetadata: View {
     }
 
     private func matchingArtist(name: String, index: Int) -> Artist? {
-        if let artist = library.visibleArtists.first(where: {
-            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }) {
+        if let artist = library.visibleArtist(named: name) {
             return artist
         }
         guard index == 0, let id = song.artistID else { return nil }
-        return library.visibleArtists.first { $0.id == id }
+        return library.visibleArtist(id: id)
     }
 
     private var matchingAlbum: Album? {
-        if let id = song.albumID,
-           let album = library.visibleAlbums.first(where: { $0.id == id }) {
-            return album
-        }
-        guard let title = trimmed(song.albumTitle) else { return nil }
-        let artist = trimmed(song.albumArtistName ?? library.artistNames(for: song).first)
-        return library.visibleAlbums.first { album in
-            guard album.title.localizedCaseInsensitiveCompare(title) == .orderedSame else { return false }
-            guard let artist else { return true }
-            return (album.artistName ?? "").localizedCaseInsensitiveCompare(artist) == .orderedSame
-        }
+        library.linkedAlbum(for: song)
             // 曲库里一首都没有的 Apple Music 专辑按目录现拼一张。
             ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song)
     }

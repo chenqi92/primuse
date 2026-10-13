@@ -3916,6 +3916,7 @@ final class MusicLibrary {
         set {
             let previous = visibleAlbumsReference
             visibleAlbumsReference = LibraryArrayReference(newValue)
+            albumNameLookupCache.removeAll(keepingCapacity: true)
             visibleAlbumsRevision &+= 1
             LibraryArrayReclaimer.release(previous)
         }
@@ -3929,6 +3930,7 @@ final class MusicLibrary {
         set {
             let previous = visibleArtistsReference
             visibleArtistsReference = LibraryArrayReference(newValue)
+            artistNameLookupCache.removeAll(keepingCapacity: true)
             LibraryArrayReclaimer.release(previous)
             scheduleArtworkLookupTokenRefresh()
         }
@@ -3961,6 +3963,9 @@ final class MusicLibrary {
     @ObservationIgnored private var visibleSongsLookupReference = LibraryArrayReference<Song>()
     @ObservationIgnored private var visibleAlbumByID: [String: Album] = [:]
     @ObservationIgnored private var visibleArtistByID: [String: Artist] = [:]
+    /// `visibleAlbum(titled:artistName:)` / `visibleArtist(named:)` 的结果，换表时清空。
+    @ObservationIgnored private var albumNameLookupCache: [AlbumNameLookupKey: AlbumNameLookupEntry] = [:]
+    @ObservationIgnored private var artistNameLookupCache: [String: ArtistNameLookupEntry] = [:]
     @ObservationIgnored private var visibleAlbumArtistByID: [String: Artist] = [:]
     /// 只当过专辑艺人的人（「群星」）→ 名下专辑。他们没有自己署名的歌，艺人页、右键播放、
     /// CarPlay 与电视取歌都经 `songs(forArtist:)`，从这些专辑里取。
@@ -6781,6 +6786,60 @@ final class MusicLibrary {
     func visibleAlbum(id: String) -> Album? {
         _ = visibleAlbumsReference
         return visibleAlbumByID[id]
+    }
+
+    /// 按名字找专辑：标题相同(忽略大小写与首尾空白)，艺人相同或有一边没写艺人。
+    /// 曲库外的歌(Apple Music 目录歌)按 id 一定找不到，每问一次都要把整库专辑比
+    /// 一遍；播放页一次重绘问五六遍，展开、收起时连着重绘就是几十毫秒。结果记到
+    /// 下一次发布专辑表为止。传进来的两个名字由调用方先去掉首尾空白。
+    func visibleAlbum(titled title: String, artistName: String) -> Album? {
+        _ = visibleAlbumsReference
+        let key = AlbumNameLookupKey(title: title, artistName: artistName)
+        if let cached = albumNameLookupCache[key] { return cached.album }
+        let album = visibleAlbums.first {
+            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(title) == .orderedSame
+            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
+                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
+            return titleMatches && artistMatches
+        }
+        if albumNameLookupCache.count >= Self.nameLookupCacheLimit {
+            albumNameLookupCache.removeAll(keepingCapacity: true)
+        }
+        albumNameLookupCache[key] = AlbumNameLookupEntry(album: album)
+        return album
+    }
+
+    /// 按名字找艺人(忽略大小写)，同上，记到下一次发布艺人表为止。
+    func visibleArtist(named name: String) -> Artist? {
+        _ = visibleArtistsReference
+        if let cached = artistNameLookupCache[name] { return cached.artist }
+        let artist = visibleArtists.first {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
+        if artistNameLookupCache.count >= Self.nameLookupCacheLimit {
+            artistNameLookupCache.removeAll(keepingCapacity: true)
+        }
+        artistNameLookupCache[name] = ArtistNameLookupEntry(artist: artist)
+        return artist
+    }
+
+    /// 只防一直换歌却从不发布新表时越攒越多；平时一首歌就几条。
+    private static let nameLookupCacheLimit = 256
+
+    private struct AlbumNameLookupKey: Hashable {
+        let title: String
+        let artistName: String
+    }
+
+    /// 字典值要能装下「没找到」，裸 `Album?` 当值赋 nil 会变成删键。
+    private struct AlbumNameLookupEntry {
+        let album: Album?
+    }
+
+    private struct ArtistNameLookupEntry {
+        let artist: Artist?
     }
 
     /// O(1) lookup for views whose structural invalidation is driven by

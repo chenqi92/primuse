@@ -920,32 +920,19 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     private func matchingAlbum(for song: Song) -> Album? {
-        if let id = song.albumID,
-           let album = library.visibleAlbums.first(where: { $0.id == id }) {
-            return album
-        }
-
-        guard let title = trimmed(song.albumTitle), !title.isEmpty else { return nil }
-        let artistName = trimmed(song.albumArtistName ?? library.artistNames(for: song).first)
-        return library.visibleAlbums.first { album in
-            guard album.title.localizedCaseInsensitiveCompare(title) == .orderedSame else { return false }
-            guard let artistName, !artistName.isEmpty else { return true }
-            return (album.artistName ?? "").localizedCaseInsensitiveCompare(artistName) == .orderedSame
-        }
+        library.linkedAlbum(for: song)
             // 曲库里一首都没有的 Apple Music 专辑按目录现拼一张。
             ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song)
     }
 
     private func matchingArtist(for song: Song) -> Artist? {
         if let id = song.artistID,
-           let artist = library.visibleArtists.first(where: { $0.id == id }) {
+           let artist = library.visibleArtist(id: id) {
             return artist
         }
 
         guard let name = trimmed(library.artistNames(for: song).first), !name.isEmpty else { return nil }
-        return library.visibleArtists.first {
-            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }
+        return library.visibleArtist(named: name)
     }
 
     private func trimmed(_ value: String?) -> String? {

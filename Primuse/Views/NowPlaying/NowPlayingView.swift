@@ -13008,9 +13008,7 @@ extension MusicLibrary {
         }
         var artists: [Artist] = []
         for name in artistNames(for: song) {
-            if let artist = byID(name) ?? visibleArtists.first(where: {
-                $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-            }) {
+            if let artist = byID(name) ?? visibleArtist(named: name) {
                 artists.append(artist)
             } else {
                 // 曲库没拆开的合唱署名(A & B、feat.)再按展示写法拆一次;各段只按 id 查。
@@ -13031,14 +13029,7 @@ extension MusicLibrary {
         guard !albumTitle.isEmpty else { return nil }
         let artistName = (song.albumArtistName ?? artistNames(for: song).first)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return visibleAlbums.first {
-            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(albumTitle) == .orderedSame
-            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
-                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
-            return titleMatches && artistMatches
-        }
+        return visibleAlbum(titled: albumTitle, artistName: artistName)
     }
 }
 
