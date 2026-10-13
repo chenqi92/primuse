@@ -38,6 +38,16 @@ struct PersistedHomeAlbumTile: Codable, Sendable {
     let artworkSongID: String?
 }
 
+/// 首页区块标题上「全部」推进来的整页。
+///
+/// 这两页里的专辑、艺术家、歌单卡片是 `NavigationLink(value:)`,要走首页导航栈的 path;
+/// 「全部」本身若是闭包式链接,SwiftUI 会把 path 里的详情页排在它下面 —— 点卡片没反应、
+/// 返回才露出详情,点几次就压几层。所以「全部」也只能用 value 式链接进 path。
+private enum HomeSeeAllPage: Hashable {
+    case recentlyAddedAlbums
+    case quickAccess
+}
+
 private struct RecentlyAddedAlbumsView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.pmHeightClass) private var heightClass
@@ -1306,6 +1316,22 @@ struct HomeView: View {
             .navigationDestination(for: Playlist.self) {
                 PlaylistDetailView(playlist: $0)
                     .mediaZoomDestination(.playlist, id: $0.id)
+            }
+            .navigationDestination(for: HomeSeeAllPage.self) { page in
+                switch page {
+                case .recentlyAddedAlbums:
+                    RecentlyAddedAlbumsView()
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
+                case .quickAccess:
+                    FavoriteCollectionView()
+                        .navigationTitle(Text("library_quick_access"))
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .minimalNavigationDetail()
+                        #endif
+                }
             }
             // 更新提示改成 sheet 弹框 ── 之前内嵌在首页顶部当 banner 用,
             // 用户更想要"弹框"的 modal 体感, 也避免占用首页空间。
@@ -3475,14 +3501,8 @@ struct HomeView: View {
                 Text("home_section_quick_access")
                     .font(.title3.weight(.bold))
                 Spacer()
-                NavigationLink {
-                    FavoriteCollectionView()
-                        .navigationTitle(Text("library_quick_access"))
-                        #if os(iOS)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .minimalNavigationDetail()
-                        #endif
-                } label: {
+                // value 式:页里的卡片要压在这一页上面,见 `HomeSeeAllPage`。
+                NavigationLink(value: HomeSeeAllPage.quickAccess) {
                     HStack(spacing: 5) {
                         Text("see_all")
                         Image(systemName: "chevron.right").font(.caption)
@@ -3916,12 +3936,8 @@ struct HomeView: View {
                 Text(HomeDiscoveryText.string("recent_albums"))
                     .font(.title3).fontWeight(.bold)
                 Spacer()
-                NavigationLink {
-                    RecentlyAddedAlbumsView()
-                        #if os(iOS)
-                        .minimalNavigationDetail()
-                        #endif
-                } label: {
+                // value 式:页里的专辑卡要压在这一页上面,见 `HomeSeeAllPage`。
+                NavigationLink(value: HomeSeeAllPage.recentlyAddedAlbums) {
                     Text("home_section_view_all")
                         .font(.subheadline)
                 }
