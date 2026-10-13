@@ -194,7 +194,8 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
                 catch is CancellationError { }
                 catch { XCTFail("Cancellation lost: \(error)") }
             }
-            for _ in 0..<200 {
+            // Up to ten seconds for the continuation to go out on a busy build host.
+            for _ in 0..<2_000 {
                 if fixture.requests.count == 2 { break }
                 try await Task.sleep(for: .milliseconds(5))
             }

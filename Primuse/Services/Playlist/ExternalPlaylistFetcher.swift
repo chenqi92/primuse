@@ -443,9 +443,6 @@ struct ExternalPlaylistFetcher: Sendable {
                 break
             }
         }
-        if tracks.count >= Self.maximumTracks, continuation != nil, partialReason == nil {
-            partialReason = .incomplete
-        }
         return ExternalPlaylist(
             name: first.name,
             platform: .youtube,
