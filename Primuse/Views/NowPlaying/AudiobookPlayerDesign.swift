@@ -15,14 +15,10 @@ struct AudiobookPlayerStyle: Equatable {
 
     let variant: Variant
     let usesIncreasedContrast: Bool
-    /// 播放器设置的「控件颜色」选了单色:墨黑的播放键与进度条换成白色(#283,像 Apple Books 深色那样);
-    /// 暖白本来就是近黑,不变。
-    let usesMonochromeControls: Bool
 
-    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast, usesMonochromeControls: Bool = false) {
+    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast) {
         variant = colorScheme == .dark ? .nocturne : .paper
         usesIncreasedContrast = contrast == .increased
-        self.usesMonochromeControls = usesMonochromeControls
     }
 
     var isNocturne: Bool { variant == .nocturne }
@@ -60,10 +56,10 @@ struct AudiobookPlayerStyle: Equatable {
         foreground.opacity(usesIncreasedContrast ? 0.32 : (isNocturne ? 0.18 : 0.14))
     }
 
-    /// 进度条已播的一段、拖动点与播放键的底色:墨黑是橙红(选了单色控件时是白),暖白是近黑。
+    /// 进度条已播的一段、拖动点与播放键的底色:墨黑是白(#283,像 Apple Books 深色那样只有黑白),
+    /// 暖白是近黑。
     var accent: Color {
-        guard isNocturne else { return Color(red: 0.11, green: 0.13, blue: 0.13) }
-        return usesMonochromeControls ? primary : Color(red: 0.91, green: 0.42, blue: 0.31)
+        isNocturne ? primary : Color(red: 0.11, green: 0.13, blue: 0.13)
     }
 
     /// 播放键里的三角,取底色,像在实心圆上挖出来的。

@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "Denetim Rengi";
 "player_control_tint_theme" = "Tema Rengi";
 "player_control_tint_monochrome" = "Tek Renk";
-"player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Koyu sesli kitap düzeninde de oynatma düğmesi ve ilerleme çubuğu beyaz olur.";
+"player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
 "player_menu_items_title" = "Diğer Menüsü";
 "player_menu_items_hidden_count %lld" = "%lld gizli";
 "player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde artık görünmez. Sayfadaki düğmeler menüde zaten tekrarlanmaz; Beğen, Sözler, Sıra, Karıştır ve Yinele sayfadan kaldırıldığında yine menüye geçer.";

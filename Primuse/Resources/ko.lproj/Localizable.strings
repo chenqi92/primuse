@@ -5795,7 +5795,7 @@
 "player_control_tint_title" = "컨트롤 색상";
 "player_control_tint_theme" = "테마 색상";
 "player_control_tint_monochrome" = "모노크롬";
-"player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북의 어두운 레이아웃에서도 재생 버튼과 진행 막대가 흰색이 됩니다.";
+"player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
 "player_menu_items_title" = "'더 보기' 메뉴";
 "player_menu_items_hidden_count %lld" = "%lld개 숨김";
 "player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 좋아요·가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";

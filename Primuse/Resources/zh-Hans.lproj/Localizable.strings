@@ -5888,7 +5888,7 @@
 "player_control_tint_title" = "控件颜色";
 "player_control_tint_theme" = "跟随主题色";
 "player_control_tint_monochrome" = "单色";
-"player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面在深色外观下的播放键和进度条也随之变成白色。";
+"player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
 "player_menu_items_title" = "「更多」菜单";
 "player_menu_items_hidden_count %lld" = "已隐藏 %lld 项";
 "player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里。已经摆在页面上的按钮本来就不会在菜单里重复，页面上拿掉的喜欢、歌词、队列、随机和循环仍会补进菜单。";

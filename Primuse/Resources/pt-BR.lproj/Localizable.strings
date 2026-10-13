@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "Cor dos controles";
 "player_control_tint_theme" = "Cor do tema";
 "player_control_tint_monochrome" = "Monocromático";
-"player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. No layout escuro de audiolivros, o botão de reprodução e a barra de progresso também ficam brancos.";
+"player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";
 "player_menu_items_title" = "Menu Mais";
 "player_menu_items_hidden_count %lld" = "%lld ocultos";
 "player_menu_items_footer" = "Os itens desativados deixam de aparecer no menu Mais do player. Botões que já estão na página nunca se repetem no menu, e Curtir, Letra, Fila, Aleatório e Repetir continuam indo para o menu quando você os tira da página.";

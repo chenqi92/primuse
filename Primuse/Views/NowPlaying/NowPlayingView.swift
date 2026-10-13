@@ -5005,11 +5005,7 @@ struct NowPlayingView: View {
     }
 
     private var audiobookPlayerStyle: AudiobookPlayerStyle {
-        AudiobookPlayerStyle(
-            colorScheme: colorScheme,
-            contrast: colorSchemeContrast,
-            usesMonochromeControls: usesMonochromePlayerControls
-        )
+        AudiobookPlayerStyle(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
     /// 设置里「控件颜色」选了单色,或主题色是「白色」。
@@ -7810,7 +7806,7 @@ struct NowPlayingView: View {
     }
 
     private var themedControlAccent: Color {
-        // 有声书两套设计用自己的强调色(墨黑选了单色时是白),横屏、iPad 双栏也用它,不随封面取色。
+        // 有声书两套设计用自己的强调色(墨黑是白、暖白是近黑),横屏、iPad 双栏也用它,不随封面取色。
         if usesAudiobookPlayerDesign { return audiobookPlayerStyle.accent }
         // 设置里选了单色:深色外观下白、浅色外观下黑,和文字同色。主题色选了「白色」也一样,不跟封面取色。
         if usesMonochromePlayerControls {
