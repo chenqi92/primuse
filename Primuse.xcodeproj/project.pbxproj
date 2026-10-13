@@ -1413,6 +1413,7 @@
 		B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */; };
 		B42FAA5C088366DAB4EFADC8 /* CloudKVSReconciliationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C107BFEAFEE087DBDFAAB508 /* CloudKVSReconciliationPolicy.swift */; };
 		6FC95DEDC3F6C1AF57983AF3 /* OfflineDownloadActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED7ABBF9D14DA4274FD1F03B /* OfflineDownloadActionPolicy.swift */; };
+		020FCD9339A7D76F048F6329 /* AudiobookOfflinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7324FA62B1C4A662DFB13219 /* AudiobookOfflinePolicy.swift */; };
 		B4302BD1B956F6B517A799E2 /* OfflinePlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */; };
 		B44ABD44740E1E23B8C700CB /* SongDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4F786D50589C7E72D43352 /* SongDiscovery.swift */; };
 		B4696AE70F6D425328859CB9 /* KaraokeCompanionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E85ED821A9DA4D888837DF6 /* KaraokeCompanionPolicy.swift */; };
@@ -2847,6 +2848,7 @@
 		6522627B000671EA9055B5D5 /* BaiduFileManagerBatchResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduFileManagerBatchResponse.swift; sourceTree = "<group>"; };
 		653ADF21EB30AEA6033B16D7 /* PlaybackSourceAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSourceAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		ED7ABBF9D14DA4274FD1F03B /* OfflineDownloadActionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineDownloadActionPolicy.swift; sourceTree = "<group>"; };
+		7324FA62B1C4A662DFB13219 /* AudiobookOfflinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookOfflinePolicy.swift; sourceTree = "<group>"; };
 		65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlaybackPolicy.swift; sourceTree = "<group>"; };
 		65CF531EA08CDFED93A005F3 /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		65E19BC1D3A821170931D905 /* PlexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexAccount.swift; sourceTree = "<group>"; };
@@ -4301,6 +4303,7 @@
 				342A3B9FDBBDEB5BABF1E14B /* OfflineDownloadCommitPolicy.swift */,
 				6EF7104496375F2054C8BC9F /* OfflineDownloadQualityPolicy.swift */,
 				ED7ABBF9D14DA4274FD1F03B /* OfflineDownloadActionPolicy.swift */,
+				7324FA62B1C4A662DFB13219 /* AudiobookOfflinePolicy.swift */,
 				65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */,
 				46216CC6E08859637C9847D0 /* OpenSubsonicLyrics.swift */,
 				1CEBA275253A5F2B114FAAC9 /* OperationCancellationPolicy.swift */,
@@ -6661,6 +6664,7 @@
 				98B5A51BF5B07A378B7674E9 /* OfflineDownloadCommitPolicy.swift in Sources */,
 				0929829CC1BD736FC07E2ADB /* OfflineDownloadQualityPolicy.swift in Sources */,
 				6FC95DEDC3F6C1AF57983AF3 /* OfflineDownloadActionPolicy.swift in Sources */,
+				020FCD9339A7D76F048F6329 /* AudiobookOfflinePolicy.swift in Sources */,
 				B4302BD1B956F6B517A799E2 /* OfflinePlaybackPolicy.swift in Sources */,
 				2DCB16D0439985CD8120B85E /* OpenSubsonicLyrics.swift in Sources */,
 				86647F6C5324A24DEEFB727E /* OperationCancellationPolicy.swift in Sources */,

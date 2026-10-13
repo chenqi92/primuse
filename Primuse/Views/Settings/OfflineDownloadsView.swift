@@ -267,12 +267,12 @@ struct OfflineDownloadsView: View {
         String(format: String(localized: "offline_downloads_remove_selected_format"), selection.count)
     }
 
-    /// 只显示还开着「始终保持离线」的歌单: 刚关掉的那些在下一轮对账前还挂在记录上。
+    /// 只显示还开着「始终保持离线」的歌单和「保持离线」的书: 刚关掉的那些在下一轮对账前还挂在记录上。
     private func ownerNames(_ item: SourceManager.OfflineDownloadItem) -> String? {
-        let enabled = AppServices.shared.alwaysDownload.enabledPlaylistIDs
+        let alwaysDownload = AppServices.shared.alwaysDownload
         let names = item.playlistIDs
-            .intersection(enabled)
-            .compactMap { library.playlist(id: $0)?.name }
+            .intersection(alwaysDownload.enabledOwnerIDs)
+            .compactMap { alwaysDownload.ownerName($0, library: library) }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         guard !names.isEmpty else { return nil }
         return ListFormatter.localizedString(byJoining: names)
@@ -286,7 +286,7 @@ struct OfflineDownloadsView: View {
         guard !targets.isEmpty else { return }
         let request = OfflineDownloadRemovalRequest.make(
             for: targets,
-            enabledPlaylistIDs: AppServices.shared.alwaysDownload.enabledPlaylistIDs
+            enabledPlaylistIDs: AppServices.shared.alwaysDownload.enabledOwnerIDs
         )
         if request.playlistIDs.isEmpty && !confirmsPlainRemoval {
             perform(request)
@@ -350,7 +350,7 @@ struct OfflineDownloadsView: View {
             )
         }
         let names = request.playlistIDs
-            .compactMap { library.playlist(id: $0)?.name }
+            .compactMap { AppServices.shared.alwaysDownload.ownerName($0, library: library) }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         return String(
             format: String(localized: "offline_downloads_owned_message_format"),

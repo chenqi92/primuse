@@ -1035,7 +1035,8 @@ struct PlaylistDetailView: View {
             let items = await sourceManager.offlineDownloadItems(in: playlistSongs)
             let alwaysDownload = AppServices.shared.alwaysDownload
             let turnsOffAlwaysDownload = alwaysDownload.isEnabled(for: playlist.id)
-            let otherOwners = alwaysDownload.enabledPlaylistIDs.subtracting([playlist.id])
+            // 别的歌单和开着「保持离线」的书保持着的歌留着。
+            let otherOwners = alwaysDownload.enabledOwnerIDs.subtracting([playlist.id])
             let removable = items.filter { $0.playlistIDs.isDisjoint(with: otherOwners) }
             guard !removable.isEmpty || turnsOffAlwaysDownload else {
                 showsNoOfflineDownloads = true

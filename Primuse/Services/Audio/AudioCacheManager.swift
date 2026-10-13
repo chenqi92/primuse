@@ -2779,6 +2779,8 @@ private actor AlwaysDownloadWorker {
 @Observable
 final class AlwaysDownloadCoordinator {
     private static let defaultsKey = "primuse.playlist-always-download.v1"
+    /// 开着「保持离线」的有声书(#283):book id → 书名与上次分组时的章节。和歌单一样只存本机。
+    private static let booksDefaultsKey = "primuse.book-always-download.v1"
 
     private let library: MusicLibrary
     private let sourcesStore: SourcesStore
@@ -2791,6 +2793,11 @@ final class AlwaysDownloadCoordinator {
     @ObservationIgnored private var didStart = false
     @ObservationIgnored private var applicationIsActive = false
     private(set) var enabledPlaylistIDs: Set<String>
+    /// 开着「保持离线」的书,键是书架给的 book id。
+    private(set) var enabledBooks: [String: AudiobookOfflinePolicy.Record]
+    /// 每轮对账把保持集合交给下载队列后加一。已有缓存被直接接手时离线状态变了,
+    /// 「已下载几章」这类显示靠它重算。
+    private(set) var pinRevision = 0
 
     init(
         library: MusicLibrary,
@@ -2805,6 +2812,7 @@ final class AlwaysDownloadCoordinator {
         self.player = player
         self.defaults = defaults
         enabledPlaylistIDs = Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
+        enabledBooks = AudiobookOfflinePolicy.decode(defaults.data(forKey: Self.booksDefaultsKey))
         #if os(tvOS)
         let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         #else
@@ -2820,10 +2828,19 @@ final class AlwaysDownloadCoordinator {
     }
 
     func isEnabled(for playlistID: String) -> Bool {
-        enabledPlaylistIDs.contains(playlistID)
+        if let bookID = AudiobookOfflinePolicy.bookID(fromOwnerID: playlistID) {
+            return isEnabled(forBook: bookID)
+        }
+        return enabledPlaylistIDs.contains(playlistID)
     }
 
+    /// 歌单 id,或书的 `AudiobookOfflinePolicy.ownerID(forBook:)`(离线下载清单里记的保持者)。
+    /// 关掉书只能走这里或 `setEnabled(_:forBook:)`;打开书要书名和章节,走后者。
     func setEnabled(_ enabled: Bool, for playlistID: String) {
+        if let bookID = AudiobookOfflinePolicy.bookID(fromOwnerID: playlistID) {
+            if !enabled { setEnabled(false, forBook: bookID, title: "", songIDs: []) }
+            return
+        }
         if enabled {
             enabledPlaylistIDs.insert(playlistID)
         } else {
@@ -2831,6 +2848,57 @@ final class AlwaysDownloadCoordinator {
         }
         persistPreferences()
         scheduleReconciliation(delay: .zero)
+    }
+
+    func isEnabled(forBook bookID: String) -> Bool {
+        enabledBooks[bookID] != nil
+    }
+
+    /// 整本书保持离线:下载全部章节,之后新加的章节也下;关掉后已下好的转回普通缓存。
+    func setEnabled(_ enabled: Bool, forBook bookID: String, title: String, songIDs: [String]) {
+        guard !bookID.isEmpty else { return }
+        if enabled {
+            enabledBooks[bookID] = AudiobookOfflinePolicy.Record(title: title, songIDs: songIDs)
+        } else {
+            guard enabledBooks.removeValue(forKey: bookID) != nil else { return }
+        }
+        persistBookPreferences()
+        scheduleReconciliation(delay: .zero)
+    }
+
+    /// 离线下载清单里记的全部保持者:开着的歌单,和开着的书(`book:<id>`)。
+    var enabledOwnerIDs: Set<String> {
+        enabledPlaylistIDs.union(enabledBooks.keys.map(AudiobookOfflinePolicy.ownerID(forBook:)))
+    }
+
+    /// 保持者写给人看的名字:歌单名,或开的时候的书名。
+    func ownerName(_ ownerID: String, library: MusicLibrary) -> String? {
+        if let bookID = AudiobookOfflinePolicy.bookID(fromOwnerID: ownerID) {
+            guard let title = enabledBooks[bookID]?.title, !title.isEmpty else { return nil }
+            return title
+        }
+        return library.playlist(id: ownerID)?.name
+    }
+
+    /// 每一章能不能下,规则和对账挑歌时一样(`makeDesiredSongs`)。
+    func chapterKinds(for songs: [Song]) -> [AudiobookOfflinePolicy.ChapterKind] {
+        let sourcesByID = Dictionary(
+            sourcesStore.sources.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return songs.map { song in
+            let source = sourcesByID[song.sourceID]
+            if let source, source.type == .local, !song.isStreamDescriptor {
+                return .alreadyOnDevice
+            }
+            guard AutomaticOfflineSongPolicy.supports(song),
+                  let source,
+                  AutomaticOfflineDownloadPolicy.supportsSourceType(source.type),
+                  OfflineDownloadActionPolicy.allowsDownload(for: song, source: source) else {
+                return .unsupported
+            }
+            return .downloadable
+        }
     }
 
     func start() {
@@ -2873,6 +2941,8 @@ final class AlwaysDownloadCoordinator {
             _ = library.playlistCollectionRevision
             _ = library.visibleSongCollectionRevision
             _ = library.songReplacementToken
+            // 书的章节按书架分组走,有声内容重新分类(新加了章节、改了归类)也要重算。
+            _ = library.spokenWordClassificationRevision
             _ = sourcesStore.sources
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -2964,15 +3034,44 @@ final class AlwaysDownloadCoordinator {
             // 才开始刷新。禁用的源由 makeDesiredSongs 按源配置剔除。
             return (playlist.id, library.storedSongs(forPlaylist: playlist.id).filteredPlayable())
         }
+        let selectedBooks = selectedBookOwners()
         let sources = sourcesStore.sources
         let desired = await Task.detached(priority: .utility) {
             Self.makeDesiredSongs(
-                selectedPlaylists: selectedPlaylists,
+                selectedPlaylists: selectedPlaylists + selectedBooks,
                 sources: sources
             )
         }.value
         guard !Task.isCancelled else { return }
         await worker.replaceDesiredSongs(desired)
+        pinRevision &+= 1
+    }
+
+    /// 开着的书各自要保持的章节,保持者记成 `book:<id>`。章节按书架当前的分组取(新加的
+    /// 章节跟着进来)并记下来;书架还没分好组时用记下的那份,别让整本书在这段空当里掉出
+    /// 保持集合。行一律读存储里的那一份,同歌单。
+    private func selectedBookOwners() -> [(String, [Song])] {
+        guard !enabledBooks.isEmpty else { return [] }
+        var currentMembers: [String: [String]] = [:]
+        for (songID, bookID) in library.spokenWordBookIDs where enabledBooks[bookID] != nil {
+            currentMembers[bookID, default: []].append(songID)
+        }
+        var records = enabledBooks
+        var result: [(String, [Song])] = []
+        for (bookID, record) in enabledBooks {
+            let current = (currentMembers[bookID] ?? []).sorted()
+            let members = AudiobookOfflinePolicy.members(current: current, remembered: record.songIDs)
+            if !current.isEmpty, current != record.songIDs {
+                records[bookID]?.songIDs = current
+            }
+            let songs = members.compactMap { library.storedSong(id: $0) }.filteredPlayable()
+            result.append((AudiobookOfflinePolicy.ownerID(forBook: bookID), songs))
+        }
+        if records != enabledBooks {
+            enabledBooks = records
+            persistBookPreferences()
+        }
+        return result
     }
 
     nonisolated static func makeDesiredSongs(
@@ -3085,5 +3184,13 @@ final class AlwaysDownloadCoordinator {
 
     private func persistPreferences() {
         defaults.set(enabledPlaylistIDs.sorted(), forKey: Self.defaultsKey)
+    }
+
+    private func persistBookPreferences() {
+        if enabledBooks.isEmpty {
+            defaults.removeObject(forKey: Self.booksDefaultsKey)
+        } else {
+            defaults.set(AudiobookOfflinePolicy.encode(enabledBooks), forKey: Self.booksDefaultsKey)
+        }
     }
 }

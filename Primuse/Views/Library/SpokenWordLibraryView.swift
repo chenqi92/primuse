@@ -419,6 +419,8 @@ struct SpokenWordShelfContent: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
     /// 要整本加进歌单的那本书。
     @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
+    /// 菜单里点了「始终保持离线」,这本书却一章都不能下:说明为什么。
+    @State private var offlineUnavailable: AudiobookOfflinePolicy.Availability?
     /// 书架「排序」开着: iPhone、iPad 上只有这时按住一本书是拖动, 平时长按是这本书的菜单。
     @State private var isArranging = false
 
@@ -446,6 +448,40 @@ struct SpokenWordShelfContent: View {
                     .presentationDragIndicator(.visible)
                     #endif
             }
+            .alert(
+                "spoken_word_keep_offline_unavailable_title",
+                isPresented: Binding(
+                    get: { offlineUnavailable != nil },
+                    set: { if !$0 { offlineUnavailable = nil } }
+                )
+            ) {
+                Button("ok", role: .cancel) {}
+            } message: {
+                Text(offlineUnavailable == .alreadyOnDevice
+                     ? "spoken_word_keep_offline_on_device_message"
+                     : "spoken_word_keep_offline_unsupported_message")
+            }
+    }
+
+    /// 菜单里的「始终保持离线」:整本书下到本机,新加的章节也自动下。一章都不能下时不开,
+    /// 弹说明(系统菜单里没有「灰但能点」的样式,所以照常显示、点了再讲原因)。
+    private func keepOfflineToggle(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        let coordinator = AppServices.shared.alwaysDownload
+        return Toggle(isOn: Binding(
+            get: { coordinator.isEnabled(forBook: book.id) },
+            set: { enabled in
+                if enabled {
+                    let availability = AudiobookOfflinePolicy.availability(coordinator.chapterKinds(for: songs))
+                    guard availability == .available else {
+                        offlineUnavailable = availability
+                        return
+                    }
+                }
+                coordinator.setEnabled(enabled, forBook: book.id, title: book.title, songIDs: songs.map(\.id))
+            }
+        )) {
+            Label("playlist_always_download", systemImage: "arrow.down.circle")
+        }
     }
 
     private func shelfContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
@@ -798,6 +834,7 @@ struct SpokenWordShelfContent: View {
             Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
         }
         .disabled(songs.isEmpty)
+        keepOfflineToggle(book, songs: songs)
         // 归档的书不上首页,也就不给「放到首页」。
         let isArchived = store.isArchived(bookID: book.id)
         if !isArchived {
@@ -1269,6 +1306,11 @@ struct SpokenWordBookDetailView: View {
                     SpokenWordBookSpeedMenu(bookID: book.id)
                 }
                 .padding(.top, 6)
+                if collection == .books {
+                    SpokenWordBookOfflineRow(book: book, songs: songs)
+                        .frame(maxWidth: 380, alignment: .leading)
+                        .padding(.top, 4)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -1280,6 +1322,17 @@ struct SpokenWordBookDetailView: View {
     #endif
 
     private func phoneHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            phoneHeaderTop(book, songs: songs)
+            // 本机下载的播客节目不在这次范围里,只给书。
+            if collection == .books {
+                SpokenWordBookOfflineRow(book: book, songs: songs)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func phoneHeaderTop(_ book: SpokenWordBook, songs: [Song]) -> some View {
         HStack(alignment: .top, spacing: 16) {
             SpokenWordBookCover(song: songs.first, width: 96, cornerRadius: 10)
             VStack(alignment: .leading, spacing: 6) {
@@ -1320,7 +1373,6 @@ struct SpokenWordBookDetailView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 8)
     }
 
     private func phoneContinueButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
@@ -1337,6 +1389,141 @@ struct SpokenWordBookDetailView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(ListeningSpace.spokenWord.tint)
+    }
+}
+
+// MARK: - Keep offline
+
+/// 书籍详情页里那一行「始终保持离线」(#283):整本书下到本机,之后新加的章节也自动下,
+/// 和歌单的同名开关同一套常驻下载(只在 Wi-Fi 等条件允许时下)。下面一行写已下载几章。
+/// 整本书都不能下(Apple Music、本机文件夹里的原文件)时开关换成说明,点了讲原因。
+struct SpokenWordBookOfflineRow: View {
+    let book: SpokenWordBook
+    let songs: [Song]
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var downloadedIDs: Set<String> = []
+    @State private var showsUnavailableReason = false
+
+    private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
+
+    private struct ProgressKey: Equatable {
+        let bookID: String
+        let songIDs: [String]
+        let isEnabled: Bool
+        let snapshotRevision: Int
+        let pinRevision: Int
+    }
+
+    var body: some View {
+        let kinds = coordinator.chapterKinds(for: songs)
+        let availability = AudiobookOfflinePolicy.availability(kinds)
+        let downloadable = zip(songs, kinds).compactMap { $0.1 == .downloadable ? $0.0 : nil }
+        let isEnabled = coordinator.isEnabled(forBook: book.id)
+        let progress = AudiobookOfflinePolicy.progress(
+            downloadableIDs: downloadable.map(\.id),
+            downloadedIDs: downloadedIDs
+        )
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: progress.isComplete ? "arrow.down.circle.fill" : "arrow.down.circle")
+                .font(.title3)
+                .foregroundStyle(availability == .available ? ListeningSpace.spokenWord.tint : Color.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("playlist_always_download")
+                    .font(.subheadline.weight(.semibold))
+                Text(statusText(availability: availability, isEnabled: isEnabled, progress: progress))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if availability == .available {
+                Toggle("", isOn: Binding(
+                    get: { coordinator.isEnabled(forBook: book.id) },
+                    set: { enabled in
+                        coordinator.setEnabled(
+                            enabled,
+                            forBook: book.id,
+                            title: book.title,
+                            songIDs: songs.map(\.id)
+                        )
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                #if os(macOS)
+                .controlSize(.small)
+                #endif
+                .accessibilityLabel(Text("playlist_always_download"))
+                .accessibilityHint(Text("spoken_word_keep_offline_hint"))
+            } else {
+                Button {
+                    showsUnavailableReason = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("spoken_word_keep_offline_unavailable_title"))
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
+        // 不能开的时候整行都可点,点了讲为什么(看得出不能开,但不是点了没反应)。
+        .onTapGesture {
+            if availability != .available { showsUnavailableReason = true }
+        }
+        .alert("spoken_word_keep_offline_unavailable_title", isPresented: $showsUnavailableReason) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(availability == .alreadyOnDevice
+                 ? "spoken_word_keep_offline_on_device_message"
+                 : "spoken_word_keep_offline_unsupported_message")
+        }
+        .task(id: ProgressKey(
+            bookID: book.id,
+            songIDs: downloadable.map(\.id),
+            isEnabled: isEnabled,
+            snapshotRevision: sourceManager.offlineAudioSnapshotRevision,
+            pinRevision: coordinator.pinRevision
+        )) {
+            guard !downloadable.isEmpty else {
+                downloadedIDs = []
+                return
+            }
+            let items = await sourceManager.offlineDownloadItems(in: downloadable)
+            guard !Task.isCancelled else { return }
+            downloadedIDs = Set(items.map(\.song.id))
+        }
+    }
+
+    private func statusText(
+        availability: AudiobookOfflinePolicy.Availability,
+        isEnabled: Bool,
+        progress: AudiobookOfflinePolicy.Progress
+    ) -> String {
+        switch availability {
+        case .alreadyOnDevice:
+            return String(localized: "spoken_word_keep_offline_on_device_short")
+        case .unsupported:
+            return String(localized: "spoken_word_keep_offline_unsupported_short")
+        case .available:
+            break
+        }
+        if isEnabled, progress.isComplete {
+            return String(localized: "spoken_word_keep_offline_complete")
+        }
+        if isEnabled || progress.downloaded > 0 {
+            return String(
+                format: String(localized: "spoken_word_keep_offline_progress_format"),
+                progress.downloaded,
+                progress.total
+            )
+        }
+        return String(localized: "spoken_word_keep_offline_hint")
     }
 }
 
