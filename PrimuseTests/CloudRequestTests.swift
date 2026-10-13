@@ -134,6 +134,47 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    func testWritebackRequestsShareTheAccountCooldownWithReads() async throws {
+        let fixture = CloudHTTPFixture(responses: [
+            .init(status: 429, headers: ["Retry-After": "3600"]), .init(status: 200)
+        ])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let helper = CloudDriveHelper(sourceID: fixture.id, requests: CloudRequestScheduler(), session: session)
+        var upload = URLRequest(url: fixture.url)
+        upload.httpMethod = "PUT"
+        do {
+            _ = try await helper.sendOnce(upload) { session, request in
+                try await session.upload(for: request, from: Data("tags".utf8))
+            }
+            XCTFail("Expected the upload's rate limit")
+        } catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+        do {
+            _ = try await helper.makeAuthorizedRequest(url: fixture.url, accessToken: "fixture", session: session)
+            XCTFail("A read bypassed the cooldown a write established")
+        } catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+        do {
+            _ = try await helper.sendOnce(upload)
+            XCTFail("A second write bypassed the cooldown")
+        } catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, 429) }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testWritebackKeepsAdapterStatusesAndSendsOnce() async throws {
+        for status in [409, 412, 403, 500, 503] {
+            let fixture = CloudHTTPFixture(responses: [.init(status: status), .init(status: 200)])
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let helper = CloudDriveHelper(sourceID: fixture.id, requests: CloudRequestScheduler(), session: session)
+            var request = URLRequest(url: fixture.url)
+            request.httpMethod = "PUT"
+            let (_, response) = try await helper.sendOnce(request)
+            // Conflict and permission handling stays with each provider's writeback code.
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, status)
+            XCTAssertEqual(fixture.requests.count, 1, "HTTP \(status): a write is sent once")
+        }
+    }
+
     func testReadDefersLongHTTPDateWithoutSendingAgain() async throws {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -682,7 +682,10 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             req.setValue("open_platform", forHTTPHeaderField: "Platform")
             req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             req.timeoutInterval = 120
-            let (respData, response) = try await URLSession.shared.upload(for: req, from: body)
+            let payload = body
+            let (respData, response) = try await self.helper.sendOnce(req) { session, request in
+                try await session.upload(for: request, from: payload)
+            }
             guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
             if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
             let json = (try? JSONSerialization.jsonObject(with: respData)) as? [String: Any] ?? [:]

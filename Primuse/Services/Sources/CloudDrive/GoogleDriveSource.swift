@@ -178,7 +178,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             let uploadBody = request.httpBody ?? data
             var uploadRequest = request
             uploadRequest.httpBody = nil
-            let (responseData, resp) = try await URLSession.shared.upload(for: uploadRequest, from: uploadBody)
+            let (responseData, resp) = try await self.helper.sendOnce(uploadRequest) { session, request in
+                try await session.upload(for: request, from: uploadBody)
+            }
             guard let http = resp as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
             }
@@ -339,7 +341,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
 
     private static func metadataDetail(
         fileID: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws -> MetadataDetail {
         var components = URLComponents(
             string: "\(metadataWritebackAPIBase)/files/\(fileID)"
@@ -354,7 +357,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.sendOnce(request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -391,7 +394,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         localURL: URL,
         fileID: String,
         expectedETag: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws {
         let size = Int64(
             try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
@@ -414,10 +418,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         uploadRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         uploadRequest.setValue(String(size), forHTTPHeaderField: "Content-Length")
         uploadRequest.timeoutInterval = 3_600
-        let (data, response) = try await URLSession.shared.upload(
-            for: uploadRequest,
-            fromFile: localURL
-        )
+        let (data, response) = try await helper.sendOnce(uploadRequest) { session, request in
+            try await session.upload(for: request, fromFile: localURL)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -752,7 +755,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable accessToken in
-            try await Self.metadataDetail(fileID: path, accessToken: accessToken)
+            try await Self.metadataDetail(fileID: path, accessToken: accessToken, helper: self.helper)
         }
         return detail.state
     }
@@ -773,7 +776,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         ) { @Sendable accessToken in
             let detail = try await Self.metadataDetail(
                 fileID: path,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
             guard expected.matches(detail.state) else {
                 throw EmbeddedMetadataWritebackSourceError.conflict
@@ -785,7 +789,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 localURL: localURL,
                 fileID: path,
                 expectedETag: eTag,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
         }
         await invalidateMetadataWritebackCache(for: path)

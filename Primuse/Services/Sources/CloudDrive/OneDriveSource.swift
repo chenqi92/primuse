@@ -52,7 +52,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
 
     private static func metadataState(
         itemID: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws -> EmbeddedMetadataRemoteFileState {
         var components = URLComponents(
             string: "\(graphBase)/me/drive/items/\(itemID)"
@@ -63,7 +64,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.sendOnce(request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -101,7 +102,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         localURL: URL,
         itemID: String,
         expectedETag: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws {
         let totalSize = Int64(
             try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
@@ -115,10 +117,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             request.setValue(expectedETag, forHTTPHeaderField: "If-Match")
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = 3_600
-            let (data, response) = try await URLSession.shared.upload(
-                for: request,
-                fromFile: localURL
-            )
+            let (data, response) = try await helper.sendOnce(request) { session, request in
+                try await session.upload(for: request, fromFile: localURL)
+            }
             _ = try confirmedUploadedItem(data: data, response: response)
             return
         }
@@ -133,7 +134,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         createRequest.httpBody = try SafeJSONSerialization.data(withJSONObject: [
             "item": ["@microsoft.graph.conflictBehavior": "replace"],
         ])
-        let (sessionData, sessionResponse) = try await URLSession.shared.data(for: createRequest)
+        let (sessionData, sessionResponse) = try await helper.sendOnce(createRequest)
         guard let sessionHTTP = sessionResponse as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -167,7 +168,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                 if isFinal {
                     let current = try await metadataState(
                         itemID: itemID,
-                        accessToken: accessToken
+                        accessToken: accessToken,
+                        helper: helper
                     )
                     guard current.replacementToken == expectedETag else {
                         throw EmbeddedMetadataWritebackSourceError.conflict
@@ -182,10 +184,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                 )
                 chunkRequest.setValue(String(chunk.count), forHTTPHeaderField: "Content-Length")
                 chunkRequest.timeoutInterval = 600
-                let (data, response) = try await URLSession.shared.upload(
-                    for: chunkRequest,
-                    from: chunk
-                )
+                let (data, response) = try await helper.sendOnce(chunkRequest) { session, request in
+                    try await session.upload(for: request, from: chunk)
+                }
                 guard let http = response as? HTTPURLResponse else {
                     throw CloudDriveError.invalidResponse
                 }
@@ -206,7 +207,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         } catch {
             var cancelRequest = URLRequest(url: uploadURL)
             cancelRequest.httpMethod = "DELETE"
-            _ = try? await URLSession.shared.data(for: cancelRequest)
+            _ = try? await helper.sendOnce(cancelRequest)
             throw error
         }
     }
@@ -470,7 +471,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable accessToken in
-            try await Self.metadataState(itemID: path, accessToken: accessToken)
+            try await Self.metadataState(itemID: path, accessToken: accessToken, helper: self.helper)
         }
     }
 
@@ -491,7 +492,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                 localURL: localURL,
                 itemID: path,
                 expectedETag: eTag,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
         }
         await invalidateMetadataWritebackCache(for: path)
@@ -772,7 +774,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             default: contentType = "image/jpeg"
             }
             req.setValue(contentType, forHTTPHeaderField: "Content-Type")
-            let (responseData, resp) = try await URLSession.shared.upload(for: req, from: data)
+            let (responseData, resp) = try await self.helper.sendOnce(req) { session, request in
+                try await session.upload(for: request, from: data)
+            }
             guard let http = resp as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
             }

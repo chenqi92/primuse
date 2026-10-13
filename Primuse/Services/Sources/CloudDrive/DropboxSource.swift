@@ -36,7 +36,9 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             req.setValue(arg, forHTTPHeaderField: "Dropbox-API-Arg")
             req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            let (responseData, resp) = try await URLSession.shared.upload(for: req, from: data)
+            let (responseData, resp) = try await self.helper.sendOnce(req) { session, request in
+                try await session.upload(for: request, from: data)
+            }
             guard let http = resp as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
             }
@@ -95,7 +97,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
         localURL: URL,
         path: String,
         expectedRevision: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws -> [String: Any] {
         let size = try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         let commit: [String: Any] = [
@@ -113,10 +116,9 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             request.setValue(argument, forHTTPHeaderField: "Dropbox-API-Arg")
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = 3_600
-            let (data, response) = try await URLSession.shared.upload(
-                for: request,
-                fromFile: localURL
-            )
+            let (data, response) = try await helper.sendOnce(request) { session, request in
+                try await session.upload(for: request, fromFile: localURL)
+            }
             return try confirmedUploadMetadata(data: data, response: response)
         }
 
@@ -128,7 +130,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             endpoint: "files/upload_session/start",
             argument: ["close": false],
             body: firstChunk,
-            accessToken: accessToken
+            accessToken: accessToken,
+            helper: helper
         )
         guard let sessionID = startResponse["session_id"] as? String, !sessionID.isEmpty else {
             throw CloudDriveError.invalidResponse
@@ -146,7 +149,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                 ],
                 body: chunk,
                 accessToken: accessToken,
-                allowsEmptyResponse: true
+                allowsEmptyResponse: true,
+                helper: helper
             )
             offset += Int64(chunk.count)
         }
@@ -158,7 +162,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                 "commit": commit,
             ],
             body: Data(),
-            accessToken: accessToken
+            accessToken: accessToken,
+            helper: helper
         )
     }
 
@@ -167,7 +172,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
         argument: [String: Any],
         body: Data,
         accessToken: String,
-        allowsEmptyResponse: Bool = false
+        allowsEmptyResponse: Bool = false,
+        helper: CloudDriveHelper
     ) async throws -> [String: Any] {
         var request = URLRequest(url: URL(string: "\(contentBase)/\(endpoint)")!)
         request.httpMethod = "POST"
@@ -178,7 +184,9 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
         )
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
-        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+        let (data, response) = try await helper.sendOnce(request) { session, request in
+            try await session.upload(for: request, from: body)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -556,7 +564,8 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                 localURL: localURL,
                 path: path,
                 expectedRevision: revision,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
         }
         await invalidateMetadataWritebackCache(for: path)

@@ -45,7 +45,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             let source = try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: fileID,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
             let sidecarName = (source.name as NSString).deletingPathExtension + suffix
 
@@ -53,12 +54,14 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 driveID: driveId,
                 parentFileID: source.parentFileID,
                 name: sidecarName,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             ) {
                 let existing = try await Self.metadataDetail(
                     driveID: driveId,
                     fileID: existingID,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 try await Self.uploadReplacement(
                     localURL: localURL,
@@ -66,13 +69,15 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                     detail: existing,
                     driveID: driveId,
                     expected: existing.state,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 try await Self.verifyUploadedFile(
                     driveID: driveId,
                     fileID: existingID,
                     descriptor: descriptor,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 return existingID
             }
@@ -99,7 +104,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
                 body: createBody,
                 accessToken: tok,
-                operation: "create sidecar upload"
+                operation: "create sidecar upload",
+                helper: self.helper
             )
             if created["exist"] as? Bool == true {
                 // Another client created the name after our listing. Retrying
@@ -121,7 +127,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 }
                 var putReq = URLRequest(url: put)
                 putReq.httpMethod = "PUT"
-                let (_, pResp) = try await URLSession.shared.upload(for: putReq, from: data)
+                let (_, pResp) = try await self.helper.sendOnce(putReq) { session, request in
+                    try await session.upload(for: request, from: data)
+                }
                 guard let ph = pResp as? HTTPURLResponse, (200...299).contains(ph.statusCode) else {
                     throw CloudDriveError.apiError((pResp as? HTTPURLResponse)?.statusCode ?? 0, "aliyun part PUT")
                 }
@@ -134,7 +142,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                     url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
                     body: completeBody,
                     accessToken: tok,
-                    operation: "complete sidecar upload"
+                    operation: "complete sidecar upload",
+                    helper: self.helper
                 )
                 guard completed["file_id"] as? String == newFileID else {
                     throw CloudDriveError.invalidResponse
@@ -144,7 +153,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 driveID: driveId,
                 fileID: newFileID,
                 descriptor: descriptor,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
             return newFileID
         }
@@ -182,7 +192,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: sourceFileID,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
         }
         guard source.parentFileID == target.containerPath,
@@ -227,7 +238,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 let existing = try await Self.metadataDetail(
                     driveID: driveId,
                     fileID: exactExistingID,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 guard existing.name == target.fileName,
                       existing.parentFileID == target.containerPath else {
@@ -239,13 +251,15 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                     detail: existing,
                     driveID: driveId,
                     expected: existing.state,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 try await Self.verifyUploadedFile(
                     driveID: driveId,
                     fileID: exactExistingID,
                     descriptor: descriptor,
-                    accessToken: tok
+                    accessToken: tok,
+                    helper: self.helper
                 )
                 return exactExistingID
             }
@@ -272,7 +286,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
                 body: createBody,
                 accessToken: tok,
-                operation: "create lyrics sidecar"
+                operation: "create lyrics sidecar",
+                helper: self.helper
             )
             if created["exist"] as? Bool == true {
                 throw EmbeddedMetadataWritebackSourceError.conflict
@@ -291,10 +306,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 }
                 var request = URLRequest(url: putURL)
                 request.httpMethod = "PUT"
-                let (_, response) = try await URLSession.shared.upload(
-                    for: request,
-                    from: data
-                )
+                let (_, response) = try await self.helper.sendOnce(request) { session, request in
+                    try await session.upload(for: request, from: data)
+                }
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode) else {
                     throw CloudDriveError.apiError(
@@ -311,7 +325,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                     url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
                     body: completeBody,
                     accessToken: tok,
-                    operation: "complete lyrics sidecar"
+                    operation: "complete lyrics sidecar",
+                    helper: self.helper
                 )
                 guard completed["file_id"] as? String == newFileID else {
                     throw CloudDriveError.invalidResponse
@@ -321,7 +336,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 driveID: driveId,
                 fileID: newFileID,
                 descriptor: descriptor,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
             return newFileID
         }
@@ -333,7 +349,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: writtenFileID,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
         }
         guard writtenMetadata.name == target.fileName,
@@ -385,7 +402,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             let source = try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: song.filePath,
-                accessToken: tok
+                accessToken: tok,
+                helper: self.helper
             )
             return (
                 (source.name as NSString).deletingPathExtension,
@@ -431,7 +449,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         driveID: String,
         parentFileID: String,
         name: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws -> String? {
         var marker: String?
         var seenMarkers: Set<String> = []
@@ -447,7 +466,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 url: URL(string: "\(apiBase)/adrive/v1.0/openFile/list")!,
                 body: body,
                 accessToken: accessToken,
-                operation: "list sidecars"
+                operation: "list sidecars",
+                helper: helper
             )
             guard let items = response["items"] as? [[String: Any]] else {
                 throw CloudDriveError.invalidResponse
@@ -470,12 +490,14 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         driveID: String,
         fileID: String,
         descriptor: UploadDescriptor,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws {
         let final = try await metadataDetail(
             driveID: driveID,
             fileID: fileID,
-            accessToken: accessToken
+            accessToken: accessToken,
+            helper: helper
         )
         guard final.state.fileSize == descriptor.size,
               final.state.revision?.caseInsensitiveCompare(descriptor.sha1) == .orderedSame else {
@@ -493,7 +515,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
     private static func metadataDetail(
         driveID: String,
         fileID: String,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws -> MetadataDetail {
         let body = try SafeJSONSerialization.data(withJSONObject: [
             "drive_id": driveID,
@@ -507,7 +530,7 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.sendOnce(request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -571,7 +594,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         detail: MetadataDetail,
         driveID: String,
         expected: EmbeddedMetadataRemoteFileState,
-        accessToken: String
+        accessToken: String,
+        helper: CloudDriveHelper
     ) async throws {
         let proof = try proofCode(
             token: accessToken,
@@ -596,7 +620,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             url: URL(string: "\(apiBase)/adrive/v1.0/openFile/create")!,
             body: createBody,
             accessToken: accessToken,
-            operation: "create replacement upload"
+            operation: "create replacement upload",
+            helper: helper
         )
         guard create["file_id"] as? String == detail.fileID else {
             throw CloudDriveError.invalidResponse
@@ -633,7 +658,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             request.httpMethod = "PUT"
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = 600
-            let (data, response) = try await URLSession.shared.upload(for: request, from: chunk)
+            let (data, response) = try await helper.sendOnce(request) { session, request in
+                try await session.upload(for: request, from: chunk)
+            }
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode) else {
                 throw CloudDriveError.apiError(
@@ -647,7 +674,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         let current = try await metadataDetail(
             driveID: driveID,
             fileID: detail.fileID,
-            accessToken: accessToken
+            accessToken: accessToken,
+            helper: helper
         )
         guard expected.matches(current.state) else {
             throw EmbeddedMetadataWritebackSourceError.conflict
@@ -661,7 +689,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             url: URL(string: "\(apiBase)/adrive/v1.0/openFile/complete")!,
             body: completeBody,
             accessToken: accessToken,
-            operation: "complete replacement upload"
+            operation: "complete replacement upload",
+            helper: helper
         )
         guard completed["file_id"] as? String == detail.fileID else {
             throw CloudDriveError.invalidResponse
@@ -679,7 +708,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         url: URL,
         body: Data,
         accessToken: String,
-        operation: String
+        operation: String,
+        helper: CloudDriveHelper
     ) async throws -> [String: Any] {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -687,7 +717,7 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.sendOnce(request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -878,7 +908,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: path,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             ).state
         }
     }
@@ -901,7 +932,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             let current = try await Self.metadataDetail(
                 driveID: driveId,
                 fileID: path,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
             guard expected.matches(current.state) else {
                 throw EmbeddedMetadataWritebackSourceError.conflict
@@ -912,7 +944,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
                 detail: current,
                 driveID: driveId,
                 expected: expected,
-                accessToken: accessToken
+                accessToken: accessToken,
+                helper: self.helper
             )
         }
         await invalidateMetadataWritebackCache(for: path)

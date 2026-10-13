@@ -507,6 +507,36 @@ struct CloudDriveHelper: Sendable {
         }
     }
 
+    /// 写回、上传这类不能自动重发的请求。发之前先过这个账号的共享配额:冷却中最多等一小会儿,
+    /// 长冷却直接报限流、不发请求;收到 429、带 Retry-After 的失败或服务商的配额回复,记下冷却后抛出。
+    /// 其余响应原样交回调用方,冲突、权限、鉴权这些判断照旧。
+    func sendOnce(
+        _ request: URLRequest,
+        transport: (@Sendable (URLSession, URLRequest) async throws -> (Data, URLResponse))? = nil
+    ) async throws -> (Data, URLResponse) {
+        guard let url = request.url else { throw CloudDriveError.invalidResponse }
+        let session = apiSession
+        let validateResponse = self.validateResponse
+        let executor = requests.executor(sourceID: sourceID, url: url)
+        return try await executor.execute(replay: .never, timeout: request.timeoutInterval, operation: {
+            let (data, response): (Data, URLResponse)
+            if let transport {
+                (data, response) = try await transport(session, request)
+            } else {
+                (data, response) = try await session.data(for: request)
+            }
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                try validateResponse(data, http)
+                let delay = HTTPResponseFailure.retryDelay(from: http)
+                if http.statusCode == 429 || delay != nil {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: delay,
+                                              isRateLimited: http.statusCode == 429)
+                }
+            }
+            return (data, response)
+        })
+    }
+
     /// Non-retryable statuses remain available to adapters (404, write conflicts,
     /// ordinary 403, etc.). Temporary failures retain their status, body and delay.
     static func checkHTTPFailure(data: Data, response: HTTPURLResponse) throws {
