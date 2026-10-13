@@ -5603,7 +5603,7 @@
 "playlist_find_prompt" = "In Wiedergabeliste suchen";
 "filter_playlists_placeholder" = "Wiedergabelisten filtern…";
 "filter_favorites_placeholder" = "Favoriten filtern…";
-"filter_spoken_word_placeholder" = "Hörbücher filtern…";
+"filter_spoken_word_placeholder" = "Deine Bibliothek";
 "filter_podcasts_placeholder" = "Podcasts filtern…";
 "library_insight_batch_fill" = "Fehlende Einführungen ergänzen";
 "library_insight_batch_stop_format" = "Ergänzen stoppen (%1$d/%2$d)";

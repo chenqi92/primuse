@@ -5580,7 +5580,7 @@
 "playlist_find_prompt" = "在播放清單中尋找";
 "filter_playlists_placeholder" = "篩選播放清單…";
 "filter_favorites_placeholder" = "篩選收藏…";
-"filter_spoken_word_placeholder" = "篩選有聲書…";
+"filter_spoken_word_placeholder" = "你的書庫";
 "filter_podcasts_placeholder" = "篩選播客…";
 "library_insight_batch_fill" = "補全缺少的簡介";
 "library_insight_batch_stop_format" = "停止補全簡介（%1$d/%2$d）";

@@ -5603,7 +5603,7 @@
 "playlist_find_prompt" = "Rechercher dans la liste";
 "filter_playlists_placeholder" = "Filtrer les listes…";
 "filter_favorites_placeholder" = "Filtrer les favoris…";
-"filter_spoken_word_placeholder" = "Filtrer les livres audio…";
+"filter_spoken_word_placeholder" = "Votre bibliothèque";
 "filter_podcasts_placeholder" = "Filtrer les podcasts…";
 "library_insight_batch_fill" = "Compléter les présentations manquantes";
 "library_insight_batch_stop_format" = "Arrêter la complétion (%1$d/%2$d)";

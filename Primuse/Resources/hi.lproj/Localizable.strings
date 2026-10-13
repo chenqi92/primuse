@@ -5509,7 +5509,7 @@
 "playlist_find_prompt" = "प्लेलिस्ट में खोजें";
 "filter_playlists_placeholder" = "प्लेलिस्ट फ़िल्टर करें...";
 "filter_favorites_placeholder" = "पसंदीदा फ़िल्टर करें...";
-"filter_spoken_word_placeholder" = "ऑडियोबुक फ़िल्टर करें...";
+"filter_spoken_word_placeholder" = "आपकी लाइब्रेरी";
 "filter_podcasts_placeholder" = "पॉडकास्ट फ़िल्टर करें...";
 "library_insight_batch_fill" = "छूटे हुए परिचय पूरे करें";
 "library_insight_batch_stop_format" = "परिचय पूरे करना रोकें (%1$d/%2$d)";

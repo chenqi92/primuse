@@ -5509,7 +5509,7 @@
 "playlist_find_prompt" = "البحث في قائمة التشغيل";
 "filter_playlists_placeholder" = "تصفية قوائم التشغيل...";
 "filter_favorites_placeholder" = "تصفية المفضلة...";
-"filter_spoken_word_placeholder" = "تصفية الكتب الصوتية...";
+"filter_spoken_word_placeholder" = "مكتبتك";
 "filter_podcasts_placeholder" = "تصفية البودكاست...";
 "library_insight_batch_fill" = "إكمال النبذات الناقصة";
 "library_insight_batch_stop_format" = "إيقاف إكمال النبذات (%1$d/%2$d)";

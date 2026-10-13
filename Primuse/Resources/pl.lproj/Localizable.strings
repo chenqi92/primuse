@@ -5509,7 +5509,7 @@
 "playlist_find_prompt" = "Szukaj w playliście";
 "filter_playlists_placeholder" = "Filtruj playlisty…";
 "filter_favorites_placeholder" = "Filtruj ulubione…";
-"filter_spoken_word_placeholder" = "Filtruj audiobooki…";
+"filter_spoken_word_placeholder" = "Twoja biblioteka";
 "filter_podcasts_placeholder" = "Filtruj podcasty…";
 "library_insight_batch_fill" = "Uzupełnij brakujące wprowadzenia";
 "library_insight_batch_stop_format" = "Zatrzymaj uzupełnianie (%1$d/%2$d)";

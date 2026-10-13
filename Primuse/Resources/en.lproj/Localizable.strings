@@ -5363,7 +5363,7 @@
 "playlist_find_prompt" = "Find in Playlist";
 "filter_playlists_placeholder" = "Filter playlists…";
 "filter_favorites_placeholder" = "Filter favorites…";
-"filter_spoken_word_placeholder" = "Filter audiobooks…";
+"filter_spoken_word_placeholder" = "Your Library";
 "filter_podcasts_placeholder" = "Filter podcasts…";
 "library_insight_batch_fill" = "Fill In Missing Intros";
 "library_insight_batch_stop_format" = "Stop Filling In Intros (%1$d/%2$d)";

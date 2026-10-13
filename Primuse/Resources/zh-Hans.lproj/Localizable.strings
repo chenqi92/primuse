@@ -5696,7 +5696,7 @@
 "playlist_find_prompt" = "在歌单中查找";
 "filter_playlists_placeholder" = "过滤歌单…";
 "filter_favorites_placeholder" = "过滤收藏…";
-"filter_spoken_word_placeholder" = "过滤有声书…";
+"filter_spoken_word_placeholder" = "你的书库";
 "filter_podcasts_placeholder" = "过滤播客…";
 "library_insight_batch_fill" = "补全缺少的简介";
 "library_insight_batch_stop_format" = "停止补全简介（%1$d/%2$d）";

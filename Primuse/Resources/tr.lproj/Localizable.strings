@@ -5509,7 +5509,7 @@
 "playlist_find_prompt" = "Çalma listesinde ara";
 "filter_playlists_placeholder" = "Çalma listelerini filtrele…";
 "filter_favorites_placeholder" = "Favorileri filtrele…";
-"filter_spoken_word_placeholder" = "Sesli kitapları filtrele…";
+"filter_spoken_word_placeholder" = "Kitaplığınız";
 "filter_podcasts_placeholder" = "Podcast'leri filtrele…";
 "library_insight_batch_fill" = "Eksik Tanıtımları Tamamla";
 "library_insight_batch_stop_format" = "Tamamlamayı Durdur (%1$d/%2$d)";
