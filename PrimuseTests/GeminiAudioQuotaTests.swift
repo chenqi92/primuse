@@ -83,8 +83,12 @@ final class GeminiAudioQuotaTests: XCTestCase, @unchecked Sendable {
             await fulfillment(of: [done, fixture.stopped!], timeout: 5)
             XCTAssertEqual(fixture.requests.filter { $0.httpMethod != "DELETE" }.count, min(phase + 1, 3))
             if phase == 3 {
+                // The interrupted deletion is handed to the deferred queue exactly once.
+                for _ in 0..<1_000 where fixture.requests.count < 5 { try await Task.sleep(for: .milliseconds(10)) }
+                XCTAssertEqual(fixture.requests.count, 5)
+                XCTAssertEqual(fixture.requests.last?.httpMethod, "DELETE")
                 try await Task.sleep(for: .milliseconds(20))
-                XCTAssertEqual(fixture.requests.count, 4, "Cancelling an active deletion must not replay it")
+                XCTAssertEqual(fixture.requests.count, 5, "The handed-off deletion must not loop")
             }
         }
     }
@@ -128,15 +132,33 @@ final class GeminiAudioQuotaTests: XCTestCase, @unchecked Sendable {
         try await clock.waitForSleep(at: 86400)
         XCTAssertEqual(fixture.requests.count, 3)
         clock.advance(to: 86400)
-        for _ in 0..<1000 {
+        // Up to ten seconds: the deferred task runs on a busy build host's executor too.
+        for _ in 0..<1_000 {
             if fixture.requests.count == 4 { break }
-            try await Task.sleep(for: .milliseconds(1))
+            try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(fixture.requests.count, 4)
         XCTAssertEqual(fixture.requests.last?.httpMethod, "DELETE")
         clock.advance(to: 200000)
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertEqual(fixture.requests.count, 4, "A second cleanup failure must not create a retry loop")
+        await cleanup.cancelAll()
+    }
+
+    func testCleanupThatWouldOutlastTheUploadedFileIsNotQueued() async throws {
+        let clock = AudioClock()
+        let cleanup = GeminiDeferredCleanup(timing: clock.timing)
+        let sent = AudioCounter()
+        await cleanup.enqueue(after: GeminiDeferredCleanup.uploadedFileLifetime) { await sent.increment() }
+        await cleanup.enqueue(after: 0) { await sent.increment() }
+        for _ in 0..<1_000 {
+            if await sent.count > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        clock.advance(to: GeminiDeferredCleanup.uploadedFileLifetime + 1)
+        try await Task.sleep(for: .milliseconds(20))
+        let count = await sent.count
+        XCTAssertEqual(count, 1, "Only the cleanup that can still find the file runs")
         await cleanup.cancelAll()
     }
 

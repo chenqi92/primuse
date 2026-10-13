@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import OSLog
 import PrimuseKit
 
 enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
@@ -1818,7 +1817,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
 /// attempt, never an unbounded retry loop. No credentials or file names are logged.
 actor GeminiDeferredCleanup {
     static let shared = GeminiDeferredCleanup()
-    private static let logger = Logger(subsystem: "Primuse", category: "GeminiCleanup")
+    /// The Files API removes an upload on its own after 48 hours; waiting longer is pointless.
+    static let uploadedFileLifetime: TimeInterval = 48 * 3600
     private let timing: RequestExecutor.Timing
     private let capacity: Int
     private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -1831,8 +1831,12 @@ actor GeminiDeferredCleanup {
     deinit { for task in tasks.values { task.cancel() } }
 
     func enqueue(after delay: TimeInterval, operation: @escaping @Sendable () async throws -> Void) {
-        guard delay.isFinite, delay >= 0, tasks.count < capacity else {
-            Self.logger.warning("Temporary audio cleanup skipped: deferred queue unavailable")
+        guard delay.isFinite, delay >= 0, delay < Self.uploadedFileLifetime else {
+            plog("✨ Gemini temporary audio cleanup skipped: the provider expires the file before the cooldown ends")
+            return
+        }
+        guard tasks.count < capacity else {
+            plog("✨ Gemini temporary audio cleanup skipped: deferred queue full")
             return
         }
         let id = UUID()
@@ -1848,7 +1852,7 @@ actor GeminiDeferredCleanup {
                 try await operation()
             } catch is CancellationError {
             } catch {
-                Self.logger.warning("Deferred temporary audio cleanup did not complete")
+                plog("✨ Gemini deferred temporary audio cleanup did not complete")
             }
             await self?.finished(id)
         }
@@ -2104,7 +2108,10 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
                 await cleanup.enqueue(after: delay ?? 30, operation: operation)
             }
         } catch is CancellationError {
-            // An active deletion has an unknown outcome; do not replay it.
+            // Cancelled mid-deletion: the outcome is unknown, but a repeated DELETE only finds
+            // nothing. Hand it to the deferred queue once instead of leaving the user's audio
+            // on the provider until it expires.
+            await cleanup.enqueue(after: 0, operation: operation)
         } catch { }
     }
 
