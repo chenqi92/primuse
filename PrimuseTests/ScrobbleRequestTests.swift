@@ -49,6 +49,28 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("private-fixture-token"))
     }
 
+    func testPersistedCooldownIsBoundedAgainstHugeDelaysAndClockRollback() async throws {
+        let suite = "scrobble-cooldown-" + UUID().uuidString
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let limit = ScrobbleCooldownStore.maximumDelay
+        let fixture = ScrobbleHTTPFixture(status: 429, headers: ["Retry-After": "2592000"])
+        let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+        do {
+            try await ListenBrainzProvider(userToken: "fixture", session: fixture.session(), requests: requests)
+                .sendNowPlaying(Self.entry)
+            XCTFail("Expected the server cooldown")
+        } catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.retryAfter, limit) }
+
+        let key = "bounded-fixture"
+        let start: TimeInterval = 1_800_000_000
+        await ScrobbleCooldownStore(suiteName: suite, now: { start }).record(key, status: 429, delay: 30 * 86_400)
+        // Recorded, then the system clock went back ten days: still at most one bound away.
+        let rolledBack = start - 10 * 86_400
+        do { try await ScrobbleCooldownStore(suiteName: suite, now: { rolledBack }).check(key); XCTFail("Expected cooldown") }
+        catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.retryAfter, limit) }
+        try await ScrobbleCooldownStore(suiteName: suite, now: { rolledBack + limit }).check(key)
+    }
+
     func testIndependentAccountsAndEndpointsCanSubmitDuringAnotherCooldown() async throws {
         let fixture = ScrobbleHTTPFixture(status: 429, headers: ["Retry-After": "3600"])
         let session = fixture.session()
@@ -136,7 +158,8 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
             duration: 60, fileFormat: .flac, filePath: "/fixture.flac", sourceID: "fixture")
         service.handlePlaybackStarted(song: song)
         service.handleProgressTick(playedDelta: 30)
-        for _ in 0..<100 {
+        // Up to ten seconds: the first submission runs on a busy build host's executor too.
+        for _ in 0..<1_000 {
             if queueDeadline(defaults) >= before + 3590 { break }
             try await Task.sleep(for: .milliseconds(10))
         }

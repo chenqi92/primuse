@@ -131,8 +131,8 @@ struct ScrobbleRequests: Sendable {
                 return (data, http)
             })
         } catch let failure as HTTPResponseFailure {
-            let delay = failure.retryAfter ?? ((failure.isRateLimited || service.policy.rateLimitStatusCodes.contains(failure.statusCode))
-                ? service.policy.defaultCooldown : nil)
+            let delay = (failure.retryAfter ?? ((failure.isRateLimited || service.policy.rateLimitStatusCodes.contains(failure.statusCode))
+                ? service.policy.defaultCooldown : nil)).map { min($0, ScrobbleCooldownStore.maximumDelay) }
             if let delay, delay.isFinite, delay >= 0 {
                 await cooldowns.record(key, status: failure.statusCode, delay: delay)
                 throw HTTPResponseFailure(statusCode: failure.statusCode, retryAfter: delay,
@@ -152,6 +152,9 @@ struct ScrobbleRequests: Sendable {
 
 actor ScrobbleCooldownStore {
     static let shared = ScrobbleCooldownStore()
+    /// 持久化的服务端截止时间最多一天。代理回了离谱的 Retry-After、或记下之后系统时钟往回拨,
+    /// 都不能让上报和正在播放一直被挡着又没有入口解除;补报队列能留 90 天,晚一天不会丢记录。
+    static let maximumDelay: TimeInterval = 86_400
     private struct Deadline: Codable {
         let until: TimeInterval
         let status: Int
@@ -175,15 +178,26 @@ actor ScrobbleCooldownStore {
         if let deadline = deadlines[key] {
             let remaining = deadline.until - now()
             guard remaining > 0 else { return }
-            throw HTTPResponseFailure(statusCode: deadline.status, retryAfter: remaining, isRateLimited: true)
+            if remaining > Self.maximumDelay {
+                deadlines[key] = Deadline(until: now() + Self.maximumDelay, status: deadline.status)
+                save()
+            }
+            throw HTTPResponseFailure(statusCode: deadline.status, retryAfter: min(remaining, Self.maximumDelay),
+                isRateLimited: true)
         }
     }
     func record(_ key: String, status: Int, delay: TimeInterval) {
-        deadlines = deadlines.filter { $0.value.until > now() }
-        let until = now() + delay
+        let now = now()
+        let ceiling = now + Self.maximumDelay
+        deadlines = deadlines.filter { $0.value.until > now }
+            .mapValues { Deadline(until: min($0.until, ceiling), status: $0.status) }
+        let until = now + min(delay, Self.maximumDelay)
         if until > (deadlines[key]?.until ?? 0) { deadlines[key] = Deadline(until: until, status: status) }
         // Accounts are user-configured; expired records are removed on every write.
         // Never evict an active server deadline to make a retry appear eligible.
+        save()
+    }
+    private func save() {
         if let data = try? JSONEncoder().encode(deadlines) { defaults.set(data, forKey: storageKey) }
     }
 }

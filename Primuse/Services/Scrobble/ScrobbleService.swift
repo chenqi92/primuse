@@ -289,7 +289,7 @@ final class ScrobbleService {
     private func recordServerRetry(entry: ScrobbleEntry, delay: TimeInterval) {
         guard delay.isFinite, delay >= 0,
               let index = queue.firstIndex(where: { $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt }) else { return }
-        let deadline = Date().timeIntervalSince1970 + delay
+        let deadline = Date().timeIntervalSince1970 + min(delay, ScrobbleCooldownStore.maximumDelay)
         queue[index].serverRetryAt = max(queue[index].serverRetryAt ?? 0, deadline)
         queue[index].nextRetryAt = max(queue[index].nextRetryAt, deadline)
     }
@@ -548,6 +548,12 @@ final class ScrobbleService {
                 return $0.entry.songID < $1.entry.songID
             }
             queue.removeFirst(queue.count - Self.queueLimit)
+        }
+        // 系统时钟往回拨后,记下的截止时间不能比服务端冷却的上限还远,否则手动重试也解不开。
+        let ceiling = now + ScrobbleCooldownStore.maximumDelay
+        for index in queue.indices {
+            if let server = queue[index].serverRetryAt, server > ceiling { queue[index].serverRetryAt = ceiling }
+            if queue[index].nextRetryAt > ceiling { queue[index].nextRetryAt = ceiling }
         }
     }
 
