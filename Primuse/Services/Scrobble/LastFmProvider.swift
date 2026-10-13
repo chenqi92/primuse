@@ -188,7 +188,8 @@ struct LastFmProvider: ScrobbleProvider {
                 if retryAfter == nil, [401, 403].contains(http.statusCode) { throw ScrobbleError.invalidCredentials }
                 guard (200...299).contains(http.statusCode), let code else { return }
                 if [4, 9, 10, 26].contains(code) { throw ScrobbleError.invalidCredentials }
-                if [11, 16].contains(code) {
+                // 8 = operation failed (try again), 11 = service offline, 16 = temporarily unavailable.
+                if [8, 11, 16].contains(code) {
                     throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: retryAfter, isRetryable: true)
                 }
                 throw ScrobbleError.invalidResponse

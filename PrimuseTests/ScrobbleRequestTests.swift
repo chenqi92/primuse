@@ -71,6 +71,16 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         try await ScrobbleCooldownStore(suiteName: suite, now: { rolledBack + limit }).check(key)
     }
 
+    func testLastFMOperationFailedIsQueuedForRetry() async throws {
+        let fixture = ScrobbleHTTPFixture(status: 200, body: #"{"error":8,"message":"Operation failed"}"#)
+        let provider = LastFmProvider(apiKey: UUID().uuidString, apiSecret: "fixture", sessionKey: "fixture",
+            session: fixture.session(), requests: ScrobbleRequests(registry: RequestQuotaRegistry()))
+        do { try await provider.submitListens([Self.entry]); XCTFail("Expected a retryable failure") }
+        catch let error as ScrobbleError { XCTFail("Error 8 was dropped as \(error)") }
+        catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.isRetryable, true) }
+        XCTAssertEqual(fixture.count, 1)
+    }
+
     func testIndependentAccountsAndEndpointsCanSubmitDuringAnotherCooldown() async throws {
         let fixture = ScrobbleHTTPFixture(status: 429, headers: ["Retry-After": "3600"])
         let session = fixture.session()
