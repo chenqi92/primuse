@@ -18,6 +18,13 @@ struct LastFmProvider: ScrobbleProvider {
     /// 用户授权后拿到的永久 sessionKey (存 Keychain)。
     let sessionKey: String
 
+    let requests: ScrobbleRequests
+    let session: URLSession
+    init(apiKey: String, apiSecret: String, sessionKey: String, session: URLSession = .shared, requests: ScrobbleRequests = .init()) {
+        self.requests = requests
+        self.apiKey = apiKey; self.apiSecret = apiSecret; self.sessionKey = sessionKey; self.session = session
+    }
+
     private let baseURL = URL(string: "https://ws.audioscrobbler.com/2.0/")!
 
     func validateCredentials() async -> Bool? {
@@ -151,9 +158,28 @@ struct LastFmProvider: ScrobbleProvider {
         }
         request.timeoutInterval = 30
 
+        if signed {
+            // Use the existing application-key quota shared with discovery.
+            return try await requests.send(request, session: session, service: .lastFM, account: apiKey) { data, http in
+                let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                let code = envelope?["error"] as? Int
+                if code == 29 {
+                    throw HTTPResponseFailure(statusCode: http.statusCode,
+                        retryAfter: retryAfter ?? RequestQuota.Service.lastFM.policy.defaultCooldown, isRateLimited: true)
+                }
+                if retryAfter == nil, [401, 403].contains(http.statusCode) { throw ScrobbleError.invalidCredentials }
+                guard (200...299).contains(http.statusCode), let code else { return }
+                if [4, 9, 10, 26].contains(code) { throw ScrobbleError.invalidCredentials }
+                if [11, 16].contains(code) {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: retryAfter, isRetryable: true)
+                }
+                throw ScrobbleError.invalidResponse
+            }
+        }
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw ScrobbleError.network(error)
         }
