@@ -127,7 +127,7 @@ final class TVPlayerBackdropResolver {
         let maxPixel = Self.maxPixel
         let key = "back|\(sourceID)|\(file.cacheKey)"
         let source = store.sourcesStore.source(id: sourceID)
-        let credential = source.flatMap { TVCredentialStore.credential(for: $0, bundle: store.credentialBundle) }
+        let bundle = store.credentialBundle
         show(key: key, source: .albumBack) {
             let diskKey = "\(sourceID)|\(file.cacheKey)|\(maxPixel)"
             let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey)
@@ -135,6 +135,8 @@ final class TVPlayerBackdropResolver {
                 return cached
             }
             guard let source, file.size <= Self.maximumAlbumBackBytes else { return nil }
+            // 凭据要查几次钥匙串(同步跨进程调用):缓存没命中、真要读文件时才在这里(后台)读。
+            let credential = TVCredentialStore.credential(for: source, bundle: bundle)
             let pool = TVMetadataReaderPool(source: source, credential: credential)
             defer { Task { await pool.closeAll() } }
             do {

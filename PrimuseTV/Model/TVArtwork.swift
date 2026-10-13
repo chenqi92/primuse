@@ -471,7 +471,8 @@ actor TVArtworkLoader {
         fnMusicClient: FnMusicServiceClient? = nil,
         animationCacheKey: String? = nil,
         source: MusicSource? = nil,
-        credential: SourceCredential? = nil
+        credential: SourceCredential? = nil,
+        credentialProvider: (@Sendable () async -> SourceCredential?)? = nil
     ) async -> Data? {
         guard !Task.isCancelled, !songID.isEmpty else { return nil }
         let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -546,11 +547,19 @@ actor TVArtworkLoader {
         }
 
         if let source, TVSourceAssetReader.supports(source.type) {
-            let key = "server-cover:\(songID)|\(ref)|\(TVSourceAssetReader.cacheIdentity(source: source, credential: credential))"
+            // 缓存没命中才读凭据;读法由调用方给,在后台做。
+            let resolvedCredential: SourceCredential?
+            if let credential {
+                resolvedCredential = credential
+            } else {
+                resolvedCredential = await credentialProvider?()
+                guard !Task.isCancelled else { return nil }
+            }
+            let key = "server-cover:\(songID)|\(ref)|\(TVSourceAssetReader.cacheIdentity(source: source, credential: resolvedCredential))"
             if isTemporarilyNegative(key) { return nil }
             let result = await deduplicatedFetch(key: key) {
                 await TVSourceAssetReader.shared.artworkData(
-                    reference: ref, source: source, credential: credential,
+                    reference: ref, source: source, credential: resolvedCredential,
                     maximumBytes: Self.maximumRemoteArtworkBytes
                 )
             }

@@ -164,7 +164,7 @@ struct TVPlaylistCard: View {
             Button("medley_play_selection", systemImage: "shuffle") {
                 pendingMedleyIDs = store.medleyPlaylistSongIDs(playlist)
             }
-            .disabled(!store.canPlayMedley(songIDs: store.medleyPlaylistSongIDs(playlist)))
+            .disabled(!store.canPlayMedley(playlist: playlist))
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(playlist.name))

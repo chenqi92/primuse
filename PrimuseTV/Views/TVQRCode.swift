@@ -28,16 +28,27 @@ struct TVQRCode: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private static func make(_ string: String) -> UIImage? {
+    /// body 每次重算都会走到这里(源页焦点一动就算一次)。CIContext 建一次要初始化 Metal,
+    /// 共用一个;同一内容生成过就直接用。
+    @MainActor private static let context = CIContext()
+    @MainActor private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    @MainActor private static func make(_ string: String) -> UIImage? {
+        if let cached = cache.object(forKey: string as NSString) { return cached }
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
         // 放大到清晰像素(二维码本身分辨率低,放大避免模糊)。
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        let context = CIContext()
         guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-        return UIImage(cgImage: cgImage)
+        let image = UIImage(cgImage: cgImage)
+        cache.setObject(image, forKey: string as NSString)
+        return image
     }
 }
 #endif

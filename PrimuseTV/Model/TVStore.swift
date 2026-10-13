@@ -1481,12 +1481,24 @@ final class TVStore {
         return (primary.top, primary.songs + supplement)
     }
 
+    /// 搜索页每次重算(焦点移动也算)都要问一遍建议,同一查询按曲库修订号记住结果。
+    @ObservationIgnored private var searchSuggestionsCache: (query: String, revision: Int, names: [String])?
+
     /// 空查询时的建议(艺术家名),与旧逻辑一致。
     func searchSuggestions(_ query: String) -> [String] {
         let q = query.trimmingCharacters(in: .whitespaces)
-        let names = library.visibleArtists.map(\.name)
-        let hits = q.isEmpty ? names : names.filter { $0.localizedCaseInsensitiveContains(q) }
-        return Array((hits.isEmpty ? names : hits).prefix(5))
+        let revision = libraryContentRevision
+        if let cached = searchSuggestionsCache, cached.query == q, cached.revision == revision {
+            return cached.names
+        }
+        // 只要前 5 个:懒过滤、凑够就停,不再先把几千位艺人的名字整份拷一遍再全过一遍。
+        let artists = library.visibleArtists
+        let hits: [String] = q.isEmpty ? [] : Array(
+            artists.lazy.map(\.name).filter { $0.localizedCaseInsensitiveContains(q) }.prefix(5)
+        )
+        let names = hits.isEmpty ? artists.prefix(5).map(\.name) : hits
+        searchSuggestionsCache = (q, revision, names)
+        return names
     }
     func albumOf(_ song: TVSong) -> TVAlbum? { album(song.albumID) }
     func songs(forAlbum id: String) -> [TVSong] {
@@ -7230,8 +7242,22 @@ extension TVStore {
         return Array(queue[queueIndex...])
     }
 
+    /// 歌单、专辑卡片的长按菜单在 body 里就要算这个:一首能进就停;整张都不能进
+    /// (Apple Music 歌单)时会逐首看完,所以源只按源判一次。
     func canPlayMedley(songIDs: [String]) -> Bool {
-        songIDs.contains { id in library.song(id: id).map(canIncludeInMedley) == true }
+        var sourceVerdicts: [String: Bool] = [:]
+        return songIDs.contains { id in
+            library.song(id: id).map { canIncludeInMedley($0, sourceVerdicts: &sourceVerdicts) } == true
+        }
+    }
+
+    /// 同 `canPlayMedley(songIDs: medleyPlaylistSongIDs(playlist))`,但普通歌单不先把整张歌单的
+    /// Song 取出来:不可见的条目在逐首判断时一样被排除。
+    func canPlayMedley(playlist: TVPlaylist) -> Bool {
+        guard playlist.kind != .smart else {
+            return canPlayMedley(songIDs: medleyPlaylistSongIDs(playlist))
+        }
+        return canPlayMedley(songIDs: library.songIDs(forPlaylist: playlist.id))
     }
 
     func medleyNeedsDataUsageConfirmation(songIDs: [String]) -> Bool {
@@ -7261,10 +7287,22 @@ extension TVStore {
     }
 
     func canIncludeInMedley(_ raw: Song) -> Bool {
-        guard song(raw.id) != nil, !raw.isCueTrack, raw.mvPath == nil,
-              !raw.isStandaloneMusicVideo, !library.spokenWordSongIDs.contains(raw.id),
-              let source = sourcesStore.source(id: raw.sourceID), source.isEnabled, !source.isDeleted else { return false }
-        return !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: raw.sourceID)
+        var sourceVerdicts: [String: Bool] = [:]
+        return canIncludeInMedley(raw, sourceVerdicts: &sourceVerdicts)
+    }
+
+    /// 只问可见与否,不必像 `song(_:)` 那样整首转成 TVSong;源列表是线性找的,结果按源记下。
+    private func canIncludeInMedley(_ raw: Song, sourceVerdicts: inout [String: Bool]) -> Bool {
+        guard !raw.isCueTrack, raw.mvPath == nil, !raw.isStandaloneMusicVideo,
+              library.visibleSong(id: raw.id) != nil,
+              !library.spokenWordSongIDs.contains(raw.id) else { return false }
+        if let verdict = sourceVerdicts[raw.sourceID] { return verdict }
+        let verdict = sourcesStore.source(id: raw.sourceID).map { source in
+            source.isEnabled && !source.isDeleted
+                && !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: raw.sourceID)
+        } ?? false
+        sourceVerdicts[raw.sourceID] = verdict
+        return verdict
     }
 
     var canPlayMedleyFromQueue: Bool {

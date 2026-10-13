@@ -383,11 +383,19 @@ extension TVStore {
     func songArtworkData(songID: String, coverRef: String?, animationCacheKey: String? = nil) async -> Data? {
         let source = library.song(id: songID).flatMap { self.source(id: $0.sourceID) }
         guard source?.isEnabled != false, source?.isDeleted != true else { return nil }
-        let credential = source.flatMap { TVCredentialStore.credential(for: $0, bundle: credentialBundle) }
+        // 凭据要查好几次钥匙串(同步跨进程调用,云盘源还要读 OAuth 令牌),而只有服务端封面
+        // 接口、缓存又没命中时才用得上:交给加载器到那一步再在后台读,不在主线程上每张封面读一遍。
+        let bundle = credentialBundle
+        let credentialProvider: (@Sendable () async -> SourceCredential?)?
+        if let source {
+            credentialProvider = { @Sendable in TVCredentialStore.credential(for: source, bundle: bundle) }
+        } else {
+            credentialProvider = nil
+        }
         let data = await TVArtworkLoader.shared.songCover(
             songID: songID, coverRef: coverRef,
             fnMusicSourceID: source?.id, fnMusicClient: source.flatMap { fnMusicClient(for: $0.id) },
-            animationCacheKey: animationCacheKey, source: source, credential: credential
+            animationCacheKey: animationCacheKey, source: source, credentialProvider: credentialProvider
         )
         guard !Task.isCancelled, source.map({ self.source(id: $0.id) == $0 }) ?? true else { return nil }
         return data

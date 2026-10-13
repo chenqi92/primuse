@@ -327,6 +327,10 @@ final class TVAudioEngine {
     private var playerTimeControlObs: NSKeyValueObservation?
     private var sessionCategoryConfigured = false
     private var sessionIsActive = false
+    /// 会话启停是同步的跨进程调用。暂停时的停用要通知其他 app,实测在主线程卡 600ms 以上,
+    /// 所以排到这条串行队列上做;激活也经过它,先后顺序不会颠倒。
+    private let sessionQueue = DispatchQueue(label: "tv.audiosession", qos: .userInitiated)
+    @ObservationIgnored private var pendingSessionDeactivation: Task<Void, Never>?
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
     private var protocolLoader: TVProtocolResourceLoader?  // 协议直连(SMB/NFS/FTP/SFTP)时强引用
     private var activeItemID: ObjectIdentifier?
@@ -470,6 +474,8 @@ final class TVAudioEngine {
 
     private func activateAudioSession() {
         guard managesSystemPlayback else { return }
+        pendingSessionDeactivation?.cancel()
+        pendingSessionDeactivation = nil
         do {
             let s = AVAudioSession.sharedInstance()
             if !sessionCategoryConfigured {
@@ -477,7 +483,8 @@ final class TVAudioEngine {
                 try s.setSupportsMultichannelContent(true)
                 sessionCategoryConfigured = true
             }
-            try s.setActive(true)
+            // 排在队列上还没做完的停用之后。
+            try sessionQueue.sync { try AVAudioSession.sharedInstance().setActive(true) }
             sessionIsActive = true
         } catch {
             plog("TVAudioEngine: audio session error \(error)")
@@ -508,17 +515,53 @@ final class TVAudioEngine {
         }
     }
 
+    /// 停止、交给外部播放器之前:当场停用,做完才返回。
     private func deactivateAudioSession() {
         guard managesSystemPlayback else { return }
-        guard sessionIsActive else { return }
+        pendingSessionDeactivation?.cancel()
+        pendingSessionDeactivation = nil
+        guard sessionIsActive else {
+            // 暂停排出去的停用可能还在做;等它做完,MusicKit 起播才不会抢会话。
+            sessionQueue.sync {}
+            return
+        }
         do {
-            try AVAudioSession.sharedInstance().setActive(
-                false,
-                options: .notifyOthersOnDeactivation
-            )
+            try sessionQueue.sync {
+                try AVAudioSession.sharedInstance().setActive(
+                    false,
+                    options: .notifyOthersOnDeactivation
+                )
+            }
             sessionIsActive = false
         } catch {
             plog("TVAudioEngine: audio session deactivation error \(error)")
+        }
+    }
+
+    /// 暂停后等一会儿再到后台队列停用:很快又按播放就不用停,遥控器的暂停键也不再等这次调用。
+    private static let pausedSessionDeactivationDelay: Duration = .seconds(2)
+
+    private func deactivateAudioSessionAfterPause() {
+        guard managesSystemPlayback, sessionIsActive else { return }
+        pendingSessionDeactivation?.cancel()
+        pendingSessionDeactivation = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.pausedSessionDeactivationDelay)
+            guard let self, !Task.isCancelled else { return }
+            self.pendingSessionDeactivation = nil
+            guard self.sessionIsActive, !self.isPlaying else { return }
+            self.sessionIsActive = false
+            self.sessionQueue.async { [weak self] in
+                do {
+                    try AVAudioSession.sharedInstance().setActive(
+                        false,
+                        options: .notifyOthersOnDeactivation
+                    )
+                } catch {
+                    plog("TVAudioEngine: audio session deactivation error \(error)")
+                    // 没停掉就仍按活跃算,停止时会再试一次。
+                    Task { @MainActor [weak self] in self?.sessionIsActive = true }
+                }
+            }
         }
     }
 
@@ -1164,7 +1207,7 @@ final class TVAudioEngine {
                 isPlaying = false
                 status = .paused
                 updateNowPlayingInfo()
-                deactivateAudioSession()
+                deactivateAudioSessionAfterPause()
             }
             return
         }
@@ -1198,7 +1241,7 @@ final class TVAudioEngine {
                     self.isPlaying = false
                     self.status = .paused
                     self.updateNowPlayingInfo()
-                    self.deactivateAudioSession()
+                    self.deactivateAudioSessionAfterPause()
                 }
             }
         }
@@ -1210,7 +1253,7 @@ final class TVAudioEngine {
             isPlaying = false
             status = .paused
             if externalOwnsAudioSession {
-                deactivateAudioSession()
+                deactivateAudioSessionAfterPause()
                 updateNowPlayingInfo()
             }
             return
@@ -1237,7 +1280,7 @@ final class TVAudioEngine {
             currentTime = 0
             status = .paused
             updateNowPlayingInfo()
-            deactivateAudioSession()
+            deactivateAudioSessionAfterPause()
             return
         }
         if usingSFB { sfb.pause() } else { player.pause() }
@@ -1246,7 +1289,7 @@ final class TVAudioEngine {
         resetSpectrumLevels()
         status = .paused
         updateNowPlayingInfo()
-        deactivateAudioSession()
+        deactivateAudioSessionAfterPause()
     }
 
     /// 选歌之后第一次出声:记下离选歌过了多久、走的哪条路(直连流 / 协议直连 / 本机解码,
