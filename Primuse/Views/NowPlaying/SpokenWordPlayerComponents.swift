@@ -331,8 +331,8 @@ struct SpokenWordBookmarkTicks: View {
 /// bookmark and contents. They are on the page rather than in the menu
 /// because a book is listened to with them.
 struct SpokenWordActionTiles: View {
-    /// 一块怎么画。`tiles` 是垫圆角底的方块(iPad、Mac、横屏);有声书竖版的两套设计不垫底:
-    /// 墨黑是图标在上、字在下,暖白是图标与字排成一行。
+    /// 一块怎么画。`tiles` 是垫圆角底的方块(Mac);手机与 iPad 上不垫底,和音乐页底栏一样只有图标:
+    /// `stacked` 图标在上、字在下(墨黑与播客、横屏),`inline` 图标与字排成一行(暖白)。
     enum Layout {
         case tiles
         case stacked

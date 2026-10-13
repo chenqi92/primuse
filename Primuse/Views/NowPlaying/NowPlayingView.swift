@@ -4484,10 +4484,12 @@ struct NowPlayingView: View {
             // 底部 bar —— 按「播放页按钮」底栏的配置,但不放歌词键(歌词永远在右栏可见)。
             // 有声内容的目录常驻右栏,这里换成语速 / 定时 / 书签三块。
             if let spokenControls {
+                // 和音乐页底栏一样只画图标(下面一行说明),不垫圆角方块。
                 SpokenWordActionTiles(
                     palette: spokenWordPalette,
+                    layout: .stacked,
                     showsContents: false,
-                    tileHeight: 52,
+                    tileHeight: 54,
                     tiles: spokenControls.tiles,
                     labelStyle: spokenWordControlLayout.tileLabelStyle,
                     onSleep: { showSleepTimer = true },
@@ -5532,8 +5534,11 @@ struct NowPlayingView: View {
         if let spokenControls {
             // 有声内容把语速、睡眠定时、书签、目录摆在页面上:听书就是靠这几样,不该藏在菜单里。
             // 投放默认在标题右侧;摆进传输键两侧的键这里不再重复。
+            // 和音乐页底栏、有声书墨黑版一样只画图标(下面一行说明),不垫圆角方块(#283)。
             SpokenWordActionTiles(
                 palette: spokenWordPalette,
+                layout: .stacked,
+                tileHeight: 54,
                 tiles: spokenControls.tiles,
                 labelStyle: spokenWordControlLayout.tileLabelStyle,
                 onSleep: { showSleepTimer = true },
@@ -5541,7 +5546,7 @@ struct NowPlayingView: View {
                 onUpNext: { openContentsPanel(tab: .upNext) }
             )
             .padding(.horizontal, 22)
-            .padding(.top, 16)
+            .padding(.top, 12)
         } else {
             musicBottomBar
         }
