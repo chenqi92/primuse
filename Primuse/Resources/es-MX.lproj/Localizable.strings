@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Las fuentes de este libro no admiten descargas sin conexión.";
 "spoken_word_keep_offline_on_device_short" = "Ya está en este dispositivo";
 "spoken_word_keep_offline_unsupported_short" = "La fuente no admite descargas";
+"player_backdrop_audiobooks" = "Usar también en audiolibros";
+"player_backdrop_audiobooks_hint" = "En modo oscuro, el reproductor de audiolibros también muestra este fondo. El modo claro conserva su fondo de papel.";

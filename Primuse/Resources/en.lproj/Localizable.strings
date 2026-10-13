@@ -5801,3 +5801,5 @@
 "spoken_word_keep_offline_unsupported_message" = "The sources this book comes from don’t support offline downloads.";
 "spoken_word_keep_offline_on_device_short" = "Already on this device";
 "spoken_word_keep_offline_unsupported_short" = "Source doesn’t support downloads";
+"player_backdrop_audiobooks" = "Use for Audiobooks";
+"player_backdrop_audiobooks_hint" = "In Dark Mode the audiobook player shows this background too. Light Mode keeps its paper background.";

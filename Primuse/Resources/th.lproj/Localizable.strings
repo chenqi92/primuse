@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "แหล่งของหนังสือเล่มนี้ไม่รองรับการดาวน์โหลดแบบออฟไลน์";
 "spoken_word_keep_offline_on_device_short" = "อยู่บนอุปกรณ์นี้แล้ว";
 "spoken_word_keep_offline_unsupported_short" = "แหล่งไม่รองรับการดาวน์โหลด";
+"player_backdrop_audiobooks" = "ใช้กับหนังสือเสียงด้วย";
+"player_backdrop_audiobooks_hint" = "ในโหมดมืด หน้าเล่นหนังสือเสียงจะแสดงพื้นหลังนี้ด้วย ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";

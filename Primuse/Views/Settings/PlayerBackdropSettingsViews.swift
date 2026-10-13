@@ -252,6 +252,18 @@ struct PlayerBackdropSettingsSections: View {
                     .pmAppearFade(.contentAppear)
                 }
             }
+
+            // 有声书默认用自己的纯色底;打开后深色外观下也铺这里选的背景(#283)。
+            Toggle(isOn: audiobooksBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("player_backdrop_audiobooks", systemImage: ListeningSpace.spokenWord.systemImage)
+                    Text("player_backdrop_audiobooks_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .id(ThemeColorSettings.shared.isWhiteTheme)
         } header: {
             SettingsInfoHeader("player_backdrop_title") {
                 Text("player_backdrop_footer")
@@ -264,6 +276,13 @@ struct PlayerBackdropSettingsSections: View {
             importPicked(items)
         }
         .onAppear { store.pruneMissingCustomImages() }
+    }
+
+    private var audiobooksBinding: Binding<Bool> {
+        Binding(
+            get: { store.settings.appliesToAudiobooks },
+            set: { enabled in store.update { $0.appliesToAudiobooks = enabled } }
+        )
     }
 
     private func sourceRow(_ source: PlayerBackdropSource, isSelected: Bool) -> some View {

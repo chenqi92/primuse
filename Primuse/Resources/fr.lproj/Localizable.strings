@@ -6041,3 +6041,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Les sources de ce livre ne prennent pas en charge le téléchargement hors ligne.";
 "spoken_word_keep_offline_on_device_short" = "Déjà sur cet appareil";
 "spoken_word_keep_offline_unsupported_short" = "Source sans téléchargement";
+"player_backdrop_audiobooks" = "Utiliser pour les livres audio";
+"player_backdrop_audiobooks_hint" = "En mode sombre, le lecteur de livres audio affiche aussi cet arrière-plan. Le mode clair garde son fond papier.";

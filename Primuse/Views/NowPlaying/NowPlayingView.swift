@@ -2574,8 +2574,9 @@ struct NowPlayingView: View {
                     ZStack {
                         // Opaque base — prevents content bleeding through
                         // 两层底色在换构图那一次立刻铺满新尺寸，不随换构图的动画慢慢长大(换歌时的取色过渡照旧)。
-                        if usesAudiobookPlayerDesign {
-                            // 有声书是两套设计里的纯色底(墨黑 / 暖白),不随封面取色,也不铺背景图。
+                        if usesAudiobookPlayerDesign && !audiobookUsesPlayerBackdrop {
+                            // 有声书是两套设计里的纯色底(墨黑 / 暖白),不随封面取色,也不铺背景图;
+                            // 设置里打开「有声书也使用」时,深色的墨黑改铺播放页背景(#283)。
                             audiobookPlayerStyle.background.ignoresSafeArea()
                                 .animation(nil, value: canvasKey)
                                 .transition(.opacity)
@@ -5024,6 +5025,13 @@ struct NowPlayingView: View {
 
     private var audiobookPlayerStyle: AudiobookPlayerStyle {
         AudiobookPlayerStyle(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    /// 有声书的墨黑版面铺播放页背景(封面取色、流动色彩、模糊封面、自选图):播放页背景设置里
+    /// 打开了「有声书也使用」。浅色的暖白照旧是纸面底,墨黑的字和控件本来就是白的,压得住。
+    private var audiobookUsesPlayerBackdrop: Bool {
+        usesAudiobookPlayerDesign && colorScheme == .dark
+            && PlayerBackdropSettingsStore.shared.settings.appliesToAudiobooks
     }
 
     /// 设置里「控件颜色」选了单色,或主题色是「白色」。

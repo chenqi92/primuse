@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Bu kitabın kaynakları çevrimdışı indirmeyi desteklemiyor.";
 "spoken_word_keep_offline_on_device_short" = "Zaten bu cihazda";
 "spoken_word_keep_offline_unsupported_short" = "Kaynak indirmeyi desteklemiyor";
+"player_backdrop_audiobooks" = "Sesli Kitaplarda da Kullan";
+"player_backdrop_audiobooks_hint" = "Koyu modda sesli kitap oynatıcısı da bu arka planı gösterir. Açık mod kâğıt arka planını korur.";

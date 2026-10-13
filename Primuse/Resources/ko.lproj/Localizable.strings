@@ -6041,3 +6041,5 @@
 "spoken_word_keep_offline_unsupported_message" = "이 책의 소스는 오프라인 다운로드를 지원하지 않습니다.";
 "spoken_word_keep_offline_on_device_short" = "이미 이 기기에 있음";
 "spoken_word_keep_offline_unsupported_short" = "소스가 다운로드를 지원하지 않음";
+"player_backdrop_audiobooks" = "오디오북에도 사용";
+"player_backdrop_audiobooks_hint" = "다크 모드에서는 오디오북 재생 화면에도 이 배경을 표시합니다. 라이트 모드는 종이 배경을 유지합니다.";

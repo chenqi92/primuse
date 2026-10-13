@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Джерела цієї книги не підтримують офлайн-завантаження.";
 "spoken_word_keep_offline_on_device_short" = "Уже на цьому пристрої";
 "spoken_word_keep_offline_unsupported_short" = "Джерело не підтримує завантаження";
+"player_backdrop_audiobooks" = "Також для аудіокниг";
+"player_backdrop_audiobooks_hint" = "У темному режимі плеєр аудіокниг теж показує це тло. У світлому режимі лишається паперове тло.";

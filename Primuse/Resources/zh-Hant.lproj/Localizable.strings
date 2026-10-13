@@ -6018,3 +6018,5 @@
 "spoken_word_keep_offline_unsupported_message" = "這本書所在的音樂來源不支援離線下載。";
 "spoken_word_keep_offline_on_device_short" = "已在本機";
 "spoken_word_keep_offline_unsupported_short" = "音樂來源不支援下載";
+"player_backdrop_audiobooks" = "有聲書也使用";
+"player_backdrop_audiobooks_hint" = "深色外觀下有聲書播放頁也鋪這個背景；淺色外觀仍是紙面底。";

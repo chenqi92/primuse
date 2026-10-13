@@ -6042,3 +6042,5 @@
 "spoken_word_keep_offline_unsupported_message" = "この本のソースはオフラインダウンロードに対応していません。";
 "spoken_word_keep_offline_on_device_short" = "このデバイスにあります";
 "spoken_word_keep_offline_unsupported_short" = "ソースが非対応";
+"player_backdrop_audiobooks" = "オーディオブックにも使用";
+"player_backdrop_audiobooks_hint" = "ダークモードではオーディオブックの再生画面にもこの背景を表示します。ライトモードは紙のような背景のままです。";

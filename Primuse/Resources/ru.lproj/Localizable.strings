@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Источники этой книги не поддерживают офлайн-загрузку.";
 "spoken_word_keep_offline_on_device_short" = "Уже на этом устройстве";
 "spoken_word_keep_offline_unsupported_short" = "Источник не поддерживает загрузку";
+"player_backdrop_audiobooks" = "Также для аудиокниг";
+"player_backdrop_audiobooks_hint" = "В тёмном режиме плеер аудиокниг тоже показывает этот фон. В светлом режиме остаётся бумажный фон.";

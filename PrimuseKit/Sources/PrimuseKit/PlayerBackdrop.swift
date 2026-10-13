@@ -61,19 +61,23 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
     public var source: PlayerBackdropSource
     public var rotation: PlayerBackdropRotation
     public var intervalSeconds: Int
+    /// 有声书深色(墨黑)版面也铺这个背景(#283)。默认关:有声书用自己的纯色底。
+    public var appliesToAudiobooks: Bool
 
     public init(
         source: PlayerBackdropSource = .defaultValue,
         rotation: PlayerBackdropRotation = .defaultValue,
-        intervalSeconds: Int = PlayerBackdropSettings.defaultIntervalSeconds
+        intervalSeconds: Int = PlayerBackdropSettings.defaultIntervalSeconds,
+        appliesToAudiobooks: Bool = false
     ) {
         self.source = source
         self.rotation = rotation
         self.intervalSeconds = Self.normalizedInterval(intervalSeconds)
+        self.appliesToAudiobooks = appliesToAudiobooks
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, rotation, intervalSeconds
+        case source, rotation, intervalSeconds, appliesToAudiobooks
     }
 
     /// 解码从不失败：不认识的取值（更新版本多出来的来源等）按默认处理，免得一台旧设备
@@ -83,10 +87,12 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         let rawSource = (try? container?.decodeIfPresent(String.self, forKey: .source)) ?? nil
         let rawRotation = (try? container?.decodeIfPresent(String.self, forKey: .rotation)) ?? nil
         let interval = (try? container?.decodeIfPresent(Int.self, forKey: .intervalSeconds)) ?? nil
+        let audiobooks = (try? container?.decodeIfPresent(Bool.self, forKey: .appliesToAudiobooks)) ?? nil
         self.init(
             source: rawSource.flatMap(PlayerBackdropSource.init(rawValue:)) ?? .defaultValue,
             rotation: rawRotation.flatMap(PlayerBackdropRotation.init(rawValue:)) ?? .defaultValue,
-            intervalSeconds: interval ?? Self.defaultIntervalSeconds
+            intervalSeconds: interval ?? Self.defaultIntervalSeconds,
+            appliesToAudiobooks: audiobooks ?? false
         )
     }
 
@@ -95,6 +101,8 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         try container.encode(source.rawValue, forKey: .source)
         try container.encode(rotation.rawValue, forKey: .rotation)
         try container.encode(intervalSeconds, forKey: .intervalSeconds)
+        // 关着时不写这一项:没碰过它的设置编码出来和以前一样。
+        if appliesToAudiobooks { try container.encode(true, forKey: .appliesToAudiobooks) }
     }
 
     public static func decode(_ data: Data?) -> PlayerBackdropSettings {

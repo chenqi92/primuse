@@ -6134,3 +6134,5 @@
 "spoken_word_keep_offline_unsupported_message" = "这本书所在的音乐源不支持离线下载。";
 "spoken_word_keep_offline_on_device_short" = "已在本机";
 "spoken_word_keep_offline_unsupported_short" = "音乐源不支持下载";
+"player_backdrop_audiobooks" = "有声书也使用";
+"player_backdrop_audiobooks_hint" = "深色外观下有声书播放页也铺这个背景；浅色外观仍是纸面底。";

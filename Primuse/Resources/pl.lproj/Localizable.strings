@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "Źródła tej książki nie obsługują pobierania offline.";
 "spoken_word_keep_offline_on_device_short" = "Już na tym urządzeniu";
 "spoken_word_keep_offline_unsupported_short" = "Źródło nie obsługuje pobierania";
+"player_backdrop_audiobooks" = "Używaj też dla audiobooków";
+"player_backdrop_audiobooks_hint" = "W trybie ciemnym odtwarzacz audiobooków też pokazuje to tło. Tryb jasny zachowuje papierowe tło.";

@@ -5947,3 +5947,5 @@
 "spoken_word_keep_offline_unsupported_message" = "مصادر هذا الكتاب لا تدعم التنزيل للاستماع دون اتصال.";
 "spoken_word_keep_offline_on_device_short" = "موجود على هذا الجهاز";
 "spoken_word_keep_offline_unsupported_short" = "المصدر لا يدعم التنزيل";
+"player_backdrop_audiobooks" = "استخدامها للكتب الصوتية أيضًا";
+"player_backdrop_audiobooks_hint" = "في الوضع الداكن يعرض مشغل الكتب الصوتية هذه الخلفية أيضًا. ويحتفظ الوضع الفاتح بخلفيته الورقية.";

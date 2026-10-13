@@ -154,4 +154,16 @@ struct PlayerBackdropTests {
         #expect(PlayerBackdropPixelPolicy.storagePixel(forDisplayLongSide: 10_000) == 3200)
         #expect(PlayerBackdropPixelPolicy.storagePixel(forDisplayLongSide: .nan) == 2880)
     }
+
+    @Test("Audiobooks use the backdrop only when switched on, and old data reads as off")
+    func audiobookBackdropOptIn() throws {
+        #expect(PlayerBackdropSettings.default.appliesToAudiobooks == false)
+        let on = PlayerBackdropSettings(source: .liquid, appliesToAudiobooks: true)
+        #expect(PlayerBackdropSettings.decode(on.encodedData()) == on)
+        let off = PlayerBackdropSettings(source: .liquid)
+        let offJSON = try #require(off.encodedData().flatMap { String(data: $0, encoding: .utf8) })
+        #expect(!offJSON.contains("appliesToAudiobooks"))
+        let legacy = Data(#"{"source":"coverBlur","rotation":"perSong","intervalSeconds":60}"#.utf8)
+        #expect(PlayerBackdropSettings.decode(legacy).appliesToAudiobooks == false)
+    }
 }
