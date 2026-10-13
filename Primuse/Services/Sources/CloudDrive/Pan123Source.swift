@@ -795,7 +795,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
         var req = URLRequest(url: tokenURL)
         req.httpMethod = "POST"
         req.setValue("open_platform", forHTTPHeaderField: "Platform")
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await helper.tokenRequest(req, clientID: creds.clientId, session: URLSession.shared)
         let envelope = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         var json = envelope
         if let inner = envelope["data"] as? [String: Any] { json = inner }   // 兼容 {code,data:{…}} 包裹

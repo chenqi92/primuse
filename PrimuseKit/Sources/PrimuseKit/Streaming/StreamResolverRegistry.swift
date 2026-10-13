@@ -28,6 +28,10 @@ public actor StreamResolverRegistry {
     /// 每个源的会话代次:resolver 里的会话被清掉(换线路、线路失败、`invalidateSession`)
     /// 后加一。提前解析好的流地址记着解析时的代次,起播时对不上就不拿来用。
     private var sessionEpochs: [String: UInt64] = [:]
+    /// 本表自己清会话(换线路、线路失败)的次数,与外部 `invalidateSession(for:)`(改凭据、
+    /// 退出登录、重登)分开记:只有前者打断的登录才值得按新线路重来。
+    private var routeResets: [String: UInt64] = [:]
+    private var externalInvalidations: [String: UInt64] = [:]
     private let uptime: @Sendable () -> TimeInterval
 
     /// 提前解析的流(下一首在当前这首播放时就解析好),连同解析时所在的网络代次与会话代次。
@@ -213,6 +217,7 @@ public actor StreamResolverRegistry {
     }
 
     public func invalidateSession(for source: MusicSource) async {
+        externalInvalidations[source.id, default: 0] &+= 1
         await resolvers[source.type]?.invalidateSession(sourceID: source.id)
         routedResolverStates[source.id] = nil
         routeEvidence[source.id] = nil
@@ -245,6 +250,26 @@ public actor StreamResolverRegistry {
     }
 
     private func routedOperation<T: Sendable>(
+        _ source: MusicSource,
+        resolver: any StreamResolver,
+        operation: @Sendable (MusicSource) async throws -> T
+    ) async throws -> RoutedResult<T> {
+        let resets = routeResets[source.id] ?? 0
+        let invalidations = externalInvalidations[source.id] ?? 0
+        do {
+            return try await routedAttempt(source, resolver: resolver, operation: operation)
+        } catch where (error as? URLError)?.code == .userAuthenticationRequired
+            && !Task.isCancelled
+            && (routeResets[source.id] ?? 0) != resets
+            && (externalInvalidations[source.id] ?? 0) == invalidations {
+            // 另一路解析换线路时清掉了会话,把这次还在进行的登录一起作废了。账号没问题,
+            // 不该报成「请重新登录」:按现在的线路再来一次,只一次。外部作废照旧上抛,
+            // 不拿旧凭据重登。
+            return try await routedAttempt(source, resolver: resolver, operation: operation)
+        }
+    }
+
+    private func routedAttempt<T: Sendable>(
         _ source: MusicSource,
         resolver: any StreamResolver,
         operation: @Sendable (MusicSource) async throws -> T
@@ -339,6 +364,7 @@ public actor StreamResolverRegistry {
 
     /// 清掉 resolver 里这个源的会话;会话代次在清完之后加一,清理期间解析出的地址也一并作废。
     private func resetResolverSession(sourceID: String, resolver: any StreamResolver) async {
+        routeResets[sourceID, default: 0] &+= 1
         await resolver.invalidateSession(sourceID: sourceID)
         sessionEpochs[sourceID, default: 0] &+= 1
     }

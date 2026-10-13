@@ -956,6 +956,7 @@
 "scrobble_validate" = "验证";
 "scrobble_token_valid" = "已生效";
 "scrobble_token_invalid" = "无效";
+"scrobble_token_unconfirmed" = "暂时无法验证";
 "scrobble_lb_get_token" = "在 ListenBrainz 获取令牌";
 "scrobble_lb_footer" = "在 listenbrainz.org/profile 复制 user token 粘贴到这里。";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

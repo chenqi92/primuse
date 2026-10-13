@@ -1129,6 +1129,7 @@
 "scrobble_validate" = "Valider";
 "scrobble_token_valid" = "Valide";
 "scrobble_token_invalid" = "Non valide";
+"scrobble_token_unconfirmed" = "Vérification impossible pour l’instant";
 "scrobble_lb_get_token" = "Obtenir un jeton sur ListenBrainz";
 "scrobble_lb_footer" = "Copiez votre jeton utilisateur depuis listenbrainz.org/profile et collez-le ici.";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

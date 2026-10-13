@@ -317,7 +317,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         )
         request.timeoutInterval = 30
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.tokenRequest(request, clientID: clientID, session: URLSession.shared)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         guard let accessToken = json["access_token"] as? String, !accessToken.isEmpty else {
             throw CloudDriveHelper.tokenRefreshFailure(

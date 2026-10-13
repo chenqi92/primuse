@@ -8,6 +8,8 @@ import PrimuseKit
 final class ScrobbleService {
     static let shared = ScrobbleService()
 
+    private let defaults: UserDefaults
+    private let providersOverride: (() -> [any ScrobbleProvider])?
     /// 当前正在播放的歌曲信息 (用于 50%/4min 触发判断)。
     /// AudioPlayerService 切歌时会 reset。
     private var currentSession: PlaySession?
@@ -45,6 +47,8 @@ final class ScrobbleService {
         var attempts: Int
         /// 下次允许重试的时间 — 失败后指数退避, 避免持续打服务端。
         var nextRetryAt: TimeInterval
+        /// Optional for backwards-compatible decoding of older queue records.
+        var serverRetryAt: TimeInterval?
     }
 
     struct RecentReport: Codable, Identifiable, Equatable, Sendable {
@@ -75,7 +79,9 @@ final class ScrobbleService {
         var unavailable: Set<ScrobbleProviderID> = []
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard, providers: (() -> [any ScrobbleProvider])? = nil) {
+        self.defaults = defaults
+        self.providersOverride = providers
         loadQueue()
         loadRecentReports()
         // Settings 变化 (启用 provider 切换) 时尝试 flush 队列。
@@ -191,9 +197,10 @@ final class ScrobbleService {
 
     /// 用户手动触发 retry (Settings UI 按钮)。
     func retryPendingNow() {
-        // 把所有条目 nextRetryAt 拉到现在, 然后立即触发 retry loop。
+        // Manual retry may skip local backoff, never the provider's deadline.
         let now = Date().timeIntervalSince1970
-        for i in queue.indices { queue[i].nextRetryAt = now }
+        for i in queue.indices { queue[i].nextRetryAt = max(now, queue[i].serverRetryAt ?? 0) }
+        saveQueue()
         scheduleRetry(reason: "user manual retry")
     }
 
@@ -247,23 +254,25 @@ final class ScrobbleService {
         }
 
         Task {
-            await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool).self) { group in
+            await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool, TimeInterval?).self) { group in
                 for provider in providers {
                     group.addTask {
                         do {
                             try await provider.submitListens([entry])
                             plog("🎵 scrobble [\(provider.id.displayName)] OK: \(entry.title)")
-                            return (provider.id, true, true)
+                            return (provider.id, true, true, nil)
                         } catch let err as ScrobbleError {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (\(err.isRetryable ? "queued" : "dropped")): \(err.localizedDescription)")
-                            return (provider.id, !err.isRetryable, false)  // 不可重试 = 视作 "完成", 别留队列里
+                            return (provider.id, !err.isRetryable, false, nil)  // 不可重试 = 视作 "完成", 别留队列里
                         } catch {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (queued): \(error.localizedDescription)")
-                            return (provider.id, false, false)
+                            let delay = (error as? HTTPResponseFailure)?.retryAfter
+                            return (provider.id, false, false, delay)
                         }
                     }
                 }
-                for await (pid, done, didSubmit) in group {
+                for await (pid, done, didSubmit, serverDelay) in group {
+                    if let serverDelay { self.recordServerRetry(entry: entry, delay: serverDelay) }
                     if didSubmit {
                         self.recordRecent(entry: entry, provider: pid)
                     }
@@ -275,6 +284,14 @@ final class ScrobbleService {
             self.saveQueue()
             self.scheduleRetry(reason: "initial submission completed")
         }
+    }
+
+    private func recordServerRetry(entry: ScrobbleEntry, delay: TimeInterval) {
+        guard delay.isFinite, delay >= 0,
+              let index = queue.firstIndex(where: { $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt }) else { return }
+        let deadline = Date().timeIntervalSince1970 + min(delay, ScrobbleCooldownStore.maximumDelay)
+        queue[index].serverRetryAt = max(queue[index].serverRetryAt ?? 0, deadline)
+        queue[index].nextRetryAt = max(queue[index].nextRetryAt, deadline)
     }
 
     private func enqueue(
@@ -340,6 +357,7 @@ final class ScrobbleService {
 
     private func retryLoop() async {
         while !queue.isEmpty {
+            guard !Task.isCancelled else { return }
             // 总开关临时关闭 —— 直接退出循环、保留整个队列, 等用户重新打开
             // (会再发 scrobbleSettingsChanged → scheduleRetry)。绝不能借此把
             // pendingProviders 清空, 否则「暂时关掉 scrobble 再打开」会丢光待补报。
@@ -399,6 +417,10 @@ final class ScrobbleService {
                     } catch let err as ScrobbleError where !err.isRetryable {
                         plog("🎵 scrobble retry [\(provider.id.displayName)] dropped: \(err.localizedDescription)")
                     } catch {
+                        if OperationCancellationPolicy.isCancellation(error) { saveQueue(); return }
+                        if let delay = (error as? HTTPResponseFailure)?.retryAfter {
+                            recordServerRetry(entry: item.entry, delay: delay)
+                        }
                         stillFailed.insert(provider.id)
                     }
                 }
@@ -415,7 +437,7 @@ final class ScrobbleService {
                 current.attempts += 1
                 // 指数退避: 1, 2, 5, 15, 30, 60 分钟封顶
                 let backoff = min(60.0 * 60, 60.0 * pow(2.0, Double(current.attempts - 1)))
-                current.nextRetryAt = Date().timeIntervalSince1970 + backoff
+                current.nextRetryAt = max(Date().timeIntervalSince1970 + backoff, current.serverRetryAt ?? 0)
                 queue[writeIdx] = current
             }
             // 清掉 pendingProviders 为空的条目
@@ -429,6 +451,7 @@ final class ScrobbleService {
     /// 当前启用 provider 的凭据快照。Keychain 暂不可读与明确未配置必须
     /// 分开：前者进入补报队列，后者不为新播放创建无法发送的队列项。
     private func providerSnapshot() -> ProviderSnapshot {
+        if let providersOverride { return ProviderSnapshot(ready: providersOverride()) }
         let settings = ScrobbleSettingsStore.shared
         guard settings.isEnabled else { return ProviderSnapshot() }
         var snapshot = ProviderSnapshot()
@@ -496,12 +519,12 @@ final class ScrobbleService {
     private func saveQueue() {
         pruneQueue()
         if let data = try? JSONEncoder().encode(queue) {
-            UserDefaults.standard.set(data, forKey: Self.queueKey)
+            defaults.set(data, forKey: Self.queueKey)
         }
     }
 
     private func loadQueue() {
-        if let data = UserDefaults.standard.data(forKey: Self.queueKey),
+        if let data = defaults.data(forKey: Self.queueKey),
            let decoded = try? JSONDecoder().decode([QueuedEntry].self, from: data) {
             queue = decoded
             pruneQueue()
@@ -526,6 +549,12 @@ final class ScrobbleService {
             }
             queue.removeFirst(queue.count - Self.queueLimit)
         }
+        // 系统时钟往回拨后,记下的截止时间不能比服务端冷却的上限还远,否则手动重试也解不开。
+        let ceiling = now + ScrobbleCooldownStore.maximumDelay
+        for index in queue.indices {
+            if let server = queue[index].serverRetryAt, server > ceiling { queue[index].serverRetryAt = ceiling }
+            if queue[index].nextRetryAt > ceiling { queue[index].nextRetryAt = ceiling }
+        }
     }
 
     private func recordRecent(entry: ScrobbleEntry, provider: ScrobbleProviderID) {
@@ -543,12 +572,12 @@ final class ScrobbleService {
 
     private func saveRecentReports() {
         if let data = try? JSONEncoder().encode(recentReports) {
-            UserDefaults.standard.set(data, forKey: Self.recentReportsKey)
+            defaults.set(data, forKey: Self.recentReportsKey)
         }
     }
 
     private func loadRecentReports() {
-        if let data = UserDefaults.standard.data(forKey: Self.recentReportsKey),
+        if let data = defaults.data(forKey: Self.recentReportsKey),
            let decoded = try? JSONDecoder().decode([RecentReport].self, from: data) {
             recentReports = Array(decoded.prefix(Self.recentReportsLimit))
         }

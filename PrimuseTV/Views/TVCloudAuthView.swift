@@ -223,37 +223,21 @@ struct TVCloudAuthView: View {
     }
 
     private func pollLoop(_ started: CloudDeviceAuthSession) async {
-        let deadline = Date().addingTimeInterval(started.expiresIn)
-        let step = UInt64(max(1, started.interval) * 1_000_000_000)
-        while !Task.isCancelled, Date() < deadline {
-            try? await Task.sleep(nanoseconds: step)
-            guard !Task.isCancelled else { return }
-            do {
-                let progress = try await CloudDeviceAuthService.shared.poll(
-                    started, clientID: clientID, clientSecret: clientSecret
-                )
-                switch progress {
-                case .pending:
-                    continue
-                case .scanned:
-                    phase = .scanned
-                case .denied:
-                    phase = .failed(PMString("ext.tv.cloud.auth.denied"))
-                    return
-                case .expired:
-                    phase = .failed(PMString("ext.tv.cloud.auth.expired"))
-                    return
-                case .authorized(let result):
-                    await finish(result)
-                    return
-                }
-            } catch {
-                phase = .failed(Self.describe(error))
-                return
+        do {
+            let progress = try await CloudDeviceAuthService.shared.pollUntilFinished(
+                started, clientID: clientID, clientSecret: clientSecret,
+                onProgress: { progress in if progress == .scanned { phase = .scanned } }
+            )
+            try Task.checkCancellation()
+            switch progress {
+            case .denied: phase = .failed(PMString("ext.tv.cloud.auth.denied"))
+            case .expired: phase = .failed(PMString("ext.tv.cloud.auth.expired"))
+            case .authorized(let result): await finish(result)
+            case .pending, .scanned, .slowDown: break
             }
-        }
-        if !Task.isCancelled {
-            phase = .failed(PMString("ext.tv.cloud.auth.expired"))
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { return }
+            phase = .failed(Self.describe(error))
         }
     }
 
@@ -281,6 +265,11 @@ struct TVCloudAuthView: View {
     }
 
     private static func describe(_ error: Error) -> String {
+        // 授权请求走公共配额后,服务端出错抛的是 HTTPResponseFailure;限流照用它自带的等待提示,
+        // 其余状态码仍按授权页的说法,不落到播放用的「服务器返回 HTTP …」。
+        if let failure = error as? HTTPResponseFailure, !failure.isRateLimitFailure {
+            return PMString("ext.tv.cloud.auth.serverError", String(failure.statusCode))
+        }
         guard let authError = error as? CloudDeviceAuthError else {
             return error.localizedDescription
         }

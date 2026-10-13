@@ -2948,6 +2948,7 @@
 "scrobble_send_now_playing" = "ส่งกำลังเล่น";
 "scrobble_title" = "สครอเบิ้ล";
 "scrobble_token_invalid" = "ไม่ถูกต้อง";
+"scrobble_token_unconfirmed" = "ยังตรวจสอบไม่ได้ในขณะนี้";
 "scrobble_token_valid" = "ถูกต้อง";
 "scrobble_user_token" = "โทเค็นผู้ใช้";
 "scrobble_validate" = "ตรวจสอบ";

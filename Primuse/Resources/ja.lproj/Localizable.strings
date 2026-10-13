@@ -1130,6 +1130,7 @@
 "scrobble_validate" = "検証";
 "scrobble_token_valid" = "有効";
 "scrobble_token_invalid" = "無効";
+"scrobble_token_unconfirmed" = "現在は確認できません";
 "scrobble_lb_get_token" = "ListenBrainz でトークンを取得";
 "scrobble_lb_footer" = "listenbrainz.org/profile からユーザートークンをコピーして、ここに貼り付けてください。";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

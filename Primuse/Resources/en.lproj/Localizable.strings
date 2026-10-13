@@ -942,6 +942,7 @@
 "scrobble_validate" = "Validate";
 "scrobble_token_valid" = "Valid";
 "scrobble_token_invalid" = "Invalid";
+"scrobble_token_unconfirmed" = "Can't verify right now";
 "scrobble_lb_get_token" = "Get token at ListenBrainz";
 "scrobble_lb_footer" = "Copy your user token from listenbrainz.org/profile and paste it here.";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

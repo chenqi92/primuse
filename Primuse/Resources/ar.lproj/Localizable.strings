@@ -2948,6 +2948,7 @@
 "scrobble_send_now_playing" = "أرسل الآن التشغيل";
 "scrobble_title" = "الخربشة";
 "scrobble_token_invalid" = "باطل";
+"scrobble_token_unconfirmed" = "تعذّر التحقق حاليًا";
 "scrobble_token_valid" = "صالح";
 "scrobble_user_token" = "رمز المستخدم";
 "scrobble_validate" = "التصديق";

@@ -8,15 +8,15 @@ public actor UgreenStreamResolver: StreamResolver {
     private var tokenTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
-    public init() {
+    public init(session: URLSession? = nil) {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = StreamResolverSessionFactory.make(configuration: cfg)
+        self.session = session ?? StreamResolverSessionFactory.make(configuration: cfg)
     }
 
     deinit { session.invalidateAndCancel() }
 
-    public func invalidateSession(sourceID: String) {
+    public func invalidateSession(sourceID: String) async {
         tokens[sourceID] = nil
         tokenTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
@@ -40,27 +40,29 @@ public actor UgreenStreamResolver: StreamResolver {
     }
 
     private func currentToken(source: MusicSource, base: URL, username: String, password: String) async throws -> String {
+        try Task.checkCancellation()
         if let cached = tokens[source.id] { return cached }
-        if let inFlight = tokenTasks[source.id] { return try await inFlight.task.value }
+        if let inFlight = tokenTasks[source.id] {
+            return try await CloudResolverRequests.wait(for: inFlight.task)
+        }
         let taskID = UUID()
         let task = Task<String, Error> { [self] in
-            let keyData = try await fetchPublicKey(base: base, username: username)
-            let encrypted = try Self.encrypt(password: password, withPublicKeyData: keyData)
-            return try await login(base: base, username: username, encryptedPassword: encrypted)
+            // Completion owns publication even when the initiating waiter leaves.
+            defer {
+                if tokenTasks[source.id]?.id == taskID { tokenTasks[source.id] = nil }
+            }
+            let value = try await fetchPublicKey(base: base, username: username)
+            let encrypted = try Self.encrypt(password: password, withPublicKeyData: value)
+            let token = try await login(base: base, username: username, encryptedPassword: encrypted)
+            try Task.checkCancellation()
+            guard tokenTasks[source.id]?.id == taskID else {
+                throw URLError(.userAuthenticationRequired)
+            }
+            tokens[source.id] = token
+            return token
         }
         tokenTasks[source.id] = (taskID, task)
-        let token: String
-        do {
-            token = try await task.value
-        } catch {
-            if tokenTasks[source.id]?.id == taskID { tokenTasks[source.id] = nil }
-            throw error
-        }
-        if tokenTasks[source.id]?.id == taskID {
-            tokens[source.id] = token
-            tokenTasks[source.id] = nil
-        }
-        return token
+        return try await CloudResolverRequests.wait(for: task)
     }
 
     private func fetchPublicKey(base: URL, username: String) async throws -> Data {
