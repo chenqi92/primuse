@@ -764,8 +764,6 @@ struct LibraryView: View {
         Group {
             if !visibleLibrarySections.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("library_browse")
-
                     LazyVStack(spacing: 10) {
                         ForEach(browseRuns) { run in
                             if run.isQuickAccess {
