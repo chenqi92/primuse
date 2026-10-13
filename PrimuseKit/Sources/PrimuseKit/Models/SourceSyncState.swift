@@ -492,6 +492,102 @@ public enum LocalReferenceRefreshPolicy {
     }
 }
 
+// MARK: - Folder cover names
+
+/// Which picture in a folder stands for everything in it (an album, a book).
+/// After the fixed names (`PrimuseConstants.folderCoverNames`: cover, folder…)
+/// come a picture named after the folder itself (`书名/书名.jpg`) and then one
+/// named after the album or book title. Names compare loosely: case, full-width
+/// characters and runs of spaces don't matter.
+public enum FolderCoverNamePolicy {
+    /// Broad library roots: a picture lying there is not every song's cover.
+    public static let genericDirectoryNames: Set<String> = [
+        "music", "音乐", "songs", "audio", "media", "downloads",
+    ]
+
+    /// Characters a file name can't hold on common file systems; a title that
+    /// carries them is saved with them swapped out or dropped.
+    private static let fileNameIllegalCharacters = CharacterSet(charactersIn: "/\\:*?\"<>|")
+
+    public static func isGenericDirectory(named name: String) -> Bool {
+        genericDirectoryNames.contains(comparableName(name))
+    }
+
+    /// The form two names are compared in: compatibility-normalized (full-width
+    /// letters and the ideographic space become their plain forms), lower-cased,
+    /// whitespace runs collapsed, ends trimmed.
+    public static func comparableName(_ name: String) -> String {
+        name.precomposedStringWithCompatibilityMapping
+            .lowercased()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    /// The names (without extension) a picture may carry to stand for the
+    /// folder beyond the fixed ones, most specific first, in comparable form:
+    /// the folder's own name (not for a broad library root), then the title as
+    /// written and with the characters a file name can't hold swapped for `_`
+    /// or dropped.
+    public static func namedStems(folderName: String?, albumTitle: String?) -> [String] {
+        probeStems(folderName: folderName, albumTitle: albumTitle).reduce(into: [String]()) { stems, stem in
+            let comparable = comparableName(stem)
+            if !comparable.isEmpty, !stems.contains(comparable) { stems.append(comparable) }
+        }
+    }
+
+    /// The same names as written, for a folder that can only be probed name by
+    /// name (a local disk, where names are case-sensitive).
+    public static func probeStems(folderName: String?, albumTitle: String?) -> [String] {
+        var stems: [String] = []
+        func add(_ candidate: String) {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !PrimuseConstants.folderCoverNames.contains(comparableName(trimmed)),
+                  !stems.contains(trimmed) else { return }
+            stems.append(trimmed)
+        }
+        if let folderName {
+            let decoded = folderName.contains("%") ? folderName.removingPercentEncoding : nil
+            for name in [folderName, decoded].compactMap({ $0 }) where !isGenericDirectory(named: name) {
+                add(name)
+            }
+        }
+        if let albumTitle {
+            if albumTitle.rangeOfCharacter(from: fileNameIllegalCharacters) == nil {
+                add(albumTitle)
+            } else {
+                add(albumTitle.components(separatedBy: fileNameIllegalCharacters).joined(separator: "_"))
+                add(albumTitle.components(separatedBy: fileNameIllegalCharacters).joined())
+            }
+        }
+        return stems
+    }
+
+    /// Of the file names in a folder, the picture named after the folder or the
+    /// title (`namedStems`), preferring the earlier name and then the cover
+    /// extensions in their usual order. Nil when there is none.
+    public static func namedCover(
+        among fileNames: [String],
+        folderName: String?,
+        albumTitle: String? = nil
+    ) -> String? {
+        let stems = namedStems(folderName: folderName, albumTitle: albumTitle)
+        guard !stems.isEmpty else { return nil }
+        var best: (stemRank: Int, extensionRank: Int, name: String)?
+        for name in fileNames {
+            let file = name as NSString
+            guard let extensionRank = PrimuseConstants.supportedCoverExtensions
+                    .firstIndex(of: file.pathExtension.lowercased()),
+                  let stemRank = stems.firstIndex(of: comparableName(file.deletingPathExtension))
+            else { continue }
+            if let current = best,
+               (current.stemRank, current.extensionRank) <= (stemRank, extensionRank) { continue }
+            best = (stemRank, extensionRank, name)
+        }
+        return best?.name
+    }
+}
+
 // MARK: - Directory sidecar indexing
 
 /// The minimal directory-entry surface needed to resolve covers, lyrics,
@@ -526,6 +622,14 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     }
 
     private let firstItemByLowercasedName: [String: IndexedItem]
+    /// The directory's own name, read off the entries' paths, for a picture
+    /// named after it (`FolderCoverNamePolicy`). Nil when the paths are opaque
+    /// item IDs: every lookup of the same listing then agrees on the cover.
+    private let folderName: String?
+    /// Every picture in the directory, by file name, for the named-cover lookup.
+    private let imageNames: [String]
+    /// The picture named after the directory itself, worked out once.
+    private let folderNamedCoverName: String?
     private let firstItemByPath: [String: Item]
     private let audioBasenames: Set<String>
     private let languageTaggedLyricsByBasename: [String: [TaggedItem]]
@@ -543,6 +647,8 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
 
     public init(_ items: [Item], preferredLanguages: [String] = Locale.preferredLanguages) {
         var firstItemByLowercasedName: [String: IndexedItem] = [:]
+        var imageNames: [String] = []
+        var parentPaths: Set<String> = []
         var firstItemByPath: [String: Item] = [:]
         var audioBasenames: Set<String> = []
         var languageTaggedLyricsByBasename: [String: [TaggedItem]] = [:]
@@ -558,6 +664,9 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             }
             guard !item.sidecarIsDirectory else { continue }
             fileItems.append(item)
+            if parentPaths.count < 2 {
+                parentPaths.insert((item.sidecarPath as NSString).deletingLastPathComponent)
+            }
 
             let lowercasedName = item.sidecarName.lowercased()
             if firstItemByLowercasedName[lowercasedName] == nil {
@@ -576,6 +685,9 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             if PrimuseConstants.supportedCueSheetExtensions.contains(fileExtension) {
                 cuePaths.insert(item.sidecarPath)
             }
+            if PrimuseConstants.supportedCoverExtensions.contains(fileExtension) {
+                imageNames.append(item.sidecarName)
+            }
             // Only the two subtitle extensions can carry a language suffix, so
             // this costs one set lookup for everything else in the directory.
             if LyricsSidecarSelectionPolicy.languageTaggedExtensions.contains(fileExtension),
@@ -593,6 +705,17 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         }
 
         self.firstItemByLowercasedName = firstItemByLowercasedName
+        self.imageNames = imageNames
+        var resolvedFolderName: String?
+        if parentPaths.count == 1, let parent = parentPaths.first, !parent.isEmpty {
+            let name = (parent as NSString).lastPathComponent
+            resolvedFolderName = name.isEmpty || name == "/" ? nil : name
+        }
+        self.folderName = resolvedFolderName
+        folderNamedCoverName = imageNames.isEmpty ? nil : FolderCoverNamePolicy.namedCover(
+            among: imageNames,
+            folderName: resolvedFolderName
+        )
         self.firstItemByPath = firstItemByPath
         self.audioBasenames = audioBasenames
         self.languageTaggedLyricsByBasename = languageTaggedLyricsByBasename
@@ -685,6 +808,8 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         return nil
     }
 
+    /// The picture standing for the whole directory: one of the fixed names
+    /// (cover, folder…), else one named after the directory itself.
     public func folderCover() -> Item? {
         for name in PrimuseConstants.folderCoverNames {
             for fileExtension in PrimuseConstants.supportedCoverExtensions {
@@ -693,7 +818,26 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
                 }
             }
         }
-        return nil
+        return namedFolderCover()
+    }
+
+    /// A picture named after the directory or, when given, the album or book
+    /// title (`FolderCoverNamePolicy`).
+    public func namedFolderCover(albumTitle: String? = nil) -> Item? {
+        let name: String?
+        if albumTitle == nil {
+            name = folderNamedCoverName
+        } else if imageNames.isEmpty {
+            name = nil
+        } else {
+            name = FolderCoverNamePolicy.namedCover(
+                among: imageNames,
+                folderName: folderName,
+                albumTitle: albumTitle
+            )
+        }
+        guard let name else { return nil }
+        return firstItemByLowercasedName[name.lowercased()]?.item
     }
 
     public func sameNameLyrics(basename: String) -> Item? {

@@ -629,7 +629,12 @@ struct CloudDriveHelper: Sendable {
             return !PrimuseConstants.supportedAudioExtensions.contains(ext)
                 && !PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
         }
-        let folderCover = isGenericMusicDirectory(path) ? nil : findFolderCover(in: nonAudio)
+        // 文件夹名按路径推,和别处的目录索引(`SidecarDirectoryIndex`)同一个算法:按 ID 寻址的
+        // 网盘路径里没有名字,两边都不认「和文件夹同名的图片」,增量对账时选出的封面才不会变。
+        let folderName = path.contains("/") ? (path as NSString).lastPathComponent : nil
+        let folderCover = isGenericMusicDirectory(path)
+            ? nil
+            : findFolderCover(in: nonAudio, folderName: folderName)
         // 歌词还多一档 `<曲名>.<语言>.vtt` 的命名(yt-dlp、媒体服务器都这么写),
         // 判定要同时看目录里有没有同名音频, 所以直接用共享索引: 每个目录建一次,
         // 每首歌只查表, 不再逐曲扫整份清单。
@@ -711,8 +716,9 @@ struct CloudDriveHelper: Sendable {
         return nil
     }
 
-    /// Find `cover.jpg`, `folder.jpg`, `album.jpg` etc. as a directory-wide fallback.
-    private func findFolderCover(in candidates: [RemoteFileItem]) -> String? {
+    /// Find `cover.jpg`, `folder.jpg`, `album.jpg` etc. as a directory-wide fallback,
+    /// then a picture named after the folder itself (`FolderCoverNamePolicy`).
+    private func findFolderCover(in candidates: [RemoteFileItem], folderName: String?) -> String? {
         for name in PrimuseConstants.folderCoverNames {
             for ext in PrimuseConstants.supportedCoverExtensions {
                 if let m = candidates.first(where: {
@@ -720,7 +726,11 @@ struct CloudDriveHelper: Sendable {
                 }) { return m.path }
             }
         }
-        return nil
+        guard let named = FolderCoverNamePolicy.namedCover(
+            among: candidates.map(\.name),
+            folderName: folderName
+        ) else { return nil }
+        return candidates.first { $0.name == named }?.path
     }
 
     private func isGenericMusicDirectory(_ path: String) -> Bool {

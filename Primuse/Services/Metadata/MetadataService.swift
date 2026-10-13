@@ -155,7 +155,7 @@ actor MetadataService {
         // 2. Verified sidecars fill fields absent from embedded metadata.
         if discoverSidecars,
            result.coverArtData == nil,
-           let coverURL = SidecarMetadataLoader.findCoverArt(for: url) {
+           let coverURL = SidecarMetadataLoader.findCoverArt(for: url, albumTitle: result.albumTitle) {
             result.coverArtFileName = coverURL.lastPathComponent
             if let data = try? Data(contentsOf: coverURL) {
                 result.coverArtData = data
