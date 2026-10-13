@@ -31,6 +31,25 @@ struct HomeListeningRankingSection: View {
     }
     @State private var preparedRequest: Request?
 
+    /// 上一次算好的榜。首页顶部切到电台、有声书再切回来时这一块整块重建,先摆上它:不再先转圈
+    /// 再弹出榜单,选的时间范围和分类也不退回默认(#283)。只在这次运行里记着。
+    private struct Board {
+        let request: Request
+        let ranks: [HomeListeningRank]
+    }
+    @MainActor private static var lastBoard: Board?
+
+    init() {
+        guard let board = Self.lastBoard else { return }
+        _period = State(initialValue: board.request.period)
+        _category = State(initialValue: board.request.category)
+        _ranks = State(initialValue: board.ranks)
+        _rankedCategory = State(initialValue: board.request.category)
+        _rankedPeriod = State(initialValue: board.request.period)
+        _isLoading = State(initialValue: false)
+        _preparedRequest = State(initialValue: board.request)
+    }
+
     /// 歌曲、艺人、专辑榜只看播放记录和资料库里有哪些歌，冷启动不必等文件夹索引
     /// 建好（那要把整库过一遍），回填一首首改标签也不重算。只有目录榜跟着索引走。
     private struct Request: Equatable {
@@ -466,6 +485,7 @@ struct HomeListeningRankingSection: View {
         rankedPeriod = period
         isLoading = false
         preparedRequest = request
+        Self.lastBoard = Board(request: request, ranks: result)
     }
 }
 

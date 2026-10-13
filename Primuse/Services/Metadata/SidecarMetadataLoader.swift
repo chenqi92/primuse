@@ -4,8 +4,10 @@ import PrimuseKit
 enum SidecarMetadataLoader {
     /// Finds cover art file that matches the audio file name
     /// e.g., song.flac → song.jpg, song.png
-    /// Also checks folder-level covers: cover.jpg, folder.jpg, album.jpg
-    static func findCoverArt(for audioURL: URL) -> URL? {
+    /// Also checks folder-level covers: cover.jpg, folder.jpg, album.jpg, then a
+    /// picture named after the folder or, when known, the album / book title
+    /// (`FolderCoverNamePolicy`).
+    static func findCoverArt(for audioURL: URL, albumTitle: String? = nil) -> URL? {
         let directory = audioURL.deletingLastPathComponent()
         let baseName = audioURL.deletingPathExtension().lastPathComponent
 
@@ -29,6 +31,21 @@ enum SidecarMetadataLoader {
         for name in PrimuseConstants.folderCoverNames {
             for ext in PrimuseConstants.supportedCoverExtensions {
                 let coverURL = directory.appendingPathComponent("\(name).\(ext)")
+                if FileManager.default.fileExists(atPath: coverURL.path) {
+                    return coverURL
+                }
+            }
+        }
+
+        // Priority 4: a picture named after the folder (书名/书名.jpg), then after
+        // the album or book title. Probed name by name: no directory listing here.
+        let stems = FolderCoverNamePolicy.probeStems(
+            folderName: directory.lastPathComponent,
+            albumTitle: albumTitle
+        )
+        for stem in stems {
+            for ext in PrimuseConstants.supportedCoverExtensions {
+                let coverURL = directory.appendingPathComponent("\(stem).\(ext)")
                 if FileManager.default.fileExists(atPath: coverURL.path) {
                     return coverURL
                 }

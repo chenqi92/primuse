@@ -5795,7 +5795,7 @@
 "player_control_tint_title" = "Farbe der Bedienelemente";
 "player_control_tint_theme" = "Designfarbe";
 "player_control_tint_monochrome" = "Monochrom";
-"player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Im dunklen Hörbuch-Layout werden damit auch die Wiedergabetaste und der Fortschrittsbalken weiß.";
+"player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
 "player_menu_items_title" = "Menü „Mehr“";
 "player_menu_items_hidden_count %lld" = "%lld ausgeblendet";
 "player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und „Gefällt mir“, Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
@@ -5982,3 +5982,15 @@
 "player_controls_spoken_slot_picker_footer" = "Wählst du eine Taste, die schon an einer anderen Stelle liegt, werden die beiden getauscht. „Automatisch“ behält die ursprüngliche Anordnung.";
 "player_controls_spoken_source" = "Musikquelle anzeigen";
 "player_controls_spoken_source_footer" = "Bei mehr als einer Musikquelle zeigt die unterste Zeile des Players, aus welcher Quelle das Buch stammt.";
+
+"listening_space_colors_title" = "Farben für Radio, Hörbücher & Podcasts";
+"listening_space_colors_footer" = "Die Farben für Radio, Hörbücher und Podcasts im Umschalter oben auf der Startseite, in der Mediathek, in der Suche und in Widgets.";
+"listening_space_tint_source" = "Farbquelle";
+"listening_space_tint_standard" = "Standard";
+"listening_space_tint_standard_hint" = "Die eigene Farbe dieser Kategorie";
+"listening_space_tint_theme" = "Wie Themenfarbe";
+"listening_space_tint_theme_hint" = "Dieselbe Farbe wie das Thema der App";
+"listening_space_tint_artwork" = "Vom Cover";
+"listening_space_tint_artwork_hint" = "Ändert sich mit dem Cover der aktuellen Wiedergabe. Widgets verwenden die Themenfarbe.";
+"listening_space_tint_fixed" = "Feste Farbe";
+"listening_space_tint_fixed_hint" = "Aus der Palette wählen oder unten selbst einstellen";

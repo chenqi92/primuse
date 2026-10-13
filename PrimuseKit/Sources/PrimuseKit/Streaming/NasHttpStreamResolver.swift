@@ -7,15 +7,15 @@ public actor NasHttpStreamResolver: StreamResolver {
     private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
-    public init() {
+    public init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
-        self.session = StreamResolverSessionFactory.make(configuration: configuration)
+        self.session = session ?? StreamResolverSessionFactory.make(configuration: configuration)
     }
 
     deinit { session.invalidateAndCancel() }
 
-    public func invalidateSession(sourceID: String) {
+    public func invalidateSession(sourceID: String) async {
         sessions[sourceID] = nil
         sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
@@ -60,38 +60,27 @@ public actor NasHttpStreamResolver: StreamResolver {
         username: String,
         password: String
     ) async throws -> String {
+        try Task.checkCancellation()
         if let cached = sessions[sourceID] { return cached }
         if let inFlight = sessionTasks[sourceID] {
-            let sid = try await inFlight.task.value
-            if sessions[sourceID] == sid { return sid }
-            guard sessionTasks[sourceID]?.id == inFlight.id else {
-                throw CancellationError()
-            }
-            sessions[sourceID] = sid
-            sessionTasks[sourceID] = nil
-            return sid
+            return try await CloudResolverRequests.wait(for: inFlight.task)
         }
-
         let taskID = UUID()
         let task = Task<String, Error> { [self] in
-            try await qnapLogin(base: base, username: username, password: password)
+            // Completion owns publication even when the initiating waiter leaves.
+            defer {
+                if sessionTasks[sourceID]?.id == taskID { sessionTasks[sourceID] = nil }
+            }
+            let value = try await qnapLogin(base: base, username: username, password: password)
+            try Task.checkCancellation()
+            guard sessionTasks[sourceID]?.id == taskID else {
+                throw URLError(.userAuthenticationRequired)
+            }
+            sessions[sourceID] = value
+            return value
         }
         sessionTasks[sourceID] = (taskID, task)
-
-        let sid: String
-        do {
-            sid = try await task.value
-        } catch {
-            if sessionTasks[sourceID]?.id == taskID { sessionTasks[sourceID] = nil }
-            throw error
-        }
-        if sessions[sourceID] == sid { return sid }
-        guard sessionTasks[sourceID]?.id == taskID else {
-            throw CancellationError()
-        }
-        sessions[sourceID] = sid
-        sessionTasks[sourceID] = nil
-        return sid
+        return try await CloudResolverRequests.wait(for: task)
     }
 
     private func qnapLogin(base: URL, username: String, password: String) async throws -> String {

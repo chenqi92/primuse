@@ -1178,6 +1178,7 @@ final class AppServices {
         self.serverRatingSync = ratingSync
         self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
+        ListeningSpaceTintSettings.shared.themeService = theme
         // 启动时同时恢复固定回退色、主题色来源与封面氛围偏好。
         #if os(iOS)
         theme.setBaseAccent(ThemeColorSettings.shared.baseAccent)

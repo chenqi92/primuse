@@ -251,6 +251,14 @@ actor SynologyScanner {
                     }
                 }
             }
+            // 没有 cover.jpg 这类时,再认和文件夹同名的图片(书名/书名.jpg)。
+            if folderCoverPath == nil,
+               let named = FolderCoverNamePolicy.namedCover(
+                   among: items.filter { !$0.isDirectory }.map(\.name),
+                   folderName: (path as NSString).lastPathComponent
+               ) {
+                folderCoverPath = (path as NSString).appendingPathComponent(named)
+            }
         }
 
         var childDirectories: [String] = []

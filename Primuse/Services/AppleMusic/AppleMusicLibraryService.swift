@@ -156,6 +156,12 @@ final class AppleMusicLibraryService {
     /// canonical cache changes. Playlist reconciliation can then resolve each
     /// relationship without JSON-decoding every library song again.
     private var canonicalLibraryTrackIdentityIndex = AppleMusicTrackIdentityIndex()
+    /// 同一套索引，但建自曲库里存着的行(见 `librarySongIdentityIndex()`)。
+    @ObservationIgnored private var librarySongIdentityCache: (
+        generation: UInt64,
+        identities: [AppleMusicTrackIdentity],
+        index: AppleMusicTrackIdentityIndex
+    )?
     /// MusicKit artwork objects cannot be reconstructed from their persisted
     /// `musicKit://` URL. Keep the official playlist artwork beside the song
     /// cache so the shared playlist resolver can render it with ArtworkImage.
@@ -967,13 +973,30 @@ final class AppleMusicLibraryService {
         if let exact = library.song(id: song.id), exact.sourceID == Self.systemSourceID {
             return exact
         }
-        let librarySongs = library.songs.filter { $0.sourceID == Self.systemSourceID }
-        let candidates = librarySongs.map(Self.trackIdentity)
-        guard let canonicalID = AppleMusicTrackIdentityResolver.canonicalID(
-            for: Self.trackIdentity(song),
-            in: candidates
+        guard let canonicalID = librarySongIdentityIndex().canonicalID(
+            for: Self.trackIdentity(song)
         ) else { return song }
         return library.song(id: canonicalID) ?? song
+    }
+
+    /// 曲库里 Apple Music 各行的身份索引。播放镜像每 0.5s 问一次正在放的歌，
+    /// 曲库外的目录歌每次都落到上面的兜底；每次现建要把整库标题、艺人、专辑
+    /// 规范化一遍(6000 首约 20ms、两万首约 75ms)，收起播放页后滑列表就隔半秒
+    /// 顿一下。曲库没换代就沿用；别的源扫描也会让曲库换代，Apple Music 这些行
+    /// 没变时只比一遍身份，不重新规范化。
+    private func librarySongIdentityIndex() -> AppleMusicTrackIdentityIndex {
+        let generation = library.songMutationGenerationForMaintenance
+        if let cached = librarySongIdentityCache, cached.generation == generation {
+            return cached.index
+        }
+        let identities = library.songs
+            .filter { $0.sourceID == Self.systemSourceID }
+            .map(Self.trackIdentity)
+        let index = librarySongIdentityCache.flatMap {
+            $0.identities == identities ? $0.index : nil
+        } ?? AppleMusicTrackIdentityIndex(identities)
+        librarySongIdentityCache = (generation, identities, index)
+        return index
     }
 
     private nonisolated static func trackIdentity(_ song: MusicKit.Song) -> AppleMusicTrackIdentity {

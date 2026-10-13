@@ -283,7 +283,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.tokenRequest(request, clientID: "", session: URLSession.shared)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         let payload = json["data"] as? [String: Any] ?? json
         guard let at = payload["access_token"] as? String else {

@@ -155,6 +155,8 @@ struct MacHomeView: View {
                 dashboard
             }
         }
+        // 首页铺在不透明底上，卡片都用 `overOpaqueBackground`：玻璃外观下的毛玻璃在这里吸不到
+        // 任何东西，只剩跟着滚动每帧重算的开销。
         .background(PMColor.bg.ignoresSafeArea())
         .background {
             MacHomeLibraryRevisionObserver(
@@ -785,7 +787,7 @@ struct MacHomeView: View {
         } content: {
             HStack(alignment: .center, spacing: 36) {
                 coverMosaic
-                    .frame(width: 240, height: 240)
+                    .frame(width: Self.mosaicSide, height: Self.mosaicSide)
                     .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -913,7 +915,7 @@ struct MacHomeView: View {
             .accessibilityLabel(Text(isActive ? "pause" : "play"))
         }
         .padding(PMSpace.m14)
-        .pmCard(cornerRadius: PMRadius.l14)
+        .pmCard(cornerRadius: PMRadius.l14, overOpaqueBackground: true)
         .overlay {
             RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
                 .strokeBorder(PMColor.brand.opacity(0.35), lineWidth: 1)
@@ -987,11 +989,14 @@ struct MacHomeView: View {
                             .foregroundStyle(.white.opacity(0.42))
                     }
             } else if mosaicLayout.columns == 1, let song = mosaicLayout.songs.first {
+                // 没给尺寸会按 1536 像素解码;这里按拼贴区的边长取档,外框仍随布局。
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
+                    size: Self.mosaicSide,
                     cornerRadius: PMRadius.l,
                     sourceID: song.sourceID, filePath: song.filePath,
-                    fileFormat: song.fileFormat
+                    fileFormat: song.fileFormat,
+                    fillsProposedSize: true
                 )
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
@@ -1006,9 +1011,11 @@ struct MacHomeView: View {
                     ForEach(Array(mosaicLayout.songs.enumerated()), id: \.element.id) { idx, song in
                         CachedArtworkView(
                             coverRef: song.coverArtFileName, songID: song.id,
+                            size: Self.mosaicSide / CGFloat(mosaicLayout.columns),
                             cornerRadius: PMRadius.m,
                             sourceID: song.sourceID, filePath: song.filePath,
-                            fileFormat: song.fileFormat
+                            fileFormat: song.fileFormat,
+                            fillsProposedSize: true
                         )
                         .aspectRatio(1, contentMode: .fit)
                         .shadow(color: .black.opacity(0.22), radius: 6, y: 3)
@@ -1021,6 +1028,9 @@ struct MacHomeView: View {
             }
         }
     }
+
+    /// 主卡左边封面拼贴区的边长。
+    private static let mosaicSide: CGFloat = 240
 
     /// home.jsx CoverMosaic 的散落参数: 每张封面的旋转角度 (度) 与垂直错位 (pt)。
     private static let mosaicTilt: [Double] = [-4, 2, -1, 4, -3, 1]
@@ -1150,7 +1160,7 @@ struct MacHomeView: View {
         }
         .padding(PMSpace.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .pmCard(cornerRadius: PMRadius.l)
+        .pmCard(cornerRadius: PMRadius.l, overOpaqueBackground: true)
     }
 
     private func metric(value: Int, label: LocalizedStringKey) -> some View {
@@ -1899,7 +1909,7 @@ private struct MacHomeSourceStatusCard: View {
         }
         .padding(PMSpace.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .pmCard(cornerRadius: PMRadius.l)
+        .pmCard(cornerRadius: PMRadius.l, overOpaqueBackground: true)
     }
 }
 
@@ -1938,7 +1948,7 @@ private struct MacHomePipelineSection: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
-        .pmCard(cornerRadius: PMRadius.l)
+        .pmCard(cornerRadius: PMRadius.l, overOpaqueBackground: true)
     }
 
     private var activeScans: [ScanService.ScanState] {

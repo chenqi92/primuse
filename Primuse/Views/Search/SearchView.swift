@@ -445,6 +445,7 @@ private struct BookSearchHit: Identifiable {
 }
 
 /// 收听空间的颜色取共用的 `ListeningSpace.tint`,和标签页、播放条一致。
+@MainActor
 private enum SearchSpaceTint {
     static func radio(_ scheme: ColorScheme) -> Color { ListeningSpace.radio.tint }
     static func spokenWord(_ scheme: ColorScheme) -> Color { ListeningSpace.spokenWord.tint }

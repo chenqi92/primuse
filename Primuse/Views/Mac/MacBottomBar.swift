@@ -666,6 +666,7 @@ enum MacListeningSpaceStyle {
     }
 
     /// 颜色与 iPhone / Apple TV 同源 (`ListeningSpace.tint`)。
+    @MainActor
     static func color(for space: ListeningSpace) -> Color {
         space.tint
     }

@@ -78,6 +78,99 @@ extension ListeningSpace {
     }
 }
 
+/// How the user colours radio, spoken word or podcasts: the space's own hue
+/// (`fixedTint`), the app's theme colour, the colour picked from the cover
+/// playing now, or a colour of their own. Stored per space as one string.
+public enum ListeningSpaceTintChoice: Hashable, Sendable {
+    case standard
+    case theme
+    case artwork
+    /// RRGGBB, upper case, no `#`.
+    case fixed(String)
+
+    /// Anything unreadable (an empty or missing value included) is the space's own hue.
+    public init(storedValue: String?) {
+        let value = (storedValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "theme":
+            self = .theme
+        case "artwork":
+            self = .artwork
+        default:
+            let hex = value.replacingOccurrences(of: "#", with: "").uppercased()
+            self = hex.count == 6 && hex.allSatisfy(\.isHexDigit) ? .fixed(hex) : .standard
+        }
+    }
+
+    public var storedValue: String {
+        switch self {
+        case .standard: ""
+        case .theme: "theme"
+        case .artwork: "artwork"
+        case .fixed(let hex): hex
+        }
+    }
+
+    public var fixedHex: String? {
+        if case .fixed(let hex) = self { return hex }
+        return nil
+    }
+}
+
+/// Where each space's colour choice is kept. The app writes its own defaults
+/// and mirrors them into the App Group, where the widgets read them.
+public enum ListeningSpaceTintPreferences {
+    /// Music follows the theme colour and has no choice of its own.
+    public static let customizableSpaces: [ListeningSpace] = [.radio, .spokenWord, .podcast]
+
+    public static func key(for space: ListeningSpace) -> String {
+        "primuse.listeningSpace.tint.\(space.rawValue)"
+    }
+
+    public static var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier)
+    }
+
+    public static func choice(for space: ListeningSpace, in defaults: UserDefaults) -> ListeningSpaceTintChoice {
+        guard customizableSpaces.contains(space) else { return .theme }
+        return ListeningSpaceTintChoice(storedValue: defaults.string(forKey: key(for: space)))
+    }
+
+    public static func store(_ choice: ListeningSpaceTintChoice, for space: ListeningSpace, in defaults: UserDefaults) {
+        guard customizableSpaces.contains(space) else { return }
+        if choice == .standard {
+            defaults.removeObject(forKey: key(for: space))
+        } else {
+            defaults.set(choice.storedValue, forKey: key(for: space))
+        }
+    }
+}
+
+extension ListeningSpaceTint {
+    /// A colour the user picked, made to read as text and icons the way the
+    /// theme colour is (`ThemeAccentContrastPolicy`): the light shade darkened
+    /// to 4.5:1 on white, the dark shade lifted to 4.5:1 on black. White reads
+    /// as near-black in light appearance, like the theme's "white".
+    public static func legible(hex: String) -> ListeningSpaceTint? {
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        if value == 0xFFFFFF { return ListeningSpaceTint(light: 0x1C1C1C, dark: 0xFFFFFF) }
+        let rgb = components(value)
+        let source = ThemeAccentContrastPolicy.RGB(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        // 压到 8 位时往对比度更高的方向取整:浅色档向下、深色档向上,刚好过线的颜色不会掉回线下。
+        return ListeningSpaceTint(
+            light: packed(ThemeAccentContrastPolicy.legible(source, for: .light), rounding: .down),
+            dark: packed(ThemeAccentContrastPolicy.legible(source, for: .dark), rounding: .up)
+        )
+    }
+
+    private static func packed(_ rgb: ThemeAccentContrastPolicy.RGB, rounding: FloatingPointRoundingRule) -> UInt32 {
+        func channel(_ value: Double) -> UInt32 {
+            UInt32((min(max(value, 0), 1) * 255).rounded(rounding))
+        }
+        return channel(rgb.red) << 16 | channel(rgb.green) << 8 | channel(rgb.blue)
+    }
+}
+
 /// The link a widget opens when tapped outside its play button: the app's
 /// page for one listening space (`primuse://open/radio`).
 public enum ListeningSpaceLink {

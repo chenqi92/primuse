@@ -1755,7 +1755,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             .init(name: "client_id", value: creds.clientId),
             .init(name: "client_secret", value: creds.clientSecret ?? ""),
         ])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await helper.tokenRequest(request, clientID: creds.clientId, session: session)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         guard let at = json["access_token"] as? String else {
             throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)

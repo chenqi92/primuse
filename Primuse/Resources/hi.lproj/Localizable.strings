@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "कंट्रोल का रंग";
 "player_control_tint_theme" = "थीम का रंग";
 "player_control_tint_monochrome" = "एकरंगा";
-"player_control_tint_footer" = "प्रोग्रेस बार, चालू शफ़ल और रिपीट जैसे प्लेयर कंट्रोल का रंग। एकरंगा डार्क मोड में सफ़ेद और लाइट मोड में काला होता है, इसलिए बहते रंग जैसे बैकग्राउंड से टकराता नहीं। गहरे ऑडियोबुक लेआउट में भी प्ले बटन और प्रोग्रेस बार सफ़ेद हो जाते हैं।";
+"player_control_tint_footer" = "प्रोग्रेस बार, चालू शफ़ल और रिपीट जैसे प्लेयर कंट्रोल का रंग। एकरंगा डार्क मोड में सफ़ेद और लाइट मोड में काला होता है, इसलिए बहते रंग जैसे बैकग्राउंड से टकराता नहीं। ऑडियोबुक लेआउट अपने रंग रखते हैं।";
 "player_menu_items_title" = "\"और\" मेनू";
 "player_menu_items_hidden_count %lld" = "%lld छिपे";
 "player_menu_items_footer" = "बंद किए गए आइटम प्लेयर के \"और\" मेनू में अब नहीं दिखते। पेज पर रखे बटन मेनू में दोबारा नहीं आते, और पसंद, बोल, कतार, शफ़ल और रिपीट पेज से हटाने पर भी मेनू में आ जाते हैं।";
@@ -5888,3 +5888,15 @@
 "player_controls_spoken_slot_picker_footer" = "किसी दूसरी जगह पहले से रखा बटन चुनने पर दोनों जगहें आपस में बदल जाती हैं। \"स्वचालित\" मूल व्यवस्था रखता है।";
 "player_controls_spoken_source" = "संगीत स्रोत दिखाएँ";
 "player_controls_spoken_source_footer" = "एक से अधिक संगीत स्रोत होने पर प्लेयर की सबसे नीचे की पंक्ति बताती है कि किताब किस स्रोत से है।";
+
+"listening_space_colors_title" = "रेडियो, ऑडियोबुक और पॉडकास्ट के रंग";
+"listening_space_colors_footer" = "होम के ऊपर वाले स्विचर, लाइब्रेरी, खोज और विजेट में रेडियो, ऑडियोबुक और पॉडकास्ट के रंग।";
+"listening_space_tint_source" = "रंग का स्रोत";
+"listening_space_tint_standard" = "डिफ़ॉल्ट";
+"listening_space_tint_standard_hint" = "इस श्रेणी का अपना रंग";
+"listening_space_tint_theme" = "थीम रंग जैसा";
+"listening_space_tint_theme_hint" = "ऐप के थीम जैसा ही रंग";
+"listening_space_tint_artwork" = "कवर आर्ट से";
+"listening_space_tint_artwork_hint" = "जो चल रहा है उसके कवर के साथ बदलता है। विजेट थीम रंग का उपयोग करते हैं।";
+"listening_space_tint_fixed" = "निश्चित रंग";
+"listening_space_tint_fixed_hint" = "पैलेट से चुनें या नीचे अपना रंग बनाएँ";
