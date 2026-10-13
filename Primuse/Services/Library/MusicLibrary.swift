@@ -5882,9 +5882,11 @@ final class MusicLibrary {
             // 扫描的最终提交: 这一轮的歌都已入库并共用了字段, 表可以放掉了。
             incomingSongInterner = SongStringInterner()
         }
-        let persistedIncoming = persistedSongIDs.compactMap { id in
-            existingIndexByID[id].map { mergedSongs[$0] }
-        }
+        // 按库里的先后交给存储:新行按传入顺序排在末尾,集合的遍历顺序每次启动都不同,
+        // 直接用会让重新打开后这一批新歌的先后被打乱。
+        let persistedIncoming = persistedSongIDs.compactMap { existingIndexByID[$0] }
+            .sorted()
+            .map { mergedSongs[$0] }
         persistSongChanges(
             upserts: persistedIncoming,
             deletingIDs: Set(removedSongs.map(\.id))
