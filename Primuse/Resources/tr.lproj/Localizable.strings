@@ -646,7 +646,7 @@
 "scraper_sources" = "Üst veri sağlayıcıları";
 "ai_enable_semantic_search_footer" = "\"Enstrümantal piyano\" gibi tanımlayıcı aramaları ilgili kavramlara genişletin ve ardından bunları yerel olarak eşleştirin. Sağlayıcı yavaşsa veya kullanılamıyorsa normal arama kullanılabilir durumda kalır.";
 "edit_connection_info" = "Bağlantıyı Düzenle";
-"icloud_sync_footer" = "Aynı iCloud hesabında oturum açmış cihazlar arasında çalma listelerini, müzik kaynaklarını, çalma geçmişini ve ayarları senkronize edin. iCloud Anahtar Zinciri aracılığıyla kaynak şifreleri ve bulut sürücüsü oturum açma durumu senkronizasyonu.";
+"icloud_sync_footer" = "Aynı iCloud hesabında oturum açmış cihazlar arasında çalma listelerini, beğenilen şarkıları, müzik kaynaklarını, çalma geçmişini ve ayarları senkronize edin. iCloud Anahtar Zinciri aracılığıyla kaynak şifreleri ve bulut sürücüsü oturum açma durumu senkronizasyonu.";
 "desktop_widget_sync_continue" = "Devam et";
 "weekday_sunday_short" = "Paz";
 "more" = "Daha Fazla";
@@ -3038,7 +3038,7 @@
 "fnmusic_fnconnect_hint" = "FN kimliğini girin. Primuse doğrudan bir rotayı tercih eder ve FN Connect rölesine geri döner. Oturum açma işlemi hâlâ yerel NAS hesabını kullanıyor.";
 "cellular_backfill_wifi_only" = "Yalnızca Wi-Fi";
 "material_macos_26_or_later" = "macOS 26 veya üzeri";
-"synced_playlists" = "Çalma listeleri";
+"synced_playlists" = "Çalma listeleri ve beğenilen şarkılar";
 "songs_row_height" = "Satır Yüksekliği";
 "Keychain Credentials" = "Anahtarlık Kimlik Bilgileri";
 "Couldn't Check for Updates" = "Güncellemeler Kontrol Edilemedi";

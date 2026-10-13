@@ -993,7 +993,7 @@
 "services_integrations" = "サービスと連携";
 "icloud_sync_title" = "iCloud 同期";
 "icloud_sync_enabled" = "iCloud 同期を有効にする";
-"icloud_sync_footer" = "同じ iCloud アカウントでサインインしているデバイス間で、プレイリスト、音楽ソース、再生履歴、設定を同期します。ソースのパスワードとクラウドドライブのログイン状態は iCloud キーチェーン経由で同期されます。";
+"icloud_sync_footer" = "同じ iCloud アカウントでサインインしているデバイス間で、プレイリスト、好きな曲、音楽ソース、再生履歴、設定を同期します。ソースのパスワードとクラウドドライブのログイン状態は iCloud キーチェーン経由で同期されます。";
 "icloud_sync_status" = "状況";
 "status" = "状況";
 "status_disabled" = "オフ";
@@ -1012,7 +1012,7 @@
 "sync_now" = "今すぐ同期";
 "synced_items" = "同期する項目";
 "synced_items_footer" = "ローカルの音楽ライブラリとキャッシュは同期されません。各デバイスが個別にスキャンします。";
-"synced_playlists" = "プレイリスト";
+"synced_playlists" = "プレイリストと好きな曲";
 "synced_sources" = "音楽ソース（パスワードを除く）";
 "synced_playback_history" = "最近の再生（5 分間隔）";
 "synced_settings" = "再生設定、イコライザ、スクレイパー設定";

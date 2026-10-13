@@ -992,7 +992,7 @@
 "services_integrations" = "Services et intégrations";
 "icloud_sync_title" = "Synchronisation iCloud";
 "icloud_sync_enabled" = "Activer la synchronisation iCloud";
-"icloud_sync_footer" = "Synchronisez les listes de lecture, les sources de musique, l'historique de lecture et les réglages entre les appareils connectés au même compte iCloud. Les mots de passe des sources et les sessions de connexion aux services cloud sont synchronisés via le trousseau iCloud.";
+"icloud_sync_footer" = "Synchronisez les listes de lecture, les morceaux aimés, les sources de musique, l'historique de lecture et les réglages entre les appareils connectés au même compte iCloud. Les mots de passe des sources et les sessions de connexion aux services cloud sont synchronisés via le trousseau iCloud.";
 "icloud_sync_status" = "État";
 "status" = "État";
 "status_disabled" = "Désactivé";
@@ -1011,7 +1011,7 @@
 "sync_now" = "Synchroniser";
 "synced_items" = "Éléments synchronisés";
 "synced_items_footer" = "La bibliothèque musicale locale et les caches ne sont pas synchronisés — chaque appareil les analyse indépendamment.";
-"synced_playlists" = "Listes de lecture";
+"synced_playlists" = "Listes de lecture et morceaux aimés";
 "synced_sources" = "Sources de musique (mots de passe exclus)";
 "synced_playback_history" = "Lecture récente (limitée à 5 minutes)";
 "synced_settings" = "Réglages de lecture, égaliseur, configuration du récupérateur";

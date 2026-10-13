@@ -794,7 +794,7 @@
 "services_integrations" = "Services & Integrations";
 "icloud_sync_title" = "iCloud Sync";
 "icloud_sync_enabled" = "Enable iCloud Sync";
-"icloud_sync_footer" = "Sync playlists, music sources, playback history, and settings across devices signed in to the same iCloud account. Source passwords and cloud-drive login state sync via iCloud Keychain.";
+"icloud_sync_footer" = "Sync playlists, Liked Songs, music sources, playback history, and settings across devices signed in to the same iCloud account. Source passwords and cloud-drive login state sync via iCloud Keychain.";
 "icloud_sync_status" = "Status";
 "status" = "Status";
 "status_disabled" = "Off";
@@ -807,7 +807,7 @@
 "sync_now" = "Sync Now";
 "synced_items" = "Synced items";
 "synced_items_footer" = "Local music library and caches are not synced — each device scans independently.";
-"synced_playlists" = "Playlists";
+"synced_playlists" = "Playlists and Liked Songs";
 "synced_sources" = "Music sources (passwords excluded)";
 "synced_playback_history" = "Recent playback (5-minute throttle)";
 "synced_settings" = "Playback settings, equalizer, scraper config";

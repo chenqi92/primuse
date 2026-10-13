@@ -992,7 +992,7 @@
 "services_integrations" = "Dienste und Integrationen";
 "icloud_sync_title" = "iCloud-Synchronisierung";
 "icloud_sync_enabled" = "iCloud-Synchronisierung aktivieren";
-"icloud_sync_footer" = "Synchronisiert Wiedergabelisten, Musikquellen, Wiedergabeverlauf und Einstellungen über alle Geräte hinweg, die mit demselben iCloud-Account angemeldet sind. Quellpasswörter und der Anmeldestatus von Cloud-Speichern werden über den iCloud-Schlüsselbund synchronisiert.";
+"icloud_sync_footer" = "Synchronisiert Wiedergabelisten, Titel mit „Gefällt mir“, Musikquellen, Wiedergabeverlauf und Einstellungen über alle Geräte hinweg, die mit demselben iCloud-Account angemeldet sind. Quellpasswörter und der Anmeldestatus von Cloud-Speichern werden über den iCloud-Schlüsselbund synchronisiert.";
 "icloud_sync_status" = "Status";
 "status" = "Status";
 "status_disabled" = "Aus";
@@ -1011,7 +1011,7 @@
 "sync_now" = "Jetzt synchronisieren";
 "synced_items" = "Synchronisierte Objekte";
 "synced_items_footer" = "Die lokale Musikmediathek und Caches werden nicht synchronisiert – jedes Gerät scannt eigenständig.";
-"synced_playlists" = "Wiedergabelisten";
+"synced_playlists" = "Wiedergabelisten und „Gefällt mir“";
 "synced_sources" = "Musikquellen (ohne Passwörter)";
 "synced_playback_history" = "Kürzlich wiedergegeben (5-Minuten-Drosselung)";
 "synced_settings" = "Wiedergabeeinstellungen, Equalizer, Scraper-Konfiguration";

@@ -767,7 +767,7 @@
 "services_integrations" = "服務與整合";
 "icloud_sync_title" = "iCloud 同步";
 "icloud_sync_enabled" = "啟用 iCloud 同步";
-"icloud_sync_footer" = "在使用同一 iCloud 帳號的裝置之間同步歌單、音樂來源、播放紀錄和設定。來源密碼與雲端硬碟登入狀態透過 iCloud 鑰匙圈安全同步。";
+"icloud_sync_footer" = "在使用同一 iCloud 帳號的裝置之間同步歌單、「我的最愛」、音樂來源、播放紀錄和設定。來源密碼與雲端硬碟登入狀態透過 iCloud 鑰匙圈安全同步。";
 "icloud_sync_status" = "狀態";
 "status" = "狀態";
 "status_disabled" = "已關閉";
@@ -786,7 +786,7 @@
 "sync_now" = "立即同步";
 "synced_items" = "同步內容";
 "synced_items_footer" = "本機音樂資料庫與快取不會同步，每台裝置各自掃描。";
-"synced_playlists" = "歌單";
+"synced_playlists" = "歌單與「我的最愛」";
 "synced_sources" = "音樂來源（不含密碼）";
 "synced_playback_history" = "最近播放（5 分鐘節流）";
 "synced_settings" = "播放設定、等化器、刮削設定";

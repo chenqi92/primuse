@@ -992,7 +992,7 @@
 "services_integrations" = "서비스 및 연동";
 "icloud_sync_title" = "iCloud 동기화";
 "icloud_sync_enabled" = "iCloud 동기화 사용";
-"icloud_sync_footer" = "동일한 iCloud 계정에 로그인된 기기 간에 재생 목록, 음악 소스, 재생 기록, 설정을 동기화합니다. 소스 비밀번호와 클라우드 드라이브 로그인 상태는 iCloud 키체인을 통해 동기화됩니다.";
+"icloud_sync_footer" = "동일한 iCloud 계정에 로그인된 기기 간에 재생 목록, 좋아하는 곡, 음악 소스, 재생 기록, 설정을 동기화합니다. 소스 비밀번호와 클라우드 드라이브 로그인 상태는 iCloud 키체인을 통해 동기화됩니다.";
 "icloud_sync_status" = "상태";
 "status" = "상태";
 "status_disabled" = "꺼짐";
@@ -1011,7 +1011,7 @@
 "sync_now" = "지금 동기화";
 "synced_items" = "동기화 항목";
 "synced_items_footer" = "로컬 음악 라이브러리와 캐시는 동기화되지 않습니다. 각 기기가 독립적으로 스캔합니다.";
-"synced_playlists" = "재생 목록";
+"synced_playlists" = "재생 목록과 좋아하는 곡";
 "synced_sources" = "음악 소스 (비밀번호 제외)";
 "synced_playback_history" = "최근 재생 (5분 간격 제한)";
 "synced_settings" = "재생 설정, 이퀄라이저, 스크레이퍼 구성";

@@ -1588,7 +1588,7 @@
 "icloud_container_setup_hint" = "Habilite o contêiner iCloud iCloud.com.welape.yuanyin no Apple Developer e verifique-o em Xcode → Assinatura e recursos";
 "icloud_quota_exceeded" = "Armazenamento iCloud cheio";
 "icloud_sync_enabled" = "Habilitar sincronização iCloud";
-"icloud_sync_footer" = "Sincronize playlists, fontes de música, histórico de reprodução e configurações entre dispositivos conectados à mesma conta iCloud. Senhas de origem e sincronização de estado de login na nuvem via iCloud Keychain.";
+"icloud_sync_footer" = "Sincronize playlists, músicas curtidas, fontes de música, histórico de reprodução e configurações entre dispositivos conectados à mesma conta iCloud. Senhas de origem e sincronização de estado de login na nuvem via iCloud Keychain.";
 "icloud_sync_status" = "Estado";
 "icloud_sync_title" = "Sincronização iCloud";
 "icon_appearance_gray" = "Cinza";
@@ -3537,7 +3537,7 @@
 "synced_items" = "Itens sincronizados";
 "synced_items_footer" = "A biblioteca de música local e os caches não são sincronizados — cada dispositivo verifica de forma independente.";
 "synced_playback_history" = "Reprodução recente (aceleração de 5 minutos)";
-"synced_playlists" = "Playlists";
+"synced_playlists" = "Playlists e músicas curtidas";
 "synced_settings" = "Ajustes de reprodução, equalizador e provedores de metadados";
 "synced_sources" = "Fontes musicais (senhas excluídas)";
 "synology_address" = "Domínio ou Endereço IP";

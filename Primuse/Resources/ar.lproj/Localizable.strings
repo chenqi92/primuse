@@ -1588,7 +1588,7 @@
 "icloud_container_setup_hint" = "قم بتمكين حاوية iCloud iCloud.com.welape.yuanyin في Apple Developer، والتحقق منها في Xcode → Signing & Capabilities";
 "icloud_quota_exceeded" = "iCloud سعة التخزين ممتلئة";
 "icloud_sync_enabled" = "تفعيل iCloud المزامنة";
-"icloud_sync_footer" = "مزامنة قوائم التشغيل ومصادر الموسيقى وسجل التشغيل والإعدادات عبر الأجهزة التي تم تسجيل الدخول إليها بنفس حساب iCloud. مزامنة كلمات مرور المصدر وحالة تسجيل الدخول إلى محرك السحابة عبر iCloud Keychain.";
+"icloud_sync_footer" = "مزامنة قوائم التشغيل والأغاني التي أعجبتني ومصادر الموسيقى وسجل التشغيل والإعدادات عبر الأجهزة التي تم تسجيل الدخول إليها بنفس حساب iCloud. مزامنة كلمات مرور المصدر وحالة تسجيل الدخول إلى محرك السحابة عبر iCloud Keychain.";
 "icloud_sync_status" = "الحالة";
 "icloud_sync_title" = "iCloud مزامنة";
 "icon_appearance_gray" = "الرمادي";
@@ -3537,7 +3537,7 @@
 "synced_items" = "العناصر التي تمت مزامنتها";
 "synced_items_footer" = "لا تتم مزامنة مكتبة الموسيقى المحلية وذاكرة التخزين المؤقت — حيث يقوم كل جهاز بالمسح بشكل مستقل.";
 "synced_playback_history" = "التشغيل الأخير (خنق لمدة 5 دقائق)";
-"synced_playlists" = "قوائم التشغيل";
+"synced_playlists" = "قوائم التشغيل والأغاني التي أعجبتني";
 "synced_settings" = "إعدادات التشغيل، المعادل، تكوين الكاشطة";
 "synced_sources" = "مصادر الموسيقى (باستثناء كلمات المرور)";
 "synology_address" = "النطاق أو IP العنوان";

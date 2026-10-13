@@ -809,7 +809,7 @@
 "services_integrations" = "服务与集成";
 "icloud_sync_title" = "iCloud 同步";
 "icloud_sync_enabled" = "启用 iCloud 同步";
-"icloud_sync_footer" = "在使用同一 iCloud 账号的设备之间同步歌单、音乐源、播放历史和设置。源密码与云盘登录态通过 iCloud 钥匙串安全同步。";
+"icloud_sync_footer" = "在使用同一 iCloud 账号的设备之间同步歌单、「我喜欢」、音乐源、播放历史和设置。源密码与云盘登录态通过 iCloud 钥匙串安全同步。";
 "icloud_sync_status" = "状态";
 "status" = "状态";
 "status_disabled" = "已关闭";
@@ -822,7 +822,7 @@
 "sync_now" = "立即同步";
 "synced_items" = "同步内容";
 "synced_items_footer" = "本地音乐资料库与缓存不会同步，每台设备各自扫描。";
-"synced_playlists" = "歌单";
+"synced_playlists" = "歌单与「我喜欢」";
 "synced_sources" = "音乐源（不含密码）";
 "synced_playback_history" = "最近播放（5 分钟节流）";
 "synced_settings" = "播放设置、均衡器、刮削配置";
