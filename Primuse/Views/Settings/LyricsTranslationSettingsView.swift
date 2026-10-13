@@ -39,6 +39,9 @@ struct LyricsSettingsView: View {
                                  : "lyrics_translation_mode_intelligent_footer")
                         }
                     }
+                    if displayedMode.wrappedValue == .intelligentWithSystemFallback {
+                        LyricsAITranslationReadinessRow()
+                    }
                 }
 
                 Section("lyrics_translation_target_language") {
@@ -139,6 +142,67 @@ struct LyricsSettingsView: View {
             },
             set: { settings.mode = $0 }
         )
+    }
+}
+
+/// 选了智能翻译、它却发不出去时,放在翻译方式下面:说清楚差哪一步,并就地给出解决办法。
+/// 不然歌词照样出现(其实是系统翻译),人会以为智能翻译已经在用,或者以为它坏了。
+struct LyricsAITranslationReadinessRow: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    /// 已经在智能功能页里时不再给「前往智能功能」。
+    var linksToIntelligenceSettings = true
+    @State private var consentRequest: BuiltInAIConsentRequest?
+
+    var body: some View {
+        let readiness = intelligence.lyricsAITranslationReadiness
+        if readiness != .ready, readiness != .regionUnavailable {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(readiness.settingsExplanation, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                fixButton(for: readiness)
+                    .font(.footnote.weight(.semibold))
+            }
+            .padding(.vertical, 2)
+            .builtInAIConsentSheet($consentRequest)
+        }
+    }
+
+    @ViewBuilder
+    private func fixButton(for readiness: LyricsAITranslationReadiness) -> some View {
+        switch readiness {
+        case .needsBuiltInConsent:
+            Button("ai_consent_pending_action") {
+                consentRequest = BuiltInAIConsentRequest()
+            }
+        case .needsRemoteConsent:
+            Button("lyrics_translation_ai_allow_sending") {
+                try? intelligence.grantRemoteConsent()
+            }
+        case .noService where linksToIntelligenceSettings:
+            Button("ai_settings_title") {
+                SettingsNavigation.shared.open(SettingsPage.intelligence.id)
+            }
+        case .noService, .ready, .regionUnavailable:
+            EmptyView()
+        }
+    }
+}
+
+extension LyricsAITranslationReadiness {
+    /// 设置页里的一句说明(三端同一套)。
+    var settingsExplanation: String {
+        switch self {
+        case .needsBuiltInConsent:
+            String(localized: "lyrics_translation_ai_needs_builtin_consent")
+        case .needsRemoteConsent:
+            String(localized: "lyrics_translation_ai_needs_remote_consent")
+        case .noService:
+            String(localized: "lyrics_translation_ai_no_service")
+        case .ready, .regionUnavailable:
+            ""
+        }
     }
 }
 

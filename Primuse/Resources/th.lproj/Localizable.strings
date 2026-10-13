@@ -2083,8 +2083,6 @@
 "lyrics_translation_mode_intelligent_footer" = "ใช้บริการอัจฉริยะในปัจจุบันก่อน จากนั้นจึงสลับไปใช้การแปลระบบโดยอัตโนมัติหากไม่พร้อมใช้งาน พวกเขาไม่เคยวิ่งด้วยกัน";
 "lyrics_translation_mode_system" = "การแปลระบบ";
 "lyrics_translation_mode_system_footer" = "ใช้เฟรมเวิร์กการแปลของ Apple สามารถดาวน์โหลดชุดภาษาได้ในครั้งแรก";
-"lyrics_translation_off" = "ซ่อนการแปลเนื้อเพลง";
-"lyrics_translation_on" = "แสดงการแปลเนื้อเพลง";
 "lyrics_translation_overall_footer" = "แสดงข้อความที่แปลใต้แต่ละบรรทัดโดยใช้ระบบหรือการแปลอัจฉริยะ";
 "lyrics_translation_section" = "การแปล";
 "lyrics_romanization_section" = "อักษรโรมัน";
@@ -4954,7 +4952,6 @@
 "lyrics_translation_local_retry" = "ลองดาวน์โหลดอีกครั้ง";
 "lyrics_translation_local_section" = "โมเดลแปลแบบออฟไลน์";
 "lyrics_translation_local_pairs" = "อังกฤษ ↔ เปอร์เซีย";
-"lyrics_translation_local_footer" = "แปลเนื้อเพลงระหว่างภาษาอังกฤษและเปอร์เซียบนอุปกรณ์นี้ โดยไม่ต้องเชื่อมต่อเครือข่าย";
 "lyrics_translation_local_ready" = "ดาวน์โหลดแล้ว";
 "lyrics_translation_local_remove" = "ลบโมเดล";
 "lyrics_translation_local_remove_confirm" = "ลบโมเดลแปลแบบออฟไลน์หรือไม่ คุณสามารถดาวน์โหลดใหม่ได้ภายหลัง";
@@ -5013,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "อังกฤษ ↔ จีน ญี่ปุ่น เกาหลี";
 
-"lyrics_translation_local_cjk_footer" = "แปลเนื้อเพลงระหว่างภาษาอังกฤษกับภาษาจีนตัวย่อหรือตัวเต็ม ญี่ปุ่น และเกาหลีบนอุปกรณ์นี้ ภาษาอื่นในชุดนี้แปลผ่านภาษาอังกฤษโดยไม่ต้องเชื่อมต่อเครือข่าย";
 
 "songs_show_column_headers" = "แสดงหัวคอลัมน์";
 "playlist_hide_network_notice" = "ซ่อนข้อความแจ้งเตือนเครือข่าย";
@@ -5901,3 +5897,36 @@
 "listening_space_tint_artwork_hint" = "เปลี่ยนตามหน้าปกของสิ่งที่กำลังเล่น วิดเจ็ตจะใช้สีของธีม";
 "listening_space_tint_fixed" = "สีคงที่";
 "listening_space_tint_fixed_hint" = "เลือกจากจานสีหรือปรับสีของคุณเองด้านล่าง";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "ไม่ต้องแปล: เนื้อเพลงเป็นภาษาเป้าหมายอยู่แล้ว หรือมีคำแปลมาในตัว";
+"lyrics_translation_offline_done" = "แปลด้วยแพ็กออฟไลน์แล้ว";
+"lyrics_translation_offline_needs_pack_format" = "เพลงนี้ต้องใช้แพ็กออฟไลน์ “%@”";
+"lyrics_translation_offline_unsupported" = "แพ็กออฟไลน์แปลภาษาของเพลงนี้ไม่ได้ ลองใช้การแปลอัจฉริยะแทน";
+"lyrics_translation_ai_needs_builtin_consent" = "เลือก AI ในตัวไว้ จะไม่ส่งเนื้อเพลงจนกว่าคุณจะอ่านและยินยอม";
+"lyrics_translation_ai_needs_remote_consent" = "ยังไม่อนุญาตให้ส่งเนื้อหาไปยังบริการ AI จึงไม่มีการส่งเนื้อเพลง เมื่ออนุญาตแล้ว ฟีเจอร์อัจฉริยะอื่นจะส่งเนื้อหาตามสวิตช์ของแต่ละฟีเจอร์ด้วย";
+"lyrics_translation_ai_no_service" = "ยังไม่มีบริการ AI ที่ใช้ได้: เปิด AI ในตัว หรือเพิ่มบริการของคุณเองแล้วเลือกโมเดล";
+"lyrics_translation_ai_request_failed" = "การแปลอัจฉริยะไม่สำเร็จในครั้งนี้ บรรทัดที่เหลือใช้วิธีอื่นแปล";
+"lyrics_translation_off_status" = "ปิดการแปลเนื้อเพลงอยู่";
+"lyrics_translation_preparing" = "กำลังเตรียมการแปล";
+"lyrics_translation_preferences_section" = "วิธีแปลและภาษา";
+"lyrics_translation_mode_smart" = "การแปลอัจฉริยะ";
+"lyrics_translation_mode_offline" = "แพ็กออฟไลน์";
+"lyrics_translation_mode_off" = "ปิด";
+"lyrics_translation_tv_mode_smart_footer" = "เนื้อเพลงจะส่งไปยังบริการที่เลือกไว้สำหรับการแปลเนื้อเพลงในส่วนความฉลาด ทั้ง AI ในตัวหรือบริการของคุณเอง บรรทัดที่แปลไม่ได้จะใช้แพ็กออฟไลน์แทน";
+"lyrics_translation_tv_mode_offline_footer" = "แปลบน Apple TV เครื่องนี้โดยไม่ต้องออนไลน์ ก่อนแปลภาษาใดเป็นครั้งแรก ให้ดาวน์โหลดแพ็กออฟไลน์ที่ตรงกันก่อน";
+"lyrics_translation_ai_ready" = "การแปลอัจฉริยะพร้อมใช้แล้ว: เนื้อเพลงจะส่งไปยังบริการที่เลือกไว้สำหรับการแปลเนื้อเพลง";
+"lyrics_translation_ai_allow_sending" = "อนุญาตให้ส่งเนื้อหา";
+"lyrics_translation_offline_unavailable_system" = "ตอนนี้อุปกรณ์นี้ดาวน์โหลดแพ็กออฟไลน์ไม่ได้ (ต้องใช้ tvOS 26.4 ขึ้นไป)";
+"lyrics_translation_tv_offline_footer" = "แปลตรงระหว่างอังกฤษกับเปอร์เซีย และระหว่างอังกฤษกับจีน (ตัวย่อ ตัวเต็ม) ญี่ปุ่น เกาหลี คู่ภาษาอื่นในกลุ่มนี้จะแปลผ่านภาษาอังกฤษ แพ็กจะเก็บไว้ในอุปกรณ์นี้และลบได้ทุกเมื่อ";
+"lyrics_translation_tv_open_panel_hint" = "ใช้ปุ่มแปลเนื้อเพลงในแผงควบคุม";
+"lyrics_translation_ai_fell_back_offline" = "ไม่ได้ใช้การแปลอัจฉริยะ แพ็กออฟไลน์แปลแทน";
+"lyrics_translation_use_smart" = "แปลเนื้อเพลงด้วย AI";
+"lyrics_translation_ai_notice_builtin_consent" = "ยังไม่ยินยอมใช้ AI ในตัว จึงใช้การแปลระบบ";
+"lyrics_translation_ai_notice_remote_consent" = "ยังไม่อนุญาตให้ส่งเนื้อหา จึงใช้การแปลระบบ";
+"lyrics_translation_ai_notice_no_service" = "ไม่มีบริการ AI ที่ใช้ได้ จึงใช้การแปลระบบ";
+"lyrics_translation_ai_not_ready_title" = "การแปลอัจฉริยะยังใช้ไม่ได้";
+"lyrics_translation_extension_section" = "ภาษาเพิ่มเติม";
+"lyrics_translation_persian_extension_footer" = "การแปลระบบไม่รองรับภาษาเปอร์เซีย เมื่อดาวน์โหลดแล้ว เนื้อเพลงภาษาเปอร์เซียและการแปลเป็นภาษาเปอร์เซียจะทำบนอุปกรณ์นี้โดยไม่ต้องออนไลน์";
+"lyrics_translation_cjk_bridge_footer" = "ระหว่างอังกฤษกับจีน ญี่ปุ่น หรือเกาหลี ปกติจะใช้การแปลระบบ แพ็กนี้ใช้เป็นตัวกลางเฉพาะการแปลระหว่างเปอร์เซียกับจีน ญี่ปุ่น เกาหลี เมื่อยังไม่ได้ติดตั้งชุดภาษาของระบบ ถ้าไม่ได้ใช้ก็ลบได้";
+"lyrics_translation_offline_failed_try_smart" = "ตอนนี้ดาวน์โหลดแพ็กไม่ได้ — เปลี่ยนไปใช้การแปลอัจฉริยะ";

@@ -896,8 +896,6 @@
 "sleep_timer_active" = "타이머 켜짐";
 "cancel_timer" = "타이머 취소";
 "sleep_at_track_end" = "현재 곡 종료 후 정지";
-"lyrics_translation_on" = "가사 번역 표시";
-"lyrics_translation_off" = "가사 번역 숨기기";
 "minutes" = "분";
 "title_label" = "제목";
 "artist_label" = "아티스트";
@@ -5048,7 +5046,6 @@
 "lyrics_translation_local_retry" = "다운로드 재시도";
 "lyrics_translation_local_section" = "오프라인 번역 모델";
 "lyrics_translation_local_pairs" = "영어 ↔ 페르시아어";
-"lyrics_translation_local_footer" = "영어와 페르시아어 가사를 이 기기에서 번역하며 네트워크 연결이 필요 없습니다.";
 "lyrics_translation_local_ready" = "다운로드됨";
 "lyrics_translation_local_remove" = "모델 제거";
 "lyrics_translation_local_remove_confirm" = "오프라인 번역 모델을 제거하시겠습니까? 나중에 다시 다운로드할 수 있습니다.";
@@ -5107,7 +5104,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "영어 ↔ 중국어, 일본어, 한국어";
 
-"lyrics_translation_local_cjk_footer" = "이 기기에서 중국어 간체·번체, 일본어, 한국어와 영어 가사를 번역합니다. 다른 조합은 영어를 거치며 네트워크 연결이 필요 없습니다.";
 
 "songs_show_column_headers" = "열 제목 표시";
 "playlist_hide_network_notice" = "네트워크 알림 숨기기";
@@ -5995,3 +5991,36 @@
 "listening_space_tint_artwork_hint" = "재생 중인 커버에 따라 바뀝니다. 위젯에서는 테마 색상을 사용합니다.";
 "listening_space_tint_fixed" = "고정 색상";
 "listening_space_tint_fixed_hint" = "팔레트에서 고르거나 아래에서 직접 조정하세요";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "번역할 필요가 없습니다: 가사가 이미 대상 언어이거나 번역이 포함되어 있습니다.";
+"lyrics_translation_offline_done" = "오프라인 번역 팩으로 번역했습니다";
+"lyrics_translation_offline_needs_pack_format" = "이 곡에는 ‘%@’ 오프라인 번역 팩이 필요합니다";
+"lyrics_translation_offline_unsupported" = "오프라인 번역 팩으로는 이 곡의 언어를 번역할 수 없습니다. 지능형 번역을 사용해 보세요.";
+"lyrics_translation_ai_needs_builtin_consent" = "내장 AI가 선택되어 있습니다. 안내를 확인하고 동의하기 전에는 가사를 보내지 않습니다.";
+"lyrics_translation_ai_needs_remote_consent" = "아직 지능형 서비스로 콘텐츠를 보내도록 허용하지 않아 가사를 보내지 않습니다. 허용하면 다른 지능형 기능도 각자의 스위치에 따라 콘텐츠를 보냅니다.";
+"lyrics_translation_ai_no_service" = "아직 사용할 수 있는 지능형 서비스가 없습니다: 내장 AI를 켜거나 직접 서비스를 추가하고 모델을 선택하세요.";
+"lyrics_translation_ai_request_failed" = "이번에는 지능형 번역에 실패해 남은 줄은 다른 방법으로 번역했습니다.";
+"lyrics_translation_off_status" = "가사 번역이 꺼져 있습니다";
+"lyrics_translation_preparing" = "번역을 준비하는 중";
+"lyrics_translation_preferences_section" = "번역 방식 및 언어";
+"lyrics_translation_mode_smart" = "지능형 번역";
+"lyrics_translation_mode_offline" = "오프라인 번역 팩";
+"lyrics_translation_mode_off" = "끔";
+"lyrics_translation_tv_mode_smart_footer" = "지능형 기능에서 ‘가사 번역’에 지정한 서비스(내장 AI 또는 직접 추가한 서비스)로 보냅니다. 번역되지 않은 줄은 오프라인 번역 팩으로 번역합니다.";
+"lyrics_translation_tv_mode_offline_footer" = "이 Apple TV에서 인터넷 연결 없이 번역합니다. 어떤 언어를 처음 번역하기 전에 해당 오프라인 번역 팩을 내려받으세요.";
+"lyrics_translation_ai_ready" = "지능형 번역을 사용할 수 있습니다: 가사는 지능형 기능에서 ‘가사 번역’에 지정한 서비스로 보냅니다.";
+"lyrics_translation_ai_allow_sending" = "콘텐츠 보내기 허용";
+"lyrics_translation_offline_unavailable_system" = "지금 이 기기에서는 오프라인 번역 팩을 내려받을 수 없습니다(tvOS 26.4 이상 필요).";
+"lyrics_translation_tv_offline_footer" = "영어와 페르시아어, 영어와 중국어(간체·번체)·일본어·한국어 사이를 직접 번역하고, 이들 언어끼리는 영어를 거쳐 번역합니다. 팩은 이 기기에 저장되며 언제든 삭제할 수 있습니다.";
+"lyrics_translation_tv_open_panel_hint" = "재생 컨트롤의 가사 번역 버튼에서 설정";
+"lyrics_translation_ai_fell_back_offline" = "지능형 번역을 쓰지 못해 오프라인 번역 팩으로 번역했습니다";
+"lyrics_translation_use_smart" = "가사를 지능형 번역으로";
+"lyrics_translation_ai_notice_builtin_consent" = "내장 AI에 아직 동의하지 않아 시스템 번역을 사용했습니다";
+"lyrics_translation_ai_notice_remote_consent" = "콘텐츠 보내기를 허용하지 않아 시스템 번역을 사용했습니다";
+"lyrics_translation_ai_notice_no_service" = "사용할 수 있는 지능형 서비스가 없어 시스템 번역을 사용했습니다";
+"lyrics_translation_ai_not_ready_title" = "지능형 번역을 아직 사용할 수 없음";
+"lyrics_translation_extension_section" = "추가 언어";
+"lyrics_translation_persian_extension_footer" = "시스템 번역은 페르시아어를 지원하지 않습니다. 내려받으면 페르시아어 가사와 페르시아어로의 번역을 이 기기에서 인터넷 연결 없이 처리합니다.";
+"lyrics_translation_cjk_bridge_footer" = "영어와 중국어·일본어·한국어 사이는 평소 시스템 번역을 사용합니다. 이 팩은 페르시아어와 중국어·일본어·한국어를 서로 번역하는데 시스템 언어 팩이 없을 때만 중계용으로 씁니다. 필요 없으면 삭제하세요.";
+"lyrics_translation_offline_failed_try_smart" = "지금은 팩을 내려받을 수 없으니 지능형 번역으로 전환";

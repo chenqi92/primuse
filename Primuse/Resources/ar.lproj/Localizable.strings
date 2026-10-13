@@ -2083,8 +2083,6 @@
 "lyrics_translation_mode_intelligent_footer" = "يستخدم الخدمة الذكية الحالية أولاً، ثم يتحول تلقائيًا إلى ترجمة النظام في حالة عدم توفرها. إنهم لا يركضون معًا أبدًا.";
 "lyrics_translation_mode_system" = "ترجمة النظام";
 "lyrics_translation_mode_system_footer" = "يستخدم إطار ترجمة Apple. يمكن تنزيل حزمة اللغة في المرة الأولى.";
-"lyrics_translation_off" = "إخفاء ترجمة الأغاني";
-"lyrics_translation_on" = "عرض ترجمة الكلمات";
 "lyrics_translation_overall_footer" = "إظهار النص المترجم أسفل كل سطر باستخدام نظام الترجمة الذكية.";
 "lyrics_translation_section" = "الترجمة";
 "lyrics_romanization_section" = "الكتابة اللاتينية";
@@ -4954,7 +4952,6 @@
 "lyrics_translation_local_retry" = "إعادة محاولة التنزيل";
 "lyrics_translation_local_section" = "نموذج الترجمة دون اتصال";
 "lyrics_translation_local_pairs" = "الإنجليزية ↔ الفارسية";
-"lyrics_translation_local_footer" = "يترجم كلمات الأغاني بين الإنجليزية والفارسية على هذا الجهاز دون الحاجة إلى اتصال بالشبكة.";
 "lyrics_translation_local_ready" = "تم التنزيل";
 "lyrics_translation_local_remove" = "إزالة النموذج";
 "lyrics_translation_local_remove_confirm" = "هل تريد إزالة نموذج الترجمة دون اتصال؟ يمكنك تنزيله مرة أخرى لاحقًا.";
@@ -5013,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "الإنجليزية ↔ الصينية واليابانية والكورية";
 
-"lyrics_translation_local_cjk_footer" = "يترجم كلمات الأغاني بين الإنجليزية والصينية المبسطة أو التقليدية واليابانية والكورية على هذا الجهاز. تُترجم الأزواج الأخرى عبر الإنجليزية، دون اتصال بالشبكة.";
 
 "songs_show_column_headers" = "إظهار عناوين الأعمدة";
 "playlist_hide_network_notice" = "إخفاء تنبيه الشبكة";
@@ -5901,3 +5897,36 @@
 "listening_space_tint_artwork_hint" = "يتغير مع غلاف ما يُشغَّل الآن. تستخدم الأدوات لون الموضوع.";
 "listening_space_tint_fixed" = "اللون الثابت";
 "listening_space_tint_fixed_hint" = "اختر لونًا من اللوحة أو اضبط لونك أدناه";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "لا حاجة إلى الترجمة: الكلمات بلغة الهدف أصلًا أو تتضمن ترجمتها.";
+"lyrics_translation_offline_done" = "تُرجمت بحزمة دون اتصال";
+"lyrics_translation_offline_needs_pack_format" = "تحتاج هذه الأغنية إلى حزمة “%@” دون اتصال";
+"lyrics_translation_offline_unsupported" = "لا تستطيع الحزم دون اتصال ترجمة لغة هذه الأغنية. جرّب الترجمة الذكية بدلًا منها.";
+"lyrics_translation_ai_needs_builtin_consent" = "الذكاء الاصطناعي المدمج هو المحدد. لن تُرسل أي كلمات حتى تراجع وتوافق.";
+"lyrics_translation_ai_needs_remote_consent" = "لم يُسمح بعد بإرسال المحتوى إلى خدمات الذكاء الاصطناعي، لذا لن تُرسل أي كلمات. بعد السماح سترسل الميزات الذكية الأخرى المحتوى أيضًا حسب مفاتيحها الخاصة.";
+"lyrics_translation_ai_no_service" = "لا توجد خدمة ذكاء اصطناعي متاحة بعد: شغّل الذكاء الاصطناعي المدمج أو أضف خدمتك واختر نموذجًا.";
+"lyrics_translation_ai_request_failed" = "لم تنجح الترجمة الذكية هذه المرة، فأُحيلت الأسطر المتبقية إلى طريقة أخرى.";
+"lyrics_translation_off_status" = "ترجمة الكلمات متوقفة";
+"lyrics_translation_preparing" = "جارٍ تجهيز الترجمة";
+"lyrics_translation_preferences_section" = "الطريقة واللغة";
+"lyrics_translation_mode_smart" = "الترجمة الذكية";
+"lyrics_translation_mode_offline" = "حزم دون اتصال";
+"lyrics_translation_mode_off" = "متوقفة";
+"lyrics_translation_tv_mode_smart_footer" = "تُرسل الكلمات إلى الخدمة المختارة لترجمة الكلمات في الميزات الذكية، سواء الذكاء الاصطناعي المدمج أو خدمتك. الأسطر التي لا تترجمها تتولاها الحزم دون اتصال.";
+"lyrics_translation_tv_mode_offline_footer" = "تتم الترجمة على Apple TV هذا دون اتصال بالإنترنت. نزّل الحزمة المناسبة دون اتصال قبل ترجمة أي لغة لأول مرة.";
+"lyrics_translation_ai_ready" = "الترجمة الذكية جاهزة: تُرسل الكلمات إلى الخدمة المختارة لترجمة الكلمات.";
+"lyrics_translation_ai_allow_sending" = "السماح بإرسال المحتوى";
+"lyrics_translation_offline_unavailable_system" = "لا يمكن تنزيل الحزم دون اتصال على هذا الجهاز حاليًا (يتطلب tvOS 26.4 أو أحدث).";
+"lyrics_translation_tv_offline_footer" = "يترجم مباشرة بين الإنجليزية والفارسية، وبين الإنجليزية والصينية (المبسطة والتقليدية) واليابانية والكورية، وتمر الأزواج الأخرى بينها عبر الإنجليزية. تبقى الحزم على هذا الجهاز ويمكن إزالتها في أي وقت.";
+"lyrics_translation_tv_open_panel_hint" = "استخدم زر ترجمة الكلمات في عناصر التحكم";
+"lyrics_translation_ai_fell_back_offline" = "لم تُستخدم الترجمة الذكية؛ تولّت الحزم دون اتصال الترجمة";
+"lyrics_translation_use_smart" = "ترجمة الكلمات بالذكاء الاصطناعي";
+"lyrics_translation_ai_notice_builtin_consent" = "لم تتم الموافقة على الذكاء الاصطناعي المدمج بعد؛ استُخدمت ترجمة النظام";
+"lyrics_translation_ai_notice_remote_consent" = "لا يُسمح بإرسال المحتوى؛ استُخدمت ترجمة النظام";
+"lyrics_translation_ai_notice_no_service" = "لا توجد خدمة ذكاء اصطناعي متاحة؛ استُخدمت ترجمة النظام";
+"lyrics_translation_ai_not_ready_title" = "الترجمة الذكية غير جاهزة بعد";
+"lyrics_translation_extension_section" = "لغات إضافية";
+"lyrics_translation_persian_extension_footer" = "لا تدعم ترجمة النظام الفارسية. بعد التنزيل تُعالج الكلمات الفارسية والترجمة إلى الفارسية على هذا الجهاز دون اتصال بالإنترنت.";
+"lyrics_translation_cjk_bridge_footer" = "بين الإنجليزية والصينية أو اليابانية أو الكورية تُستخدم ترجمة النظام عادةً. لا تُستخدم هذه الحزمة إلا وسيطًا بين الفارسية والصينية أو اليابانية أو الكورية عندما لا تكون حزم لغات النظام مثبتة. أزلها إن لم تكن بحاجة إليها.";
+"lyrics_translation_offline_failed_try_smart" = "تعذّر تنزيل الحزم الآن — استخدم الترجمة الذكية";

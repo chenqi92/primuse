@@ -675,4 +675,504 @@ private struct TVEffectPickerThumbnail: View, @MainActor Equatable {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
+// MARK: - 歌词翻译
+
+extension TVLyricsTranslationController.Activity {
+    /// 播放页歌词上方的提示与翻译面板共用的一句话;nil 表示不必说。
+    var statusText: String? {
+        switch self {
+        case .idle:
+            return nil
+        case .notNeeded:
+            return String(localized: "lyrics_translation_not_needed")
+        case .translating(.intelligent):
+            return String(localized: "lyrics_translation_ai_loading")
+        case .translating(.offline):
+            return String(localized: "lyrics_translation_local_translating")
+        case .done(.intelligent(let provider)):
+            guard let provider else { return String(localized: "lyrics_translation_ai_cached") }
+            return String(format: String(localized: "lyrics_translation_ai_success_format"), provider)
+        case .done(.offline):
+            return String(localized: "lyrics_translation_offline_done")
+        case .needsModel(let pack):
+            return String(
+                format: String(localized: "lyrics_translation_offline_needs_pack_format"),
+                String(localized: String.LocalizationValue(pack.pairsKey))
+            )
+        case .unsupported:
+            return String(localized: "lyrics_translation_offline_unsupported")
+        case .failed:
+            return String(localized: "lyrics_translation_unavailable")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .idle, .notNeeded: "character.bubble"
+        case .translating(.intelligent), .done(.intelligent): "sparkles"
+        case .translating(.offline), .done(.offline): "character.book.closed"
+        case .needsModel: "arrow.down.circle"
+        case .unsupported, .failed: "exclamationmark.triangle"
+        }
+    }
+
+    @MainActor var tint: Color {
+        switch self {
+        case .done: TVColor.ok
+        case .needsModel: TVColor.brand
+        case .unsupported, .failed: TVColor.warn
+        case .idle, .notNeeded, .translating: TVColor.textMuted
+        }
+    }
+
+    /// 翻好或不必翻的提示看一眼就够;要动手或出了问题的一直留着。
+    var isTransient: Bool {
+        switch self {
+        case .done, .notNeeded: true
+        case .idle, .translating, .needsModel, .unsupported, .failed: false
+        }
+    }
+}
+
+extension TVLyricsTranslationController.IntelligentIssue {
+    var explanation: String {
+        switch self {
+        case .notReady(.needsBuiltInConsent):
+            String(localized: "lyrics_translation_ai_needs_builtin_consent")
+        case .notReady(.needsRemoteConsent):
+            String(localized: "lyrics_translation_ai_needs_remote_consent")
+        case .notReady(.noService):
+            String(localized: "lyrics_translation_ai_no_service")
+        case .notReady(.ready), .notReady(.regionUnavailable), .requestFailed:
+            String(localized: "lyrics_translation_ai_request_failed")
+        }
+    }
+}
+
+/// 歌词翻译:开关、译成什么、交给谁翻,以及这首歌现在翻成什么样。播放页的翻译键和设置页
+/// 都打开它。电视没有系统翻译,翻译方式只有离线翻译包与智能翻译两种;智能翻译没用上时
+/// 这里说清楚差哪一步,并就地给出解决办法。
+struct TVLyricsTranslationPanel: View {
+    @Environment(TVStore.self) private var store
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.dismiss) private var dismiss
+    /// 从播放页打开时,最上面先说这首歌的翻译情况。
+    var showsCurrentSong = true
+    @State private var settings = LyricsTranslationSettingsStore.shared
+    @State private var showsLanguagePicker = false
+    @State private var showsAISettings = false
+    @State private var aiSettingsRevision: UInt64 = 0
+    @State private var builtInConsent: BuiltInAIConsentRequest?
+    @State private var pendingRemoval: LocalLyricsTranslationModel.Pack?
+    private var controller: TVLyricsTranslationController { .shared }
+    private var local: LocalLyricsTranslationService { .shared }
+
+    private var offersSmartTranslation: Bool { intelligence.shouldExposeRemoteConfiguration }
+    private var usesSmartTranslation: Bool {
+        offersSmartTranslation && settings.mode == .intelligentWithSystemFallback
+    }
+    private var targetCodes: [String] {
+        LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: usesSmartTranslation)
+    }
+    private var target: String {
+        LyricsTranslationSettingsStore.target(settings.targetLanguageCode, within: targetCodes)
+    }
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    if showsCurrentSong { currentSongSection }
+                    preferencesSection
+                    if settings.isEnabled, usesSmartTranslation { smartSection }
+                    if settings.isEnabled { offlineSection }
+                }
+                .frame(maxWidth: 1240, alignment: .leading)
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(pendingRemoval != nil)
+
+            if let pendingRemoval {
+                removalConfirmation(pendingRemoval)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .animation(.easeInOut(duration: 0.2), value: pendingRemoval)
+        .onExitCommand {
+            if pendingRemoval != nil {
+                pendingRemoval = nil
+            } else {
+                dismiss()
+            }
+        }
+        .task { local.refreshAvailability() }
+        .builtInAIConsentSheet($builtInConsent)
+        .fullScreenCover(isPresented: $showsLanguagePicker) {
+            TVLyricsTranslationLanguagePicker(codes: targetCodes, selected: target) { code in
+                settings.targetLanguageCode = code
+            }
+        }
+        .fullScreenCover(isPresented: $showsAISettings, onDismiss: {
+            // 在智能功能里换了服务、开了内置 AI 或允许了发送:这首歌按新的设置重翻。
+            if intelligence.settingsStore.revision != aiSettingsRevision {
+                controller.retranslateCurrentLyrics()
+            }
+        }) {
+            TVAISettingsView().environment(intelligence)
+        }
+        .accessibilityIdentifier("tv.lyricsTranslation.panel")
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("lyrics_translation_title").tvFont(.pageTitle)
+                if showsCurrentSong, !store.nowPlaying.title.isEmpty {
+                    Text(verbatim: store.nowPlaying.title)
+                        .tvFont(.body)
+                        .foregroundStyle(TVColor.textMuted)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
+        }
+        .padding(.bottom, 28)
+    }
+
+    // MARK: 这首歌
+
+    @ViewBuilder
+    private var currentSongSection: some View {
+        let songID = store.currentSongID
+        TVAISection(title: PMString("ext.tv.options.section.song")) {
+            if !settings.isEnabled {
+                TVAINoteRow(
+                    icon: "character.bubble",
+                    tint: TVColor.textFaint,
+                    text: String(localized: "lyrics_translation_off_status")
+                )
+            } else if !controller.hasLyrics(forSongID: songID) {
+                TVAINoteRow(icon: "text.quote", tint: TVColor.textFaint, text: String(localized: "no_lyrics"))
+            } else {
+                let activity = controller.activitySongID == songID ? controller.activity : .idle
+                TVAINoteRow(
+                    icon: activity.systemImage,
+                    tint: activity.tint,
+                    text: activity.statusText ?? String(localized: "lyrics_translation_preparing")
+                )
+                if case .needsModel(let pack) = activity {
+                    TVAIDivider()
+                    packRow(pack)
+                }
+                if let issue = controller.intelligentIssue, controller.activitySongID == songID {
+                    TVAIDivider()
+                    TVAINoteRow(icon: "sparkles", tint: TVColor.warn, text: issue.explanation)
+                    if case .notReady(let readiness) = issue {
+                        fixRow(for: readiness)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: 设置
+
+    private var preferencesSection: some View {
+        TVAISection(title: String(localized: "lyrics_translation_preferences_section")) {
+            TVAIToggleRow(
+                icon: "character.bubble",
+                title: String(localized: "lyrics_translation_enabled"),
+                isOn: Binding(
+                    get: { settings.isEnabled },
+                    set: { enabled in
+                        if enabled { settings.targetLanguageCode = target }
+                        settings.isEnabled = enabled
+                    }
+                )
+            )
+            .accessibilityIdentifier("tv.lyricsTranslation.enabled")
+            if settings.isEnabled {
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: "globe",
+                    title: String(localized: "lyrics_translation_target"),
+                    value: Self.languageName(target)
+                ) {
+                    showsLanguagePicker = true
+                }
+                .accessibilityIdentifier("tv.lyricsTranslation.target")
+                if offersSmartTranslation {
+                    TVAIDivider()
+                    TVAIActionRow(
+                        icon: usesSmartTranslation ? "sparkles" : "character.book.closed",
+                        title: String(localized: "lyrics_translation_mode"),
+                        value: String(localized: usesSmartTranslation
+                                      ? "lyrics_translation_mode_smart"
+                                      : "lyrics_translation_mode_offline"),
+                        trailing: "arrow.left.arrow.right"
+                    ) {
+                        toggleMode()
+                    }
+                    .accessibilityIdentifier("tv.lyricsTranslation.mode")
+                }
+                TVAIDivider()
+                TVAINoteRow(
+                    icon: "info.circle",
+                    tint: TVColor.textFaint,
+                    text: String(localized: usesSmartTranslation
+                                 ? "lyrics_translation_tv_mode_smart_footer"
+                                 : "lyrics_translation_tv_mode_offline_footer")
+                )
+            }
+        }
+    }
+
+    private func toggleMode() {
+        let smart = !usesSmartTranslation
+        // 离线翻译包只覆盖几种语言:从智能翻译换回来时目标语言跟着落到它能译的那几种里。
+        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: smart)
+        let newTarget = LyricsTranslationSettingsStore.target(settings.targetLanguageCode, within: codes)
+        if newTarget != settings.targetLanguageCode { settings.targetLanguageCode = newTarget }
+        settings.mode = smart ? .intelligentWithSystemFallback : .system
+    }
+
+    // MARK: 智能翻译
+
+    private var smartSection: some View {
+        TVAISection(title: String(localized: "lyrics_translation_mode_smart")) {
+            let readiness = intelligence.lyricsAITranslationReadiness
+            if readiness == .ready {
+                TVAINoteRow(
+                    icon: "checkmark.circle.fill",
+                    tint: TVColor.ok,
+                    text: String(localized: "lyrics_translation_ai_ready")
+                )
+            } else {
+                TVAINoteRow(
+                    icon: "exclamationmark.circle",
+                    tint: TVColor.warn,
+                    text: TVLyricsTranslationController.IntelligentIssue.notReady(readiness).explanation
+                )
+                fixRow(for: readiness)
+            }
+            TVAIDivider()
+            TVAIActionRow(
+                icon: "arrow.triangle.branch",
+                title: String(localized: "ai_route_label"),
+                subtitle: String(localized: "ai_settings_title")
+            ) {
+                openAISettings()
+            }
+            .accessibilityIdentifier("tv.lyricsTranslation.aiSettings")
+        }
+    }
+
+    /// 智能翻译差的那一步,就地解决。
+    @ViewBuilder
+    private func fixRow(for readiness: LyricsAITranslationReadiness) -> some View {
+        switch readiness {
+        case .needsBuiltInConsent:
+            TVAIDivider()
+            TVAIActionRow(
+                icon: "hand.raised",
+                title: String(localized: "ai_consent_pending_action")
+            ) {
+                builtInConsent = BuiltInAIConsentRequest {
+                    TVLyricsTranslationController.shared.retranslateCurrentLyrics()
+                }
+            }
+        case .needsRemoteConsent:
+            TVAIDivider()
+            TVAIActionRow(
+                icon: "paperplane",
+                title: String(localized: "lyrics_translation_ai_allow_sending")
+            ) {
+                do {
+                    try intelligence.grantRemoteConsent()
+                } catch {
+                    return
+                }
+                controller.retranslateCurrentLyrics()
+            }
+        case .noService:
+            TVAIDivider()
+            TVAIActionRow(
+                icon: "sparkles",
+                title: String(localized: "ai_settings_title")
+            ) {
+                openAISettings()
+            }
+        case .ready, .regionUnavailable:
+            EmptyView()
+        }
+    }
+
+    private func openAISettings() {
+        aiSettingsRevision = intelligence.settingsStore.revision
+        showsAISettings = true
+    }
+
+    // MARK: 离线翻译包
+
+    private var offlineSection: some View {
+        TVAISection(title: String(localized: "lyrics_translation_local_section")) {
+            let packs = LocalLyricsTranslationModel.Pack.allCases.filter {
+                local.modelState(for: $0) != .unsupportedSystem
+            }
+            if packs.isEmpty {
+                TVAINoteRow(
+                    icon: "info.circle",
+                    tint: TVColor.textFaint,
+                    text: String(localized: "lyrics_translation_offline_unavailable_system")
+                )
+            }
+            ForEach(Array(packs.enumerated()), id: \.element) { index, pack in
+                if index > 0 { TVAIDivider() }
+                packRow(pack)
+            }
+            // 翻译包下不来(App Store 那边暂时不给)时,能换智能翻译就给一键换过去。
+            if offersSmartTranslation, !usesSmartTranslation,
+               packs.contains(where: { local.modelState(for: $0) == .failed }) {
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: "sparkles",
+                    title: String(localized: "lyrics_translation_offline_failed_try_smart"),
+                    trailing: "arrow.left.arrow.right"
+                ) {
+                    toggleMode()
+                }
+            }
+            TVAIDivider()
+            TVAINoteRow(
+                icon: "info.circle",
+                tint: TVColor.textFaint,
+                text: String(localized: "lyrics_translation_tv_offline_footer")
+            )
+        }
+    }
+
+    private func packRow(_ pack: LocalLyricsTranslationModel.Pack) -> some View {
+        let state = local.modelState(for: pack)
+        let status: String
+        let trailing: String
+        switch state {
+        case .ready:
+            status = String(localized: "lyrics_translation_local_ready")
+            trailing = "trash"
+        case .downloading(let fraction):
+            status = fraction.formatted(.percent.precision(.fractionLength(0)))
+            trailing = "hourglass"
+        case .failed:
+            status = local.modelFailureReason(for: pack) ?? String(localized: "lyrics_translation_local_retry")
+            trailing = "arrow.clockwise"
+        case .notDownloaded, .unsupportedSystem:
+            status = String(
+                format: String(localized: "lyrics_translation_local_download_size_format"),
+                ByteCountFormatter.string(fromByteCount: pack.approximateDownloadBytes, countStyle: .file)
+            )
+            trailing = "arrow.down.circle"
+        }
+        return TVAIActionRow(
+            icon: "character.book.closed",
+            title: String(localized: String.LocalizationValue(pack.pairsKey)),
+            value: status,
+            trailing: trailing
+        ) {
+            switch state {
+            case .notDownloaded, .failed:
+                local.downloadModel(pack)
+            case .ready:
+                pendingRemoval = pack
+            case .downloading, .unsupportedSystem:
+                break
+            }
+        }
+        .accessibilityIdentifier("tv.lyricsTranslation.pack.\(pack.rawValue)")
+    }
+
+    private func removalConfirmation(_ pack: LocalLyricsTranslationModel.Pack) -> some View {
+        ZStack {
+            TVColor.bg.opacity(0.62).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text("lyrics_translation_local_remove_confirm").tvFont(.sectionTitle)
+                Text(verbatim: String(localized: String.LocalizationValue(pack.pairsKey)))
+                    .tvFont(.body)
+                    .foregroundStyle(TVColor.textMuted)
+                HStack(spacing: 18) {
+                    TVPillButton(
+                        title: String(localized: "lyrics_translation_local_remove"),
+                        systemImage: "trash",
+                        style: .solid
+                    ) {
+                        pendingRemoval = nil
+                        Task { await local.removeModel(pack) }
+                    }
+                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") {
+                        pendingRemoval = nil
+                    }
+                }
+            }
+            .padding(36)
+            .frame(width: 780, alignment: .leading)
+            .tvPanel(radius: 22)
+        }
+    }
+
+    static func languageName(_ code: String) -> String {
+        Locale.current.localizedString(forIdentifier: code) ?? code
+    }
+}
+
+/// 「翻译为」的选择页:一屏列出能选的语言,选中即返回。
+struct TVLyricsTranslationLanguagePicker: View {
+    let codes: [String]
+    let selected: String
+    let onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .center, spacing: 24) {
+                        Text("lyrics_translation_target").tvFont(.pageTitle)
+                        Spacer(minLength: 0)
+                        TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
+                    }
+                    .padding(.bottom, 28)
+                    TVAISection(title: String(localized: "lyrics_translation_target_language")) {
+                        ForEach(Array(codes.enumerated()), id: \.element) { index, code in
+                            if index > 0 { TVAIDivider() }
+                            let isSelected = LyricTranslationGroupingPolicy
+                                .representsSameTranslationLanguage(code, selected)
+                            TVAIActionRow(
+                                icon: "globe",
+                                title: TVLyricsTranslationPanel.languageName(code),
+                                trailing: isSelected ? "checkmark" : "circle",
+                                tint: isSelected ? TVColor.brand : TVColor.text
+                            ) {
+                                onSelect(code)
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: 1000, alignment: .leading)
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .onExitCommand { dismiss() }
+    }
+}
 #endif

@@ -2083,8 +2083,6 @@
 "lyrics_translation_mode_intelligent_footer" = "Usa primeiro o serviço inteligente atual e depois alterna automaticamente para a tradução do sistema se não estiver disponível. Eles nunca correm juntos.";
 "lyrics_translation_mode_system" = "Tradução do Sistema";
 "lyrics_translation_mode_system_footer" = "Utiliza o framework de tradução do Apple. Um pacote de idiomas pode ser baixado na primeira vez.";
-"lyrics_translation_off" = "Ocultar tradução das letras";
-"lyrics_translation_on" = "Mostrar tradução das letras";
 "lyrics_translation_overall_footer" = "Mostrar texto traduzido abaixo de cada linha usando sistema ou tradução inteligente.";
 "lyrics_translation_section" = "Tradução";
 "lyrics_romanization_section" = "Romanização";
@@ -4954,7 +4952,6 @@
 "lyrics_translation_local_retry" = "Tentar baixar novamente";
 "lyrics_translation_local_section" = "Modelo de tradução offline";
 "lyrics_translation_local_pairs" = "Inglês ↔ Persa";
-"lyrics_translation_local_footer" = "Traduz letras entre inglês e persa neste dispositivo, sem conexão com a internet.";
 "lyrics_translation_local_ready" = "Baixado";
 "lyrics_translation_local_remove" = "Remover modelo";
 "lyrics_translation_local_remove_confirm" = "Remover o modelo de tradução offline? Você pode baixá-lo novamente depois.";
@@ -5013,7 +5010,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "Inglês ↔ Chinês, japonês, coreano";
 
-"lyrics_translation_local_cjk_footer" = "Traduz letras entre inglês e chinês simplificado ou tradicional, japonês e coreano neste dispositivo. Outros pares usam o inglês como ponte, sem conexão com a internet.";
 
 "songs_show_column_headers" = "Mostrar cabeçalhos das colunas";
 "playlist_hide_network_notice" = "Ocultar aviso de rede";
@@ -5901,3 +5897,36 @@
 "listening_space_tint_artwork_hint" = "Muda com a capa do que está tocando. Os widgets usam a cor do tema.";
 "listening_space_tint_fixed" = "Cor Fixa";
 "listening_space_tint_fixed_hint" = "Escolha uma da paleta ou ajuste a sua abaixo";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "Não é preciso traduzir: a letra já está no idioma de destino ou traz a própria tradução.";
+"lyrics_translation_offline_done" = "Traduzido com um pacote offline";
+"lyrics_translation_offline_needs_pack_format" = "Esta música precisa do pacote offline “%@”";
+"lyrics_translation_offline_unsupported" = "Os pacotes offline não traduzem o idioma desta música. Tente a Tradução Inteligente.";
+"lyrics_translation_ai_needs_builtin_consent" = "A IA integrada está selecionada. Nenhuma letra é enviada até você revisar e concordar.";
+"lyrics_translation_ai_needs_remote_consent" = "O envio de conteúdo para serviços de IA ainda não foi permitido, então nenhuma letra é enviada. Depois de permitir, outros recursos inteligentes também enviam conteúdo conforme seus próprios botões.";
+"lyrics_translation_ai_no_service" = "Ainda não há serviço de IA disponível: ative a IA integrada ou adicione seu próprio serviço e escolha um modelo.";
+"lyrics_translation_ai_request_failed" = "A Tradução Inteligente não funcionou desta vez; as linhas restantes foram para outro método.";
+"lyrics_translation_off_status" = "A tradução de letras está desativada";
+"lyrics_translation_preparing" = "Preparando a tradução";
+"lyrics_translation_preferences_section" = "Método e idioma";
+"lyrics_translation_mode_smart" = "Tradução Inteligente";
+"lyrics_translation_mode_offline" = "Pacotes offline";
+"lyrics_translation_mode_off" = "Desativada";
+"lyrics_translation_tv_mode_smart_footer" = "As letras vão para o serviço escolhido para Tradução de letras em Inteligência: a IA integrada ou seu próprio serviço. As linhas que ele não traduzir vão para os pacotes offline.";
+"lyrics_translation_tv_mode_offline_footer" = "Traduz neste Apple TV sem internet. Baixe o pacote offline correspondente antes de traduzir um idioma pela primeira vez.";
+"lyrics_translation_ai_ready" = "A Tradução Inteligente está pronta: as letras vão para o serviço escolhido para Tradução de letras.";
+"lyrics_translation_ai_allow_sending" = "Permitir envio de conteúdo";
+"lyrics_translation_offline_unavailable_system" = "Não é possível baixar pacotes offline neste dispositivo agora (requer tvOS 26.4 ou posterior).";
+"lyrics_translation_tv_offline_footer" = "Traduz diretamente entre inglês e persa, e entre inglês e chinês (simplificado, tradicional), japonês e coreano; as outras combinações passam pelo inglês. Os pacotes ficam neste dispositivo e podem ser removidos a qualquer momento.";
+"lyrics_translation_tv_open_panel_hint" = "Use o botão Tradução de letras nos controles";
+"lyrics_translation_ai_fell_back_offline" = "A Tradução Inteligente não foi usada; os pacotes offline assumiram";
+"lyrics_translation_use_smart" = "Traduzir letras com IA";
+"lyrics_translation_ai_notice_builtin_consent" = "A IA integrada ainda não foi aceita; usada a Tradução do Sistema";
+"lyrics_translation_ai_notice_remote_consent" = "Envio de conteúdo não permitido; usada a Tradução do Sistema";
+"lyrics_translation_ai_notice_no_service" = "Nenhum serviço de IA disponível; usada a Tradução do Sistema";
+"lyrics_translation_ai_not_ready_title" = "A Tradução Inteligente ainda não está pronta";
+"lyrics_translation_extension_section" = "Idiomas adicionais";
+"lyrics_translation_persian_extension_footer" = "A Tradução do Sistema não oferece persa. Depois de baixar, letras em persa e traduções para o persa são feitas neste dispositivo, sem internet.";
+"lyrics_translation_cjk_bridge_footer" = "Entre inglês e chinês, japonês ou coreano, normalmente é usada a Tradução do Sistema. Este pacote só faz a ponte entre persa e chinês, japonês ou coreano quando os idiomas do sistema não estão instalados. Remova se não precisar.";
+"lyrics_translation_offline_failed_try_smart" = "Não dá para baixar pacotes agora — usar a Tradução Inteligente";

@@ -896,8 +896,6 @@
 "sleep_timer_active" = "Minuterie active";
 "cancel_timer" = "Annuler la minuterie";
 "sleep_at_track_end" = "Arrêter après le morceau en cours";
-"lyrics_translation_on" = "Afficher la traduction des paroles";
-"lyrics_translation_off" = "Masquer la traduction des paroles";
 "minutes" = "min";
 "title_label" = "Titre";
 "artist_label" = "Artiste";
@@ -5048,7 +5046,6 @@
 "lyrics_translation_local_retry" = "Réessayer le téléchargement";
 "lyrics_translation_local_section" = "Modèle de traduction hors ligne";
 "lyrics_translation_local_pairs" = "Anglais ↔ Persan";
-"lyrics_translation_local_footer" = "Traduit les paroles entre l’anglais et le persan sur cet appareil, sans connexion réseau.";
 "lyrics_translation_local_ready" = "Téléchargé";
 "lyrics_translation_local_remove" = "Supprimer le modèle";
 "lyrics_translation_local_remove_confirm" = "Supprimer le modèle de traduction hors ligne ? Vous pourrez le télécharger à nouveau plus tard.";
@@ -5107,7 +5104,6 @@
 
 "lyrics_translation_local_cjk_pairs" = "Anglais ↔ Chinois, japonais, coréen";
 
-"lyrics_translation_local_cjk_footer" = "Traduit les paroles entre l’anglais et le chinois simplifié ou traditionnel, le japonais et le coréen sur cet appareil. Les autres paires passent par l’anglais, sans connexion réseau.";
 
 "songs_show_column_headers" = "Afficher les en-têtes de colonnes";
 "playlist_hide_network_notice" = "Masquer l’avis réseau";
@@ -5995,3 +5991,36 @@
 "listening_space_tint_artwork_hint" = "Change avec la pochette en cours de lecture. Les widgets utilisent la couleur du thème.";
 "listening_space_tint_fixed" = "Couleur fixe";
 "listening_space_tint_fixed_hint" = "Choisissez-en une dans la palette ou réglez la vôtre ci-dessous";
+
+/* 歌词翻译：电视智能翻译、翻译方式说明 */
+"lyrics_translation_not_needed" = "Aucune traduction nécessaire : les paroles sont déjà dans la langue cible ou contiennent leur propre traduction.";
+"lyrics_translation_offline_done" = "Traduit avec un pack hors ligne";
+"lyrics_translation_offline_needs_pack_format" = "Ce titre nécessite le pack hors ligne « %@ »";
+"lyrics_translation_offline_unsupported" = "Les packs hors ligne ne peuvent pas traduire la langue de ce titre. Essayez plutôt la traduction intelligente.";
+"lyrics_translation_ai_needs_builtin_consent" = "L'IA intégrée est sélectionnée. Aucune parole n'est envoyée tant que vous n'avez pas consulté et accepté.";
+"lyrics_translation_ai_needs_remote_consent" = "L'envoi de contenu aux services d'IA n'est pas encore autorisé, aucune parole n'est donc envoyée. Une fois autorisé, les autres fonctions intelligentes envoient aussi du contenu selon leurs propres réglages.";
+"lyrics_translation_ai_no_service" = "Aucun service d'IA disponible : activez l'IA intégrée ou ajoutez votre propre service et choisissez un modèle.";
+"lyrics_translation_ai_request_failed" = "La traduction intelligente a échoué cette fois ; les lignes restantes ont été confiées à une autre méthode.";
+"lyrics_translation_off_status" = "La traduction des paroles est désactivée";
+"lyrics_translation_preparing" = "Préparation de la traduction";
+"lyrics_translation_preferences_section" = "Méthode et langue";
+"lyrics_translation_mode_smart" = "Traduction intelligente";
+"lyrics_translation_mode_offline" = "Packs hors ligne";
+"lyrics_translation_mode_off" = "Désactivée";
+"lyrics_translation_tv_mode_smart_footer" = "Les paroles sont envoyées au service choisi pour la traduction des paroles dans Fonctions intelligentes : IA intégrée ou votre propre service. Les lignes non traduites passent aux packs hors ligne.";
+"lyrics_translation_tv_mode_offline_footer" = "Traduit sur cet Apple TV sans connexion. Téléchargez le pack hors ligne correspondant avant de traduire une langue pour la première fois.";
+"lyrics_translation_ai_ready" = "La traduction intelligente est prête : les paroles sont envoyées au service choisi pour la traduction des paroles.";
+"lyrics_translation_ai_allow_sending" = "Autoriser l'envoi de contenu";
+"lyrics_translation_offline_unavailable_system" = "Les packs hors ligne ne peuvent pas être téléchargés sur cet appareil pour le moment (tvOS 26.4 ou version ultérieure requis).";
+"lyrics_translation_tv_offline_footer" = "Traduit directement entre l'anglais et le persan, et entre l'anglais et le chinois (simplifié, traditionnel), le japonais et le coréen ; les autres combinaisons passent par l'anglais. Les packs restent sur l'appareil et peuvent être supprimés à tout moment.";
+"lyrics_translation_tv_open_panel_hint" = "Via le bouton Traduction des paroles des commandes";
+"lyrics_translation_ai_fell_back_offline" = "Traduction intelligente non utilisée ; les packs hors ligne ont pris le relais";
+"lyrics_translation_use_smart" = "Traduire les paroles avec l'IA";
+"lyrics_translation_ai_notice_builtin_consent" = "IA intégrée non encore acceptée ; traduction système utilisée";
+"lyrics_translation_ai_notice_remote_consent" = "Envoi de contenu non autorisé ; traduction système utilisée";
+"lyrics_translation_ai_notice_no_service" = "Aucun service d'IA disponible ; traduction système utilisée";
+"lyrics_translation_ai_not_ready_title" = "Traduction intelligente pas encore prête";
+"lyrics_translation_extension_section" = "Langues supplémentaires";
+"lyrics_translation_persian_extension_footer" = "La traduction système ne prend pas en charge le persan. Une fois téléchargé, les paroles en persan et les traductions vers le persan sont traitées sur cet appareil, sans connexion.";
+"lyrics_translation_cjk_bridge_footer" = "Entre l'anglais et le chinois, le japonais ou le coréen, la traduction système est normalement utilisée. Ce pack ne sert de relais qu'entre le persan et le chinois, le japonais ou le coréen quand les langues système ne sont pas installées. Supprimez-le si vous n'en avez pas besoin.";
+"lyrics_translation_offline_failed_try_smart" = "Packs indisponibles pour l'instant — passer à la traduction intelligente";

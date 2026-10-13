@@ -101,6 +101,20 @@ enum AIAudioTranscriptionOutcome: Sendable {
     case tooLong
 }
 
+/// 歌词「智能翻译」现在发不发得出去,发不出去时差哪一步。播放页与设置页据此说明原因、
+/// 给出一键解决,而不是悄悄改用系统翻译(电视上是离线翻译包)让人以为智能翻译坏了。
+enum LyricsAITranslationReadiness: Hashable, Sendable {
+    case ready
+    /// 这个地区不提供智能服务。
+    case regionUnavailable
+    /// 交给内置 AI,但同意页还没点同意(点同意时会一并允许发送内容)。
+    case needsBuiltInConsent
+    /// 「允许发送内容」没开:自己的服务也不会收到歌词。
+    case needsRemoteConsent
+    /// 没有能用的服务:没选内置 AI,自己的服务也没有填好模型。
+    case noService
+}
+
 struct AIRecommendationExecution: Sendable {
     var plan: AIRecommendationPlan
     var providerName: String
@@ -542,6 +556,22 @@ final class MusicIntelligenceService {
     /// 这个功能要交给内置 AI,但同意页还没点过同意:按需功能点了之后先弹同意页。
     func needsBuiltInConsent(for feature: AIFeature) -> Bool {
         !settingsStore.hasBuiltInAIConsent && isPrimuseRelaySelected(for: feature)
+    }
+
+    /// 与 `translateLyrics` 同一套前提:内置 AI 要选上并同意过,自己的服务要有模型,
+    /// 两者都要「允许发送内容」。
+    var lyricsAITranslationReadiness: LyricsAITranslationReadiness {
+        guard shouldExposeRemoteConfiguration else { return .regionUnavailable }
+        let ownProviders = canUseOwnProviders(
+            for: .lyricsTranslation,
+            regionContext: regionAvailability.context
+        )
+        if needsBuiltInConsent(for: .lyricsTranslation), !ownProviders {
+            return .needsBuiltInConsent
+        }
+        guard settingsStore.hasExplicitRemoteConsent else { return .needsRemoteConsent }
+        if isPrimuseRelayAvailable(for: .lyricsTranslation) || ownProviders { return .ready }
+        return .noService
     }
 
     /// 内置 AI 选上了并且同意过,真的会被用到。

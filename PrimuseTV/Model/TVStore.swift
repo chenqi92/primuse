@@ -7086,6 +7086,14 @@ final class TVStore {
         lyrics[index] = lyrics[index].withTranslation(translation)
     }
 
+    /// 智能翻译流式重来时撤回这一轮已经上屏的机器译文(歌词文件自带的译文不会走到这里)。
+    func removeLyricTranslation(lineID: String, forSongID songID: String) {
+        guard currentSongID == songID,
+              let index = lyrics.firstIndex(where: { $0.id == lineID }),
+              !lyrics[index].translation.isEmpty else { return }
+        lyrics[index] = lyrics[index].withTranslation("")
+    }
+
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。
     func applyLyrics(_ lines: [TVLyricLine], forSongID songID: String) {
         guard currentSongID == songID else { return }

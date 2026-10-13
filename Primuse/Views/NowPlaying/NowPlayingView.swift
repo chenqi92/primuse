@@ -6273,6 +6273,8 @@ struct NowPlayingView: View {
                     ? player.currentSpokenWordRate
                     : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
+            lyricsTranslationMode: LyricsTranslationSettingsStore.shared.mode,
+            offersSmartLyricsTranslation: intelligence.shouldExposeRemoteConfiguration,
             fallbackActions: menuFallback,
             spokenFallbackActions: spokenFallback.filter { $0 != .transcript || !lyrics.isEmpty },
             isShowingLyrics: showLyrics,
@@ -6358,8 +6360,14 @@ struct NowPlayingView: View {
                 immersiveControlsAutoHideTask?.cancel()
                 isCompactLandscapeLocked = true
             },
-            onToggleLyricsTranslation: {
-                LyricsTranslationSettingsStore.shared.isEnabled.toggle()
+            onSelectLyricsTranslation: { mode in
+                let settings = LyricsTranslationSettingsStore.shared
+                guard let mode else {
+                    settings.isEnabled = false
+                    return
+                }
+                settings.mode = mode
+                settings.isEnabled = true
             },
             onShowSleepTimer: { showSleepTimer = true },
             onAdjustEqualizer: { openEqualizer() },
@@ -10252,6 +10260,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isEqualizerBypassed: Bool
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
+    let lyricsTranslationMode: LyricsTranslationMode
+    /// 这个地区有智能服务时菜单里才给「智能翻译」。
+    let offersSmartLyricsTranslation: Bool
     /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
     /// 以及手机横屏右栏窄到让出来的两端)。
     let fallbackActions: [NowPlayingControlAction]
@@ -10466,7 +10477,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onEditPlaybackRange: () -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
-    let onToggleLyricsTranslation: () -> Void
+    /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
+    let onSelectLyricsTranslation: (LyricsTranslationMode?) -> Void
     let onShowSleepTimer: () -> Void
     let onAdjustEqualizer: () -> Void
     let onShowEqualizerBypassNotice: () -> Void
@@ -10866,11 +10878,30 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
 
-                    Button(action: onToggleLyricsTranslation) {
+                    // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。
+                    Menu {
+                        Picker(selection: Binding<LyricsTranslationMode?>(
+                            get: {
+                                guard snapshot.isLyricsTranslationEnabled else { return nil }
+                                return snapshot.offersSmartLyricsTranslation
+                                    ? snapshot.lyricsTranslationMode : .system
+                            },
+                            set: { onSelectLyricsTranslation($0) }
+                        )) {
+                            Text("lyrics_translation_mode_off").tag(LyricsTranslationMode?.none)
+                            Text("lyrics_translation_mode_system")
+                                .tag(LyricsTranslationMode?.some(.system))
+                            if snapshot.offersSmartLyricsTranslation {
+                                Text("lyrics_translation_mode_smart")
+                                    .tag(LyricsTranslationMode?.some(.intelligentWithSystemFallback))
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
                         Label(
-                            snapshot.isLyricsTranslationEnabled
-                                ? String(localized: "lyrics_translation_off")
-                                : String(localized: "lyrics_translation_on"),
+                            String(localized: "lyrics_translation_title"),
                             systemImage: snapshot.isLyricsTranslationEnabled
                                 ? "character.bubble.fill"
                                 : "character.bubble"
@@ -11108,12 +11139,30 @@ enum LyricsTranslationActivity: Equatable {
     case intelligentCached
     case intelligentSuccess(provider: String, fallbackDepth: Int)
     case systemFallback
+    /// 选了智能翻译,但它此刻发不出去(差同意、差允许发送或没有服务),改用了系统翻译。
+    case intelligentNotReady(LyricsAITranslationReadiness)
     case systemPreparationRequired
     case systemUnavailable
     /// The offline model is translating pairs the system does not offer.
     case localTranslating
     /// Those pairs need the offline model, which is not downloaded yet.
     case localModelRequired
+}
+
+extension LyricsAITranslationReadiness {
+    /// 歌词页提示用的一句:智能翻译差哪一步,这次改用了系统翻译。
+    var systemFallbackNotice: String {
+        switch self {
+        case .needsBuiltInConsent:
+            String(localized: "lyrics_translation_ai_notice_builtin_consent")
+        case .needsRemoteConsent:
+            String(localized: "lyrics_translation_ai_notice_remote_consent")
+        case .noService:
+            String(localized: "lyrics_translation_ai_notice_no_service")
+        case .ready, .regionUnavailable:
+            String(localized: "lyrics_translation_ai_system_fallback")
+        }
+    }
 }
 
 /// 歌词还没有结论时的占位。照着歌词自身的排版节奏画几行骨架 —— 结果没回来
@@ -12873,6 +12922,10 @@ private struct LyricsTranslationStatusChip: View {
             return Status(key: "systemFallback",
                           title: String(localized: "lyrics_translation_ai_system_fallback"),
                           systemImage: "arrow.uturn.backward.circle.fill", tone: .warning, action: nil)
+        case .intelligentNotReady(let readiness):
+            return Status(key: "intelligentNotReady|\(readiness)",
+                          title: readiness.systemFallbackNotice,
+                          systemImage: "sparkles", tone: .warning, action: nil)
         case .systemPreparationRequired:
             return Status(key: "systemPreparation",
                           title: String(localized: "Translate Lyrics"),

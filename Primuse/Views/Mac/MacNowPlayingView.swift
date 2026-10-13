@@ -1106,6 +1106,8 @@ struct MacNowPlayingView: View {
                 .buttonStyle(.plain)
             case .systemUnavailable:
                 Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
+            case .intelligentNotReady(let readiness):
+                Label(readiness.systemFallbackNotice, systemImage: "sparkles")
             default:
                 EmptyView()
             }
@@ -1125,7 +1127,7 @@ struct MacNowPlayingView: View {
         case .localModelRequired:
             if case .downloading = LocalLyricsTranslationService.shared.modelState { return true }
             return LocalLyricsTranslationService.shared.modelState != .ready
-        case .systemPreparationRequired, .systemUnavailable:
+        case .systemPreparationRequired, .systemUnavailable, .intelligentNotReady:
             return true
         default:
             return false

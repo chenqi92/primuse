@@ -309,6 +309,18 @@ struct TVAISettingsView: View {
                 routeRow(.recommendations)
             }
             TVAIDivider()
+            // 和播放页「歌词翻译」面板里的翻译方式是同一个设置;打开后在这里选由谁翻。
+            TVAIToggleRow(
+                icon: "character.bubble",
+                title: String(localized: "lyrics_translation_use_smart"),
+                isOn: smartLyricsTranslationBinding
+            )
+            .accessibilityIdentifier("tv.ai.lyricsTranslation")
+            if smartLyricsTranslationBinding.wrappedValue {
+                TVAIDivider()
+                routeRow(.lyricsTranslation)
+            }
+            TVAIDivider()
             // 遥控器上按一下换到下一档:混合 → 歌曲 → 专辑。
             TVAIActionRow(
                 icon: "square.stack",
@@ -333,6 +345,32 @@ struct TVAISettingsView: View {
             }
             .accessibilityIdentifier("tv.ai.recommendationRefresh")
         }
+    }
+
+    private var smartLyricsTranslationBinding: Binding<Bool> {
+        let settings = LyricsTranslationSettingsStore.shared
+        return Binding(
+            get: { settings.isEnabled && settings.mode == .intelligentWithSystemFallback },
+            set: { on in
+                if on {
+                    if !settings.isEnabled {
+                        settings.targetLanguageCode = LyricsTranslationSettingsStore.target(
+                            settings.targetLanguageCode,
+                            within: LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: true)
+                        )
+                    }
+                    settings.mode = .intelligentWithSystemFallback
+                    settings.isEnabled = true
+                } else {
+                    // 只是不再交给智能服务:歌词翻译照开,改用离线翻译包。
+                    settings.targetLanguageCode = LyricsTranslationSettingsStore.target(
+                        settings.targetLanguageCode,
+                        within: LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: false)
+                    )
+                    settings.mode = .system
+                }
+            }
+        )
     }
 
     private var recommendationUnit: AIRecommendationUnit {

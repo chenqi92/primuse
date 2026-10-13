@@ -71,6 +71,31 @@ final class LyricsTranslationSettingsStore {
         ("fa", "fa")
     ]
 
+    /// Apple TV 没有系统翻译,离线翻译包能译成的语言:英语 ↔ 波斯语、英语 ↔ 简繁中文 /
+    /// 日语 / 韩语,这几种之间经英语中转。
+    static let offlinePackTargetLanguages = ["zh-Hans", "zh-Hant", "en", "ja", "ko", "fa"]
+
+    /// 电视上「翻译为」可选的语言:智能翻译能译成常用语言,离线翻译包只有它覆盖的几种。
+    static func tvTargetLanguages(intelligent: Bool) -> [String] {
+        intelligent ? availableTargetLanguages.map(\.code) : offlinePackTargetLanguages
+    }
+
+    /// `codes` 里没有 `current` 时换一个:先看系统首选语言,再退到英语。
+    static func target(_ current: String, within codes: [String]) -> String {
+        func match(_ code: String) -> String? {
+            codes.first {
+                LyricTranslationGroupingPolicy.representsSameTranslationLanguage(
+                    $0, normalizedLanguageCode(code)
+                )
+            }
+        }
+        return match(current)
+            ?? Locale.preferredLanguages.lazy.compactMap(match).first
+            ?? codes.first { $0 == LocalLyricTranslationPolicy.englishIdentity }
+            ?? codes.first
+            ?? current
+    }
+
     private init() {
         var isEnabled = false
         var targetLanguageCode: String
