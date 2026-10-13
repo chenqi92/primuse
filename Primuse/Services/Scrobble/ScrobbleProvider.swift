@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import PrimuseKit
 
 /// 一次"听歌记录" — 提供给 provider 的统一数据模型。
@@ -92,5 +93,97 @@ public enum ScrobbleError: Error, LocalizedError {
         case .http(let code, _): return code >= 500
         case .invalidResponse: return false
         }
+    }
+}
+
+/// Provider writes share admission with Now Playing and retain server deadlines
+/// across app launches. Only endpoint/account digests and timing/status are saved.
+struct ScrobbleRequests: Sendable {
+    static let listenBrainz = RequestQuota.Service(id: "listenbrainz.api", policy: .init(
+        maximumConcurrentRequests: 1, maximumAttempts: 1, timeout: 30
+    ))
+    let registry: RequestQuotaRegistry
+    let cooldowns: ScrobbleCooldownStore
+    init(registry: RequestQuotaRegistry = .shared, cooldowns: ScrobbleCooldownStore = .shared) {
+        self.registry = registry; self.cooldowns = cooldowns
+    }
+
+    func send(_ request: URLRequest, session: URLSession, service: RequestQuota.Service,
+              account: String,
+              inspect: @escaping @Sendable (Data, HTTPURLResponse) throws -> Void = { _, _ in }
+    ) async throws -> (Data, HTTPURLResponse) {
+        try Task.checkCancellation()
+        guard let url = request.url,
+              let quota = RequestQuota(service: service, url: url, account: .init(stableID: account)) else {
+            throw URLError(.badURL)
+        }
+        let key = ScrobbleCooldownStore.key(service: service.id, endpoint: quota.endpoint.key, account: account)
+        try await cooldowns.check(key)
+        do {
+            return try await registry.execute(for: quota, replay: .never, operation: {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw ScrobbleError.invalidResponse }
+                let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                try inspect(data, http)
+                guard (200...299).contains(http.statusCode) else {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: retryAfter)
+                }
+                return (data, http)
+            })
+        } catch let failure as HTTPResponseFailure {
+            let delay = failure.retryAfter ?? ((failure.isRateLimited || service.policy.rateLimitStatusCodes.contains(failure.statusCode))
+                ? service.policy.defaultCooldown : nil)
+            if let delay, delay.isFinite, delay >= 0 {
+                await cooldowns.record(key, status: failure.statusCode, delay: delay)
+                throw HTTPResponseFailure(statusCode: failure.statusCode, retryAfter: delay,
+                    isRateLimited: failure.isRateLimited, isRetryable: failure.isRetryable)
+            }
+            if (400...499).contains(failure.statusCode), failure.isRetryable != true {
+                throw ScrobbleError.http(failure.statusCode, nil)
+            }
+            throw failure
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+            if let error = error as? ScrobbleError { throw error }
+            throw ScrobbleError.network(error)
+        }
+    }
+}
+
+actor ScrobbleCooldownStore {
+    static let shared = ScrobbleCooldownStore()
+    private struct Deadline: Codable {
+        let until: TimeInterval
+        let status: Int
+    }
+    private let defaults: UserDefaults
+    private let now: @Sendable () -> TimeInterval
+    private let storageKey = "primuse.scrobble.serverCooldowns.v1"
+    private var deadlines: [String: Deadline]
+    init(suiteName: String? = nil, now: @escaping @Sendable () -> TimeInterval = { Date().timeIntervalSince1970 }) {
+        let defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        self.defaults = defaults; self.now = now
+        deadlines = defaults.data(forKey: storageKey)
+            .flatMap { try? JSONDecoder().decode([String: Deadline].self, from: $0) } ?? [:]
+    }
+    nonisolated static func key(service: String, endpoint: String, account: String) -> String {
+        SHA256.hash(data: Data("\(service)\n\(endpoint)\n\(account)".utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+    func check(_ key: String) throws {
+        try Task.checkCancellation()
+        if let deadline = deadlines[key] {
+            let remaining = deadline.until - now()
+            guard remaining > 0 else { return }
+            throw HTTPResponseFailure(statusCode: deadline.status, retryAfter: remaining, isRateLimited: true)
+        }
+    }
+    func record(_ key: String, status: Int, delay: TimeInterval) {
+        deadlines = deadlines.filter { $0.value.until > now() }
+        let until = now() + delay
+        if until > (deadlines[key]?.until ?? 0) { deadlines[key] = Deadline(until: until, status: status) }
+        // Accounts are user-configured; expired records are removed on every write.
+        // Never evict an active server deadline to make a retry appear eligible.
+        if let data = try? JSONEncoder().encode(deadlines) { defaults.set(data, forKey: storageKey) }
     }
 }

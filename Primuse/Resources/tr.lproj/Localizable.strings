@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "Denetim Rengi";
 "player_control_tint_theme" = "Tema Rengi";
 "player_control_tint_monochrome" = "Tek Renk";
-"player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Koyu sesli kitap düzeninde de oynatma düğmesi ve ilerleme çubuğu beyaz olur.";
+"player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
 "player_menu_items_title" = "Diğer Menüsü";
 "player_menu_items_hidden_count %lld" = "%lld gizli";
 "player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde artık görünmez. Sayfadaki düğmeler menüde zaten tekrarlanmaz; Beğen, Sözler, Sıra, Karıştır ve Yinele sayfadan kaldırıldığında yine menüye geçer.";
@@ -5888,3 +5888,15 @@
 "player_controls_spoken_slot_picker_footer" = "Başka bir yerde zaten olan bir düğmeyi seçmek ikisinin yerini değiştirir. Otomatik, özgün düzeni korur.";
 "player_controls_spoken_source" = "Müzik Kaynağını Göster";
 "player_controls_spoken_source_footer" = "Birden fazla müzik kaynağı varsa oynatıcının en alt satırı kitabın hangi kaynaktan geldiğini gösterir.";
+
+"listening_space_colors_title" = "Radyo, Sesli Kitap ve Podcast Renkleri";
+"listening_space_colors_footer" = "Ana sayfanın üstündeki geçiş düğmelerinde, arşivde, aramada ve widget'larda radyo, sesli kitaplar ve podcast'ler için kullanılan renkler.";
+"listening_space_tint_source" = "Renk Kaynağı";
+"listening_space_tint_standard" = "Varsayılan";
+"listening_space_tint_standard_hint" = "Bu türün kendi rengi";
+"listening_space_tint_theme" = "Tema Rengine Uy";
+"listening_space_tint_theme_hint" = "Uygulama temasıyla aynı renk";
+"listening_space_tint_artwork" = "Kapak Resminden";
+"listening_space_tint_artwork_hint" = "Çalan içeriğin kapağıyla değişir. Widget'lar tema rengini kullanır.";
+"listening_space_tint_fixed" = "Sabit Renk";
+"listening_space_tint_fixed_hint" = "Paletten seçin veya aşağıda kendiniz ayarlayın";

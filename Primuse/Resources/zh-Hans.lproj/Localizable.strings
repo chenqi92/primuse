@@ -5888,7 +5888,7 @@
 "player_control_tint_title" = "控件颜色";
 "player_control_tint_theme" = "跟随主题色";
 "player_control_tint_monochrome" = "单色";
-"player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面在深色外观下的播放键和进度条也随之变成白色。";
+"player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
 "player_menu_items_title" = "「更多」菜单";
 "player_menu_items_hidden_count %lld" = "已隐藏 %lld 项";
 "player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里。已经摆在页面上的按钮本来就不会在菜单里重复，页面上拿掉的喜欢、歌词、队列、随机和循环仍会补进菜单。";
@@ -6075,3 +6075,15 @@
 "player_controls_spoken_slot_picker_footer" = "选已经在另一格的按钮，两格会对调。「自动」和原来的摆法一样。";
 "player_controls_spoken_source" = "显示音乐源";
 "player_controls_spoken_source_footer" = "有不止一个音乐源时，播放页最下面那行写出这本书来自哪个源。";
+
+"listening_space_colors_title" = "电台、有声书、播客的颜色";
+"listening_space_colors_footer" = "首页顶部切换、资料库、搜索和小组件里电台、有声书、播客用的颜色。";
+"listening_space_tint_source" = "颜色来源";
+"listening_space_tint_standard" = "默认";
+"listening_space_tint_standard_hint" = "这一类内容自带的颜色";
+"listening_space_tint_theme" = "跟随主题色";
+"listening_space_tint_theme_hint" = "和 App 的主题色一样";
+"listening_space_tint_artwork" = "跟随封面";
+"listening_space_tint_artwork_hint" = "跟着正在播放的封面变；小组件里按主题色显示。";
+"listening_space_tint_fixed" = "固定颜色";
+"listening_space_tint_fixed_hint" = "从色板里挑，或在下面自己调";

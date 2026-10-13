@@ -905,6 +905,42 @@ final class ArtistNameLibraryTests: XCTestCase {
         _ = await library.persistNowAndWait()
     }
 
+    /// 曲库外的歌(Apple Music 目录歌)只能按名字找专辑和艺人，找过的结果会被记住；
+    /// 曲库随后发布了这张专辑和这位艺人，之前记下的「没找到」不能挡住它们。
+    @MainActor
+    func testNameLookupsFindAlbumAndArtistPublishedAfterAMiss() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LinkedEntityNameLookupTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        let catalogSong = makeSong(
+            id: "catalog-only",
+            artistName: "Neon",
+            albumTitle: " Night Drive ",
+            sourceID: "apple-music-catalog",
+            filePath: "1440000000"
+        )
+        XCTAssertNil(library.linkedAlbum(for: catalogSong))
+        XCTAssertNil(library.visibleArtist(named: "neon"))
+
+        let local = makeSong(id: "local", artistName: "NEON", albumTitle: "night drive")
+        library.addSongs([local], affectedSourceIDs: [local.sourceID])
+        for _ in 0..<200 where library.visibleAlbums.isEmpty || library.visibleArtists.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let album = try XCTUnwrap(library.linkedAlbum(for: catalogSong))
+        XCTAssertEqual(album.title, "night drive")
+        XCTAssertEqual(library.visibleArtist(named: "neon")?.name, "NEON")
+        XCTAssertEqual(library.linkedArtists(for: catalogSong).map(\.name), ["NEON"])
+        _ = await library.persistNowAndWait()
+    }
+
     private func makeSong(
         id: String = UUID().uuidString,
         artistName: String,
@@ -1191,5 +1227,60 @@ final class AlbumArtistDerivationEquivalenceTests: XCTestCase {
             XCTAssertEqual(current.artists.map(\.name), reference.artists.map(\.name))
             XCTAssertEqual(current.albumIDCorrections, reference.albumIDCorrections)
         }
+    }
+}
+
+/// 播放镜像每 0.5s 把正在放的 Apple Music 歌对回曲库那一行，曲库外的目录歌每次都
+/// 按身份匹配。那份身份索引跟着曲库换代才重建：曲库新收的行要能对上。
+@MainActor
+final class AppleMusicLibrarySongIdentityTests: XCTestCase {
+    func testCanonicalLibrarySongSeesRowsAddedAfterAMiss() async throws {
+        let suite = "apple-music-identity-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suite, isDirectory: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory)
+        let service = AppleMusicLibraryService(
+            library: library,
+            appleMusic: AppleMusicService(
+                playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                library: library
+            )
+        )
+        // 资料库那一行是 `i.` 开头；播放器报上来的目录版是纯数字 id，元数据相同。
+        func song(_ id: String, title: String) -> Song {
+            Song(
+                id: id,
+                title: title,
+                albumTitle: "Album",
+                artistName: "Artist",
+                duration: 200,
+                fileFormat: .m4a,
+                filePath: id,
+                sourceID: AppleMusicLibraryService.systemSourceID
+            )
+        }
+
+        let first = song("i.first", title: "First")
+        library.addSongs([first], affectedSourceIDs: [first.sourceID])
+        for _ in 0..<500 where library.song(id: first.id) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.canonicalLibrarySong(for: song("1001", title: "First")).id, first.id)
+        let catalogSecond = song("1002", title: "Second")
+        XCTAssertEqual(service.canonicalLibrarySong(for: catalogSecond).id, catalogSecond.id)
+
+        let second = song("i.second", title: "Second")
+        library.addSongs([first, second], affectedSourceIDs: [second.sourceID])
+        for _ in 0..<500 where library.song(id: second.id) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.canonicalLibrarySong(for: catalogSecond).id, second.id)
+        XCTAssertEqual(service.canonicalLibrarySong(for: song("1001", title: "First")).id, first.id)
+        _ = await library.persistNowAndWait()
     }
 }

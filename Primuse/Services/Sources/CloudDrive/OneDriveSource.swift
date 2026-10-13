@@ -875,7 +875,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             URLQueryItem(name: "client_id", value: creds.clientId),
             URLQueryItem(name: "scope", value: "Files.ReadWrite offline_access"),
         ])
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await helper.tokenRequest(request, clientID: creds.clientId, session: URLSession.shared)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         guard let at = json["access_token"] as? String else {
             throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)

@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "Cor dos controles";
 "player_control_tint_theme" = "Cor do tema";
 "player_control_tint_monochrome" = "Monocromático";
-"player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. No layout escuro de audiolivros, o botão de reprodução e a barra de progresso também ficam brancos.";
+"player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";
 "player_menu_items_title" = "Menu Mais";
 "player_menu_items_hidden_count %lld" = "%lld ocultos";
 "player_menu_items_footer" = "Os itens desativados deixam de aparecer no menu Mais do player. Botões que já estão na página nunca se repetem no menu, e Curtir, Letra, Fila, Aleatório e Repetir continuam indo para o menu quando você os tira da página.";
@@ -5888,3 +5888,15 @@
 "player_controls_spoken_slot_picker_footer" = "Escolher um botão que já está em outro lugar troca os dois de posição. Automático mantém o arranjo original.";
 "player_controls_spoken_source" = "Mostrar fonte de música";
 "player_controls_spoken_source_footer" = "Com mais de uma fonte de música, a última linha do player mostra de qual fonte o livro vem.";
+
+"listening_space_colors_title" = "Cores de rádio, audiolivros e podcasts";
+"listening_space_colors_footer" = "As cores de rádio, audiolivros e podcasts no seletor no topo do Início, na Biblioteca, na busca e nos widgets.";
+"listening_space_tint_source" = "Origem da cor";
+"listening_space_tint_standard" = "Padrão";
+"listening_space_tint_standard_hint" = "A cor própria desta categoria";
+"listening_space_tint_theme" = "Igual à cor do tema";
+"listening_space_tint_theme_hint" = "A mesma cor do tema do app";
+"listening_space_tint_artwork" = "Da arte da capa";
+"listening_space_tint_artwork_hint" = "Muda com a capa do que está tocando. Os widgets usam a cor do tema.";
+"listening_space_tint_fixed" = "Cor Fixa";
+"listening_space_tint_fixed_hint" = "Escolha uma da paleta ou ajuste a sua abaixo";

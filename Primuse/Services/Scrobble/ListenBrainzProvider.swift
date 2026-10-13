@@ -12,27 +12,35 @@ struct ListenBrainzProvider: ScrobbleProvider {
     let baseURL: URL
     let userToken: String
 
-    init(userToken: String, baseURL: URL = URL(string: "https://api.listenbrainz.org")!) {
+    let requests: ScrobbleRequests
+    let session: URLSession
+
+    init(userToken: String, baseURL: URL = URL(string: "https://api.listenbrainz.org")!, session: URLSession = .shared, requests: ScrobbleRequests = .init()) {
+        self.requests = requests
+        self.session = session
         self.userToken = userToken
         self.baseURL = baseURL
     }
 
     func validateCredentials() async -> Bool? {
-        // GET /1/validate-token 是专门的鉴权检查 endpoint。
-        // 返回 200 + valid:true 表示 token 可用。
+        guard !userToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var request = URLRequest(url: baseURL.appendingPathComponent("1/validate-token"))
         request.setValue("Token \(userToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 15
-
+        struct Validation: Decodable {
+            let valid: Bool
+            let code: Int?
+        }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return false
-            }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            return (json?["valid"] as? Bool) ?? false
+            let (data, http) = try await requests.send(request, session: session,
+                service: ScrobbleRequests.listenBrainz, account: userToken)
+            guard http.statusCode == 200 else { return nil }
+            let result = try JSONDecoder().decode(Validation.self, from: data)
+            guard result.code == nil || result.code == 200 else { return nil }
+            return result.valid
         } catch {
-            return nil  // 网络错, 不能确认
+            // Only the documented valid:false envelope proves a rejected token.
+            return nil
         }
     }
 
@@ -79,28 +87,12 @@ struct ListenBrainzProvider: ScrobbleProvider {
         request.httpBody = body
         request.timeoutInterval = 30
 
-        let (data, response) = try await {
-            do {
-                return try await URLSession.shared.data(for: request)
-            } catch {
-                throw ScrobbleError.network(error)
+        _ = try await requests.send(request, session: session, service: ScrobbleRequests.listenBrainz, account: userToken) { _, http in
+            if HTTPResponseFailure.retryDelay(from: http) == nil, [401, 403].contains(http.statusCode) {
+                throw ScrobbleError.invalidCredentials
             }
-        }()
+        }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw ScrobbleError.invalidResponse
-        }
-        switch http.statusCode {
-        case 200...299:
-            return
-        case 401, 403:
-            throw ScrobbleError.invalidCredentials
-        case 429:
-            throw ScrobbleError.rateLimited
-        default:
-            let body = String(data: data, encoding: .utf8)
-            throw ScrobbleError.http(http.statusCode, body)
-        }
     }
 
     // MARK: - JSON 模型 (匹配 ListenBrainz spec)

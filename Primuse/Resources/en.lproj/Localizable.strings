@@ -5555,7 +5555,7 @@
 "player_control_tint_title" = "Control Color";
 "player_control_tint_theme" = "Theme Color";
 "player_control_tint_monochrome" = "Monochrome";
-"player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. In the dark audiobook layout, Monochrome also turns the play button and progress bar white.";
+"player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
 "player_menu_items_title" = "More Menu";
 "player_menu_items_hidden_count %lld" = "%lld hidden";
 "player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. Buttons already on the page are never repeated in the menu, and Like, Lyrics, Queue, Shuffle, and Repeat still move to the menu when you take them off the page.";
@@ -5742,3 +5742,15 @@
 "player_controls_spoken_slot_picker_footer" = "Choosing a button that’s already in another spot swaps the two. Automatic keeps the original arrangement.";
 "player_controls_spoken_source" = "Show Music Source";
 "player_controls_spoken_source_footer" = "With more than one music source, the bottom line of the player shows which source the book comes from.";
+
+"listening_space_colors_title" = "Radio, Audiobook & Podcast Colors";
+"listening_space_colors_footer" = "The colors radio, audiobooks and podcasts use in the switcher at the top of Home, in Library, in search and in widgets.";
+"listening_space_tint_source" = "Color Source";
+"listening_space_tint_standard" = "Default";
+"listening_space_tint_standard_hint" = "The color this kind of listening comes with";
+"listening_space_tint_theme" = "Match Theme Color";
+"listening_space_tint_theme_hint" = "The same color as the app’s theme";
+"listening_space_tint_artwork" = "Match Cover Art";
+"listening_space_tint_artwork_hint" = "Changes with the cover of what’s playing. Widgets use the theme color.";
+"listening_space_tint_fixed" = "Fixed Color";
+"listening_space_tint_fixed_hint" = "Pick one from the palette or adjust your own below";

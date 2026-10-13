@@ -5795,7 +5795,7 @@
 "player_control_tint_title" = "Couleur des commandes";
 "player_control_tint_theme" = "Couleur du thème";
 "player_control_tint_monochrome" = "Monochrome";
-"player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Dans la mise en page sombre des livres audio, le bouton de lecture et la barre de progression deviennent aussi blancs.";
+"player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
 "player_menu_items_title" = "Menu Plus";
 "player_menu_items_hidden_count %lld" = "%lld masqués";
 "player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Les boutons déjà sur la page ne sont jamais répétés dans le menu, et J’aime, Paroles, File d’attente, Aléatoire et Répétition passent toujours dans le menu si vous les retirez de la page.";
@@ -5982,3 +5982,15 @@
 "player_controls_spoken_slot_picker_footer" = "Choisir un bouton déjà placé ailleurs échange les deux emplacements. Automatique conserve la disposition d’origine.";
 "player_controls_spoken_source" = "Afficher la source musicale";
 "player_controls_spoken_source_footer" = "Avec plusieurs sources musicales, la dernière ligne du lecteur indique de quelle source vient le livre.";
+
+"listening_space_colors_title" = "Couleurs de la radio, des livres audio et des podcasts";
+"listening_space_colors_footer" = "Les couleurs de la radio, des livres audio et des podcasts dans le sélecteur en haut de l’Accueil, dans la Bibliothèque, dans la recherche et dans les widgets.";
+"listening_space_tint_source" = "Source de la couleur";
+"listening_space_tint_standard" = "Par défaut";
+"listening_space_tint_standard_hint" = "La couleur propre à cette catégorie";
+"listening_space_tint_theme" = "Couleur du thème";
+"listening_space_tint_theme_hint" = "La même couleur que le thème de l’app";
+"listening_space_tint_artwork" = "D’après la pochette";
+"listening_space_tint_artwork_hint" = "Change avec la pochette en cours de lecture. Les widgets utilisent la couleur du thème.";
+"listening_space_tint_fixed" = "Couleur fixe";
+"listening_space_tint_fixed_hint" = "Choisissez-en une dans la palette ou réglez la vôtre ci-dessous";

@@ -32,7 +32,16 @@ enum WidgetDesign {
     /// render. Falls back to the default-icon vinyl blue if nothing has
     /// been published yet (fresh install before the main app first launches).
     static var brandTint: Color {
-        let rgb = BrandTintStore.load()
+        legibleTint(BrandTintStore.load())
+    }
+
+    /// 正在播放的封面色(App 随封面写进来),给选了「跟随封面」的电台、有声书、播客;
+    /// 还没写过时用主题色。
+    static var artworkTint: Color {
+        legibleTint(BrandTintStore.loadArtwork() ?? BrandTintStore.load())
+    }
+
+    private static func legibleTint(_ rgb: BrandTintStore.RGB?) -> Color {
         let source = ThemeAccentContrastPolicy.RGB(
             red: rgb?.red ?? 0.078,
             green: rgb?.green ?? 0.490,
@@ -62,10 +71,23 @@ enum WidgetDesign {
         #endif
     }
 
-    /// 电台、有声书、播客的颜色,与 App 首页顶部切换、资料库同一份色值(`ListeningSpace.fixedTint`);
-    /// 音乐跟主题色走 `brandTint`。
+    /// 电台、有声书、播客的颜色,与 App 首页顶部切换、资料库同一份色值(`ListeningSpace.fixedTint`,
+    /// 或用户在 App 里给这一类挑的颜色);音乐跟主题色走 `brandTint`。
     static func tint(for space: ListeningSpace) -> Color {
-        guard let fixed = space.fixedTint else { return brandTint }
+        guard let standard = space.fixedTint else { return brandTint }
+        var fixed = standard
+        if let shared = ListeningSpaceTintPreferences.sharedDefaults {
+            switch ListeningSpaceTintPreferences.choice(for: space, in: shared) {
+            case .standard:
+                break
+            case .theme:
+                return brandTint
+            case .artwork:
+                return artworkTint
+            case .fixed(let hex):
+                fixed = ListeningSpaceTint.legible(hex: hex) ?? standard
+            }
+        }
         let light = ListeningSpaceTint.components(fixed.light)
         let dark = ListeningSpaceTint.components(fixed.dark)
         #if canImport(UIKit)

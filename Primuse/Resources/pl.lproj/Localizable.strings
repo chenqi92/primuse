@@ -5701,7 +5701,7 @@
 "player_control_tint_title" = "Kolor elementów sterujących";
 "player_control_tint_theme" = "Kolor motywu";
 "player_control_tint_monochrome" = "Monochromatyczny";
-"player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. W ciemnym układzie audiobooków przycisk odtwarzania i pasek postępu także stają się białe.";
+"player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";
 "player_menu_items_title" = "Menu Więcej";
 "player_menu_items_hidden_count %lld" = "Ukryto: %lld";
 "player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej odtwarzacza. Przyciski umieszczone na stronie i tak nie powtarzają się w menu, a Lubię to, Tekst, Kolejka, Losowo i Powtarzaj nadal trafiają do menu, gdy usuniesz je ze strony.";
@@ -5888,3 +5888,15 @@
 "player_controls_spoken_slot_picker_footer" = "Wybranie przycisku, który jest już w innym miejscu, zamienia je miejscami. „Automatycznie” zachowuje pierwotny układ.";
 "player_controls_spoken_source" = "Pokazuj źródło muzyki";
 "player_controls_spoken_source_footer" = "Gdy źródeł muzyki jest więcej niż jedno, ostatni wiersz odtwarzacza pokazuje, z którego źródła pochodzi książka.";
+
+"listening_space_colors_title" = "Kolory radia, audiobooków i podcastów";
+"listening_space_colors_footer" = "Kolory radia, audiobooków i podcastów w przełączniku u góry strony głównej, w bibliotece, w wyszukiwaniu i w widżetach.";
+"listening_space_tint_source" = "Źródło koloru";
+"listening_space_tint_standard" = "Domyślny";
+"listening_space_tint_standard_hint" = "Własny kolor tej kategorii";
+"listening_space_tint_theme" = "Jak kolor motywu";
+"listening_space_tint_theme_hint" = "Ten sam kolor co motyw aplikacji";
+"listening_space_tint_artwork" = "Z okładki";
+"listening_space_tint_artwork_hint" = "Zmienia się wraz z okładką tego, co jest odtwarzane. Widżety używają koloru motywu.";
+"listening_space_tint_fixed" = "Stały kolor";
+"listening_space_tint_fixed_hint" = "Wybierz z palety lub dostosuj własny poniżej";

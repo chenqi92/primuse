@@ -34,6 +34,11 @@ public struct RequestQuota: Sendable {
         public static let lastFM = Service(id: "lastfm.api", policy: .init(
             minimumInterval: 0.2, maximumConcurrentRequests: 1, maximumAttempts: 2, timeout: 15
         ))
+        /// Token endpoint quota shared by code exchange, refresh and device authorization.
+        /// An account is not yet known before login, so callers use the stable client ID.
+        public static let oauthToken = Service(id: "cloud.oauth.token", policy: .init(
+            maximumConcurrentRequests: 1, maximumAttempts: 1, maximumRetryWait: 8,
+            timeout: 30, rateLimitStatusCodes: [429], defaultCooldown: 2))
         /// Streaming playback owns its admission slot until the range finishes.
         /// No byte stream may be replayed after delivery to the player.
         public static let mediaPlayback = Service(id: "media.playback", policy: .init(

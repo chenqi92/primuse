@@ -9,12 +9,64 @@ import Foundation
 public actor CloudDeviceAuthService {
     public static let shared = CloudDeviceAuthService()
 
-    private let session: URLSession
+    // Task-local so concurrent authorization flows retain independent expiry deadlines.
+    private enum PollingContext {
+        @TaskLocal static var deadline: TimeInterval?
+    }
 
-    public init() {
+    private let session: URLSession
+    private let quotaRegistry: RequestQuotaRegistry
+    private let timing: RequestExecutor.Timing
+
+    public init(session: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared,
+                timing: RequestExecutor.Timing = .init()) {
+        self.quotaRegistry = quotaRegistry
+        self.timing = timing
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
-        self.session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
+    }
+
+    /// Wait for this device authorization while reporting scan progress to its UI.
+    public func pollUntilFinished(_ authSession: CloudDeviceAuthSession, clientID: String, clientSecret: String?,
+        onProgress: @escaping @MainActor @Sendable (CloudDeviceAuthProgress) -> Void = { _ in }
+    ) async throws -> CloudDeviceAuthProgress {
+        try Task.checkCancellation()
+        guard authSession.expiresIn.isFinite, authSession.expiresIn > 0 else { return .expired }
+        let deadline = timing.now() + authSession.expiresIn
+        var interval = authSession.interval.isFinite ? max(1, authSession.interval) : 5
+        var nextPoll = timing.now() + interval
+        while timing.now() < deadline {
+            // Chunk very long waits so untrusted durations never overflow a clock conversion.
+            while timing.now() < min(nextPoll, deadline) {
+                try await timing.sleep(min(60, min(nextPoll, deadline) - timing.now()))
+                try Task.checkCancellation()
+            }
+            guard timing.now() < deadline else { return .expired }
+            let progress: CloudDeviceAuthProgress
+            do {
+                progress = try await PollingContext.$deadline.withValue(deadline) {
+                    try await poll(authSession, clientID: clientID, clientSecret: clientSecret)
+                }
+            }
+            catch let failure as HTTPResponseFailure where failure.isRateLimitFailure {
+                if OAuthTokenRequests.providerErrorCode(in: failure.body) == "slow_down" { interval += 5 }
+                let retryAfter = failure.retryAfter ?? RequestQuota.Service.oauthToken.policy.defaultCooldown
+                nextPoll = timing.now() + max(interval, retryAfter)
+                continue
+            } catch let error as URLError where error.code == .timedOut && timing.now() >= deadline {
+                return .expired
+            }
+            try Task.checkCancellation()
+            switch progress {
+            case .slowDown: interval += 5
+            case .pending: break
+            case .scanned: await onProgress(progress)
+            case .authorized, .denied, .expired: return progress
+            }
+            nextPoll = timing.now() + interval
+        }
+        return .expired
     }
 
     // MARK: - 开始授权
@@ -53,7 +105,7 @@ public actor CloudDeviceAuthService {
 
     // MARK: - 轮询
 
-    /// 轮询一次。调用方按 `session.interval` 节流,并在超过 `expiresIn` 后自行重新 `begin`。
+    /// Poll once; use `pollUntilFinished` to enforce slow_down, cooldown and expiry across polls.
     public func poll(
         _ authSession: CloudDeviceAuthSession,
         clientID: String,
@@ -99,7 +151,7 @@ public actor CloudDeviceAuthService {
             url: URL(string: "https://api.dropboxapi.com/oauth2/token")!,
             fields: fields
         )
-        let data = try await send(request)
+        let data = try await send(request, clientID: clientID)
         guard var result = CloudDeviceAuthParsing.parseTokenResponse(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -145,7 +197,7 @@ public actor CloudDeviceAuthService {
         default:
             throw CloudDeviceAuthError.unsupportedProvider(provider)
         }
-        let data = try await send(request)
+        let data = try await send(request, clientID: clientID)
         guard let start = CloudDeviceAuthParsing.parseDeviceCodeStart(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -220,7 +272,7 @@ public actor CloudDeviceAuthService {
         }
         // 设备码端点在「还没授权」时按规范回 400 + error=authorization_pending,
         // 所以这里不能把非 2xx 当失败,必须先看 body。
-        let data = try await sendAllowingBodyErrors(request)
+        let data = try await send(request, clientID: clientID, allowingBodyErrors: true)
         guard let progress = CloudDeviceAuthParsing.parseDeviceCodePoll(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -243,7 +295,7 @@ public actor CloudDeviceAuthService {
                 "height": 430,
             ]
         )
-        let data = try await send(request)
+        let data = try await send(request, clientID: clientID)
         guard let start = CloudDeviceAuthParsing.parseAliyunQRStart(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -269,7 +321,7 @@ public actor CloudDeviceAuthService {
             "https://openapi.alipan.com/oauth/qrcode/\(authSession.handle)/status") else {
             throw CloudDeviceAuthError.cannotBuildURL
         }
-        let data = try await send(URLRequest(url: url))
+        let data = try await send(URLRequest(url: url), clientID: clientID)
         guard let status = CloudDeviceAuthParsing.parseAliyunQRStatus(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -287,7 +339,7 @@ public actor CloudDeviceAuthService {
                     "code": authCode,
                 ]
             )
-            let tokenData = try await send(exchange)
+            let tokenData = try await send(exchange, clientID: clientID)
             guard let result = CloudDeviceAuthParsing.parseTokenResponse(tokenData) else {
                 throw CloudDeviceAuthError.providerRejected(Self.errorText(tokenData))
             }
@@ -307,7 +359,7 @@ public actor CloudDeviceAuthService {
                 "code_challenge_method": "sha256",
             ]
         )
-        let data = try await send(request)
+        let data = try await send(request, clientID: clientID)
         guard let start = CloudDeviceAuthParsing.parsePan115QRStart(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
@@ -334,7 +386,7 @@ public actor CloudDeviceAuthService {
                 "sign": authSession.extra["sign"] ?? "",
             ]
         ) else { throw CloudDeviceAuthError.cannotBuildURL }
-        let data = try await send(URLRequest(url: url))
+        let data = try await send(URLRequest(url: url), clientID: clientID)
         guard CloudDeviceAuthParsing.pan115IsConfirmed(data) else {
             guard let progress = CloudDeviceAuthParsing.parsePan115QRStatus(data) else {
                 throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
@@ -348,7 +400,7 @@ public actor CloudDeviceAuthService {
                 "code_verifier": authSession.extra["code_verifier"] ?? "",
             ]
         )
-        let tokenData = try await send(exchange)
+        let tokenData = try await send(exchange, clientID: clientID)
         guard let result = CloudDeviceAuthParsing.parsePan115Token(tokenData) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(tokenData))
         }
@@ -388,24 +440,31 @@ public actor CloudDeviceAuthService {
 
     // MARK: - 传输与小工具
 
-    private func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw CloudDeviceAuthError.badServerResponse(http.statusCode)
+    private func send(_ request: URLRequest, clientID: String, allowingBodyErrors: Bool = false) async throws -> Data {
+        guard let url = request.url, let quota = OAuthTokenRequests.quota(for: url, clientID: clientID) else {
+            throw CloudDeviceAuthError.cannotBuildURL
         }
-        return data
-    }
-
-    /// 设备码轮询端点会用 4xx 表达「还没授权」,状态码不能当失败,必须解 body。
-    private func sendAllowingBodyErrors(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode),
-           http.statusCode != 400, http.statusCode != 401, http.statusCode != 403,
-           http.statusCode != 428 {
-            throw CloudDeviceAuthError.badServerResponse(http.statusCode)
-        }
-        return data
+        let session = self.session
+        let timing = self.timing
+        let deadline = PollingContext.deadline
+        let remaining = deadline.map { $0 - timing.now() }
+        if let remaining, remaining <= 0 { throw URLError(.timedOut) }
+        return try await quotaRegistry.execute(for: quota, replay: .never, timeout: remaining, operation: {
+            if let deadline, timing.now() >= deadline { throw URLError(.timedOut) }
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw CloudDeviceAuthError.invalidResponse }
+            let delay = HTTPResponseFailure.retryDelay(from: http, now: timing.date())
+            let slowing = allowingBodyErrors && CloudDeviceAuthParsing.parseDeviceCodePoll(data) == .slowDown
+            if slowing, delay != nil || http.statusCode == 429 {
+                throw HTTPResponseFailure(statusCode: http.statusCode, body: Data(#"{"error":"slow_down"}"#.utf8),
+                    retryAfter: delay, isRateLimited: true)
+            }
+            if (200...299).contains(http.statusCode) { return data }
+            // Pending/denied are provider body states, not transport errors.
+            // An explicit HTTP cooldown takes precedence over those body statuses.
+            if allowingBodyErrors, delay == nil, [400, 401, 403, 428].contains(http.statusCode) { return data }
+            throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: delay)
+        })
     }
 
     /// 光鸭的设备码接口除 client_id 外还要 project_id。project_id 与 sign_secret

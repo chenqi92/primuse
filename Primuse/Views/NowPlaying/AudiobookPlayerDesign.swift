@@ -15,14 +15,10 @@ struct AudiobookPlayerStyle: Equatable {
 
     let variant: Variant
     let usesIncreasedContrast: Bool
-    /// 播放器设置的「控件颜色」选了单色:墨黑的播放键与进度条换成白色(#283,像 Apple Books 深色那样);
-    /// 暖白本来就是近黑,不变。
-    let usesMonochromeControls: Bool
 
-    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast, usesMonochromeControls: Bool = false) {
+    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast) {
         variant = colorScheme == .dark ? .nocturne : .paper
         usesIncreasedContrast = contrast == .increased
-        self.usesMonochromeControls = usesMonochromeControls
     }
 
     var isNocturne: Bool { variant == .nocturne }
@@ -60,10 +56,10 @@ struct AudiobookPlayerStyle: Equatable {
         foreground.opacity(usesIncreasedContrast ? 0.32 : (isNocturne ? 0.18 : 0.14))
     }
 
-    /// 进度条已播的一段、拖动点与播放键的底色:墨黑是橙红(选了单色控件时是白),暖白是近黑。
+    /// 进度条已播的一段、拖动点与播放键的底色:墨黑是白(#283,像 Apple Books 深色那样只有黑白),
+    /// 暖白是近黑。
     var accent: Color {
-        guard isNocturne else { return Color(red: 0.11, green: 0.13, blue: 0.13) }
-        return usesMonochromeControls ? primary : Color(red: 0.91, green: 0.42, blue: 0.31)
+        isNocturne ? primary : Color(red: 0.11, green: 0.13, blue: 0.13)
     }
 
     /// 播放键里的三角,取底色,像在实心圆上挖出来的。
@@ -150,11 +146,10 @@ struct AudiobookHeroRowLayout: Layout {
 // MARK: - Chapter column
 
 /// 章号那一栏:「CHAPTER / 35 / ⁄ 1023」,下面一条短竖线上的点是全书听到哪儿,再下面「全书 3%」。
-/// 一个文件又没有章节标记的书没有章号,大数字换成全书百分比。点开是目录。
+/// 一个文件又没有章节标记的书没有章号,大数字换成全书百分比。只是看的,目录在章节那一行上点开。
 /// 自己一个视图,读的是存下的位置而不是播放头(同 `SpokenWordPartPositionButton`),几秒才重画一次。
 struct AudiobookChapterColumn: View {
     let style: AudiobookPlayerStyle
-    let action: () -> Void
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -168,53 +163,50 @@ struct AudiobookChapterColumn: View {
         let percent = Int((fraction * 100).rounded(.down))
         let hasParts = summary.partIndex != nil && summary.partCount != nil
 
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 0) {
-                AudiobookPlayerEyebrow(key: eyebrowKey(hasParts: hasParts), style: style)
+        // 只是看的:点它不再打开目录,目录在下面章节那一行和传输键上(#283)。
+        VStack(alignment: .leading, spacing: 0) {
+            AudiobookPlayerEyebrow(key: eyebrowKey(hasParts: hasParts), style: style)
 
-                Text(verbatim: hasParts ? "\(summary.partIndex ?? 0)" : "\(percent)")
-                    .font(numberFont)
-                    .foregroundStyle(style.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.4)
-                    .padding(.top, style.isNocturne ? 4 : 2)
-                    .contentTransition(.numericText())
+            Text(verbatim: hasParts ? "\(summary.partIndex ?? 0)" : "\(percent)")
+                .font(numberFont)
+                .foregroundStyle(style.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .padding(.top, style.isNocturne ? 4 : 2)
+                .contentTransition(.numericText())
 
-                Text(verbatim: hasParts ? "/ \(summary.partCount ?? 0)" : "%")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(style.tertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                AudiobookBookProgressLine(
-                    fraction: fraction,
-                    track: style.hairline,
-                    marker: style.bookMarker
-                )
-                .frame(width: 5, height: 40)
-                .padding(.top, style.isNocturne ? 26 : 20)
-
-                Group {
-                    if hasParts {
-                        Text(verbatim: SpokenWordPlayerText.bookFraction(fraction))
-                    } else if let remaining = SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate) {
-                        Text(verbatim: remaining)
-                    }
-                }
-                .font(.caption2)
+            Text(verbatim: hasParts ? "/ \(summary.partCount ?? 0)" : "%")
+                .font(.footnote.monospacedDigit())
                 .foregroundStyle(style.tertiary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .padding(.top, 10)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            AudiobookBookProgressLine(
+                fraction: fraction,
+                track: style.hairline,
+                marker: style.bookMarker
+            )
+            .frame(width: 5, height: 40)
+            .padding(.top, style.isNocturne ? 26 : 20)
+
+            Group {
+                if hasParts {
+                    Text(verbatim: SpokenWordPlayerText.bookFraction(fraction))
+                } else if let remaining = SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate) {
+                    Text(verbatim: remaining)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, style.isNocturne ? 10 : 20)
-            .contentShape(Rectangle())
+            .font(.caption2)
+            .foregroundStyle(style.tertiary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .padding(.top, 10)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, style.isNocturne ? 10 : 20)
         .pmAnimation(.control, value: summary.partIndex)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("spoken_word_contents_title"))
+        .accessibilityLabel(Text(eyebrowKey(hasParts: hasParts)))
         .accessibilityValue(Text(verbatim: accessibilityValue(summary)))
     }
 

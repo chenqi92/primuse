@@ -1656,13 +1656,16 @@ struct TVArtworkView: View {
         animationCandidateIsOriginal: Bool = false,
         songScoped: Bool = false
     ) async -> Bool {
+        // 按这张卡实际画多大解码(与动态封面同一个算法)。原来一律 1536 像素:首页 240 点的卡
+        // 只要 480 像素,整页近百张卡多解码约十倍像素,A12 上划动首页一直在等解码和上传。
+        let maximumPixelSize = min(1_536, max(1, Int((max(size, height ?? size) * 2).rounded(.up))))
         let decodeTask = Task.detached(priority: .utility) { () -> CGImage? in
             guard !Task.isCancelled,
                   let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1536,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
                 kCGImageSourceShouldCacheImmediately: true,
             ]
             return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)

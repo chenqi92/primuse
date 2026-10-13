@@ -5,6 +5,79 @@ import XCTest
 @testable import Primuse
 
 final class CloudRequestTests: XCTestCase {
+    func testOAuthPermanentRefreshRejectionKeepsCredentialMeaning() async throws {
+        for status in [200, 400] {
+            let fixture = CloudHTTPFixture(responses: [.init(status: status,
+                body: Data(#"{"error":"invalid_grant","error_description":"echoed SECRET","refresh_token":"SECRET"}"#.utf8))])
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            do {
+                _ = try await CloudDriveHelper(sourceID: fixture.id).tokenRequest(URLRequest(url: fixture.url),
+                    clientID: UUID().uuidString, session: session)
+                XCTFail("Invalid grant was returned as token data")
+            } catch CloudDriveError.tokenRefreshFailed(let reason) { XCTAssertEqual(reason, "invalid_grant") }
+            catch { XCTFail("Permanent credential error lost its classification") }
+            XCTAssertEqual(fixture.requests.count, 1)
+        }
+    }
+
+    @MainActor
+    func testOAuthExchangePreservesProviderFormatAndRotation() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200,
+            body: Data(#"{"access_token":"new","refresh_token":"rotated","expires_in":3600}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let config = CloudOAuthConfig(provider: .oneDrive, authURL: "https://fixture.invalid/auth",
+            tokenURL: fixture.url.absoluteString, clientId: "client", clientSecret: "secret",
+            scopes: [], redirectURI: "primuse://oauth")
+        let result = try await OAuthService(session: session).exchangeCodeForTokens(
+            code: "code+value", config: config, codeVerifier: "verifier")
+        XCTAssertEqual(result.accessToken, "new"); XCTAssertEqual(result.refreshToken, "rotated")
+        XCTAssertEqual(fixture.requests.last?.httpMethod, "POST")
+        XCTAssertEqual(fixture.requests.last?.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
+    }
+
+    @MainActor
+    func testOAuthExchangeRejectionKeepsTheProviderExplanation() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 400, body: Data(
+            #"{"error":"invalid_request","error_description":"AADSTS50011: The redirect URI does not match. refresh_token=SECRET"}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let config = CloudOAuthConfig(provider: .oneDrive, authURL: "https://fixture.invalid/auth",
+            tokenURL: fixture.url.absoluteString, clientId: "client", clientSecret: nil,
+            scopes: [], redirectURI: "primuse://oauth")
+        do {
+            _ = try await OAuthService(session: session, tokenRequests: OAuthTokenRequests(registry: RequestQuotaRegistry()))
+                .exchangeCodeForTokens(code: "code", config: config, codeVerifier: "verifier")
+            XCTFail("Rejected exchange returned tokens")
+        } catch OAuthError.tokenExchangeFailed(let message) {
+            XCTAssertTrue(message.hasPrefix("HTTP 400: invalid_request: AADSTS50011"), message)
+            XCTAssertFalse(message.contains("SECRET"), message)
+        }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    @MainActor
+    func testOAuthExchangeAndRefreshShareLongCooldown() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 429, headers: ["Retry-After": "3600"])])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let requests = OAuthTokenRequests(registry: RequestQuotaRegistry())
+        let service = OAuthService(session: session, tokenRequests: requests)
+        let config = CloudOAuthConfig(provider: .oneDrive, authURL: "https://fixture.invalid/auth",
+            tokenURL: fixture.url.absoluteString, clientId: "fixture", clientSecret: nil,
+            scopes: [], redirectURI: "primuse://oauth")
+        do { _ = try await service.exchangeCodeForTokens(code: "code", config: config, codeVerifier: "verifier"); XCTFail("Expected HTTP quota") }
+        catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+        catch { XCTFail("Lost HTTP classification") }
+        do {
+            _ = try await CloudDriveHelper(sourceID: fixture.id).tokenRequest(URLRequest(url: fixture.url),
+                clientID: "fixture", session: session, requests: requests)
+            XCTFail("Refresh bypassed authorization cooldown")
+        } catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
     @MainActor
     func testSharedHTTPFailuresKeepBackfillPauseAndLocalizedScanAdvice() {
         let manager = SourceManager(sourcesProvider: { [] })

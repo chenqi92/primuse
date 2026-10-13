@@ -60,22 +60,36 @@ struct SpokenWordLibrarySnapshot: Sendable {
 @MainActor
 @Observable
 final class SpokenWordBooksModel {
+    /// 分组用到的输入:分的是哪一类、曲库里这一类内容的修订号,和有声内容那份账(进度、听完、归档)的修订号。
+    struct Inputs: Equatable {
+        let collection: SpokenWordCollection
+        let libraryRevision: UInt64
+        let storeRevision: Int
+    }
+
     private(set) var snapshot = SpokenWordLibrarySnapshot(isPrepared: false)
     @ObservationIgnored private(set) var requestRevision: UInt = 0
+    /// 当前 `snapshot` 是按哪一份输入分的。
+    @ObservationIgnored private var preparedInputs: Inputs?
 
     var inProgress: [(SpokenWordBook, [Song])] { snapshot.inProgress }
 
+    /// `inputs` 和上次分好的那份一样就不再重分:模型由外面持有时(首页),视图卸下再装回来
+    /// 照旧用分好的书,不必整库再分一遍、也不发一份新快照让整页重画(#283)。
     func refresh(
         songs: [Song],
         positions: [String: SpokenWordStore.StoredPosition],
         finishedAt: [String: Date],
-        archived: Set<String> = []
+        archived: Set<String> = [],
+        inputs: Inputs? = nil
     ) async {
         guard !Task.isCancelled else { return }
+        if let inputs, inputs == preparedInputs, snapshot.isPrepared { return }
         requestRevision &+= 1
         let revision = requestRevision
         guard !songs.isEmpty else {
             snapshot = SpokenWordLibrarySnapshot()
+            preparedInputs = inputs
             return
         }
         // Build sections and chapter queues together, so scrolling and opening
@@ -105,6 +119,7 @@ final class SpokenWordBooksModel {
         }
         guard !Task.isCancelled, revision == requestRevision, let result else { return }
         snapshot = result
+        preparedInputs = inputs
     }
 }
 
@@ -135,11 +150,17 @@ struct SpokenWordLibraryContent<Content: View>: View {
     /// 书架、播客页在惰性栈里,分好组之前先占一块转圈;首页「全部」那一面整页都包在这里,
     /// 不能等书分完组才出音乐内容,传 false 直接按未就绪的快照画,外面也不再套一层 `ZStack`。
     var showsPlaceholderUntilPrepared = true
+    /// 外面持有的分组结果。首页顶部切到电台、有声书再切回来时,「全部」那一面整块卸下又装回,
+    /// 自己持有的模型会跟着丢掉:书相关的区块先空着、分完组再弹出来(#283)。首页传自己的一份,
+    /// 「全部」和「有声书」两面共用;不传就各自持有一份。
+    var model: SpokenWordBooksModel? = nil
     @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
 
     @Environment(MusicLibrary.self) private var library
-    @State private var books = SpokenWordBooksModel()
+    @State private var ownBooks = SpokenWordBooksModel()
     @State private var progressRevision = 0
+
+    private var books: SpokenWordBooksModel { model ?? ownBooks }
 
     private struct RefreshIdentity: Equatable {
         let libraryRevision: UInt64
@@ -154,7 +175,12 @@ struct SpokenWordLibraryContent<Content: View>: View {
                     songs: collection.songs(in: library),
                     positions: store.positions,
                     finishedAt: store.finishedAt,
-                    archived: store.archivedBookIDs
+                    archived: store.archivedBookIDs,
+                    inputs: .init(
+                        collection: collection,
+                        libraryRevision: collection.revision(in: library),
+                        storeRevision: store.revision
+                    )
                 )
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
@@ -368,9 +394,11 @@ struct SpokenWordShelf: View {
     var findText = ""
     /// 首页那一面不摆归档的书。
     var showsArchived = true
+    /// 首页那一面传首页持有的分组结果(见 `SpokenWordLibraryContent.model`)。
+    var model: SpokenWordBooksModel? = nil
 
     var body: some View {
-        SpokenWordLibraryContent { snapshot in
+        SpokenWordLibraryContent(model: model) { snapshot in
             SpokenWordShelfContent(snapshot: snapshot, findText: findText, showsArchived: showsArchived)
         }
     }

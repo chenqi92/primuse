@@ -5,6 +5,7 @@ import PrimuseKit
 
 /// 电台这个收听空间的颜色（浅色 #D9480F，深色 #FF8A4C），取自 `ListeningSpace.radio.tint`。
 /// 只在电台自己的零件里用（直播点、「正在播」卡、收听按钮），不替换全局强调色。
+@MainActor
 enum RadioSpacePalette {
     static var accent: Color { ListeningSpace.radio.tint }
 }

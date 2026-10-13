@@ -111,6 +111,7 @@ struct AppearanceSettingsView: View {
             // 主题色与 App 图标改的都是这一层外壳的样子，直接平铺在这一页上：
             // 都是要靠眼睛挑的东西，多一次跳转就得来回对比。
             ThemeColorSections()
+            ListeningSpaceColorSections()
 
             #if os(iOS)
             Section {
@@ -136,7 +137,6 @@ struct ThemeColorSections: View {
         fromHex: ThemeColorSettings.shared.fixedColorHex
     )
 
-    private static let brightnessRange: ClosedRange<CGFloat> = 0.25...0.92
     private let columns = [GridItem(.adaptive(minimum: 68), spacing: 16)]
 
     var body: some View {
@@ -166,7 +166,12 @@ struct ThemeColorSections: View {
             Section {
                 LazyVGrid(columns: columns, spacing: 18) {
                     ForEach(ThemeColorSettings.swatches) { swatch in
-                        swatchCell(swatch)
+                        ThemeSwatchCell(
+                            swatch: swatch,
+                            isSelected: settings.mode == .fixed && settings.fixedColorHex == swatch.id
+                        ) {
+                            select(swatch)
+                        }
                     }
                 }
                 .padding(.vertical, 8)
@@ -191,54 +196,9 @@ struct ThemeColorSections: View {
             .settingsAnchor("appearance.palette")
 
             Section {
-                channelSlider(
-                    title: "theme_color_hue",
-                    value: $custom.hue,
-                    range: 0...1,
-                    track: LinearGradient(
-                        colors: stride(from: 0.0, through: 1.0, by: 1.0 / 12.0).map {
-                            Color(hue: $0, saturation: 0.85, brightness: 0.85)
-                        },
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-
-                channelSlider(
-                    title: "theme_color_saturation",
-                    value: $custom.saturation,
-                    range: 0.15...1,
-                    track: LinearGradient(
-                        colors: [
-                            Color(hue: custom.hue, saturation: 0.15, brightness: custom.brightness),
-                            Color(hue: custom.hue, saturation: 1, brightness: custom.brightness)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-
-                channelSlider(
-                    title: "theme_color_brightness",
-                    value: $custom.brightness,
-                    range: Self.brightnessRange,
-                    track: LinearGradient(
-                        colors: [
-                            Color(
-                                hue: custom.hue,
-                                saturation: custom.saturation,
-                                brightness: Self.brightnessRange.lowerBound
-                            ),
-                            Color(
-                                hue: custom.hue,
-                                saturation: custom.saturation,
-                                brightness: Self.brightnessRange.upperBound
-                            )
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+                ThemeHSBSliders(custom: $custom) { committing in
+                    applyCustomColor(committing: committing)
+                }
 
                 HStack {
                     Text("theme_color_hex")
@@ -351,122 +311,6 @@ struct ThemeColorSections: View {
         .accessibilityAddTraits(settings.mode == mode ? [.isButton, .isSelected] : .isButton)
     }
 
-    private func swatchCell(_ swatch: ThemeColorSettings.Swatch) -> some View {
-        let isSelected = settings.mode == .fixed && settings.fixedColorHex == swatch.id
-        // 白色色块在白底上要一圈看得见的边,勾是黑的,选中的外圈用文字色。
-        let isMonochrome = AppThemePreferences.isMonochrome(swatch.id)
-        // 「品红」按当前外观显示那一档;「白色」色块始终画成白的。
-        let swatchColor = isMonochrome
-            ? Color(hex: swatch.id)
-            : AppThemePreferences.themeColor(hex: swatch.id)
-
-        return Button {
-            select(swatch)
-        } label: {
-            VStack(spacing: 6) {
-                Circle()
-                    .fill(swatchColor)
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        if isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(isMonochrome ? .black : .white)
-                                .shadow(color: .black.opacity(isMonochrome ? 0 : 0.35), radius: 1.5)
-                                .pmFadeTransition()
-                        }
-                    }
-                    .overlay {
-                        Circle()
-                            .strokeBorder(
-                                isSelected
-                                    ? (isMonochrome ? Color.primary.opacity(0.7) : swatchColor)
-                                    : Color.primary.opacity(isMonochrome ? 0.28 : 0.12),
-                                lineWidth: isSelected ? 3 : (isMonochrome ? 1 : 0.5)
-                            )
-                            .padding(isSelected ? -4 : 0)
-                    }
-
-                Text(PMString(swatch.localizationKey))
-                    .font(.caption2)
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // 挂在单个色块上：勾与描边只跟这一块的选中态走, 换色时两块各自动各自的。
-        .pmAnimation(.selection, value: isSelected)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    private func channelSlider(
-        title: LocalizedStringKey,
-        value: Binding<CGFloat>,
-        range: ClosedRange<CGFloat>,
-        track: LinearGradient
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline)
-
-            GeometryReader { geometry in
-                let width = geometry.size.width
-                let span = range.upperBound - range.lowerBound
-                let fraction = span > 0
-                    ? (value.wrappedValue - range.lowerBound) / span
-                    : 0
-                let knobX = min(max(fraction, 0), 1) * width
-
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(track)
-                        .frame(height: 28)
-
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 26, height: 26)
-                        .overlay {
-                            Circle().strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
-                        }
-                        .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
-                        .offset(x: min(max(knobX - 13, 0), width - 26))
-                }
-                .frame(height: 28)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { drag in
-                            guard width > 0 else { return }
-                            let ratio = min(max(drag.location.x / width, 0), 1)
-                            value.wrappedValue = range.lowerBound + ratio * span
-                            applyCustomColor(committing: false)
-                        }
-                        .onEnded { _ in applyCustomColor(committing: true) }
-                )
-            }
-            .frame(height: 28)
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement()
-        .accessibilityLabel(title)
-        .accessibilityValue(Text(verbatim: "\(Int(round(value.wrappedValue * 100)))%"))
-        .accessibilityAdjustableAction { direction in
-            let step = (range.upperBound - range.lowerBound) / 20
-            switch direction {
-            case .increment:
-                value.wrappedValue = min(value.wrappedValue + step, range.upperBound)
-            case .decrement:
-                value.wrappedValue = max(value.wrappedValue - step, range.lowerBound)
-            @unknown default:
-                return
-            }
-            applyCustomColor(committing: true)
-        }
-    }
-
     private var coverDrivenAmbientBinding: Binding<Bool> {
         Binding(
             get: { settings.coverDrivenAmbient },
@@ -542,9 +386,416 @@ struct ThemeColorSections: View {
 /// 独立页面外壳。设置搜索命中主题色条目时仍会推这一页。
 struct ThemeColorSettingsView: View {
     var body: some View {
-        List { ThemeColorSections() }
+        List {
+            ThemeColorSections()
+            ListeningSpaceColorSections()
+        }
             .navigationTitle("theme_color_title")
             .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 色板里的一个色块:圆点、选中时打勾加描边、下面写名字。主题色与电台、有声书、播客的颜色共用。
+struct ThemeSwatchCell: View {
+    let swatch: AppThemePreferences.Swatch
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        // 白色色块在白底上要一圈看得见的边,勾是黑的,选中的外圈用文字色。
+        let isMonochrome = AppThemePreferences.isMonochrome(swatch.id)
+        // 「品红」按当前外观显示那一档;「白色」色块始终画成白的。
+        let swatchColor = isMonochrome
+            ? Color(hex: swatch.id)
+            : AppThemePreferences.themeColor(hex: swatch.id)
+
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Circle()
+                    .fill(swatchColor)
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(isMonochrome ? .black : .white)
+                                .shadow(color: .black.opacity(isMonochrome ? 0 : 0.35), radius: 1.5)
+                                .pmFadeTransition()
+                        }
+                    }
+                    .overlay {
+                        Circle()
+                            .strokeBorder(
+                                isSelected
+                                    ? (isMonochrome ? Color.primary.opacity(0.7) : swatchColor)
+                                    : Color.primary.opacity(isMonochrome ? 0.28 : 0.12),
+                                lineWidth: isSelected ? 3 : (isMonochrome ? 1 : 0.5)
+                            )
+                            .padding(isSelected ? -4 : 0)
+                    }
+
+                Text(PMString(swatch.localizationKey))
+                    .font(.caption2)
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 挂在单个色块上：勾与描边只跟这一块的选中态走, 换色时两块各自动各自的。
+        .pmAnimation(.selection, value: isSelected)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// 自定义颜色的色相、饱和度、亮度三条滑杆。拖动途中 `onChange(false)`,松手 `onChange(true)`。
+struct ThemeHSBSliders: View {
+    @Binding var custom: ThemeColorSettings.HSB
+    let onChange: (_ committing: Bool) -> Void
+
+    static let brightnessRange: ClosedRange<CGFloat> = 0.25...0.92
+
+    var body: some View {
+        channelSlider(
+            title: "theme_color_hue",
+            value: $custom.hue,
+            range: 0...1,
+            track: LinearGradient(
+                colors: stride(from: 0.0, through: 1.0, by: 1.0 / 12.0).map {
+                    Color(hue: $0, saturation: 0.85, brightness: 0.85)
+                },
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+
+        channelSlider(
+            title: "theme_color_saturation",
+            value: $custom.saturation,
+            range: 0.15...1,
+            track: LinearGradient(
+                colors: [
+                    Color(hue: custom.hue, saturation: 0.15, brightness: custom.brightness),
+                    Color(hue: custom.hue, saturation: 1, brightness: custom.brightness)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+
+        channelSlider(
+            title: "theme_color_brightness",
+            value: $custom.brightness,
+            range: Self.brightnessRange,
+            track: LinearGradient(
+                colors: [
+                    Color(
+                        hue: custom.hue,
+                        saturation: custom.saturation,
+                        brightness: Self.brightnessRange.lowerBound
+                    ),
+                    Color(
+                        hue: custom.hue,
+                        saturation: custom.saturation,
+                        brightness: Self.brightnessRange.upperBound
+                    )
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+    }
+
+    private func channelSlider(
+        title: LocalizedStringKey,
+        value: Binding<CGFloat>,
+        range: ClosedRange<CGFloat>,
+        track: LinearGradient
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let span = range.upperBound - range.lowerBound
+                let fraction = span > 0
+                    ? (value.wrappedValue - range.lowerBound) / span
+                    : 0
+                let knobX = min(max(fraction, 0), 1) * width
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(track)
+                        .frame(height: 28)
+
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 26, height: 26)
+                        .overlay {
+                            Circle().strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
+                        }
+                        .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
+                        .offset(x: min(max(knobX - 13, 0), width - 26))
+                }
+                .frame(height: 28)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            guard width > 0 else { return }
+                            let ratio = min(max(drag.location.x / width, 0), 1)
+                            value.wrappedValue = range.lowerBound + ratio * span
+                            onChange(false)
+                        }
+                        .onEnded { _ in onChange(true) }
+                )
+            }
+            .frame(height: 28)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement()
+        .accessibilityLabel(title)
+        .accessibilityValue(Text(verbatim: "\(Int(round(value.wrappedValue * 100)))%"))
+        .accessibilityAdjustableAction { direction in
+            let step = (range.upperBound - range.lowerBound) / 20
+            switch direction {
+            case .increment:
+                value.wrappedValue = min(value.wrappedValue + step, range.upperBound)
+            case .decrement:
+                value.wrappedValue = max(value.wrappedValue - step, range.lowerBound)
+            @unknown default:
+                return
+            }
+            onChange(true)
+        }
+    }
+}
+
+/// 电台、有声书、播客各自的颜色(#283):一类一行,右边写着现在用哪种颜色,点进去挑。
+/// 「颜色和图标」页与独立的主题色页都列这一组。
+struct ListeningSpaceColorSections: View {
+    @State private var settings = ListeningSpaceTintSettings.shared
+
+    var body: some View {
+        Section {
+            ForEach(ListeningSpaceTintPreferences.customizableSpaces, id: \.self) { space in
+                NavigationLink {
+                    ListeningSpaceColorSettingsView(space: space)
+                } label: {
+                    HStack(spacing: 12) {
+                        ListeningSpaceColorGlyph(space: space, side: 28)
+                        Text(space.titleKey)
+                        Spacer(minLength: 8)
+                        Text(ListeningSpaceColorSettingsView.sourceTitle(settings.choice(for: space)))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        } header: {
+            Text("listening_space_colors_title")
+        } footer: {
+            Text("listening_space_colors_footer")
+        }
+        .settingsAnchor("appearance.listeningSpaceColors")
+    }
+}
+
+/// 资料库里那种白色图标压在色块上的小方块。
+private struct ListeningSpaceColorGlyph: View {
+    let space: ListeningSpace
+    let side: CGFloat
+
+    var body: some View {
+        Image(systemName: space.systemImage)
+            .font(.system(size: side * 0.48, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: side, height: side)
+            .background(space.glyphTileTint, in: RoundedRectangle(cornerRadius: side * 0.25, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// 一类内容的颜色:默认、跟随主题色、跟随封面,或者从色板里挑 / 自己调一个固定颜色。
+/// 首页顶部切换、资料库、搜索分组和小组件都跟着变。
+struct ListeningSpaceColorSettingsView: View {
+    let space: ListeningSpace
+
+    @State private var settings = ListeningSpaceTintSettings.shared
+    @Environment(ThemeService.self) private var themeService
+    @Environment(AudioPlayerService.self) private var player
+    @State private var custom: ThemeColorSettings.HSB
+
+    private let columns = [GridItem(.adaptive(minimum: 68), spacing: 16)]
+
+    init(space: ListeningSpace) {
+        self.space = space
+        let hex = ListeningSpaceTintSettings.shared.choice(for: space).fixedHex
+            ?? Self.standardHex(of: space)
+        _custom = State(initialValue: ThemeColorSettings.hsb(fromHex: hex))
+    }
+
+    private var choice: ListeningSpaceTintChoice { settings.choice(for: space) }
+
+    static func sourceTitle(_ choice: ListeningSpaceTintChoice) -> LocalizedStringKey {
+        switch choice {
+        case .standard: "listening_space_tint_standard"
+        case .theme: "listening_space_tint_theme"
+        case .artwork: "listening_space_tint_artwork"
+        case .fixed: "listening_space_tint_fixed"
+        }
+    }
+
+    /// 自定义滑杆的起点:没挑过固定颜色时从这一类的默认色开始调。
+    private static func standardHex(of space: ListeningSpace) -> String {
+        String(format: "%06X", space.fixedTint?.light ?? 0)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                preview
+            }
+
+            Section {
+                sourceRow(.standard, hint: "listening_space_tint_standard_hint", icon: space.systemImage)
+                sourceRow(.theme, hint: "listening_space_tint_theme_hint", icon: "paintbrush")
+                sourceRow(.artwork, hint: "listening_space_tint_artwork_hint", icon: "photo.on.rectangle.angled")
+                sourceRow(
+                    .fixed(choice.fixedHex ?? ThemeColorSettings.hex(fromHSB: custom)),
+                    hint: "listening_space_tint_fixed_hint",
+                    icon: "paintpalette"
+                )
+            } header: {
+                Text("listening_space_tint_source")
+            }
+
+            Section {
+                LazyVGrid(columns: columns, spacing: 18) {
+                    ForEach(ThemeColorSettings.swatches) { swatch in
+                        ThemeSwatchCell(swatch: swatch, isSelected: choice.fixedHex == swatch.id) {
+                            custom = ThemeColorSettings.hsb(fromHex: swatch.id)
+                            apply(.fixed(swatch.id))
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            } header: {
+                Text("theme_color_palette")
+            }
+
+            Section {
+                ThemeHSBSliders(custom: $custom) { committing in
+                    apply(.fixed(ThemeColorSettings.hex(fromHSB: custom)), reloadingWidgets: committing)
+                }
+
+                HStack {
+                    Text("theme_color_hex")
+                    Spacer()
+                    Text(verbatim: "#\(choice.fixedHex ?? ThemeColorSettings.hex(fromHSB: custom))")
+                        .font(.subheadline.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("theme_color_custom")
+            }
+        }
+        .navigationTitle(space.titleKey)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 首页顶部切换选中时的那颗胶囊、资料库的图标块和一行用这个颜色写的字,换色时一起变。
+    private var preview: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 6) {
+                Image(systemName: space.systemImage)
+                Text(space.titleKey)
+                    .lineLimit(1)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.text(on: space.tint))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .background(space.tint.gradient, in: Capsule())
+
+            ListeningSpaceColorGlyph(space: space, side: 36)
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "play.fill")
+                .font(.title3)
+                .foregroundStyle(space.tint)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, 4)
+        .pmAnimation(.selection, value: choice)
+    }
+
+    private func sourceRow(
+        _ target: ListeningSpaceTintChoice,
+        hint: LocalizedStringKey,
+        icon: String
+    ) -> some View {
+        let isSelected = Self.sameSource(choice, target)
+        return Button {
+            apply(target)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.body)
+                    .foregroundStyle(themeService.uiAccentColor)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.sourceTitle(target))
+                        .foregroundStyle(.primary)
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(themeService.uiAccentColor)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// 两个固定颜色色值不同也算同一种来源(打勾看的是「固定颜色」这一行)。
+    private static func sameSource(_ lhs: ListeningSpaceTintChoice, _ rhs: ListeningSpaceTintChoice) -> Bool {
+        switch (lhs, rhs) {
+        case (.fixed, .fixed): true
+        default: lhs == rhs
+        }
+    }
+
+    private func apply(_ target: ListeningSpaceTintChoice, reloadingWidgets: Bool = true) {
+        settings.setChoice(target, for: space, reloadingWidgets: reloadingWidgets)
+        // 主题色固定、播放背景也不取封面色时,封面原本不取色;换成「跟随封面」后现取一次。
+        if target == .artwork { refreshFromCurrentSong() }
+    }
+
+    private func refreshFromCurrentSong() {
+        guard let song = player.currentSong else { return }
+        themeService.updateFromCoverArt(
+            fileName: song.coverArtFileName,
+            songID: song.id,
+            appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
+                ? song.filePath
+                : nil
+        )
     }
 }
 

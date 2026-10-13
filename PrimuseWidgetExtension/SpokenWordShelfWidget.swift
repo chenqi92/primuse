@@ -238,7 +238,9 @@ private struct MediumSpokenWordShelf: View {
                 // Progress bar, two lines of title (CJK fonts run taller) and the spacing between them.
                 let textHeight: CGFloat = 42
                 let evenColumnWidth: CGFloat = (geometry.size.width - 12 * (columns - 1)) / columns
-                let heightLeft: CGFloat = geometry.size.height - eyebrowHeight - textHeight - 4
+                // 标题下面至少留 8,再和底下平分余下的高度(#283:书封整块往下挪,上下匀称)。
+                let titleGap: CGFloat = 8
+                let heightLeft: CGFloat = geometry.size.height - eyebrowHeight - textHeight - titleGap
                 let coverHeight: CGFloat = max(40, min(
                     SpokenWordCoverLayout.height(forWidth: evenColumnWidth * 0.62), heightLeft
                 ))
@@ -248,9 +250,10 @@ private struct MediumSpokenWordShelf: View {
                 let gap: CGFloat = max(8, (widgetWidth - coverWidth * columns) / (columns + 1))
                 // A title may spread into the gaps beside its cover, short of touching the next title.
                 let titleExtra: CGFloat = max(0, min(gap - 8, 2 * (gap - inset)))
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 0) {
                     SpokenWordShelfEyebrow()
                         .frame(height: eyebrowHeight)
+                    Spacer(minLength: titleGap)
                     HStack(alignment: .top, spacing: gap - titleExtra) {
                         ForEach(shown) { book in
                             let isPlaying = playingBookID == book.id
@@ -288,6 +291,7 @@ private struct MediumSpokenWordShelf: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    Spacer(minLength: 0)
                 }
                 .widgetBounds(geometry.size)
             }

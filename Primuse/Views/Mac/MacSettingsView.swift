@@ -6438,6 +6438,25 @@ private struct MacSTThemeView: View {
         }
     }
 
+    private var spaceTints: ListeningSpaceTintSettings { ListeningSpaceTintSettings.shared }
+
+    /// 一类内容的颜色下拉:三种来源,再是色板。iPhone 上调出来、色板里没有的颜色单列一项「固定颜色」。
+    private func spaceTintOptions(
+        current: ListeningSpaceTintChoice
+    ) -> [(value: ListeningSpaceTintChoice, label: String)] {
+        var options: [(value: ListeningSpaceTintChoice, label: String)] = [
+            (.standard, String(localized: "listening_space_tint_standard")),
+            (.theme, String(localized: "listening_space_tint_theme")),
+            (.artwork, String(localized: "listening_space_tint_artwork")),
+        ]
+        let palette = AppThemePreferences.swatchesWithoutMonochrome
+        options += palette.map { (.fixed($0.id), PMString($0.localizationKey)) }
+        if let hex = current.fixedHex, !palette.contains(where: { $0.id == hex }) {
+            options.append((current, String(localized: "listening_space_tint_fixed")))
+        }
+        return options
+    }
+
     /// 把色板 hex ("#c96442") 归一成存储用格式 (大写无 #)。
     private func normHex(_ hex: String) -> String {
         hex.replacingOccurrences(of: "#", with: "").uppercased()
@@ -6735,6 +6754,35 @@ private struct MacSTThemeView: View {
             }
         }
         .settingsAnchor("appearance.palette")
+
+        // 电台、有声书、播客各自的颜色(#283):默认、跟随主题色、跟随封面,或色板里的一个颜色。
+        MacSTSection(String(localized: "listening_space_colors_title"),
+                     hint: String(localized: "listening_space_colors_footer")) {
+            MacSTGroup {
+                ForEach(Array(ListeningSpaceTintPreferences.customizableSpaces.enumerated()), id: \.element) { index, space in
+                    MacSTRow(space.title, divider: index > 0) {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(space.tint)
+                                .frame(width: 12, height: 12)
+                            MacSTPicker(
+                                selection: Binding(
+                                    get: { spaceTints.choice(for: space) },
+                                    set: { choice in
+                                        spaceTints.setChoice(choice, for: space)
+                                        // 主题色固定、背景也不取封面色时封面原本不取色,换成「跟随封面」后现取一次。
+                                        if choice == .artwork { refreshThemeFromCurrentSong() }
+                                    }
+                                ),
+                                options: spaceTintOptions(current: spaceTints.choice(for: space)),
+                                width: 180
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .settingsAnchor("appearance.listeningSpaceColors")
 
         MacSTSection(PMString("ext.tv.settings.coverColor")) {
             MacSTGroup {

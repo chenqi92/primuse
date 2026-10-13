@@ -18,23 +18,47 @@ struct LastFmProvider: ScrobbleProvider {
     /// 用户授权后拿到的永久 sessionKey (存 Keychain)。
     let sessionKey: String
 
+    let requests: ScrobbleRequests
+    let session: URLSession
+    init(apiKey: String, apiSecret: String, sessionKey: String, session: URLSession = .shared, requests: ScrobbleRequests = .init()) {
+        self.requests = requests
+        self.apiKey = apiKey; self.apiSecret = apiSecret; self.sessionKey = sessionKey; self.session = session
+    }
+
     private let baseURL = URL(string: "https://ws.audioscrobbler.com/2.0/")!
 
     func validateCredentials() async -> Bool? {
-        guard !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty else {
-            return false
-        }
-        // user.getInfo 不需要 write 权限, 用作存活检查比较安全。
-        let params: [String: String] = [
-            "method": "user.getInfo",
-            "api_key": apiKey,
-            "sk": sessionKey,
-            "format": "json"
-        ]
+        guard !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty else { return false }
+        let params = ["method": "user.getInfo", "api_key": apiKey, "sk": sessionKey, "format": "json"]
+        // Keep the session key in the POST body, never URLs or diagnostic output.
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(params.sorted { $0.key < $1.key }
+            .map { "\(Self.formEncode($0.key))=\(Self.formEncode($0.value))" }.joined(separator: "&").utf8)
         do {
-            // Keep the session key out of URLs, proxy logs and browser history.
-            let (_, response) = try await call(method: "POST", params: params, signed: false)
-            return response.statusCode == 200
+            let (data, http) = try await requests.send(request, session: session, service: .lastFM, account: apiKey) { data, response in
+                let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                let code = json?["error"] as? Int
+                let delay = HTTPResponseFailure.retryDelay(from: response)
+                if code != nil, code == 29 || delay != nil {
+                    throw HTTPResponseFailure(statusCode: response.statusCode,
+                        retryAfter: delay ?? RequestQuota.Service.lastFM.policy.defaultCooldown, isRateLimited: code == 29)
+                }
+                // A proxy's bare 403 is not evidence that the session is invalid.
+                if let code, [4, 9, 10, 26].contains(code), delay == nil,
+                   (200...499).contains(response.statusCode), response.statusCode != 429 {
+                    throw ScrobbleError.invalidCredentials
+                }
+            }
+            guard http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["error"] == nil,
+                  let user = json["user"] as? [String: Any],
+                  let name = user["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return true
+        } catch ScrobbleError.invalidCredentials {
+            return false
         } catch {
             return nil
         }
@@ -151,9 +175,28 @@ struct LastFmProvider: ScrobbleProvider {
         }
         request.timeoutInterval = 30
 
+        if signed {
+            // Use the existing application-key quota shared with discovery.
+            return try await requests.send(request, session: session, service: .lastFM, account: apiKey) { data, http in
+                let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                let code = envelope?["error"] as? Int
+                if code == 29 {
+                    throw HTTPResponseFailure(statusCode: http.statusCode,
+                        retryAfter: retryAfter ?? RequestQuota.Service.lastFM.policy.defaultCooldown, isRateLimited: true)
+                }
+                if retryAfter == nil, [401, 403].contains(http.statusCode) { throw ScrobbleError.invalidCredentials }
+                guard (200...299).contains(http.statusCode), let code else { return }
+                if [4, 9, 10, 26].contains(code) { throw ScrobbleError.invalidCredentials }
+                if [11, 16].contains(code) {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: retryAfter, isRetryable: true)
+                }
+                throw ScrobbleError.invalidResponse
+            }
+        }
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw ScrobbleError.network(error)
         }

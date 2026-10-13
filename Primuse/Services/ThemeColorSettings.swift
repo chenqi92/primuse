@@ -165,6 +165,8 @@ final class ThemeColorSettings {
     }
 
     static func publishBaseAccentToWidget(_ color: Color) {
+        // 主题色跟随封面时小组件画的是封面色,由 `ThemeService` 随封面写,这里不拿固定色盖掉它(#283)。
+        guard shared.mode == .fixed else { return }
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
