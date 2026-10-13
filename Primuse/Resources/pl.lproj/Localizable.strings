@@ -5779,6 +5779,13 @@
 "transcript_reader_weight_thin" = "Cienka";
 "transcript_reader_reveal_on_scroll" = "Pokazuj sterowanie podczas przewijania";
 "transcript_reader_reveal_on_scroll_footer" = "Gdy wyłączone, podczas przewijania transkrypcji sterowanie pozostaje ukryte. Dotknij ekranu lub wstrzymaj, aby je pokazać; po kilku sekundach znika ponownie.";
+"transcript_reader_paragraphs" = "Akapity";
+"transcript_reader_paragraphs_merged" = "Scalone";
+"transcript_reader_paragraphs_per_line" = "Linia po linii";
+"transcript_reader_paragraphs_footer" = "Scalone łączy kolejne linie napisów w akapity i zaczyna nowy przy zmianie mówiącego, po dłuższej pauzie lub przy tytule rozdziału. Linia po linii pokazuje każdą linię napisów osobno.";
+"transcript_reader_speed_slower" = "Wolniej";
+"transcript_reader_speed_faster" = "Szybciej";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Gdy wyłączone, podczas przewijania transkrypcji sterowanie pozostaje ukryte. Dotknij ekranu, przesuń w lewo lub w prawo albo wstrzymaj, aby je pokazać; po kilku sekundach znika ponownie. Gdy sterowanie jest widoczne, przesunięcie w lewo lub w prawo zamyka transkrypcję na pełnym ekranie.";
 "spoken_word_text_tab_hold_hint" = "Przytrzymaj, aby czytać transkrypcję na pełnym ekranie";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

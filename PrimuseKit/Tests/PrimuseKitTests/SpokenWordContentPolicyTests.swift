@@ -393,6 +393,33 @@ struct SpokenWordTranscriptReadingPolicyTests {
         #expect(paragraphs[0].lastCue == 2)
         #expect(paragraphs.allSatisfy { $0.text.count <= Policy.hardLength })
     }
+
+    @Test("One paragraph per cue keeps every line apart but still marks chapter titles")
+    func perCueParagraphs() {
+        let cues = [
+            Policy.Cue(text: "第一章 山河", start: 0, end: 1),
+            Policy.Cue(text: "天色渐暗，", start: 1.1, end: 3),
+            Policy.Cue(text: "他推门而出。", start: 3.1, end: 5),
+            Policy.Cue(text: "", start: nil),
+            Policy.Cue(text: "雨停了。风也停了。", start: 5.2, end: 9),
+        ]
+        let merged = Policy.paragraphs(from: cues)
+        #expect(merged.map(\.text) == ["第一章 山河", "天色渐暗，他推门而出。", "雨停了。风也停了。"])
+
+        let perCue = Policy.paragraphs(from: cues, mode: .perCue)
+        #expect(perCue.map(\.text) == ["第一章 山河", "天色渐暗，", "他推门而出。", "雨停了。风也停了。"])
+        #expect(perCue.map(\.firstCue) == [0, 1, 2, 4])
+        #expect(perCue.map(\.isHeading) == [true, false, false, false])
+        #expect(perCue.map(\.start) == [0, 1.1, 3.1, 5.2])
+        // 一行里的两句仍然分开高亮。
+        #expect(perCue[3].segments.count == 2)
+        #expect(perCue[3].segments.map(\.cue) == [4, 4])
+        #expect(Policy.paragraphIndex(at: 4, in: perCue) == 2)
+
+        let plain = ["The rain had stopped", "by morning."].map { Policy.Cue(text: $0, start: nil) }
+        #expect(Policy.paragraphs(from: plain, mode: .perCue).map(\.text) == ["The rain had stopped", "by morning."])
+    }
+
 }
 
 @Suite("Transcript search")
@@ -445,5 +472,51 @@ struct SpokenWordTranscriptSearchTests {
         #expect(Policy.steppedMatchIndex(0, count: 4, forward: false) == 3)
         #expect(Policy.steppedMatchIndex(nil, count: 4, forward: false) == 3)
         #expect(Policy.steppedMatchIndex(1, count: 0, forward: true) == nil)
+    }
+}
+
+@Suite("Transcript reader swipes")
+struct SpokenWordTranscriptSwipePolicyTests {
+    private typealias Policy = SpokenWordTranscriptSwipePolicy
+
+    @Test("Only a clearly sideways drag is taken; vertical drags stay with scrolling")
+    func beginsOnlySideways() {
+        #expect(Policy.shouldBegin(translationX: 20, translationY: 4, velocityX: 0, velocityY: 0))
+        #expect(Policy.shouldBegin(translationX: -20, translationY: 4, velocityX: 0, velocityY: 0))
+        #expect(!Policy.shouldBegin(translationX: 4, translationY: 20, velocityX: 0, velocityY: 0))
+        #expect(!Policy.shouldBegin(translationX: 14, translationY: 12, velocityX: 0, velocityY: 0))
+        // 手指在动时按速度判方向。
+        #expect(Policy.shouldBegin(translationX: 6, translationY: 6, velocityX: 600, velocityY: 100))
+        #expect(!Policy.shouldBegin(translationX: 6, translationY: 2, velocityX: 100, velocityY: 500))
+        // 还没动到判断方向的程度。
+        #expect(!Policy.shouldBegin(translationX: 4, translationY: 0, velocityX: 20, velocityY: 0))
+    }
+
+    @Test("With controls hidden a short sideways swipe brings them up")
+    func revealsWhenHidden() {
+        #expect(Policy.outcome(translationX: 40, translationY: 5, velocityX: 200, chromeVisible: false) == .revealChrome)
+        #expect(Policy.outcome(translationX: -40, translationY: 5, velocityX: -200, chromeVisible: false) == .revealChrome)
+        // 快扫:距离短一点也算。
+        #expect(Policy.outcome(translationX: 26, translationY: 2, velocityX: 500, chromeVisible: false) == .revealChrome)
+        // 一扫再远,控件收着时也只是叫出控件。
+        #expect(Policy.outcome(translationX: 200, translationY: 10, velocityX: 1500, chromeVisible: false) == .revealChrome)
+        #expect(Policy.outcome(translationX: 20, translationY: 2, velocityX: 100, chromeVisible: false) == .none)
+    }
+
+    @Test("With controls showing only a long or fast swipe closes the reader")
+    func dismissesWhenVisible() {
+        #expect(Policy.outcome(translationX: 120, translationY: 10, velocityX: 300, chromeVisible: true) == .dismiss)
+        #expect(Policy.outcome(translationX: -120, translationY: 10, velocityX: -300, chromeVisible: true) == .dismiss)
+        #expect(Policy.outcome(translationX: 60, translationY: 4, velocityX: 1000, chromeVisible: true) == .dismiss)
+        // 轻扫只是让控件多留一会儿。
+        #expect(Policy.outcome(translationX: 50, translationY: 4, velocityX: 300, chromeVisible: true) == .revealChrome)
+        #expect(Policy.outcome(translationX: 40, translationY: 4, velocityX: 1000, chromeVisible: true) == .revealChrome)
+    }
+
+    @Test("Diagonal drags and swipes pulled back before lifting do nothing")
+    func ignoresDiagonalAndReversed() {
+        #expect(Policy.outcome(translationX: 120, translationY: 90, velocityX: 900, chromeVisible: true) == .none)
+        #expect(Policy.outcome(translationX: 120, translationY: 10, velocityX: -400, chromeVisible: true) == .none)
+        #expect(Policy.outcome(translationX: 50, translationY: 4, velocityX: -300, chromeVisible: false) == .none)
     }
 }

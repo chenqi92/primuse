@@ -84,6 +84,21 @@ struct SpokenWordPlaybackRatePolicyTests {
         #expect(SpokenWordPlaybackRatePolicy.label(for: 1.25) == "1.25×")
         #expect(SpokenWordPlaybackRatePolicy.label(for: 2) == "2×")
     }
+
+    @Test("Stepping moves one preset at a time and stops at the ends")
+    func adjacentPresets() {
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1, faster: true) == 1.25)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1, faster: false) == 0.75)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 2, faster: true) == nil)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 0.75, faster: false) == nil)
+        // 不在档位上的值落到相邻档。
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1.1, faster: true) == 1.25)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1.1, faster: false) == 1.0)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 0.5, faster: false) == nil)
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 0.5, faster: true) == 0.75)
+        // 浮点误差不算换档。
+        #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1.2500001, faster: true) == 1.5)
+    }
 }
 
 @Suite("Spoken word skip intervals")

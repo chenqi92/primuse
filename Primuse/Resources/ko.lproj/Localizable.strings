@@ -5873,6 +5873,13 @@
 "transcript_reader_weight_thin" = "매우 가늘게";
 "transcript_reader_reveal_on_scroll" = "스크롤 시 컨트롤 표시";
 "transcript_reader_reveal_on_scroll_footer" = "끄면 텍스트를 스크롤해도 컨트롤이 나타나지 않습니다. 화면을 탭하거나 일시 정지하면 표시되고 몇 초 후 자동으로 숨겨집니다.";
+"transcript_reader_paragraphs" = "문단";
+"transcript_reader_paragraphs_merged" = "문단으로 합치기";
+"transcript_reader_paragraphs_per_line" = "한 줄씩";
+"transcript_reader_paragraphs_footer" = "문단으로 합치기는 이어지는 자막 줄을 하나의 문단으로 묶고, 화자가 바뀌거나 오래 멈추거나 장 제목이 나오면 새 문단을 시작합니다. 한 줄씩은 자막을 줄마다 따로 표시합니다.";
+"transcript_reader_speed_slower" = "느리게";
+"transcript_reader_speed_faster" = "빠르게";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "끄면 텍스트를 위아래로 스크롤해도 컨트롤이 나타나지 않습니다. 화면을 탭하거나 좌우로 쓸어 넘기거나 일시 정지하면 표시되고 몇 초 후 자동으로 숨겨집니다. 컨트롤이 보일 때 좌우로 쓸어 넘기면 전체 화면을 닫습니다.";
 "spoken_word_text_tab_hold_hint" = "길게 눌러 텍스트를 전체 화면으로 읽기";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

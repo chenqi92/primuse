@@ -89,6 +89,16 @@ public enum SpokenWordPlaybackRatePolicy {
         return clamped(isSpokenWord ? spokenWordRate : musicRate)
     }
 
+    /// 一档一档地调(全屏文稿菜单里的减、加):往快取比当前快的第一档,往慢取比当前慢的最后一档。
+    /// 当前值不在档位上(在别处存下的 1.1×)时就落到相邻的那一档;已经到头是 nil。
+    public static func adjacentPreset(to rate: Float, faster: Bool) -> Float? {
+        let current = clamped(rate)
+        let tolerance: Float = 0.001
+        return faster
+            ? presets.first { $0 > current + tolerance }
+            : presets.last { $0 < current - tolerance }
+    }
+
     public static func label(for rate: Float) -> String {
         let rounded = (rate * 100).rounded() / 100
         if rounded == rounded.rounded() {

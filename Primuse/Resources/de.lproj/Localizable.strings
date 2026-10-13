@@ -5873,6 +5873,13 @@
 "transcript_reader_weight_thin" = "Dünn";
 "transcript_reader_reveal_on_scroll" = "Bedienelemente beim Scrollen einblenden";
 "transcript_reader_reveal_on_scroll_footer" = "Wenn aus, bleiben die Bedienelemente beim Scrollen des Transkripts verborgen. Tippe auf den Bildschirm oder pausiere, um sie einzublenden; nach einigen Sekunden werden sie wieder ausgeblendet.";
+"transcript_reader_paragraphs" = "Absätze";
+"transcript_reader_paragraphs_merged" = "Zusammengefasst";
+"transcript_reader_paragraphs_per_line" = "Zeile für Zeile";
+"transcript_reader_paragraphs_footer" = "Zusammengefasst fügt aufeinanderfolgende Untertitelzeilen zu Absätzen zusammen und beginnt einen neuen bei Sprecherwechsel, nach einer längeren Pause oder bei einer Kapitelüberschrift. Zeile für Zeile zeigt jede Untertitelzeile einzeln.";
+"transcript_reader_speed_slower" = "Langsamer";
+"transcript_reader_speed_faster" = "Schneller";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Wenn aus, bleiben die Bedienelemente beim Scrollen des Transkripts verborgen. Tippe auf den Bildschirm, wische nach links oder rechts oder pausiere, um sie einzublenden; nach einigen Sekunden werden sie wieder ausgeblendet. Solange sie sichtbar sind, schließt ein Wisch nach links oder rechts das Vollbild-Transkript.";
 "spoken_word_text_tab_hold_hint" = "Gedrückt halten, um das Transkript im Vollbild zu lesen";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

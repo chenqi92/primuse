@@ -5779,6 +5779,13 @@
 "transcript_reader_weight_thin" = "Тонкий";
 "transcript_reader_reveal_on_scroll" = "Показывать элементы управления при прокрутке";
 "transcript_reader_reveal_on_scroll_footer" = "Если выключено, при прокрутке текста элементы управления остаются скрытыми. Коснитесь экрана или поставьте на паузу, чтобы показать их; через несколько секунд они снова скроются.";
+"transcript_reader_paragraphs" = "Абзацы";
+"transcript_reader_paragraphs_merged" = "Объединять";
+"transcript_reader_paragraphs_per_line" = "По строкам";
+"transcript_reader_paragraphs_footer" = "«Объединять» соединяет идущие подряд строки субтитров в абзацы и начинает новый при смене говорящего, после долгой паузы или на заголовке главы. «По строкам» показывает каждую строку субтитров отдельно.";
+"transcript_reader_speed_slower" = "Медленнее";
+"transcript_reader_speed_faster" = "Быстрее";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Если выключено, при прокрутке текста элементы управления остаются скрытыми. Коснитесь экрана, смахните влево или вправо либо поставьте на паузу, чтобы показать их; через несколько секунд они снова скроются. Пока они видны, смахивание влево или вправо закрывает полноэкранный текст.";
 "spoken_word_text_tab_hold_hint" = "Удерживайте, чтобы читать текст на весь экран";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

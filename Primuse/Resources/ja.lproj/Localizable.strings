@@ -5874,6 +5874,13 @@
 "transcript_reader_weight_thin" = "極細";
 "transcript_reader_reveal_on_scroll" = "スクロール時にコントロールを表示";
 "transcript_reader_reveal_on_scroll_footer" = "オフにすると、テキストをスクロールしてもコントロールは表示されません。画面をタップするか一時停止すると表示され、数秒後に自動で隠れます。";
+"transcript_reader_paragraphs" = "段落";
+"transcript_reader_paragraphs_merged" = "まとめて表示";
+"transcript_reader_paragraphs_per_line" = "1行ずつ";
+"transcript_reader_paragraphs_footer" = "まとめて表示では、続く字幕の行を段落にまとめ、話者が変わったとき、長い間があいたとき、章の見出しで改段します。1行ずつでは字幕を1行ごとに表示します。";
+"transcript_reader_speed_slower" = "遅く";
+"transcript_reader_speed_faster" = "速く";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "オフにすると、テキストを上下にスクロールしてもコントロールは表示されません。画面をタップする、左右にスワイプする、または一時停止すると表示され、数秒後に自動で隠れます。表示中に左右にスワイプすると全画面を閉じます。";
 "spoken_word_text_tab_hold_hint" = "長押しでテキストを全画面で読む";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

@@ -728,6 +728,8 @@ enum SpokenWordTranscriptReaderPreferences {
     /// 滑动文稿时要不要把控件叫出来。默认不叫:读书时手指一滑控件就跳出来又收回去,很扰人;
     /// 点一下屏幕或暂停时才出来。
     static let revealsOnScrollKey = "primuse.transcriptReader.revealsOnScroll"
+    /// 字幕并成段落读,还是每一行字幕自己一段(`SpokenWordTranscriptReadingPolicy.ParagraphMode`)。
+    static let paragraphModeKey = "primuse.transcriptReader.paragraphMode"
     static let fontSizeRange: ClosedRange<Double> = 14...36
     static let defaultFontSize = 20.0
     static let defaultCustomTextHex = "3B3127"
@@ -1122,8 +1124,9 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
 ///
 /// 跟着播放走到正在念的那一句(或那一段);自己滑开了就不再拉回,点底下的「跟随播放」再接上。
 /// 点一段从那里播(暂停着也开始播)。顶上只有关闭与章节名,底下是进度与一排键:跟随播放 · 快退 · 播放 ·
-/// 快进 · 菜单;3 秒不碰就收起(暂停着也收),点空白处、暂停、拖进度时再出来,滑动默认不叫出来(可在设置里改)。
-/// 顶栏往下拖一段退出全屏。菜单里是目录、搜索、主题与设置、播放速度,以及书签与字号。
+/// 快进 · 菜单;3 秒不碰就收起(暂停着也收),点空白处、暂停、拖进度时再出来,上下滑动默认不叫出来(可在设置里改)。
+/// 顶栏往下拖一段退出全屏。iPhone、iPad 上左右轻扫:控件收着时叫出来,控件在时退出全屏。
+/// 菜单里是目录、搜索、主题与设置、语速,以及书签与字号。字幕可以并成段落读,也可以每一行一段(设置里选)。
 struct SpokenWordTranscriptReader: View {
     let lines: [LyricLine]
     let title: String
@@ -1137,6 +1140,11 @@ struct SpokenWordTranscriptReader: View {
     private struct SearchInput: Equatable {
         let paragraphs: [Policy.Paragraph]
         let query: String?
+    }
+    /// 文稿或分段方式一变就重新分段。
+    private struct ParagraphInput: Equatable {
+        let lines: [LyricLine]
+        let mode: Policy.ParagraphMode
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -1164,6 +1172,8 @@ struct SpokenWordTranscriptReader: View {
     private var customBackgroundHex = SpokenWordTranscriptReaderPreferences.defaultCustomBackgroundHex
     @AppStorage(SpokenWordTranscriptReaderPreferences.revealsOnScrollKey)
     private var revealsChromeOnScroll = false
+    @AppStorage(SpokenWordTranscriptReaderPreferences.paragraphModeKey)
+    private var paragraphModeRawValue = Policy.ParagraphMode.merged.rawValue
     @State private var paragraphs: [Policy.Paragraph] = []
     @State private var currentIndex: Int?
     /// 正在念的那一句在段里的位置;只有「整句」高亮时才跟。
@@ -1209,6 +1219,9 @@ struct SpokenWordTranscriptReader: View {
     }
     private var highlight: SpokenWordTranscriptHighlight {
         SpokenWordTranscriptHighlight(rawValue: highlightRawValue) ?? .sentence
+    }
+    private var paragraphMode: Policy.ParagraphMode {
+        Policy.ParagraphMode(rawValue: paragraphModeRawValue) ?? .merged
     }
     private var size: CGFloat {
         CGFloat(min(max(fontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
@@ -1278,6 +1291,7 @@ struct SpokenWordTranscriptReader: View {
                 customTextHex: $customTextHex,
                 customBackgroundHex: $customBackgroundHex,
                 revealsChromeOnScroll: $revealsChromeOnScroll,
+                paragraphModeRawValue: $paragraphModeRawValue,
                 colorScheme: appearanceScheme
             )
             #if os(iOS)
@@ -1304,10 +1318,11 @@ struct SpokenWordTranscriptReader: View {
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 640)
         #endif
-        .task(id: lines) {
+        .task(id: ParagraphInput(lines: lines, mode: paragraphMode)) {
             let cues = Self.cues(from: lines)
+            let mode = paragraphMode
             let updated = await Task.detached(priority: .userInitiated) {
-                SpokenWordTranscriptReadingPolicy.paragraphs(from: cues)
+                SpokenWordTranscriptReadingPolicy.paragraphs(from: cues, mode: mode)
             }.value
             guard !Task.isCancelled else { return }
             paragraphs = updated
@@ -1384,6 +1399,11 @@ struct SpokenWordTranscriptReader: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        #if os(iOS)
+        .gesture(SpokenWordTranscriptSwipeGesture(isEnabled: !isSearching) { translation, velocityX in
+            handleSwipe(translation: translation, velocityX: velocityX)
+        })
+        #endif
         .onScrollPhaseChange { _, phase in
             switch phase {
             case .interacting:
@@ -1506,6 +1526,23 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
+    /// 左右轻扫:控件收着时叫出来,控件在时退出全屏。退出要扫得更远或更快,见 `SpokenWordTranscriptSwipePolicy`。
+    private func handleSwipe(translation: CGSize, velocityX: CGFloat) {
+        switch SpokenWordTranscriptSwipePolicy.outcome(
+            translationX: Double(translation.width),
+            translationY: Double(translation.height),
+            velocityX: Double(velocityX),
+            chromeVisible: chromeVisible
+        ) {
+        case .none:
+            break
+        case .revealChrome:
+            revealChrome()
+        case .dismiss:
+            dismiss()
+        }
+    }
+
     /// 顶上只有关闭键与章节名(菜单在底下那一排)。整条往下拖一段就退出全屏,和拉下一张卡片一样。
     @ViewBuilder
     private func topBar(palette: SpokenWordTranscriptPalette) -> some View {
@@ -1613,7 +1650,7 @@ struct SpokenWordTranscriptReader: View {
         .accessibilityLabel(Text("transcript_follow_playback"))
     }
 
-    /// 菜单(同 Apple 图书):目录、搜索、主题与设置、播放速度几行,底下一排书签与字号。
+    /// 菜单(同 Apple 图书):目录、搜索、主题与设置、语速几行,底下一排书签与字号。
     private var menuCard: some View {
         VStack(spacing: 0) {
             menuRow("spoken_word_contents_title", systemImage: "list.bullet") { chooseMenuAction(.contents) }
@@ -1666,39 +1703,60 @@ struct SpokenWordTranscriptReader: View {
         .buttonStyle(.plain)
     }
 
-    /// 播放速度:书按书记、播客一档,和播放页上的语速键改的是同一个值。右边写着当前倍速。
+    /// 语速:书按书记、播客一档,和播放页上的语速键改的是同一个值。在这一行里直接减、加一档,
+    /// 不再从菜单卡上再弹一层下拉菜单(弹出、收回时这一行整个放大缩回,卡片跟着闪)。
     private var playbackRateRow: some View {
         let rate = player.currentSpokenWordRate
-        return Menu {
-            Picker(selection: Binding(
-                get: { player.currentSpokenWordRate },
-                set: { player.setSpokenWordRateForCurrentBook($0) }
-            )) {
-                ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { preset in
-                    Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: preset)).tag(preset)
-                }
-            } label: {
-                Text(SpokenWordPlayerText.rateTitleKey(player))
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Text(SpokenWordPlayerText.rateTitleKey(player))
-                Spacer(minLength: 8)
-                Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                Image(systemName: "speedometer")
-                    .frame(width: 22)
-            }
-            .font(.body)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .contentShape(Rectangle())
+        let slower = SpokenWordPlaybackRatePolicy.adjacentPreset(to: rate, faster: false)
+        let faster = SpokenWordPlaybackRatePolicy.adjacentPreset(to: rate, faster: true)
+        return HStack(spacing: 2) {
+            Text("spoken_word_speed_short")
+            Spacer(minLength: 8)
+            rateStepButton("minus", label: "transcript_reader_speed_slower", target: slower)
+            Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText(value: Double(rate)))
+                .animation(.snappy(duration: 0.2), value: rate)
+                .frame(minWidth: 50)
+            rateStepButton("plus", label: "transcript_reader_speed_faster", target: faster)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(SpokenWordPlayerText.rateTitleKey(player)))
+        .font(.body)
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .padding(.vertical, 4)
+        #if os(iOS)
+        .sensoryFeedback(.selection, trigger: rate)
+        #endif
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("spoken_word_speed_short"))
         .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                if let faster { player.setSpokenWordRateForCurrentBook(faster) }
+            case .decrement:
+                if let slower { player.setSpokenWordRateForCurrentBook(slower) }
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    /// 语速那一行的减、加键;到头了变淡。
+    private func rateStepButton(_ systemImage: String, label: LocalizedStringKey, target: Float?) -> some View {
+        Button {
+            if let target { player.setSpokenWordRateForCurrentBook(target) }
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(target == nil)
+        .opacity(target == nil ? 0.3 : 1)
+        .accessibilityLabel(Text(label))
     }
 
     private func menuIconButton(
@@ -1961,6 +2019,64 @@ struct SpokenWordTranscriptReader: View {
     #endif
 }
 
+#if os(iOS)
+/// 文稿上的左右轻扫(见 `SpokenWordTranscriptSwipePolicy`)。UIKit 的拖动手势挂在文稿上:只在横着走时接手,
+/// 和文稿自己的上下滚动同时识别、互不抢;点段落、点空白处照旧。
+private struct SpokenWordTranscriptSwipeGesture: UIGestureRecognizerRepresentable {
+    let isEnabled: Bool
+    let onEnded: (_ translation: CGSize, _ velocityX: CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = 1
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard recognizer.state == .ended, let view = recognizer.view else { return }
+        let translation = recognizer.translation(in: view)
+        onEnded(CGSize(width: translation.x, height: translation.y), recognizer.velocity(in: view).x)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let recognizer = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = recognizer.view else { return false }
+            let translation = recognizer.translation(in: view)
+            let velocity = recognizer.velocity(in: view)
+            return SpokenWordTranscriptSwipePolicy.shouldBegin(
+                translationX: Double(translation.x),
+                translationY: Double(translation.y),
+                velocityX: Double(velocity.x),
+                velocityY: Double(velocity.y)
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard let scrollView = otherGestureRecognizer.view as? UIScrollView else { return false }
+            return otherGestureRecognizer === scrollView.panGestureRecognizer
+        }
+    }
+}
+#endif
+
 /// 鼠标移动叫出控件的节流时间。改它不触发重画,所以是个引用。
 private final class SpokenWordTranscriptHoverThrottle {
     var lastReveal = Date.distantPast
@@ -2144,7 +2260,7 @@ private struct SpokenWordTranscriptKeyLabel: View {
     }
 }
 
-/// 「主题与设置」:外观、阅读主题、字体、字重、字号、行距、段距、朗读高亮,以及滑动时要不要叫出控件。
+/// 「主题与设置」:外观、阅读主题、字体、字重、字号、行距、段距、分段方式、朗读高亮,以及滑动时要不要叫出控件。
 /// 改了文稿那边立刻跟着变。
 struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var fontRawValue: String
@@ -2158,6 +2274,7 @@ struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var customTextHex: String
     @Binding var customBackgroundHex: String
     @Binding var revealsChromeOnScroll: Bool
+    @Binding var paragraphModeRawValue: String
     /// 主题块按这个明暗画,和文稿那边看到的一样。
     let colorScheme: ColorScheme
 
@@ -2241,6 +2358,19 @@ struct SpokenWordTranscriptTypographyPanel: View {
                 Section("transcript_paragraph_spacing") {
                     spacingPicker("transcript_paragraph_spacing", selection: $paragraphSpacingRawValue)
                 }
+                Section {
+                    Picker("transcript_reader_paragraphs", selection: $paragraphModeRawValue) {
+                        ForEach(SpokenWordTranscriptReadingPolicy.ParagraphMode.allCases, id: \.self) { mode in
+                            Text(paragraphModeTitleKey(mode)).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } header: {
+                    Text("transcript_reader_paragraphs")
+                } footer: {
+                    Text("transcript_reader_paragraphs_footer")
+                }
                 Section("transcript_reader_highlight") {
                     Picker("transcript_reader_highlight", selection: $highlightRawValue) {
                         ForEach(SpokenWordTranscriptHighlight.allCases) { highlight in
@@ -2253,7 +2383,11 @@ struct SpokenWordTranscriptTypographyPanel: View {
                 Section {
                     Toggle("transcript_reader_reveal_on_scroll", isOn: $revealsChromeOnScroll)
                 } footer: {
+                    #if os(iOS)
+                    Text("transcript_reader_reveal_on_scroll_footer_swipe")
+                    #else
                     Text("transcript_reader_reveal_on_scroll_footer")
+                    #endif
                 }
             }
             .navigationTitle("transcript_reader_themes_settings")
@@ -2406,6 +2540,13 @@ struct SpokenWordTranscriptTypographyPanel: View {
         case .needsDownload: Text("transcript_reader_font_needs_download")
         case .downloading: Text("transcript_reader_font_downloading")
         case .failed: Text("transcript_reader_font_download_failed")
+        }
+    }
+
+    private func paragraphModeTitleKey(_ mode: SpokenWordTranscriptReadingPolicy.ParagraphMode) -> LocalizedStringKey {
+        switch mode {
+        case .merged: "transcript_reader_paragraphs_merged"
+        case .perCue: "transcript_reader_paragraphs_per_line"
         }
     }
 

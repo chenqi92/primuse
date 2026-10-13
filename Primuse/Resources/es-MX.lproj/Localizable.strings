@@ -5779,6 +5779,13 @@
 "transcript_reader_weight_thin" = "Fina";
 "transcript_reader_reveal_on_scroll" = "Mostrar controles al desplazarse";
 "transcript_reader_reveal_on_scroll_footer" = "Si está desactivado, los controles permanecen ocultos mientras te desplazas por la transcripción. Toca la pantalla o pausa para mostrarlos; se ocultan de nuevo tras unos segundos.";
+"transcript_reader_paragraphs" = "Párrafos";
+"transcript_reader_paragraphs_merged" = "Agrupados";
+"transcript_reader_paragraphs_per_line" = "Línea por línea";
+"transcript_reader_paragraphs_footer" = "Agrupados une las líneas de subtítulos consecutivas en párrafos y empieza uno nuevo cuando cambia quien habla, tras una pausa larga o en un título de capítulo. Línea por línea muestra cada línea de subtítulo por separado.";
+"transcript_reader_speed_slower" = "Más lento";
+"transcript_reader_speed_faster" = "Más rápido";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Si está desactivado, los controles permanecen ocultos mientras te desplazas por la transcripción. Toca la pantalla, desliza a la izquierda o a la derecha, o pausa para mostrarlos; se ocultan de nuevo tras unos segundos. Mientras se muestran, desliza a la izquierda o a la derecha para cerrar la transcripción en pantalla completa.";
 "spoken_word_text_tab_hold_hint" = "Mantén presionado para leer la transcripción en pantalla completa";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

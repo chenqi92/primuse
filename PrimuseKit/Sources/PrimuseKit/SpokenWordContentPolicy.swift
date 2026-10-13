@@ -202,7 +202,15 @@ public enum SpokenWordSkipPolicy {
 ///
 /// 一行字幕里有好几句时(整段一个时间戳的 LRC、按段落切的识别结果),按句末标点再拆成几句,
 /// 每句的开始时间按字数在这一行的时长里线性估算 —— 高亮才能跟着念到哪一句,而不是整段一起亮。
+///
+/// 也可以不并段(`ParagraphMode.perCue`):每一行自己一段,章节名照旧按标题显示,空行不占位。
 public enum SpokenWordTranscriptReadingPolicy {
+    /// 分段方式:按上面的规矩并成段落,或者每一行字幕自己一段。
+    public enum ParagraphMode: String, Sendable, CaseIterable {
+        case merged
+        case perCue
+    }
+
     public struct Cue: Sendable, Equatable {
         public var text: String
         /// nil:不带时间(纯文本文稿)。
@@ -268,7 +276,7 @@ public enum SpokenWordTranscriptReadingPolicy {
     /// 静音不该全算进这一行,否则后几句的估算开始时间会落在静音里。
     public static let estimatedSecondsPerCharacterCeiling: TimeInterval = 0.6
 
-    public static func paragraphs(from cues: [Cue]) -> [Paragraph] {
+    public static func paragraphs(from cues: [Cue], mode: ParagraphMode = .merged) -> [Paragraph] {
         var result: [Paragraph] = []
         var current: Paragraph?
         var currentLength = 0
@@ -310,7 +318,7 @@ public enum SpokenWordTranscriptReadingPolicy {
                 previous = nil
                 continue
             }
-            if var paragraph = current, let previous,
+            if mode == .merged, var paragraph = current, let previous,
                !startsNewParagraph(cue, after: previous, currentLength: currentLength) {
                 let separator = separator(between: paragraph.text, and: text)
                 let lower = currentLength + separator.count
@@ -607,5 +615,69 @@ public enum SpokenWordTranscriptReadingPolicy {
         default:
             return false
         }
+    }
+}
+
+/// 全屏文稿里的左右轻扫:控件收着时把它们叫出来,控件在的时候退出全屏。
+///
+/// 上下是翻文稿,所以只认明显横着的一扫(开始和松手时横向都要比纵向大出一截)。退出要比叫出控件
+/// 扫得更远或更快:控件刚出来、还没收回去时想再叫一次控件,轻轻一扫不会把全屏关掉。
+public enum SpokenWordTranscriptSwipePolicy {
+    public enum Outcome: Sendable, Equatable {
+        case none
+        case revealChrome
+        case dismiss
+    }
+
+    /// 横向至少是纵向的这么多倍才算横扫。
+    public static let horizontalDominanceRatio = 1.6
+    /// 手指刚动时,动了这么远或这么快才判断方向。
+    public static let minimumIntentDistance = 10.0
+    public static let minimumIntentVelocity = 60.0
+    /// 叫出控件:横着扫过这么远,或者扫得这么快(也至少扫过 `flickMinimumDistance`)。
+    public static let revealDistance = 36.0
+    public static let revealVelocity = 350.0
+    /// 退出全屏:要扫得更远或更快,快扫也至少要过两倍的 `flickMinimumDistance`。
+    public static let dismissDistance = 96.0
+    public static let dismissVelocity = 800.0
+    public static let flickMinimumDistance = 24.0
+    /// 松手前往回拉得这么快,算是反悔了。
+    public static let reversalVelocity = 120.0
+
+    /// 手指刚动时:横着走才接手,竖着走留给文稿滚动。
+    public static func shouldBegin(
+        translationX: Double,
+        translationY: Double,
+        velocityX: Double,
+        velocityY: Double
+    ) -> Bool {
+        let distance = hypot(translationX, translationY)
+        let speed = hypot(velocityX, velocityY)
+        guard distance >= minimumIntentDistance || speed >= minimumIntentVelocity else { return false }
+        let usesVelocity = speed >= minimumIntentVelocity
+        let horizontal = abs(usesVelocity ? velocityX : translationX)
+        let vertical = abs(usesVelocity ? velocityY : translationY)
+        return horizontal >= max(1, vertical * horizontalDominanceRatio)
+    }
+
+    /// 松手时这一扫算什么。往左往右一样。
+    public static func outcome(
+        translationX: Double,
+        translationY: Double,
+        velocityX: Double,
+        chromeVisible: Bool
+    ) -> Outcome {
+        let distance = abs(translationX)
+        guard distance >= max(1, abs(translationY) * horizontalDominanceRatio) else { return .none }
+        if translationX * velocityX < 0, abs(velocityX) >= reversalVelocity { return .none }
+        let speed = abs(velocityX)
+        if chromeVisible,
+           distance >= dismissDistance || (speed >= dismissVelocity && distance >= flickMinimumDistance * 2) {
+            return .dismiss
+        }
+        if distance >= revealDistance || (speed >= revealVelocity && distance >= flickMinimumDistance) {
+            return .revealChrome
+        }
+        return .none
     }
 }
