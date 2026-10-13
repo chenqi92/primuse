@@ -394,6 +394,152 @@ public extension ListeningIntentShelfPolicy {
     }
 }
 
+// MARK: - The lead card on the grid
+
+/// Where the lead card ("pick up where you left off" / "anything") sits on
+/// the spread-out grid.
+public enum ListeningIntentLeadPlacement: Equatable, Sendable {
+    /// Across the whole first row, the other tiles below: a two-column grid
+    /// (phones), where the row is only a little wider than a card.
+    case fullRow
+    /// Two columns wide and two rows tall at the leading edge, the first
+    /// tiles filling the columns beside it: wider grids (iPad, landscape,
+    /// iPhone Duo, the Mac), where a card across the whole row stretches into
+    /// a long thin strip.
+    case block
+}
+
+/// One card's frame on the grid, in the grid's own coordinates.
+public struct ListeningIntentGridFrame: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+public extension ListeningIntentShelfPolicy {
+    /// Columns the lead block spans, and rows it is tall.
+    static let leadBlockSpan = 2
+
+    /// Tiles beside the lead block: the columns left over, two rows of them.
+    static func tilesBesideLeadBlock(columns: Int) -> Int {
+        max(0, columns - leadBlockSpan) * leadBlockSpan
+    }
+
+    /// A block once the grid has a column to spare beside it and enough other
+    /// tiles to fill both rows there; otherwise the block would sit next to
+    /// empty space, and the card goes across the row as before.
+    static func leadPlacement(columns: Int, otherTiles: Int) -> ListeningIntentLeadPlacement {
+        let beside = tilesBesideLeadBlock(columns: columns)
+        return beside > 0 && otherTiles >= beside ? .block : .fullRow
+    }
+
+    /// Tiles the collapsed grid shows next to the lead card. The lead takes
+    /// its share of the chosen count, a whole row or the four cells of the
+    /// block, and the rest round up: beside a block the slots next to it fill
+    /// first, then whole rows below.
+    static func collapsedGridCount(
+        limit: Int,
+        columns: Int,
+        available: Int,
+        lead: ListeningIntentLeadPlacement?
+    ) -> Int {
+        let columns = max(1, columns)
+        switch lead {
+        case nil:
+            return collapsedGridCount(limit: limit, columns: columns, available: available)
+        case .fullRow:
+            return collapsedGridCount(limit: max(1, limit - columns), columns: columns, available: available)
+        case .block:
+            guard available > 0 else { return 0 }
+            let beside = tilesBesideLeadBlock(columns: columns)
+            let wanted = max(1, limit - leadBlockSpan * leadBlockSpan)
+            guard wanted > beside else { return min(available, beside) }
+            let extraRows = (wanted - beside + columns - 1) / columns
+            return min(available, beside + extraRows * columns)
+        }
+    }
+
+    /// Where every card goes: the lead first when there is one, then the
+    /// tiles in order. A row is as tall as its tallest card; a lead block is
+    /// as tall as the two rows beside it, or taller when its own content
+    /// needs more, and the rows below start under it.
+    /// - Parameters:
+    ///   - leadHeight: the lead card's height at a width.
+    ///   - tileHeight: a tile's height (by index among the tiles) at a width.
+    static func gridFrames(
+        width: Double,
+        columns: Int,
+        spacing: Double,
+        lead: ListeningIntentLeadPlacement?,
+        tileCount: Int,
+        leadHeight: (Double) -> Double,
+        tileHeight: (Int, Double) -> Double
+    ) -> (frames: [ListeningIntentGridFrame], height: Double) {
+        let columns = max(1, columns)
+        let spacing = max(0, spacing)
+        let width = max(0, width)
+        let cell = max(0, (width - Double(columns - 1) * spacing) / Double(columns))
+        var frames: [ListeningIntentGridFrame] = []
+        frames.reserveCapacity(tileCount + 1)
+        var y = 0.0
+        var next = 0
+
+        /// One row of tiles starting at `x`, `count` columns wide.
+        func row(startingAt x: Double, top: Double, count: Int) -> Double {
+            let end = min(tileCount, next + count)
+            let height = (next..<end).map { tileHeight($0, cell) }.max() ?? 0
+            for (offset, _) in (next..<end).enumerated() {
+                frames.append(ListeningIntentGridFrame(
+                    x: x + Double(offset) * (cell + spacing),
+                    y: top,
+                    width: cell,
+                    height: height
+                ))
+            }
+            next = end
+            return height
+        }
+
+        switch lead {
+        case nil:
+            break
+        case .fullRow:
+            let height = leadHeight(width)
+            frames.append(ListeningIntentGridFrame(x: 0, y: 0, width: width, height: height))
+            y = height + spacing
+        case .block:
+            let span = Double(leadBlockSpan)
+            let blockWidth = cell * span + spacing * (span - 1)
+            frames.append(ListeningIntentGridFrame(x: 0, y: 0, width: blockWidth, height: 0))
+            let besideX = blockWidth + spacing
+            let besideColumns = columns - leadBlockSpan
+            var rowsHeight = 0.0
+            for index in 0..<leadBlockSpan {
+                let height = row(startingAt: besideX, top: rowsHeight, count: besideColumns)
+                rowsHeight += height + (index < leadBlockSpan - 1 ? spacing : 0)
+            }
+            let blockHeight = max(rowsHeight, leadHeight(blockWidth))
+            frames[0].height = blockHeight
+            y = blockHeight + spacing
+        }
+
+        while next < tileCount {
+            let height = row(startingAt: 0, top: y, count: columns)
+            y += height + spacing
+        }
+        let total = frames.isEmpty ? 0 : max(0, y - spacing)
+        return (frames, total)
+    }
+}
+
 // MARK: - Matching songs
 
 public extension ListeningIntentEngine {

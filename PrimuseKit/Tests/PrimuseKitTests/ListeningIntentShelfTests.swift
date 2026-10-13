@@ -274,4 +274,86 @@ struct ListeningIntentShelfTests {
         #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 0, available: 21) == 6)
         #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 2, available: 0) == 0)
     }
+
+    @Test("The lead card goes across the row on a phone and becomes a two-by-two block on wider grids")
+    func leadPlacement() {
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 2, otherTiles: 20) == .fullRow)
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 3, otherTiles: 20) == .block)
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 4, otherTiles: 4) == .block)
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 6, otherTiles: 8) == .block)
+        // Not enough tiles to fill both rows beside the block: across the row as before.
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 4, otherTiles: 3) == .fullRow)
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 6, otherTiles: 7) == .fullRow)
+        #expect(ListeningIntentShelfPolicy.leadPlacement(columns: 0, otherTiles: 20) == .fullRow)
+        #expect(ListeningIntentShelfPolicy.tilesBesideLeadBlock(columns: 2) == 0)
+        #expect(ListeningIntentShelfPolicy.tilesBesideLeadBlock(columns: 5) == 6)
+    }
+
+    @Test("Collapsed counts next to the lead: a row's worth across, the slots beside a block first")
+    func collapsedGridBesideLead() {
+        // Phone: the lead takes a row of two, four tiles below.
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 2, available: 21, lead: .fullRow) == 4)
+        // Same as before the block existed when the lead goes across.
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 21, lead: .fullRow) == 4)
+        // The default six fill exactly the two rows beside the block, whatever the width.
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 3, available: 21, lead: .block) == 2)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 21, lead: .block) == 4)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 6, available: 21, lead: .block) == 8)
+        // More than fits beside it: whole rows below.
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 12, columns: 4, available: 21, lead: .block) == 8)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 13, columns: 4, available: 21, lead: .block) == 12)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 13, columns: 4, available: 9, lead: .block) == 9)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 0, lead: .block) == 0)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 21, lead: nil) == 8)
+    }
+
+    @Test("Grid frames: the block spans two columns and two rows, tiles fill beside it, then rows below")
+    func gridFramesWithBlock() {
+        // 4 columns of 150 with 8 between: 624 wide.
+        let result = ListeningIntentShelfPolicy.gridFrames(
+            width: 624, columns: 4, spacing: 8, lead: .block, tileCount: 7,
+            leadHeight: { _ in 100 }, tileHeight: { _, _ in 64 }
+        )
+        let frames = result.frames
+        #expect(frames.count == 8)
+        #expect(frames[0] == ListeningIntentGridFrame(x: 0, y: 0, width: 308, height: 136))
+        #expect(frames[1] == ListeningIntentGridFrame(x: 316, y: 0, width: 150, height: 64))
+        #expect(frames[2] == ListeningIntentGridFrame(x: 474, y: 0, width: 150, height: 64))
+        #expect(frames[3] == ListeningIntentGridFrame(x: 316, y: 72, width: 150, height: 64))
+        #expect(frames[4] == ListeningIntentGridFrame(x: 474, y: 72, width: 150, height: 64))
+        #expect(frames[5] == ListeningIntentGridFrame(x: 0, y: 144, width: 150, height: 64))
+        #expect(frames[7] == ListeningIntentGridFrame(x: 316, y: 144, width: 150, height: 64))
+        #expect(result.height == 208)
+    }
+
+    @Test("A lead block taller than the rows beside it pushes the rows below down")
+    func gridFramesTallLead() {
+        let result = ListeningIntentShelfPolicy.gridFrames(
+            width: 466, columns: 3, spacing: 8, lead: .block, tileCount: 3,
+            leadHeight: { _ in 160 }, tileHeight: { _, _ in 64 }
+        )
+        #expect(result.frames[0].height == 160)
+        #expect(result.frames[3].y == 168)
+        #expect(result.height == 232)
+    }
+
+    @Test("Grid frames: across the row, or no lead at all, rows as tall as their tallest tile")
+    func gridFramesAcross() {
+        let across = ListeningIntentShelfPolicy.gridFrames(
+            width: 358, columns: 2, spacing: 8, lead: .fullRow, tileCount: 3,
+            leadHeight: { width in width > 300 ? 78 : 200 }, tileHeight: { index, _ in index == 1 ? 80 : 64 }
+        )
+        #expect(across.frames[0] == ListeningIntentGridFrame(x: 0, y: 0, width: 358, height: 78))
+        #expect(across.frames[1] == ListeningIntentGridFrame(x: 0, y: 86, width: 175, height: 80))
+        #expect(across.frames[2] == ListeningIntentGridFrame(x: 183, y: 86, width: 175, height: 80))
+        #expect(across.frames[3] == ListeningIntentGridFrame(x: 0, y: 174, width: 175, height: 64))
+        #expect(across.height == 238)
+
+        let bare = ListeningIntentShelfPolicy.gridFrames(
+            width: 358, columns: 2, spacing: 8, lead: nil, tileCount: 0,
+            leadHeight: { _ in 78 }, tileHeight: { _, _ in 64 }
+        )
+        #expect(bare.frames.isEmpty)
+        #expect(bare.height == 0)
+    }
 }

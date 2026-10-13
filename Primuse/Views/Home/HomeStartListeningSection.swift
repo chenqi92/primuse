@@ -140,7 +140,8 @@ struct StartListeningShelf: View {
 
     // MARK: Grid
 
-    /// 第一张(接着上次 / 随便听听)占满一整行,收起时算一整行的张数;其余按列铺开。
+    /// 第一张(接着上次 / 随便听听)在手机上占满一整行;更宽的网格里占左边两列、两行高,
+    /// 旁边先放色块,不再拉成一条细长的横栏。收起时首卡占掉它那一份张数,其余按列铺开。
     @ViewBuilder
     private func grid(_ items: [ListeningIntentShelfItem], limit: Int) -> some View {
         let columns = ListeningIntentShelfPolicy.gridColumns(
@@ -149,17 +150,21 @@ struct StartListeningShelf: View {
         )
         let lead = items.first { $0.role == .lead }
         let rest = items.filter { $0.role != .lead }
+        let placement = lead.map { _ in
+            ListeningIntentShelfPolicy.leadPlacement(columns: columns, otherTiles: rest.count)
+        }
         let collapsed = ListeningIntentShelfPolicy.collapsedGridCount(
-            limit: Self.collapsedTileLimit(limit, columns: columns, hasLead: lead != nil),
+            limit: limit,
             columns: columns,
-            available: rest.count
+            available: rest.count,
+            lead: placement
         )
         let hiddenCount = rest.count - collapsed
         let shown = isGridExpanded || hiddenCount == 0 ? rest : Array(rest.prefix(collapsed))
         VStack(spacing: 4) {
-            VStack(spacing: Self.gridSpacing) {
-                if let lead { heroTile(lead) }
-                ListeningIntentEagerGrid(items: shown, columns: columns, spacing: Self.gridSpacing) { item in
+            ListeningIntentShelfGridLayout(columns: columns, spacing: Self.gridSpacing, lead: placement) {
+                if let lead { heroTile(lead, isBlock: placement == .block) }
+                ForEach(shown) { item in
                     tile(item)
                 }
             }
@@ -174,12 +179,7 @@ struct StartListeningShelf: View {
         .padding(.horizontal, horizontalInset)
     }
 
-    /// 收起时网格里放几张:首卡占了一整行,从设定的张数里扣掉一行。
-    private static func collapsedTileLimit(_ limit: Int, columns: Int, hasLead: Bool) -> Int {
-        hasLead ? max(1, limit - max(1, columns)) : limit
-    }
-
-    private func heroTile(_ item: ListeningIntentShelfItem) -> some View {
+    private func heroTile(_ item: ListeningIntentShelfItem, isBlock: Bool) -> some View {
         let title = service.title(for: item.intent)
         let detail = ListeningIntentText.songCount(item.songCount)
         return Button {
@@ -191,7 +191,8 @@ struct StartListeningShelf: View {
                 tint: item.intent.tint,
                 symbolName: item.intent.symbolName,
                 covers: covers(for: item, limit: 3),
-                isWorking: startingIntentID == item.id
+                isWorking: startingIntentID == item.id,
+                isBlock: isBlock
             )
         }
         .buttonStyle(.pmPressable)
@@ -409,28 +410,28 @@ struct StartListeningShelf: View {
             }
             switch arrangement {
             case .grid(let limit):
-                // 首卡与收起时的行数、列数都和真网格一致,换上真卡片时下面的区块不被顶开;
+                // 首卡的摆法与收起时的行数、列数都和真网格一致,换上真卡片时下面的区块不被顶开;
                 // 宽度在占位上就量,iPad 不会先排两列再跳成四列。
                 let columns = ListeningIntentShelfPolicy.gridColumns(
                     width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
                     spacing: Double(Self.gridSpacing)
                 )
-                let tiles = Self.collapsedTileLimit(limit, columns: columns, hasLead: true)
-                let rows = (tiles + columns - 1) / columns
-                VStack(spacing: Self.gridSpacing) {
+                // 还不知道有几张,按够用算:宽网格里首卡就是左边那一块。
+                let placement = ListeningIntentShelfPolicy.leadPlacement(columns: columns, otherTiles: .max)
+                let tiles = ListeningIntentShelfPolicy.collapsedGridCount(
+                    limit: limit,
+                    columns: columns,
+                    available: .max,
+                    lead: placement
+                )
+                ListeningIntentShelfGridLayout(columns: columns, spacing: Self.gridSpacing, lead: placement) {
                     RoundedRectangle(cornerRadius: ListeningIntentHeroTile.cornerRadius, style: .continuous)
                         .fill(ListeningIntentCard.neutralSurface)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: ListeningIntentHeroTile.minHeight)
-                    ForEach(0..<rows, id: \.self) { _ in
-                        HStack(spacing: Self.gridSpacing) {
-                            ForEach(0..<columns, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
-                                    .fill(ListeningIntentCard.neutralSurface)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: ListeningIntentTile.minHeight)
-                            }
-                        }
+                        .frame(minHeight: placement == .block ? 0 : ListeningIntentHeroTile.minHeight)
+                    ForEach(0..<tiles, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
+                            .fill(ListeningIntentCard.neutralSurface)
+                            .frame(height: ListeningIntentTile.minHeight)
                     }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
@@ -679,6 +680,54 @@ struct ListeningIntentEagerGrid<Item: Identifiable, Content: View>: View {
     }
 }
 
+/// 首页「开始听」铺开时的网格:首卡和色块由一个 Layout 摆(位置见 `ListeningIntentShelfPolicy.gridFrames`)。
+/// 列数或首卡的摆法变了(转屏、开合、拉宽窗口),卡片还是同一批视图,长按菜单不换宿主,
+/// 位置变化跟着动画挪过去。不懒加载:卡片只有几十张。
+struct ListeningIntentShelfGridLayout: Layout {
+    var columns: Int
+    var spacing: CGFloat
+    /// 第一个子视图是首卡时它怎么摆;nil 表示没有首卡,全是色块。
+    var lead: ListeningIntentLeadPlacement?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        // 只问理想尺寸时按每列最窄的宽度排。
+        let width = proposal.width ?? CGFloat(
+            Double(max(1, columns)) * ListeningIntentShelfPolicy.gridMinimumTileWidth
+                + Double(max(0, columns - 1)) * Double(spacing)
+        )
+        return CGSize(width: width, height: CGFloat(arrangement(width: width, subviews: subviews).height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = arrangement(width: bounds.width, subviews: subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + CGFloat(frame.x), y: bounds.minY + CGFloat(frame.y)),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
+            )
+        }
+    }
+
+    private func arrangement(width: CGFloat, subviews: Subviews) -> (frames: [ListeningIntentGridFrame], height: Double) {
+        let lead = subviews.isEmpty ? nil : self.lead
+        let firstTile = lead == nil ? 0 : 1
+        return ListeningIntentShelfPolicy.gridFrames(
+            width: Double(width),
+            columns: columns,
+            spacing: Double(spacing),
+            lead: lead,
+            tileCount: subviews.count - firstTile,
+            leadHeight: { width in
+                Double(subviews[0].sizeThatFits(ProposedViewSize(width: CGFloat(width), height: nil)).height)
+            },
+            tileHeight: { index, width in
+                Double(subviews[firstTile + index].sizeThatFits(ProposedViewSize(width: CGFloat(width), height: nil)).height)
+            }
+        )
+    }
+}
+
 /// 铺开时的一格:名字和曲数靠左,右下角压一个放大的半透明符号,撑满列宽。底色与横排卡片同一套。
 struct ListeningIntentTile: View {
     static let minHeight: CGFloat = 64
@@ -770,7 +819,9 @@ struct ListeningIntentWatermark: View {
     }
 }
 
-/// 第一张(接着上次 / 随便听听)占满一整行:左边三张封面叠成一摞,中间名字、曲数与歌手,右边播放键。
+/// 第一张(接着上次 / 随便听听)。手机上占满一整行:左边三张封面叠成一摞,中间名字、曲数与歌手,
+/// 右边播放键。宽网格里占左边两列两行(`isBlock`):封面摞与播放键在上,名字在左下,
+/// 右下角压着和色块一样的放大符号。
 struct ListeningIntentHeroTile: View {
     static let minHeight: CGFloat = 78
     static let cornerRadius: CGFloat = 16
@@ -784,52 +835,93 @@ struct ListeningIntentHeroTile: View {
     let symbolName: String
     var covers: [Song] = []
     var isWorking = false
+    /// 宽网格里占左边两列两行,竖着排;高度由网格给(和旁边两行色块一样高)。
+    var isBlock = false
 
     private static let coverSide: CGFloat = 52
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-        HStack(spacing: 12) {
-            coverStack
-            VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: title)
-                    .font(.headline.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                if let line = subtitle {
-                    Text(verbatim: line)
-                        .font(.caption)
-                        .opacity(0.82)
-                        .lineLimit(1)
-                }
+        Group {
+            if isBlock {
+                blockLayout
+            } else {
+                rowLayout
             }
-            Spacer(minLength: 4)
-            ZStack {
-                Circle()
-                    .fill(.white)
-                if isWorking {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(cardTint)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(cardTint)
-                        .offset(x: 1)
-                }
-            }
-            .frame(width: 38, height: 38)
-            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-            .accessibilityHidden(true)
         }
         .foregroundStyle(.white)
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background {
-            ListeningIntentCard.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
+            ZStack(alignment: .bottomTrailing) {
+                ListeningIntentCard.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
+                if isBlock {
+                    ListeningIntentWatermark(symbolName: symbolName, size: 96)
+                }
+            }
         }
         .clipShape(shape)
         .contentShape(shape)
+    }
+
+    private var rowLayout: some View {
+        HStack(spacing: 12) {
+            coverStack
+            titles(font: .headline.weight(.bold))
+            Spacer(minLength: 4)
+            playButton
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
+    }
+
+    /// 上面封面摞和播放键,下面名字与曲数。按两行色块的高度排得下(64 × 2 + 8),
+    /// 字放大以后由网格把这一块和下面几行一起撑高。
+    private var blockLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                coverStack
+                Spacer(minLength: 0)
+                playButton
+            }
+            Spacer(minLength: 6)
+            titles(font: .title3.weight(.bold))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func titles(font: Font) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: title)
+                .font(font)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if let line = subtitle {
+                Text(verbatim: line)
+                    .font(.caption)
+                    .opacity(0.82)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var playButton: some View {
+        ZStack {
+            Circle()
+                .fill(.white)
+            if isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(cardTint)
+            } else {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(cardTint)
+                    .offset(x: 1)
+            }
+        }
+        .frame(width: 38, height: 38)
+        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        .accessibilityHidden(true)
     }
 
     /// 曲数在前(一行放不下时截掉的是歌手),后面接封面里的歌手,去重、最多两位。
