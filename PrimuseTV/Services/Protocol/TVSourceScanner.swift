@@ -910,8 +910,8 @@ actor TVUgreenLister: TVDirectoryLister {
     }
 }
 
-/// 源内相对路径与 provider 路径之间的换算(源可以配置一个基准目录)。
-enum TVFilesProviderPathPolicy {
+/// 源内相对路径与服务器上完整路径之间的换算(源可以配置一个基准目录)。
+enum TVServerPathPolicy {
     static func providerPath(base: String, path: String) -> String {
         let cleanBase = normalize(base)
         let cleanPath = normalize(path)

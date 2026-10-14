@@ -729,9 +729,10 @@ public enum RemoteWAVPlaybackPolicy {
 }
 
 /// Some connectors cannot safely sustain the generic five-request playback
-/// burst. OneDrive can stall under concurrent ranges, while FilesProvider's FTP
-/// range implementation leaves each control task open until its session is
-/// invalidated. Both use demand-driven reads instead of background prefetch.
+/// burst. OneDrive can stall under concurrent ranges. FTP keeps the setting it
+/// had under the former FilesProvider client, whose range implementation left
+/// each control task open until its session was invalidated. Both use
+/// demand-driven reads instead of background prefetch.
 public enum RangeStreamingPrefetchPolicy {
     public enum BackgroundCacheMode: Sendable, Equatable {
         case disabled
@@ -1085,21 +1086,6 @@ public struct WebDAVPathPolicy: Equatable, Sendable {
         return nil
     }
 
-    /// Converts FilesProvider's callback path to the source-relative namespace.
-    /// FilesProvider normally strips the configured base path before creating a
-    /// FileObject, while reverse-proxy responses can still retain the upstream
-    /// WebDAV root. Prefer the server-path mapping for that retained-root case,
-    /// then accept the already-relative callback path without prefixing the
-    /// configured base path a second time.
-    public func sourcePath(forProviderPath providerPath: String) -> String? {
-        if let sourcePath = sourcePath(forServerPath: providerPath) {
-            return sourcePath
-        }
-        let decodedPath = providerPath.removingPercentEncoding ?? providerPath
-        return RemotePathScopePolicy(rootPath: "/")
-            .resolvedPath(forStoredPath: decodedPath)
-    }
-
     private static func containsParentReference(_ path: String) -> Bool {
         path.split(separator: "/", omittingEmptySubsequences: false)
             .contains { $0 == ".." }
@@ -1119,9 +1105,9 @@ public struct WebDAVPathPolicy: Equatable, Sendable {
 }
 
 /// Keeps the app-facing FTP namespace relative to the configured source root.
-/// FilesProvider must receive a root base URL because it applies its own
-/// `ftpPath` helper more than once in several operations; putting `basePath` in
-/// both the URL and operation path would produce `/base/base/...` commands.
+/// The connection URL always names the server root and every FTP command gets
+/// an absolute server path, so `basePath` is applied here exactly once instead
+/// of producing `/base/base/...` commands.
 public struct FTPPathPolicy: Equatable, Sendable {
     public static let providerBaseURLPath = "/"
 
@@ -1132,7 +1118,7 @@ public struct FTPPathPolicy: Equatable, Sendable {
     }
 
     /// Converts a source-relative browser/song path to the absolute server path
-    /// passed to every FilesProvider operation.
+    /// passed to every FTP command.
     public func providerPath(forSourcePath sourcePath: String) -> String {
         let sourcePath = Self.normalizeAbsolutePath(sourcePath)
         guard basePath != "/" else { return sourcePath }
@@ -1140,7 +1126,7 @@ public struct FTPPathPolicy: Equatable, Sendable {
         return basePath + sourcePath
     }
 
-    /// Converts a FilesProvider list result back to the source-relative path
+    /// Converts an FTP listing path back to the source-relative path
     /// persisted by selected directories and songs. Out-of-root results are
     /// rejected instead of escaping the configured source scope.
     public func sourcePath(forProviderPath providerPath: String) -> String? {
@@ -1165,15 +1151,9 @@ public struct FTPPathPolicy: Equatable, Sendable {
 }
 
 /// Keeps FTP callback quirks from turning an incomplete transfer into a
-/// durable cache entry. FilesProvider can invoke a completion more than once
-/// while validating the final control reply; its additional MLST fallback
-/// callback source is disabled below.
+/// durable cache entry: a completion can arrive more than once while the
+/// final control reply is validated.
 public enum FTPTransferPolicy {
-    /// FilesProvider 0.26's MLST fallback calls its attribute completion twice.
-    /// Its RETR path starts a transfer for both callbacks, so callers that add
-    /// their own retry must use the dependency's single-callback LIST path.
-    public static let usesRFC3659ForAttributes = false
-
     public enum CallbackDecision: Equatable, Sendable {
         case accept
         case retry
@@ -1211,7 +1191,7 @@ public enum FTPTransferPolicy {
     }
 
     /// Converts regular and suffix requests into a nonnegative, EOF-clipped
-    /// range whose expected byte count fits FilesProvider's `Int` API.
+    /// range whose expected byte count fits in an `Int`.
     public static func rangePlan(
         fileSize: Int64,
         requestedOffset: Int64,

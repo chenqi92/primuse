@@ -22,7 +22,7 @@ actor TVWebDAVDirectoryLister: TVDirectoryLister {
         components.scheme = source.useSsl ? "https" : "http"
         components.host = host
         if let port = source.port, port > 0 { components.port = port }
-        let root = TVFilesProviderPathPolicy.providerPath(base: source.basePath ?? "", path: "/")
+        let root = TVServerPathPolicy.providerPath(base: source.basePath ?? "", path: "/")
         components.path = root.hasSuffix("/") ? root : root + "/"
         let username = credential?.username ?? ""
         let password = credential?.password ?? ""

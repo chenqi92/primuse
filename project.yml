@@ -31,9 +31,6 @@ packages:
   AMSMB2:
     url: https://github.com/amosavian/AMSMB2.git
     from: "4.0.0"
-  FilesProvider:
-    url: https://github.com/amosavian/FileProvider.git
-    from: "0.26.0"
   Citadel:
     url: https://github.com/orlandos-nl/Citadel.git
     revision: 69d80d39ca3b0bac5f04551a97af5dd7a827f887
@@ -860,12 +857,10 @@ targets:
       - package: GRDB
         product: GRDB-dynamic
         embed: true
-      # 协议直连(去 iPhone 中继):SMB / NFS / WebDAV·FTP 的 tvOS 原生客户端,
+      # 协议直连(去 iPhone 中继):SMB / NFS 的 tvOS 原生客户端(WebDAV、FTP 用项目内置的客户端),
       # 经 connector.fetchRange + AVAssetResourceLoaderDelegate 喂 AVPlayer。
       - package: AMSMB2
         embed: true
-      - package: FilesProvider
-        product: FilesProvider
       - package: NFSKit
         product: NFSKit
       # SFTP 直连:与 iOS / macOS 用同一套 Citadel + NIOSSH 客户端。

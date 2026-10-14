@@ -383,12 +383,13 @@ primuse/
 | FFmpeg 8.1 (bundled dynamic XCFrameworks) | DTS/DTS-CD, multichannel downmix, and compatibility decoding |
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite library persistence |
 | [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS client |
-| [FileProvider](https://github.com/amosavian/FileProvider) | FTP and WebDAV file operations |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP client |
 | [NFSKit](https://github.com/alexiscn/NFSKit) | NFS client |
 | [swift-crypto](https://github.com/apple/swift-crypto) | Cryptographic and signing operations |
 | [swift-nio](https://github.com/apple/swift-nio) | Asynchronous networking infrastructure |
 | [SwiftDraw](https://github.com/swhitty/SwiftDraw) | SVG station-logo and vector-image rendering |
+
+The FTP/FTPS and WebDAV clients are built into the project and do not depend on third-party packages.
 
 System frameworks include MusicKit, CloudKit, AVFoundation, MediaPlayer, CarPlay, WidgetKit, WatchConnectivity, App Intents, Core Spotlight, Translation, and Network.framework.
 

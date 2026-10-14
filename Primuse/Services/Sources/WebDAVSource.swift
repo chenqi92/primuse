@@ -199,8 +199,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
 
     private func establishConnection(generation: UUID) async throws {
         guard connectionGeneration == generation else { throw CancellationError() }
-        // All WebDAV transports use per-connector sessions. FilesProvider's
-        // lazy session initialization mutates unsynchronized process-wide maps.
+        // All WebDAV transports use per-connector sessions.
         do {
             _ = try await listFilesUsingTrustedTransport(at: "/")
             try Task.checkCancellation()

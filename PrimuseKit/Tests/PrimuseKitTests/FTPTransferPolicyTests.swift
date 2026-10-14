@@ -84,11 +84,6 @@ struct FTPTransferPolicyTests {
         #expect(policy.sourcePath(forProviderPath: listedProviderFile) == sourceFile)
     }
 
-    @Test("Attribute lookup disables the dependency's double-callback fallback")
-    func attributesUseSingleCallbackListPath() {
-        #expect(!FTPTransferPolicy.usesRFC3659ForAttributes)
-    }
-
     @Test("Zero-byte downloads still require a successful transport callback")
     func zeroByteDownloadRejectsTransportError() {
         #expect(!FTPTransferPolicy.downloadPayloadIsValid(

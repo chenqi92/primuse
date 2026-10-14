@@ -239,7 +239,6 @@
 		1E5FDB70236F469521A6069A /* PrimuseTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5777C4BD5F21B1F077D01378 /* PrimuseTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1E6011D213B9E33B7DD9FDD2 /* MusicBrainzScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */; };
 		1E619F4EC986CF897477BEC1 /* InterfaceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A841284C4AD23DCF2EE2EDA /* InterfaceEditorView.swift */; };
-		1E9136D22E0BD1D5636B71A0 /* FilesProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 40611D493FD37CDE5D17ECCF /* FilesProvider */; };
 		1EBB7BA02569BD1AC212931C /* LastFmProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6D71AD2F05173FB3084C7 /* LastFmProvider.swift */; };
 		1EE15EEAAE687E8373EEF3E4 /* LyricsWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392ED1C12D986BAB8D2A1EBD /* LyricsWriteback.swift */; };
 		1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */; };
@@ -3714,7 +3713,6 @@
 				F101F74A9F076657AE7C6D3E /* PrimuseKit.framework in Frameworks */,
 				29A9409313AE55C1C09F955C /* GRDB-dynamic in Frameworks */,
 				923419C1DA62D2B6B7C97E54 /* AMSMB2 in Frameworks */,
-				1E9136D22E0BD1D5636B71A0 /* FilesProvider in Frameworks */,
 				3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */,
 				43A41981339889419B582887 /* Citadel in Frameworks */,
 				13D5A32839126B9045BF15F9 /* Crypto in Frameworks */,
@@ -5808,7 +5806,6 @@
 			packageProductDependencies = (
 				EF9635658A256FB5BD539D55 /* GRDB-dynamic */,
 				60CB1C69962970C37F46BE91 /* AMSMB2 */,
-				40611D493FD37CDE5D17ECCF /* FilesProvider */,
 				6B0EB701D9FE5D2A90E43FD9 /* NFSKit */,
 				C4613DCB16547AB22EE7D4FD /* Citadel */,
 				78723AF9ADCA00533C13723D /* Crypto */,
@@ -6129,7 +6126,6 @@
 			packageReferences = (
 				13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */,
 				466EF0BB12C1115075D5668A /* XCRemoteSwiftPackageReference "Citadel" */,
-				CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */,
 				5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */,
 				BB7F62B1FCDD8924C0B18F5F /* XCRemoteSwiftPackageReference "SFBAudioEngine" */,
@@ -9478,14 +9474,6 @@
 				minimumVersion = 0.29.0;
 			};
 		};
-		CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/amosavian/FileProvider.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.26.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -9513,11 +9501,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOCore;
-		};
-		40611D493FD37CDE5D17ECCF /* FilesProvider */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */;
-			productName = FilesProvider;
 		};
 		4554180DADE700DF4BA63BA0 /* NFSKit */ = {
 			isa = XCSwiftPackageProductDependency;

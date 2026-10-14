@@ -97,7 +97,7 @@ actor TVFTPLister: TVDirectoryLister {
     func list(_ path: String) async throws -> [TVDirEntry] {
         let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
         let relative = (normalized.isEmpty || normalized == "/") ? "/" : normalized
-        let providerPath = TVFilesProviderPathPolicy.providerPath(base: basePath, path: relative)
+        let providerPath = TVServerPathPolicy.providerPath(base: basePath, path: relative)
         let base = basePath
         let entries = try await pool.withSession { session in
             try await session.list(providerPath)
@@ -109,7 +109,7 @@ actor TVFTPLister: TVDirectoryLister {
                     name: entry.name,
                     isDir: entry.isDirectory,
                     size: entry.size,
-                    path: TVFilesProviderPathPolicy.sourcePath(
+                    path: TVServerPathPolicy.sourcePath(
                         base: base,
                         providerPath: (providerPath as NSString).appendingPathComponent(entry.name)
                     ),

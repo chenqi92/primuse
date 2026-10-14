@@ -383,12 +383,13 @@ primuse/
 | FFmpeg 8.1（仓库内动态 XCFramework） | DTS/DTS-CD、多声道降混和兼容格式解码 |
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite 资料库持久化 |
 | [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS 客户端 |
-| [FileProvider](https://github.com/amosavian/FileProvider) | FTP 与 WebDAV 文件操作 |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP 客户端 |
 | [NFSKit](https://github.com/alexiscn/NFSKit) | NFS 客户端 |
 | [swift-crypto](https://github.com/apple/swift-crypto) | 加密与签名操作 |
 | [swift-nio](https://github.com/apple/swift-nio) | 异步网络基础设施 |
 | [SwiftDraw](https://github.com/swhitty/SwiftDraw) | SVG 电台台标与矢量图像渲染 |
+
+FTP/FTPS 与 WebDAV 客户端为项目内置实现，不依赖第三方包。
 
 系统框架包括 MusicKit、CloudKit、AVFoundation、MediaPlayer、CarPlay、WidgetKit、WatchConnectivity、App Intents、Core Spotlight、Translation 和 Network.framework。
 
