@@ -303,8 +303,12 @@ actor PrimuseAIRelayClient {
     static let providerID = UUID(uuidString: "C8465401-5F73-4FC4-9A58-019220216BC9")!
 
     nonisolated static var isSupportedOnCurrentDevice: Bool {
-        DCAppAttestService.shared.isSupported || AppStore.deviceVerificationID != nil
+        isAppAttestSupported || AppStore.deviceVerificationID != nil
     }
+
+    /// `DCAppAttestService.isSupported` 每读一次都要和系统服务同步来回一趟,而首页、搜索页的
+    /// body 里都会读到这里;这台设备支不支持在进程里不会变,只问一次。
+    private nonisolated static let isAppAttestSupported = DCAppAttestService.shared.isSupported
 
     private static let appID = "primuse"
     /// 当前运行的构建号(CFBundleVersion)。

@@ -1007,6 +1007,9 @@ final class AppServices {
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private var siriRadioCatalogSignature: [String]?
+    /// 正在后台交给曲库的停用集合(见 `reconcileDisabledSourceIDs`)。落地之前曲库的
+    /// `disabledSourceIDs` 还是旧值,按它比会把同一次停用再处理一遍。
+    private var pendingDisabledSourceIDs: Set<String>?
     /// 交给 Siri 的书单(按「接着听」排好的前 50 本)和分它时的输入:曲库里有声内容与
     /// 有声内容那份账都没变就沿用,不再整库分组。
     private var siriCatalogBooks: (inputs: SiriCatalogBookInputs, books: [SpokenWordBook])?
@@ -2003,22 +2006,32 @@ final class AppServices {
         if appleMusicInstalled, !appleMusicWasInstalled {
             appleMusicLibrary.sync()
         }
-        let previous = musicLibrary.disabledSourceIDs
+        let previous = pendingDisabledSourceIDs ?? musicLibrary.disabledSourceIDs
         let current = Set(
             sourcesStore.sources.lazy.filter { !$0.isEnabled }.map(\.id)
         )
         guard previous != current else { return }
 
-        musicLibrary.updateDisabledSourceIDs(current)
+        // 整库可见缓存在后台重算:几万首时同步算要几百毫秒,开关一次源界面就停一下。
+        // 落地之前资料库仍按旧的停用集合显示;更新的一次请求会让这一次作废。
+        pendingDisabledSourceIDs = current
+        let appliedBefore = musicLibrary.disabledSourceIDs
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.musicLibrary.updateDisabledSourceIDsInBackground(current)
+            if self.pendingDisabledSourceIDs == current { self.pendingDisabledSourceIDs = nil }
+            // 播放器按曲库里的停用集合判断能不能播,等它落地再通知。
+            let changed = appliedBefore.symmetricDifference(self.musicLibrary.disabledSourceIDs)
+            if !changed.isEmpty {
+                self.playerService.sourceAvailabilityDidChange(for: changed)
+            }
+        }
         // iCloud 同步过来的停用与设置页里的停用按钮走的是同一个语义:
         // 名下的离线批量 / 单曲下载 / 后台音频与 MV 缓存都要停掉。启用方向
         // 不做任何事, 与手动路径一致。
         for sourceID in current.subtracting(previous) {
             sourceManager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
         }
-        playerService.sourceAvailabilityDidChange(
-            for: previous.symmetricDifference(current)
-        )
     }
 
     /// Apple Music 音乐源的记录。ID 固定, 所以之前移除过再加回来时, 旧的墓碑

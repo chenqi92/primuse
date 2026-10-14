@@ -368,6 +368,11 @@ final class AudioCacheSyncService {
     @ObservationIgnored private let deviceName: String
     @ObservationIgnored private let platform: AudioCacheSyncPlatform
     @ObservationIgnored private let advertisesBonjour: Bool
+    /// 浏览器启动时 Network 要和 mDNSResponder 同步建连(放在主线程上时打开同步页要卡 80ms 上下),
+    /// 启动和取消都排到这条串行队列上,先后不会乱;回调仍投到主队列。
+    private nonisolated static let browserControlQueue = DispatchQueue(
+        label: "com.welape.primuse.cache-sync.browser"
+    )
 
     init(advertisesBonjour: Bool = true) {
         self.advertisesBonjour = advertisesBonjour
@@ -447,7 +452,7 @@ final class AudioCacheSyncService {
                 self.applyBrowseResults(results)
             }
         }
-        browser.start(queue: .main)
+        Self.browserControlQueue.async { browser.start(queue: .main) }
         self.browser = browser
 
         discoveryIndicatorTask = Task { @MainActor [weak self] in
@@ -460,7 +465,9 @@ final class AudioCacheSyncService {
     func stopDiscovery() {
         discoveryIndicatorTask?.cancel()
         discoveryIndicatorTask = nil
-        browser?.cancel()
+        if let browser {
+            Self.browserControlQueue.async { browser.cancel() }
+        }
         browser = nil
         isDiscovering = false
         discoveryIssue = nil
@@ -958,10 +965,13 @@ final class AudioCacheSyncService {
                 .map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let songs = library.songs.filter {
-            sourceByID[$0.sourceID] != nil && !$0.isStreamDescriptor
-        }
-        guard !songs.isEmpty else { return AudioCacheSyncLocalManifest(files: []) }
+        // 整库逐首判断(含扩展名小写化)放到后台,打开同步页时不占主线程。
+        let allSongs = library.songs
+        let sourceIDs = Set(sourceByID.keys)
+        let songs = await Task.detached(priority: .utility) {
+            allSongs.filter { sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor }
+        }.value
+        guard !Task.isCancelled, !songs.isEmpty else { return AudioCacheSyncLocalManifest(files: []) }
 
         let downloadedIDs = await sourceManager.downloadedSongIDs(in: songs)
         guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }

@@ -6974,10 +6974,15 @@ final class SourceManager {
         return true
     }
 
+    /// 缓存根目录在进程里不变，算一次就够。
+    private nonisolated static let audioCacheRootURL: URL = FileManager.default
+        .primuseDirectoryURL(for: .cachesDirectory)
+        .appendingPathComponent(audioCacheDirName, isDirectory: true)
+
+    /// 显式标明是目录：不带 `isDirectory` 的 `appendingPathComponent` 遇到文件 URL 会先
+    /// lstat 一次看要不要补斜杠，歌单每一行出现时都在主线程上查好几次盘（10-13 真机采样）。
     private nonisolated static func audioCacheDirectoryURL(for sourceID: String) -> URL {
-        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent(audioCacheDirName)
-            .appendingPathComponent(sourceID)
+        audioCacheRootURL.appendingPathComponent(sourceID, isDirectory: true)
     }
 
     private func audioCacheDirectory(for sourceID: String) -> URL {
@@ -6991,7 +6996,7 @@ final class SourceManager {
     /// or run legacy migration on the main actor.
     func audioCacheTargetURL(for song: Song) -> URL {
         Self.audioCacheDirectoryURL(for: song.sourceID)
-            .appendingPathComponent(cacheFileName(for: song))
+            .appendingPathComponent(cacheFileName(for: song), isDirectory: false)
     }
 
     /// 缓存文件名使用 filePath 的稳定哈希，并补音频格式扩展名。OneDrive 等的 filePath

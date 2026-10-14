@@ -311,6 +311,18 @@ enum SearchCatalogPolicy {
             visibleIDs.contains($0.id) && seen.insert($0.id).inserted
         }
     }
+
+    /// 名字里含搜索词的艺术家,按名字排序。整库逐个做本地化比对,只在后台调用。
+    static func artists(
+        query: String,
+        visibleArtists: [PrimuseKit.Artist]
+    ) -> [PrimuseKit.Artist] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return visibleArtists.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
 }
 
 @MainActor
@@ -565,6 +577,8 @@ struct SearchView: View {
     let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var keywordAlbums: [PrimuseKit.Album] = []
+    /// 名字里含搜索词的艺术家,搜索时在后台筛好、排好(见 `SearchCatalogPolicy.artists`)。
+    @State private var keywordArtists: [PrimuseKit.Artist] = []
     @State private var semanticAlbums: [PrimuseKit.Album] = []
     /// AI 补充的专辑各是因为哪个扩展词搜到的(专辑 id → 词)。
     @State private var semanticAlbumConcepts: [String: String] = [:]
@@ -1199,6 +1213,7 @@ struct SearchView: View {
             selection.deactivate()
             searchResults = []
             keywordAlbums = []
+            keywordArtists = []
             collectionResults = []
             clearSemanticResults()
             renderedQuery = ""
@@ -1659,7 +1674,7 @@ struct SearchView: View {
         }
     }
 
-    /// 一次渲染里要反复用到的东西只算一次: matchingArtists 每读一次都要把整库艺术家过一遍。
+    /// 一次渲染里要反复用到的东西只算一次: matchingArtists 每读一次都要按搜索结果逐首取艺术家。
     private struct MacAllResultsModel {
         let artists: [PrimuseKit.Artist]
         let topMatch: MacTopMatch?
@@ -2811,7 +2826,7 @@ struct SearchView: View {
             }
             .buttonStyle(.plain)
             // hover 记在修饰符里, 卡片 body 不会重算 —— matchingArtists
-            // 是没有缓存的整库计算属性, 划过时绝不能触发重新求值。
+            // 每次求值都要按搜索结果逐首取艺术家, 划过时不该触发重新求值。
             .pmHoverLift()
             resultActions(.artist(artist.id))
         }
@@ -3212,9 +3227,9 @@ struct SearchView: View {
     private var matchingArtists: [PrimuseKit.Artist] {
         let query = renderedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard scope == nil, !query.isEmpty, resultLayout.shows(.artists) else { return [] }
-        var artists = library.visibleArtists.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // 名字命中的那批搜索时已在后台筛好排好;这里不再每次重绘都把整库艺术家逐个比对
+        // (一次 body 要读三四遍)。按 id 取回库里现在那一份,已经不在库里的去掉。
+        var artists = keywordArtists.compactMap { library.visibleArtist(id: $0.id) }
         var seen = Set(artists.map(\.id))
         for result in searchResults {
             for id in library.artistIDs(for: result.song) {
@@ -3505,7 +3520,7 @@ struct SearchView: View {
 
     @ViewBuilder
     private var artistsSection: some View {
-        // matchingArtists 每次读都要把全部艺术家过一遍, 这一块只算一次。
+        // matchingArtists 每次读都要按搜索结果逐首取艺术家, 这一块只算一次。
         let artists = matchingArtists
         if !artists.isEmpty {
             Section("tab_artists") {
@@ -3844,6 +3859,7 @@ struct SearchView: View {
         guard !query.isEmpty else {
             searchResults = []
             keywordAlbums = []
+            keywordArtists = []
             collectionResults = []
             clearSemanticResults()
             workCoordinator.cancelIntelligence()
@@ -3866,6 +3882,7 @@ struct SearchView: View {
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
         let songsSnapshot = scope?.songs(in: library.visibleSongs) ?? library.musicSongs
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
+        let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists
         let cacheSnapshot = workCoordinator.lyricsCache
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
 
@@ -3955,20 +3972,27 @@ struct SearchView: View {
             }
             guard !Task.isCancelled else { return }
             let catalogWorker = Task.detached(priority: .userInitiated) {
-                SearchCatalogPolicy.albums(
-                    query: query,
-                    visibleAlbums: albumsSnapshot,
-                    relatedAlbums: output.albumResults
+                (
+                    albums: SearchCatalogPolicy.albums(
+                        query: query,
+                        visibleAlbums: albumsSnapshot,
+                        relatedAlbums: output.albumResults
+                    ),
+                    artists: SearchCatalogPolicy.artists(
+                        query: query,
+                        visibleArtists: artistsSnapshot
+                    )
                 )
             }
-            let albums = await withTaskCancellationHandler {
+            let catalog = await withTaskCancellationHandler {
                 await catalogWorker.value
             } onCancel: {
                 catalogWorker.cancel()
             }
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             searchResults = output.songResults
-            keywordAlbums = albums
+            keywordAlbums = catalog.albums
+            keywordArtists = catalog.artists
             workCoordinator.lyricsCache = output.cache
             refreshSpaceResults(query: query)
             if renderedQuery != query { collectionResults = [] }

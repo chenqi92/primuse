@@ -1853,8 +1853,10 @@ struct GenreLibraryView: View {
             // 一屏能看到两行而不是一行半。
             let cardMinimumWidth = heightClass.value(156, compact: 124)
             let cardHeight = heightClass.value(142, compact: 112)
+            // 筛选加本地化排序, 一次 body 只做一遍。
+            let genres = filteredGenres
             ScrollView {
-                if filteredGenres.isEmpty {
+                if genres.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                         .padding(.top, 80)
                         .pmAppearFade(.contentAppear)
@@ -1863,7 +1865,7 @@ struct GenreLibraryView: View {
                         columns: [GridItem(.adaptive(minimum: cardMinimumWidth), spacing: 12)],
                         spacing: 12
                     ) {
-                        ForEach(filteredGenres) { genre in
+                        ForEach(genres) { genre in
                             NavigationLink(value: genre) {
                                 LibraryGenreCard(genre: genre, height: cardHeight)
                             }
@@ -1881,7 +1883,7 @@ struct GenreLibraryView: View {
             .minimalPageHeader {
                 HStack(spacing: 4) {
                     MinimalHeaderCount(
-                        text: "\(filteredGenres.count.formatted()) \(String(localized: "genres_count"))"
+                        text: "\(genres.count.formatted()) \(String(localized: "genres_count"))"
                     )
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
@@ -1894,12 +1896,14 @@ struct GenreLibraryView: View {
     #endif
 
     #if os(macOS)
-    private var selectedGenre: LibraryGenre? {
+    /// 左栏选中的流派;没选过或被筛掉了就取第一个。传进来的是 body 里排好的那一份,
+    /// 以前每一行都经 `selectedGenre` 重新筛、排一遍整份流派。
+    private func macSelectedGenre(in genres: [LibraryGenre]) -> LibraryGenre? {
         if let selectedGenreID,
-           let genre = filteredGenres.first(where: { $0.id == selectedGenreID }) {
+           let genre = genres.first(where: { $0.id == selectedGenreID }) {
             return genre
         }
-        return filteredGenres.first
+        return genres.first
     }
 
     @ViewBuilder
@@ -1913,6 +1917,8 @@ struct GenreLibraryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PMColor.bg.ignoresSafeArea())
         } else {
+            let genres = filteredGenres
+            let selectedGenre = macSelectedGenre(in: genres)
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -1944,14 +1950,14 @@ struct GenreLibraryView: View {
                     .padding(.top, 20)
                     .padding(.bottom, 12)
 
-                    if filteredGenres.isEmpty {
+                    if genres.isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollView(.vertical, showsIndicators: false) {
                             LazyVStack(spacing: 2) {
-                                ForEach(filteredGenres) { genre in
-                                    macGenreRow(genre)
+                                ForEach(genres) { genre in
+                                    macGenreRow(genre, selected: genre.id == selectedGenre?.id)
                                 }
                             }
                             .padding(.horizontal, 8)
@@ -1980,9 +1986,8 @@ struct GenreLibraryView: View {
         }
     }
 
-    private func macGenreRow(_ genre: LibraryGenre) -> some View {
-        let selected = selectedGenre?.id == genre.id
-        return Button {
+    private func macGenreRow(_ genre: LibraryGenre, selected: Bool) -> some View {
+        Button {
             selectedGenreID = genre.id
         } label: {
             HStack(spacing: 10) {
