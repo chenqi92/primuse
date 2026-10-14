@@ -895,26 +895,33 @@ struct ImmersiveStageView<Artwork: View>: View {
         let textLeading = leadingInset + ringSpan
             + metrics.s(isPhoneLandscape ? 32 : (platform == .tvOS ? 96 : 64))
         let textWidth = max(metrics.s(160), metrics.size.width - trailingInset - textLeading)
+        let layers = ImmersiveLayerAblation.self
         return ZStack {
-            palette.secondary
-            ImmersiveEnergyGlow(
-                levelsProvider: spectrumProvider,
-                palette: palette,
-                center: metrics.isPortrait ? .top : .leading,
-                radius: diameter * 1.2,
-                baseOpacity: 0.26,
-                reactiveOpacity: 0.34
-            )
-            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.34, strength: 0.46)
+            if layers.shows("background") { palette.secondary } else { Color.black }
+            if layers.shows("glow") {
+                ImmersiveEnergyGlow(
+                    levelsProvider: spectrumProvider,
+                    palette: palette,
+                    center: metrics.isPortrait ? .top : .leading,
+                    radius: diameter * 1.2,
+                    baseOpacity: 0.26,
+                    reactiveOpacity: 0.34
+                )
+            }
+            if layers.shows("vignette") {
+                ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.34, strength: 0.46)
+            }
 
             if metrics.isPortrait {
                 VStack(spacing: metrics.s(28)) {
                     radialArtwork(diameter: diameter)
-                    titleBlock(size: metrics.s(43), weight: .semibold)
-                    formatAndLyric(
-                        fontSize: metrics.s(12),
-                        availableWidth: metrics.size.width - leadingInset - trailingInset
-                    )
+                    if layers.shows("text") {
+                        titleBlock(size: metrics.s(43), weight: .semibold)
+                        formatAndLyric(
+                            fontSize: metrics.s(12),
+                            availableWidth: metrics.size.width - leadingInset - trailingInset
+                        )
+                    }
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, leadingInset)
@@ -925,18 +932,20 @@ struct ImmersiveStageView<Artwork: View>: View {
                 radialArtwork(diameter: diameter)
                     .position(x: leadingInset + ringSpan / 2, y: metrics.size.height / 2)
 
-                VStack(alignment: .leading, spacing: metrics.s(18)) {
-                    titleBlock(
-                        size: metrics.s(isPhoneLandscape ? 46 : (platform == .tvOS ? 94 : 60)),
-                        weight: .semibold
-                    )
-                    formatAndLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 23 : 14),
-                        availableWidth: textWidth
-                    )
+                if layers.shows("text") {
+                    VStack(alignment: .leading, spacing: metrics.s(18)) {
+                        titleBlock(
+                            size: metrics.s(isPhoneLandscape ? 46 : (platform == .tvOS ? 94 : 60)),
+                            weight: .semibold
+                        )
+                        formatAndLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                            availableWidth: textWidth
+                        )
+                    }
+                    .frame(width: textWidth, alignment: .leading)
+                    .position(x: textLeading + textWidth / 2, y: metrics.size.height / 2)
                 }
-                .frame(width: textWidth, alignment: .leading)
-                .position(x: textLeading + textWidth / 2, y: metrics.size.height / 2)
             }
         }
     }
@@ -948,38 +957,47 @@ struct ImmersiveStageView<Artwork: View>: View {
         // 光晕那层整块模糊，每次频谱发布都要重新模糊。电视上按一半尺寸画、模糊完再放大回去：
         // 要模糊的像素只剩四分之一，光晕本来就是虚的，看不出差别。
         let glowScale: CGFloat = platform == .tvOS ? 0.5 : 1
+        let layers = ImmersiveLayerAblation.self
         return ZStack {
-            ImmersiveBassRipples(
-                levelsProvider: scheduledSpectrumProvider,
-                palette: palette,
-                isAnimating: sceneIsAnimating,
-                startRatio: 0.60 / radialRingSpanRatio
-            )
-            .frame(width: span, height: span)
+            if layers.shows("ripples") {
+                ImmersiveBassRipples(
+                    levelsProvider: scheduledSpectrumProvider,
+                    palette: palette,
+                    isAnimating: sceneIsAnimating,
+                    startRatio: 0.60 / radialRingSpanRatio
+                )
+                .frame(width: span, height: span)
+            }
 
-            ImmersiveSpectrumRingHost(
-                levelsProvider: spectrumProvider,
-                barWidth: barWidth * glowScale,
-                isAnimating: sceneIsAnimating,
-                tint: palette.primary,
-                isPlaying: decorativeClockIsActive
-            )
-            .frame(width: span * glowScale, height: span * glowScale)
-            .blur(radius: max(4, metrics.f(12)) * glowScale)
-            .scaleEffect(1 / glowScale)
-            .frame(width: span, height: span)
-            .opacity(0.9)
+            if layers.shows("blurredring") {
+                ImmersiveSpectrumRingHost(
+                    levelsProvider: spectrumProvider,
+                    barWidth: barWidth * glowScale,
+                    isAnimating: sceneIsAnimating,
+                    tint: palette.primary,
+                    isPlaying: decorativeClockIsActive
+                )
+                .frame(width: span * glowScale, height: span * glowScale)
+                .blur(radius: max(4, metrics.f(12)) * glowScale)
+                .scaleEffect(1 / glowScale)
+                .frame(width: span, height: span)
+                .opacity(0.9)
+            }
 
-            ImmersiveSpectrumRingHost(
-                levelsProvider: spectrumProvider,
-                barWidth: barWidth,
-                isAnimating: sceneIsAnimating,
-                tint: palette.primary,
-                isPlaying: decorativeClockIsActive
-            )
-            .frame(width: span, height: span)
+            if layers.shows("ring") {
+                ImmersiveSpectrumRingHost(
+                    levelsProvider: spectrumProvider,
+                    barWidth: barWidth,
+                    isAnimating: sceneIsAnimating,
+                    tint: palette.primary,
+                    isPlaying: decorativeClockIsActive
+                )
+                .frame(width: span, height: span)
+            }
 
-            rotatingCircularArtwork(diameter: diameter * 0.60)
+            if layers.shows("artwork") {
+                rotatingCircularArtwork(diameter: diameter * 0.60)
+            }
         }
         .frame(width: diameter, height: diameter)
     }
@@ -1738,6 +1756,27 @@ private struct ImmersiveHairlinePlaybackProgress: View {
 }
 
 /// 频谱环的取数宿主：把 bandLevels 的读取限制在这一层，环本体仍收静态数组。
+/// 量全屏效果 GPU 开销用的开关:启动环境 `PRIMUSE_IMMERSIVE_HIDE_LAYERS` 写要去掉的层(逗号分隔),
+/// 环形声谱认 background、glow、vignette、ripples、blurredring(模糊的那层光环)、ring、artwork、text。同曲同温交替录原版和
+/// 去掉某一层的版本,看 GPU 和系统画面交换怎么变。性能要在 Release 包里量(Debug 包里绘制慢十几倍),
+/// 所以 Release 也读;只看启动环境,界面里碰不到。
+enum ImmersiveLayerAblation {
+    static let hidden: Set<String> = {
+        let raw = ProcessInfo.processInfo.environment["PRIMUSE_IMMERSIVE_HIDE_LAYERS"] ?? ""
+        let names = Set(raw.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        }.filter { !$0.isEmpty })
+        if !names.isEmpty {
+            plog("🧪 Immersive layers hidden: \(names.sorted().joined(separator: ","))")
+        }
+        return names
+    }()
+
+    static func shows(_ layer: String) -> Bool {
+        hidden.isEmpty || !hidden.contains(layer)
+    }
+}
+
 private struct ImmersiveSpectrumRingHost: View {
     let levelsProvider: @MainActor () -> [CGFloat]
     let barWidth: CGFloat
