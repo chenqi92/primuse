@@ -84,7 +84,7 @@ actor TVWebDAVDirectoryLister: TVDirectoryLister {
             let resolvedName = name?.isEmpty == false ? name! : fallback
             guard !resolvedName.isEmpty, !resolvedName.hasPrefix(".") else { return nil }
             return TVDirEntry(name: resolvedName, isDir: entry.isDirectory, size: entry.contentLength ?? -1,
-                              path: path, parentPath: relative, modifiedDate: Self.date(entry.lastModified))
+                              path: path, parentPath: relative, modifiedDate: WebDAVMultistatusParser.lastModifiedDate(entry.lastModified))
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
@@ -130,15 +130,6 @@ actor TVWebDAVDirectoryLister: TVDirectoryLister {
                 try await timing.sleep(delay)
             }
         }
-    }
-
-    private static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let http = DateFormatter()
-        http.locale = Locale(identifier: "en_US_POSIX")
-        http.timeZone = TimeZone(secondsFromGMT: 0)
-        http.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return http.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 }
 

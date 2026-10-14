@@ -1732,6 +1732,7 @@ final class TVSourceScanner {
         var songsSinceCheckpoint = 0
         var lastCheckpointAt = Date()
         let readerPool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: rereadMetadata)
+        let cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: source.id))
 
         // A resumed walk already published completed directories. Seed the
         // final authoritative result without emitting the same skeletons again.
@@ -1784,7 +1785,8 @@ final class TVSourceScanner {
                 let sidecars = SidecarDirectoryIndex(entries)
                 let cueLoad = try await loadCueTracks(
                     from: entries,
-                    using: readerPool
+                    using: readerPool,
+                    cache: cueSheetCache
                 )
                 if let message = cueLoad.failureMessage {
                     // 读不出或解析不了的 CUE 只影响这个文件夹怎么分轨(整首入库,或沿用上次的
@@ -3008,7 +3010,8 @@ final class TVSourceScanner {
 
     private func loadCueTracks(
         from siblings: [TVDirEntry],
-        using readerPool: TVMetadataReaderPool
+        using readerPool: TVMetadataReaderPool,
+        cache: CueSheetScanCache
     ) async throws -> (
         tracksByAudioPath: [String: [CueTrackDescriptor]],
         failureMessage: String?
@@ -3024,16 +3027,33 @@ final class TVSourceScanner {
                 guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
                     throw CocoaError(.fileReadTooLarge)
                 }
-                let requestedLength = min(
-                    max(cueItem.size, 64 * 1024),
-                    Int64(1024 * 1024)
-                )
-                let data = try await readerPool.read(
-                    path: cueItem.path,
+                // 没变过的 .cue 用上一轮读到的原文,不再下载。
+                let version = CueSheetScanCache.FileVersion(
                     size: cueItem.size,
-                    offset: 0,
-                    length: requestedLength
+                    modifiedDate: cueItem.modifiedDate,
+                    revision: cueItem.revision
                 )
+                let data: Data
+                if let cached = await cache.sheet(path: cueItem.path, version: version) {
+                    data = cached
+                } else {
+                    let requestedLength = min(
+                        max(cueItem.size, 64 * 1024),
+                        Int64(CueSheetScanCache.maximumSheetBytes)
+                    )
+                    data = try await readerPool.read(
+                        path: cueItem.path,
+                        size: cueItem.size,
+                        offset: 0,
+                        length: requestedLength
+                    )
+                    await cache.storeSheet(
+                        data,
+                        path: cueItem.path,
+                        version: version,
+                        requestedLength: requestedLength
+                    )
+                }
                 try Task.checkCancellation()
                 guard let cue = CueSheetParser.parse(data: data) else {
                     throw URLError(.cannotDecodeContentData)

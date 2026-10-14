@@ -467,6 +467,7 @@
 		38880CDB964A3E0FE9035019 /* KaraokeSeparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FFC4385F8728673FC14C44 /* KaraokeSeparationService.swift */; };
 		389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */; };
 		38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0039D9169F515627C5A4C159 /* CueSheetParser.swift */; };
+		4C25FDD036DDA154230E66EE /* CueSheetScanCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE1865CA2ED31BB7DF7F914 /* CueSheetScanCache.swift */; };
 		38ABDDAB43F92B3186CC50D8 /* LibraryFavoritesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DAD9CD43100FAF6F83AA7ED /* LibraryFavoritesStoreTests.swift */; };
 		38B71AA0941D7B974C337680 /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		38CD576F539739E501878FAA /* SourceLoginSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CF1E96A5B91201245170B5 /* SourceLoginSessionStore.swift */; };
@@ -2230,6 +2231,7 @@
 /* Begin PBXFileReference section */
 		00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
+		7CE1865CA2ED31BB7DF7F914 /* CueSheetScanCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetScanCache.swift; sourceTree = "<group>"; };
 		0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWatchApp.swift; sourceTree = "<group>"; };
 		00E69E0BF7E1A295D100DCA7 /* LyricPosterStylesCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterStylesCore.swift; sourceTree = "<group>"; };
 		01172E16CDCAFAA08507C813 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/CacheSync.strings"; sourceTree = "<group>"; };
@@ -4998,6 +5000,7 @@
 			isa = PBXGroup;
 			children = (
 				0039D9169F515627C5A4C159 /* CueSheetParser.swift */,
+				7CE1865CA2ED31BB7DF7F914 /* CueSheetScanCache.swift */,
 				732672310E1B3E948C873A39 /* EmbeddedTagMetadataParser.swift */,
 				98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */,
 				BFBAC811D0608D247E8F6CF3 /* FilenameTagParser.swift */,
@@ -6496,6 +6499,7 @@
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
 				EB30521CF8FB8EEDF7257D49 /* CrossfadePlaybackClockPolicy.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,
+				4C25FDD036DDA154230E66EE /* CueSheetScanCache.swift in Sources */,
 				03B3734E9EB5070B598E2FB2 /* CueTrackLyricsSidecarPolicy.swift in Sources */,
 				F69601A9FFB24FD0361D4A09 /* RequestQuotaRegistry.swift in Sources */,
 				FA26287B48CFC91004ABA8EC /* DSDOutputProbePolicy.swift in Sources */,

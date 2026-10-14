@@ -28,6 +28,8 @@ actor ConnectorScanner {
     /// Subsonic rows are keyed by the server id in their path; a server that
     /// re-encodes its ids (Navidrome 0.64) must not turn them into new songs.
     private let carriesServerSongIdentities: Bool
+    /// 没变过的 .cue 和整轨 WAV 的 DTS 判定不再每轮重扫都下载。
+    private let cueSheetCache: CueSheetScanCache
 
     init(
         connector: any MusicSourceConnector,
@@ -37,6 +39,7 @@ actor ConnectorScanner {
         self.connector = connector
         self.sourceID = sourceID
         self.carriesServerSongIdentities = carriesServerSongIdentities
+        self.cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: sourceID))
     }
 
     func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
@@ -1322,12 +1325,7 @@ actor ConnectorScanner {
             && PrimuseConstants.supportedCueSheetExtensions.contains(
                 (cueItem.name as NSString).pathExtension.lowercased()
             ) {
-            let requestedLength = min(max(cueItem.size, 64 * 1024), Int64(1024 * 1024))
-            let data = try await connector.fetchMetadataRange(
-                path: cueItem.path,
-                offset: 0,
-                length: requestedLength
-            )
+            let data = try await cueSheetData(for: cueItem)
             guard let cue = CueSheetParser.parse(data: data) else {
                 plog("⚠️ CUE: unable to parse \(cueItem.name)")
                 continue
@@ -1341,11 +1339,7 @@ actor ConnectorScanner {
                     fileExtension: (audioItem.name as NSString).pathExtension.lowercased()
                 ) else { continue }
                 if (audioItem.name as NSString).pathExtension.lowercased() == "wav",
-                   let prefix = try? await connector.fetchMetadataRange(
-                       path: audioItem.path,
-                       offset: 0,
-                       length: 256 * 1024
-                   ), FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
+                   await wavContainsDTS(audioItem) {
                     format = .dts
                 }
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
@@ -1363,6 +1357,51 @@ actor ConnectorScanner {
             }
         }
         return result
+    }
+
+    private func cueSheetData(for item: RemoteFileItem) async throws -> Data {
+        let version = CueSheetScanCache.FileVersion(
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            revision: item.revision
+        )
+        if let cached = await cueSheetCache.sheet(path: item.path, version: version) {
+            return cached
+        }
+        let requestedLength = min(max(item.size, 64 * 1024), Int64(CueSheetScanCache.maximumSheetBytes))
+        let data = try await connector.fetchMetadataRange(
+            path: item.path,
+            offset: 0,
+            length: requestedLength
+        )
+        await cueSheetCache.storeSheet(data, path: item.path, version: version, requestedLength: requestedLength)
+        return data
+    }
+
+    private func wavContainsDTS(_ item: RemoteFileItem) async -> Bool {
+        let version = CueSheetScanCache.FileVersion(
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            revision: item.revision
+        )
+        if let cached = await cueSheetCache.wavIsDTS(path: item.path, version: version) {
+            return cached
+        }
+        let requestedLength: Int64 = 256 * 1024
+        guard let prefix = try? await connector.fetchMetadataRange(
+            path: item.path,
+            offset: 0,
+            length: requestedLength
+        ) else { return false }
+        let isDTS = FFmpegAudioDecoder.dataContainsDTSSync(prefix)
+        await cueSheetCache.storeWAVIsDTS(
+            isDTS,
+            path: item.path,
+            version: version,
+            prefixByteCount: prefix.count,
+            requestedLength: requestedLength
+        )
+        return isDTS
     }
 
     private func buildCueSongs(

@@ -145,6 +145,21 @@ final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
         textBuffer = ""
     }
 
+    /// `getlastmodified` 按 RFC 1123 写,个别服务器给 ISO 8601。整库扫描每个条目都要解析一次,
+    /// RFC 1123 的格式化器只建一次(DateFormatter 解析是线程安全的)。
+    nonisolated(unsafe) private static let lastModifiedFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter
+    }()
+
+    static func lastModifiedDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return lastModifiedFormatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
     private static func localName(_ name: String) -> String {
         name.split(separator: ":").last.map { String($0).lowercased() }
             ?? name.lowercased()

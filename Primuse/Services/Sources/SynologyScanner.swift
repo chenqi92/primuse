@@ -11,10 +11,13 @@ actor SynologyScanner {
     /// scanner run. ScanService drains this set before publishing each batch
     /// so MetadataBackfillService does not issue the same remote Range reads.
     private var pendingMetadataInspectedSongIDs: Set<String> = []
+    /// 没变过的 .cue 和整轨 WAV 的 DTS 判定不再每轮重扫都下载。
+    private let cueSheetCache: CueSheetScanCache
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
         self.sourceID = sourceID
+        self.cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: sourceID))
     }
 
     struct ScanUpdate: Sendable {
@@ -594,8 +597,7 @@ actor SynologyScanner {
 
         for cueItem in items where !cueItem.isDirectory
             && (cueItem.name as NSString).pathExtension.caseInsensitiveCompare("cue") == .orderedSame {
-            let readSize = min(max(Int(clamping: cueItem.size), 64 * 1024), 1024 * 1024)
-            guard let data = try? await api.downloadFileHead(path: cueItem.path, maxBytes: readSize),
+            guard let data = await cueSheetData(for: cueItem),
                   let cue = CueSheetParser.parse(data: data) else {
                 plog("⚠️ Synology CUE: unable to parse \(cueItem.name)")
                 continue
@@ -612,12 +614,7 @@ actor SynologyScanner {
                 guard var format = AudioFormat.from(fileExtension: ext) else { continue }
                 if ext == "dts" {
                     format = .dts
-                } else if ext == "wav",
-                          let prefix = try? await api.downloadFileHead(
-                              path: audioItem.path,
-                              maxBytes: min(Int(clamping: audioItem.size), 256 * 1024)
-                          ),
-                          FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
+                } else if ext == "wav", await wavContainsDTS(audioItem) {
                     format = .dts
                 }
 
@@ -638,6 +635,47 @@ actor SynologyScanner {
             }
         }
         return result
+    }
+
+    private func cueSheetData(for item: SynologyAPI.FileItem) async -> Data? {
+        let version = CueSheetScanCache.FileVersion(
+            size: item.size,
+            modifiedDate: item.modifiedTime,
+            revision: nil
+        )
+        if let cached = await cueSheetCache.sheet(path: item.path, version: version) {
+            return cached
+        }
+        let readSize = min(max(Int(clamping: item.size), 64 * 1024), CueSheetScanCache.maximumSheetBytes)
+        guard let data = try? await api.downloadFileHead(path: item.path, maxBytes: readSize) else {
+            return nil
+        }
+        await cueSheetCache.storeSheet(data, path: item.path, version: version, requestedLength: Int64(readSize))
+        return data
+    }
+
+    private func wavContainsDTS(_ item: SynologyAPI.FileItem) async -> Bool {
+        let version = CueSheetScanCache.FileVersion(
+            size: item.size,
+            modifiedDate: item.modifiedTime,
+            revision: nil
+        )
+        if let cached = await cueSheetCache.wavIsDTS(path: item.path, version: version) {
+            return cached
+        }
+        let readSize = min(Int(clamping: item.size), 256 * 1024)
+        guard let prefix = try? await api.downloadFileHead(path: item.path, maxBytes: readSize) else {
+            return false
+        }
+        let isDTS = FFmpegAudioDecoder.dataContainsDTSSync(prefix)
+        await cueSheetCache.storeWAVIsDTS(
+            isDTS,
+            path: item.path,
+            version: version,
+            prefixByteCount: prefix.count,
+            requestedLength: Int64(readSize)
+        )
+        return isDTS
     }
 
     private func buildCueSongs(

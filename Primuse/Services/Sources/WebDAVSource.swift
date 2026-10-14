@@ -482,7 +482,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         }
         return EmbeddedMetadataRemoteFileState(
             fileSize: size,
-            modifiedDate: Self.webDAVDate(metadata.lastModified),
+            modifiedDate: WebDAVMultistatusParser.lastModifiedDate(metadata.lastModified),
             revision: eTag
         )
     }
@@ -1597,7 +1597,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 path: sourcePath,
                 isDirectory: entry.isDirectory,
                 size: entry.contentLength ?? -1,
-                modifiedDate: Self.webDAVDate(entry.lastModified),
+                modifiedDate: WebDAVMultistatusParser.lastModifiedDate(entry.lastModified),
                 revision: entry.etag
             )
         }
@@ -1807,15 +1807,6 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private func sourcePath(forWebDAVHref href: String, baseURL: URL) -> String? {
         WebDAVPathPolicy(basePath: baseURL.path)
             .sourcePath(forHref: href, baseURL: baseURL)
-    }
-
-    private static func webDAVDate(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let http = DateFormatter()
-        http.locale = Locale(identifier: "en_US_POSIX")
-        http.timeZone = TimeZone(secondsFromGMT: 0)
-        http.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return http.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
