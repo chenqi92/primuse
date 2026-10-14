@@ -1352,6 +1352,9 @@ final class TVStore {
         return library.visibleAlbum(id: id).map(albumMapper.map)
     }
     func song(_ id: String) -> TVSong? { library.visibleSong(id: id).map(songMapper.map) }
+    /// 只问在不在可见曲库里:不必像 `song(_:)` 那样整首转成 TVSong(要解析艺人名),
+    /// 整张专辑、整个资料库建队列时每首都要问一次。
+    func isVisibleSong(_ id: String) -> Bool { library.visibleSong(id: id) != nil }
 
     func songs(forArtistID id: String) -> [TVSong] {
         let spokenWordIDs = library.spokenWordSongIDs
@@ -5822,7 +5825,7 @@ final class TVStore {
         // 专辑 / 歌单 / 全部播放 / Siri 都从这里进:用户自己开始播放,挂着的深链作废。
         pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return false }
-        let resolved = songIDs.filter { song($0) != nil }
+        let resolved = songIDs.filter(isVisibleSong)
         guard !resolved.isEmpty else { return false }
         endMedley()
         // 按 id 定位首个匹配项(与既有行为一致);随机时由 plan 把选中曲目放在队首。
@@ -6392,7 +6395,7 @@ final class TVStore {
                 repeatsAll: repeatMode == .all
             )
             guard !ids.isEmpty else { break }
-            additions += ids.filter { song($0) != nil }
+            additions += ids.filter(isVisibleSong)
         }
         queueContinuation = continuation.isExhausted ? nil : continuation
         persistQueueContinuation()
