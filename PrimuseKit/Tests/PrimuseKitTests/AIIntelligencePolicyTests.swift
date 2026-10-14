@@ -1371,6 +1371,46 @@ struct AIRequestLimitPolicyTests {
         #expect(AIRequestTimeoutPolicy.nanoseconds(60) == 60_000_000_000)
     }
 
+    @Test func selfHostedEndpointsAreLocalAddressesOrTheOllamaPort() {
+        for (baseURL, allowsHTTP) in [
+            ("http://127.0.0.1:11434/v1", true),
+            ("http://192.168.1.20:1234/v1", true),
+            ("https://studio.local/v1", false),
+            ("https://ollama.example.com:11434/v1", false),
+        ] {
+            #expect(AISelfHostedEndpointPolicy.isSelfHosted(configuration: AIRemoteProviderConfiguration(
+                baseURL: baseURL,
+                allowInsecureLocalHTTP: allowsHTTP
+            )), "\(baseURL)")
+        }
+        for baseURL in [
+            "https://api.openai.com/v1",
+            "https://ollama.example.com/v1",
+            "http://127.0.0.1:11434/v1",
+        ] {
+            #expect(!AISelfHostedEndpointPolicy.isSelfHosted(configuration: AIRemoteProviderConfiguration(
+                baseURL: baseURL
+            )), "\(baseURL)")
+        }
+    }
+
+    @Test func generationTimeoutWaitsLongerForSelfHostedModelsAndLongAnswers() {
+        let cloud = AIRemoteProviderConfiguration(baseURL: "https://api.example.com/v1")
+        #expect(cloud.forGeneration().requestTimeout == AIRequestTimeoutPolicy.defaultValue)
+        #expect(cloud.forGeneration(atLeast: 45).requestTimeout == 45)
+
+        let local = AIRemoteProviderConfiguration(
+            baseURL: "http://127.0.0.1:11434/v1",
+            allowInsecureLocalHTTP: true
+        )
+        #expect(local.forGeneration().requestTimeout == AIRequestTimeoutPolicy.selfHostedValue)
+        #expect(local.forGeneration(atLeast: 45).requestTimeout == AIRequestTimeoutPolicy.maximum)
+
+        var quickProbe = local
+        quickProbe.requestTimeout = 6
+        #expect(quickProbe.forGeneration().requestTimeout == 6)
+    }
+
     @Test func responseLimitChecksEveryIncomingChunkWithoutOverflow() {
         let maximum = AIResponseSizePolicy.maximumBytes
         #expect(AIResponseSizePolicy.allowsAppend(

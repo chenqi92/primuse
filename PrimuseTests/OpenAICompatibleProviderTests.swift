@@ -2445,6 +2445,70 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertEqual(editor.route(for: .tagCleanup), .builtIn)
     }
 
+    func testSelfHostedChatCompletionsTurnThinkingOff() async throws {
+        let body = try await capturedSearchBody(for: AIRemoteProviderConfiguration(
+            baseURL: "https://ollama-thinking.local/v1",
+            apiStyle: .chatCompletions,
+            generationModel: "sorc/qwen3.5-instruct:2b",
+            isEnabled: true
+        ))
+        XCTAssertEqual(body["reasoning_effort"] as? String, "none")
+
+        let gptOSS = try await capturedSearchBody(for: AIRemoteProviderConfiguration(
+            baseURL: "https://ollama-gpt-oss.local/v1",
+            apiStyle: .chatCompletions,
+            generationModel: "gpt-oss:20b",
+            isEnabled: true
+        ))
+        XCTAssertEqual(gptOSS["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(gptOSS["max_tokens"] as? Int, 4_000)
+
+        let cloud = try await capturedSearchBody(for: AIRemoteProviderConfiguration(
+            baseURL: "https://intelligence-compatible-cloud.invalid/v1",
+            apiStyle: .chatCompletions,
+            generationModel: "qwen3.5-instruct",
+            isEnabled: true
+        ))
+        XCTAssertNil(cloud["reasoning_effort"])
+    }
+
+    func testSelfHostedServerRejectingThinkingControlIsAskedAgainWithoutIt() async throws {
+        let host = "ollama-legacy.local"
+        let answer = #"{"choices":[{"message":{"content":"{\"expanded_terms\":[\"calm\"],\"themes\":[],\"moods\":[]}"}}]}"#
+        IntelligenceURLProtocol.configureSequence(host: host, responses: [
+            (statusCode: 400, body: #"{"error":{"message":"invalid reasoning value: 'none'"}}"#),
+            (statusCode: 200, body: answer),
+        ])
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [IntelligenceURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let provider = OpenAICompatibleProvider(
+            configuration: AIRemoteProviderConfiguration(
+                baseURL: "https://\(host)/v1",
+                apiStyle: .chatCompletions,
+                generationModel: "qwen3:8b",
+                isEnabled: true
+            ),
+            credentialStore: TestAICredentialStore(),
+            apiKeyOverride: "ollama",
+            session: session
+        )
+
+        let plan = try await provider.interpretSearch(AISemanticSearchRequest(query: "quiet music"))
+        XCTAssertEqual(plan.expandedTerms, ["calm"])
+        _ = try await provider.interpretSearch(AISemanticSearchRequest(query: "rainy day"))
+
+        let bodies = try IntelligenceURLProtocol.requests(host: host).map { request in
+            let data = try XCTUnwrap(request.httpBody)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        XCTAssertEqual(bodies.count, 3)
+        XCTAssertEqual(bodies[0]["reasoning_effort"] as? String, "none")
+        XCTAssertNil(bodies[1]["reasoning_effort"])
+        XCTAssertNil(bodies[2]["reasoning_effort"])
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle

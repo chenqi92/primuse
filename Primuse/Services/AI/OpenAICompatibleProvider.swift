@@ -56,6 +56,32 @@ final class AIRequestScheduler: @unchecked Sendable {
     }
 }
 
+/// 不认 `reasoning_effort` 的自托管服务(按服务、地址和模型记)。每次请求都新建 provider,
+/// 所以记在这里;重启 App 后再试一次,服务端升级了就又能关思考。
+final class SelfHostedThinkingControlRejections: @unchecked Sendable {
+    static let shared = SelfHostedThinkingControlRejections()
+    private let lock = NSLock()
+    private var keys: Set<String> = []
+
+    func contains(_ configuration: AIRemoteProviderConfiguration) -> Bool {
+        let key = Self.key(configuration)
+        return lock.withLock { keys.contains(key) }
+    }
+
+    func insert(_ configuration: AIRemoteProviderConfiguration) {
+        let key = Self.key(configuration)
+        lock.withLock { _ = keys.insert(key) }
+    }
+
+    private static func key(_ configuration: AIRemoteProviderConfiguration) -> String {
+        [
+            configuration.id.uuidString,
+            configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+        ].joined(separator: "|")
+    }
+}
+
 private final class AIBoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     fileprivate enum LoaderError: Error {
         case responseTooLarge
@@ -348,11 +374,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             )
         }
 
-        let data = try await postJSON(
-            applyingProviderSpecificGenerationControls(to: body),
-            to: endpoint,
-            apiKey: apiKey
-        )
+        let data = try await postGeneration(body, to: endpoint, apiKey: apiKey)
         guard let output = Self.extractText(from: data, style: configuration.apiStyle),
               let plan = Self.decodeSearchPlan(from: output) else {
             throw OpenAICompatibleProviderError.invalidResponse
@@ -881,8 +903,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             input: input,
             maximumTokens: maximumTokens
         )
-        let data = try await postJSON(
-            applyingProviderSpecificGenerationControls(to: body),
+        let data = try await postGeneration(
+            body,
             to: endpoint,
             apiKey: try await requiredAPIKey()
         )
@@ -1110,7 +1132,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     private static let maximumStreamedBytes = AIResponseSizePolicy.maximumBytes * 4
 
     private func applyingProviderSpecificGenerationControls(
-        to body: [String: Any]
+        to body: [String: Any],
+        includingSelfHostedThinkingControl: Bool = true
     ) -> [String: Any] {
         guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
             configuration.baseURL,
@@ -1329,9 +1352,52 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             }
 
         default:
-            break
+            // 自己架的 Ollama、llama.cpp 等多半跑会先「思考」的小模型:思考吃掉输出预算又拖慢
+            // 出字,推荐常超时或只剩半截 JSON。gpt-oss 关不掉,只能压到 low。
+            guard includingSelfHostedThinkingControl, sendsSelfHostedThinkingControl else { break }
+            if model.contains("gpt-oss") {
+                setChatReasoningEffort("low")
+                setMinimumOutputTokens(4_000)
+            } else {
+                setChatReasoningEffort("none")
+            }
         }
         return controlledBody
+    }
+
+    /// 给自托管的 Chat Completions 服务带 `reasoning_effort`。不认这个值的老版本回 400/422 时,
+    /// 生成请求去掉它重发一次,成功后这项服务这一轮运行里都不再带。
+    private var sendsSelfHostedThinkingControl: Bool {
+        configuration.apiStyle == .chatCompletions
+            && AISelfHostedEndpointPolicy.isSelfHosted(configuration: configuration)
+            && !SelfHostedThinkingControlRejections.shared.contains(configuration)
+    }
+
+    private func postGeneration(
+        _ body: [String: Any],
+        to endpoint: URL,
+        apiKey: String
+    ) async throws -> Data {
+        let sentThinkingControl = sendsSelfHostedThinkingControl
+        do {
+            return try await postJSON(
+                applyingProviderSpecificGenerationControls(to: body),
+                to: endpoint,
+                apiKey: apiKey
+            )
+        } catch OpenAICompatibleProviderError.requestFailed(let statusCode, _)
+                    where sentThinkingControl && [400, 422].contains(statusCode) {
+            let data = try await postJSON(
+                applyingProviderSpecificGenerationControls(
+                    to: body,
+                    includingSelfHostedThinkingControl: false
+                ),
+                to: endpoint,
+                apiKey: apiKey
+            )
+            SelfHostedThinkingControlRejections.shared.insert(configuration)
+            return data
+        }
     }
 
     private static func supportsDisabledOpenAIReasoning(model: String) -> Bool {

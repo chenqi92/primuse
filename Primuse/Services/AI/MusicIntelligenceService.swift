@@ -3296,6 +3296,7 @@ private actor MusicIntelligenceEngine {
         apiKeyOverride: String? = nil,
         requestAuthorization: @escaping @Sendable () async -> Bool = { true }
     ) async throws -> AISemanticSearchPlan {
+        let configuration = configuration.forGeneration()
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .semanticSearchInterpretation,
@@ -3352,6 +3353,7 @@ private actor MusicIntelligenceEngine {
         requestAuthorization: @escaping @Sendable () async -> Bool,
         onTranslation: (@Sendable (_ id: String, _ text: String) -> Void)? = nil
     ) async throws -> [String: String] {
+        let configuration = configuration.forGeneration()
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3397,6 +3399,7 @@ private actor MusicIntelligenceEngine {
         hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> [TagCleanupProposal] {
+        let configuration = configuration.forGeneration(atLeast: 45)
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3421,7 +3424,7 @@ private actor MusicIntelligenceEngine {
             throw MusicIntelligenceError.unavailable(reason)
         }
         // A batch answer is long; give it more room than a single request.
-        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+        return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.proposeTagCleanup(
                 songs,
                 languageCode: languageCode,
@@ -3441,6 +3444,7 @@ private actor MusicIntelligenceEngine {
         hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> [SongDiscoverySuggestion] {
+        let configuration = configuration.forGeneration(atLeast: 45)
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3465,7 +3469,7 @@ private actor MusicIntelligenceEngine {
             throw MusicIntelligenceError.unavailable(reason)
         }
         // A list of thirty songs with reasons is a long answer.
-        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+        return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.discoverSongs(request, currentYear: currentYear)
         }
     }
@@ -3479,6 +3483,7 @@ private actor MusicIntelligenceEngine {
         hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> [ListeningIntentAIExchange.Draft] {
+        let configuration = configuration.forGeneration(atLeast: 45)
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3502,7 +3507,7 @@ private actor MusicIntelligenceEngine {
         case .unavailable(let reason):
             throw MusicIntelligenceError.unavailable(reason)
         }
-        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+        return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.curateListeningIntents(request)
         }
     }
@@ -3516,6 +3521,7 @@ private actor MusicIntelligenceEngine {
         hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> LibraryInsightAIExchange.Answer {
+        let configuration = configuration.forGeneration(atLeast: 30)
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3539,7 +3545,7 @@ private actor MusicIntelligenceEngine {
         case .unavailable(let reason):
             throw MusicIntelligenceError.unavailable(reason)
         }
-        return try await withTimeout(seconds: max(configuration.requestTimeout, 30)) {
+        return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.libraryInsight(request)
         }
     }
@@ -3552,6 +3558,7 @@ private actor MusicIntelligenceEngine {
         hasExplicitRemoteConsent: Bool,
         requestAuthorization: @escaping @Sendable () async -> Bool
     ) async throws -> ListeningMoodAIExchange.Answer {
+        let configuration = configuration.forGeneration(atLeast: 30)
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .lyricsTranslation,
@@ -3575,7 +3582,7 @@ private actor MusicIntelligenceEngine {
         case .unavailable(let reason):
             throw MusicIntelligenceError.unavailable(reason)
         }
-        return try await withTimeout(seconds: max(configuration.requestTimeout, 30)) {
+        return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.listeningMood(request)
         }
     }
@@ -3588,6 +3595,7 @@ private actor MusicIntelligenceEngine {
         requestAuthorization: @escaping @Sendable () async -> Bool,
         onSelection: (@Sendable (AIRecommendationSelection) -> Void)? = nil
     ) async throws -> AIRecommendationPlan {
+        let configuration = configuration.forGeneration()
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .recommendations,

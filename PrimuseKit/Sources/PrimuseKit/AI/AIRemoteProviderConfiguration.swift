@@ -406,6 +406,44 @@ public enum AIRequestTimeoutPolicy {
         guard let value = validated(value) else { return nil }
         return UInt64(value * 1_000_000_000)
     }
+
+    /// 本机或局域网里自己跑的模型(Ollama、LM Studio、llama.cpp 等)出字比云端慢得多,
+    /// 冷启动装载模型再写一份推荐常要二三十秒,默认的 12 秒对它们太短。
+    public static let selfHostedValue: TimeInterval = maximum
+}
+
+extension AIRemoteProviderConfiguration {
+    /// 发生成请求时用的配置:自托管服务按 `AIRequestTimeoutPolicy.selfHostedValue` 等,
+    /// 回答本来就长的功能再给到 `floor` 秒。会话、单次请求和整体限时都读这里的
+    /// `requestTimeout`,只放宽外层限时等不到这么久。比默认值还短的(连接测试的快速探测)不动。
+    public func forGeneration(atLeast floor: TimeInterval = 0) -> AIRemoteProviderConfiguration {
+        var timeout = requestTimeout
+        if timeout >= AIRequestTimeoutPolicy.defaultValue,
+           AISelfHostedEndpointPolicy.isSelfHosted(configuration: self) {
+            timeout = max(timeout, AIRequestTimeoutPolicy.selfHostedValue)
+        }
+        var configuration = self
+        configuration.requestTimeout = min(
+            max(timeout, floor, AIRequestTimeoutPolicy.minimum),
+            AIRequestTimeoutPolicy.maximum
+        )
+        return configuration
+    }
+}
+
+/// 自己在本机或局域网架的模型服务。地址是本机/局域网,或者用的是 Ollama 的默认端口
+/// (映射到外网时多半也保留它)。
+public enum AISelfHostedEndpointPolicy {
+    public static let ollamaDefaultPort = 11434
+
+    public static func isSelfHosted(configuration: AIRemoteProviderConfiguration) -> Bool {
+        guard let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
+            configuration.baseURL,
+            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
+        ), let host = baseURL.host else { return false }
+        return InsecureHTTPHostPolicy.isLocalNetworkHost(host)
+            || baseURL.port == ollamaDefaultPort
+    }
 }
 
 public enum AIAudioTranscriptionPolicy {
