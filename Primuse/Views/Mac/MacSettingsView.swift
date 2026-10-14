@@ -8815,7 +8815,7 @@ private struct MacLicenseComponent: Identifiable, Hashable {
         .init(name: "FFmpeg 8.1", license: "LGPL 2.1+", use: Lz("DTS / DTS-HD and additional format decoding")),
         .init(name: "AMSMB2", license: "BSD-3", use: Lz("SMB / CIFS connection")),
         .init(name: "Citadel", license: "MIT", use: Lz("SFTP client")),
-        .init(name: "NFSKit", license: "MIT", use: Lz("NFS browsing")),
+        .init(name: "libnfs", license: "LGPL 2.1", use: Lz("NFS browsing")),
         .init(name: "GRDB.swift", license: "MIT", use: "SQLite + FTS5"),
         .init(name: "Nuke", license: "MIT", use: Lz("Cover image loading and cache")),
         .init(name: "Swift Collections", license: "Apache 2.0", use: Lz("Data structures")),

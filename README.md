@@ -384,7 +384,7 @@ primuse/
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite 资料库持久化 |
 | [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS 客户端 |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP 客户端 |
-| [NFSKit](https://github.com/alexiscn/NFSKit) | NFS 客户端 |
+| [libnfs](https://github.com/sahlberg/libnfs) 8.0.0（源码随仓库，`Vendor/LibNFS`） | NFS 客户端 |
 | [swift-crypto](https://github.com/apple/swift-crypto) | 加密与签名操作 |
 | [swift-nio](https://github.com/apple/swift-nio) | 异步网络基础设施 |
 | [SwiftDraw](https://github.com/swhitty/SwiftDraw) | SVG 电台台标与矢量图像渲染 |

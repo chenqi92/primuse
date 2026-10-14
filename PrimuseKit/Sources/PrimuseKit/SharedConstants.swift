@@ -986,6 +986,16 @@ public struct NFSScopedSelection: Equatable, Sendable {
     }
 }
 
+/// NFSv3 目录项的修改时间,照搬之前 NFSKit 客户端的算法:纳秒先整除到微秒再
+/// 换算成秒。修改时间进了歌曲的文件版本(`nfs:<大小>:<微秒>`),算法一变,已扫描
+/// 的歌会被当成换了文件。
+public enum NFSv3EntryDatePolicy {
+    public static func modifiedDate(seconds: Int, nanoseconds: UInt32) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(seconds)
+            + TimeInterval(Int(nanoseconds) / 1000) / 1_000_000)
+    }
+}
+
 /// Validates the decoded parts of an NFS selection path before a client mounts
 /// an export. A configured source is confined to that exact export; all sources
 /// reject parent components in both the export identity and relative file path.
@@ -5335,69 +5345,17 @@ public enum SMBSessionDisposalPolicy {
     }
 }
 
-/// Decides whether a failed NFSKit request may still be queued in libnfs.
-///
-/// NFSKit (ec63d055) waits on every libnfs call with its callback context on
-/// the waiting stack frame, and stops waiting when `NFSClient.timeout` passes
-/// without socket activity or when polling the socket fails, while the
-/// request stays queued in libnfs. libnfs then reaches it through that dead
-/// pointer on every remaining path: the next call that services the socket,
-/// `rpc_disconnect()` which every unmount runs first and which errors out all
-/// queued requests, and `rpc_destroy_context()` which purges them with their
-/// callbacks. NFSKit's callback has no socket check, so a context left with
-/// such a request must be neither used, unmounted nor released.
-///
-/// An abandoned wait surfaces as `ETIMEDOUT` (NFSKit's own timeout or
-/// `RemoteRequestDeadline`), or as the `errno` of a failed poll on the socket
-/// (`ECANCELED` when that errno was zero). Replies that did arrive carry the
-/// server's status instead (`ENOENT`, `EACCES`, `EPERM`, `EIO`, ...) and leave
-/// nothing queued, so those clients are still unmounted and released.
-public enum NFSContextDisposalPolicy {
-    public static func mayHaveAbandonedRequest(
-        errorDomain: String,
-        errorCode: Int
-    ) -> Bool {
-        guard errorDomain == NSPOSIXErrorDomain else { return false }
-
-        return [
-            // The wait itself gave up.
-            POSIXErrorCode.ETIMEDOUT,
-            // Polling the socket failed (NFSKit turns errno 0 into ECANCELED).
-            .EINTR,
-            .ECANCELED,
-            .ENOMEM,
-            .EINVAL,
-            // The socket was reported broken while a request was queued.
-            .ECONNRESET,
-            .ECONNABORTED,
-            .ECONNREFUSED,
-            .EPIPE,
-            .ENOTCONN,
-            .ESHUTDOWN,
-            .EBADF,
-            .ENOTSOCK,
-            .ENETRESET,
-            .ENETDOWN,
-            .ENETUNREACH,
-            .EHOSTDOWN,
-            .EHOSTUNREACH,
-        ].contains { Int($0.rawValue) == errorCode }
-    }
-}
-
 /// Keeps remote sessions alive that their library can no longer close.
 ///
-/// AMSMB2 and NFSKit both leave a request queued in their C library, with a
-/// callback pointing into memory that is already gone, when they stop
-/// waiting for it. Closing or releasing such a session fires that callback
-/// (libsmb2 through a freed directory handle, libnfs through a dead stack
-/// frame). Retaining the session is what stops that teardown from ever
+/// AMSMB2 leaves a request queued in libsmb2, with a callback pointing into
+/// memory that is already gone, when it stops waiting for it. Closing or
+/// releasing such a session fires that callback through a freed directory
+/// handle. Retaining the session is what stops that teardown from ever
 /// running, so a broken session is parked here for the rest of the process
 /// instead of being closed.
 ///
-/// `SMBSessionDisposalPolicy` and `NFSContextDisposalPolicy` decide which
-/// failures land here; ordinary protocol errors still close their session
-/// normally.
+/// `SMBSessionDisposalPolicy` decides which failures land here; ordinary
+/// protocol errors still close their session normally.
 public final class RemoteRetiredSessions: @unchecked Sendable {
     public static let shared = RemoteRetiredSessions()
 
@@ -5423,34 +5381,31 @@ public final class RemoteRetiredSessions: @unchecked Sendable {
 }
 
 /// Bounds how long Primuse waits on one call into a callback-based remote
-/// client (AMSMB2, NFSKit) without letting that client give up on the
-/// request itself.
+/// client (AMSMB2) without letting that client give up on the request itself.
 ///
-/// Both libraries stop waiting once their `timeout` passes without socket
-/// activity, but the request stays queued in the C library (libsmb2, libnfs)
-/// with a callback pointer into the stack frame that was waiting. AMSMB2's
-/// multi-step calls keep servicing the same socket right after that: the
-/// file transfers close their handle in `deinit`, `connectShare` releases the
-/// old context after a failed echo, `listShares` disconnects its temporary
-/// session. NFSKit reaches the request on the next call, on unmount, or when
-/// the context is destroyed. A reply or teardown at that point is delivered
-/// through the stale pointer, sometimes before the error ever reaches
-/// Primuse, so retiring the session afterwards can be too late.
+/// AMSMB2 stops waiting once its `timeout` passes without socket activity,
+/// but the request stays queued in libsmb2 with a callback pointer into the
+/// stack frame that was waiting. Its multi-step calls keep servicing the same
+/// socket right after that: the file transfers close their handle in
+/// `deinit`, `connectShare` releases the old context after a failed echo,
+/// `listShares` disconnects its temporary session. A reply or teardown at
+/// that point is delivered through the stale pointer, sometimes before the
+/// error ever reaches Primuse, so retiring the session afterwards can be too
+/// late. (NFS uses libnfs' synchronous calls instead, see `LibNFSSession`.)
 ///
 /// Clients therefore run with `libraryTimeout`, far beyond any server that
 /// is merely slow, and the deadline is enforced here from the outside. When
 /// it expires the caller stops waiting, while the request itself stays
 /// awaited with a valid callback until its reply or a transport error ends
 /// it. The thrown error is `ETIMEDOUT`, so callers retire that still busy
-/// session (`SMBSessionDisposalPolicy`, `NFSContextDisposalPolicy`) and
-/// reconnect on a fresh one.
+/// session (`SMBSessionDisposalPolicy`) and reconnect on a fresh one.
 public enum RemoteRequestDeadline {
     /// Value for the client's own `timeout`. Still finite, so a request whose
     /// server never answers eventually ends and frees the library's thread.
     public static let libraryTimeout: TimeInterval = 300
 
-    /// The deadline AMSMB2 and NFSKit used to apply by themselves (their
-    /// default timeout).
+    /// The deadline AMSMB2 and the former NFSKit client used to apply by
+    /// themselves (their default timeout); NFSv3 requests time out after it.
     public static let standardStallTimeout: TimeInterval = 60
 
     /// Directory listings report no progress, so their deadline covers the

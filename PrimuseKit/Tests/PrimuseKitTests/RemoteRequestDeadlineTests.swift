@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
-/// AMSMB2 4.0.3 and NFSKit abandon a request when their own timeout fires and
-/// leave it queued in the C library, so a late reply or a teardown lands on a
-/// dead stack frame. These cases pin the replacement: the library never gives
+/// AMSMB2 4.0.3 abandons a request when its own timeout fires and leaves it
+/// queued in libsmb2, so a late reply or a teardown lands on a dead stack
+/// frame. These cases pin the replacement: the library never gives
 /// up first, Primuse's deadline only stops waiting, and the request itself
 /// always runs to its real end.
 @Suite("Remote request deadline")
@@ -109,12 +109,12 @@ struct RemoteRequestDeadlineTests {
 }
 
 /// The guard is what keeps a client whose request may still be queued from
-/// ever being used, closed or released again; NFS relies on it entirely.
+/// ever being used, closed or released again.
 @Suite("Remote session guard")
 struct RemoteSessionGuardTests {
     final class Session {}
 
-    private static func nfsGuard(
+    private static func smbGuard(
         _ session: Session,
         store: RemoteRetiredSessions,
         retirements: RetirementLog? = nil
@@ -124,7 +124,7 @@ struct RemoteSessionGuardTests {
             retiredSessions: store,
             mayHaveAbandonedRequest: { error in
                 let nsError = error as NSError
-                return NFSContextDisposalPolicy.mayHaveAbandonedRequest(
+                return SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
                     errorDomain: nsError.domain,
                     errorCode: nsError.code
                 )
@@ -136,7 +136,7 @@ struct RemoteSessionGuardTests {
     @Test("A request that succeeds keeps the session in use")
     func successKeepsSession() async throws {
         let store = RemoteRetiredSessions()
-        let guarded = Self.nfsGuard(Session(), store: store)
+        let guarded = Self.smbGuard(Session(), store: store)
         let value = try await guarded.request { _, _ in 5 }
         #expect(value == 5)
         #expect(!guarded.isRetired)
@@ -146,7 +146,7 @@ struct RemoteSessionGuardTests {
     @Test("A failure carried by a reply leaves the session in use")
     func deliveredFailureKeepsSession() async throws {
         let store = RemoteRetiredSessions()
-        let guarded = Self.nfsGuard(Session(), store: store)
+        let guarded = Self.smbGuard(Session(), store: store)
         await #expect(throws: POSIXError.self) {
             _ = try await guarded.request { _, _ -> Int in throw POSIXError(.ENOENT) }
         }
@@ -161,7 +161,7 @@ struct RemoteSessionGuardTests {
         let store = RemoteRetiredSessions()
         let retirements = RetirementLog()
         let session = Session()
-        let guarded = Self.nfsGuard(session, store: store, retirements: retirements)
+        let guarded = Self.smbGuard(session, store: store, retirements: retirements)
 
         await #expect(throws: POSIXError.self) {
             _ = try await guarded.request { _, _ -> Int in throw POSIXError(.ETIMEDOUT) }
@@ -178,7 +178,7 @@ struct RemoteSessionGuardTests {
     @Test("A retired session is refused without being touched")
     func retiredSessionIsRefused() async {
         let store = RemoteRetiredSessions()
-        let guarded = Self.nfsGuard(Session(), store: store)
+        let guarded = Self.smbGuard(Session(), store: store)
         _ = try? await guarded.request { _, _ -> Int in throw POSIXError(.ETIMEDOUT) }
 
         let touched = RequestOutcome()
@@ -206,7 +206,7 @@ struct RemoteSessionGuardTests {
     func expiredDeadlineRetiresSession() async throws {
         let store = RemoteRetiredSessions()
         let outcome = RequestOutcome()
-        let guarded = Self.nfsGuard(Session(), store: store)
+        let guarded = Self.smbGuard(Session(), store: store)
 
         await #expect(throws: POSIXError.self) {
             _ = try await guarded.request(stallTimeout: 0.1) { _, _ -> Int in
@@ -229,7 +229,7 @@ struct RemoteSessionGuardTests {
     func ifNotRetiredBeforeRetirement() {
         let store = RemoteRetiredSessions()
         let session = Session()
-        let guarded = Self.nfsGuard(session, store: store)
+        let guarded = Self.smbGuard(session, store: store)
         var handedOut: Session?
         guarded.ifNotRetired { handedOut = $0 }
         #expect(handedOut === session)

@@ -384,7 +384,7 @@ primuse/
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite library persistence |
 | [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS client |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP client |
-| [NFSKit](https://github.com/alexiscn/NFSKit) | NFS client |
+| [libnfs](https://github.com/sahlberg/libnfs) 8.0.0 (vendored source, `Vendor/LibNFS`) | NFS client |
 | [swift-crypto](https://github.com/apple/swift-crypto) | Cryptographic and signing operations |
 | [swift-nio](https://github.com/apple/swift-nio) | Asynchronous networking infrastructure |
 | [SwiftDraw](https://github.com/swhitty/SwiftDraw) | SVG station-logo and vector-image rendering |

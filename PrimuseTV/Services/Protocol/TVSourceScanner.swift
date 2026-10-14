@@ -2,7 +2,6 @@
 import AMSMB2
 import CryptoKit
 import Foundation
-import NFSKit
 import PrimuseKit
 import UIKit
 
@@ -519,36 +518,27 @@ enum TVS3ListParser {
     }
 }
 
-// MARK: - NFS 目录列举(NFSKit)
+// MARK: - NFS 目录列举
 
-/// 电视端本来就用 NFSKit 做 range 读取(`NFSByteReader`),列目录用同一个客户端。
-/// 根目录列出服务器导出的 export;进入某个 export 之后走该 export 内的相对路径。
-/// 路径沿用 `NFSByteReader.parseSelection` 认得的 `export|相对路径` 形式,
-/// 这样扫描出来的歌能直接被播放侧解析。
+/// 和 `NFSByteReader` 一样用 libnfs(`LibNFSSession`)。根目录列出服务器导出的 export;
+/// 进入某个 export 之后走该 export 内的相对路径。路径沿用 `NFSByteReader.parseSelection`
+/// 认得的 `nfs::<export>::<相对路径>` 形式,这样扫描出来的歌能直接被播放侧解析。
+/// 子路径和修改时间沿用之前 NFSKit 的算法,已扫描的歌不会被当成新文件。
 actor TVNFSLister: TVDirectoryLister {
-    private let url: URL
+    private let host: String
     private let configuredExport: String?
-    private var session: RemoteSessionGuard<NFSClient>?
+    private var session: LibNFSSession?
     private var connectedExport: String?
 
     init?(source: MusicSource) {
-        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = (source.host ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard !host.isEmpty else { return nil }
         guard (source.nfsVersion ?? .auto).canStartWithV3OnlyBackend else { return nil }
-        let urlHost = (host.contains(":") && !host.hasPrefix("[")) ? "[\(host)]" : host
-        var components = URLComponents()
-        components.scheme = "nfs"
-        components.host = urlHost
-        guard let built = components.url else { return nil }
-        self.url = built
+        self.host = host
         let export = (source.basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         self.configuredExport = export.isEmpty ? nil : export
-    }
-
-    deinit {
-        // 释放仍挂载着的客户端时 NFSKit 会在放手的那个线程上同步卸载;没退役的
-        // 客户端上没有在途请求,卸载沿用这里原来 20 秒的等待上限。
-        session?.ifNotRetired { $0.timeout = NFSByteReader.requestStallTimeout }
     }
 
     func list(_ path: String) async throws -> [TVDirEntry] {
@@ -556,38 +546,32 @@ actor TVNFSLister: TVDirectoryLister {
         guard let export = selection.export else {
             return try await listExports()
         }
-        let session = try await connect(to: export)
         let relative = selection.relative
-        let entries = try await session.request(
-            stallTimeout: RemoteRequestDeadline.listingStallTimeout
-        ) { client, _ in
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
-                client.contentsOfDirectory(atPath: relative) { result in
-                    switch result {
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
-                    case .success(let items):
-                        let mapped = items.compactMap { entry -> TVDirEntry? in
-                            guard let name = entry[.nameKey] as? String, name != ".", name != "..",
-                                  let remotePath = entry[.pathKey] as? String else { return nil }
-                            return TVDirEntry(
-                                name: name,
-                                isDir: (entry[.isDirectoryKey] as? Bool ?? false)
-                                    || (entry[.fileResourceTypeKey] as? URLFileResourceType) == .directory,
-                                size: (entry[.fileSizeKey] as? Int64) ?? 0,
-                                path: TVNFSPathPolicy.selectionPath(export: export, relative: remotePath),
-                                parentPath: path,
-                                modifiedDate: (entry[.contentModificationDateKey] as? Date)
-                                    ?? (entry[.creationDateKey] as? Date)
-                            )
-                        }
-                        continuation.resume(returning: mapped)
-                    }
-                }
-            }
+        let entries: [LibNFSSession.DirectoryEntry]
+        do {
+            let session = try await connect(to: export)
+            entries = try await session.listDirectory(relative)
+        } catch {
+            await resetAfterFailure(error)
+            throw error
         }
-        return entries.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        return entries.map { entry in
+            TVDirEntry(
+                name: entry.name,
+                isDir: entry.isNFS3Directory,
+                size: Int64(clamping: entry.size),
+                path: TVNFSPathPolicy.selectionPath(
+                    export: export,
+                    relative: (relative as NSString).appendingPathComponent(entry.name)
+                ),
+                parentPath: path,
+                modifiedDate: NFSv3EntryDatePolicy.modifiedDate(
+                    seconds: entry.mtimeSeconds,
+                    nanoseconds: entry.mtimeNanoseconds
+                )
+            )
+        }
+        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
     /// 根目录:服务器上有哪些 export。源里配置了固定 export 时不再列,直接进去。
@@ -603,18 +587,10 @@ actor TVNFSLister: TVDirectoryLister {
                 )
             ]
         }
-        let session = try requireSession()
-        let exports = try await session.request { client, _ in
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<[String], any Error>) in
-                client.listExports { result in
-                    switch result {
-                    case .failure(let error): continuation.resume(throwing: error)
-                    case .success(let items): continuation.resume(returning: items)
-                    }
-                }
-            }
-        }
+        let exports = try await LibNFSSession.exports(
+            host: host,
+            timeout: RemoteRequestDeadline.standardStallTimeout
+        )
         return exports.map { export in
             TVDirEntry(
                 name: (export as NSString).lastPathComponent,
@@ -626,32 +602,33 @@ actor TVNFSLister: TVDirectoryLister {
         }
     }
 
-    /// 客户端经 `RemoteSessionGuard` 使用:请求可能还挂在 libnfs 里时它会被
-    /// 永久停用(不卸载、不释放),这里随之换一个新的。
-    private func requireSession() throws -> RemoteSessionGuard<NFSClient> {
-        if let session, !session.isRetired { return session }
-        guard let made = try NFSClient(url: url) else { throw TVScanError.connectFailed }
-        let fresh = NFSByteReader.guarded(made)
-        session = fresh
-        connectedExport = nil
-        return fresh
-    }
-
-    private func connect(to export: String) async throws -> RemoteSessionGuard<NFSClient> {
-        let session = try requireSession()
+    private func connect(to export: String) async throws -> LibNFSSession {
+        let session = self.session ?? LibNFSSession(
+            configuration: .init(
+                host: host,
+                port: nil,
+                version: .v3,
+                timeout: RemoteRequestDeadline.standardStallTimeout
+            ),
+            label: "tv.lister"
+        )
+        self.session = session
         if connectedExport == export { return session }
-        try await session.request { client, _ in
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                client.connect(export: export) { error in
-                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-                }
-            }
-        }
-        // 等待期间另一次列举可能已经换了客户端。
+        try await session.mount(exportPath: export)
+        // 等待期间另一次列举可能已经换了会话。
         if self.session === session {
             connectedExport = export
         }
         return session
+    }
+
+    /// 请求出错后换一个新会话,下一次列举重新挂载。
+    private func resetAfterFailure(_ error: Error) async {
+        guard !(error is CancellationError) else { return }
+        let stale = session
+        session = nil
+        connectedExport = nil
+        await stale?.unmount()
     }
 }
 

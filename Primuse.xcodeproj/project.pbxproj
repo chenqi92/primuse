@@ -29,6 +29,7 @@
 		0370BE128DDF0347C93FE343 /* AnimatedArtworkDataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44E04BAF67DF37C98C9FDAF /* AnimatedArtworkDataView.swift */; };
 		03B3734E9EB5070B598E2FB2 /* CueTrackLyricsSidecarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8229DF5C9EC7789C5DC4679 /* CueTrackLyricsSidecarPolicy.swift */; };
 		03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
+		3CD689893E36F677189359F8 /* LibNFSSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */; };
 		04969F95CD46A7BA89FA1E95 /* ListeningProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAC238ACF22C230D66FAB38 /* ListeningProfile.swift */; };
 		04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
 		04E128425527E01380009161 /* RadioStationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57DE7B8C5035D8C74F2E397 /* RadioStationStrip.swift */; };
@@ -271,7 +272,7 @@
 		2291C140AC660C29045C3F5C /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		22FBCC5A505CF16F00CD802F /* AudioPlayerService+Crossfade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202FD9C3E6649FA70A64E987 /* AudioPlayerService+Crossfade.swift */; };
 		2317F3C3B614EF85A5A156C0 /* MarqueeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D47DEE971458C97474E330 /* MarqueeText.swift */; };
-		233A8E21197A29B84629B73A /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4554180DADE700DF4BA63BA0 /* NFSKit */; };
+		233A8E21197A29B84629B73A /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 4554180DADE700DF4BA63BA0 /* LibNFS */; };
 		235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E648713A25DB3912120693A /* OneDriveSource.swift */; };
 		235EFB3AEC7C88DB79281CC6 /* ChapterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC3E2189D425CE5CEEFED7D /* ChapterListView.swift */; };
 		237F061DC577C556E4BCFF6C /* SiriListeningCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A874129890C38D538718F3 /* SiriListeningCatalog.swift */; };
@@ -360,6 +361,7 @@
 		6F09704BA0FF5141ABB26D58 /* AppleMusicPlaylistPaginationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22FE05261EA577D9E91112E /* AppleMusicPlaylistPaginationTests.swift */; };
 		6866DB0BFDA15E5FB5F4E253 /* PlaylistPartialImportNoticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CECEA01F2E5581B9D7A272F /* PlaylistPartialImportNoticeTests.swift */; };
 		4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
+		F3F688041BACDB8DB70CB014 /* LibNFSSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */; };
 		4BF97F75487404ED612BEDAE /* AVAudioConverter+PlaybackResampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F392A595C04F368F3BD4AD /* AVAudioConverter+PlaybackResampling.swift */; };
 		55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */; };
 		598812D421EF6C8AEDA0E1E9 /* LastFmSimilarQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060EF616E880D6634832ABCD /* LastFmSimilarQuotaTests.swift */; };
@@ -375,6 +377,7 @@
 		B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		B24F5FA4DE63C8B0428510AF /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
+		632751616967711939126B72 /* LibNFSSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */; };
 		B292148827DDA2D80EC6D4F9 /* AVAudioConverter+PlaybackResampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F392A595C04F368F3BD4AD /* AVAudioConverter+PlaybackResampling.swift */; };
 		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		CB0F8E5C0E3979E1A4210280 /* ServerRequestScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6488DA53AC9E8F4FC41DBA94 /* ServerRequestScheduler.swift */; };
@@ -442,7 +445,7 @@
 		360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		36279537F34C4119C40F04FA /* KaraokeScoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CC067847F31E46891D8938 /* KaraokeScoring.swift */; };
 		362823C0E5638E246A8B36A5 /* DeviceMusicPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */; };
-		3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6B0EB701D9FE5D2A90E43FD9 /* NFSKit */; };
+		3655A1C13669D27CC9F07AF2 /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 6B0EB701D9FE5D2A90E43FD9 /* LibNFS */; };
 		365BCD04C8CB50299449B188 /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7B1ABACEE5C60AE38F1ED6 /* MusicVideoCompatibilityConverter.swift */; };
 		366053536840D21E9D6EE555 /* ListeningRankBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A7769C52B1ED1589BFDCDB /* ListeningRankBoard.swift */; };
 		366D7D4F02A0F18238939041 /* YearlyReport.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 56D75D33DED0016E8FE39B23 /* YearlyReport.xcassets */; };
@@ -636,7 +639,7 @@
 		4AD960ADD6500C88A7352856 /* MetadataTitleResolutionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3B233454438ABE7810B89F /* MetadataTitleResolutionPolicy.swift */; };
 		4B2098C9DD74C22E28E0B3F4 /* PlayerMoreMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75BE56F487EF033888E16A0 /* PlayerMoreMenu.swift */; };
 		4B2BF38BCFB84F05C64395BB /* ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 632A16B1EB87A560435B7039 /* ScanService.swift */; };
-		4B772087576B4514693E99FC /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 182EE268F2CA5FABDFC768A5 /* NFSKit */; };
+		4B772087576B4514693E99FC /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 182EE268F2CA5FABDFC768A5 /* LibNFS */; };
 		4BD73D0896517A5789F2EE45 /* MacDetailContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */; };
 		4BEE145854D089F85EF61D72 /* VisualizerBarsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */; };
 		4C0FC91103F15EF51E3A6FCB /* TVMedleyPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = C39449144439EA223390CE1A /* TVMedleyPlayback.swift */; };
@@ -2283,6 +2286,7 @@
 		09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyQuickConnectResolver.swift; sourceTree = "<group>"; };
 		0A0721DBF2314CD9ABA156A8 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVMultistatusParser.swift; sourceTree = "<group>"; };
+		E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibNFSSession.swift; sourceTree = "<group>"; };
 		0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMediaSearchResolver.swift; sourceTree = "<group>"; };
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
 		0A373D69542A894AC0E311DF /* SongloftSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftSource.swift; sourceTree = "<group>"; };
@@ -3694,7 +3698,7 @@
 				EE40C14EC379B339FE3A1C41 /* Citadel in Frameworks */,
 				0EF9A2707BC3958302910C83 /* Crypto in Frameworks */,
 				54462943A793EB8154002506 /* NIOCore in Frameworks */,
-				233A8E21197A29B84629B73A /* NFSKit in Frameworks */,
+				233A8E21197A29B84629B73A /* LibNFS in Frameworks */,
 				0A6519792957182F0B026F08 /* SFBAudioEngine in Frameworks */,
 				A7E08BB7392349C36A0A54D1 /* SwiftDraw in Frameworks */,
 				E6A240838BE0AD9CC2C17761 /* libavutil.xcframework in Frameworks */,
@@ -3715,7 +3719,7 @@
 				F101F74A9F076657AE7C6D3E /* PrimuseKit.framework in Frameworks */,
 				29A9409313AE55C1C09F955C /* GRDB-dynamic in Frameworks */,
 				923419C1DA62D2B6B7C97E54 /* AMSMB2 in Frameworks */,
-				3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */,
+				3655A1C13669D27CC9F07AF2 /* LibNFS in Frameworks */,
 				43A41981339889419B582887 /* Citadel in Frameworks */,
 				13D5A32839126B9045BF15F9 /* Crypto in Frameworks */,
 				8B77D792AE4D2D370EFF3410 /* NIOCore in Frameworks */,
@@ -3748,7 +3752,7 @@
 				D0F25B5297A2686428FBE2BD /* Citadel in Frameworks */,
 				EF3E73C2246B8853632A928A /* Crypto in Frameworks */,
 				AE1E0F179439B3421A49EBEA /* NIOCore in Frameworks */,
-				4B772087576B4514693E99FC /* NFSKit in Frameworks */,
+				4B772087576B4514693E99FC /* LibNFS in Frameworks */,
 				F260BB7E737EA02688E26D87 /* SFBAudioEngine in Frameworks */,
 				D65FEA94417351D09D50866C /* SwiftDraw in Frameworks */,
 				CFBA25E3BA102447094DFD66 /* libavutil.xcframework in Frameworks */,
@@ -3975,6 +3979,7 @@
 			isa = PBXGroup;
 			children = (
 				0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */,
+				E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */,
 				D5819259AE89A45BDAF57D34 /* CloudDrive */,
 				0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */,
 				EC7328A5A7A53657CC638132 /* AudiobookshelfSource.swift */,
@@ -5809,7 +5814,7 @@
 			packageProductDependencies = (
 				EF9635658A256FB5BD539D55 /* GRDB-dynamic */,
 				60CB1C69962970C37F46BE91 /* AMSMB2 */,
-				6B0EB701D9FE5D2A90E43FD9 /* NFSKit */,
+				6B0EB701D9FE5D2A90E43FD9 /* LibNFS */,
 				C4613DCB16547AB22EE7D4FD /* Citadel */,
 				78723AF9ADCA00533C13723D /* Crypto */,
 				2BE904A0DE01349CEB7A473E /* NIOCore */,
@@ -5864,7 +5869,7 @@
 				0606057AA8A4360CCC6E7DCC /* Citadel */,
 				732C3E4918F41BB73857AAE7 /* Crypto */,
 				C911C661F7CED78FBD5F2FCC /* NIOCore */,
-				4554180DADE700DF4BA63BA0 /* NFSKit */,
+				4554180DADE700DF4BA63BA0 /* LibNFS */,
 				F018F7A8A3643BE3A12DF666 /* SFBAudioEngine */,
 				D4A3019B6DD01FF53314D473 /* SwiftDraw */,
 			);
@@ -5953,7 +5958,7 @@
 				9A175C9BD099798C235AC4B9 /* Citadel */,
 				A2D615E9E6A58B7DF5A858D1 /* Crypto */,
 				311B669F71B39784F17F48DB /* NIOCore */,
-				182EE268F2CA5FABDFC768A5 /* NFSKit */,
+				182EE268F2CA5FABDFC768A5 /* LibNFS */,
 				55D70C047D426E7C59D8AE14 /* SFBAudioEngine */,
 				9F0BF05D8F994013247F0024 /* SwiftDraw */,
 			);
@@ -6130,7 +6135,7 @@
 				13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */,
 				466EF0BB12C1115075D5668A /* XCRemoteSwiftPackageReference "Citadel" */,
 				5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
-				21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */,
+				21EA0EB8036EED38290BD521 /* XCLocalSwiftPackageReference "Vendor/LibNFS" */,
 				BB7F62B1FCDD8924C0B18F5F /* XCRemoteSwiftPackageReference "SFBAudioEngine" */,
 				47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 				C687181FA0A2B2D096A24E9F /* XCRemoteSwiftPackageReference "SwiftDraw" */,
@@ -6924,6 +6929,7 @@
 			files = (
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */,
+				632751616967711939126B72 /* LibNFSSession.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
 				7210AD10697C91EB7309F068 /* AISettingsStore.swift in Sources */,
@@ -7445,6 +7451,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */,
+				3CD689893E36F677189359F8 /* LibNFSSession.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
 				790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */,
 				B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */,
@@ -7654,6 +7661,7 @@
 			files = (
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */,
+				F3F688041BACDB8DB70CB014 /* LibNFSSession.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
 				EB36756FE7E3F05779F6C1F1 /* AISettingsStore.swift in Sources */,
@@ -9413,6 +9421,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		21EA0EB8036EED38290BD521 /* XCLocalSwiftPackageReference "Vendor/LibNFS" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/LibNFS;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -9420,14 +9435,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 4.0.0;
-			};
-		};
-		21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/alexiscn/NFSKit.git";
-			requirement = {
-				kind = revision;
-				revision = ec63d055b9ee08d609d3c6cb32f42c07edc7bdf7;
 			};
 		};
 		2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */ = {
@@ -9491,10 +9498,9 @@
 			package = 466EF0BB12C1115075D5668A /* XCRemoteSwiftPackageReference "Citadel" */;
 			productName = Citadel;
 		};
-		182EE268F2CA5FABDFC768A5 /* NFSKit */ = {
+		182EE268F2CA5FABDFC768A5 /* LibNFS */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */;
-			productName = NFSKit;
+			productName = LibNFS;
 		};
 		2BE904A0DE01349CEB7A473E /* NIOCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -9506,10 +9512,9 @@
 			package = 2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOCore;
 		};
-		4554180DADE700DF4BA63BA0 /* NFSKit */ = {
+		4554180DADE700DF4BA63BA0 /* LibNFS */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */;
-			productName = NFSKit;
+			productName = LibNFS;
 		};
 		5200B61ECBAC6EE76E9886AF /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -9531,10 +9536,9 @@
 			package = 13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */;
 			productName = AMSMB2;
 		};
-		6B0EB701D9FE5D2A90E43FD9 /* NFSKit */ = {
+		6B0EB701D9FE5D2A90E43FD9 /* LibNFS */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */;
-			productName = NFSKit;
+			productName = LibNFS;
 		};
 		732C3E4918F41BB73857AAE7 /* Crypto */ = {
 			isa = XCSwiftPackageProductDependency;

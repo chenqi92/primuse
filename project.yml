@@ -40,9 +40,9 @@ packages:
   SwiftNIO:
     url: https://github.com/apple/swift-nio.git
     from: "2.74.0"
-  NFSKit:
-    url: https://github.com/alexiscn/NFSKit.git
-    revision: ec63d055b9ee08d609d3c6cb32f42c07edc7bdf7
+  # libnfs 8.0.0 的源码随仓库(scripts/update-libnfs.sh 导入),由 Xcode 直接编译。
+  LibNFS:
+    path: Vendor/LibNFS
   SFBAudioEngine:
     url: https://github.com/sbooth/SFBAudioEngine.git
     from: "0.12.1"
@@ -172,8 +172,8 @@ targets:
         product: Crypto
       - package: SwiftNIO
         product: NIOCore
-      - package: NFSKit
-        product: NFSKit
+      - package: LibNFS
+        product: LibNFS
       - package: SFBAudioEngine
         product: SFBAudioEngine
       # SwiftDraw 栅格化 SVG 台标。0.29 起 tvOS 也能编，iOS / macOS / tvOS 三端都链接它。
@@ -585,8 +585,8 @@ targets:
         product: Crypto
       - package: SwiftNIO
         product: NIOCore
-      - package: NFSKit
-        product: NFSKit
+      - package: LibNFS
+        product: LibNFS
       - package: SFBAudioEngine
         product: SFBAudioEngine
       # SwiftDraw 栅格化 SVG 台标。0.29 起 tvOS 也能编，iOS / macOS / tvOS 三端都链接它。
@@ -738,6 +738,7 @@ targets:
       - path: Primuse/Services/Metadata/TagMetadataWritebackTypes.swift
       - path: Primuse/Services/Sources/MusicSourceProtocol.swift
       - path: Primuse/Services/Sources/WebDAVMultistatusParser.swift
+      - path: Primuse/Services/Sources/LibNFSSession.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
       - path: Primuse/Utilities/Extensions/URL+AudioFormat.swift
       - path: Primuse/Utilities/Extensions/AVAudioConverter+PlaybackResampling.swift
@@ -861,8 +862,8 @@ targets:
       # 经 connector.fetchRange + AVAssetResourceLoaderDelegate 喂 AVPlayer。
       - package: AMSMB2
         embed: true
-      - package: NFSKit
-        product: NFSKit
+      - package: LibNFS
+        product: LibNFS
       # SFTP 直连:与 iOS / macOS 用同一套 Citadel + NIOSSH 客户端。
       - package: Citadel
         product: Citadel

@@ -501,19 +501,7 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
     }
 
     private func resolveClient() throws -> any NFSClientBackend {
-        if let client {
-            guard client.isRetired else { return client }
-            // The backend parked its connection after a request that may
-            // still be queued in libnfs (see `NFSContextDisposalPolicy`).
-            // Continue on a fresh one with the same protocol version; the
-            // parked one is never unmounted or released.
-            let version = activeVersion ?? nfsVersion.connectionAttemptOrder[0]
-            let replacement = try makeClient(version: version)
-            self.client = replacement
-            activeVersion = version
-            connectedExportPath = nil
-            return replacement
-        }
+        if let client { return client }
 
         let version = nfsVersion.connectionAttemptOrder[0]
         let client = try makeClient(version: version)
@@ -523,28 +511,15 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
     }
 
     private func makeClient(version: NFSVersion) throws -> any NFSClientBackend {
+        guard !host.trimmingCharacters(in: CharacterSet(charactersIn: "[] ")).isEmpty else {
+            throw SourceError.connectionFailed("Invalid NFS host")
+        }
         if version == .v4 {
             return NFSv4ClientBackend(host: host, port: port, sourceID: sourceID)
         }
-
-        // IPv6 addresses must be wrapped in brackets for URL construction
-        let urlHost = host.contains(":") && !host.hasPrefix("[")
-            ? "[\(host)]"
-            : host
-        var components = URLComponents()
-        components.scheme = "nfs"
-        components.host = urlHost
-
-        // NFSKit appends URL ports to the hostname before rpcbind lookup,
-        // producing an unresolvable `host:port` address. NFSv3 discovers its
-        // MOUNT and NFS service ports through rpcbind; only the v4 backend
-        // above applies the explicitly configured NFS port directly.
-
-        guard let url = components.url else {
-            throw SourceError.connectionFailed("Invalid NFS host")
-        }
-
-        return try NFSKitClientBackend(url: url)
+        // NFSv3 discovers its MOUNT and NFS service ports through rpcbind;
+        // only the v4 backend applies the explicitly configured NFS port.
+        return NFSv3ClientBackend(host: host, sourceID: sourceID)
     }
 
     private func loadExports(forceRefresh: Bool = false) async throws -> [String] {
