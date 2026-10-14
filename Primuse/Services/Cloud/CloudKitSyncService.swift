@@ -2096,6 +2096,10 @@ final class CloudKitSyncService {
             guard case .saveRecord(let recordID) = change else { return false }
             return Self.sameRecordID(recordID, record.recordID)
         }
+        if hasPendingSave, record.recordType == RecordType.listeningStats {
+            mergeFetchedListeningStats(record, decodedEntries: decodedListeningStats, syncEngine: syncEngine)
+            return
+        }
         guard hasPendingSave,
               let local = makeRecord(for: record.recordID) else {
             if record.recordType == RecordType.playlist {
@@ -2154,6 +2158,33 @@ final class CloudKitSyncService {
         // 合并之后本地要推的内容若已与服务器相同(典型是源类型指纹重置后整份重排的
         // 那些), 推上去只会让其它设备把它再逐条收一遍, 撤掉。
         dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
+    }
+
+    /// 听歌统计有待传时的合并。本机那份就是 PlayHistoryStore 里的条目，不必先把整份历史编码压缩成记录
+    /// 再解回来；服务端那份在跳回主线程之前已经解好。合并后与服务端逐条相同才撤掉待传，也不再为了比较
+    /// 重编一遍。原来这几步（编码、两次解码、再编码）都在主线程，电视上一批就是两百多毫秒。
+    private func mergeFetchedListeningStats(
+        _ record: CKRecord,
+        decodedEntries: [PlayHistoryStore.Entry]?,
+        syncEngine: CKSyncEngine
+    ) {
+        storeSystemFields(record)
+        guard CloudSyncChannel.isEnabled(.listeningStats) else { return }
+        let serverEntries = decodedEntries ?? Self.decodeListeningStatsEntries(record) ?? []
+        let serverClearedAt = Self.decodeListeningStatsClearedAt(record)
+        let store = PlayHistoryStore.shared
+        applyRemoteEnvelope {
+            store.mergeRemoteEntries(serverEntries, remoteClearedAt: serverClearedAt)
+        }
+        if record["payload"] == nil,
+           record["payloadGz"] != nil,
+           store.clearedAt == serverClearedAt,
+           store.entriesForSync == serverEntries {
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+            return
+        }
+        // 待传的那份照常发；先在后台把载荷编好，引擎来要这一批时不必在主线程现编。
+        Task { [weak self] in await self?.precomputeListeningStatsPayload() }
     }
 
     /// 本地这条待传记录与服务器上的已逐字段相同就撤掉待传。

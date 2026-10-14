@@ -9899,6 +9899,9 @@ final class MusicLibrary {
     /// A metadata batch can otherwise perform one complete `songs.first` scan
     /// per pending playlist entry on the main actor.
     private func makeIdentityResolutionIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
+        // `resolveIdentity` 先按 id 找，按 id 找得到的用不上索引；全都找得到时（同一份曲库的设备之间是常态，
+        // 电视的播放历史每来一条都是这样）整库一遍也不必扫。
+        let identities = identities.filter { songForSynchronization(id: $0.songID) == nil }
         let requestedTitles = Set(identities.lazy.compactMap { identity in
             identity.title.isEmpty ? nil : identity.title
         })
