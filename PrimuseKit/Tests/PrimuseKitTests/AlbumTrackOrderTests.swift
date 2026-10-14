@@ -91,6 +91,32 @@ struct AlbumTrackOrderTests {
         #expect(AlbumTrackOrder.fileNameTrackNumber(path) == expected)
     }
 
+    @Test("Displayed album numbers preserve tags and gaps before falling back to file names")
+    func displayedNumbersPreserveAlbumPositions() {
+        let tracks = [
+            song("tagged", disc: 1, track: 7, path: "/Album/02 Title.flac"),
+            song("named", disc: 1, track: nil, path: "/Album/12 Title.flac"),
+            song("invalid", disc: 1, track: 0, path: "/Album/15 Title.flac"),
+            song("unknown", disc: 1, track: -1, path: "/Album/Bonus.flac"),
+        ]
+        #expect(tracks.enumerated().map {
+            AlbumTrackOrder.displayNumber(for: $0.element, indexInDisc: $0.offset)
+        } == [7, 12, 15, 4])
+    }
+
+    @Test("Unnumbered albums restart their display positions on each disc")
+    func displayedFallbackNumbersRestartPerDisc() {
+        for disc in [1, 2] {
+            let tracks = [
+                song("first", disc: disc, track: nil),
+                song("second", disc: disc, track: nil),
+            ]
+            #expect(tracks.enumerated().map {
+                AlbumTrackOrder.displayNumber(for: $0.element, indexInDisc: $0.offset)
+            } == [1, 2])
+        }
+    }
+
     private func song(
         _ id: String, disc: Int?, track: Int?, title: String? = nil,
         format: AudioFormat = .flac, path: String? = nil

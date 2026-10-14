@@ -570,7 +570,11 @@ struct AlbumDetailView: View {
     }
 
     private func trackList(discs: [DiscSection], showsDiscHeaders: Bool) -> some View {
-        LazyVStack(spacing: 0) {
+        let largestTrackNumber = max(
+            discs.map { $0.songs.count }.max() ?? 1,
+            discs.flatMap(\.songs).compactMap { AlbumTrackOrder.trackNumber(for: $0) }.max() ?? 1
+        )
+        return LazyVStack(spacing: 0) {
             ForEach(discs) { disc in
                 if showsDiscHeaders {
                     Text(verbatim: disc.title)
@@ -584,13 +588,16 @@ struct AlbumDetailView: View {
                 }
 
                 ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
+                    let trackNumber = AlbumTrackOrder.displayNumber(for: song, indexInDisc: index)
                     if isCatalogOnly(song) {
-                        catalogTrackRow(song)
+                        catalogTrackRow(song, trackNumber: trackNumber, largestTrackNumber: largestTrackNumber)
                     } else {
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
                             showAlbum: false,
+                            trackNumber: trackNumber,
+                            largestTrackNumber: largestTrackNumber,
                             selection: selection,
                             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
@@ -608,7 +615,7 @@ struct AlbumDetailView: View {
                     }
 
                     if index < disc.songs.count - 1 {
-                        Divider().padding(.leading, 66)
+                        Divider().padding(.leading, 12 + songRowStyle.artworkSize + songRowStyle.artworkSpacing)
                     }
                 }
             }
@@ -621,7 +628,7 @@ struct AlbumDetailView: View {
     /// 资料库里没有、按 Apple Music 目录补上的一首。点了照样从这首起整张接着播;
     /// 编辑标签、删除、加进歌单这些整理曲库的操作对它没有对象,所以只有播放,没有菜单。
     /// 封面和字色压淡一档,再标上 Apple Music,一眼分得出哪几首还不在资料库里。
-    private func catalogTrackRow(_ song: Song) -> some View {
+    private func catalogTrackRow(_ song: Song, trackNumber: Int, largestTrackNumber: Int) -> some View {
         let style = songRowStyle
         let isCurrent = player.currentSong?.id == song.id
         return HStack(spacing: style.artworkSpacing) {
@@ -636,6 +643,10 @@ struct AlbumDetailView: View {
             )
             .frame(width: style.artworkSize, height: style.artworkSize)
             .opacity(0.7)
+
+            SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
+                .font(style.titleFont)
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
 
             VStack(alignment: .leading, spacing: style.textSpacing) {
                 Text(song.title)
@@ -874,7 +885,7 @@ struct AlbumDetailView: View {
         let showsDiscHeaders = discs.contains { $0.number > 1 }
         let largestTrackNumber = max(
             discs.map { $0.songs.count }.max() ?? 1,
-            discs.flatMap(\.songs).compactMap(\.trackNumber).filter { $0 > 0 }.max() ?? 1
+            discs.flatMap(\.songs).compactMap { AlbumTrackOrder.trackNumber(for: $0) }.max() ?? 1
         )
         let ordinalWidth = MacOrdinalColumn.width(
             for: largestTrackNumber, minimum: 28, fontSize: 11, locale: locale
@@ -943,7 +954,7 @@ struct AlbumDetailView: View {
     private func macTrackRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let catalogOnly = isCatalogOnly(song)
-        let trackNumber = song.trackNumber.flatMap { $0 > 0 ? $0 : nil } ?? index + 1
+        let trackNumber = AlbumTrackOrder.displayNumber(for: song, indexInDisc: index)
         return Button { playSong(song) } label: {
             HStack(spacing: PMSpace.s10) {
                 ZStack {

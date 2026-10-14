@@ -30,11 +30,14 @@ struct SongRowView: View {
     @Environment(\.songRowColumns) private var songRowColumns
     /// 封面多大、字多大。极简模式的列表行封面更大，副标题前带音质标。
     @Environment(\.songRowStyle) private var rowStyle
+    @Environment(\.locale) private var locale
 
     let song: Song
     var actionRequest: SongRowActionRequest? = nil
     var isPlaying: Bool = false
     var showAlbum: Bool = true
+    var trackNumber: Int? = nil
+    var largestTrackNumber: Int = 1
     var showsActions: Bool = true
     var actionsOnly = false
     var queueSwipeActionsEnabled = true
@@ -432,6 +435,13 @@ struct SongRowView: View {
             .frame(width: style.artworkSize, height: style.artworkSize)
             .opacity(isReadingDetails ? 0.65 : unreachableDimming)
 
+            if let trackNumber {
+                SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
+                    .font(style.titleFont)
+                    .foregroundStyle(isPlaying ? Color.accentColor : Color.secondary)
+                    .opacity(isReadingDetails ? 0.75 : unreachableDimming)
+            }
+
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: style.textSpacing) {
                 Text(library.displayTitle(for: song))
@@ -586,6 +596,7 @@ struct SongRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
             [
+                trackNumber.map { $0.formatted(.number.grouping(.never).locale(locale)) },
                 song.title,
                 library.artistDisplayName(for: song),
                 unreachable ? String(localized: "song_row_source_unreachable") : nil
@@ -1854,6 +1865,22 @@ extension View {
 
 // MARK: - 行的版式
 
+struct SongRowTrackNumber: View {
+    let number: Int
+    let largestNumber: Int
+
+    var body: some View {
+        // 用整张专辑最长的编号占位，让各行标题对齐并随字号缩放。
+        Text(max(number, largestNumber), format: .number.grouping(.never))
+            .hidden()
+            .overlay(alignment: .trailing) {
+                Text(number, format: .number.grouping(.never))
+            }
+            .monospacedDigit()
+            .fixedSize()
+    }
+}
+
 /// 歌曲行的封面与字号。经典是 44pt 小封面；极简模式的列表封面更大，副标题前带音质标（#69）。
 struct SongRowStyle: Equatable, Sendable {
     var artworkSize: CGFloat
@@ -2024,6 +2051,8 @@ extension SongRowView {
         song: Song,
         isPlaying: Bool = false,
         showAlbum: Bool = true,
+        trackNumber: Int? = nil,
+        largestTrackNumber: Int = 1,
         showsActions: Bool = true,
         actionsOnly: Bool = false,
         selection: SongSelectionModel? = nil,
@@ -2034,6 +2063,8 @@ extension SongRowView {
         self.song = song
         self.isPlaying = isPlaying
         self.showAlbum = showAlbum
+        self.trackNumber = trackNumber
+        self.largestTrackNumber = largestTrackNumber
         self.showsActions = showsActions
         self.actionsOnly = actionsOnly
         self.selection = selection

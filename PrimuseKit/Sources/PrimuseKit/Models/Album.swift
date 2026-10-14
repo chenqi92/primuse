@@ -100,6 +100,12 @@ public enum AlbumTrackOrder {
         return fileNameTrackNumber(song.filePath)
     }
 
+    /// Preserve the album's track numbers, including gaps in partial albums.
+    /// Only tracks without a tag or a numbered file name use their position on the disc.
+    public static func displayNumber(for song: Song, indexInDisc: Int) -> Int {
+        trackNumber(for: song) ?? (indexInDisc + 1)
+    }
+
     /// "03 Title", "03. Title", "03-Title", "1-03 Title" (disc-track) → 3.
     /// Four digits ("1999 Title") or a word ("4ever") are not track numbers.
     static func fileNameTrackNumber(_ filePath: String) -> Int? {
