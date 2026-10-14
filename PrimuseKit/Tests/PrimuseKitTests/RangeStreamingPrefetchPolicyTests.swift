@@ -12,14 +12,19 @@ struct RangeStreamingPrefetchPolicyTests {
         #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .baiduPan))
     }
 
-    @Test("FTP and OneDrive use demand-driven range reads")
+    @Test("OneDrive uses demand-driven range reads")
     func constrainedConnectorsDisableBackgroundPrefetch() {
-        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .ftp, defaultValue: 4) == 0)
         #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .oneDrive, defaultValue: 4) == 0)
-        #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .ftp))
         #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .oneDrive))
-        #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .ftp))
         #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .oneDrive))
+    }
+
+    @Test("FTP keeps one playback request ahead without background completion")
+    func ftpLimitsBackgroundPrefetch() {
+        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .ftp, defaultValue: 4) == 1)
+        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .ftp, defaultValue: 0) == 0)
+        #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .ftp))
+        #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .ftp))
     }
 
     @Test("WebDAV and Synology keep only one playback request ahead")

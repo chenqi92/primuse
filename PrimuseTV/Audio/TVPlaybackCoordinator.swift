@@ -1874,8 +1874,8 @@ final class TVPlaybackCoordinator {
             if AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: song.sourceID) {
                 continue
             }
-            // FTP 按段读取会一直占着控制连接;本机接收的文件本来就在电视上。
-            guard source.type != .ftp, source.type != .local,
+            // 本机接收的文件本来就在电视上。FTP 每首预取用自己的一条控制连接,预取完就关。
+            guard source.type != .local,
                   !song.isStreamDescriptor else { continue }
             let asset = playbackAsset(for: song, preferMusicVideo: store.isMusicVideoModeEnabled)
             guard !asset.isVideo, asset.directStream == nil else { continue }

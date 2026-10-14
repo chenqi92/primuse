@@ -154,10 +154,10 @@ struct UpcomingPlaybackPrefetchPolicyTests {
         #expect(!SpeculativeRangeRead.isActive)
     }
 
-    @Test("Queue seeds cover WebDAV, Synology and UPnP but not FTP or platform sources")
+    @Test("Queue seeds cover WebDAV, Synology, FTP and UPnP but not platform sources")
     func upcomingModes() {
         typealias Policy = RangeStreamingPrefetchPolicy
-        for type: MusicSourceType in [.webdav, .synology, .synologyAudioStation, .smb, .baiduPan] {
+        for type: MusicSourceType in [.webdav, .synology, .synologyAudioStation, .smb, .ftp, .baiduPan] {
             #expect(Policy.upcomingPrefetchMode(
                 sourceType: type, transport: .connectorRange, hasKnownFileSize: true,
                 rank: 2, prefersCompleteFile: false, rangeSeedOnly: false
@@ -169,12 +169,20 @@ struct UpcomingPlaybackPrefetchPolicyTests {
                 rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
             ) == .directSeed)
         }
-        for type: MusicSourceType in [.ftp, .local, .appleMusic, .appleMusicLibrary] {
+        for type: MusicSourceType in [.local, .appleMusic, .appleMusicLibrary] {
             #expect(Policy.upcomingPrefetchMode(
                 sourceType: type, transport: .completeFile, hasKnownFileSize: true,
                 rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
             ) == .disabled)
         }
+        #expect(Policy.upcomingPrefetchMode(
+            sourceType: .ftp, transport: .completeFile, hasKnownFileSize: true,
+            rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
+        ) == .completeFile)
+        #expect(Policy.upcomingPrefetchMode(
+            sourceType: .ftp, transport: .connectorRange, hasKnownFileSize: false,
+            rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
+        ) == .disabled)
         #expect(Policy.upcomingPrefetchMode(
             sourceType: .oneDrive, transport: .connectorRange, hasKnownFileSize: true,
             rank: 0, prefersCompleteFile: false, rangeSeedOnly: false

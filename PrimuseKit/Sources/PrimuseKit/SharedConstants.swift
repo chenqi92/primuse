@@ -729,10 +729,11 @@ public enum RemoteWAVPlaybackPolicy {
 }
 
 /// Some connectors cannot safely sustain the generic five-request playback
-/// burst. OneDrive can stall under concurrent ranges. FTP keeps the setting it
-/// had under the former FilesProvider client, whose range implementation left
-/// each control task open until its session was invalidated. Both use
-/// demand-driven reads instead of background prefetch.
+/// burst. OneDrive can stall under concurrent ranges, so it uses demand-driven
+/// reads instead of background prefetch. FTP reads hand their control
+/// connection back after each range, but a server gets at most three of them
+/// and waiting reads are served in order, so FTP keeps one read ahead like the
+/// HTTP file connectors instead of queueing the playhead behind a burst.
 public enum RangeStreamingPrefetchPolicy {
     public enum BackgroundCacheMode: Sendable, Equatable {
         case disabled
@@ -745,9 +746,9 @@ public enum RangeStreamingPrefetchPolicy {
         defaultValue: Int
     ) -> Int {
         switch sourceType {
-        case .oneDrive, .ftp:
+        case .oneDrive:
             return 0
-        case .webdav, .infiniCloud, .synology, .synologyAudioStation:
+        case .ftp, .webdav, .infiniCloud, .synology, .synologyAudioStation:
             return min(1, max(0, defaultValue))
         default:
             return max(0, defaultValue)
@@ -823,8 +824,8 @@ public enum RangeStreamingPrefetchPolicy {
     /// `SpeculativeRangeRead`), which neither overloads DSM nor turns into a
     /// whole-file download behind a proxy that ignores `Range`. OneDrive
     /// seeds use its range connection, which playback leaves free (it streams
-    /// one continuous transfer). FTP ranged reads keep their control
-    /// connection open until the session ends, so FTP stays demand-driven.
+    /// one continuous transfer). FTP seeds borrow one pooled control connection
+    /// per bounded read and return it afterwards.
     public static func upcomingPrefetchMode(
         sourceType: MusicSourceType,
         transport: UpcomingPlaybackTransport,
@@ -834,7 +835,7 @@ public enum RangeStreamingPrefetchPolicy {
         rangeSeedOnly: Bool
     ) -> UpcomingPrefetchMode {
         switch sourceType {
-        case .local, .appleMusic, .appleMusicLibrary, .ftp:
+        case .local, .appleMusic, .appleMusicLibrary:
             return .disabled
         default:
             break
