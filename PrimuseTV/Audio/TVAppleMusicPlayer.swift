@@ -248,7 +248,7 @@ final class TVAppleMusicPlayer {
                 ) else { throw Self.playbackFailure(failure.underlying) }
                 try checkCurrent(canContinue)
                 plog("Apple Music TV \(failure.stage) failed for \(songs.count)-item queue "
-                     + "(domain=\(nsError.domain), code=\(nsError.code)); retrying selected item")
+                     + "(\(Self.describe(nsError)); first=\(Self.describe(first))); retrying selected item")
                 player.stop()
                 try await Task.sleep(for: AppleMusicQueueRecoveryPolicy.retryDelay)
                 try checkCurrent(canContinue)
@@ -264,7 +264,7 @@ final class TVAppleMusicPlayer {
                         failedWhilePlaying: retryFailure.failedWhilePlaying
                     ) {
                         plog("Apple Music TV retry failed at \(retryFailure.stage) "
-                             + "(domain=\(retryError.domain), code=\(retryError.code))")
+                             + "(\(Self.describe(retryError)))")
                         throw Self.playbackFailure(retryFailure.underlying)
                     }
                 }
@@ -297,6 +297,22 @@ final class TVAppleMusicPlayer {
         } catch {
             throw QueueStartError(underlying: error, failedWhilePlaying: true, stage: "play")
         }
+    }
+
+    /// `MPMusicPlayerControllerErrorDomain` 的数字码没有公开含义，只记域和码查不出原因：
+    /// 连同说明文字和底层错误一起记。
+    private static func describe(_ error: NSError) -> String {
+        var text = "domain=\(error.domain), code=\(error.code): \(error.localizedDescription)"
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            text += " underlying=\(underlying.domain)/\(underlying.code): \(underlying.localizedDescription)"
+        }
+        return text
+    }
+
+    /// 起播那首是资料库条目还是目录条目、带没带播放参数（不记 ID）。
+    private static func describe(_ song: MusicKit.Song) -> String {
+        let kind = AppleMusicTVPlaybackPolicy.usesUserLibraryLookup(itemID: song.id.rawValue) ? "library" : "catalog"
+        return song.playParameters == nil ? "\(kind) noPlayParameters" : kind
     }
 
     private static func playbackFailure(_ error: Error) -> StartFailure {
