@@ -919,6 +919,59 @@ private struct MacSTPicker<T: Hashable>: View {
     }
 }
 
+/// 页内分栏:放在页标题正下方、通栏等分,选中的一格铺品牌色浅底并跟着滑过去。
+/// 系统分段控件在 Mac 上是系统蓝、又窄又居中,夹在卡片中间不像整页的切换。
+private struct MacSTTabBar<Value: Hashable>: View {
+    @Binding var selection: Value
+    let items: [(value: Value, title: String, systemImage: String)]
+    @Namespace private var namespace
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                tab(item)
+            }
+        }
+        .padding(3)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func tab(_ item: (value: Value, title: String, systemImage: String)) -> some View {
+        let isSelected = item.value == selection
+        return Button {
+            selection = item.value
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(verbatim: item.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+            }
+            .foregroundStyle(isSelected ? PMColor.brand : PMColor.textMuted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(PMColor.brand.opacity(0.16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(PMColor.brand.opacity(0.28), lineWidth: 0.5)
+                        }
+                        .matchedGeometryEffect(id: "selection", in: namespace)
+                }
+            }
+            .contentShape(.rect(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
 /// 和 `MacSTPicker` 一样的描边下拉盒子,但菜单内容自己给:可以分组、带副标题和勾。
 private struct MacAIChoiceMenu<Items: View>: View {
     let title: String
@@ -1163,8 +1216,8 @@ private struct MacSTIntelligenceView: View {
                 }
             }
             } else {
-            statusCard
             tabPicker
+            statusCard
             switch tab {
             case .features:
                 defaultEngineSection
@@ -1202,15 +1255,14 @@ private struct MacSTIntelligenceView: View {
     }
 
     private var tabPicker: some View {
-        Picker(String(localized: "ai_settings_title"), selection: $tab.pmAnimated(.pageSwitch)) {
-            Text(verbatim: String(localized: "ai_settings_tab_features")).tag(Tab.features)
-            Text(verbatim: String(localized: "ai_settings_tab_services")).tag(Tab.services)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 260)
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 18)
+        MacSTTabBar(
+            selection: $tab.pmAnimated(.pageSwitch),
+            items: [
+                (Tab.features, String(localized: "ai_settings_tab_features"), "switch.2"),
+                (Tab.services, String(localized: "ai_settings_tab_services"), "server.rack"),
+            ]
+        )
+        .padding(.bottom, 16)
         .accessibilityIdentifier("macSettings.ai.tab")
     }
 
