@@ -3254,7 +3254,6 @@ struct LicensesView: View {
                 licenseRow("FFmpeg 8.1", "LGPL 2.1+")
                 licenseRow("GRDB.swift", "MIT License")
                 licenseRow("AMSMB2", "LGPL 2.1")
-                licenseRow("FileProvider", "MIT License")
                 licenseRow("SwiftDraw", "zlib License")
                 licenseRow("FLAC", "BSD License")
                 licenseRow("mpg123", "LGPL 2.1")
