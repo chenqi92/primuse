@@ -979,3 +979,6 @@
 "request.rateLimited" = "बहुत ज़्यादा अनुरोध हैं। कृपया बाद में फिर से कोशिश करें।";
 "request.rateLimited.wait" = "बहुत ज़्यादा अनुरोध हैं। %.0f सेकंड बाद फिर से कोशिश करें।";
 "request.rateLimited.after" = "बहुत ज़्यादा अनुरोध हैं। %@ बाद फिर से कोशिश करें।";
+
+"infinicloud_app_password_hint" = "InfiniCLOUD के My Page में बाहरी ऐप कनेक्शन सक्षम करें और जनरेट किया गया ऐप पासवर्ड दर्ज करें।";
+"infinicloud_missing_api_key" = "इस संस्करण में InfiniCLOUD कॉन्फ़िगर नहीं किया गया है।";

@@ -160,7 +160,7 @@ public struct LibraryFolderSourceDescriptor: Hashable, Sendable {
 private extension MusicSourceType {
     var libraryFolderPathEncoding: LibraryFolderPathEncoding {
         switch self {
-        case .local, .smb, .webdav, .sftp, .ftp, .s3,
+        case .local, .smb, .webdav, .infiniCloud, .sftp, .ftp, .s3,
              .synology, .baiduPan, .dropbox:
             return .native
         default:

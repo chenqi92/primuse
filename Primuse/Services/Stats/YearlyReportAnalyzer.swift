@@ -229,7 +229,7 @@ struct YearlyReportData: Sendable, Identifiable {
                      .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
                     self = .server
                 case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,
-                     .guangya, .s3, .appleMusic:
+                     .guangya, .infiniCloud, .s3, .appleMusic:
                     self = .cloud
                 }
             }

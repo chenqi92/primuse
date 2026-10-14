@@ -116,7 +116,7 @@ enum TVCloudConnectorFactory {
     /// 按类型造连接器。返回 nil 表示该类型不是电视端能自建库的云盘。
     /// 注意构造本身不碰钥匙串 —— 补种要在首次列举前由 `seedKeychainIfNeeded` 完成。
     static func makeConnector(source: MusicSource) -> (any MusicSourceConnector)? {
-        guard source.type.isCloudDrive else { return nil }
+        guard source.type.requiresOAuth else { return nil }
         switch source.type {
         case .oneDrive: return OneDriveSource(sourceID: source.id)
         case .dropbox: return DropboxSource(sourceID: source.id)
@@ -131,7 +131,7 @@ enum TVCloudConnectorFactory {
         }
     }
 
-    /// 电视端已接通的云盘 —— 目前与 `MusicSourceType.isCloudDrive` 全等。
+    /// 使用云端 token 连接器的云盘；InfiniCLOUD 使用 WebDAV 连接器。
     /// 单列一份是为了让扫描器的分派条件只认「确实造得出连接器」的类型:
     /// 以后新增云盘类型时,先在 `makeConnector` 补分支,再加进这里。
     static let supportedTypes: Set<MusicSourceType> = [

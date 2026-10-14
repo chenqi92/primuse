@@ -3738,7 +3738,7 @@ final class SourceManager {
                     password: password
                 )
             }
-        case .webdav:
+        case .webdav, .infiniCloud:
             connector = credentialProtectedConnector(for: source) { password in
                 WebDAVSource(
                     sourceID: source.id,

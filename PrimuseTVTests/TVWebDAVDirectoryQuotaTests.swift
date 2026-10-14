@@ -7,6 +7,23 @@ import XCTest
 @testable import PrimuseTV
 
 final class TVWebDAVDirectoryQuotaTests: XCTestCase {
+    @MainActor
+    func testInfiniCloudUsesDiscoveredWebDAVNodeAndPassword() async throws {
+        let fixture = TVDirectoryQuotaFixture { request in TVDirectoryQuotaFixture.listing(request) }
+        defer { fixture.close() }
+        let lister = try makeLister(fixture, host: "ise.infini-cloud.net", basePath: "/dav", type: .infiniCloud)
+        let entries = try await lister.list("/")
+        XCTAssertTrue(entries.isEmpty)
+        let request = try XCTUnwrap(fixture.requests.first)
+        XCTAssertEqual(request.url?.host, "ise.infini-cloud.net")
+        XCTAssertEqual(request.url?.path, "/dav")
+        XCTAssertEqual(request.httpMethod, "PROPFIND")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Basic " + Data("reader:fixture".utf8).base64EncodedString())
+        XCTAssertNil(request.value(forHTTPHeaderField: "X-InfiniCLOUD-API-KEY"))
+        XCTAssertTrue(TVStore.addableTypes.contains(.infiniCloud))
+        XCTAssertTrue(TVStore.canBuildLibraryOnTV(.infiniCloud))
+    }
+
     func testLongCooldownStopsAnotherDirectoryAndNewListerUntilExactExpiry() async throws {
         let fixture = TVDirectoryQuotaFixture { request in
             if request.url!.path.contains("/A") { return (429, ["Retry-After": "3600"], Data()) }
@@ -355,8 +372,9 @@ final class TVWebDAVDirectoryQuotaTests: XCTestCase {
 
     private func makeLister(_ fixture: TVDirectoryQuotaFixture, host: String = UUID().uuidString + ".invalid",
                             port: Int? = nil, username: String = "reader", password: String = "fixture",
-                            basePath: String = "/Music", useSSL: Bool = true) throws -> TVWebDAVDirectoryLister {
-        let source = MusicSource(name: "Directory fixture", type: .webdav, host: host, port: port,
+                            basePath: String = "/Music", useSSL: Bool = true,
+                            type: MusicSourceType = .webdav) throws -> TVWebDAVDirectoryLister {
+        let source = MusicSource(name: "Directory fixture", type: type, host: host, port: port,
                                  useSsl: useSSL, basePath: basePath)
         return try XCTUnwrap(TVWebDAVDirectoryLister(source: source,
             credential: SourceCredential(username: username, password: password),

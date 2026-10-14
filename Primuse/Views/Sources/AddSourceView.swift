@@ -62,6 +62,8 @@ struct AddSourceView: View {
     /// 这个答案在表单打开期间不会变,而 `canSave` 是被 body 反复求值的。
     @State private var editingSourceHasStoredSecret = false
     @State private var showCredentialSaveError = false
+    @State private var isResolvingInfiniCloud = false
+    @State private var infiniCloudError: String?
     @State private var credentialValidationSource: MusicSource?
     @State private var validatedCredentialSource: MusicSource?
     @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
@@ -303,6 +305,14 @@ struct AddSourceView: View {
         } message: {
             Text(mediaServerCreationTransaction.failure?.message ?? "")
         }
+        .alert(String(localized: "connection_failed"), isPresented: Binding(
+            get: { infiniCloudError != nil },
+            set: { if !$0 { infiniCloudError = nil } }
+        )) {
+            Button("ok", role: .cancel) { infiniCloudError = nil }
+        } message: {
+            Text(infiniCloudError ?? "")
+        }
         .onDisappear {
             addressSubmitTask?.cancel()
             addressSubmitTask = nil
@@ -390,6 +400,7 @@ struct AddSourceView: View {
     private var iOSBody: some View {
         NavigationStack {
             Form { formSections }
+            .disabled(isResolvingInfiniCloud)
             .scrollDismissesKeyboard(.interactively)
             .floatingInputPanelClearance()
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)
@@ -416,6 +427,7 @@ struct AddSourceView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     macFormContent
+                        .disabled(isResolvingInfiniCloud)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -423,6 +435,7 @@ struct AddSourceView: View {
             }
 
             HStack(spacing: 8) {
+                if isResolvingInfiniCloud { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("cancel") { cancelAndDismiss() }
                     .buttonStyle(.plain)
@@ -611,6 +624,9 @@ struct AddSourceView: View {
                     }
                 }
 
+                if sourceType == .infiniCloud {
+                    macInfoText(PMString("infinicloud_app_password_hint"))
+                }
                 if isEditing && authType != .none {
                     macInfoRow("password_edit_hint")
                 }
@@ -1482,6 +1498,13 @@ struct AddSourceView: View {
                 RevealableSecureField(title: "s3_secret_key", text: $password)
                     .focused($focusedField, equals: .password)
             }
+        case .infiniCloud:
+            Section {
+                Text(PMString("infinicloud_app_password_hint"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if isResolvingInfiniCloud { ProgressView() }
+            }
         case .drime:
             Section("drime_token_section") {
                 RevealableSecureField(title: "drime_access_token", text: $password)
@@ -1773,6 +1796,7 @@ struct AddSourceView: View {
         canSave == false
             || mediaServerCreationTransaction.isRunning
             || addressProbe.isProbing
+            || isResolvingInfiniCloud
     }
 
     private func addressRowReading(
@@ -1820,6 +1844,14 @@ struct AddSourceView: View {
     /// 提交分三步:识别 → (需要时)探测 → 把结果写回旧表单那组 @State,再走原来的
     /// `saveSource()`。凭据事务、媒体服务器预检、S3 字段映射都在那里,一个字没动。
     private func submit() {
+        guard !isSubmitDisabled else { return }
+        if sourceType == .infiniCloud,
+           InfiniCloudAPIClient.needsDiscovery(
+               source: editingSource, username: username, hasNewPassword: !password.isEmpty
+           ) {
+            resolveInfiniCloudAndSave()
+            return
+        }
         guard supportsAdaptiveConnections, sourceType.requiresHost else {
             autoAssignNameIfNeeded(preferred: host)
             saveSource()
@@ -2009,6 +2041,38 @@ struct AddSourceView: View {
         name = candidate.isEmpty ? sourceType.displayName : candidate
     }
 
+    private func resolveInfiniCloudAndSave() {
+        let accountName = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secret: String
+        if !password.isEmpty {
+            secret = password
+        } else if let editingSource,
+                  case .found(let stored) = KeychainService.passwordLookup(for: editingSource.id) {
+            secret = stored
+        } else {
+            showCredentialSaveError = true
+            return
+        }
+        isResolvingInfiniCloud = true
+        addressSubmitTask = Task { @MainActor in
+            defer { isResolvingInfiniCloud = false }
+            do {
+                let account = try await InfiniCloudAPIClient.fetchAccount(username: accountName, password: secret)
+                try Task.checkCancellation()
+                host = account.webDAVURL.host ?? ""
+                port = String(account.webDAVURL.port ?? 443)
+                useSsl = true
+                basePath = account.webDAVURL.path
+                autoAssignNameIfNeeded(preferred: sourceType.displayName)
+                saveSource()
+            } catch {
+                if !OperationCancellationPolicy.isCancellation(error) {
+                    infiniCloudError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func saveSource() {
         // 用户名做常规规范化；密码必须逐字节保留，因为首尾空白可能是
         // 服务端凭据本身的一部分。
@@ -2033,7 +2097,12 @@ struct AddSourceView: View {
             // Merge into the existing config so the scanned-directory list that
             // shares this slot survives an edit instead of being overwritten.
             extraConfig = MusicSource.encodeS3Region(region, into: editingSource?.extraConfig)
-        } else if sourceType.isCloudDrive {
+        } else if sourceType == .infiniCloud {
+            finalHost = host
+            finalBasePath = basePath
+            finalShareName = nil
+            finalUsername = username
+        } else if sourceType.requiresOAuth {
             finalHost = nil
             finalBasePath = basePath.isEmpty ? nil : basePath
             finalShareName = nil
@@ -2074,7 +2143,7 @@ struct AddSourceView: View {
             host: finalHost,
             port: supportsAdaptiveConnections
                 ? nil
-                : (sourceType.requiresHost
+                : ((sourceType.requiresHost || sourceType == .infiniCloud)
                 ? ((sourceType == .synology && synologyConnectionMode == .quickConnect)
                     || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                     ? sourceType.defaultPort(useSsl: true)
@@ -2093,7 +2162,7 @@ struct AddSourceView: View {
             basePath: finalBasePath,
             shareName: finalShareName,
             exportPath: exportPath.isEmpty ? nil : exportPath,
-            authType: sourceType == .drime ? .apiKey : (sourceType.isCloudDrive ? .oauth : authType),
+            authType: sourceType == .drime ? .apiKey : (sourceType.requiresOAuth ? .oauth : authType),
             ftpEncryption: sourceType == .ftp ? ftpEncryption : nil,
             ftpDataConnectionMode: sourceType == .ftp && ftpDataConnectionMode != .automatic
                 ? ftpDataConnectionMode : nil,
@@ -2236,7 +2305,7 @@ struct AddSourceView: View {
                 completeSave(source)
             }
             return
-        } else if sourceType.isCloudDrive {
+        } else if sourceType.requiresOAuth {
             // Store client_id + client_secret via CloudTokenManager
             let tm = CloudTokenManager(sourceID: source.id)
             let changesCredential = !BuiltInCloudCredentials.hasBuiltIn(for: sourceType)

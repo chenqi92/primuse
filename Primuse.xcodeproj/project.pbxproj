@@ -1961,6 +1961,7 @@
 		B256AF67302047A49201BC13 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 		B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 		B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */; };
+		17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3658,6 +3659,7 @@
 		B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleRequestTests.swift; sourceTree = "<group>"; };
 		B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleCredentialHealthTests.swift; sourceTree = "<group>"; };
 		B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStreamResourceLoaderTests.swift; sourceTree = "<group>"; };
+		8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfiniCloudAPIClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5681,6 +5683,7 @@
 				8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */,
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
+				8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */,
 				EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */,
 				2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */,
 				FABA25380E65408B1259872B /* LANCloudAuthorization.swift */,
@@ -6533,6 +6536,7 @@
 				6056F37A0D29F91BB020039B /* GaplessSuccessorDiscardPolicy.swift in Sources */,
 				195CA6B0593D922EAA535E82 /* GoogleDriveAccessChangePolicy.swift in Sources */,
 				EF86BBA5CE621E9D18654AA6 /* GuangYaAPIProtocol.swift in Sources */,
+				17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */,
 				D768ACAB75828F3A175088A6 /* HardwareSampleRateNegotiator.swift in Sources */,
 				3E0A1D350F504FD209DBC2F0 /* HomeListeningRanking.swift in Sources */,
 				7B9CB640FA3DF01544B8FB11 /* HomeSectionLayout.swift in Sources */,

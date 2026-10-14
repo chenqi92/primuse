@@ -164,7 +164,7 @@ enum TVSourceLocalLibraryPolicy {
         .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
-        .baiduPan, .pan115, .pan123, .drime, .guangya,
+        .baiduPan, .pan115, .pan123, .drime, .guangya, .infiniCloud,
     ]
 
     static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
@@ -1967,7 +1967,7 @@ final class TVStore {
     }
 
     private func lookUpUsableCredential(for s: MusicSource) -> Bool {
-        if s.type.isCloudDrive {
+        if s.type.requiresOAuth {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             if credential.token?.isEmpty == false { return true }
             if s.type == .pan123 {
@@ -3940,7 +3940,7 @@ final class TVStore {
         .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
-        .googleDrive, .pan115, .pan123, .drime, .guangya,
+        .googleDrive, .pan115, .pan123, .drime, .guangya, .infiniCloud,
     ]
 
     nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {

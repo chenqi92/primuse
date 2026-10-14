@@ -1029,3 +1029,6 @@
 "request.rateLimited" = "請求過於頻繁，請稍後重試。";
 "request.rateLimited.wait" = "請求過於頻繁，請在 %.0f 秒後重試。";
 "request.rateLimited.after" = "請求過於頻繁，請在 %@後重試。";
+
+"infinicloud_app_password_hint" = "請在 InfiniCLOUD「我的頁面」啟用外部應用程式連線，並填入產生的應用程式密碼。";
+"infinicloud_missing_api_key" = "此版本尚未設定 InfiniCLOUD 存取金鑰。";

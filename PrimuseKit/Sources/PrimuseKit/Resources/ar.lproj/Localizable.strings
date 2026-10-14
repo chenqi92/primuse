@@ -979,3 +979,6 @@
 "request.rateLimited" = "طلبات كثيرة جدًا. يُرجى المحاولة لاحقًا.";
 "request.rateLimited.wait" = "طلبات كثيرة جدًا. حاول مجددًا بعد %.0f ثانية.";
 "request.rateLimited.after" = "طلبات كثيرة جدًا. حاول مجددًا بعد %@.";
+
+"infinicloud_app_password_hint" = "فعّل اتصالات التطبيقات الخارجية في صفحة My Page في InfiniCLOUD، ثم أدخل كلمة مرور التطبيق التي تم إنشاؤها.";
+"infinicloud_missing_api_key" = "لم يتم إعداد InfiniCLOUD في هذا الإصدار.";

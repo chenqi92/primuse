@@ -979,3 +979,6 @@
 "request.rateLimited" = "Забагато запитів. Спробуйте пізніше.";
 "request.rateLimited.wait" = "Забагато запитів. Спробуйте через %.0f с.";
 "request.rateLimited.after" = "Забагато запитів. Спробуйте через %@.";
+
+"infinicloud_app_password_hint" = "У розділі My Page в InfiniCLOUD увімкніть підключення зовнішніх застосунків і введіть створений пароль застосунку.";
+"infinicloud_missing_api_key" = "У цій версії InfiniCLOUD не налаштовано.";

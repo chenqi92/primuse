@@ -1032,3 +1032,6 @@
 "request.rateLimited" = "요청이 너무 많습니다. 나중에 다시 시도해 주세요.";
 "request.rateLimited.wait" = "요청이 너무 많습니다. %.0f초 후에 다시 시도해 주세요.";
 "request.rateLimited.after" = "요청이 너무 많습니다. %@ 후에 다시 시도해 주세요.";
+
+"infinicloud_app_password_hint" = "InfiniCLOUD 마이 페이지에서 외부 앱 연결을 활성화한 다음 생성된 앱 비밀번호를 입력하세요.";
+"infinicloud_missing_api_key" = "이 버전에는 InfiniCLOUD 연결 키가 설정되어 있지 않습니다.";

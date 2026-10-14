@@ -381,6 +381,7 @@ public enum AudioMetadataWritebackPolicy {
         .synology,
         .qnap,
         .webdav,
+        .infiniCloud,
         .smb,
         .ftp,
         .sftp,

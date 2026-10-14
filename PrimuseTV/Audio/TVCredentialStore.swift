@@ -76,7 +76,7 @@ enum TVCredentialStore {
         } else {
             cred = SourceCredential(username: source.username, password: keychainPassword(account: source.id))
         }
-        if source.type.isCloudDrive,
+        if source.type.requiresOAuth,
            let oauth = oauthCredentialFromKeychain(sourceID: source.id) {
             if cred.token?.isEmpty != false { cred.token = oauth.token }
             if cred.refreshToken?.isEmpty != false { cred.refreshToken = oauth.refreshToken }

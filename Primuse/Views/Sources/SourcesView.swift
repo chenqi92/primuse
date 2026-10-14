@@ -2387,7 +2387,7 @@ struct SourcesContentView: View {
                 onConfirm: onConfirm,
                 onEditAddress: onEditAddress
             )
-        case .webdav:
+        case .webdav, .infiniCloud:
             WebDAVBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),

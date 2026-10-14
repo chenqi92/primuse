@@ -979,3 +979,6 @@
 "request.rateLimited" = "Zbyt wiele żądań. Spróbuj ponownie później.";
 "request.rateLimited.wait" = "Zbyt wiele żądań. Spróbuj ponownie za %.0f s.";
 "request.rateLimited.after" = "Zbyt wiele żądań. Spróbuj ponownie za %@.";
+
+"infinicloud_app_password_hint" = "Na stronie My Page w InfiniCLOUD włącz połączenia z aplikacjami zewnętrznymi i wpisz wygenerowane hasło aplikacji.";
+"infinicloud_missing_api_key" = "InfiniCLOUD nie jest skonfigurowany w tej wersji.";

@@ -88,6 +88,7 @@ public actor StreamResolverRegistry {
         map[.ugreen] = ugreen
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
         map[.webdav] = WebDavStreamResolver()
+        map[.infiniCloud] = WebDavStreamResolver()
         map[.upnp] = UPnPStreamResolver()
         // 其余不可直连的源(SMB/NFS/FTP/SFTP/local)经 iPhone 局域网中继。
         let relay = RelayStreamResolver()

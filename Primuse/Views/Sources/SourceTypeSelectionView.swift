@@ -1482,6 +1482,7 @@ extension MusicSourceType {
         case .oneDrive: sourceBrandColor(0x1789C9)
         case .dropbox: sourceBrandColor(0x0061FF)
         case .drime: sourceBrandColor(0xA13BB8)
+        case .infiniCloud: sourceBrandColor(0x3998C5)
         case .pan115: sourceBrandColor(0xD81B60)
         case .pan123: sourceBrandColor(0x00838F)
         case .guangya: sourceBrandColor(0x8A6D1F)

@@ -1308,7 +1308,7 @@ private struct DuplicateDeletionFailuresView: View {
                             }
                             #endif
                         } else {
-                            Button(failure.source.type.isCloudDrive ? LocalizedStringKey("cloud_retry_auth") : LocalizedStringKey("edit_source")) {
+                            Button(failure.source.type.requiresOAuth ? LocalizedStringKey("cloud_retry_auth") : LocalizedStringKey("edit_source")) {
                                 recoveringSource = latest(failure.source)
                             }
                         }
@@ -1374,7 +1374,7 @@ private struct DuplicateDeletionFailuresView: View {
         .frame(minWidth: 520, minHeight: 360)
         #endif
         .sheet(item: $recoveringSource) { source in
-            if source.type.isCloudDrive {
+            if source.type.requiresOAuth {
                 CloudDriveConnectionView(source: source, selectedDirectories: .constant(source.scannedDirectories), requestReauthorization: true)
             } else {
                 AddSourceView(sourceType: source.type, editingSource: source) { updated in

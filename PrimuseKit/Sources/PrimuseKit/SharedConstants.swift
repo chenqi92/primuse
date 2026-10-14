@@ -746,7 +746,7 @@ public enum RangeStreamingPrefetchPolicy {
         switch sourceType {
         case .oneDrive, .ftp:
             return 0
-        case .webdav, .synology, .synologyAudioStation:
+        case .webdav, .infiniCloud, .synology, .synologyAudioStation:
             return min(1, max(0, defaultValue))
         default:
             return max(0, defaultValue)
@@ -760,7 +760,7 @@ public enum RangeStreamingPrefetchPolicy {
         for sourceType: MusicSourceType
     ) -> Bool {
         switch sourceType {
-        case .webdav, .synology, .synologyAudioStation, .jellyfin, .emby, .plex:
+        case .webdav, .infiniCloud, .synology, .synologyAudioStation, .jellyfin, .emby, .plex:
             return true
         default:
             return false
@@ -863,7 +863,7 @@ public enum RangeStreamingPrefetchPolicy {
     public static func allowsAutomaticTrailingFill(for sourceType: MusicSourceType) -> Bool {
         switch sourceType {
         // Audio Station 与群晖直连落在同一台 DSM 的 CGI 上,保持同样的按需读取。
-        case .oneDrive, .ftp, .webdav, .synology, .synologyAudioStation:
+        case .oneDrive, .ftp, .webdav, .infiniCloud, .synology, .synologyAudioStation:
             return false
         default:
             return true
@@ -4825,7 +4825,7 @@ public enum PlaybackMetadataBackfillPolicy {
         completedForCurrentFile: Bool,
         failedAttemptCount: Int
     ) -> Bool {
-        sourceType == .webdav
+        (sourceType == .webdav || sourceType == .infiniCloud)
             && hasMissingMetadata
             && !isCueTrack
             && !isStreamDescriptor
@@ -7671,7 +7671,7 @@ public enum SourcePermanentDeletionPolicy {
         if sourceType.requiresCredentials, authType != .none {
             stores.insert(.password)
         }
-        if sourceType.isCloudDrive {
+        if sourceType.requiresOAuth {
             stores.insert(.cloudCredentials)
         }
         return stores
@@ -8601,7 +8601,7 @@ public enum SourceDirectorySelectionPolicy {
         guard browserPath.isEmpty || browserPath == "/" else { return nil }
         switch sourceType {
         case .s3: return ""
-        case .drime, .smb, .webdav: return "/"
+        case .drime, .smb, .webdav, .infiniCloud: return "/"
         default: return nil
         }
     }
@@ -8777,7 +8777,7 @@ public enum SourceCreationPersistencePolicy {
     public static func defersUntilValidatedDirectorySelection(
         for sourceType: MusicSourceType
     ) -> Bool {
-        sourceType == .smb || sourceType == .webdav
+        sourceType == .smb || sourceType == .webdav || sourceType == .infiniCloud
     }
 
     public static func canCommitDeferredCreation(

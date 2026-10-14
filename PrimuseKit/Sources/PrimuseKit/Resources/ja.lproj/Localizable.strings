@@ -1032,3 +1032,6 @@
 "request.rateLimited" = "リクエストが多すぎます。しばらくしてから再試行してください。";
 "request.rateLimited.wait" = "リクエストが多すぎます。%.0f 秒後に再試行してください。";
 "request.rateLimited.after" = "リクエストが多すぎます。%@後に再試行してください。";
+
+"infinicloud_app_password_hint" = "InfiniCLOUD のマイページで外部アプリ連携を有効にし、発行されたアプリパスワードを入力してください。";
+"infinicloud_missing_api_key" = "このバージョンには InfiniCLOUD の接続キーが設定されていません。";

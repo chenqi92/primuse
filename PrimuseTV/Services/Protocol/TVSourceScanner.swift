@@ -1345,7 +1345,7 @@ final class TVSourceScanner {
             return TVSynologyLister(source: source, credential: credential)
         case .qnap:
             return TVQnapLister(source: source, credential: credential)
-        case .webdav:
+        case .webdav, .infiniCloud:
             return TVWebDAVDirectoryLister(source: source, credential: credential)
         case .ftp:
             return TVFTPLister(source: source, credential: credential)

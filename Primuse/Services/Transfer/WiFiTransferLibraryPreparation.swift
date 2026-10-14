@@ -210,7 +210,7 @@ enum WiFiTransferLibraryPreparation {
         let container: String
         let basename: String
         switch sourceType {
-        case .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .s3, .dropbox, .baiduPan:
+        case .local, .synology, .qnap, .webdav, .infiniCloud, .smb, .ftp, .sftp, .s3, .dropbox, .baiduPan:
             let directory = (song.filePath as NSString).deletingLastPathComponent
             container = directory.isEmpty ? "/" : directory
             basename = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension

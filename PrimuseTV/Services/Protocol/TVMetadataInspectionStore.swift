@@ -4,7 +4,7 @@ import PrimuseKit
 
 enum TVPlaybackMetadataPolicy {
     static func supports(_ type: MusicSourceType) -> Bool {
-        [.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox].contains(type)
+        [.local, .smb, .nfs, .ftp, .webdav, .infiniCloud, .oneDrive, .dropbox].contains(type)
     }
 }
 

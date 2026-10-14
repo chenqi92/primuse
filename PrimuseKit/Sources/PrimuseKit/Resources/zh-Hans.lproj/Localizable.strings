@@ -1029,3 +1029,6 @@
 "request.rateLimited" = "请求过于频繁，请稍后重试。";
 "request.rateLimited.wait" = "请求过于频繁，请在 %.0f 秒后重试。";
 "request.rateLimited.after" = "请求过于频繁，请在 %@后重试。";
+
+"infinicloud_app_password_hint" = "请在 InfiniCLOUD「我的页面」启用外部应用连接，并填写生成的应用密码。";
+"infinicloud_missing_api_key" = "此版本尚未配置 InfiniCLOUD 接入密钥。";

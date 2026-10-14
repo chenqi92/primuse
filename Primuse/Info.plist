@@ -154,6 +154,8 @@
 	<string>$(LASTFM_API_KEY)</string>
 	<key>PrimuseLastFmAPISecret</key>
 	<string>$(LASTFM_API_SECRET)</string>
+	<key>PrimuseInfiniCloudAPIKey</key>
+	<string>$(INFINICLOUD_API_KEY)</string>
 	<key>PrimuseOneDriveClientID</key>
 	<string>$(ONEDRIVE_CLIENT_ID)</string>
 	<key>PrimusePan123ClientID</key>

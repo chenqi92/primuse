@@ -2007,7 +2007,7 @@ final class TVPlaybackCoordinator {
 
     private static func preparedStreamMaximumAge(for type: MusicSourceType) -> TimeInterval {
         switch type {
-        case .subsonic, .navidrome, .airsonic, .gonic, .webdav, .upnp, .jellyfin, .emby, .plex:
+        case .subsonic, .navidrome, .airsonic, .gonic, .webdav, .infiniCloud, .upnp, .jellyfin, .emby, .plex:
             // Built from the saved credentials, and good for as long as they are.
             return PreparedPlaybackStartPolicy.maximumAge
         default:

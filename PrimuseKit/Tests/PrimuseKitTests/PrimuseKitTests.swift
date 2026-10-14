@@ -306,7 +306,7 @@ import Testing
     let writable: Set<MusicSourceType> = [
         .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
         .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
-        .pan123, .drime,
+        .pan123, .drime, .infiniCloud,
     ]
 
     for sourceType in MusicSourceType.allCases {
@@ -318,7 +318,7 @@ import Testing
 @Test func embeddedMetadataWritebackCapabilityCoversVerifiedFormats() {
     let expectedEmbeddedSources: Set<MusicSourceType> = [
         .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
-        .baiduPan, .pan123, .drime, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+        .baiduPan, .pan123, .drime, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .infiniCloud,
     ]
     #expect(AudioMetadataWritebackPolicy.embeddedSourceTypes == expectedEmbeddedSources)
 

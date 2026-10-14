@@ -84,6 +84,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case oneDrive
     case dropbox
     case drime
+    case infiniCloud
     case pan115
     case pan123
     /// 光鸭云盘(guangyapan.com)开放平台。Device Code 扫码 / 拉起官方 App 授权,
@@ -149,6 +150,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .oneDrive: return "OneDrive"
         case .dropbox: return "Dropbox"
         case .drime: return "Drime"
+        case .infiniCloud: return "InfiniCLOUD"
         case .pan115:
             return String(localized: "src.displayName.pan115", bundle: Bundle.primuseKit)
         case .pan123:
@@ -191,7 +193,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .googleDrive: return "cloud.fill"
         case .oneDrive: return "cloud.fill"
         case .dropbox: return "cloud.fill"
-        case .drime: return "cloud.fill"
+        case .drime, .infiniCloud: return "cloud.fill"
         case .pan115: return "cloud.fill"
         case .pan123: return "cloud.fill"
         case .guangya: return "cloud.fill"
@@ -331,7 +333,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
              .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
-             .pan123, .drime:
+             .pan123, .drime, .infiniCloud:
             return true
         default:
             return false
@@ -365,7 +367,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology, .qnap, .ugreen, .fnos,
              .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
              .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-             .drime, .pan115, .pan123, .guangya:
+             .drime, .pan115, .pan123, .guangya, .infiniCloud:
             return true
         default:
             return false
@@ -380,7 +382,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
              .audiobookshelf, .synologyAudioStation, .tingReader:
             return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
-             .guangya: return .cloudDrive
+             .guangya, .infiniCloud: return .cloudDrive
         case .appleMusic: return .streaming
         case .local, .appleMusicLibrary: return .local
         }
@@ -398,7 +400,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synologyAudioStation: return 5001
         case .tingReader: return 3000
         case .daoliyu: return 4000
-        case .webdav: return 443
+        case .webdav, .infiniCloud: return 443
         case .smb: return 445
         case .ftp: return 21
         case .sftp: return 22
@@ -458,7 +460,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var defaultSSL: Bool {
         switch self {
         case .synology, .synologyAudioStation, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive,
-             .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya: return true
+             .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya, .infiniCloud: return true
         default: return false
         }
     }
@@ -467,7 +469,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .local, .appleMusicLibrary, .upnp, .baiduPan, .aliyunDrive,
              .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya,
-             .appleMusic: return false
+             .appleMusic, .infiniCloud: return false
         default: return true
         }
     }
@@ -598,13 +600,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 上串行, 读取位加多少都只是在那条会话前面排队。
     public var usesPooledHTTPMetadataRangeReads: Bool {
         switch self {
-        case .webdav, .synology, .qnap, .ugreen, .fnos, .s3: return true
+        case .webdav, .infiniCloud, .synology, .qnap, .ugreen, .fnos, .s3: return true
         default: return false
         }
     }
 
     public var requiresOAuth: Bool {
-        isCloudDrive
+        isCloudDrive && self != .infiniCloud
     }
 
     public var requiresCredentials: Bool {
@@ -673,6 +675,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .oneDrive: return "Microsoft Graph"
         case .dropbox: return "Dropbox API v2"
         case .drime: return "Drime API"
+        case .infiniCloud: return "InfiniCLOUD REST API"
         case .pan115:
             return String(localized: "src.subtitle.pan115", bundle: Bundle.primuseKit)
         case .pan123:

@@ -161,6 +161,7 @@ struct TVSourceTypePicker: View {
         switch t {
         case .smb: return PMString("ext.tv.sources.hint.smb")
         case .webdav: return PMString("ext.tv.sources.hint.webdav")
+        case .infiniCloud: return t.subtitle
         case .ftp: return "FTP / FTPS"
         case .sftp: return PMString("ext.tv.sources.hint.sftp")
         case .nfs: return PMString("ext.tv.sources.hint.nfs")
@@ -234,6 +235,8 @@ struct TVSourceFormView: View {
     @State private var testResult: String?
     @State private var testing = false
     @State private var saveFailed = false
+    @State private var isResolvingInfiniCloud = false
+    @State private var infiniCloudError: String?
     /// 用户填的那一到两行地址。上面那组 host/portText/useSsl/publicHost/… 仍然是
     /// `draftSource()` 唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [TVSourceAddressRow] = [TVSourceAddressRow()]
@@ -253,16 +256,16 @@ struct TVSourceFormView: View {
     @State private var plexAccountToken = ""
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
-    private var isCloudDrive: Bool { type.isCloudDrive }
+    private var usesCloudAuthorization: Bool { type.requiresOAuth }
     /// Drime 用用户自建的 API token,没有授权页。
     private var usesCloudAPIToken: Bool { type == .drime }
     /// 本机没有内置 client_id 的云盘(阿里云盘),要用户自己到开放平台申请后填进来。
     private var needsCustomCloudClient: Bool {
-        isCloudDrive && !usesCloudAPIToken && !BuiltInCloudCredentials.hasBuiltIn(for: type)
+        usesCloudAuthorization && !usesCloudAPIToken && !BuiltInCloudCredentials.hasBuiltIn(for: type)
     }
     /// 该云盘是否走扫码 / 设备码授权。123 云盘直接用 clientID+Secret 换 token,不需要。
     private var usesCloudDeviceAuth: Bool {
-        isCloudDrive && CloudDeviceAuthSupport.providers.contains(type)
+        usesCloudAuthorization && CloudDeviceAuthSupport.providers.contains(type)
     }
     private var supportsAdaptiveConnections: Bool { type.supportsAdaptiveConnections }
     private var showsAuth: Bool { type.requiresCredentials }
@@ -312,7 +315,7 @@ struct TVSourceFormView: View {
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasName else { return false }
-        if isCloudDrive {
+        if usesCloudAuthorization {
             if usesCloudAPIToken {
                 // 编辑已有源时可以不重填 token(钥匙串里已经有了)。
                 return editing != nil || !cloudAPIToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -358,7 +361,7 @@ struct TVSourceFormView: View {
     }
     private var canTestConnection: Bool { type.requiresHost && canSave }
     /// 探测跑着的时候不让再按一次:第二轮会把上一轮刚定下来的端点丢掉。
-    private var canSubmitNow: Bool { canSave && !addressProbe.isProbing }
+    private var canSubmitNow: Bool { canSave && !addressProbe.isProbing && !isResolvingInfiniCloud }
     /// 取出来放在这里,免得按钮的 label 里出现三层嵌套三元 —— 那种表达式在
     /// Apple 端的类型检查里是超时常客。
     private var saveButtonTitle: String {
@@ -397,6 +400,7 @@ struct TVSourceFormView: View {
             HStack(alignment: .top, spacing: 90) {
                 ScrollView(.vertical, showsIndicators: false) {
                     leftFields
+                        .disabled(isResolvingInfiniCloud)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(.horizontal, 14)
                         .padding(.top, 12)
@@ -412,6 +416,10 @@ struct TVSourceFormView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onAppear(perform: prefill)
+        .onDisappear {
+            addressSubmitTask?.cancel()
+            addressSubmitTask = nil
+        }
         #if DEBUG
         // 截图用：TV_PLEX_SIGNIN=1 打开就进 Plex 登录页（真连 plex.tv 拿代码），=servers 显示演示服务器清单。
         .task {
@@ -489,6 +497,14 @@ struct TVSourceFormView: View {
             TVOTPEntryView(source: store.map(source), verify: { code in
                 await verifyDraft(source, code: code)
             }).environment(store)
+        }
+        .alert(PMString("ext.tv.sources.saveFailed"), isPresented: Binding(
+            get: { infiniCloudError != nil },
+            set: { if !$0 { infiniCloudError = nil } }
+        )) {
+            Button(PMString("ext.tv.sources.ok"), role: .cancel) { infiniCloudError = nil }
+        } message: {
+            Text(infiniCloudError ?? "")
         }
         .alert(PMString("ext.tv.sources.saveFailed"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
@@ -629,7 +645,10 @@ struct TVSourceFormView: View {
                     }
                 }
             }
-            if isCloudDrive {
+            if type == .infiniCloud {
+                connectionHint("infinicloud_app_password_hint")
+                if isResolvingInfiniCloud { ProgressView().tint(TVColor.brand) }
+            } else if usesCloudAuthorization {
                 cloudCredentialFields
             } else if type != .fnMusic && !type.supportsEndpointSpecificPath {
                 TVFormField(label: pathLabel, text: $pathText, mono: true)
@@ -1070,7 +1089,38 @@ struct TVSourceFormView: View {
         case test
     }
 
-    private func save() { beginAddressResolution(for: .save) }
+    private func save() {
+        guard canSubmitNow else { return }
+        guard type == .infiniCloud,
+              InfiniCloudAPIClient.needsDiscovery(
+                  source: editing, username: username, hasNewPassword: !password.isEmpty
+              ) else {
+            beginAddressResolution(for: .save)
+            return
+        }
+        let accountName = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secret = password.isEmpty
+            ? editing.flatMap { TVCredentialStore.credential(for: $0, bundle: store.credentialBundle).password }
+            : password
+        guard let secret, !secret.isEmpty else { saveFailed = true; return }
+        isResolvingInfiniCloud = true
+        addressSubmitTask = Task { @MainActor in
+            defer { isResolvingInfiniCloud = false }
+            do {
+                let account = try await InfiniCloudAPIClient.fetchAccount(username: accountName, password: secret)
+                try Task.checkCancellation()
+                host = account.webDAVURL.host ?? ""
+                portText = String(account.webDAVURL.port ?? 443)
+                useSsl = true
+                pathText = account.webDAVURL.path
+                commitSave()
+            } catch {
+                if !OperationCancellationPolicy.isCancellation(error) {
+                    infiniCloudError = error.localizedDescription
+                }
+            }
+        }
+    }
 
     private func runTest() { beginAddressResolution(for: .test) }
 
@@ -1320,6 +1370,11 @@ struct TVSourceFormView: View {
             src.useSsl = usesResolvedConnection ? true : (showsSSL ? useSsl : type.defaultSSL)
             src.synologyConnectionMode = type.usesSynologyConnectionMode ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
+        } else if type == .infiniCloud {
+            src.host = trimmedHost
+            src.port = validatedPort
+            src.useSsl = true
+            src.connectionConfiguration = nil
         } else {
             src.host = nil
             src.port = nil
@@ -1328,7 +1383,7 @@ struct TVSourceFormView: View {
         if type == .drime {
             src.username = nil
             src.authType = .apiKey
-        } else if type.isCloudDrive {
+        } else if type.requiresOAuth {
             src.username = nil
             src.authType = .oauth
         } else if showsAuth {
@@ -1414,7 +1469,7 @@ struct TVSourceFormView: View {
     /// 地址已经在 `applyAddressPlan` 里写回了那组 `@State`,这里照旧读它们。
     private func commitSave() {
         guard let src = draftSource() else { return }
-        if isCloudDrive {
+        if usesCloudAuthorization {
             saveCloudDrive(src)
             return
         }

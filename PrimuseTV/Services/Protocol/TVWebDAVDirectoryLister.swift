@@ -15,7 +15,7 @@ actor TVWebDAVDirectoryLister: TVDirectoryLister {
     init?(source: MusicSource, credential: SourceCredential?,
           sessionConfiguration: @Sendable () -> URLSessionConfiguration = { .ephemeral },
           quotaRegistry: RequestQuotaRegistry = .shared, timing: RequestExecutor.Timing = .init()) {
-        guard source.type == .webdav else { return nil }
+        guard source.type == .webdav || source.type == .infiniCloud else { return nil }
         let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else { return nil }
         var components = URLComponents()
