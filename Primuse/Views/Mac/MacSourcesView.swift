@@ -1211,18 +1211,14 @@ struct MacSourcesView: View {
         }
         // Disable only removes the source from active views/scans. Deleting
         // source library rows and caches belongs to deleteSource(_:).
+        // 改源会同步发出源变更通知,曲库的可见内容由 AppServices 在后台重算,
+        // 回填等落地之后再由它通知;这里再同步重建一遍会让后台那次作废、在主线程卡几百毫秒。
         updateSource(source.id) { $0.isEnabled = enabled }
-        library.updateDisabledSourceIDs(disabledSourceIDs)
-        backfill.sourceAvailabilityChanged(forSourceID: source.id)
     }
 
     private func toggleSourceEnabled(_ source: MusicSource) {
         let current = currentSource(for: source)
         setEnabled(current, !current.isEnabled)
-    }
-
-    private var disabledSourceIDs: Set<String> {
-        Set(sourceStore.sources.filter { !$0.isEnabled }.map(\.id))
     }
 
     /// 软删除:把源移入「最近删除」,同时立即从资料库移除该源歌曲。

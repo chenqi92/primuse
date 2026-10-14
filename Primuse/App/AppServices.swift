@@ -2020,10 +2020,20 @@ final class AppServices {
             guard let self else { return }
             await self.musicLibrary.updateDisabledSourceIDsInBackground(current)
             if self.pendingDisabledSourceIDs == current { self.pendingDisabledSourceIDs = nil }
-            // 播放器按曲库里的停用集合判断能不能播,等它落地再通知。
-            let changed = appliedBefore.symmetricDifference(self.musicLibrary.disabledSourceIDs)
-            if !changed.isEmpty {
-                self.playerService.sourceAvailabilityDidChange(for: changed)
+            // 播放器、回填、Apple Music 同步都按曲库里的停用集合判断,等它落地再通知。
+            let applied = self.musicLibrary.disabledSourceIDs
+            let changed = appliedBefore.symmetricDifference(applied)
+            guard !changed.isEmpty else { return }
+            self.playerService.sourceAvailabilityDidChange(for: changed)
+            for sourceID in changed {
+                self.metadataBackfill.sourceAvailabilityChanged(forSourceID: sourceID)
+            }
+            if changed.contains(AppleMusicLibraryService.systemSourceID) {
+                if applied.contains(AppleMusicLibraryService.systemSourceID) {
+                    self.appleMusicLibrary.cancel()
+                } else {
+                    self.appleMusicLibrary.sync()
+                }
             }
         }
         // iCloud 同步过来的停用与设置页里的停用按钮走的是同一个语义:

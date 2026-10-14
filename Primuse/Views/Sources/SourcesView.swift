@@ -2536,20 +2536,9 @@ struct SourcesContentView: View {
         if !enabled {
             pauseBackgroundWork(for: current.id)
         }
+        // 改源会同步发出源变更通知,曲库的可见内容由 AppServices 在后台重算;Apple Music
+        // 同步的开停和回填都看曲库里的停用集合,也由它等落地之后再处理。
         updateSource(current.id) { $0.isEnabled = enabled }
-        library.updateDisabledSourceIDs(disabledSourceIDs)
-        if current.id == AppleMusicLibraryService.systemSourceID {
-            if enabled {
-                appleMusicLibrary.sync()
-            } else {
-                appleMusicLibrary.cancel()
-            }
-        }
-        backfill.sourceAvailabilityChanged(forSourceID: current.id)
-    }
-
-    private var disabledSourceIDs: Set<String> {
-        Set(sourceStore.sources.filter { !$0.isEnabled }.map(\.id))
     }
 
     /// 撤销提示条数据(被删源的 id + 名字)。
