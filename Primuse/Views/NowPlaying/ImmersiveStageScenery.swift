@@ -16,6 +16,20 @@ extension EnvironmentValues {
     @Entry var immersiveFrameRate: ImmersiveFrameRateMode = .defaultValue
 }
 
+extension ImmersiveFrameRateMode {
+    /// 电视上整屏装饰层的最小间隔：按档位取值，但不快过 `televisionFloor`。
+    /// 这些层动得很慢（极光起伏、封面流的呼吸与高光、频谱环自转），60 帧档在 Apple TV 上
+    /// 只会让整屏模糊与叠加多画几遍，主线程等在 RenderBox 里，回调反而掉到 35–40 次。
+    func minimumInterval(base: TimeInterval, televisionFloor: TimeInterval) -> TimeInterval? {
+        let interval = minimumInterval(base: base)
+        #if os(tvOS)
+        return max(interval ?? 0, televisionFloor)
+        #else
+        return interval
+        #endif
+    }
+}
+
 // MARK: - 调色板
 
 /// Nocturne 语义色,取值对应设计稿 `_ds` 里的 CSS 变量。改这里等于改全端。
@@ -1427,7 +1441,9 @@ struct ImmersiveSpectrumRing: View {
     var spinPeriod: Double = 120
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
+        // 柱高跟着频谱发布重画；这条时间表只管自转（两分钟一圈），电视上不必比 24 次更勤，
+        // 否则和频谱发布错开，两层频谱环（其中一层整块模糊）一帧里可能画两遍。
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24, televisionFloor: 1 / 24), paused: !isAnimating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let hasSignal = levels.contains { $0 > 0.002 }
             let spin = isAnimating && hasSignal

@@ -119,6 +119,9 @@ struct ImmersiveStageView<Artwork: View>: View {
     var levels: [CGFloat] = []
     /// 首选输入：只在消费频谱的叶子视图内求值，避免 25 Hz 采样让整棵沉浸树重算。
     var levelsProvider: (@MainActor () -> [CGFloat])?
+    /// 同一份频谱，但读它不建立观察。只给自己按 TimelineView 定节奏的层（沙画、萤火、神经共鸣、
+    /// 星尘粒子、涟漪）用；没给时这些层也读 `levelsProvider`。
+    var scheduledLevelsProvider: (@MainActor () -> [CGFloat])? = nil
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
     /// 封面流(#191)两侧的封面：偏移量 -1…-`flowBeforeCount` 在左（刚放过的）、1…`flowAfterCount` 在右
@@ -233,6 +236,13 @@ struct ImmersiveStageView<Artwork: View>: View {
         if let levelsProvider { return levelsProvider }
         let snapshot = levels
         return { snapshot }
+    }
+
+    /// TimelineView 定节奏的层读这一份：读观察的那份，每发布一次频谱就在时间表之外多画一遍，
+    /// 帧率档位管不住（神经共鸣在电视 60 帧档因此只有 35 帧左右）。靠发布驱动重画的层（频谱环、能量光晕、
+    /// 天际线、脉动封面）没有时间表，照旧读 `spectrumProvider`。
+    private var scheduledSpectrumProvider: @MainActor () -> [CGFloat] {
+        scheduledLevelsProvider ?? spectrumProvider
     }
 
     private var baseHorizontalInset: CGFloat {
@@ -566,7 +576,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func chladniPlate(side: CGFloat) -> some View {
         ImmersiveChladniPlate(
-            levelsProvider: spectrumProvider,
+            levelsProvider: scheduledSpectrumProvider,
             palette: palette,
             isAnimating: sceneIsAnimating,
             songKey: "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)",
@@ -586,7 +596,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
         return ZStack {
             ImmersiveFireflyMeadow(
-                levelsProvider: spectrumProvider,
+                levelsProvider: scheduledSpectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
                 count: metrics.layout == .wide ? 360 : 220,
@@ -668,7 +678,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 endRadius: halfWidth * 0.9
             )
             ImmersiveFlyBrain(
-                levelsProvider: spectrumProvider,
+                levelsProvider: scheduledSpectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
                 center: center,
@@ -937,7 +947,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         let span = diameter * radialRingSpanRatio
         return ZStack {
             ImmersiveBassRipples(
-                levelsProvider: spectrumProvider,
+                levelsProvider: scheduledSpectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
                 startRatio: 0.60 / radialRingSpanRatio
@@ -1178,7 +1188,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 endPoint: .bottomTrailing
             )
             ImmersiveParticleField(
-                levelsProvider: spectrumProvider,
+                levelsProvider: scheduledSpectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
                 emitter: emitter
@@ -1918,8 +1928,10 @@ private struct ImmersiveAlbumFlowAmbience: View {
     private static let sweepPeriod = 14.0
 
     var body: some View {
+        // 这层铺满整屏，它一动整屏都要重新合成（封面的倒影模糊、投影跟着重算）；
+        // 电视上最快每秒 30 次，九秒一次的呼吸看不出差别。
         TimelineView(.animation(
-            minimumInterval: frameRate.minimumInterval(base: 1.0 / 20),
+            minimumInterval: frameRate.minimumInterval(base: 1.0 / 20, televisionFloor: 1.0 / 30),
             paused: !isAnimating
         )) { context in
             let time = context.date.timeIntervalSinceReferenceDate

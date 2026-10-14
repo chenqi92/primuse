@@ -439,7 +439,8 @@ struct TVImmersivePlayerView: View {
             currentLyric: currentLyric,
             nextLyric: nextLyric,
             lyricsWritingDirection: store.lyrics.first?.writingDirection ?? .natural,
-            levelsProvider: stageLevelsProvider,
+            levelsProvider: { spectrumLevels },
+            scheduledLevelsProvider: scheduledSpectrumLevelsProvider,
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
                 guard gallerySongs.indices.contains(index) else { return AnyView(Color.clear) }
@@ -1006,10 +1007,11 @@ struct TVImmersivePlayerView: View {
         return store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
-    /// 神经共鸣两层都由 TimelineView 定节奏，读频谱不建立观察；
-    /// 否则每发布一次频谱活动层就多画一遍，电视上的帧率上限不起作用。其余效果靠发布驱动重画，照旧观察。
-    private var stageLevelsProvider: @MainActor () -> [CGFloat] {
-        guard presentationEffect == .flyBrain else { return { spectrumLevels } }
+    /// 由 TimelineView 定节奏的层（沙画、萤火、神经共鸣、星尘粒子、涟漪）读这一份，不建立观察；
+    /// 否则每发布一次频谱就在时间表之外多画一遍，电视上的帧率上限不起作用。
+    /// 频谱环、能量光晕这些靠发布驱动重画的层仍读 `spectrumLevels`。
+    private var scheduledSpectrumLevelsProvider: @MainActor () -> [CGFloat] {
+        guard presentationEffect.usesRealtimeSpectrum else { return { [] } }
         let engine = store.engine
         return { @MainActor in
             engine.latestSpectrumLevels.map { min(max(CGFloat($0), 0), 1) }

@@ -709,7 +709,8 @@ struct ImmersiveAuroraCurtains: View {
                 showsShootingStars: true
             )
 
-            TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
+            // 整屏叠加再整块模糊，电视上最快每秒 30 次：光幕起伏很慢，60 帧档看不出差别、只多占 GPU。
+            TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15, televisionFloor: 1 / 30), paused: !isAnimating)) { context in
                 let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
                 Canvas(rendersAsynchronously: true) { canvas, size in
                     canvas.blendMode = .plusLighter

@@ -66,6 +66,8 @@ struct TVNowPlayingView: View {
     @State private var spokenWordBookmarkFeedback = 0
     @State private var showImmersive = tvDebugImmersiveLaunch.show
     @State private var immersiveStartsWithEffectPicker = tvDebugImmersiveLaunch.picker
+    /// 全屏效果盖上那一刻的进度与歌词行。不参与观察(同 `TVInteractionClock`)。
+    @State private var coveredPlayback = TVCoveredPlaybackSnapshot()
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
@@ -103,7 +105,19 @@ struct TVNowPlayingView: View {
                 isUserInitiated: isUserInitiated,
                 savedEffectIsNative: fullscreenPlayerEffect == .native
             )
+        coveredPlayback.capture(
+            currentTime: store.currentTime,
+            lyricTime: store.interpolatedTime(),
+            lyricIndex: store.currentLyricIndex
+        )
         showImmersive = true
+    }
+
+    /// 全屏效果是盖在这一页上的 fullScreenCover,这一页还挂着:不停下的话进度条、歌词行、
+    /// 评分键整页每 0.25 秒重算一遍,和前面的效果抢主线程。盖着时停在盖上那一刻;
+    /// 收起时 `showImmersive` 先回到 false,整页按当下进度重画。
+    private var isCoveredByImmersive: Bool {
+        showImmersive && coveredPlayback.isCaptured
     }
 
     private func lyricLayoutDirection(
@@ -196,6 +210,7 @@ struct TVNowPlayingView: View {
         .onChange(of: showImmersive) { _, presented in
             if !presented {
                 immersiveStartsWithEffectPicker = false
+                coveredPlayback.reset()
                 interactionClock.touch()
             }
         }
@@ -926,7 +941,7 @@ struct TVNowPlayingView: View {
     }
 
     private func scrubber(immersiveDark: Bool) -> some View {
-        let cur = store.currentTime
+        let cur = isCoveredByImmersive ? coveredPlayback.currentTime : store.currentTime
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
         return HStack(spacing: 16) {
@@ -1123,7 +1138,7 @@ struct TVNowPlayingView: View {
     }
 
     private var lyricsList: some View {
-        let cur = store.currentLyricIndex
+        let cur = isCoveredByImmersive ? coveredPlayback.lyricIndex : store.currentLyricIndex
         let followsPlayback = store.lyricsFollowPlayback
         // 跟手机端一致:整列歌词放进可滚动容器,随播放进度平滑把当前行滚到视觉中心
         //(`scrollTo(anchor:.center)` + `.smooth`),不再按 index 重算固定窗口硬跳。
@@ -1175,6 +1190,11 @@ struct TVNowPlayingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
+    /// 逐字扫光的时钟。被全屏效果盖住时停在盖上那一刻，不读 `store`:读了就随每次进度回调重算。
+    private func karaokeTime(at date: Date) -> TimeInterval {
+        isCoveredByImmersive ? coveredPlayback.lyricTime : store.interpolatedTime(at: date)
+    }
+
     /// 整首有两个声部时对唱分左右（与 iPhone 歌词页同一规则）。
     private static func isDuetLyrics(_ lyrics: [TVLyricLine]) -> Bool {
         lyrics.contains { $0.isSynchronized && $0.voice == .primary }
@@ -1205,11 +1225,11 @@ struct TVNowPlayingView: View {
                 // 驱动重绘,时间取按墙上时钟补过的播放时钟。
                 TimelineView(.animation(
                     minimumInterval: reduceMotion ? 0.10 : 1 / 30,
-                    paused: !store.isPlaying
+                    paused: !store.isPlaying || isCoveredByImmersive
                 )) { context in
                     TVKaraokeLine(
                         syllables: ln.syllables,
-                        currentTime: store.interpolatedTime(at: context.date),
+                        currentTime: karaokeTime(at: context.date),
                         size: size,
                         tint: store.nowPlaying.tint,
                         writingDirection: ln.writingDirection,
@@ -1230,11 +1250,11 @@ struct TVNowPlayingView: View {
                 if isCur, !background.syllables.isEmpty {
                     TimelineView(.animation(
                         minimumInterval: reduceMotion ? 0.10 : 1 / 30,
-                        paused: !store.isPlaying
+                        paused: !store.isPlaying || isCoveredByImmersive
                     )) { context in
                         TVKaraokeLine(
                             syllables: background.syllables,
-                            currentTime: store.interpolatedTime(at: context.date),
+                            currentTime: karaokeTime(at: context.date),
                             size: size * 0.7,
                             tint: store.nowPlaying.tint,
                             writingDirection: background.writingDirection,
@@ -1829,6 +1849,28 @@ final class TVInteractionClock {
 
     var secondsSinceLastInteraction: TimeInterval {
         ProcessInfo.processInfo.systemUptime - lastInteraction
+    }
+}
+
+/// 全屏效果盖住播放页时，页面停在的进度与歌词行。和 `TVInteractionClock` 一样不参与观察:
+/// 盖上前记一次，盖着时读它而不读 `store`,播放页就不再跟着进度回调重算。
+final class TVCoveredPlaybackSnapshot {
+    private(set) var isCaptured = false
+    private(set) var currentTime: Double = 0
+    /// 按墙上时钟补过的播放时间，逐字扫光用。
+    private(set) var lyricTime: TimeInterval = 0
+    private(set) var lyricIndex: Int?
+
+    func capture(currentTime: Double, lyricTime: TimeInterval, lyricIndex: Int?) {
+        self.currentTime = currentTime
+        self.lyricTime = lyricTime
+        self.lyricIndex = lyricIndex
+        isCaptured = true
+    }
+
+    func reset() {
+        isCaptured = false
+        lyricIndex = nil
     }
 }
 
