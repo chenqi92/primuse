@@ -1732,6 +1732,15 @@ struct NowPlayingView: View {
         min(max(0, height - 700) * 0.12, 30)
     }
 
+    /// 高画布上歌名(或下面那两句歌词)与进度条之间至少留的空白;进度条自己另有 8 的上边距。
+    static let portraitTallCanvasHeadingGap: CGFloat = 40
+
+    /// 竖版用「封面吃掉剩余高度」的排法:iPad 与 Duo 内屏这类不是窄手机的画布,并且高到控件间距已拉满。
+    /// 这时 42% 屏高的封面会在歌名与进度条之间空出几百点(#303)。iPhone 竖屏(含 Pro Max)不走这条。
+    private func portraitArtworkFillsTallCanvas(height: CGFloat) -> Bool {
+        (sizeClass == .regular || !isPhoneCanvas) && height >= 950
+    }
+
     /// 竖屏布局左右各让多少。不居中时就是安全区(按侧取值);整屏居中时:
     /// 封面宽度不超过「两边都不碰遮挡区」的上限,封面下面几行只在灵动岛长到它们那段高度时才两边一起让,
     /// 歌词模式的歌词与顶栏是会滚动 / 贴边的内容,在遮挡那一侧让开。
@@ -4741,11 +4750,17 @@ struct NowPlayingView: View {
     ) -> some View {
         // 分栏时歌词在右栏,这一栏始终是封面模式;其它时候跟着歌词开关走。
         let showLyrics = lyricsInline ?? self.showLyrics
+        // 高画布(见 `portraitArtworkFillsTallCanvas`):封面上限放宽到屏宽减 44,实际边长由版面按
+        // 「其余几行 + 歌名下那段空白」之外剩下的高度定;碰到宽度上限时多出来的高度在封面上下平分。
+        let fillsTallCanvas = portraitArtworkFillsTallCanvas(height: geo.size.height)
+            && !player.isMusicVideoPlaybackActive
         // MV 是 16:9，若沿用方形封面按高度推导出的宽度，会在竖屏里显得
         // 明显偏小。视频改为尽量吃满屏宽；方形封面仍保持原来的视觉尺度。
         let mediaWidth = player.isMusicVideoPlaybackActive
             ? min(max(0, geo.size.width - 20), 720, insets.mediaWidthLimit)
-            : artSize
+            : fillsTallCanvas
+                ? max(artSize, min(max(0, geo.size.width - 44), insets.mediaWidthLimit))
+                : artSize
         // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
         let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
@@ -4895,9 +4910,16 @@ struct NowPlayingView: View {
                                 .onDisappear { isLyricsChromeCollapsed = false }
                         }
                     } else {
-                        // 把手与封面之间:高屏多空一点,矮屏先压这里。
-                        Spacer(minLength: 0)
-                            .frame(maxHeight: 16 + volumeSlack * 0.4)
+                        if fillsTallCanvas {
+                            // 固定的这一截不让封面挤掉;封面到了宽度上限还有富余时,富余的一半落在这里。
+                            Color.clear
+                                .frame(height: 16 + volumeSlack * 0.4)
+                            Spacer(minLength: 0)
+                        } else {
+                            // 把手与封面之间:高屏多空一点,矮屏先压这里。
+                            Spacer(minLength: 0)
+                                .frame(maxHeight: 16 + volumeSlack * 0.4)
+                        }
                         GeometryReader { artworkGeometry in
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
@@ -4928,7 +4950,8 @@ struct NowPlayingView: View {
 
                     // Song info (player mode only — in lyrics mode it's in the top bar)
                     if !showLyrics {
-                        Spacer(minLength: 0)
+                        // 高画布上封面会把可压的空白都吃掉,这一截要定住。
+                        Spacer(minLength: fillsTallCanvas ? 16 : 0)
                             .frame(maxHeight: 16)
 
                         nowPlayingSongHeader(titleFont: .title3, metadataFont: .body, inlineActions: !usesToolColumn)
@@ -4948,6 +4971,12 @@ struct NowPlayingView: View {
                                 .padding(.horizontal, insets.rows)
                                 .padding(.top, 14)
                                 .pmLayoutSwitchFade()
+                        }
+
+                        // 高画布上这段空白是定长的,封面先拿走其余高度(见上面封面那一块)。
+                        if fillsTallCanvas {
+                            Color.clear
+                                .frame(height: Self.portraitTallCanvasHeadingGap)
                         }
 
                         // 歌名紧跟封面,剩下的高度都在这里:进度条以下几行贴着底部,和歌词模式同一位置。
