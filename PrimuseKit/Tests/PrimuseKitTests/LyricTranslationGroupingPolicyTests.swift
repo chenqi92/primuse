@@ -434,6 +434,48 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(groups.flatMap(\.candidates).map(\.id) == ["traditional", "english"])
     }
 
+    @Test func skippedSourceLanguagesKeepTheirLinesUntranslated() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "japanese", text: "こんにちは", sourceLanguageCode: "ja"),
+                .init(id: "english", text: "Hello", sourceLanguageCode: "en-US"),
+                .init(id: "short", text: "Oh", sourceLanguageCode: nil),
+                .init(id: "chinese", text: "你好", sourceLanguageCode: "zh-CN"),
+                .init(id: "korean", text: "안녕", sourceLanguageCode: "ko"),
+            ],
+            targetLanguageCode: "zh-Hans",
+            fallbackSourceLanguageCode: "en",
+            skippedSourceLanguageCodes: ["en"]
+        )
+
+        #expect(groups.map(\.sourceLanguageCode) == ["ja", "ko"])
+        #expect(groups.flatMap(\.candidates).map(\.id) == ["japanese", "korean"])
+    }
+
+    @Test func chineseScriptsAreSkippedSeparately() {
+        let candidates: [LyricTranslationCandidate] = [
+            .init(id: "simplified", text: "简体", sourceLanguageCode: "zh-Hans"),
+            .init(id: "traditional", text: "繁體", sourceLanguageCode: "zh-Hant"),
+            .init(id: "unknown-script", text: "中文", sourceLanguageCode: "zh"),
+        ]
+        let keepsTraditional = LyricTranslationGroupingPolicy.groups(
+            candidates: candidates,
+            targetLanguageCode: "en",
+            skippedSourceLanguageCodes: ["zh-Hant"]
+        )
+        #expect(keepsTraditional.flatMap(\.candidates).map(\.id) == ["simplified"])
+
+        #expect(LyricTranslationGroupingPolicy.groups(
+            candidates: candidates,
+            targetLanguageCode: "en",
+            skippedSourceLanguageCodes: ["zh-Hans", "zh-Hant"]
+        ).isEmpty)
+        #expect(!LyricTranslationGroupingPolicy.isSkippedSourceLanguage(
+            "ja",
+            skippedLanguageCodes: ["zh-Hans", "en"]
+        ))
+    }
+
     @Test func unknownLanguagesShareOneAutomaticGroup() {
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: [

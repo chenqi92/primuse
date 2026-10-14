@@ -6095,7 +6095,7 @@
 "listening_space_tint_fixed_hint" = "从色板里挑，或在下面自己调";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "这首歌不用翻译：已经是目标语言，或者歌词自带译文。";
+"lyrics_translation_not_needed" = "这首歌不用翻译：已经是目标语言、属于不翻译的语言，或者歌词自带译文。";
 "lyrics_translation_offline_done" = "已用离线翻译包翻译";
 "lyrics_translation_offline_needs_pack_format" = "这首歌要用「%@」离线翻译包";
 "lyrics_translation_offline_unsupported" = "离线翻译包译不了这首歌的语言，可以改用智能翻译。";
@@ -6150,3 +6150,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "下载「%@」离线翻译包？";
 "lyrics_translation_local_download_confirm_message" = "下载后在本机翻译，不联网，之后可以在歌词设置里移除。";
 "lyrics_translation_local_download_cellular_format" = "现在用的是蜂窝网络或低数据模式，会用掉约 %@ 流量。";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "不翻译的语言";
+"lyrics_translation_skipped_languages_footer" = "勾选的语言保持原文，其他语言照常翻译。和目标语言相同的歌词本来就不翻译。";
+"lyrics_translation_skipped_languages_none" = "无";
+"lyrics_translation_skipped_languages_section" = "保持原文";

@@ -760,6 +760,7 @@ struct TVLyricsTranslationPanel: View {
     var showsCurrentSong = true
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var showsLanguagePicker = false
+    @State private var showsSkippedLanguagePicker = false
     @State private var showsAISettings = false
     @State private var aiSettingsRevision: UInt64 = 0
     @State private var builtInConsent: BuiltInAIConsentRequest?
@@ -817,6 +818,9 @@ struct TVLyricsTranslationPanel: View {
             TVLyricsTranslationLanguagePicker(codes: targetCodes, selected: target) { code in
                 settings.targetLanguageCode = code
             }
+        }
+        .fullScreenCover(isPresented: $showsSkippedLanguagePicker) {
+            TVLyricsTranslationSkippedLanguagesPicker(target: target)
         }
         .fullScreenCover(isPresented: $showsAISettings, onDismiss: {
             // 在智能功能里换了服务、开了内置 AI 或允许了发送:这首歌按新的设置重翻。
@@ -908,6 +912,19 @@ struct TVLyricsTranslationPanel: View {
                     showsLanguagePicker = true
                 }
                 .accessibilityIdentifier("tv.lyricsTranslation.target")
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: "text.badge.xmark",
+                    title: String(localized: "lyrics_translation_skipped_languages"),
+                    value: LyricsTranslationSettingsStore.skippedLanguagesSummary(
+                        settings.skippedSourceLanguageCodes,
+                        targetLanguageCode: target,
+                        displayName: { Self.languageName($0) }
+                    )
+                ) {
+                    showsSkippedLanguagePicker = true
+                }
+                .accessibilityIdentifier("tv.lyricsTranslation.skippedLanguages")
                 if offersSmartTranslation {
                     TVAIDivider()
                     TVAIActionRow(
@@ -1127,6 +1144,63 @@ struct TVLyricsTranslationPanel: View {
 
     static func languageName(_ code: String) -> String {
         Locale.current.localizedString(forIdentifier: code) ?? code
+    }
+}
+
+/// 「不翻译的语言」:按一下勾上或取消,勾上的语言歌词保持原文。目标语言本来就不翻译,不列出来。
+struct TVLyricsTranslationSkippedLanguagesPicker: View {
+    let target: String
+    @State private var settings = LyricsTranslationSettingsStore.shared
+    @Environment(\.dismiss) private var dismiss
+
+    private var codes: [String] {
+        let listed = LyricsTranslationSettingsStore.availableTargetLanguages.map(\.code)
+        let extra = settings.skippedSourceLanguageCodes.filter { !listed.contains($0) }
+        return (listed + extra).filter {
+            !LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .center, spacing: 24) {
+                        Text("lyrics_translation_skipped_languages").tvFont(.pageTitle)
+                        Spacer(minLength: 0)
+                        TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
+                    }
+                    .padding(.bottom, 28)
+                    TVAISection(title: String(localized: "lyrics_translation_skipped_languages_section")) {
+                        ForEach(Array(codes.enumerated()), id: \.element) { index, code in
+                            if index > 0 { TVAIDivider() }
+                            let isSkipped = settings.isSourceLanguageSkipped(code)
+                            TVAIActionRow(
+                                icon: "globe",
+                                title: TVLyricsTranslationPanel.languageName(code),
+                                trailing: isSkipped ? "checkmark" : "circle",
+                                tint: isSkipped ? TVColor.brand : TVColor.text
+                            ) {
+                                settings.setSourceLanguage(code, skipped: !isSkipped)
+                            }
+                        }
+                        TVAIDivider()
+                        TVAINoteRow(
+                            icon: "info.circle",
+                            tint: TVColor.textFaint,
+                            text: String(localized: "lyrics_translation_skipped_languages_footer")
+                        )
+                    }
+                }
+                .frame(maxWidth: 1000, alignment: .leading)
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .onExitCommand { dismiss() }
     }
 }
 

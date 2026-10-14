@@ -5908,7 +5908,7 @@
 "listening_space_tint_fixed_hint" = "Выберите в палитре или настройте свой ниже";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "Перевод не нужен: текст уже на целевом языке или содержит свой перевод.";
+"lyrics_translation_not_needed" = "Перевод не нужен: текст уже на целевом языке, на языке, который вы не переводите, или содержит свой перевод.";
 "lyrics_translation_offline_done" = "Переведено офлайн-пакетом";
 "lyrics_translation_offline_needs_pack_format" = "Для этой песни нужен офлайн-пакет «%@»";
 "lyrics_translation_offline_unsupported" = "Офлайн-пакеты не переводят язык этой песни. Попробуйте интеллектуальный перевод.";
@@ -5963,3 +5963,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "Загрузить офлайн-пакет «%@»?";
 "lyrics_translation_local_download_confirm_message" = "После этого перевод выполняется на устройстве без сети. Пакет можно удалить позже в настройках текстов.";
 "lyrics_translation_local_download_cellular_format" = "Сейчас используется сотовая сеть или режим экономии данных; потребуется около %@.";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "Не переводить";
+"lyrics_translation_skipped_languages_footer" = "Тексты на отмеченных языках остаются как есть, остальные языки переводятся как обычно. Тексты на целевом языке и так не переводятся.";
+"lyrics_translation_skipped_languages_none" = "Нет";
+"lyrics_translation_skipped_languages_section" = "Оставить оригинал";

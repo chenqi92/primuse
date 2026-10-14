@@ -5908,7 +5908,7 @@
 "listening_space_tint_fixed_hint" = "Wybierz z palety lub dostosuj własny poniżej";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "Tłumaczenie niepotrzebne: tekst jest już w języku docelowym lub zawiera własne tłumaczenie.";
+"lyrics_translation_not_needed" = "Tłumaczenie niepotrzebne: tekst jest już w języku docelowym, w języku, którego nie tłumaczysz, lub zawiera własne tłumaczenie.";
 "lyrics_translation_offline_done" = "Przetłumaczono pakietem offline";
 "lyrics_translation_offline_needs_pack_format" = "Ten utwór wymaga pakietu offline „%@”";
 "lyrics_translation_offline_unsupported" = "Pakiety offline nie przetłumaczą języka tego utworu. Spróbuj inteligentnego tłumaczenia.";
@@ -5963,3 +5963,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "Pobrać pakiet offline „%@”?";
 "lyrics_translation_local_download_confirm_message" = "Potem tłumaczenie odbywa się na tym urządzeniu bez internetu. Pakiet możesz później usunąć w ustawieniach tekstów.";
 "lyrics_translation_local_download_cellular_format" = "Korzystasz z danych komórkowych lub trybu niskiego zużycia danych; zużyje to około %@.";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "Nie tłumacz";
+"lyrics_translation_skipped_languages_footer" = "Teksty w zaznaczonych językach zostają w oryginale, pozostałe języki są tłumaczone jak dotąd. Tekstów w języku docelowym nigdy się nie tłumaczy.";
+"lyrics_translation_skipped_languages_none" = "Brak";
+"lyrics_translation_skipped_languages_section" = "Zostaw oryginał";

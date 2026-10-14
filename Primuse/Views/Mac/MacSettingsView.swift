@@ -4977,6 +4977,34 @@ private struct MacSTLyricsView: View {
                                 }
                         )
                     }
+                    MacSTRow(
+                        String(localized: "lyrics_translation_skipped_languages"),
+                        hint: String(localized: "lyrics_translation_skipped_languages_footer")
+                    ) {
+                        MacAIChoiceMenu(
+                            title: languageCatalog.skippedLanguagesSummary(
+                                settings.skippedSourceLanguageCodes,
+                                targetLanguageCode: settings.targetLanguageCode
+                            ),
+                            width: 200
+                        ) {
+                            ForEach(languageCatalog.skippableLanguageCodes(
+                                excludingTarget: settings.targetLanguageCode,
+                                including: settings.skippedSourceLanguageCodes
+                            ), id: \.self) { code in
+                                let isSkipped = settings.isSourceLanguageSkipped(code)
+                                Button {
+                                    settings.setSourceLanguage(code, skipped: !isSkipped)
+                                } label: {
+                                    AIMenuChoiceLabel(
+                                        title: languageCatalog.displayName(for: code),
+                                        isSelected: isSkipped
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .settingsAnchor("lyrics.translationSkippedLanguages")
                 }
             }
 

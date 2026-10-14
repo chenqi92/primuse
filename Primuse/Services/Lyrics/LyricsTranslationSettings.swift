@@ -53,6 +53,51 @@ final class LyricsTranslationSettingsStore {
         }
     }
 
+    /// 不翻译的语言:这些语言的歌词保持原文(和目标语言相同的本来就不翻译)。存的是
+    /// 归一化后的语言身份,简繁中文各是一项。
+    private(set) var skippedSourceLanguageCodes: [String] {
+        didSet {
+            guard skippedSourceLanguageCodes != oldValue else { return }
+            systemPreparationRequestGate.invalidate()
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
+    }
+
+    func isSourceLanguageSkipped(_ code: String) -> Bool {
+        skippedSourceLanguageCodes.contains(Self.normalizedLanguageCode(code))
+    }
+
+    func setSourceLanguage(_ code: String, skipped: Bool) {
+        let normalized = Self.normalizedLanguageCode(code)
+        var codes = skippedSourceLanguageCodes.filter { $0 != normalized }
+        if skipped { codes.append(normalized) }
+        skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(codes)
+    }
+
+    /// 设置行右侧的摘要:没有就写「无」,和目标语言相同的那项不算(它本来就不翻译)。
+    static func skippedLanguagesSummary(
+        _ skipped: [String],
+        targetLanguageCode: String,
+        displayName: (String) -> String
+    ) -> String {
+        let names = skipped
+            .filter {
+                !LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, targetLanguageCode)
+            }
+            .map(displayName)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        guard !names.isEmpty else {
+            return String(localized: "lyrics_translation_skipped_languages_none")
+        }
+        return names.formatted(.list(type: .and, width: .narrow))
+    }
+
+    /// 去重并排序,设置变化与任务身份只认内容不认点选顺序。
+    nonisolated static func normalizedSkippedLanguageCodes(_ codes: [String]) -> [String] {
+        Array(Set(codes.map(normalizedLanguageCode))).sorted()
+    }
+
     /// `LanguageAvailability` 尚未返回结果时使用的离线候选。设置界面加载后
     /// 会改用设备当前真正支持的完整语言列表。
     static let availableTargetLanguages: [(code: String, displayKey: String)] = [
@@ -100,11 +145,15 @@ final class LyricsTranslationSettingsStore {
         var isEnabled = false
         var targetLanguageCode: String
         var mode = LyricsTranslationMode.system
+        var skippedSourceLanguageCodes: [String] = []
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             isEnabled = decoded.isEnabled
             targetLanguageCode = decoded.targetLanguageCode
             mode = decoded.mode ?? .system
+            skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(
+                decoded.skippedSourceLanguageCodes ?? []
+            )
         } else {
             // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
             let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
@@ -122,6 +171,7 @@ final class LyricsTranslationSettingsStore {
         self.isEnabled = isEnabled
         self.targetLanguageCode = targetLanguageCode
         self.mode = mode
+        self.skippedSourceLanguageCodes = skippedSourceLanguageCodes
     }
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
@@ -236,7 +286,8 @@ final class LyricsTranslationSettingsStore {
         let p = Persisted(
             isEnabled: isEnabled,
             targetLanguageCode: targetLanguageCode,
-            mode: mode
+            mode: mode,
+            skippedSourceLanguageCodes: skippedSourceLanguageCodes
         )
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
@@ -251,6 +302,7 @@ final class LyricsTranslationSettingsStore {
         let isEnabled: Bool
         let targetLanguageCode: String
         let mode: LyricsTranslationMode?
+        let skippedSourceLanguageCodes: [String]?
     }
 }
 
@@ -305,6 +357,23 @@ final class LyricsTranslationLanguageCatalog {
     func displayName(for code: String) -> String {
         Locale.autoupdatingCurrent.localizedString(forIdentifier: code) ?? code
     }
+
+    /// 「不翻译的语言」可勾的语言:和目标语言同一张表,去掉目标语言本身;已经勾了但表里
+    /// 没有的(设备语言列表变了)也留着,好取消。
+    func skippableLanguageCodes(excludingTarget target: String, including skipped: [String]) -> [String] {
+        let extra = skipped.filter { !languageCodes.contains($0) }
+        return (extra + languageCodes).filter {
+            !LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, target)
+        }
+    }
+
+    func skippedLanguagesSummary(_ skipped: [String], targetLanguageCode: String) -> String {
+        LyricsTranslationSettingsStore.skippedLanguagesSummary(
+            skipped,
+            targetLanguageCode: targetLanguageCode,
+            displayName: { displayName(for: $0) }
+        )
+    }
 }
 #endif
 
@@ -327,6 +396,7 @@ actor LyricsTranslationPreparer {
     private struct Key: Hashable {
         let lyrics: [LyricLine]
         let targetLanguageCode: String
+        let skippedSourceLanguageCodes: [String]
         let enabled: Bool
         let songContext: LyricTranslationSongContext
     }
@@ -334,17 +404,26 @@ actor LyricsTranslationPreparer {
     private var cached: [(Key, Prepared)] = []
 
     func prepare(
-        lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool,
+        lyrics: [LyricLine], targetLanguageCode: String,
+        skippedSourceLanguageCodes: [String] = [], enabled: Bool,
         songContext: LyricTranslationSongContext = .init()
     ) throws -> Prepared {
         try Task.checkCancellation()
-        let key = Key(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled, songContext: songContext)
+        let key = Key(
+            lyrics: lyrics, targetLanguageCode: targetLanguageCode,
+            skippedSourceLanguageCodes: skippedSourceLanguageCodes,
+            enabled: enabled, songContext: songContext
+        )
         if let index = cached.firstIndex(where: { $0.0 == key }) {
             let hit = cached.remove(at: index)
             cached.append(hit)
             return hit.1
         }
-        let result = try makePreparation(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled, songContext: songContext)
+        let result = try makePreparation(
+            lyrics: lyrics, targetLanguageCode: targetLanguageCode,
+            skippedSourceLanguageCodes: skippedSourceLanguageCodes,
+            enabled: enabled, songContext: songContext
+        )
         try Task.checkCancellation()
         cached.append((key, result))
         if cached.count > 4 { cached.removeFirst() }
@@ -352,7 +431,8 @@ actor LyricsTranslationPreparer {
     }
 
     private func makePreparation(
-        lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool,
+        lyrics: [LyricLine], targetLanguageCode: String,
+        skippedSourceLanguageCodes: [String], enabled: Bool,
         songContext: LyricTranslationSongContext
     ) throws -> Prepared {
         let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
@@ -407,7 +487,8 @@ actor LyricsTranslationPreparer {
             to: LyricTranslationGroupingPolicy.groups(
                 candidates: candidates,
                 targetLanguageCode: targetLanguageCode,
-                fallbackSourceLanguageCode: fallbackSourceLanguageCode
+                fallbackSourceLanguageCode: fallbackSourceLanguageCode,
+                skippedSourceLanguageCodes: skippedSourceLanguageCodes
             ),
             targetLanguageCode: targetLanguageCode
         )

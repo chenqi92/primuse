@@ -2242,10 +2242,13 @@ public enum LyricTranslationGroupingPolicy {
         return primaryLanguageCode(languageIdentity(sourceLanguageCode)) != "fa"
     }
 
+    /// `skippedSourceLanguageCodes` 是用户设的「不翻译的语言」:这些语言的行保持原文,
+    /// 和已经是目标语言的行一样不进任何一组。
     public static func groups(
         candidates: [LyricTranslationCandidate],
         targetLanguageCode: String,
-        fallbackSourceLanguageCode: String? = nil
+        fallbackSourceLanguageCode: String? = nil,
+        skippedSourceLanguageCodes: [String] = []
     ) -> [LyricTranslationGroup] {
         let targetIdentity = languageIdentity(targetLanguageCode)
         let fallbackSourceIdentity = fallbackSourceLanguageCode.map(languageIdentity)
@@ -2260,7 +2263,11 @@ public enum LyricTranslationGroupingPolicy {
             let normalizedSource = candidate.sourceLanguageCode.map(languageIdentity)
                 ?? fallbackSourceIdentity
             if let normalizedSource,
-               representsSameTranslationLanguage(normalizedSource, targetIdentity) {
+               representsSameTranslationLanguage(normalizedSource, targetIdentity)
+                || isSkippedSourceLanguage(
+                    normalizedSource,
+                    skippedLanguageCodes: skippedSourceLanguageCodes
+                ) {
                 continue
             }
 
@@ -2287,6 +2294,22 @@ public enum LyricTranslationGroupingPolicy {
                 sourceLanguageCode: sourceByKey[key] ?? nil,
                 candidates: groupedCandidates
             )
+        }
+    }
+
+    /// `sourceLanguageCode` 在不在「不翻译的语言」里。简繁中文分开设;只认出是中文、
+    /// 认不出字形的行,设了任一种中文就算。
+    public static func isSkippedSourceLanguage(
+        _ sourceLanguageCode: String,
+        skippedLanguageCodes: [String]
+    ) -> Bool {
+        let source = languageIdentity(sourceLanguageCode)
+        return skippedLanguageCodes.contains { code in
+            let skipped = languageIdentity(code)
+            if representsSameTranslationLanguage(source, skipped) { return true }
+            return (source == "zh" || skipped == "zh")
+                && primaryLanguageCode(source) == "zh"
+                && primaryLanguageCode(skipped) == "zh"
         }
     }
 

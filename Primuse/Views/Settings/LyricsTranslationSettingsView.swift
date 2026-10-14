@@ -53,6 +53,20 @@ struct LyricsSettingsView: View {
                             Text(languageCatalog.displayName(for: code)).tag(code)
                         }
                     }
+                    NavigationLink {
+                        LyricsTranslationSkippedLanguagesView()
+                    } label: {
+                        LabeledContent {
+                            Text(verbatim: languageCatalog.skippedLanguagesSummary(
+                                settings.skippedSourceLanguageCodes,
+                                targetLanguageCode: settings.targetLanguageCode
+                            ))
+                            .lineLimit(1)
+                        } label: {
+                            Text("lyrics_translation_skipped_languages")
+                        }
+                    }
+                    .settingsAnchor("lyrics.translationSkippedLanguages")
                 }
 
                 LocalTranslationModelSection()
@@ -142,6 +156,57 @@ struct LyricsSettingsView: View {
             },
             set: { settings.mode = $0 }
         )
+    }
+}
+
+/// 「不翻译的语言」:勾上的语言歌词保持原文。目标语言本来就不翻译,不列出来。
+struct LyricsTranslationSkippedLanguagesView: View {
+    @Environment(ThemeService.self) private var themeService
+    @State private var settings = LyricsTranslationSettingsStore.shared
+    @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(languageCatalog.skippableLanguageCodes(
+                    excludingTarget: settings.targetLanguageCode,
+                    including: settings.skippedSourceLanguageCodes
+                ), id: \.self) { code in
+                    languageRow(code)
+                }
+            } footer: {
+                Text("lyrics_translation_skipped_languages_footer")
+            }
+        }
+        .navigationTitle("lyrics_translation_skipped_languages")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task {
+            await languageCatalog.refresh()
+        }
+    }
+
+    private func languageRow(_ code: String) -> some View {
+        let isSkipped = settings.isSourceLanguageSkipped(code)
+        return Button {
+            settings.setSourceLanguage(code, skipped: !isSkipped)
+        } label: {
+            HStack {
+                Text(verbatim: languageCatalog.displayName(for: code))
+                    .foregroundStyle(.primary)
+                Spacer()
+                if isSkipped {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(themeService.uiAccentColor)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSkipped ? [.isButton, .isSelected] : .isButton)
     }
 }
 

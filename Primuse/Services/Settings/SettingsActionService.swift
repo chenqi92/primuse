@@ -106,7 +106,8 @@ struct SettingsActionService {
         if id.hasPrefix("effects.compressor"), id != "effects.compressor", !playback.compressorEnabled {
             return SettingsStrings.text("Enable the compressor to adjust this setting.")
         }
-        if ["lyrics.translationMode", "lyrics.translationTarget", "lyrics.translationCache", "lyrics.clearTranslationCache"].contains(id),
+        if ["lyrics.translationMode", "lyrics.translationTarget", "lyrics.translationSkippedLanguages",
+            "lyrics.translationCache", "lyrics.clearTranslationCache"].contains(id),
            !LyricsTranslationSettingsStore.shared.isEnabled {
             return SettingsStrings.text("Enable lyrics translation to adjust this setting.")
         }

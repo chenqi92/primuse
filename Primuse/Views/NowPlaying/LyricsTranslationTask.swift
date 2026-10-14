@@ -59,6 +59,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let lyricsRevision: UInt
         let isEnabled: Bool
         let targetLanguageCode: String
+        let skippedSourceLanguageCodes: [String]
         let mode: LyricsTranslationMode
         let systemPreparationRequestRevision: UInt
         /// 只认真正影响翻译决策的那个结论，而不是地区服务的原始修订号。
@@ -82,6 +83,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             targetLanguageCode: LyricsTranslationSettingsStore.normalizedLanguageCode(
                 settings.targetLanguageCode
             ),
+            skippedSourceLanguageCodes: settings.skippedSourceLanguageCodes,
             mode: settings.mode,
             systemPreparationRequestRevision: settings.systemPreparationRequestRevision,
             exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration,
@@ -121,6 +123,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             prepared = try await LyricsTranslationPreparer.shared.prepare(
                 lyrics: lyrics,
                 targetLanguageCode: identity.targetLanguageCode,
+                skippedSourceLanguageCodes: identity.skippedSourceLanguageCodes,
                 enabled: identity.isEnabled,
                 songContext: identity.songContext
             )
@@ -808,12 +811,14 @@ final class LyricsTranslationPrefetcher {
         }
         job?.task.cancel()
         let songContext = LyricTranslationSongContext(title: song.title, artist: song.artistName)
+        let skippedSourceLanguageCodes = LyricsTranslationSettingsStore.shared.skippedSourceLanguageCodes
         let task = Task { @MainActor in
             guard let lyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
                   !lyrics.isEmpty,
                   let prepared = try? await LyricsTranslationPreparer.shared.prepare(
                       lyrics: lyrics,
                       targetLanguageCode: targetLanguageCode,
+                      skippedSourceLanguageCodes: skippedSourceLanguageCodes,
                       enabled: true,
                       songContext: songContext
                   ),

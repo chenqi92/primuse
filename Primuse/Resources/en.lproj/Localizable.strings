@@ -5762,7 +5762,7 @@
 "listening_space_tint_fixed_hint" = "Pick one from the palette or adjust your own below";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "No translation needed: the lyrics are already in the target language or include their own translation.";
+"lyrics_translation_not_needed" = "No translation needed: the lyrics are already in the target language, in a language you don't translate, or include their own translation.";
 "lyrics_translation_offline_done" = "Translated with an offline pack";
 "lyrics_translation_offline_needs_pack_format" = "This song needs the “%@” offline pack";
 "lyrics_translation_offline_unsupported" = "The offline packs can't translate this song's language. Try Intelligent Translation instead.";
@@ -5817,3 +5817,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "Download the “%@” offline pack?";
 "lyrics_translation_local_download_confirm_message" = "Lyrics are then translated on this device without going online. You can remove the pack later in Lyrics settings.";
 "lyrics_translation_local_download_cellular_format" = "You're on cellular data or Low Data Mode; this uses about %@.";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "Don't Translate";
+"lyrics_translation_skipped_languages_footer" = "Lyrics in the checked languages stay as written; other languages are still translated. Lyrics already in the target language are never translated.";
+"lyrics_translation_skipped_languages_none" = "None";
+"lyrics_translation_skipped_languages_section" = "Keep Original";

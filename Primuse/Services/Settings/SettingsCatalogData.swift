@@ -50,6 +50,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.translationEnabled", titleKey: "lyrics_translation_enabled", iosPage: .lyrics, macPage: .lyrics),
         SettingDefinition(id: "lyrics.translationMode", titleKey: "lyrics_translation_mode", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.translationTarget", titleKey: "lyrics_translation_target", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
+        SettingDefinition(id: "lyrics.translationSkippedLanguages", titleKey: "lyrics_translation_skipped_languages", iosPage: .lyrics, macPage: .lyrics, keywords: ["不翻译", "原文", "keep original", "skip"]),
         SettingDefinition(id: "lyrics.translationCache", titleKey: "lyrics_translation_cached", iosPage: .lyrics, macPage: nil, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.clearTranslationCache", titleKey: "lyrics_translation_clear_cache", iosPage: .lyrics, macPage: nil, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.transcription", titleKey: "lyrics_transcription_settings_title", iosPage: .transcription, macPage: .transcription),

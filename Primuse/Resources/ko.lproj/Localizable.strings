@@ -6002,7 +6002,7 @@
 "listening_space_tint_fixed_hint" = "팔레트에서 고르거나 아래에서 직접 조정하세요";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "번역할 필요가 없습니다: 가사가 이미 대상 언어이거나 번역이 포함되어 있습니다.";
+"lyrics_translation_not_needed" = "번역할 필요가 없습니다: 가사가 이미 대상 언어이거나, 번역하지 않을 언어이거나, 번역이 포함되어 있습니다.";
 "lyrics_translation_offline_done" = "오프라인 번역 팩으로 번역했습니다";
 "lyrics_translation_offline_needs_pack_format" = "이 곡에는 ‘%@’ 오프라인 번역 팩이 필요합니다";
 "lyrics_translation_offline_unsupported" = "오프라인 번역 팩으로는 이 곡의 언어를 번역할 수 없습니다. 지능형 번역을 사용해 보세요.";
@@ -6057,3 +6057,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "‘%@’ 오프라인 번역 팩을 내려받을까요?";
 "lyrics_translation_local_download_confirm_message" = "내려받으면 이 기기에서 인터넷 연결 없이 번역합니다. 나중에 가사 설정에서 삭제할 수 있습니다.";
 "lyrics_translation_local_download_cellular_format" = "지금 셀룰러 데이터 또는 저데이터 모드를 사용 중이며 약 %@를 사용합니다.";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "번역하지 않을 언어";
+"lyrics_translation_skipped_languages_footer" = "선택한 언어의 가사는 원문 그대로 두고, 다른 언어는 평소처럼 번역합니다. 대상 언어와 같은 가사는 원래 번역하지 않습니다.";
+"lyrics_translation_skipped_languages_none" = "없음";
+"lyrics_translation_skipped_languages_section" = "원문 유지";

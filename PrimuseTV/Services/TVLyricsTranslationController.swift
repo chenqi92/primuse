@@ -22,7 +22,7 @@ final class TVLyricsTranslationController {
     /// What the translation of the lyrics on screen is doing; the player shows it.
     enum Activity: Equatable {
         case idle
-        /// Already in the target language, or the file carries translations.
+        /// Already in the target language or one left untranslated, or the file carries translations.
         case notNeeded
         case translating(Engine)
         case done(Engine)
@@ -121,6 +121,7 @@ final class TVLyricsTranslationController {
         let song = store.song(songID)
         let songContext = LyricTranslationSongContext(title: song?.title, artist: song?.artist)
         let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
+        let skippedSourceLanguageCodes = settings.skippedSourceLanguageCodes
         let intelligence = settings.mode == .intelligentWithSystemFallback ? self.intelligence : nil
         task = Task { @MainActor [weak self] in
             let prepared: LyricsTranslationPreparer.Prepared
@@ -128,6 +129,7 @@ final class TVLyricsTranslationController {
                 prepared = try await LyricsTranslationPreparer.shared.prepare(
                     lyrics: lines,
                     targetLanguageCode: target,
+                    skippedSourceLanguageCodes: skippedSourceLanguageCodes,
                     enabled: true,
                     songContext: songContext
                 )

@@ -1100,6 +1100,35 @@ extension ListeningFeaturesTests {
         XCTAssertEqual(reused, toChinese)
     }
 
+    func testLyricsPreparationLeavesSkippedSourceLanguagesUntranslated() async throws {
+        let service = LyricsTranslationPreparer()
+        let english = LyricLine(id: "line", timestamp: 1, text: "The sun is shining brightly in the beautiful blue sky.", metadataLines: ["[language:en]"])
+        let translated = try await service.prepare(lyrics: [english], targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(translated.groups.flatMap(\.candidates).map(\.text), [english.text])
+        let skipped = try await service.prepare(
+            lyrics: [english], targetLanguageCode: "zh-Hans",
+            skippedSourceLanguageCodes: ["en"], enabled: true
+        )
+        XCTAssertTrue(skipped.groups.isEmpty)
+        XCTAssertFalse(skipped.requiresPreparation)
+    }
+
+    func testSkippedLanguageSummaryLeavesOutTheTargetLanguage() {
+        let names = ["en": "English", "ja": "Japanese", "zh-Hans": "Chinese, Simplified"]
+        let summary = LyricsTranslationSettingsStore.skippedLanguagesSummary(
+            ["ja", "zh-Hans", "en"],
+            targetLanguageCode: "zh-Hans",
+            displayName: { names[$0] ?? $0 }
+        )
+        XCTAssertTrue(summary.contains("English"))
+        XCTAssertTrue(summary.contains("Japanese"))
+        XCTAssertFalse(summary.contains("Chinese"))
+        XCTAssertEqual(
+            LyricsTranslationSettingsStore.normalizedSkippedLanguageCodes(["en-US", "ja", "en", "zh-TW"]),
+            ["en", "ja", "zh-Hant"]
+        )
+    }
+
     func testCancelledLyricsPreparationDoesNotReturnCachedResult() async throws {
         let service = LyricsTranslationPreparer()
         _ = try await service.prepare(lyrics: [], targetLanguageCode: "en", enabled: false)

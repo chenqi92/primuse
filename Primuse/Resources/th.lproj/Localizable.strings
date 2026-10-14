@@ -5908,7 +5908,7 @@
 "listening_space_tint_fixed_hint" = "เลือกจากจานสีหรือปรับสีของคุณเองด้านล่าง";
 
 /* 歌词翻译：电视智能翻译、翻译方式说明 */
-"lyrics_translation_not_needed" = "ไม่ต้องแปล: เนื้อเพลงเป็นภาษาเป้าหมายอยู่แล้ว หรือมีคำแปลมาในตัว";
+"lyrics_translation_not_needed" = "ไม่ต้องแปล: เนื้อเพลงเป็นภาษาเป้าหมายอยู่แล้ว เป็นภาษาที่คุณเลือกไม่แปล หรือมีคำแปลมาในตัว";
 "lyrics_translation_offline_done" = "แปลด้วยแพ็กออฟไลน์แล้ว";
 "lyrics_translation_offline_needs_pack_format" = "เพลงนี้ต้องใช้แพ็กออฟไลน์ “%@”";
 "lyrics_translation_offline_unsupported" = "แพ็กออฟไลน์แปลภาษาของเพลงนี้ไม่ได้ ลองใช้การแปลอัจฉริยะแทน";
@@ -5963,3 +5963,9 @@
 "lyrics_translation_local_download_confirm_title_format" = "ดาวน์โหลดแพ็กออฟไลน์ “%@” ไหม";
 "lyrics_translation_local_download_confirm_message" = "หลังจากนั้นจะแปลบนอุปกรณ์นี้โดยไม่ต้องออนไลน์ ลบแพ็กได้ภายหลังในการตั้งค่าเนื้อเพลง";
 "lyrics_translation_local_download_cellular_format" = "ตอนนี้ใช้เครือข่ายมือถือหรือโหมดใช้ข้อมูลน้อย จะใช้ข้อมูลประมาณ %@";
+
+/* 歌词翻译：不翻译的语言 */
+"lyrics_translation_skipped_languages" = "ภาษาที่ไม่แปล";
+"lyrics_translation_skipped_languages_footer" = "เนื้อเพลงในภาษาที่เลือกจะคงต้นฉบับไว้ ภาษาอื่นยังแปลตามปกติ เนื้อเพลงที่เป็นภาษาเป้าหมายอยู่แล้วจะไม่ถูกแปลอยู่แล้ว";
+"lyrics_translation_skipped_languages_none" = "ไม่มี";
+"lyrics_translation_skipped_languages_section" = "คงต้นฉบับ";
