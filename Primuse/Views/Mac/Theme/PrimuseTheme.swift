@@ -1187,7 +1187,9 @@ enum PMWindowChromeTrace {
         }
         let toolbar = window.toolbar.map { "\(ObjectIdentifier($0).hashValue % 100_000)\($0.isVisible ? "v" : "h")" } ?? "none"
         return "key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0) "
-            + "sheet=\(window.attachedSheet == nil ? 0 : 1) tb=\(toolbar) [\(buttons.joined(separator: " | "))]"
+            + "sheet=\(window.attachedSheet == nil ? 0 : 1) tb=\(toolbar) "
+            + "title=\(window.titleVisibility == .hidden ? "hidden" : "visible") "
+            + "[\(buttons.joined(separator: " | "))]"
     }
 }
 

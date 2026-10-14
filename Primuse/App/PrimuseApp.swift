@@ -1460,6 +1460,8 @@ struct PrimuseApp: App {
     private func macAwareMainGroup<V: View>(@ViewBuilder _ content: @escaping () -> V) -> some Scene {
         #if os(macOS)
         WindowGroup(id: MainWindowOpener.mainWindowID) { content() }
+            // 与 AppKit 配置保持一致，避免换页时先恢复原生标题再异步隐藏。
+            .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup { content() }
         #endif
@@ -2291,8 +2293,7 @@ struct PrimuseApp: App {
         }
         #endif
         #if os(macOS)
-        // 标题栏背景和标题由 PMWindowChromeConfigurator 隐藏。这里保留 SwiftUI
-        // 默认窗口样式,避免 `.hiddenTitleBar` 连同原生窗口按钮容器一起隐藏。
+        // 原生按钮由系统窗口样式保留，PMWindowChromeConfigurator 负责自绘标题栏的对齐。
         .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)
         .commands {

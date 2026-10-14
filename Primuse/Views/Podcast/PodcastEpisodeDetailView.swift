@@ -80,7 +80,9 @@ struct PodcastEpisodeDetailView: View {
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        #if os(iOS)
         .navigationTitle(episode.title)
+        #endif
         .task(id: episode.id) {
             let notes = episode.showNotes ?? ""
             notesBlocks = await Task.detached(priority: .userInitiated) {
@@ -374,8 +376,8 @@ struct PodcastEpisodeFeedView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("podcast_latest_episodes")
         #if os(iOS)
+        .navigationTitle("podcast_latest_episodes")
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .refreshable { await store.refreshAll() }

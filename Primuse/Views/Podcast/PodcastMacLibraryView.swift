@@ -47,7 +47,6 @@ struct MacPodcastLibraryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(PMColor.bg)
-        .navigationTitle("listening_space_podcast")
         .task {
             store.loadIfNeeded()
             store.refreshAllIfDue()

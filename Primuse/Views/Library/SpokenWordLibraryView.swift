@@ -306,8 +306,8 @@ struct SpokenWordLibraryView: View {
         .pmExtendsUnderVerticalBar()
         #if os(iOS)
         .libraryPageFind(text: $findText, prompt: "filter_spoken_word_placeholder")
-        #endif
         .navigationTitle("tab_spoken_word")
+        #endif
         .serverCatalogPullToRefresh()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -1241,7 +1241,9 @@ struct SpokenWordBookDetailView: View {
                         }
                     }
                 }
+                #if os(iOS)
                 .navigationTitle(book.title)
+                #endif
             } else if !snapshot.isPrepared {
                 ProgressView()
             } else if collection == .books, library.localPodcastBookIDs.values.contains(bookID) {

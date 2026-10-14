@@ -130,7 +130,9 @@ struct PodcastShowDetailView: View {
             }
         }
         .listStyle(.plain)
+        #if os(iOS)
         .navigationTitle(show.title)
+        #endif
         .refreshable {
             if store.isSubscribed(show.id) { await store.refresh(showID: show.id) }
         }

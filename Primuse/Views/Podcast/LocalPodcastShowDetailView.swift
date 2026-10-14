@@ -53,7 +53,9 @@ struct LocalPodcastShowDetailView: View {
             }
         }
         .listStyle(.plain)
+        #if os(iOS)
         .navigationTitle(book.title)
+        #endif
         .accessibilityIdentifier("podcast.localShow.detail")
         .sheet(isPresented: $showsReorder) {
             PlaylistReorderSheet(

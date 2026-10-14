@@ -550,8 +550,8 @@ struct PodcastLikedEpisodesView: View {
             }
             .padding(.horizontal, 16)
         }
-        .navigationTitle("podcast_liked_episodes")
         #if os(iOS)
+        .navigationTitle("podcast_liked_episodes")
         .navigationBarTitleDisplayMode(.inline)
         #endif
     }
