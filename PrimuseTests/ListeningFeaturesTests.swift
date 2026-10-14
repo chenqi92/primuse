@@ -142,6 +142,124 @@ final class ListeningFeaturesTests: XCTestCase {
 
     // MARK: - Spoken word store
 
+    private func tingProgress(chapter: String, position: Double, at date: Date) throws -> TingReaderListeningProgress {
+        try XCTUnwrap(TingReaderListeningProgress(json: [
+            "book_id": "book", "chapter_id": chapter, "position": position, "duration": 3_600,
+            "updated_at": ISO8601DateFormatter().string(from: date),
+        ]))
+    }
+
+    func testTingReaderProgressRefreshMergesByTimestampAndKeepsLocalAndPlayingItems() async throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        let source = MusicSource(id: "ting", name: "Ting", type: .tingReader)
+        let songs = ["remote", "local", "playing", "missing"].map { id -> Song in
+            var song = self.song(id, duration: 3_600, genre: "Audiobook",
+                                 path: "/tingreader/books/book/chapters/\(id).mp3")
+            song.sourceID = source.id
+            return song
+        }
+        for song in songs { store.rememberPosition(100, duration: 3_600, forSongID: song.id) }
+        let newer = Date().addingTimeInterval(60)
+        let records = try [tingProgress(chapter: "remote", position: 500, at: newer),
+                           tingProgress(chapter: "local", position: 700, at: .distantPast),
+                           tingProgress(chapter: "playing", position: 900, at: newer),
+                           tingProgress(chapter: "unscanned", position: 800, at: newer)]
+        var adopted: [String] = []
+        var requests = 0
+        let sync = TingReaderProgressSyncCoordinator(
+            defaults: try makeDefaults(), store: store, sources: { [source] }, songs: { _ in songs },
+            fetch: { _ in requests += 1; return records }, protectedSongID: { "playing" },
+            didAdopt: { adopted.append($0.id) }
+        )
+        await sync.refresh()
+        await sync.refresh()
+        XCTAssertEqual(requests, 1, "foreground refreshes within the cooldown share the last attempt")
+        XCTAssertEqual(adopted, ["remote"])
+        XCTAssertEqual(store.position(forSongID: "remote")?.position, 500)
+        for id in ["local", "playing", "missing"] { XCTAssertEqual(store.position(forSongID: id)?.position, 100) }
+        XCTAssertNil(store.position(forSongID: "unscanned"))
+        await sync.refresh(manual: true)
+        XCTAssertEqual(requests, 2)
+    }
+
+    func testTingReaderProgressSwitchPersistsAndManualRefreshBypassesItWithoutClearingOfflineProgress() async throws {
+        let defaults = try makeDefaults()
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        let source = MusicSource(id: "ting", name: "Ting", type: .tingReader)
+        store.rememberPosition(100, duration: 3_600, forSongID: "chapter")
+        var requests = 0
+        let fetch: @MainActor (MusicSource) async throws -> [TingReaderListeningProgress] = { _ in
+            requests += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        let sync = TingReaderProgressSyncCoordinator(defaults: defaults, store: store,
+            sources: { [source] }, songs: { _ in [] }, fetch: fetch, protectedSongID: { nil })
+        XCTAssertTrue(sync.isEnabled(for: source.id))
+        sync.setEnabled(false, for: source.id)
+        let reloaded = TingReaderProgressSyncCoordinator(defaults: defaults, store: store,
+            sources: { [source] }, songs: { _ in [] }, fetch: fetch, protectedSongID: { nil })
+        XCTAssertFalse(reloaded.isEnabled(for: source.id))
+        await reloaded.refresh()
+        XCTAssertEqual(requests, 0)
+        await reloaded.refresh(manual: true)
+        XCTAssertEqual(requests, 1)
+        XCTAssertTrue(reloaded.failedSourceIDs.contains(source.id))
+        XCTAssertTrue(reloaded.refreshingSourceIDs.isEmpty)
+        XCTAssertEqual(store.position(forSongID: "chapter")?.position, 100)
+    }
+
+    func testTingReaderProgressRejectsResponseAfterSourceOrPreferenceChanges() async throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        var source = MusicSource(id: "ting", name: "Ting", type: .tingReader, username: "reader")
+        var chapter = song("chapter", duration: 3_600, path: "/tingreader/books/book/chapters/chapter.mp3")
+        chapter.sourceID = source.id
+        let records = try [tingProgress(chapter: "chapter", position: 500, at: Date())]
+        var response: CheckedContinuation<[TingReaderListeningProgress], Error>?
+        let sync = TingReaderProgressSyncCoordinator(defaults: try makeDefaults(), store: store,
+            sources: { [source] }, songs: { _ in [chapter] }, fetch: { _ in
+                try await withCheckedThrowingContinuation { response = $0 }
+            }, protectedSongID: { nil })
+        for changesAccount in [true, false] {
+            let task = Task { await sync.refresh() }
+            while response == nil { await Task.yield() }
+            if changesAccount { source.username = "another-reader" }
+            else { sync.setEnabled(false, for: source.id) }
+            response?.resume(returning: records)
+            response = nil
+            await task.value
+            XCTAssertNil(store.position(forSongID: chapter.id))
+            sync.setEnabled(true, for: source.id)
+        }
+    }
+
+    func testSyncedPausedSpokenWordPositionReplacesSessionResumeWithoutWritingBack() throws {
+        let player = try makePlayer()
+        let chapter = song(UUID().uuidString, duration: 3_600, genre: "Audiobook")
+        cleanups.append { SpokenWordStore.shared.clearPosition(forSongID: chapter.id) }
+        player.currentSong = chapter
+        player.currentTime = 100
+        player.duration = 3_600
+        player.currentItemIsSpokenWord = true
+        let serverDate = Date().addingTimeInterval(-60)
+        XCTAssertTrue(SpokenWordStore.shared.adoptServerProgress(songID: chapter.id, position: 500,
+            duration: 3_600, isFinished: false, updatedAt: serverDate))
+        player.applySyncedSpokenWordPosition(for: chapter)
+        let target = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter))
+        XCTAssertEqual(player.currentTime, target)
+        XCTAssertEqual(player.pendingRecoveryTime, target)
+        XCTAssertTrue(player.needsPlaybackRecovery)
+        XCTAssertTrue(player.pendingRecoveryIsColdSessionRestore)
+        XCTAssertFalse(player.isPlaying)
+        player.rememberSpokenWordPosition(force: true)
+        XCTAssertEqual(SpokenWordStore.shared.position(forSongID: chapter.id)?.updatedAt, serverDate)
+
+        player.serverSpokenWordStateSongID = chapter.id
+        player.currentTime = 700
+        player.rememberSpokenWordPosition(force: true)
+        XCTAssertEqual(SpokenWordStore.shared.position(forSongID: chapter.id)?.position, 700,
+                       "an explicit seek while reading the server must retain the local decision")
+    }
+
     func testListeningAgainKeepsAFinishedItemFinishedAndRemembersWhereTheReplayIs() throws {
         let url = makeDirectory().appendingPathComponent("spoken.json")
         let store = SpokenWordStore(storeURL: url)

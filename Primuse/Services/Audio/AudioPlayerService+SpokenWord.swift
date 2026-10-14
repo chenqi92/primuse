@@ -23,6 +23,7 @@ extension AudioPlayerService {
         chapterLoadTask = nil
         serverSpokenWordStateTask?.cancel()
         serverSpokenWordStateTask = nil
+        serverSpokenWordStateRequestID = nil
         serverSpokenWordStateSongID = nil
         pendingServerSpokenWordResume = nil
         spokenWordChapters = []
@@ -111,19 +112,26 @@ extension AudioPlayerService {
     ///
     /// 开播不等这次读取:解码器先从本机记的位置打开,服务端的更新晚到时再跳过去
     /// (`applyPendingServerSpokenWordResumeIfNeeded`)。用户从目录 / 书签点进来的有自己的起点,不跳。
-    func refreshServerSpokenWordState(for song: Song) {
+    func refreshServerSpokenWordState(for song: Song, resuming: Bool = false) {
         guard let manager = sourceManager else { return }
         let songID = song.id
         let followsServer = pendingSpokenWordSeekOverride?.songID != songID
-        let anchor = SpokenWordStore.shared.resumePosition(for: song) ?? 0
+        let anchor = resuming ? currentTime : (SpokenWordStore.shared.resumePosition(for: song) ?? 0)
+        serverSpokenWordStateTask?.cancel()
+        let requestID = UUID()
+        serverSpokenWordStateRequestID = requestID
         serverSpokenWordStateSongID = songID
         serverSpokenWordStateTask = Task { [weak self] in
             defer {
-                if let self, self.serverSpokenWordStateSongID == songID { self.serverSpokenWordStateSongID = nil }
+                if let self, self.serverSpokenWordStateRequestID == requestID {
+                    self.serverSpokenWordStateSongID = nil
+                    self.serverSpokenWordStateRequestID = nil
+                }
             }
             guard await manager.supportsServerListeningProgress(for: song) else { return }
             let progress = await manager.fetchServerListeningProgress(for: song)
-            guard !Task.isCancelled, let self, self.currentSong?.id == songID else { return }
+            guard !Task.isCancelled, let self, self.currentSong?.id == songID,
+                  self.serverSpokenWordStateRequestID == requestID else { return }
             if let progress,
                SpokenWordStore.shared.adoptServerProgress(
                     songID: songID,
@@ -140,6 +148,7 @@ extension AudioPlayerService {
                 // 已经从本机记的旧位置开播了:还停在那附近就改从服务端的位置续。
                 if followsServer {
                     self.pendingServerSpokenWordResume = (songID, anchor)
+                    self.applySyncedSpokenWordPosition(for: song)
                 }
                 plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
             }
@@ -150,6 +159,24 @@ extension AudioPlayerService {
             self.refreshCurrentChapter()
             plog("🎧 Chapters: \(chapters.count) marks from the server for '\(song.title)'")
         }
+    }
+
+    /// 暂停队列也要更新恢复位置，否则下一次恢复仍会拿会话里旧的时间覆盖进度。
+    func applySyncedSpokenWordPosition(for song: Song) {
+        guard currentSong?.id == song.id, currentItemIsSpokenWord,
+              !isPlaying, !isLoading, pendingSpokenWordSeekOverride == nil else { return }
+        let target = SpokenWordStore.shared.resumePosition(for: song) ?? 0
+        currentTime = target
+        lastSpokenWordPositionSave = target
+        pendingRecoveryTime = target
+        needsPlaybackRecovery = true
+        pendingRecoveryIsColdSessionRestore = !hasPreparedLocalPlayback
+        isAtTrackEnd = false
+        pendingSpokenWordResumeSongID = nil
+        pendingServerSpokenWordResume = nil
+        updateNowPlayingInfo()
+        updatePlaybackState()
+        persistPlaybackSession()
     }
 
     /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
@@ -259,8 +286,8 @@ extension AudioPlayerService {
         guard PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID != song.id else { return }
         let position = currentTime
         guard position.isFinite else { return }
+        if !isPlaying, abs(position - lastSpokenWordPositionSave) < 0.001 { return }
         if !force {
-            // 服务端那次读取还没回来:自动存一次会让本机的旧位置显得比服务端的新,把它挡在门外。
             guard serverSpokenWordStateSongID != song.id else { return }
             let elapsed = position - lastSpokenWordPositionSave
             guard abs(elapsed) >= SpokenWordProgressPolicy.autosaveInterval else { return }

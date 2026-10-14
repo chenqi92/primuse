@@ -1033,3 +1033,7 @@
 
 "infinicloud_app_password_hint" = "In InfiniCLOUD My Page, enable external app connections and enter the generated app password.";
 "infinicloud_missing_api_key" = "InfiniCLOUD is not configured in this build.";
+
+"ting_reader_progress_auto_sync" = "Automatically sync listening progress";
+"ting_reader_progress_sync_now" = "Sync progress now";
+"ting_reader_progress_sync_failed" = "Couldn’t sync progress. Try again.";

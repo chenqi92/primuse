@@ -982,3 +982,7 @@
 
 "infinicloud_app_password_hint" = "InfiniCLOUD My Page bölümünde harici uygulama bağlantılarını etkinleştirin ve oluşturulan uygulama parolasını girin.";
 "infinicloud_missing_api_key" = "Bu sürümde InfiniCLOUD yapılandırılmamış.";
+
+"ting_reader_progress_auto_sync" = "Dinleme ilerlemesini otomatik eşitle";
+"ting_reader_progress_sync_now" = "İlerlemeyi şimdi eşitle";
+"ting_reader_progress_sync_failed" = "İlerleme eşitlenemedi. Tekrar deneyin.";

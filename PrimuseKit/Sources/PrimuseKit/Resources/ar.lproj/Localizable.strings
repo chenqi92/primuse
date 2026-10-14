@@ -982,3 +982,7 @@
 
 "infinicloud_app_password_hint" = "فعّل اتصالات التطبيقات الخارجية في صفحة My Page في InfiniCLOUD، ثم أدخل كلمة مرور التطبيق التي تم إنشاؤها.";
 "infinicloud_missing_api_key" = "لم يتم إعداد InfiniCLOUD في هذا الإصدار.";
+
+"ting_reader_progress_auto_sync" = "مزامنة تقدم الاستماع تلقائيًا";
+"ting_reader_progress_sync_now" = "مزامنة التقدم الآن";
+"ting_reader_progress_sync_failed" = "تعذرت مزامنة التقدم. حاول مجددًا.";

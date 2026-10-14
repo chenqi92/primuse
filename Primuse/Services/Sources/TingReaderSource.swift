@@ -354,7 +354,12 @@ extension TingReaderSource: ServerCatalogChangeDetectingConnector {
     }
 }
 
-extension TingReaderSource: ServerListeningProgressConnector {
+extension TingReaderSource: ServerListeningProgressConnector, TingReaderProgressConnector {
+    func fetchRecentListeningProgress() async throws -> [TingReaderListeningProgress] {
+        try await connect()
+        return try await client.recentProgress()
+    }
+
     func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
         var wantedByBook: [String: Set<String>] = [:]
         for path in songPaths {
@@ -369,7 +374,7 @@ extension TingReaderSource: ServerListeningProgressConnector {
         for (bookID, wanted) in wantedByBook {
             try Task.checkCancellation()
             let chapters: [TingReaderChapter]
-            if let snapshot = chapterSnapshots[bookID] {
+            if songPaths.count > 1, let snapshot = chapterSnapshots[bookID] {
                 chapters = snapshot.chapters
             } else {
                 do {

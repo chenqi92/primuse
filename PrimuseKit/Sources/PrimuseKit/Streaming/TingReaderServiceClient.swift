@@ -213,6 +213,32 @@ public enum TingReaderProgressPolicy {
     }
 }
 
+/// 当前账号的可见收听记录。缺失记录只表示未返回，不能据此清除本机进度。
+public struct TingReaderListeningProgress: Sendable, Equatable {
+    public let bookID: String
+    public let chapterID: String
+    public let progress: TingReaderChapterProgress
+
+    public init?(json: [String: Any]) {
+        guard let bookID = trString(json["book_id"]),
+              let chapterID = trString(json["chapter_id"]),
+              let position = trDouble(json["position"]), position.isFinite, position >= 0,
+              let updatedAt = trDate(json["updated_at"]) else { return nil }
+        let duration = trDouble(json["chapter_duration"]).flatMap { $0 > 0 ? $0 : nil }
+            ?? trDouble(json["duration"]) ?? 0
+        guard duration.isFinite, duration >= 0 else { return nil }
+        self.bookID = bookID
+        self.chapterID = chapterID
+        let finished = TingReaderProgressPolicy.isFinished(position: position, duration: duration)
+        self.progress = TingReaderChapterProgress(
+            position: finished ? duration : min(position, duration > 0 ? duration : position),
+            duration: duration,
+            isFinished: finished,
+            updatedAt: updatedAt
+        )
+    }
+}
+
 /// 一本书和它的章节,扫描与进度换算都用它。
 public struct TingReaderCatalogBook: Sendable, Equatable {
     public let book: TingReaderBook
@@ -672,6 +698,11 @@ public actor TingReaderServiceClient {
     }
 
     // MARK: Listening progress
+
+    public func recentProgress() async throws -> [TingReaderListeningProgress] {
+        try Self.list(try await authorizedJSON(path: "/api/progress/recent"), key: "progress")
+            .compactMap(TingReaderListeningProgress.init(json:))
+    }
 
     /// 一章的位置(秒,章内)。服务端按「账号 + 书 + 章」覆盖写。
     public func updateProgress(

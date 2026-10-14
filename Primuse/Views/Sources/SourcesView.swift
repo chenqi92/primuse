@@ -885,6 +885,9 @@ struct SourcesContentView: View {
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
                 serverCatalogAutoRefreshControl(for: source)
             }
+            if source.type == .tingReader {
+                TingReaderProgressSyncControls(source: source)
+            }
 
             if !dirs.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {

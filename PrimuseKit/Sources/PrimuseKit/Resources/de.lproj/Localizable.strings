@@ -1035,3 +1035,7 @@
 
 "infinicloud_app_password_hint" = "Aktiviere auf „My Page“ in InfiniCLOUD die Verbindungen für externe Apps und gib das erzeugte App-Passwort ein.";
 "infinicloud_missing_api_key" = "InfiniCLOUD ist in dieser Version nicht konfiguriert.";
+
+"ting_reader_progress_auto_sync" = "Hörfortschritt automatisch synchronisieren";
+"ting_reader_progress_sync_now" = "Fortschritt jetzt synchronisieren";
+"ting_reader_progress_sync_failed" = "Fortschritt konnte nicht synchronisiert werden. Erneut versuchen.";

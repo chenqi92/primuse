@@ -100,6 +100,10 @@ actor TVSourceAssetReader {
     }
     private var tingReaderClients: [String: CachedTingReaderClient] = [:]
 
+    func recentTingReaderProgress(source: MusicSource, credential: SourceCredential?) async throws -> [TingReaderListeningProgress] {
+        try await tingReaderClient(for: source, credential: credential).recentProgress()
+    }
+
     /// 把本机这一章的位置报到 Ting Reader。服务端按章记,不用换算时间轴。
     func reportTingReaderProgress(
         song: Song,

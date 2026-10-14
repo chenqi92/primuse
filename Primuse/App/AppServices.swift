@@ -979,6 +979,7 @@ final class AppServices {
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
     let plexServerLinks: PlexServerLinkRefresher
     let serverMirrorRefresh: ServerMirrorRefreshCoordinator
+    let tingReaderProgressSync: TingReaderProgressSyncCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
@@ -1280,6 +1281,19 @@ final class AppServices {
             sourcesStore: store,
             scraperService: scraper,
             player: player
+        )
+        self.tingReaderProgressSync = TingReaderProgressSyncCoordinator(
+            sources: { [weak store] in store?.sources ?? [] },
+            songs: { [weak library] in library?.visibleSongs(forSourceID: $0) ?? [] },
+            fetch: { [weak manager] source in
+                guard let manager else { throw CancellationError() }
+                return try await manager.fetchRecentTingReaderProgress(for: source)
+            },
+            protectedSongID: { [weak player] in
+                guard let player, player.isPlaying || player.isLoading else { return nil }
+                return player.currentSong?.id
+            },
+            didAdopt: { [weak player] song in player?.applySyncedSpokenWordPosition(for: song) }
         )
         let alwaysDownload = AlwaysDownloadCoordinator(
             library: library,
@@ -1747,6 +1761,10 @@ final class AppServices {
         serverCatalogAutoRefresh.startColdLaunchRefresh()
         // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
         serverMirrorRefresh.startColdLaunchRefresh()
+        Task {
+            await musicLibrary.whenReady()
+            await tingReaderProgressSync.refresh()
+        }
         #if os(iOS) || os(macOS)
         // 收藏区跟着专辑 / 艺人的收藏调整顺序；改成「收藏」那一版的迁移也在这里做一次，再接上 iCloud。
         let collectionSources = sourcesStore

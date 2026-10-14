@@ -132,6 +132,7 @@ extension AudioPlayerService {
             ? song.duration
             : plan.duration
         currentTime = duration > 0 ? min(plan.currentTime, duration) : plan.currentTime
+        lastSpokenWordPositionSave = currentTime
         if let applied = song.appliedPlaybackRange {
             currentTime = SongPlaybackRangePolicy.startPosition(requested: currentTime, in: applied)
         }

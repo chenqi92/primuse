@@ -982,3 +982,7 @@
 
 "infinicloud_app_password_hint" = "InfiniCLOUD के My Page में बाहरी ऐप कनेक्शन सक्षम करें और जनरेट किया गया ऐप पासवर्ड दर्ज करें।";
 "infinicloud_missing_api_key" = "इस संस्करण में InfiniCLOUD कॉन्फ़िगर नहीं किया गया है।";
+
+"ting_reader_progress_auto_sync" = "सुनने की प्रगति अपने आप सिंक करें";
+"ting_reader_progress_sync_now" = "अभी प्रगति सिंक करें";
+"ting_reader_progress_sync_failed" = "प्रगति सिंक नहीं हो सकी। फिर से कोशिश करें।";

@@ -135,6 +135,25 @@ struct TVSourcesView: View {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
                                                 },
                                                 onShowHiddenPlaylists: { hiddenPlaylistSource = s })
+                                    if let source = store.source(id: s.id), source.type == .tingReader {
+                                        let sync = store.tingReaderProgressSync
+                                        Toggle(PMString("ting_reader_progress_auto_sync"), isOn: Binding(
+                                            get: { sync.isEnabled(for: source.id) },
+                                            set: { enabled in
+                                                sync.setEnabled(enabled, for: source.id)
+                                                if enabled { Task { await sync.refresh(sourceID: source.id) } }
+                                            }
+                                        ))
+                                        .disabled(!source.isEnabled)
+                                        Button(PMString("ting_reader_progress_sync_now")) {
+                                            Task { await sync.refresh(sourceID: source.id, manual: true) }
+                                        }
+                                        .disabled(!source.isEnabled || sync.refreshingSourceIDs.contains(source.id))
+                                        if sync.failedSourceIDs.contains(source.id) {
+                                            Text(PMString("ting_reader_progress_sync_failed"))
+                                                .foregroundStyle(TVColor.textMuted)
+                                        }
+                                    }
                                 }
                             }
                         }

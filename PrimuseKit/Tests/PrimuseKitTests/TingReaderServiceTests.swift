@@ -4,6 +4,27 @@ import Testing
 
 @Suite("Ting Reader")
 struct TingReaderServiceTests {
+    @Test("Recent progress is fetched independently of catalog and chapter snapshots")
+    func recentProgress() async throws {
+        let fixture = TingReaderFixture()
+        let client = fixture.client()
+        let records = try await client.recentProgress()
+        #expect(records.count == 2)
+        #expect(records[0].bookID == "book-1")
+        #expect(records[0].chapterID == "ch-1")
+        #expect(records[0].progress.position == 120)
+        #expect(records[0].progress.duration == 1800)
+        #expect(records[1].progress.isFinished)
+        #expect(records[1].progress.position == 1800)
+        _ = try await client.recentProgress()
+        let requests = await fixture.requests
+        #expect(requests.filter { $0.url?.path == "/ting/api/progress/recent" }.count == 2)
+        #expect(!requests.contains { $0.url?.path.contains("/books") == true })
+        #expect(TingReaderListeningProgress(json: ["book_id": "b", "chapter_id": "c", "position": 0]) == nil)
+        #expect(TingReaderListeningProgress(json: ["book_id": "b", "chapter_id": "c", "position": -1,
+                                                  "updated_at": "2026-10-14T01:00:00Z"]) == nil)
+    }
+
     @Test("Server endpoints keep the prefix; track and cover references round-trip")
     func protocolReferences() throws {
         let base = try #require(TingReaderAPIProtocol.serverBaseURL(
@@ -318,6 +339,14 @@ private actor TingReaderFixture {
         }
         guard authorization?.hasPrefix("Bearer token-") == true else { return response(url, status: 401, json: "{}") }
         switch path {
+        case "/api/progress/recent":
+            return response(url, json: #"""
+            [{"book_id":"book-1","chapter_id":"ch-1","position":120,"duration":0,
+              "chapter_duration":1800,"updated_at":"2026-10-14T01:00:00.123456789Z"},
+             {"book_id":"book-1","chapter_id":"ch-2","position":1795,"duration":1800,
+              "updated_at":"2026-10-14T00:00:00Z"},
+             {"book_id":"book-1","chapter_id":null,"position":42,"updated_at":"invalid"}]
+            """#)
         case "/api/libraries":
             return response(url, json: #"[{"id":"lib-1","name":"书库","library_type":"local","url":"/app/storage","root_path":"/"}]"#)
         case "/api/books":

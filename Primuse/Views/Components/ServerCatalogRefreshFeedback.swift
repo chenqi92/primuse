@@ -6,6 +6,41 @@ import UIKit
 import AppKit
 #endif
 
+struct TingReaderProgressSyncControls: View {
+    let source: MusicSource
+
+    var body: some View {
+        let sync = AppServices.shared.tingReaderProgressSync
+        VStack(alignment: .leading, spacing: 9) {
+            Toggle(PMString("ting_reader_progress_auto_sync"), isOn: Binding(
+                get: { sync.isEnabled(for: source.id) },
+                set: { enabled in
+                    sync.setEnabled(enabled, for: source.id)
+                    if enabled { Task { await sync.refresh(sourceID: source.id) } }
+                }
+            ))
+            .toggleStyle(.switch)
+            HStack {
+                Button(PMString("ting_reader_progress_sync_now")) {
+                    Task { await sync.refresh(sourceID: source.id, manual: true) }
+                }
+                .disabled(sync.refreshingSourceIDs.contains(source.id))
+                if sync.refreshingSourceIDs.contains(source.id) {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if sync.failedSourceIDs.contains(source.id) {
+                Text(verbatim: PMString("ting_reader_progress_sync_failed"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .font(.subheadline)
+        .padding(10)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .disabled(!source.isEnabled)
+    }
+}
+
 extension View {
     /// The one-line result of a refresh the person asked for — what the check
     /// found, then what the refresh it started brought in. Mounted once at the
@@ -36,9 +71,11 @@ private struct ServerCatalogPullToRefreshModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let coordinator = AppServices.shared.serverCatalogAutoRefresh
-        if isEnabled, coordinator.hasCheckableSources {
+        let progressSync = AppServices.shared.tingReaderProgressSync
+        if isEnabled, coordinator.hasCheckableSources || progressSync.hasSources {
             content.refreshable {
                 await alsoRefresh?()
+                await progressSync.refresh(manual: true)
                 await coordinator.refreshNow()
             }
         } else if let alsoRefresh {

@@ -1,6 +1,107 @@
 import Foundation
 import PrimuseKit
 
+/// 进度不随书目数量变化；启动、回前台与手动刷新单独读取，按服务端时间合并。
+@MainActor
+@Observable
+final class TingReaderProgressSyncCoordinator {
+    private static let defaultsKey = "primuse.ting-reader-progress-auto-sync.disabled.v1"
+    static let cooldown: TimeInterval = 30
+    private let defaults: UserDefaults
+    private let store: SpokenWordStore
+    private let sources: () -> [MusicSource]
+    private let songs: (String) -> [Song]
+    private let fetch: @MainActor (MusicSource) async throws -> [TingReaderListeningProgress]
+    private let protectedSongID: () -> String?
+    private let didAdopt: (Song) -> Void
+    private var disabledSourceIDs: Set<String>
+    private(set) var refreshingSourceIDs: Set<String> = []
+    private(set) var failedSourceIDs: Set<String> = []
+    @ObservationIgnored private var lastAttempt: [String: Date] = [:]
+    @ObservationIgnored private var preferenceRevision: [String: Int] = [:]
+
+    init(
+        defaults: UserDefaults = .standard,
+        store: SpokenWordStore = .shared,
+        sources: @escaping () -> [MusicSource],
+        songs: @escaping (String) -> [Song],
+        fetch: @escaping @MainActor (MusicSource) async throws -> [TingReaderListeningProgress],
+        protectedSongID: @escaping () -> String?,
+        didAdopt: @escaping (Song) -> Void = { _ in }
+    ) {
+        self.defaults = defaults
+        self.store = store
+        self.sources = sources
+        self.songs = songs
+        self.fetch = fetch
+        self.protectedSongID = protectedSongID
+        self.didAdopt = didAdopt
+        disabledSourceIDs = Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
+    }
+
+    var hasSources: Bool { sources().contains(where: Self.supports) }
+
+    static func supports(_ source: MusicSource) -> Bool {
+        source.type == .tingReader && source.isEnabled && !source.isDeleted
+    }
+
+    func isEnabled(for sourceID: String) -> Bool { !disabledSourceIDs.contains(sourceID) }
+
+    func setEnabled(_ enabled: Bool, for sourceID: String) {
+        if enabled { disabledSourceIDs.remove(sourceID) }
+        else { disabledSourceIDs.insert(sourceID) }
+        preferenceRevision[sourceID, default: 0] += 1
+        lastAttempt.removeValue(forKey: sourceID)
+        defaults.set(Array(disabledSourceIDs).sorted(), forKey: Self.defaultsKey)
+    }
+
+    func refresh(sourceID: String? = nil, manual: Bool = false) async {
+        for source in sources() where Self.supports(source) && (sourceID == nil || source.id == sourceID) {
+            guard !Task.isCancelled else { return }
+            guard manual || isEnabled(for: source.id),
+                  manual || lastAttempt[source.id].map({ Date().timeIntervalSince($0) >= Self.cooldown }) != false,
+                  refreshingSourceIDs.insert(source.id).inserted else { continue }
+            defer { refreshingSourceIDs.remove(source.id) }
+            lastAttempt[source.id] = Date()
+            failedSourceIDs.remove(source.id)
+            let fingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+            let revision = preferenceRevision[source.id, default: 0]
+            let protectedAtStart = protectedSongID()
+            do {
+                let records = try await fetch(source)
+                guard !Task.isCancelled,
+                      manual || (isEnabled(for: source.id) && preferenceRevision[source.id, default: 0] == revision),
+                      let current = sources().first(where: { $0.id == source.id }), Self.supports(current),
+                      MusicSourceSecurityRevision.scopedFingerprint(for: current) == fingerprint else { continue }
+                let byChapter = Dictionary(
+                    songs(source.id).compactMap { song -> (String, Song)? in
+                        guard song.sourceID == source.id,
+                              !current.excludedServerLibraryIDs.contains(song.serverLibraryID ?? ""),
+                              let ref = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+                        return (ref.chapterID, song)
+                    }, uniquingKeysWith: { first, _ in first }
+                )
+                for record in records {
+                    guard let song = byChapter[record.chapterID],
+                          TingReaderAPIProtocol.trackReference(from: song.filePath)?.bookID == record.bookID,
+                          song.id != protectedAtStart, song.id != protectedSongID() else { continue }
+                    let progress = record.progress
+                    if store.adoptServerProgress(
+                        songID: song.id, position: progress.position, duration: progress.duration,
+                        isFinished: progress.isFinished, updatedAt: progress.updatedAt
+                    ) { didAdopt(song) }
+                }
+                store.persistLocally()
+            } catch is CancellationError {
+                return
+            } catch {
+                failedSourceIDs.insert(source.id)
+                plog("Ting Reader progress refresh failed: \(LogRedactionPolicy.errorSummary(error))")
+            }
+        }
+    }
+}
+
 /// Keeps the two things spoken-word listening needs that music does not: which
 /// items are spoken word, and where each one was left off.
 ///

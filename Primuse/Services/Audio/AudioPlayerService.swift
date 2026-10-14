@@ -1183,6 +1183,7 @@ final class AudioPlayerService {
     @ObservationIgnored var chapterLoadedSongID: String?
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):换条目时去服务端取位置与章节的那一次。
     @ObservationIgnored var serverSpokenWordStateTask: Task<Void, Never>?
+    @ObservationIgnored var serverSpokenWordStateRequestID: UUID?
     /// 那次读取还没回来的那一条。这期间不往服务端报位置:本机开播用的可能是旧位置,
     /// 报上去会盖掉别的客户端刚记的更新的位置。
     @ObservationIgnored var serverSpokenWordStateSongID: String?
@@ -7465,6 +7466,9 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updatePlaybackState()
             return
+        }
+        if currentItemIsSpokenWord, !isPlaying {
+            refreshServerSpokenWordState(for: song, resuming: true)
         }
         switch LocalPlaybackResumePolicy.action(
             isAtTrackEnd: isAtTrackEnd,

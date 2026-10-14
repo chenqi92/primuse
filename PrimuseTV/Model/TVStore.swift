@@ -1035,6 +1035,29 @@ final class TVStore {
     @ObservationIgnored private var lastSpokenWordPositionSave: Double = 0
     /// 上一次报给服务端(Audiobookshelf、Ting Reader)的位置;本机 15 秒存一次,服务端 30 秒报一次。
     @ObservationIgnored private var lastServerSpokenWordPositionPush: Double = 0
+    @ObservationIgnored private var cachedTingReaderProgressSync: TingReaderProgressSyncCoordinator?
+    var tingReaderProgressSync: TingReaderProgressSyncCoordinator {
+        if let cachedTingReaderProgressSync { return cachedTingReaderProgressSync }
+        let sync = TingReaderProgressSyncCoordinator(
+            defaults: defaults,
+            store: .shared,
+            sources: { [weak self] in self?.sourcesStore.sources ?? [] },
+            songs: { [weak self] in self?.library.visibleSongs(forSourceID: $0) ?? [] },
+            fetch: { [weak self] source in
+                guard let self else { throw CancellationError() }
+                let credential = TVCredentialStore.credential(for: source, bundle: self.credentialBundle)
+                return try await TVSourceAssetReader.shared.recentTingReaderProgress(source: source, credential: credential)
+            },
+            protectedSongID: { [weak self] in
+                guard let self, self.isPlaying || self.engine.status == .loading else { return nil }
+                return self.currentSongID
+            },
+            didAdopt: { [weak self] song in self?.applySyncedSpokenWordPosition(for: song) }
+        )
+        cachedTingReaderProgressSync = sync
+        return sync
+    }
+    @ObservationIgnored private var serverSpokenWordStateRequestID: UUID?
     /// 换条目时去服务端取这一条位置的那一次。
     @ObservationIgnored private var serverSpokenWordStateTask: Task<Void, Never>?
     /// 那次读取还没回来的那一条:这期间不自动存位置、不往服务端报,免得本机的旧位置盖掉别处更新的。
@@ -5100,6 +5123,9 @@ final class TVStore {
             needsRecovery: needsRecovery,
             hasPreparedAudio: engine.hasPreparedAudio
         )
+        if currentItemIsSpokenWord, !isAtTrackEnd {
+            refreshServerSpokenWordPosition(songID: id, resuming: true)
+        }
         switch action {
         case .resumePreparedAudio:
             if !engine.play() {
@@ -5211,22 +5237,29 @@ final class TVStore {
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):开播时把服务端的位置拿回来 —— 别的客户端听过的,
     /// 比本机新就按它续播。开播不等它:先从本机记的位置开,服务端的更新晚到时,还停在起点附近就跳过去,
     /// 已经听了一阵或自己拖过就不拉回。
-    private func refreshServerSpokenWordPosition(songID: String) {
+    private func refreshServerSpokenWordPosition(songID: String, resuming: Bool = false) {
         guard let raw = library.song(id: songID),
               let source = source(id: raw.sourceID),
               source.type == .audiobookshelf || source.type == .tingReader else { return }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        let anchor = SpokenWordStore.shared.resumePosition(for: raw) ?? 0
+        let anchor = resuming ? engine.currentTime : (SpokenWordStore.shared.resumePosition(for: raw) ?? 0)
+        serverSpokenWordStateTask?.cancel()
+        let requestID = UUID()
+        serverSpokenWordStateRequestID = requestID
         serverSpokenWordStateSongID = songID
         serverSpokenWordStateTask = Task { @MainActor [weak self] in
             defer {
-                if let self, self.serverSpokenWordStateSongID == songID { self.serverSpokenWordStateSongID = nil }
+                if let self, self.serverSpokenWordStateRequestID == requestID {
+                    self.serverSpokenWordStateSongID = nil
+                    self.serverSpokenWordStateRequestID = nil
+                }
             }
             guard let progress = await TVSourceAssetReader.shared.serverSpokenWordProgress(
                 song: raw,
                 source: source,
                 credential: credential
-            ), !Task.isCancelled, let self, self.nowPlaying.songID == songID else { return }
+            ), !Task.isCancelled, let self, self.nowPlaying.songID == songID,
+               self.serverSpokenWordStateRequestID == requestID else { return }
             guard SpokenWordStore.shared.adoptServerProgress(
                 songID: songID,
                 position: progress.position,
@@ -5241,8 +5274,20 @@ final class TVStore {
                 self.pendingSpokenWordResume = (songID, resume)
             }
             self.pendingServerSpokenWordResume = (songID, anchor)
+            self.applySyncedSpokenWordPosition(for: raw)
             self.applyPendingServerSpokenWordResumeIfNeeded()
         }
+    }
+
+    private func applySyncedSpokenWordPosition(for song: Song) {
+        guard currentSongID == song.id, currentItemIsSpokenWord,
+              !isPlaying, engine.status != .loading, pendingSpokenWordStartOverride == nil else { return }
+        let target = SpokenWordStore.shared.resumePosition(for: song) ?? 0
+        engine.seek(to: target)
+        lastSpokenWordPositionSave = target
+        pendingSpokenWordResume = nil
+        pendingServerSpokenWordResume = nil
+        persistPlaybackSession()
     }
 
     /// 跳回服务端位置的窗口:开播后还停在起点这么近以内,才算「还没开始听」。
@@ -5543,6 +5588,7 @@ final class TVStore {
         guard !songID.isEmpty else { return }
         let position = engine.currentTime
         guard position.isFinite else { return }
+        if !isPlaying, abs(position - lastSpokenWordPositionSave) < 0.001 { return }
         if !force {
             // 服务端那次读取还没回来:自动存一次会让本机的旧位置显得比服务端的新,把它挡在门外。
             guard serverSpokenWordStateSongID != songID else { return }
@@ -7125,6 +7171,7 @@ final class TVStore {
         serverCatalogSceneIsActive = true
         // 启动那一轮还没开始前不抢;之后每次回到前台都问一遍,冷却按源计。
         if didStartServerCatalogChecks {
+            Task { @MainActor [weak self] in await self?.tingReaderProgressSync.refresh() }
             Task { @MainActor [weak self] in await self?.refreshPlexServerLinks() }
             scheduleServerCatalogCheck(after: .seconds(2))
         }
@@ -7483,6 +7530,7 @@ extension TVStore {
         guard !didStartServerCatalogChecks else { return }
         didStartServerCatalogChecks = true
         serverCatalogSceneIsActive = true
+        Task { @MainActor [weak self] in await self?.tingReaderProgressSync.refresh() }
         // 先让用账号绑定的 Plex 源跟上服务器的新地址，目录检查要等 8 秒才开始。
         Task { @MainActor [weak self] in await self?.refreshPlexServerLinks() }
         scheduleServerCatalogCheck(after: Self.serverCatalogLaunchDelay)

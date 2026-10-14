@@ -371,6 +371,9 @@ struct MacSourcesView: View {
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
                 serverCatalogAutoRefreshControl(for: source)
             }
+            if source.type == .tingReader {
+                TingReaderProgressSyncControls(source: source)
+            }
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 

@@ -1032,3 +1032,7 @@
 
 "infinicloud_app_password_hint" = "請在 InfiniCLOUD「我的頁面」啟用外部應用程式連線，並填入產生的應用程式密碼。";
 "infinicloud_missing_api_key" = "此版本尚未設定 InfiniCLOUD 存取金鑰。";
+
+"ting_reader_progress_auto_sync" = "自動同步收聽進度";
+"ting_reader_progress_sync_now" = "立即同步進度";
+"ting_reader_progress_sync_failed" = "進度同步失敗，請重試。";

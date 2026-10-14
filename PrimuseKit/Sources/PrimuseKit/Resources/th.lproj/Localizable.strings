@@ -982,3 +982,7 @@
 
 "infinicloud_app_password_hint" = "เปิดการเชื่อมต่อแอปภายนอกใน My Page ของ InfiniCLOUD แล้วป้อนรหัสผ่านแอปที่สร้างขึ้น";
 "infinicloud_missing_api_key" = "ยังไม่ได้กำหนดค่า InfiniCLOUD ในเวอร์ชันนี้";
+
+"ting_reader_progress_auto_sync" = "ซิงค์ความคืบหน้าการฟังอัตโนมัติ";
+"ting_reader_progress_sync_now" = "ซิงค์ความคืบหน้าตอนนี้";
+"ting_reader_progress_sync_failed" = "ซิงค์ความคืบหน้าไม่สำเร็จ โปรดลองอีกครั้ง";

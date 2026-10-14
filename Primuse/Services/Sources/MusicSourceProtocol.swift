@@ -1997,6 +1997,10 @@ protocol ServerListeningProgressConnector: MusicSourceConnector {
     func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws
 }
 
+protocol TingReaderProgressConnector: MusicSourceConnector {
+    func fetchRecentListeningProgress() async throws -> [TingReaderListeningProgress]
+}
+
 /// 服务端给得出章节标记的源:流式播放时本机没有文件可解析,章节从这里来。
 protocol ServerChapterProvidingConnector: MusicSourceConnector {
     func fetchServerChapters(songPath: String) async throws -> [MediaChapter]

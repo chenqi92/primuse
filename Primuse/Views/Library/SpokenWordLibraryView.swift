@@ -308,6 +308,7 @@ struct SpokenWordLibraryView: View {
         .libraryPageFind(text: $findText, prompt: "filter_spoken_word_placeholder")
         #endif
         .navigationTitle("tab_spoken_word")
+        .serverCatalogPullToRefresh()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

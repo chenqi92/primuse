@@ -1035,3 +1035,7 @@
 
 "infinicloud_app_password_hint" = "InfiniCLOUD のマイページで外部アプリ連携を有効にし、発行されたアプリパスワードを入力してください。";
 "infinicloud_missing_api_key" = "このバージョンには InfiniCLOUD の接続キーが設定されていません。";
+
+"ting_reader_progress_auto_sync" = "再生位置を自動で同期";
+"ting_reader_progress_sync_now" = "今すぐ再生位置を同期";
+"ting_reader_progress_sync_failed" = "再生位置を同期できませんでした。もう一度お試しください。";

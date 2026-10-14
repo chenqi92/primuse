@@ -982,3 +982,7 @@
 
 "infinicloud_app_password_hint" = "En My Page de InfiniCLOUD, activa las conexiones de aplicaciones externas e ingresa la contraseña de aplicación generada.";
 "infinicloud_missing_api_key" = "InfiniCLOUD no está configurado en esta versión.";
+
+"ting_reader_progress_auto_sync" = "Sincronizar el progreso automáticamente";
+"ting_reader_progress_sync_now" = "Sincronizar progreso ahora";
+"ting_reader_progress_sync_failed" = "No se pudo sincronizar el progreso. Inténtalo de nuevo.";

@@ -2632,11 +2632,20 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
 
 private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector,
-    ServerPlaylistConnector, ServerBookFavoriteConnector, RemoteFileSizeProvidingConnector {
+    ServerPlaylistConnector, ServerBookFavoriteConnector, RemoteFileSizeProvidingConnector, TingReaderProgressConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchRecentListeningProgress() async throws -> [TingReaderListeningProgress] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any TingReaderProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            return try await provider.fetchRecentListeningProgress()
+        }
+    }
 
     func remoteFileSize(forPath path: String) async throws -> Int64? {
         try await routing.withRead { connector in
@@ -14260,6 +14269,11 @@ final class SourceManager {
     }
 
     // MARK: - Server-kept listening progress and chapters (Audiobookshelf, Ting Reader)
+
+    func fetchRecentTingReaderProgress(for source: MusicSource) async throws -> [TingReaderListeningProgress] {
+        guard let provider = connector(for: source) as? any TingReaderProgressConnector else { return [] }
+        return try await provider.fetchRecentListeningProgress()
+    }
 
     func supportsServerListeningProgress(for source: MusicSource) -> Bool {
         connector(for: source) is any ServerListeningProgressConnector
