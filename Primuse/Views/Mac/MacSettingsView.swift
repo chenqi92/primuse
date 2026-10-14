@@ -6719,7 +6719,7 @@ private struct MacSTThemeView: View {
 
     /// 侧栏「资料库」分组可能出现的行, 按用户的顺序 (含已关掉的)。
     private var sidebarSectionOrder: [LibrarySection] {
-        librarySectionOrder
+        librarySectionOrder.filter(MacSidebarLibraryLayout.isLibraryGroupRow)
     }
 
     private var customRecommendationIntents: [AICustomRecommendationIntent] {
@@ -7148,7 +7148,7 @@ private struct MacSTThemeView: View {
 
             MacSTGroup {
                 // 这张列表就是侧栏「资料库」分组的样子: 同一条规则取行、同一个顺序,
-                // 拖左侧手柄排序, 右侧开关管显不显示。歌单的开关同时管侧栏下方的歌单分区。
+                // 拖左侧手柄排序, 右侧开关管显不显示。
                 let rows = sidebarSectionOrder
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, section in
                     MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: section), divider: index != 0) {
@@ -7177,6 +7177,12 @@ private struct MacSTThemeView: View {
                     }
                     .settingsAnchor("library.show." + section.rawValue)
                 }
+
+                // 歌单是侧栏下面自己的分区, 不参与这组排序, 只管显不显示。
+                MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: .playlists)) {
+                    MacSTToggle(isOn: librarySectionVisibilityBinding(for: .playlists))
+                }
+                .settingsAnchor("library.show." + LibrarySection.playlists.rawValue)
 
                 MacSTRow(
                     String(localized: "library_sections_settings_label")
@@ -7410,10 +7416,15 @@ private struct MacSTThemeView: View {
         moveSidebarSections(IndexSet(integer: index), destination > index ? destination + 1 : destination)
     }
 
-    /// 在侧栏那张列表里挪, 写进共享的顺序 —— iPhone 的资料库也读这份顺序。
+    /// 在侧栏那张列表里挪, 写进共享的顺序 —— iPhone 的资料库也读这份顺序。侧栏不列的几类
+    /// (歌单、收藏、智能推荐、听歌统计) 留在原位, 侧栏这几行按新顺序填回它们原来占的位置。
     private func moveSidebarSections(_ source: IndexSet, _ destination: Int) {
-        var updated = sidebarSectionOrder
-        updated.move(fromOffsets: source, toOffset: destination)
+        var rows = sidebarSectionOrder
+        rows.move(fromOffsets: source, toOffset: destination)
+        var reordered = rows.makeIterator()
+        let updated = librarySectionOrder.map { section in
+            MacSidebarLibraryLayout.isLibraryGroupRow(section) ? (reordered.next() ?? section) : section
+        }
         guard updated != librarySectionOrder else { return }
         pmWithAnimation(.list) {
             librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)

@@ -5,11 +5,10 @@ import PrimuseKit
 /// 新设计的 macOS 侧栏 — 不再用 SwiftUI `List`,改成纯 ScrollView + VStack,
 /// 这样能精确控制行高 (24pt)、分组 header 字号 (10.5pt uppercase)、
 /// 当前项的 accent 着色与圆角背景, 跟设计稿的 sidebar 节奏完全一致。
+/// 侧栏只放「去哪儿」: 首页、资料库、歌单、音乐源。搜索在标题栏正中; 收藏、智能推荐、
+/// 听歌统计、工具在标题栏右侧 —— 它们是临时看一眼或用完就关的, 不占导航。
 struct MacSidebar: View {
     @Binding var selection: MacRoute
-    /// 「工具」区的点击回调 —— 由 `MacContentView` 接住后弹 `.sheet`。工具不进
-    /// 路由, 所以走独立回调而非 `selection`。
-    var onOpenTool: (MacTool) -> Void = { _ in }
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -31,11 +30,10 @@ struct MacSidebar: View {
         )
     }
 
-    /// 「资料库」分组里的行: 完全照设置 › 外观里排好的顺序与显隐, 电台、有声、
-    /// 统计、歌单也在其中 —— 设置页那张列表就是侧栏的样子。歌单另外还有自己的
-    /// 分区列出前几个, 同一个开关管两处。
+    /// 「资料库」分组里的行: 照设置 › 外观里排好的顺序与显隐, 设置页那张列表就是这一组的样子。
+    /// 歌单是下面单独的分区, 收藏、智能推荐、听歌统计在标题栏, 都不在这一组里。
     private var sidebarLibrarySections: [LibrarySection] {
-        visibleLibrarySections
+        visibleLibrarySections.filter(MacSidebarLibraryLayout.isLibraryGroupRow)
     }
 
     /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。分组在曲库
@@ -53,13 +51,11 @@ struct MacSidebar: View {
 
                 homeItem
                 librarySection
-                primaryItems
                 if showsPlaylistsSection {
                     playlistsSection
                         .pmFadeTransition()
                 }
                 sourcesSection
-                toolsSection
 
                 Spacer(minLength: 16)
             }
@@ -98,17 +94,6 @@ struct MacSidebar: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Search / Sources
-
-    private var primaryItems: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            item(route: .search,  icon: "magnifyingglass",                  title: "search_title")
-            item(route: .sources, icon: "externaldrive.connected.to.line.below", title: "sources_title")
-        }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 8)
-    }
-
     // MARK: - Library section
 
     private var librarySection: some View {
@@ -118,33 +103,19 @@ struct MacSidebar: View {
             ForEach(sidebarLibrarySections) { section in
                 libraryNavigationItems(for: section)
             }
-
-            // "我喜欢的" 作为资料库的固定快捷入口 (设计稿 LIB 侧栏)。它底层就是
-            // likedSongsPlaylistID 那个系统歌单, 所以下面的「歌单」分区会把它过滤掉,
-            // 避免同一个东西出现两次。
-            item(route: .liked, icon: "heart.fill",
-                 title: "sidebar_liked_songs",
-                 trailing: countLabel(library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID)))
         }
         .padding(.horizontal, 6)
-        // 下面紧跟没有分区标题的「搜索 / 音乐源」, 这里再留底距会在两组之间
-        // 空出一截, 分区间距交给 primaryItems 的底距。
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
     private func libraryNavigationItems(for section: LibrarySection) -> some View {
         switch section {
-        case .favorites, .folders, .releaseDate:
+        case .folders, .releaseDate:
             item(route: .section(section), icon: section.icon, title: section.title)
-        case .statistics:
-            // 统计页走独立路由 (不是 `.section`), 保持原来的选中态与图标。
-            item(route: .stats, icon: "chart.bar.xaxis", title: "stats_title")
-        case .recommendations:
-            item(
-                route: .section(.recommendations),
-                icon: section.icon,
-                title: section.title
-            )
+        case .playlists, .favorites, .recommendations, .statistics:
+            // 不在这一组 (见 `MacSidebarLibraryLayout.isLibraryGroupRow`)。
+            EmptyView()
         case .songs:
             item(
                 route: .section(.songs),
@@ -175,14 +146,6 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: ListeningSpace.podcast.titleKey,
                 trailing: countLabel(PodcastStore.shared.shows.count)
-            )
-        case .playlists:
-            // 下面的歌单分区只列前几个, 全部歌单从这一行进总览页。
-            item(
-                route: .section(.playlists),
-                icon: section.icon,
-                title: section.title,
-                trailing: countLabel(sidebarPlaylists.count + sidebarSmartPlaylists.count)
             )
         case .albums:
             item(
@@ -218,8 +181,14 @@ struct MacSidebar: View {
                 newPlaylistMenu
             }
 
+            // 「我喜欢」就是系统歌单, 像 Apple Music 的「喜爱的歌曲」一样钉在歌单最上面;
+            // 下面列歌单时把它滤掉, 不出现两次。
+            item(route: .liked, icon: "heart.fill",
+                 title: "sidebar_liked_songs",
+                 trailing: countLabel(library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID)))
+
             // 智能歌单排在普通歌单上面 (跟歌单总览页的分区顺序一致)。侧栏只列前
-            // 几个保持节奏, 超出的通过末尾「查看全部」或资料库里的「歌单」行进总览页。
+            // 几个保持节奏, 全部歌单从末尾「查看全部」进总览页。
             ForEach(sidebarSmartPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { smart in
                 item(route: .smartPlaylist(smart),
                      icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
@@ -236,17 +205,16 @@ struct MacSidebar: View {
                 }
             }
 
-            if isPlaylistListTruncated {
-                showAllPlaylistsItem
-                    .pmFadeTransition()
-            }
-
             if sidebarPlaylists.isEmpty && sidebarSmartPlaylists.isEmpty {
                 Text("sidebar_playlists_empty")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
+                    .pmFadeTransition()
+            } else {
+                // 歌单总览(排序、管理)只从这一行进, 没截断时也留着。
+                showAllPlaylistsItem
                     .pmFadeTransition()
             }
         }
@@ -260,15 +228,10 @@ struct MacSidebar: View {
     private var playlistRowIDs: [String] {
         sidebarSmartPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
             + sidebarPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
-            + (isPlaylistListTruncated ? ["show-all"] : [])
+            + (sidebarPlaylists.isEmpty && sidebarSmartPlaylists.isEmpty ? [] : ["show-all"])
     }
 
-    private var isPlaylistListTruncated: Bool {
-        sidebarPlaylists.count > sidebarPlaylistLimit
-            || sidebarSmartPlaylists.count > sidebarPlaylistLimit
-    }
-
-    /// 列表被截断时的末行: 文字弱一档, 右侧给出总数, 点进歌单总览页。
+    /// 歌单分区的末行: 文字弱一档, 右侧给出总数, 点进歌单总览页。
     private var showAllPlaylistsItem: some View {
         Button {
             select(.section(.playlists))
@@ -341,7 +304,7 @@ struct MacSidebar: View {
 
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: 1) {
-            sectionHeader("manage_sources")
+            sectionHeader("sources_title")
 
             ForEach(sourcesStore.sources.prefix(6), id: \.id) { source in
                 Button {
@@ -381,6 +344,13 @@ struct MacSidebar: View {
                     .padding(.vertical, 4)
                     .pmFadeTransition()
             }
+
+            // 添加、编辑、超出 6 个的音乐源都在这一页。
+            item(
+                route: .sources,
+                icon: sourcesStore.sources.isEmpty ? "plus.circle" : "slider.horizontal.3",
+                title: sourcesStore.sources.isEmpty ? "add_source" : "manage_sources"
+            )
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
@@ -390,59 +360,6 @@ struct MacSidebar: View {
     /// 侧栏音乐源区当前列出来的那几行(最多 6 条)。
     private var sourceRowIDs: [String] {
         sourcesStore.sources.prefix(6).map(\.id)
-    }
-
-    // MARK: - Tools section
-
-    private var toolsSection: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            sectionHeader("mac_sidebar_tools")
-
-            toolItem(.cacheSync, icon: "externaldrive.badge.wifi",
-                     title: CacheSyncLocalization.text("cache_sync_title"))
-            toolItem(.deviceTransfer, icon: "laptopcomputer.and.iphone",
-                     title: WiFiTransferText.string("nativeTitle"))
-            toolItem(.lyricsConverter, icon: "arrow.left.arrow.right",
-                     title: String(localized: "lyrics_converter_title"))
-            toolItem(.duplicates, icon: "arrow.triangle.2.circlepath",
-                     title: String(localized: "Duplicate Song Cleanup"))
-            toolItem(.scrobble, icon: "waveform.path.ecg",
-                     title: String(localized: "Scrobble Configuration"))
-        }
-        .padding(.horizontal, 6)
-    }
-
-    /// 工具行 —— 跟 `item` 长得一样, 但点击是弹 sheet (`onOpenTool`) 而不是
-    /// 切路由, 所以永远不显示选中态。右侧带一个箭头暗示"打开面板"。
-    @ViewBuilder
-    private func toolItem(_ tool: MacTool, icon: String, title: String) -> some View {
-        Button {
-            onOpenTool(tool)
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(PMColor.text.opacity(0.78))
-                    .frame(width: 18, height: 18)
-
-                Text(verbatim: title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(PMColor.text.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "arrow.up.forward")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PMColor.textFaint)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .pmRowBackground(selected: false)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers
@@ -769,6 +686,15 @@ struct MacSidebar: View {
 /// 侧栏「资料库」分组的行 = 设置里可见的分类按原顺序 (歌单也是其中一行),
 /// Mac 设置页的排序列表就是这份完整顺序, 两边必然一致。
 enum MacSidebarLibraryLayout {
+    /// 侧栏「资料库」组里有没有这一行。歌单是自己的分区; 收藏、智能推荐、听歌统计在标题栏
+    /// 右侧 —— 它们在 iPhone 上仍是资料库里的分类, 共用的顺序与显隐只是 Mac 这组不列。
+    static func isLibraryGroupRow(_ section: LibrarySection) -> Bool {
+        switch section {
+        case .playlists, .favorites, .recommendations, .statistics: false
+        default: true
+        }
+    }
+
     /// 侧栏上这一行叫什么; 设置页的排序列表用同一个名字。
     static func localizedTitle(for section: LibrarySection) -> String {
         switch section {

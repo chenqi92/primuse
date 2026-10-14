@@ -33,17 +33,37 @@ extension MacRoute {
     }
 }
 
-/// 侧栏「工具」区的入口。点击不再切换路由 (不进详情栈), 而是以弹框
-/// (`.sheet`) 形式覆盖在当前页上 —— 工具是临时操作面板, 用完即关, 不该
-/// 占据主导航。`Identifiable` 让 `MacContentView` 能直接 `.sheet(item:)`。
-enum MacTool: String, Identifiable, Hashable {
+/// 工具面板。标题栏的工具菜单和菜单栏「工具」里打开, 以弹框 (`.sheet`) 盖在当前页上 ——
+/// 工具是临时操作面板, 用完即关, 不占侧栏。`Identifiable` 让 `MacContentView` 能直接
+/// `.sheet(item:)`。
+enum MacTool: String, Identifiable, Hashable, CaseIterable {
+    case cacheSync
+    case deviceTransfer
     case lyricsConverter
     case duplicates
     case scrobble
-    case cacheSync
-    case deviceTransfer
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cacheSync: CacheSyncLocalization.text("cache_sync_title")
+        case .deviceTransfer: WiFiTransferText.string("nativeTitle")
+        case .lyricsConverter: String(localized: "lyrics_converter_title")
+        case .duplicates: String(localized: "Duplicate Song Cleanup")
+        case .scrobble: String(localized: "Scrobble Configuration")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .cacheSync: "externaldrive.badge.wifi"
+        case .deviceTransfer: "laptopcomputer.and.iphone"
+        case .lyricsConverter: "arrow.left.arrow.right"
+        case .duplicates: "arrow.triangle.2.circlepath"
+        case .scrobble: "waveform.path.ecg"
+        }
+    }
 }
 
 extension Notification.Name {
@@ -62,5 +82,11 @@ extension Notification.Name {
     /// 打开一本有声书的详情(object 是书的 id)。播放页「转到这本书」用它:
     /// 先切到侧栏的「有声」, 再把书压进那一栏的详情栈, 返回就回到书架。
     static let primuseDetailOpenSpokenWordBook = Notification.Name("primuse.detail.openSpokenWordBook")
+    /// 菜单栏打开工具面板, object 是 `MacTool.rawValue`。
+    static let primuseOpenMacTool = Notification.Name("primuse.mac.openTool")
+    /// 菜单栏开关智能推荐抽屉。
+    static let primuseToggleRecommendationsDrawer = Notification.Name("primuse.mac.toggleRecommendations")
+    /// 菜单栏打开听歌统计。
+    static let primuseOpenListeningStats = Notification.Name("primuse.mac.openListeningStats")
 }
 #endif

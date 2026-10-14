@@ -104,6 +104,8 @@ struct MacContentView: View {
     @State private var showNoScraperSourceAlert = false
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
     @State private var activeTool: MacTool?
+    @State private var showsRecommendationsDrawer = false
+    @State private var showsListeningStats = false
     /// 底栏那个「全屏效果」入口开出来的抽屉。全屏播放页自己带一份,这里只服务窗口态。
     @State private var showsFullscreenEffectPicker = false
 
@@ -167,14 +169,16 @@ struct MacContentView: View {
                     searchText: $searchText,
                     sidebarCollapsed: $sidebarCollapsed,
                     selection: navigationSelection,
-                    onAddSource: { selectRoute(.sources) },
-                    onAudioOutput: { /* 由 BottomBar 右侧的喇叭按钮 popover 接管 */ }
+                    isRecommendationsShown: showsRecommendationsDrawer,
+                    onToggleRecommendations: toggleRecommendationsDrawer,
+                    onOpenListeningStats: { showsListeningStats = true },
+                    onOpenTool: { activeTool = $0 }
                 )
             }
 
             HStack(spacing: 0) {
                 if !sidebarCollapsed {
-                    MacSidebar(selection: navigationSelection, onOpenTool: { activeTool = $0 })
+                    MacSidebar(selection: navigationSelection)
                         .frame(width: preferences.sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
@@ -265,8 +269,42 @@ struct MacContentView: View {
                         )
                         .zIndex(3)
                     }
+
+                    if showsRecommendationsDrawer {
+                        Color.black.opacity(0.22)
+                            .contentShape(Rectangle())
+                            .onTapGesture { toggleRecommendationsDrawer() }
+                            .transition(.opacity)
+                            .accessibilityHidden(true)
+                            .zIndex(4)
+
+                        MacRecommendationsDrawer(onClose: toggleRecommendationsDrawer)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .zIndex(5)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 抽屉从标题栏下沿滑出来, 滑动时露在内容区上沿外面的那截要裁掉。
+                .clipped()
+                .modifier(MacPanelCommandReceiver(
+                    onOpenTool: { activeTool = $0 },
+                    onToggleRecommendations: toggleRecommendationsDrawer,
+                    onOpenListeningStats: { showsListeningStats = true }
+                ))
+                #if DEBUG
+                .task {
+                    // `PRIMUSE_DEBUG_MAC_PANEL`: 锁屏的编译机上点不了标题栏, 由这里打开。
+                    let panel = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_MAC_PANEL"]
+                    guard panel == "recommendations" || panel == "stats" else { return }
+                    try? await Task.sleep(for: .seconds(6))
+                    plog("🧪 DebugLaunchAutomation: open panel \(panel ?? "")")
+                    if panel == "recommendations" {
+                        toggleRecommendationsDrawer()
+                    } else {
+                        showsListeningStats = true
+                    }
+                }
+                #endif
 
                 if queuePresented {
                     MacQueuePanel(onClose: {
@@ -342,6 +380,9 @@ struct MacContentView: View {
         .sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)
+        }
+        .sheet(isPresented: $showsListeningStats) {
+            MacListeningStatsSheet(model: listeningStatsModel)
         }
         .sheet(item: $activeTool) { tool in
             toolSheet(tool)
@@ -642,6 +683,10 @@ struct MacContentView: View {
         }
     }
 
+    private func toggleRecommendationsDrawer() {
+        pmWithAnimation(.panel) { showsRecommendationsDrawer.toggle() }
+    }
+
     private func showSongInLibrary(_ song: Song) {
         songLocationRequest = SongLibraryLocationRequest(songID: song.id)
         selectRoute(.section(.songs))
@@ -650,7 +695,14 @@ struct MacContentView: View {
     private func restorePersistedRouteIfNeeded() {
         guard !didRestorePersistedRoute else { return }
         didRestorePersistedRoute = true
-        selectRoute(route(for: persistedRouteID) ?? .home)
+        // 听歌统计、智能推荐挪到了标题栏, 上次停在那两页的从首页开始。
+        let restored = route(for: persistedRouteID) ?? .home
+        switch restored {
+        case .stats, .section(.statistics), .section(.recommendations):
+            selectRoute(.home)
+        default:
+            selectRoute(restored)
+        }
     }
 
     private func persistenceID(for route: MacRoute) -> String {
@@ -833,6 +885,114 @@ private struct MacAuthoritativeSongRemovalObserver: View {
                 guard !songIDs.isEmpty else { return }
                 onSongsRemoved(songIDs)
             }
+    }
+}
+
+/// 菜单栏「工具」与「显示」里的几条命令发来的通知。单独成一个修饰器, 主容器那条长修饰链
+/// 再加 onReceive 会超出类型检查的时间上限。
+private struct MacPanelCommandReceiver: ViewModifier {
+    let onOpenTool: (MacTool) -> Void
+    let onToggleRecommendations: () -> Void
+    let onOpenListeningStats: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .primuseOpenMacTool)) { note in
+                guard let tool = (note.object as? String).flatMap(MacTool.init(rawValue:)) else { return }
+                onOpenTool(tool)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseToggleRecommendationsDrawer)) { _ in
+                onToggleRecommendations()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseOpenListeningStats)) { _ in
+                onOpenListeningStats()
+            }
+    }
+}
+
+/// 智能推荐抽屉: 从标题栏下沿拉下来的一块帘子, 盖在当前页上。上沿透一层主题色的光,
+/// 下沿是收起的把手; 点帘子外面、按 Esc 或再按一次标题栏的 ✦ 都收起。
+private struct MacRecommendationsDrawer: View {
+    let onClose: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                AIRecommendationLibraryView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .top) {
+                        LinearGradient(
+                            colors: [PMColor.brand.opacity(0.16), PMColor.brand.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 150)
+                        .allowsHitTesting(false)
+                    }
+                Button(action: onClose) {
+                    Image(systemName: "chevron.compact.up")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(Text("close"))
+                .background(PMColor.bg)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                }
+            }
+            .background(PMColor.bg)
+            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18, style: .continuous))
+            .overlay {
+                UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18, style: .continuous)
+                    .stroke(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.28), radius: 24, y: 14)
+            .frame(maxWidth: 1080)
+            // 留出下面一截原页面, 看得出是盖在上面的抽屉, 不是换了一页。
+            .frame(height: min(max(geometry.size.height * 0.8, 360), 720))
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .background {
+            // Esc 收起: 透明按钮挂键盘快捷键, 焦点在抽屉里哪一处都能收到。
+            Button("", action: onClose)
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// 听歌统计弹框: 年度报告或数据图表, 和原来的整页同一套, 算好的结果跟着主窗口留着。
+private struct MacListeningStatsSheet: View {
+    let model: ListeningStatsScreen.Model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("stats_title")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                PMRoundBtn(icon: "xmark", size: 26, iconSize: 10, style: .glass, help: "close") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 50)
+            Rectangle()
+                .fill(PMColor.divider)
+                .frame(height: 0.5)
+            ListeningStatsScreen(model: model)
+        }
+        .frame(minWidth: 760, idealWidth: 860, maxWidth: 1000, minHeight: 560, idealHeight: 860)
+        .background(PMColor.bg)
     }
 }
 

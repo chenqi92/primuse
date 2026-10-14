@@ -3,14 +3,16 @@ import SwiftUI
 import AppKit
 import PrimuseKit
 
-/// 主窗口顶部 48pt 自定义 title bar — 跟设计稿里的 TitleBar 对齐:
-/// 原生窗口按钮、居中搜索、右侧工具按钮。
+/// 主窗口顶部 48pt 自定义 title bar:原生窗口按钮与侧栏开关、居中搜索,
+/// 右侧是不占侧栏的几处 —— 收藏、智能推荐、听歌统计、工具。
 struct PMTitleBar: View {
     @Binding var searchText: String
     @Binding var sidebarCollapsed: Bool
     @Binding var selection: MacRoute
-    var onAddSource: () -> Void = {}
-    var onAudioOutput: () -> Void = {}
+    var isRecommendationsShown = false
+    var onToggleRecommendations: () -> Void = {}
+    var onOpenListeningStats: () -> Void = {}
+    var onOpenTool: (MacTool) -> Void = { _ in }
 
     @Environment(\.pmAppearance) private var mode
     @Environment(MusicLibrary.self) private var library
@@ -18,10 +20,7 @@ struct PMTitleBar: View {
     private var appleMusicCatalogSearchEnabled = true
     @FocusState private var searchFocused: Bool
     @State private var keyboardShortcuts = MacKeyboardShortcutStore.shared
-    /// titlebar 右上喇叭按钮的 popover 显示状态 — 设计稿 P-21 Output Picker。
-    /// 之前 onAudioOutput 是空 callback 让点击没反应; 现在把 popover 直接挂在
-    /// 按钮上, 点击就弹真 AudioOutputPickerView。
-    @State private var audioOutputShown = false
+    @State private var favoritesShown = false
 
     var body: some View {
         ZStack {
@@ -32,6 +31,7 @@ struct PMTitleBar: View {
             // bar's geometric center.
             HStack(spacing: 8) {
                 PMStandardWindowButtonArea()
+                sidebarToggle
                 windowDragSpacer
                 trailingControls
             }
@@ -60,28 +60,62 @@ struct PMTitleBar: View {
             .frame(minWidth: 12, maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// 侧栏开关挨着红绿灯, 和访达、备忘录一样。
+    private var sidebarToggle: some View {
+        PMRoundBtn(icon: "sidebar.left", iconSize: 13, style: .plain, help: "sidebar_toggle") {
+            pmWithAnimation(.panel) { sidebarCollapsed.toggle() }
+        }
+    }
+
+    /// 输出设备在底栏, 加音乐源在侧栏音乐源分区, 这里只放不进侧栏的几处。
     private var trailingControls: some View {
         HStack(spacing: 8) {
             PMRoundBtn(
-                icon: sidebarCollapsed ? "sidebar.right" : "sidebar.left",
-                iconSize: 13, style: .glass,
-                help: "sidebar_toggle"
+                icon: favoritesShown ? "heart.fill" : "heart",
+                iconSize: 13, style: .glass, isActive: favoritesShown,
+                help: "library_quick_access"
             ) {
-                pmWithAnimation(.panel) { sidebarCollapsed.toggle() }
+                favoritesShown.toggle()
             }
-            PMRoundBtn(icon: "hifispeaker.2.fill", iconSize: 12, style: .glass,
-                       help: "audio_output") {
-                audioOutputShown.toggle()
-                onAudioOutput()
+            .popover(isPresented: $favoritesShown, arrowEdge: .bottom) {
+                MacFavoritesPopover(
+                    onNavigate: { route in
+                        favoritesShown = false
+                        selection = route
+                    },
+                    onDismiss: { favoritesShown = false }
+                )
             }
-            .popover(isPresented: $audioOutputShown, arrowEdge: .top) {
-                // AudioOutputPickerView 自己 frame(width: 280), 系统 popover 自动
-                // 配合内容尺寸。不再额外加 padding/frame, 避免跟系统 chrome 重叠。
-                AudioOutputPickerView()
-            }
-            PMRoundBtn(icon: "plus", iconSize: 13, style: .glass,
-                       help: "add_source", action: onAddSource)
+            PMRoundBtn(
+                icon: "sparkles", iconSize: 13, style: .glass, isActive: isRecommendationsShown,
+                help: "library_recommendations_title", action: onToggleRecommendations
+            )
+            PMRoundBtn(
+                icon: "chart.bar.xaxis", iconSize: 12, style: .glass,
+                help: "stats_title", action: onOpenListeningStats
+            )
+            toolsMenu
         }
+    }
+
+    private var toolsMenu: some View {
+        Menu {
+            ForEach(MacTool.allCases) { tool in
+                Button {
+                    onOpenTool(tool)
+                } label: {
+                    Label(tool.title, systemImage: tool.systemImage)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+        } label: {
+            PMTitleBarMenuIcon(icon: "wrench.and.screwdriver")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("mac_sidebar_tools"))
     }
 
     // MARK: - Search box
@@ -258,6 +292,227 @@ struct PMTitleBar: View {
         return frameInWindow.midY >= titleBarFloor
     }
 }
+
+/// 菜单按钮的触发器, 长得和 `PMRoundBtn` 的玻璃圆钮一样。
+private struct PMTitleBarMenuIcon: View {
+    let icon: String
+    @Environment(\.pmAppearance) private var mode
+    @State private var hover = false
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(PMColor.text)
+            .frame(width: PMSize.medBtn, height: PMSize.medBtn)
+            .background(background, in: .circle)
+            .overlay { Circle().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+            .contentShape(Circle())
+            .onHover { hover = $0 }
+            .pmAnimation(.hover, value: hover)
+    }
+
+    private var background: Color {
+        mode == .glass
+            ? (hover ? PMColor.glassBtnHover : PMColor.glassBtn)
+            : (hover ? PMColor.matBtnHover : PMColor.matBtn)
+    }
+}
+
+/// 标题栏心形按钮弹出的收藏面板: 上面是「我喜欢」, 能直接播放或随机播放;
+/// 下面是收藏的专辑、艺人、歌单和有声书。目录和完整列表在「查看全部」里。
+struct MacFavoritesPopover: View {
+    let onNavigate: (MacRoute) -> Void
+    let onDismiss: () -> Void
+
+    @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
+    @AppStorage(LibraryPinStorage.defaultsKey) private var pinsRawValue = ""
+    @AppStorage(HomeFolderPinStorage.key) private var folderPinsRawValue = ""
+
+    private static let tileLimit = 8
+    private static let tileSize: CGFloat = 66
+
+    private var entries: [FavoriteCollectionEntry] {
+        _ = pinsRawValue
+        _ = folderPinsRawValue
+        // 不给目录索引: 目录要等索引建好才对得上, 弹框里不等, 它们留在「查看全部」。
+        return FavoriteCollectionResolver.entries(
+            for: FavoriteCollectionStore.shared.references(library: library),
+            library: library,
+            folderIndex: nil
+        )
+        .filter { !$0.isLikedSongs }
+    }
+
+    var body: some View {
+        let likedSongs = library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
+        let entries = self.entries
+        VStack(alignment: .leading, spacing: 0) {
+            likedRow(likedSongs)
+                .padding(14)
+            Rectangle()
+                .fill(PMColor.divider)
+                .frame(height: 0.5)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("library_quick_access")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                    Spacer()
+                    Button {
+                        onNavigate(.section(.favorites))
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text("see_all")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(PMColor.brand)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if entries.isEmpty {
+                    Text("favorites_empty_description")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.fixed(Self.tileSize), spacing: 12), count: 4),
+                        alignment: .leading,
+                        spacing: 12
+                    ) {
+                        ForEach(entries.prefix(Self.tileLimit)) { entry in
+                            tile(entry)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .frame(width: 4 * Self.tileSize + 3 * 12 + 28)
+    }
+
+    private func likedRow(_ songs: [Song]) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                onNavigate(.liked)
+            } label: {
+                HStack(spacing: 12) {
+                    FavoriteLikedSongsArtwork(size: 52, cornerRadius: 12)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("sidebar_liked_songs")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                        Text("album_pick_tracks \(songs.count)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            PMRoundBtn(icon: "play.fill", size: 30, iconSize: 11, style: .accent, help: "play_all") {
+                play(songs, shuffled: false)
+            }
+            .disabled(songs.isEmpty)
+            PMRoundBtn(icon: "shuffle", size: 30, iconSize: 11, style: .glass, help: "shuffle_all") {
+                play(songs, shuffled: true)
+            }
+            .disabled(songs.isEmpty)
+        }
+    }
+
+    private func tile(_ entry: FavoriteCollectionEntry) -> some View {
+        let title = FavoriteCollectionResolver.title(entry)
+        return Button {
+            open(entry)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                FavoriteCollectionArtwork(entry: entry, size: Self.tileSize, cornerRadius: 10)
+                Text(verbatim: title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .frame(width: Self.tileSize, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(Text(verbatim: title))
+    }
+
+    private func open(_ entry: FavoriteCollectionEntry) {
+        switch entry {
+        case .album(let album):
+            onDismiss()
+            NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+        case .artist(let artist):
+            onDismiss()
+            NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+        case .playlist(let playlist):
+            onNavigate(.playlist(playlist))
+        case .folder:
+            onNavigate(.section(.favorites))
+        case .book(let favorite):
+            onDismiss()
+            NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: favorite.book.id)
+        }
+    }
+
+    private func play(_ songs: [Song], shuffled: Bool) {
+        let playable = songs.filteredPlayable()
+        let queue = shuffled ? playable.shuffled() : playable
+        guard !queue.isEmpty else { return }
+        if shuffled { player.shuffleEnabled = true }
+        SiriMediaInteractionDonor.donate(.playlist(id: MusicLibrary.likedSongsPlaylistID), shuffled: shuffled)
+        onDismiss()
+        Task { await player.play(queue: queue, startingAt: 0) }
+    }
+}
+
+#if DEBUG
+/// `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`: 启动后把收藏弹框离屏渲染成浅色、深色两张 PNG ——
+/// 弹框是单独的小窗口, 编译机上按主窗口截图拍不到它。封面是异步读的, 图里可能是占位。
+@MainActor
+enum MacFavoritesPopoverDebugSnapshot {
+    static func writeIfRequested() async {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_FAVORITES_SNAPSHOT"],
+              !path.isEmpty else { return }
+        try? await Task.sleep(for: .seconds(8))
+        let directory = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (name, appearanceName, scheme) in [
+            ("favorites-light", NSAppearance.Name.aqua, ColorScheme.light),
+            ("favorites-dark", NSAppearance.Name.darkAqua, ColorScheme.dark),
+        ] {
+            let content = MacFavoritesPopover(onNavigate: { _ in }, onDismiss: {})
+                .fixedSize()
+                .background(PMColor.bgElev)
+                .applyPrimuseEnvironments()
+                .environment(\.colorScheme, scheme)
+            var png: Data?
+            NSAppearance(named: appearanceName)?.performAsCurrentDrawingAppearance {
+                let renderer = ImageRenderer(content: content)
+                renderer.scale = 2
+                png = renderer.cgImage.flatMap {
+                    NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:])
+                }
+            }
+            if let png {
+                try? png.write(to: directory.appendingPathComponent("\(name).png"))
+            } else {
+                plog("🧪 favorites snapshot \(name) failed")
+            }
+        }
+        plog("🧪 favorites snapshots written to \(directory.path)")
+    }
+}
+#endif
 
 extension Notification.Name {
     static let primuseDetailGoBack    = Notification.Name("primuse.detail.goBack")
