@@ -662,11 +662,22 @@ struct ImmersiveFlyBrain: View {
     private static let spark = Color(red: 0.86, green: 0.97, blue: 1.0)
 
     /// 活动层的最小间隔；`nil` 是跟着屏幕刷新。
+    /// 电视上最快每秒 30 次：选 60 帧时两层整屏画布每秒要重画 90 次，A15 主线程大半时间
+    /// 等在 RenderBox 里，回调跌到每秒 35 次左右，A12 更吃力。
     private var activityInterval: TimeInterval? {
-        frameRate.minimumInterval(base: 1.0 / 24)
+        let interval = frameRate.minimumInterval(base: 1.0 / 24)
+        #if os(tvOS)
+        return max(interval ?? 0, Self.televisionActivityFloor)
+        #else
+        return interval
+        #endif
     }
 
-    /// 结构层按活动层一半的帧率，最快每秒 30 次：相机一秒只转零点几度，再勤也看不出差别。
+    #if os(tvOS)
+    private static let televisionActivityFloor: TimeInterval = 1.0 / 30
+    #endif
+
+    /// 结构层按活动层一半的帧率，最快每秒 30 次（电视 15 次）：相机一秒只转零点几度，再勤也看不出差别。
     private var structureInterval: TimeInterval {
         max(activityInterval ?? 1.0 / 60, 1.0 / 60) * 2
     }

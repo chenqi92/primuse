@@ -439,7 +439,7 @@ struct TVImmersivePlayerView: View {
             currentLyric: currentLyric,
             nextLyric: nextLyric,
             lyricsWritingDirection: store.lyrics.first?.writingDirection ?? .natural,
-            levelsProvider: { spectrumLevels },
+            levelsProvider: stageLevelsProvider,
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
                 guard gallerySongs.indices.contains(index) else { return AnyView(Color.clear) }
@@ -1004,6 +1004,16 @@ struct TVImmersivePlayerView: View {
     private var spectrumLevels: [CGFloat] {
         guard presentationEffect.usesRealtimeSpectrum else { return [] }
         return store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
+    }
+
+    /// 神经共鸣两层都由 TimelineView 定节奏，读频谱不建立观察；
+    /// 否则每发布一次频谱活动层就多画一遍，电视上的帧率上限不起作用。其余效果靠发布驱动重画，照旧观察。
+    private var stageLevelsProvider: @MainActor () -> [CGFloat] {
+        guard presentationEffect == .flyBrain else { return { spectrumLevels } }
+        let engine = store.engine
+        return { @MainActor in
+            engine.latestSpectrumLevels.map { min(max(CGFloat($0), 0), 1) }
+        }
     }
 
     private func updateSpectrumAnalysis(for presentation: FullscreenPlayerEffect) {

@@ -91,6 +91,12 @@ final class TVAudioEngine {
         repeating: 0,
         count: TVSpectrumConfiguration.bandCount
     )
+    /// 同一份频段，读它不建立观察。自己按 TimelineView 定节奏的层（神经共鸣）用它：
+    /// 读观察的那份，每发布一次频谱就多重画一遍，帧率上限形同虚设。
+    @ObservationIgnored private(set) var latestSpectrumLevels: [Float] = Array(
+        repeating: 0,
+        count: TVSpectrumConfiguration.bandCount
+    )
     var displayPlayer: AVPlayer { player }
 
     // MARK: 外部播放器接管(Apple Music)
@@ -150,7 +156,7 @@ final class TVAudioEngine {
         if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
         let resolved: Status = externalStatus ?? (isPlaying ? .playing : .paused)
         if status != resolved { status = resolved }
-        if spectrumAnalysisEnabled, let spectrum { spectrumLevels = spectrum }
+        if spectrumAnalysisEnabled, let spectrum { publishSpectrumLevels(spectrum) }
         if externalStatus != nil, previousSecond != Int(self.currentTime) || previousStatus != status {
             updateNowPlayingInfo()
         }
@@ -1546,7 +1552,7 @@ final class TVAudioEngine {
                 ) else { continue }
                 await MainActor.run { [weak self] in
                     guard let self, self.spectrumAnalysisEnabled, self.isPlaying else { return }
-                    self.spectrumLevels = next
+                    self.publishSpectrumLevels(next)
                 }
             }
         }
@@ -1580,7 +1586,12 @@ final class TVAudioEngine {
 
     private func resetSpectrumLevels() {
         guard spectrumLevels.contains(where: { $0 != 0 }) else { return }
-        spectrumLevels = Array(repeating: 0, count: TVSpectrumConfiguration.bandCount)
+        publishSpectrumLevels(Array(repeating: 0, count: TVSpectrumConfiguration.bandCount))
+    }
+
+    private func publishSpectrumLevels(_ levels: [Float]) {
+        spectrumLevels = levels
+        latestSpectrumLevels = levels
     }
 
     // MARK: SFB(非原生格式)引擎切换 / 状态镜像
