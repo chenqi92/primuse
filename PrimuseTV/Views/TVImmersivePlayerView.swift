@@ -1019,11 +1019,16 @@ struct TVImmersivePlayerView: View {
     }
 
     private func updateSpectrumAnalysis(for presentation: FullscreenPlayerEffect) {
-        store.engine.setSpectrumPacing(
-            ImmersiveFrameRateMode(storedValue: frameRateRawValue).spectrumPacing(
-                displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
-            )
+        var pacing = ImmersiveFrameRateMode(storedValue: frameRateRawValue).spectrumPacing(
+            displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
         )
+        // 环形声谱的整屏光晕和整块模糊的那层频谱环都随频谱发布重画，每发布一次系统都要整屏重新
+        // 模糊、合成一遍。60 帧档下 A15 发热后 GPU 几乎一直满载（大头在系统合成），回调只剩 33 次；
+        // 电视上这个效果每秒最多发布 30 次。
+        if presentation == .radialPulse {
+            pacing = pacing.limited(toFramesPerSecond: 30)
+        }
+        store.engine.setSpectrumPacing(pacing)
         store.engine.setSpectrumAnalysisEnabled(
             presentationActivity.isRenderingActive
                 && !isLowPower

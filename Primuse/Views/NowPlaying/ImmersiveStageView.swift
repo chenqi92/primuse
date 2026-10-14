@@ -945,6 +945,9 @@ struct ImmersiveStageView<Artwork: View>: View {
     private func radialArtwork(diameter: CGFloat) -> some View {
         let barWidth = max(1.4, metrics.f(platform == .tvOS ? 5 : 3))
         let span = diameter * radialRingSpanRatio
+        // 光晕那层整块模糊，每次频谱发布都要重新模糊。电视上按一半尺寸画、模糊完再放大回去：
+        // 要模糊的像素只剩四分之一，光晕本来就是虚的，看不出差别。
+        let glowScale: CGFloat = platform == .tvOS ? 0.5 : 1
         return ZStack {
             ImmersiveBassRipples(
                 levelsProvider: scheduledSpectrumProvider,
@@ -956,13 +959,15 @@ struct ImmersiveStageView<Artwork: View>: View {
 
             ImmersiveSpectrumRingHost(
                 levelsProvider: spectrumProvider,
-                barWidth: barWidth,
+                barWidth: barWidth * glowScale,
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
                 isPlaying: decorativeClockIsActive
             )
+            .frame(width: span * glowScale, height: span * glowScale)
+            .blur(radius: max(4, metrics.f(12)) * glowScale)
+            .scaleEffect(1 / glowScale)
             .frame(width: span, height: span)
-            .blur(radius: max(4, metrics.f(12)))
             .opacity(0.9)
 
             ImmersiveSpectrumRingHost(

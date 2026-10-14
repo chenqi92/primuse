@@ -68,6 +68,13 @@ public enum SpectrumPublishPacing: Equatable, Sendable {
         case .onArrival(let interval), .paced(let interval): interval
         }
     }
+
+    /// 每秒最多发布 `framesPerSecond` 次：按固定节奏的档位放宽到这个间隔；
+    /// 到一批发一批的（省电档每秒二十来次）本来就不超过，不变。
+    public func limited(toFramesPerSecond framesPerSecond: Double) -> SpectrumPublishPacing {
+        guard framesPerSecond > 0, case .paced(let interval) = self else { return self }
+        return .paced(interval: max(interval, 1 / framesPerSecond))
+    }
 }
 
 /// 音频回调写、后台轮询读的单声道采样环。写端只做拷贝并用 trylock，

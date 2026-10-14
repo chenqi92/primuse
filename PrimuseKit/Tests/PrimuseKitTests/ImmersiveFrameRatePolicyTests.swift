@@ -21,6 +21,16 @@ struct ImmersiveFrameRatePolicyTests {
         #expect(ImmersiveFrameRateMode.display.minimumInterval(base: 1.0 / 24.0) == nil)
     }
 
+    @Test("A per-effect cap slows paced publishing and leaves on-arrival publishing alone")
+    func spectrumPacingLimitedToFramesPerSecond() {
+        #expect(ImmersiveFrameRateMode.fps60.spectrumPacing(displayMaximumFramesPerSecond: 60)
+            .limited(toFramesPerSecond: 30) == .paced(interval: 1.0 / 30.0))
+        #expect(ImmersiveFrameRateMode.fps30.spectrumPacing(displayMaximumFramesPerSecond: 60)
+            .limited(toFramesPerSecond: 30) == .paced(interval: 1.0 / 30.0))
+        #expect(ImmersiveFrameRateMode.balanced.spectrumPacing(displayMaximumFramesPerSecond: 60)
+            .limited(toFramesPerSecond: 30) == .onArrival(pollInterval: 0.04))
+    }
+
     @Test("Spectrum pacing follows the mode and clamps the display rate")
     func spectrumPacing() {
         #expect(ImmersiveFrameRateMode.balanced.spectrumPacing(displayMaximumFramesPerSecond: 120)
