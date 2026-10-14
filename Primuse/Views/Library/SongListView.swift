@@ -56,6 +56,8 @@ private struct MacSongScrollWindowMetrics: Equatable {
     let firstVisibleRow: Int
     let viewportHeight: Int
     let viewportWidth: Int
+    /// 离开了最顶上。刚进页面只建了一屏的行, 一滚就要把缓冲行补上。
+    var isScrolled = false
 }
 
 /// Scrolling invalidates only the bounded row window. The page header and
@@ -155,12 +157,33 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var viewportWidth: CGFloat = 0
     @State private var previousResetKey: String?
+    /// 刚进页面时只建看得见的那几行, 上下的缓冲行等入场动画走完或一开始滚动再补:
+    /// 一次建五十来行在 Debug 构建里要两百毫秒, 正压在换页那一帧上, 进页面就慢半拍。
+    @State private var buildsFullWindow = false
 
     var body: some View {
         GeometryReader { geometry in
             scrollContent
                 .frame(width: geometry.size.width, height: geometry.size.height)
         }
+        .task {
+            try? await Task.sleep(for: .milliseconds(350))
+            buildsFullWindow = true
+        }
+    }
+
+    /// 停在最上面时第一帧要建的行: 一屏能看见的, 再多两行。
+    private func entranceRange(
+        _ full: Range<Int>,
+        visibleRow: Int,
+        rowHeight: CGFloat
+    ) -> Range<Int> {
+        guard !buildsFullWindow, visibleRow == 0, request.target == nil, full.lowerBound == 0 else {
+            return full
+        }
+        let height = viewportHeight > 0 ? viewportHeight : 720
+        let visibleCount = Int((height / max(1, rowHeight)).rounded(.up)) + 2
+        return full.lowerBound..<min(full.upperBound, full.lowerBound + visibleCount)
     }
 
     @ViewBuilder
@@ -170,11 +193,15 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
         } ?? false
         let visibleRow = resetsToTop ? 0 : firstVisibleRow
         let range = rowHeight.map {
-            SongListScrollWindow.range(
-                totalCount: rowCount,
-                firstVisibleRow: visibleRow,
-                viewportHeight: Double(viewportHeight),
-                rowHeight: Double($0)
+            entranceRange(
+                SongListScrollWindow.range(
+                    totalCount: rowCount,
+                    firstVisibleRow: visibleRow,
+                    viewportHeight: Double(viewportHeight),
+                    rowHeight: Double($0)
+                ),
+                visibleRow: visibleRow,
+                rowHeight: $0
             )
         } ?? 0..<rowCount
 
@@ -224,10 +251,14 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
             return MacSongScrollWindowMetrics(
                 firstVisibleRow: row / stride * stride,
                 viewportHeight: Int(geometry.containerSize.height.rounded()),
-                viewportWidth: Int(geometry.containerSize.width.rounded())
+                viewportWidth: Int(geometry.containerSize.width.rounded()),
+                isScrolled: geometry.visibleRect.minY > 1
             )
         } action: { _, metrics in
             withTransaction(Self.noAnimationTransaction) {
+                if !buildsFullWindow, metrics.isScrolled {
+                    buildsFullWindow = true
+                }
                 firstVisibleRow = metrics.firstVisibleRow
                 if viewportHeight != CGFloat(metrics.viewportHeight) {
                     viewportHeight = CGFloat(metrics.viewportHeight)
@@ -864,6 +895,7 @@ struct SongListView: View {
     /// onAppear 和 PlayHistory 变更通知时, 而不是每行重算 (否则 LazyVStack
     /// 滚动时每实例化一行都要 O(5000) 折叠+建字典)。
     @State private var playCountsBySongID: [String: Int] = [:]
+    @State private var playCountsTask: Task<Void, Never>?
     #endif
 
     private enum Scope: Hashable, Sendable {
@@ -1249,7 +1281,25 @@ struct SongListView: View {
                 // tab is selected. Reuse its existing order instead of
                 // sorting 10K songs again on every return.
                 if listCache.isEmpty {
-                    scheduleSortedRecompute(pruneRowModels: false)
+                    if let cached = SongListSnapshotStore.shared.cachedSnapshot(
+                        scopeKey: scope.snapshotCacheKey,
+                        version: songListVersion,
+                        order: sortOrder.libraryOrder,
+                        sortValuesVersion: sortValuesVersion
+                    ) {
+                        // 预热过或上次进来已经排好: 这一帧就摆出整张表, 不先闪一下转圈
+                        // 再等后台回话。
+                        sortGeneration &+= 1
+                        publishSnapshotWithoutAnimation(
+                            cached,
+                            pruneRowModels: false,
+                            isExplicitSort: false,
+                            generation: sortGeneration,
+                            order: sortOrder.libraryOrder
+                        )
+                    } else {
+                        scheduleSortedRecompute(pruneRowModels: false)
+                    }
                 }
                 scheduleFolderIndexRecompute()
                 if requiresDownloadedSongSnapshot {
@@ -1471,6 +1521,9 @@ struct SongListView: View {
             #if os(macOS)
             macSongList
                 .pmAppearFade(.contentAppear)
+                #if DEBUG
+                .onAppear { MacRouteTiming.mark("songs content") }
+                #endif
             #else
             iosSongList
                 .pmAppearFade(.contentAppear)
@@ -2224,11 +2277,24 @@ struct SongListView: View {
 
     /// 一次性把 PlayHistory 折叠成 songID → count 字典, 避免每行 O(N) 扫描。
     /// 结果写入 @State playCountsBySongID, 仅在 onAppear / 变更通知时调用。
+    /// 折叠放到后台: 播放记录上万条时在主线程上折, 正赶上换页那一帧, 进页面就慢半拍。
     private func rebuildPlayCounts() {
-        var dict: [String: Int] = [:]
-        for e in PlayHistoryStore.shared.entries {
-            dict[e.songID, default: 0] += 1
+        let entries = PlayHistoryStore.shared.entries
+        playCountsTask?.cancel()
+        playCountsTask = Task { @MainActor in
+            let dict = await Task.detached(priority: .utility) {
+                var dict: [String: Int] = [:]
+                for entry in entries {
+                    dict[entry.songID, default: 0] += 1
+                }
+                return dict
+            }.value
+            guard !Task.isCancelled else { return }
+            applyPlayCounts(dict)
         }
+    }
+
+    private func applyPlayCounts(_ dict: [String: Int]) {
         guard dict != playCountsBySongID else { return }
         playCountsBySongID = dict
         sortValuesVersion.invalidate(.playCount)

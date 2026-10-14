@@ -325,6 +325,30 @@ struct SongListSnapshotTests {
         #expect(artist.rows.map(\.id) == ["a", "b"])
     }
 
+    @Test("A finished snapshot can be read synchronously for the same scope, version and order")
+    func cachedSnapshotIsReadableSynchronously() async {
+        let store = SongListSnapshotStore()
+        let version = SongListSnapshotVersion(collectionRevision: 1, replacementToken: UUID())
+        let songs = [song(id: "a", title: "Zulu"), song(id: "b", title: "Alpha")]
+        #expect(store.cachedSnapshot(scopeKey: "library", version: version, order: .title) == nil)
+
+        guard let built = await store.snapshot(
+            scopeKey: "library",
+            version: version,
+            order: .title,
+            songs: songs
+        ) else {
+            Issue.record("Snapshot build was unexpectedly cancelled")
+            return
+        }
+
+        #expect(store.cachedSnapshot(scopeKey: "library", version: version, order: .title) === built)
+        #expect(store.cachedSnapshot(scopeKey: "library", version: version, order: .artist) == nil)
+        let newer = SongListSnapshotVersion(collectionRevision: 2, replacementToken: UUID())
+        _ = await store.snapshot(scopeKey: "library", version: newer, order: .artist, songs: songs)
+        #expect(store.cachedSnapshot(scopeKey: "library", version: version, order: .title) == nil)
+    }
+
     @Test("Evicts every order when a scope version changes")
     func evictsChangedScopeVersion() async {
         let store = SongListSnapshotStore()

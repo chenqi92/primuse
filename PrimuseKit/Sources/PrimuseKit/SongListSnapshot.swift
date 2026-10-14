@@ -441,11 +441,44 @@ public actor SongListSnapshotStore {
         let task: Task<SongListSnapshot?, Never>
     }
 
+    /// 已经算好的结果的一份只读镜像, 给 `cachedSnapshot` 同步读。只在这个 actor 里写。
+    private final class CacheMirror: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [Key: SongListSnapshot] = [:]
+
+        func replace(with value: [Key: SongListSnapshot]) {
+            lock.withLock { storage = value }
+        }
+
+        func value(for key: Key) -> SongListSnapshot? {
+            lock.withLock { storage[key] }
+        }
+    }
+
     private var versionByScope: [String: SongListSnapshotVersion] = [:]
-    private var cachedByKey: [Key: SongListSnapshot] = [:]
+    private var cachedByKey: [Key: SongListSnapshot] = [:] {
+        didSet { cacheMirror.replace(with: cachedByKey) }
+    }
     private var pendingByKey: [Key: PendingEntry] = [:]
+    private let cacheMirror = CacheMirror()
 
     public init() {}
+
+    /// 已经算好(含预热好)的那份, 不用等。列表页出现时先拿它直接摆出来, 免得先摆一个
+    /// 转圈、等主线程转一轮再换成整张表; 没有就照常走 `snapshot(...)`。
+    public nonisolated func cachedSnapshot(
+        scopeKey: String,
+        version: SongListSnapshotVersion,
+        order: LibrarySongSortOrder,
+        sortValuesVersion: SongListSortValuesVersion = .init()
+    ) -> SongListSnapshot? {
+        cacheMirror.value(for: Key(
+            scopeKey: scopeKey,
+            version: version,
+            order: order,
+            sortValuesRevision: sortValuesVersion.revision(for: order)
+        ))
+    }
 
     public static func sourceScopeKey(_ sourceID: String) -> String {
         "source:\(sourceID)"

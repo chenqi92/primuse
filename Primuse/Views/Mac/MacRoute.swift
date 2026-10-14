@@ -66,6 +66,36 @@ enum MacTool: String, Identifiable, Hashable, CaseIterable {
     }
 }
 
+#if DEBUG
+/// 侧栏换页的耗时: 点下去 → 新页 `onAppear` → 主线程下一轮 → 内容真正摆出来。
+/// 每段一行 🧪 日志, 编译机上用调试脚本的 `route:` 换页量出来。
+@MainActor
+enum MacRouteTiming {
+    private static var start: ContinuousClock.Instant?
+    private static var label = ""
+
+    static func begin(_ route: MacRoute) {
+        start = .now
+        label = route.stableID
+    }
+
+    static func mark(_ event: String) {
+        guard let start else { return }
+        let elapsed = ContinuousClock.now - start
+        let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
+        plog("🧪 route \(label) \(event) +\(Int(ms.rounded()))ms")
+    }
+
+    /// 新页出现后再等主线程转一轮, 近似「这一帧摆完了」。
+    static func markNextTurn(_ event: String) {
+        Task { @MainActor in
+            await Task.yield()
+            mark(event)
+        }
+    }
+}
+#endif
+
 extension Notification.Name {
     static let primuseDetailOpenAlbum = Notification.Name("primuse.detail.openAlbum")
     static let primuseDetailOpenArtist = Notification.Name("primuse.detail.openArtist")

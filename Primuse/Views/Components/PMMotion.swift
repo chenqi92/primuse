@@ -96,6 +96,15 @@ extension View {
         modifier(PMAppearFadeModifier(motion: motion))
     }
 
+    /// 整页入场: 淡入, 同时从下面轻轻升上来 8 点(减少动态效果时只淡入)。
+    ///
+    /// 入场这一小段里, 页面里面各块自己的 `pmAppearFade` 直接到位, 不再一层套一层地淡 ——
+    /// 页面、内容、行三层各淡 0.2 秒, 透明度相乘, 走到一半只剩一成多, 看着就是慢了半拍。
+    /// 入场之后才出现的内容(后台排好序的整张表)照常淡入。位移是绘制变换, 不动布局。
+    func pmPageEnter() -> some View {
+        modifier(PMPageEnterModifier())
+    }
+
     /// 从某一边推入推出的过渡。开启「减少动态效果」时退化成纯淡入淡出。
     ///
     /// 挂在 `if` / `switch` 分支里的那个视图上，不是挂在外面的容器上。
@@ -167,13 +176,58 @@ private struct PMAnimationModifier<V: Equatable>: ViewModifier {
 private struct PMAppearFadeModifier: ViewModifier {
     let motion: PMMotion
 
+    @Environment(\.pmPageEntering) private var pageEntering
     @State private var appeared = false
 
     func body(content: Content) -> some View {
         content
             .opacity(appeared ? 1 : 0)
             .onAppear {
-                withAnimation(motion.animation) { appeared = true }
+                // 外面整页正在入场: 跟着整页一起出现, 不再自己叠一层淡入。
+                if pageEntering {
+                    appeared = true
+                } else {
+                    withAnimation(motion.animation) { appeared = true }
+                }
+            }
+    }
+}
+
+private struct PMPageEnteringKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 外层页面正在 `pmPageEnter` 入场。
+    var pmPageEntering: Bool {
+        get { self[PMPageEnteringKey.self] }
+        set { self[PMPageEnteringKey.self] = newValue }
+    }
+}
+
+private struct PMPageEnterModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = false
+    @State private var risen = false
+    @State private var entering = true
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.pmPageEntering, entering)
+            .opacity(visible ? 1 : 0)
+            .offset(y: risen ? 0 : 8)
+            .onAppear {
+                withAnimation(PMMotion.pageSwitch.animation) { visible = true }
+                if let rise = PMMotion.list.resolved(reduceMotion: reduceMotion) {
+                    withAnimation(rise) { risen = true }
+                } else {
+                    risen = true
+                }
+            }
+            .task {
+                // 入场的时长之后, 再出现的内容各自淡入。
+                try? await Task.sleep(for: .milliseconds(260))
+                entering = false
             }
     }
 }

@@ -194,9 +194,9 @@ struct MacContentView: View {
                         onShowSongInLibrary: showSongInLibrary,
                         onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
-                        // 淡入要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
-                        // 写在后面的话 @State 留在 id 之上, 换页时不会重新淡。
-                        .pmAppearFade()
+                        // 入场要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
+                        // 写在后面的话 @State 留在 id 之上, 换页时不会重新入场。
+                        .pmPageEnter()
                         .id(detailNavigationID)
                         .background(PMColor.bg.ignoresSafeArea())
                         // 挂在这里而不是 body 那条长修饰链上: 那条链再加一个
@@ -291,6 +291,7 @@ struct MacContentView: View {
                     onToggleRecommendations: toggleRecommendationsDrawer,
                     onOpenListeningStats: { showsListeningStats = true }
                 ))
+                .modifier(MacSongListPrewarm())
                 #if DEBUG
                 .task {
                     // `PRIMUSE_DEBUG_MAC_PANEL`: 锁屏的编译机上点不了标题栏, 由这里打开。
@@ -663,6 +664,9 @@ struct MacContentView: View {
     }
 
     private func selectRoute(_ route: MacRoute) {
+        #if DEBUG
+        MacRouteTiming.begin(route)
+        #endif
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -993,6 +997,44 @@ private struct MacListeningStatsSheet: View {
         }
         .frame(minWidth: 760, idealWidth: 860, maxWidth: 1000, minHeight: 560, idealHeight: 860)
         .background(PMColor.bg)
+    }
+}
+
+/// 曲库变了之后, 在后台把「全部歌曲」按当前排序先排好放进缓存, 第一次点进去就不用现排。
+/// iPhone 在资料库首页做同样的事 (`LibraryView`), Mac 没有那一页。
+private struct MacSongListPrewarm: ViewModifier {
+    @Environment(MusicLibrary.self) private var library
+
+    func body(content: Content) -> some View {
+        content.task(id: "\(library.visibleSongCollectionRevision)-\(library.songReplacementToken)") {
+            let order = LibrarySongSortOrderPreference.load()
+            // 播放次数、来源、是否已下载这几种排序用的是页面上现算的值, 预热对不上缓存。
+            switch order.criterion {
+            case .playCount, .source, .downloaded:
+                return
+            default:
+                break
+            }
+            do {
+                // 扫描时曲库一阵一阵地变, 等它停一下再排。
+                try await Task.sleep(for: .milliseconds(1500))
+            } catch {
+                return
+            }
+            let version = SongListSnapshotVersion(
+                collectionRevision: library.visibleSongCollectionRevision,
+                replacementToken: library.songReplacementToken
+            )
+            // 和歌曲页同一份歌: 有声内容不在里面, 两边共用一个缓存键。
+            let songs = library.musicSongs
+            guard !songs.isEmpty, !Task.isCancelled else { return }
+            _ = await SongListSnapshotStore.shared.snapshot(
+                scopeKey: SongListSnapshotStore.libraryScopeKey,
+                version: version,
+                order: order,
+                songs: songs
+            )
+        }
     }
 }
 

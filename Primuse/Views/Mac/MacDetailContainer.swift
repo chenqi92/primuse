@@ -21,6 +21,12 @@ struct MacDetailContainer: View {
     var body: some View {
         NavigationStack(path: $path) {
             content
+                #if DEBUG
+                .onAppear {
+                    MacRouteTiming.mark("appear")
+                    MacRouteTiming.markNextTurn("first frame")
+                }
+                #endif
                 .navigationBarBackButtonHidden(true)
                 .transaction { transaction in
                     transaction.animation = nil
