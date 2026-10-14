@@ -5969,3 +5969,7 @@
 "lyrics_translation_skipped_languages_footer" = "เนื้อเพลงในภาษาที่เลือกจะคงต้นฉบับไว้ ภาษาอื่นยังแปลตามปกติ เนื้อเพลงที่เป็นภาษาเป้าหมายอยู่แล้วจะไม่ถูกแปลอยู่แล้ว";
 "lyrics_translation_skipped_languages_none" = "ไม่มี";
 "lyrics_translation_skipped_languages_section" = "คงต้นฉบับ";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Mac เครื่องนี้";
+"cast_dlna_required_hint_mac" = "อุปกรณ์ต้องรองรับการเล่นแบบ UPnP/DLNA และอยู่ในเครือข่ายเดียวกับ Mac เครื่องนี้";

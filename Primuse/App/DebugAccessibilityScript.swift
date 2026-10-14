@@ -24,6 +24,7 @@ import PrimuseKit
 /// - `snapshot:<png 路径>`：把主窗口内容离屏画成 PNG —— 锁屏时 screencapture 只拍得到壁纸。
 /// - `layers`：按类名统计主窗口的图层树，系统私有类（背板、传送门、远端图层）逐个记下位置 ——
 ///   离屏截图某块画不出来时拿它找原因。
+/// - `trace:<标签>`：开始 1.5 秒的红绿灯状态取样（`PMWindowChromeTrace`），换页前先开好能看到换页前的样子。
 /// - `quit`：退出 App。
 /// 每一步都写 🧪 日志。
 enum DebugAccessibilityScript {
@@ -69,6 +70,8 @@ enum DebugAccessibilityScript {
             snapshotMainWindow(to: argument)
         case "layers":
             reportLayers()
+        case "trace":
+            PMWindowChromeTrace.start(argument)
         case "quit":
             NSApp.terminate(nil)
         default:

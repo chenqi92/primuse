@@ -77,6 +77,7 @@ enum MacRouteTiming {
     static func begin(_ route: MacRoute) {
         start = .now
         label = route.stableID
+        PMWindowChromeTrace.start("route \(label)")
     }
 
     static func mark(_ event: String) {
@@ -114,8 +115,8 @@ extension Notification.Name {
     static let primuseDetailOpenSpokenWordBook = Notification.Name("primuse.detail.openSpokenWordBook")
     /// 菜单栏打开工具面板, object 是 `MacTool.rawValue`。
     static let primuseOpenMacTool = Notification.Name("primuse.mac.openTool")
-    /// 菜单栏开关智能推荐抽屉。
-    static let primuseToggleRecommendationsDrawer = Notification.Name("primuse.mac.toggleRecommendations")
+    /// 菜单栏开关智能推荐面板。
+    static let primuseToggleRecommendationsPanel = Notification.Name("primuse.mac.toggleRecommendations")
     /// 菜单栏打开听歌统计。
     static let primuseOpenListeningStats = Notification.Name("primuse.mac.openListeningStats")
 }

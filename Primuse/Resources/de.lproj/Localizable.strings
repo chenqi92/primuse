@@ -6063,3 +6063,7 @@
 "lyrics_translation_skipped_languages_footer" = "Liedtexte in den markierten Sprachen bleiben im Original, andere Sprachen werden wie gewohnt übersetzt. Texte in der Zielsprache werden ohnehin nicht übersetzt.";
 "lyrics_translation_skipped_languages_none" = "Keine";
 "lyrics_translation_skipped_languages_section" = "Im Original belassen";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Dieser Mac";
+"cast_dlna_required_hint_mac" = "Das Gerät muss als UPnP/DLNA-Renderer funktionieren und im selben Netzwerk wie dieser Mac sein.";

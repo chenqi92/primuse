@@ -104,7 +104,7 @@ struct MacContentView: View {
     @State private var showNoScraperSourceAlert = false
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
     @State private var activeTool: MacTool?
-    @State private var showsRecommendationsDrawer = false
+    @State private var showsRecommendationsPanel = false
     @State private var showsListeningStats = false
     /// 底栏那个「全屏效果」入口开出来的抽屉。全屏播放页自己带一份,这里只服务窗口态。
     @State private var showsFullscreenEffectPicker = false
@@ -169,9 +169,9 @@ struct MacContentView: View {
                     searchText: $searchText,
                     sidebarCollapsed: $sidebarCollapsed,
                     selection: navigationSelection,
-                    isRecommendationsShown: showsRecommendationsDrawer,
-                    onToggleRecommendations: toggleRecommendationsDrawer,
-                    onOpenListeningStats: { showsListeningStats = true },
+                    isRecommendationsShown: showsRecommendationsPanel,
+                    onToggleRecommendations: toggleRecommendationsPanel,
+                    onOpenListeningStats: openListeningStats,
                     onOpenTool: { activeTool = $0 }
                 )
             }
@@ -233,6 +233,7 @@ struct MacContentView: View {
                            onToggleQueue: {
                                pmWithAnimation(.panel) {
                                    queuePresented.toggle()
+                                   if queuePresented { showsRecommendationsPanel = false }
                                }
                            })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -269,27 +270,12 @@ struct MacContentView: View {
                         )
                         .zIndex(3)
                     }
-
-                    if showsRecommendationsDrawer {
-                        Color.black.opacity(0.22)
-                            .contentShape(Rectangle())
-                            .onTapGesture { toggleRecommendationsDrawer() }
-                            .transition(.opacity)
-                            .accessibilityHidden(true)
-                            .zIndex(4)
-
-                        MacRecommendationsDrawer(onClose: toggleRecommendationsDrawer)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .zIndex(5)
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // 抽屉从标题栏下沿滑出来, 滑动时露在内容区上沿外面的那截要裁掉。
-                .clipped()
                 .modifier(MacPanelCommandReceiver(
                     onOpenTool: { activeTool = $0 },
-                    onToggleRecommendations: toggleRecommendationsDrawer,
-                    onOpenListeningStats: { showsListeningStats = true }
+                    onToggleRecommendations: toggleRecommendationsPanel,
+                    onOpenListeningStats: openListeningStats
                 ))
                 .modifier(MacSongListPrewarm())
                 #if DEBUG
@@ -300,9 +286,9 @@ struct MacContentView: View {
                     try? await Task.sleep(for: .seconds(6))
                     plog("🧪 DebugLaunchAutomation: open panel \(panel ?? "")")
                     if panel == "recommendations" {
-                        toggleRecommendationsDrawer()
+                        toggleRecommendationsPanel()
                     } else {
-                        showsListeningStats = true
+                        openListeningStats()
                     }
                 }
                 #endif
@@ -315,6 +301,11 @@ struct MacContentView: View {
                     })
                     .frame(width: 380)
                     .transition(.move(edge: .trailing))
+                } else if showsRecommendationsPanel {
+                    // 和队列同一个位置, 一次只开一个: 左边照常能逛, 不盖住正在看的页。
+                    MacRecommendationsPanel(onClose: toggleRecommendationsPanel)
+                        .frame(width: 380)
+                        .transition(.move(edge: .trailing))
                 }
             }
             // 手柄放在整个 HStack 的顶层 overlay,保证跨进正文的右半边不会被
@@ -346,6 +337,7 @@ struct MacContentView: View {
                         onToggleQueue: {
                             pmWithAnimation(.panel) {
                                 queuePresented.toggle()
+                                if queuePresented { showsRecommendationsPanel = false }
                             }
                         },
                         onMiniPlayer: {
@@ -687,8 +679,18 @@ struct MacContentView: View {
         }
     }
 
-    private func toggleRecommendationsDrawer() {
-        pmWithAnimation(.panel) { showsRecommendationsDrawer.toggle() }
+    private func openListeningStats() {
+        #if DEBUG
+        PMWindowChromeTrace.start("stats sheet")
+        #endif
+        showsListeningStats = true
+    }
+
+    private func toggleRecommendationsPanel() {
+        pmWithAnimation(.panel) {
+            showsRecommendationsPanel.toggle()
+            if showsRecommendationsPanel { queuePresented = false }
+        }
     }
 
     private func showSongInLibrary(_ song: Song) {
@@ -905,7 +907,7 @@ private struct MacPanelCommandReceiver: ViewModifier {
                 guard let tool = (note.object as? String).flatMap(MacTool.init(rawValue:)) else { return }
                 onOpenTool(tool)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .primuseToggleRecommendationsDrawer)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .primuseToggleRecommendationsPanel)) { _ in
                 onToggleRecommendations()
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseOpenListeningStats)) { _ in
@@ -914,60 +916,22 @@ private struct MacPanelCommandReceiver: ViewModifier {
     }
 }
 
-/// 智能推荐抽屉: 从标题栏下沿拉下来的一块帘子, 盖在当前页上。上沿透一层主题色的光,
-/// 下沿是收起的把手; 点帘子外面、按 Esc 或再按一次标题栏的 ✦ 都收起。
-private struct MacRecommendationsDrawer: View {
+/// 智能推荐面板: 从窗口右边滑进来, 和队列面板同一个位置、同一种底。
+private struct MacRecommendationsPanel: View {
     let onClose: () -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                AIRecommendationLibraryView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .top) {
-                        LinearGradient(
-                            colors: [PMColor.brand.opacity(0.16), PMColor.brand.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 150)
-                        .allowsHitTesting(false)
-                    }
-                Button(action: onClose) {
-                    Image(systemName: "chevron.compact.up")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(PMColor.textFaint)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 26)
-                        .contentShape(Rectangle())
+        AIRecommendationLibraryView(panelOnClose: onClose)
+            .background {
+                ZStack {
+                    NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
+                    Rectangle().fill(PMColor.sidebarGlass.opacity(0.6))
                 }
-                .buttonStyle(.plain)
-                .help(Text("close"))
-                .background(PMColor.bg)
-                .overlay(alignment: .top) {
-                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                }
+                .ignoresSafeArea()
             }
-            .background(PMColor.bg)
-            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18, style: .continuous))
-            .overlay {
-                UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18, style: .continuous)
-                    .stroke(PMColor.cardBorder, lineWidth: 0.5)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(PMColor.divider).frame(width: 0.5).ignoresSafeArea(edges: .vertical)
             }
-            .shadow(color: .black.opacity(0.28), radius: 24, y: 14)
-            .frame(maxWidth: 1080)
-            // 留出下面一截原页面, 看得出是盖在上面的抽屉, 不是换了一页。
-            .frame(height: min(max(geometry.size.height * 0.8, 360), 720))
-            .padding(.horizontal, 20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .background {
-            // Esc 收起: 透明按钮挂键盘快捷键, 焦点在抽屉里哪一处都能收到。
-            Button("", action: onClose)
-                .keyboardShortcut(.cancelAction)
-                .opacity(0)
-                .accessibilityHidden(true)
-        }
     }
 }
 

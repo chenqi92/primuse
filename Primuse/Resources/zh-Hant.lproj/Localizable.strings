@@ -6040,3 +6040,7 @@
 "lyrics_translation_skipped_languages_footer" = "勾選的語言保持原文，其他語言照常翻譯。和目標語言相同的歌詞本來就不翻譯。";
 "lyrics_translation_skipped_languages_none" = "無";
 "lyrics_translation_skipped_languages_section" = "保持原文";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "這台 Mac";
+"cast_dlna_required_hint_mac" = "裝置需支援 UPnP/DLNA 渲染器協定，並與這台 Mac 在同一網路下。";

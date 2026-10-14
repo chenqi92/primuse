@@ -2341,7 +2341,7 @@ struct PrimuseApp: App {
 
                 // 这两处在标题栏右侧, 菜单里也能打开。
                 Button("library_recommendations_title") {
-                    NotificationCenter.default.post(name: .primuseToggleRecommendationsDrawer, object: nil)
+                    NotificationCenter.default.post(name: .primuseToggleRecommendationsPanel, object: nil)
                 }
                 Button("stats_title") {
                     NotificationCenter.default.post(name: .primuseOpenListeningStats, object: nil)
@@ -2459,8 +2459,8 @@ private struct DebugEvidenceOrientation: ViewModifier {
 /// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
 /// - `PRIMUSE_DEBUG_SETTINGS_SNAPSHOT=<目录>`（Mac）：把「外观」设置页离屏渲染成 PNG，见 `MacSettingsDebugSnapshot`。
-/// - `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`（Mac）：把标题栏的收藏弹框离屏渲染成浅色、深色两张 PNG。
-/// - `PRIMUSE_DEBUG_MAC_PANEL=recommendations|stats`（Mac）：启动后打开智能推荐抽屉或听歌统计弹框。
+/// - `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`（Mac）：把收藏弹框、选择播放设备弹框离屏渲染成浅色、深色 PNG。
+/// - `PRIMUSE_DEBUG_MAC_PANEL=recommendations|stats`（Mac）：启动后打开智能推荐面板或听歌统计弹框。
 /// - `PRIMUSE_DEBUG_PODCAST_MAC_SNAPSHOT=<目录>`（Mac）：把播客页放进屏幕外窗口截成 PNG，见 `MacPodcastDebugSnapshot`。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；

@@ -5969,3 +5969,7 @@
 "lyrics_translation_skipped_languages_footer" = "Тексти відміченими мовами лишаються як є, інші мови перекладаються як звичайно. Тексти цільовою мовою й так не перекладаються.";
 "lyrics_translation_skipped_languages_none" = "Немає";
 "lyrics_translation_skipped_languages_section" = "Лишити оригінал";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Цей Mac";
+"cast_dlna_required_hint_mac" = "Пристрій має підтримувати відтворення через UPnP/DLNA і бути в одній мережі з цим Mac.";

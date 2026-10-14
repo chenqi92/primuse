@@ -13564,182 +13564,147 @@ struct CastDevicePickerSheet: View {
     }
 
     #if os(macOS)
+    /// Mac 上照控制中心「声音」输出列表的样子: 一行标题, 「这台 Mac」在最上面, 下面是局域网设备,
+    /// 当前的那一个打勾; 高度跟着设备数走, 设备多了才滚动。
     private var macBody: some View {
         let remoteRenderers = renderer.discoveredRenderers.values.sorted { $0.friendlyName < $1.friendlyName }
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "tv.and.hifispeaker.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 30, height: 30)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 7))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("cast_to_device")
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text("cast_lan_devices")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textMuted)
-                }
+            HStack(spacing: 8) {
+                Text("cast_picker_title")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
                 Spacer()
                 Button {
                     renderer.refreshRemoteRenderers()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PMColor.textMuted)
-                        .frame(width: 24, height: 24)
-                        .background(PMColor.glassBtn, in: .circle)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .help(Text("refresh"))
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    macLocalRendererRow
-
-                    if remoteRenderers.isEmpty {
-                        macScanningState
-                    } else {
-                        ForEach(remoteRenderers) { dev in
-                            macRendererRow(dev)
-                        }
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-            }
-            #if os(macOS)
-            .pmForceHideScrollers()
-            #endif
-            .frame(minHeight: 260, maxHeight: 340)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            HStack(spacing: 10) {
-                Text("settings_dlna_enable")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-                Spacer()
-                if player.isCastingMode {
-                    Button {
-                        Task {
-                            await player.stopCasting()
-                            dismiss()
-                        }
-                    } label: {
-                        Text("cast_local_subtitle")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .padding(.horizontal, 12)
-                            .frame(height: 26)
-                            .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-        }
-        .frame(width: 380)
-        // 当作为 popover/sheet 弹出时, SwiftUI 系统已经包了 chrome (圆角材质 +
-        // 边框 + 阴影 + 箭头), 这里不再画自己的 rounded rect + material + shadow,
-        // 否则跟系统 chrome 叠成双层框 (用户截图里那一圈外框就是这么来的)。
-    }
-
-    private var macLocalRendererRow: some View {
-        Button {
-            Task {
+            macDeviceRow(
+                symbol: "speaker.wave.2.fill",
+                title: String(localized: "cast_this_mac"),
+                subtitle: nil,
+                selected: !player.isCastingMode
+            ) {
                 await player.stopCasting()
-                dismiss()
             }
-        } label: {
-            HStack(spacing: 10) {
-                macRendererIcon("macbook.and.iphone")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("cast_local_device")
-                        .font(.system(size: 12.5, weight: !player.isCastingMode ? .semibold : .medium))
-                        .foregroundStyle(PMColor.text)
-                    Text("cast_local_subtitle")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
+
+            Text("cast_lan_devices")
+                .font(.system(size: 10.5, weight: .semibold))
+                .tracking(0.4)
+                .textCase(.uppercase)
+                .foregroundStyle(PMColor.textFaint)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
+            if remoteRenderers.isEmpty {
+                macScanningState
+            } else if remoteRenderers.count > Self.macVisibleDeviceLimit {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(remoteRenderers) { macRendererRow($0) }
+                    }
                 }
-                Spacer()
-                if !player.isCastingMode {
-                    Text("casting_connected")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(PMColor.brand)
-                }
+                .pmForceHideScrollers()
+                .frame(height: CGFloat(Self.macVisibleDeviceLimit) * Self.macDeviceRowHeight)
+            } else {
+                ForEach(remoteRenderers) { macRendererRow($0) }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            .pmRowBackground(selected: !player.isCastingMode, cornerRadius: 6)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.bottom, 8)
+        .frame(width: 300)
+        // 当作为 popover 弹出时, 系统已经包了 chrome (圆角材质 + 边框 + 阴影 + 箭头),
+        // 这里不再画自己的底, 否则跟系统 chrome 叠成双层框。
     }
+
+    private static let macVisibleDeviceLimit = 6
+    private static let macDeviceRowHeight: CGFloat = 44
 
     private func macRendererRow(_ dev: RemoteRenderer) -> some View {
-        let selected = player.castingRenderer?.udn == dev.udn
-        return Button {
+        macDeviceRow(
+            symbol: rendererSymbol(for: dev),
+            title: dev.friendlyName,
+            subtitle: rendererSubtitle(for: dev),
+            selected: player.castingRenderer?.udn == dev.udn
+        ) {
+            await player.startCasting(to: dev)
+        }
+    }
+
+    private func macDeviceRow(
+        symbol: String,
+        title: String,
+        subtitle: String?,
+        selected: Bool,
+        action: @escaping @MainActor () async -> Void
+    ) -> some View {
+        Button {
             Task {
-                await player.startCasting(to: dev)
+                await action()
                 dismiss()
             }
         } label: {
             HStack(spacing: 10) {
-                macRendererIcon(rendererSymbol(for: dev))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(dev.friendlyName)
-                        .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(selected ? PMColor.brand : PMColor.textMuted)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: title)
+                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text(rendererSubtitle(for: dev))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(1)
+                    if let subtitle {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                    }
                 }
-                Spacer()
+                Spacer(minLength: 6)
                 if selected {
-                    Text("casting_connected")
-                        .font(.system(size: 10.5, weight: .semibold))
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(PMColor.brand)
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            .pmRowBackground(selected: selected, cornerRadius: 6)
+            .frame(minHeight: Self.macDeviceRowHeight - 8)
+            .pmRowBackground(cornerRadius: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var macScanningState: some View {
-        VStack(spacing: 9) {
-            ProgressView().controlSize(.small)
-            Text("cast_scanning")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(PMColor.textMuted)
-            Text("cast_dlna_required_hint")
-                .font(.system(size: 10.5))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.mini)
+                Text("cast_scanning")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            Text("cast_dlna_required_hint_mac")
+                .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
-                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-    }
-
-    private func macRendererIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(PMColor.brand)
-            .frame(width: 32, height: 32)
-            .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 6))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
     }
 
     private func rendererSymbol(for dev: RemoteRenderer) -> String {

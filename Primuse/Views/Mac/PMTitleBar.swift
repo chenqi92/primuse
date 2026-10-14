@@ -75,6 +75,9 @@ struct PMTitleBar: View {
                 iconSize: 13, style: .glass, isActive: favoritesShown,
                 help: "library_quick_access"
             ) {
+                #if DEBUG
+                PMWindowChromeTrace.start("favorites popover")
+                #endif
                 favoritesShown.toggle()
             }
             .popover(isPresented: $favoritesShown, arrowEdge: .bottom) {
@@ -476,8 +479,9 @@ struct MacFavoritesPopover: View {
 }
 
 #if DEBUG
-/// `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`: 启动后把收藏弹框离屏渲染成浅色、深色两张 PNG ——
-/// 弹框是单独的小窗口, 编译机上按主窗口截图拍不到它。封面是异步读的, 图里可能是占位。
+/// `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`: 启动后把收藏弹框和选择播放设备弹框离屏渲染成
+/// 浅色、深色各一张 PNG —— 弹框是单独的小窗口, 编译机上按主窗口截图拍不到它。封面是异步读的,
+/// 图里可能是占位。
 @MainActor
 enum MacFavoritesPopoverDebugSnapshot {
     static func writeIfRequested() async {
@@ -486,11 +490,25 @@ enum MacFavoritesPopoverDebugSnapshot {
         try? await Task.sleep(for: .seconds(8))
         let directory = URL(fileURLWithPath: path)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        render(directory: directory, prefix: "favorites") {
+            MacFavoritesPopover(onNavigate: { _ in }, onDismiss: {})
+        }
+        render(directory: directory, prefix: "cast") {
+            CastDevicePickerSheet()
+        }
+        plog("🧪 popover snapshots written to \(directory.path)")
+    }
+
+    private static func render<Content: View>(
+        directory: URL,
+        prefix: String,
+        @ViewBuilder content: () -> Content
+    ) {
         for (name, appearanceName, scheme) in [
-            ("favorites-light", NSAppearance.Name.aqua, ColorScheme.light),
-            ("favorites-dark", NSAppearance.Name.darkAqua, ColorScheme.dark),
+            ("\(prefix)-light", NSAppearance.Name.aqua, ColorScheme.light),
+            ("\(prefix)-dark", NSAppearance.Name.darkAqua, ColorScheme.dark),
         ] {
-            let content = MacFavoritesPopover(onNavigate: { _ in }, onDismiss: {})
+            let content = content()
                 .fixedSize()
                 .background(PMColor.bgElev)
                 .applyPrimuseEnvironments()
@@ -506,10 +524,9 @@ enum MacFavoritesPopoverDebugSnapshot {
             if let png {
                 try? png.write(to: directory.appendingPathComponent("\(name).png"))
             } else {
-                plog("🧪 favorites snapshot \(name) failed")
+                plog("🧪 popover snapshot \(name) failed")
             }
         }
-        plog("🧪 favorites snapshots written to \(directory.path)")
     }
 }
 #endif

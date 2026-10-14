@@ -70,6 +70,14 @@ struct AIRecommendationLibraryView: View {
     @State private var streamedQueueSongIDs: [String]?
     #if os(macOS)
     @State private var showsSongDiscovery = false
+    /// 给了就是 Mac 窗口右侧的推荐面板: 一行标题带全部播放与关闭, 歌单成一列紧凑的行。
+    private let panelOnClose: (() -> Void)?
+
+    init(panelOnClose: (() -> Void)? = nil) {
+        self.panelOnClose = panelOnClose
+    }
+
+    private var isPanel: Bool { panelOnClose != nil }
     #endif
 
     private var intentChoices: [AIRecommendationIntentChoice] {
@@ -162,7 +170,8 @@ struct AIRecommendationLibraryView: View {
             }
         }
         #if os(macOS)
-        .background(PMColor.bg.ignoresSafeArea())
+        // 面板铺在侧栏同款的半透明底上, 自己不再垫底色。
+        .background(isPanel ? Color.clear : PMColor.bg)
         #endif
         .onAppear(perform: normalizeIntentSelectionIfNeeded)
         .onChange(of: selectedIntentID) { _, _ in
@@ -210,7 +219,37 @@ struct AIRecommendationLibraryView: View {
         )
     }
 
+    @ViewBuilder
     private var recommendationContent: some View {
+        #if os(macOS)
+        if isPanel {
+            VStack(spacing: 0) {
+                panelHeader
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        recommendationControls
+                        if showsSongDiscoveryEntry {
+                            songDiscoveryEntry
+                        }
+                        if showsActionableStatus {
+                            statusPanel
+                        }
+                        recommendationGrid
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+                    .padding(.bottom, 20)
+                }
+            }
+        } else {
+            pageContent
+        }
+        #else
+        pageContent
+        #endif
+    }
+
+    private var pageContent: some View {
         #if os(macOS)
         let showsIndicators = false
         #else
@@ -534,11 +573,31 @@ struct AIRecommendationLibraryView: View {
         VStack(spacing: 14) {
             switch recommendationPresentationState {
             case .loading:
+                #if os(macOS)
+                if isPanel {
+                    panelLoadingList
+                        .pmAppearFade(.contentAppear)
+                } else {
+                    recommendationLoadingGrid
+                        .pmAppearFade(.contentAppear)
+                }
+                #else
                 recommendationLoadingGrid
                     .pmAppearFade(.contentAppear)
+                #endif
             case .content:
+                #if os(macOS)
+                if isPanel {
+                    panelResultsList
+                        .pmAppearFade(.contentAppear)
+                } else {
+                    recommendationResultsGrid
+                        .pmAppearFade(.contentAppear)
+                }
+                #else
                 recommendationResultsGrid
                     .pmAppearFade(.contentAppear)
+                #endif
             case .empty:
                 recommendationResolvedEmptyState
                     .pmAppearFade(.contentAppear)
@@ -603,6 +662,116 @@ struct AIRecommendationLibraryView: View {
         }
         .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
     }
+
+    #if os(macOS)
+    /// 面板顶上一行: 标题、全部播放、关闭。
+    private var panelHeader: some View {
+        HStack(spacing: 8) {
+            Label("library_recommendations_title", systemImage: "sparkles")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .labelStyle(.titleAndIcon)
+            Spacer(minLength: 6)
+            Button(action: playAll) {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .foregroundStyle(Color.white)
+                    .background(platformAccentColor, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(displayedResults.map(\.song).filteredPlayable().isEmpty)
+            Button {
+                panelOnClose?()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 24, height: 24)
+                    .background(PMColor.glassBtn, in: .circle)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(Text("close"))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+    }
+
+    /// 面板里一列紧凑的行; AI 一首首写出来时从右边滑进来。
+    private var panelResultsList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(displayedResults) { result in
+                Button {
+                    play(result.song)
+                } label: {
+                    panelRow(result)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+        }
+        .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
+    }
+
+    private func panelRow(_ result: MusicDiscoveryResult) -> some View {
+        let song = result.song
+        let isCurrent = player.currentSong?.id == song.id
+        return HStack(spacing: 11) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 44,
+                cornerRadius: 7,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: song.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isCurrent ? platformAccentColor : platformPrimaryTextColor)
+                    .lineLimit(1)
+                Text(verbatim: library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(platformSecondaryTextColor)
+                    .lineLimit(1)
+                if let reason = aiRecommendation.reason(for: song.id) {
+                    Label(reason, systemImage: "sparkles")
+                        .font(.system(size: 11))
+                        .foregroundStyle(platformAccentColor)
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .pmRowBackground(cornerRadius: 8)
+        .contentShape(Rectangle())
+    }
+
+    private var panelLoadingList: some View {
+        LoadingSkeletonGroup {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(0..<7, id: \.self) { index in
+                    HStack(spacing: 11) {
+                        recommendationSkeletonBlock(width: 44, height: 44, cornerRadius: 7)
+                        VStack(alignment: .leading, spacing: 6) {
+                            recommendationSkeletonBlock(width: 120 + CGFloat((index % 3) * 24), height: 11)
+                            recommendationSkeletonBlock(width: 80, height: 9)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+            }
+        }
+    }
+    #endif
 
     private var recommendationLoadingGrid: some View {
         LoadingSkeletonGroup {

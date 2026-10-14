@@ -6063,3 +6063,7 @@
 "lyrics_translation_skipped_languages_footer" = "Les paroles dans les langues cochées restent telles quelles ; les autres langues sont traduites comme d'habitude. Les paroles déjà dans la langue cible ne sont jamais traduites.";
 "lyrics_translation_skipped_languages_none" = "Aucune";
 "lyrics_translation_skipped_languages_section" = "Garder l'original";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Ce Mac";
+"cast_dlna_required_hint_mac" = "L'appareil doit prendre en charge le rendu UPnP/DLNA et se trouver sur le même réseau que ce Mac.";

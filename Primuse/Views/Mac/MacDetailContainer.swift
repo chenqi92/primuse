@@ -66,10 +66,6 @@ struct MacDetailContainer: View {
                     .navigationBarBackButtonHidden(true)
                     .pmAppearFade()
                 }
-                // 隐藏 NavigationStack 顶部的原生 toolbar 区域 — 我们用 PMTitleBar
-                // 自定义了全局 titlebar, 子视图里的 .toolbar/.searchable 不应再
-                // 叠出第二条系统 bar (会出现 "搜索歌曲" + 排序按钮悬空在最顶)。
-                .toolbar(.hidden, for: .windowToolbar)
         }
         .environment(\.macFolderShowInLibrary) { song in
             onShowSongInLibrary(song)
@@ -115,6 +111,9 @@ struct MacDetailContainer: View {
 
     @ViewBuilder
     private var content: some View {
+        // 这一栏的页面都不设 navigationTitle: 它会变成窗口标题, 每换一页 AppKit 就重排一次
+        // 标题栏, 把红绿灯挪回系统默认的高度再被我们摆回来, 看着就是闪一下。窗口标题一直是
+        // App 名, 页面名在页面自己的页头里。
         switch route {
         case .home:
             MacHomeView(model: homeModel, openLibrarySongs: onOpenLibrarySongs)
@@ -122,47 +121,36 @@ struct MacDetailContainer: View {
             ListeningStatsScreen(model: listeningStatsModel)
         case .sources:
             MacSourcesView()
-                .navigationTitle("sources_title")
         case .search:
             SearchView(searchText: $searchText, onShowInLibrary: onShowSongInLibrary)
-                .navigationTitle("search_title")
         case .section(let section):
             switch section {
             case .favorites:
                 // 直接放在这一栏的栈里: 套一层 LibraryView 就多一个嵌套的导航栈, 从收藏点进去的
                 // 专辑、艺人、歌单落在里层栈, 拿不到下面登记的、带返回键的详情页。
                 FavoriteCollectionView()
-                    .navigationTitle(section.title)
             case .folders:
                 HomeFolderManagementView()
             case .statistics:
                 ListeningStatsScreen(model: listeningStatsModel)
             case .releaseDate:
                 ReleaseDateLibraryView()
-                    .navigationTitle(section.title)
             case .recommendations:
                 AIRecommendationLibraryView()
-                    .navigationTitle(section.title)
             case .songs:
                 SongListView(locationRequest: $songLocationRequest)
-                    .navigationTitle(section.title)
             case .spokenWord:
                 SpokenWordLibraryView()
             case .albums:
                 AlbumGridView()
-                    .navigationTitle(section.title)
             case .artists:
                 ArtistListView()
-                    .navigationTitle(section.title)
             case .genres:
                 GenreLibraryView()
-                    .navigationTitle(section.title)
             case .playlists:
                 PlaylistListView()
-                    .navigationTitle(section.title)
             case .radio:
                 MacRadioStationsView()
-                    .navigationTitle(section.title)
             case .podcasts:
                 PodcastLibraryView()
             }
@@ -171,19 +159,15 @@ struct MacDetailContainer: View {
                 playlist: library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
                     ?? Playlist(id: MusicLibrary.likedSongsPlaylistID, name: String(localized: "playlist_liked_name"))
             )
-            .navigationTitle("playlist_liked_name")
         case .playlist(let playlist):
             PlaylistDetailView(playlist: playlist)
-                .navigationTitle(Text(verbatim: playlist.name))
         case .smartPlaylist(let smart):
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
-                .navigationTitle(Text(verbatim: smart.name))
         case .source(let id):
             // Sources don't yet have a per-source detail view — for now
             // route the click to the songs filtered by that source.
             let name = sourcesStore.sources.first(where: { $0.id == id })?.name ?? ""
             SongListView(sourceID: id)
-                .navigationTitle(Text(verbatim: name))
         }
     }
 

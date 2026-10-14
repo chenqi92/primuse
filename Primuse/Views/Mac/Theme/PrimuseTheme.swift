@@ -746,6 +746,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             if self.window !== window {
                 stopObserving()
                 self.window = window
+                #if DEBUG
+                PMWindowChromeTrace.register(window)
+                #endif
                 observeNotifications(from: window)
                 requestRepair(force: true)
             } else if !isApplyingRepair,
@@ -759,7 +762,7 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 self?.handleWindowNotification(delivery)
             }
             notificationRelay = relay
-            let names: [Notification.Name] = [
+            var names: [Notification.Name] = [
                 NSWindow.didUpdateNotification,
                 NSWindow.willEnterFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
@@ -769,6 +772,12 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 NSWindow.didChangeBackingPropertiesNotification,
                 NSWindow.didEndLiveResizeNotification,
             ]
+            #if DEBUG
+            names += [
+                NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+            ]
+            #endif
             names.forEach { name in
                 NotificationCenter.default.addObserver(
                     relay,
@@ -816,6 +825,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 self.isApplyingRepair = true
                 PMWindowChromeConfigurator.repair(window: window)
                 self.isApplyingRepair = false
+                #if DEBUG
+                PMWindowChromeTrace.sample(window, event: "repaired")
+                #endif
             }
         }
 
@@ -858,8 +870,17 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 }
 
             case NSWindow.didUpdateNotification:
+                #if DEBUG
+                PMWindowChromeTrace.sample(window, event: "update")
+                #endif
                 guard !isApplyingRepair else { return }
                 requestRepair()
+
+            #if DEBUG
+            case NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                 NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification:
+                PMWindowChromeTrace.sample(window, event: delivery.name.rawValue)
+            #endif
 
             case NSWindow.didChangeScreenNotification,
                  NSWindow.didChangeBackingPropertiesNotification,
@@ -1103,6 +1124,73 @@ private enum PMWindowZoomController {
 }
 
 #if DEBUG
+/// 红绿灯闪动排查: 换页、弹框之后 1.5 秒里, 每次窗口更新记下三颗按钮在窗口里的位置、可见度、
+/// 标题栏工具栏和窗口的 key/main 状态, 有变化才写一行 `🚦trace`。编译机锁屏看不到画面,
+/// 只能靠它看 AppKit 在那一下动了什么。
+@MainActor
+enum PMWindowChromeTrace {
+    private static var until = Date.distantPast
+    private static var reason = ""
+    private static var last = ""
+    private static weak var window: NSWindow?
+    private static var timer: Timer?
+
+    static func register(_ window: NSWindow) {
+        self.window = window
+    }
+
+    /// 窗口更新通知在没人操作时很稀疏(编译机锁屏时几乎没有), 所以另开一个 8 毫秒的计时器取样。
+    static func start(_ reason: String) {
+        until = Date().addingTimeInterval(1.5)
+        self.reason = reason
+        last = ""
+        timer?.invalidate()
+        let timer = Timer(timeInterval: 0.008, repeats: true) { _ in
+            MainActor.assumeIsolated { tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private static func tick() {
+        guard Date() < until, let window else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        sample(window, event: "tick")
+    }
+
+    static func sample(_ window: NSWindow, event: String) {
+        guard Date() < until else { return }
+        let state = describe(window)
+        guard state != last else { return }
+        last = state
+        plog("🚦trace \(reason) \(event): \(state)")
+    }
+
+    private static func describe(_ window: NSWindow) -> String {
+        let frameView = window.contentView?.superview
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].map { type -> String in
+            guard let button = window.standardWindowButton(type) else { return "nil" }
+            var alpha = button.alphaValue
+            var hidden = button.isHidden
+            var ancestor = button.superview
+            while let view = ancestor, view !== frameView {
+                alpha = min(alpha, view.alphaValue)
+                hidden = hidden || view.isHidden
+                ancestor = view.superview
+            }
+            let frame = button.convert(button.bounds, to: nil)
+            return String(format: "%.1f,%.1f a%.2f%@%@", frame.minX, frame.minY, alpha,
+                          hidden ? " hidden" : "", button.isEnabled ? "" : " off")
+        }
+        let toolbar = window.toolbar.map { "\(ObjectIdentifier($0).hashValue % 100_000)\($0.isVisible ? "v" : "h")" } ?? "none"
+        return "key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0) "
+            + "sheet=\(window.attachedSheet == nil ? 0 : 1) tb=\(toolbar) [\(buttons.joined(separator: " | "))]"
+    }
+}
+
 /// 自定义标题栏与 AppKit 抢同一批窗口属性时，红绿灯会抖甚至整排消失。这里按秒汇总
 /// 每一项被我们改回去的次数：界面静止时应该一行都不出现，某一项每秒几十次就说明是
 /// 它在跟系统拉锯 —— 拿着这行日志才好判断该让谁。只在 Debug 构建里存在。

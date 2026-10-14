@@ -6064,3 +6064,7 @@
 "lyrics_translation_skipped_languages_footer" = "チェックした言語の歌詞は原文のまま表示し、ほかの言語はこれまでどおり翻訳します。翻訳先と同じ言語の歌詞はもともと翻訳しません。";
 "lyrics_translation_skipped_languages_none" = "なし";
 "lyrics_translation_skipped_languages_section" = "原文のまま";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "このMac";
+"cast_dlna_required_hint_mac" = "デバイスが UPnP/DLNA レンダラーに対応し、このMacと同じネットワークにある必要があります。";

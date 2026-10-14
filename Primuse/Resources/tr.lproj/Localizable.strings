@@ -5969,3 +5969,7 @@
 "lyrics_translation_skipped_languages_footer" = "İşaretli dillerdeki sözler olduğu gibi kalır; diğer diller her zamanki gibi çevrilir. Zaten hedef dilde olan sözler hiçbir zaman çevrilmez.";
 "lyrics_translation_skipped_languages_none" = "Yok";
 "lyrics_translation_skipped_languages_section" = "Orijinal kalsın";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Bu Mac";
+"cast_dlna_required_hint_mac" = "Cihazın UPnP/DLNA oynatıcıyı desteklemesi ve bu Mac ile aynı ağda olması gerekir.";

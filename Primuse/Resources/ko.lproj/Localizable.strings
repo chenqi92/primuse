@@ -6063,3 +6063,7 @@
 "lyrics_translation_skipped_languages_footer" = "선택한 언어의 가사는 원문 그대로 두고, 다른 언어는 평소처럼 번역합니다. 대상 언어와 같은 가사는 원래 번역하지 않습니다.";
 "lyrics_translation_skipped_languages_none" = "없음";
 "lyrics_translation_skipped_languages_section" = "원문 유지";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "이 Mac";
+"cast_dlna_required_hint_mac" = "기기가 UPnP/DLNA 렌더러를 지원하고 이 Mac과 같은 네트워크에 있어야 합니다.";

@@ -5823,3 +5823,7 @@
 "lyrics_translation_skipped_languages_footer" = "Lyrics in the checked languages stay as written; other languages are still translated. Lyrics already in the target language are never translated.";
 "lyrics_translation_skipped_languages_none" = "None";
 "lyrics_translation_skipped_languages_section" = "Keep Original";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "This Mac";
+"cast_dlna_required_hint_mac" = "The device needs to support UPnP/DLNA rendering and be on the same network as this Mac.";

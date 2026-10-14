@@ -5969,3 +5969,7 @@
 "lyrics_translation_skipped_languages_footer" = "A letra nos idiomas marcados fica como está; os outros idiomas continuam sendo traduzidos. A letra que já está no idioma de destino nunca é traduzida.";
 "lyrics_translation_skipped_languages_none" = "Nenhum";
 "lyrics_translation_skipped_languages_section" = "Manter original";
+
+/* 投放设备：Mac 上的本机一行与搜索提示 */
+"cast_this_mac" = "Este Mac";
+"cast_dlna_required_hint_mac" = "O dispositivo precisa ser compatível com renderização UPnP/DLNA e estar na mesma rede que este Mac.";
