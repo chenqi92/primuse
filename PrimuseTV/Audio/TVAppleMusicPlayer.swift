@@ -265,7 +265,10 @@ final class TVAppleMusicPlayer {
                     ) {
                         plog("Apple Music TV retry failed at \(retryFailure.stage) "
                              + "(\(Self.describe(retryError)))")
-                        throw Self.playbackFailure(retryFailure.underlying)
+                        try await startCatalogEquivalent(
+                            of: first, startAt: startAt, autoPlay: autoPlay,
+                            canContinue: canContinue, failure: retryFailure.underlying
+                        )
                     }
                 }
             }
@@ -273,6 +276,87 @@ final class TVAppleMusicPlayer {
         try checkCurrent(canContinue)
         activeItemID = first.id.rawValue
         return first.duration ?? 0
+    }
+
+    /// 资料库条目在电视上 prepare 一直失败(MPMusicPlayerControllerErrorDomain 6/10,09-28 起每次都是
+    /// 资料库条目),换成目录里的同一首再起播一次。找不到目录条目或仍然失败就照原来的错误报出去。
+    private func startCatalogEquivalent(
+        of song: MusicKit.Song,
+        startAt: TimeInterval,
+        autoPlay: Bool,
+        canContinue: () -> Bool,
+        failure: Error
+    ) async throws {
+        guard AppleMusicTVPlaybackPolicy.usesUserLibraryLookup(itemID: song.id.rawValue),
+              let catalogSong = await Self.catalogEquivalent(of: song) else {
+            throw Self.playbackFailure(failure)
+        }
+        try checkCurrent(canContinue)
+        ApplicationMusicPlayer.shared.stop()
+        do {
+            try await prepareAndPlay([catalogSong], startAt: startAt, autoPlay: autoPlay,
+                                     canContinue: canContinue)
+            plog("Apple Music TV library item started from its catalog equivalent")
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let catalogFailure as QueueStartError {
+            let catalogError = catalogFailure.underlying as NSError
+            guard AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                errorDomain: catalogError.domain, errorCode: catalogError.code,
+                failedWhilePlaying: catalogFailure.failedWhilePlaying
+            ) else {
+                plog("Apple Music TV catalog equivalent failed at \(catalogFailure.stage) "
+                     + "(\(Self.describe(catalogError)))")
+                throw Self.playbackFailure(failure)
+            }
+        }
+    }
+
+    /// 资料库条目对应的目录条目:播放参数里的 catalogId / globalId,或分享链接里的 `?i=`。
+    private static func catalogEquivalent(of song: MusicKit.Song) async -> MusicKit.Song? {
+        var candidates: [String] = []
+        if let playParameters = song.playParameters,
+           let data = try? JSONEncoder().encode(playParameters),
+           let object = try? JSONSerialization.jsonObject(with: data) {
+            collectCatalogIDs(from: object, into: &candidates)
+        }
+        if let url = song.url,
+           let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
+            candidates += items.filter { $0.name.lowercased() == "i" }.compactMap(\.value)
+        }
+        var tried = Set<String>()
+        for id in candidates where !id.isEmpty && !id.hasPrefix("i.") && tried.insert(id).inserted {
+            var request = MusicCatalogResourceRequest<MusicKit.Song>(
+                matching: \.id, equalTo: MusicItemID(rawValue: id)
+            )
+            if #available(tvOS 26.4, *) {
+                request.options = [.findEquivalents]
+            }
+            if let catalogSong = try? await request.response().items.first {
+                return catalogSong
+            }
+        }
+        plog("Apple Music TV no catalog equivalent for library item (candidates=\(tried.count))")
+        return nil
+    }
+
+    private static func collectCatalogIDs(from object: Any, into candidates: inout [String]) {
+        if let dictionary = object as? [String: Any] {
+            for (key, value) in dictionary {
+                let normalizedKey = key.lowercased().filter(\.isLetter)
+                if normalizedKey == "catalogid" || normalizedKey == "globalid" {
+                    if let text = value as? String {
+                        candidates.append(text)
+                    } else if let number = value as? NSNumber {
+                        candidates.append(number.stringValue)
+                    }
+                } else {
+                    collectCatalogIDs(from: value, into: &candidates)
+                }
+            }
+        } else if let array = object as? [Any] {
+            for value in array { collectCatalogIDs(from: value, into: &candidates) }
+        }
     }
 
     private func prepareAndPlay(_ songs: [MusicKit.Song], startIndex: Int = 0, startAt: TimeInterval,
