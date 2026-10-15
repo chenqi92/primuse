@@ -473,7 +473,8 @@ private struct BookSearchHit: Identifiable, Sendable {
     let book: SpokenWordBook
     /// 书里的条目, 按章节顺序。
     let songs: [PrimuseKit.Song]
-    /// 命中的是某一章的标题或文件名时, 那一章的标题。
+    /// 命中的是某一章的标题或文件名时, 那一章。行里显示它的标题, 点下去从它开始播。
+    let matchedItemID: String?
     let matchedItemTitle: String?
     var id: String { book.id }
 }
@@ -922,13 +923,14 @@ struct SearchView: View {
                 try Task.checkCancellation()
                 let hits = ListeningSpaceSearchPolicy.matchBooks(query: query, in: grouped.books).compactMap { match -> BookSearchHit? in
                     guard let book = grouped.bookByID[match.bookID] else { return nil }
-                    let itemTitle = match.matchedItemID.flatMap { id in
-                        book.items.first { $0.id == id }?.title
+                    let matchedItem = match.matchedItemID.flatMap { id in
+                        book.items.first { $0.id == id }
                     }
                     return BookSearchHit(
                         book: book,
                         songs: book.items.compactMap { grouped.songsByID[$0.id] },
-                        matchedItemTitle: itemTitle
+                        matchedItemID: matchedItem?.id,
+                        matchedItemTitle: matchedItem?.title
                     )
                 }
                 return (grouped, hits)
@@ -970,7 +972,9 @@ struct SearchView: View {
         Task { await player.play(station: station, within: radioStore.stations) }
     }
 
-    /// 从上次停下的地方接着听这本书。进度按点下去这一刻重新取, 搜出来之后又听过也不会跳回去。
+    /// 命中的是某一章就从那一章开始, 和书页里点章节一样; 命中书名或作者时从上次停下的地方接着听。
+    /// 进度按点下去这一刻重新取, 搜出来之后又听过也不会跳回去。重新分组后那一章不在这本书里了,
+    /// `startItemID` 会退回续播。
     private func playBook(_ hit: BookSearchHit) {
         guard !hit.songs.isEmpty else { return }
         addRecentSearch(searchText)
@@ -981,7 +985,7 @@ struct SearchView: View {
         let book = regrouped.first { $0.id == hit.book.id } ?? regrouped.first ?? hit.book
         let songsByID = Dictionary(hit.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let orderedSongs = book.items.compactMap { songsByID[$0.id] }
-        SpokenWordBookSupport.play(book, songs: orderedSongs, from: nil, player: player)
+        SpokenWordBookSupport.play(book, songs: orderedSongs, from: hit.matchedItemID, player: player)
     }
 
     private var insecureStationAlertPresented: Binding<Bool> {
