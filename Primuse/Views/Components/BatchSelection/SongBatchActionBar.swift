@@ -615,13 +615,9 @@ private struct SongBatchActionsModifier: ViewModifier {
     /// 全都已是同一类时不列那一类;分属几类时三项都给。
     @ViewBuilder
     private var spokenWordMoveButton: some View {
-        let spokenWordIDs = library.spokenWordSongIDs
-        let podcastIDs = Set(library.localPodcastSongs.map(\.id))
-        let ids = selection.selectedIDs
-        let kinds = Set(ids.lazy.map { id -> ListeningContentKind in
-            podcastIDs.contains(id) ? .podcast : spokenWordIDs.contains(id) ? .spokenWord : .music
-        })
-        ListeningKindMoveButtons(current: kinds.count == 1 ? kinds.first : nil) { kind in
+        ListeningKindMoveButtons(
+            current: ListeningKindMoveButtons.sharedKind(of: selection.selectedIDs, in: library)
+        ) { kind in
             SpokenWordStore.shared.move(selectedSongs(), to: kind)
             library.refreshContentClassification()
             // 搬走的歌会离开当前列表,选择随之结束。

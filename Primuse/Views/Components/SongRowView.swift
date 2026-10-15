@@ -2142,27 +2142,49 @@ struct SongOfflineActionButtons: View {
 }
 
 /// 「标记为音乐 / 有声书 / 播客」:列出当前分类以外的几项。`current` 为 nil 表示选中的歌
-/// 分属不同分类,三项都给。歌曲菜单、Mac 右键菜单和批量操作共用。
+/// 分属不同分类,三项都给。歌曲菜单、Mac 右键菜单、批量操作和专辑菜单共用。
 struct ListeningKindMoveButtons: View {
     let current: ListeningContentKind?
     let move: (ListeningContentKind) -> Void
 
     var body: some View {
-        ForEach(ListeningContentKind.allCases.filter { $0 != current }, id: \.self) { kind in
+        ForEach(Self.targets(from: current), id: \.self) { kind in
+            let label = Self.label(for: kind)
             Button {
                 move(kind)
             } label: {
-                // 三条分支各写各的 key: 拼出来的键提取不到, 会以键名原样上屏。
-                switch kind {
-                case .music:
-                    Label(String(localized: "mark_as_music"), systemImage: "music.note")
-                case .spokenWord:
-                    Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
-                case .podcast:
-                    Label(String(localized: "mark_as_podcast"), systemImage: ListeningSpace.podcast.systemImage)
-                }
+                Label(label.title, systemImage: label.systemImage)
             }
         }
+    }
+
+    /// 当前分类以外的几项, 顺序固定。
+    static func targets(from current: ListeningContentKind?) -> [ListeningContentKind] {
+        ListeningContentKind.allCases.filter { $0 != current }
+    }
+
+    @MainActor
+    static func label(for kind: ListeningContentKind) -> (title: String, systemImage: String) {
+        // 三条分支各写各的 key: 拼出来的键提取不到, 会以键名原样上屏。
+        switch kind {
+        case .music:
+            (String(localized: "mark_as_music"), "music.note")
+        case .spokenWord:
+            (String(localized: "mark_as_spoken_word"), "books.vertical")
+        case .podcast:
+            (String(localized: "mark_as_podcast"), ListeningSpace.podcast.systemImage)
+        }
+    }
+
+    /// 一批歌共同的分类, 分属几类时为 nil。按曲库聚合好的分类读, 和列表里显示的一致。
+    @MainActor
+    static func sharedKind(of songIDs: some Sequence<String>, in library: MusicLibrary) -> ListeningContentKind? {
+        let spokenWordIDs = library.spokenWordSongIDs
+        let podcastIDs = Set(library.localPodcastSongs.map(\.id))
+        let kinds = Set(songIDs.lazy.map { id -> ListeningContentKind in
+            podcastIDs.contains(id) ? .podcast : spokenWordIDs.contains(id) ? .spokenWord : .music
+        })
+        return kinds.count == 1 ? kinds.first : nil
     }
 }
 

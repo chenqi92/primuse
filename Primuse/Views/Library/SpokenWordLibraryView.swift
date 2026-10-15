@@ -881,7 +881,9 @@ struct SpokenWordShelfContent: View {
             }
         }
         Button {
-            store.setKind(.music, forSongIDs: book.items.map(\.id))
+            // 和单曲、批量菜单同一语义:目录或文件已经说是音乐的只清掉手动记录。收听进度留着,
+            // 标错了再从专辑菜单标回有声书,接着原来的地方听。
+            store.move(songs, to: .music)
             library.refreshContentClassification()
         } label: {
             Label(String(localized: "mark_as_music"), systemImage: "music.note")

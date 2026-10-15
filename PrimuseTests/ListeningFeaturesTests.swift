@@ -557,11 +557,14 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertTrue(legacyStore.bookmarks(forSongID: "x").isEmpty)
     }
 
-    func testReclassifyingAsMusicDropsFinishedMarks() throws {
+    func testReclassifyingAsMusicAndBackKeepsListeningProgress() throws {
         let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("s.json"))
         store.markFinished(true, songIDs: ["x"])
-        store.setKind(.music, forSongIDs: ["x"])
-        XCTAssertFalse(store.isFinished(songID: "x"))
+        store.rememberPosition(600, duration: 3_600, forSongID: "y")
+        store.setKind(.music, forSongIDs: ["x", "y"])
+        store.setKind(.spokenWord, forSongIDs: ["x", "y"])
+        XCTAssertTrue(store.isFinished(songID: "x"))
+        XCTAssertEqual(store.position(forSongID: "y")?.position, 600)
     }
 
     func testMovingSongsStoresCorrectionsOnlyWhereTheTagsDisagree() throws {
@@ -602,7 +605,8 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(player.currentItemIsSpokenWord)
         player.currentTime = 900
         player.rememberSpokenWordPosition(force: true)
-        XCTAssertNil(store.position(forSongID: track.id))
+        // 标成音乐后进度留着备用, 但音乐播放不再写它。
+        XCTAssertEqual(store.position(forSongID: track.id)?.position, 600)
     }
 
     // MARK: - Playback rate and chapter sleep

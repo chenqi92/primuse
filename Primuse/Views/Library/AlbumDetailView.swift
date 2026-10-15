@@ -222,6 +222,19 @@ struct AlbumDetailView: View {
         )
     }
 
+    /// 专辑里曲库那几首共同的分类(音乐 / 有声书 / 播客),分属几类时为 nil。
+    private var songsListeningKind: ListeningContentKind? {
+        ListeningKindMoveButtons.sharedKind(of: songs.lazy.map(\.id), in: library)
+    }
+
+    /// 整张专辑搬到另一类:一本书被标成音乐后,在这里一次标回有声书,不必一首一首地改。
+    /// 和单曲、批量菜单一样走 `move`,目录或文件本身已经是这一类的歌只清掉手动记录。
+    private func moveSongs(to kind: ListeningContentKind) {
+        selection.deactivate()
+        SpokenWordStore.shared.move(songs, to: kind)
+        library.refreshContentClassification()
+    }
+
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
     private var orderedSongIDs: [String] {
         albumSongs.filter { !isCatalogOnly($0) }.map(\.id)
@@ -372,6 +385,9 @@ struct AlbumDetailView: View {
                     } label: {
                         Label("restore_file_tags", systemImage: "arrow.uturn.backward")
                     }
+                }
+                if !songs.isEmpty {
+                    ListeningKindMoveButtons(current: songsListeningKind) { moveSongs(to: $0) }
                 }
             }
         }
@@ -803,6 +819,12 @@ struct AlbumDetailView: View {
             second.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
                 sourceManager.downloadForOffline(songs: downloads)
             }, at: 1)
+        }
+        if !songs.isEmpty {
+            for kind in ListeningKindMoveButtons.targets(from: songsListeningKind) {
+                let label = ListeningKindMoveButtons.label(for: kind)
+                second.append(.init(icon: label.systemImage, title: label.title) { moveSongs(to: kind) })
+            }
         }
         if let artist = albumArtist {
             second.append(.init(icon: "music.mic", title: String(localized: "go_to_artist")) {

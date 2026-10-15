@@ -666,14 +666,10 @@ final class SpokenWordStore {
             if wasPodcast || kind == .podcast { ledger.podcastMarkChangedAt[songID] = now }
             changed = true
         }
-        // Music does not carry a resume position, so dropping it here keeps a
-        // reclassified item from resuming mid-file later.
-        if kind == .music {
-            for songID in songIDs {
-                if removePosition(songID, at: now) { changed = true }
-                if removeFinished(songID, at: now) { changed = true }
-            }
-        }
+        // Positions and finished marks stay when an item becomes music: only
+        // spoken-word playback and the shelf read them, so they lie unused
+        // until the item is marked back, and a book marked music by mistake
+        // then continues where it was. The sync cap drops them by age.
         guard changed else { return }
         didChange(cloud: .prompt)
     }
