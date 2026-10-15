@@ -208,6 +208,8 @@
 "queue_title" = "播放队列";
 "queue_empty" = "队列为空";
 "queue_empty_desc" = "添加歌曲到队列";
+"queue_empty_mac_hint_format" = "播放一首歌、一张专辑或一个歌单，接下来要播的歌会排在这里。也可以在歌曲上右键选「%@」。";
+"queue_clear_played" = "清除已播放";
 "up_next" = "接下来播放";
 
 // MARK: - 搜索

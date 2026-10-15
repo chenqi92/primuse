@@ -207,6 +207,8 @@
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";
 "queue_empty_desc" = "Add songs to the queue";
+"queue_empty_mac_hint_format" = "Play a song, album or playlist and what's coming up appears here. You can also right-click a song and choose “%@”.";
+"queue_clear_played" = "Clear Played";
 "up_next" = "Up Next";
 
 // MARK: - Search

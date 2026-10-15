@@ -17,11 +17,18 @@ struct MacQueuePanel: View {
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
+        let isEmpty = player.queueEntries.isEmpty
         VStack(spacing: 0) {
-            header
+            header(isEmpty: isEmpty)
             list
-            footer
+            // 空队列时「清除已播放 / 保存为歌单」都无事可做, 整条底栏不画。
+            if !isEmpty {
+                footer
+            }
         }
+        // 面板永远占满右侧整列: 空态只有一小块内容, 不撑满的话会缩成一个灰块
+        // 悬在窗口中间, 上下露出正文的底色。
+        .frame(maxHeight: .infinity, alignment: .top)
         .background {
             ZStack {
                 NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
@@ -40,70 +47,120 @@ struct MacQueuePanel: View {
     private var list: some View {
         let entries = player.queueEntries
         if entries.isEmpty {
-            ContentUnavailableView(
-                "queue_empty",
-                systemImage: "music.note.list",
-                description: Text("queue_empty_desc")
-            )
+            emptyState
         } else {
-            ScrollView(.vertical, showsIndicators: false) {
-                // A large library can put thousands of songs in the queue.
-                // Eager stacks instantiate every row (including its artwork)
-                // as soon as the panel opens, which made a 2K-song queue add
-                // roughly 600 MB of resident memory. Keep both the section
-                // list and each section's rows lazy so only visible artwork is
-                // decoded and retained.
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
-                    // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
-                    let cur = min(max(player.currentIndex, 0), entries.count - 1)
-                    let currentEntryID = entries[cur].id
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    // A large library can put thousands of songs in the queue.
+                    // Eager stacks instantiate every row (including its artwork)
+                    // as soon as the panel opens, which made a 2K-song queue add
+                    // roughly 600 MB of resident memory. Keep both the section
+                    // list and each section's rows lazy so only visible artwork is
+                    // decoded and retained.
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
+                        // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
+                        let cur = min(max(player.currentIndex, 0), entries.count - 1)
+                        let currentEntryID = entries[cur].id
 
-                    // In shuffle mode raw queue offsets are not playback history.
-                    // Use the player's current-round traversal prefix so Played
-                    // cannot overlap the current-round Up Next section.
-                    let playedEntries = player.playedQueueEntries
-                    if !playedEntries.isEmpty {
-                        queueSection(title: "played") {
-                            ForEach(playedEntries) { entry in
-                                queueRow(entry: entry.entry, dimmed: true)
+                        // In shuffle mode raw queue offsets are not playback history.
+                        // Use the player's current-round traversal prefix so Played
+                        // cannot overlap the current-round Up Next section.
+                        let playedEntries = player.playedQueueEntries
+                        if !playedEntries.isEmpty {
+                            queueSection(title: "played") {
+                                ForEach(playedEntries) { entry in
+                                    queueRow(entry: entry.entry, dimmed: true)
+                                }
+                            }
+                        }
+
+                        if let current = player.currentSong {
+                            let currentEntry = entries[cur]
+                            queueSection(title: "now_playing", accent: true) {
+                                queueRow(entry: currentEntry, displayedSong: current, isPlaying: true)
+                                    .id(currentEntry.id)
+                            }
+                            .id(Self.nowPlayingAnchor)
+                        }
+
+                        // Use the player's real traversal order. In shuffle mode
+                        // this differs from the raw queue tail.
+                        // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
+                        let upNext = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
+                            player.isAutoContinuationEntry($0.entry)
+                        }
+                        if !upNext.queued.isEmpty {
+                            queueSection(title: "up_next") {
+                                ForEach(upNext.queued) { entry in
+                                    upcomingRow(entry, currentEntryID: currentEntryID)
+                                }
+                            }
+                        }
+                        if !upNext.autoplay.isEmpty {
+                            queueSection(title: "queue_autoplay_section") {
+                                ForEach(upNext.autoplay) { entry in
+                                    upcomingRow(entry, currentEntryID: currentEntryID)
+                                }
                             }
                         }
                     }
-
-                    if let current = player.currentSong {
-                        let currentEntry = entries[cur]
-                        queueSection(title: "now_playing", accent: true) {
-                            queueRow(entry: currentEntry, displayedSong: current, isPlaying: true)
-                                .id(currentEntry.id)
-                        }
-                    }
-
-                    // Use the player's real traversal order. In shuffle mode
-                    // this differs from the raw queue tail.
-                    // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
-                    let upNext = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
-                        player.isAutoContinuationEntry($0.entry)
-                    }
-                    if !upNext.queued.isEmpty {
-                        queueSection(title: "up_next") {
-                            ForEach(upNext.queued) { entry in
-                                upcomingRow(entry, currentEntryID: currentEntryID)
-                            }
-                        }
-                    }
-                    if !upNext.autoplay.isEmpty {
-                        queueSection(title: "queue_autoplay_section") {
-                            ForEach(upNext.autoplay) { entry in
-                                upcomingRow(entry, currentEntryID: currentEntryID)
-                            }
-                        }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 14)
+                }
+                // 「已播放」排在最上面, 听了一阵再打开面板, 看到的是一屏旧歌。
+                // 打开时直接停在正在播放这一段, 往上翻才是历史, 和 Apple Music 一样。
+                // 只在出现时定一次位, 面板开着时切歌不去抢用户正在看的位置。
+                .onAppear {
+                    guard player.currentSong != nil, !player.playedQueueEntries.isEmpty else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        proxy.scrollTo(Self.nowPlayingAnchor, anchor: .top)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 14)
             }
         }
+    }
+
+    private static let nowPlayingAnchor = "queue.nowPlaying"
+
+    /// 空队列: 说清楚队列从哪来, 再给一个马上能听的入口。
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 56, height: 56)
+                .background(PMColor.glassBtn, in: .circle)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 6) {
+                Text("queue_empty")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(verbatim: String(
+                    format: String(localized: "queue_empty_mac_hint_format"),
+                    String(localized: "insert_next")
+                ))
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // 资料库里一首歌都没有时, 这个按钮按下去什么也不会发生, 不给。
+            if !library.musicSongs.isEmpty {
+                QueueEmptyShuffleButton(action: shuffleLibrary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 36)
+        // 视觉重心略高于几何中心, 底下还压着播放条。
+        .padding(.bottom, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .pmAppearFade(.contentAppear)
     }
 
     private func upcomingRow(_ entry: QueuePresentationEntry, currentEntryID: UUID) -> some View {
@@ -119,19 +176,24 @@ struct MacQueuePanel: View {
         )
     }
 
-    private var header: some View {
+    private func header(isEmpty: Bool) -> some View {
         HStack(spacing: 8) {
             Text("queue_title")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PMColor.text)
-            Text(verbatim: queueSummaryText)
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
-            Spacer(minLength: 0)
-            PlayerMoreMenu {
-                PMRoundBtnIcon(symbol: "ellipsis")
+            // 空队列时「0 首歌曲 · 0:00」没有意义; 更多菜单针对当前歌曲, 没歌在播也不给。
+            if !isEmpty {
+                Text(verbatim: queueSummaryText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
             }
-            .frame(width: 24, height: 24)
+            Spacer(minLength: 0)
+            if !isEmpty || player.currentSong != nil {
+                PlayerMoreMenu {
+                    PMRoundBtnIcon(symbol: "ellipsis")
+                }
+                .frame(width: 24, height: 24)
+            }
             Button(action: onClose) {
                 PMRoundBtnIcon(symbol: "xmark")
             }
@@ -303,7 +365,8 @@ struct MacQueuePanel: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Button("clear_all") { clearPlayed(uptoIndex: player.currentIndex) }
+            // 只删「已播放」那一段, 当前和接下来的歌都留着; 原来写「清除全部」名不副实。
+            Button("queue_clear_played") { clearPlayed(uptoIndex: player.currentIndex) }
                 // Prefix removal only matches the visible Played partition in
                 // non-shuffle order. Never delete unrelated raw slots in shuffle.
                 .disabled(player.shuffleEnabled || player.currentIndex <= 0)
@@ -378,12 +441,46 @@ struct MacQueuePanel: View {
         player.removeQueuePrefix(count: uptoIndex)
     }
 
+    private func shuffleLibrary() {
+        // 和首页「随机播放全部」同一套: 整库不含不喜欢的歌(#193)。
+        let ids = library.musicSongIDsExcludingDisliked
+        guard !ids.isEmpty else { return }
+        player.shuffleEnabled = false
+        Task { await player.play(queueIDs: ids, order: .shuffled) }
+    }
+
     private func saveQueueAsPlaylist() {
         guard !player.queue.isEmpty else { return }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         let playlist = library.createPlaylist(name: "\(String(localized: "queue_title")) \(formatter.string(from: Date()))")
         library.replacePlaylistSongs(playlistID: playlist.id, songIDs: player.queue.map(\.id))
+    }
+}
+
+private struct QueueEmptyShuffleButton: View {
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "shuffle")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("shuffle_all")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 28)
+            .background(PMColor.brand.opacity(hover ? 0.86 : 1), in: .capsule)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .pmAnimation(.hover, value: hover)
     }
 }
 

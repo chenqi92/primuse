@@ -439,6 +439,8 @@
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";
 "queue_empty_desc" = "キューに曲を追加してください";
+"queue_empty_mac_hint_format" = "曲・アルバム・プレイリストを再生すると、次に再生される曲がここに並びます。曲を右クリックして「%@」を選ぶこともできます。";
+"queue_clear_played" = "再生済みを消去";
 "up_next" = "次に再生";
 "recent_searches" = "最近の検索";
 "browse" = "見つける";

@@ -2567,6 +2567,8 @@
 "queue_all_songs" = "Adicionar tudo à fila";
 "queue_empty" = "Fila vazia";
 "queue_empty_desc" = "Adicionar músicas à fila";
+"queue_empty_mac_hint_format" = "Toque uma música, um álbum ou uma lista de reprodução e o que vem a seguir aparece aqui. Você também pode clicar com o botão direito em uma música e escolher “%@”.";
+"queue_clear_played" = "Limpar reproduzidas";
 "queue_title" = "Fila de reprodução";
 "quit_app" = "Sair do Primuse";
 "radio_add" = "Adicionar estação";

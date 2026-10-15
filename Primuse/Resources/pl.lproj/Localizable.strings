@@ -2567,6 +2567,8 @@
 "queue_all_songs" = "Dodaj wszystko do kolejki";
 "queue_empty" = "Kolejka pusta";
 "queue_empty_desc" = "Dodaj utwory do kolejki";
+"queue_empty_mac_hint_format" = "Odtwórz utwór, album lub listę odtwarzania, a kolejne utwory pojawią się tutaj. Możesz też kliknąć utwór prawym przyciskiem i wybrać „%@”.";
+"queue_clear_played" = "Wyczyść odtworzone";
 "queue_title" = "Kolejka odtwarzania";
 "quit_app" = "Wyjdź z Primuse";
 "radio_add" = "Dodaj stację";

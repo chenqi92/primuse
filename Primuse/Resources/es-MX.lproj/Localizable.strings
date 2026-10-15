@@ -2567,6 +2567,8 @@
 "queue_all_songs" = "Agregar todo a la cola";
 "queue_empty" = "Cola vacía";
 "queue_empty_desc" = "Agregar canciones a la cola";
+"queue_empty_mac_hint_format" = "Reproduce una canción, un álbum o una lista de reproducción y lo que sigue aparecerá aquí. También puedes hacer clic derecho en una canción y elegir “%@”.";
+"queue_clear_played" = "Borrar reproducidas";
 "queue_title" = "Cola de reproducción";
 "quit_app" = "Salir de Primuse";
 "radio_add" = "Agregar estación";

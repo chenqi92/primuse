@@ -438,6 +438,8 @@
 "queue_title" = "Warteschlange";
 "queue_empty" = "Warteschlange leer";
 "queue_empty_desc" = "Füge Titel zur Warteschlange hinzu";
+"queue_empty_mac_hint_format" = "Spiele einen Titel, ein Album oder eine Playlist ab – was als Nächstes kommt, erscheint hier. Du kannst auch mit der rechten Maustaste auf einen Titel klicken und „%@“ wählen.";
+"queue_clear_played" = "Gespielte entfernen";
 "up_next" = "Als Nächstes";
 "recent_searches" = "Letzte Suchanfragen";
 "browse" = "Durchsuchen";

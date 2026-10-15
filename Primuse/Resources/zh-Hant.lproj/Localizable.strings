@@ -199,6 +199,8 @@
 "queue_title" = "播放佇列";
 "queue_empty" = "佇列為空";
 "queue_empty_desc" = "加入歌曲到佇列";
+"queue_empty_mac_hint_format" = "播放一首歌、一張專輯或一個歌單，接下來要播的歌會排在這裡。也可以在歌曲上按右鍵選「%@」。";
+"queue_clear_played" = "清除已播放";
 "up_next" = "接下來播放";
 "recent_searches" = "最近搜尋";
 "browse" = "瀏覽";

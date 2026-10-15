@@ -1914,6 +1914,8 @@
 "scrape_word_level_suffix" = " · kelime senkronizasyonu";
 "Apple Music · Authorized" = "Apple Music · Yetkili";
 "queue_empty_desc" = "Şarkıları sıraya ekleyin";
+"queue_empty_mac_hint_format" = "Bir şarkı, albüm veya çalma listesi başlatın; sıradakiler burada görünür. Bir şarkıya sağ tıklayıp “%@” seçeneğini de seçebilirsiniz.";
+"queue_clear_played" = "Çalınanları temizle";
 "search_title" = "Ara";
 "relay_share_password_footer" = "Dinleyiciler markalı paylaşım sayfasının kilidini açar. Primuse bu parolayı saklamaz.";
 "source_diag_config_missing_host_suggestion" = "Kaynağı düzenleyin ve sunucu IP, etki alanı veya .local ana bilgisayar adını girin.";

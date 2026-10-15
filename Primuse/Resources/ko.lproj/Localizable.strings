@@ -438,6 +438,8 @@
 "queue_title" = "재생 대기열";
 "queue_empty" = "대기열 비어 있음";
 "queue_empty_desc" = "대기열에 곡을 추가하세요";
+"queue_empty_mac_hint_format" = "곡, 앨범 또는 플레이리스트를 재생하면 다음에 나올 곡이 여기에 표시됩니다. 곡을 오른쪽 클릭해 ‘%@’을(를) 선택할 수도 있습니다.";
+"queue_clear_played" = "재생한 곡 지우기";
 "up_next" = "다음 곡";
 "recent_searches" = "최근 검색";
 "browse" = "둘러보기";

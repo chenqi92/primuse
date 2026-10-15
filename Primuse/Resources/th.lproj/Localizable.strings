@@ -2567,6 +2567,8 @@
 "queue_all_songs" = "เพิ่มทั้งหมดลงในคิว";
 "queue_empty" = "คิวว่าง";
 "queue_empty_desc" = "เพิ่มเพลงลงในคิว";
+"queue_empty_mac_hint_format" = "เล่นเพลง อัลบั้ม หรือเพลย์ลิสต์ แล้วเพลงถัดไปจะแสดงที่นี่ หรือคลิกขวาที่เพลงแล้วเลือก “%@” ก็ได้";
+"queue_clear_played" = "ล้างเพลงที่เล่นแล้ว";
 "queue_title" = "คิว";
 "quit_app" = "ออก Primuse";
 "radio_add" = "เพิ่มสถานี";

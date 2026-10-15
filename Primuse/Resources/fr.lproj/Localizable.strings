@@ -438,6 +438,8 @@
 "queue_title" = "File de lecture";
 "queue_empty" = "File vide";
 "queue_empty_desc" = "Ajoutez des morceaux à la file de lecture";
+"queue_empty_mac_hint_format" = "Lancez un morceau, un album ou une playlist : la suite s’affichera ici. Vous pouvez aussi faire un clic droit sur un morceau et choisir « %@ ».";
+"queue_clear_played" = "Effacer les morceaux écoutés";
 "up_next" = "À suivre";
 "recent_searches" = "Recherches récentes";
 "browse" = "Parcourir";

@@ -1914,6 +1914,8 @@
 "scrape_word_level_suffix" = " · синхронизировано по словам";
 "Apple Music · Authorized" = "Apple Music · Авторизовано";
 "queue_empty_desc" = "Добавить песни в очередь.";
+"queue_empty_mac_hint_format" = "Включите песню, альбом или плейлист — следующие треки появятся здесь. Можно также щёлкнуть песню правой кнопкой и выбрать «%@».";
+"queue_clear_played" = "Очистить прослушанные";
 "search_title" = "Поиск";
 "relay_share_password_footer" = "Слушатели открывают фирменную страницу обмена. Primuse не сохраняет этот пароль.";
 "source_diag_config_missing_host_suggestion" = "Отредактируйте источник и введите сервер IP, домен или имя хоста .local.";
