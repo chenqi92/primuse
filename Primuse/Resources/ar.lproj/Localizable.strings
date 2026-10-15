@@ -4494,7 +4494,7 @@
 "spoken_word_go_to_book" = "اذهب إلى الكتاب";
 "spoken_word_delete_bookmark" = "حذف الإشارة المرجعية";
 "spoken_word_continue" = "متابعة";
-"spoken_word_start" = "بدء الاستماع";
+"spoken_word_start" = "بدء";
 "spoken_word_finished" = "تم الاستماع";
 "spoken_word_archive" = "أرشفة";
 "spoken_word_unarchive" = "إلغاء الأرشفة";

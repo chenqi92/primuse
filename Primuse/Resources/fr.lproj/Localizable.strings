@@ -4588,7 +4588,7 @@
 "spoken_word_go_to_book" = "Aller au livre";
 "spoken_word_delete_bookmark" = "Supprimer le signet";
 "spoken_word_continue" = "Reprendre";
-"spoken_word_start" = "Commencer l’écoute";
+"spoken_word_start" = "Commencer";
 "spoken_word_finished" = "Terminé";
 "spoken_word_archive" = "Archiver";
 "spoken_word_unarchive" = "Désarchiver";

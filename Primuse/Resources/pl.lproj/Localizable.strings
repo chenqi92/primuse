@@ -4494,7 +4494,7 @@
 "spoken_word_go_to_book" = "Przejdź do książki";
 "spoken_word_delete_bookmark" = "Usuń zakładkę";
 "spoken_word_continue" = "Kontynuuj";
-"spoken_word_start" = "Zacznij słuchać";
+"spoken_word_start" = "Zacznij";
 "spoken_word_finished" = "Wysłuchane";
 "spoken_word_archive" = "Archiwizuj";
 "spoken_word_unarchive" = "Przywróć z archiwum";

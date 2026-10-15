@@ -1377,7 +1377,7 @@ struct SpokenWordBookDetailView: View {
                         .tint(ListeningSpace.spokenWord.tint)
                 }
                 // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先把语速收成
-                // 只剩倍数,再不行把语速挪到下一行,「继续收听」始终是一行字。
+                // 只剩倍数,再不行把语速挪到下一行,「继续」始终是一行字。
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         phoneContinueButton(book, songs: songs)

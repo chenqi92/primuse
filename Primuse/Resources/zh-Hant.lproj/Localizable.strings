@@ -4564,8 +4564,8 @@
 "spoken_word_chapters_and_bookmarks" = "章節與書籤";
 "spoken_word_go_to_book" = "前往這本書";
 "spoken_word_delete_bookmark" = "刪除書籤";
-"spoken_word_continue" = "繼續收聽";
-"spoken_word_start" = "開始收聽";
+"spoken_word_continue" = "繼續";
+"spoken_word_start" = "開始";
 "spoken_word_finished" = "已聽完";
 "spoken_word_archive" = "封存";
 "spoken_word_unarchive" = "取消封存";

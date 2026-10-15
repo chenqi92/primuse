@@ -4351,7 +4351,7 @@
 "spoken_word_go_to_book" = "Go to Book";
 "spoken_word_delete_bookmark" = "Delete Bookmark";
 "spoken_word_continue" = "Continue";
-"spoken_word_start" = "Start Listening";
+"spoken_word_start" = "Start";
 "spoken_word_finished" = "Finished";
 "spoken_word_archive" = "Archive";
 "spoken_word_unarchive" = "Unarchive";

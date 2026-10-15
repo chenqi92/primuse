@@ -4494,7 +4494,7 @@
 "spoken_word_go_to_book" = "Перейти до книги";
 "spoken_word_delete_bookmark" = "Видалити закладку";
 "spoken_word_continue" = "Продовжити";
-"spoken_word_start" = "Почати слухати";
+"spoken_word_start" = "Почати";
 "spoken_word_finished" = "Прослухано";
 "spoken_word_archive" = "Архівувати";
 "spoken_word_unarchive" = "Повернути з архіву";
