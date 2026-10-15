@@ -1,6 +1,8 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 
 // MARK: - Appearance Mode
 
@@ -1849,9 +1851,7 @@ struct BrandMonogram: View {
 
 // MARK: - Alternate app icons (macOS dock 图标)
 
-/// 一套可切换的 App 图标。macOS 不支持 iOS 的 `setAlternateIconName`, 只能在
-/// 运行时换 dock 图标 (`NSApp.applicationIconImage`) 并持久化选择、下次启动重放;
-/// Finder 里 .app 包的图标不变 (沙盒应用改不了自身包)。
+/// 运行时应用 Dock 图标并持久化选择；退出后的图标由用户在 Finder 中设置。
 struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// 稳定标识。"" = 默认 (用 bundle 自带的 AppIcon-Mac)。
     let id: String
@@ -1878,8 +1878,8 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
         all.first { $0.id == id } ?? all[0]
     }
 
-    /// 包里的 Mac 图标集 (`ASSETCATALOG_COMPILER_APPICON_NAME`)。App 没运行、刚启动还没轮到
-    /// 我们的代码时, Dock 显示的就是它, 而且只有浅色一张。
+    /// 包里的 Mac 图标集 (`ASSETCATALOG_COMPILER_APPICON_NAME`)。未在 Finder 设置自定
+    /// 图标时，App 没运行、刚启动还没轮到我们的代码时，Dock 显示它，只有浅色一张。
     static let bundleIconName = "AppIcon-Mac"
 
     /// 交给 `applicationIconImage` 的 Dock 图标。**一律是浅色版, 不跟 App 的明暗模式走。**
@@ -1889,13 +1889,59 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// App 明暗换成深色版, 深色模式下每次启动都会从浅色跳成深色、退出再跳回来。
     ///
     /// 默认图标直接取包里那套 (从资源目录读, 不经系统图标缓存), 和启动前 Dock 上那张
-    /// 逐像素一致; 备选图标从预览资源渲染, 启动和退出时与默认图标互换这一下是系统限制。
+    /// 逐像素一致；备选图标从预览资源渲染，用户可导出同款并在 Finder 中设置退出后的图标。
     @MainActor
     static func dockIconImage(for icon: MacAppIcon) -> NSImage? {
         if icon.id.isEmpty, let bundled = Bundle.main.image(forResource: bundleIconName) {
             return bundled
         }
         return dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
+    }
+
+    enum ExportError: LocalizedError {
+        case imageUnavailable
+
+        var errorDescription: String? {
+            String(localized: "app_icon_export_failed_message")
+        }
+    }
+
+    @MainActor
+    static func icnsData(for icon: MacAppIcon) throws -> Data {
+        var sourceRect = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+        guard let image = dockIconImage(for: icon),
+              let source = image.cgImage(forProposedRect: &sourceRect, context: nil, hints: nil),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+            throw ExportError.imageUnavailable
+        }
+
+        let representations = [
+            (16, 1), (16, 2), (32, 1), (32, 2), (128, 1),
+            (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)
+        ]
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data, UTType.icns.identifier as CFString, representations.count, nil
+        ) else { throw ExportError.imageUnavailable }
+
+        for (points, scale) in representations {
+            let pixels = points * scale
+            guard let context = CGContext(
+                data: nil, width: pixels, height: pixels, bitsPerComponent: 8,
+                bytesPerRow: 0, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { throw ExportError.imageUnavailable }
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+            guard let resized = context.makeImage() else { throw ExportError.imageUnavailable }
+            // DPI 区分像素数相同的 1x / 2x 图层，避免 Retina 版本覆盖普通版本。
+            CGImageDestinationAddImage(destination, resized, [
+                kCGImagePropertyDPIWidth: 72 * scale,
+                kCGImagePropertyDPIHeight: 72 * scale
+            ] as CFDictionary)
+        }
+        guard CGImageDestinationFinalize(destination) else { throw ExportError.imageUnavailable }
+        return data as Data
     }
 
     /// 把满幅方形预览图渲染成标准 macOS 图标外形 (连续圆角 squircle + 四周留白)。

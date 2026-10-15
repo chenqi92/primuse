@@ -415,7 +415,16 @@
 "player_backdrop_tv_images_count" = "Images transférées depuis l’iPhone ou le Mac en scannant le code : %lld.";
 "player_backdrop_tv_images_empty" = "Aucune image sur cette Apple TV pour l’instant. Choisissez Mes images sur l’iPhone ou le Mac puis transférez en scannant le code : les images suivent. En attendant, les couleurs de la pochette sont affichées.";
 "app_icon" = "Icône de l'app";
-"app_icon_dock_hint" = "macOS ne peut remplacer l’icône du Dock que pendant l’exécution de Primuse ; une fois l’app quittée, le Dock réaffiche l’icône incluse dans le paquet.";
+"app_icon_dock_hint" = "Choisissez l’icône du Dock lorsque Primuse est ouvert. Pour la conserver après avoir quitté l’app, définissez-la dans le Finder.";
+"app_icon_finder_setup" = "Conserver l’icône après la fermeture…";
+"app_icon_finder_setup_title" = "Conserver l’icône après la fermeture";
+"app_icon_finder_step_export" = "1. Exportez l’icône sélectionnée.";
+"app_icon_export" = "Exporter l’icône…";
+"app_icon_finder_step_select" = "2. Sélectionnez Primuse dans le Finder et appuyez sur ⌘I pour ouvrir « Lire les informations ».";
+"app_icon_reveal_application" = "Afficher Primuse dans le Finder";
+"app_icon_finder_step_apply" = "3. Faites glisser le fichier .icns exporté sur la petite icône en haut à gauche de la fenêtre d’informations.";
+"app_icon_export_failed_title" = "Impossible d’exporter l’icône";
+"app_icon_export_failed_message" = "L’icône n’a pas pu être créée. Veuillez réessayer.";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";

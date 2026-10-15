@@ -6557,6 +6557,7 @@ private struct MacSTThemeView: View {
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @State private var preferences = MacUIPreferences.shared
+    @State private var iconForFinderSetup: MacAppIcon?
     @Environment(ThemeService.self) private var themeService
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
@@ -7019,6 +7020,13 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
+            MacSTButton(title: String(localized: "app_icon_finder_setup"), systemImage: "square.and.arrow.up") {
+                iconForFinderSetup = MacAppIcon.option(for: preferences.appIconID)
+            }
+            .padding(.horizontal, 14)
+        }
+        .sheet(item: $iconForFinderSetup) { icon in
+            MacAppIconFinderSetupSheet(icon: icon)
         }
         .settingsAnchor("appearance.appIcon")
 
@@ -7812,6 +7820,78 @@ private struct MacBrandSwatchChip: View {
         .help(Text(verbatim: swatch.hex.uppercased()))
         .accessibilityLabel(Text(verbatim: swatch.name))
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private struct MacAppIconFinderSetupSheet: View {
+    let icon: MacAppIcon
+    @Environment(\.dismiss) private var dismiss
+    @State private var exportError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                if let image = MacAppIcon.dockIconImage(for: icon) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 64, height: 64)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("app_icon_finder_setup_title")
+                        .font(.headline)
+                    Text(LocalizedStringKey(icon.nameKey))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("app_icon_finder_step_export")
+                Button("app_icon_export", action: exportIcon)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("app_icon_finder_step_select")
+                Button("app_icon_reveal_application") {
+                    NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+                }
+            }
+            Text("app_icon_finder_step_apply")
+
+            HStack {
+                Spacer()
+                Button("done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(24)
+        .frame(width: 480)
+        .onExitCommand { dismiss() }
+        .alert("app_icon_export_failed_title", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("ok", role: .cancel) { exportError = nil }
+        } message: {
+            Text(verbatim: exportError ?? "")
+        }
+    }
+
+    private func exportIcon() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.icns]
+        panel.nameFieldStringValue = "Primuse-\(icon.id.isEmpty ? "Default" : icon.id).icns"
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try MacAppIcon.icnsData(for: icon).write(to: url, options: .atomic)
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                exportError = error.localizedDescription
+            }
+        }
     }
 }
 

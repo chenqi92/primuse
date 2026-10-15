@@ -1577,7 +1577,16 @@
 "onboarding_guide_player_queue" = "Sıra: basılı tutup sürükleyerek sıradaki şarkıların sırasını değiştirin";
 "onboarding_guide_player_more" = "Diğer: DLNA cihazlarına yayınlayın, uyku zamanlayıcısı kurun veya şarkı sözü posteri paylaşın";
 "app_icon" = "Uygulama Simgesi";
-"app_icon_dock_hint" = "macOS, Dock simgesini yalnızca Primuse çalışırken değiştirebilir; uygulamadan çıkınca Dock, uygulama paketindeki simgeye döner.";
+"app_icon_dock_hint" = "Primuse çalışırken gösterilecek Dock simgesini seçin. Çıktıktan sonra da kullanmak için Finder’da ayarlayın.";
+"app_icon_finder_setup" = "Çıktıktan Sonra Simgeyi Koru…";
+"app_icon_finder_setup_title" = "Çıktıktan Sonra Simgeyi Koru";
+"app_icon_finder_step_export" = "1. Seçili simgeyi dışa aktarın.";
+"app_icon_export" = "Simgeyi Dışa Aktar…";
+"app_icon_finder_step_select" = "2. Finder’da Primuse’u seçin ve Bilgi Ver penceresini açmak için ⌘I tuşlarına basın.";
+"app_icon_reveal_application" = "Primuse’u Finder’da Göster";
+"app_icon_finder_step_apply" = "3. Dışa aktarılan .icns dosyasını bilgi penceresinin sol üst köşesindeki küçük simgeye sürükleyin.";
+"app_icon_export_failed_title" = "Simge Dışa Aktarılamadı";
+"app_icon_export_failed_message" = "Simge oluşturulamadı. Lütfen tekrar deneyin.";
 "audio_output_error_set_device %d" = "Ses çıkış cihazı seçilemedi (durum=%d).";
 "ai_recommendation_scene_automatic" = "Şu Anda";
 "lyrics_transcription_model" = "Transkripsiyon Modeli";

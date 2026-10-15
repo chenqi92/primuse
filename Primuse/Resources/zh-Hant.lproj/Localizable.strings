@@ -176,7 +176,16 @@
 "player_backdrop_tv_images_count" = "電視上有 %lld 張從 iPhone 或 Mac 掃碼直傳帶來的圖片。";
 "player_backdrop_tv_images_empty" = "電視上還沒有圖片。在 iPhone 或 Mac 上選好「我的圖片」後掃碼直傳，圖片會一起帶過來；在那之前顯示封面取色。";
 "app_icon" = "App 圖示";
-"app_icon_dock_hint" = "macOS 只能在 Primuse 執行時替換 Dock 圖示，結束後 Dock 會顯示 App 套件內建的圖示。";
+"app_icon_dock_hint" = "選擇執行時的 Dock 圖像。若要在結束後保留，請在 Finder 中設定。";
+"app_icon_finder_setup" = "結束後保留圖像…";
+"app_icon_finder_setup_title" = "結束後保留圖像";
+"app_icon_finder_step_export" = "1. 輸出目前選擇的圖像。";
+"app_icon_export" = "輸出圖像…";
+"app_icon_finder_step_select" = "2. 在 Finder 中選取 Primuse，按 ⌘I 開啟「取得資訊」。";
+"app_icon_reveal_application" = "在 Finder 中顯示 Primuse";
+"app_icon_finder_step_apply" = "3. 將輸出的 .icns 檔案拖到資訊視窗左上角的小圖像上。";
+"app_icon_export_failed_title" = "無法輸出圖像";
+"app_icon_export_failed_message" = "無法產生圖像，請再試一次。";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";

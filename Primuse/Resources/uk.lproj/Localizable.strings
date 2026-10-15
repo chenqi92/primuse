@@ -1577,7 +1577,16 @@
 "onboarding_guide_player_queue" = "Черга: утримуйте й перетягніть, щоб змінити порядок наступних пісень";
 "onboarding_guide_player_more" = "Більше: трансляція на DLNA-пристрої, таймер сну або постер із текстом пісні";
 "app_icon" = "Значок програми";
-"app_icon_dock_hint" = "macOS змінює значок у Dock лише поки Primuse запущено — після виходу Dock знову показує значок із пакета програми.";
+"app_icon_dock_hint" = "Виберіть іконку Dock для запущеного Primuse. Щоб зберегти її після виходу, установіть її у Finder.";
+"app_icon_finder_setup" = "Зберегти іконку після виходу…";
+"app_icon_finder_setup_title" = "Зберегти іконку після виходу";
+"app_icon_finder_step_export" = "1. Експортуйте вибрану іконку.";
+"app_icon_export" = "Експортувати іконку…";
+"app_icon_finder_step_select" = "2. Виберіть Primuse у Finder і натисніть ⌘I, щоб відкрити вікно інформації.";
+"app_icon_reveal_application" = "Показати Primuse у Finder";
+"app_icon_finder_step_apply" = "3. Перетягніть експортований файл .icns на маленьку іконку у верхньому лівому куті вікна інформації.";
+"app_icon_export_failed_title" = "Не вдалося експортувати іконку";
+"app_icon_export_failed_message" = "Не вдалося створити іконку. Спробуйте ще раз.";
 "audio_output_error_set_device %d" = "Не вдалося вибрати вихідний аудіопристрій (статус=%d).";
 "ai_recommendation_scene_automatic" = "Прямо зараз";
 "lyrics_transcription_model" = "Модель транскрипції";

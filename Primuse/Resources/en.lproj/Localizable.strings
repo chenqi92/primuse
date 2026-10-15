@@ -184,7 +184,16 @@
 "player_backdrop_tv_images_count" = "Pictures brought over from iPhone or Mac by scanning the code: %lld.";
 "player_backdrop_tv_images_empty" = "No pictures on this Apple TV yet. Pick My Pictures on iPhone or Mac and scan the code to transfer; the pictures come along. Until then, cover colors are shown.";
 "app_icon" = "App Icon";
-"app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle.";
+"app_icon_dock_hint" = "Choose the Dock icon shown while Primuse is running. To keep it after quitting, set it in Finder.";
+"app_icon_finder_setup" = "Keep Icon After Quitting…";
+"app_icon_finder_setup_title" = "Keep Icon After Quitting";
+"app_icon_finder_step_export" = "1. Export the selected icon.";
+"app_icon_export" = "Export Icon…";
+"app_icon_finder_step_select" = "2. Select Primuse in Finder and press ⌘I to open Get Info.";
+"app_icon_reveal_application" = "Show Primuse in Finder";
+"app_icon_finder_step_apply" = "3. Drag the exported .icns file onto the small icon at the top left of the Info window.";
+"app_icon_export_failed_title" = "Couldn’t Export Icon";
+"app_icon_export_failed_message" = "The icon could not be created. Please try again.";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";

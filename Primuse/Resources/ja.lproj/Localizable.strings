@@ -416,7 +416,16 @@
 "player_backdrop_tv_images_count" = "iPhone または Mac からコードのスキャンで転送した画像：%lld 枚。";
 "player_backdrop_tv_images_empty" = "この Apple TV にはまだ画像がありません。iPhone か Mac で「マイ画像」を選んでからコードをスキャンして転送すると、画像も一緒に届きます。それまではジャケットの色を表示します。";
 "app_icon" = "App アイコン";
-"app_icon_dock_hint" = "macOS は Primuse の実行中しか Dock アイコンを差し替えられません。終了すると Dock はアプリバンドル内のアイコンに戻ります。";
+"app_icon_dock_hint" = "Primuseの実行中に表示するDockアイコンを選択します。終了後も保持するには、Finderで設定してください。";
+"app_icon_finder_setup" = "終了後もアイコンを保持…";
+"app_icon_finder_setup_title" = "終了後もアイコンを保持";
+"app_icon_finder_step_export" = "1. 選択したアイコンを書き出します。";
+"app_icon_export" = "アイコンを書き出す…";
+"app_icon_finder_step_select" = "2. FinderでPrimuseを選択し、⌘Iを押して「情報を見る」を開きます。";
+"app_icon_reveal_application" = "FinderでPrimuseを表示";
+"app_icon_finder_step_apply" = "3. 書き出した.icnsファイルを、情報ウインドウの左上にある小さなアイコンにドラッグします。";
+"app_icon_export_failed_title" = "アイコンを書き出せませんでした";
+"app_icon_export_failed_message" = "アイコンを作成できませんでした。もう一度お試しください。";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";

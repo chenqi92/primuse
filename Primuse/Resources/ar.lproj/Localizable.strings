@@ -797,7 +797,16 @@
 "anonymous_login_hint" = "لا يتم استخدام اسم مستخدم أو كلمة مرور؛ يتم حذف بيانات الاعتماد المحفوظة عند الحفظ";
 "api_key" = "API مفتاح";
 "app_icon" = "أيقونة التطبيق";
-"app_icon_dock_hint" = "لا يستطيع macOS تبديل أيقونة Dock إلا أثناء تشغيل Primuse، وبعد الإغلاق يعود Dock إلى الأيقونة المضمّنة في حزمة التطبيق.";
+"app_icon_dock_hint" = "اختر أيقونة Dock التي تظهر أثناء تشغيل Primuse. للاحتفاظ بها بعد الإنهاء، عيّنها في Finder.";
+"app_icon_finder_setup" = "الاحتفاظ بالأيقونة بعد الإنهاء…";
+"app_icon_finder_setup_title" = "الاحتفاظ بالأيقونة بعد الإنهاء";
+"app_icon_finder_step_export" = "1. صدّر الأيقونة المحددة.";
+"app_icon_export" = "تصدير الأيقونة…";
+"app_icon_finder_step_select" = "2. حدد Primuse في Finder واضغط على ⌘I لفتح نافذة إحضار المعلومات.";
+"app_icon_reveal_application" = "إظهار Primuse في Finder";
+"app_icon_finder_step_apply" = "3. اسحب ملف .icns المُصدَّر إلى الأيقونة الصغيرة أعلى يسار نافذة المعلومات.";
+"app_icon_export_failed_title" = "تعذر تصدير الأيقونة";
+"app_icon_export_failed_message" = "تعذر إنشاء الأيقونة. يُرجى المحاولة مرة أخرى.";
 "app_name" = "Primuse";
 "appearance" = "المظهر";
 "appearance_system_blue" = "النظام أزرق";

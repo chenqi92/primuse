@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import XCTest
 @testable import Primuse
 
@@ -103,6 +104,62 @@ final class MacSongTableAndIconTests: XCTestCase {
         let dock = try XCTUnwrap(MacAppIcon.dockIconImage(for: MacAppIcon.option(for: "")))
         XCTAssertEqual(dock.tiffRepresentation, bundled.tiffRepresentation)
         XCTAssertTrue(dock.representations.contains { $0.pixelsWide >= 1024 })
+    }
+
+    func testExportedIconsIncludeStandardAndRetinaRepresentations() throws {
+        let expected = Set(["16@72", "32@72", "128@72", "256@72", "512@72",
+                            "32@144", "64@144", "256@144", "512@144", "1024@144"])
+        for icon in MacAppIcon.all {
+            let data = try MacAppIcon.icnsData(for: icon)
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+            XCTAssertEqual(CGImageSourceGetType(source) as String?, "com.apple.icns")
+            var representations = Set<String>()
+            for index in 0..<CGImageSourceGetCount(source) {
+                let properties = try XCTUnwrap(
+                    CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+                )
+                let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
+                let dpi = try XCTUnwrap(properties[kCGImagePropertyDPIWidth] as? Int)
+                let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+                XCTAssertEqual(image.width, image.height)
+                representations.insert("\(width)@\(dpi)")
+            }
+            XCTAssertEqual(representations, expected, icon.id)
+        }
+    }
+
+    func testExportedIconsMatchDockArtworkAndTransparentMargins() throws {
+        for icon in MacAppIcon.all {
+            let data = try MacAppIcon.icnsData(for: icon)
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+            let images = (0..<CGImageSourceGetCount(source)).compactMap {
+                CGImageSourceCreateImageAtIndex(source, $0, nil)
+            }
+            let exported = NSBitmapImageRep(cgImage: try XCTUnwrap(images.first { $0.width == 1024 }))
+            let dock = try XCTUnwrap(MacAppIcon.dockIconImage(for: icon))
+            var sourceRect = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+            let dockImage = try XCTUnwrap(dock.cgImage(forProposedRect: &sourceRect, context: nil, hints: nil))
+            let expected = NSBitmapImageRep(cgImage: dockImage)
+            XCTAssertEqual(expected.pixelsWide, 1024)
+            for (x, y) in [(0, 0), (50, 512), (100, 100), (1023, 1023)] {
+                XCTAssertEqual(try XCTUnwrap(exported.colorAt(x: x, y: y)).alphaComponent, 0,
+                               accuracy: 0.01, icon.id)
+            }
+            for (x, y) in [(512, 512), (256, 512), (768, 512), (512, 256)] {
+                let actual = try XCTUnwrap(exported.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let target = try XCTUnwrap(expected.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                XCTAssertGreaterThan(actual.alphaComponent, 0.99)
+                XCTAssertEqual(actual.redComponent, target.redComponent, accuracy: 0.02, icon.id)
+                XCTAssertEqual(actual.greenComponent, target.greenComponent, accuracy: 0.02, icon.id)
+                XCTAssertEqual(actual.blueComponent, target.blueComponent, accuracy: 0.02, icon.id)
+            }
+        }
+    }
+
+    func testIconExportRejectsMissingArtwork() {
+        let missing = MacAppIcon(id: "missing", previewAsset: "missing-icon-export-fixture",
+                                 nameKey: "icon_default", tint: .clear)
+        XCTAssertThrowsError(try MacAppIcon.icnsData(for: missing))
     }
 
     func testMenuBarTextStaysVisibleWithIslandByDefault() throws {

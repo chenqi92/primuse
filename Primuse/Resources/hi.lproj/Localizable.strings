@@ -797,7 +797,16 @@
 "anonymous_login_hint" = "किसी उपयोगकर्ता नाम या पासवर्ड का उपयोग नहीं किया जाता है; जब आप सहेजते हैं तो सहेजे गए क्रेडेंशियल हटा दिए जाते हैं";
 "api_key" = "API कुंजी";
 "app_icon" = "ऐप आइकन";
-"app_icon_dock_hint" = "macOS केवल Primuse के चलते समय ही Dock आइकन बदल सकता है; ऐप बंद करने पर Dock फिर से ऐप बंडल वाला आइकन दिखाता है।";
+"app_icon_dock_hint" = "Primuse चलते समय दिखने वाला Dock आइकॉन चुनें। ऐप बंद करने के बाद भी इसे रखने के लिए Finder में सेट करें।";
+"app_icon_finder_setup" = "ऐप बंद होने के बाद आइकॉन रखें…";
+"app_icon_finder_setup_title" = "ऐप बंद होने के बाद आइकॉन रखें";
+"app_icon_finder_step_export" = "1. चुने हुए आइकॉन को एक्सपोर्ट करें।";
+"app_icon_export" = "आइकॉन एक्सपोर्ट करें…";
+"app_icon_finder_step_select" = "2. Finder में Primuse चुनें और जानकारी विंडो खोलने के लिए ⌘I दबाएँ।";
+"app_icon_reveal_application" = "Primuse को Finder में दिखाएँ";
+"app_icon_finder_step_apply" = "3. एक्सपोर्ट की गई .icns फ़ाइल को जानकारी विंडो के ऊपरी बाएँ कोने में मौजूद छोटे आइकॉन पर खींचें।";
+"app_icon_export_failed_title" = "आइकॉन एक्सपोर्ट नहीं हो सका";
+"app_icon_export_failed_message" = "आइकॉन नहीं बनाया जा सका। कृपया फिर से कोशिश करें।";
 "app_name" = "Primuse";
 "appearance" = "उपस्थिति";
 "appearance_system_blue" = "सिस्टम नीला";

@@ -185,7 +185,16 @@
 "player_backdrop_tv_images_count" = "电视上有 %lld 张从 iPhone 或 Mac 扫码直传带来的图片。";
 "player_backdrop_tv_images_empty" = "电视上还没有图片。在 iPhone 或 Mac 上选好「我的图片」后扫码直传，图片会一起带过来；在那之前显示封面取色。";
 "app_icon" = "应用图标";
-"app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。";
+"app_icon_dock_hint" = "选择运行时的 Dock 图标。要在退出后保留，请在访达中设置。";
+"app_icon_finder_setup" = "退出后保留图标…";
+"app_icon_finder_setup_title" = "退出后保留图标";
+"app_icon_finder_step_export" = "1. 导出当前选择的图标。";
+"app_icon_export" = "导出图标…";
+"app_icon_finder_step_select" = "2. 在访达中选中 Primuse，按 ⌘I 打开“显示简介”。";
+"app_icon_reveal_application" = "在访达中显示 Primuse";
+"app_icon_finder_step_apply" = "3. 将导出的 .icns 文件拖到简介窗口左上角的小图标上。";
+"app_icon_export_failed_title" = "无法导出图标";
+"app_icon_export_failed_message" = "无法生成图标，请重试。";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";

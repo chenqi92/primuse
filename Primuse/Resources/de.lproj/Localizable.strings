@@ -415,7 +415,16 @@
 "player_backdrop_tv_images_count" = "Per Code-Scan von iPhone oder Mac übertragene Bilder: %lld.";
 "player_backdrop_tv_images_empty" = "Auf diesem Apple TV gibt es noch keine Bilder. Wähle auf iPhone oder Mac „Meine Bilder“ und übertrage per Code-Scan – die Bilder kommen mit. Bis dahin werden die Coverfarben angezeigt.";
 "app_icon" = "App-Symbol";
-"app_icon_dock_hint" = "macOS kann das Dock-Symbol nur ändern, solange Primuse läuft – nach dem Beenden zeigt das Dock wieder das Symbol aus dem App-Paket.";
+"app_icon_dock_hint" = "Wähle das Dock-Symbol für Primuse während der Ausführung. Lege es im Finder fest, um es nach dem Beenden beizubehalten.";
+"app_icon_finder_setup" = "Symbol nach dem Beenden behalten…";
+"app_icon_finder_setup_title" = "Symbol nach dem Beenden behalten";
+"app_icon_finder_step_export" = "1. Exportiere das ausgewählte Symbol.";
+"app_icon_export" = "Symbol exportieren…";
+"app_icon_finder_step_select" = "2. Wähle Primuse im Finder aus und drücke ⌘I, um „Informationen“ zu öffnen.";
+"app_icon_reveal_application" = "Primuse im Finder zeigen";
+"app_icon_finder_step_apply" = "3. Ziehe die exportierte .icns-Datei auf das kleine Symbol oben links im Informationsfenster.";
+"app_icon_export_failed_title" = "Symbol konnte nicht exportiert werden";
+"app_icon_export_failed_message" = "Das Symbol konnte nicht erstellt werden. Bitte versuche es erneut.";
 "icon_default" = "Primuse";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
