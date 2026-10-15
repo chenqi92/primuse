@@ -471,7 +471,10 @@ private struct WidgetHairlineBar: ProgressViewStyle {
     }
 }
 
-/// Preserve the entire book cover inside its square frame.
+/// Preserve the entire book cover inside its square frame. The app already
+/// renders each cover as a square — the whole cover over a blurred enlargement
+/// of itself (`WidgetBookCoverRenderer`) — so this normally just fills the
+/// frame; fitting keeps a cover written before that whole too.
 struct WidgetBookCover: View {
     let coverImageName: String?
     let width: CGFloat

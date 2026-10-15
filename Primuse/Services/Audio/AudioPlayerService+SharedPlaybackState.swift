@@ -399,7 +399,7 @@ extension AudioPlayerService {
             // files left from a wider scope so the WidgetKit extension can't keep
             // disclosing album art the user opted out of.
             clearSharedWidgetCovers()
-            lastWidgetCoverSongID = nil
+            lastWidgetCoverKey = nil
             if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
                !RecentAlbumsStore.load().isEmpty {
                 // Recent-albums widget renders covers; with covers disclosed off
@@ -409,21 +409,28 @@ extension AudioPlayerService {
             }
         } else if let song = currentSong {
             let sharedCoverName = "widget_cover.png"
-            let needsSharedCoverRefresh = song.id != lastWidgetCoverSongID || !sharedWidgetCoverExists(named: sharedCoverName)
+            // 有声内容在小组件里画成书封（整张封面垫模糊底）；同一首歌改了归类也要重画。
+            let keepsWholeCover = currentItemIsSpokenWord && !isLiveRadio
+            let coverKey = WidgetBookCoverRenderer.coverKey(songID: song.id, keepsWholeCover: keepsWholeCover)
+            let needsSharedCoverRefresh = coverKey != lastWidgetCoverKey || !sharedWidgetCoverExists(named: sharedCoverName)
 
             if needsSharedCoverRefresh {
-                if let writtenCoverName = writeWidgetCover(song: song, fileName: sharedCoverName) {
+                if let writtenCoverName = writeWidgetCover(
+                    song: song,
+                    fileName: sharedCoverName,
+                    keepsWholeCover: keepsWholeCover
+                ) {
                     coverName = writtenCoverName
-                    lastWidgetCoverSongID = song.id
+                    lastWidgetCoverKey = coverKey
                 } else {
                     // Current song has no usable cover. Any existing
                     // widget_cover.png belongs to the *previous* song, so
                     // reusing it would show the wrong album art for this whole
                     // track. Delete it and leave coverName nil so the widget
                     // falls back to its placeholder gradient; keep
-                    // lastWidgetCoverSongID nil so the next event retries.
+                    // lastWidgetCoverKey nil so the next event retries.
                     removeSharedWidgetCover(named: sharedCoverName)
-                    lastWidgetCoverSongID = nil
+                    lastWidgetCoverKey = nil
                 }
 
                 if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
@@ -442,7 +449,7 @@ extension AudioPlayerService {
                 recentAlbumsChanged = true
             }
         } else {
-            lastWidgetCoverSongID = nil
+            lastWidgetCoverKey = nil
         }
 
         let sampledCurrentTime = scope.includesProgress ? currentTime : 0
@@ -497,7 +504,12 @@ extension AudioPlayerService {
     /// App Group 容器读 JPEG, 两端别无他路, 故 macOS 也必须落盘真实封面,
     /// 否则桌面 widget 永远只显示占位渐变。
     @discardableResult
-    private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+    private func writeWidgetCover(
+        song: Song,
+        fileName: String,
+        size: CGFloat = 300,
+        keepsWholeCover: Bool = false
+    ) -> String? {
         // 封面解码 / 重绘 / JPEG 编码 / 原子写盘目前都在主 actor 上完成,
         // 先把这段开销标成独立区间, 设备上才能量出它在切歌时占了多少帧。
         let coverSignpost = PrimuseSignposts.hitch.beginInterval("player.widgetCover")
@@ -539,6 +551,20 @@ extension AudioPlayerService {
         }
 
         #if os(iOS)
+        if keepsWholeCover,
+           let jpegData = WidgetBookCoverRenderer.squareJPEG(
+               from: data,
+               pixelSize: Int(size),
+               keepsWholeCover: true
+           ) {
+            do {
+                try jpegData.write(to: destinationURL, options: .atomic)
+                return fileName
+            } catch {
+                return nil
+            }
+        }
+
         guard let originalImage = UIImage(data: data) else { return nil }
 
         let format = UIGraphicsImageRendererFormat()

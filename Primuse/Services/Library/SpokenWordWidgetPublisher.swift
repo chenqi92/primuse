@@ -1,7 +1,8 @@
+import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import PrimuseKit
-import UniformTypeIdentifiers
 import WidgetKit
 
 /// Keeps the "continue listening" widget's snapshot in the App Group current.
@@ -177,9 +178,9 @@ final class SpokenWordWidgetPublisher {
         let fileName: String
     }
 
-    /// Renders each cover in its own proportions (the widget frames it as a
-    /// book) and removes book covers no longer on the shelf. Returns the
-    /// names written.
+    /// Renders each cover as a square the way the shelf draws a book (see
+    /// `WidgetBookCoverRenderer`) and removes book covers no longer on the
+    /// shelf. Returns the names written.
     private nonisolated static func writeCovers(_ jobs: [CoverJob], keeping kept: Set<String>) -> Set<String> {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
@@ -201,7 +202,12 @@ final class SpokenWordWidgetPublisher {
                 data = assets.readCoverData(named: legacy)
             }
             let destination = containerURL.appendingPathComponent(job.fileName)
-            guard let data, let jpeg = proportionalJPEG(from: data, maxPixelSize: coverPixelSize) else {
+            guard let data, let jpeg = WidgetBookCoverRenderer.squareJPEG(
+                from: data,
+                pixelSize: coverPixelSize,
+                keepsWholeCover: true,
+                quality: 0.82
+            ) else {
                 try? fileManager.removeItem(at: destination)
                 continue
             }
@@ -212,29 +218,113 @@ final class SpokenWordWidgetPublisher {
         return written
     }
 
-    private nonisolated static func proportionalJPEG(from data: Data, maxPixelSize: Int) -> Data? {
+}
+
+/// 小组件里的书封成图，和 App 里 `bookCoverLayout` 同一个画法：方图直接铺满；
+/// 竖版、横版的封面整张放进方框，空出来的边垫同一张图放大后的模糊底，再压一层 16% 的黑。
+/// 模糊在 App 这边写图时一次烘好：小组件进程内存很紧，每次刷新时间线都现场模糊也不划算。
+enum WidgetBookCoverRenderer {
+    /// 「正在播放」封面的去重键：同一首歌按书封画过和按普通封面画过算两张图。
+    nonisolated static func coverKey(songID: String, keepsWholeCover: Bool) -> String {
+        keepsWholeCover ? songID + "\u{1F}book" : songID
+    }
+
+    /// 解码 `data` 并画成 `pixelSize` 见方的 JPEG。`keepsWholeCover` 为 false 时就是居中裁切铺满。
+    nonisolated static func squareJPEG(
+        from data: Data,
+        pixelSize: Int,
+        keepsWholeCover: Bool,
+        quality: Double = 0.8
+    ) -> Data? {
         autoreleasepool {
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            guard pixelSize > 0,
+                  let source = CGImageSourceCreateWithData(data as CFData, [
+                      kCGImageSourceShouldCache: false,
+                  ] as CFDictionary) else { return nil }
             let options = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixelSize * 2,
             ] as CFDictionary
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-            let output = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(
-                output,
-                UTType.jpeg.identifier as CFString,
-                1,
-                nil
-            ) else { return nil }
-            CGImageDestinationAddImage(
-                destination,
-                image,
-                [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary
-            )
-            guard CGImageDestinationFinalize(destination) else { return nil }
-            return output as Data
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
+                  let square = squareImage(image, pixelSize: pixelSize, keepsWholeCover: keepsWholeCover) else {
+                return nil
+            }
+            return PlayerBackdropImaging.jpegData(square, quality: quality)
         }
     }
+
+    nonisolated static func squareImage(_ image: CGImage, pixelSize: Int, keepsWholeCover: Bool) -> CGImage? {
+        guard pixelSize > 0, image.width > 0, image.height > 0,
+              let context = CGContext(
+                  data: nil,
+                  width: pixelSize,
+                  height: pixelSize,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+        let side = CGFloat(pixelSize)
+        let canvas = CGRect(x: 0, y: 0, width: side, height: side)
+        let imageSize = CGSize(width: image.width, height: image.height)
+        context.interpolationQuality = .high
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(canvas)
+
+        // 和书架同一个容差：差一两个像素的「方图」照样铺满，不垫一圈看不见的模糊。
+        if !keepsWholeCover || SpokenWordCoverLayout.artworkFillsFrame(imageSize: imageSize, frameAspectRatio: 1) {
+            context.draw(image, in: centeredRect(for: imageSize, side: side, filling: true))
+            return context.makeImage()
+        }
+
+        if let backdrop = blurredFill(image, side: side) {
+            context.draw(backdrop, in: canvas)
+        } else {
+            context.draw(image, in: centeredRect(for: imageSize, side: side, filling: true))
+        }
+        context.setFillColor(CGColor(gray: 0, alpha: 0.16))
+        context.fill(canvas)
+        context.saveGState()
+        // App 里那层封面带一道很浅的投影（22% 黑、半径 3、下移 1），按画布比例换算。
+        context.setShadow(
+            offset: CGSize(width: 0, height: -side * 0.008),
+            blur: side * 0.025,
+            color: CGColor(gray: 0, alpha: 0.22)
+        )
+        context.draw(image, in: centeredRect(for: imageSize, side: side, filling: false))
+        context.restoreGState()
+        return context.makeImage()
+    }
+
+    /// 居中摆放：`filling` 为 true 时铺满后裁掉多出的部分，否则整张放进方框。
+    /// 两个方向对称，所以 Core Graphics 的 y 轴朝上也不影响构图。
+    private nonisolated static func centeredRect(for imageSize: CGSize, side: CGFloat, filling: Bool) -> CGRect {
+        let widthScale = side / imageSize.width
+        let heightScale = side / imageSize.height
+        let scale = filling ? max(widthScale, heightScale) : min(widthScale, heightScale)
+        let width = imageSize.width * scale
+        let height = imageSize.height * scale
+        return CGRect(x: (side - width) / 2, y: (side - height) / 2, width: width, height: height)
+    }
+
+    /// 铺满方框后整体模糊。先 clamp 边缘再模糊，四周不会被透明像素冲淡发灰（App 里是 `opaque: true`）。
+    private nonisolated static func blurredFill(_ image: CGImage, side: CGFloat) -> CGImage? {
+        let scale = max(side / CGFloat(image.width), side / CGFloat(image.height))
+        let input = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = input.extent
+        let crop = CGRect(x: extent.midX - side / 2, y: extent.midY - side / 2, width: side, height: side)
+        let blurred = input
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(side * 0.08))
+            .cropped(to: crop)
+        return ciContext.createCGImage(blurred, from: crop)
+    }
+
+    // CIContext 本身线程安全，写书封的几处共用一份。
+    private nonisolated static let ciContext = CIContext(options: [
+        .cacheIntermediates: false,
+        .useSoftwareRenderer: false,
+    ])
 }

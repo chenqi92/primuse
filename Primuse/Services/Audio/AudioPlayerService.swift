@@ -301,18 +301,18 @@ actor MacWidgetPlaybackPublisher {
     static let shared = MacWidgetPlaybackPublisher()
 
     private struct PublicationContext: Sendable {
-        let lastCoverSongID: String?
+        let lastCoverKey: String?
         let lastTimelineSignature: String?
     }
 
     private struct PublicationResult: Sendable {
-        let lastCoverSongID: String?
+        let lastCoverKey: String?
         let lastTimelineSignature: String?
     }
 
     private var pending: MacWidgetPlaybackPublishRequest?
     private var workerTask: Task<Void, Never>?
-    private var lastCoverSongID: String?
+    private var lastCoverKey: String?
     private var lastTimelineSignature: String?
 
     func enqueue(_ request: MacWidgetPlaybackPublishRequest) {
@@ -327,13 +327,13 @@ actor MacWidgetPlaybackPublisher {
         while let request = pending {
             pending = nil
             let context = PublicationContext(
-                lastCoverSongID: lastCoverSongID,
+                lastCoverKey: lastCoverKey,
                 lastTimelineSignature: lastTimelineSignature
             )
             let result = await Task.detached(priority: .utility) {
                 Self.publish(request, context: context)
             }.value
-            lastCoverSongID = result.lastCoverSongID
+            lastCoverKey = result.lastCoverKey
             lastTimelineSignature = result.lastTimelineSignature
         }
         workerTask = nil
@@ -347,7 +347,7 @@ actor MacWidgetPlaybackPublisher {
               WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
             PlaybackState.clear()
             WidgetCenter.shared.reloadAllTimelines()
-            return PublicationResult(lastCoverSongID: nil, lastTimelineSignature: nil)
+            return PublicationResult(lastCoverKey: nil, lastTimelineSignature: nil)
         }
 
         let scope = WidgetSettings.sharedDataScope()
@@ -355,11 +355,11 @@ actor MacWidgetPlaybackPublisher {
             && WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
         var coverName: String?
         var recentAlbumsChanged = false
-        var nextCoverSongID = context.lastCoverSongID
+        var nextCoverKey = context.lastCoverKey
 
         if !scope.includesCover {
             clearSharedCovers()
-            nextCoverSongID = nil
+            nextCoverKey = nil
             if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
                !RecentAlbumsStore.load().isEmpty {
                 RecentAlbumsStore.clear()
@@ -367,16 +367,19 @@ actor MacWidgetPlaybackPublisher {
             }
         } else if let song = request.currentSong {
             let sharedCoverName = "widget_cover.png"
-            let needsRefresh = song.id != context.lastCoverSongID
+            // 有声内容在小组件里画成书封（整张封面垫模糊底），和 iOS 同一个判断。
+            let keepsWholeCover = request.spokenWord != nil && request.playbackKind != .liveRadio
+            let coverKey = WidgetBookCoverRenderer.coverKey(songID: song.id, keepsWholeCover: keepsWholeCover)
+            let needsRefresh = coverKey != context.lastCoverKey
                 || !sharedCoverExists(named: sharedCoverName)
 
             if needsRefresh {
-                if writeCover(song: song, fileName: sharedCoverName) {
+                if writeCover(song: song, fileName: sharedCoverName, keepsWholeCover: keepsWholeCover) {
                     coverName = sharedCoverName
-                    nextCoverSongID = song.id
+                    nextCoverKey = coverKey
                 } else {
                     removeSharedCover(named: sharedCoverName)
-                    nextCoverSongID = nil
+                    nextCoverKey = nil
                 }
 
                 if recentAlbumsEnabled,
@@ -401,7 +404,7 @@ actor MacWidgetPlaybackPublisher {
                 recentAlbumsChanged = true
             }
         } else {
-            nextCoverSongID = nil
+            nextCoverKey = nil
         }
 
         let state = PlaybackState(
@@ -438,7 +441,7 @@ actor MacWidgetPlaybackPublisher {
             WidgetCenter.shared.reloadAllTimelines()
         }
         return PublicationResult(
-            lastCoverSongID: nextCoverSongID,
+            lastCoverKey: nextCoverKey,
             lastTimelineSignature: signature
         )
     }
@@ -446,7 +449,8 @@ actor MacWidgetPlaybackPublisher {
     private nonisolated static func writeCover(
         song: Song,
         fileName: String,
-        size: Int = 300
+        size: Int = 300,
+        keepsWholeCover: Bool = false
     ) -> Bool {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
@@ -458,7 +462,8 @@ actor MacWidgetPlaybackPublisher {
            !ref.contains("/"), !ref.contains("://") {
             coverData = store.readCoverData(named: ref)
         }
-        guard let coverData, let jpeg = squareJPEG(from: coverData, size: size) else {
+        guard let coverData,
+              let jpeg = squareJPEG(from: coverData, size: size, keepsWholeCover: keepsWholeCover) else {
             return false
         }
 
@@ -476,68 +481,13 @@ actor MacWidgetPlaybackPublisher {
     /// ImageIO/CoreGraphics are safe for background thumbnail work; using
     /// NSImage drawing here would bring AppKit's main-thread assumptions back
     /// into the detached publisher.
-    private nonisolated static func squareJPEG(from data: Data, size: Int) -> Data? {
-        autoreleasepool {
-            guard size > 0,
-                  !ArtworkImageCompatibility.hasRedundantJPEGSampling(data),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-                return nil
-            }
-            let options = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: max(size * 2, size),
-            ] as CFDictionary
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
-                return nil
-            }
-
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            guard let context = CGContext(
-                data: nil,
-                width: size,
-                height: size,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return nil }
-
-            context.setFillColor(CGColor(gray: 0, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: size, height: size))
-            context.interpolationQuality = .high
-            let scale = max(
-                CGFloat(size) / CGFloat(image.width),
-                CGFloat(size) / CGFloat(image.height)
-            )
-            let drawWidth = CGFloat(image.width) * scale
-            let drawHeight = CGFloat(image.height) * scale
-            context.draw(
-                image,
-                in: CGRect(
-                    x: (CGFloat(size) - drawWidth) / 2,
-                    y: (CGFloat(size) - drawHeight) / 2,
-                    width: drawWidth,
-                    height: drawHeight
-                )
-            )
-            guard let outputImage = context.makeImage() else { return nil }
-
-            let output = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(
-                output,
-                UTType.jpeg.identifier as CFString,
-                1,
-                nil
-            ) else { return nil }
-            let destinationOptions = [
-                kCGImageDestinationLossyCompressionQuality: 0.8,
-            ] as CFDictionary
-            CGImageDestinationAddImage(destination, outputImage, destinationOptions)
-            guard CGImageDestinationFinalize(destination) else { return nil }
-            return output as Data
-        }
+    private nonisolated static func squareJPEG(from data: Data, size: Int, keepsWholeCover: Bool) -> Data? {
+        guard !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else { return nil }
+        return WidgetBookCoverRenderer.squareJPEG(
+            from: data,
+            pixelSize: size,
+            keepsWholeCover: keepsWholeCover
+        )
     }
 
     private nonisolated static func sharedCoverExists(named fileName: String) -> Bool {
@@ -8052,8 +8002,9 @@ final class AudioPlayerService {
     @ObservationIgnored var lastWrittenRemoteCommandAvailability:
         RemoteCommandAvailability?
 
-    /// Tracks the last songID for which we wrote a widget cover, to avoid redundant writes.
-    var lastWidgetCoverSongID: String?
+    /// Tracks the last cover written for the widget (song, and whether it was
+    /// drawn as a whole book cover), to avoid redundant writes.
+    var lastWidgetCoverKey: String?
     /// Coalesces repeated WidgetKit reload requests with identical content.
     var lastWidgetTimelineSignature: String?
 }

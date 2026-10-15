@@ -331,7 +331,7 @@ struct ListeningDeskView: View {
         .contentShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    /// Books keep their portrait shape; everything else is square.
+    /// Books keep their whole cover (squared over a blurred backdrop); everything else fills.
     @ViewBuilder private func tileArtwork(_ tile: ListeningDeskTile) -> some View {
         if tile.content == .audiobook {
             WidgetBookCover(coverImageName: tile.coverImageName,
