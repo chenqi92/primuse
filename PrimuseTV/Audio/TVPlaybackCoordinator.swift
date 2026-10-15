@@ -1429,7 +1429,8 @@ final class TVPlaybackCoordinator {
                 album: song.albumTitle ?? "",
                 duration: song.duration,
                 cueStartTime: song.cueStartTime,
-                cueEndTime: song.cueEndTime
+                cueEndTime: song.cueEndTime,
+                startAt: startAt
             )
             handedOffToEngine = true
             finishLoadedPlayback(

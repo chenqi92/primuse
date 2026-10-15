@@ -99,10 +99,11 @@ public enum ISOBaseMediaLyricsParser {
 
     /// Reads `©lyr` and `©grp` independently of the tagging library.
     ///
-    /// SFBAudioEngine 0.12.1 loads the grouping item into its lyrics field and
-    /// never into its grouping field. Writing that model back replaces the
-    /// file's lyrics with the grouping text and deletes the grouping, so the
-    /// embedded tag writer restores both from this reading before it saves.
+    /// SFBAudioEngine 0.12.1 loaded the grouping item into its lyrics field
+    /// and never into its grouping field, so writing that model back replaced
+    /// the file's lyrics with the grouping text and deleted the grouping. The
+    /// embedded tag writer still restores both from this reading before it
+    /// saves.
     public static func storedITunesTextItems(in data: Data) -> StoredITunesTextItems {
         var result = StoredITunesTextItems()
         var sawLyricsItem = false

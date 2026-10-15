@@ -1,8 +1,10 @@
 import Foundation
 
-/// SFBAudioEngine 0.12.1 写回 M4A 时的毛病,写完后原地修掉:
-/// - 专辑写成 `©ALB`(大写)而不是标准的 `©alb`,旧的 `©alb` 原样留着 → `©ALB` 改名为 `©alb`,
-///   旧的 `©alb` 去掉;`©ALB` 是空的(专辑被清空)时两者都去掉。
+/// SFBAudioEngine 写回 M4A 时的毛病,写完后原地修掉:
+/// - 0.12.1 把专辑写成 `©ALB`(大写)而不是标准的 `©alb`,旧的 `©alb` 原样留着。0.14.0 起写 `©alb`,
+///   但那时写过的文件里还留着 `©ALB`,它是那次保存要写的专辑 → 这次保存没改专辑时,`©ALB` 改名为
+///   `©alb`、旧的 `©alb` 去掉,`©ALB` 是空的(专辑被清空)时两者都去掉;这次改了专辑,刚写的 `©alb`
+///   就是准的,`©ALB` 去掉。
 /// - 没填的字段写成空条目、没封面时写一个空 `covr` 盒子。
 /// AVFoundation 在条目列表(`ilst`)里遇到空盒子或 `free` 盒子就不往下读,系统和其它播放器会看不到任何标签,
 /// 所以这些条目要真的从列表里拿掉:省下的字节并成紧跟在列表后面的一个 `free` 填充盒(在 `ilst` 外面、
@@ -34,11 +36,12 @@ public enum M4AMetadataAtomRepair {
     private static let dataAtom: UInt32 = 0x64_61_74_61
 
     /// 要改写的区段;找不到 moov/…/ilst 时返回 nil(不是 M4A 或者没有 iTunes 标签块)。
-    public static func rewrites(in data: Data) -> [Rewrite]? {
-        repaired(data)?.rewrites
+    /// `albumWasWritten`:这次保存写了专辑,`©alb` 为准。
+    public static func rewrites(in data: Data, albumWasWritten: Bool = false) -> [Rewrite]? {
+        repaired(data, albumWasWritten: albumWasWritten)?.rewrites
     }
 
-    public static func repaired(_ input: Data) -> Result? {
+    public static func repaired(_ input: Data, albumWasWritten: Bool = false) -> Result? {
         var data = Data(input)
         let metas = metaChildLists(in: data)
         guard metas.contains(where: { children in children.contains { $0.type == ilst } }) else { return nil }
@@ -50,13 +53,15 @@ public enum M4AMetadataAtomRepair {
             for (index, list) in children.enumerated() where list.type == ilst && list.header == 8 {
                 let items = atoms(in: data, range: list.payload)
                 let upperAlbums = items.filter { $0.type == upperAlbum }
-                let hasNewAlbumValue = upperAlbums.contains { !isEmptyItem($0, in: data) }
+                let adoptsUpperAlbum = !albumWasWritten && !upperAlbums.isEmpty
+                let hasNewAlbumValue = adoptsUpperAlbum
+                    && upperAlbums.contains { !isEmptyItem($0, in: data) }
                 var kept = Data()
                 var removedBytes = 0
                 for item in items {
                     let bytes = data[item.start..<item.payload.upperBound]
                     switch item.type {
-                    case album where !upperAlbums.isEmpty:
+                    case album where adoptsUpperAlbum:
                         removedBytes += bytes.count
                         removed += 1
                     case upperAlbum:

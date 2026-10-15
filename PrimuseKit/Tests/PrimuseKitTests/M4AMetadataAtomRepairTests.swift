@@ -89,6 +89,25 @@ struct M4AMetadataAtomRepairTests {
         #expect(result.data.count == input.count)
     }
 
+    @Test func savedAlbumWinsOverLeftoverUpperCaseAlbum() throws {
+        // SFBAudioEngine 0.14.0 writes `©alb`; a `©ALB` from a 0.12.1-era save
+        // is stale once this save has set the album.
+        let input = file(items: [item("©alb", "Edited"), item("©ALB", "Stale"), item("©nam", "Song")])
+        let result = try #require(M4AMetadataAtomRepair.repaired(input, albumWasWritten: true))
+        #expect(types(in: result.data) == ["©alb", "©nam"])
+        #expect(result.renamedAlbumItems == 0)
+        #expect(result.data.range(of: Data("Edited".utf8)) != nil)
+        #expect(result.data.range(of: Data("Stale".utf8)) == nil)
+        #expect(result.data.count == input.count)
+    }
+
+    @Test func clearingTheAlbumAlsoDropsLeftoverUpperCaseAlbum() throws {
+        let input = file(items: [item("©ALB", "Stale"), item("©nam", "Song")])
+        let result = try #require(M4AMetadataAtomRepair.repaired(input, albumWasWritten: true))
+        #expect(types(in: result.data) == ["©nam"])
+        #expect(result.data.range(of: Data("Stale".utf8)) == nil)
+    }
+
     @Test func freeItemsInsideTheListAreRemovedToo() throws {
         let input = file(items: [item("©nam", "Song"), atom("free", Data(repeating: 0, count: 16)), item("©ART", "A")])
         let result = try #require(M4AMetadataAtomRepair.repaired(input))

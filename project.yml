@@ -43,9 +43,10 @@ packages:
   # libnfs 8.0.0 的源码随仓库(scripts/update-libnfs.sh 导入),由 Xcode 直接编译。
   LibNFS:
     path: Vendor/LibNFS
+  # 0.x 的小版本之间接口和行为都会变（0.14 起解码器在解码线程里打开），只跟进补丁版本。
   SFBAudioEngine:
     url: https://github.com/sbooth/SFBAudioEngine.git
-    from: "0.12.1"
+    minorVersion: "0.14.0"
   SwiftDraw:
     url: https://github.com/swhitty/SwiftDraw.git
     from: "0.29.0"

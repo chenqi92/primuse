@@ -63,8 +63,11 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         super.init()
     }
 
+    /// `startTime` is where playback begins, in seconds of the file. The player
+    /// accepts a seek only once decoding has started, after `play` returns, so
+    /// the decoder is positioned before it is handed over.
     @discardableResult
-    func play(url: URL, decoder: TVLocalDecoder) throws -> Generation {
+    func play(url: URL, decoder: TVLocalDecoder, startingAt startTime: Double = 0) throws -> Generation {
         invalidateCurrentPlayer()
         nextGeneration &+= 1
         let generation = nextGeneration
@@ -78,29 +81,58 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         let gain = mixVolume
         player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
         do {
-            switch decoder {
-            case .ffmpeg:
-                try player.play(TVFFmpegPCMDecoder(url: url))
-            case .sfbAudioEngine:
-                do {
-                    if AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
-                        // SFB's content sniffing hands `.s3m`/`.it` to the
-                        // wrong decoder; DUMB has to be named.
-                        try player.play(AudioDecoder(url: url, decoderName: .module))
-                    } else {
-                        try player.play(url)
-                    }
-                } catch {
-                    // 与 iOS 一致:FFmpeg 兜底扩展名标错、SFBAudioEngine 认不出的文件。
-                    guard let fallback = try? TVFFmpegPCMDecoder(url: url) else { throw error }
-                    try player.play(fallback)
-                }
-            }
+            let pcm = try Self.openedDecoder(url: url, preferred: decoder)
+            Self.position(pcm, at: startTime)
+            try player.play(pcm)
             return generation
         } catch {
             player.delegate = nil
             delegateProxy = nil
             throw error
+        }
+    }
+
+    /// SFBAudioEngine opens a queued decoder on its decoding thread and reports
+    /// a failure only to the delegate, too late to choose another decoder. Open
+    /// it here instead, so a file it picks a decoder for but cannot open still
+    /// falls back to FFmpeg.
+    private static func openedDecoder(url: URL, preferred: TVLocalDecoder) throws -> any PCMDecoding {
+        switch preferred {
+        case .ffmpeg:
+            // Opens the file in its initializer.
+            return try TVFFmpegPCMDecoder(url: url)
+        case .sfbAudioEngine:
+            do {
+                let sfbDecoder: AudioDecoder
+                if AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
+                    // SFB's content sniffing hands `.s3m`/`.it` to the
+                    // wrong decoder; DUMB has to be named.
+                    sfbDecoder = try AudioDecoder(url: url, decoderName: .module)
+                } else {
+                    sfbDecoder = try AudioDecoder(url: url)
+                }
+                try sfbDecoder.open()
+                return sfbDecoder
+            } catch {
+                // 与 iOS 一致:FFmpeg 兜底扩展名标错、SFBAudioEngine 认不出或打不开的文件。
+                guard let fallback = try? TVFFmpegPCMDecoder(url: url) else { throw error }
+                return fallback
+            }
+        }
+    }
+
+    /// A decoder that is not at frame 0 when it is queued starts playback there.
+    private static func position(_ decoder: any PCMDecoding, at seconds: Double) {
+        let sampleRate = decoder.processingFormat.sampleRate
+        guard seconds > 0, seconds.isFinite, sampleRate > 0, decoder.supportsSeeking else { return }
+        var frame = AVAudioFramePosition(seconds * sampleRate)
+        if decoder.length > 0 {
+            frame = min(frame, decoder.length - 1)
+        }
+        do {
+            try decoder.seek(to: frame)
+        } catch {
+            plog("TV decoded playback could not start at \(seconds)s: \(error.localizedDescription)")
         }
     }
     @discardableResult
@@ -125,7 +157,8 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     }
 
     var isPlaying: Bool { player.isPlaying }
-    var currentTime: Double { player.currentTime ?? 0 }
+    /// Nil until the first decoded frame is audible.
+    var currentTime: Double? { player.currentTime }
     var duration: Double { player.totalTime ?? 0 }
 
     private func invalidateCurrentPlayer() {

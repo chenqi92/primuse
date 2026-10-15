@@ -9473,8 +9473,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sbooth/SFBAudioEngine.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.12.1;
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.14.0;
 			};
 		};
 		C687181FA0A2B2D096A24E9F /* XCRemoteSwiftPackageReference "SwiftDraw" */ = {

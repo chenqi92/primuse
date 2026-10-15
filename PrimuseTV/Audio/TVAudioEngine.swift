@@ -421,6 +421,8 @@ final class TVAudioEngine {
     }()
     private var usingSFB = false
     private var activeSFBGeneration: TVSFBEngine.Generation?
+    /// Where `loadDecoded` positioned the decoder, until `startPlayback` uses it.
+    @ObservationIgnored private var sfbStartedAtPhysicalTime: Double?
     @ObservationIgnored private var sfbTimer: Timer?
     @ObservationIgnored private var decodedTemporaryFileURL: URL?
     @ObservationIgnored private var radioLiveStreamSource: RadioLiveStreamSource?
@@ -1087,7 +1089,8 @@ final class TVAudioEngine {
         album: String,
         duration: Double,
         cueStartTime: Double? = nil,
-        cueEndTime: Double? = nil
+        cueEndTime: Double? = nil,
+        startAt logicalTime: Double = 0
     ) throws {
         clearLiveState()
         resetSFBIfNeeded()
@@ -1112,8 +1115,15 @@ final class TVAudioEngine {
         selectionStartRoute = "decoded"
         usingSFB = true
         startSFBPolling()
+        // CUE rows start inside the shared image even at visible time zero.
+        let startTarget = playbackSegment.physicalTime(forLogicalTime: logicalTime)
+        sfbStartedAtPhysicalTime = startTarget
         do {
-            activeSFBGeneration = try sfb.play(url: fileURL, decoder: decoder)
+            activeSFBGeneration = try sfb.play(
+                url: fileURL,
+                decoder: decoder,
+                startingAt: startTarget
+            )
             loadChapters(fromLocalFile: fileURL)
             if spectrumAnalysisEnabled { installSFBSpectrumTap() }
             isPlaying = true
@@ -1121,6 +1131,7 @@ final class TVAudioEngine {
             plog("📺 TV engine.loadDecoded(\(decoder)) \(fileURL.lastPathComponent) dur=\(duration)")
         } catch {
             activeSFBGeneration = nil
+            sfbStartedAtPhysicalTime = nil
             sfb.stop()
             usingSFB = false
             stopSFBPolling()
@@ -1205,7 +1216,11 @@ final class TVAudioEngine {
         pendingStartID = nil
 
         if usingSFB {
-            sfb.seek(target)
+            // `loadDecoded` already started the decoder here, and the player
+            // ignores a seek until decoding has begun.
+            let startedThere = sfbStartedAtPhysicalTime.map { abs($0 - target) < 0.05 } ?? false
+            sfbStartedAtPhysicalTime = nil
+            if !startedThere { sfb.seek(target) }
             if autoPlay {
                 _ = play()
             } else {
@@ -1613,6 +1628,7 @@ final class TVAudioEngine {
             usingLivePCM = false
         }
         activeSFBGeneration = nil
+        sfbStartedAtPhysicalTime = nil
         if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
         removeDecodedTemporaryFile()
     }
@@ -1707,13 +1723,16 @@ final class TVAudioEngine {
         if isLiveStream, let liveStartedAt {
             currentTime = max(0, Date().timeIntervalSince(liveStartedAt))
         } else {
-            let t = sfb.currentTime
-            if playbackSegment.hasReachedPhysicalEnd(t) {
-                handleSFBEnded(generation: activeSFBGeneration)
-                return
-            }
-            if t.isFinite {
-                currentTime = playbackSegment.logicalTime(forPhysicalTime: t)
+            // No time until the first frame is audible; keep the start
+            // position shown meanwhile.
+            if let t = sfb.currentTime {
+                if playbackSegment.hasReachedPhysicalEnd(t) {
+                    handleSFBEnded(generation: activeSFBGeneration)
+                    return
+                }
+                if t.isFinite {
+                    currentTime = playbackSegment.logicalTime(forPhysicalTime: t)
+                }
             }
             if duration <= 0, sfb.duration > 0 {
                 duration = playbackSegment.logicalTime(forPhysicalTime: sfb.duration)

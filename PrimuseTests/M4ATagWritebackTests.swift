@@ -2,8 +2,9 @@ import AVFoundation
 import XCTest
 @testable import Primuse
 
-/// M4A 标签写回:SFB 0.12.1 把专辑写成 `©ALB`、没封面时写一个空 `covr`(AVFoundation 读到它就停),
-/// 以前改专辑名要靠 AVFoundation 整文件重导出,导出时只带上它读得到的标签,曲名、艺人会被冲掉。
+/// M4A 标签写回:SFB 0.12.1 把专辑写成 `©ALB`(那时保存的文件里还留着)、没封面时写一个空 `covr`
+/// (AVFoundation 读到它就停),以前改专辑名要靠 AVFoundation 整文件重导出,导出时只带上它读得到的标签,
+/// 曲名、艺人会被冲掉。
 final class M4ATagWritebackTests: XCTestCase {
     private var directory: URL!
 
@@ -92,6 +93,56 @@ final class M4ATagWritebackTests: XCTestCase {
         let data = try Data(contentsOf: url)
         XCTAssertNil(data.range(of: Data([0xA9, 0x41, 0x4C, 0x42])), "©ALB should be renamed to ©alb")
         XCTAssertEqual(occurrences(of: Data([0xA9, 0x61, 0x6C, 0x62]), in: data), 1, "only the new album item stays ©alb")
+    }
+
+    /// A file saved while SFB wrote the album as `©ALB`: the album sits only
+    /// under the upper-case name.
+    private func makeLegacyUppercaseAlbumFixture(album: String) async throws -> URL {
+        let url = try makeFixture()
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(tags: tags(title: "Song", album: album), coverData: nil, lyrics: .keep),
+            to: url
+        )
+        var data = try Data(contentsOf: url)
+        let lower = Data([0xA9, 0x61, 0x6C, 0x62])
+        let range = try XCTUnwrap(data.range(of: lower))
+        data.replaceSubrange(range, with: Data([0xA9, 0x41, 0x4C, 0x42]))
+        try data.write(to: url)
+        return url
+    }
+
+    func testEditedAlbumWinsOverALeftoverUppercaseAlbum() async throws {
+        let url = try await makeLegacyUppercaseAlbumFixture(album: "Stale")
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(
+                tags: tags(title: "Song", album: "Edited"),
+                coverData: nil,
+                lyrics: .keep,
+                changedFields: [.album]
+            ),
+            to: url
+        )
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).albumTitle, "Edited")
+        let data = try Data(contentsOf: url)
+        XCTAssertNil(data.range(of: Data([0xA9, 0x41, 0x4C, 0x42])), "the stale ©ALB is dropped")
+        XCTAssertNil(data.range(of: Data("Stale".utf8)))
+    }
+
+    func testUntouchedAlbumRecoversALeftoverUppercaseAlbum() async throws {
+        let url = try await makeLegacyUppercaseAlbumFixture(album: "Intended")
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(
+                tags: tags(title: "Renamed", album: nil),
+                coverData: nil,
+                lyrics: .keep,
+                changedFields: [.title]
+            ),
+            to: url
+        )
+        let sfb = try EmbeddedMetadataWriter.currentTags(at: url)
+        XCTAssertEqual(sfb.title, "Renamed")
+        XCTAssertEqual(sfb.albumTitle, "Intended")
+        XCTAssertNil(try Data(contentsOf: url).range(of: Data([0xA9, 0x41, 0x4C, 0x42])))
     }
 
     private func occurrences(of needle: Data, in data: Data) -> Int {

@@ -103,7 +103,7 @@ enum EmbeddedMetadataWriter {
             if edits.writes(.artist) { metadata.artist = tags.artist }
             if edits.writes(.album) { metadata.albumTitle = tags.albumTitle }
             if edits.writes(.genre) { metadata.genre = tags.genre }
-            // SFBAudioEngine 0.12.1 validates MP3 TDRC values through
+            // SFBAudioEngine validates MP3 TDRC values through
             // NSISO8601DateFormatter and silently drops a year-only string.
             // A full ISO-8601 value preserves the editor's year in ID3; FLAC and
             // MP4 accept the intended year-only representation directly.
@@ -116,16 +116,23 @@ enum EmbeddedMetadataWriter {
             if edits.writes(.discNumber) { metadata.discNumber = tags.discNumber }
         }
 
-        // SFBAudioEngine 0.12.1 loads the MP4 grouping item (`©grp`) into
-        // `lyrics` and never into `grouping`. Saving that model replaces the
-        // file's embedded lyrics with the grouping text and deletes the
-        // grouping, so both are restored from the file's own atoms first.
+        // SFBAudioEngine 0.12.1 loaded the MP4 grouping item (`©grp`) into
+        // `lyrics` and never into `grouping`, so saving that model replaced the
+        // file's embedded lyrics with the grouping text and deleted the
+        // grouping. Both are still taken from the file's own atoms first.
         var verifiesStoredM4ALyrics = edits.lyrics != .keep
         var expectedM4ALyrics: String?
         if fileExtension == "m4a" {
-            let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(
-                in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            )
+            let fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            // The library rewrites the ReplayGain items it read and deletes
+            // the ones it could not parse; give it every value found here.
+            if let replayGain = ISOBaseMediaLyricsParser.replayGainTags(in: fileData) {
+                metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? replayGain.trackGain
+                metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? replayGain.trackPeak
+                metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? replayGain.albumGain
+                metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? replayGain.albumPeak
+            }
+            let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(in: fileData)
             if let grouping = stored.grouping {
                 // Lyrics that cannot be read back cannot be restored either;
                 // leave the file untouched rather than overwrite them.
@@ -203,7 +210,10 @@ enum EmbeddedMetadataWriter {
         }
 
         if fileExtension == "m4a" {
-            try repairM4AItemList(at: fileURL)
+            try repairM4AItemList(
+                at: fileURL,
+                albumWasWritten: edits.tags != nil && edits.writes(.album)
+            )
         }
 
         let verifiedFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
@@ -304,18 +314,22 @@ enum EmbeddedMetadataWriter {
         return unified.isEmpty ? nil : unified
     }
 
-    /// SFBAudioEngine 0.12.1 writes the MP4 album as `©ALB` (leaving any old
-    /// `©alb` behind) and writes empty items for unset fields, including an
-    /// empty `covr` box. AVFoundation stops reading the item list at an empty
-    /// or `free` box, so system and third-party readers saw no tags at all.
-    /// The item list is fixed in place and the freed bytes become padding
-    /// right after it, so the file keeps its length and layout. This replaces
-    /// an AVFoundation passthrough export that rebuilt the file from what
-    /// AVFoundation could read — after such a write that was nothing, and
-    /// every other edited tag was lost (the edit then failed verification).
-    private static func repairM4AItemList(at fileURL: URL) throws {
+    /// SFBAudioEngine writes empty items for unset fields, including an empty
+    /// `covr` box, and 0.12.1 wrote the MP4 album as `©ALB` (leaving any old
+    /// `©alb` behind); files saved then still carry it. AVFoundation stops
+    /// reading the item list at an empty or `free` box, so system and
+    /// third-party readers saw no tags at all. The item list is fixed in place
+    /// and the freed bytes become padding right after it, so the file keeps
+    /// its length and layout. This replaces an AVFoundation passthrough export
+    /// that rebuilt the file from what AVFoundation could read — after such a
+    /// write that was nothing, and every other edited tag was lost (the edit
+    /// then failed verification).
+    private static func repairM4AItemList(at fileURL: URL, albumWasWritten: Bool) throws {
         let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        guard let rewrites = M4AMetadataAtomRepair.rewrites(in: data), !rewrites.isEmpty else { return }
+        guard let rewrites = M4AMetadataAtomRepair.rewrites(
+            in: data,
+            albumWasWritten: albumWasWritten
+        ), !rewrites.isEmpty else { return }
         let handle = try FileHandle(forUpdating: fileURL)
         defer { try? handle.close() }
         for rewrite in rewrites {

@@ -360,9 +360,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     }
 
     private static func requireSafeDecoder(_ decoder: SFBAudioEngine.AudioDecoder) throws -> SFBAudioEngine.AudioDecoder {
-        // SFB 0.12.1 can misidentify PCM bytes as MPEG and write beyond its
-        // internal frame buffer. Reject before open; Swift cannot catch that
-        // Objective-C exception, and the existing fallback probes the content.
+        // SFB can misidentify PCM bytes as MPEG and write beyond its internal
+        // frame buffer (0.14.0 still copies frames without a length check).
+        // Reject before open; Swift cannot catch that Objective-C exception,
+        // and the existing fallback probes the content.
         if let mpegClass = NSClassFromString("SFBMPEGDecoder"), decoder.isKind(of: mpegClass) {
             throw AudioDecoderError.unsupportedFormat("MPEG")
         }
@@ -636,11 +637,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
     }
 
-    /// SFB 0.12.1's FLAC decoder checks each decoded frame against the one
-    /// before it, and until the first frame that header is all zeros: a seek
-    /// straight after `open()` reads as a channel-count change and aborts the
-    /// decoder. Decoding one frame first gives the check a real header; the
-    /// seek then replaces what is left of that frame.
+    /// Before 0.14.0, SFB's FLAC decoder checked each decoded frame against
+    /// the one before it, and until the first frame that header was all zeros:
+    /// a seek straight after `open()` read as a channel-count change and
+    /// aborted the decoder. Decoding one frame first gives the check a real
+    /// header; the seek then replaces what is left of that frame.
     private static func decodeFirstFrameBeforeFLACSeek(_ decoder: any SFBAudioEngine.PCMDecoding) {
         guard let flacClass = NSClassFromString("SFBFLACDecoder"),
               (decoder as? NSObject)?.isKind(of: flacClass) == true,
