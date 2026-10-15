@@ -86,6 +86,7 @@ final class CloudKVSSyncTests: XCTestCase {
         XCTAssertTrue(keys.contains(HomeFilterBarConfiguration.storageKey))
         XCTAssertTrue(keys.contains(LibrarySectionLayoutPolicy.hiddenKey))
         XCTAssertTrue(keys.contains("primuse.home.showHero"))
+        XCTAssertTrue(keys.contains(PodcastLibrarySectionLayout.storageKey))
         for rewritten in [
             HomeSpotlightSelection.booksStorageKey,
             HomeSpotlightSelection.radioStorageKey,

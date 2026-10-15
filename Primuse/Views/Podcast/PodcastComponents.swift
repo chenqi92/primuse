@@ -797,6 +797,7 @@ struct PodcastActionsMenuItems: View {
             }
         }
         Divider()
+        PodcastSectionsEditorButton(navigation: navigation)
         Button {
             navigation.showsSettings = true
         } label: {

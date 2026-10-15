@@ -57,6 +57,7 @@ final class PodcastNavigationModel {
     var showsDiscover = false
     var showsAddFeed = false
     var showsSettings = false
+    var showsSectionEditor = false
     var showsOPMLImporter = false
     var importMessage: String?
     var pushedShowID: String?
@@ -120,6 +121,9 @@ private struct PodcastNavigationDestinations: ViewModifier {
                 #if os(macOS)
                     .frame(minWidth: 460, minHeight: 520)
                 #endif
+            }
+            .sheet(isPresented: $navigation.showsSectionEditor) {
+                PodcastSectionsEditor()
             }
             .fileImporter(
                 isPresented: $navigation.showsOPMLImporter,
@@ -196,7 +200,7 @@ struct PodcastAddMenu: View {
     }
 }
 
-/// 「…」:刷新、导出、设置。工具栏与极简页头共用。
+/// 「…」:刷新、导出、调整区块、设置。工具栏与极简页头共用。
 struct PodcastMoreMenu: View {
     let navigation: PodcastNavigationModel
     var systemImage = "ellipsis.circle"
@@ -217,6 +221,7 @@ struct PodcastMoreMenu: View {
                 }
             }
             Divider()
+            PodcastSectionsEditorButton(navigation: navigation)
             Button {
                 navigation.showsSettings = true
             } label: {
@@ -236,6 +241,7 @@ struct PodcastLibraryContent: View {
     var findText = ""
 
     @Environment(MusicLibrary.self) private var library
+    @AppStorage(PodcastLibrarySectionLayout.storageKey) private var sectionLayoutRawValue = ""
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
@@ -264,11 +270,10 @@ struct PodcastLibraryContent: View {
                 }
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
-                    PodcastShowsGrid(navigation: navigation)
-                    PodcastContinueListeningRow(navigation: navigation)
-                    PodcastLatestEpisodesSection(navigation: navigation)
-                    PodcastLikedEpisodesSection(navigation: navigation)
-                    PodcastLocalShowsSection(navigation: navigation)
+                    // 先后与显隐由「…›调整区块」定。
+                    ForEach(PodcastLibrarySectionLayout.decode(sectionLayoutRawValue).visibleSections, id: \.self) { section in
+                        sectionContent(section)
+                    }
                     PodcastRegionHiddenNote()
                 }
             }
@@ -281,6 +286,190 @@ struct PodcastLibraryContent: View {
             if loaded { store.refreshAllIfDue() }
         }
     }
+
+    @ViewBuilder
+    private func sectionContent(_ section: PodcastLibrarySection) -> some View {
+        switch section {
+        case .myShows: PodcastShowsGrid(navigation: navigation)
+        case .continueListening: PodcastContinueListeningRow(navigation: navigation)
+        case .latestEpisodes: PodcastLatestEpisodesSection(navigation: navigation)
+        case .likedEpisodes: PodcastLikedEpisodesSection(navigation: navigation)
+        case .localShows: PodcastLocalShowsSection(navigation: navigation)
+        }
+    }
+}
+
+// MARK: - Arrange sections
+
+extension PodcastLibrarySection {
+    var title: LocalizedStringKey {
+        switch self {
+        case .myShows: "podcast_my_shows"
+        case .continueListening: "podcast_continue_listening"
+        case .latestEpisodes: "podcast_latest_episodes"
+        case .likedEpisodes: "podcast_liked_episodes"
+        case .localShows: "podcast_local_shows"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .myShows: "square.grid.2x2"
+        case .continueListening: "play.circle"
+        case .latestEpisodes: "clock"
+        case .likedEpisodes: "heart"
+        case .localShows: "internaldrive"
+        }
+    }
+}
+
+/// 「…」菜单里的「调整区块」。还没订阅时页面是发现,没有区块可排,不出现。
+struct PodcastSectionsEditorButton: View {
+    let navigation: PodcastNavigationModel
+
+    var body: some View {
+        if !PodcastStore.shared.shows.isEmpty {
+            Button {
+                navigation.showsSectionEditor = true
+            } label: {
+                Label("podcast_sections_title", systemImage: "slider.horizontal.3")
+            }
+            .accessibilityIdentifier("podcast.sections.edit")
+        }
+    }
+}
+
+/// 播客页各区块的先后与显隐。iOS 是常驻编辑态的列表(拖动把手、开关),
+/// Mac 是勾选框加上下移,和「调整搜索结果」同一种做法。
+struct PodcastSectionsEditor: View {
+    @AppStorage(PodcastLibrarySectionLayout.storageKey) private var rawValue = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var layout: PodcastLibrarySectionLayout {
+        PodcastLibrarySectionLayout.decode(rawValue)
+    }
+
+    private func update(_ change: (inout PodcastLibrarySectionLayout) -> Void) {
+        var updated = layout
+        change(&updated)
+        rawValue = updated.encoded
+    }
+
+    private func visibilityBinding(for section: PodcastLibrarySection) -> Binding<Bool> {
+        Binding(
+            get: { layout.isVisible(section) },
+            set: { visible in update { $0.setVisible(visible, for: section) } }
+        )
+    }
+
+    var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(iOS)
+    private var iosBody: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(layout.order, id: \.self) { section in
+                        if section.canHide {
+                            Toggle(isOn: visibilityBinding(for: section)) {
+                                Label(section.title, systemImage: section.systemImage)
+                            }
+                        } else {
+                            Label(section.title, systemImage: section.systemImage)
+                        }
+                    }
+                    .onMove { source, destination in
+                        update { $0.move(fromOffsets: source, toOffset: destination) }
+                    }
+                } footer: {
+                    Text("podcast_sections_footer")
+                }
+
+                Section {
+                    Button("search_layout_restore_default") { rawValue = "" }
+                        .disabled(layout.isDefault)
+                }
+            }
+            // 常驻编辑态, 拖动把手一眼可见, 不必先长按才发现能排。
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle(Text("podcast_sections_title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+            .pmSheetSymmetricMargins()
+            .pmFitsContentInSheet()
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    private var macBody: some View {
+        let order = layout.order
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("podcast_sections_title")
+                .font(.headline)
+
+            VStack(spacing: 2) {
+                ForEach(Array(order.enumerated()), id: \.element) { index, section in
+                    HStack(spacing: 8) {
+                        Toggle(isOn: visibilityBinding(for: section)) {
+                            Label(section.title, systemImage: section.systemImage)
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .toggleStyle(.checkbox)
+                        .disabled(!section.canHide)
+
+                        Spacer(minLength: 12)
+
+                        Button {
+                            update { $0.move(fromOffsets: IndexSet(integer: index), toOffset: index - 1) }
+                        } label: {
+                            Image(systemName: "chevron.up")
+                                .frame(width: 18, height: 18)
+                        }
+                        .disabled(index == 0)
+                        .accessibilityLabel(Text("home_edit_move_up"))
+
+                        Button {
+                            update { $0.move(fromOffsets: IndexSet(integer: index), toOffset: index + 2) }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .frame(width: 18, height: 18)
+                        }
+                        .disabled(index == order.count - 1)
+                        .accessibilityLabel(Text("home_edit_move_down"))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                }
+            }
+
+            Text("podcast_sections_footer")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("search_layout_restore_default") { rawValue = "" }
+                    .disabled(layout.isDefault)
+                Spacer()
+                Button("done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+    #endif
 }
 
 /// 当前店面不显示的订阅(别的设备同步来的手填地址、换店面前订的)。说一句,免得以为同步丢了。

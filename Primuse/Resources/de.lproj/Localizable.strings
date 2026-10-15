@@ -6119,3 +6119,6 @@
 "library_icon_style_colorful" = "Farbig";
 "library_icon_style_simple" = "Schlicht";
 "library_icon_style_description" = "„Schlicht“ verzichtet auf die farbigen Kacheln und zeigt alle Symbole in der Designfarbe.";
+
+"podcast_sections_title" = "Bereiche anordnen";
+"podcast_sections_footer" = "Ausgeschaltete Bereiche werden ausgeblendet. „Sendungen“ bleibt immer sichtbar.";

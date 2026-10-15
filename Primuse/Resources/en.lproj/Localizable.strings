@@ -5879,3 +5879,6 @@
 "library_icon_style_colorful" = "Colorful";
 "library_icon_style_simple" = "Simple";
 "library_icon_style_description" = "Simple drops the colored tiles and draws every icon in the theme color.";
+
+"podcast_sections_title" = "Arrange Sections";
+"podcast_sections_footer" = "Sections you turn off are hidden. “Shows” always stays visible.";

@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "Renkli";
 "library_icon_style_simple" = "Sade";
 "library_icon_style_description" = "Sade stil renkli kutucukları kaldırır ve tüm simgeleri tema rengiyle gösterir.";
+
+"podcast_sections_title" = "Bölümleri Düzenle";
+"podcast_sections_footer" = "Kapattığınız bölümler gizlenir. “Programlar” her zaman görünür.";

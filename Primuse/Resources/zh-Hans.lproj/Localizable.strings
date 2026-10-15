@@ -6212,3 +6212,6 @@
 "library_icon_style_colorful" = "彩色";
 "library_icon_style_simple" = "简洁";
 "library_icon_style_description" = "简洁样式去掉彩色方块，图标统一用主题色。";
+
+"podcast_sections_title" = "调整区块";
+"podcast_sections_footer" = "关掉的区块不再显示。「我的节目」始终显示。";

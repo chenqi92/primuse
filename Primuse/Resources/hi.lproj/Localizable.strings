@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "रंगीन";
 "library_icon_style_simple" = "सरल";
 "library_icon_style_description" = "सरल शैली रंगीन टाइलें हटाकर सभी आइकन थीम के रंग में दिखाती है।";
+
+"podcast_sections_title" = "अनुभाग व्यवस्थित करें";
+"podcast_sections_footer" = "बंद किए गए अनुभाग छिप जाते हैं। “शो” हमेशा दिखता है।";

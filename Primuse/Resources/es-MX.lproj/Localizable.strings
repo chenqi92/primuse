@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "A color";
 "library_icon_style_simple" = "Sencillo";
 "library_icon_style_description" = "El estilo sencillo quita los recuadros de color y muestra todos los íconos en el color del tema.";
+
+"podcast_sections_title" = "Organizar secciones";
+"podcast_sections_footer" = "Las secciones que desactives se ocultan. «Programas» siempre se muestra.";

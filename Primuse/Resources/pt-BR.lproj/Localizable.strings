@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "Coloridos";
 "library_icon_style_simple" = "Simples";
 "library_icon_style_description" = "O estilo simples remove os blocos coloridos e mostra todos os ícones na cor do tema.";
+
+"podcast_sections_title" = "Organizar seções";
+"podcast_sections_footer" = "As seções desativadas ficam ocultas. “Programas” sempre aparece.";

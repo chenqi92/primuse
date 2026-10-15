@@ -6120,3 +6120,6 @@
 "library_icon_style_colorful" = "カラー";
 "library_icon_style_simple" = "シンプル";
 "library_icon_style_description" = "シンプルでは色付きの背景をなくし、すべてのアイコンをテーマカラーで表示します。";
+
+"podcast_sections_title" = "セクションを並べ替え";
+"podcast_sections_footer" = "オフにしたセクションは表示されません。「番組」は常に表示されます。";

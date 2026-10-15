@@ -6096,3 +6096,6 @@
 "library_icon_style_colorful" = "彩色";
 "library_icon_style_simple" = "簡潔";
 "library_icon_style_description" = "簡潔樣式去掉彩色方塊，圖示統一使用主題色。";
+
+"podcast_sections_title" = "調整區塊";
+"podcast_sections_footer" = "關閉的區塊不再顯示。「我的節目」始終顯示。";

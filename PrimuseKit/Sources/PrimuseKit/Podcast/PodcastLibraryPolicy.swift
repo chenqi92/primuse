@@ -313,3 +313,101 @@ public enum PodcastRefreshSchedule {
         return now.timeIntervalSince(last) >= (failureCount > 0 ? backoff : minimumInterval)
     }
 }
+
+// MARK: - 播客页区块
+
+/// 播客页(以及首页「播客」那一面、Mac 播客页)正文里的几个区块。
+public enum PodcastLibrarySection: String, CaseIterable, Sendable {
+    case myShows
+    case continueListening
+    case latestEpisodes
+    case likedEpisodes
+    case localShows
+
+    /// 「我的节目」是进节目页的唯一常驻入口,只能挪位置不能关。
+    public var canHide: Bool { self != .myShows }
+}
+
+/// 播客页各区块的顺序与显隐。存成一个 JSON 字符串(`storageKey`),随界面布局一起走 iCloud。
+///
+/// 只认得出的名字算数:存档里重复的、认不出的(旧版本删掉的区块)丢掉,新版本加的区块按
+/// `LibrarySectionLayoutPolicy.completedOrder` 插到默认顺序里邻居的后面,默认显示。
+public struct PodcastLibrarySectionLayout: Equatable, Sendable {
+    public static let storageKey = "primuse.podcast.librarySections.v1"
+
+    public static let defaultOrder: [PodcastLibrarySection] = PodcastLibrarySection.allCases
+
+    public private(set) var order: [PodcastLibrarySection]
+    public private(set) var hidden: Set<PodcastLibrarySection>
+
+    public init(order: [PodcastLibrarySection] = Self.defaultOrder, hidden: Set<PodcastLibrarySection> = []) {
+        self.order = LibrarySectionLayoutPolicy.completedOrder(order, defaultOrder: Self.defaultOrder)
+        self.hidden = hidden.filter(\.canHide)
+    }
+
+    /// 页面上实际摆出来的区块,按顺序。
+    public var visibleSections: [PodcastLibrarySection] {
+        order.filter { !hidden.contains($0) }
+    }
+
+    public var isDefault: Bool { self == Self() }
+
+    public func isVisible(_ section: PodcastLibrarySection) -> Bool {
+        !hidden.contains(section)
+    }
+
+    public mutating func setVisible(_ visible: Bool, for section: PodcastLibrarySection) {
+        guard section.canHide else { return }
+        if visible {
+            hidden.remove(section)
+        } else {
+            hidden.insert(section)
+        }
+    }
+
+    /// 列表拖动排序(`onMove` 的两个参数)。
+    public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let moving = source.sorted().compactMap { order.indices.contains($0) ? order[$0] : nil }
+        guard !moving.isEmpty else { return }
+        let insertAt = destination - source.filter { $0 < destination }.count
+        var remaining = order
+        for index in source.sorted(by: >) where remaining.indices.contains(index) {
+            remaining.remove(at: index)
+        }
+        remaining.insert(contentsOf: moving, at: min(max(insertAt, 0), remaining.count))
+        order = remaining
+    }
+
+    // MARK: 存档
+
+    private struct Stored: Codable {
+        var order: [String]
+        var hidden: [String]
+    }
+
+    /// 空串或坏掉的存档按默认来。
+    public static func decode(_ rawValue: String) -> Self {
+        guard !rawValue.isEmpty,
+              let data = rawValue.data(using: .utf8),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else {
+            return Self()
+        }
+        return Self(
+            order: stored.order.compactMap(PodcastLibrarySection.init(rawValue:)),
+            hidden: Set(stored.hidden.compactMap(PodcastLibrarySection.init(rawValue:)))
+        )
+    }
+
+    /// 默认状态存空串:没动过的设备不往 iCloud 写一份默认值。
+    public var encoded: String {
+        guard !isDefault else { return "" }
+        let stored = Stored(
+            order: order.map(\.rawValue),
+            hidden: Self.defaultOrder.filter(hidden.contains).map(\.rawValue)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(stored) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+}

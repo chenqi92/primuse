@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "สีสัน";
 "library_icon_style_simple" = "เรียบง่าย";
 "library_icon_style_description" = "แบบเรียบง่ายจะไม่มีพื้นสีและแสดงไอคอนทั้งหมดด้วยสีธีม";
+
+"podcast_sections_title" = "จัดเรียงส่วน";
+"podcast_sections_footer" = "ส่วนที่ปิดไว้จะถูกซ่อน ส่วน “รายการ” จะแสดงเสมอ";

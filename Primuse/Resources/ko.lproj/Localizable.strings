@@ -6119,3 +6119,6 @@
 "library_icon_style_colorful" = "컬러";
 "library_icon_style_simple" = "심플";
 "library_icon_style_description" = "심플은 색상 타일 없이 모든 아이콘을 테마 색상으로 표시합니다.";
+
+"podcast_sections_title" = "섹션 정렬";
+"podcast_sections_footer" = "끈 섹션은 표시되지 않습니다. ‘프로그램’은 항상 표시됩니다.";

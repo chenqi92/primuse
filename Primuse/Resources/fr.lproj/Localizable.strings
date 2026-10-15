@@ -6119,3 +6119,6 @@
 "library_icon_style_colorful" = "En couleur";
 "library_icon_style_simple" = "Épuré";
 "library_icon_style_description" = "Le style épuré retire les pastilles colorées et affiche toutes les icônes dans la couleur du thème.";
+
+"podcast_sections_title" = "Organiser les sections";
+"podcast_sections_footer" = "Les sections désactivées sont masquées. « Émissions » reste toujours affiché.";

@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "ملوّنة";
 "library_icon_style_simple" = "بسيطة";
 "library_icon_style_description" = "يزيل النمط البسيط المربعات الملوّنة ويعرض كل الأيقونات بلون السمة.";
+
+"podcast_sections_title" = "ترتيب الأقسام";
+"podcast_sections_footer" = "الأقسام التي توقفها تُخفى. يبقى قسم «البرامج» ظاهرًا دائمًا.";

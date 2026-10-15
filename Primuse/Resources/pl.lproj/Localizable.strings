@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "Kolorowe";
 "library_icon_style_simple" = "Proste";
 "library_icon_style_description" = "Styl prosty usuwa kolorowe kafelki i pokazuje wszystkie ikony w kolorze motywu.";
+
+"podcast_sections_title" = "Uporządkuj sekcje";
+"podcast_sections_footer" = "Wyłączone sekcje są ukryte. Sekcja „Podcasty” jest zawsze widoczna.";

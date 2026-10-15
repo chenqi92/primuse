@@ -6025,3 +6025,6 @@
 "library_icon_style_colorful" = "Кольорові";
 "library_icon_style_simple" = "Прості";
 "library_icon_style_description" = "Простий стиль прибирає кольорові плашки й показує всі значки в кольорі теми.";
+
+"podcast_sections_title" = "Порядок розділів";
+"podcast_sections_footer" = "Вимкнені розділи приховуються. Розділ «Подкасти» показується завжди.";
