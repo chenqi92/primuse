@@ -6206,3 +6206,9 @@
 "apple_music_mac_save_message" = "Mac 上没法直接把目录里的歌加进资料库。在 Apple Music 中打开这首歌并添加到资料库，同步进来后就能喜欢和加进歌单。";
 
 "spoken_word_shelf_covers_only" = "只显示封面";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "资料库图标";
+"library_icon_style_colorful" = "彩色";
+"library_icon_style_simple" = "简洁";
+"library_icon_style_description" = "简洁样式去掉彩色方块，图标统一用主题色。";

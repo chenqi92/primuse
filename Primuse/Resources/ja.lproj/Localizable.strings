@@ -6114,3 +6114,9 @@
 "apple_music_mac_save_message" = "Mac ではここからカタログの曲をライブラリに追加できません。Apple Music で曲を開いてライブラリに追加し、同期されるとお気に入りやプレイリストに追加できます。";
 
 "spoken_word_shelf_covers_only" = "表紙のみ";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "ライブラリのアイコン";
+"library_icon_style_colorful" = "カラー";
+"library_icon_style_simple" = "シンプル";
+"library_icon_style_description" = "シンプルでは色付きの背景をなくし、すべてのアイコンをテーマカラーで表示します。";

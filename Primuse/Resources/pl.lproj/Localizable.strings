@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "Na Macu nie można stąd dodać utworów z katalogu do biblioteki. Otwórz utwór w Apple Music i dodaj go do biblioteki; po synchronizacji możesz go polubić i dodać do playlist.";
 
 "spoken_word_shelf_covers_only" = "Tylko okładki";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Ikony biblioteki";
+"library_icon_style_colorful" = "Kolorowe";
+"library_icon_style_simple" = "Proste";
+"library_icon_style_description" = "Styl prosty usuwa kolorowe kafelki i pokazuje wszystkie ikony w kolorze motywu.";

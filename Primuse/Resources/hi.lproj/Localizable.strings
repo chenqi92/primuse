@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "Mac पर यहाँ से कैटलॉग के गाने लाइब्रेरी में नहीं जोड़े जा सकते। गाने को Apple Music में खोलकर अपनी लाइब्रेरी में जोड़ें; सिंक होने के बाद आप इसे पसंद कर सकते हैं और प्लेलिस्ट में जोड़ सकते हैं।";
 
 "spoken_word_shelf_covers_only" = "केवल कवर";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "लाइब्रेरी आइकन";
+"library_icon_style_colorful" = "रंगीन";
+"library_icon_style_simple" = "सरल";
+"library_icon_style_description" = "सरल शैली रंगीन टाइलें हटाकर सभी आइकन थीम के रंग में दिखाती है।";

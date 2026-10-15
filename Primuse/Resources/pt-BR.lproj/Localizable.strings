@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "No Mac não dá para adicionar músicas do catálogo à biblioteca por aqui. Abra a música no Apple Music e adicione à sua biblioteca; depois de sincronizar você pode curtir e adicionar a playlists.";
 
 "spoken_word_shelf_covers_only" = "Só capas";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Ícones da biblioteca";
+"library_icon_style_colorful" = "Coloridos";
+"library_icon_style_simple" = "Simples";
+"library_icon_style_description" = "O estilo simples remove os blocos coloridos e mostra todos os ícones na cor do tema.";

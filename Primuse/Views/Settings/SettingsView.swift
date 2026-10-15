@@ -817,6 +817,7 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     #if os(iOS)
     @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
+    @AppStorage(LibraryIconStyle.storageKey) private var libraryIconStyle = LibraryIconStyle.colorful
     #endif
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
@@ -900,6 +901,23 @@ private struct LibraryDisplaySettingsView: View {
                     }
                 }
                 .settingsAnchor("library.playlistCoverWall")
+            }
+            #endif
+
+            #if os(iOS)
+            // 分类图标的方块只画在 iPhone / iPad 的资料库总览上; Mac 侧栏本来就是单色图标。
+            Section {
+                Picker(selection: $libraryIconStyle) {
+                    ForEach(LibraryIconStyle.allCases) { style in
+                        Text(verbatim: style.localizedTitle).tag(style)
+                    }
+                } label: {
+                    SettingsInfoLabel("library_icon_style_title") {
+                        Text("library_icon_style_description")
+                    }
+                }
+                .pickerStyle(.menu)
+                .settingsAnchor("library.iconStyle")
             }
             #endif
 

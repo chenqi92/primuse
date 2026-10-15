@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "Mac'te katalog şarkıları buradan arşive eklenemez. Şarkıyı Apple Music'te açıp arşivinize ekleyin; eşzamanlandıktan sonra beğenebilir ve çalma listelerine ekleyebilirsiniz.";
 
 "spoken_word_shelf_covers_only" = "Yalnızca kapaklar";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Arşiv simgeleri";
+"library_icon_style_colorful" = "Renkli";
+"library_icon_style_simple" = "Sade";
+"library_icon_style_description" = "Sade stil renkli kutucukları kaldırır ve tüm simgeleri tema rengiyle gösterir.";

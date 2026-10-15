@@ -6113,3 +6113,9 @@
 "apple_music_mac_save_message" = "Auf dem Mac lassen sich Katalogtitel hier nicht zur Mediathek hinzufügen. Öffne den Titel in Apple Music und füge ihn deiner Mediathek hinzu; nach der Synchronisierung kannst du ihn favorisieren und zu Playlists hinzufügen.";
 
 "spoken_word_shelf_covers_only" = "Nur Cover";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Mediathek-Symbole";
+"library_icon_style_colorful" = "Farbig";
+"library_icon_style_simple" = "Schlicht";
+"library_icon_style_description" = "„Schlicht“ verzichtet auf die farbigen Kacheln und zeigt alle Symbole in der Designfarbe.";

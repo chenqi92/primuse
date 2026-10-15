@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "На Mac отсюда нельзя добавить песни из каталога в медиатеку. Откройте песню в Apple Music и добавьте в медиатеку; после синхронизации её можно отметить как избранное и добавить в плейлисты.";
 
 "spoken_word_shelf_covers_only" = "Только обложки";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Значки медиатеки";
+"library_icon_style_colorful" = "Цветные";
+"library_icon_style_simple" = "Простые";
+"library_icon_style_description" = "Простой стиль убирает цветные плашки и показывает все значки в цвете темы.";

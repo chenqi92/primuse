@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "บน Mac ไม่สามารถเพิ่มเพลงจากแคตตาล็อกลงคลังจากตรงนี้ได้ เปิดเพลงใน Apple Music แล้วเพิ่มลงคลัง เมื่อซิงค์แล้วจะกดชอบและเพิ่มลงเพลย์ลิสต์ได้";
 
 "spoken_word_shelf_covers_only" = "เฉพาะปก";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "ไอคอนคลังเพลง";
+"library_icon_style_colorful" = "สีสัน";
+"library_icon_style_simple" = "เรียบง่าย";
+"library_icon_style_description" = "แบบเรียบง่ายจะไม่มีพื้นสีและแสดงไอคอนทั้งหมดด้วยสีธีม";

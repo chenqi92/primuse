@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "En la Mac no se pueden agregar canciones del catálogo a la biblioteca desde aquí. Abre la canción en Apple Music y agrégala a tu biblioteca; cuando se sincronice podrás marcarla como Me gusta y agregarla a playlists.";
 
 "spoken_word_shelf_covers_only" = "Solo portadas";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Íconos de la biblioteca";
+"library_icon_style_colorful" = "A color";
+"library_icon_style_simple" = "Sencillo";
+"library_icon_style_description" = "El estilo sencillo quita los recuadros de color y muestra todos los íconos en el color del tema.";

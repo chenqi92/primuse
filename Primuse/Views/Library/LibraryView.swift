@@ -170,6 +170,50 @@ enum LibraryDisplayConfiguration {
     }
 }
 
+/// 资料库分类入口的图标画法。「彩色」是白色符号压在各分类自己颜色的方块上;「简洁」去掉方块,
+/// 符号统一跟主题色、能填充的用填充版,像系统音乐、图书 App 的资料库列表。
+enum LibraryIconStyle: String, CaseIterable, Identifiable, Sendable {
+    case colorful, simple
+
+    /// 跟资料库分类的顺序、显隐一起经 iCloud 同步。
+    static let storageKey = "primuse.library.iconStyle.v1"
+
+    var id: String { rawValue }
+
+    var localizedTitle: String {
+        switch self {
+        case .colorful: return String(localized: "library_icon_style_colorful")
+        case .simple: return String(localized: "library_icon_style_simple")
+        }
+    }
+}
+
+/// 资料库分类的图标,两种画法共用一个尺寸格子,切换样式时标题不挪位置。
+struct LibrarySectionGlyph: View {
+    let section: LibrarySection
+    let style: LibraryIconStyle
+    var side: CGFloat = 40
+
+    var body: some View {
+        switch style {
+        case .colorful:
+            Image(systemName: section.icon)
+                .font(.system(size: side * 0.425, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: side, height: side)
+                .background(section.color.gradient, in: RoundedRectangle(cornerRadius: side / 4, style: .continuous))
+        case .simple:
+            // 电台、有声书、播客在这里也用主题色:一列图标颜色一致才是「简洁」,
+            // 它们自己的颜色仍用在首页顶部切换、小组件和播放页。
+            Image(systemName: section.icon)
+                .symbolVariant(.fill)
+                .font(.system(size: side * 0.55, weight: .medium))
+                .foregroundStyle(.tint)
+                .frame(width: side, height: side)
+        }
+    }
+}
+
 private struct LibraryStackRegistersCollectionDetailsKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -436,6 +480,8 @@ struct LibraryView: View {
     @State private var showQuickAccessEditor = false
     @AppStorage("primuse.navigation.libraryPage.v1")
     private var persistedPageID = ""
+    @AppStorage(LibraryIconStyle.storageKey)
+    private var iconStyle = LibraryIconStyle.colorful
     @AppStorage(LibraryPinStorage.defaultsKey)
     private var quickAccessRawValue = ""
     @AppStorage(HomeFolderPinStorage.key)
@@ -1028,11 +1074,7 @@ struct LibraryView: View {
 
     private func libraryCategoryRow(_ section: LibrarySection) -> some View {
         HStack(spacing: 13) {
-            Image(systemName: section.icon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(section.color.gradient, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            LibrarySectionGlyph(section: section, style: iconStyle)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(section.title)

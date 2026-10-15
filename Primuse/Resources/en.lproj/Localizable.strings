@@ -5873,3 +5873,9 @@
 "apple_music_mac_save_message" = "On Mac, catalog songs can't be added to your library from here. Open the song in Apple Music and add it to your library; once it syncs you can like it and add it to playlists.";
 
 "spoken_word_shelf_covers_only" = "Covers Only";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "Library Icons";
+"library_icon_style_colorful" = "Colorful";
+"library_icon_style_simple" = "Simple";
+"library_icon_style_description" = "Simple drops the colored tiles and draws every icon in the theme color.";

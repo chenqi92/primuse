@@ -6019,3 +6019,9 @@
 "apple_music_mac_save_message" = "على Mac لا يمكن إضافة أغاني الكتالوج إلى المكتبة من هنا. افتح الأغنية في Apple Music وأضفها إلى مكتبتك؛ بعد المزامنة يمكنك تفضيلها وإضافتها إلى قوائم التشغيل.";
 
 "spoken_word_shelf_covers_only" = "الأغلفة فقط";
+
+/* 资料库分类图标样式：彩色 / 简洁 */
+"library_icon_style_title" = "أيقونات المكتبة";
+"library_icon_style_colorful" = "ملوّنة";
+"library_icon_style_simple" = "بسيطة";
+"library_icon_style_description" = "يزيل النمط البسيط المربعات الملوّنة ويعرض كل الأيقونات بلون السمة.";
