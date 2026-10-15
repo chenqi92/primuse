@@ -48,6 +48,62 @@ final class NowPlayingCollapseSignal {
     }
 }
 
+/// 迷你条胶囊在窗口里的位置:播放页从它长出来、收起时缩回它。iOS 26.1 起胶囊是系统的
+/// 底部附件,和播放页不在同一个 SwiftUI 宿主里,SwiftUI 的坐标空间对不上,只能用 UIKit
+/// 视图换算到窗口坐标。几种外壳(系统附件、iPad、极简停靠条、旧系统)各挂一个探针,
+/// 用的时候取当前挂在窗口上、看得见的那一个。
+@MainActor
+final class NowPlayingCapsuleGeometry {
+    static let shared = NowPlayingCapsuleGeometry()
+
+    private final class WeakView {
+        weak var view: UIView?
+        init(_ view: UIView) { self.view = view }
+    }
+
+    private var probes: [WeakView] = []
+
+    private init() {}
+
+    fileprivate func register(_ view: UIView) {
+        probes.removeAll { $0.view == nil }
+        probes.append(WeakView(view))
+    }
+
+    /// 胶囊在窗口坐标里的外框;没有看得见的胶囊时为 nil。
+    func frameInWindow() -> CGRect? {
+        probes.removeAll { $0.view == nil }
+        for probe in probes.reversed() {
+            guard let view = probe.view, view.window != nil, Self.isVisible(view) else { continue }
+            let frame = view.convert(view.bounds, to: nil)
+            if frame.width > 40, frame.height > 20 { return frame }
+        }
+        return nil
+    }
+
+    private static func isVisible(_ view: UIView) -> Bool {
+        var current: UIView? = view
+        while let candidate = current {
+            if candidate.isHidden || candidate.alpha < 0.01 { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+}
+
+/// 挂在迷你条外壳背后、不接收触摸的探针视图。
+struct NowPlayingCapsuleProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        NowPlayingCapsuleGeometry.shared.register(view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
 /// 迷你条封面接住收起的播放页时轻轻弹一下。减少动态效果时不弹。
 private struct MiniPlayerLandingPop: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

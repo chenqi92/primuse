@@ -1634,6 +1634,42 @@ struct CachedArtworkView: View {
         )
     }
 
+    /// 按某个显示尺寸把一首歌的封面先解码进内存缓存，键与同尺寸的 `CachedArtworkView` 完全一致。
+    /// 播放页大封面入场期间只认内存缓存（不读盘），没命中就拿小图放大顶着、等入场结束才解码 ——
+    /// 第一次展开一首歌总是先糊后清。播放页没展开时提前在这里备好，展开那一下就是清楚的图。
+    /// 只读本机磁盘里的封面（迷你条取到图时已经写进去了），不去音乐源取：没有封面的歌
+    /// 每换一首都再跑一趟远端读取不值得。读盘与解码都在协作线程池上。返回内存里是否已有这张图。
+    @discardableResult
+    nonisolated static func prewarm(
+        songID: String,
+        coverRef: String?,
+        sourceID: String?,
+        filePath: String?,
+        fileFormat: AudioFormat?,
+        revisionToken: Int,
+        size: CGFloat,
+        displayScale: CGFloat
+    ) async -> Bool {
+        guard sourceID != AppleMusicLibraryIdentity.sourceID,
+              let identity = ArtworkSourceRequestIdentity.key(
+                songID: songID,
+                artworkReference: coverRef,
+                sourceID: sourceID,
+                filePath: filePath,
+                fileFormat: fileFormat?.rawValue,
+                revision: String(revisionToken)
+              ),
+              !identity.isEmpty else { return false }
+        let key = identity + "@\(bucket(for: size, displayScale: displayScale).rawValue)"
+        guard memoryCache.object(forKey: key as NSString) == nil else { return true }
+        let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath)
+        guard let data = await loadFromDiskCache(
+            songID: ignoredGenericFolderCover ? nil : songID,
+            ref: ignoredGenericFolderCover ? nil : coverRef
+        ) else { return false }
+        return finalize(data: data, bucket: bucket(for: size, displayScale: displayScale), cacheKey: key) != nil
+    }
+
     /// Top-level loader: tries memory cache, disk cache, then falls back to
     /// the source. Decodes via ImageIO, writes both layers of cache, returns
     /// the decoded PlatformImage. Runs on the cooperative pool.

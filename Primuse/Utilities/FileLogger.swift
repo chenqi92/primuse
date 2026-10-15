@@ -408,7 +408,14 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     /// 一次卡顿最多抓这么多份栈, 每次探针间隔抓一份, 看得出它在同一处还是换了地方。
     private static let maximumStallSamples = 3
     /// 探针投出去超过这么久还没被执行, 就抓一份主线程栈。
-    private static let stallSampleThreshold: TimeInterval = 0.25
+    private static let stallSampleThreshold: TimeInterval = configuredStackThreshold ?? 0.25
+    /// 取证时用 `PRIMUSE_DIAGNOSTIC_STACK_MS=<毫秒>` 把取栈门槛调低(最低 20ms)、探针按门槛的一半投,
+    /// 看几十毫秒的短卡;平时保持 250ms,免得探针本身成了负担。
+    private static let configuredStackThreshold: TimeInterval? = {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DIAGNOSTIC_STACK_MS"],
+              let milliseconds = Double(raw), milliseconds.isFinite else { return nil }
+        return max(0.02, milliseconds / 1000)
+    }()
 
     private struct Sample {
         var uptime: TimeInterval
@@ -442,7 +449,9 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
             sampleTimer = sample
 
             let probe = DispatchSource.makeTimerSource(queue: queue)
-            probe.schedule(deadline: .now() + probeInterval, repeating: probeInterval, leeway: .milliseconds(100))
+            let interval = Self.configuredStackThreshold.map { $0 / 2 } ?? probeInterval
+            let leeway = Self.configuredStackThreshold == nil ? 100 : max(1, Int(interval * 250))
+            probe.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(leeway))
             probe.setEventHandler { [weak self] in self?.probeMainThread() }
             probe.resume()
             probeTimer = probe

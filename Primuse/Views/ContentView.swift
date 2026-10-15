@@ -1503,6 +1503,7 @@ struct ContentView: View {
         .background {
             if !showNowPlaying {
                 PlayerBackdropPrewarmer()
+                NowPlayingArtworkPrewarmer()
             }
         }
         // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
@@ -2073,6 +2074,11 @@ struct PlayerOverlay: View {
     @State private var interactiveDrag = PlayerOverlayInteractiveDrag()
     @State private var dismissalState = PlayerOverlayDismissalState()
     @State private var dismissalTask: Task<Void, Never>?
+    /// 0 = 缩在迷你条胶囊里, 1 = 铺满全屏。从迷你条展开、往下收起都只动它,
+    /// 从左边缘横滑收起与手指拖动仍是整页平移。
+    @State private var morphProgress: CGFloat = 0
+    /// 这一次展开 / 收起对准的胶囊外框(窗口坐标)。
+    @State private var capsuleFrame: CGRect?
 
     var body: some View {
         GeometryReader { geometry in
@@ -2124,7 +2130,11 @@ struct PlayerOverlay: View {
                 .geometryGroup()
                 .modifier(PlayerOverlayOffsetModifier(
                     drag: interactiveDrag,
-                    phaseOffset: phaseOffset(travel: travel)
+                    phaseOffset: phaseOffset(travel: travel),
+                    morphProgress: morphProgress,
+                    capsule: capsuleRect(in: geometry),
+                    containerSize: geometry.size,
+                    cardFill: Color(uiColor: .secondarySystemBackground)
                 ))
         }
         .ignoresSafeArea()
@@ -2140,17 +2150,21 @@ struct PlayerOverlay: View {
                 return
             }
             guard !Task.isCancelled else { return }
+            capsuleFrame = NowPlayingCapsuleGeometry.shared.frameInWindow()
             if reduceMotion {
                 presentationPhase = .visible
+                morphProgress = 1
                 completeEntranceIfPossible()
             } else {
-                // 带一点回弹：冲过顶的那一截由 `PlayerOverlayElasticOffset` 换成以底边为锚的
-                // 拉伸，底边一直贴着屏幕底，不会露出下面的迷你条与标签栏。
+                // 从迷你条胶囊长成整页，带一点回弹：冲过头时卡片略大于屏幕，不会露出下面的界面。
+                // 动作完全停住才放行歌词这些推迟的活：落定那一下要整页重算，放在回弹尾巴上就是
+                // 一次看得见的顿挫。大封面不靠这里，迷你条状态下已经预先解码好了。
                 withAnimation(
                     Self.entranceSpring,
                     completionCriteria: .removed
                 ) {
                     presentationPhase = .visible
+                    morphProgress = 1
                 } completion: {
                     completeEntranceIfPossible()
                 }
@@ -2177,6 +2191,7 @@ struct PlayerOverlay: View {
             withTransaction(transaction) {
                 interactiveDrag.offset = .zero
                 presentationPhase = .visible
+                morphProgress = 1
             }
         }
         .onDisappear {
@@ -2191,19 +2206,27 @@ struct PlayerOverlay: View {
         #endif
     }
 
-    /// nil = 停在可见位置, 由拖动偏移决定。
+    /// nil = 由拖动偏移决定(收进胶囊时就从松手那个位置缩过去)。只有横滑收起是整页平移出去。
     private func phaseOffset(travel: CGFloat) -> CGSize? {
         switch presentationPhase {
-        case .staging:
-            return CGSize(width: 0, height: travel)
-        case .visible:
+        case .staging, .visible, .dismissingDown:
             return nil
-        case .dismissingDown:
-            return CGSize(width: 0, height: travel)
         case .dismissingLeading:
             let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
             return CGSize(width: travel * direction, height: 0)
         }
+    }
+
+    /// 胶囊外框换到这一层的坐标里。没有看得见的胶囊(批量选择、CarPlay 编辑时迷你条
+    /// 藏起来了)就按屏幕底部一条估一个,照样有缩回去的样子。
+    private func capsuleRect(in geometry: GeometryProxy) -> CGRect {
+        let size = geometry.size
+        if let capsuleFrame {
+            let origin = geometry.frame(in: .global).origin
+            return capsuleFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        }
+        let width = min(size.width - 32, 560)
+        return CGRect(x: (size.width - width) / 2, y: size.height - 150, width: width, height: 56)
     }
 
     private func completeEntranceIfPossible() {
@@ -2260,15 +2283,20 @@ struct PlayerOverlay: View {
             return
         }
 
+        if phase == .dismissingDown, let frame = NowPlayingCapsuleGeometry.shared.frameInWindow() {
+            // 转过屏、换过版面后胶囊不在原处了，收的时候按它现在的位置。
+            capsuleFrame = frame
+        }
         withAnimation(Self.dismissalSpring) {
             presentationPhase = phase
+            if phase == .dismissingDown { morphProgress = 0 }
         }
         dismissalTask = Task { @MainActor in
             do {
-                // 约 0.2 秒时整页已经落到屏幕底部那一带，迷你条在这时接住它。
-                try await Task.sleep(for: .milliseconds(200))
+                // 约 0.24 秒时整页已经缩到胶囊上，迷你条在这时接住它。
+                try await Task.sleep(for: .milliseconds(240))
                 if phase == .dismissingDown { NowPlayingCollapseSignal.shared.landed() }
-                try await Task.sleep(for: .milliseconds(260))
+                try await Task.sleep(for: .milliseconds(220))
             } catch {
                 return
             }
@@ -2276,8 +2304,8 @@ struct PlayerOverlay: View {
         }
     }
 
-    private static let entranceSpring = Animation.spring(duration: 0.52, bounce: 0.3)
-    private static let dismissalSpring = Animation.spring(duration: 0.4, bounce: 0.2)
+    private static let entranceSpring = Animation.spring(duration: 0.5, bounce: 0.22)
+    private static let dismissalSpring = Animation.spring(duration: 0.42, bounce: 0.12)
     private static let verticalSnapBackSpring = Animation.spring(duration: 0.42, bounce: 0.3)
 
     private func completeDismissal(generation: UInt64) {
@@ -2300,32 +2328,164 @@ private final class PlayerOverlayInteractiveDrag {
 private struct PlayerOverlayOffsetModifier: ViewModifier {
     let drag: PlayerOverlayInteractiveDrag
     let phaseOffset: CGSize?
+    let morphProgress: CGFloat
+    let capsule: CGRect
+    let containerSize: CGSize
+    let cardFill: Color
 
     func body(content: Content) -> some View {
-        content.modifier(PlayerOverlayElasticOffset(offset: phaseOffset ?? drag.offset))
+        content.modifier(PlayerOverlayMorph(
+            progress: morphProgress,
+            offset: phaseOffset ?? drag.offset,
+            capsule: capsule,
+            containerSize: containerSize,
+            cardFill: cardFill
+        ))
     }
 }
 
-/// 播放页整页的位移。往下、往旁边照常平移；弹簧冲过停靠位置（往上）的那一截改成以底边为锚
-/// 向上拉伸：平移会让底边离开屏幕底、露出下面的界面，拉伸时底边不动，顶边那点越出屏幕外。
-private struct PlayerOverlayElasticOffset: GeometryEffect {
+/// 播放页在全屏与迷你条胶囊之间变形：卡片四条边在两者之间插值，页面按卡片宽度等比缩放、
+/// 顶边对齐、超出卡片高度的部分裁掉；内容在中段淡出露出底卡，最后一小段整张淡掉，交给下面
+/// 真的胶囊。进度到 1 之后只剩平移（拖动、横滑收起）；往上越过停靠位置（下拉松手弹回）
+/// 改成以底边为锚的拉伸，底边不离开屏幕底。
+///
+/// 每帧只重算这个修饰符的 body，播放页本身不重建；所有分支都套同样几层修饰，
+/// 结构不变，播放页的状态不会因为换分支被重置。
+private struct PlayerOverlayMorph: ViewModifier, Animatable {
+    var progress: CGFloat
     var offset: CGSize
+    let capsule: CGRect
+    let containerSize: CGSize
+    let cardFill: Color
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(offset.width, offset.height) }
-        set { offset = CGSize(width: newValue.first, height: newValue.second) }
+    nonisolated var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(progress, AnimatablePair(offset.width, offset.height)) }
+        set {
+            progress = newValue.first
+            offset = CGSize(width: newValue.second.first, height: newValue.second.second)
+        }
     }
 
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        guard offset.height < 0, size.height > 0 else {
-            return ProjectionTransform(CGAffineTransform(translationX: offset.width, y: offset.height))
+    func body(content: Content) -> some View {
+        let geometry = PlayerOverlayMorphGeometry(
+            progress: progress,
+            offset: offset,
+            capsule: capsule,
+            container: containerSize
+        )
+        content
+            .opacity(geometry.contentOpacity)
+            .background(cardFill.opacity(geometry.cardFillOpacity))
+            .clipShape(PlayerOverlayCardShape(
+                height: geometry.clipHeight,
+                cornerRadius: geometry.cornerRadius
+            ))
+            .transformEffect(geometry.transform)
+            .opacity(geometry.overallOpacity)
+    }
+}
+
+/// 变形的几何。全部在 `PlayerOverlayMorph` 里按帧算，抽出来便于读。
+private struct PlayerOverlayMorphGeometry {
+    var transform: CGAffineTransform
+    /// 页面坐标里保留的高度（顶边对齐）。
+    var clipHeight: CGFloat
+    var cornerRadius: CGFloat
+    var contentOpacity: Double
+    var cardFillOpacity: Double
+    var overallOpacity: Double
+
+    init(progress t: CGFloat, offset: CGSize, capsule: CGRect, container: CGSize) {
+        let width = max(container.width, 1)
+        let height = max(container.height, 1)
+        if abs(t - 1) < 0.001 {
+            // 铺满之后：拖动、横滑收起是平移；往上越过停靠位置时底边钉住、往上拉伸。
+            // 展开冲过头（t > 1）不走这里，按下面的插值让卡片略大于屏幕。
+            let stretch = offset.height < 0 ? (height - offset.height) / height : 1
+            transform = CGAffineTransform(a: 1, b: 0, c: 0, d: stretch, tx: offset.width, ty: offset.height)
+            clipHeight = height
+            cornerRadius = 0
+            contentOpacity = 1
+            cardFillOpacity = 0
+            overallOpacity = 1
+            return
         }
-        // 底边留在 size.height，顶边到 offset.height：y' = y × s + offset.height。
-        let stretch = (size.height - offset.height) / size.height
-        return ProjectionTransform(CGAffineTransform(
-            a: 1, b: 0, c: 0, d: stretch,
-            tx: offset.width, ty: offset.height
-        ))
+        func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
+        let minX = lerp(capsule.minX, offset.width)
+        let maxX = lerp(capsule.maxX, offset.width + width)
+        let minY = lerp(capsule.minY, offset.height)
+        let maxY = lerp(capsule.maxY, offset.height + height)
+        let scale = max((maxX - minX) / width, 0.01)
+        transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: minX, ty: minY)
+        clipHeight = max(maxY - minY, 0) / scale
+
+        let clamped = min(max(t, 0), 1)
+        let capsuleRadius = min(capsule.height / 2, 28)
+        // 越靠近整页圆角越接近 0，落定那一下不会突然变直角（iPad 屏幕圆角小，看得出来）。
+        let sheetFade = 1 - Self.smoothstep((clamped - 0.85) / 0.15)
+        cornerRadius = (capsuleRadius + (40 - capsuleRadius) * clamped) * sheetFade / scale
+        contentOpacity = Double(Self.smoothstep((clamped - 0.25) / 0.45))
+        cardFillOpacity = 1
+        overallOpacity = Double(min(max(t / 0.12, 0), 1))
+    }
+
+    private static func smoothstep(_ x: CGFloat) -> CGFloat {
+        let v = min(max(x, 0), 1)
+        return v * v * (3 - 2 * v)
+    }
+}
+
+/// 顶边对齐、只保留 `height` 那么高的圆角矩形。
+private struct PlayerOverlayCardShape: Shape {
+    var height: CGFloat
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let card = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: min(height, rect.height))
+        let radius = min(cornerRadius, card.height / 2, card.width / 2)
+        return Path(roundedRect: card, cornerRadius: max(radius, 0), style: .continuous)
+    }
+}
+
+/// 播放页没展开时，把正在播的这首按播放页大封面的尺寸先解码进内存缓存，
+/// 展开时大封面直接是清楚的图（见 `CachedArtworkView.prewarm`，只读本机已存的封面）。
+/// Apple Music 的歌封面由 MusicKit 自己加载，不在这里备。换歌后稍等一会儿再做，不跟起播抢资源。
+private struct NowPlayingArtworkPrewarmer: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        let song = player.isLiveRadio ? nil : player.currentSong
+        let identity = [
+            song?.id ?? "",
+            song?.coverArtFileName ?? "",
+            String(player.coverRevision),
+            scenePhase == .active ? "active" : "inactive",
+        ].joined(separator: "|")
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: identity) {
+                guard scenePhase == .active, let song,
+                      song.sourceID != AppleMusicLibraryService.systemSourceID else { return }
+                // 远端源的封面迷你条可能还在取，第一次没在盘上就过几秒再看一次。
+                for delay in [600, 3_000] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                    guard !Task.isCancelled else { return }
+                    if await CachedArtworkView.prewarm(
+                        songID: song.id,
+                        coverRef: song.coverArtFileName,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat,
+                        revisionToken: player.coverRevision,
+                        size: NowPlayingView.artworkRenderSize,
+                        displayScale: displayScale
+                    ) { return }
+                }
+            }
     }
 }
 
@@ -2338,6 +2498,7 @@ struct LegacyNowPlayingAccessory: View {
         MiniPlayerView(onTap: onTap)
             .frame(maxWidth: .infinity)
             .background(.ultraThinMaterial)
+            .background(NowPlayingCapsuleProbe())
     }
 }
 
@@ -2432,6 +2593,7 @@ struct MinimalNowPlayingAccessory: View {
             legacyShadow: (opacity: 0.16, radius: 14, y: 6)
         )
         .contentShape(shape)
+        .background(NowPlayingCapsuleProbe())
         .frame(maxWidth: .infinity, alignment: barAlignment)
         .padding(.horizontal, 12)
         .padding(.top, heightClass.value(6, compact: 4))
@@ -2468,6 +2630,7 @@ struct PadNowPlayingAccessory: View {
             legacyStrokeOpacity: 0.06,
             legacyShadow: (opacity: 0.08, radius: 10, y: 3)
         )
+        .background(NowPlayingCapsuleProbe())
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .padding(.top, 4)
@@ -2518,6 +2681,7 @@ struct NowPlayingAccessory: View {
         }
         .padding(.horizontal, isInline ? 12 : 16)
         .padding(.vertical, isInline ? 2 : 4)
+        .background(NowPlayingCapsuleProbe())
     }
 }
 

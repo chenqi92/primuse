@@ -5890,6 +5890,9 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 播放页大封面固定按这个尺寸画一次再缩放（单层飞行封面）。迷你条状态下的预热按同一尺寸解码。
+    static let artworkRenderSize: CGFloat = 512
+
     private func lyricsArtworkOverlay(
         anchors: [LyricsArtworkPlacement: LyricsArtworkAnchor]
     ) -> some View {
@@ -5902,7 +5905,7 @@ struct NowPlayingView: View {
             if let anchor = anchors[placement] {
                 let rect = geometry[anchor.bounds]
                 // 封面按固定尺寸画一次，外框、圆角、图片和占位音符都在同一层里一起缩放。
-                let renderSize: CGFloat = 512
+                let renderSize = Self.artworkRenderSize
                 CachedArtworkView(
                     coverRef: player.currentSong?.coverArtFileName,
                     songID: player.currentSong?.id ?? "",
