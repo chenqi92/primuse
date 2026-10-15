@@ -90,11 +90,26 @@ extension AudioPlayerService {
         allowFileRead: Bool
     ) async -> ReplayGainValues {
         let storedValues = replayGainValues(from: song, mode: mode)
-        if storedValues.hasValue || !allowFileRead {
-            return storedValues
+        let values: ReplayGainValues
+        let origin: String
+        if storedValues.hasValue {
+            values = storedValues
+            origin = "library"
+        } else if !allowFileRead {
+            values = storedValues
+            origin = "none (streamed; file not read)"
+        } else {
+            let tags = await ReplayGainFileTagCache.shared.tags(for: url)
+            values = replayGainValues(from: tags, mode: mode)
+            origin = values.hasValue ? "file" : "none (no tags in file)"
         }
-        let tags = await ReplayGainFileTagCache.shared.tags(for: url)
-        return replayGainValues(from: tags, mode: mode)
+        // Answers "ReplayGain does nothing for this song" from a log: which
+        // values were used, where they came from, and the volume they gave.
+        let gain = values.gain.map { String(format: "%+.2f dB", $0) } ?? "-"
+        let peak = values.peak.map { String(format: "%.6f", $0) } ?? "-"
+        let volume = String(format: "%.3f", programVolume(for: values))
+        plog("🎚️ ReplayGain '\(song.title)' mode=\(mode.rawValue) source=\(origin) gain=\(gain) peak=\(peak) volume=×\(volume)")
+        return values
     }
 
     /// The node volume a gapless successor's samples are scaled against.
