@@ -220,6 +220,39 @@ public enum HomeSectionLayoutPolicy {
     }
 }
 
+/// 首页冷启动骨架画哪几块。
+///
+/// 骨架照用户自己排的版面画:关掉的区块不画,挪到前面的在骨架里也在前面,内容换上来时
+/// 不会整页变个样子。只画到填满一屏 —— 首屏以下的块看不见,多画只是多算布局。
+/// 手机、iPad 与 Mac 首页共用,区块类型各自传进来。
+public enum HomeLoadingSkeletonPolicy {
+    /// 视口还没量到(首页刚出现那一帧)时按这个高度估。
+    public static let unmeasuredViewportHeight: Double = 900
+
+    /// 按 `order` 的先后挑出要画的区块,累计估高到 `availableHeight` 为止;
+    /// 越过这条线的那一块也画上,首屏底部不会空一截。
+    public static func sections<Section>(
+        in order: [Section],
+        isShown: (Section) -> Bool,
+        estimatedHeight: (Section) -> Double,
+        spacing: Double,
+        availableHeight: Double
+    ) -> [Section] {
+        let budget = availableHeight.isFinite && availableHeight > 0
+            ? availableHeight
+            : unmeasuredViewportHeight
+        var result: [Section] = []
+        var used = 0.0
+        for section in order where isShown(section) {
+            guard used < budget else { break }
+            if !result.isEmpty { used += spacing }
+            result.append(section)
+            used += max(estimatedHeight(section), 0)
+        }
+        return result
+    }
+}
+
 /// 首页「收藏」横排的列宽。
 ///
 /// 条目很窄(图标 52 点),一屏放得下四五列;按固定宽度从左排,列数一少右边就空出一大截,

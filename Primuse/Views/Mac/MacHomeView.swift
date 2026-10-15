@@ -378,61 +378,8 @@ struct MacHomeView: View {
                         .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                 }
 
-                LazyVGrid(
-                    columns: [
-                        GridItem(.adaptive(minimum: 220, maximum: 360), spacing: PMSpace.m16),
-                    ],
-                    spacing: PMSpace.m16
-                ) {
-                    ForEach(0..<3, id: \.self) { index in
-                        HStack(spacing: PMSpace.m14) {
-                            homeSkeletonBlock(
-                                width: 42,
-                                height: 42,
-                                cornerRadius: PMRadius.m10
-                            )
-                            VStack(alignment: .leading, spacing: PMSpace.s8) {
-                                homeSkeletonBlock(width: 76 + CGFloat(index * 14), height: 12)
-                                homeSkeletonBlock(width: 128, height: 20)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(PMSpace.l)
-                        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l14))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: PMSpace.m16) {
-                    homeSkeletonBlock(width: 148, height: 20)
-
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.adaptive(minimum: 180, maximum: 240), spacing: PMSpace.m16),
-                        ],
-                        spacing: PMSpace.m16
-                    ) {
-                        ForEach(0..<5, id: \.self) { index in
-                            VStack(alignment: .leading, spacing: PMSpace.s8) {
-                                homeSkeletonBlock(height: 122, cornerRadius: PMRadius.m10)
-                                    .frame(maxWidth: .infinity)
-                                homeSkeletonBlock(
-                                    width: 104 + CGFloat((index % 3) * 18),
-                                    height: 13
-                                )
-                                homeSkeletonBlock(width: 72, height: 10)
-                            }
-                            .padding(PMSpace.s10)
-                            .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
-                                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                            }
-                        }
-                    }
+                ForEach(skeletonSections) { section in
+                    skeletonSection(section)
                 }
             }
         }
@@ -446,6 +393,233 @@ struct MacHomeView: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(PMColor.glassBtn)
             .frame(width: width, height: height)
+    }
+
+    /// 骨架里主卡下面画哪几块:照首页设置里的顺序与开关;要看内容才知道有没有的区块(电台、书)
+    /// 用现成的计数判断。只画到一屏左右,读的只有设置和计数,不碰曲库内容。
+    private var skeletonSections: [MacHomeSection] {
+        HomeLoadingSkeletonPolicy.sections(
+            in: MacHomeSectionLayout.decodeOrder(sectionOrderRawValue),
+            isShown: showsInSkeleton,
+            estimatedHeight: { Double(Self.skeletonHeight(for: $0)) },
+            spacing: Double(PMSpace.xxl),
+            availableHeight: Self.skeletonBudget
+        )
+    }
+
+    /// 主卡下面这一屏大约多高。窗口高矮不一,按常见窗口往大里估:多画一块只是在屏幕外,
+    /// 少画了底部会空一截。
+    private static let skeletonBudget: Double = 900
+
+    private func showsInSkeleton(_ section: MacHomeSection) -> Bool {
+        switch section {
+        case .overview: showOverview
+        case .pipeline: showPipeline
+        case .startListening: showStartListening
+        case .forYou: showForYou
+        case .recentlyAdded: showRecentlyAdded
+        case .recentlyPlayed: showContinueListening
+        case .radio: showRadio && !radioStationsStore.stations.isEmpty
+        case .books: showBooks && !library.spokenWordSongs.isEmpty
+        case .podcasts: showPodcasts
+        case .topArtists: showTopArtists
+        }
+    }
+
+    private static let skeletonHeaderHeight: CGFloat = 18 + PMSpace.m
+
+    /// 各块骨架的高度,和下面画出来的一致,也用来估一屏画到第几块。
+    private static func skeletonHeight(for section: MacHomeSection) -> CGFloat {
+        switch section {
+        case .overview: 188
+        case .pipeline: 150
+        case .startListening: skeletonHeaderHeight + 84 * 2 + PMSpace.m
+        case .forYou: skeletonHeaderHeight + 100
+        case .recentlyAdded: skeletonHeaderHeight + 196
+        case .recentlyPlayed: skeletonHeaderHeight + 52 * 2 + PMSpace.m
+        case .radio: skeletonHeaderHeight + 126
+        case .books, .podcasts: skeletonHeaderHeight + 186
+        case .topArtists: skeletonHeaderHeight + 132
+        }
+    }
+
+    /// 每块照真实排布画个大概:统计是两张卡,管线是一排四个圆,其余是标题加网格或横排。
+    @ViewBuilder
+    private func skeletonSection(_ section: MacHomeSection) -> some View {
+        switch section {
+        case .overview:
+            HStack(alignment: .top, spacing: PMSpace.m16) {
+                ForEach(0..<2, id: \.self) { _ in
+                    skeletonCard {
+                        VStack(alignment: .leading, spacing: PMSpace.m) {
+                            homeSkeletonBlock(width: 120, height: 14)
+                            HStack(spacing: PMSpace.l24) {
+                                ForEach(0..<3, id: \.self) { _ in
+                                    VStack(alignment: .leading, spacing: PMSpace.s8) {
+                                        homeSkeletonBlock(width: 64, height: 24)
+                                        homeSkeletonBlock(width: 48, height: 10)
+                                    }
+                                }
+                            }
+                            homeSkeletonBlock(height: 8)
+                            homeSkeletonBlock(height: 8)
+                        }
+                        .padding(PMSpace.l)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }
+            }
+            .frame(height: Self.skeletonHeight(for: .overview), alignment: .top)
+        case .pipeline:
+            skeletonCard {
+                HStack(spacing: PMSpace.s8) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        VStack(spacing: 10) {
+                            homeSkeletonBlock(width: 52, height: 52, cornerRadius: 26)
+                            homeSkeletonBlock(width: 72, height: 12)
+                            homeSkeletonBlock(width: 52, height: 10)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 22)
+                .frame(maxWidth: .infinity, minHeight: Self.skeletonHeight(for: .pipeline))
+            }
+        case .startListening:
+            skeletonSectionBody {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: PMSpace.m)],
+                    spacing: PMSpace.m
+                ) {
+                    ForEach(0..<6, id: \.self) { _ in
+                        skeletonCard { Color.clear.frame(height: 84) }
+                    }
+                }
+                .frame(height: 84 * 2 + PMSpace.m, alignment: .top)
+                .clipped()
+            }
+        case .forYou:
+            skeletonSectionBody {
+                skeletonRow(spacing: 12) {
+                    skeletonCard {
+                        HStack(spacing: PMSpace.m) {
+                            homeSkeletonBlock(width: 78, height: 78, cornerRadius: PMRadius.m)
+                            VStack(alignment: .leading, spacing: PMSpace.s8) {
+                                homeSkeletonBlock(width: 140, height: 13)
+                                homeSkeletonBlock(width: 96, height: 10)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 11)
+                        .frame(width: 292, height: 100)
+                    }
+                }
+            }
+        case .recentlyAdded:
+            skeletonSectionBody {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 130, maximum: 160), spacing: PMSpace.m16, alignment: .top)],
+                    alignment: .leading,
+                    spacing: PMSpace.l
+                ) {
+                    ForEach(0..<12, id: \.self) { index in
+                        VStack(alignment: .leading, spacing: PMSpace.s8) {
+                            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                                .fill(PMColor.glassBtn)
+                                .aspectRatio(1, contentMode: .fit)
+                            homeSkeletonBlock(width: 96 + CGFloat((index % 3) * 14), height: 12)
+                            homeSkeletonBlock(width: 64, height: 10)
+                        }
+                    }
+                }
+                .frame(height: 196, alignment: .top)
+                .clipped()
+            }
+        case .recentlyPlayed:
+            skeletonSectionBody {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 260, maximum: 320), spacing: PMSpace.m, alignment: .top)],
+                    alignment: .leading,
+                    spacing: PMSpace.m
+                ) {
+                    ForEach(0..<8, id: \.self) { _ in
+                        HStack(spacing: 10) {
+                            homeSkeletonBlock(width: 40, height: 40, cornerRadius: PMRadius.s)
+                            VStack(alignment: .leading, spacing: PMSpace.s) {
+                                homeSkeletonBlock(width: 140, height: 12)
+                                homeSkeletonBlock(width: 90, height: 10)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(height: 52)
+                    }
+                }
+                .frame(height: 52 * 2 + PMSpace.m, alignment: .top)
+                .clipped()
+            }
+        case .radio:
+            skeletonSectionBody {
+                skeletonRow(spacing: 12) {
+                    VStack(alignment: .leading, spacing: PMSpace.s) {
+                        homeSkeletonBlock(width: 104, height: 104, cornerRadius: PMRadius.l14)
+                        homeSkeletonBlock(width: 76, height: 12)
+                    }
+                    .frame(height: 126, alignment: .top)
+                }
+            }
+        case .books, .podcasts:
+            skeletonSectionBody {
+                skeletonRow(spacing: PMSpace.m16) {
+                    VStack(alignment: .leading, spacing: PMSpace.s8) {
+                        homeSkeletonBlock(width: 132, height: 132, cornerRadius: PMRadius.m10)
+                        homeSkeletonBlock(width: 104, height: 12)
+                        homeSkeletonBlock(width: 72, height: 10)
+                    }
+                    .frame(height: 186, alignment: .top)
+                }
+            }
+        case .topArtists:
+            skeletonSectionBody {
+                skeletonRow(spacing: PMSpace.l) {
+                    VStack(spacing: PMSpace.s8) {
+                        homeSkeletonBlock(width: 92, height: 92, cornerRadius: 46)
+                        homeSkeletonBlock(width: 64, height: 12)
+                        homeSkeletonBlock(width: 28, height: 10)
+                    }
+                    .frame(width: 100, height: 132, alignment: .top)
+                }
+            }
+        }
+    }
+
+    /// 区块标题(标题加一行小字说明)和下面的内容。
+    private func skeletonSectionBody<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: PMSpace.m) {
+            HStack(alignment: .bottom, spacing: 10) {
+                homeSkeletonBlock(width: 132, height: 18)
+                homeSkeletonBlock(width: 96, height: 12)
+            }
+            content()
+        }
+    }
+
+    /// 横排:同一张卡片摆到超出右缘为止,超出的部分裁掉,不撑宽页面。
+    private func skeletonRow<Card: View>(spacing: CGFloat, @ViewBuilder _ card: () -> Card) -> some View {
+        let content = card()
+        return HStack(alignment: .top, spacing: spacing) {
+            ForEach(0..<10, id: \.self) { _ in content }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    private func skeletonCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.l14))
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
     }
 
     /// 合并 searchRevision 风暴: cancel 上一次再重启计时, 只有最后一次 revision

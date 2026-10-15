@@ -318,6 +318,226 @@ private struct HomeTwoColumnSectionsLayout: Layout {
     }
 }
 
+/// 冷启动骨架里的一块:照这一块真实的排布画个大概 —— 有没有标题,横排、网格、列表还是一张卡片,
+/// 卡片多大。数字取自各区块的实际尺寸,差几点不要紧:内容换上来时是原地淡入。
+private struct HomeLoadingSkeletonBlock {
+    enum Body {
+        /// 横排卡片,叠 `rows` 行;`artwork` 为 nil 时整张卡片是一块底色(继续听、为你推荐那种)。
+        case row(card: CGSize, artwork: CGFloat?, circular: Bool, rows: Int, spacing: CGFloat, inset: CGFloat)
+        /// 纵向网格,封面按列宽铺成正方形(艺人是圆)。
+        case grid(columns: Int, rows: Int, circular: Bool)
+        /// 收藏的三列小图标,放在一块圆角底板里。
+        case iconGrid(rows: Int)
+        /// 纵向列表,每行左边一张封面加两行字;`filled` 时每行有自己的底色。
+        case list(rows: Int, rowHeight: CGFloat, artwork: CGFloat, spacing: CGFloat, filled: Bool)
+        /// 整宽的一张卡片。
+        case card(height: CGFloat)
+        /// 「开始听」的网格:一张整宽的大卡片,下面两行各两张。
+        case tiles
+    }
+
+    var body: Body
+    var hasHeader = true
+
+    init(_ body: Body, hasHeader: Bool = true) {
+        self.body = body
+        self.hasHeader = hasHeader
+    }
+
+    static let headerHeight: CGFloat = 20
+    static let headerSpacing: CGFloat = 10
+    static let gridSpacing: CGFloat = 16
+    static let gridRowSpacing: CGFloat = 20
+    /// 封面下面两行字占的高度。
+    static let captionHeight: CGFloat = 36
+
+    /// 估这一块有多高,决定骨架画到第几块就够一屏。
+    func estimatedHeight(contentWidth: CGFloat) -> CGFloat {
+        let header = hasHeader ? Self.headerHeight + Self.headerSpacing : 0
+        let content: CGFloat
+        switch body {
+        case .row(let card, _, _, let rows, let spacing, _):
+            content = CGFloat(rows) * card.height + CGFloat(max(rows - 1, 0)) * spacing
+        case .grid(let columns, let rows, let circular):
+            let cell = circular
+                ? 80
+                : (contentWidth - CGFloat(columns - 1) * Self.gridSpacing) / CGFloat(max(columns, 1))
+            content = CGFloat(rows) * (cell + Self.captionHeight) + CGFloat(max(rows - 1, 0)) * Self.gridRowSpacing
+        case .iconGrid(let rows):
+            content = CGFloat(rows) * 76 + CGFloat(max(rows - 1, 0)) * 14 + 28
+        case .list(let rows, let rowHeight, _, let spacing, _):
+            content = CGFloat(rows) * rowHeight + CGFloat(max(rows - 1, 0)) * spacing
+        case .card(let height):
+            content = height
+        case .tiles:
+            content = 78 + 8 + 64 * 2 + 8
+        }
+        return header + content
+    }
+}
+
+/// 按 `HomeLoadingSkeletonBlock` 画出来的一块骨架。只有圆角矩形与圆,不读任何数据。
+private struct HomeLoadingSkeletonSection: View {
+    let block: HomeLoadingSkeletonBlock
+    let surface: Color
+
+    private static let lineFill = Color.secondary.opacity(0.14)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HomeLoadingSkeletonBlock.headerSpacing) {
+            if block.hasHeader {
+                line(width: 128, height: HomeLoadingSkeletonBlock.headerHeight)
+                    .padding(.horizontal, 20)
+            }
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch block.body {
+        case .row(let card, let artwork, let circular, let rows, let spacing, let inset):
+            // 一行摆到超出右缘为止,和真的横排一样露出一角;超出的部分裁掉,不撑宽页面。
+            VStack(alignment: .leading, spacing: spacing) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    HStack(alignment: .top, spacing: spacing) {
+                        ForEach(0..<8, id: \.self) { _ in
+                            rowCard(card, artwork: artwork, circular: circular)
+                        }
+                    }
+                }
+            }
+            .padding(.leading, inset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        case .grid(let columns, let rows, let circular):
+            VStack(spacing: HomeLoadingSkeletonBlock.gridRowSpacing) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    HStack(alignment: .top, spacing: HomeLoadingSkeletonBlock.gridSpacing) {
+                        ForEach(0..<columns, id: \.self) { _ in
+                            gridCell(circular: circular)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        case .iconGrid(let rows):
+            VStack(spacing: 14) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    HStack(spacing: 10) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            VStack(spacing: 7) {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(Self.lineFill)
+                                    .frame(width: 52, height: 52)
+                                line(width: 44, height: 10)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 76)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background(surface, in: .rect(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 20)
+        case .list(let rows, let rowHeight, let artwork, let spacing, let filled):
+            VStack(spacing: spacing) {
+                ForEach(0..<rows, id: \.self) { index in
+                    HStack(spacing: 12) {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(filled ? Self.lineFill : surface)
+                            .frame(width: artwork, height: artwork)
+                        VStack(alignment: .leading, spacing: 6) {
+                            line(width: 120 + CGFloat(index % 3) * 24, height: 12)
+                            line(width: 80, height: 10)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, filled ? 6 : 0)
+                    .frame(height: rowHeight)
+                    .background {
+                        if filled {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(surface)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        case .card(let height):
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(surface)
+                .frame(height: height)
+                .padding(.horizontal, 16)
+        case .tiles:
+            VStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(surface)
+                    .frame(height: 78)
+                ForEach(0..<2, id: \.self) { _ in
+                    HStack(spacing: 8) {
+                        ForEach(0..<2, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(surface)
+                                .frame(height: 64)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    @ViewBuilder
+    private func rowCard(_ card: CGSize, artwork: CGFloat?, circular: Bool) -> some View {
+        if let artwork {
+            VStack(alignment: circular ? .center : .leading, spacing: 6) {
+                artworkShape(circular: circular)
+                    .frame(width: artwork, height: artwork)
+                line(width: artwork * 0.8, height: 12)
+                if card.height - artwork > 30 {
+                    line(width: artwork * 0.5, height: 10)
+                }
+            }
+            .frame(width: card.width, height: card.height, alignment: .top)
+        } else {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(surface)
+                .frame(width: card.width, height: card.height)
+        }
+    }
+
+    private func gridCell(circular: Bool) -> some View {
+        VStack(alignment: circular ? .center : .leading, spacing: 6) {
+            if circular {
+                Circle().fill(surface).frame(width: 80, height: 80)
+            } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(surface)
+                    .aspectRatio(1, contentMode: .fit)
+            }
+            line(width: circular ? 56 : 96, height: 12)
+            line(width: circular ? 36 : 64, height: 10)
+        }
+        .frame(maxWidth: .infinity, alignment: circular ? .center : .leading)
+    }
+
+    @ViewBuilder
+    private func artworkShape(circular: Bool) -> some View {
+        if circular {
+            Circle().fill(surface)
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(surface)
+        }
+    }
+
+    private func line(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: height / 2.5, style: .continuous)
+            .fill(Self.lineFill)
+            .frame(width: width, height: height)
+    }
+}
+
 /// 首页排版拖动时显示的提示胶囊。
 ///
 /// 预览在自己的视图图里渲染,这里只用文字和字形,不读任何环境对象。
@@ -2627,30 +2847,183 @@ struct HomeView: View {
         }
     }
 
+    /// 冷启动的加载骨架,照用户自己的版面画:顶部封面关了就不画,区块按首页编辑里的顺序、
+    /// 开关与排布(横排几行、网格、列表)画个大概,只画到填满一屏。读的只有界面设置和几个
+    /// 现成的计数,不碰曲库内容,和原来的固定骨架一样轻。
     private var initialLoadingView: some View {
-        LoadingSkeletonGroup {
+        let width = loadingSkeletonContentWidth
+        let sections = loadingSkeletonSections
+        let layout = usesTwoColumnHome
+            ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
+            : AnyLayout(HomeSingleColumnSectionsLayout(spacing: 24))
+        return LoadingSkeletonGroup {
             VStack(alignment: .leading, spacing: 24) {
-                heroLoadingPlaceholder
-
-                VStack(alignment: .leading, spacing: 12) {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.secondary.opacity(0.14))
-                        .frame(width: 116, height: 20)
-
-                    HStack(spacing: 12) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(homeCardSurface)
-                                .frame(maxWidth: .infinity)
-                                // 横屏一张卡有两百多点宽，竖着的比例会让骨架整块
-                                // 超出视口 —— 冷启动第一眼就是溢出。
-                                .aspectRatio(heightClass.value(0.9, compact: 1.6), contentMode: .fit)
-                        }
+                if showHero {
+                    heroLoadingPlaceholder
+                }
+                layout {
+                    ForEach(sections) { section in
+                        HomeLoadingSkeletonSection(
+                            block: loadingSkeletonBlock(for: section, contentWidth: width),
+                            surface: homeCardSurface
+                        )
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
+    }
+
+    /// 骨架里一块区块的内容宽度:单栏是整个画布减去两边留白,两栏是半个。
+    private var loadingSkeletonContentWidth: CGFloat {
+        // 还没量到画布时按常见手机的宽度估。
+        let canvasWidth = homeCanvas.width > 0 ? homeCanvas.width : 393
+        return max((usesTwoColumnHome ? canvasWidth / 2 : canvasWidth) - 40, 120)
+    }
+
+    private var loadingSkeletonSections: [HomeSectionKind] {
+        let viewport = homeCanvas.height > 0
+            ? Double(homeCanvas.height)
+            : HomeLoadingSkeletonPolicy.unmeasuredViewportHeight
+        let heroHeight = showHero ? Double(heroLoadingPlaceholderHeight) + 24 : 0
+        let width = loadingSkeletonContentWidth
+        return HomeLoadingSkeletonPolicy.sections(
+            in: homeSectionOrder,
+            isShown: showsSectionInLoadingSkeleton,
+            estimatedHeight: { Double(loadingSkeletonBlock(for: $0, contentWidth: width).estimatedHeight(contentWidth: width)) },
+            spacing: 24,
+            // 封面占掉大半屏时也至少画下面一块;两栏时两栏各有一屏高。
+            availableHeight: max(viewport - heroHeight, 1) * (usesTwoColumnHome ? 2 : 1)
+        )
+    }
+
+    /// 骨架画不画这一块:开关、筛选与 `homeSectionContent` 一致;要看内容才知道有没有的区块,
+    /// 只用几个现成的计数估一下(没听过歌就没有「继续听」和统计,没有有声内容就没有书)。
+    private func showsSectionInLoadingSkeleton(_ section: HomeSectionKind) -> Bool {
+        guard isSectionVisible(section) else { return false }
+        if section.isCrossSpace, activeHomeFilter != nil { return false }
+        switch section {
+        case .continueListening, .stats:
+            return !library.recentPlaybackSongIDsForSync.isEmpty
+        case .booksInProgress, .audiobooks:
+            return !library.spokenWordSongs.isEmpty
+        default:
+            return true
+        }
+    }
+
+    /// 各区块真实排布的大概形状,尺寸取自各区块自己的取值。
+    private func loadingSkeletonBlock(for section: HomeSectionKind, contentWidth: CGFloat) -> HomeLoadingSkeletonBlock {
+        let style = homeLayout.style(for: section)
+        let rows = HomeSectionLayoutPolicy.renderedRowCount(
+            configured: homeLayout.rowCount(for: section),
+            isCompactHeight: heightClass.isCompact
+        )
+        let album = homeAlbumCardWidth
+        let albumRow = HomeLoadingSkeletonBlock.Body.row(
+            card: CGSize(width: album, height: homeAlbumCardHeight),
+            artwork: album, circular: false, rows: rows, spacing: 14, inset: 20
+        )
+        // 网格的列数:按各区块自己的最小列宽在这一栏里排得下几列,手机上通常两列。
+        func columns(minimum: CGFloat, spacing: CGFloat) -> Int {
+            max(2, Int((contentWidth + spacing) / (minimum + spacing)))
+        }
+        func gridRows(_ section: HomeSectionKind, fallback: Int, columns: Int) -> Int {
+            let count = sectionItemCount(section, fallback)
+            return min(3, max(1, (count + columns - 1) / columns))
+        }
+        switch section {
+        case .continueSpaces:
+            return .init(.row(card: CGSize(width: 136, height: 184), artwork: 136, circular: false, rows: 1, spacing: 12, inset: 20))
+        case .startListening:
+            if style == .carousel {
+                return .init(.row(card: CGSize(width: 120, height: 88), artwork: nil, circular: false, rows: rows, spacing: 10, inset: 20))
+            }
+            return .init(.tiles)
+        case .albumPick:
+            return .init(.card(height: 152))
+        case .continueListening:
+            if style == .list {
+                let count = min(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5), 8)
+                return .init(.list(rows: count, rowHeight: 60, artwork: 48, spacing: 8, filled: true))
+            }
+            let width: CGFloat = usesPadMetrics ? 300 : 250
+            return .init(.row(card: CGSize(width: width, height: 60), artwork: nil, circular: false, rows: rows, spacing: 10, inset: 20))
+        case .radio:
+            // 一个电台都没有时这一块是一张添加卡片,没有标题。
+            if radioStationsStore.stations.isEmpty {
+                return .init(.card(height: 130), hasHeader: false)
+            }
+            return .init(.row(card: CGSize(width: 104, height: 126), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 16))
+        case .booksInProgress, .audiobooks:
+            return .init(.row(card: CGSize(width: 104, height: 150), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 20))
+        case .podcasts:
+            return .init(.row(card: CGSize(width: 148, height: 215), artwork: 148, circular: false, rows: 1, spacing: 12, inset: 20))
+        case .quickAccess:
+            if style == .carousel {
+                return .init(.row(card: CGSize(width: 64, height: 76), artwork: 52, circular: false, rows: rows, spacing: 16, inset: 20))
+            }
+            return .init(.iconGrid(rows: gridRows(.quickAccess, fallback: 9, columns: 3)))
+        case .forYou:
+            if style == .list {
+                let count = min(sectionItemCount(.forYou, usesPadMetrics ? 8 : 5), 8)
+                return .init(.list(rows: count, rowHeight: 74, artwork: 54, spacing: 8, filled: true))
+            }
+            let card = usesPadMetrics ? CGSize(width: 372, height: 176) : CGSize(width: 316, height: 164)
+            return .init(.row(card: card, artwork: nil, circular: false, rows: 1, spacing: 14, inset: 20))
+        case .playlists:
+            switch style {
+            case .carousel: return .init(albumRow)
+            case .grid:
+                let count = columns(minimum: album, spacing: 16)
+                return .init(.grid(columns: count, rows: gridRows(.playlists, fallback: usesPadMetrics ? 12 : 6, columns: count), circular: false))
+            case .list:
+                let count = min(sectionItemCount(.playlists, usesPadMetrics ? 5 : 4), 8)
+                return .init(.list(rows: count, rowHeight: 68, artwork: 54, spacing: 0, filled: false))
+            }
+        case .folders:
+            switch style {
+            case .carousel: return .init(albumRow)
+            case .grid: return .init(.grid(columns: columns(minimum: album, spacing: 16), rows: 2, circular: false))
+            case .list: return .init(.list(rows: 3, rowHeight: 54, artwork: 54, spacing: 29, filled: false))
+            }
+        case .listeningRanking:
+            if style == .carousel {
+                return .init(.row(card: CGSize(width: 149, height: 161), artwork: 108, circular: false, rows: 1, spacing: 16, inset: 20))
+            }
+            // 名次榜:分类胶囊、领奖台与第四名以后的卡片。
+            return .init(.card(height: 480))
+        case .topArtists:
+            if style == .grid {
+                let count = columns(minimum: 92, spacing: 16)
+                return .init(.grid(columns: count, rows: gridRows(.topArtists, fallback: usesPadMetrics ? 16 : 8, columns: count), circular: true))
+            }
+            return .init(.row(card: CGSize(width: 80, height: 102), artwork: 80, circular: true, rows: rows, spacing: 14, inset: 20))
+        case .recentlyAdded:
+            switch style {
+            case .carousel: return .init(albumRow)
+            case .grid:
+                // 同 `recentlyAddedGridColumns`:iPad 最窄 150、手机横屏最窄 120,手机竖屏固定两列。
+                let count = usesPadMetrics
+                    ? columns(minimum: 150, spacing: 16)
+                    : heightClass.isCompact ? columns(minimum: 120, spacing: 16) : 2
+                return .init(.grid(columns: count, rows: gridRows(.recentlyAdded, fallback: usesPadMetrics ? 12 : 6, columns: count), circular: false))
+            case .list:
+                let count = min(sectionItemCount(.recentlyAdded, usesPadMetrics ? 8 : 6), 8)
+                return .init(.list(rows: count, rowHeight: 68, artwork: 54, spacing: 0, filled: false))
+            }
+        case .stats:
+            return .init(.card(height: 66), hasHeader: false)
+        }
+    }
+
+    /// 顶部封面占位有多高,用来估下面还剩多少屏幕。
+    private var heroLoadingPlaceholderHeight: CGFloat {
+        #if os(iOS)
+        let metrics = heroCarouselMetrics
+        return metrics.isCompactHeight ? metrics.carouselHeight : metrics.carouselHeight + 114
+        #else
+        return heightClass.value(154, compact: 96)
+        #endif
     }
 
     /// 顶部那一块的占位,和换上来的内容同样高:封面轮播的形状(卡片叠放、转角、歌名与
