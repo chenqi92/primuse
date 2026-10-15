@@ -3717,6 +3717,7 @@ final class MetadataBackfillService {
         // `lastProcessedSnapshotIDs` 的说明。
         var lastSnapshotIDs = lastProcessedSnapshotIDs
         var completedSnapshotPasses = 0
+        var previousSnapshotWasAllMusic = false
         while !Task.isCancelled {
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
                 let limits = executionLimits
@@ -3771,8 +3772,15 @@ final class MetadataBackfillService {
             }
             lastSnapshotIDs = snapIDs
 
+            let spokenWordCount = Self.spokenWordCount(in: snapshot, spokenWordSongIDs: library.spokenWordSongIDs)
+            if spokenWordCount > 0, previousSnapshotWasAllMusic {
+                // 有声条目排在音乐后面(`selectBatch`):到这里说明眼下没有音乐要读了。
+                plog("📥 Backfill: music rows done for now; reading spoken-word rows (\(spokenWordCount) in this batch)")
+            }
+            previousSnapshotWasAllMusic = spokenWordCount == 0
+
             activeSourceIDs = Set(snapshot.map(\.sourceID))
-            await processSnapshot(snapshot)
+            await processSnapshot(snapshot, spokenWordCount: spokenWordCount)
             lastProcessedSnapshotIDs = snapIDs
             completedSnapshotPasses += 1
         }
@@ -3781,13 +3789,19 @@ final class MetadataBackfillService {
         await publishPendingFlushIfDue(isFinal: true)
     }
 
+    /// 一批里已归到有声/播客的条目数,只用于日志。
+    private static func spokenWordCount(in snapshot: [Song], spokenWordSongIDs: Set<String>) -> Int {
+        guard !spokenWordSongIDs.isEmpty else { return 0 }
+        return snapshot.reduce(0) { $0 + (spokenWordSongIDs.contains($1.id) ? 1 : 0) }
+    }
+
     /// Process a fixed list of songs with the active bounded concurrency.
     /// Publication is owned by `publishPendingFlushIfDue` and deliberately
     /// outlives this snapshot. Each song in the snapshot is touched exactly once.
-    private func processSnapshot(_ snapshot: [Song]) async {
+    private func processSnapshot(_ snapshot: [Song], spokenWordCount: Int) async {
         let environment = readingEnvironment()
         let limits = executionLimits
-        plog("📥 processSnapshot: starting with \(snapshot.count) songs workers=\(limits.workerCount) delay=\(limits.interRequestDelay) thermal=\(environment.thermalState) speed=\(readingMode.rawValue) continued=\(hasContinuedProcessingTime)")
+        plog("📥 processSnapshot: starting with \(snapshot.count) songs (music=\(snapshot.count - spokenWordCount) spokenWord=\(spokenWordCount)) workers=\(limits.workerCount) delay=\(limits.interRequestDelay) thermal=\(environment.thermalState) speed=\(readingMode.rawValue) continued=\(hasContinuedProcessingTime)")
 
         // 预热阶段: 按 source 分组, 给每个 source 调一次 batch prefetchMetadata
         // (百度网盘会一次拿 100 个 dlink, 其他 connector 默认 noop)。后续每首
@@ -5588,6 +5602,9 @@ final class MetadataBackfillService {
         let albumArtistUnconfirmedIDs: Set<String>
         let artistCheckedIDs: Set<String>
         let incompleteSongIDs: Set<String>
+        /// 曲库已经归到有声/播客的条目。读标签之前就知道的(m4b、「有声」目录、手动标的)
+        /// 排在音乐后面读,见 `selectBatch`。
+        var spokenWordSongIDs: Set<String> = []
     }
 
     private func makeBatchSelectionInput(
@@ -5626,7 +5643,8 @@ final class MetadataBackfillService {
             albumArtistCheckedIDs: albumArtistCheckedIDs,
             albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs,
-            incompleteSongIDs: incompleteSongIDs
+            incompleteSongIDs: incompleteSongIDs,
+            spokenWordSongIDs: library.spokenWordSongIDs
         )
     }
 
@@ -5642,6 +5660,7 @@ final class MetadataBackfillService {
     nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
         let limit = max(1, input.limit)
         var selection: [Song] = []
+        var spokenWord: [Song] = []
         var recheckOnly: [Song] = []
         selection.reserveCapacity(min(limit, input.songs.count))
         for song in input.songs {
@@ -5684,8 +5703,18 @@ final class MetadataBackfillService {
                 if recheckOnly.count < limit { recheckOnly.append(song) }
                 continue
             }
+            // 已经归到有声的条目排在音乐后面。书不靠标签也能按目录和文件名成书、照常播放,
+            // 播放时还会单独补读这一集;音乐的标题、封面、专辑却全靠这一遍。一次扫进几千集
+            // 有声书时,不让它们把音乐压在后面(按请求数限流的网盘上尤其明显)。
+            if input.spokenWordSongIDs.contains(song.id) {
+                if spokenWord.count < limit { spokenWord.append(song) }
+                continue
+            }
             selection.append(song)
             if selection.count == limit { return selection }
+        }
+        if selection.count < limit {
+            selection.append(contentsOf: spokenWord.prefix(limit - selection.count))
         }
         if selection.count < limit {
             selection.append(contentsOf: recheckOnly.prefix(limit - selection.count))

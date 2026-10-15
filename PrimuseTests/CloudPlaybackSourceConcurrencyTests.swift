@@ -2229,6 +2229,81 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
     }
 
+    /// 已经归到有声的条目(m4b、「有声」目录、手动标的)排在音乐后面读, 但仍在只差
+    /// 复查的行前面; 队列里只剩它们时照样按资料库顺序取满一批 —— 停摆保护依赖这个顺序。
+    func testBackfillBatchSelectionReadsKnownSpokenWordAfterMusic() {
+        var songs: [Song] = []
+        // 有声书先扫进来, 排在资料库数组前面。
+        for index in 0..<4 {
+            songs.append(
+                Song(
+                    id: "book-\(index)",
+                    title: "Chapter \(index)",
+                    duration: 0,
+                    fileFormat: .mp3,
+                    filePath: "/Books/\(index).mp3",
+                    sourceID: "remote"
+                )
+            )
+        }
+        songs.append(
+            Song(
+                id: "recheck-0",
+                title: "Recheck",
+                albumTitle: "Compilation",
+                artistName: "Artist",
+                albumArtistName: "Artist",
+                duration: 200,
+                fileFormat: .flac,
+                filePath: "/recheck-0.flac",
+                sourceID: "remote"
+            )
+        )
+        for index in 0..<3 {
+            songs.append(
+                Song(
+                    id: "song-\(index)",
+                    title: "Song \(index)",
+                    duration: 0,
+                    fileFormat: .flac,
+                    filePath: "/Music/\(index).flac",
+                    sourceID: "remote"
+                )
+            )
+        }
+        let books = Set((0..<4).map { "book-\($0)" })
+        func input(_ songs: [Song], limit: Int, spokenWord: Set<String>) -> MetadataBackfillService.BatchSelectionInput {
+            Self.makeSelectionInput(
+                songs: songs,
+                limit: limit,
+                bareOnlySourceIDs: ["remote"],
+                failedSongIDs: [],
+                titleCheckedIDs: ["recheck-0"],
+                albumArtistCheckedIDs: ["recheck-0"],
+                albumArtistUnconfirmedIDs: ["recheck-0"],
+                spokenWordSongIDs: spokenWord
+            )
+        }
+
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input(songs, limit: 5, spokenWord: books)).map(\.id),
+            ["song-0", "song-1", "song-2", "book-0", "book-1"]
+        )
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input(songs, limit: 8, spokenWord: books)).map(\.id),
+            ["song-0", "song-1", "song-2", "book-0", "book-1", "book-2", "book-3", "recheck-0"]
+        )
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input(Array(songs.prefix(4)), limit: 3, spokenWord: books)).map(\.id),
+            ["book-0", "book-1", "book-2"]
+        )
+        // 没归到有声的(要读了标签才知道)照旧按资料库顺序。
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input(songs, limit: 5, spokenWord: [])).map(\.id),
+            ["book-0", "book-1", "book-2", "book-3", "song-0"]
+        )
+    }
+
     /// 前 40 行被 failedSongIDs 排除, 后 10 行是可处理的空元数据行。
     private static func makeSelectionFixtureSongs() -> [Song] {
         var songs: [Song] = []
@@ -2268,7 +2343,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         failedSongIDs: Set<String> = Set((0..<40).map { "skip-\($0)" }),
         titleCheckedIDs: Set<String> = [],
         albumArtistCheckedIDs: Set<String> = [],
-        albumArtistUnconfirmedIDs: Set<String> = []
+        albumArtistUnconfirmedIDs: Set<String> = [],
+        spokenWordSongIDs: Set<String> = []
     ) -> MetadataBackfillService.BatchSelectionInput {
         MetadataBackfillService.BatchSelectionInput(
             songs: songs,
@@ -2290,7 +2366,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             albumArtistCheckedIDs: albumArtistCheckedIDs,
             albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: [],
-            incompleteSongIDs: []
+            incompleteSongIDs: [],
+            spokenWordSongIDs: spokenWordSongIDs
         )
     }
 
