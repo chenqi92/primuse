@@ -21,6 +21,8 @@ LOG_OUTPUT_DIR="${LOG_OUTPUT_DIR:-$ROOT_DIR/s}"
 SYNC_TEST_WAIT="${SYNC_TEST_WAIT:-180}"
 IOS_RUN_MODE="${IOS_RUN_MODE:-}"
 DIAGNOSTIC_HOURS="${DIAGNOSTIC_HOURS:-24}"
+# 诊断模式下主线程被占住多少毫秒就记一份主线程栈（App 默认 250，抓不到几十毫秒的「一顿一顿」）。
+DIAGNOSTIC_STACK_MS="${DIAGNOSTIC_STACK_MS:-60}"
 IOS_DIAGNOSTIC_REQUEST=""
 IOS_RUN_MODE_LABEL=""
 # 设备上日志轮转最多保留几代（与 App 里 DiagnosticLoggingPolicy.diagnosticLimits 一致）。
@@ -104,6 +106,7 @@ iPhone/iPad 与 iOS 模拟器安装时还可选择普通运行或诊断运行，
   IOS_RUN_MODE            normal（普通运行）或 diagnostic（诊断运行，使用 Debug）；
                           未设置时交互选择，非交互安装默认 normal
   DIAGNOSTIC_HOURS        诊断运行的记录时长，默认 24 小时（1–72），到期恢复常规日志
+  DIAGNOSTIC_STACK_MS     诊断运行时主线程被占住多少毫秒记一份栈，默认 60（20–1000）
   MAC_CONFIGURATION       macOS 构建配置，默认 Debug
   TV_CONFIGURATION        tvOS 构建配置，默认 Debug
   IOS_DERIVED_DATA        iOS DerivedData 路径
@@ -593,7 +596,14 @@ prepare_ios_run_mode() {
 
 launch_ios() {
     if [[ -n "$IOS_DIAGNOSTIC_REQUEST" ]]; then
-        launch_ios_with_env "$IOS_RUN_MODE_LABEL" "PRIMUSE_DIAGNOSTIC_LOGGING=${IOS_DIAGNOSTIC_REQUEST}"
+        if [[ "$IOS_DIAGNOSTIC_REQUEST" == "off" ]]; then
+            launch_ios_with_env "$IOS_RUN_MODE_LABEL" "PRIMUSE_DIAGNOSTIC_LOGGING=off"
+        else
+            validate_diagnostic_stack_ms || return 1
+            launch_ios_with_env "$IOS_RUN_MODE_LABEL" \
+                "PRIMUSE_DIAGNOSTIC_LOGGING=${IOS_DIAGNOSTIC_REQUEST}" \
+                "PRIMUSE_DIAGNOSTIC_STACK_MS=${DIAGNOSTIC_STACK_MS}"
+        fi
         return
     fi
     echo
@@ -1011,6 +1021,27 @@ summarize_diagnostics() {
         echo "CPU 偏高时最常出现的繁忙线程："
         printf '%s\n' "$busy"
     fi
+
+    local hitches
+    hitches="$(count_log_matches '🩺 frame hitch' "$log")"
+    if [[ "${hitches:-0}" -gt 0 ]]; then
+        echo "掉帧 ${hitches} 次，最集中的几分钟："
+        grep '🩺 frame hitch' "$log" 2>/dev/null \
+            | cut -c2-6 | sort | uniq -c | sort -rn | head -n 5 \
+            | awk '{ printf "  %s  %s 次\n", $2, $1 }' || true
+    fi
+
+    # 主线程栈按最里面几层归类，出现最多的就是最常占住主线程的地方。
+    local stacks
+    stacks="$(grep -o 'main thread busy [0-9]*ms, stack: .*' "$log" 2>/dev/null \
+        | sed -E 's/^main thread busy [0-9]+ms, stack: //' \
+        | awk -F' < ' '{ line = $1; for (i = 2; i <= 4 && i <= NF; i++) line = line " < " $i; print line }' \
+        | sort | uniq -c | sort -rn | head -n 5 \
+        | awk '{ count = $1; $1 = ""; sub(/^ /, ""); printf "  %s 次  %s\n", count, $0 }' || true)"
+    if [[ -n "$stacks" ]]; then
+        echo "主线程被占住时最常见的栈（最里面几层）："
+        printf '%s\n' "$stacks"
+    fi
 }
 
 sync_test_offer_build() {
@@ -1130,13 +1161,24 @@ diag_enable() {
     echo "诊断日志模式：开启 ${hours} 小时。"
     echo "  · 日志单文件 25MB、保留 4 代（最多约 125MB），写入积压上限 20000 条；"
     echo "  · 每 10 秒记录 CPU、线程数、内存、磁盘读写、唤醒次数、主线程延迟和发热；"
-    echo "    CPU 偏高时带上最忙的线程，主线程卡住 1 秒以上会单独记一行；"
+    echo "    CPU 偏高时带上最忙的线程；主线程被占住 ${DIAGNOSTIC_STACK_MS} 毫秒以上记一份主线程栈；"
     echo "  · 有效期内 App 被系统或手动重新启动也会继续记录，到期自动恢复常规；"
     echo "  · 只在 Debug 构建里生效；诊断探测本身每秒约多 2 次主线程唤醒。"
+    validate_diagnostic_stack_ms || return 1
     sync_test_offer_build
-    launch_ios_with_env "开启诊断日志 ${hours} 小时" "PRIMUSE_DIAGNOSTIC_LOGGING=${hours}"
+    launch_ios_with_env "开启诊断日志 ${hours} 小时" \
+        "PRIMUSE_DIAGNOSTIC_LOGGING=${hours}" \
+        "PRIMUSE_DIAGNOSTIC_STACK_MS=${DIAGNOSTIC_STACK_MS}"
     echo
     echo "已开启。照常使用 App、复现要排查的操作，结束后选「拉取日志」取回。"
+}
+
+validate_diagnostic_stack_ms() {
+    if ! [[ "$DIAGNOSTIC_STACK_MS" =~ ^[0-9]{2,4}$ ]] || \
+       ((10#$DIAGNOSTIC_STACK_MS < 20 || 10#$DIAGNOSTIC_STACK_MS > 1000)); then
+        echo "DIAGNOSTIC_STACK_MS 必须是 20–1000 毫秒：${DIAGNOSTIC_STACK_MS}" >&2
+        return 1
+    fi
 }
 
 diag_disable() {
@@ -1755,6 +1797,7 @@ launch_ios_simulator() {
     echo "正在启动 ${DEVICE_NAME} 模拟器上的 App……"
     prepare_simulator
     if env "SIMCTL_CHILD_PRIMUSE_DIAGNOSTIC_LOGGING=${IOS_DIAGNOSTIC_REQUEST:-off}" \
+        "SIMCTL_CHILD_PRIMUSE_DIAGNOSTIC_STACK_MS=${DIAGNOSTIC_STACK_MS}" \
         xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$BUNDLE_ID"; then
         echo "${DEVICE_NAME} 模拟器上的 App 已安装并启动。"
         return

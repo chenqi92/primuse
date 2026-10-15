@@ -18,6 +18,9 @@ final class FileLogger: @unchecked Sendable {
     let diagnosticLoggingExpiresAt: Date?
 
     private static let diagnosticExpiryKey = "primuse.diagnosticLogging.expiresAt"
+    /// 诊断模式下主线程取栈门槛(毫秒),跟有效期一起存、一起清。
+    static let diagnosticStackThresholdKey = "primuse.diagnosticLogging.stackMS"
+    static let diagnosticStackThresholdEnvironmentKey = "PRIMUSE_DIAGNOSTIC_STACK_MS"
 
     private let fileURL: URL
     private let directoryURL: URL
@@ -96,6 +99,18 @@ final class FileLogger: @unchecked Sendable {
         case .unchanged:
             break
         }
+        // 取栈门槛和有效期一样存在 App 里:「一顿一顿」这种几十毫秒的短卡常常不是每次启动都有,
+        // 开诊断时带上一次,之后从主屏幕直接打开也照样抓栈。新开一段诊断没带就回到默认。
+        if resolution.isActive {
+            if let raw = ProcessInfo.processInfo.environment[diagnosticStackThresholdEnvironmentKey],
+               let requested = Double(raw), requested.isFinite, requested > 0 {
+                defaults.set(requested, forKey: diagnosticStackThresholdKey)
+            } else if case .enabled = resolution.change {
+                defaults.removeObject(forKey: diagnosticStackThresholdKey)
+            }
+        } else {
+            defaults.removeObject(forKey: diagnosticStackThresholdKey)
+        }
         return resolution
         #else
         return DiagnosticLoggingPolicy.resolve(request: nil, storedExpiry: nil, now: Date())
@@ -106,8 +121,13 @@ final class FileLogger: @unchecked Sendable {
         _ resolution: DiagnosticLoggingPolicy.Resolution,
         limits: DiagnosticLoggingPolicy.Limits
     ) -> String? {
-        let capacity = "files=\(limits.maxFileBytes / 1_000_000)MB×\(limits.rotatedGenerations + 1) "
+        var capacity = "files=\(limits.maxFileBytes / 1_000_000)MB×\(limits.rotatedGenerations + 1) "
             + "backlog=\(limits.backlogLimit)"
+        #if DEBUG
+        if let threshold = RuntimeDiagnosticsSampler.configuredStackThreshold {
+            capacity += " stackMS=\(Int((threshold * 1000).rounded()))"
+        }
+        #endif
         switch resolution.change {
         case .enabled(let until):
             return "🩺 Diagnostic logging ON until \(until) \(capacity)"
@@ -409,11 +429,12 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     private static let maximumStallSamples = 3
     /// 探针投出去超过这么久还没被执行, 就抓一份主线程栈。
     private static let stallSampleThreshold: TimeInterval = configuredStackThreshold ?? 0.25
-    /// 取证时用 `PRIMUSE_DIAGNOSTIC_STACK_MS=<毫秒>` 把取栈门槛调低(最低 20ms)、探针按门槛的一半投,
-    /// 看几十毫秒的短卡;平时保持 250ms,免得探针本身成了负担。
-    private static let configuredStackThreshold: TimeInterval? = {
-        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DIAGNOSTIC_STACK_MS"],
-              let milliseconds = Double(raw), milliseconds.isFinite else { return nil }
+    /// 开诊断时带 `PRIMUSE_DIAGNOSTIC_STACK_MS=<毫秒>` 把取栈门槛调低(最低 20ms)、探针按门槛的一半投,
+    /// 看几十毫秒的短卡;这个值随诊断有效期存着(见 `FileLogger.resolveDiagnosticMode`)。
+    /// 没设时保持 250ms,免得探针本身成了负担。
+    static let configuredStackThreshold: TimeInterval? = {
+        let milliseconds = UserDefaults.standard.double(forKey: FileLogger.diagnosticStackThresholdKey)
+        guard milliseconds.isFinite, milliseconds > 0 else { return nil }
         return max(0.02, milliseconds / 1000)
     }()
 
