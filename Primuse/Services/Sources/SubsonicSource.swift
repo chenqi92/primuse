@@ -1684,6 +1684,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
             artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
                 .flatMap { artistArtworkReference(for: $0) },
+            replayGainTrackGain: child.replayGain?.trackGain,
+            replayGainTrackPeak: child.replayGain?.trackPeak,
+            replayGainAlbumGain: child.replayGain?.albumGain,
+            replayGainAlbumPeak: child.replayGain?.albumPeak,
             serverLibraryID: libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id)
         )
     }
@@ -2364,6 +2368,41 @@ private struct SubsonicChild: Decodable, Sendable {
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?
+    let replayGain: SubsonicReplayGain?
+}
+
+/// OpenSubsonic `replayGain`。Navidrome 只给扫到的那几项，其余省略；
+/// 写坏的值当作没有，不让整首歌解码失败。
+private struct SubsonicReplayGain: Decodable, Sendable {
+    let trackGain: Double?
+    let trackPeak: Double?
+    let albumGain: Double?
+    let albumPeak: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case trackGain, trackPeak, albumGain, albumPeak
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        func value(_ key: CodingKeys) -> Double? {
+            guard let container else { return nil }
+            let number: Double?
+            if let double = try? container.decodeIfPresent(Double.self, forKey: key) {
+                number = double
+            } else if let text = try? container.decodeIfPresent(String.self, forKey: key) {
+                number = Double(text.trimmingCharacters(in: .whitespaces))
+            } else {
+                number = nil
+            }
+            guard let number, number.isFinite else { return nil }
+            return number
+        }
+        trackGain = value(.trackGain)
+        trackPeak = value(.trackPeak)
+        albumGain = value(.albumGain)
+        albumPeak = value(.albumPeak)
+    }
 }
 
 private struct SubsonicArtistID3: Decodable, Sendable {

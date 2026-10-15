@@ -94,6 +94,16 @@ public enum ServerCatalogAutoRefreshPolicy {
     public static func supportsServerScanRequest(_ type: MusicSourceType) -> Bool {
         type.isSubsonicFamily
     }
+
+    /// Raised when a connector starts keeping a catalogue field it used to
+    /// drop. A source last checked under a lower value is refreshed once, so
+    /// rows already in the library pick the field up without waiting for the
+    /// server's catalogue to change.
+    ///
+    /// 1: Subsonic `replayGain`.
+    public static func catalogFieldRevision(for type: MusicSourceType) -> Int {
+        type.isSubsonicFamily ? 1 : 0
+    }
 }
 
 /// What set off a server catalogue check.

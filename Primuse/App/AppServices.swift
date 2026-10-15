@@ -904,8 +904,12 @@ final class ServerCatalogAutoRefreshCoordinator {
         return (try? decoder.decode(PersistedState.self, from: data)) ?? PersistedState()
     }
 
+    /// Includes the connector's catalogue field revision, so a source last
+    /// checked before its connector kept a new field reads as changed once.
     private static func identityFingerprint(for source: MusicSource) -> String {
-        MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        let fingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        let fieldRevision = ServerCatalogAutoRefreshPolicy.catalogFieldRevision(for: source.type)
+        return fieldRevision > 0 ? "\(fingerprint)|fields\(fieldRevision)" : fingerprint
     }
 
     private static func availableDiskBytes() -> Int64 {

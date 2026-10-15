@@ -221,6 +221,25 @@ struct ServerSongCatalogMergePolicyTests {
         #expect(merged.lyricsText == existing.lyricsText)
     }
 
+    @Test func stableServerRowsAdoptReportedReplayGain() {
+        let existing = song(revision: "r1")
+        var incoming = song(revision: "r1")
+        incoming.replayGainTrackGain = -10.2
+        incoming.replayGainTrackPeak = 1
+        incoming.replayGainAlbumGain = -10.4
+
+        let merged = ServerSongCatalogMergePolicy.mergedSnapshot(
+            existing: [existing],
+            candidate: [incoming]
+        )
+
+        #expect(merged.first?.replayGainTrackGain == -10.2)
+        #expect(merged.first?.replayGainTrackPeak == 1)
+        #expect(merged.first?.replayGainAlbumGain == -10.4)
+        #expect(merged.first?.replayGainAlbumPeak == nil)
+        #expect(SourceCatalogSnapshotPolicy.hasChanges(existing: [existing], candidate: merged))
+    }
+
     @Test func formatAndCueBoundaryChangesAreContentReplacements() {
         let existing = song(revision: "r1")
         var changedFormat = existing

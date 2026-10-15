@@ -259,6 +259,11 @@ enum FileMetadataReader {
                 data: metadataFile,
                 fileExtension: fileExtension
             )
+            applyISOBaseMediaReplayGainFallback(
+                to: &metadata,
+                data: metadataFile,
+                fileExtension: fileExtension
+            )
         }
 
         applyID3Fallback(to: &metadata, data: readID3FallbackData(from: url))
@@ -481,6 +486,7 @@ enum FileMetadataReader {
     ) -> Metadata {
         var metadata = base
         applyISOBaseMediaLyricsFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyISOBaseMediaReplayGainFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyID3Fallback(to: &metadata, data: data, tailData: id3TailData)
         if !flacAlreadyParsed {
             applyFLACFallback(to: &metadata, data: data, fileExtension: fileExtension)
@@ -897,6 +903,23 @@ enum FileMetadataReader {
         metadata.languageTaggedTranslations.merge(payload.languageTaggedTranslations) {
             current, _ in current
         }
+    }
+
+    /// M4A files keep ReplayGain in iTunes freeform items; the AVFoundation
+    /// pass above only reads the ID3 form.
+    private static func applyISOBaseMediaReplayGainFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
+              let tags = ISOBaseMediaLyricsParser.replayGainTags(in: data) else {
+            return
+        }
+        metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? tags.trackGain
+        metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? tags.trackPeak
+        metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? tags.albumGain
+        metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? tags.albumPeak
     }
 
     private static func readISOBaseMediaMetadataFile(

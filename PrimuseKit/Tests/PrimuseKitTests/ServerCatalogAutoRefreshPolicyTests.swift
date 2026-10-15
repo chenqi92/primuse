@@ -45,6 +45,17 @@ struct ServerCatalogAutoRefreshPolicyTests {
         }
     }
 
+    @Test func onlySubsonicServersRefreshOnceForReplayGain() {
+        // The Subsonic connector started keeping `replayGain`; rows already in
+        // the library only receive it from one more complete walk.
+        for type in MusicSourceType.allCases {
+            #expect(
+                ServerCatalogAutoRefreshPolicy.catalogFieldRevision(for: type)
+                    == (type.isSubsonicFamily ? 1 : 0)
+            )
+        }
+    }
+
     @Test func nativeCursorSourcesKeepTheirOwnPeriodicPath() {
         // Cloud drives refresh from a durable changes cursor on a 6-hour
         // cadence; they must not also be pulled into the status-probe path.

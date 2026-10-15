@@ -5,7 +5,8 @@ import Foundation
 /// iTunes `©lyr` item, ffmpeg and other writers can use an `mdta` keys table
 /// whose `ilst` children are numeric indexes. Keeping the original `data` atom
 /// bytes also lets the shared encoding repair recover incorrectly declared
-/// GB18030, Big5, Shift_JIS and EUC-KR text.
+/// GB18030, Big5, Shift_JIS and EUC-KR text. The same item walk reads the
+/// file's ReplayGain items.
 public enum ISOBaseMediaLyricsParser {
     public struct LyricsPayload: Equatable, Sendable {
         public var lyrics: String?
@@ -129,6 +130,109 @@ public enum ISOBaseMediaLyricsParser {
         }
         result.hasUndecodableLyrics = sawLyricsItem && result.lyrics == nil
         return result
+    }
+
+    public struct ReplayGainTags: Equatable, Sendable {
+        public var trackGain: Double?
+        public var trackPeak: Double?
+        public var albumGain: Double?
+        public var albumPeak: Double?
+
+        public init(
+            trackGain: Double? = nil,
+            trackPeak: Double? = nil,
+            albumGain: Double? = nil,
+            albumPeak: Double? = nil
+        ) {
+            self.trackGain = trackGain
+            self.trackPeak = trackPeak
+            self.albumGain = albumGain
+            self.albumPeak = albumPeak
+        }
+
+        public var isEmpty: Bool {
+            trackGain == nil && trackPeak == nil && albumGain == nil && albumPeak == nil
+        }
+    }
+
+    /// Reads ReplayGain from iTunes freeform items
+    /// (`----:com.apple.iTunes:replaygain_track_gain`, as foobar2000, rsgain,
+    /// Mp3tag and Picard write it) and from `mdta` keys.
+    ///
+    /// AVFoundation only surfaces the ID3 form of these tags, and the TagLib
+    /// fallback needs a whole local file, so a scan that reads a remote file's
+    /// head and tail would otherwise never see an M4A file's ReplayGain.
+    public static func replayGainTags(in data: Data) -> ReplayGainTags? {
+        guard !data.isEmpty else { return nil }
+        var result = ReplayGainTags()
+        for moov in atoms(in: data, range: data.startIndex..<data.endIndex)
+            where moov.type == AtomType.moov {
+            for metadata in metadataAtoms(in: data, moov: moov) {
+                guard metadata.payload.count >= 4 else { continue }
+                let childrenRange =
+                    (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound
+                let children = atoms(in: data, range: childrenRange)
+                let keys = children.first(where: { $0.type == AtomType.keys })
+                    .map { metadataKeys(in: data, atom: $0) } ?? [:]
+                for list in children where list.type == AtomType.ilst {
+                    for item in atoms(in: data, range: list.payload) {
+                        let name = item.type == AtomType.freeform
+                            ? freeformName(in: data, item: item)
+                            : keys[item.type]
+                        guard let name,
+                              let field = ReplayGainField(itemName: name),
+                              let text = decodedItem(in: data, item: item),
+                              let value = replayGainNumber(text) else { continue }
+                        switch field {
+                        case .trackGain:
+                            result.trackGain = result.trackGain ?? value
+                        case .trackPeak:
+                            result.trackPeak = result.trackPeak ?? value
+                        case .albumGain:
+                            result.albumGain = result.albumGain ?? value
+                        case .albumPeak:
+                            result.albumPeak = result.albumPeak ?? value
+                        }
+                    }
+                }
+            }
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private enum ReplayGainField: CaseIterable {
+        case trackGain, trackPeak, albumGain, albumPeak
+
+        var tagName: String {
+            switch self {
+            case .trackGain: "replaygain_track_gain"
+            case .trackPeak: "replaygain_track_peak"
+            case .albumGain: "replaygain_album_gain"
+            case .albumPeak: "replaygain_album_peak"
+            }
+        }
+
+        /// The bare tag name, or one qualified by a namespace such as
+        /// `com.apple.quicktime.` in an `mdta` key. Writers disagree on case.
+        init?(itemName: String) {
+            let normalized = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard let field = Self.allCases.first(where: { field in
+                normalized == field.tagName
+                    || [".", ":", "/"].contains { normalized.hasSuffix($0 + field.tagName) }
+            }) else { return nil }
+            self = field
+        }
+    }
+
+    /// "-7.43 dB", "+3.21 dB", "-7.43" or a bare peak such as "0.988". A
+    /// non-finite value is no value: it would otherwise read as a tag.
+    private static func replayGainNumber(_ text: String) -> Double? {
+        let cleaned = text.lowercased()
+            .replacingOccurrences(of: "db", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Double(cleaned), value.isFinite else { return nil }
+        return value
     }
 
     private struct Atom {

@@ -263,6 +263,16 @@ public enum ServerSongCatalogMergePolicy {
         // itself remains byte-for-byte identical. Always adopt the latest
         // catalogue value instead of treating it as device enrichment.
         refreshed.serverPlayCount = incoming.serverPlayCount
+        // ReplayGain a server reports is what its own scan read from the file
+        // (OpenSubsonic `replayGain`). A server that reports none leaves what
+        // this device read from the file itself.
+        if incoming.replayGainTrackGain != nil || incoming.replayGainTrackPeak != nil
+            || incoming.replayGainAlbumGain != nil || incoming.replayGainAlbumPeak != nil {
+            refreshed.replayGainTrackGain = incoming.replayGainTrackGain
+            refreshed.replayGainTrackPeak = incoming.replayGainTrackPeak
+            refreshed.replayGainAlbumGain = incoming.replayGainAlbumGain
+            refreshed.replayGainAlbumPeak = incoming.replayGainAlbumPeak
+        }
         if let libraryID = incoming.serverLibraryID { refreshed.serverLibraryID = libraryID }
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {

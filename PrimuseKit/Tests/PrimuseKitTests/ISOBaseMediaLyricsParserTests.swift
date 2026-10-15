@@ -186,6 +186,59 @@ struct ISOBaseMediaLyricsParserTests {
         )
     }
 
+    @Test("Reads ReplayGain from iTunes freeform items")
+    func freeformReplayGain() {
+        let items = replayGainItem("replaygain_track_gain", value: "-10.20 dB")
+            + replayGainItem("replaygain_track_peak", value: "1.000000")
+            + replayGainItem("replaygain_album_gain", value: "-10.40 dB")
+            + replayGainItem("replaygain_album_peak", value: "0.988525")
+
+        let tags = ISOBaseMediaLyricsParser.replayGainTags(in: mediaFile(items: items))
+
+        #expect(tags == ISOBaseMediaLyricsParser.ReplayGainTags(
+            trackGain: -10.2,
+            trackPeak: 1,
+            albumGain: -10.4,
+            albumPeak: 0.988525
+        ))
+    }
+
+    @Test("ReplayGain item names match regardless of case and sign")
+    func uppercaseReplayGainNames() {
+        let items = replayGainItem("REPLAYGAIN_TRACK_GAIN", value: "+3.21 dB")
+            + replayGainItem("ReplayGain_Track_Peak", value: " 0.5 ")
+
+        let tags = ISOBaseMediaLyricsParser.replayGainTags(in: mediaFile(items: items))
+
+        #expect(tags?.trackGain == 3.21)
+        #expect(tags?.trackPeak == 0.5)
+        #expect(tags?.albumGain == nil)
+    }
+
+    @Test("Reads ReplayGain from mdta keys")
+    func metadataKeyReplayGain() {
+        let metadata = metadataAtom(
+            keys: ["title", "com.apple.quicktime.replaygain_track_gain"],
+            items: atom(type: bigEndian(UInt32(1)), payload: dataAtom(Data("Song".utf8)))
+                + atom(type: bigEndian(UInt32(2)), payload: dataAtom(Data("-6.5 dB".utf8)))
+        )
+
+        let tags = ISOBaseMediaLyricsParser.replayGainTags(in: mediaFile(metadata: metadata))
+
+        #expect(tags == ISOBaseMediaLyricsParser.ReplayGainTags(trackGain: -6.5))
+    }
+
+    @Test("Unreadable or unrelated items are no ReplayGain")
+    func rejectsUnusableReplayGain() {
+        let items = replayGainItem("replaygain_track_gain", value: "loud")
+            + replayGainItem("replaygain_album_gain", value: "nan dB")
+            + replayGainItem("replaygain_track_gain_extra", value: "-3 dB")
+            + replayGainItem("iTunNORM", value: "000001F4 000001F4")
+
+        #expect(ISOBaseMediaLyricsParser.replayGainTags(in: mediaFile(items: items)) == nil)
+        #expect(ISOBaseMediaLyricsParser.replayGainTags(in: Data()) == nil)
+    }
+
     @Test("Ignores unrelated and malformed metadata items")
     func rejectsInvalidMetadata() {
         let unrelated = metadataAtom(
@@ -232,6 +285,15 @@ struct ISOBaseMediaLyricsParserTests {
                 + handler
                 + keyTable
                 + atom("ilst", payload: items)
+        )
+    }
+
+    private func replayGainItem(_ name: String, value: String) -> Data {
+        atom(
+            "----",
+            payload: fullBoxTextAtom("mean", value: "com.apple.iTunes")
+                + fullBoxTextAtom("name", value: name)
+                + dataAtom(Data(value.utf8))
         )
     }
 
