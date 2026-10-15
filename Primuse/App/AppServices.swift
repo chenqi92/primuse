@@ -990,6 +990,8 @@ final class AppServices {
     let audioCacheSync: AudioCacheSyncService
     #endif
     let metadataBackfill: MetadataBackfillService
+    /// 同账号别的 iPhone / iPad / Mac 读好的标签,扫描与补读拿来省掉重复读文件。
+    let peerScanSeeds: PeerScanSeedCoordinator
     let lyricsTextBackfill: LyricsTextBackfillService
     let similarTracks: SimilarTracksService
     let updateChecker: AppUpdateChecker
@@ -1319,11 +1321,26 @@ final class AppServices {
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }
+        let peerScanSeeds = PeerScanSeedCoordinator(
+            sourcesStore: store,
+            library: library,
+            backfill: metadataBackfill
+        )
+        scanService.peerScanSeedProvider = { [weak peerScanSeeds] source in
+            await peerScanSeeds?.lookup(for: source)
+        }
+        scanService.peerSeedAdoptionHandler = { [weak metadataBackfill] adoptions in
+            metadataBackfill?.acknowledgePeerSeedAdoptions(adoptions)
+        }
+        metadataBackfill.readingProgressHandler = { [weak peerScanSeeds] _ in
+            peerScanSeeds?.readingProgressDidAdvance()
+        }
         scanService.successfulSourceScanHandler = {
-            [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload]
+            [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds]
             sourceID,
             completion in
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
+            peerScanSeeds?.sourceScanSucceeded(sourceID: sourceID)
             if completion == .committedSnapshot {
                 library?.sourceSyncDidComplete()
             }
@@ -1495,6 +1512,10 @@ final class AppServices {
         self.audioCacheSync = audioCacheSync
         #endif
         self.metadataBackfill = metadataBackfill
+        self.peerScanSeeds = peerScanSeeds
+        library.onReady { [weak peerScanSeeds] in
+            peerScanSeeds?.sceneDidBecomeActive()
+        }
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
         self.similarTracks = SimilarTracksService()
         self.musicIntelligence = MusicIntelligenceService()

@@ -278,6 +278,28 @@ final class MetadataBackfillService {
     /// looping forever after one complete bounded inspection.
     @ObservationIgnored private var artistCheckedIDs: Set<String> = []
 
+    /// 用上别的设备读好标签的歌,封面按那台设备给的内容哈希分组:一组只让代表去读
+    /// 文件,其余的先记进 `artworkGivenUpIDs` 等着,代表读到封面后全组指到同一份内容。
+    @ObservationIgnored private var peerCoverGroups: [String: PeerCoverGroup] = [:]
+    @ObservationIgnored private var peerCoverKeyBySongID: [String: String] = [:]
+    /// 那台设备有内嵌歌词、本机没有缓存的歌。不为它们单独排队,播放时读一次文件。
+    @ObservationIgnored private var peerLyricsPendingIDs: Set<String> = []
+    /// 读完一轮标签(至少读了一首)时告诉 AppServices,好让别的设备早点拿到结果。
+    @ObservationIgnored var readingProgressHandler: ((Int) -> Void)?
+    @ObservationIgnored private var peerCoverSweepTask: Task<Void, Never>?
+
+    private struct PeerCoverGroup: Codable, Sendable {
+        var representative: String?
+        var waiting: Set<String> = []
+        /// 代表读到的封面在本机的内容哈希。之后才进库的组员直接指过去。
+        var localContentKey: String?
+    }
+
+    private struct PeerSeedState: Codable, Sendable {
+        var coverGroups: [String: PeerCoverGroup]
+        var lyricsPending: [String]
+    }
+
     /// Consecutive transient failure count per song ID. Counts are persisted so
     /// relaunching the app or changing networks cannot reset the automatic retry
     /// budget and keep rereading the same permanently unreachable object.
@@ -421,6 +443,7 @@ final class MetadataBackfillService {
     private let retryCountsURL: URL
     private let sourceRetryCountsURL: URL
     private let queueStateURL: URL
+    private let peerSeedStateURL: URL
     private nonisolated static let queueDirtyDefaultsKey =
         "primuse.metadataBackfill.queueDirty.v1"
     private nonisolated static let queueMutationGenerationDefaultsKey =
@@ -932,6 +955,7 @@ final class MetadataBackfillService {
         self.retryCountsURL = directory.appendingPathComponent("backfill-retry-counts.json")
         self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
         self.queueStateURL = directory.appendingPathComponent("backfill-queue-state.json")
+        self.peerSeedStateURL = directory.appendingPathComponent("backfill-peer-seeds.json")
         let defaults = UserDefaults.standard
         queueMutationGeneration = defaults.integer(
             forKey: Self.queueMutationGenerationDefaultsKey
@@ -963,6 +987,7 @@ final class MetadataBackfillService {
         loadDiagnostics()
         loadRetryCounts()
         loadSourceRetryCounts()
+        loadPeerSeedState()
 
         // S3: 这些一次性修复都要遍历 `library.songs`。库若尚未发布,
         // 它们会在空库上把各自的 done-key 永久标记为完成。改由就绪回调驱动:
@@ -1011,6 +1036,7 @@ final class MetadataBackfillService {
                 self.albumArtistCheckedIDs.subtract(ids)
                 self.albumArtistRecheckedIDs.subtract(ids)
                 self.artistCheckedIDs.subtract(ids)
+                self.forgetPeerSeedState(for: ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
                 for sourceID in Set(songs.map(\.sourceID)) {
                     self.sourceTransientFailureCounts[sourceID] = nil
@@ -3303,7 +3329,7 @@ final class MetadataBackfillService {
               ) else {
             return false
         }
-        return needsBackfill(song)
+        return needsBackfill(song) || peerLyricsPendingIDs.contains(songID)
     }
 
     /// Playback uses the same bounded single-file reader as the explicit menu
@@ -3717,6 +3743,7 @@ final class MetadataBackfillService {
         // `lastProcessedSnapshotIDs` 的说明。
         var lastSnapshotIDs = lastProcessedSnapshotIDs
         var completedSnapshotPasses = 0
+        var processedSongCount = 0
         var previousSnapshotWasAllMusic = false
         while !Task.isCancelled {
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
@@ -3783,10 +3810,15 @@ final class MetadataBackfillService {
             await processSnapshot(snapshot, spokenWordCount: spokenWordCount)
             lastProcessedSnapshotIDs = snapIDs
             completedSnapshotPasses += 1
+            processedSongCount += snapshot.count
         }
         // 收尾这一批必须落地 —— 它横跨了好几个快照, 也可能是被 stop() 取消的。
         // 发布走的 detached 准备任务不继承取消, 所以这里仍然能走完。
         await publishPendingFlushIfDue(isFinal: true)
+        await sweepPeerCoverGroups()
+        if processedSongCount > 0 {
+            readingProgressHandler?(processedSongCount)
+        }
     }
 
     /// 一批里已归到有声/播客的条目数,只用于日志。
@@ -4048,7 +4080,13 @@ final class MetadataBackfillService {
             libraryPublishDepth -= 1
             libraryPublishGeneration &+= 1
         }
-        let resolved = pendingFlush.compactMap(backfillResultForApply)
+        var resolved = pendingFlush.compactMap(backfillResultForApply)
+        // 代表读到了封面:同组等着的歌在同一次发布里指过去,不多发布一次。
+        let groupRows = peerCoverMemberRows(resolvedBy: resolved)
+        if !groupRows.isEmpty {
+            let resolvedIDs = Set(resolved.map(\.id))
+            resolved.append(contentsOf: groupRows.filter { !resolvedIDs.contains($0.id) })
+        }
         // 标记照旧按"已落地"记账 —— 逐字相同的行, 库里存的就是这个值,
         // 不存在"标记写了而替换没落地"的空档。
         let batchIDs = Set(resolved.map(\.id))
@@ -4558,13 +4596,15 @@ final class MetadataBackfillService {
             let timeout = isExplicitReread
                 ? Self.explicitRereadTimeout
                 : Self.perSongTimeout
-            return try await Self.withHardTimeout(seconds: timeout) { [self] in
+            let outcome = try await Self.withHardTimeout(seconds: timeout) { [self] in
                 try await self.processOneCore(
                     song,
                     started: started,
                     isExplicitReread: isExplicitReread
                 )
             }
+            notePeerSeedRead(song, outcome: outcome)
+            return outcome
         } catch {
             let elapsed = Date().timeIntervalSince(started)
             let cancelled = error is CancellationError || Task.isCancelled
@@ -4588,6 +4628,9 @@ final class MetadataBackfillService {
             // 会一直卡在「无法读取歌曲详情」;不标记 → 下一轮回填自动重试。
             recordGatewayFailureIfNeeded(error, sourceID: song.sourceID)
             let transient = Self.isTransientBackfillError(error)
+            if !transient {
+                releasePeerCoverRepresentative(song.id)
+            }
             var sourceUnavailable = Self.isSourceUnavailableBackfillError(error)
             if !sourceUnavailable, Self.needsSourceEndpointProbe(error) {
                 sourceUnavailable = await sourceManager.metadataSourceEndpointsAreUnavailable(sourceID: song.sourceID)
@@ -6253,6 +6296,11 @@ final class MetadataBackfillService {
                 let diagnostics = self.diagnosticRecords
                 let retryCounts = self.transientFailureCounts
                 let sourceRetryCounts = self.sourceTransientFailureCounts
+                let peerSeedState = PeerSeedState(
+                    coverGroups: self.peerCoverGroups,
+                    lyricsPending: Array(self.peerLyricsPendingIDs)
+                )
+                let peerSeedStateURL = self.peerSeedStateURL
                 let failedURL = self.failedURL
                 let incompleteURL = self.incompleteURL
                 let sourceIssueURL = self.sourceIssueURL
@@ -6279,6 +6327,9 @@ final class MetadataBackfillService {
                     Self.writeDiagnostics(diagnostics, to: diagnosticsURL)
                     Self.writeRetryCounts(retryCounts, to: retryCountsURL)
                     Self.writeRetryCounts(sourceRetryCounts, to: sourceRetryCountsURL)
+                    if let data = try? JSONEncoder().encode(peerSeedState) {
+                        try? data.write(to: peerSeedStateURL, options: .atomic)
+                    }
                 }.value
 
                 guard self.statePersistenceTaskID == taskID else { return }
@@ -6306,6 +6357,345 @@ final class MetadataBackfillService {
     ) {
         guard let data = try? JSONEncoder().encode(diagnostics) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - 别的设备读好的标签
+
+    /// 扫描或一次补齐用上了别的设备读好的行:标签当作已经检查过,封面与歌词另行安排。
+    /// 在那些行写进资料库之前调用 —— 写进去之后到这里之间,补读不该把它们再派出去读。
+    func acknowledgePeerSeedAdoptions(_ adoptions: [PeerScanSeedAdoption], refreshesCounts: Bool = true) {
+        guard !adoptions.isEmpty else { return }
+        let ids = Set(adoptions.map(\.songID))
+        markMetadataInspected(songIDs: ids)
+        markArtistsInspected(songIDs: ids)
+        var failureStateChanged = false
+        for id in ids {
+            if failedSongIDs.remove(id) != nil { failureStateChanged = true }
+            if incompleteSongIDs.remove(id) != nil { failureStateChanged = true }
+            if sourceIssueSongIDs.remove(id) != nil { failureStateChanged = true }
+            if transientFailureCounts.removeValue(forKey: id) != nil { failureStateChanged = true }
+            sessionGivenUpIDs.remove(id)
+            sessionNetworkParkedIDs.remove(id)
+            sessionStallParkedIDs.remove(id)
+            clearDiagnostic(songID: id)
+        }
+        mutateDeferredRetries { $0.subtract(ids) }
+        if failureStateChanged {
+            saveFailed()
+            saveRetryCounts()
+        }
+        saveDeferredRetries()
+        var pendingCovers = 0
+        for adoption in adoptions {
+            switch adoption.cover {
+            case .pending(let key):
+                registerPeerCoverMember(adoption.songID, key: key)
+                pendingCovers += 1
+            case .resolved, .unknown:
+                break
+            }
+            if adoption.cachedLyrics,
+               !MetadataAssetStore.shared.hasCachedLyricsFile(forSongID: adoption.songID) {
+                peerLyricsPendingIDs.insert(adoption.songID)
+            }
+        }
+        saveArtworkGivenUp()
+        if pendingCovers > 0 { schedulePeerCoverSweep() }
+        if refreshesCounts { refreshRemainingCounts(force: true) }
+        plog("🧩 peer seeds adopted songs=\(ids.count) pendingCovers=\(pendingCovers) coverGroups=\(peerCoverGroups.count) lyricsOnPlay=\(peerLyricsPendingIDs.count)")
+    }
+
+    /// 别的设备的结果刚到,或者一次扫描刚结束:资料库里还没读过文件的行,文件没变的
+    /// 就直接用上别的设备读好的标签。整批一次发布。
+    func adoptPeerScanSeeds(lookups: [String: PeerScanSeedLookup]) async {
+        guard !lookups.isEmpty else { return }
+        let songs = library.songs
+        let titleChecked = titleCheckedIDs
+        let busy = pendingFlushSongIDs
+            .union(activeReadSongIDs)
+            .union(manuallyReadingSongIDs)
+        let assetStore = MetadataAssetStore.shared
+        let bareOnly = bareOnlySourceIDs()
+        let prepared: [(song: Song, adoption: PeerScanSeedAdoption)] = await Task.detached(priority: .utility) {
+            var result: [(song: Song, adoption: PeerScanSeedAdoption)] = []
+            for song in songs {
+                guard let lookup = lookups[song.sourceID],
+                      !busy.contains(song.id),
+                      Self.peerSeedCanReplace(song, titleChecked: titleChecked),
+                      let seed = lookup.seed(for: song.id),
+                      PeerScanSeedPolicy.fingerprintMatches(song, seed: seed.song) else { continue }
+                var adopted = PeerScanSeedPolicy.adopting(seed.song, onto: song)
+                let cover: PeerScanSeedAdoption.Cover
+                switch PeerScanSeedPolicy.coverDisposition(seed: seed, base: song) {
+                case .sidecar:
+                    cover = .resolved
+                case .content(let key):
+                    if let name = assetStore.linkCoverContentIfPresent(key, forSongID: song.id) {
+                        adopted.coverArtFileName = name
+                        cover = .resolved
+                    } else {
+                        cover = .pending(key)
+                    }
+                case .unknown:
+                    cover = .unknown
+                }
+                // 补读不会再单独为这一行读封面(只读裸行的源、或补读不读封面的格式):
+                // 本机还指不到封面就别用,照常读一次文件。
+                if cover != .resolved,
+                   bareOnly.contains(song.sourceID)
+                    || !MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat) {
+                    continue
+                }
+                result.append((adopted, PeerScanSeedAdoption(
+                    songID: song.id,
+                    cover: cover,
+                    cachedLyrics: PeerScanSeedPolicy.hasCachedLyrics(seed.song)
+                )))
+            }
+            return result
+        }.value
+
+        var rows: [Song] = []
+        var adoptions: [PeerScanSeedAdoption] = []
+        for item in prepared {
+            // 准备期间资料库可能变了:文件换过、刚被读完或正在读的都跳过。
+            guard let live = library.song(id: item.song.id),
+                  !pendingFlushSongIDs.contains(live.id),
+                  !activeReadSongIDs.contains(live.id),
+                  Self.peerSeedCanReplace(live, titleChecked: titleCheckedIDs),
+                  PeerScanSeedPolicy.fingerprintMatches(live, seed: item.song) else { continue }
+            rows.append(SongUserMetadataPolicy.preservingUserEdits(from: live, in: item.song))
+            adoptions.append(item.adoption)
+        }
+        guard !rows.isEmpty else { return }
+        acknowledgePeerSeedAdoptions(adoptions, refreshesCounts: false)
+        await library.replaceSongsPreparedOffMain(rows, maintenance: .deferred)
+        library.flushDeferredLibraryMaintenance()
+        await sweepPeerCoverGroups()
+        await refreshRemainingCountsOffMain(force: true)
+        plog("🧩 peer seeds filled \(rows.count) unread rows across \(Set(rows.map(\.sourceID)).count) source(s)")
+    }
+
+    /// 本机这一行还没读过文件:扫描刚生成的裸行,或者读过时长、标题却还没按标签核对。
+    private nonisolated static func peerSeedCanReplace(_ song: Song, titleChecked: Set<String>) -> Bool {
+        song.cueSheetPath == nil
+            && (song.duration <= 0 || !titleChecked.contains(song.id))
+    }
+
+    /// 播放一首「那台设备有内嵌歌词、本机还没读」的歌时,在线歌词之前先读一次文件。
+    /// 歌一开播放器已经在读的话就等它读完。
+    func readPendingPeerLyrics(for song: Song) async -> [LyricLine]? {
+        guard peerLyricsPendingIDs.contains(song.id) else { return nil }
+        let result = await rereadTagsForPlayback(songID: song.id, expectedSourceID: song.sourceID)
+        if case .alreadyReading = result {
+            let deadline = Date().addingTimeInterval(Self.explicitRereadTimeout)
+            while isRereadingTags(songID: song.id), Date() < deadline, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        guard !Task.isCancelled else { return nil }
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+            return cached
+        }
+        return await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
+    }
+
+    private func registerPeerCoverMember(_ songID: String, key: String) {
+        if let existingKey = peerCoverKeyBySongID[songID] {
+            if existingKey == key { return }
+            removePeerCoverMember(songID)
+        }
+        peerCoverKeyBySongID[songID] = key
+        var group = peerCoverGroups[key] ?? PeerCoverGroup()
+        if group.localContentKey == nil, group.representative == nil || group.representative == songID {
+            group.representative = songID
+        } else {
+            group.waiting.insert(songID)
+            artworkGivenUpIDs.insert(songID)
+        }
+        peerCoverGroups[key] = group
+    }
+
+    private func removePeerCoverMember(_ songID: String) {
+        guard let key = peerCoverKeyBySongID.removeValue(forKey: songID),
+              var group = peerCoverGroups[key] else { return }
+        if group.representative == songID {
+            group.representative = nil
+        } else if group.waiting.remove(songID) != nil {
+            artworkGivenUpIDs.remove(songID)
+        }
+        storePeerCoverGroup(group, key: key)
+    }
+
+    private func storePeerCoverGroup(_ group: PeerCoverGroup, key: String) {
+        if group.representative == nil && group.waiting.isEmpty {
+            peerCoverGroups[key] = nil
+        } else {
+            peerCoverGroups[key] = group
+        }
+    }
+
+    /// 一首歌读完了(不论是补读、播放时读还是手动重读)。
+    private func notePeerSeedRead(_ song: Song, outcome: BackfillOutcome) {
+        guard !outcome.cancelled, !outcome.transientFailure else { return }
+        if peerLyricsPendingIDs.remove(song.id) != nil {
+            scheduleStatePersistence()
+        }
+        guard let key = peerCoverKeyBySongID[song.id],
+              peerCoverGroups[key]?.representative == song.id else { return }
+        if outcome.song?.coverArtFileName?.isEmpty == false {
+            // 补读这条路在发布时就把组员指过去了;播放时读、手动重读不走那次发布,
+            // 交给稍后的对齐。
+            schedulePeerCoverSweep()
+        } else {
+            // 代表没读出封面(文件里没有,或读不了):换组里下一首去读。
+            releasePeerCoverRepresentative(song.id)
+        }
+    }
+
+    /// 代表读不了(永久失败、重试用完)或读完也没封面:换组里下一首。
+    private func releasePeerCoverRepresentative(_ songID: String) {
+        guard let key = peerCoverKeyBySongID[songID],
+              var group = peerCoverGroups[key],
+              group.representative == songID else { return }
+        peerCoverKeyBySongID[songID] = nil
+        group.representative = nil
+        promotePeerCoverRepresentative(in: &group)
+        storePeerCoverGroup(group, key: key)
+        saveArtworkGivenUp()
+    }
+
+    /// 这首歌在本机已经读不成了:读不出、文件读不到、自动重试用完。
+    private func peerCoverRepresentativeIsStuck(_ song: Song) -> Bool {
+        failedSongIDs.contains(song.id)
+            || sourceIssueSongIDs.contains(song.id)
+            || Self.automaticRetriesExhausted(
+                songID: song.id,
+                sourceID: song.sourceID,
+                retryCounts: transientFailureCounts,
+                sourceRetryCounts: sourceTransientFailureCounts
+            )
+    }
+
+    /// 从等着的歌里挑一首还在资料库里的当代表,放它去读封面。
+    private func promotePeerCoverRepresentative(in group: inout PeerCoverGroup) {
+        guard group.localContentKey == nil else { return }
+        let candidates = group.waiting.filter { library.song(id: $0) != nil }
+        guard let next = candidates.min() ?? group.waiting.min() else { return }
+        group.waiting.remove(next)
+        group.representative = next
+        artworkGivenUpIDs.remove(next)
+    }
+
+    /// 这一批发布里有组代表带着封面:把同组等着的歌指到同一份内容,返回要一起发布的行。
+    private func peerCoverMemberRows(resolvedBy resolved: [Song]) -> [Song] {
+        guard !peerCoverGroups.isEmpty else { return [] }
+        var rows: [Song] = []
+        for song in resolved {
+            guard let key = peerCoverKeyBySongID[song.id],
+                  var group = peerCoverGroups[key],
+                  group.representative == song.id,
+                  let cover = song.coverArtFileName, !cover.isEmpty,
+                  let contentKey = Self.localCoverContentKey(named: cover) else { continue }
+            peerCoverKeyBySongID[song.id] = nil
+            group.representative = nil
+            group.localContentKey = contentKey
+            rows.append(contentsOf: linkWaitingPeerCoverMembers(&group, contentKey: contentKey))
+            storePeerCoverGroup(group, key: key)
+        }
+        if !rows.isEmpty { saveArtworkGivenUp() }
+        return rows
+    }
+
+    /// 等着的歌里已经在资料库、还没有封面的,指到 `contentKey`。还没进库的留着等下一次。
+    private func linkWaitingPeerCoverMembers(_ group: inout PeerCoverGroup, contentKey: String) -> [Song] {
+        var rows: [Song] = []
+        for id in group.waiting {
+            guard var row = library.song(id: id) else { continue }
+            group.waiting.remove(id)
+            peerCoverKeyBySongID[id] = nil
+            artworkGivenUpIDs.remove(id)
+            guard row.coverArtFileName?.isEmpty ?? true,
+                  let name = MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: id) else {
+                continue
+            }
+            row.coverArtFileName = name
+            rows.append(row)
+        }
+        return rows
+    }
+
+    private nonisolated static func localCoverContentKey(named fileName: String) -> String? {
+        guard let identity = MetadataAssetStore.shared.coverContentIdentifier(named: fileName),
+              identity.hasPrefix("sha256:") else { return nil }
+        let key = String(identity.dropFirst("sha256:".count))
+        return PeerScanSeedPolicy.isContentKey(key) ? key : nil
+    }
+
+    /// 把各组对齐到资料库现状:代表已经有封面就让全组指过去;代表不在了就换一首;
+    /// 已经解决的组等后进库的组员。补读一轮收尾、一次补齐之后跑。
+    private func sweepPeerCoverGroups() async {
+        guard !peerCoverGroups.isEmpty else { return }
+        var rows: [Song] = []
+        for key in Array(peerCoverGroups.keys) {
+            guard var group = peerCoverGroups[key] else { continue }
+            if group.localContentKey == nil, let representative = group.representative {
+                if let row = library.song(id: representative) {
+                    if let cover = row.coverArtFileName, !cover.isEmpty,
+                       let contentKey = Self.localCoverContentKey(named: cover) {
+                        peerCoverKeyBySongID[representative] = nil
+                        group.representative = nil
+                        group.localContentKey = contentKey
+                    } else if peerCoverRepresentativeIsStuck(row) {
+                        peerCoverKeyBySongID[representative] = nil
+                        group.representative = nil
+                    }
+                } else if group.waiting.contains(where: { library.song(id: $0) != nil }) {
+                    peerCoverKeyBySongID[representative] = nil
+                    group.representative = nil
+                }
+            }
+            if let contentKey = group.localContentKey {
+                rows.append(contentsOf: linkWaitingPeerCoverMembers(&group, contentKey: contentKey))
+            } else if group.representative == nil {
+                promotePeerCoverRepresentative(in: &group)
+            }
+            storePeerCoverGroup(group, key: key)
+        }
+        saveArtworkGivenUp()
+        let changed = rows.filter { library.song(id: $0.id) != $0 }
+        guard !changed.isEmpty else { return }
+        await library.replaceSongsPreparedOffMain(changed, maintenance: .deferred)
+        library.flushDeferredLibraryMaintenance()
+        plog("🧩 peer seeds linked \(changed.count) covers from their group's first read")
+    }
+
+    /// 扫描交来的行要等它自己提交进资料库;安静 20 秒后再对齐一次各组。扫描结束时
+    /// AppServices 也会叫一次。
+    func schedulePeerCoverSweep() {
+        peerCoverSweepTask?.cancel()
+        peerCoverSweepTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            await self?.sweepPeerCoverGroups()
+        }
+    }
+
+    private func forgetPeerSeedState(for ids: Set<String>) {
+        peerLyricsPendingIDs.subtract(ids)
+        for id in ids where peerCoverKeyBySongID[id] != nil {
+            removePeerCoverMember(id)
+        }
+    }
+
+    private func loadPeerSeedState() {
+        guard let data = try? Data(contentsOf: peerSeedStateURL),
+              let state = try? JSONDecoder().decode(PeerSeedState.self, from: data) else { return }
+        peerCoverGroups = state.coverGroups
+        peerLyricsPendingIDs = Set(state.lyricsPending)
+        for (key, group) in state.coverGroups {
+            if let representative = group.representative { peerCoverKeyBySongID[representative] = key }
+            for id in group.waiting { peerCoverKeyBySongID[id] = key }
+        }
     }
 
     private static func hash(_ input: String) -> String {

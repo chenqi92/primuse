@@ -879,6 +879,29 @@ actor MetadataAssetStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
+    /// 本机已经存着这份封面内容(同一张内嵌封面别的歌读到过)时,让 `songID` 的封面
+    /// 直接指过去,不必再读这首歌的文件。返回封面引用名;本机没有这份内容就返回 nil。
+    nonisolated func linkCoverContentIfPresent(_ contentKey: String, forSongID songID: String) -> String? {
+        guard PeerScanSeedPolicy.isContentKey(contentKey) else { return nil }
+        let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(contentKey).jpg")
+        guard FileManager.default.fileExists(atPath: contentURL.path) else { return nil }
+        let fileName = expectedCoverFileName(for: songID)
+        let refURL = artworkDirectoryURL.appendingPathComponent(fileName)
+        do {
+            try (Self.redirectPrefixData + Data(contentKey.utf8)).write(to: refURL, options: .atomic)
+        } catch {
+            return nil
+        }
+        return fileName
+    }
+
+    /// 本机有没有这首歌的歌词缓存。
+    nonisolated func hasCachedLyricsFile(forSongID songID: String) -> Bool {
+        FileManager.default.fileExists(
+            atPath: lyricsDirectoryURL.appendingPathComponent(expectedLyricsFileName(for: songID)).path
+        )
+    }
+
     nonisolated func storeCoverSync(_ data: Data, for key: String) {
         let fileName = expectedCoverFileName(for: key)
         let fileURL = artworkDirectoryURL.appendingPathComponent(fileName)

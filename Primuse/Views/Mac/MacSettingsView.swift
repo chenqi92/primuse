@@ -6390,6 +6390,7 @@ private struct MacSTCloudView: View {
         MacSTSection(
             String(localized: "synced_items"),
             hint: String(localized: "synced_items_footer") + "\n" + String(localized: "icloud_sync_settings_channel_footer")
+                + "\n" + String(localized: "icloud_sync_scan_results_footer")
         ) {
             MacSTGroup {
                 channelRow(String(localized: "synced_playlists"), channel: .playlists, isOn: $syncPlaylists, divider: false)

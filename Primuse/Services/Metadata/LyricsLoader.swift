@@ -471,6 +471,14 @@ enum LyricsLoader {
         if let embedded = await embeddedFallbackLyrics(for: song) {
             return embedded
         }
+        // 标签是从同账号别的设备拿来的:那台设备读到过内嵌歌词,本机还没读过这个文件。
+        // 在线歌词之前先读一次文件。
+        if let peerLyrics = await AppServices.shared.metadataBackfill.readPendingPeerLyrics(for: song),
+           !peerLyrics.isEmpty {
+            guard !Task.isCancelled else { return [] }
+            logLoaded(peerLyrics, song: song, tier: "Tier3b-peer-embedded")
+            return peerLyrics
+        }
         if let online = await automaticOnlineLyrics(for: song, expectedFingerprint: nil) {
             guard !Task.isCancelled else { return [] }
             logLoaded(online, song: song, tier: "Tier4-online")

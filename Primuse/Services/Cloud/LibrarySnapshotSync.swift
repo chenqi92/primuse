@@ -138,6 +138,8 @@ final class LibrarySnapshotSync: Sendable {
     private static let automaticUploadLastAttemptKey =
         "primuse.librarySnapshot.automaticUploadLastAttempt.v1"
     private static let automaticUploadRetryInterval: TimeInterval = 60 * 60
+    private static let readingProgressPendingKey = "primuse.librarySnapshot.readingProgressPending.v1"
+    private static let readingProgressUploadInterval: TimeInterval = 15 * 60
 
     private var database: CKDatabase? {
         CloudKitRuntime.makeContainer()?.privateCloudDatabase
@@ -220,14 +222,27 @@ final class LibrarySnapshotSync: Sendable {
     /// call `uploadNowResult()` directly and bypass this cadence.
     func shouldAttemptAutomaticUpload(now: Date = Date()) -> Bool {
         guard hasPendingAutomaticUpload() else { return false }
+        let readingProgressPending = UserDefaults.standard.bool(forKey: Self.readingProgressPendingKey)
         return AutomaticMaintenanceCadencePolicy.isDue(
             lastCompletedAt: UserDefaults.standard.object(
                 forKey: Self.automaticUploadLastAttemptKey
             ) as? Date,
             now: now,
-            minimumInterval: Self.automaticUploadRetryInterval
+            minimumInterval: readingProgressPending
+                ? Self.readingProgressUploadInterval
+                : Self.automaticUploadRetryInterval
         )
     }
+
+    /// 这台设备刚读完一批标签(一次扫描或一轮补读收尾)。同账号的别的 iPhone / iPad /
+    /// Mac 会拿这份结果省掉自己读文件,所以下一次成功上传之前,自动上传的间隔从一小时
+    /// 缩到十五分钟。
+    func noteLibraryReadingProgress() {
+        UserDefaults.standard.set(true, forKey: Self.readingProgressPendingKey)
+    }
+
+    /// 本机在账号里的曲库记录用的设备 id。拉别的设备的快照时据此跳过自己这一条。
+    var localDeviceID: String { deviceID }
 
     @discardableResult
     func uploadAutomaticallyIfNeeded(now: Date = Date()) async -> Bool {
@@ -267,6 +282,7 @@ final class LibrarySnapshotSync: Sendable {
     private func recordCompletedAutomaticUpload(
         fingerprint: AutomaticUploadFingerprint?
     ) {
+        UserDefaults.standard.removeObject(forKey: Self.readingProgressPendingKey)
         guard let fingerprint,
               let data = try? PropertyListEncoder().encode(fingerprint) else { return }
         UserDefaults.standard.set(data, forKey: Self.automaticUploadFingerprintKey)
@@ -983,6 +999,21 @@ final class LibrarySnapshotSync: Sendable {
             n += 1
         }
         plog("LibrarySnapshotSync: restored \(n) lyrics files")
+    }
+
+    /// 一条曲库记录里的整库 JSON(内联 gzip 或附件), 超过上限或没有就 nil。
+    /// 电视装整库、iPhone / iPad / Mac 借别的设备读好的标签都从这里读。
+    static func libraryData(from record: CKRecord) throws -> Data? {
+        if let gz = record["libraryGz"] as? Data {
+            guard let raw = gunzip(gz), raw.count <= maxLibraryRawBytes else { return nil }
+            return raw
+        }
+        if let url = (record["library"] as? CKAsset)?.fileURL {
+            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= maxLibraryRawBytes else { return nil }
+            return try Data(contentsOf: url)
+        }
+        return nil
     }
 
     /// gzip(zlib) 压缩 / 解压。CloudKit 的 `*Gz` 字段与 LAN 直传载荷共用同一份字节。
@@ -2506,20 +2537,6 @@ final class LibrarySnapshotSync: Sendable {
             }
         } catch {
             plog("TV snapshot download failed: \(error.localizedDescription)")
-        }
-        return nil
-    }
-
-    /// 一条曲库记录里的整库 JSON(内联 gzip 或附件), 超过上限或没有就 nil。
-    private static func libraryData(from record: CKRecord) throws -> Data? {
-        if let gz = record["libraryGz"] as? Data {
-            guard let raw = gunzip(gz), raw.count <= maxLibraryRawBytes else { return nil }
-            return raw
-        }
-        if let url = (record["library"] as? CKAsset)?.fileURL {
-            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                  size <= maxLibraryRawBytes else { return nil }
-            return try Data(contentsOf: url)
         }
         return nil
     }

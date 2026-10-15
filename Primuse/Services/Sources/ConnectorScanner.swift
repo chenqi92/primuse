@@ -30,16 +30,27 @@ actor ConnectorScanner {
     private let carriesServerSongIdentities: Bool
     /// 没变过的 .cue 和整轨 WAV 的 DTS 判定不再每轮重扫都下载。
     private let cueSheetCache: CueSheetScanCache
+    /// 同账号别的设备读好标签的行(见 `PeerScanSeedStore`)。新文件、还没读过的行文件
+    /// 没变时直接用它,不再生成要补读的裸行。
+    private let peerSeeds: PeerScanSeedLookup?
+    /// 本机已存着同一份封面内容时,让这首歌的封面指过去,返回封面引用名。
+    private let peerCoverLinker: (@Sendable (_ songID: String, _ contentKey: String) -> String?)?
+    /// 这次扫描用上的别的设备的行,ScanService 随扫描快照一起交给补读服务。
+    private var pendingPeerSeedAdoptions: [PeerScanSeedAdoption] = []
 
     init(
         connector: any MusicSourceConnector,
         sourceID: String,
-        carriesServerSongIdentities: Bool = false
+        carriesServerSongIdentities: Bool = false,
+        peerSeeds: PeerScanSeedLookup? = nil,
+        peerCoverLinker: (@Sendable (_ songID: String, _ contentKey: String) -> String?)? = nil
     ) {
         self.connector = connector
         self.sourceID = sourceID
         self.carriesServerSongIdentities = carriesServerSongIdentities
         self.cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: sourceID))
+        self.peerSeeds = peerSeeds
+        self.peerCoverLinker = peerCoverLinker
     }
 
     func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
@@ -57,6 +68,60 @@ actor ConnectorScanner {
         let ids = pendingMetadataInspectedSongIDs
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         return ids
+    }
+
+    func takePeerSeedAdoptions() -> [PeerScanSeedAdoption] {
+        let adoptions = pendingPeerSeedAdoptions
+        pendingPeerSeedAdoptions.removeAll(keepingCapacity: true)
+        return adoptions
+    }
+
+    /// 别的设备读好的这一行能用就并到 `base` 上:文件和那台设备读的是同一份字节,
+    /// 那一行也真是读文件得来的。`base` 是本机这次按列表生成的行,文件位置、大小、
+    /// 修改时间和旁边的封面/歌词以它为准。用上了就记一笔交给补读服务。
+    private func adoptingPeerSeed(onto base: Song) -> Song? {
+        guard let peerSeeds,
+              let seed = peerSeeds.seed(for: base.id),
+              PeerScanSeedPolicy.fingerprintMatches(
+                  size: base.fileSize,
+                  modifiedDate: base.lastModified,
+                  revision: base.revision,
+                  seed: seed.song
+              ) else { return nil }
+        var adopted = PeerScanSeedPolicy.adopting(seed.song, onto: base)
+        let cover: PeerScanSeedAdoption.Cover
+        switch PeerScanSeedPolicy.coverDisposition(seed: seed, base: base) {
+        case .sidecar:
+            cover = .resolved
+        case .content(let key):
+            if let name = peerCoverLinker?(base.id, key) {
+                adopted.coverArtFileName = name
+                cover = .resolved
+            } else {
+                cover = .pending(key)
+            }
+        case .unknown:
+            cover = .unknown
+        }
+        // 补读只为这些格式单独读封面。别的格式的封面原本是读时长时顺带存下的,
+        // 拿别人的行省掉那次读取就没人再去读封面了,所以只在本机已经能指到封面时才用。
+        if cover != .resolved,
+           !MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(base.fileFormat) {
+            return nil
+        }
+        pendingPeerSeedAdoptions.append(PeerScanSeedAdoption(
+            songID: base.id,
+            cover: cover,
+            cachedLyrics: PeerScanSeedPolicy.hasCachedLyrics(seed.song)
+        ))
+        return adopted
+    }
+
+    /// 本机已有、但还没读过文件的行(扫描先生成的裸行)。
+    private func adoptingPeerSeed(intoUnreadRow row: Song) -> Song? {
+        guard row.duration <= 0, row.cueSheetPath == nil,
+              let adopted = adoptingPeerSeed(onto: row) else { return nil }
+        return SongUserMetadataPolicy.preservingUserEdits(from: row, in: adopted)
     }
 
     /// Drains the rows discovered since the previous call. Accumulating inside
@@ -359,6 +424,10 @@ actor ConnectorScanner {
                         old.revision = item.revision ?? old.revision
                         applySidecarHints(from: item, to: &old)
                         refreshSuspiciousSourceTitle(in: &old, from: item)
+                        if let adopted = adoptingPeerSeed(intoUnreadRow: old) {
+                            old = adopted
+                            changedCount += 1
+                        }
                         songsByID[old.id] = old
                     } else {
                         var replacement = incoming
@@ -371,7 +440,7 @@ actor ConnectorScanner {
                         changedCount += 1
                     }
                 } else {
-                    songsByID[incoming.id] = incoming
+                    songsByID[incoming.id] = adoptingPeerSeed(onto: incoming) ?? incoming
                     changedCount += 1
                 }
                 recordSyncItem(item, songIDs: [songID], seenEpoch: scanEpoch, in: &index)
@@ -1026,6 +1095,9 @@ actor ConnectorScanner {
                                             ) {
                                                 refreshed.duration = repairedDuration
                                             }
+                                            if let adopted = adoptingPeerSeed(intoUnreadRow: refreshed) {
+                                                refreshed = adopted
+                                            }
                                             allSongs[idx] = refreshed
                                             recordRow(refreshed, for: songID)
                                         }
@@ -1045,7 +1117,8 @@ actor ConnectorScanner {
                                     continue
                                 }
 
-                                let newSong = buildBareSong(from: item, songID: songID)
+                                let bareSong = buildBareSong(from: item, songID: songID)
+                                let newSong = adoptingPeerSeed(onto: bareSong) ?? bareSong
                                 allSongs.append(newSong)
                                 allSongIndexByID[songID] = allSongs.count - 1
                                 recordRow(newSong, for: songID)

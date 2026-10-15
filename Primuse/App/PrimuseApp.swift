@@ -2100,6 +2100,7 @@ struct PrimuseApp: App {
                         #endif
 
                     case .active:
+                        AppServices.shared.peerScanSeeds.sceneDidBecomeActive()
                         #if os(iOS)
                         sourcesStore.setSceneBackgrounded(false)
                         musicLibrary.endSceneTransitionQuiescence()

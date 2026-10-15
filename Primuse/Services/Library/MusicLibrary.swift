@@ -13749,6 +13749,7 @@ final class MusicLibrary {
         snapshot.artworkAssets = artwork.customAssets.isEmpty ? nil : artwork.customAssets
         snapshot.cachedArtworkAssets = artwork.cachedAssets.isEmpty ? nil : artwork.cachedAssets
         snapshot.artworkCacheReferences = artwork.references.isEmpty ? nil : artwork.references
+        snapshot.coverContentSongIDs = artwork.coverContentSongIDs.isEmpty ? nil : artwork.coverContentSongIDs
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -13764,11 +13765,42 @@ final class MusicLibrary {
             )
         }
 
+        // 放不下时先丢封面内容表:它只是让别的设备少读几次文件,Apple TV 看得见的
+        // 封面更要紧。
+        let coverContentSongIDs = snapshot.coverContentSongIDs
+        if coverContentSongIDs != nil {
+            snapshot.coverContentSongIDs = nil
+            if let encoded = try? encoder.encode(snapshot),
+               encoded.count <= maximumEncodedSnapshotBytes {
+                return PortableSnapshotTransferData(
+                    data: encoded,
+                    eligibleLyricsFileNames: eligibleLyricsFileNames,
+                    eligibleSongCount: snapshot.songs.count,
+                    artworkBytes: artwork.rawBytes,
+                    hasCloudEligibleSources: hasCloudEligibleSources
+                )
+            }
+        }
+
         // Artwork is optional. Never fall back to the unfiltered raw snapshot
         // for CloudKit, because that would reintroduce device-local songs.
         snapshot.artworkAssets = nil
         snapshot.cachedArtworkAssets = nil
         snapshot.artworkCacheReferences = nil
+        if let coverContentSongIDs {
+            snapshot.coverContentSongIDs = coverContentSongIDs
+            if let encoded = try? encoder.encode(snapshot),
+               encoded.count <= maximumEncodedSnapshotBytes {
+                return PortableSnapshotTransferData(
+                    data: encoded,
+                    eligibleLyricsFileNames: eligibleLyricsFileNames,
+                    eligibleSongCount: snapshot.songs.count,
+                    artworkBytes: 0,
+                    hasCloudEligibleSources: hasCloudEligibleSources
+                )
+            }
+            snapshot.coverContentSongIDs = nil
+        }
         guard let encoded = try? encoder.encode(snapshot),
               encoded.count <= 64 * 1024 * 1024 else { return nil }
         return PortableSnapshotTransferData(
@@ -13788,6 +13820,8 @@ final class MusicLibrary {
         /// Cache file name → content ID.
         var references: [String: String] = [:]
         var rawBytes = 0
+        /// 内嵌封面的内容哈希 → 歌曲 id,不受封面字节预算限制。
+        var coverContentSongIDs: [String: [String]] = [:]
     }
 
     /// LAN pairing sends the library first and its covers afterwards in
@@ -13844,6 +13878,7 @@ final class MusicLibrary {
 
         var cachedAssets: [String: Data] = [:]
         var references: [String: String] = [:]
+        var coverContentSongIDs: [String: [String]] = [:]
         var preparedContent: [String: String] = [:]
         var attemptedContent = Set<String>()
         var visitedFiles = Set<String>()
@@ -13904,7 +13939,13 @@ final class MusicLibrary {
             }
             let name = assetStore.expectedCoverFileName(for: song.id)
             let sourceName: String
-            if assetStore.coverContentIdentifier(named: name) != nil {
+            if let identity = assetStore.coverContentIdentifier(named: name) {
+                if identity.hasPrefix(Self.coverContentIdentityPrefix) {
+                    let key = String(identity.dropFirst(Self.coverContentIdentityPrefix.count))
+                    if PeerScanSeedPolicy.isContentKey(key) {
+                        coverContentSongIDs[key, default: []].append(song.id)
+                    }
+                }
                 sourceName = name
             } else if let legacy = song.coverArtFileName, assetStore.isLegacyLocalRef(legacy) {
                 sourceName = legacy
@@ -13922,9 +13963,13 @@ final class MusicLibrary {
             customAssets: assets,
             cachedAssets: cachedAssets,
             references: references,
-            rawBytes: usedBytes
+            rawBytes: usedBytes,
+            coverContentSongIDs: coverContentSongIDs
         )
     }
+
+    /// `MetadataAssetStore.coverContentIdentifier` 给按内容存放的封面的前缀。
+    private nonisolated static let coverContentIdentityPrefix = "sha256:"
 
     private nonisolated static func portableArtistCacheNames(songs: [Song], assetStore: MetadataAssetStore) -> Set<String> {
         let artists = computeAlbumsAndArtists(songs: songs, configuration: ArtistNameConfiguration.load(from: .standard)).artists
@@ -14909,6 +14954,10 @@ final class MusicLibrary {
         var artworkAssets: [String: Data]? = nil
         var cachedArtworkAssets: [String: Data]? = nil
         var artworkCacheReferences: [String: String]? = nil
+        /// Transport-only: 内嵌封面的内容哈希 → 用这张封面的歌曲 id。别的 iPhone /
+        /// iPad / Mac 导入这台设备读好的标签时靠它把封面指到本机已有的同一份内容上,
+        /// 同一张封面只需读一首。本机落盘恒为 nil。
+        var coverContentSongIDs: [String: [String]]? = nil
         var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]?
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。
         var smartPlaylists: [SmartPlaylist]?

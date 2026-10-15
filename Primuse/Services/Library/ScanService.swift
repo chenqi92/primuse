@@ -406,6 +406,11 @@ final class ScanService {
     /// Full-metadata scanners report only IDs they actually inspected. AppServices
     /// wires this to MetadataBackfillService after both services are initialized.
     @ObservationIgnored var metadataInspectionHandler: ((Set<String>) -> Void)?
+    /// 同账号别的设备读好标签的行。AppServices 只给文件型网络源接上;本机还没扫过
+    /// 这个源时它会先去 iCloud 取一次最新的。
+    @ObservationIgnored var peerScanSeedProvider: ((MusicSource) async -> PeerScanSeedLookup?)?
+    /// 扫描用上了别的设备的行,交给补读服务记检查标记、安排封面与歌词。
+    @ObservationIgnored var peerSeedAdoptionHandler: (([PeerScanSeedAdoption]) -> Void)?
     /// Successful catalogue access can reopen an exhausted metadata-read
     /// circuit breaker without coupling ScanService to the backfill worker.
     @ObservationIgnored var successfulSourceScanHandler: ((String, SourceScanLifecycleCompletion) -> Void)?
@@ -2536,6 +2541,11 @@ final class ScanService {
 
     // MARK: - Connector Scan
 
+    /// 本机已存着同一份封面内容时让这首歌直接指过去(见 `ConnectorScanner.adoptingPeerSeed`)。
+    private nonisolated static func linkPeerSeedCover(songID: String, contentKey: String) -> String? {
+        MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: songID)
+    }
+
     private func scanConnectorSource(
         source: MusicSource,
         generation: Int,
@@ -2552,10 +2562,13 @@ final class ScanService {
         folderRescan: SourceFolderRescanRequest? = nil
     ) async {
         let connector = connectorProvider?(source) ?? sourceManager.connector(for: source)
+        let peerSeeds = await peerScanSeedProvider?(source)
         let scanner = ConnectorScanner(
             connector: connector,
             sourceID: source.id,
-            carriesServerSongIdentities: source.type.isSubsonicFamily
+            carriesServerSongIdentities: source.type.isSubsonicFamily,
+            peerSeeds: peerSeeds,
+            peerCoverLinker: Self.linkPeerSeedCover
         )
         let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
         // Pass songs from the live library (for this source) as the
@@ -3165,6 +3178,7 @@ final class ScanService {
                     sourceStore: sourceStore
                 )
                 let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+                let peerSeedAdoptions = await scanner.takePeerSeedAdoptions()
                 unpublishedRows.append(contentsOf: await scanner.takePendingChangedSongs())
                 try checkScanCommitFence(
                     sourceID: source.id,
@@ -3174,6 +3188,7 @@ final class ScanService {
                     sourceStore: sourceStore
                 )
                 metadataInspectionHandler?(metadataInspectedSongIDs)
+                if !peerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(peerSeedAdoptions) }
                 publishScanProgress(
                     sourceID: source.id,
                     scannedCount: update.scannedCount,
@@ -3277,6 +3292,7 @@ final class ScanService {
             }
 
             let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+            let peerSeedAdoptions = await scanner.takePeerSeedAdoptions()
             try checkScanCommitFence(
                 sourceID: source.id,
                 generation: generation,
@@ -3285,6 +3301,7 @@ final class ScanService {
                 sourceStore: sourceStore
             )
             metadataInspectionHandler?(metadataInspectedSongIDs)
+            if !peerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(peerSeedAdoptions) }
             let scanIndex = await scanner.syncIndexSnapshot()
             let scanReconciliation = await scanner.syncReconciliationSnapshot()
             let candidateState = SourceSyncState(
@@ -4622,6 +4639,8 @@ final class ScanService {
                 .map(\.path))
         }
         plog("📂 \(source.name): folder rescan listed \(listed.count) folder(s), \(changedCount) change(s) in \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+        let folderPeerSeedAdoptions = await scanner.takePeerSeedAdoptions()
+        if !folderPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(folderPeerSeedAdoptions) }
 
         var candidateState = state
         candidateState.index = index
@@ -4821,6 +4840,8 @@ final class ScanService {
                 requiresCompleteListings: false
             )
         }
+        let quickSyncPeerSeedAdoptions = await scanner.takePeerSeedAdoptions()
+        if !quickSyncPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(quickSyncPeerSeedAdoptions) }
         var candidateState = state
         candidateState.cursors = changes.cursors
         candidateState.index = result.index

@@ -114,6 +114,7 @@ struct CloudSyncSettingsView: View {
                 SettingsInfoHeader("synced_items") {
                     Text("synced_items_footer")
                     Text("icloud_sync_settings_channel_footer")
+                    Text("icloud_sync_scan_results_footer")
                     Text("credentials_channel_footer")
                         .foregroundStyle(.secondary)
                 }
