@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "Відкрити в Apple Music";
 "apple_music_mac_save_title" = "Спершу додайте до медіатеки Apple Music";
 "apple_music_mac_save_message" = "На Mac звідси не можна додати пісні з каталогу до медіатеки. Відкрийте пісню в Apple Music і додайте до медіатеки; після синхронізації її можна вподобати й додати до плейлистів.";
+
+"spoken_word_shelf_covers_only" = "Лише обкладинки";

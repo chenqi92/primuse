@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "เปิดใน Apple Music";
 "apple_music_mac_save_title" = "เพิ่มลงคลัง Apple Music ก่อน";
 "apple_music_mac_save_message" = "บน Mac ไม่สามารถเพิ่มเพลงจากแคตตาล็อกลงคลังจากตรงนี้ได้ เปิดเพลงใน Apple Music แล้วเพิ่มลงคลัง เมื่อซิงค์แล้วจะกดชอบและเพิ่มลงเพลย์ลิสต์ได้";
+
+"spoken_word_shelf_covers_only" = "เฉพาะปก";

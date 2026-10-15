@@ -6204,3 +6204,5 @@
 "apple_music_open_in_music" = "在 Apple Music 中打开";
 "apple_music_mac_save_title" = "先加进 Apple Music 资料库";
 "apple_music_mac_save_message" = "Mac 上没法直接把目录里的歌加进资料库。在 Apple Music 中打开这首歌并添加到资料库，同步进来后就能喜欢和加进歌单。";
+
+"spoken_word_shelf_covers_only" = "只显示封面";

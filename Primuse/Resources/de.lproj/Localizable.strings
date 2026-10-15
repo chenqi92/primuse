@@ -6111,3 +6111,5 @@
 "apple_music_open_in_music" = "In Apple Music öffnen";
 "apple_music_mac_save_title" = "Zuerst zur Apple Music-Mediathek hinzufügen";
 "apple_music_mac_save_message" = "Auf dem Mac lassen sich Katalogtitel hier nicht zur Mediathek hinzufügen. Öffne den Titel in Apple Music und füge ihn deiner Mediathek hinzu; nach der Synchronisierung kannst du ihn favorisieren und zu Playlists hinzufügen.";
+
+"spoken_word_shelf_covers_only" = "Nur Cover";

@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "فتح في Apple Music";
 "apple_music_mac_save_title" = "أضفها أولًا إلى مكتبة Apple Music";
 "apple_music_mac_save_message" = "على Mac لا يمكن إضافة أغاني الكتالوج إلى المكتبة من هنا. افتح الأغنية في Apple Music وأضفها إلى مكتبتك؛ بعد المزامنة يمكنك تفضيلها وإضافتها إلى قوائم التشغيل.";
+
+"spoken_word_shelf_covers_only" = "الأغلفة فقط";

@@ -6112,3 +6112,5 @@
 "apple_music_open_in_music" = "Apple Music で開く";
 "apple_music_mac_save_title" = "先に Apple Music ライブラリに追加してください";
 "apple_music_mac_save_message" = "Mac ではここからカタログの曲をライブラリに追加できません。Apple Music で曲を開いてライブラリに追加し、同期されるとお気に入りやプレイリストに追加できます。";
+
+"spoken_word_shelf_covers_only" = "表紙のみ";

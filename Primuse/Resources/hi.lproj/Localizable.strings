@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "Apple Music में खोलें";
 "apple_music_mac_save_title" = "पहले इसे अपनी Apple Music लाइब्रेरी में जोड़ें";
 "apple_music_mac_save_message" = "Mac पर यहाँ से कैटलॉग के गाने लाइब्रेरी में नहीं जोड़े जा सकते। गाने को Apple Music में खोलकर अपनी लाइब्रेरी में जोड़ें; सिंक होने के बाद आप इसे पसंद कर सकते हैं और प्लेलिस्ट में जोड़ सकते हैं।";
+
+"spoken_word_shelf_covers_only" = "केवल कवर";

@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "Abrir en Apple Music";
 "apple_music_mac_save_title" = "Primero agrégala a tu biblioteca de Apple Music";
 "apple_music_mac_save_message" = "En la Mac no se pueden agregar canciones del catálogo a la biblioteca desde aquí. Abre la canción en Apple Music y agrégala a tu biblioteca; cuando se sincronice podrás marcarla como Me gusta y agregarla a playlists.";
+
+"spoken_word_shelf_covers_only" = "Solo portadas";

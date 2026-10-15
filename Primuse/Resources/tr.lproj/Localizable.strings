@@ -6017,3 +6017,5 @@
 "apple_music_open_in_music" = "Apple Music'te aç";
 "apple_music_mac_save_title" = "Önce Apple Music arşivine ekleyin";
 "apple_music_mac_save_message" = "Mac'te katalog şarkıları buradan arşive eklenemez. Şarkıyı Apple Music'te açıp arşivinize ekleyin; eşzamanlandıktan sonra beğenebilir ve çalma listelerine ekleyebilirsiniz.";
+
+"spoken_word_shelf_covers_only" = "Yalnızca kapaklar";

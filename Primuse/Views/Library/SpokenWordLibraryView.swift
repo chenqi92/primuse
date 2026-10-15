@@ -227,7 +227,10 @@ extension View {
 }
 
 enum SpokenWordShelfLayout: String, CaseIterable {
-    case bookshelf, list
+    /// 网格,封面下写书名;`covers` 是同一个网格只留封面(和进度),书的菜单只在长按/右键里。
+    case bookshelf, covers, list
+
+    var isGrid: Bool { self != .list }
 }
 
 enum SpokenWordShelfOrder {
@@ -457,6 +460,16 @@ struct SpokenWordShelfContent: View {
         #endif
     }
 
+    /// 封面下没有书名时行距收到和列距差不多,一面封面墙;有书名时要给两行字留出呼吸。
+    private var gridRowSpacing: CGFloat {
+        guard layout == .covers else { return 22 }
+        #if os(macOS)
+        return 18
+        #else
+        return 14
+        #endif
+    }
+
     var body: some View {
         shelfContent(snapshot)
             // 整本书按目录顺序一次加进去;「我喜欢」也在可选的歌单里。
@@ -550,6 +563,7 @@ struct SpokenWordShelfContent: View {
                                 arrangeButton
                             }
                             layoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
+                            layoutButton(.covers, icon: "square.grid.3x3", title: "spoken_word_shelf_covers_only")
                             layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
                         }
                         #endif
@@ -640,6 +654,7 @@ struct SpokenWordShelfContent: View {
     private var macLayoutToggle: some View {
         HStack(spacing: 2) {
             macLayoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
+            macLayoutButton(.covers, icon: "square.grid.3x3", title: "spoken_word_shelf_covers_only")
             macLayoutButton(.list, icon: "list.bullet", title: "songs_view_list")
         }
         .padding(2)
@@ -707,8 +722,8 @@ struct SpokenWordShelfContent: View {
 
     @ViewBuilder
     private func bookCollection(_ entries: [SpokenWordLibrarySnapshot.Entry]) -> some View {
-        if layout == .bookshelf {
-            LazyVGrid(columns: gridColumns, spacing: 22) {
+        if layout.isGrid {
+            LazyVGrid(columns: gridColumns, spacing: gridRowSpacing) {
                 ForEach(entries) { entry in reorderableBookCell(entry, entries: entries) }
             }
         } else {
@@ -757,9 +772,10 @@ struct SpokenWordShelfContent: View {
                 #endif
         }
         .modifier(SpokenWordBookMenuOverlay(
-            alignment: layout == .bookshelf ? .topTrailing : .trailing,
+            alignment: layout.isGrid ? .topTrailing : .trailing,
             bookID: entry.id,
-            isArranging: isArranging
+            isArranging: isArranging,
+            showsMenuButton: layout != .covers
         ) {
             bookMenu(entry.book, songs: entry.songs, entries: entries)
         })
@@ -775,10 +791,11 @@ struct SpokenWordShelfContent: View {
         let _ = SpokenWordShelfDiagnostics.didBuildCell?(book.id)
         #endif
         let cell = Group {
-            if layout == .bookshelf {
+            if layout.isGrid {
                 SpokenWordBookCoverCell(
                     book: book, coverSong: songs.first,
-                    isPlaying: player.currentBookID == book.id, tint: tint
+                    isPlaying: player.currentBookID == book.id, tint: tint,
+                    showsText: layout == .bookshelf
                 )
             } else {
                 SpokenWordBookListRow(
@@ -1604,11 +1621,12 @@ private struct SpokenWordBookListRow: View {
 
 /// 书右上角(列表里是行尾)的「⋯」菜单。iPhone、iPad 上常驻, 同一份菜单也挂在长按上; 书架「排序」开着时
 /// 换成一个拖动记号, 不能点。Mac 上和专辑网格一样不在每张封面上常驻一颗按钮, 指针停在这本书上才出现,
-/// 同一份菜单也挂成右键菜单。
+/// 同一份菜单也挂成右键菜单。「只显示封面」时不画这颗键, 菜单只留长按/右键, 排序时的拖动记号照旧。
 private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
     let alignment: Alignment
     let bookID: String
     var isArranging = false
+    var showsMenuButton = true
     @ViewBuilder var menuItems: () -> MenuItems
     #if os(macOS)
     @State private var isHovered = false
@@ -1618,7 +1636,7 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
         #if os(macOS)
         content
             .overlay(alignment: alignment) {
-                if isHovered { badge }
+                if isHovered, showsMenuButton { badge }
             }
             .onHover { isHovered = $0 }
             .contextMenu { menuItems() }
@@ -1631,7 +1649,7 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
                         .padding(6)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
-                } else {
+                } else if showsMenuButton {
                     badge
                 }
             }
@@ -1722,6 +1740,8 @@ private struct SpokenWordBookCoverCell: View {
     let coverSong: Song?
     let isPlaying: Bool
     let tint: Color
+    /// 「只显示封面」时为 false:书名和副标题不画,读屏仍照常读出来。
+    var showsText = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1754,20 +1774,47 @@ private struct SpokenWordBookCoverCell: View {
                 .opacity(book.lastListenedAt != nil && !book.isFinished ? 1 : 0)
                 .accessibilityHidden(book.lastListenedAt == nil || book.isFinished)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(book.title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(isPlaying ? tint : .primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Text(SpokenWordBookSupport.subtitle(book))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            if showsText {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(book.title)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(isPlaying ? tint : .primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Text(SpokenWordBookSupport.subtitle(book))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .modifier(SpokenWordCoverOnlyAccessibility(book: book, isActive: !showsText))
+    }
+}
+
+/// 只显示封面时书名不在画面上, 合并出来的读屏标签里就没有它:补上书名, 副标题与「已听完」放进值里。
+private struct SpokenWordCoverOnlyAccessibility: ViewModifier {
+    let book: SpokenWordBook
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content
+                .accessibilityLabel(Text(book.title))
+                .accessibilityValue(Text(verbatim: value))
+        } else {
+            content
+        }
+    }
+
+    private var value: String {
+        let subtitle = SpokenWordBookSupport.subtitle(book)
+        guard book.isFinished else { return subtitle }
+        return [subtitle, String(localized: "spoken_word_finished")]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 }
 

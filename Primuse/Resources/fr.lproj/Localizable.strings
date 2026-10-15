@@ -6111,3 +6111,5 @@
 "apple_music_open_in_music" = "Ouvrir dans Apple Music";
 "apple_music_mac_save_title" = "Ajoutez-le d'abord à votre bibliothèque Apple Music";
 "apple_music_mac_save_message" = "Sur Mac, les morceaux du catalogue ne peuvent pas être ajoutés à la bibliothèque depuis ici. Ouvrez le morceau dans Apple Music et ajoutez-le à votre bibliothèque ; une fois synchronisé, vous pourrez l'aimer et l'ajouter à des playlists.";
+
+"spoken_word_shelf_covers_only" = "Couvertures seules";

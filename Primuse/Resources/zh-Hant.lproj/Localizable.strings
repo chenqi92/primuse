@@ -6088,3 +6088,5 @@
 "apple_music_open_in_music" = "在 Apple Music 中打開";
 "apple_music_mac_save_title" = "先加入 Apple Music 資料庫";
 "apple_music_mac_save_message" = "Mac 上沒辦法直接把目錄裡的歌加入資料庫。在 Apple Music 中打開這首歌並加入資料庫，同步進來後就能喜歡和加入播放列表。";
+
+"spoken_word_shelf_covers_only" = "只顯示封面";

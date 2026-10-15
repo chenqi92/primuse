@@ -5871,3 +5871,5 @@
 "apple_music_open_in_music" = "Open in Apple Music";
 "apple_music_mac_save_title" = "Add It to Your Apple Music Library First";
 "apple_music_mac_save_message" = "On Mac, catalog songs can't be added to your library from here. Open the song in Apple Music and add it to your library; once it syncs you can like it and add it to playlists.";
+
+"spoken_word_shelf_covers_only" = "Covers Only";
