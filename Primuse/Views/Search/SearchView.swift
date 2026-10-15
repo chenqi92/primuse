@@ -1390,6 +1390,11 @@ struct SearchView: View {
         .toolbarTitleDisplayMode(usesMinimalNavigation || !isSearchEditing ? .inline : .inlineLarge)
         .pmVerticalBarTitleEdge()
         #if os(iOS)
+        // 极简根页没有导航栏, 工具栏里的全选与取消显示不出来: 多选时排成页头, 平时没有页头。
+        // 要挂在 minimalNavigationRoot 里面, 才读得到根页标记。
+        .minimalPageHeader(isPresented: { selection.isActive }) {
+            SongSelectionMinimalHeader(selection: selection, orderedIDs: { selectableSongIDs })
+        }
         .minimalNavigationRoot()
         .toolbar {
             if !usesMinimalNavigation, let contextualScope {

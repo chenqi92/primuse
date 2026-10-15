@@ -5493,23 +5493,6 @@ private struct IOSSongListPositionRow: View {
     }
 }
 
-/// Separate observation boundaries keep a count change from re-evaluating the
-/// parent `SongListView` and its complete `ForEach` description.
-private struct SongSelectionToolbarTitle: View {
-    let selection: SongSelectionModel
-
-    var body: some View {
-        Text(verbatim: String(
-            format: String(localized: "batch_selected_count_format"),
-            selection.count
-        ))
-        .font(.headline)
-        .monospacedDigit()
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
-}
-
 /// Observing selection mode in the parent `SongListView` invalidates the
 /// complete large-list description. This zero-size child owns the one
 /// selection lifecycle side effect instead.
@@ -5823,14 +5806,7 @@ private struct SongListMinimalHeader: View {
 
     var body: some View {
         if selection.isActive {
-            HStack(spacing: 8) {
-                SongSelectionToolbarTitle(selection: selection)
-                Spacer(minLength: 8)
-                MinimalHeaderActions {
-                    SongSelectionOptionsMenu(selection: selection, orderedIDs: orderedIDs)
-                    SongSelectionCancelToolbarItem(selection: selection)
-                }
-            }
+            SongSelectionMinimalHeader(selection: selection, orderedIDs: orderedIDs)
         } else {
             HStack(spacing: 4) {
                 MinimalPlayAllButton(subtitle: countText, action: onPlay)

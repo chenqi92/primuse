@@ -808,6 +808,22 @@ private struct SongBatchActionsModifier: ViewModifier {
 
 // MARK: - 多选态的顶部按钮
 
+/// 「已选择几首」。单独成一个视图: 计数变化只重画这一格, 不牵动宿主页和它的整张列表。
+struct SongSelectionToolbarTitle: View {
+    let selection: SongSelectionModel
+
+    var body: some View {
+        Text(verbatim: String(
+            format: String(localized: "batch_selected_count_format"),
+            selection.count
+        ))
+        .font(.headline)
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+}
+
 /// 多选态右上角的「⋯」:全选 / 取消全选。全选按页面实际显示的顺序取(`orderedIDs`)。
 /// 歌曲页、文件夹页和各详情页共用。
 struct SongSelectionOptionsMenu: View {
@@ -903,6 +919,23 @@ struct HiddenWhileSelectingSongs<Content: View>: View {
 }
 
 #if os(iOS)
+/// 极简根页没有导航栏, 多选时的页头: 左边已选几首, 右边全选菜单与退出。歌曲页与搜索页共用。
+struct SongSelectionMinimalHeader: View {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SongSelectionToolbarTitle(selection: selection)
+            Spacer(minLength: 8)
+            MinimalHeaderActions {
+                SongSelectionOptionsMenu(selection: selection, orderedIDs: orderedIDs)
+                SongSelectionCancelToolbarItem(selection: selection)
+            }
+        }
+    }
+}
+
 /// 详情页、搜索页多选时右上角的「⋯ 全选 / 取消全选」与「取消」。
 /// 页面有自己的系统竖栏溢出菜单时(iPhone Duo)传 `includesOptions: false`,
 /// 把 `SongSelectionOptionsToolbarItem(asOverflowItems: true)` 放进那份溢出菜单。

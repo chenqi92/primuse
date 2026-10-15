@@ -461,28 +461,44 @@ extension View {
     /// 不在极简根页上时什么都不做，页面照旧用系统导航栏与工具栏。
     /// 要挂在 `libraryPageFind` 的外面，页头才排在查找框上面。
     func minimalPageHeader<Header: View>(@ViewBuilder _ header: @escaping () -> Header) -> some View {
-        modifier(MinimalPageHeaderModifier(header: header))
+        modifier(MinimalPageHeaderModifier(isPresented: nil, header: header))
+    }
+
+    /// 只在 `isPresented` 成立时才有的页头（搜索页多选时的全选与退出）。不成立时栏里没有内容、
+    /// 高度为零，收边和顶栏一样；修饰符一直挂着，页面内容不换身份，滚动位置与输入框都留着。
+    /// `isPresented` 在修饰符里求值：它读到的可观察状态只让这一层重画，不牵动整页。
+    func minimalPageHeader<Header: View>(
+        isPresented: @escaping () -> Bool,
+        @ViewBuilder _ header: @escaping () -> Header
+    ) -> some View {
+        modifier(MinimalPageHeaderModifier(isPresented: isPresented, header: header))
     }
 }
 
 private struct MinimalPageHeaderModifier<Header: View>: ViewModifier {
+    /// nil 表示页头一直在。
+    let isPresented: (() -> Bool)?
     let header: () -> Header
     @Environment(\.minimalRootPage) private var isMinimalRoot
     @State private var findState = MinimalPageFindState()
 
     func body(content: Content) -> some View {
         if isMinimalRoot {
+            let presented = isPresented?() ?? true
             content
                 .environment(findState)
                 // 页头叠在顶栏下面，整段栏很高：用实边，列表滚上来不会压在页头的字底下。
-                .minimalSafeAreaBar(edge: .top, edgeEffect: .hard) {
-                    header()
-                        .environment(findState)
-                        .padding(.leading, 16)
-                        .padding(.trailing, 8)
-                        .padding(.vertical, 2)
-                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                // 没有页头时退回顶栏自己的柔和收边。
+                .minimalSafeAreaBar(edge: .top, edgeEffect: presented ? .hard : .soft) {
+                    if presented {
+                        header()
+                            .environment(findState)
+                            .padding(.leading, 16)
+                            .padding(.trailing, 8)
+                            .padding(.vertical, 2)
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    }
                 }
         } else {
             content
