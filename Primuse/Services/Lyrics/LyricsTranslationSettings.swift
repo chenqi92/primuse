@@ -43,6 +43,16 @@ final class LyricsTranslationSettingsStore {
         }
     }
 
+    /// 歌词文件里本来就有的译文要不要显示。和机翻开关分开：关掉机翻的人照样看自带译文，
+    /// 这里关掉后只剩原文和读音行；开着机翻时整首改由机翻（见 `LyricBundledTranslationPolicy`）。
+    var showsBundledTranslations: Bool {
+        didSet {
+            guard showsBundledTranslations != oldValue else { return }
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
+    }
+
     /// BCP-47 语言标识 (例如 "zh-Hans" / "zh-Hant" / "en" / "ja")。
     /// 默认跟随系统首选语言, 第一次启动按 Locale.preferredLanguages 推断。
     var targetLanguageCode: String {
@@ -146,6 +156,7 @@ final class LyricsTranslationSettingsStore {
         var targetLanguageCode: String
         var mode = LyricsTranslationMode.system
         var skippedSourceLanguageCodes: [String] = []
+        var showsBundledTranslations = true
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             isEnabled = decoded.isEnabled
@@ -154,6 +165,7 @@ final class LyricsTranslationSettingsStore {
             skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(
                 decoded.skippedSourceLanguageCodes ?? []
             )
+            showsBundledTranslations = decoded.showsBundledTranslations ?? true
         } else {
             // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
             let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
@@ -172,6 +184,7 @@ final class LyricsTranslationSettingsStore {
         self.targetLanguageCode = targetLanguageCode
         self.mode = mode
         self.skippedSourceLanguageCodes = skippedSourceLanguageCodes
+        self.showsBundledTranslations = showsBundledTranslations
     }
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
@@ -287,7 +300,8 @@ final class LyricsTranslationSettingsStore {
             isEnabled: isEnabled,
             targetLanguageCode: targetLanguageCode,
             mode: mode,
-            skippedSourceLanguageCodes: skippedSourceLanguageCodes
+            skippedSourceLanguageCodes: skippedSourceLanguageCodes,
+            showsBundledTranslations: showsBundledTranslations
         )
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
@@ -303,6 +317,7 @@ final class LyricsTranslationSettingsStore {
         let targetLanguageCode: String
         let mode: LyricsTranslationMode?
         let skippedSourceLanguageCodes: [String]?
+        let showsBundledTranslations: Bool?
     }
 }
 

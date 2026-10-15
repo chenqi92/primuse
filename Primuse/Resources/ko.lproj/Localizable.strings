@@ -6078,3 +6078,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "이 Mac";
 "cast_dlna_required_hint_mac" = "기기가 UPnP/DLNA 렌더러를 지원하고 이 Mac과 같은 네트워크에 있어야 합니다.";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "가사에 포함된 번역 표시";
+"lyrics_bundled_translation_shown_footer" = "가사 파일에 원래 들어 있는 번역(이중 언어 가사에서 같은 시간의 번역 줄 등)입니다. 끄면 원문만 표시하며 로마자와 병음은 그대로 표시됩니다. 가사 번역이 켜져 있으면 곡 전체를 시스템 번역 또는 지능형 번역으로 번역합니다.";

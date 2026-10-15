@@ -1262,6 +1262,49 @@ public enum LyricCompanionTextPolicy {
     }
 }
 
+/// 「显示歌词自带的译文」关掉时界面用的那份歌词：文件里本来就有的译文（同时间戳的双语行、
+/// 容器里的翻译字段、在本机编辑时写的译文）从每一行拿掉，罗马音、拼音这类读音行和 TTML 的
+/// 读音照旧保留。只给显示和机翻用 —— 存盘、编辑、缓存比对仍然拿原文档。机翻拿到这份歌词时
+/// 每一行都没有自带译文，开着歌词翻译就整首交给机翻。
+public enum LyricBundledTranslationPolicy {
+    public struct Presentation: Sendable {
+        public var lines: [LyricLine]
+        /// 原文档里有没有能隐藏的自带译文（读音行不算）；没有时界面不必给这个开关。
+        public var hasBundledTranslations: Bool
+    }
+
+    public static func presentation(
+        of lines: [LyricLine],
+        showsBundledTranslations: Bool
+    ) -> Presentation {
+        let flattened = LyricVoiceTimelinePolicy.flattenedLines(lines)
+        guard flattened.contains(where: { !$0.allManualTranslations.isEmpty }) else {
+            return Presentation(lines: lines, hasBundledTranslations: false)
+        }
+        // 和机翻准备用同一份展平后的整篇投票，读音行的判定两边一致。
+        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: flattened)
+        let hasTranslations = flattened.contains { line in
+            line.allManualTranslations.contains { !readingIDs.contains($0.id) }
+        }
+        guard hasTranslations, !showsBundledTranslations else {
+            return Presentation(lines: lines, hasBundledTranslations: hasTranslations)
+        }
+        return Presentation(
+            lines: lines.map { keepingReadings(of: $0, readingIDs: readingIDs) },
+            hasBundledTranslations: true
+        )
+    }
+
+    private static func keepingReadings(of line: LyricLine, readingIDs: Set<String>) -> LyricLine {
+        var line = line
+        let readings = line.allManualTranslations.filter { readingIDs.contains($0.id) }
+        line.manualTranslation = readings.first
+        line.alternateManualTranslations = Array(readings.dropFirst())
+        line.background = line.background?.map { keepingReadings(of: $0, readingIDs: readingIDs) }
+        return line
+    }
+}
+
 /// 双语 LRC 里跟在原文后面的拉丁字母行，是这句的读音（罗马音、拼音、韩文罗马字）
 /// 还是译文（英文等），光看文字系统分不出来，两者都是拉丁字母。读音行有很强的
 /// 音节结构：每个词都能拆成该语言的音节，而英文里 and / with / world 这类词拆不开。

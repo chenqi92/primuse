@@ -6078,3 +6078,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "Dieser Mac";
 "cast_dlna_required_hint_mac" = "Das Gerät muss als UPnP/DLNA-Renderer funktionieren und im selben Netzwerk wie dieser Mac sein.";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "Mitgelieferte Übersetzungen anzeigen";
+"lyrics_bundled_translation_shown_footer" = "Übersetzungen, die in der Liedtextdatei enthalten sind, etwa die Übersetzungszeile mit demselben Zeitstempel in zweisprachigen Liedtexten. Ausgeschaltet wird nur der Originaltext angezeigt, Umschrift und Pinyin bleiben; ist die Liedtextübersetzung aktiv, übersetzt die System- oder Intelligente Übersetzung stattdessen den ganzen Titel.";

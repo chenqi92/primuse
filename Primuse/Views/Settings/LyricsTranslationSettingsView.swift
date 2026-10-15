@@ -21,6 +21,13 @@ struct LyricsSettingsView: View {
                     }
                 }
                 .settingsAnchor("lyrics.translationEnabled")
+
+                Toggle(isOn: $settings.showsBundledTranslations) {
+                    SettingsInfoLabel("lyrics_bundled_translation_shown") {
+                        Text("lyrics_bundled_translation_shown_footer")
+                    }
+                }
+                .settingsAnchor("lyrics.bundledTranslation")
             }
 
             if settings.isEnabled {

@@ -799,9 +799,35 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Divider().padding(.vertical, 4)
+
+            // 歌词文件里本来就有的译文，和上面的机翻方式分开管。
+            Button {
+                let settings = LyricsTranslationSettingsStore.shared
+                settings.showsBundledTranslations.toggle()
+            } label: {
+                HStack {
+                    Text("lyrics_bundled_translation_shown")
+                        .font(.callout)
+                        .foregroundStyle(PMColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    if LyricsTranslationSettingsStore.shared.showsBundledTranslations {
+                        Image(systemName: "checkmark")
+                            .font(.caption)
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .pmRowBackground(cornerRadius: 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(Text("lyrics_bundled_translation_shown_footer"))
         }
         .padding(.vertical, 6)
-        .frame(width: 180)
+        .frame(width: 220)
         .focusEffectDisabled()
     }
 

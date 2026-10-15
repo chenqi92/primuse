@@ -5838,3 +5838,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "This Mac";
 "cast_dlna_required_hint_mac" = "The device needs to support UPnP/DLNA rendering and be on the same network as this Mac.";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "Show Built-in Translations";
+"lyrics_bundled_translation_shown_footer" = "Translations that come with the lyrics file, such as the translated line sharing a timestamp in bilingual lyrics. When off, only the original lyrics show, with romanization and pinyin kept; with Lyrics Translation on, System or Intelligent Translation translates the whole song instead.";

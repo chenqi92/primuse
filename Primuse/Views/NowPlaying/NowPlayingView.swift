@@ -917,6 +917,11 @@ struct NowPlayingView: View {
     @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
+    /// 歌词面板、全屏舞台、海报和机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的
+    /// 译文。`lyrics` 仍是原文档，缓存比对照旧拿它。
+    @State private var presentedLyrics: [LyricLine] = []
+    /// 原文档里有没有能隐藏的自带译文;没有时「更多 › 歌词翻译」里不给那个开关。
+    @State private var lyricsHaveBundledTranslations = false
     /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
     @State private var lyricsSongID: String?
     /// 当前歌词各行的译文（文件自带的优先，其次是翻译任务给出的）。翻译任务挂在
@@ -1491,7 +1496,7 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { return }
         let composer = LyricPosterComposer.make(
             song: song,
-            lyrics: lyrics,
+            lyrics: presentedLyrics,
             translations: lyricTranslationsByLineID,
             playbackPosition: player.currentTime,
             anchorLineID: anchorLineID,
@@ -2571,7 +2576,7 @@ struct NowPlayingView: View {
                             songID: player.currentSong?.id,
                             songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
                             lyricsRevision: lyricsRevision,
-                            lyrics: lyrics,
+                            lyrics: presentedLyrics,
                             settings: LyricsTranslationSettingsStore.shared,
                             player: player,
                             translatedTextByLineID: $lyricTranslationsByLineID,
@@ -2719,7 +2724,7 @@ struct NowPlayingView: View {
                 if isFullscreenPlayerPresented {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
-                        lyrics: lyrics,
+                        lyrics: presentedLyrics,
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
                                 for: $0,
@@ -2865,6 +2870,7 @@ struct NowPlayingView: View {
             if player.isLiveRadio {
                 clearLyricsResolution()
                 lyrics = []
+                presentBundledTranslationVisibility()
             } else {
                 await loadLyrics()
             }
@@ -2872,6 +2878,10 @@ struct NowPlayingView: View {
         }
         // 换上新歌词,或问源结束(没问到也算结论):记下这一条有没有文字。
         .onChange(of: lyricsRevision) { _, _ in rememberSpokenWordTextPresence() }
+        .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
+            presentBundledTranslationVisibility()
+            lyricsRevision &+= 1
+        }
         .onChange(of: isResolvingLyrics) { _, _ in rememberSpokenWordTextPresence() }
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticScrapeCompletion()
@@ -6312,6 +6322,8 @@ struct NowPlayingView: View {
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             lyricsTranslationMode: LyricsTranslationSettingsStore.shared.mode,
             offersSmartLyricsTranslation: intelligence.shouldExposeRemoteConfiguration,
+            lyricsHaveBundledTranslations: lyricsHaveBundledTranslations,
+            showsBundledLyricsTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations,
             fallbackActions: menuFallback,
             spokenFallbackActions: spokenFallback.filter { $0 != .transcript || !lyrics.isEmpty },
             isShowingLyrics: showLyrics,
@@ -6405,6 +6417,9 @@ struct NowPlayingView: View {
                 }
                 settings.mode = mode
                 settings.isEnabled = true
+            },
+            onSetBundledLyricsTranslationsShown: { shows in
+                LyricsTranslationSettingsStore.shared.showsBundledTranslations = shows
             },
             onShowSleepTimer: { showSleepTimer = true },
             onAdjustEqualizer: { openEqualizer() },
@@ -6604,7 +6619,7 @@ struct NowPlayingView: View {
 
     private func lyricsScrollView(collapsesChromeOnScroll: Bool) -> some View {
         LyricsScrollView(
-            lyrics: lyrics,
+            lyrics: presentedLyrics,
             lyricsWritingDirection: lyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
@@ -8490,6 +8505,7 @@ struct NowPlayingView: View {
         clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
         lyrics = value
+        presentBundledTranslationVisibility()
         lyricsSongID = player.currentSong?.id
         lyricsRevision &+= 1
         let wordLevelCount = value.filter { $0.isWordLevel }.count
@@ -8497,6 +8513,15 @@ struct NowPlayingView: View {
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
         consumePendingLyricsJump(from: value)
+    }
+
+    private func presentBundledTranslationVisibility() {
+        let presentation = LyricBundledTranslationPolicy.presentation(
+            of: lyrics,
+            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        )
+        presentedLyrics = presentation.lines
+        lyricsHaveBundledTranslations = presentation.hasBundledTranslations
     }
 
     /// 搜索页点歌词命中结果时, player 上挂了一个 pending hint。歌词刚加载
@@ -10300,6 +10325,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let lyricsTranslationMode: LyricsTranslationMode
     /// 这个地区有智能服务时菜单里才给「智能翻译」。
     let offersSmartLyricsTranslation: Bool
+    /// 这首歌词自带译文时才给「显示歌词自带的译文」。
+    let lyricsHaveBundledTranslations: Bool
+    let showsBundledLyricsTranslations: Bool
     /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
     /// 以及手机横屏右栏窄到让出来的两端)。
     let fallbackActions: [NowPlayingControlAction]
@@ -10516,6 +10544,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onLockControls: () -> Void
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
     let onSelectLyricsTranslation: (LyricsTranslationMode?) -> Void
+    let onSetBundledLyricsTranslationsShown: (Bool) -> Void
     let onShowSleepTimer: () -> Void
     let onAdjustEqualizer: () -> Void
     let onShowEqualizerBypassNotice: () -> Void
@@ -10936,6 +10965,17 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             EmptyView()
                         }
                         .pickerStyle(.inline)
+
+                        if snapshot.lyricsHaveBundledTranslations {
+                            Section {
+                                Toggle(isOn: Binding(
+                                    get: { snapshot.showsBundledLyricsTranslations },
+                                    set: { onSetBundledLyricsTranslationsShown($0) }
+                                )) {
+                                    Text("lyrics_bundled_translation_shown")
+                                }
+                            }
+                        }
                     } label: {
                         Label(
                             String(localized: "lyrics_translation_title"),

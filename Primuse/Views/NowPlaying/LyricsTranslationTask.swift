@@ -812,11 +812,16 @@ final class LyricsTranslationPrefetcher {
         job?.task.cancel()
         let songContext = LyricTranslationSongContext(title: song.title, artist: song.artistName)
         let skippedSourceLanguageCodes = LyricsTranslationSettingsStore.shared.skippedSourceLanguageCodes
+        let showsBundledTranslations = LyricsTranslationSettingsStore.shared.showsBundledTranslations
         let task = Task { @MainActor in
             guard let lyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
                   !lyrics.isEmpty,
+                  // 和播放页同一份:自带译文藏起来时,那些行也要预先译好。
                   let prepared = try? await LyricsTranslationPreparer.shared.prepare(
-                      lyrics: lyrics,
+                      lyrics: LyricBundledTranslationPolicy.presentation(
+                          of: lyrics,
+                          showsBundledTranslations: showsBundledTranslations
+                      ).lines,
                       targetLanguageCode: targetLanguageCode,
                       skippedSourceLanguageCodes: skippedSourceLanguageCodes,
                       enabled: true,

@@ -1164,7 +1164,13 @@ extension TVStore {
             duration: nowPlaying.duration
         )
         if let lyrics, !lyrics.isEmpty {
-            applyLyrics(TVPlaybackCoordinator.toTVLyrics(lyrics, duration: song.duration), forSongID: song.id)
+            applyLyrics(
+                TVPlaybackCoordinator.toTVLyrics(
+                    TVLyricsTranslationController.presentedLines(lyrics),
+                    duration: song.duration
+                ),
+                forSongID: song.id
+            )
             TVLyricsTranslationController.shared.lyricsDidLoad(lyrics, forSongID: song.id, store: self)
         }
     }

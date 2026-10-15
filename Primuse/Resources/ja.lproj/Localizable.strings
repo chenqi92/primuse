@@ -6079,3 +6079,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "このMac";
 "cast_dlna_required_hint_mac" = "デバイスが UPnP/DLNA レンダラーに対応し、このMacと同じネットワークにある必要があります。";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "歌詞に含まれる訳文を表示";
+"lyrics_bundled_translation_shown_footer" = "歌詞ファイルにもともと含まれる訳文（2か国語の歌詞で同じタイムスタンプの訳文行など）。オフにすると原文だけを表示し、ローマ字やピンインはそのまま表示します。歌詞の翻訳がオンの場合は、曲全体をシステム翻訳またはインテリジェント翻訳で翻訳します。";

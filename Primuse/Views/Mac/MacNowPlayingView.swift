@@ -35,7 +35,10 @@ struct MacNowPlayingView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 显示与机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的译文。
     @State private var lyrics: [LyricLine] = []
+    /// 读到的原文档，开关变化时从它重新得出 `lyrics`。
+    @State private var loadedLyrics: [LyricLine] = []
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var currentIndex: Int = -1
     @State private var activeBackgroundLineIDs: Set<String> = []
@@ -299,6 +302,9 @@ struct MacNowPlayingView: View {
         }
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
+        }
+        .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
+            installLyrics(loadedLyrics)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
@@ -1703,7 +1709,12 @@ struct MacNowPlayingView: View {
         _ = updateIndex(time: player.currentTime)
     }
 
-    private func installLyrics(_ newLyrics: [LyricLine]) {
+    private func installLyrics(_ loaded: [LyricLine]) {
+        loadedLyrics = loaded
+        let newLyrics = LyricBundledTranslationPolicy.presentation(
+            of: loaded,
+            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        ).lines
         if lyrics != newLyrics {
             lyricsTranslationRevision &+= 1
         }

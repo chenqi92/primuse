@@ -5984,3 +5984,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "Este Mac";
 "cast_dlna_required_hint_mac" = "O dispositivo precisa ser compatível com renderização UPnP/DLNA e estar na mesma rede que este Mac.";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "Mostrar traduções incluídas";
+"lyrics_bundled_translation_shown_footer" = "Traduções que já vêm no arquivo de letra, como a linha traduzida com o mesmo tempo em letras bilíngues. Desativado, só a letra original aparece, mantendo romanização e pinyin; com a tradução de letras ativada, a Tradução do Sistema ou Inteligente traduz a música inteira.";

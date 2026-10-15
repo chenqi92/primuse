@@ -74,6 +74,17 @@ final class TVLyricsTranslationController {
         })
     }
 
+    /// The lyrics as the screen shows them: with "show built-in translations"
+    /// off, the translations written in the file are left out (readings stay)
+    /// and machine translation then covers every line. `lyricsDidLoad` keeps the
+    /// file's own document so the switch can bring them back.
+    static func presentedLines(_ lines: [LyricLine]) -> [LyricLine] {
+        LyricBundledTranslationPolicy.presentation(
+            of: lines,
+            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+        ).lines
+    }
+
     /// Called whenever lyrics were put on screen for `songID`.
     func lyricsDidLoad(_ lines: [LyricLine], forSongID songID: String, store: TVStore) {
         self.store = store
@@ -86,7 +97,7 @@ final class TVLyricsTranslationController {
     func retranslateCurrentLyrics() {
         guard let store, let lastLoaded, store.currentSongID == lastLoaded.songID else { return }
         store.applyLyrics(
-            TVPlaybackCoordinator.toTVLyrics(lastLoaded.lines, duration: 0),
+            TVPlaybackCoordinator.toTVLyrics(Self.presentedLines(lastLoaded.lines), duration: 0),
             forSongID: lastLoaded.songID
         )
         start()
@@ -117,7 +128,7 @@ final class TVLyricsTranslationController {
         let settings = LyricsTranslationSettingsStore.shared
         guard settings.isEnabled, let store, let loaded = lastLoaded, !loaded.lines.isEmpty else { return }
         let songID = loaded.songID
-        let lines = loaded.lines
+        let lines = Self.presentedLines(loaded.lines)
         let song = store.song(songID)
         let songContext = LyricTranslationSongContext(title: song?.title, artist: song?.artist)
         let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)

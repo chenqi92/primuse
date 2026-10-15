@@ -902,6 +902,16 @@ struct TVLyricsTranslationPanel: View {
                 )
             )
             .accessibilityIdentifier("tv.lyricsTranslation.enabled")
+            TVAIDivider()
+            TVAIToggleRow(
+                icon: "text.bubble",
+                title: String(localized: "lyrics_bundled_translation_shown"),
+                isOn: Binding(
+                    get: { settings.showsBundledTranslations },
+                    set: { settings.showsBundledTranslations = $0 }
+                )
+            )
+            .accessibilityIdentifier("tv.lyricsTranslation.bundled")
             if settings.isEnabled {
                 TVAIDivider()
                 TVAIActionRow(

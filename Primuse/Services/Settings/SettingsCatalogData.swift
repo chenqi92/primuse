@@ -48,6 +48,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "effects.chain", titleKey: "Enable Effects Chain", iosPage: nil, macPage: .effects),
         SettingDefinition(id: "effects.reverbRoomSize", titleKey: "Room Size", table: "SettingsSearch", iosPage: nil, macPage: .effects),
         SettingDefinition(id: "lyrics.translationEnabled", titleKey: "lyrics_translation_enabled", iosPage: .lyrics, macPage: .lyrics),
+        SettingDefinition(id: "lyrics.bundledTranslation", titleKey: "lyrics_bundled_translation_shown", iosPage: .lyrics, macPage: .lyrics, keywords: ["自带译文", "双语", "内嵌翻译", "bilingual", "embedded translation"]),
         SettingDefinition(id: "lyrics.translationMode", titleKey: "lyrics_translation_mode", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.translationTarget", titleKey: "lyrics_translation_target", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.translationSkippedLanguages", titleKey: "lyrics_translation_skipped_languages", iosPage: .lyrics, macPage: .lyrics, keywords: ["不翻译", "原文", "keep original", "skip"]),

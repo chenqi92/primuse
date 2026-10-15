@@ -5000,6 +5000,17 @@ private struct MacSTLyricsView: View {
                         ))
                     }
                     .settingsAnchor("lyrics.translationEnabled")
+                    MacSTRow(
+                        String(localized: "lyrics_bundled_translation_shown"),
+                        hint: String(localized: "lyrics_bundled_translation_shown_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTToggle(isOn: Binding(
+                            get: { settings.showsBundledTranslations },
+                            set: { settings.showsBundledTranslations = $0 }
+                        ))
+                    }
+                    .settingsAnchor("lyrics.bundledTranslation")
                     MacSTRow(String(localized: "lyrics_translation_mode")) {
                         MacSTPicker(
                             selection: Binding(

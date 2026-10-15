@@ -6171,3 +6171,7 @@
 /* 投放设备：Mac 上的本机一行与搜索提示 */
 "cast_this_mac" = "这台 Mac";
 "cast_dlna_required_hint_mac" = "设备需支持 UPnP/DLNA 渲染器协议，并和这台 Mac 在同一网络下。";
+
+/* 歌词自带译文的显示开关 */
+"lyrics_bundled_translation_shown" = "显示歌词自带的译文";
+"lyrics_bundled_translation_shown_footer" = "歌词文件里本来就带的译文，比如双语歌词里同一时间的那行译文。关掉后只显示原文，罗马音和拼音照常显示；开着歌词翻译时，整首改由系统翻译或智能翻译来译。";

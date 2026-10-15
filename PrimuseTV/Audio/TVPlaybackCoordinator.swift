@@ -3086,7 +3086,10 @@ final class TVPlaybackCoordinator {
         forSongID songID: String,
         store: TVStore
     ) {
-        store.applyLyrics(Self.toTVLyrics(lines, duration: duration), forSongID: songID)
+        store.applyLyrics(
+            Self.toTVLyrics(TVLyricsTranslationController.presentedLines(lines), duration: duration),
+            forSongID: songID
+        )
         TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: store)
     }
 

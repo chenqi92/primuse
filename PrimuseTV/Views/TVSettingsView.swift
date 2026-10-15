@@ -405,6 +405,16 @@ struct TVSettingsView: View {
                     showsTranslationPanel = true
                 }
             }
+            settingDivider
+            toggleRow(
+                "text.bubble",
+                String(localized: "lyrics_bundled_translation_shown"),
+                detail: String(localized: "lyrics_bundled_translation_shown_footer"),
+                isOn: Binding(
+                    get: { translationSettings.showsBundledTranslations },
+                    set: { translationSettings.showsBundledTranslations = $0 }
+                )
+            )
         }
     }
 
