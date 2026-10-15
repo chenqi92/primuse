@@ -280,9 +280,10 @@ final class TVMedleyPlaybackTests: XCTestCase {
             ("medley-queue", AnyView(TVQueueView())),
             ("medley-player", AnyView(TVNowPlayingView()))
         ]
+        let intelligence = MusicIntelligenceService()
         for (name, view) in screens {
             let host = UIHostingController(rootView: view.environment(f.store).environment(TVThemeState.shared)
-                .environment(TVAppearanceState()).preferredColorScheme(.dark))
+                .environment(TVAppearanceState()).environment(intelligence).preferredColorScheme(.dark))
             window.rootViewController = host
             window.makeKeyAndVisible()
             try await Task.sleep(for: .milliseconds(600))
