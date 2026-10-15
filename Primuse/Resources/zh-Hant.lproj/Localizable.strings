@@ -6074,3 +6074,16 @@
 "immersive_show_lyrics" = "顯示歌詞";
 "immersive_show_artwork_short" = "封面";
 "immersive_show_lyrics_short" = "歌詞";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "加入 Apple Music 資料庫";
+"apple_music_saving" = "正在加入 Apple Music 資料庫…";
+"apple_music_saved" = "已加入 Apple Music 資料庫";
+"apple_music_saved_and_liked" = "已加入 Apple Music 資料庫，並加入我喜歡";
+"apple_music_save_sync_unavailable" = "Apple Music 資料庫同步沒有開啟，這首歌進不了 Primuse 的曲庫。";
+"apple_music_save_not_synced" = "已加入 Apple Music 資料庫，但同步還沒把它帶進來，稍後再試。";
+"apple_music_queued_next" = "已設為下一首播放";
+"apple_music_queued_last" = "已加入播放佇列";
+"apple_music_open_in_music" = "在 Apple Music 中打開";
+"apple_music_mac_save_title" = "先加入 Apple Music 資料庫";
+"apple_music_mac_save_message" = "Mac 上沒辦法直接把目錄裡的歌加入資料庫。在 Apple Music 中打開這首歌並加入資料庫，同步進來後就能喜歡和加入播放列表。";

@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "बोल दिखाएँ";
 "immersive_show_artwork_short" = "कवर";
 "immersive_show_lyrics_short" = "बोल";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Apple Music लाइब्रेरी में जोड़ें";
+"apple_music_saving" = "आपकी Apple Music लाइब्रेरी में जोड़ा जा रहा है…";
+"apple_music_saved" = "आपकी Apple Music लाइब्रेरी में जोड़ा गया";
+"apple_music_saved_and_liked" = "आपकी Apple Music लाइब्रेरी और पसंदीदा में जोड़ा गया";
+"apple_music_save_sync_unavailable" = "Apple Music लाइब्रेरी सिंक बंद है, इसलिए यह गाना आपकी Primuse लाइब्रेरी में नहीं आ सकता।";
+"apple_music_save_not_synced" = "Apple Music में जोड़ दिया गया, पर सिंक ने अभी तक इसे नहीं लाया। थोड़ी देर बाद फिर कोशिश करें।";
+"apple_music_queued_next" = "अगला चलेगा";
+"apple_music_queued_last" = "कतार में जोड़ा गया";
+"apple_music_open_in_music" = "Apple Music में खोलें";
+"apple_music_mac_save_title" = "पहले इसे अपनी Apple Music लाइब्रेरी में जोड़ें";
+"apple_music_mac_save_message" = "Mac पर यहाँ से कैटलॉग के गाने लाइब्रेरी में नहीं जोड़े जा सकते। गाने को Apple Music में खोलकर अपनी लाइब्रेरी में जोड़ें; सिंक होने के बाद आप इसे पसंद कर सकते हैं और प्लेलिस्ट में जोड़ सकते हैं।";

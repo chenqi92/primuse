@@ -837,6 +837,68 @@ final class AppleMusicLibraryService {
         library.song(id: song.id) != nil
     }
 
+    /// 搜索里的目录歌在 Primuse 曲库里对应的那一行:用户的 Apple Music 资料库里有这首、
+    /// 而且已经同步进来。喜欢、加歌单都只能作用在曲库里的歌上。
+    func librarySong(forCatalog song: MusicKit.Song) -> PrimuseKit.Song? {
+        let candidate = canonicalPrimuseSong(for: song)
+        guard let row = library.song(id: candidate.id),
+              row.sourceID == Self.systemSourceID else { return nil }
+        return row
+    }
+
+    enum CatalogSaveError: LocalizedError {
+        case notAuthorized
+        case librarySyncUnavailable
+        case notSynced
+
+        var errorDescription: String? {
+            switch self {
+            case .notAuthorized: AppleMusicAuthorizationGuidance.notAuthorizedMessage
+            case .librarySyncUnavailable: String(localized: "apple_music_save_sync_unavailable")
+            case .notSynced: String(localized: "apple_music_save_not_synced")
+            }
+        }
+    }
+
+    #if os(iOS)
+    /// 把搜索里的目录歌加进用户自己的 Apple Music 资料库,同步一次,交回它在曲库里的那一行。
+    /// 不把目录曲直接塞进本地库:启动对账会清掉源里没有的歌,硬塞的下次同步就没了。
+    /// 资料库刚加进去的歌偶尔要过一两秒才读得到,没对上就隔一会儿再同步,最多四轮。
+    /// macOS 没有 `MusicKit.MusicLibrary.shared`,这一步只有 iOS 能做。
+    func addCatalogSongToLibrary(_ song: MusicKit.Song) async throws -> PrimuseKit.Song {
+        if let existing = librarySong(forCatalog: song) { return existing }
+        guard appleMusic.authState == .authorized else { throw CatalogSaveError.notAuthorized }
+        guard AppleMusicSourcePolicy.isSyncable(
+            isInstalled: library.appleMusicSourceInstalled,
+            isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
+            isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
+        ) else { throw CatalogSaveError.librarySyncUnavailable }
+
+        // 模块名不能省:本工程自己也有一个 `MusicLibrary`(本地曲库)。
+        try await MusicKit.MusicLibrary.shared.add(song)
+        for attempt in 0..<4 {
+            if attempt > 0 { try await Task.sleep(for: .seconds(2)) }
+            await syncAndWait()
+            if let found = librarySong(forCatalog: song) {
+                plog("🍎 Catalog song saved to library '\(song.title)' after \(attempt + 1) sync(s)")
+                return found
+            }
+        }
+        plog("⚠️ Catalog song added to Apple Music but not found after sync '\(song.title)'")
+        throw CatalogSaveError.notSynced
+    }
+
+    /// 发起一次同步(正在跑的就等那一次),等它结束。最多等 90 秒。
+    private func syncAndWait() async {
+        sync()
+        let deadline = Date().addingTimeInterval(90)
+        while syncTask != nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(300))
+            if Task.isCancelled { return }
+        }
+    }
+    #endif
+
     /// 这首 Apple Music 歌的目录版。目录曲直接用缓存;资料库曲目按 PlayParameters 里的
     /// 目录 ID 再查一次目录(资料库条目拿不到相似艺人、所在专辑这些目录关系)。
     func catalogMusicKitSong(for song: PrimuseKit.Song) async -> MusicKit.Song? {

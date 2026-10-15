@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "Показати текст";
 "immersive_show_artwork_short" = "Обкладинка";
 "immersive_show_lyrics_short" = "Текст";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Додати до медіатеки Apple Music";
+"apple_music_saving" = "Додавання до медіатеки Apple Music…";
+"apple_music_saved" = "Додано до медіатеки Apple Music";
+"apple_music_saved_and_liked" = "Додано до медіатеки Apple Music і до вподобаних";
+"apple_music_save_sync_unavailable" = "Синхронізацію медіатеки Apple Music вимкнено, тож ця пісня не потрапить до медіатеки Primuse.";
+"apple_music_save_not_synced" = "Додано до Apple Music, але синхронізація ще її не забрала. Спробуйте трохи згодом.";
+"apple_music_queued_next" = "Відтворити наступною";
+"apple_music_queued_last" = "Додано до черги";
+"apple_music_open_in_music" = "Відкрити в Apple Music";
+"apple_music_mac_save_title" = "Спершу додайте до медіатеки Apple Music";
+"apple_music_mac_save_message" = "На Mac звідси не можна додати пісні з каталогу до медіатеки. Відкрийте пісню в Apple Music і додайте до медіатеки; після синхронізації її можна вподобати й додати до плейлистів.";

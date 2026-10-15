@@ -535,6 +535,19 @@ enum SearchHistoryStore {
     }
 }
 
+/// 搜索里对 Apple Music 目录歌做完一件事后,底部浮起的那条提示。
+private struct AppleMusicActionFeedback: Equatable {
+    enum Kind: Equatable { case progress, success, failure }
+
+    let id = UUID()
+    let kind: Kind
+    let message: String
+
+    static func progress(_ message: String) -> Self { Self(kind: .progress, message: message) }
+    static func success(_ message: String) -> Self { Self(kind: .success, message: message) }
+    static func failure(_ message: String) -> Self { Self(kind: .failure, message: message) }
+}
+
 struct SearchView: View {
     @Environment(AudioPlayerService.self) private var player
     /// 搜索结果这一层导航栈的 zoom 命名空间。
@@ -543,6 +556,7 @@ struct SearchView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(\.openURL) private var openURL
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(RadioStationsStore.self) private var radioStore
     @Environment(ScanService.self) private var scanService
@@ -558,6 +572,11 @@ struct SearchView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var songsToAddToPlaylist: [PrimuseKit.Song] = []
     @State private var showsAddToPlaylist = false
+    /// 正在加进 Apple Music 资料库的那首目录歌。
+    @State private var savingAppleMusicSongID: MusicItemID?
+    @State private var appleMusicActionFeedback: AppleMusicActionFeedback?
+    /// Mac 上点了只在目录里的歌的「喜欢 / 加歌单」:先说明要去「音乐」里加进资料库。
+    @State private var appleMusicLibraryNoticeSong: MusicKit.Song?
     @State private var expandedCollections: Set<SearchResultSection> = []
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
@@ -1250,6 +1269,25 @@ struct SearchView: View {
         }
         .sheet(isPresented: $showsAddToPlaylist) {
             BatchAddToPlaylistSheet(songs: songsToAddToPlaylist)
+        }
+        .overlay(alignment: .bottom) {
+            appleMusicActionToast
+        }
+        .animation(.easeInOut(duration: 0.2), value: appleMusicActionFeedback)
+        .alert(
+            "apple_music_mac_save_title",
+            isPresented: Binding(
+                get: { appleMusicLibraryNoticeSong != nil },
+                set: { if !$0 { appleMusicLibraryNoticeSong = nil } }
+            ),
+            presenting: appleMusicLibraryNoticeSong
+        ) { song in
+            if let url = song.url {
+                Button("apple_music_open_in_music") { openURL(url) }
+            }
+            Button("cancel", role: .cancel) {}
+        } message: { _ in
+            Text("apple_music_mac_save_message")
         }
         .onChange(of: hiddenLibrarySectionsRawValue) { _, _ in
             performSearch(query: searchText)
@@ -2272,6 +2310,7 @@ struct SearchView: View {
         }
         .buttonStyle(.plain)
         .pmHoverLift()
+        .contextMenu { appleMusicSongMenu(song) }
     }
 
     // MARK: 歌曲类的几块
@@ -2658,6 +2697,7 @@ struct SearchView: View {
                     .pmRowBackground(cornerRadius: 6)
                 }
                 .buttonStyle(.plain)
+                .contextMenu { appleMusicSongMenu(song) }
             }
         }
     }
@@ -3779,31 +3819,233 @@ struct SearchView: View {
     }
 
     private func appleMusicRow(_ song: MusicKit.Song) -> some View {
-        Button {
-            playAppleMusicCatalogSong(song)
-        } label: {
-            HStack(spacing: 12) {
-                AsyncImage(url: song.artwork?.url(width: 88, height: 88)) { phase in
-                    if let img = phase.image {
-                        img.resizable().aspectRatio(contentMode: .fill)
-                            .pmFadeTransition(motion: .contentAppear)
+        HStack(spacing: 8) {
+            Button {
+                playAppleMusicCatalogSong(song)
+            } label: {
+                HStack(spacing: 12) {
+                    AsyncImage(url: song.artwork?.url(width: 88, height: 88)) { phase in
+                        if let img = phase.image {
+                            img.resizable().aspectRatio(contentMode: .fill)
+                                .pmFadeTransition(motion: .contentAppear)
+                        } else {
+                            Color.secondary.opacity(0.15)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title).font(.subheadline).lineLimit(1)
+                        Text(song.artistName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if savingAppleMusicSongID == song.id {
+                        ProgressView().controlSize(.small)
                     } else {
-                        Color.secondary.opacity(0.15)
+                        Image(systemName: "applelogo").font(.caption2).foregroundStyle(.tertiary)
                     }
                 }
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title).font(.subheadline).lineLimit(1)
-                    Text(song.artistName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
-                Image(systemName: "applelogo").font(.caption2).foregroundStyle(.tertiary)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // 和曲库歌曲行一样:尾部 ⋯ 与长按是同一份菜单。
+            Menu {
+                appleMusicSongMenu(song)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("a11y_more_actions")
         }
-        .buttonStyle(.plain)
+        .contextMenu { appleMusicSongMenu(song) }
+    }
+
+    // MARK: Apple Music 目录歌的操作
+
+    /// 搜索里 Apple Music 目录歌的菜单:入队直接用目录歌;喜欢、加歌单只能作用在曲库里的歌上,
+    /// 还不在曲库的先加进用户的 Apple Music 资料库、同步进来再做(iOS)。Mac 没有加进资料库的接口,
+    /// 点了先说明怎么去「音乐」里加。
+    @ViewBuilder
+    private func appleMusicSongMenu(_ song: MusicKit.Song) -> some View {
+        let librarySong = AppServices.shared.appleMusicLibrary.librarySong(forCatalog: song)
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(
+                shortKey: "insert_next_short",
+                fullKey: "insert_next",
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            ) {
+                insertAppleMusicSongNext(song)
+            }
+            PMMenuQuickActionButton(
+                shortKey: "add_to_playlist_short",
+                fullKey: "add_to_playlist",
+                systemImage: "text.badge.plus"
+            ) {
+                addAppleMusicSongToPlaylist(song, librarySong: librarySong)
+            }
+            if let url = song.url {
+                ShareLink(item: url) {
+                    Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+
+        Section {
+            Button {
+                appendAppleMusicSongToQueue(song)
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.line.last.and.arrowtriangle.forward")
+            }
+
+            if let librarySong {
+                SongFeedbackMenuButtons(songID: librarySong.id)
+            } else {
+                Button {
+                    likeAppleMusicSong(song)
+                } label: {
+                    Label(String(localized: "a11y_like"), systemImage: "heart")
+                }
+                #if os(iOS)
+                Button {
+                    saveAppleMusicSong(song)
+                } label: {
+                    Label(String(localized: "apple_music_add_to_library"), systemImage: "plus.circle")
+                }
+                .disabled(savingAppleMusicSongID != nil)
+                #endif
+            }
+
+            #if os(macOS)
+            if let url = song.url {
+                Button {
+                    openURL(url)
+                } label: {
+                    Label(String(localized: "apple_music_open_in_music"), systemImage: "arrow.up.forward.app")
+                }
+            }
+            #endif
+        }
+    }
+
+    private func catalogQueueSong(_ song: MusicKit.Song) -> PrimuseKit.Song? {
+        AppServices.shared.appleMusicLibrary.registerCatalogSongs([song]).first
+    }
+
+    private func insertAppleMusicSongNext(_ song: MusicKit.Song) {
+        guard let queued = catalogQueueSong(song),
+              player.insertNextInQueue([queued]) != nil else { return }
+        showAppleMusicFeedback(.success(String(localized: "apple_music_queued_next")))
+    }
+
+    private func appendAppleMusicSongToQueue(_ song: MusicKit.Song) {
+        guard let queued = catalogQueueSong(song) else { return }
+        player.appendToQueue([queued])
+        showAppleMusicFeedback(.success(String(localized: "apple_music_queued_last")))
+    }
+
+    private func likeAppleMusicSong(_ song: MusicKit.Song) {
+        #if os(iOS)
+        saveAppleMusicSong(song) { saved in
+            library.setLiked(songID: saved.id, isLiked: true, propagatesServerMutation: true)
+            PMHaptics.likeToggled(isLiked: true)
+            return String(localized: "apple_music_saved_and_liked")
+        }
+        #else
+        appleMusicLibraryNoticeSong = song
+        #endif
+    }
+
+    private func addAppleMusicSongToPlaylist(_ song: MusicKit.Song, librarySong: PrimuseKit.Song?) {
+        if let librarySong {
+            songsToAddToPlaylist = [librarySong]
+            showsAddToPlaylist = true
+            return
+        }
+        #if os(iOS)
+        saveAppleMusicSong(song) { saved in
+            songsToAddToPlaylist = [saved]
+            showsAddToPlaylist = true
+            return nil
+        }
+        #else
+        appleMusicLibraryNoticeSong = song
+        #endif
+    }
+
+    #if os(iOS)
+    /// 加进 Apple Music 资料库并等它同步进曲库,再做 `then`。`then` 返回要提示的话,nil 表示不提示
+    /// (接着弹了加歌单的表,那张表本身就是回应)。一次只加一首。
+    private func saveAppleMusicSong(
+        _ song: MusicKit.Song,
+        then: @escaping @MainActor (PrimuseKit.Song) -> String? = { _ in String(localized: "apple_music_saved") }
+    ) {
+        guard savingAppleMusicSongID == nil else { return }
+        savingAppleMusicSongID = song.id
+        showAppleMusicFeedback(.progress(String(localized: "apple_music_saving")))
+        Task {
+            do {
+                let saved = try await AppServices.shared.appleMusicLibrary.addCatalogSongToLibrary(song)
+                savingAppleMusicSongID = nil
+                if let message = then(saved) {
+                    showAppleMusicFeedback(.success(message))
+                } else {
+                    appleMusicActionFeedback = nil
+                }
+            } catch {
+                savingAppleMusicSongID = nil
+                showAppleMusicFeedback(.failure(error.localizedDescription))
+            }
+        }
+    }
+    #endif
+
+    private func showAppleMusicFeedback(_ feedback: AppleMusicActionFeedback) {
+        appleMusicActionFeedback = feedback
+    }
+
+    @ViewBuilder
+    private var appleMusicActionToast: some View {
+        if let feedback = appleMusicActionFeedback {
+            HStack(spacing: 10) {
+                if feedback.kind == .progress {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: feedback.kind == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(feedback.kind == .success ? Color.green : Color.orange)
+                }
+                Text(verbatim: feedback.message)
+                    .font(.subheadline.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .frame(maxWidth: 560)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: feedback.message))
+            .task(id: feedback.id) {
+                // 进行中的一直留着;结果停一会儿自己收起。
+                guard feedback.kind != .progress else { return }
+                try? await Task.sleep(for: .seconds(feedback.kind == .failure ? 4 : 2.5))
+                guard !Task.isCancelled, appleMusicActionFeedback?.id == feedback.id else { return }
+                appleMusicActionFeedback = nil
+            }
+        }
     }
 
     @ViewBuilder

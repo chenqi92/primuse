@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "Pokaż tekst";
 "immersive_show_artwork_short" = "Okładka";
 "immersive_show_lyrics_short" = "Tekst";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Dodaj do biblioteki Apple Music";
+"apple_music_saving" = "Dodawanie do biblioteki Apple Music…";
+"apple_music_saved" = "Dodano do biblioteki Apple Music";
+"apple_music_saved_and_liked" = "Dodano do biblioteki Apple Music i do ulubionych";
+"apple_music_save_sync_unavailable" = "Synchronizacja biblioteki Apple Music jest wyłączona, więc ten utwór nie trafi do biblioteki Primuse.";
+"apple_music_save_not_synced" = "Dodano do Apple Music, ale synchronizacja jeszcze go nie pobrała. Spróbuj ponownie za chwilę.";
+"apple_music_queued_next" = "Odtwórz jako następny";
+"apple_music_queued_last" = "Dodano do kolejki";
+"apple_music_open_in_music" = "Otwórz w Apple Music";
+"apple_music_mac_save_title" = "Najpierw dodaj do biblioteki Apple Music";
+"apple_music_mac_save_message" = "Na Macu nie można stąd dodać utworów z katalogu do biblioteki. Otwórz utwór w Apple Music i dodaj go do biblioteki; po synchronizacji możesz go polubić i dodać do playlist.";

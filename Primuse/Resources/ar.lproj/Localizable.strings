@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "عرض الكلمات";
 "immersive_show_artwork_short" = "الغلاف";
 "immersive_show_lyrics_short" = "الكلمات";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "إضافة إلى مكتبة Apple Music";
+"apple_music_saving" = "جارٍ الإضافة إلى مكتبة Apple Music…";
+"apple_music_saved" = "تمت الإضافة إلى مكتبة Apple Music";
+"apple_music_saved_and_liked" = "تمت الإضافة إلى مكتبة Apple Music وإلى المفضلة";
+"apple_music_save_sync_unavailable" = "مزامنة مكتبة Apple Music متوقفة، لذا لا يمكن إدخال هذه الأغنية إلى مكتبة Primuse.";
+"apple_music_save_not_synced" = "تمت الإضافة إلى Apple Music، لكن المزامنة لم تجلبها بعد. حاول مرة أخرى بعد قليل.";
+"apple_music_queued_next" = "تشغيل التالي";
+"apple_music_queued_last" = "تمت الإضافة إلى قائمة الانتظار";
+"apple_music_open_in_music" = "فتح في Apple Music";
+"apple_music_mac_save_title" = "أضفها أولًا إلى مكتبة Apple Music";
+"apple_music_mac_save_message" = "على Mac لا يمكن إضافة أغاني الكتالوج إلى المكتبة من هنا. افتح الأغنية في Apple Music وأضفها إلى مكتبتك؛ بعد المزامنة يمكنك تفضيلها وإضافتها إلى قوائم التشغيل.";

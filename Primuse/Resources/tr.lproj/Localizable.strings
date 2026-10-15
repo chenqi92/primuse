@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "Sözleri göster";
 "immersive_show_artwork_short" = "Kapak";
 "immersive_show_lyrics_short" = "Sözler";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Apple Music arşivine ekle";
+"apple_music_saving" = "Apple Music arşivine ekleniyor…";
+"apple_music_saved" = "Apple Music arşivine eklendi";
+"apple_music_saved_and_liked" = "Apple Music arşivine ve beğenilenlere eklendi";
+"apple_music_save_sync_unavailable" = "Apple Music arşiv eşzamanlaması kapalı; bu şarkı Primuse arşivine giremez.";
+"apple_music_save_not_synced" = "Apple Music'e eklendi ama eşzamanlama henüz getirmedi. Biraz sonra yeniden deneyin.";
+"apple_music_queued_next" = "Sıradaki olarak çal";
+"apple_music_queued_last" = "Kuyruğa eklendi";
+"apple_music_open_in_music" = "Apple Music'te aç";
+"apple_music_mac_save_title" = "Önce Apple Music arşivine ekleyin";
+"apple_music_mac_save_message" = "Mac'te katalog şarkıları buradan arşive eklenemez. Şarkıyı Apple Music'te açıp arşivinize ekleyin; eşzamanlandıktan sonra beğenebilir ve çalma listelerine ekleyebilirsiniz.";

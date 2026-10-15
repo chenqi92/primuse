@@ -6003,3 +6003,16 @@
 "immersive_show_lyrics" = "แสดงเนื้อเพลง";
 "immersive_show_artwork_short" = "ปก";
 "immersive_show_lyrics_short" = "เนื้อเพลง";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "เพิ่มลงคลัง Apple Music";
+"apple_music_saving" = "กำลังเพิ่มลงคลัง Apple Music…";
+"apple_music_saved" = "เพิ่มลงคลัง Apple Music แล้ว";
+"apple_music_saved_and_liked" = "เพิ่มลงคลัง Apple Music และรายการที่ชอบแล้ว";
+"apple_music_save_sync_unavailable" = "การซิงค์คลัง Apple Music ปิดอยู่ เพลงนี้จึงเข้าคลังเพลง Primuse ไม่ได้";
+"apple_music_save_not_synced" = "เพิ่มลง Apple Music แล้ว แต่การซิงค์ยังไม่นำเพลงเข้ามา ลองใหม่อีกครั้งในอีกสักครู่";
+"apple_music_queued_next" = "เล่นถัดไป";
+"apple_music_queued_last" = "เพิ่มลงคิวแล้ว";
+"apple_music_open_in_music" = "เปิดใน Apple Music";
+"apple_music_mac_save_title" = "เพิ่มลงคลัง Apple Music ก่อน";
+"apple_music_mac_save_message" = "บน Mac ไม่สามารถเพิ่มเพลงจากแคตตาล็อกลงคลังจากตรงนี้ได้ เปิดเพลงใน Apple Music แล้วเพิ่มลงคลัง เมื่อซิงค์แล้วจะกดชอบและเพิ่มลงเพลย์ลิสต์ได้";

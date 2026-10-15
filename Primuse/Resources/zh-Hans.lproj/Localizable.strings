@@ -6190,3 +6190,16 @@
 "immersive_show_lyrics" = "显示歌词";
 "immersive_show_artwork_short" = "封面";
 "immersive_show_lyrics_short" = "歌词";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "添加到 Apple Music 资料库";
+"apple_music_saving" = "正在加入 Apple Music 资料库…";
+"apple_music_saved" = "已加入 Apple Music 资料库";
+"apple_music_saved_and_liked" = "已加入 Apple Music 资料库，并添加到我喜欢";
+"apple_music_save_sync_unavailable" = "Apple Music 资料库同步没有开着，这首歌进不了 Primuse 的曲库。";
+"apple_music_save_not_synced" = "已加进 Apple Music 资料库，但同步还没把它带进来，过一会儿再试。";
+"apple_music_queued_next" = "已设为下一首播放";
+"apple_music_queued_last" = "已加入播放队列";
+"apple_music_open_in_music" = "在 Apple Music 中打开";
+"apple_music_mac_save_title" = "先加进 Apple Music 资料库";
+"apple_music_mac_save_message" = "Mac 上没法直接把目录里的歌加进资料库。在 Apple Music 中打开这首歌并添加到资料库，同步进来后就能喜欢和加进歌单。";

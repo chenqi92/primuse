@@ -6097,3 +6097,16 @@
 "immersive_show_lyrics" = "Liedtext anzeigen";
 "immersive_show_artwork_short" = "Cover";
 "immersive_show_lyrics_short" = "Liedtext";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Zur Apple Music-Mediathek hinzufügen";
+"apple_music_saving" = "Wird zur Apple Music-Mediathek hinzugefügt …";
+"apple_music_saved" = "Zur Apple Music-Mediathek hinzugefügt";
+"apple_music_saved_and_liked" = "Zur Apple Music-Mediathek hinzugefügt und als Favorit markiert";
+"apple_music_save_sync_unavailable" = "Die Synchronisierung der Apple Music-Mediathek ist aus, daher kann dieser Titel nicht in deine Primuse-Mediathek.";
+"apple_music_save_not_synced" = "Zu Apple Music hinzugefügt, aber noch nicht synchronisiert. Versuche es gleich noch einmal.";
+"apple_music_queued_next" = "Als Nächstes";
+"apple_music_queued_last" = "Zur Warteschlange hinzugefügt";
+"apple_music_open_in_music" = "In Apple Music öffnen";
+"apple_music_mac_save_title" = "Zuerst zur Apple Music-Mediathek hinzufügen";
+"apple_music_mac_save_message" = "Auf dem Mac lassen sich Katalogtitel hier nicht zur Mediathek hinzufügen. Öffne den Titel in Apple Music und füge ihn deiner Mediathek hinzu; nach der Synchronisierung kannst du ihn favorisieren und zu Playlists hinzufügen.";

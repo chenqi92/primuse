@@ -6098,3 +6098,16 @@
 "immersive_show_lyrics" = "歌詞を表示";
 "immersive_show_artwork_short" = "アートワーク";
 "immersive_show_lyrics_short" = "歌詞";
+
+/* 搜索里 Apple Music 目录歌的操作 */
+"apple_music_add_to_library" = "Apple Music ライブラリに追加";
+"apple_music_saving" = "Apple Music ライブラリに追加しています…";
+"apple_music_saved" = "Apple Music ライブラリに追加しました";
+"apple_music_saved_and_liked" = "Apple Music ライブラリに追加し、お気に入りに入れました";
+"apple_music_save_sync_unavailable" = "Apple Music ライブラリの同期がオフのため、この曲を Primuse のライブラリに入れられません。";
+"apple_music_save_not_synced" = "Apple Music には追加しましたが、まだ同期で取り込まれていません。少し待ってからもう一度お試しください。";
+"apple_music_queued_next" = "次に再生";
+"apple_music_queued_last" = "再生キューに追加しました";
+"apple_music_open_in_music" = "Apple Music で開く";
+"apple_music_mac_save_title" = "先に Apple Music ライブラリに追加してください";
+"apple_music_mac_save_message" = "Mac ではここからカタログの曲をライブラリに追加できません。Apple Music で曲を開いてライブラリに追加し、同期されるとお気に入りやプレイリストに追加できます。";
