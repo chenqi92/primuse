@@ -2144,8 +2144,10 @@ struct PlayerOverlay: View {
                 presentationPhase = .visible
                 completeEntranceIfPossible()
             } else {
+                // 带一点回弹：冲过顶的那一截由 `PlayerOverlayElasticOffset` 换成以底边为锚的
+                // 拉伸，底边一直贴着屏幕底，不会露出下面的迷你条与标签栏。
                 withAnimation(
-                    .spring(response: 0.45, dampingFraction: 0.92),
+                    Self.entranceSpring,
                     completionCriteria: .removed
                 ) {
                     presentationPhase = .visible
@@ -2236,7 +2238,11 @@ struct PlayerOverlay: View {
             beginDismissal(phase)
         } else {
             guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            // 竖着拉回去弹一下，越过的那点同样变成拉伸；横向越过会在另一侧露缝，照旧不回弹。
+            let snapBack: Animation = phase == .dismissingDown
+                ? Self.verticalSnapBackSpring
+                : .spring(response: 0.34, dampingFraction: 0.86)
+            withAnimation(snapBack) {
                 interactiveDrag.offset = .zero
             }
         }
@@ -2254,18 +2260,25 @@ struct PlayerOverlay: View {
             return
         }
 
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.94)) {
+        withAnimation(Self.dismissalSpring) {
             presentationPhase = phase
         }
         dismissalTask = Task { @MainActor in
             do {
-                try await Task.sleep(for: .milliseconds(460))
+                // 约 0.2 秒时整页已经落到屏幕底部那一带，迷你条在这时接住它。
+                try await Task.sleep(for: .milliseconds(200))
+                if phase == .dismissingDown { NowPlayingCollapseSignal.shared.landed() }
+                try await Task.sleep(for: .milliseconds(260))
             } catch {
                 return
             }
             completeDismissal(generation: generation)
         }
     }
+
+    private static let entranceSpring = Animation.spring(duration: 0.52, bounce: 0.3)
+    private static let dismissalSpring = Animation.spring(duration: 0.4, bounce: 0.2)
+    private static let verticalSnapBackSpring = Animation.spring(duration: 0.42, bounce: 0.3)
 
     private func completeDismissal(generation: UInt64) {
         guard dismissalState.complete(generation: generation) else { return }
@@ -2289,7 +2302,30 @@ private struct PlayerOverlayOffsetModifier: ViewModifier {
     let phaseOffset: CGSize?
 
     func body(content: Content) -> some View {
-        content.offset(phaseOffset ?? drag.offset)
+        content.modifier(PlayerOverlayElasticOffset(offset: phaseOffset ?? drag.offset))
+    }
+}
+
+/// 播放页整页的位移。往下、往旁边照常平移；弹簧冲过停靠位置（往上）的那一截改成以底边为锚
+/// 向上拉伸：平移会让底边离开屏幕底、露出下面的界面，拉伸时底边不动，顶边那点越出屏幕外。
+private struct PlayerOverlayElasticOffset: GeometryEffect {
+    var offset: CGSize
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(offset.width, offset.height) }
+        set { offset = CGSize(width: newValue.first, height: newValue.second) }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        guard offset.height < 0, size.height > 0 else {
+            return ProjectionTransform(CGAffineTransform(translationX: offset.width, y: offset.height))
+        }
+        // 底边留在 size.height，顶边到 offset.height：y' = y × s + offset.height。
+        let stretch = (size.height - offset.height) / size.height
+        return ProjectionTransform(CGAffineTransform(
+            a: 1, b: 0, c: 0, d: stretch,
+            tx: offset.width, ty: offset.height
+        ))
     }
 }
 

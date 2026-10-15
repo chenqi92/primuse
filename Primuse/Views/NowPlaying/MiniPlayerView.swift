@@ -33,6 +33,40 @@ struct MiniPlayerView: View {
     }
 }
 
+/// 播放页收起、落到迷你条的那一刻。迷你条有好几种外壳（系统底部附件、iPad、极简停靠条），
+/// 有的挂在另一个宿主里，收起的一方只管发信号，各处的封面自己接住。
+@MainActor
+@Observable
+final class NowPlayingCollapseSignal {
+    static let shared = NowPlayingCollapseSignal()
+    private(set) var revision: UInt = 0
+
+    private init() {}
+
+    func landed() {
+        revision &+= 1
+    }
+}
+
+/// 迷你条封面接住收起的播放页时轻轻弹一下。减少动态效果时不弹。
+private struct MiniPlayerLandingPop: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.keyframeAnimator(
+            initialValue: 1.0,
+            trigger: reduceMotion ? 0 : NowPlayingCollapseSignal.shared.revision
+        ) { view, scale in
+            view.scaleEffect(scale)
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(0.84, duration: 0.08)
+                SpringKeyframe(1.0, duration: 0.5, spring: .bouncy(duration: 0.42, extraBounce: 0.12))
+            }
+        }
+    }
+}
+
 struct MiniPlayerSwipeContent: View {
     var onTap: () -> Void
     var artworkSize: CGFloat
@@ -65,6 +99,7 @@ struct MiniPlayerSwipeContent: View {
                         decodeSize: artworkSize * 2
                     )
                     .frame(width: artworkSize, height: artworkSize)
+                    .modifier(MiniPlayerLandingPop())
                     .padding(.trailing, artworkTrailingSpacing)
                 } else {
                     CachedArtworkView(
@@ -79,6 +114,7 @@ struct MiniPlayerSwipeContent: View {
                         revisionToken: player.coverRevision
                     )
                     .artworkCrossfade()
+                    .modifier(MiniPlayerLandingPop())
                     .padding(.trailing, artworkTrailingSpacing)
                 }
 
