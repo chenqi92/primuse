@@ -416,36 +416,53 @@ struct PlaylistDetailView: View {
             #if os(iOS)
             // 导航栏下面的搜索框平时收着, 这颗按钮直接把它弹出来并聚焦。
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isFindPresented = true
-                } label: {
-                    PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
+                HiddenWhileSelectingSongs(selection: selection) {
+                    Button {
+                        isFindPresented = true
+                    } label: {
+                        PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
+                    }
+                    .disabled(songs.isEmpty && pendingEntryCount == 0)
+                    .accessibilityIdentifier("playlistDetail.find")
                 }
-                .disabled(songs.isEmpty && pendingEntryCount == 0)
-                .accessibilityIdentifier("playlistDetail.find")
             }
             #endif
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    sortMenuOptions
-                } label: {
-                    PMToolbarItemLabel("sort_by", systemImage: "arrow.up.arrow.down.circle", titled: verticalBarEdge != nil)
+                HiddenWhileSelectingSongs(selection: selection) {
+                    Menu {
+                        sortMenuOptions
+                    } label: {
+                        PMToolbarItemLabel("sort_by", systemImage: "arrow.up.arrow.down.circle", titled: verticalBarEdge != nil)
+                    }
+                    .disabled(songs.count < 2)
+                    .accessibilityLabel(Text("sort_by"))
+                    .accessibilityIdentifier("playlistDetail.sort")
                 }
-                .disabled(songs.count < 2)
-                .accessibilityLabel(Text("sort_by"))
-                .accessibilityIdentifier("playlistDetail.sort")
             }
             #if os(iOS)
             if verticalBarEdge != nil {
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单,和竖栏里别的按钮收在一处。
                 if #available(iOS 27.0, *) {
                     ToolbarOverflowMenu {
-                        playlistMoreMenuContent
+                        HiddenWhileSelectingSongs(selection: selection) {
+                            playlistMoreMenuContent
+                        }
+                        SongSelectionOptionsToolbarItem(
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs },
+                            asOverflowItems: true
+                        )
                     }
                 }
             } else {
                 playlistMoreToolbarItem
             }
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { selectableSongIDs },
+                titled: verticalBarEdge != nil,
+                includesOptions: verticalBarEdge == nil
+            )
             #else
             playlistMoreToolbarItem
             #endif
@@ -489,36 +506,42 @@ struct PlaylistDetailView: View {
     @ToolbarContentBuilder
     private var playlistMoreToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                playlistMoreMenuContent
-            } label: {
-                Image(systemName: "ellipsis")
+            HiddenWhileSelectingSongs(selection: selection) {
+                playlistMoreMenuButton
             }
-            // Do not disable the whole menu for an empty playlist. Actions
-            // that require tracks already carry their own disabled state,
-            // while exporting or deleting the playlist must remain usable.
-            .accessibilityLabel(Text("a11y_more_actions"))
-            // 菜单里「导出」「移除离线下载」的确认框挂在这颗「⋯」上，从按钮长出来。
-            .confirmationDialog(
-                "playlist_export_choose_format",
-                isPresented: $showExportFormats,
-                titleVisibility: .visible
-            ) {
-                exportFormatActions
-            }
-            .confirmationDialog(
-                String(localized: "playlist_remove_offline_confirm_title"),
-                isPresented: Binding(
-                    get: { pendingOfflineRemoval != nil },
-                    set: { if !$0 { pendingOfflineRemoval = nil } }
-                ),
-                titleVisibility: .visible,
-                presenting: pendingOfflineRemoval
-            ) { removal in
-                offlineRemovalActions(removal)
-            } message: { removal in
-                Text(verbatim: removal.message)
-            }
+        }
+    }
+
+    private var playlistMoreMenuButton: some View {
+        Menu {
+            playlistMoreMenuContent
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        // Do not disable the whole menu for an empty playlist. Actions
+        // that require tracks already carry their own disabled state,
+        // while exporting or deleting the playlist must remain usable.
+        .accessibilityLabel(Text("a11y_more_actions"))
+        // 菜单里「导出」「移除离线下载」的确认框挂在这颗「⋯」上，从按钮长出来。
+        .confirmationDialog(
+            "playlist_export_choose_format",
+            isPresented: $showExportFormats,
+            titleVisibility: .visible
+        ) {
+            exportFormatActions
+        }
+        .confirmationDialog(
+            String(localized: "playlist_remove_offline_confirm_title"),
+            isPresented: Binding(
+                get: { pendingOfflineRemoval != nil },
+                set: { if !$0 { pendingOfflineRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingOfflineRemoval
+        ) { removal in
+            offlineRemovalActions(removal)
+        } message: { removal in
+            Text(verbatim: removal.message)
         }
     }
 

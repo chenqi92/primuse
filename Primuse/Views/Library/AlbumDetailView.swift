@@ -301,30 +301,45 @@ struct AlbumDetailView: View {
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
                 if #available(iOS 27.0, *) {
                     ToolbarOverflowMenu {
-                        albumMoreMenuContent
+                        HiddenWhileSelectingSongs(selection: selection) {
+                            albumMoreMenuContent
+                        }
+                        SongSelectionOptionsToolbarItem(
+                            selection: selection,
+                            orderedIDs: { orderedSongIDs },
+                            asOverflowItems: true
+                        )
                     }
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        albumMoreMenuContent
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .accessibilityLabel(Text("a11y_more_actions"))
-                    .accessibilityIdentifier("albumDetail.more")
-                    // 菜单里「恢复文件标签」的确认框挂在这颗「⋯」上，从按钮长出来。
-                    .confirmationDialog(
-                        Text("restore_file_tags"),
-                        isPresented: $showsRestoreFileTagsConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        restoreFileTagsActions
-                    } message: {
-                        Text("restore_file_tags_message")
+                    HiddenWhileSelectingSongs(selection: selection) {
+                        Menu {
+                            albumMoreMenuContent
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .accessibilityLabel(Text("a11y_more_actions"))
+                        .accessibilityIdentifier("albumDetail.more")
+                        // 菜单里「恢复文件标签」的确认框挂在这颗「⋯」上，从按钮长出来。
+                        .confirmationDialog(
+                            Text("restore_file_tags"),
+                            isPresented: $showsRestoreFileTagsConfirmation,
+                            titleVisibility: .visible
+                        ) {
+                            restoreFileTagsActions
+                        } message: {
+                            Text("restore_file_tags_message")
+                        }
                     }
                 }
             }
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { orderedSongIDs },
+                titled: verticalBarEdge != nil,
+                includesOptions: verticalBarEdge == nil
+            )
         }
     }
 

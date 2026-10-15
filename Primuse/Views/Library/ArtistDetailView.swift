@@ -241,20 +241,35 @@ struct ArtistDetailView: View {
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
                 if #available(iOS 27.0, *) {
                     ToolbarOverflowMenu {
-                        artistMoreMenuContent
+                        HiddenWhileSelectingSongs(selection: selection) {
+                            artistMoreMenuContent
+                        }
+                        SongSelectionOptionsToolbarItem(
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs },
+                            asOverflowItems: true
+                        )
                     }
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        artistMoreMenuContent
-                    } label: {
-                        Image(systemName: "ellipsis")
+                    HiddenWhileSelectingSongs(selection: selection) {
+                        Menu {
+                            artistMoreMenuContent
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .accessibilityLabel(Text("a11y_more_actions"))
+                        .accessibilityIdentifier("artistDetail.more")
                     }
-                    .accessibilityLabel(Text("a11y_more_actions"))
-                    .accessibilityIdentifier("artistDetail.more")
                 }
             }
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { selectableSongIDs },
+                titled: verticalBarEdge != nil,
+                includesOptions: verticalBarEdge == nil
+            )
         }
         #endif
     }
@@ -992,6 +1007,9 @@ private struct ArtistAllSongsView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    #if os(iOS)
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    #endif
 
     let artist: Artist
     @State private var selection = SongSelectionModel()
@@ -1046,6 +1064,13 @@ private struct ArtistAllSongsView: View {
         .navigationTitle("all_songs_section")
         .toolbarTitleDisplayMode(.inline)
         #if os(iOS)
+        .toolbar {
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { songs.map(\.id) },
+                titled: verticalBarEdge != nil
+            )
+        }
         .minimalNavigationDetail()
         .librarySearchContext {
             let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)

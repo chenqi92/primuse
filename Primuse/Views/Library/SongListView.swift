@@ -5858,40 +5858,6 @@ private struct SongListMinimalHeader: View {
 }
 #endif
 
-private struct SongSelectionOptionsToolbarItem: View {
-    let selection: SongSelectionModel
-    let orderedIDs: () -> [String]
-
-    @ViewBuilder
-    var body: some View {
-        if selection.isActive {
-            SongSelectionOptionsMenu(
-                selection: selection,
-                orderedIDs: orderedIDs
-            )
-        }
-    }
-}
-
-private struct SongSelectionCancelToolbarItem: View {
-    let selection: SongSelectionModel
-    /// 系统竖栏里带上标题,其它时候仍是原来的纯图标。
-    var titled = false
-
-    @ViewBuilder
-    var body: some View {
-        if selection.isActive {
-            Button {
-                selection.deactivate()
-            } label: {
-                PMToolbarItemLabel("cancel", systemImage: "xmark", titled: titled)
-            }
-            .accessibilityLabel(Text("cancel"))
-            .accessibilityIdentifier("batchSelection.cancel")
-        }
-    }
-}
-
 private struct LibraryFolderToolbarPrincipal: View {
     let selection: SongSelectionModel
     let title: String
@@ -6006,43 +5972,6 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 LibraryFolderMaintenanceMenuItems(actions: maintenance)
             }
         }
-    }
-}
-
-private struct SongSelectionOptionsMenu: View {
-    let selection: SongSelectionModel
-    let orderedIDs: () -> [String]
-    /// 只给出菜单项,由系统竖栏的溢出菜单收进去。
-    var asOverflowItems = false
-
-    @ViewBuilder
-    var body: some View {
-        if asOverflowItems {
-            items
-        } else {
-            Menu {
-                items
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .accessibilityLabel(Text("a11y_more_actions"))
-        }
-    }
-
-    @ViewBuilder
-    private var items: some View {
-        Button {
-            selection.selectAll(orderedIDs())
-        } label: {
-            Label("batch_select_all", systemImage: "checkmark.circle.fill")
-        }
-
-        Button {
-            selection.clear()
-        } label: {
-            Label("batch_deselect_all", systemImage: "circle.dashed")
-        }
-        .disabled(selection.isEmpty)
     }
 }
 

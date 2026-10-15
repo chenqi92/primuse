@@ -2129,6 +2129,7 @@ private struct GenreDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
     #endif
@@ -2213,6 +2214,13 @@ private struct GenreDetailView: View {
         }
         .toolbarTitleDisplayMode(.inline)
         #if os(iOS)
+        .toolbar {
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { songIDs },
+                titled: verticalBarEdge != nil
+            )
+        }
         .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {

@@ -805,3 +805,123 @@ private struct SongBatchActionsModifier: ViewModifier {
         return message
     }
 }
+
+// MARK: - 多选态的顶部按钮
+
+/// 多选态右上角的「⋯」:全选 / 取消全选。全选按页面实际显示的顺序取(`orderedIDs`)。
+/// 歌曲页、文件夹页和各详情页共用。
+struct SongSelectionOptionsMenu: View {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+    /// 只给出菜单项,由系统竖栏的溢出菜单收进去。
+    var asOverflowItems = false
+
+    @ViewBuilder
+    var body: some View {
+        if asOverflowItems {
+            items
+        } else {
+            Menu {
+                items
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel(Text("a11y_more_actions"))
+        }
+    }
+
+    @ViewBuilder
+    private var items: some View {
+        Button {
+            selection.selectAll(orderedIDs())
+        } label: {
+            Label("batch_select_all", systemImage: "checkmark.circle.fill")
+        }
+
+        Button {
+            selection.clear()
+        } label: {
+            Label("batch_deselect_all", systemImage: "circle.dashed")
+        }
+        .disabled(selection.isEmpty)
+    }
+}
+
+/// 只在多选态出现的全选菜单。单独成一个视图: 选择态切换只重画这一格, 不让宿主页整页重建。
+struct SongSelectionOptionsToolbarItem: View {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+    var asOverflowItems = false
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            SongSelectionOptionsMenu(
+                selection: selection,
+                orderedIDs: orderedIDs,
+                asOverflowItems: asOverflowItems
+            )
+        }
+    }
+}
+
+struct SongSelectionCancelToolbarItem: View {
+    let selection: SongSelectionModel
+    /// 系统竖栏里带上标题,其它时候仍是原来的纯图标。
+    var titled = false
+
+    @ViewBuilder
+    var body: some View {
+        if selection.isActive {
+            Button {
+                selection.deactivate()
+            } label: {
+                PMToolbarItemLabel("cancel", systemImage: "xmark", titled: titled)
+            }
+            .accessibilityLabel(Text("cancel"))
+            .accessibilityIdentifier("batchSelection.cancel")
+        }
+    }
+}
+
+/// 页面平时的工具栏按钮, iPhone、iPad 上多选时收起, 右上角只留全选和取消, 和歌曲页一样。
+/// Mac 多选有自己的顶部操作栏, 工具栏照旧。
+struct HiddenWhileSelectingSongs<Content: View>: View {
+    let selection: SongSelectionModel
+    @ViewBuilder let content: () -> Content
+
+    @ViewBuilder
+    var body: some View {
+        #if os(iOS)
+        if !selection.isActive {
+            content()
+        }
+        #else
+        content()
+        #endif
+    }
+}
+
+#if os(iOS)
+/// 详情页、搜索页多选时右上角的「⋯ 全选 / 取消全选」与「取消」。
+/// 页面有自己的系统竖栏溢出菜单时(iPhone Duo)传 `includesOptions: false`,
+/// 把 `SongSelectionOptionsToolbarItem(asOverflowItems: true)` 放进那份溢出菜单。
+struct SongSelectionToolbarItems: ToolbarContent {
+    let selection: SongSelectionModel
+    let orderedIDs: () -> [String]
+    /// 系统竖栏里取消键带上标题。
+    var titled = false
+    var includesOptions = true
+
+    var body: some ToolbarContent {
+        if includesOptions {
+            ToolbarItem(placement: .topBarTrailing) {
+                SongSelectionOptionsToolbarItem(selection: selection, orderedIDs: orderedIDs)
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            SongSelectionCancelToolbarItem(selection: selection, titled: titled)
+        }
+    }
+}
+#endif

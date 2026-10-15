@@ -581,6 +581,7 @@ struct SearchView: View {
     @State private var expandedCollections: Set<SearchResultSection> = []
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
     /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
     @Environment(\.pmHeightClass) private var heightClass
@@ -1393,16 +1394,26 @@ struct SearchView: View {
         .toolbar {
             if !usesMinimalNavigation, let contextualScope {
                 ToolbarItem(placement: .topBarTrailing) {
-                    SearchScopeSwitchButton(scope: $scope, context: contextualScope)
-                        .labelStyle(.iconOnly)
+                    HiddenWhileSelectingSongs(selection: selection) {
+                        SearchScopeSwitchButton(scope: $scope, context: contextualScope)
+                            .labelStyle(.iconOnly)
+                    }
                 }
             }
             // 放在最后, 始终贴着右边缘; 有范围按钮时它排在左边。
             if !usesMinimalNavigation {
                 ToolbarItem(placement: .topBarTrailing) {
-                    SearchResultLayoutButton { showsResultLayoutEditor = true }
+                    HiddenWhileSelectingSongs(selection: selection) {
+                        SearchResultLayoutButton { showsResultLayoutEditor = true }
+                    }
                 }
             }
+            // 多选时这两颗收起, 换成全选和取消。
+            SongSelectionToolbarItems(
+                selection: selection,
+                orderedIDs: { selectableSongIDs },
+                titled: verticalBarEdge != nil
+            )
         }
         .sheet(isPresented: $showsResultLayoutEditor) {
             resultLayoutEditor
