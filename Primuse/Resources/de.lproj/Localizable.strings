@@ -6089,3 +6089,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Zusammen mit anderen Apps abspielen";
 "playback_mix_with_others_desc" = "Primuse unterbricht den Ton anderer Apps nicht und pausiert nicht, wenn sie etwas abspielen – so hörst du beim Spielen oder Videoschauen weiter. Solange das aktiv ist, behandelt das System Primuse nicht als die App, die gerade spielt: Sperrbildschirm, Kontrollzentrum und Kopfhörertasten steuern sie nicht. Mit CarPlay wird automatisch zurückgeschaltet.";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "Cover anzeigen";
+"immersive_show_lyrics" = "Liedtext anzeigen";
+"immersive_show_artwork_short" = "Cover";
+"immersive_show_lyrics_short" = "Liedtext";

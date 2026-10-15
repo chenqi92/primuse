@@ -12,6 +12,9 @@ enum PlayerAppearancePreferences {
     /// 横屏另有自己的双栏播放页(封面与控件在左、歌词在右)。
     static let entersFullscreenInLandscapeKey = "primuse.player.entersFullscreenInLandscape"
     static let entersFullscreenInLandscapeByDefault = false
+    /// 原生全屏(竖屏)那一面显示大封面而不是歌词(#311)。记住上次的选择，下次进全屏还是这一面。
+    static let immersiveShowsArtworkKey = "primuse.player.immersiveShowsArtwork"
+    static let immersiveShowsArtworkByDefault = false
     static let animatedArtworkEnabledKey = "primuse.player.animatedArtworkEnabled"
     static let animatedArtworkEnabledByDefault = true
     static let animatedArtworkUnmeteredOnlyKey = "primuse.player.animatedArtworkUnmeteredOnly"

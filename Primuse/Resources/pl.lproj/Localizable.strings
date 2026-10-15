@@ -5995,3 +5995,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Odtwarzaj razem z innymi aplikacjami";
 "playback_mix_with_others_desc" = "Primuse nie przerywa dźwięku innych aplikacji i nie wstrzymuje się, gdy one coś odtwarzają, więc możesz słuchać podczas gry lub oglądania wideo. Gdy opcja jest włączona, system nie traktuje Primuse jako odtwarzającej aplikacji: ekran blokady, centrum sterowania i przyciski słuchawek nie mogą nią sterować. Po połączeniu z CarPlay zwykły tryb wraca automatycznie.";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "Pokaż okładkę";
+"immersive_show_lyrics" = "Pokaż tekst";
+"immersive_show_artwork_short" = "Okładka";
+"immersive_show_lyrics_short" = "Tekst";

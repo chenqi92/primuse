@@ -1152,6 +1152,8 @@ struct NowPlayingView: View {
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
     /// 这次全屏是转横屏带进去的：转回竖屏时只退出这一种，自己点进去的全屏不动。
     @State private var enteredFullscreenForLandscape = false
+    @AppStorage(PlayerAppearancePreferences.immersiveShowsArtworkKey)
+    private var immersiveShowsArtwork = PlayerAppearancePreferences.immersiveShowsArtworkByDefault
     /// 转横屏进全屏前歌词页开没开着；原生全屏歌词退出后照原样恢复。
     @State private var lyricsVisibleBeforeLandscapeFullscreen = false
 
@@ -4630,7 +4632,7 @@ struct NowPlayingView: View {
                         .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                     }
 
-                    immersiveMoreMenu
+                    immersiveMoreMenu(offersArtworkToggle: false)
                 }
                 .padding(.leading, max(safeInsets.leading, 18))
                 .padding(.trailing, max(safeInsets.trailing, 18))
@@ -4907,7 +4909,13 @@ struct NowPlayingView: View {
                                 topRowTrailingInset: insets.immersiveTopRowTrailing,
                                 contentTopInset: insets.immersiveContentTop
                             ) {
-                                lyricsFullView
+                                if immersiveShowsArtwork {
+                                    immersiveArtworkFace(contentTopInset: insets.immersiveContentTop)
+                                        .transition(.opacity)
+                                } else {
+                                    lyricsFullView
+                                        .transition(.opacity)
+                                }
                             }
                             .transition(.opacity)
                         } else {
@@ -5680,6 +5688,20 @@ struct NowPlayingView: View {
 
                     Spacer()
 
+                    // 竖屏的封面 / 歌词两面(#311)。顶栏两格都配了按钮时这一排放不下第七颗,
+                    // 只留「更多」里那一项。横屏沉浸本来就是封面卡片 + 歌词, 不给这一键。
+                    if !isLandscape, immersiveLyricsTopActions.count < 2 {
+                        NowPlayingGlassActionButton(
+                            symbol: immersiveShowsArtwork ? "quote.bubble" : "photo",
+                            label: immersiveShowsArtwork ? "immersive_show_lyrics" : "immersive_show_artwork",
+                            appearance: appearance,
+                            tint: appearance.primary,
+                            diameter: 44
+                        ) {
+                            setImmersiveShowsArtwork(!immersiveShowsArtwork)
+                        }
+                    }
+
                     if !usesSpokenWordTransport {
                         immersiveEffectButton(glass: .adaptive)
                     }
@@ -5703,7 +5725,7 @@ struct NowPlayingView: View {
                         .disabled(player.currentSong == nil)
                     }
 
-                    immersiveMoreMenu
+                    immersiveMoreMenu(offersArtworkToggle: !isLandscape)
 
                     NowPlayingGlassActionButton(
                         symbol: "arrow.down.right.and.arrow.up.left",
@@ -6138,13 +6160,88 @@ struct NowPlayingView: View {
         makeMoreMenu()
     }
 
-    private var immersiveMoreMenu: some View {
+    private func immersiveMoreMenu(offersArtworkToggle: Bool) -> some View {
         makeMoreMenu(
             immersiveChrome: true,
             chromeGlass: .adaptive,
-            controlSurface: .configuredImmersiveLyrics(visible: Set(immersiveLyricsActions.values))
+            controlSurface: .configuredImmersiveLyrics(visible: Set(immersiveLyricsActions.values)),
+            offersImmersiveArtworkToggle: offersArtworkToggle
         )
     }
+
+    private func setImmersiveShowsArtwork(_ showsArtwork: Bool) {
+        withAnimation(standardLyricsAnimation) {
+            immersiveShowsArtwork = showsArtwork
+        }
+        if immersiveControlsState.isVisible {
+            scheduleImmersiveControlsAutoHide()
+        }
+    }
+
+    /// 原生全屏的封面那一面(#311):大封面居中、下面是歌名与艺人，上下给顶栏和底部播放条
+    /// 让出位置，控件收起后也不挪。封面画在 `.immersiveLyrics` 那个槽里，从播放页进来、
+    /// 退回歌词页时都是同一张封面飞过去。点封面回到歌词，点空白照旧叫出 / 收起控件。
+    private func immersiveArtworkFace(contentTopInset: CGFloat) -> some View {
+        GeometryReader { proxy in
+            let topReserve = max(0, max(topSafeArea, 10) + 8 + 44 + 20 - contentTopInset)
+            let bottomReserve = max(bottomSafeArea, 12) + 8 + Self.immersiveDockReservedHeight + 20
+            let headingHeight: CGFloat = 56
+            let spacing: CGFloat = 22
+            let side = max(0, min(
+                proxy.size.width - 56,
+                Self.immersiveArtworkMaximumSide,
+                proxy.size.height - topReserve - bottomReserve - headingHeight - spacing
+            ))
+            VStack(spacing: 0) {
+                Color.clear.frame(height: topReserve)
+                Spacer(minLength: 0)
+                VStack(spacing: spacing) {
+                    if player.isMusicVideoPlaybackActive {
+                        // MV 自己带着全屏键，不把整块换成「显示歌词」。
+                        artworkOrMusicVideo(size: side, cornerRadius: 16)
+                    } else {
+                        artworkOrMusicVideo(
+                            size: side,
+                            cornerRadius: 16,
+                            playbackScale: artworkAppearsPlaying ? 1 : 0.94,
+                            shadow: .init(opacity: 0.34, radius: 24, y: 12)
+                        )
+                        .animation(.spring(response: 0.5, dampingFraction: 0.76), value: artworkAppearsPlaying)
+                        .contentShape(Rectangle())
+                        .onTapGesture { setImmersiveShowsArtwork(false) }
+                        .accessibilityElement()
+                        .accessibilityLabel(Text("immersive_show_lyrics"))
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { setImmersiveShowsArtwork(false) }
+                    }
+
+                    VStack(spacing: 4) {
+                        Text(player.currentSong?.title ?? "")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(appearance.primary)
+                        Text(currentArtistDisplayName)
+                            .font(.subheadline)
+                            .foregroundStyle(appearance.secondary)
+                    }
+                    .lineLimit(1)
+                    .frame(height: headingHeight)
+                    .padding(.horizontal, 28)
+                }
+                Spacer(minLength: 0)
+                Color.clear.frame(height: bottomReserve)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .background {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { handleImmersiveContentTap() }
+        }
+    }
+
+    /// 浮动播放条(进度条 + 传输键)连同上下内边距的高度,封面那一面按它让出底部。
+    private static let immersiveDockReservedHeight: CGFloat = 140
+    private static let immersiveArtworkMaximumSide: CGFloat = 520
 
     /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
     /// 开关那个状态 —— 抽屉留在宿主的 ZStack 里，宿主才知道它开着，能继续暂停
@@ -6232,7 +6329,8 @@ struct NowPlayingView: View {
         chromeGlass: NowPlayingChromeGlass = .immersive,
         columnOverflow: NowPlayingBarColumnOverflow = NowPlayingBarColumnOverflow(),
         controlSurface: NowPlayingControlSurface? = nil,
-        plainLabel: NowPlayingMoreMenuPlainLabel? = nil
+        plainLabel: NowPlayingMoreMenuPlainLabel? = nil,
+        offersImmersiveArtworkToggle: Bool = false
     ) -> some View {
         // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
         // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
@@ -6350,7 +6448,9 @@ struct NowPlayingView: View {
             showsLyricsEditor: shows(.editLyrics),
             showsSongInfo: shows(.songInfo),
             showsLyricsMotion: shows(.lyricsMotion),
-            fullscreenEffectIsNative: fullscreenPlayerEffect.isNative
+            fullscreenEffectIsNative: fullscreenPlayerEffect.isNative,
+            immersiveShowsArtwork: offersImmersiveArtworkToggle && isLyricsImmersive
+                ? immersiveShowsArtwork : nil
         )
 
         return NowPlayingMoreMenu(
@@ -6422,6 +6522,7 @@ struct NowPlayingView: View {
             onSetBundledLyricsTranslationsShown: { shows in
                 LyricsTranslationSettingsStore.shared.showsBundledTranslations = shows
             },
+            onToggleImmersiveArtwork: { setImmersiveShowsArtwork(!immersiveShowsArtwork) },
             onShowSleepTimer: { showSleepTimer = true },
             onAdjustEqualizer: { openEqualizer() },
             onShowEqualizerBypassNotice: { showEqualizerBypassNotice = true },
@@ -10360,6 +10461,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsLyricsMotion: Bool
     /// 原生全屏不用「歌词换句过渡」，菜单里那一项要写明。
     let fullscreenEffectIsNative: Bool
+    /// 竖屏原生全屏里现在是封面那一面还是歌词那一面;不在那里时为 nil,菜单不给切换。
+    let immersiveShowsArtwork: Bool?
 }
 
 /// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
@@ -10548,6 +10651,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
     let onSelectLyricsTranslation: (LyricsTranslationMode?) -> Void
     let onSetBundledLyricsTranslationsShown: (Bool) -> Void
+    let onToggleImmersiveArtwork: () -> Void
     let onShowSleepTimer: () -> Void
     let onAdjustEqualizer: () -> Void
     let onShowEqualizerBypassNotice: () -> Void
@@ -10585,7 +10689,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     /// 横排里除「添加到歌单」之外能凑出几个键。不足三个时把「添加到歌单」也提上来，
     /// 免得一行只剩孤零零一个键；够三个时它留在下面的列表里，横排不挤成四个小字。
     private var quickActionCount: Int {
-        [snapshot.showsFullScreenAction, snapshot.canShare, snapshot.canDeleteSourceFile]
+        [
+            snapshot.showsFullScreenAction,
+            snapshot.immersiveShowsArtwork != nil,
+            snapshot.canShare,
+            snapshot.canDeleteSourceFile,
+        ]
             .filter { $0 }
             .count
     }
@@ -10690,6 +10799,17 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         fullKey: "full_screen_player",
                         systemImage: "viewfinder.rectangular",
                         action: onEnterFullScreen
+                    )
+                    .disabled(!snapshot.hasSong)
+                }
+
+                // 竖屏原生全屏里「全屏」那一格换成封面 / 歌词两面的切换(#311)。
+                if let showsArtwork = snapshot.immersiveShowsArtwork {
+                    PMMenuQuickActionButton(
+                        shortKey: showsArtwork ? "immersive_show_lyrics_short" : "immersive_show_artwork_short",
+                        fullKey: showsArtwork ? "immersive_show_lyrics" : "immersive_show_artwork",
+                        systemImage: showsArtwork ? "quote.bubble" : "photo",
+                        action: onToggleImmersiveArtwork
                     )
                     .disabled(!snapshot.hasSong)
                 }

@@ -5849,3 +5849,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Play Alongside Other Apps";
 "playback_mix_with_others_desc" = "Primuse won't interrupt other apps' audio or pause when they start playing, so you can listen while gaming or watching videos. While this is on, the system no longer treats Primuse as the Now Playing app, so the Lock Screen, Control Center and headphone buttons can't control it. Connecting to CarPlay switches back automatically.";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "Show Artwork";
+"immersive_show_lyrics" = "Show Lyrics";
+"immersive_show_artwork_short" = "Artwork";
+"immersive_show_lyrics_short" = "Lyrics";

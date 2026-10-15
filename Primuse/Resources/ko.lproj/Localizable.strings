@@ -6089,3 +6089,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "다른 앱과 동시에 재생";
 "playback_mix_with_others_desc" = "재생 중에 다른 앱의 소리를 끊지 않고, 다른 앱이 소리를 내도 일시 정지하지 않습니다. 게임이나 동영상과 함께 들을 수 있습니다. 켜면 시스템이 Primuse를 재생 중인 앱으로 취급하지 않아 잠금 화면, 제어 센터, 이어폰 버튼으로 조작할 수 없습니다. CarPlay에 연결하면 자동으로 원래 방식으로 돌아갑니다.";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "앨범 아트 보기";
+"immersive_show_lyrics" = "가사 보기";
+"immersive_show_artwork_short" = "앨범 아트";
+"immersive_show_lyrics_short" = "가사";

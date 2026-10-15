@@ -6066,3 +6066,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "與其他 App 同時播放";
 "playback_mix_with_others_desc" = "播放時不打斷其他 App 的聲音，其他 App 出聲時這裡也不暫停，例如邊聽歌邊玩遊戲、看影片。開啟後系統不再把 Primuse 當作正在播放的 App，鎖定畫面、控制中心和耳機按鍵都控制不了它；連上 CarPlay 時自動恢復原本的方式。";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "顯示封面";
+"immersive_show_lyrics" = "顯示歌詞";
+"immersive_show_artwork_short" = "封面";
+"immersive_show_lyrics_short" = "歌詞";

@@ -5995,3 +5995,9 @@
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Diğer uygulamalarla birlikte çal";
 "playback_mix_with_others_desc" = "Primuse diğer uygulamaların sesini kesmez, onlar ses çaldığında da duraklamaz; böylece oyun oynarken ya da video izlerken dinleyebilirsin. Açıkken sistem Primuse'u şu an çalan uygulama olarak görmez: kilit ekranı, Denetim Merkezi ve kulaklık düğmeleri onu kontrol edemez. CarPlay'e bağlanınca otomatik olarak olağan yönteme döner.";
+
+/* 原生全屏的封面 / 歌词两面 */
+"immersive_show_artwork" = "Kapağı göster";
+"immersive_show_lyrics" = "Sözleri göster";
+"immersive_show_artwork_short" = "Kapak";
+"immersive_show_lyrics_short" = "Sözler";
