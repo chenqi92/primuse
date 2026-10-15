@@ -1798,6 +1798,7 @@ struct HomeView: View {
             }
         }
         .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
+        .environment(\.homeCoverCardWidth, homeAlbumCardWidth)
         // iPhone Duo 开合、内屏转屏时单栏 ⇄ 两栏:各区块从原位置滑到新位置。
         .pmLayoutSwitchAnimation(twoColumns)
     }
@@ -2933,7 +2934,7 @@ struct HomeView: View {
         }
         switch section {
         case .continueSpaces:
-            return .init(.row(card: CGSize(width: 136, height: 184), artwork: 136, circular: false, rows: 1, spacing: 12, inset: 20))
+            return .init(.row(card: CGSize(width: album, height: album + 48), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .startListening:
             if style == .carousel {
                 return .init(.row(card: CGSize(width: 120, height: 88), artwork: nil, circular: false, rows: rows, spacing: 10, inset: 20))
@@ -2953,11 +2954,11 @@ struct HomeView: View {
             if radioStationsStore.stations.isEmpty {
                 return .init(.card(height: 130), hasHeader: false)
             }
-            return .init(.row(card: CGSize(width: 104, height: 126), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 16))
+            return .init(.row(card: CGSize(width: 104, height: 126), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 20))
         case .booksInProgress, .audiobooks:
-            return .init(.row(card: CGSize(width: 104, height: 150), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 20))
+            return .init(.row(card: CGSize(width: album, height: album + 46), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .podcasts:
-            return .init(.row(card: CGSize(width: 148, height: 215), artwork: 148, circular: false, rows: 1, spacing: 12, inset: 20))
+            return .init(.row(card: CGSize(width: album, height: album + 67), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .quickAccess:
             if style == .carousel {
                 return .init(.row(card: CGSize(width: 64, height: 76), artwork: 52, circular: false, rows: rows, spacing: 16, inset: 20))
@@ -4081,7 +4082,7 @@ struct HomeView: View {
     /// 长短不一的歌单名把这一行撑得参差不齐。
     private func playlistCard(_ tile: HomePlaylistTile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            homePlaylistArtwork(tile, size: homeAlbumCardWidth, cornerRadius: 10)
+            homePlaylistArtwork(tile, size: homeAlbumCardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(tile.playlist.name)
@@ -4265,12 +4266,10 @@ struct HomeView: View {
 
     // MARK: - Recently Added Albums
 
-    /// 横排卡片的宽度。窄屏下比网格的一半略窄,好让第三张卡露出一角 ——
-    /// 边缘不留半张卡,用户看不出这一行还能往右滑。
-    /// 手机横屏再收一档:一行货架加上标题就要占掉半个视口,后面的区块全落在
-    /// 折叠线以下。
+    /// 横排卡片的宽度,取值见 `HomeCoverCardMetrics`。经环境下发给接着听、书、播客、文件夹几个区块,
+    /// 各区块的封面和这里的专辑、歌单卡一样大。
     private var homeAlbumCardWidth: CGFloat {
-        usesPadMetrics ? 160 : heightClass.value(132, compact: 108)
+        HomeCoverCardMetrics.width(usesPadMetrics: usesPadMetrics, isCompactHeight: heightClass.isCompact)
     }
 
     /// 封面 + 两行说明文字。多行横排要用 LazyHGrid,而它要求行高固定。

@@ -68,23 +68,30 @@ struct HomePodcastsSection: View {
 }
 
 /// 首页上的一集:封面角上一个播放键,点卡片进单集页。
+/// 封面和上下几排的专辑、书一样大(`HomeCoverCardMetrics`)。
 struct HomePodcastEpisodeCard: View {
     let episode: PodcastEpisode
     let show: PodcastShow?
     var continuing: [PodcastEpisode] = []
-    var width: CGFloat = 148
+
+    @Environment(\.homeCoverCardWidth) private var width
 
     private var tint: Color { ListeningSpace.podcast.tint }
+
+    /// 播放键跟着封面缩放,手机横屏的小卡上也不小于 30。
+    private var playButtonSize: CGFloat {
+        min(36, max(30, (width * 0.23).rounded()))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             // 封面和文字各是一个链接,播放键压在封面角上、不在链接里,点它只播不跳页。
             NavigationLink(value: PodcastRoute.episode(episode.id)) {
-                PodcastArtwork(episode: episode, show: show, size: width, cornerRadius: 12)
+                PodcastArtwork(episode: episode, show: show, size: width, cornerRadius: HomeCoverCardMetrics.cornerRadius)
             }
             .buttonStyle(.plain)
             .overlay(alignment: .bottomTrailing) {
-                PodcastPlayButton(episode: episode, continuing: continuing, size: 34)
+                PodcastPlayButton(episode: episode, continuing: continuing, size: playButtonSize)
                     .background(.regularMaterial, in: Circle())
                     .padding(8)
             }

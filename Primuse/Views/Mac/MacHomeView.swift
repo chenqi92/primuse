@@ -571,7 +571,11 @@ struct MacHomeView: View {
             skeletonSectionBody {
                 skeletonRow(spacing: PMSpace.m16) {
                     VStack(alignment: .leading, spacing: PMSpace.s8) {
-                        homeSkeletonBlock(width: 132, height: 132, cornerRadius: PMRadius.m10)
+                        homeSkeletonBlock(
+                            width: MacHomeShelfCardMetrics.side,
+                            height: MacHomeShelfCardMetrics.side,
+                            cornerRadius: MacHomeShelfCardMetrics.cornerRadius
+                        )
                         homeSkeletonBlock(width: 104, height: 12)
                         homeSkeletonBlock(width: 72, height: 10)
                     }
@@ -2537,6 +2541,12 @@ private struct MacHomeResumeTile<Artwork: View>: View {
 
 // MARK: - Books in progress
 
+/// Mac 首页横排封面卡(在听的书、有声书、播客单集)的边长与圆角,骨架也照它画。
+enum MacHomeShelfCardMetrics {
+    static let side: CGFloat = 132
+    static let cornerRadius: CGFloat = PMRadius.m10
+}
+
 /// 「在听的书」: 还没听完的书, 封面下面一条进度。点封面从上次的位置接着听。
 private struct MacHomeBooksStrip: View {
     let books: SpokenWordBooksModel
@@ -2617,12 +2627,12 @@ private struct MacHomeBooksStrip: View {
             VStack(alignment: .leading, spacing: 6) {
                 CachedArtworkView(
                     coverRef: cover.coverArtFileName, songID: cover.id,
-                    size: 132, cornerRadius: PMRadius.m10,
+                    size: MacHomeShelfCardMetrics.side, cornerRadius: MacHomeShelfCardMetrics.cornerRadius,
                     sourceID: cover.sourceID, filePath: cover.filePath,
                     fileFormat: cover.fileFormat
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                    RoundedRectangle(cornerRadius: MacHomeShelfCardMetrics.cornerRadius, style: .continuous)
                         .strokeBorder(isPlaying ? tint : .clear, lineWidth: 1.5)
                 }
                 MacBookProgressBar(fraction: book.fractionComplete, tint: tint)
@@ -2635,7 +2645,7 @@ private struct MacHomeBooksStrip: View {
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

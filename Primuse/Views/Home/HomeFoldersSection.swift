@@ -28,8 +28,9 @@ extension EnvironmentValues {
 
 struct HomeFoldersSection: View {
     @Environment(HomeDiscoveryModel.self) private var model
-    @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
+    /// 与专辑卡一致的尺寸,好让文件夹换成网格/横排时和上下的专辑区块对得齐;由首页按同一口径下发。
+    @Environment(\.homeCoverCardWidth) private var cardWidth
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
@@ -38,17 +39,7 @@ struct HomeFoldersSection: View {
         HomeSectionLayoutConfiguration.decode(layoutRawValue)
     }
 
-    /// 与专辑卡一致的尺寸,好让文件夹换成网格/横排时和上下的专辑区块对得齐。
-    /// 两处的取值口径也必须一致:常规宽度还得配常规高度才算 iPad,否则大屏手机
-    /// 横屏会在四百来点高的视口里用上 iPad 的大卡片。
-    private var cardWidth: CGFloat {
-        usesPadMetrics ? 160 : heightClass.value(132, compact: 108)
-    }
     private var cardHeight: CGFloat { cardWidth + 42 }
-
-    private var usesPadMetrics: Bool {
-        sizeClass == .regular && !heightClass.isCompact
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -190,7 +181,7 @@ private struct HomeFolderCard: View {
                 .environment(model)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                HomeFolderArtwork(node: node, size: width)
+                HomeFolderArtwork(node: node, size: width, cornerRadius: HomeCoverCardMetrics.cornerRadius)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(HomeDiscoveryText.folderTitle(node))
                         .font(.caption).fontWeight(.medium)
@@ -211,7 +202,7 @@ private struct HomeFolderCardPlaceholder: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            RoundedRectangle(cornerRadius: 9)
+            RoundedRectangle(cornerRadius: HomeCoverCardMetrics.cornerRadius)
                 .fill(.quaternary)
                 .frame(width: width, height: width)
             VStack(alignment: .leading, spacing: 2) {

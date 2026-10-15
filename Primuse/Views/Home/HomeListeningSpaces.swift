@@ -12,6 +12,7 @@ struct HomeContinueSpacesRow: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(RadioStationsStore.self) private var radioStore
+    @Environment(\.homeCoverCardWidth) private var cardWidth
 
     private struct Card: Identifiable {
         enum Content {
@@ -84,8 +85,8 @@ struct HomeContinueSpacesRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 artwork(card)
-                    .frame(width: 136, height: 136)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(width: cardWidth, height: cardWidth)
+                    .clipShape(RoundedRectangle(cornerRadius: HomeCoverCardMetrics.cornerRadius, style: .continuous))
                     .overlay(alignment: .bottomLeading) {
                         Label(card.space.title, systemImage: card.space.systemImage)
                             .font(.caption2.weight(.semibold))
@@ -105,7 +106,7 @@ struct HomeContinueSpacesRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            .frame(width: 136, alignment: .leading)
+            .frame(width: cardWidth, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -120,26 +121,17 @@ struct HomeContinueSpacesRow: View {
             CachedArtworkView(
                 coverRef: memory.coverRef,
                 songID: memory.songID,
-                size: 136,
-                cornerRadius: 12,
+                size: cardWidth,
+                cornerRadius: HomeCoverCardMetrics.cornerRadius,
                 sourceID: memory.sourceID
             )
         case .radio(let station):
-            RadioStationArtworkView(station: station, size: 136, cornerRadius: 12)
+            RadioStationArtworkView(station: station, size: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
         case .book(_, let songs):
-            if let cover = songs.first {
-                CachedArtworkView(
-                    coverRef: cover.coverArtFileName,
-                    songID: cover.id,
-                    size: 136,
-                    cornerRadius: 12,
-                    sourceID: cover.sourceID,
-                    filePath: cover.filePath,
-                    fileFormat: cover.fileFormat
-                )
-            }
+            // 和书架、首页书排同一种书封:竖版封面整张放进方框,两边垫模糊底,不裁。
+            SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
         case .podcast(let episode, let show):
-            PodcastArtwork(episode: episode, show: show, size: 136, cornerRadius: 12)
+            PodcastArtwork(episode: episode, show: show, size: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
         }
     }
 
@@ -210,6 +202,7 @@ struct HomeBooksInProgressStrip: View {
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.homeCoverCardWidth) private var cardWidth
 
     var body: some View {
         if books.count >= max(1, minimumCount) {
@@ -227,7 +220,7 @@ struct HomeBooksInProgressStrip: View {
                                 SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                             } label: {
                                 VStack(alignment: .leading, spacing: 5) {
-                                    SpokenWordBookCover(song: songs.first, width: 104, cornerRadius: 8)
+                                    SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
                                     ProgressView(value: book.fractionComplete)
                                         .progressViewStyle(.linear)
                                         .tint(ListeningSpace.spokenWord.tint)
@@ -236,7 +229,7 @@ struct HomeBooksInProgressStrip: View {
                                         .foregroundStyle(.primary)
                                         .lineLimit(2)
                                 }
-                                .frame(width: 104, alignment: .leading)
+                                .frame(width: cardWidth, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -270,7 +263,8 @@ struct HomeRadioSpaceSection: View {
                     actionKey: "home_radio_open_all",
                     action: { openSpace(.radio) }
                 )
-                RadioStationStrip(limit: limit)
+                // 和上面的分区标题、别的横排一样从 20 起排。
+                RadioStationStrip(horizontalInset: 20, limit: limit)
             }
         }
     }
@@ -288,6 +282,7 @@ struct HomeAudiobooksSection: View {
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.homeCoverCardWidth) private var cardWidth
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var selectionRawValue = ""
     @AppStorage("spokenWord.shelf.order") private var shelfOrderRawValue = ""
 
@@ -331,7 +326,7 @@ struct HomeAudiobooksSection: View {
             SpokenWordBookSupport.play(book, songs: entry.songs, from: nil, player: player)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                SpokenWordBookCover(song: entry.songs.first, width: 104, cornerRadius: 8)
+                SpokenWordBookCover(song: entry.songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
                     .overlay(alignment: .topTrailing) {
                         if book.isFinished {
                             Image(systemName: "checkmark.circle.fill")
@@ -357,11 +352,32 @@ struct HomeAudiobooksSection: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: 104, alignment: .leading)
+            .frame(width: cardWidth, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+}
+
+// MARK: - 横排封面卡的尺寸
+
+/// 首页横排封面卡共用的一套尺寸:专辑、歌单、文件夹、接着听、在听的书、有声书、播客单集都按它排,
+/// 上下几排的封面才对得齐。电台台标格(`RadioStationStrip`)不在其中:台标多是小图标 fit 进描边格子,
+/// 和电台页「最近收听」是同一格,放大到专辑卡那么大只会更糊、一屏露出的台更少。
+enum HomeCoverCardMetrics {
+    static let cornerRadius: CGFloat = 10
+
+    /// 窄屏下比网格的一半略窄,好让第三张卡露出一角 —— 边缘不留半张卡,用户看不出这一行还能往右滑。
+    /// 手机横屏再收一档:一行货架加上标题就要占掉半个视口,后面的区块全落在折叠线以下。
+    static func width(usesPadMetrics: Bool, isCompactHeight: Bool) -> CGFloat {
+        usesPadMetrics ? 160 : (isCompactHeight ? 108 : 132)
+    }
+}
+
+extension EnvironmentValues {
+    /// 首页横排封面卡的边长。`HomeView` 按 iPad / 手机横屏 / iPhone Duo 的口径算好下发给各区块,
+    /// 区块别再按尺寸等级自己另算一份 —— 口径一不一致就是一排大一排小。
+    @Entry var homeCoverCardWidth: CGFloat = HomeCoverCardMetrics.width(usesPadMetrics: false, isCompactHeight: false)
 }
 
 extension HomeSectionKind {

@@ -73,7 +73,12 @@ struct MacHomePodcastsStrip: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                PodcastArtwork(episode: episode, show: show, size: 132, cornerRadius: PMRadius.l14)
+                PodcastArtwork(
+                    episode: episode,
+                    show: show,
+                    size: MacHomeShelfCardMetrics.side,
+                    cornerRadius: MacHomeShelfCardMetrics.cornerRadius
+                )
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 11, weight: .bold))
@@ -99,7 +104,7 @@ struct MacHomePodcastsStrip: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
