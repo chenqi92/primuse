@@ -592,8 +592,8 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "चेनकी92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "फ़ुलस्क्रीन प्रभावों में गीत की पंक्तियाँ बदलने का ऐनिमेशन नियंत्रित करता है। बंद करने पर भी गीत के बोल प्लेबैक के साथ बदलते रहते हैं।";
-"immersive_lyrics_motion_title" = "इमर्सिव प्रकार की गति";
+"immersive_lyrics_motion_subtitle" = "पंक्तियाँ सहजता से बदलती हैं और लंबे वाद्य अंतराल में बोल छिप जाते हैं। मूल के अलावा फ़ुलस्क्रीन प्रभावों पर लागू होता है; बंद करने पर पंक्तियाँ तुरंत बदलती हैं।";
+"immersive_lyrics_motion_title" = "गीत पंक्ति ट्रांज़िशन";
 "library_recommendations_title" = "सिफ़ारिशें";
 "local_import_insufficient_space" = "पर्याप्त खाली स्थान नहीं (आवश्यक %lld बाइट्स, उपलब्ध %lld बाइट्स)।";
 "metadata.rangeRead.error.suffixUnsupported" = "यह सर्वर मेटाडेटा के लिए आवश्यक बाउंडेड फ़ाइल-टेल रीड प्रदान नहीं कर सकता है।";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "सुनने की प्रगति अपने आप सिंक करें";
 "ting_reader_progress_sync_now" = "अभी प्रगति सिंक करें";
 "ting_reader_progress_sync_failed" = "प्रगति सिंक नहीं हो सकी। फिर से कोशिश करें।";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "मूल फ़ुलस्क्रीन प्रभाव इसका उपयोग नहीं करता";

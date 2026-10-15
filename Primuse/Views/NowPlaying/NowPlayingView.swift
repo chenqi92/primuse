@@ -6349,7 +6349,8 @@ struct NowPlayingView: View {
             showsTagEditor: shows(.editTags),
             showsLyricsEditor: shows(.editLyrics),
             showsSongInfo: shows(.songInfo),
-            showsLyricsMotion: shows(.lyricsMotion)
+            showsLyricsMotion: shows(.lyricsMotion),
+            fullscreenEffectIsNative: fullscreenPlayerEffect.isNative
         )
 
         return NowPlayingMoreMenu(
@@ -10357,6 +10358,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsLyricsEditor: Bool
     let showsSongInfo: Bool
     let showsLyricsMotion: Bool
+    /// 原生全屏不用「歌词换句过渡」，菜单里那一项要写明。
+    let fullscreenEffectIsNative: Bool
 }
 
 /// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
@@ -10989,11 +10992,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             Section {
                 if !snapshot.isSpokenWord, snapshot.showsLyricsMotion {
+                    // 系统菜单里置灰的项点不动；原生全屏下照样能拨（换了效果就生效），副标题写明现在不起作用。
                     Toggle(isOn: $lyricsMotionEnabled) {
-                        Label(
-                            String(localized: "immersive_lyrics_motion_title"),
-                            systemImage: "text.line.first.and.arrowtriangle.forward"
-                        )
+                        Label {
+                            Text("immersive_lyrics_motion_title")
+                            if snapshot.fullscreenEffectIsNative {
+                                Text("immersive_lyrics_motion_native_note")
+                            }
+                        } icon: {
+                            Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        }
                     }
                 }
 

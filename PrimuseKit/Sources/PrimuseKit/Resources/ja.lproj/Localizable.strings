@@ -692,8 +692,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "イマーシブ文字モーション";
-"immersive_lyrics_motion_subtitle" = "全画面エフェクトで歌詞の行が切り替わる際のアニメーションを設定します。オフにしても歌詞は再生に合わせて更新されます。";
+"immersive_lyrics_motion_title" = "歌詞の行切り替え効果";
+"immersive_lyrics_motion_subtitle" = "行がなめらかに切り替わり、長い間奏の間は歌詞を一時的に隠します。オリジナル以外の全画面エフェクトで有効です。オフにすると行がすぐに切り替わります。";
 "local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";
 "ext.tv.settings.intelligence" = "インテリジェンス機能";
 "ext.tv.settings.intelligence.ready" = "セマンティック検索の準備完了";
@@ -1039,3 +1039,6 @@
 "ting_reader_progress_auto_sync" = "再生位置を自動で同期";
 "ting_reader_progress_sync_now" = "今すぐ再生位置を同期";
 "ting_reader_progress_sync_failed" = "再生位置を同期できませんでした。もう一度お試しください。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "オリジナルの全画面では使われません";

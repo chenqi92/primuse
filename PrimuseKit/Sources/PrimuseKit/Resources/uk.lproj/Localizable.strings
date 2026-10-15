@@ -20,7 +20,7 @@
 "rate_on_app_store" = "Залиште гарний відгук";
 "ai_provider_default_name" = "OpenAI-сумісний сервіс";
 "ext.tv.playback.cannotBuildURL" = "Не вдалося зібрати відтворення URL";
-"immersive_lyrics_motion_title" = "Імерсивний рух";
+"immersive_lyrics_motion_title" = "Переходи рядків тексту";
 "theme_color_purple" = "Фіолетовий";
 "ext.widget.lyrics.empty.subtitle" = "Відображається після відтворення пісні з текстом";
 "error.catalog.coverTooLarge" = "Файл обкладинки завеликий.";
@@ -433,7 +433,7 @@
 "ext.widget.lyricsPreview.empty3" = ", і вони підуть тут";
 "ext.tv.sources.cancel" = "Скасувати";
 "fullscreen_effect_flowing_lines_subtitle" = "Контури, що розвиваються, охоплюють твір мистецтва трьома ліричними лініями";
-"immersive_lyrics_motion_subtitle" = "Керує анімацією переходів між рядками тексту в повноекранних ефектах. Після вимкнення текст залишається синхронізованим із відтворенням.";
+"immersive_lyrics_motion_subtitle" = "Рядки змінюються плавно, а під час довгих програшів текст ховається. Діє в повноекранних ефектах, крім «Оригінал»; якщо вимкнено, рядки змінюються одразу.";
 "send_to_tv_error_cloud_upload" = "Помилка завантаження медіатеки CloudKit: %@";
 "ext.widget.recent.empty.large" = "Альбоми, які ви нещодавно відтворювали, автоматично синхронізуються з головним екраном";
 "error.baidu.firstFailedItem" = ": %@ (помилка %@)";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "Автоматично синхронізувати прогрес";
 "ting_reader_progress_sync_now" = "Синхронізувати прогрес зараз";
 "ting_reader_progress_sync_failed" = "Не вдалося синхронізувати прогрес. Спробуйте ще раз.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Не використовується ефектом «Оригінал»";

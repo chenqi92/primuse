@@ -1638,7 +1638,7 @@
 "immersive_demo_lyric_16" = "El sonido se separa y se reúne aquí nuevamente.";
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "Bloquear controles inmersivos";
-"immersive_lyrics_motion_subtitle" = "Controla las transiciones entre líneas de la letra en los efectos de pantalla completa. Al desactivarlo, la letra sigue sincronizada con la reproducción.";
+"immersive_lyrics_motion_subtitle" = "Las líneas cambian con suavidad y la letra se oculta en los interludios largos. Se aplica a los efectos de pantalla completa distintos de Originales; si está desactivado, las líneas cambian al instante.";
 "player_landscape_fullscreen_title" = "Pantalla completa en horizontal";
 "player_landscape_fullscreen_subtitle" = "Al girar el iPhone en horizontal en la pantalla de reproducción se abre el efecto de pantalla completa elegido; al volver a vertical se cierra.";
 "immersive_frame_rate_title" = "Velocidad de fotogramas";
@@ -1647,7 +1647,7 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "Igual que la pantalla";
-"immersive_lyrics_motion_title" = "Movimiento tipo inmersivo";
+"immersive_lyrics_motion_title" = "Transiciones de la letra";
 "immersive_now_playing" = "AHORA JUGANDO";
 "immersive_track_position_format" = "PISTA %02d";
 "immersive_track_position_total_format" = "PISTA %02d / %02d";
@@ -5988,3 +5988,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "Mostrar traducciones incluidas";
 "lyrics_bundled_translation_shown_footer" = "Traducciones que vienen en el archivo de letra, como la línea traducida con la misma marca de tiempo en letras bilingües. Si está desactivado, solo se muestra la letra original y se conservan la romanización y el pinyin; con la traducción de letras activada, la traducción del sistema o inteligente traduce toda la canción.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "El efecto Originales no lo usa";

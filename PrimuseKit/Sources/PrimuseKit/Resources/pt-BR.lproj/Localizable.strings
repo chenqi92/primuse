@@ -592,8 +592,8 @@
 "immersive_demo_album" = "ilha sonora";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "Controla as transições entre as linhas da letra nos efeitos de tela cheia. Ao desativar, a letra continua sincronizada com a reprodução.";
-"immersive_lyrics_motion_title" = "Movimento tipo imersivo";
+"immersive_lyrics_motion_subtitle" = "As linhas mudam suavemente e a letra se oculta em interlúdios longos. Vale para os efeitos de tela cheia exceto Originais; desativado, as linhas mudam na hora.";
+"immersive_lyrics_motion_title" = "Transições da letra";
 "library_recommendations_title" = "Recomendações";
 "local_import_insufficient_space" = "Espaço livre insuficiente (bytes %lld necessários, bytes %lld disponíveis).";
 "metadata.rangeRead.error.suffixUnsupported" = "Este servidor não pode fornecer a leitura limitada do final do arquivo necessária para metadados.";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "Sincronizar o progresso automaticamente";
 "ting_reader_progress_sync_now" = "Sincronizar progresso agora";
 "ting_reader_progress_sync_failed" = "Não foi possível sincronizar o progresso. Tente novamente.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "O efeito Originais não usa esta opção";

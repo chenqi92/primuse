@@ -1794,8 +1794,8 @@
 "lyrics_exit_full_screen" = "Vollbild-Songtext schließen";
 "immersive_lock_controls" = "Bedienelemente sperren";
 "immersive_unlock_controls" = "Bedienelemente entsperren";
-"immersive_lyrics_motion_title" = "Immersive Textbewegung";
-"immersive_lyrics_motion_subtitle" = "Steuert die Übergänge zwischen Liedtextzeilen in Vollbildeffekten. Auch ausgeschaltet bleibt der Liedtext synchron.";
+"immersive_lyrics_motion_title" = "Liedtextübergänge";
+"immersive_lyrics_motion_subtitle" = "Zeilen wechseln weich, und in langen Instrumentalpassagen wird der Liedtext ausgeblendet. Gilt für alle Vollbildeffekte außer Original; ausgeschaltet wechseln die Zeilen sofort.";
 "player_landscape_fullscreen_title" = "Im Querformat Vollbild";
 "player_landscape_fullscreen_subtitle" = "Drehst du das iPhone im Wiedergabebildschirm quer, öffnet sich der gewählte Vollbildeffekt; drehst du es wieder hochkant, schließt er sich.";
 "immersive_frame_rate_title" = "Bildrate";
@@ -6082,3 +6082,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "Mitgelieferte Übersetzungen anzeigen";
 "lyrics_bundled_translation_shown_footer" = "Übersetzungen, die in der Liedtextdatei enthalten sind, etwa die Übersetzungszeile mit demselben Zeitstempel in zweisprachigen Liedtexten. Ausgeschaltet wird nur der Originaltext angezeigt, Umschrift und Pinyin bleiben; ist die Liedtextübersetzung aktiv, übersetzt die System- oder Intelligente Übersetzung stattdessen den ganzen Titel.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Wird vom Vollbildeffekt Original nicht verwendet";

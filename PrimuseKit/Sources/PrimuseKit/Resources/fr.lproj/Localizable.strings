@@ -692,8 +692,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "Mouvement typographique immersif";
-"immersive_lyrics_motion_subtitle" = "Contrôle les transitions entre les lignes des paroles dans les effets plein écran. Les paroles restent synchronisées lorsque cette option est désactivée.";
+"immersive_lyrics_motion_title" = "Transitions des paroles";
+"immersive_lyrics_motion_subtitle" = "Les lignes changent en douceur et les paroles se masquent pendant les longs passages instrumentaux. S'applique aux effets plein écran autres que D’origine ; désactivé, les lignes changent instantanément.";
 "local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";
 "ext.tv.settings.intelligence" = "Fonctions intelligentes";
 "ext.tv.settings.intelligence.ready" = "La recherche sémantique est prête";
@@ -1039,3 +1039,6 @@
 "ting_reader_progress_auto_sync" = "Synchroniser automatiquement la progression";
 "ting_reader_progress_sync_now" = "Synchroniser la progression";
 "ting_reader_progress_sync_failed" = "Impossible de synchroniser la progression. Réessayez.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Non utilisé par l’effet plein écran D’origine";

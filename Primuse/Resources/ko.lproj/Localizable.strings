@@ -1794,8 +1794,8 @@
 "lyrics_exit_full_screen" = "전체 화면 가사 종료";
 "immersive_lock_controls" = "몰입형 컨트롤 잠금";
 "immersive_unlock_controls" = "몰입형 컨트롤 잠금 해제";
-"immersive_lyrics_motion_title" = "몰입형 문자 모션";
-"immersive_lyrics_motion_subtitle" = "전체 화면 효과에서 가사 줄이 바뀔 때의 전환 애니메이션을 설정합니다. 꺼도 가사는 재생에 맞춰 계속 표시됩니다.";
+"immersive_lyrics_motion_title" = "가사 줄 전환 효과";
+"immersive_lyrics_motion_subtitle" = "줄이 부드럽게 바뀌고 긴 간주 동안 가사를 잠시 숨깁니다. 기본 외의 전체 화면 효과에 적용되며, 끄면 줄이 바로 바뀝니다.";
 "player_landscape_fullscreen_title" = "가로 모드에서 전체 화면";
 "player_landscape_fullscreen_subtitle" = "재생 화면에서 iPhone을 가로로 돌리면 선택한 전체 화면 효과가 열리고, 다시 세로로 돌리면 닫힙니다.";
 "immersive_frame_rate_title" = "프레임 레이트";
@@ -6082,3 +6082,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "가사에 포함된 번역 표시";
 "lyrics_bundled_translation_shown_footer" = "가사 파일에 원래 들어 있는 번역(이중 언어 가사에서 같은 시간의 번역 줄 등)입니다. 끄면 원문만 표시하며 로마자와 병음은 그대로 표시됩니다. 가사 번역이 켜져 있으면 곡 전체를 시스템 번역 또는 지능형 번역으로 번역합니다.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "기본 전체 화면에서는 사용되지 않음";

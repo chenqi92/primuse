@@ -1638,7 +1638,7 @@
 "immersive_demo_lyric_16" = "ध्वनि अलग हो जाती है और फिर यहीं मिल जाती है";
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "इमर्सिव नियंत्रणों को लॉक करें";
-"immersive_lyrics_motion_subtitle" = "फ़ुलस्क्रीन प्रभावों में गीत की पंक्तियाँ बदलने का ऐनिमेशन नियंत्रित करता है। बंद करने पर भी गीत के बोल प्लेबैक के साथ बदलते रहते हैं।";
+"immersive_lyrics_motion_subtitle" = "पंक्तियाँ सहजता से बदलती हैं और लंबे वाद्य अंतराल में बोल छिप जाते हैं। मूल के अलावा फ़ुलस्क्रीन प्रभावों पर लागू होता है; बंद करने पर पंक्तियाँ तुरंत बदलती हैं।";
 "player_landscape_fullscreen_title" = "लैंडस्केप में फ़ुल स्क्रीन";
 "player_landscape_fullscreen_subtitle" = "प्लेबैक स्क्रीन पर iPhone को आड़ा करने पर चुना गया फ़ुल-स्क्रीन इफ़ेक्ट खुलता है; फिर सीधा करने पर बंद हो जाता है।";
 "immersive_frame_rate_title" = "फ़्रेम दर";
@@ -1647,7 +1647,7 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "डिस्प्ले के अनुसार";
-"immersive_lyrics_motion_title" = "इमर्सिव प्रकार की गति";
+"immersive_lyrics_motion_title" = "गीत पंक्ति ट्रांज़िशन";
 "immersive_now_playing" = "अभी चल रहा है";
 "immersive_track_position_format" = "ट्रैक %02d";
 "immersive_track_position_total_format" = "ट्रैक %02d / %02d";
@@ -5988,3 +5988,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "गीत में शामिल अनुवाद दिखाएँ";
 "lyrics_bundled_translation_shown_footer" = "गीत फ़ाइल में पहले से मौजूद अनुवाद, जैसे द्विभाषी गीतों में उसी समय वाली अनुवाद पंक्ति। बंद करने पर केवल मूल बोल दिखते हैं, रोमनीकरण और पिनयिन बने रहते हैं; गीत अनुवाद चालू होने पर पूरा गीत सिस्टम या इंटेलिजेंट ट्रांसलेशन से अनूदित होता है।";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "मूल फ़ुलस्क्रीन प्रभाव इसका उपयोग नहीं करता";

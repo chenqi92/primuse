@@ -25,6 +25,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
     @State private var showAddToPlaylist = false
     @State private var showScrapeOptions = false
@@ -410,9 +412,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
             divider()
             if !isSpokenWord {
-                toggleRow(title: "immersive_lyrics_motion_title",
-                          symbol: "text.line.first.and.arrowtriangle.forward",
-                          isOn: $lyricsMotionEnabled)
+                lyricsMotionRow
             }
 
             // 字号子菜单 —— 用 popover 打开第二层。
@@ -616,6 +616,42 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 开关项:和其它行同一套图标、字号、行高,开着时行尾打勾 —— Mac 菜单表示开关
     /// 状态的方式,与字号子菜单的勾同一画法。不用 `.switch` 开关:它的尺寸不跟行走,
     /// 放在这列里会顶出面板右缘。图标固定不换,勾只占位不增删,行宽不跳。
+    /// 原生全屏是播放页本身，不用「歌词换句过渡」。选着原生时整行画灰、第二行写明，
+    /// 但仍然能拨 —— 换成别的全屏效果就按这里的设置来。
+    private var lyricsMotionRow: some View {
+        let isNative = (FullscreenPlayerEffect(rawValue: fullscreenEffectRawValue) ?? .defaultValue).isNative
+        return Button { lyricsMotionEnabled.toggle() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    .frame(width: 18)
+                    .foregroundStyle(isNative ? PMColor.textFaint : PMColor.textMuted)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("immersive_lyrics_motion_title")
+                        .font(.callout)
+                        .foregroundStyle(isNative ? PMColor.textMuted : PMColor.text)
+                    if isNative {
+                        Text("immersive_lyrics_motion_native_note")
+                            .font(.caption2)
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Image(systemName: "checkmark")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.brand)
+                    .opacity(lyricsMotionEnabled ? 1 : 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(Text("immersive_lyrics_motion_subtitle"))
+        .accessibilityAddTraits(lyricsMotionEnabled ? [.isToggle, .isSelected] : .isToggle)
+    }
+
     private func toggleRow(title: LocalizedStringKey, symbol: String,
                            isOn: Binding<Bool>) -> some View {
         checkRow(title: title, symbol: symbol, isChecked: isOn.wrappedValue) {

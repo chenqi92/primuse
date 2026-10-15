@@ -592,8 +592,8 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "เฉินฉี92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "ควบคุมแอนิเมชันการเปลี่ยนบรรทัดเนื้อเพลงในเอฟเฟ็กต์เต็มหน้าจอ เมื่อปิด เนื้อเพลงยังคงเปลี่ยนตามการเล่นเพลง";
-"immersive_lyrics_motion_title" = "การเคลื่อนไหวแบบดื่มด่ำ";
+"immersive_lyrics_motion_subtitle" = "บรรทัดเปลี่ยนอย่างนุ่มนวลและซ่อนเนื้อเพลงระหว่างช่วงดนตรียาว ใช้กับเอฟเฟ็กต์เต็มหน้าจออื่นนอกจากต้นฉบับ เมื่อปิด บรรทัดจะเปลี่ยนทันที";
+"immersive_lyrics_motion_title" = "การเปลี่ยนบรรทัดเนื้อเพลง";
 "library_recommendations_title" = "คำแนะนำ";
 "local_import_insufficient_space" = "พื้นที่ว่างไม่เพียงพอ (ต้องการ %lld ไบต์ มี %lld ไบต์)";
 "metadata.rangeRead.error.suffixUnsupported" = "เซิร์ฟเวอร์นี้ไม่สามารถจัดเตรียมการอ่านไฟล์แบบมีขอบเขตที่จำเป็นสำหรับเมทาดาทาได้";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "ซิงค์ความคืบหน้าการฟังอัตโนมัติ";
 "ting_reader_progress_sync_now" = "ซิงค์ความคืบหน้าตอนนี้";
 "ting_reader_progress_sync_failed" = "ซิงค์ความคืบหน้าไม่สำเร็จ โปรดลองอีกครั้ง";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "เอฟเฟ็กต์ต้นฉบับไม่ใช้ตัวเลือกนี้";

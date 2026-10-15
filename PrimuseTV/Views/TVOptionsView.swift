@@ -486,6 +486,12 @@ struct TVFullscreenEffectPicker: View {
                                 Text(PMString("immersive_lyrics_motion_subtitle"))
                                     .tvFont(.meta)
                                     .foregroundStyle(.white.opacity(0.58))
+                                // 原生全屏是播放页本身，不用这项；选着原生时写明，免得拨了看不出变化。
+                                if selectedEffect.isNative {
+                                    Text(PMString("immersive_lyrics_motion_native_note"))
+                                        .tvFont(.meta)
+                                        .foregroundStyle(TVColor.warn)
+                                }
                             }
                             .foregroundStyle(lyricsMotionEnabled ? previewPalette.primary : .white.opacity(0.82))
                             .padding(.horizontal, 22)

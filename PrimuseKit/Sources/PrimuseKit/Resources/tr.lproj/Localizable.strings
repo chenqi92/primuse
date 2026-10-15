@@ -20,7 +20,7 @@
 "rate_on_app_store" = "Güzel bir yorum bırakın";
 "ai_provider_default_name" = "OpenAI uyumlu servis";
 "ext.tv.playback.cannotBuildURL" = "Oynatma oluşturulamadı URL";
-"immersive_lyrics_motion_title" = "Sürükleyici tipte hareket";
+"immersive_lyrics_motion_title" = "Şarkı sözü satır geçişleri";
 "theme_color_purple" = "Mor";
 "ext.widget.lyrics.empty.subtitle" = "Sözleri olan bir şarkıyı çaldıktan sonra gösterilir";
 "error.catalog.coverTooLarge" = "Kapak dosyası çok büyük.";
@@ -433,7 +433,7 @@
 "ext.widget.lyricsPreview.empty3" = "ve burayı takip edecekler";
 "ext.tv.sources.cancel" = "İptal";
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
-"immersive_lyrics_motion_subtitle" = "Tam ekran efektlerinde şarkı sözü satırları arasındaki geçişleri denetler. Kapatıldığında sözler çalmayla eşzamanlı kalır.";
+"immersive_lyrics_motion_subtitle" = "Satırlar yumuşakça değişir, uzun enstrümantal aralarda sözler gizlenir. Orijinal dışındaki tam ekran efektlerinde geçerlidir; kapalıyken satırlar anında değişir.";
 "send_to_tv_error_cloud_upload" = "CloudKit arşiv yüklemesi başarısız oldu: %@";
 "ext.widget.recent.empty.large" = "Yakın zamanda oynattığınız albümler Ana Ekranınızla otomatik olarak senkronize edilir";
 "error.baidu.firstFailedItem" = ": %@ (hata yok %@)";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "Dinleme ilerlemesini otomatik eşitle";
 "ting_reader_progress_sync_now" = "İlerlemeyi şimdi eşitle";
 "ting_reader_progress_sync_failed" = "İlerleme eşitlenemedi. Tekrar deneyin.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Orijinal tam ekran efekti bunu kullanmaz";

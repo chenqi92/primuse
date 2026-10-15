@@ -1847,8 +1847,8 @@
 "lyrics_exit_full_screen" = "退出全屏歌词";
 "immersive_lock_controls" = "锁定沉浸式控制";
 "immersive_unlock_controls" = "解锁沉浸式控制";
-"immersive_lyrics_motion_title" = "沉浸文字动效";
-"immersive_lyrics_motion_subtitle" = "控制全屏效果中歌词换句的过渡动画；关闭后歌词仍随播放更新。";
+"immersive_lyrics_motion_title" = "歌词换句过渡";
+"immersive_lyrics_motion_subtitle" = "换句时平滑过渡，较长的间奏时暂时隐藏歌词；只对原生以外的全屏效果起作用。关掉后歌词直接切换。";
 "player_landscape_fullscreen_title" = "横屏时进入全屏";
 "player_landscape_fullscreen_subtitle" = "在播放页把手机横过来，直接进入所选的全屏效果；竖回来时退出。";
 "immersive_frame_rate_title" = "画面帧率";
@@ -6175,3 +6175,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "显示歌词自带的译文";
 "lyrics_bundled_translation_shown_footer" = "歌词文件里本来就带的译文，比如双语歌词里同一时间的那行译文。关掉后只显示原文，罗马音和拼音照常显示；开着歌词翻译时，整首改由系统翻译或智能翻译来译。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "原生全屏不使用这项";

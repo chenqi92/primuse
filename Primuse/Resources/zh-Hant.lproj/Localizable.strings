@@ -1742,8 +1742,8 @@
 "lyrics_exit_full_screen" = "退出全螢幕歌詞";
 "immersive_lock_controls" = "鎖定沉浸式控制";
 "immersive_unlock_controls" = "解鎖沉浸式控制";
-"immersive_lyrics_motion_title" = "沉浸文字動效";
-"immersive_lyrics_motion_subtitle" = "控制全螢幕效果中歌詞換句的過渡動畫；關閉後歌詞仍隨播放更新。";
+"immersive_lyrics_motion_title" = "歌詞換句過渡";
+"immersive_lyrics_motion_subtitle" = "換句時平滑過渡，較長的間奏時暫時隱藏歌詞；只對原生以外的全螢幕效果起作用。關閉後歌詞直接切換。";
 "player_landscape_fullscreen_title" = "橫向時進入全螢幕";
 "player_landscape_fullscreen_subtitle" = "在播放頁把手機轉成橫向，直接進入所選的全螢幕效果；轉回直向時退出。";
 "immersive_frame_rate_title" = "畫面影格率";
@@ -6059,3 +6059,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "顯示歌詞自帶的譯文";
 "lyrics_bundled_translation_shown_footer" = "歌詞檔案裡原本就帶的譯文，例如雙語歌詞裡同一時間的那行譯文。關閉後只顯示原文，羅馬拼音和拼音照常顯示；開著歌詞翻譯時，整首改由系統翻譯或智慧翻譯來譯。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "原生全螢幕不使用這項";

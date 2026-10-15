@@ -689,8 +689,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "沉浸文字動效";
-"immersive_lyrics_motion_subtitle" = "控制全螢幕效果中歌詞換句的過渡動畫；關閉後歌詞仍隨播放更新。";
+"immersive_lyrics_motion_title" = "歌詞換句過渡";
+"immersive_lyrics_motion_subtitle" = "換句時平滑過渡，較長的間奏時暫時隱藏歌詞；只對原生以外的全螢幕效果起作用。關閉後歌詞直接切換。";
 "local_import_insufficient_space" = "可用空間不足（需要 %lld 位元組，可用 %lld 位元組）。";
 "ext.tv.settings.intelligence" = "智慧功能";
 "ext.tv.settings.intelligence.ready" = "語意搜尋已就緒";
@@ -1036,3 +1036,6 @@
 "ting_reader_progress_auto_sync" = "自動同步收聽進度";
 "ting_reader_progress_sync_now" = "立即同步進度";
 "ting_reader_progress_sync_failed" = "進度同步失敗，請重試。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "原生全螢幕不使用這項";

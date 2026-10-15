@@ -1795,8 +1795,8 @@
 "lyrics_exit_full_screen" = "全画面歌詞を終了";
 "immersive_lock_controls" = "没入モードの操作をロック";
 "immersive_unlock_controls" = "没入モードの操作をロック解除";
-"immersive_lyrics_motion_title" = "イマーシブ文字モーション";
-"immersive_lyrics_motion_subtitle" = "全画面エフェクトで歌詞の行が切り替わる際のアニメーションを設定します。オフにしても歌詞は再生に合わせて更新されます。";
+"immersive_lyrics_motion_title" = "歌詞の行切り替え効果";
+"immersive_lyrics_motion_subtitle" = "行がなめらかに切り替わり、長い間奏の間は歌詞を一時的に隠します。オリジナル以外の全画面エフェクトで有効です。オフにすると行がすぐに切り替わります。";
 "player_landscape_fullscreen_title" = "横向きで全画面にする";
 "player_landscape_fullscreen_subtitle" = "再生画面で iPhone を横向きにすると、選んだ全画面エフェクトに切り替わります。縦向きに戻すと終了します。";
 "immersive_frame_rate_title" = "フレームレート";
@@ -6083,3 +6083,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "歌詞に含まれる訳文を表示";
 "lyrics_bundled_translation_shown_footer" = "歌詞ファイルにもともと含まれる訳文（2か国語の歌詞で同じタイムスタンプの訳文行など）。オフにすると原文だけを表示し、ローマ字やピンインはそのまま表示します。歌詞の翻訳がオンの場合は、曲全体をシステム翻訳またはインテリジェント翻訳で翻訳します。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "オリジナルの全画面では使われません";

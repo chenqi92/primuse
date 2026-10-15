@@ -690,8 +690,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "Immersive type motion";
-"immersive_lyrics_motion_subtitle" = "Controls lyric line transitions in fullscreen effects. Lyrics stay in sync when turned off.";
+"immersive_lyrics_motion_title" = "Lyric Line Transitions";
+"immersive_lyrics_motion_subtitle" = "Lines change smoothly and lyrics hide during long instrumental breaks. Applies to fullscreen effects other than Original; when off, lines switch instantly.";
 "local_import_insufficient_space" = "Not enough free space (required %lld bytes, available %lld bytes).";
 "ext.tv.settings.intelligence" = "Intelligent features";
 "ext.tv.settings.intelligence.ready" = "Semantic search is ready";
@@ -1037,3 +1037,6 @@
 "ting_reader_progress_auto_sync" = "Automatically sync listening progress";
 "ting_reader_progress_sync_now" = "Sync progress now";
 "ting_reader_progress_sync_failed" = "Couldn’t sync progress. Try again.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Not used by the Original fullscreen effect";

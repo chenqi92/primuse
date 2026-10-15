@@ -67,13 +67,25 @@ struct FullscreenPlayerEffectSettingsView: View {
         }
     }
 
+    /// 原生全屏是播放页本身的沉浸歌词，不用这项；选着原生时直接写明，免得拨了看不出变化。
     private var lyricsMotionCard: some View {
         Toggle(isOn: $lyricsMotionEnabled) {
-            Text("immersive_lyrics_motion_title")
-                .font(.system(size: 16, weight: .semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("immersive_lyrics_motion_title")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("immersive_lyrics_motion_subtitle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if selectedEffect.isNative {
+                    Label("immersive_lyrics_motion_native_note", systemImage: "info.circle")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .settingsAnchor("appearance.lyricsMotion")
-        .accessibilityHint(Text("immersive_lyrics_motion_subtitle"))
         .tint(previewPalette.primary)
         .padding(16)
         .background(

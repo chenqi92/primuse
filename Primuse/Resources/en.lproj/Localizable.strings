@@ -1831,8 +1831,8 @@
 "lyrics_exit_full_screen" = "Exit Full-Screen Lyrics";
 "immersive_lock_controls" = "Lock immersive controls";
 "immersive_unlock_controls" = "Unlock immersive controls";
-"immersive_lyrics_motion_title" = "Immersive type motion";
-"immersive_lyrics_motion_subtitle" = "Controls lyric line transitions in fullscreen effects. Lyrics stay in sync when turned off.";
+"immersive_lyrics_motion_title" = "Lyric Line Transitions";
+"immersive_lyrics_motion_subtitle" = "Lines change smoothly and lyrics hide during long instrumental breaks. Applies to fullscreen effects other than Original; when off, lines switch instantly.";
 "player_landscape_fullscreen_title" = "Full screen in landscape";
 "player_landscape_fullscreen_subtitle" = "Turning the phone sideways on the Now Playing screen opens the selected full-screen effect; turning it upright again closes it.";
 "immersive_frame_rate_title" = "Frame Rate";
@@ -5842,3 +5842,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "Show Built-in Translations";
 "lyrics_bundled_translation_shown_footer" = "Translations that come with the lyrics file, such as the translated line sharing a timestamp in bilingual lyrics. When off, only the original lyrics show, with romanization and pinyin kept; with Lyrics Translation on, System or Intelligent Translation translates the whole song instead.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Not used by the Original fullscreen effect";

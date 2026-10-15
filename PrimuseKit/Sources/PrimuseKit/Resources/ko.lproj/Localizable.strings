@@ -692,8 +692,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "몰입형 문자 모션";
-"immersive_lyrics_motion_subtitle" = "전체 화면 효과에서 가사 줄이 바뀔 때의 전환 애니메이션을 설정합니다. 꺼도 가사는 재생에 맞춰 계속 표시됩니다.";
+"immersive_lyrics_motion_title" = "가사 줄 전환 효과";
+"immersive_lyrics_motion_subtitle" = "줄이 부드럽게 바뀌고 긴 간주 동안 가사를 잠시 숨깁니다. 기본 외의 전체 화면 효과에 적용되며, 끄면 줄이 바로 바뀝니다.";
 "local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";
 "ext.tv.settings.intelligence" = "지능형 기능";
 "ext.tv.settings.intelligence.ready" = "의미 검색 준비됨";
@@ -1039,3 +1039,6 @@
 "ting_reader_progress_auto_sync" = "청취 진행 상황 자동 동기화";
 "ting_reader_progress_sync_now" = "지금 진행 상황 동기화";
 "ting_reader_progress_sync_failed" = "진행 상황을 동기화하지 못했습니다. 다시 시도하세요.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "기본 전체 화면에서는 사용되지 않음";

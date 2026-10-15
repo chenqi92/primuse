@@ -689,8 +689,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
-"immersive_lyrics_motion_title" = "沉浸文字动效";
-"immersive_lyrics_motion_subtitle" = "控制全屏效果中歌词换句的过渡动画；关闭后歌词仍随播放更新。";
+"immersive_lyrics_motion_title" = "歌词换句过渡";
+"immersive_lyrics_motion_subtitle" = "换句时平滑过渡，较长的间奏时暂时隐藏歌词；只对原生以外的全屏效果起作用。关掉后歌词直接切换。";
 "local_import_insufficient_space" = "可用空间不足（需要 %lld 字节，可用 %lld 字节）。";
 "ext.tv.settings.intelligence" = "智能功能";
 "ext.tv.settings.intelligence.ready" = "语义搜索已就绪";
@@ -1036,3 +1036,6 @@
 "ting_reader_progress_auto_sync" = "自动同步收听进度";
 "ting_reader_progress_sync_now" = "立即同步进度";
 "ting_reader_progress_sync_failed" = "进度同步失败，请重试。";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "原生全屏不使用这项";

@@ -1638,7 +1638,7 @@
 "immersive_demo_lyric_16" = "Dźwięk oddala się i spotyka ponownie";
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "Zablokuj immersyjne sterowanie";
-"immersive_lyrics_motion_subtitle" = "Steruje animacją przejść między wersami tekstu w efektach pełnoekranowych. Po wyłączeniu tekst nadal jest zsynchronizowany z odtwarzaniem.";
+"immersive_lyrics_motion_subtitle" = "Wersy zmieniają się płynnie, a podczas długich partii instrumentalnych tekst się ukrywa. Dotyczy efektów pełnoekranowych innych niż Oryginał; po wyłączeniu wersy zmieniają się od razu.";
 "player_landscape_fullscreen_title" = "Pełny ekran w poziomie";
 "player_landscape_fullscreen_subtitle" = "Obrócenie iPhone’a poziomo na ekranie odtwarzania otwiera wybrany efekt pełnoekranowy, a powrót do pionu go zamyka.";
 "immersive_frame_rate_title" = "Liczba klatek";
@@ -1647,7 +1647,7 @@
 "immersive_frame_rate_30" = "30 kl./s";
 "immersive_frame_rate_60" = "60 kl./s";
 "immersive_frame_rate_display" = "Jak ekran";
-"immersive_lyrics_motion_title" = "Ruch typu immersyjnego";
+"immersive_lyrics_motion_title" = "Przejścia wersów tekstu";
 "immersive_now_playing" = "TERAZ GRA";
 "immersive_track_position_format" = "ŚCIEŻKA %02d";
 "immersive_track_position_total_format" = "ŚCIEŻKA %02d / %02d";
@@ -5988,3 +5988,6 @@
 /* 歌词自带译文的显示开关 */
 "lyrics_bundled_translation_shown" = "Pokazuj dołączone tłumaczenia";
 "lyrics_bundled_translation_shown_footer" = "Tłumaczenia zawarte w pliku z tekstem, np. przetłumaczony wiersz z tym samym znacznikiem czasu w tekstach dwujęzycznych. Po wyłączeniu widać tylko oryginalny tekst, a romanizacja i pinyin zostają; przy włączonym tłumaczeniu tekstu cały utwór tłumaczy tłumaczenie systemu lub inteligentne.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "Efekt Oryginał tego nie używa";

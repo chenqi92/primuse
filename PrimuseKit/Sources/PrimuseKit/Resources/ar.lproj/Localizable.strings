@@ -592,8 +592,8 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "تشينكي92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "يتحكم في انتقالات أسطر كلمات الأغنية ضمن تأثيرات ملء الشاشة. تظل الكلمات متزامنة مع التشغيل عند إيقافه.";
-"immersive_lyrics_motion_title" = "حركة من النوع الغامر";
+"immersive_lyrics_motion_subtitle" = "تتبدّل الأسطر بسلاسة وتُخفى الكلمات أثناء الفواصل الموسيقية الطويلة. ينطبق على تأثيرات ملء الشاشة غير «الأصل»؛ وعند الإيقاف تتبدّل الأسطر فورًا.";
+"immersive_lyrics_motion_title" = "انتقالات أسطر الكلمات";
 "library_recommendations_title" = "التوصيات";
 "local_import_insufficient_space" = "المساحة الحرة غير كافية (مطلوب %lld بايت، متاح %lld بايت).";
 "metadata.rangeRead.error.suffixUnsupported" = "لا يمكن لهذا الخادم توفير قراءة ذيل الملف المحدود اللازمة لبيانات التعريف.";
@@ -986,3 +986,6 @@
 "ting_reader_progress_auto_sync" = "مزامنة تقدم الاستماع تلقائيًا";
 "ting_reader_progress_sync_now" = "مزامنة التقدم الآن";
 "ting_reader_progress_sync_failed" = "تعذرت مزامنة التقدم. حاول مجددًا.";
+
+/* 歌词换句过渡在原生全屏下不起作用 */
+"immersive_lyrics_motion_native_note" = "لا يستخدمه تأثير «الأصل»";
