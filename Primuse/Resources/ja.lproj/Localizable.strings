@@ -5625,7 +5625,7 @@
 "filter_playlists_placeholder" = "プレイリストを絞り込む…";
 "filter_favorites_placeholder" = "お気に入りを絞り込む…";
 "filter_spoken_word_placeholder" = "あなたのライブラリ";
-"filter_podcasts_placeholder" = "ポッドキャストを絞り込む…";
+"filter_podcasts_placeholder" = "あなたの番組";
 "library_insight_batch_fill" = "足りない紹介を補完";
 "library_insight_batch_stop_format" = "紹介の補完を停止（%1$d/%2$d）";
 "library_insight_batch_title_album" = "アルバムの紹介を補完";

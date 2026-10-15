@@ -5384,7 +5384,7 @@
 "filter_playlists_placeholder" = "Filter playlists…";
 "filter_favorites_placeholder" = "Filter favorites…";
 "filter_spoken_word_placeholder" = "Your Library";
-"filter_podcasts_placeholder" = "Filter podcasts…";
+"filter_podcasts_placeholder" = "Your Shows";
 "library_insight_batch_fill" = "Fill In Missing Intros";
 "library_insight_batch_stop_format" = "Stop Filling In Intros (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Fill In Album Intros";

@@ -5530,7 +5530,7 @@
 "filter_playlists_placeholder" = "Filtrar listas…";
 "filter_favorites_placeholder" = "Filtrar favoritos…";
 "filter_spoken_word_placeholder" = "Tu biblioteca";
-"filter_podcasts_placeholder" = "Filtrar podcasts…";
+"filter_podcasts_placeholder" = "Tus programas";
 "library_insight_batch_fill" = "Completar presentaciones faltantes";
 "library_insight_batch_stop_format" = "Dejar de completar (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Completar presentaciones de álbumes";

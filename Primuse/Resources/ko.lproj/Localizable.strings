@@ -5624,7 +5624,7 @@
 "filter_playlists_placeholder" = "재생 목록 필터…";
 "filter_favorites_placeholder" = "즐겨찾기 필터…";
 "filter_spoken_word_placeholder" = "내 서재";
-"filter_podcasts_placeholder" = "팟캐스트 필터…";
+"filter_podcasts_placeholder" = "내 프로그램";
 "library_insight_batch_fill" = "빠진 소개 채우기";
 "library_insight_batch_stop_format" = "소개 채우기 중지 (%1$d/%2$d)";
 "library_insight_batch_title_album" = "앨범 소개 채우기";

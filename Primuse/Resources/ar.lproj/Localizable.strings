@@ -5530,7 +5530,7 @@
 "filter_playlists_placeholder" = "تصفية قوائم التشغيل...";
 "filter_favorites_placeholder" = "تصفية المفضلة...";
 "filter_spoken_word_placeholder" = "مكتبتك";
-"filter_podcasts_placeholder" = "تصفية البودكاست...";
+"filter_podcasts_placeholder" = "برامجك";
 "library_insight_batch_fill" = "إكمال النبذات الناقصة";
 "library_insight_batch_stop_format" = "إيقاف إكمال النبذات (%1$d/%2$d)";
 "library_insight_batch_title_album" = "إكمال نبذات الألبومات";

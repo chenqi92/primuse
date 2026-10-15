@@ -5530,7 +5530,7 @@
 "filter_playlists_placeholder" = "Фильтровать плейлисты…";
 "filter_favorites_placeholder" = "Фильтровать избранное…";
 "filter_spoken_word_placeholder" = "Ваша библиотека";
-"filter_podcasts_placeholder" = "Фильтровать подкасты…";
+"filter_podcasts_placeholder" = "Ваши подкасты";
 "library_insight_batch_fill" = "Дополнить недостающие описания";
 "library_insight_batch_stop_format" = "Остановить дополнение (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Дополнить описания альбомов";

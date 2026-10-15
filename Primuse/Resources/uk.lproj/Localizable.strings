@@ -5530,7 +5530,7 @@
 "filter_playlists_placeholder" = "Фільтрувати плейлисти…";
 "filter_favorites_placeholder" = "Фільтрувати обране…";
 "filter_spoken_word_placeholder" = "Ваша бібліотека";
-"filter_podcasts_placeholder" = "Фільтрувати подкасти…";
+"filter_podcasts_placeholder" = "Ваші подкасти";
 "library_insight_batch_fill" = "Доповнити відсутні описи";
 "library_insight_batch_stop_format" = "Зупинити доповнення (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Доповнити описи альбомів";

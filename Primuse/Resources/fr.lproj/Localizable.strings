@@ -5624,7 +5624,7 @@
 "filter_playlists_placeholder" = "Filtrer les listes…";
 "filter_favorites_placeholder" = "Filtrer les favoris…";
 "filter_spoken_word_placeholder" = "Votre bibliothèque";
-"filter_podcasts_placeholder" = "Filtrer les podcasts…";
+"filter_podcasts_placeholder" = "Vos émissions";
 "library_insight_batch_fill" = "Compléter les présentations manquantes";
 "library_insight_batch_stop_format" = "Arrêter la complétion (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Compléter les présentations d’albums";
