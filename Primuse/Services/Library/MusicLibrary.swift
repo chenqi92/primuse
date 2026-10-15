@@ -4457,7 +4457,9 @@ final class MusicLibrary {
             visibleContentClassification = next
             return
         }
+        let previousSpokenWordCount = spokenWordSongIDs.count
         rebuildVisibleCache()
+        plog("🎧 Content classification refreshed: spoken word/podcast \(previousSpokenWordCount) → \(spokenWordSongIDs.count) of \(visibleSongs.count)")
     }
 
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {

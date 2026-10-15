@@ -8644,6 +8644,39 @@ public enum SourceDirectorySelectionPolicy {
         return .included(by: outermost.selection)
     }
 
+    /// `candidates` 里离 `path` 最近的一级上级(原样,不含它自己),没有时为 nil。
+    /// 和 `selectionState` 一样认上下级:根覆盖一切且排在最外,按层级路径寻址的源比较前缀,
+    /// 其余只认浏览经过的祖先链(外层在前)。目录标签按最近一级生效,选择页据此显示子目录跟着谁。
+    public static func nearestEnclosing(
+        of path: String,
+        among candidates: [String],
+        ancestors: [String] = [],
+        for sourceType: MusicSourceType? = nil
+    ) -> String? {
+        let target = canonicalPath(path)
+        let byPrefix = usesPrefixCoverage(sourceType)
+        let chain = ancestors.map(canonicalPath)
+        var nearest: (candidate: String, rank: Int)?
+        for candidate in candidates {
+            let key = canonicalPath(candidate)
+            guard key != target else { continue }
+            let rank: Int
+            if key == "/" {
+                rank = -1
+            } else if byPrefix {
+                guard target.hasPrefix(key + "/") else { continue }
+                rank = depth(of: key)
+            } else if let index = chain.firstIndex(of: key) {
+                rank = index
+            } else {
+                continue
+            }
+            if let current = nearest, current.rank >= rank { continue }
+            nearest = (candidate, rank)
+        }
+        return nearest?.candidate
+    }
+
     /// 去掉重复项和「上级已被勾选」的目录,其余保持原来的写法和顺序。
     /// 与 ScanService / 电视端扫描前的去重一致:勾了上级就会整棵扫下去,
     /// 再单独存一份下级只会重复列目录。

@@ -5020,7 +5020,9 @@
 "tv_spoken_word_rate_unavailable" = "AirPlay 등 외부 기기로 재생 중일 때는 기본 속도로만 재생됩니다.";
 "stats_spoken_word_time" = "오디오북 청취 시간";
 "directory_tag_menu_title" = "이 폴더의 콘텐츠";
-"directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다.";
+"directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다. 하위 폴더는 상위 폴더를 따르며 따로 바꿀 수도 있습니다.";
+"directory_tag_follows_format" = "‘%@’ 따름";
+"directory_tag_follows_parent" = "상위 폴더 따름";
 "directory_rescan_now" = "이 폴더 지금 스캔";
 "home_filter_clear_hint" = "다시 탭하면 전체를 표시합니다";
 "notifications_section" = "알림";

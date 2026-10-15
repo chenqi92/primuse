@@ -41,10 +41,15 @@ public enum SpokenWordFolderTag {
         return folders.mapValues { $0.sorted() }
     }
 
+    /// Every tag by source. A folder explicitly tagged music is kept: under a
+    /// tagged parent it stops the parent's kind from reaching its files. A
+    /// library or whole-source "music" is left out — it only records that
+    /// the listener chose against a server's spoken-word default.
     public static func folderTags(in overrides: [String: ListeningContentKind]) -> [String: [String: ListeningContentKind]] {
         var folders: [String: [String: ListeningContentKind]] = [:]
-        for (key, kind) in overrides where kind != .music {
+        for (key, kind) in overrides {
             guard let parsed = parse(overrideKey: key) else { continue }
+            if kind == .music, isReservedPath(parsed.path) { continue }
             folders[parsed.sourceID, default: [:]][parsed.path] = kind
         }
         return folders
@@ -92,6 +97,61 @@ public enum SpokenWordFolderTag {
         let id = String(path.dropFirst(libraryPathPrefix.count))
         guard !id.isEmpty, !id.contains("/") else { return nil }
         return id
+    }
+}
+
+/// 选目录页上一行目录的标签。标签按最近一级生效(`SpokenWordFolderRules`、
+/// `SpokenWordFolderTopology.fileKinds`):没自己打标签的子目录跟着最近一级打了标签的上级走。
+public struct SpokenWordFolderTagState: Equatable, Sendable {
+    /// 这一级自己的标签;nil = 没打,跟着上级。
+    public var own: ListeningContentKind?
+    /// 上级给的;没有打了标签的上级时是音乐(交回文件自己推断)。
+    public var inherited: ListeningContentKind
+    /// 给出 `inherited` 的那一级上级(原样);没有时为 nil。
+    public var inheritedFrom: String?
+
+    public init(own: ListeningContentKind?, inherited: ListeningContentKind = .music, inheritedFrom: String? = nil) {
+        self.own = own
+        self.inherited = inherited
+        self.inheritedFrom = inheritedFrom
+    }
+
+    /// 这一级里的内容实际按什么归类。
+    public var kind: ListeningContentKind { own ?? inherited }
+
+    /// 没自己的标签、显示的是上级的有声/播客。上级本身标的是音乐时不算——那和没标签看起来一样。
+    public var followsParent: Bool { own == nil && inheritedFrom != nil && inherited != .music }
+
+    /// 选了 `kind` 之后这一级要存的标签:和上级一致就不存(继续跟着上级走,上级改了也跟着变),
+    /// 不一致才存——包括上级是有声书、这一级改回音乐。
+    public func storedTag(choosing kind: ListeningContentKind) -> ListeningContentKind? {
+        kind == inherited ? nil : kind
+    }
+
+    /// `tags` 是这个源的目录标签(路径 → 类别,含显式的音乐);`ancestors` 是浏览到这一行
+    /// 经过的各级目录(外层在前),按 ID 寻址的网盘只能靠它认出上级。
+    public static func resolve(
+        path: String,
+        ancestors: [String],
+        sourceType: MusicSourceType?,
+        tags: [String: ListeningContentKind]
+    ) -> SpokenWordFolderTagState {
+        let candidates = tags.keys.filter {
+            SpokenWordFolderTag.libraryID(fromTagPath: $0) == nil
+        }
+        let own = candidates
+            .filter { SourceDirectorySelectionPolicy.isSamePath($0, path) }
+            .min()
+            .flatMap { tags[$0] }
+        guard let parent = SourceDirectorySelectionPolicy.nearestEnclosing(
+            of: path,
+            among: candidates.sorted(),
+            ancestors: ancestors,
+            for: sourceType
+        ), let inherited = tags[parent] else {
+            return SpokenWordFolderTagState(own: own)
+        }
+        return SpokenWordFolderTagState(own: own, inherited: inherited, inheritedFrom: parent)
     }
 }
 
@@ -262,7 +322,9 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         var wholeSources = Dictionary(uniqueKeysWithValues: declaredSpokenWordSourceIDs.map { ($0, ListeningContentKind.spokenWord) })
         var libraryKinds: [String: [String: ListeningContentKind]] = [:]
         for source in sources {
-            guard let tags = folderTags[source.sourceID]?.filter({ $0.value != .music }), !tags.isEmpty else { continue }
+            // 只有「音乐」的源没有可改的:音乐标签只在挡住上级的有声/播客时才有意义。
+            guard let tags = folderTags[source.sourceID],
+                  tags.values.contains(where: { $0 != .music }) else { continue }
             if SpokenWordFolderTag.supportsTags(source) {
                 let paths = tags.keys.sorted()
                 policies[source.sourceID] = LibraryFolderPathPolicy(
@@ -278,7 +340,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
                     }
                 }
             } else if SpokenWordFolderTag.supportsWholeSourceTag(source) {
-                for (path, kind) in tags {
+                for (path, kind) in tags where kind != .music {
                     if path == SpokenWordFolderTag.wholeSourcePath {
                         wholeSources[source.sourceID] = kind
                     } else if let libraryID = SpokenWordFolderTag.libraryID(fromTagPath: path) {
@@ -304,7 +366,9 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         if let policy = policies[sourceID] {
             let placement = policy.placement(for: filePath)
             if placement.category == .folder, let root = placement.scanRoot {
-                return rootKinds[sourceID]?[root.identityPath]
+                // 最近一级是标成「音乐」的子目录:上级的标签到此为止,交回文件自己推断。
+                guard let kind = rootKinds[sourceID]?[root.identityPath], kind != .music else { return nil }
+                return kind
             }
         }
         return wholeSources[sourceID]

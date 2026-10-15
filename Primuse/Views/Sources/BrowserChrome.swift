@@ -336,23 +336,59 @@ extension ListeningContentKind {
 }
 
 /// A selected scan folder's content tag; music keeps the usual file inference.
+/// A folder without a tag of its own shows the nearest tagged parent's, which
+/// is what its songs are classified by.
 struct DirectoryFolderTag {
-    let kind: ListeningContentKind
+    let state: SpokenWordFolderTagState
+    /// 跟随的那一级上级叫什么;给不出时菜单里用通用说法。
+    let parentTitle: String?
     let set: (ListeningContentKind) -> Void
 
+    var kind: ListeningContentKind { state.kind }
     var space: ListeningSpace { kind.directorySpace }
+    var followsParent: Bool { state.followsParent }
+
+    /// 菜单标题下那一行:跟着上级时写明跟着谁。
+    var followCaption: String? {
+        guard followsParent else { return nil }
+        guard let parentTitle, !parentTitle.isEmpty else {
+            return String(localized: "directory_tag_follows_parent")
+        }
+        return String(format: String(localized: "directory_tag_follows_format"), parentTitle)
+    }
 
     /// The tag for `path` of `source`, or nil for sources that offer no
     /// folders to choose (media servers and other whole-catalogue servers).
+    /// `ancestors` are the folders passed on the way here, outermost first —
+    /// on an item-id cloud drive they are the only way to know the parents.
     @MainActor
     static func forFolder(
-        path: String, of source: MusicSource, store: SpokenWordStore = .shared
+        path: String,
+        of source: MusicSource,
+        ancestors: [String] = [],
+        parentTitle: (@MainActor (String) -> String?)? = nil,
+        store: SpokenWordStore = .shared
     ) -> DirectoryFolderTag? {
         guard SpokenWordFolderTag.supportsFolderTags(for: source.type) else { return nil }
         let sourceID = source.id
+        let state = store.folderTagState(
+            sourceID: sourceID,
+            sourceType: source.type,
+            path: path,
+            ancestors: ancestors
+        )
+        let title: String?
+        if let parent = state.inheritedFrom, state.followsParent {
+            title = SourceDirectorySelectionPolicy.isRootPath(parent)
+                ? (source.basePath ?? source.name)
+                : parentTitle?(parent)
+        } else {
+            title = nil
+        }
         return DirectoryFolderTag(
-            kind: store.folderKind(sourceID: sourceID, path: path),
-            set: { store.setFolderKind($0, sourceID: sourceID, path: path) }
+            state: state,
+            parentTitle: title,
+            set: { store.setFolderKind($0, sourceID: sourceID, path: path, following: state) }
         )
     }
 }
@@ -365,9 +401,15 @@ struct DirectoryFolderTagMenu: View {
 
     var body: some View {
         Menu {
-            Section("directory_tag_menu_title") {
+            Section {
                 ForEach(ListeningContentKind.allCases, id: \.rawValue) { kind in
                     option(kind.directorySpace, kind: kind)
+                }
+            } header: {
+                if let caption = tag.followCaption {
+                    Text(verbatim: caption)
+                } else {
+                    Text("directory_tag_menu_title")
                 }
             }
         } label: {
@@ -383,14 +425,28 @@ struct DirectoryFolderTagMenu: View {
             .foregroundStyle(space.tint)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(space.tint.opacity(0.14), in: Capsule())
+            .background {
+                // 跟着上级的用虚线框:看得出是有声书,也看得出不是这一级自己标的。
+                if tag.followsParent {
+                    Capsule()
+                        .strokeBorder(space.tint.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                } else {
+                    Capsule().fill(space.tint.opacity(0.14))
+                }
+            }
             .contentShape(Capsule())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .fixedSize()
         .accessibilityLabel(Text("directory_tag_menu_title"))
-        .accessibilityValue(Text(space.title))
+        .accessibilityValue(Text(verbatim: spokenValue))
+    }
+
+    /// 读屏念的值:跟着上级时连同跟着谁一起念。
+    private var spokenValue: String {
+        guard let caption = tag.followCaption else { return space.title }
+        return space.title + ", " + caption
     }
 
     private func option(_ space: ListeningSpace, kind: ListeningContentKind) -> some View {
@@ -1029,7 +1085,7 @@ struct MacDirTreeBrowser: View {
             Spacer(minLength: 4)
 
             // 「已包含」的子目录也能单独标成有声:标签按目录匹配歌曲,不要求它自己是扫描根。
-            if checked || included, let tag = folderTag(for: row.path) {
+            if checked || included, let tag = folderTag(for: row.path, ancestors: ancestors) {
                 DirectoryFolderTagMenu(tag: tag)
             }
 
@@ -1049,9 +1105,17 @@ struct MacDirTreeBrowser: View {
         .onTapGesture { Task { await focus(row) } }
     }
 
-    private func folderTag(for path: String) -> DirectoryFolderTag? {
+    private func folderTag(for path: String, ancestors: [String] = []) -> DirectoryFolderTag? {
         guard let tagSource else { return nil }
-        return DirectoryFolderTag.forFolder(path: path, of: tagSource)
+        return DirectoryFolderTag.forFolder(
+            path: path,
+            of: tagSource,
+            ancestors: ancestors,
+            // 跟随的上级一定是树里它上方已展开的某一行。
+            parentTitle: { parent in
+                rows.first(where: { SourceDirectorySelectionPolicy.isSamePath($0.path, parent) })?.name
+            }
+        )
     }
 
     private func rootSelectionRow(_ path: String) -> some View {

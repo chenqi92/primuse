@@ -356,6 +356,10 @@ final class SpokenWordStore {
                     continue
                 }
                 let kinds = topology.fileKinds(in: tagged)
+                // 网盘按 ID 认上下级:子目录里的书没归进来时,看这一行的 files 与目录数对不对得上。
+                plog("🎧 Folder tags: cloud source \(sourceID.prefix(8))… \(tagged.count) tag(s) "
+                    + "(music \(tagged.values.filter { $0 == .music }.count)) → \(kinds.count) file(s) "
+                    + "across \(topology.fileParents.count) indexed file(s), \(topology.directoryParents.count) folder link(s)")
                 let entry = TaggedFolderFiles(
                     folders: tagged.keys.sorted(), files: Set(kinds.keys), folderKinds: tagged, fileKinds: kinds
                 )
@@ -368,6 +372,8 @@ final class SpokenWordStore {
             } else if let cached, cached.tags == tagged {
                 // 还没有目录(启动中、同步状态刚作废):沿用上次的结论,不让书先掉回音乐。
                 result[sourceID] = cached.kinds
+            } else {
+                plog("🎧 Folder tags: cloud source \(sourceID.prefix(8))… has \(tagged.count) tag(s) but no scanned folders yet; they apply after the next scan")
             }
         }
         for sourceID in taggedFolderFileCache.keys where !opaqueFolderSourceIDs.contains(sourceID) {
@@ -440,6 +446,50 @@ final class SpokenWordStore {
     /// Music clears the folder tag and restores the existing file inference.
     func setFolderKind(_ kind: ListeningContentKind, sourceID: String, path: String) {
         setFolderTag(kind == .music ? nil : kind, sourceID: sourceID, path: path)
+    }
+
+    /// 选目录页上这一行的标签:自己的,或最近一级打了标签的上级的。`ancestors` 是浏览经过的
+    /// 各级目录(外层在前),按 ID 寻址的网盘只能靠它认出上级。
+    func folderTagState(
+        sourceID: String,
+        sourceType: MusicSourceType,
+        path: String,
+        ancestors: [String] = []
+    ) -> SpokenWordFolderTagState {
+        SpokenWordFolderTagState.resolve(
+            path: path,
+            ancestors: ancestors,
+            sourceType: sourceType,
+            tags: folderTagTable(observing: overrides)[sourceID] ?? [:]
+        )
+    }
+
+    /// 在选目录页上把一个目录改成 `kind`。和上级一致就去掉自己的标签、继续跟着上级;
+    /// 不一致才存,上级是有声书时子目录选「音乐」会存成显式的音乐。
+    func setFolderKind(
+        _ kind: ListeningContentKind,
+        sourceID: String,
+        path: String,
+        following state: SpokenWordFolderTagState
+    ) {
+        let stored = state.storedTag(choosing: kind)
+        plog("🎧 Folder tag: source \(sourceID.prefix(8))… \(path) → \(kind.rawValue) "
+            + "(own \(state.own?.rawValue ?? "none") → \(stored?.rawValue ?? "none"), "
+            + "parent \(state.inherited.rawValue)\(state.inheritedFrom.map { " from \($0)" } ?? ""))")
+        setFolderTag(stored, sourceID: sourceID, path: path)
+    }
+
+    @ObservationIgnored private var cachedFolderTagTable: (revision: Int, table: [String: [String: ListeningContentKind]])?
+
+    /// 各源的目录标签。传进来的 `overrides` 只为让读它的视图随标签变化刷新;表按版本号缓存,
+    /// 选目录页每行都要查一次,不必每行都把整张修正表扫一遍。
+    private func folderTagTable(
+        observing overrides: [String: ListeningContentKind]
+    ) -> [String: [String: ListeningContentKind]] {
+        if let cached = cachedFolderTagTable, cached.revision == nonProgressRevision { return cached.table }
+        let table = SpokenWordFolderTag.folderTags(in: overrides)
+        cachedFolderTagTable = (nonProgressRevision, table)
+        return table
     }
 
     /// Whether `path` of a source is tagged as spoken word.

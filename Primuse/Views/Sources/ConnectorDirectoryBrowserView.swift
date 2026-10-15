@@ -187,7 +187,12 @@ struct ConnectorDirectoryBrowserView: View {
                     iconColor: .orange,
                     isNavigable: false,
                     selectedDirectories: policySelectedDirectories,
-                    folderTag: DirectoryFolderTag.forFolder(path: selectableCurrentPath, of: source),
+                    folderTag: DirectoryFolderTag.forFolder(
+                        path: selectableCurrentPath,
+                        of: source,
+                        ancestors: enclosingPaths,
+                        parentTitle: selectionTitle(for:)
+                    ),
                     ancestorPaths: enclosingPaths,
                     sourceType: source.type,
                     ancestorTitle: selectionTitle(for:)
@@ -211,7 +216,12 @@ struct ConnectorDirectoryBrowserView: View {
                         isNavigable: true,
                         selectedDirectories: policySelectedDirectories,
                         onNavigate: { enterDirectory(item) },
-                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source),
+                        folderTag: DirectoryFolderTag.forFolder(
+                            path: item.path,
+                            of: source,
+                            ancestors: currentChain,
+                            parentTitle: selectionTitle(for:)
+                        ),
                         ancestorPaths: currentChain,
                         sourceType: source.type,
                         ancestorTitle: selectionTitle(for:)
@@ -262,7 +272,10 @@ struct ConnectorDirectoryBrowserView: View {
                 // S3 的桶根存成 "",同样显示成源本身的名字。
                 title: SourceDirectorySelectionPolicy.isRootPath(path) ? (source.basePath ?? source.name) : title,
                 kind: tagsSupported
-                    ? SpokenWordStore.shared.folderKind(sourceID: source.id, path: path) : .music
+                    ? SpokenWordStore.shared.folderTagState(
+                        sourceID: source.id, sourceType: source.type, path: path
+                    ).kind
+                    : .music
             )
         }
     }

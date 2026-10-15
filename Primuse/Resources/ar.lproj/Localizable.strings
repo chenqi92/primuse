@@ -4926,7 +4926,9 @@
 "tv_spoken_word_rate_unavailable" = "عند التشغيل عبر جهاز آخر (مثل AirPlay) لا تتوفر إلا السرعة العادية.";
 "stats_spoken_word_time" = "وقت الكتب الصوتية";
 "directory_tag_menu_title" = "محتوى هذا المجلد";
-"directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى.";
+"directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى. تتبع المجلدات الفرعية المجلد الأعلى، ويمكن تغيير كل منها على حدة.";
+"directory_tag_follows_format" = "يتبع «%@»";
+"directory_tag_follows_parent" = "يتبع المجلد الأعلى";
 "directory_rescan_now" = "فحص هذا المجلد الآن";
 "home_filter_clear_hint" = "اضغط مرة أخرى لعرض الكل";
 "notifications_section" = "الإشعارات";

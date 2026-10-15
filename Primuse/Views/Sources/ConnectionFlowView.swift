@@ -1396,7 +1396,7 @@ struct RealDirectoryBrowserView: View {
             isNavigable: true,
             selectedDirectories: $selectedDirectories,
             onNavigate: { enterDirectory(item) },
-            folderTag: folderTag(for: item.path),
+            folderTag: folderTag(for: item.path, ancestors: pathStack),
             ancestorPaths: pathStack,
             sourceType: .synology,
             ancestorTitle: Self.folderTitle(for:)
@@ -1409,8 +1409,12 @@ struct RealDirectoryBrowserView: View {
         return name.isEmpty || name == "/" ? nil : name
     }
 
-    private func folderTag(for path: String) -> DirectoryFolderTag? {
-        tagSource.flatMap { DirectoryFolderTag.forFolder(path: path, of: $0) }
+    private func folderTag(for path: String, ancestors: [String]) -> DirectoryFolderTag? {
+        tagSource.flatMap {
+            DirectoryFolderTag.forFolder(
+                path: path, of: $0, ancestors: ancestors, parentTitle: Self.folderTitle(for:)
+            )
+        }
     }
 
     private func currentDirRow() -> some View {
@@ -1420,7 +1424,7 @@ struct RealDirectoryBrowserView: View {
             icon: "folder.fill", iconColor: .orange,
             isNavigable: false,
             selectedDirectories: $selectedDirectories,
-            folderTag: folderTag(for: currentPath),
+            folderTag: folderTag(for: currentPath, ancestors: Array(pathStack.dropLast())),
             ancestorPaths: Array(pathStack.dropLast()),
             sourceType: .synology,
             ancestorTitle: Self.folderTitle(for:)
@@ -1434,7 +1438,7 @@ struct RealDirectoryBrowserView: View {
                 BrowserSelectionChip(
                     id: path,
                     title: (path as NSString).lastPathComponent,
-                    kind: folderTag(for: path)?.kind ?? .music
+                    kind: folderTag(for: path, ancestors: [])?.kind ?? .music
                 )
             },
             onRemove: { path in

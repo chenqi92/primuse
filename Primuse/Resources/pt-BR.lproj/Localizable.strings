@@ -4926,7 +4926,9 @@
 "tv_spoken_word_rate_unavailable" = "Ao tocar em outro dispositivo (como AirPlay), só é possível usar a velocidade normal.";
 "stats_spoken_word_time" = "Tempo de audiolivros";
 "directory_tag_menu_title" = "Conteúdo desta pasta";
-"directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";
+"directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música. As subpastas seguem a pasta acima e podem ser alteradas separadamente.";
+"directory_tag_follows_format" = "Segue “%@”";
+"directory_tag_follows_parent" = "Segue a pasta acima";
 "directory_rescan_now" = "Escanear esta pasta agora";
 "home_filter_clear_hint" = "Toque de novo para mostrar tudo";
 "notifications_section" = "Notificações";

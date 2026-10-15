@@ -5020,7 +5020,9 @@
 "tv_spoken_word_rate_unavailable" = "Lors de la lecture sur un autre appareil (AirPlay, par exemple), seule la vitesse normale est possible.";
 "stats_spoken_word_time" = "Temps de livres audio";
 "directory_tag_menu_title" = "Contenu de ce dossier";
-"directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique.";
+"directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique. Les sous-dossiers suivent le dossier parent et peuvent être modifiés séparément.";
+"directory_tag_follows_format" = "Suit « %@ »";
+"directory_tag_follows_parent" = "Suit le dossier parent";
 "directory_rescan_now" = "Analyser ce dossier maintenant";
 "home_filter_clear_hint" = "Touchez à nouveau pour tout afficher";
 "notifications_section" = "Notifications";

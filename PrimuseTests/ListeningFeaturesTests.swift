@@ -376,6 +376,79 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(store.kind(for: episode), .music)
     }
 
+    /// 给上级标了有声书,子目录在选目录页上显示跟着上级;子目录改回音乐存成显式的音乐、
+    /// 只管它那一棵,再选回有声书就去掉自己的标签重新跟着上级。
+    func testSubfolderFollowsTaggedParentAndCanBeTurnedBackToMusic() throws {
+        let url = makeDirectory().appendingPathComponent("kinds.json")
+        let source = MusicSource(id: "local-source", name: "NAS", type: .smb)
+        let store = SpokenWordStore(storeURL: url)
+        store.updateFolderTagSources([source])
+        store.setFolderKind(.spokenWord, sourceID: source.id, path: "/Books")
+        let chapter = song("chapter", path: "/Books/Three Body/01.mp3")
+        let theme = song("theme", path: "/Books/OST/Disc 1/theme.mp3")
+
+        let child = try XCTUnwrap(DirectoryFolderTag.forFolder(
+            path: "/Books/OST", of: source, ancestors: ["/", "/Books"], parentTitle: { _ in "Books" }, store: store
+        ))
+        XCTAssertEqual(child.kind, .spokenWord)
+        XCTAssertTrue(child.followsParent)
+        XCTAssertNotNil(child.followCaption)
+        XCTAssertEqual(store.kind(for: theme), .spokenWord)
+        // 整棵都跟着:更深一级、浏览链里没有中间那级时按路径前缀也认得出。
+        XCTAssertTrue(try XCTUnwrap(DirectoryFolderTag.forFolder(path: "/Books/OST/Disc 1", of: source, store: store)).followsParent)
+
+        child.set(.music)
+        let key = SpokenWordFolderTag.overrideKey(sourceID: source.id, path: "/Books/OST")
+        XCTAssertEqual(store.overrideSnapshot[key], .music)
+        XCTAssertEqual(store.kind(for: theme), .music)
+        XCTAssertEqual(store.kind(for: chapter), .spokenWord)
+        XCTAssertEqual(store.kind(for: song("audiobook-genre", genre: "Audiobook", path: "/Books/OST/x.mp3")), .spokenWord)
+        let turnedBack = try XCTUnwrap(DirectoryFolderTag.forFolder(
+            path: "/Books/OST", of: source, ancestors: ["/", "/Books"], store: store
+        ))
+        XCTAssertEqual(turnedBack.kind, .music)
+        XCTAssertFalse(turnedBack.followsParent)
+        let grandchild = try XCTUnwrap(DirectoryFolderTag.forFolder(path: "/Books/OST/Disc 1", of: source, store: store))
+        XCTAssertEqual(grandchild.kind, .music)
+        XCTAssertFalse(grandchild.followsParent)
+        store.persistLocally()
+        let restored = SpokenWordStore(storeURL: url)
+        restored.updateFolderTagSources([source])
+        XCTAssertEqual(restored.kind(for: theme), .music)
+        XCTAssertEqual(restored.kind(for: chapter), .spokenWord)
+
+        turnedBack.set(.spokenWord)
+        XCTAssertNil(store.overrideSnapshot[key])
+        XCTAssertEqual(store.kind(for: theme), .spokenWord)
+    }
+
+    /// 按文件 ID 寻址的网盘(光鸭等)只能靠浏览经过的各级认出上级。
+    func testCloudSubfolderFollowsParentTagThroughTheBrowsedFolders() throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("kinds.json"))
+        let source = MusicSource(id: "local-source", name: "Drive", type: .guangya)
+        store.updateFolderTagSources([source])
+        store.setFolderKind(.spokenWord, sourceID: source.id, path: "books")
+        store.updateFolderTopologies([source.id: SpokenWordFolderTopology(
+            fileParents: ["ch1": "santi", "ost1": "disc", "loose": "root"],
+            directoryParents: ["santi": "books", "ost": "books", "disc": "ost", "books": "root"]
+        )])
+        let chapter = song("chapter", path: "ch1")
+        let theme = song("theme", path: "ost1")
+        XCTAssertEqual(store.kind(for: chapter), .spokenWord)
+        XCTAssertEqual(store.kind(for: theme), .spokenWord)
+        XCTAssertEqual(store.kind(for: song("loose", path: "loose")), .music)
+
+        let child = try XCTUnwrap(DirectoryFolderTag.forFolder(path: "ost", of: source, ancestors: ["/", "books"], store: store))
+        XCTAssertTrue(child.followsParent)
+        XCTAssertEqual(child.kind, .spokenWord)
+        // 没有浏览链就看不出上级(ID 里没有目录),不冒充跟随。
+        XCTAssertFalse(try XCTUnwrap(DirectoryFolderTag.forFolder(path: "ost", of: source, store: store)).followsParent)
+
+        child.set(.music)
+        XCTAssertEqual(store.kind(for: theme), .music)
+        XCTAssertEqual(store.kind(for: chapter), .spokenWord)
+    }
+
     func testCloudDriveFoldersReachTheBookGrouping() {
         let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("kinds.json"))
         let source = MusicSource(id: "book-folders-\(UUID().uuidString)", name: "Drive", type: .guangya)

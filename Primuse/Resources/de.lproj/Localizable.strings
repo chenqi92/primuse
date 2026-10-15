@@ -5020,7 +5020,9 @@
 "tv_spoken_word_rate_unavailable" = "Bei Wiedergabe über ein anderes Gerät (z. B. AirPlay) ist nur normale Geschwindigkeit möglich.";
 "stats_spoken_word_time" = "Hörbuchzeit";
 "directory_tag_menu_title" = "Inhalt dieses Ordners";
-"directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";
+"directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt. Unterordner übernehmen das Etikett des Ordners darüber und lassen sich einzeln ändern.";
+"directory_tag_follows_format" = "Folgt „%@“";
+"directory_tag_follows_parent" = "Folgt dem übergeordneten Ordner";
 "directory_rescan_now" = "Diesen Ordner jetzt scannen";
 "home_filter_clear_hint" = "Erneut tippen, um alles anzuzeigen";
 "notifications_section" = "Mitteilungen";

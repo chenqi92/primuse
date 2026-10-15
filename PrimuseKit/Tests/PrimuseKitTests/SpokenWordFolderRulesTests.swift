@@ -37,7 +37,7 @@ struct SpokenWordFolderRulesTests {
             SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Music"): .music,
             "episode": .spokenWord,
         ])
-        #expect(tags == ["nas": ["/Podcasts": .podcast]])
+        #expect(tags == ["nas": ["/Podcasts": .podcast, "/Music": .music]])
         let inputs = SpokenWordClassificationInputs(
             overrides: ["corrected": .music],
             folderRules: SpokenWordFolderRules(folderTags: tags, sources: [descriptor("nas", .webdav)])
@@ -63,6 +63,134 @@ struct SpokenWordFolderRulesTests {
             #expect(rules.kind(sourceID: "nas", filePath: "/Audio/Show2/01.mp3") == parent)
             #expect(rules.kind(sourceID: "nas", filePath: "/Elsewhere/01.mp3") == nil)
         }
+    }
+
+    @Test("A subfolder tagged music under a spoken-word folder goes back to what its files say")
+    func musicSubfolderStopsTheParentTag() {
+        let tags = SpokenWordFolderTag.folderTags(in: [
+            SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Books"): .spokenWord,
+            SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Books/Soundtrack"): .music,
+        ])
+        let rules = SpokenWordFolderRules(folderTags: tags, sources: [descriptor("nas", .smb)])
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/01.mp3") == .spokenWord)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Three Body/Disc 1/01.mp3") == .spokenWord)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/01.mp3") == nil)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/Deluxe/02.flac") == nil)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack2/01.mp3") == .spokenWord)
+
+        let inputs = SpokenWordClassificationInputs(folderRules: rules)
+        var verdicts: [String: ListeningContentKind] = [:]
+        for (path, genre, expected) in [
+            ("/Books/Soundtrack/01.mp3", nil, ListeningContentKind.music),
+            ("/Books/Soundtrack/01.mp3", "Audiobook", .spokenWord),
+            ("/Books/Soundtrack/02.m4b", nil, .spokenWord),
+            ("/Books/Other/01.mp3", nil, .spokenWord),
+        ] as [(String, String?, ListeningContentKind)] {
+            #expect(inputs.kind(songID: path, sourceID: "nas", filePath: path, genre: genre) == expected)
+            #expect(inputs.kind(songID: path, sourceID: "nas", filePath: path, genre: genre, genreVerdicts: &verdicts) == expected)
+        }
+
+        // 只有音乐标签的源没有要改的,不算有规则。
+        let musicOnly = SpokenWordFolderRules(folderTags: ["nas": ["/Music": .music]], sources: [descriptor("nas", .smb)])
+        #expect(musicOnly.isEmpty)
+    }
+
+    @Test("Library and whole-source music choices stay out of the folder table")
+    func reservedMusicTagsAreNotFolders() {
+        let tags = SpokenWordFolderTag.folderTags(in: [
+            SpokenWordFolderTag.overrideKey(sourceID: "abs", path: SpokenWordFolderTag.libraryPath(libraryID: "songs")): .music,
+            SpokenWordFolderTag.overrideKey(sourceID: "nd", path: SpokenWordFolderTag.wholeSourcePath): .music,
+            SpokenWordFolderTag.overrideKey(sourceID: "abs", path: SpokenWordFolderTag.libraryPath(libraryID: "books")): .spokenWord,
+            SpokenWordFolderTag.overrideKey(sourceID: "gd", path: "ost"): .music,
+        ])
+        #expect(tags == [
+            "abs": [SpokenWordFolderTag.libraryPath(libraryID: "books"): .spokenWord],
+            "gd": ["ost": .music],
+        ])
+        // Audiobookshelf 的音乐库仍按来源默认(有声)处理,和改动之前一样。
+        let rules = SpokenWordFolderRules(
+            folderTags: tags, sources: [descriptor("abs", .audiobookshelf)], declaredSpokenWordSourceIDs: ["abs"]
+        )
+        #expect(rules.kind(sourceID: "abs", filePath: "x", serverLibraryID: "songs") == .spokenWord)
+    }
+
+    @Test("On an item-id cloud drive a music subfolder stops the parent tag at every depth below it")
+    func cloudMusicSubfolder() {
+        let topology = SpokenWordFolderTopology(
+            fileParents: ["ch1": "santi", "intro": "books", "ost1": "ost", "ost2": "bonus"],
+            directoryParents: ["santi": "books", "ost": "books", "bonus": "ost", "books": "root"]
+        )
+        let kinds = topology.fileKinds(in: ["books": .spokenWord, "ost": .music])
+        #expect(kinds == ["ch1": .spokenWord, "intro": .spokenWord])
+        #expect(topology.fileKinds(in: ["ost": .music]).isEmpty)
+    }
+
+    @Test("A folder without its own tag shows the nearest tagged parent, by path or by the folders passed")
+    func tagStateFollowsNearestParent() {
+        let tags: [String: ListeningContentKind] = ["/Books/": .spokenWord, "/Books/OST": .music]
+        let child = SpokenWordFolderTagState.resolve(path: "/Books/Three Body", ancestors: [], sourceType: .smb, tags: tags)
+        #expect(child == SpokenWordFolderTagState(own: nil, inherited: .spokenWord, inheritedFrom: "/Books/"))
+        #expect(child.kind == .spokenWord)
+        #expect(child.followsParent)
+        // 和上级一致就不存,改回音乐要存成显式的音乐,改成播客照存。
+        #expect(child.storedTag(choosing: .spokenWord) == nil)
+        #expect(child.storedTag(choosing: .music) == .music)
+        #expect(child.storedTag(choosing: .podcast) == .podcast)
+
+        let own = SpokenWordFolderTagState.resolve(path: "/Books", ancestors: [], sourceType: .smb, tags: tags)
+        #expect(own == SpokenWordFolderTagState(own: .spokenWord))
+        #expect(!own.followsParent)
+        #expect(own.storedTag(choosing: .music) == nil)
+
+        // 最近一级是音乐:看起来和没标签一样,不算「跟随」。
+        let underMusic = SpokenWordFolderTagState.resolve(path: "/Books/OST/Disc 1", ancestors: [], sourceType: .smb, tags: tags)
+        #expect(underMusic.kind == .music)
+        #expect(underMusic.inheritedFrom == "/Books/OST")
+        #expect(!underMusic.followsParent)
+        #expect(underMusic.storedTag(choosing: .music) == nil)
+        #expect(underMusic.storedTag(choosing: .spokenWord) == .spokenWord)
+
+        let lookAlike = SpokenWordFolderTagState.resolve(path: "/Books2/A", ancestors: [], sourceType: .smb, tags: tags)
+        #expect(lookAlike == SpokenWordFolderTagState(own: nil))
+
+        // ID 寻址的网盘只能靠浏览经过的各级认上级;按库标的不算目录。
+        let cloudTags: [String: ListeningContentKind] = [
+            "books-id": .spokenWord, SpokenWordFolderTag.libraryPath(libraryID: "books-id"): .podcast,
+        ]
+        let cloudChild = SpokenWordFolderTagState.resolve(
+            path: "santi-id", ancestors: ["/", "books-id"], sourceType: .googleDrive, tags: cloudTags
+        )
+        #expect(cloudChild.inheritedFrom == "books-id")
+        #expect(cloudChild.kind == .spokenWord)
+        #expect(SpokenWordFolderTagState.resolve(
+            path: "santi-id", ancestors: ["/", "music-id"], sourceType: .googleDrive, tags: cloudTags
+        ) == SpokenWordFolderTagState(own: nil))
+        // 整个源标成有声(根)覆盖一切,但比任何目录都远。
+        let wholeSource = SpokenWordFolderTagState.resolve(
+            path: "santi-id", ancestors: ["/", "books-id"], sourceType: .googleDrive,
+            tags: ["/": .podcast, "books-id": .spokenWord]
+        )
+        #expect(wholeSource.inheritedFrom == "books-id")
+        #expect(SpokenWordFolderTagState.resolve(
+            path: "santi-id", ancestors: [], sourceType: .googleDrive, tags: ["/": .podcast]
+        ).inheritedFrom == "/")
+    }
+
+    @Test("The nearest enclosing folder is found by prefix on folder paths and by the chain elsewhere")
+    func nearestEnclosingFolder() {
+        let candidates = ["/", "/A", "/A/B", "/A/BC", "/X"]
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(of: "/A/B/C", among: candidates, for: .smb) == "/A/B")
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(of: "/A/B", among: candidates, for: .smb) == "/A")
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(of: "/A", among: candidates, for: .smb) == "/")
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(of: "/A", among: ["/A/"], for: .smb) == nil)
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(of: "/Q", among: ["/A"], for: .smb) == nil)
+        // 按 ID 寻址:路径看不出上下级,链里越靠后越近,不在链里的不算。
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(
+            of: "c", among: ["a", "b", "x"], ancestors: ["/", "a", "b"], for: .googleDrive
+        ) == "b")
+        #expect(SourceDirectorySelectionPolicy.nearestEnclosing(
+            of: "c", among: ["x"], ancestors: ["/", "a", "b"], for: .googleDrive
+        ) == nil)
     }
 
     @Test("Opaque cloud folders retain podcast kinds through nested tags, moves and cycles")
