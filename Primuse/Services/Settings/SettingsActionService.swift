@@ -25,7 +25,7 @@ struct SettingsActionService {
         "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.exclusiveOutput",
         "playback.autoContinueSimilar", "playback.gapless", "playback.crossfade", "playback.skipLeadingSilence",
         "playback.skipTrailingSilence", "playback.replayGain",
-        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
+        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.artworkLyrics", "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly"
@@ -119,6 +119,7 @@ struct SettingsActionService {
         case "playback.matchSampleRate": playback.outputMode == .highFidelity || playback.matchOutputSampleRate
         case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled
+        case "playback.mixWithOthers": playback.mixesWithOtherAudio
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.gapless": playback.gaplessEnabled
         case "playback.crossfade": playback.crossfadeEnabled
@@ -157,6 +158,7 @@ struct SettingsActionService {
         case "playback.matchSampleRate": playback.matchOutputSampleRate = enabled
         case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum = enabled
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled = enabled
+        case "playback.mixWithOthers": playback.mixesWithOtherAudio = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled
         case "playback.crossfade": playback.crossfadeEnabled = enabled

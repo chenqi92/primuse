@@ -6178,3 +6178,7 @@
 
 /* 歌词换句过渡在原生全屏下不起作用 */
 "immersive_lyrics_motion_native_note" = "原生全屏不使用这项";
+
+/* 与其他 App 同时播放 */
+"playback_mix_with_others" = "与其他 App 同时播放";
+"playback_mix_with_others_desc" = "播放时不打断其他 App 的声音，其他 App 出声时这里也不暂停，比如边听歌边玩游戏、看视频。打开后系统不再把 Primuse 当作正在播放的 App，锁屏、控制中心和耳机按键都控制不了它；连上 CarPlay 时自动恢复原来的方式。";

@@ -137,6 +137,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     var matchSampleRateWithinAlbum: Bool = false
     /// Mac 高保真直通时独占输出设备(Core Audio hog mode), 设备物理位深跟随歌曲。
     var exclusiveOutputEnabled: Bool = false
+    /// iPhone / iPad 播放时不打断别的 App 的声音(#311)。代价是系统不再把这里当作
+    /// 「正在播放」的 App, 锁屏与耳机按键控制不到; CarPlay 连着时不混音。
+    var mixesWithOtherAudio: Bool = false
 
     // Compressor / Limiter
     var effectChainEnabled: Bool = true
@@ -192,6 +195,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         matchSampleRateWithinAlbum = try c.decodeIfPresent(Bool.self, forKey: .matchSampleRateWithinAlbum) ?? false
         exclusiveOutputEnabled = try c.decodeIfPresent(Bool.self, forKey: .exclusiveOutputEnabled) ?? false
+        mixesWithOtherAudio = try c.decodeIfPresent(Bool.self, forKey: .mixesWithOtherAudio) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
@@ -235,6 +239,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         matchOutputSampleRate: Bool = false,
         matchSampleRateWithinAlbum: Bool = false,
         exclusiveOutputEnabled: Bool = false,
+        mixesWithOtherAudio: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
@@ -276,6 +281,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.matchOutputSampleRate = matchOutputSampleRate
         self.matchSampleRateWithinAlbum = matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = exclusiveOutputEnabled
+        self.mixesWithOtherAudio = mixesWithOtherAudio
         self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
@@ -315,6 +321,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         .init("prewarmQueueCount", \.prewarmQueueCount),
         // 头部追踪要这台设备连着带传感器的耳机; 空间音频本身是听感偏好, 照常同步。
         .init("spatialHeadTrackingEnabled", \.spatialHeadTrackingEnabled),
+        // 和别的 App 一起出声是这台设备上的用法: 手机边玩游戏边听, 不等于 iPad 也要。
+        .init("mixesWithOtherAudio", \.mixesWithOtherAudio),
         // 传输音质按这台设备的网络来: Mac 没有蜂窝, 手机的流量套餐也不是 Mac 的。
         .init("wifiStreamQuality", \.wifiStreamQuality),
         .init("cellularStreamQuality", \.cellularStreamQuality),
@@ -496,6 +504,7 @@ final class PlaybackSettingsStore {
     var matchOutputSampleRate: Bool { didSet { persist() } }
     var matchSampleRateWithinAlbum: Bool { didSet { persist() } }
     var exclusiveOutputEnabled: Bool { didSet { persist() } }
+    var mixesWithOtherAudio: Bool { didSet { persist() } }
 
     // Compressor / Limiter
     var effectChainEnabled: Bool { didSet { persist() } }
@@ -551,6 +560,7 @@ final class PlaybackSettingsStore {
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = s.exclusiveOutputEnabled
+        self.mixesWithOtherAudio = s.mixesWithOtherAudio
         self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
@@ -628,6 +638,7 @@ final class PlaybackSettingsStore {
         matchOutputSampleRate = s.matchOutputSampleRate
         matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         exclusiveOutputEnabled = s.exclusiveOutputEnabled
+        mixesWithOtherAudio = s.mixesWithOtherAudio
         effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
@@ -680,6 +691,7 @@ final class PlaybackSettingsStore {
             matchOutputSampleRate: matchOutputSampleRate,
             matchSampleRateWithinAlbum: matchSampleRateWithinAlbum,
             exclusiveOutputEnabled: exclusiveOutputEnabled,
+            mixesWithOtherAudio: mixesWithOtherAudio,
             effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,

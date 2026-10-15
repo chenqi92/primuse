@@ -6085,3 +6085,7 @@
 
 /* 歌词换句过渡在原生全屏下不起作用 */
 "immersive_lyrics_motion_native_note" = "Wird vom Vollbildeffekt Original nicht verwendet";
+
+/* 与其他 App 同时播放 */
+"playback_mix_with_others" = "Zusammen mit anderen Apps abspielen";
+"playback_mix_with_others_desc" = "Primuse unterbricht den Ton anderer Apps nicht und pausiert nicht, wenn sie etwas abspielen – so hörst du beim Spielen oder Videoschauen weiter. Solange das aktiv ist, behandelt das System Primuse nicht als die App, die gerade spielt: Sperrbildschirm, Kontrollzentrum und Kopfhörertasten steuern sie nicht. Mit CarPlay wird automatisch zurückgeschaltet.";

@@ -2315,6 +2315,15 @@ struct PlaybackSettingsView: View {
                 }
                 .settingsAnchor("lyrics.lockScreen")
             }
+
+            Section {
+                Toggle(isOn: $settings.mixesWithOtherAudio) {
+                    SettingsInfoLabel("playback_mix_with_others") {
+                        Text("playback_mix_with_others_desc")
+                    }
+                }
+                .settingsAnchor("playback.mixWithOthers")
+            }
             #endif
         }
         .navigationTitle("playback_settings")

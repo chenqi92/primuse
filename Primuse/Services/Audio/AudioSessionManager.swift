@@ -19,6 +19,12 @@ final class AudioSessionManager {
     private var isConfigured = false
     /// 卡拉OK麦克风开着时会话要能录音; 其余时候一律回到长音频播放。
     private(set) var isMicrophoneCaptureActive = false
+    /// 用户打开了「与其他 App 同时播放」。
+    private(set) var mixesWithOthersRequested = false
+    /// CarPlay 连着时不混音: 混音的会话当不了系统的「正在播放」App, 车机上就没有
+    /// 播放页, 方向盘键也到不了这里。
+    private(set) var isCarPlayActive = false
+    private var mixesWithOthers: Bool { mixesWithOthersRequested && !isCarPlayActive }
 
     private init() {}
 
@@ -97,6 +103,21 @@ final class AudioSessionManager {
         )
     }
 
+    /// 混音偏好或 CarPlay 状态变了。会话已经配过类别时当场换掉: 激活着就立刻按新类别
+    /// 与别的 App 共处, 没激活时只改类别, 不去打断别人。
+    func setMixingPreference(requested: Bool, carPlayActive: Bool) {
+        let wasMixing = mixesWithOthers
+        mixesWithOthersRequested = requested
+        isCarPlayActive = carPlayActive
+        guard isConfigured, mixesWithOthers != wasMixing else { return }
+        plog("🔊 Audio session mixWithOthers=\(mixesWithOthers) requested=\(requested) carPlay=\(carPlayActive)")
+        do {
+            try configurePlaybackSession(AVAudioSession.sharedInstance())
+        } catch {
+            plog("Failed to switch audio session mixing: \(error)")
+        }
+    }
+
     private func configurePlaybackSession(_ session: AVAudioSession) throws {
         // Long-form audio lets AirPlay own this app's route independently from
         // the device's default output, so other apps can keep using the phone.
@@ -109,6 +130,15 @@ final class AudioSessionManager {
                 mode: .default,
                 policy: .default,
                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowAirPlay]
+            )
+        } else if mixesWithOthers {
+            // 长音频路由策略不许带任何选项(SDK 头文件: Allowed options: None),
+            // 要混音只能退回默认策略。
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                policy: .default,
+                options: [.mixWithOthers]
             )
         } else {
             try session.setCategory(
@@ -224,8 +254,10 @@ final class AudioSessionManager {
 
     /// Foreground interruption recovery must never activate Primuse's
     /// non-mixable playback session while another app is still producing audio.
+    /// 混音时本来就和别的 App 一起出声, 它们在响不妨碍恢复。
     var otherAudioIsPlaying: Bool {
-        AVAudioSession.sharedInstance().isOtherAudioPlaying
+        guard !mixesWithOthers else { return false }
+        return AVAudioSession.sharedInstance().isOtherAudioPlaying
     }
 
     // MARK: - Interruption Handling
@@ -325,5 +357,7 @@ final class AudioSessionManager {
     var outputRouteIsSystemManagedWireless: Bool { false }
     var outputRouteIsBuiltIn: Bool { false }
     var otherAudioIsPlaying: Bool { false }
+    /// Mac 上各个 App 本来就同时出声。
+    func setMixingPreference(requested: Bool, carPlayActive: Bool) {}
 #endif
 }

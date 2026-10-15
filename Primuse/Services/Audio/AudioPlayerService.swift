@@ -1596,6 +1596,7 @@ final class AudioPlayerService {
         }
         #if os(iOS)
         observeCarAudioRouteState()
+        observeAudioSessionMixingSetting()
         observeLockScreenLyricsSetting()
         observeLockScreenLyricsChanges()
         observeLikedSongChanges()
@@ -1610,6 +1611,10 @@ final class AudioPlayerService {
 
         // Defer heavy system registrations to avoid blocking first frame
         Task { @MainActor [weak self] in
+            #if os(iOS)
+            // 类别第一次配好之前先把混音偏好交过去, 一开始就是用户选的那种。
+            self?.applyAudioSessionMixing()
+            #endif
             AudioSessionManager.shared.prepareForPlayback()
             self?.setupRemoteCommands()
             self?.setupAudioSessionCallbacks()
@@ -2479,6 +2484,26 @@ final class AudioPlayerService {
     }
 
     #if os(iOS)
+    /// 「与其他 App 同时播放」: 会话类别跟着设置走, CarPlay 连着时由会话管理自己退回不混音。
+    private func applyAudioSessionMixing() {
+        AudioSessionManager.shared.setMixingPreference(
+            requested: playbackSettings.mixesWithOtherAudio,
+            carPlayActive: isCarPlaySceneActive
+        )
+    }
+
+    private func observeAudioSessionMixingSetting() {
+        withObservationTracking {
+            _ = playbackSettings.mixesWithOtherAudio
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyAudioSessionMixing()
+                self.observeAudioSessionMixingSetting()
+            }
+        }
+    }
+
     private func observeCarAudioRouteState() {
         guard carPlayConnectObserver == nil else { return }
         // A restored player may publish metadata before didConnect reaches its
@@ -2499,6 +2524,7 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isCarPlaySceneActive = true
+                self.applyAudioSessionMixing()
                 self.publishLockScreenLyricsIfNeeded()
                 self.forceAudioOnlyIfNeeded()
             }
@@ -2512,6 +2538,7 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isCarPlaySceneActive = false
+                self.applyAudioSessionMixing()
                 self.publishLockScreenLyricsIfNeeded()
             }
         }

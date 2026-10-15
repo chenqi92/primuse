@@ -5845,3 +5845,7 @@
 
 /* 歌词换句过渡在原生全屏下不起作用 */
 "immersive_lyrics_motion_native_note" = "Not used by the Original fullscreen effect";
+
+/* 与其他 App 同时播放 */
+"playback_mix_with_others" = "Play Alongside Other Apps";
+"playback_mix_with_others_desc" = "Primuse won't interrupt other apps' audio or pause when they start playing, so you can listen while gaming or watching videos. While this is on, the system no longer treats Primuse as the Now Playing app, so the Lock Screen, Control Center and headphone buttons can't control it. Connecting to CarPlay switches back automatically.";

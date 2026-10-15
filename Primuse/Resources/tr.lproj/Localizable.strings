@@ -5991,3 +5991,7 @@
 
 /* 歌词换句过渡在原生全屏下不起作用 */
 "immersive_lyrics_motion_native_note" = "Orijinal tam ekran efekti bunu kullanmaz";
+
+/* 与其他 App 同时播放 */
+"playback_mix_with_others" = "Diğer uygulamalarla birlikte çal";
+"playback_mix_with_others_desc" = "Primuse diğer uygulamaların sesini kesmez, onlar ses çaldığında da duraklamaz; böylece oyun oynarken ya da video izlerken dinleyebilirsin. Açıkken sistem Primuse'u şu an çalan uygulama olarak görmez: kilit ekranı, Denetim Merkezi ve kulaklık düğmeleri onu kontrol edemez. CarPlay'e bağlanınca otomatik olarak olağan yönteme döner.";
