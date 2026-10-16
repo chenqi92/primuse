@@ -496,6 +496,7 @@ struct RadioStationsView: View {
     }
     #endif
 
+    /// 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟电台自己的颜色。
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if isManaging {
@@ -506,6 +507,7 @@ struct RadioStationsView: View {
                         selection = []
                     }
                 }
+                .tint(RadioSpacePalette.accent)
             }
 
             // 批量操作收进右上角菜单 —— 这个页面是 push 进 tab 里的，底部已经
@@ -531,11 +533,14 @@ struct RadioStationsView: View {
                 // 系统竖栏(iPhone Duo):「添加」一组、空间不够时最后才收;整理与版式一组,按钮都带标题。
                 ToolbarItemGroup(placement: .primaryAction) {
                     radioAddMenu
+                        .tint(RadioSpacePalette.accent)
                 }
                 .pmHighVisibilityPriority()
                 ToolbarItemGroup(placement: .primaryAction) {
                     radioManageButton
+                        .tint(RadioSpacePalette.accent)
                     radioLayoutToggle(titled: true)
+                        .tint(RadioSpacePalette.accent)
                 }
             } else {
                 radioStandardToolbarGroup
@@ -554,6 +559,7 @@ struct RadioStationsView: View {
             } label: {
                 Label("radio_manage", systemImage: "ellipsis.circle")
             }
+            .tint(RadioSpacePalette.accent)
             // 菜单里「删除」的确认框挂在这颗菜单上，从按钮长出来。
             .confirmationDialog(
                 String(localized: "radio_manage_delete_confirm_title"),
@@ -607,8 +613,11 @@ struct RadioStationsView: View {
     private var radioStandardToolbarGroup: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             radioManageButton
+                .tint(RadioSpacePalette.accent)
             radioLayoutToggle(titled: false)
+                .tint(RadioSpacePalette.accent)
             radioAddMenu
+                .tint(RadioSpacePalette.accent)
         }
     }
 

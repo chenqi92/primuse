@@ -159,11 +159,14 @@ struct PodcastLibraryToolbar: ToolbarContent {
     let navigation: PodcastNavigationModel
 
     var body: some ToolbarContent {
+        // 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟播客自己的颜色。
         ToolbarItem(placement: .primaryAction) {
             PodcastAddMenu(navigation: navigation)
+                .tint(ListeningSpace.podcast.tint)
         }
         ToolbarItem(placement: .primaryAction) {
             PodcastMoreMenu(navigation: navigation)
+                .tint(ListeningSpace.podcast.tint)
         }
     }
 }

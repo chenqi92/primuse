@@ -338,7 +338,9 @@ struct SpokenWordLibraryView: View {
         .toolbar {
             if !library.spokenWordSongs.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
+                    // 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟有声书自己的颜色。
                     homeSpotlightButton
+                        .tint(ListeningSpace.spokenWord.tint)
                 }
             }
         }
