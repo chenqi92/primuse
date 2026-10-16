@@ -603,6 +603,7 @@
 "reset" = "重設";
 "scraper_musicbrainz_desc" = "開放音樂資料庫，支援中繼資料和封面";
 "scraper_lrclib_desc" = "開放同步歌詞資料庫";
+"scraper_amll_desc" = "社群人工對時的逐字歌詞，常附翻譯";
 "scraper_itunes_desc" = "Apple iTunes Search API——中繼資料和高畫質封面";
 "custom_scraper_desc" = "使用者匯入的刮削來源";
 "import_scraper_source" = "匯入刮削來源";

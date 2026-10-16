@@ -1,7 +1,7 @@
 import Foundation
 import PrimuseKit
 
-actor LRCLIBScraper: MusicScraper {
+actor LRCLIBScraper: MusicScraper, DirectLyricsLookup {
     let type = MusicScraperType.lrclib
 
     private let session: URLSession

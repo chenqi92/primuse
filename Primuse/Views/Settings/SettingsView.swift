@@ -1356,12 +1356,12 @@ struct MetadataScrapingView: View {
                             .foregroundStyle(source.isEnabled ? source.type.themeColor : .secondary)
                             .frame(width: 28)
 
-                        if source.type == .lyricsServer {
+                        if let subtitle = scraperSourceSubtitle(for: source) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(source.type.displayName)
                                     .font(.subheadline)
                                     .fontWeight(.medium)
-                                Text(lyricsServerCountText)
+                                Text(subtitle)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -1723,6 +1723,15 @@ struct MetadataScrapingView: View {
     /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
     private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
         LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 源名称下的小字：歌词 API 服务写已配置几个地址；AMLL 名字看不出是什么，写一句它是什么。
+    private func scraperSourceSubtitle(for source: ScraperSourceConfig) -> String? {
+        switch source.type {
+        case .lyricsServer: lyricsServerCountText
+        case .amll: source.type.localizedDescription
+        default: nil
+        }
     }
 
     /// 歌词 API 服务那一行名称下的小字：已配置几个地址。

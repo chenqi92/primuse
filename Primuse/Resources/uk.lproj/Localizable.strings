@@ -2400,6 +2400,7 @@
 "SRC-29 · Apple Music Library" = "SRC-29 · Медіатека Apple Music";
 "delete_forever" = "Видалити назавжди";
 "scraper_lrclib_desc" = "Відкрити синхронізовану базу даних пісень";
+"scraper_amll_desc" = "Тексти з пословною синхронізацією від спільноти, часто з перекладом";
 "playlist_import_manual_match" = "Збіг вручну…";
 "cache_clear_partial_format" = "%@ очищено, але використаний(і) файл(и) %d видалити не вдалося. Зупиніть відтворення та повторіть спробу.";
 "Recently Played · Small" = "Нещодавно зіграні · Маленький";

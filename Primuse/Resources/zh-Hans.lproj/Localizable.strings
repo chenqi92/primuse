@@ -627,6 +627,7 @@
 // MARK: - 刮削源描述
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
 "scraper_lrclib_desc" = "开放同步歌词数据库";
+"scraper_amll_desc" = "社区人工打轴的逐字歌词，常带翻译";
 "scraper_itunes_desc" = "Apple iTunes Search API——元数据和高清封面";
 "custom_scraper_desc" = "用户导入的刮削源";
 "import_scraper_source" = "导入刮削源";

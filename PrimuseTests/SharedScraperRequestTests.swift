@@ -384,6 +384,106 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    func testAMLLFallsBackToTitleSearchAndReturnsWordLevelLyrics() async {
+        let fixture = ScraperHTTPFixture { request in
+            let components = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+            let items = components?.queryItems ?? []
+            switch components?.path {
+            case "/v1/lyrics/search" where items.contains(where: { $0.name == "artistName" }):
+                return .init(body: SharedScraperRequestTests.amllSearchBody([]))
+            case "/v1/lyrics/search":
+                return .init(body: SharedScraperRequestTests.amllSearchBody([(7, "晴天", "周杰伦")]))
+            case "/v1/lyrics/get" where items.first(where: { $0.name == "id" })?.value == "7":
+                return .init(body: SharedScraperRequestTests.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+            default:
+                return .init(status: 404)
+            }
+        }
+        defer { fixture.close() }
+        let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { _ in amll })
+        // 曲库里写的是繁体歌手名：接口按歌手搜不到，只按歌名搜出来后本地认出是同一位。
+        let result = await manager.scrapeMetadata(title: "晴天", artist: "周杰倫", album: nil, duration: 269,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: true, priority: 0)]))
+        XCTAssertEqual(result.lyrics?.count, 2)
+        XCTAssertTrue(result.lyrics?.allSatisfy(\.isWordLevel) ?? false)
+        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/v1/lyrics/search", "/v1/lyrics/search", "/v1/lyrics/get"])
+    }
+
+    func testAMLLLyricsLongerThanTheSongFallThroughToLRCLIB() async {
+        let fixture = ScraperHTTPFixture { request in
+            switch request.url?.path {
+            case "/v1/lyrics/search":
+                return .init(body: SharedScraperRequestTests.amllSearchBody([(7, "Song", "Artist")]))
+            case "/v1/lyrics/get":
+                return .init(body: SharedScraperRequestTests.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+            case "/api/get":
+                return .init(body: Data(#"{"syncedLyrics":"[00:01.00]Hello"}"#.utf8))
+            default:
+                return .init(status: 404)
+            }
+        }
+        defer { fixture.close() }
+        let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let lrclib = LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { config in
+            if config.type == .amll { return amll }
+            return lrclib
+        })
+        let result = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: 150,
+            needs: .init(metadata: false, cover: false, lyrics: true), settings: .init(sources: [
+                .init(id: "amll", type: .amll, isEnabled: true, priority: 0),
+                .init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 1)
+            ]))
+        XCTAssertEqual(result.lyrics?.map(\.text), ["Hello"])
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/v1/lyrics/search", "/v1/lyrics/get", "/api/get"])
+    }
+
+    func testExistingSettingsGainAMLLRightBeforeLRCLIB() throws {
+        let suite = "amll-settings-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let saved = ScraperSettings(sources: [
+            .init(id: "itunes", type: .itunes, isEnabled: true, priority: 0),
+            .init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 1),
+            .init(id: "musicbrainz", type: .musicBrainz, isEnabled: false, priority: 2),
+            .init(id: "server", type: .lyricsServer, isEnabled: false, priority: 3)
+        ])
+        saved.save(defaults: defaults)
+
+        let loaded = ScraperSettings.load(defaults: defaults)
+        let builtIns = loaded.sources.filter(\.type.isBuiltIn).map(\.type)
+        XCTAssertEqual(builtIns, [.itunes, .amll, .lrclib, .musicBrainz, .lyricsServer])
+        XCTAssertEqual(loaded.sources.first { $0.type == .amll }?.isEnabled, false)
+        XCTAssertEqual(loaded.sources.map(\.priority), Array(loaded.sources.indices))
+    }
+
+    private static func amllSearchBody(_ songs: [(id: Int, title: String, artist: String)]) -> Data {
+        let items: [[String: Any]] = songs.map {
+            ["id": $0.id, "musicNames": [$0.title], "artistNames": [$0.artist], "albumNames": []]
+        }
+        let body: [String: Any] = ["status": 200, "data": ["items": items, "pagination": [
+            "page": 1, "pageSize": 50, "total": items.count, "totalPages": items.isEmpty ? 0 : 1, "hasMore": false
+        ]]]
+        return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
+    }
+
+    private static func amllLyricsBody(id: Int, lastLineEnd: String) -> Data {
+        let ttml = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>\
+        <p begin="00:10.000" end="00:12.000" ttm:agent="v1"><span begin="00:10.000" end="00:11.000">故</span>\
+        <span begin="00:11.000" end="00:12.000">事</span></p>\
+        <p begin="03:10.000" end="\(lastLineEnd)" ttm:agent="v1"><span begin="03:10.000" end="03:15.000">的</span>\
+        <span begin="03:15.000" end="\(lastLineEnd)">花</span></p></div></body></tt>
+        """
+        let body: [String: Any] = ["status": 200, "data": [
+            "id": id, "musicNames": ["x"], "artistNames": ["y"], "albumNames": [], "lyrics": ttml, "format": "ttml"
+        ]]
+        return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
+    }
+
     private func scrape(_ manager: ScraperManager, type: MusicScraperType) async -> ScrapeResult {
         await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: nil,
             needs: .init(metadata: false, cover: false, lyrics: true),

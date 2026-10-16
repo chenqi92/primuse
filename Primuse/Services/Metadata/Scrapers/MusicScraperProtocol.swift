@@ -18,6 +18,17 @@ extension MusicScraper {
     func isCoolingDown() async -> Bool { false }
 }
 
+/// 不靠搜索候选、直接按歌名和歌手取歌词的源（LRCLIB、歌词 API 服务、AMLL）。
+/// 刮削时绕过「搜索 → 取歌词」那一套，由各源自己决定怎么查、怎么认。
+protocol DirectLyricsLookup: MusicScraper {
+    func fetchLyrics(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?
+    ) async throws -> ScraperLyricsResult?
+}
+
 enum ScraperError: Error, LocalizedError {
     case networkError(String)
     case parseError(String)

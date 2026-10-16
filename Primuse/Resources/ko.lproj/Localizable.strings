@@ -835,6 +835,7 @@
 "reset" = "재설정";
 "scraper_musicbrainz_desc" = "개방형 음악 데이터베이스, 메타데이터 및 커버 제공";
 "scraper_lrclib_desc" = "개방형 동기화 가사 데이터베이스";
+"scraper_amll_desc" = "커뮤니티가 만든 단어 단위 싱크 가사, 번역이 함께 있는 경우가 많음";
 "scraper_itunes_desc" = "Apple iTunes Search API — 메타데이터 및 고해상도 커버";
 "custom_scraper_desc" = "사용자가 가져온 가져오기 소스";
 "import_scraper_source" = "가져오기 소스 가져오기";

@@ -2400,6 +2400,7 @@
 "SRC-29 · Apple Music Library" = "SRC-29 · Apple Music Arşivi";
 "delete_forever" = "Sonsuza kadar sil";
 "scraper_lrclib_desc" = "Senkronize şarkı sözleri veritabanını aç";
+"scraper_amll_desc" = "Topluluk tarafından kelime kelime senkronize edilmiş sözler, çoğunlukla çevirili";
 "playlist_import_manual_match" = "Manuel Eşleştirme…";
 "cache_clear_partial_format" = "%@ temizlendi, ancak kullanımdaki %d dosyaları kaldırılamadı. Oynatmayı duraklatın ve tekrar deneyin.";
 "Recently Played · Small" = "Son Oynananlar · Küçük";

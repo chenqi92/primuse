@@ -5,7 +5,7 @@ import PrimuseKit
 /// `GET <地址>?title=&artist=&album=&duration=`，可选 `Authorization` 头。
 ///
 /// 地址不设限制：不做 http→https 升级，不拒绝任何主机（用户明确要求，App 的 ATS 已全开）。
-actor LyricsAPIServerScraper: MusicScraper {
+actor LyricsAPIServerScraper: MusicScraper, DirectLyricsLookup {
     let type = MusicScraperType.lyricsServer
 
     private let servers: [LyricsAPIServer]

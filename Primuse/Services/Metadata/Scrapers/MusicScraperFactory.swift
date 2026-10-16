@@ -7,6 +7,8 @@ enum MusicScraperFactory {
             MusicBrainzScraper()
         case .lrclib:
             LRCLIBScraper()
+        case .amll:
+            AMLLScraper()
         case .itunes:
             ITunesScraper()
         case .lyricsServer:

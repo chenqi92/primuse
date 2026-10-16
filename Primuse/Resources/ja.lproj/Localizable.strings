@@ -836,6 +836,7 @@
 "reset" = "リセット";
 "scraper_musicbrainz_desc" = "オープンな音楽データベース、メタデータとカバー";
 "scraper_lrclib_desc" = "オープンな同期歌詞データベース";
+"scraper_amll_desc" = "コミュニティ制作の単語同期歌詞。翻訳付きのものが多い";
 "scraper_itunes_desc" = "Apple の iTunes Search API — メタデータと高解像度カバー";
 "custom_scraper_desc" = "ユーザーが読み込んだ取得ソース";
 "import_scraper_source" = "取得ソースを読み込む";

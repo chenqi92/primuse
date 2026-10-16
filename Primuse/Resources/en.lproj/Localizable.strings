@@ -627,6 +627,7 @@
 // MARK: - Scraper Source Descriptions
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";
 "scraper_lrclib_desc" = "Open synced lyrics database";
+"scraper_amll_desc" = "Community word-synced lyrics, often with translations";
 "scraper_itunes_desc" = "Apple's iTunes Search API — metadata and high-resolution covers";
 "custom_scraper_desc" = "User-imported scraper";
 "import_scraper_source" = "Import Scraper Source";

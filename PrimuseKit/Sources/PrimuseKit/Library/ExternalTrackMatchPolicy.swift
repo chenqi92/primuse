@@ -161,18 +161,25 @@ public enum ExternalTrackMatchPolicy {
 
     /// 一个歌手字段拆成若干个归一化后的名字。
     public static func artistTokens(_ artist: String) -> [String] {
-        var parts = [artist]
-        for separator in artistSeparators {
-            parts = parts.flatMap { $0.components(separatedBy: separator) }
-        }
         var tokens: [String] = []
-        for part in parts {
+        for part in artistNames(artist) {
             let normalized = normalize(part)
             if !normalized.isEmpty, !unknownArtistNames.contains(normalized) {
                 tokens.append(normalized)
             }
         }
         return tokens
+    }
+
+    /// 一个歌手字段按分隔符拆开，保留原写法（只去首尾空白），给要拿原名去搜索的地方用。
+    public static func artistNames(_ artist: String) -> [String] {
+        var parts = [artist]
+        for separator in artistSeparators {
+            parts = parts.flatMap { $0.components(separatedBy: separator) }
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private static func markers(in annotation: String, requireWholeAnnotation: Bool = false) -> Set<VersionMarker> {

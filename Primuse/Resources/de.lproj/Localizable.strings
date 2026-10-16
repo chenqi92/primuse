@@ -835,6 +835,7 @@
 "reset" = "Zurücksetzen";
 "scraper_musicbrainz_desc" = "Offene Musikdatenbank, Metadaten und Cover";
 "scraper_lrclib_desc" = "Offene Datenbank für synchronisierte Liedtexte";
+"scraper_amll_desc" = "Wortgenaue Liedtexte aus der Community, oft mit Übersetzung";
 "scraper_itunes_desc" = "Apples iTunes Search API – Metadaten und hochauflösende Cover";
 "custom_scraper_desc" = "Vom Benutzer importierte Abrufquelle";
 "import_scraper_source" = "Abrufquelle importieren";

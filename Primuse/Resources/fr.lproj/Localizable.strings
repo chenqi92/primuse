@@ -835,6 +835,7 @@
 "reset" = "Réinitialiser";
 "scraper_musicbrainz_desc" = "Base de données musicale ouverte, métadonnées et pochettes";
 "scraper_lrclib_desc" = "Base de données ouverte de paroles synchronisées";
+"scraper_amll_desc" = "Paroles synchronisées mot à mot par la communauté, souvent traduites";
 "scraper_itunes_desc" = "API de recherche iTunes d'Apple — métadonnées et pochettes haute résolution";
 "custom_scraper_desc" = "Source de récupération importée par l'utilisateur";
 "import_scraper_source" = "Importer une source de récupération";

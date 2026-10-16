@@ -4,6 +4,8 @@ import SwiftUI
 enum MusicScraperType: Sendable, Identifiable, Hashable {
     case musicBrainz
     case lrclib
+    /// AMLL TTML DB 社区逐字歌词库（api.amll.dev）
+    case amll
     case itunes
     /// 用户自填的歌词 API 服务器（地址列表存在 LyricsAPIServerSettings）
     case lyricsServer
@@ -13,6 +15,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
+        case .amll: "amll"
         case .itunes: "itunes"
         case .lyricsServer: "lyricsServer"
         case .custom(let configId): "custom_\(configId)"
@@ -24,6 +27,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
+        case .amll: "amll"
         case .itunes: "itunes"
         case .lyricsServer: "lyricsServer"
         case .custom(let configId): "custom:\(configId)"
@@ -34,6 +38,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch rawValue {
         case "musicBrainz": self = .musicBrainz
         case "lrclib": self = .lrclib
+        case "amll": self = .amll
         case "itunes": self = .itunes
         case "lyricsServer": self = .lyricsServer
         default:
@@ -50,6 +55,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "MusicBrainz"
         case .lrclib: "LRCLIB"
+        case .amll: "AMLL TTML DB"
         case .itunes: "Apple Music"
         case .lyricsServer: String(localized: "scraper_lyrics_server_name")
         case .custom(let configId):
@@ -81,6 +87,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "globe"
         case .lrclib: "text.quote"
+        case .amll: "quote.bubble"
         case .itunes: "applelogo"
         case .lyricsServer: "server.rack"
         case .custom(let configId):
@@ -92,6 +99,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: Color(red: 0.73, green: 0.28, blue: 0.56)
         case .lrclib: Color(red: 0.39, green: 0.4, blue: 0.95)
+        case .amll: Color(red: 0.93, green: 0.45, blue: 0.24)
         case .itunes: Color(red: 0.98, green: 0.18, blue: 0.36)
         case .lyricsServer: Color(red: 0.16, green: 0.62, blue: 0.56)
         case .custom(let configId):
@@ -107,6 +115,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: return String(localized: "scraper_musicbrainz_desc")
         case .lrclib: return String(localized: "scraper_lrclib_desc")
+        case .amll: return String(localized: "scraper_amll_desc")
         case .itunes: return String(localized: "scraper_itunes_desc")
         case .lyricsServer: return String(localized: "scraper_lyrics_server_desc")
         case .custom(let configId):
@@ -118,7 +127,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     var supportsMetadata: Bool {
         switch self {
         case .musicBrainz: true
-        case .lrclib: false
+        case .lrclib, .amll: false
         case .itunes: true
         case .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsMetadata ?? false
@@ -128,7 +137,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     var supportsCover: Bool {
         switch self {
         case .musicBrainz: true
-        case .lrclib: false
+        case .lrclib, .amll: false
         case .itunes: true
         case .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCover ?? false
@@ -138,7 +147,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     var supportsLyrics: Bool {
         switch self {
         case .musicBrainz: false
-        case .lrclib: true
+        case .lrclib, .amll: true
         case .itunes: false
         case .lyricsServer: true
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsLyrics ?? false
@@ -146,9 +155,10 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     }
 
     /// 是否支持逐字（word-level / karaoke）歌词。
-    /// 内置源里只有 lrclib 偶发，但默认按行级处理；自定义源由 capabilities 声明。
+    /// 内置源里 AMLL 全是逐字；lrclib 偶发，但默认按行级处理；自定义源由 capabilities 声明。
     var supportsWordLevelLyrics: Bool {
         switch self {
+        case .amll: true
         case .musicBrainz, .lrclib, .itunes, .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsWordLevelLyrics ?? false
         }
@@ -156,21 +166,30 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
 
     var supportsCookie: Bool {
         switch self {
-        case .musicBrainz, .lrclib, .itunes, .lyricsServer: false
+        case .musicBrainz, .lrclib, .amll, .itunes, .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCookie ?? false
         }
     }
 
     var isBuiltIn: Bool {
         switch self {
-        case .musicBrainz, .lrclib, .itunes, .lyricsServer: true
+        case .musicBrainz, .lrclib, .amll, .itunes, .lyricsServer: true
         case .custom: false
         }
     }
 
-    /// Built-in scrapers in default order
+    /// 刮削歌词时不走「搜索 → 取歌词」，直接按歌名、歌手取（实例实现 `DirectLyricsLookup`）。
+    var usesDirectLyricsLookup: Bool {
+        switch self {
+        case .lrclib, .amll, .lyricsServer: true
+        case .musicBrainz, .itunes, .custom: false
+        }
+    }
+
+    /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序找到即停，
+    /// 逐字歌词库放后面就永远轮不到。
     static var builtInOrder: [MusicScraperType] {
-        [.itunes, .musicBrainz, .lrclib, .lyricsServer]
+        [.itunes, .musicBrainz, .amll, .lrclib, .lyricsServer]
     }
 }
 

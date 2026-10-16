@@ -2866,6 +2866,7 @@
 "scraper_import_auto_footer" = "Cole o JSON do provedor de metadados ou uma URL HTTPS de configuração. O formato é detectado automaticamente.";
 "scraper_itunes_desc" = "Pesquisa iTunes do Apple API — metadados e capas de alta resolução";
 "scraper_lrclib_desc" = "Abrir banco de dados de letras sincronizadas";
+"scraper_amll_desc" = "Letras sincronizadas palavra por palavra pela comunidade, muitas vezes com tradução";
 "scraper_musicbrainz_desc" = "Banco de dados de música aberto, metadados e capas";
 "scraper_no_source_message" = "A busca de metadados exige pelo menos um provedor ativo. Abra os Ajustes para ativar um provedor integrado ou importar um personalizado.";
 "scraper_no_source_open_settings" = "Abrir Configurações";

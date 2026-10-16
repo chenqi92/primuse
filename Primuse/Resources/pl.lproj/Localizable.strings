@@ -2866,6 +2866,7 @@
 "scraper_import_auto_footer" = "Wklej konfigurację JSON dostawcy metadanych lub jej adres HTTPS. Format zostanie wykryty automatycznie.";
 "scraper_itunes_desc" = "Wyszukiwarka iTunes Apple API — metadane i okładki w wysokiej rozdzielczości";
 "scraper_lrclib_desc" = "Otwórz bazę danych zsynchronizowanych tekstów";
+"scraper_amll_desc" = "Teksty synchronizowane słowo po słowie przez społeczność, często z tłumaczeniem";
 "scraper_musicbrainz_desc" = "Otwarta baza danych muzycznych, metadane i okładki";
 "scraper_no_source_message" = "Pobieranie metadanych wymaga co najmniej jednego włączonego dostawcy. Otwórz Ustawienia, aby włączyć wbudowanego dostawcę lub zaimportować własnego.";
 "scraper_no_source_open_settings" = "Otwórz Ustawienia";

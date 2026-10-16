@@ -76,7 +76,7 @@ struct ScraperSettings: Codable, Sendable {
             var migrated = settings
             migrated.sources = settings.sources.filter { source in
                 switch source.type {
-                case .musicBrainz, .lrclib, .itunes, .lyricsServer: true
+                case .musicBrainz, .lrclib, .amll, .itunes, .lyricsServer: true
                 case .custom(let id): ScraperConfigStore.shared.exists(id: id)
                 }
             }
@@ -86,8 +86,8 @@ struct ScraperSettings: Codable, Sendable {
                     migrated.sources.append(ScraperSourceConfig(
                         id: UUID().uuidString,
                         type: builtIn,
-                        // v2 时代的内置源都默认开启；歌词服务器是后来加的，按新默认值处理。
-                        isEnabled: builtIn == .lyricsServer
+                        // v2 时代的内置源都默认开启；歌词服务器、AMLL 是后来加的，按新默认值处理。
+                        isEnabled: builtIn == .lyricsServer || builtIn == .amll
                             ? ScraperSourceConfig.defaultEnabled(for: builtIn)
                             : true,
                         priority: migrated.sources.count
@@ -154,6 +154,19 @@ struct ScraperSettings: Codable, Sendable {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
     }
 
+    /// 新内置源在按优先级排好的列表里该插在哪：默认顺序里排在它后面、且已经在列表里的第一个内置源的位置。
+    /// 后面没有这样的源时返回 nil（追加到末尾）。
+    static func builtInInsertionIndex(
+        for builtIn: MusicScraperType,
+        in sources: [ScraperSourceConfig]
+    ) -> Int? {
+        let order = MusicScraperType.builtInOrder
+        guard let position = order.firstIndex(of: builtIn) else { return nil }
+        let followers = Set(order[order.index(after: position)...])
+        let sorted = sources.sorted { $0.priority < $1.priority }
+        return sorted.firstIndex { followers.contains($0.type) }
+    }
+
     private static func reconcileLoadedSettings(_ settings: ScraperSettings) -> (ScraperSettings, Bool) {
         var reconciled = settings
         var didChange = false
@@ -178,15 +191,25 @@ struct ScraperSettings: Codable, Sendable {
         let hadITunes = reconciled.sources.contains(where: { $0.type == .itunes })
 
         for builtIn in MusicScraperType.builtInOrder where !reconciled.sources.contains(where: { $0.type == builtIn }) {
-            reconciled.sources.append(
-                ScraperSourceConfig(
-                    id: UUID().uuidString,
-                    type: builtIn,
-                    isEnabled: ScraperSourceConfig.defaultEnabled(for: builtIn),
-                    priority: nextPriority
-                )
+            let added = ScraperSourceConfig(
+                id: UUID().uuidString,
+                type: builtIn,
+                isEnabled: ScraperSourceConfig.defaultEnabled(for: builtIn),
+                priority: nextPriority
             )
-            nextPriority += 1
+            // 后来加的内置源排到默认顺序里紧跟它的那个内置源前面（AMLL 在 LRCLIB 前），
+            // 不然它落到列表末尾，歌词按顺序找到即停就轮不到它；优先级随后统一重排。
+            if let insertionIndex = Self.builtInInsertionIndex(for: builtIn, in: reconciled.sources) {
+                reconciled.sources.sort { $0.priority < $1.priority }
+                reconciled.sources.insert(added, at: insertionIndex)
+                for index in reconciled.sources.indices {
+                    reconciled.sources[index].priority = index
+                }
+                nextPriority = reconciled.sources.count
+            } else {
+                reconciled.sources.append(added)
+                nextPriority += 1
+            }
             didChange = true
         }
 

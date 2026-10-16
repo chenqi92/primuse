@@ -285,25 +285,14 @@ actor ScraperManager {
                 do {
                     let scraper = getScraper(for: config)
 
-                    if config.type == .lrclib {
-                        // LRCLIB uses direct lookup, not search；没有歌手时它内部改走按标题搜索。
-                        guard let lrclibScraper = scraper as? LRCLIBScraper else {
-                            throw ScraperError.parseError("LRCLIB scraper cache type mismatch")
+                    if config.type.usesDirectLyricsLookup {
+                        // LRCLIB、歌词 API 服务、AMLL 不走搜索候选，按歌名和歌手直接取：
+                        // LRCLIB 没有歌手时内部改走按标题搜索；歌词 API 按地址顺序找到即停；
+                        // AMLL 自己搜、自己核对歌手与时长。
+                        guard let directScraper = scraper as? any DirectLyricsLookup else {
+                            throw ScraperError.parseError("\(config.type.displayName) scraper cache type mismatch")
                         }
-                        let fetchedLyrics = try await lrclibScraper.fetchLyrics(
-                            title: cleanedTitle, artist: effectiveArtist, album: album, duration: duration
-                        )
-                        registerSuccess(config)
-                        if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
-                            result.lyrics = parseLyrics(lyricsResult)
-                            if result.lyrics != nil { break }
-                        }
-                    } else if config.type == .lyricsServer {
-                        // 用户自填的歌词 API 服务器：按地址列表顺序直接取，找到即停。
-                        guard let lyricsServerScraper = scraper as? LyricsAPIServerScraper else {
-                            throw ScraperError.parseError("Lyrics API server scraper cache type mismatch")
-                        }
-                        let fetchedLyrics = try await lyricsServerScraper.fetchLyrics(
+                        let fetchedLyrics = try await directScraper.fetchLyrics(
                             title: cleanedTitle, artist: effectiveArtist, album: album, duration: duration
                         )
                         registerSuccess(config)
