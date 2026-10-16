@@ -1493,8 +1493,11 @@ struct SpokenWordBookOfflineRow: View {
     let songs: [Song]
 
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(AudioPlayerService.self) private var player
     @State private var downloadedIDs: Set<String> = []
     @State private var showsUnavailableReason = false
+    /// 开着却还没下完时,常驻下载此刻在等什么(播放中、等 Wi-Fi、低电量……)。
+    @State private var waitingReason: AutomaticOfflineDownloadDeferralReason?
 
     private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
 
@@ -1504,6 +1507,13 @@ struct SpokenWordBookOfflineRow: View {
         let isEnabled: Bool
         let snapshotRevision: Int
         let pinRevision: Int
+    }
+
+    private struct WaitingKey: Equatable {
+        let isWaiting: Bool
+        let isPlaying: Bool
+        let isBuffering: Bool
+        let networkGeneration: UInt64
     }
 
     var body: some View {
@@ -1523,7 +1533,12 @@ struct SpokenWordBookOfflineRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("playlist_always_download")
                     .font(.subheadline.weight(.semibold))
-                Text(statusText(availability: availability, isEnabled: isEnabled, progress: progress))
+                Text(statusText(
+                    availability: availability,
+                    isEnabled: isEnabled,
+                    progress: progress,
+                    waitingReason: waitingReason
+                ))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1589,12 +1604,30 @@ struct SpokenWordBookOfflineRow: View {
             guard !Task.isCancelled else { return }
             downloadedIDs = Set(items.map(\.song.id))
         }
+        // 开着还没下完时说明在等什么:播放、网络换了马上重算,电量、发热、空间这类隔一会儿再看一次。
+        .task(id: WaitingKey(
+            isWaiting: availability == .available && isEnabled && !progress.isComplete,
+            isPlaying: player.isPlaybackActive,
+            isBuffering: player.isLoading,
+            networkGeneration: NetworkMonitor.shared.pathGeneration
+        )) {
+            guard availability == .available, isEnabled, !progress.isComplete else {
+                waitingReason = nil
+                return
+            }
+            let nextChapterBytes = downloadable.first { !downloadedIDs.contains($0.id) }?.fileSize ?? 0
+            while !Task.isCancelled {
+                waitingReason = coordinator.waitingReason(expectedDownloadBytes: nextChapterBytes)
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
     }
 
     private func statusText(
         availability: AudiobookOfflinePolicy.Availability,
         isEnabled: Bool,
-        progress: AudiobookOfflinePolicy.Progress
+        progress: AudiobookOfflinePolicy.Progress,
+        waitingReason: AutomaticOfflineDownloadDeferralReason?
     ) -> String {
         switch availability {
         case .alreadyOnDevice:
@@ -1608,13 +1641,38 @@ struct SpokenWordBookOfflineRow: View {
             return String(localized: "spoken_word_keep_offline_complete")
         }
         if isEnabled || progress.downloaded > 0 {
-            return String(
+            let counted = String(
                 format: String(localized: "spoken_word_keep_offline_progress_format"),
                 progress.downloaded,
                 progress.total
             )
+            guard isEnabled, let waiting = Self.waitingText(waitingReason) else { return counted }
+            return counted + " \u{00B7} " + waiting
         }
         return String(localized: "spoken_word_keep_offline_hint")
+    }
+
+    /// 常驻下载停着的原因,接在「已下载 N/M 章」后面。前台这一条在页面上看不到,不写。
+    private static func waitingText(_ reason: AutomaticOfflineDownloadDeferralReason?) -> String? {
+        guard let reason else { return nil }
+        switch reason {
+        case .applicationInactive:
+            return nil
+        case .playbackActive, .playbackBuffering:
+            return String(localized: "spoken_word_keep_offline_waiting_playback")
+        case .networkUndetermined, .networkUnavailable:
+            return String(localized: "spoken_word_keep_offline_waiting_network")
+        case .expensiveNetwork:
+            return String(localized: "spoken_word_keep_offline_waiting_wifi")
+        case .constrainedNetwork:
+            return String(localized: "spoken_word_keep_offline_waiting_low_data")
+        case .lowPower:
+            return String(localized: "spoken_word_keep_offline_waiting_low_power")
+        case .thermalPressure:
+            return String(localized: "spoken_word_keep_offline_waiting_thermal")
+        case .insufficientDiskSpace:
+            return String(localized: "spoken_word_keep_offline_waiting_disk")
+        }
     }
 }
 

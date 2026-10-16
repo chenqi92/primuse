@@ -6093,6 +6093,13 @@
 "spoken_word_keep_offline_unsupported_message" = "この本のソースはオフラインダウンロードに対応していません。";
 "spoken_word_keep_offline_on_device_short" = "このデバイスにあります";
 "spoken_word_keep_offline_unsupported_short" = "ソースが非対応";
+"spoken_word_keep_offline_waiting_playback" = "再生中は待機し、止めると再開";
+"spoken_word_keep_offline_waiting_network" = "オンラインになると再開";
+"spoken_word_keep_offline_waiting_wifi" = "Wi-Fi 接続を待っています";
+"spoken_word_keep_offline_waiting_low_data" = "低データモードのため一時停止";
+"spoken_word_keep_offline_waiting_low_power" = "低電力モードのため一時停止";
+"spoken_word_keep_offline_waiting_thermal" = "本体が高温のため一時停止";
+"spoken_word_keep_offline_waiting_disk" = "空き容量不足のため一時停止";
 "player_backdrop_audiobooks" = "オーディオブックにも使用";
 "player_backdrop_audiobooks_hint" = "ダークモードではオーディオブックの再生画面にもこの背景を表示します。ライトモードは紙のような背景のままです。";
 

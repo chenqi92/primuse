@@ -6092,6 +6092,13 @@
 "spoken_word_keep_offline_unsupported_message" = "이 책의 소스는 오프라인 다운로드를 지원하지 않습니다.";
 "spoken_word_keep_offline_on_device_short" = "이미 이 기기에 있음";
 "spoken_word_keep_offline_unsupported_short" = "소스가 다운로드를 지원하지 않음";
+"spoken_word_keep_offline_waiting_playback" = "재생 중에는 대기, 멈추면 이어서 받음";
+"spoken_word_keep_offline_waiting_network" = "온라인이 되면 이어서 받음";
+"spoken_word_keep_offline_waiting_wifi" = "Wi-Fi 연결을 기다리는 중";
+"spoken_word_keep_offline_waiting_low_data" = "저데이터 모드로 일시 정지";
+"spoken_word_keep_offline_waiting_low_power" = "저전력 모드로 일시 정지";
+"spoken_word_keep_offline_waiting_thermal" = "기기가 뜨거워 일시 정지";
+"spoken_word_keep_offline_waiting_disk" = "저장 공간 부족으로 일시 정지";
 "player_backdrop_audiobooks" = "오디오북에도 사용";
 "player_backdrop_audiobooks_hint" = "다크 모드에서는 오디오북 재생 화면에도 이 배경을 표시합니다. 라이트 모드는 종이 배경을 유지합니다.";
 

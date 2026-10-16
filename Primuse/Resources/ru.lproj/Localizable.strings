@@ -5998,6 +5998,13 @@
 "spoken_word_keep_offline_unsupported_message" = "Источники этой книги не поддерживают офлайн-загрузку.";
 "spoken_word_keep_offline_on_device_short" = "Уже на этом устройстве";
 "spoken_word_keep_offline_unsupported_short" = "Источник не поддерживает загрузку";
+"spoken_word_keep_offline_waiting_playback" = "На паузе во время воспроизведения, продолжится после остановки";
+"spoken_word_keep_offline_waiting_network" = "Продолжится, когда появится сеть";
+"spoken_word_keep_offline_waiting_wifi" = "Ждёт Wi-Fi";
+"spoken_word_keep_offline_waiting_low_data" = "На паузе в режиме экономии данных";
+"spoken_word_keep_offline_waiting_low_power" = "На паузе в режиме энергосбережения";
+"spoken_word_keep_offline_waiting_thermal" = "На паузе: устройство перегрето";
+"spoken_word_keep_offline_waiting_disk" = "На паузе: мало места";
 "player_backdrop_audiobooks" = "Также для аудиокниг";
 "player_backdrop_audiobooks_hint" = "В тёмном режиме плеер аудиокниг тоже показывает этот фон. В светлом режиме остаётся бумажный фон.";
 

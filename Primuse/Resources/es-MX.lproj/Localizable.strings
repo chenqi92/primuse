@@ -5998,6 +5998,13 @@
 "spoken_word_keep_offline_unsupported_message" = "Las fuentes de este libro no admiten descargas sin conexión.";
 "spoken_word_keep_offline_on_device_short" = "Ya está en este dispositivo";
 "spoken_word_keep_offline_unsupported_short" = "La fuente no admite descargas";
+"spoken_word_keep_offline_waiting_playback" = "En pausa mientras reproduces; sigue al detener";
+"spoken_word_keep_offline_waiting_network" = "Sigue cuando haya conexión";
+"spoken_word_keep_offline_waiting_wifi" = "Esperando Wi-Fi";
+"spoken_word_keep_offline_waiting_low_data" = "En pausa por el modo de datos reducidos";
+"spoken_word_keep_offline_waiting_low_power" = "En pausa por el modo de bajo consumo";
+"spoken_word_keep_offline_waiting_thermal" = "En pausa, el dispositivo está caliente";
+"spoken_word_keep_offline_waiting_disk" = "En pausa: no hay espacio suficiente";
 "player_backdrop_audiobooks" = "Usar también en audiolibros";
 "player_backdrop_audiobooks_hint" = "En modo oscuro, el reproductor de audiolibros también muestra este fondo. El modo claro conserva su fondo de papel.";
 

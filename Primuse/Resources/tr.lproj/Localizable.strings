@@ -5998,6 +5998,13 @@
 "spoken_word_keep_offline_unsupported_message" = "Bu kitabın kaynakları çevrimdışı indirmeyi desteklemiyor.";
 "spoken_word_keep_offline_on_device_short" = "Zaten bu cihazda";
 "spoken_word_keep_offline_unsupported_short" = "Kaynak indirmeyi desteklemiyor";
+"spoken_word_keep_offline_waiting_playback" = "Çalarken bekler, durdurunca devam eder";
+"spoken_word_keep_offline_waiting_network" = "İnternete bağlanınca devam eder";
+"spoken_word_keep_offline_waiting_wifi" = "Wi-Fi bekleniyor";
+"spoken_word_keep_offline_waiting_low_data" = "Düşük Veri Modunda duraklatıldı";
+"spoken_word_keep_offline_waiting_low_power" = "Düşük Güç Modunda duraklatıldı";
+"spoken_word_keep_offline_waiting_thermal" = "Cihaz ısındığı için duraklatıldı";
+"spoken_word_keep_offline_waiting_disk" = "Yer yetersiz, duraklatıldı";
 "player_backdrop_audiobooks" = "Sesli Kitaplarda da Kullan";
 "player_backdrop_audiobooks_hint" = "Koyu modda sesli kitap oynatıcısı da bu arka planı gösterir. Açık mod kâğıt arka planını korur.";
 

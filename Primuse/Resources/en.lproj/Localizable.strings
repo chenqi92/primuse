@@ -5852,6 +5852,13 @@
 "spoken_word_keep_offline_unsupported_message" = "The sources this book comes from don’t support offline downloads.";
 "spoken_word_keep_offline_on_device_short" = "Already on this device";
 "spoken_word_keep_offline_unsupported_short" = "Source doesn’t support downloads";
+"spoken_word_keep_offline_waiting_playback" = "Paused while playing; resumes when you stop";
+"spoken_word_keep_offline_waiting_network" = "Resumes when you’re online";
+"spoken_word_keep_offline_waiting_wifi" = "Waiting for Wi-Fi";
+"spoken_word_keep_offline_waiting_low_data" = "Paused in Low Data Mode";
+"spoken_word_keep_offline_waiting_low_power" = "Paused in Low Power Mode";
+"spoken_word_keep_offline_waiting_thermal" = "Paused while the device is hot";
+"spoken_word_keep_offline_waiting_disk" = "Paused: not enough storage";
 "player_backdrop_audiobooks" = "Use for Audiobooks";
 "player_backdrop_audiobooks_hint" = "In Dark Mode the audiobook player shows this background too. Light Mode keeps its paper background.";
 

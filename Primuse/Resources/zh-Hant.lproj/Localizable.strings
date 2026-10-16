@@ -6069,6 +6069,13 @@
 "spoken_word_keep_offline_unsupported_message" = "這本書所在的音樂來源不支援離線下載。";
 "spoken_word_keep_offline_on_device_short" = "已在本機";
 "spoken_word_keep_offline_unsupported_short" = "音樂來源不支援下載";
+"spoken_word_keep_offline_waiting_playback" = "播放時先不下載，停下後接著下";
+"spoken_word_keep_offline_waiting_network" = "連網後接著下載";
+"spoken_word_keep_offline_waiting_wifi" = "連上 Wi-Fi 後下載";
+"spoken_word_keep_offline_waiting_low_data" = "低數據模式下暫停下載";
+"spoken_word_keep_offline_waiting_low_power" = "低耗電模式下暫停下載";
+"spoken_word_keep_offline_waiting_thermal" = "裝置過熱，暫停下載";
+"spoken_word_keep_offline_waiting_disk" = "儲存空間不足，暫停下載";
 "player_backdrop_audiobooks" = "有聲書也使用";
 "player_backdrop_audiobooks_hint" = "深色外觀下有聲書播放頁也鋪這個背景；淺色外觀仍是紙面底。";
 

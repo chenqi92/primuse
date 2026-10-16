@@ -5998,6 +5998,13 @@
 "spoken_word_keep_offline_unsupported_message" = "แหล่งของหนังสือเล่มนี้ไม่รองรับการดาวน์โหลดแบบออฟไลน์";
 "spoken_word_keep_offline_on_device_short" = "อยู่บนอุปกรณ์นี้แล้ว";
 "spoken_word_keep_offline_unsupported_short" = "แหล่งไม่รองรับการดาวน์โหลด";
+"spoken_word_keep_offline_waiting_playback" = "หยุดรอระหว่างเล่น หยุดเล่นแล้วจะโหลดต่อ";
+"spoken_word_keep_offline_waiting_network" = "จะโหลดต่อเมื่อออนไลน์";
+"spoken_word_keep_offline_waiting_wifi" = "รอเชื่อมต่อ Wi-Fi";
+"spoken_word_keep_offline_waiting_low_data" = "หยุดชั่วคราวในโหมดข้อมูลต่ำ";
+"spoken_word_keep_offline_waiting_low_power" = "หยุดชั่วคราวในโหมดพลังงานต่ำ";
+"spoken_word_keep_offline_waiting_thermal" = "หยุดชั่วคราวเพราะเครื่องร้อน";
+"spoken_word_keep_offline_waiting_disk" = "หยุดชั่วคราว: พื้นที่ไม่พอ";
 "player_backdrop_audiobooks" = "ใช้กับหนังสือเสียงด้วย";
 "player_backdrop_audiobooks_hint" = "ในโหมดมืด หน้าเล่นหนังสือเสียงจะแสดงพื้นหลังนี้ด้วย ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";
 

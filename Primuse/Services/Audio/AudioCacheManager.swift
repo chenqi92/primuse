@@ -2771,7 +2771,7 @@ private actor AlwaysDownloadWorker {
         }
     }
 
-    private static func availableDiskBytes() -> Int64 {
+    fileprivate static func availableDiskBytes() -> Int64 {
         let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         guard let attributes = try? FileManager.default.attributesOfFileSystem(
             forPath: base.path
@@ -2857,6 +2857,28 @@ final class AlwaysDownloadCoordinator {
 
     func isEnabled(forBook bookID: String) -> Bool {
         enabledBooks[bookID] != nil
+    }
+
+    /// 常驻下载此刻为什么停着(#313):和下载那边逐首判断用同一套条件,书详情页拿它说明「已下载 0/N 章」
+    /// 在等什么。页面看得见时 App 一定在前台,前台这一条不算;没有要停的理由时为 nil。
+    func waitingReason(expectedDownloadBytes: Int64) -> AutomaticOfflineDownloadDeferralReason? {
+        let network = NetworkMonitor.shared
+        let thermal = ProcessInfo.processInfo.thermalState
+        let eligibility = AutomaticOfflineDownloadPolicy.eligibility(
+            applicationIsActive: true,
+            hasDeterminedNetwork: network.hasDeterminedPath,
+            isReachable: network.isReachable,
+            isExpensive: network.isExpensive,
+            isConstrained: network.isConstrained,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            hasSeriousThermalPressure: thermal == .serious || thermal == .critical,
+            availableDiskBytes: AlwaysDownloadWorker.availableDiskBytes(),
+            expectedDownloadBytes: expectedDownloadBytes,
+            isPlaybackActive: player.isPlaybackActive,
+            isPlaybackBuffering: player.isLoading
+        )
+        guard case .deferred(let reason) = eligibility else { return nil }
+        return reason
     }
 
     /// 整本书保持离线:下载全部章节,之后新加的章节也下;关掉后已下好的转回普通缓存。
