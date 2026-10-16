@@ -7686,6 +7686,19 @@ private struct MacPlayerBackdropSettingsSection: View {
                     .pmAppearFade(.contentAppear)
                 }
 
+                if settings.source == .visualizer {
+                    MacSTRow(String(localized: "player_backdrop_visualizer_style")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { store.settings.visualizerStyle },
+                                set: { value in store.update { $0.visualizerStyle = value } }
+                            ),
+                            options: PlayerVisualizerStyle.allCases.map { ($0, PlayerBackdropSettingsText.title($0)) }
+                        )
+                    }
+                    .pmAppearFade(.contentAppear)
+                }
+
                 if settings.source.supportsRotation {
                     MacSTRow(String(localized: "player_backdrop_rotation")) {
                         MacSTPicker(

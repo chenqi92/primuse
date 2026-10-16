@@ -398,6 +398,12 @@
 "player_backdrop_liquid" = "리퀴드 컬러";
 "player_backdrop_liquid_hint" = "커버의 여러 색이 부드러운 빛이 되어 재생 중에 천천히 흐릅니다";
 "player_backdrop_liquid_tv_hint" = "Apple TV에서는 커버 색상으로 표시됩니다.";
+"player_backdrop_visualizer" = "비주얼라이저";
+"player_backdrop_visualizer_hint" = "커버 색상 위에서 스펙트럼, 파형 또는 별가루가 소리에 맞춰 움직입니다. Apple Music, 라디오, 뮤직비디오는 소리 데이터가 없어 색상만 표시됩니다";
+"player_backdrop_visualizer_style" = "스타일";
+"player_backdrop_visualizer_spectrum" = "스펙트럼";
+"player_backdrop_visualizer_waveform" = "파형";
+"player_backdrop_visualizer_stardust" = "별가루";
 "player_backdrop_cover_blur" = "흐린 커버";
 "player_backdrop_cover_blur_hint" = "현재 커버를 확대해 부드럽게 흐리게 표시";
 "player_backdrop_album_back" = "앨범 뒷면 커버";

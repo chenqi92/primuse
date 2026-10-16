@@ -6632,7 +6632,8 @@ struct NowPlayingView: View {
     private var backgroundGradient: some View {
         let hasArtworkTheme = theme.hasArtworkAmbient
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
-        let usesLiquid = PlayerBackdropSettingsStore.shared.effectiveSource == .liquid
+        let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
+        let usesLiquid = backdropSource == .liquid
         var accentOpacity = (hasArtworkTheme
             ? appearance.artworkAccentOpacity
             : appearance.fallbackAccentOpacity) * strength
@@ -6707,6 +6708,21 @@ struct NowPlayingView: View {
                     isPlaying: player.isPlaying,
                     paletteVibrancy: theme.artworkVibrancy,
                     paletteLuminance: theme.artworkLuminance
+                )
+            }
+
+            if backdropSource == .visualizer {
+                // 设置里选了「声音律动」:色场上再画一层跟着声音动的频谱、波形或星尘(#312)。
+                // 压在下面两层遮罩底下,字的对比度照旧由遮罩保证。
+                PlayerVisualizerBackdrop(
+                    style: PlayerBackdropSettingsStore.shared.settings.visualizerStyle,
+                    primary: theme.accentColor,
+                    secondary: theme.secondaryAccent,
+                    deep: theme.darkAccent,
+                    isLight: appearance.isLight,
+                    strength: strength,
+                    isVisible: isNowPlayingSurfaceExposed,
+                    isSceneActive: isVisualSceneActive
                 )
             }
 

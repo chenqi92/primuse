@@ -3682,6 +3682,12 @@
 "player_backdrop_liquid" = "Colores fluidos";
 "player_backdrop_liquid_hint" = "Varios colores de la portada se mueven como luces suaves mientras suena la música";
 "player_backdrop_liquid_tv_hint" = "El Apple TV muestra los colores de la portada en su lugar.";
+"player_backdrop_visualizer" = "Visualizador";
+"player_backdrop_visualizer_hint" = "Un espectro, una forma de onda o polvo de estrellas se mueve con el sonido sobre los colores de la portada. Apple Music, la radio y los videos musicales no dan datos de sonido, así que solo se ven los colores";
+"player_backdrop_visualizer_style" = "Estilo";
+"player_backdrop_visualizer_spectrum" = "Espectro";
+"player_backdrop_visualizer_waveform" = "Forma de onda";
+"player_backdrop_visualizer_stardust" = "Polvo de estrellas";
 "player_backdrop_cover_blur" = "Portada difuminada";
 "player_backdrop_cover_blur_hint" = "La portada actual, ampliada y suavemente difuminada";
 "player_backdrop_album_back" = "Contraportada del álbum";

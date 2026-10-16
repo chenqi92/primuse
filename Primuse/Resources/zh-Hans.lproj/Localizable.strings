@@ -168,6 +168,12 @@
 "player_backdrop_liquid" = "流动色彩";
 "player_backdrop_liquid_hint" = "封面里的几种颜色化成柔和的光团，随播放缓缓流动";
 "player_backdrop_liquid_tv_hint" = "Apple TV 上显示为封面取色。";
+"player_backdrop_visualizer" = "声音律动";
+"player_backdrop_visualizer_hint" = "封面取色的底色上，一层频谱、波形或星尘随声音起伏。Apple Music、电台和 MV 没有声音数据，只显示底色";
+"player_backdrop_visualizer_style" = "律动样式";
+"player_backdrop_visualizer_spectrum" = "频谱";
+"player_backdrop_visualizer_waveform" = "波形";
+"player_backdrop_visualizer_stardust" = "星尘";
 "player_backdrop_cover_blur" = "模糊封面";
 "player_backdrop_cover_blur_hint" = "把当前封面放大虚化铺满";
 "player_backdrop_album_back" = "专辑封底";

@@ -1088,6 +1088,12 @@
 "player_backdrop_liquid" = "Текучие цвета";
 "player_backdrop_liquid_hint" = "Несколько цветов обложки плывут мягким светом во время воспроизведения";
 "player_backdrop_liquid_tv_hint" = "На Apple TV вместо этого показываются цвета обложки.";
+"player_backdrop_visualizer" = "Визуализатор";
+"player_backdrop_visualizer_hint" = "Поверх цветов обложки в такт звуку движется спектр, волна или звёздная пыль. Apple Music, радио и клипы не дают звуковых данных — тогда видны только цвета";
+"player_backdrop_visualizer_style" = "Стиль";
+"player_backdrop_visualizer_spectrum" = "Спектр";
+"player_backdrop_visualizer_waveform" = "Волна";
+"player_backdrop_visualizer_stardust" = "Звёздная пыль";
 "player_backdrop_cover_blur" = "Размытая обложка";
 "player_backdrop_cover_blur_hint" = "Текущая обложка, увеличенная и мягко размытая";
 "player_backdrop_album_back" = "Задняя обложка альбома";

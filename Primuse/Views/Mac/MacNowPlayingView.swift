@@ -686,6 +686,20 @@ struct MacNowPlayingView: View {
                 )
             }
 
+            if PlayerBackdropSettingsStore.shared.effectiveSource == .visualizer {
+                // 设置里选了「声音律动」:色场上再画一层跟着声音动的频谱、波形或星尘(#312)。
+                PlayerVisualizerBackdrop(
+                    style: PlayerBackdropSettingsStore.shared.settings.visualizerStyle,
+                    primary: theme.accentColor,
+                    secondary: theme.secondaryAccent,
+                    deep: theme.darkAccent,
+                    isLight: usesLightPlayerAppearance,
+                    strength: strength,
+                    isVisible: !isImmersiveStageActive && controlActiveState != .inactive,
+                    isSceneActive: scenePhase == .active
+                )
+            }
+
             if usesLightPlayerAppearance {
                 LinearGradient(
                     colors: [

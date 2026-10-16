@@ -1088,6 +1088,12 @@
 "player_backdrop_liquid" = "Плинні кольори";
 "player_backdrop_liquid_hint" = "Кілька кольорів обкладинки пливуть м’яким світлом під час відтворення";
 "player_backdrop_liquid_tv_hint" = "На Apple TV натомість показуються кольори обкладинки.";
+"player_backdrop_visualizer" = "Візуалізатор";
+"player_backdrop_visualizer_hint" = "Поверх кольорів обкладинки в такт звуку рухається спектр, хвиля або зоряний пил. Apple Music, радіо та кліпи не дають звукових даних — тоді видно лише кольори";
+"player_backdrop_visualizer_style" = "Стиль";
+"player_backdrop_visualizer_spectrum" = "Спектр";
+"player_backdrop_visualizer_waveform" = "Хвиля";
+"player_backdrop_visualizer_stardust" = "Зоряний пил";
 "player_backdrop_cover_blur" = "Розмита обкладинка";
 "player_backdrop_cover_blur_hint" = "Поточна обкладинка, збільшена й м’яко розмита";
 "player_backdrop_album_back" = "Задня обкладинка альбому";

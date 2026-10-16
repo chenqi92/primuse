@@ -3682,6 +3682,12 @@
 "player_backdrop_liquid" = "ألوان متدفقة";
 "player_backdrop_liquid_hint" = "تتحول عدة ألوان من الغلاف إلى أضواء ناعمة تنساب أثناء التشغيل";
 "player_backdrop_liquid_tv_hint" = "يعرض Apple TV ألوان الغلاف بدلًا من ذلك.";
+"player_backdrop_visualizer" = "مرئيات الصوت";
+"player_backdrop_visualizer_hint" = "فوق ألوان الغلاف، يتحرك طيف أو موجة أو غبار نجوم مع الصوت. لا تتوفر بيانات صوت لـ Apple Music والراديو ومقاطع الفيديو الموسيقية، فتظهر الألوان فقط";
+"player_backdrop_visualizer_style" = "النمط";
+"player_backdrop_visualizer_spectrum" = "طيف";
+"player_backdrop_visualizer_waveform" = "موجة";
+"player_backdrop_visualizer_stardust" = "غبار النجوم";
 "player_backdrop_cover_blur" = "غلاف مموّه";
 "player_backdrop_cover_blur_hint" = "الغلاف الحالي مكبّرًا ومموّهًا بلطف";
 "player_backdrop_album_back" = "الغلاف الخلفي للألبوم";

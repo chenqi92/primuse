@@ -167,6 +167,12 @@
 "player_backdrop_liquid" = "Liquid Colors";
 "player_backdrop_liquid_hint" = "Several colors from the artwork drift as soft light while music plays";
 "player_backdrop_liquid_tv_hint" = "Apple TV shows Cover Colors instead.";
+"player_backdrop_visualizer" = "Visualizer";
+"player_backdrop_visualizer_hint" = "A spectrum, waveform or stardust moves with the sound over the cover colors. Apple Music, radio and music videos give no sound data, so only the colors show";
+"player_backdrop_visualizer_style" = "Style";
+"player_backdrop_visualizer_spectrum" = "Spectrum";
+"player_backdrop_visualizer_waveform" = "Waveform";
+"player_backdrop_visualizer_stardust" = "Stardust";
 "player_backdrop_cover_blur" = "Blurred Cover";
 "player_backdrop_cover_blur_hint" = "The current artwork, enlarged and softly blurred";
 "player_backdrop_album_back" = "Album Back Cover";

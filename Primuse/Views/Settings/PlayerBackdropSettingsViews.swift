@@ -17,6 +17,7 @@ enum PlayerBackdropSettingsText {
         case .coverBlur: String(localized: "player_backdrop_cover_blur")
         case .albumBack: String(localized: "player_backdrop_album_back")
         case .customImages: String(localized: "player_backdrop_custom_images")
+        case .visualizer: String(localized: "player_backdrop_visualizer")
         }
     }
 
@@ -27,6 +28,7 @@ enum PlayerBackdropSettingsText {
         case .coverBlur: String(localized: "player_backdrop_cover_blur_hint")
         case .albumBack: String(localized: "player_backdrop_album_back_hint")
         case .customImages: String(localized: "player_backdrop_custom_images_hint")
+        case .visualizer: String(localized: "player_backdrop_visualizer_hint")
         }
     }
 
@@ -37,6 +39,15 @@ enum PlayerBackdropSettingsText {
         case .coverBlur: "drop.circle.fill"
         case .albumBack: "rectangle.on.rectangle.angled"
         case .customImages: "photo.on.rectangle"
+        case .visualizer: "waveform"
+        }
+    }
+
+    static func title(_ style: PlayerVisualizerStyle) -> String {
+        switch style {
+        case .spectrum: String(localized: "player_backdrop_visualizer_spectrum")
+        case .waveform: String(localized: "player_backdrop_visualizer_waveform")
+        case .stardust: String(localized: "player_backdrop_visualizer_stardust")
         }
     }
 
@@ -231,6 +242,17 @@ struct PlayerBackdropSettingsSections: View {
                 .pmAppearFade(.contentAppear)
             }
 
+            if settings.source == .visualizer {
+                Picker(selection: visualizerStyleBinding) {
+                    ForEach(PlayerVisualizerStyle.allCases, id: \.self) { style in
+                        Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
+                    }
+                } label: {
+                    Label("player_backdrop_visualizer_style", systemImage: "waveform.path")
+                }
+                .pmAppearFade(.contentAppear)
+            }
+
             if settings.source.supportsRotation {
                 Picker(selection: rotationBinding) {
                     ForEach(PlayerBackdropRotation.allCases, id: \.self) { rotation in
@@ -320,6 +342,13 @@ struct PlayerBackdropSettingsSections: View {
         Binding(
             get: { store.settings.rotation },
             set: { value in store.update { $0.rotation = value } }
+        )
+    }
+
+    private var visualizerStyleBinding: Binding<PlayerVisualizerStyle> {
+        Binding(
+            get: { store.settings.visualizerStyle },
+            set: { value in store.update { $0.visualizerStyle = value } }
         )
     }
 

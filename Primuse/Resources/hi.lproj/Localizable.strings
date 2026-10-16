@@ -3682,6 +3682,12 @@
 "player_backdrop_liquid" = "बहते रंग";
 "player_backdrop_liquid_hint" = "कवर के कई रंग मुलायम रोशनी बनकर संगीत चलते समय धीरे-धीरे बहते हैं";
 "player_backdrop_liquid_tv_hint" = "Apple TV पर इसकी जगह कवर के रंग दिखते हैं।";
+"player_backdrop_visualizer" = "विज़ुअलाइज़र";
+"player_backdrop_visualizer_hint" = "कवर के रंगों के ऊपर स्पेक्ट्रम, वेवफ़ॉर्म या तारों की धूल आवाज़ के साथ हिलती है। Apple Music, रेडियो और म्यूज़िक वीडियो में आवाज़ का डेटा नहीं मिलता, तब सिर्फ़ रंग दिखते हैं";
+"player_backdrop_visualizer_style" = "शैली";
+"player_backdrop_visualizer_spectrum" = "स्पेक्ट्रम";
+"player_backdrop_visualizer_waveform" = "वेवफ़ॉर्म";
+"player_backdrop_visualizer_stardust" = "तारों की धूल";
 "player_backdrop_cover_blur" = "धुंधला कवर";
 "player_backdrop_cover_blur_hint" = "मौजूदा कवर, बड़ा करके हल्का धुंधला";
 "player_backdrop_album_back" = "एल्बम का पिछला कवर";

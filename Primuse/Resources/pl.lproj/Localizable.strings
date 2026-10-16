@@ -3682,6 +3682,12 @@
 "player_backdrop_liquid" = "Płynne kolory";
 "player_backdrop_liquid_hint" = "Kilka kolorów z okładki dryfuje jako miękkie światło podczas odtwarzania";
 "player_backdrop_liquid_tv_hint" = "Apple TV pokazuje zamiast tego kolory okładki.";
+"player_backdrop_visualizer" = "Wizualizer";
+"player_backdrop_visualizer_hint" = "Na kolorach okładki widmo, fala lub gwiezdny pył porusza się w rytm dźwięku. Apple Music, radio i teledyski nie dają danych dźwięku, więc widać tylko kolory";
+"player_backdrop_visualizer_style" = "Styl";
+"player_backdrop_visualizer_spectrum" = "Widmo";
+"player_backdrop_visualizer_waveform" = "Fala";
+"player_backdrop_visualizer_stardust" = "Gwiezdny pył";
 "player_backdrop_cover_blur" = "Rozmyta okładka";
 "player_backdrop_cover_blur_hint" = "Bieżąca okładka, powiększona i łagodnie rozmyta";
 "player_backdrop_album_back" = "Tylna okładka albumu";

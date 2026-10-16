@@ -1088,6 +1088,12 @@
 "player_backdrop_liquid" = "Akışkan Renkler";
 "player_backdrop_liquid_hint" = "Kapaktaki birkaç renk, müzik çalarken yumuşak ışıklar olarak süzülür";
 "player_backdrop_liquid_tv_hint" = "Apple TV bunun yerine kapak renklerini gösterir.";
+"player_backdrop_visualizer" = "Görselleştirici";
+"player_backdrop_visualizer_hint" = "Kapak renklerinin üzerinde bir spektrum, dalga formu ya da yıldız tozu sesle birlikte hareket eder. Apple Music, radyo ve müzik videolarında ses verisi olmadığından yalnızca renkler görünür";
+"player_backdrop_visualizer_style" = "Stil";
+"player_backdrop_visualizer_spectrum" = "Spektrum";
+"player_backdrop_visualizer_waveform" = "Dalga formu";
+"player_backdrop_visualizer_stardust" = "Yıldız tozu";
 "player_backdrop_cover_blur" = "Bulanık kapak";
 "player_backdrop_cover_blur_hint" = "Geçerli kapak, büyütülüp yumuşakça bulanıklaştırılır";
 "player_backdrop_album_back" = "Albüm arka kapağı";

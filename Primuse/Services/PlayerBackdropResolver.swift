@@ -95,7 +95,7 @@ final class PlayerBackdropResolver {
             return
         }
         switch request.source {
-        case .coverAmbient, .liquid:
+        case .coverAmbient, .liquid, .visualizer:
             break
         case .customImages:
             guard let index = rotation.index(count: request.customImageIDs.count, rotation: request.rotation) else {

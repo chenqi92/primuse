@@ -13,13 +13,16 @@ public enum PlayerBackdropSource: String, CaseIterable, Codable, Sendable {
     case albumBack
     /// 用户自己选的图片（iPhone 从相册选，Mac 从文件选，Apple TV 由扫码直传带过来）。
     case customImages
+    /// 跟着正在播的声音动（#312）：在封面取色的色场上画一层频谱、波形或星尘。声音数据来自 App 自己的
+    /// 音频引擎，Apple Music、电台和 MV 不经过它，这时只剩色场。不认识这一档的旧版本按解码规则退回封面取色。
+    case visualizer
 
     public static let defaultValue = PlayerBackdropSource.coverAmbient
 
     /// 这一档会在色场上面再铺一张图。
     public var showsImage: Bool {
         switch self {
-        case .coverAmbient, .liquid: return false
+        case .coverAmbient, .liquid, .visualizer: return false
         case .coverBlur, .albumBack, .customImages: return true
         }
     }
@@ -28,9 +31,21 @@ public enum PlayerBackdropSource: String, CaseIterable, Codable, Sendable {
     public var supportsRotation: Bool {
         switch self {
         case .albumBack, .customImages: return true
-        case .coverAmbient, .liquid, .coverBlur: return false
+        case .coverAmbient, .liquid, .coverBlur, .visualizer: return false
         }
     }
+}
+
+/// 「声音律动」背景画哪一种（#312）。
+public enum PlayerVisualizerStyle: String, CaseIterable, Codable, Sendable {
+    /// 底部一排频谱柱，低频在中间、高频往两边，带一道淡淡的倒影。
+    case spectrum
+    /// 横贯画面的几道波形线，起伏跟着各个频段。
+    case waveform
+    /// 从下往上飘的星尘，低频推大颗粒，整体响度定亮度。
+    case stardust
+
+    public static let defaultValue = PlayerVisualizerStyle.spectrum
 }
 
 /// 有多张图时怎么换。
@@ -63,21 +78,25 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
     public var intervalSeconds: Int
     /// 有声书深色(墨黑)版面也铺这个背景(#283)。默认关:有声书用自己的纯色底。
     public var appliesToAudiobooks: Bool
+    /// 「声音律动」画哪一种。只在选了这一档时起作用,换回别的来源也记着。
+    public var visualizerStyle: PlayerVisualizerStyle
 
     public init(
         source: PlayerBackdropSource = .defaultValue,
         rotation: PlayerBackdropRotation = .defaultValue,
         intervalSeconds: Int = PlayerBackdropSettings.defaultIntervalSeconds,
-        appliesToAudiobooks: Bool = false
+        appliesToAudiobooks: Bool = false,
+        visualizerStyle: PlayerVisualizerStyle = .defaultValue
     ) {
         self.source = source
         self.rotation = rotation
         self.intervalSeconds = Self.normalizedInterval(intervalSeconds)
         self.appliesToAudiobooks = appliesToAudiobooks
+        self.visualizerStyle = visualizerStyle
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, rotation, intervalSeconds, appliesToAudiobooks
+        case source, rotation, intervalSeconds, appliesToAudiobooks, visualizerStyle
     }
 
     /// 解码从不失败：不认识的取值（更新版本多出来的来源等）按默认处理，免得一台旧设备
@@ -88,11 +107,13 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         let rawRotation = (try? container?.decodeIfPresent(String.self, forKey: .rotation)) ?? nil
         let interval = (try? container?.decodeIfPresent(Int.self, forKey: .intervalSeconds)) ?? nil
         let audiobooks = (try? container?.decodeIfPresent(Bool.self, forKey: .appliesToAudiobooks)) ?? nil
+        let rawVisualizerStyle = (try? container?.decodeIfPresent(String.self, forKey: .visualizerStyle)) ?? nil
         self.init(
             source: rawSource.flatMap(PlayerBackdropSource.init(rawValue:)) ?? .defaultValue,
             rotation: rawRotation.flatMap(PlayerBackdropRotation.init(rawValue:)) ?? .defaultValue,
             intervalSeconds: interval ?? Self.defaultIntervalSeconds,
-            appliesToAudiobooks: audiobooks ?? false
+            appliesToAudiobooks: audiobooks ?? false,
+            visualizerStyle: rawVisualizerStyle.flatMap(PlayerVisualizerStyle.init(rawValue:)) ?? .defaultValue
         )
     }
 
@@ -103,6 +124,9 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         try container.encode(intervalSeconds, forKey: .intervalSeconds)
         // 关着时不写这一项:没碰过它的设置编码出来和以前一样。
         if appliesToAudiobooks { try container.encode(true, forKey: .appliesToAudiobooks) }
+        if visualizerStyle != .defaultValue {
+            try container.encode(visualizerStyle.rawValue, forKey: .visualizerStyle)
+        }
     }
 
     public static func decode(_ data: Data?) -> PlayerBackdropSettings {
@@ -330,5 +354,130 @@ public enum PlayerBackdropPixelPolicy {
         let clamped = min(max(Int(pixels.rounded(.up)), minimumPixel), maximumPixel)
         let bucketed = (clamped + 255) / 256 * 256
         return min(bucketed, maximumPixel)
+    }
+}
+
+/// 「声音律动」背景（#312）的几何：频段怎么摊到一排柱子上、波形线怎么起伏、星尘飘在哪。
+/// 只算数，画法在 App 里（iPhone、iPad、Mac 共用）。频段都是 0…1，低频在前。
+public enum PlayerVisualizerGeometry {
+    /// 低、中、高三段的平均响度，0…1。
+    public struct Registers: Equatable, Sendable {
+        public var low: Double
+        public var mid: Double
+        public var high: Double
+
+        public init(low: Double, mid: Double, high: Double) {
+            self.low = low
+            self.mid = mid
+            self.high = high
+        }
+
+        public static let silent = Registers(low: 0, mid: 0, high: 0)
+
+        /// 整体响度：低频分量重一些，鼓点更看得出来。
+        public var energy: Double { clamp(low * 0.45 + mid * 0.35 + high * 0.20) }
+    }
+
+    /// 星尘里的一颗：位置 0…1（y 从上往下，可以略出画面上下沿），大小倍数，透明度倍数 0…1。
+    public struct Mote: Equatable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var size: Double
+        public var alpha: Double
+    }
+
+    /// 一排柱子的根数：大约每 16pt 一根，窄屏至少 24 根，宽窗口最多 64 根。
+    public static func barCount(forWidth width: Double) -> Int {
+        guard width.isFinite, width > 0 else { return 24 }
+        return min(max(Int(width / 16), 24), 64)
+    }
+
+    /// 把频段摊到 `count` 根柱子上：低频在中间，往两边是高频，左右对称。高频本来就弱，越往外越抬一点，
+    /// 再整体开个方，安静段落里也看得出起伏。
+    public static func barLevels(bands: [Double], count: Int) -> [Double] {
+        guard count > 0 else { return [] }
+        guard !bands.isEmpty else { return Array(repeating: 0, count: count) }
+        return (0..<count).map { index in
+            let x = count == 1 ? 0.5 : Double(index) / Double(count - 1)
+            let folded = abs(x - 0.5) * 2
+            let value = sample(bands, at: pow(folded, 1.1))
+            return pow(clamp(value * (0.9 + folded * 0.35)), 0.7)
+        }
+    }
+
+    public static func registers(_ bands: [Double]) -> Registers {
+        guard !bands.isEmpty else { return .silent }
+        let lowEnd = max(1, bands.count / 6)
+        let midEnd = max(lowEnd + 1, bands.count / 2)
+        return Registers(
+            low: mean(bands, 0..<min(lowEnd, bands.count)),
+            mid: mean(bands, min(lowEnd, bands.count)..<min(midEnd, bands.count)),
+            high: mean(bands, min(midEnd, bands.count)..<bands.count)
+        )
+    }
+
+    /// 第 `line` 条波形线在横向位置 `x`（0…1）、时刻 `time`（秒）的纵向偏移，-1…1。低频推一层又宽又慢的起伏，
+    /// 中频是中等的波，高频是细碎的抖动；安静时只剩一点呼吸。两端收拢到零，像从画面两边牵过来的一根弦。
+    public static func waveOffset(x: Double, time: Double, line: Int, registers: Registers) -> Double {
+        let position = clamp(x)
+        let envelope = pow(sin(.pi * position), 0.8)
+        let seed = Double(line)
+        let twoPi = 2 * Double.pi
+        let breathing = sin(twoPi * 1.5 * position + time * 0.5 + seed) * 0.05
+        let low = sin(twoPi * (1.0 + 0.35 * seed) * position + time * (0.9 + 0.2 * seed) + seed * 1.7)
+        let mid = sin(twoPi * (3.0 + 0.8 * seed) * position - time * (1.6 + 0.3 * seed) + seed * 2.9)
+        let high = sin(twoPi * (9.0 + 2.0 * seed) * position + time * (3.1 + 0.5 * seed) + seed * 0.6)
+        let value = breathing
+            + low * clamp(registers.low) * 0.55
+            + mid * clamp(registers.mid) * 0.32
+            + high * clamp(registers.high) * 0.16
+        return max(-1, min(1, envelope * value))
+    }
+
+    /// 星尘第 `index` 颗在时刻 `time`（秒）的样子：从画面底下往上飘，十来秒一趟，左右轻轻摆；
+    /// 刚冒头和快到顶时淡掉。低频把颗粒推大。同一 index 每帧算出来一样，重画不闪。
+    public static func mote(index: Int, time: Double, low: Double) -> Mote {
+        let a = unit(index, salt: 41)
+        let b = unit(index, salt: 42)
+        let c = unit(index, salt: 43)
+        let period = 9 + a * 10
+        let phase = wrapped(time / period + b)
+        let fadeIn = min(1, phase / 0.12)
+        let fadeOut = min(1, (1 - phase) / 0.25)
+        return Mote(
+            x: c + 0.035 * sin(time * (0.4 + a * 0.5) + b * 2 * .pi),
+            y: 1.05 - phase * 1.15,
+            size: (0.6 + b * 1.6) * (1 + clamp(low) * 1.1),
+            alpha: max(0, min(fadeIn, fadeOut))
+        )
+    }
+
+    private static func sample(_ values: [Double], at position: Double) -> Double {
+        guard values.count > 1 else { return clamp(values.first ?? 0) }
+        let scaled = clamp(position) * Double(values.count - 1)
+        let lower = min(Int(scaled.rounded(.down)), values.count - 1)
+        let upper = min(lower + 1, values.count - 1)
+        let fraction = scaled - Double(lower)
+        return clamp(values[lower] + (values[upper] - values[lower]) * fraction)
+    }
+
+    private static func mean(_ values: [Double], _ range: Range<Int>) -> Double {
+        guard !range.isEmpty else { return 0 }
+        return clamp(values[range].reduce(0, +) / Double(range.count))
+    }
+
+    private static func unit(_ index: Int, salt: Int) -> Double {
+        let value = sin(Double(index) * 12.9898 + Double(salt) * 78.233) * 43_758.5453
+        return value - value.rounded(.down)
+    }
+
+    private static func wrapped(_ value: Double) -> Double {
+        let result = value.truncatingRemainder(dividingBy: 1)
+        return result < 0 ? result + 1 : result
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, 0), 1)
     }
 }

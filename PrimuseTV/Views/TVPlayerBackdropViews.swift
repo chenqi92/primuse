@@ -142,6 +142,7 @@ struct TVPlayerBackdropSettingsView: View {
         case .coverBlur: String(localized: "player_backdrop_cover_blur")
         case .albumBack: String(localized: "player_backdrop_album_back")
         case .customImages: String(localized: "player_backdrop_custom_images")
+        case .visualizer: String(localized: "player_backdrop_visualizer")
         }
     }
 
@@ -156,7 +157,8 @@ struct TVPlayerBackdropSettingsView: View {
     private func hint(for source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient_hint")
-        case .liquid: String(localized: "player_backdrop_liquid_tv_hint")
+        // 两种都只是换色场的画法,电视上都按封面取色显示,说法一样。
+        case .liquid, .visualizer: String(localized: "player_backdrop_liquid_tv_hint")
         case .coverBlur: String(localized: "player_backdrop_cover_blur_hint")
         case .albumBack: String(localized: "player_backdrop_album_back_hint")
         case .customImages:

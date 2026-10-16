@@ -399,6 +399,12 @@
 "player_backdrop_liquid" = "リキッドカラー";
 "player_backdrop_liquid_hint" = "ジャケットのいくつかの色がやわらかな光になり、再生中ゆっくり流れます";
 "player_backdrop_liquid_tv_hint" = "Apple TV ではジャケットの色で表示されます。";
+"player_backdrop_visualizer" = "ビジュアライザー";
+"player_backdrop_visualizer_hint" = "ジャケットの色の上で、スペクトラム・波形・星くずが音に合わせて動きます。Apple Music、ラジオ、MV は音のデータがないため色だけを表示します";
+"player_backdrop_visualizer_style" = "スタイル";
+"player_backdrop_visualizer_spectrum" = "スペクトラム";
+"player_backdrop_visualizer_waveform" = "波形";
+"player_backdrop_visualizer_stardust" = "星くず";
 "player_backdrop_cover_blur" = "ぼかしジャケット";
 "player_backdrop_cover_blur_hint" = "再生中のジャケットを拡大してぼかします";
 "player_backdrop_album_back" = "アルバムの裏ジャケット";
