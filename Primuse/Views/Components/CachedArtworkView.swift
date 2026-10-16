@@ -151,7 +151,7 @@ struct CachedArtworkView: View {
         return cache
     }()
 
-    private static let failedLoadCacheTTL: TimeInterval = 5 * 60
+    static let failedLoadCacheTTL: TimeInterval = 5 * 60
 
     private final class ArtworkDescriptorBox: NSObject {
         let descriptor: ArtworkDescriptor
@@ -358,9 +358,11 @@ struct CachedArtworkView: View {
             // 可能是换身份前的旧值。revealPlaceholder 自己会去重。首帧就有图（内存
             // 命中）或根本没有封面来源时不用等：列表滚动时每个格子都会挂一次，
             // 白挂一个睡 180ms 的任务不值得。
-            guard !hasNoArtworkSource, !hasResolvedArtwork else { return }
+            // 滚出可视区或消失时身份里的 #visible 一变，这个任务也会重挂；那时卡片已经看不见，
+            // 再去带动画揭开占位，就是每张滑出去的卡在滚动中途补跑一段淡入。
+            guard isArtworkVisible, !hasNoArtworkSource, !hasResolvedArtwork else { return }
             try? await Task.sleep(for: Self.placeholderGracePeriod)
-            guard !Task.isCancelled, !hasResolvedArtwork else { return }
+            guard !Task.isCancelled, isArtworkVisible, !hasResolvedArtwork else { return }
             revealPlaceholder(animated: true)
         }
         .task(id: animationLoadIdentity) {

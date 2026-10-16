@@ -537,6 +537,7 @@ struct AlbumArtworkView: View {
     @State private var resolvedFallbackArtworkIdentity: String?
     @State private var reloadRevision = 0
     @State private var missingCachedAlbumIdentity: String?
+    @State private var missingCachedAlbumMarkedAt: Date?
 
     private var staticAlbumIdentity: String {
         "\(album.id)#\(library.artworkOverrideRevision)#\(reloadRevision)"
@@ -577,8 +578,15 @@ struct AlbumArtworkView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onAppear {
             // A parked lazy card may outlive a background scrape. Recheck on
-            // return; CachedArtworkView still suppresses recent disk misses.
+            // return, but only once CachedArtworkView would retry the disk:
+            // inside its miss window the album layer comes straight back
+            // empty, so every scroll-in would rebuild both layers for nothing.
+            if let markedAt = missingCachedAlbumMarkedAt,
+               Date().timeIntervalSince(markedAt) < CachedArtworkView.failedLoadCacheTTL {
+                return
+            }
             missingCachedAlbumIdentity = nil
+            missingCachedAlbumMarkedAt = nil
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {
@@ -636,7 +644,10 @@ struct AlbumArtworkView: View {
                         side: side, isAnimationVisible: false,
                         showsPlaceholder: showsPlaceholder,
                         onResolutionChange: { resolved in
-                            if !resolved { missingCachedAlbumIdentity = identity }
+                            if !resolved {
+                                missingCachedAlbumIdentity = identity
+                                missingCachedAlbumMarkedAt = Date()
+                            }
                         }
                     )
                     .id(identity)

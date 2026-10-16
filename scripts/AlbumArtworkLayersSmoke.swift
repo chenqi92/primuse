@@ -60,6 +60,7 @@ extension Image { init(platformImage: NSImage) { self.init(nsImage: platformImag
     }
 }
 struct CachedArtworkView: View {
+    static let failedLoadCacheTTL: TimeInterval = 5 * 60
     let key: String
     let revisionToken: Int
     let showsPlaceholder: Bool
