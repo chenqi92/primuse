@@ -5994,7 +5994,7 @@
 "playlist_import_quota_format" = "Завантажено %1$d композицій; решту сторінок призупинено. %2$@ Можна імпортувати завантажені композиції зараз або повторити спробу після очікування.";
 "playlist_import_quota_ready_format" = "До обмеження запитів завантажено %d композицій. Можна імпортувати їх зараз або повторити завантаження всього списку відтворення.";
 "playlist_import_retry_link" = "Повторно завантажити список";
-"spoken_word_keep_offline_hint" = "Завантажує всю книгу через Wi-Fi, а нові розділи — щойно вони з’являться. Після вимкнення завантажені файли залишаються.";
+"spoken_word_keep_offline_hint" = "Поки застосунок відкритий, завантажує всю книгу через Wi-Fi, навіть під час прослуховування, а нові розділи — щойно вони з’являться. Після вимкнення завантажені файли залишаються.";
 "spoken_word_keep_offline_progress_format" = "Завантажено розділів: %1$ld із %2$ld";
 "spoken_word_keep_offline_complete" = "Усі розділи завантажено";
 "spoken_word_keep_offline_unavailable_title" = "Цю книгу не можна зберігати офлайн";
@@ -6002,7 +6002,7 @@
 "spoken_word_keep_offline_unsupported_message" = "Джерела цієї книги не підтримують офлайн-завантаження.";
 "spoken_word_keep_offline_on_device_short" = "Уже на цьому пристрої";
 "spoken_word_keep_offline_unsupported_short" = "Джерело не підтримує завантаження";
-"spoken_word_keep_offline_waiting_playback" = "На паузі під час відтворення, продовжиться після зупинки";
+"spoken_word_keep_offline_waiting_buffering" = "На паузі, поки відтворення буферизується";
 "spoken_word_keep_offline_waiting_network" = "Продовжиться, коли з’явиться мережа";
 "spoken_word_keep_offline_waiting_wifi" = "Чекає на Wi-Fi";
 "spoken_word_keep_offline_waiting_low_data" = "На паузі в режимі економії даних";

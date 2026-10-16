@@ -5994,7 +5994,7 @@
 "playlist_import_quota_format" = "โหลดแล้ว %1$d เพลง และหยุดโหลดหน้าที่เหลือชั่วคราว %2$@ คุณสามารถนำเข้าเพลงที่โหลดแล้วตอนนี้ หรือลองใหม่หลังจากรอ";
 "playlist_import_quota_ready_format" = "โหลดแล้ว %d เพลงก่อนที่คำขอจะถูกจำกัด คุณสามารถนำเข้าเพลงเหล่านี้ตอนนี้ หรือลองโหลดเพลย์ลิสต์ทั้งหมดใหม่";
 "playlist_import_retry_link" = "ลองโหลดเพลย์ลิสต์ใหม่";
-"spoken_word_keep_offline_hint" = "ดาวน์โหลดหนังสือทั้งเล่มผ่าน Wi-Fi และบทใหม่เมื่อมีเพิ่ม เมื่อปิดแล้วไฟล์ที่ดาวน์โหลดไว้จะยังอยู่";
+"spoken_word_keep_offline_hint" = "ขณะเปิดแอป จะดาวน์โหลดหนังสือทั้งเล่มผ่าน Wi-Fi แม้ระหว่างฟัง และบทใหม่เมื่อมีเพิ่ม เมื่อปิดแล้วไฟล์ที่ดาวน์โหลดไว้จะยังอยู่";
 "spoken_word_keep_offline_progress_format" = "ดาวน์โหลดแล้ว %1$ld จาก %2$ld บท";
 "spoken_word_keep_offline_complete" = "ดาวน์โหลดครบทุกบทแล้ว";
 "spoken_word_keep_offline_unavailable_title" = "เก็บหนังสือเล่มนี้แบบออฟไลน์ไม่ได้";
@@ -6002,7 +6002,7 @@
 "spoken_word_keep_offline_unsupported_message" = "แหล่งของหนังสือเล่มนี้ไม่รองรับการดาวน์โหลดแบบออฟไลน์";
 "spoken_word_keep_offline_on_device_short" = "อยู่บนอุปกรณ์นี้แล้ว";
 "spoken_word_keep_offline_unsupported_short" = "แหล่งไม่รองรับการดาวน์โหลด";
-"spoken_word_keep_offline_waiting_playback" = "หยุดรอระหว่างเล่น หยุดเล่นแล้วจะโหลดต่อ";
+"spoken_word_keep_offline_waiting_buffering" = "หยุดชั่วคราวระหว่างบัฟเฟอร์การเล่น";
 "spoken_word_keep_offline_waiting_network" = "จะโหลดต่อเมื่อออนไลน์";
 "spoken_word_keep_offline_waiting_wifi" = "รอเชื่อมต่อ Wi-Fi";
 "spoken_word_keep_offline_waiting_low_data" = "หยุดชั่วคราวในโหมดข้อมูลต่ำ";

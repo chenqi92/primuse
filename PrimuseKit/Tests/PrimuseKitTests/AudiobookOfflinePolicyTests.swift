@@ -13,6 +13,15 @@ struct AudiobookOfflinePolicyTests {
         #expect(AudiobookOfflinePolicy.bookID(fromOwnerID: "book:") == nil)
     }
 
+    @Test("Book chapters keep downloading during playback; playlist songs wait")
+    func downloadsDuringPlayback() {
+        let book = AudiobookOfflinePolicy.ownerID(forBook: "book-42")
+        #expect(AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: [book]))
+        #expect(AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: ["playlist-uuid", book]))
+        #expect(!AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: ["playlist-uuid"]))
+        #expect(!AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: []))
+    }
+
     @Test("The shelf's grouping wins; the remembered chapters cover a gap")
     func members() {
         #expect(AudiobookOfflinePolicy.members(current: ["a", "b", "c"], remembered: ["a", "b"]) == ["a", "b", "c"])

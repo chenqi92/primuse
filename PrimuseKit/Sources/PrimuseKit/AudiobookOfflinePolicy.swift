@@ -11,6 +11,13 @@ public enum AudiobookOfflinePolicy {
         ownerPrefix + bookID
     }
 
+    /// 常驻下载在 App 前台播放时还能不能接着下这一首(#313):有声书保持着的章节可以,一缓冲就停;
+    /// 只有歌单保持的照旧等播放停下来。听书一听就是几个小时,等「没在播放」的空当几乎等不到;
+    /// 书的码率低,和正在播的抢带宽的余地小。同一首既在歌单里又在开着的书里时算书的。
+    public static func downloadsDuringPlayback(ownerIDs: Set<String>) -> Bool {
+        ownerIDs.contains { $0.hasPrefix(ownerPrefix) }
+    }
+
     /// `ownerID(forBook:)` 反过来;歌单 id 返回 nil。
     public static func bookID(fromOwnerID ownerID: String) -> String? {
         guard ownerID.hasPrefix(ownerPrefix) else { return nil }

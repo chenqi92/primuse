@@ -1496,7 +1496,7 @@ struct SpokenWordBookOfflineRow: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var downloadedIDs: Set<String> = []
     @State private var showsUnavailableReason = false
-    /// 开着却还没下完时,常驻下载此刻在等什么(播放中、等 Wi-Fi、低电量……)。
+    /// 开着却还没下完时,常驻下载此刻在等什么(播放在缓冲、等 Wi-Fi、低电量……)。
     @State private var waitingReason: AutomaticOfflineDownloadDeferralReason?
 
     private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
@@ -1656,10 +1656,11 @@ struct SpokenWordBookOfflineRow: View {
     private static func waitingText(_ reason: AutomaticOfflineDownloadDeferralReason?) -> String? {
         guard let reason else { return nil }
         switch reason {
-        case .applicationInactive:
+        case .applicationInactive, .playbackActive:
+            // 书的章节在前台播放时也下;前台这一条在页面上看不到。
             return nil
-        case .playbackActive, .playbackBuffering:
-            return String(localized: "spoken_word_keep_offline_waiting_playback")
+        case .playbackBuffering:
+            return String(localized: "spoken_word_keep_offline_waiting_buffering")
         case .networkUndetermined, .networkUnavailable:
             return String(localized: "spoken_word_keep_offline_waiting_network")
         case .expensiveNetwork:

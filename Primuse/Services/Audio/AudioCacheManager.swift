@@ -1866,6 +1866,8 @@ private actor AlwaysDownloadWorker {
     private var playbackIsActive = false
     private var playbackIsBuffering = false
     private var resourceConditionsAllowTransfers = false
+    /// 正在下的这一首是不是播放中也能下的(有声书的章节,#313)。播放开始时只停下歌单的那种。
+    private var runningJobDownloadsDuringPlayback = false
     private var didLoadJournal = false
     private var runner: Task<Void, Never>?
     private var runnerGeneration = UUID()
@@ -1919,8 +1921,12 @@ private actor AlwaysDownloadWorker {
         self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         resourceConditionsAllowTransfers = allowTransfers
-        if playbackIsActive || playbackIsBuffering || !allowTransfers {
+        if playbackIsBuffering || !allowTransfers {
             await cancelRunner()
+        } else if playbackIsActive, runner != nil, !runningJobDownloadsDuringPlayback {
+            // 开始播放时正在下歌单里的歌:照旧停下;有开着保持离线的书,换成接着下书的章节。
+            await cancelRunner()
+            scheduleRunner()
         } else {
             scheduleRunner()
         }
@@ -2297,10 +2303,10 @@ private actor AlwaysDownloadWorker {
     private func scheduleRunner() {
         guard runner == nil,
               applicationIsActive,
-              !playbackIsActive,
               !playbackIsBuffering,
               resourceConditionsAllowTransfers,
-              !journal.jobs.isEmpty else { return }
+              !journal.jobs.isEmpty,
+              !playbackIsActive || hasJobsDownloadingDuringPlayback else { return }
         let generation = UUID()
         runnerGeneration = generation
         runner = Task { [weak self] in
@@ -2320,10 +2326,14 @@ private actor AlwaysDownloadWorker {
         while !Task.isCancelled,
               runnerGeneration == generation,
               applicationIsActive,
-              !playbackIsActive,
               !playbackIsBuffering,
               resourceConditionsAllowTransfers {
-            guard let job = nextJob() else { return }
+            // 播放中只挑有声书的章节(#313);一首都没有就先收工,播放停下时会再排起来。
+            guard let next = nextJob(duringPlayback: playbackIsActive) else { return }
+            let (job, isHeapRoot) = next
+            let downloadsDuringPlayback = AudiobookOfflinePolicy.downloadsDuringPlayback(
+                ownerIDs: job.playlistIDs
+            )
             let now = Date()
             if job.nextAttemptAt > now {
                 let seconds = max(1, min(30, Int(job.nextAttemptAt.timeIntervalSince(now).rounded(.up))))
@@ -2354,7 +2364,7 @@ private actor AlwaysDownloadWorker {
                     recoverableArtifactBytes: recoverableArtifactBytes
                 ),
                 expectedDownloadBytes: job.song.fileSize,
-                isPlaybackActive: resources.isPlaybackActive,
+                isPlaybackActive: downloadsDuringPlayback ? false : resources.isPlaybackActive,
                 isPlaybackBuffering: resources.isPlaybackBuffering
             )
             guard eligibility == .allowed else {
@@ -2362,7 +2372,10 @@ private actor AlwaysDownloadWorker {
                 continue
             }
 
-            removeJobHeapRoot()
+            // 播放中挑的书的章节不一定在堆顶。它在堆里的那一条不用拿掉:下完会从任务表里删掉,
+            // 失败、推迟会带着新的时间重新入堆,旧那一条到时候校验对不上自然作废。
+            if isHeapRoot { removeJobHeapRoot() }
+            runningJobDownloadsDuringPlayback = downloadsDuringPlayback
 
             let needsRefreshPreparation = refreshDisposition != .none
                 && job.refreshPrepared != true
@@ -2495,6 +2508,38 @@ private actor AlwaysDownloadWorker {
                 )
             }
         }
+    }
+
+    private var hasJobsDownloadingDuringPlayback: Bool {
+        journal.jobs.values.contains {
+            AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: $0.playlistIDs)
+        }
+    }
+
+    /// 下一首该下的,和它是不是堆顶。不在播放时就是堆顶;播放中只看有声书的章节,按队列同样的先后
+    /// 挑最早的一条(堆顶正好是书的章节时直接用它)。
+    private func nextJob(duringPlayback: Bool) -> (Job, Bool)? {
+        let root = nextJob()
+        guard duringPlayback else { return root.map { ($0, true) } }
+        if let root, AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: root.playlistIDs) {
+            return (root, true)
+        }
+        var earliest: Job?
+        for job in journal.jobs.values
+        where AudiobookOfflinePolicy.downloadsDuringPlayback(ownerIDs: job.playlistIDs) {
+            guard let current = earliest else {
+                earliest = job
+                continue
+            }
+            if Self.jobQueueEntry(Self.queueEntry(for: job), precedes: Self.queueEntry(for: current)) {
+                earliest = job
+            }
+        }
+        return earliest.map { ($0, false) }
+    }
+
+    private static func queueEntry(for job: Job) -> JobQueueEntry {
+        JobQueueEntry(songID: job.song.id, nextAttemptAt: job.nextAttemptAt, enqueuedAt: job.enqueuedAt)
     }
 
     private func nextJob() -> Job? {
@@ -2862,6 +2907,7 @@ final class AlwaysDownloadCoordinator {
     /// 常驻下载此刻为什么停着(#313):和下载那边逐首判断用同一套条件,书详情页拿它说明「已下载 0/N 章」
     /// 在等什么。页面看得见时 App 一定在前台,前台这一条不算;没有要停的理由时为 nil。
     func waitingReason(expectedDownloadBytes: Int64) -> AutomaticOfflineDownloadDeferralReason? {
+        // 书的章节在前台播放时也下(`AudiobookOfflinePolicy.downloadsDuringPlayback`),只有缓冲时停。
         let network = NetworkMonitor.shared
         let thermal = ProcessInfo.processInfo.thermalState
         let eligibility = AutomaticOfflineDownloadPolicy.eligibility(
@@ -2874,7 +2920,7 @@ final class AlwaysDownloadCoordinator {
             hasSeriousThermalPressure: thermal == .serious || thermal == .critical,
             availableDiskBytes: AlwaysDownloadWorker.availableDiskBytes(),
             expectedDownloadBytes: expectedDownloadBytes,
-            isPlaybackActive: player.isPlaybackActive,
+            isPlaybackActive: false,
             isPlaybackBuffering: player.isLoading
         )
         guard case .deferred(let reason) = eligibility else { return nil }

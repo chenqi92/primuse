@@ -5994,7 +5994,7 @@
 "playlist_import_quota_format" = "%1$d músicas carregadas; as páginas restantes estão pausadas. %2$@ Você pode importar as músicas carregadas agora ou tentar novamente após a espera.";
 "playlist_import_quota_ready_format" = "%d músicas carregadas antes do limite de solicitações. Você pode importá-las agora ou tentar carregar a playlist completa novamente.";
 "playlist_import_retry_link" = "Carregar playlist novamente";
-"spoken_word_keep_offline_hint" = "Baixa o livro inteiro pelo Wi-Fi e os novos capítulos quando aparecerem. Ao desativar, os arquivos baixados são mantidos.";
+"spoken_word_keep_offline_hint" = "Com o app aberto, baixa o livro inteiro pelo Wi-Fi, mesmo enquanto você ouve, e os novos capítulos quando aparecerem. Ao desativar, os arquivos baixados são mantidos.";
 "spoken_word_keep_offline_progress_format" = "%1$ld de %2$ld capítulos baixados";
 "spoken_word_keep_offline_complete" = "Todos os capítulos baixados";
 "spoken_word_keep_offline_unavailable_title" = "Não é possível manter este livro offline";
@@ -6002,7 +6002,7 @@
 "spoken_word_keep_offline_unsupported_message" = "As fontes deste livro não oferecem suporte a downloads offline.";
 "spoken_word_keep_offline_on_device_short" = "Já está neste dispositivo";
 "spoken_word_keep_offline_unsupported_short" = "A fonte não permite downloads";
-"spoken_word_keep_offline_waiting_playback" = "Pausado durante a reprodução; continua ao parar";
+"spoken_word_keep_offline_waiting_buffering" = "Pausado enquanto a reprodução carrega";
 "spoken_word_keep_offline_waiting_network" = "Continua quando estiver online";
 "spoken_word_keep_offline_waiting_wifi" = "Aguardando Wi-Fi";
 "spoken_word_keep_offline_waiting_low_data" = "Pausado no Modo Pouco Dados";

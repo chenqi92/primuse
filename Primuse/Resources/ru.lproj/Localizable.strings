@@ -5994,7 +5994,7 @@
 "playlist_import_quota_format" = "Загружено %1$d композиций; загрузка остальных страниц приостановлена. %2$@ Можно импортировать уже загруженные композиции или повторить попытку после ожидания.";
 "playlist_import_quota_ready_format" = "До ограничения запросов загружено %d композиций. Можно импортировать их сейчас или повторить загрузку всего плейлиста.";
 "playlist_import_retry_link" = "Загрузить плейлист повторно";
-"spoken_word_keep_offline_hint" = "Скачивает всю книгу по Wi-Fi, а новые главы — по мере появления. После выключения скачанные файлы сохраняются.";
+"spoken_word_keep_offline_hint" = "Пока приложение открыто, скачивает всю книгу по Wi-Fi, даже во время прослушивания, а новые главы — по мере появления. После выключения скачанные файлы сохраняются.";
 "spoken_word_keep_offline_progress_format" = "Скачано глав: %1$ld из %2$ld";
 "spoken_word_keep_offline_complete" = "Все главы скачаны";
 "spoken_word_keep_offline_unavailable_title" = "Эту книгу нельзя хранить офлайн";
@@ -6002,7 +6002,7 @@
 "spoken_word_keep_offline_unsupported_message" = "Источники этой книги не поддерживают офлайн-загрузку.";
 "spoken_word_keep_offline_on_device_short" = "Уже на этом устройстве";
 "spoken_word_keep_offline_unsupported_short" = "Источник не поддерживает загрузку";
-"spoken_word_keep_offline_waiting_playback" = "На паузе во время воспроизведения, продолжится после остановки";
+"spoken_word_keep_offline_waiting_buffering" = "На паузе, пока воспроизведение буферизуется";
 "spoken_word_keep_offline_waiting_network" = "Продолжится, когда появится сеть";
 "spoken_word_keep_offline_waiting_wifi" = "Ждёт Wi-Fi";
 "spoken_word_keep_offline_waiting_low_data" = "На паузе в режиме экономии данных";

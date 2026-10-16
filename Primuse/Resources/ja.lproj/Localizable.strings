@@ -6089,7 +6089,7 @@
 "playlist_import_quota_format" = "%1$d 曲を読み込みました。残りのページの読み込みは一時停止中です。%2$@ 読み込んだ曲を今すぐ取り込むか、待機後に再試行できます。";
 "playlist_import_quota_ready_format" = "リクエストが制限される前に %d 曲を読み込みました。今すぐ取り込むか、プレイリスト全体の読み込みを再試行できます。";
 "playlist_import_retry_link" = "プレイリストを再読み込み";
-"spoken_word_keep_offline_hint" = "Wi-Fi 経由で本全体をダウンロードし、追加された章も自動でダウンロードします。オフにしてもダウンロード済みのファイルは保持されます。";
+"spoken_word_keep_offline_hint" = "アプリを開いている間、聴きながらでも Wi-Fi 経由で本全体をダウンロードし、追加された章も自動でダウンロードします。オフにしてもダウンロード済みのファイルは保持されます。";
 "spoken_word_keep_offline_progress_format" = "%2$ld 章中 %1$ld 章をダウンロード済み";
 "spoken_word_keep_offline_complete" = "すべての章をダウンロード済み";
 "spoken_word_keep_offline_unavailable_title" = "この本はオフラインで保持できません";
@@ -6097,7 +6097,7 @@
 "spoken_word_keep_offline_unsupported_message" = "この本のソースはオフラインダウンロードに対応していません。";
 "spoken_word_keep_offline_on_device_short" = "このデバイスにあります";
 "spoken_word_keep_offline_unsupported_short" = "ソースが非対応";
-"spoken_word_keep_offline_waiting_playback" = "再生中は待機し、止めると再開";
+"spoken_word_keep_offline_waiting_buffering" = "再生のバッファ中は一時停止";
 "spoken_word_keep_offline_waiting_network" = "オンラインになると再開";
 "spoken_word_keep_offline_waiting_wifi" = "Wi-Fi 接続を待っています";
 "spoken_word_keep_offline_waiting_low_data" = "低データモードのため一時停止";
