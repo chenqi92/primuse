@@ -608,12 +608,14 @@ struct MacHomeView: View {
     }
 
     /// 横排:同一张卡片摆到超出右缘为止,超出的部分裁掉,不撑宽页面。
+    /// `minWidth: 0` 不能省:只写 maxWidth 时这层框跟着十张卡的总宽(约 3000 点)走,
+    /// 首页的最小宽度跟着变成 3000,窗口会被撑出屏幕右边。
     private func skeletonRow<Card: View>(spacing: CGFloat, @ViewBuilder _ card: () -> Card) -> some View {
         let content = card()
         return HStack(alignment: .top, spacing: spacing) {
             ForEach(0..<10, id: \.self) { _ in content }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .clipped()
     }
 

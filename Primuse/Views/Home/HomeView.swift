@@ -399,6 +399,7 @@ private struct HomeLoadingSkeletonSection: View {
         switch block.body {
         case .row(let card, let artwork, let circular, let rows, let spacing, let inset):
             // 一行摆到超出右缘为止,和真的横排一样露出一角;超出的部分裁掉,不撑宽页面。
+            // 只写 maxWidth 时框跟着八张卡的总宽走,两栏首页里左栏这一行会盖到右栏上。
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(0..<rows, id: \.self) { _ in
                     HStack(alignment: .top, spacing: spacing) {
@@ -409,7 +410,7 @@ private struct HomeLoadingSkeletonSection: View {
                 }
             }
             .padding(.leading, inset)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .clipped()
         case .grid(let columns, let rows, let circular):
             VStack(spacing: HomeLoadingSkeletonBlock.gridRowSpacing) {
