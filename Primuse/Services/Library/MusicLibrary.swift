@@ -10064,12 +10064,14 @@ final class MusicLibrary {
 
     private func resolveIdentity(
         _ identity: SongIdentity,
-        using resolutionIndex: IdentityResolutionIndex
+        using resolutionIndex: IdentityResolutionIndex,
+        exactIDOnly: Bool = false
     ) -> String? {
         // Tier 1: exact ID — same mount on both devices, or hash collision.
         if songForSynchronization(id: identity.songID) != nil {
             return identity.songID
         }
+        guard !exactIDOnly else { return nil }
         // Tier 2: cloud account + file path. `sourceIdentityResolver`
         // returns the `cloudAccountID` for OAuth-typed mounts (which is
         // SHA256(provider:accountUID) — stable across devices).
@@ -10231,7 +10233,7 @@ final class MusicLibrary {
     /// applies a batch). Identities that now resolve are appended to
     /// their playlist / promoted into history; identities that have aged
     /// past `pendingIdentityTTL` are dropped.
-    private func flushPendingIdentities() -> Bool {
+    private func flushPendingIdentities(exactIDOnly: Bool = false) -> Bool {
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return false }
 
         var changed = false
@@ -10246,7 +10248,9 @@ final class MusicLibrary {
         for pending in pendingPlaylistIdentities.values {
             identitiesToResolve.append(contentsOf: pending.lazy.map(\.identity))
         }
-        let resolutionIndex = makeIdentityResolutionIndex(for: identitiesToResolve)
+        let resolutionIndex = exactIDOnly
+            ? IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
+            : makeIdentityResolutionIndex(for: identitiesToResolve)
 
         // Playlists: each pending entry that resolves gets appended to
         // the end of the playlist. Original ordering is unrecoverable
@@ -10258,7 +10262,7 @@ final class MusicLibrary {
             var newlyResolved: [String] = []
             for entry in pending {
                 if entry.firstSeenAt < cutoff { continue }
-                if let songID = resolveIdentity(entry.identity, using: resolutionIndex) {
+                if let songID = resolveIdentity(entry.identity, using: resolutionIndex, exactIDOnly: exactIDOnly) {
                     newlyResolved.append(songID)
                 } else {
                     stillPending.append(entry)
@@ -10282,7 +10286,7 @@ final class MusicLibrary {
         var resolvedHistory: [String] = []
         for entry in pendingHistoryIdentities {
             if entry.firstSeenAt < cutoff { continue }
-            if let songID = resolveIdentity(entry.identity, using: resolutionIndex) {
+            if let songID = resolveIdentity(entry.identity, using: resolutionIndex, exactIDOnly: exactIDOnly) {
                 resolvedHistory.append(songID)
             } else {
                 stillPendingHistory.append(entry)
@@ -10307,20 +10311,27 @@ final class MusicLibrary {
     /// lookup on the main actor. Resolve once after the mutation burst settles;
     /// the pending entries are durable, so this changes latency rather than
     /// correctness.
-    private func schedulePendingIdentityFlush() {
+    private func schedulePendingIdentityFlush(after delay: Duration = .seconds(8)) {
         schedulePlaylistPendingResolution()
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return }
-        guard allowsPendingIdentityFlush else { return }
+        // iOS 前台不做整库的模糊匹配(见 `suspendPendingIdentityResolution`),但歌曲 id 对得上的照样
+        // 点亮:同一个音乐源在各设备上算出的歌曲 id 一样,别的设备的「我喜欢」、歌单、最近播放
+        // 先于本机扫描到达时靠的就是这一步。每条只查一次表,不扫整库;以前要等切到后台才点亮。
+        let exactIDOnly = !allowsPendingIdentityFlush
         pendingIdentityFlushTask?.cancel()
         pendingIdentityFlushTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .seconds(8))
+                try await Task.sleep(for: delay)
             } catch {
                 return
             }
             guard let self, !Task.isCancelled else { return }
             self.pendingIdentityFlushTask = nil
-            if self.flushPendingIdentities() {
+            if self.isDeferringSceneTransitionPublications {
+                self.schedulePendingIdentityFlush(after: .seconds(10))
+                return
+            }
+            if self.flushPendingIdentities(exactIDOnly: exactIDOnly && !self.allowsPendingIdentityFlush) {
                 self.persistSnapshot()
             }
         }
