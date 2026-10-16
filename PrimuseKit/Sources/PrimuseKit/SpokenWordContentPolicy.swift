@@ -340,22 +340,34 @@ public enum SpokenWordTranscriptReadingPolicy {
         return result
     }
 
-    /// 正在念的那一段:开始时间不晚于 `time` 的最后一段。
-    public static func paragraphIndex(at time: TimeInterval, in paragraphs: [Paragraph]) -> Int? {
+    /// 全屏文稿跟读时的提前量,和歌词页、普通文稿页一样提前 0.25 秒换:高亮动画和滚动要一点时间,
+    /// 卡着开始时间换,眼睛看到时已经念出半个字(#313)。
+    public static let followLookahead: TimeInterval = 0.25
+
+    /// 正在念的那一段:开始时间不晚于 `time + lookahead` 的最后一段。
+    public static func paragraphIndex(
+        at time: TimeInterval,
+        in paragraphs: [Paragraph],
+        lookahead: TimeInterval = 0.05
+    ) -> Int? {
         var found: Int?
         for (index, paragraph) in paragraphs.enumerated() {
             guard let start = paragraph.start else { continue }
-            if start <= time + 0.05 { found = index } else { break }
+            if start <= time + lookahead { found = index } else { break }
         }
         return found
     }
 
-    /// 段里正在念的那一句:开始时间不晚于 `time` 的最后一句。段落不带时间时是 nil。
-    public static func segmentIndex(at time: TimeInterval, in paragraph: Paragraph) -> Int? {
+    /// 段里正在念的那一句:开始时间不晚于 `time + lookahead` 的最后一句。段落不带时间时是 nil。
+    public static func segmentIndex(
+        at time: TimeInterval,
+        in paragraph: Paragraph,
+        lookahead: TimeInterval = 0.05
+    ) -> Int? {
         var found: Int?
         for (index, segment) in paragraph.segments.enumerated() {
             guard let start = segment.start else { continue }
-            if start <= time + 0.05 { found = index } else { break }
+            if start <= time + lookahead { found = index } else { break }
         }
         return found
     }

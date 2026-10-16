@@ -1420,9 +1420,10 @@ struct SpokenWordTranscriptReader: View {
             updatePlaybackPosition()
         }
         .task {
+            // 和歌词页、普通文稿页同一个节奏:每 100 毫秒看一次。只有下标变了才写状态,不会多重画。
             while !Task.isCancelled {
                 updatePlaybackPosition()
-                try? await Task.sleep(for: .milliseconds(400))
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
         .task(id: "\(chromeActivity)|\(chromeVisible)|\(chromeMayHide)") {
@@ -1598,12 +1599,15 @@ struct SpokenWordTranscriptReader: View {
         paragraphs.indices.contains(match.paragraph) ? paragraphs[match.paragraph].id : nil
     }
 
+    /// 按播放器外推出来的此刻时间算正在念哪一段、哪一句。`currentTime` 每半秒才更新一次,
+    /// 直接拿它判断,整段换高亮最多要晚近一秒(#313)。
     private func updatePlaybackPosition() {
-        let time = player.currentTime
-        let index = Policy.paragraphIndex(at: time, in: paragraphs)
+        let time = player.interpolatedTime()
+        let lookahead = Policy.followLookahead
+        let index = Policy.paragraphIndex(at: time, in: paragraphs, lookahead: lookahead)
         var segment: Int?
         if highlight == .sentence, let index {
-            segment = Policy.segmentIndex(at: time, in: paragraphs[index])
+            segment = Policy.segmentIndex(at: time, in: paragraphs[index], lookahead: lookahead)
         }
         if index != currentIndex { currentIndex = index }
         if segment != currentSegment { currentSegment = segment }

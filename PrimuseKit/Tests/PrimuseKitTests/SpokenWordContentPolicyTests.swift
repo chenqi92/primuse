@@ -197,6 +197,10 @@ struct SpokenWordTranscriptReadingPolicyTests {
         #expect(Policy.paragraphIndex(at: 4, in: paragraphs) == 1)
         #expect(Policy.paragraphIndex(at: 0, in: paragraphs) == 0)
         #expect(Policy.paragraphIndex(at: 100, in: paragraphs) == 2)
+        // 跟读提前量:离下一段开头不到 0.25 秒就换过去,再早一点还停在上一段。
+        #expect(Policy.paragraphIndex(at: 3.0, in: paragraphs, lookahead: Policy.followLookahead) == 1)
+        #expect(Policy.paragraphIndex(at: 2.9, in: paragraphs, lookahead: Policy.followLookahead) == 0)
+        #expect(Policy.paragraphIndex(at: 3.0, in: paragraphs) == 0)
     }
 
     @Test("Chinese joins without spaces and LRC lines break only at long gaps")
