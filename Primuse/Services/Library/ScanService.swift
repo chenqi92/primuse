@@ -1612,6 +1612,39 @@ final class ScanService {
         )
     }
 
+    /// 中间提交到点了, 但用户正在滑动列表: 先攒着, 停稳之后下一次进度回调再交。
+    /// 一次提交在主线程上整库合并、换可见集合, 正好落在滑动里就是顿一下。
+    /// 一直在滑也最多压 15 秒、8 批(`LibraryPublishTimingPolicy`); 终态提交、
+    /// 出错让路前的 `commitReadRowsBeforeExit` 都不经过这里。
+    private func holdsIntermediateCommitForScroll(
+        holdingSince: inout Date?,
+        pendingCount: Int,
+        batchSize: Int,
+        sourceName: String
+    ) -> Bool {
+        let now = Date()
+        let gate = LibraryPublishTimingPolicy.scrollGate(
+            activity: UserScrollActivityMonitor.shared.activity(now: now),
+            holdingSince: holdingSince,
+            pendingCount: pendingCount,
+            batchSize: batchSize,
+            now: now
+        )
+        if gate == .hold {
+            if holdingSince == nil {
+                holdingSince = now
+                plog("⏸ \(sourceName): holding scan commit while the list scrolls")
+            }
+            return true
+        }
+        if let since = holdingSince {
+            plog("📥 \(sourceName): committing scan rows held \(String(format: "%.1f", now.timeIntervalSince(since)))s for scrolling"
+                + (gate == .proceedDespiteScrolling ? " (still scrolling)" : ""))
+        }
+        holdingSince = nil
+        return false
+    }
+
     private var currentProgressPublishInterval: TimeInterval {
         ScanExecutionProfilePolicy.progressPublishInterval(for: currentExecutionProfile)
     }
@@ -2352,6 +2385,7 @@ final class ScanService {
             var lastProgressPublishedAt = Date.distantPast
             var lastDirectoryState = resumableDirectoryState
             var completedFlushes = 0
+            var commitHeldForScrollSince: Date?
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -2413,9 +2447,16 @@ final class ScanService {
 
                 let pendingDelta = update.scannedCount - lastIncrementalUpdate
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
-                if pendingDelta >= currentFlushBatchSize(completedFlushes: completedFlushes)
+                let flushBatchSize = currentFlushBatchSize(completedFlushes: completedFlushes)
+                if (pendingDelta >= flushBatchSize
                     || (pendingDelta > 0
-                        && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes)) {
+                        && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes)))
+                    && !holdsIntermediateCommitForScroll(
+                        holdingSince: &commitHeldForScrollSince,
+                        pendingCount: pendingDelta,
+                        batchSize: flushBatchSize,
+                        sourceName: source.name
+                    ) {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
@@ -3155,6 +3196,7 @@ final class ScanService {
             // `SourceCatalogSnapshotPolicy.hasChanges` 因此会把首次扫描误判成
             // 空操作, 连带跳过后台刮削入队。
             var publishedIntermediateRows = false
+            var commitHeldForScrollSince: Date?
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -3230,10 +3272,17 @@ final class ScanService {
                 let observedMutationCount = max(update.mutationCount, update.addedCount)
                 let pendingDelta = observedMutationCount - lastIncrementalMutation
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
+                let flushBatchSize = currentFlushBatchSize(completedFlushes: completedFlushes)
                 let shouldFlushIncrementally =
-                    pendingDelta >= currentFlushBatchSize(completedFlushes: completedFlushes)
-                    || (pendingDelta > 0
-                        && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes))
+                    (pendingDelta >= flushBatchSize
+                        || (pendingDelta > 0
+                            && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes)))
+                    && !holdsIntermediateCommitForScroll(
+                        holdingSince: &commitHeldForScrollSince,
+                        pendingCount: pendingDelta,
+                        batchSize: flushBatchSize,
+                        sourceName: source.name
+                    )
                 if shouldFlushIncrementally {
                     // 中间 flush 只交这一批新增/刷新的行, 不再把整份累积目录
                     // 重新提交一遍 —— 后者在 7 万首的库里等于每 1.5 s 重跑一次

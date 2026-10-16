@@ -406,6 +406,8 @@ final class MetadataBackfillService {
 
     private let library: MusicLibrary
     private let sourceManager: SourceManager
+    /// 到点的发布遇上用户在滑动时往后压, 见 `LibraryPublishTimingPolicy`。
+    private let scrollActivityMonitor: UserScrollActivityMonitor
     private let backfillableSourceIDs: () -> Set<String>
     /// Local discovery deliberately creates duration-less rows. Once that
     /// initial detail read succeeds, older fully-populated local rows must not
@@ -575,6 +577,11 @@ final class MetadataBackfillService {
     @ObservationIgnored private var pendingArtistInspectionIDs: Set<String> = []
     @ObservationIgnored private var artistInspectionIDsRequiringReplacement: Set<String> = []
     @ObservationIgnored private var lastFlushAt = Date.distantPast
+    /// 到点的这一批从什么时候起因为用户在滑动被压着; 没压着是 nil。
+    @ObservationIgnored private var scrollHoldStartedAt: Date?
+    /// 压着的时候盯着滑动停下, 停稳后自己发布 —— 不能指望下一首读完来触发,
+    /// 读得慢或网络卡住时那可能要很久。
+    @ObservationIgnored private var scrollSettleWatch: Task<Void, Never>?
     /// 已读完但还没发布的歌。它们在资料库里仍然是"裸行", 所以必须和
     /// `manuallyReadingSongIDs` 一样从选取里排除, 否则下一个快照会把它们
     /// 再读一遍并触发"同一批 ID 反复出现"的停摆保护。
@@ -939,6 +946,7 @@ final class MetadataBackfillService {
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
         self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
         self.sourceFileName = sourceFileName
+        self.scrollActivityMonitor = .shared
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -4092,13 +4100,48 @@ final class MetadataBackfillService {
             isFinalFlush: isFinal
         ) else { return }
         let limits = executionLimits
-        // 主闸门是完成量, 时间间隔只是慢档位下的兜底。两者都远大于首页的
-        // 重算节流窗口, 所以连续发布会被首页合并成一次整库重算。
-        guard isFinal
-                || pendingFlush.count >= limits.flushBatchSize
-                || pendingMetadataInspectionIDs.count >= limits.flushBatchSize
-                || pendingArtistInspectionIDs.count >= limits.flushBatchSize
-                || Date().timeIntervalSince(lastFlushAt) >= limits.flushInterval else { return }
+        let now = Date()
+        let pendingCount = pendingPublishCount
+        let librarySongCount = library.songs.count
+        let spacing = LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(
+            librarySongCount: librarySongCount
+        )
+        if !isFinal {
+            // 主闸门是完成量, 时间间隔只是慢档位下的兜底。两者都远大于首页的
+            // 重算节流窗口, 所以连续发布会被首页合并成一次整库重算。大曲库上
+            // 再按规模拉开间隔: 一次发布的代价跟着整库涨, 全速读内网 NAS 时
+            // 64 首几秒就攒满。
+            guard LibraryPublishTimingPolicy.isBackfillPublishDue(
+                pendingCount: pendingCount,
+                batchSize: limits.flushBatchSize,
+                flushInterval: limits.flushInterval,
+                sinceLastPublish: now.timeIntervalSince(lastFlushAt),
+                librarySongCount: librarySongCount
+            ) else { return }
+            // 到点了, 但用户正在滑: 先攒着, 停稳再一次发布。收尾那一批不压。
+            switch LibraryPublishTimingPolicy.scrollGate(
+                activity: scrollActivityMonitor.activity(now: now),
+                holdingSince: scrollHoldStartedAt,
+                pendingCount: pendingCount,
+                batchSize: limits.flushBatchSize,
+                now: now
+            ) {
+            case .hold:
+                if scrollHoldStartedAt == nil {
+                    scrollHoldStartedAt = now
+                    plog("⏸ Backfill: holding \(pendingCount) result(s) while the list scrolls")
+                }
+                watchForScrollSettle()
+                return
+            case .proceedDespiteScrolling:
+                let held = scrollHoldStartedAt.map { now.timeIntervalSince($0) } ?? 0
+                plog("📥 Backfill: publishing while the list still scrolls (held \(String(format: "%.1f", held))s, \(pendingCount) pending)")
+            case .proceed:
+                break
+            }
+        }
+        let heldForScroll = scrollHoldStartedAt.map { now.timeIntervalSince($0) }
+        scrollHoldStartedAt = nil
 
         // Partial metadata can be accompanied by markFailed=true (for example
         // TIT2 parsed but duration did not). Failure membership must stop
@@ -4137,6 +4180,8 @@ final class MetadataBackfillService {
             plog(
                 "📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library"
                     + (resolved.count == batch.count ? "" : " (unchanged=\(resolved.count - batch.count))")
+                    + (heldForScroll.map { " (held \(String(format: "%.1f", $0))s for scrolling)" } ?? "")
+                    + (spacing > 0 ? " (library=\(librarySongCount), spacing=\(Int(spacing))s)" : "")
             )
         }
         let artistIDsSafeToPersist = pendingArtistInspectionIDs
@@ -4159,6 +4204,42 @@ final class MetadataBackfillService {
         pendingArtistInspectionIDs.removeAll()
         artistInspectionIDsRequiringReplacement.removeAll()
         lastFlushAt = Date()
+        scrollHoldStartedAt = nil
+        scrollSettleWatch?.cancel()
+        scrollSettleWatch = nil
+    }
+
+    /// 攒着等发布的条数, 和发布闸门用的是同一个口径。
+    private var pendingPublishCount: Int {
+        max(pendingFlush.count, pendingMetadataInspectionIDs.count, pendingArtistInspectionIDs.count)
+    }
+
+    /// 压着一批时每 250 ms 看一眼: 滑动停稳(或压够久、攒够多)就自己发布。
+    /// 发布前后照旧走 `publishPendingFlushIfDue` 的全部闸门, 场景暂停时仍然不发。
+    private func watchForScrollSettle() {
+        guard scrollSettleWatch == nil else { return }
+        scrollSettleWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let self, !Task.isCancelled else { return }
+                guard let holdingSince = self.scrollHoldStartedAt else {
+                    self.scrollSettleWatch = nil
+                    return
+                }
+                let now = Date()
+                let gate = LibraryPublishTimingPolicy.scrollGate(
+                    activity: self.scrollActivityMonitor.activity(now: now),
+                    holdingSince: holdingSince,
+                    pendingCount: self.pendingPublishCount,
+                    batchSize: self.executionLimits.flushBatchSize,
+                    now: now
+                )
+                guard gate != .hold else { continue }
+                self.scrollSettleWatch = nil
+                await self.publishPendingFlushIfDue()
+                return
+            }
+        }
     }
 
     private func shouldBlockForCellular() -> Bool {
