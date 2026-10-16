@@ -951,15 +951,21 @@ extension AudioPlayerService {
         // qualifies; a long mix or a live set can carry marks too.
         guard SpokenWordStore.shared.isSpokenWord(song)
             || song.duration >= Self.chapterLookupMinimumDuration else { return }
-        // Chapters exist in ISO base-media files. Anything else would be a
-        // whole-file read that finds nothing.
+        // Chapters exist in ISO base-media files and in the ID3 tag of an MP3.
+        // Anything else would be a whole-file read that finds nothing.
         let fileExtension = fileURL.pathExtension.lowercased()
-        guard ["m4a", "m4b", "mp4", "m4v", "mov", "alac"].contains(fileExtension) else { return }
+        let readsID3 = fileExtension == "mp3"
+        guard readsID3 || ["m4a", "m4b", "mp4", "m4v", "mov", "alac"].contains(fileExtension) else { return }
+        // A podcast episode's ID3 chapters come through `PodcastChapterLoader`,
+        // after the ones its feed declares.
+        if readsID3, PodcastPlaybackSong.isEpisode(song) { return }
         chapterLoadedSongID = song.id
         chapterLoadTask?.cancel()
         let songID = song.id
         chapterLoadTask = Task { [weak self] in
             let chapters = await Task.detached(priority: .utility) { () -> [MediaChapter] in
+                // Only the tag at the head of an MP3 is read.
+                if readsID3 { return ID3ChapterParser.chapters(fileURL: fileURL) }
                 // Mapped rather than read: only the pages holding `moov` and
                 // the title samples are ever touched.
                 guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else {

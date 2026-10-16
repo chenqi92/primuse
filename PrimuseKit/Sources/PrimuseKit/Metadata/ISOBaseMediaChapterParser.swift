@@ -66,7 +66,7 @@ public enum ISOBaseMediaChapterParser {
 
     /// Drops marks that carry no title, orders them, and removes the duplicate
     /// start times some converters emit for a leading "chapter 0".
-    private static func sanitized(_ chapters: [MediaChapter]) -> [MediaChapter] {
+    static func sanitized(_ chapters: [MediaChapter]) -> [MediaChapter] {
         var seenStarts = Set<Int64>()
         return chapters
             .filter { $0.startTime.isFinite && $0.startTime >= 0 && !$0.title.isEmpty }

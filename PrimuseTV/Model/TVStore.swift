@@ -5381,9 +5381,11 @@ final class TVStore {
         )
     }
 
-    /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读)。
+    /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读);
+    /// 读不出来的播客单集用 feed 和 ID3 标签里的。
     var spokenWordChapters: [MediaChapter] {
-        currentItemIsSpokenWord && !isLiveRadio ? engine.chapters : []
+        guard currentItemIsSpokenWord, !isLiveRadio else { return [] }
+        return engine.chapters.isEmpty ? podcastChapters : engine.chapters
     }
 
     /// 播放头所在的章节;读播放头。
@@ -6638,6 +6640,10 @@ final class TVStore {
     @ObservationIgnored private var currentPodcastSong: Song?
     /// 这一集的片尾已经跳过了,别每拍再触发一次。
     @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
+    /// 这一集在 feed 里、章节 JSON 里或音频文件 ID3 标签里的章节,和手机同一套找法
+    /// (`PodcastChapterLoader`)。AVPlayer 从流里读不出章节时用它。
+    private(set) var podcastChapters: [MediaChapter] = []
+    @ObservationIgnored private var podcastChapterTask: Task<Void, Never>?
 
     /// 播一集播客。不进曲库队列;有声那一套照常生效:记位置、续播、按节目变速、睡眠定时。
     /// 已经在放这一集就只是继续。
@@ -6679,6 +6685,7 @@ final class TVStore {
         currentPodcastSong = song
         podcastUpNext = continuous ? continuing.filter { $0.id != episode.id } : []
         podcastOutroHandledEpisodeID = nil
+        loadPodcastChapters(for: episode)
 
         let start = podcastStartTime(song: song, episode: episode, show: show)
         engine.prepareForSelection(startAt: start)
@@ -6792,6 +6799,22 @@ final class TVStore {
         currentPodcastSong = nil
         podcastUpNext = []
         podcastOutroHandledEpisodeID = nil
+        podcastChapterTask?.cancel()
+        podcastChapterTask = nil
+        podcastChapters = []
+    }
+
+    /// 换到一集时找它的章节:feed 里直接写的立刻有,JSON 和音频文件里的取回来再换上。
+    private func loadPodcastChapters(for episode: PodcastEpisode) {
+        podcastChapterTask?.cancel()
+        podcastChapters = episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
+        guard podcastChapters.isEmpty else { return }
+        let episodeID = episode.id
+        podcastChapterTask = Task { @MainActor [weak self] in
+            let chapters = await PodcastChapterLoader.chapters(for: episode)
+            guard !Task.isCancelled, let self, self.currentPodcastEpisodeID == episodeID else { return }
+            self.podcastChapters = chapters
+        }
     }
 
     /// 一集放完(或片尾跳过):接着放下一集;后面没有了就停在这里。

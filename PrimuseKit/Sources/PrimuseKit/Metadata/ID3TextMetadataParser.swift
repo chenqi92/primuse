@@ -327,7 +327,7 @@ public enum ID3TextMetadataParser {
         return size > 0 && offset + headerSize + size <= tag.count
     }
 
-    private static func supportsPlainTextFrame(version: Int, formatFlags: UInt8) -> Bool {
+    static func supportsPlainTextFrame(version: Int, formatFlags: UInt8) -> Bool {
         if version == 3 {
             // compression, encryption, grouping identity
             return (formatFlags & 0xE0) == 0
@@ -412,7 +412,7 @@ public enum ID3TextMetadataParser {
         return values.isEmpty ? nil : (normalizedKey, values)
     }
 
-    private static func decodedText(_ frame: Data) -> String? {
+    static func decodedText(_ frame: Data) -> String? {
         decodedTextValues(frame).first
     }
 
@@ -444,7 +444,7 @@ public enum ID3TextMetadataParser {
         destination = result.isEmpty ? nil : result
     }
 
-    private static func extendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {
+    static func extendedHeaderLength(in tag: Data, version: Int, flags: UInt8) -> Int {
         guard (flags & 0x40) != 0 else { return 0 }
         if version == 3 {
             guard tag.count >= 4 else { return tag.count }
@@ -457,7 +457,7 @@ public enum ID3TextMetadataParser {
         return 0
     }
 
-    private static func removingUnsynchronization(from data: Data) -> Data {
+    static func removingUnsynchronization(from data: Data) -> Data {
         var result = Data()
         result.reserveCapacity(data.count)
         var index = 0
@@ -483,7 +483,7 @@ public enum ID3TextMetadataParser {
         return digits.count == 4 ? Int(String(digits)) : nil
     }
 
-    private static func ascii(_ data: Data, at offset: Int, count: Int) -> String? {
+    static func ascii(_ data: Data, at offset: Int, count: Int) -> String? {
         guard offset >= 0, count >= 0, offset <= data.count, count <= data.count - offset else {
             return nil
         }
@@ -497,7 +497,7 @@ public enum ID3TextMetadataParser {
             | Int(data[offset + 2])
     }
 
-    private static func uint32BE(_ data: Data, at offset: Int) -> Int {
+    static func uint32BE(_ data: Data, at offset: Int) -> Int {
         guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset]) << 24)
             | (Int(data[offset + 1]) << 16)
@@ -505,7 +505,7 @@ public enum ID3TextMetadataParser {
             | Int(data[offset + 3])
     }
 
-    private static func syncSafeInt(_ data: Data, at offset: Int) -> Int {
+    static func syncSafeInt(_ data: Data, at offset: Int) -> Int {
         guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset] & 0x7F) << 21)
             | (Int(data[offset + 1] & 0x7F) << 14)

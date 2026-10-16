@@ -164,14 +164,16 @@ extension AudioPlayerService {
         if !found.episode.chapters.isEmpty {
             spokenWordChapters = found.episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
             refreshCurrentChapter()
-        } else if let chaptersURL = found.episode.chaptersURL {
+        } else {
+            // feed 指的 JSON,没有就读音频文件里的 ID3 章节(MP3 单集多半只写在那里)。
             let songID = song.id
+            let episode = found.episode
             Task { @MainActor [weak self] in
-                let chapters = await PodcastNetwork.chapters(from: chaptersURL)
+                let chapters = await PodcastChapterLoader.chapters(for: episode)
                 guard let self, self.currentSong?.id == songID, self.spokenWordChapters.isEmpty, !chapters.isEmpty else { return }
-                self.spokenWordChapters = chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
+                self.spokenWordChapters = chapters
                 self.refreshCurrentChapter()
-                plog("🎙️ Chapters: \(chapters.count) marks from the feed for '\(song.title)'")
+                plog("🎙️ Chapters: \(chapters.count) marks for '\(song.title)'")
             }
         }
     }

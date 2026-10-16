@@ -88,8 +88,10 @@ struct PodcastEpisodeDetailView: View {
             notesBlocks = await Task.detached(priority: .userInitiated) {
                 PodcastShowNotes.blocks(from: notes)
             }.value
-            guard episode.chapters.isEmpty, let url = episode.chaptersURL else { return }
-            feedChapters = await PodcastNetwork.chapters(from: url)
+            guard episode.chapters.isEmpty else { return }
+            // 只是翻看:在线的不为章节去要文件头,下载过的读本机文件。
+            feedChapters = await PodcastChapterLoader.chapters(for: episode, readsRemoteFile: false)
+                .map { PodcastChapter(start: $0.startTime, title: $0.title) }
         }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost, onCancel: { pendingSeek = nil }) {
             PodcastPlaybackLauncher.play(episode, continuing: continuing, from: pendingSeek, player: player) { _ in }

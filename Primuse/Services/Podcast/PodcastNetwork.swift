@@ -168,6 +168,29 @@ enum PodcastNetwork {
         return PodcastChaptersJSON.decode(data, baseURL: target)
     }
 
+    /// 音频文件头 ID3 标签里的章节(`CHAP` 帧)。MP3 单集的章节常常只写在这里,feed 里一个字不提,
+    /// Apple 播客显示的多半就是这种。先要标签头 10 个字节知道整个标签多长,再把标签要回来;
+    /// 服务器不认 Range 就作罢,不为几个章节名把整集下下来。
+    /// 返回 nil 是没取到(网络、服务器),空数组是取到了、文件里没有章节。
+    static func embeddedChapters(from url: URL, session suppliedSession: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared) async -> [MediaChapter]? {
+        let session = suppliedSession ?? Self.session
+        guard let target = try? await reachableURL(for: url, session: session, quotaRegistry: quotaRegistry),
+              let header = await leadingBytes(of: target, count: ID3ChapterParser.headerLength, session: session, quotaRegistry: quotaRegistry) else { return nil }
+        guard let length = ID3ChapterParser.tagLength(header: header),
+              length <= ID3ChapterParser.maximumTagLength else { return [] }
+        guard let tag = await leadingBytes(of: target, count: length, session: session, quotaRegistry: quotaRegistry) else { return nil }
+        return ID3ChapterParser.chapters(in: tag)
+    }
+
+    /// 文件开头的 `count` 个字节。服务器不认 Range、把整个文件发过来时,读到上限就停下当作取不到。
+    private static func leadingBytes(of url: URL, count: Int, session: URLSession, quotaRegistry: RequestQuotaRegistry) async -> Data? {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-\(count - 1)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        guard let response = try? await read(request, session: session, quotaRegistry: quotaRegistry, maxBytes: count) else { return nil }
+        return response.0
+    }
+
     /// 单集文字稿(`podcast:transcript`)。逐词的 JSON 稿一小时也就几 MB。
     /// 只认带时间轴的 WebVTT / SRT / JSON;取不到或格式不认识返回 nil。
     static func transcript(from url: URL, session suppliedSession: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared) async -> String? {
@@ -286,6 +309,58 @@ enum PodcastTranscriptLoader {
         }
         inFlight[songID] = task
         return await task.value
+    }
+}
+
+/// 一集的章节,按 feed 里直接写的 → `podcast:chapters` 的 JSON → 音频文件 ID3 标签里的章节的顺序找,
+/// 前一种有就不往后找。手机、Mac、电视共用。
+/// 找到的按单集记住,重播、详情页再要不用再联网;没取到(网络失败)的不记,下次再试。
+@MainActor
+enum PodcastChapterLoader {
+    private static var known: [String: [MediaChapter]] = [:]
+
+    /// `readsRemoteFile` 为 false 时不去要在线音频的文件头:详情页只是翻看,不为章节花流量。
+    /// 下载过的单集照样读本机文件。
+    static func chapters(for episode: PodcastEpisode, readsRemoteFile: Bool = true) async -> [MediaChapter] {
+        if !episode.chapters.isEmpty {
+            return episode.chapters.map { MediaChapter(startTime: $0.start, title: $0.title) }
+        }
+        if let found = known[episode.id] { return found }
+        if let chaptersURL = episode.chaptersURL {
+            let listed = await PodcastNetwork.chapters(from: chaptersURL)
+                .map { MediaChapter(startTime: $0.start, title: $0.title) }
+            if !listed.isEmpty {
+                remember(listed, for: episode.id)
+                return listed
+            }
+        }
+        let embedded: [MediaChapter]?
+        if let local = PodcastDownloadStore.shared.localURL(for: episode.id) {
+            embedded = await Task.detached(priority: .utility) {
+                ID3ChapterParser.chapters(fileURL: local)
+            }.value
+        } else if readsRemoteFile {
+            // 探过、明确不认 Range 的地址,要文件头就等于把整集下下来。
+            let probe = PodcastEnclosureProbeCache.shared.probe(forEpisodeID: episode.id)
+            guard probe?.supportsRange != false else { return [] }
+            embedded = await PodcastNetwork.embeddedChapters(from: probe?.finalURL ?? episode.enclosureURL)
+        } else {
+            return []
+        }
+        guard let embedded else { return [] }
+        // feed 指了 JSON 却拿回空的,可能只是这次没取到:文件里也没有时不记,下次两样都再试。
+        if !embedded.isEmpty || episode.chaptersURL == nil {
+            remember(embedded, for: episode.id)
+        }
+        if !embedded.isEmpty {
+            plog("🎙️ Chapters: \(embedded.count) marks in the audio file of '\(episode.title)'")
+        }
+        return embedded
+    }
+
+    private static func remember(_ chapters: [MediaChapter], for episodeID: String) {
+        if known.count >= 300 { known.removeAll(keepingCapacity: true) }
+        known[episodeID] = chapters
     }
 }
 
