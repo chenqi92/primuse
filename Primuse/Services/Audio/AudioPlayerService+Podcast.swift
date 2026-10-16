@@ -203,9 +203,9 @@ extension AudioPlayerService {
 @MainActor
 final class PodcastPlaybackState {
     static let shared = PodcastPlaybackState()
-    /// 这一集的片尾已经处理过,别每拍再触发一次。
+    /// 这一条(播客单集,或设了片尾的有声书章节)的片尾已经处理过,别每拍再触发一次。
     var outroHandledEpisodeID: String?
-    /// 这一集刚标成听完、正在换下一集:换集时别再给它记位置(记位置会把听完重新打开)。换到下一集时清掉。
+    /// 这一条刚标成听完、正在换下一条:换走时别再给它记位置(记位置会把听完重新打开)。换到别的条目时清掉。
     var positionSaveSuppressedEpisodeID: String?
 }
 

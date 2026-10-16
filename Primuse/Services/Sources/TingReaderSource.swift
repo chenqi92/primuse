@@ -20,6 +20,9 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
     /// 不再逐本重取;过期的按需重取。
     private var chapterSnapshots: [String: (fetchedAt: Date, chapters: [TingReaderChapter])] = [:]
     private static let chapterSnapshotLifetime: TimeInterval = 120
+    /// 开播时按书现取的片头 / 片尾设置;同一本书连着换章不必每章都问一次。
+    private var skipSnapshots: [String: (fetchedAt: Date, skip: SpokenWordIntroOutro)] = [:]
+    private static let skipSnapshotLifetime: TimeInterval = 600
 
     init(
         sourceID: String,
@@ -121,6 +124,7 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
     func disconnect() async {
         connected = false
         chapterSnapshots.removeAll()
+        skipSnapshots.removeAll()
         await client.invalidateSession()
     }
 
@@ -163,6 +167,15 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
         let librariesByID = Dictionary(libraries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // 服务端只按账号过滤,不分存储库给;书目一次取全再按存储库筛。
         let books = try await client.books().filter { librariesByID[$0.libraryID] != nil }
+        SpokenWordServerIntroOutroCache.replace(
+            sourceID: sourceID,
+            with: Dictionary(books.map { ($0.id, $0.skip) }, uniquingKeysWith: { first, _ in first })
+        )
+        let fetchedAt = Date()
+        skipSnapshots = Dictionary(
+            books.map { ($0.id, (fetchedAt: fetchedAt, skip: $0.skip)) },
+            uniquingKeysWith: { first, _ in first }
+        )
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -493,5 +506,21 @@ extension TingReaderSource: RemoteFileSizeProvidingConnector {
         guard TingReaderAPIProtocol.trackReference(from: path) != nil else { return nil }
         try await connect()
         return try await client.contentLength(trackPath: path)
+    }
+}
+
+extension TingReaderSource: ServerSpokenWordIntroOutroConnector {
+    /// 网页端「编辑书籍」里设的片头 / 片尾。按书缓存十分钟;取到的同时记进本机,下一章开播时同步可用。
+    func fetchSpokenWordIntroOutro(songPath: String) async throws -> SpokenWordIntroOutro? {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: songPath) else { return nil }
+        if let snapshot = skipSnapshots[reference.bookID],
+           Date().timeIntervalSince(snapshot.fetchedAt) < Self.skipSnapshotLifetime {
+            return snapshot.skip
+        }
+        try await connect()
+        guard let book = try await client.book(id: reference.bookID) else { return nil }
+        skipSnapshots[reference.bookID] = (Date(), book.skip)
+        SpokenWordServerIntroOutroCache.update(book.skip, sourceID: sourceID, bookID: reference.bookID)
+        return book.skip
     }
 }

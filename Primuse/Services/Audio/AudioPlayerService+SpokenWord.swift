@@ -32,6 +32,11 @@ extension AudioPlayerService {
         lastSpokenWordPositionSave = 0
         lastServerSpokenWordPositionPush = 0
         pendingSpokenWordResumeSongID = nil
+        currentSpokenWordIntroOutro = nil
+        // 片尾跳过、换走时不存位置,都只对那一条;换到别的条目就作废。
+        let playbackState = PodcastPlaybackState.shared
+        if playbackState.outroHandledEpisodeID != song?.id { playbackState.outroHandledEpisodeID = nil }
+        if playbackState.positionSaveSuppressedEpisodeID != song?.id { playbackState.positionSaveSuppressedEpisodeID = nil }
 
         let wasSpokenWord = currentItemIsSpokenWord
         defer {
@@ -56,10 +61,11 @@ extension AudioPlayerService {
         }
         // 播客单集:片头跳过与 feed 里的章节。
         preparePodcastItem(song)
+        currentSpokenWordIntroOutro = serverSpokenWordIntroOutro(for: song)
         // Arm the resume even when nothing is stored: the seek is skipped, but
         // the flag also tells the position writer to ignore the opening zeroes.
         if pendingSpokenWordSeekOverride != nil
-            || SpokenWordStore.shared.resumePosition(for: song) != nil {
+            || spokenWordResumeTarget(for: song) != nil {
             pendingSpokenWordResumeSongID = song.id
         }
         refreshServerSpokenWordState(for: song)
@@ -116,7 +122,7 @@ extension AudioPlayerService {
         guard let manager = sourceManager else { return }
         let songID = song.id
         let followsServer = pendingSpokenWordSeekOverride?.songID != songID
-        let anchor = resuming ? currentTime : (SpokenWordStore.shared.resumePosition(for: song) ?? 0)
+        let anchor = resuming ? currentTime : (spokenWordResumeTarget(for: song) ?? 0)
         serverSpokenWordStateTask?.cancel()
         let requestID = UUID()
         serverSpokenWordStateRequestID = requestID
@@ -142,7 +148,7 @@ extension AudioPlayerService {
                ) {
                 // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去。
                 // 听完的一条也可能带着重听的位置,有位置就跳。
-                if self.currentTime < 2, SpokenWordStore.shared.resumePosition(for: song) != nil {
+                if self.currentTime < 2, self.spokenWordResumeTarget(for: song) != nil {
                     self.pendingSpokenWordResumeSongID = songID
                 }
                 // 已经从本机记的旧位置开播了:还停在那附近就改从服务端的位置续。
@@ -152,6 +158,7 @@ extension AudioPlayerService {
                 }
                 plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
             }
+            await self.refreshServerSpokenWordIntroOutro(for: song)
             let chapters = await manager.fetchServerChapters(for: song)
             guard !Task.isCancelled, self.currentSong?.id == songID,
                   !chapters.isEmpty, self.spokenWordChapters.isEmpty else { return }
@@ -165,7 +172,7 @@ extension AudioPlayerService {
     func applySyncedSpokenWordPosition(for song: Song) {
         guard currentSong?.id == song.id, currentItemIsSpokenWord,
               !isPlaying, !isLoading, pendingSpokenWordSeekOverride == nil else { return }
-        let target = SpokenWordStore.shared.resumePosition(for: song) ?? 0
+        let target = spokenWordResumeTarget(for: song) ?? 0
         currentTime = target
         lastSpokenWordPositionSave = target
         pendingRecoveryTime = target
@@ -177,6 +184,67 @@ extension AudioPlayerService {
         updateNowPlayingInfo()
         updatePlaybackState()
         persistPlaybackSession()
+    }
+
+    // MARK: - Intro and outro set on the server
+
+    /// 服务端给这一条所在那本书设的片头 / 片尾秒数(Ting Reader);没有就是 nil。
+    func serverSpokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+        return SpokenWordServerIntroOutroCache.settings(sourceID: song.sourceID, bookID: reference.bookID)
+    }
+
+    /// 开始播一条时从哪里起:续播位置,再按这本书的片头往后挪(从片头里、或从头开始的,改从片头结束处开始)。
+    func spokenWordResumeTarget(for song: Song) -> TimeInterval? {
+        let stored = SpokenWordStore.shared.resumePosition(for: song)
+        guard let skip = serverSpokenWordIntroOutro(for: song) else { return stored }
+        return SpokenWordIntroOutroPolicy.startPosition(resume: stored, duration: song.duration, skip: skip)
+    }
+
+    /// 开播后按这本书现取一次片头 / 片尾(网页端刚改过的也跟上)。变了就记下;片头变长、
+    /// 而这一条还停在新片头里没听多久,就跳过去。
+    private func refreshServerSpokenWordIntroOutro(for song: Song) async {
+        guard let manager = sourceManager,
+              let skip = await manager.fetchServerSpokenWordIntroOutro(for: song),
+              currentSong?.id == song.id else { return }
+        let refreshed = skip.isEmpty ? nil : skip
+        guard refreshed != currentSpokenWordIntroOutro else { return }
+        currentSpokenWordIntroOutro = refreshed
+        let intro = TimeInterval(skip.introSeconds)
+        guard intro > 0, pendingSpokenWordSeekOverride == nil,
+              currentTime < min(intro, Self.serverSpokenWordResumeWindow),
+              let target = spokenWordResumeTarget(for: song), target > currentTime + 1 else { return }
+        plog("🎧 Spoken word: skipping the \(skip.introSeconds)s intro of '\(song.title)'")
+        if isPlaying {
+            seek(to: target, startPlaying: true)
+        } else {
+            applySyncedSpokenWordPosition(for: song)
+        }
+    }
+
+    /// 播放时钟每拍调:这本书在服务端设了片尾,离结尾不到那么多秒就当这一条听完,接着放下一条。
+    func applyServerSpokenWordOutroSkipIfNeeded() {
+        guard isPlaying, let skip = currentSpokenWordIntroOutro, let song = currentSong,
+              PodcastPlaybackState.shared.outroHandledEpisodeID != song.id else { return }
+        let total = duration > 0 ? duration : song.duration
+        guard SpokenWordIntroOutroPolicy.shouldSkipOutro(position: currentTime, duration: total, skip: skip) else { return }
+        PodcastPlaybackState.shared.outroHandledEpisodeID = song.id
+        PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
+        plog("🎧 Spoken word: skipping the last \(skip.outroSeconds)s of '\(song.title)'")
+        SpokenWordStore.shared.markFinished(true, songIDs: [song.id])
+        SpokenWordStore.shared.persistLocally()
+        pushServerSpokenWordPosition(song: song, position: total, duration: total, force: true)
+        // 定了「播完这一条就停」:片尾就是这一条的结尾,停在这里,不接下一条。
+        if sleepStopAfterSongID == song.id {
+            sleepStopAfterSongID = nil
+            pause()
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let advanced = await self.next(isAutomaticAdvance: true)
+            if !advanced { self.pause() }
+        }
     }
 
     /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
@@ -211,7 +279,7 @@ extension AudioPlayerService {
               song.appliedPlaybackRange == nil,
               !medleySongIDs.contains(song.id) else { return nil }
         let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
-        guard let target = override ?? SpokenWordStore.shared.resumePosition(for: song),
+        guard let target = override ?? spokenWordResumeTarget(for: song),
               target.isFinite, target >= Self.spokenWordOpeningMinimum else { return nil }
         if song.duration > 0, target >= song.duration - 1 { return nil }
         return target
@@ -244,7 +312,7 @@ extension AudioPlayerService {
         }
         let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
         pendingSpokenWordSeekOverride = nil
-        guard let target = override ?? SpokenWordStore.shared.resumePosition(for: song) else {
+        guard let target = override ?? spokenWordResumeTarget(for: song) else {
             pendingSpokenWordResumeSongID = nil
             return
         }
@@ -267,7 +335,7 @@ extension AudioPlayerService {
         guard pendingSpokenWordResumeSongID == nil, isPlaying else { return }
         pendingServerSpokenWordResume = nil
         guard abs(currentTime - pending.anchor) <= Self.serverSpokenWordResumeWindow,
-              let target = SpokenWordStore.shared.resumePosition(for: song),
+              let target = spokenWordResumeTarget(for: song),
               abs(target - currentTime) > 2 else { return }
         plog("🎧 Spoken word: moving '\(song.title)' from \(Int(currentTime))s to the server position \(Int(target))s")
         seek(to: target, startPlaying: true)

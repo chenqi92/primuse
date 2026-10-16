@@ -67,9 +67,12 @@ public struct TingReaderBook: Sendable, Equatable {
     public let genre: String?
     public let year: Int?
     public let createdAt: Date?
+    /// 在服务端给这本书设的片头 / 片尾秒数(网页端「编辑书籍」里填),每章开头和结尾各跳过这么多。
+    public let skip: SpokenWordIntroOutro
 
     public init(id: String, libraryID: String, title: String, author: String? = nil, narrator: String? = nil,
-                coverPath: String? = nil, genre: String? = nil, year: Int? = nil, createdAt: Date? = nil) {
+                coverPath: String? = nil, genre: String? = nil, year: Int? = nil, createdAt: Date? = nil,
+                skip: SpokenWordIntroOutro = .off) {
         self.id = id
         self.libraryID = libraryID
         self.title = title
@@ -79,6 +82,7 @@ public struct TingReaderBook: Sendable, Equatable {
         self.genre = genre
         self.year = year
         self.createdAt = createdAt
+        self.skip = skip
     }
 
     public init?(json: [String: Any]) {
@@ -96,6 +100,10 @@ public struct TingReaderBook: Sendable, Equatable {
         self.genre = trString(json["genre"])
         self.year = trInt(json["year"]).flatMap { $0 > 0 ? $0 : nil }
         self.createdAt = trDate(json["created_at"])
+        self.skip = SpokenWordIntroOutro(
+            introSeconds: trInt(json["skip_intro"]) ?? 0,
+            outroSeconds: trInt(json["skip_outro"]) ?? 0
+        )
     }
 }
 

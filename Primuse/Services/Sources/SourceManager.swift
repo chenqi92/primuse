@@ -2632,7 +2632,8 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
 
 private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector,
-    ServerPlaylistConnector, ServerBookFavoriteConnector, RemoteFileSizeProvidingConnector, TingReaderProgressConnector {
+    ServerPlaylistConnector, ServerBookFavoriteConnector, RemoteFileSizeProvidingConnector, TingReaderProgressConnector,
+    ServerSpokenWordIntroOutroConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2694,6 +2695,13 @@ private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetada
                 throw SourceError.connectionFailed("Server listening progress unavailable")
             }
             return try await provider.fetchServerListeningProgress(for: songPaths)
+        }
+    }
+
+    func fetchSpokenWordIntroOutro(songPath: String) async throws -> SpokenWordIntroOutro? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerSpokenWordIntroOutroConnector else { return nil }
+            return try await provider.fetchSpokenWordIntroOutro(songPath: songPath)
         }
     }
 
@@ -14292,6 +14300,18 @@ final class SourceManager {
             return try await provider.fetchServerListeningProgress(for: [song.filePath]).first
         } catch {
             plog("🎧 Server progress read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 服务端给这首歌所在那本书设的片头 / 片尾秒数;源没有这项、或读失败是 nil。
+    func fetchServerSpokenWordIntroOutro(for song: Song) async -> SpokenWordIntroOutro? {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerSpokenWordIntroOutroConnector else { return nil }
+        do {
+            return try await provider.fetchSpokenWordIntroOutro(songPath: song.filePath)
+        } catch {
+            plog("🎧 Server intro/outro read failed '\(song.title)': \(error.localizedDescription)")
             return nil
         }
     }

@@ -2001,6 +2001,12 @@ protocol TingReaderProgressConnector: MusicSourceConnector {
     func fetchRecentListeningProgress() async throws -> [TingReaderListeningProgress]
 }
 
+/// 服务端按书设了片头 / 片尾跳过秒数的源(Ting Reader)。
+protocol ServerSpokenWordIntroOutroConnector: MusicSourceConnector {
+    /// `songPath` 所在那本书现在的设置;书已经不在了是 nil。
+    func fetchSpokenWordIntroOutro(songPath: String) async throws -> SpokenWordIntroOutro?
+}
+
 /// 服务端给得出章节标记的源:流式播放时本机没有文件可解析,章节从这里来。
 protocol ServerChapterProvidingConnector: MusicSourceConnector {
     func fetchServerChapters(songPath: String) async throws -> [MediaChapter]

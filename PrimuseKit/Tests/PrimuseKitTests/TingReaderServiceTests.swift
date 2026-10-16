@@ -90,6 +90,9 @@ struct TingReaderServiceTests {
         #expect(book.narrator == "冯雪松")
         #expect(book.year == 2008)
         #expect(book.createdAt != nil)
+        #expect(book.skip == .off)
+        #expect(TingReaderBook(json: ["id": "b", "skip_intro": 45, "skip_outro": "20"])?.skip
+            == SpokenWordIntroOutro(introSeconds: 45, outroSeconds: 20))
         #expect(TingReaderBook(json: ["id": "b", "title": " ", "path": "/app/storage/鬼吹灯/"])?.title == "鬼吹灯")
         #expect(TingReaderBook(json: ["id": "b"])?.title == "b")
         let chapters = try Self.array(Self.chaptersJSON).compactMap(TingReaderChapter.init(json:))

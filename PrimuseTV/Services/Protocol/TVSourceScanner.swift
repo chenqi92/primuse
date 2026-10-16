@@ -2768,6 +2768,10 @@ final class TVSourceScanner {
         let excluded = Set(source.excludedServerLibraryIDs)
         let libraryIDs = Set(try await client.libraries().map(\.id).filter { !excluded.contains($0) })
         let books = try await client.books().filter { libraryIDs.contains($0.libraryID) }
+        SpokenWordServerIntroOutroCache.replace(
+            sourceID: source.id,
+            with: Dictionary(books.map { ($0.id, $0.skip) }, uniquingKeysWith: { first, _ in first })
+        )
         var songs: [Song] = []
         var progress: [(songID: String, progress: TingReaderChapterProgress)] = []
         try await TingReaderCatalogWalk.forEachBook(books, client: client) { catalogBook in

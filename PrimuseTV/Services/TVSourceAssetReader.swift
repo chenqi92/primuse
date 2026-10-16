@@ -186,6 +186,30 @@ actor TVSourceAssetReader {
         }
     }
 
+    /// Ting Reader 网页端给这本书设的片头 / 片尾。按书缓存十分钟;取到的同时记进本机,下一章开播时同步可用。
+    func tingReaderIntroOutro(song: Song, source: MusicSource, credential: SourceCredential?) async -> SpokenWordIntroOutro? {
+        guard source.type == .tingReader,
+              let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+        let key = "\(source.id)|\(reference.bookID)"
+        if let snapshot = tingReaderSkipSnapshots[key],
+           Date().timeIntervalSince(snapshot.fetchedAt) < Self.tingReaderSkipLifetime {
+            return snapshot.skip
+        }
+        do {
+            guard let book = try await tingReaderClient(for: source, credential: credential)
+                .book(id: reference.bookID) else { return nil }
+            tingReaderSkipSnapshots[key] = (Date(), book.skip)
+            SpokenWordServerIntroOutroCache.update(book.skip, sourceID: source.id, bookID: reference.bookID)
+            return book.skip
+        } catch {
+            plog("🎧 TV Ting Reader intro/outro read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private var tingReaderSkipSnapshots: [String: (fetchedAt: Date, skip: SpokenWordIntroOutro)] = [:]
+    private static let tingReaderSkipLifetime: TimeInterval = 600
+
     /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
     private func tingReaderClient(for source: MusicSource, credential: SourceCredential?) -> TingReaderServiceClient {
         let identity = Self.cacheIdentity(source: source, credential: credential)

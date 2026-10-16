@@ -1148,6 +1148,8 @@ final class AudioPlayerService {
     /// Where the next item should start instead of its remembered position:
     /// a bookmark in another item of the book, tapped in the contents.
     @ObservationIgnored var pendingSpokenWordSeekOverride: (songID: String, position: TimeInterval)?
+    /// 当前这一条所在那本书在服务端设的片头 / 片尾秒数(Ting Reader)。
+    @ObservationIgnored var currentSpokenWordIntroOutro: SpokenWordIntroOutro?
     /// The playing item's book, grouped from its own items, kept between
     /// saved positions. See `currentSpokenWordBook`.
     @ObservationIgnored var spokenWordBookCache = SpokenWordCurrentBookCache()

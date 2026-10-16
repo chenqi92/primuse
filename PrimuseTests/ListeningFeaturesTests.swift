@@ -182,6 +182,27 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(requests, 2)
     }
 
+    func testServerIntroMovesTheStartPastItButNotAnEarlierPosition() throws {
+        let player = try makePlayer()
+        let bookID = "book-\(UUID().uuidString)"
+        var chapter = song(UUID().uuidString, duration: 1_800, genre: "Audiobook",
+                           path: "/tingreader/books/\(bookID)/chapters/chapter.mp3")
+        chapter.sourceID = "ting-\(UUID().uuidString)"
+        XCTAssertNil(player.spokenWordResumeTarget(for: chapter))
+        SpokenWordServerIntroOutroCache.update(SpokenWordIntroOutro(introSeconds: 30, outroSeconds: 20),
+                                         sourceID: chapter.sourceID, bookID: bookID)
+        cleanups.append {
+            SpokenWordServerIntroOutroCache.update(.off, sourceID: chapter.sourceID, bookID: bookID)
+            SpokenWordStore.shared.clearPosition(forSongID: chapter.id)
+        }
+        XCTAssertEqual(player.serverSpokenWordIntroOutro(for: chapter)?.outroSeconds, 20)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 30)
+        SpokenWordStore.shared.rememberPosition(600, duration: 1_800, forSongID: chapter.id)
+        let resume = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter))
+        XCTAssertGreaterThan(resume, 30)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), resume, "a position past the intro is kept")
+    }
+
     func testTingReaderProgressSwitchPersistsAndManualRefreshBypassesItWithoutClearingOfflineProgress() async throws {
         let defaults = try makeDefaults()
         let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
