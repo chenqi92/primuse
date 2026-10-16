@@ -180,6 +180,31 @@ struct SpokenWordBookGroupingTests {
         #expect(books[0].items.map(\.id) == ["a", "b", "c"])
     }
 
+    @Test("An open book is found again after its first tags rename it")
+    func followsBookAcrossFirstTagRead() {
+        func file(_ number: Int, album: String? = nil) -> SpokenWordBookItem {
+            SpokenWordBookItem(
+                id: "c\(number)", title: "Chapter-\(number)", albumTitle: album, duration: 30,
+                fileName: "/Books/Novel/Chapter-\(number).mp3", sourceID: "s"
+            )
+        }
+        let untagged = SpokenWordBookGrouping.books(from: (1...4).map { file($0) })
+        #expect(untagged.count == 1)
+        let opened = untagged[0]
+        let chapters = Set(opened.items.map(\.id))
+
+        // The backfill reads chapter 1 first: the folder's untagged files join its album.
+        let regrouped = SpokenWordBookGrouping.books(from: [file(1, album: "QA Book")] + (2...4).map { file($0) })
+        #expect(regrouped.count == 1)
+        #expect(regrouped[0].id != opened.id)
+        #expect(SpokenWordBookGrouping.bookID(holdingMostOf: chapters, among: regrouped) == regrouped[0].id)
+
+        let other = SpokenWordBookGrouping.books(from: [chapter("x", album: "Other", track: 1)])
+        #expect(SpokenWordBookGrouping.bookID(holdingMostOf: chapters, among: other + regrouped) == regrouped[0].id)
+        #expect(SpokenWordBookGrouping.bookID(holdingMostOf: chapters, among: other) == nil)
+        #expect(SpokenWordBookGrouping.bookID(holdingMostOf: [], among: regrouped) == nil)
+    }
+
     @Test("Album matching ignores case, width and surrounding space")
     func albumMatchingIsLenient() {
         let books = SpokenWordBookGrouping.books(from: [

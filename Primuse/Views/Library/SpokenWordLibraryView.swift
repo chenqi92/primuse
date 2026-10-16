@@ -1173,8 +1173,20 @@ struct SpokenWordBookDetailView: View {
     #if os(macOS)
     @Environment(\.dismiss) private var dismiss
     #endif
+    /// 页面开着时这本书的 id 可能变:一本没标签的书按目录成书,补读读出第一集的专辑后
+    /// 整本改按专辑成书。记下最近一次看到的 id 和章节,按章节把它找回来。
+    @State private var followedBookID: String?
+    @State private var shownChapterIDs: Set<String> = []
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    private func currentEntry(in snapshot: SpokenWordLibrarySnapshot) -> SpokenWordLibrarySnapshot.Entry? {
+        if let entry = snapshot.entriesByID[followedBookID ?? bookID] { return entry }
+        return SpokenWordBookGrouping.bookID(
+            holdingMostOf: shownChapterIDs,
+            among: snapshot.entriesByID.values.lazy.map(\.book)
+        ).flatMap { snapshot.entriesByID[$0] }
+    }
 
     var body: some View {
         SpokenWordLibraryContent(collection: collection) { snapshot in
@@ -1202,11 +1214,12 @@ struct SpokenWordBookDetailView: View {
     #endif
 
     private func detailContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
-        Group {
-            if collection == .localPodcasts, let entry = snapshot.entriesByID[bookID] {
+        let resolved = currentEntry(in: snapshot)
+        return Group {
+            if collection == .localPodcasts, let entry = resolved {
                 // 本地节目按播客的样子排:日期、播放状态、筛选与排序。
                 LocalPodcastShowDetailView(entry: entry, onMacInlineBack: onMacInlineBack)
-            } else if let entry = snapshot.entriesByID[bookID] {
+            } else if let entry = resolved {
                 let book = entry.book
                 let songs = entry.songs
                 SpokenWordChapterList(items: book.items) {
@@ -1279,6 +1292,11 @@ struct SpokenWordBookDetailView: View {
                     }
                     #endif
             }
+        }
+        .onChange(of: resolved?.id, initial: true) {
+            guard let resolved else { return }
+            followedBookID = resolved.id
+            shownChapterIDs = Set(resolved.book.items.map(\.id))
         }
     }
 

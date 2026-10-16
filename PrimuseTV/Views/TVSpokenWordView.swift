@@ -512,7 +512,14 @@ struct TVSpokenWordBookDetailView: View {
     private var currentBook: SpokenWordBook {
         // 播客页里本机下载的节目也用这一页。打开这一页的书架页在后台分好组,
         // 进度变了也是它重分,这里只按 id 取。
-        store.spokenWordShelf(isLocalPodcast ? .localPodcasts : .books).booksByID[bookID] ?? fallback
+        let books = store.spokenWordShelf(isLocalPodcast ? .localPodcasts : .books).booksByID
+        if let book = books[bookID] { return book }
+        // 打开以后才读出第一集的专辑时,整本书从按目录成书换成按专辑成书,id 跟着变:
+        // 按打开时的章节把它找回来,进度才会接着更新。
+        return SpokenWordBookGrouping.bookID(
+            holdingMostOf: Set(fallback.items.map(\.id)),
+            among: books.values
+        ).flatMap { books[$0] } ?? fallback
     }
 
     private var podcastSettings: LocalPodcastShowSettings {

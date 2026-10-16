@@ -7,6 +7,27 @@ extension SpokenWordBookGrouping {
     public static func bookID(for item: SpokenWordBookItem) -> String {
         groupingKey(for: item)
     }
+
+    /// The book that now holds most of `chapterIDs` — for a page keeping a
+    /// book open while the library regroups. A book's id changes when the
+    /// first tags are read: a folder of untagged files is named after the
+    /// folder, and the album its first tagged chapter carries takes over.
+    public static func bookID(
+        holdingMostOf chapterIDs: Set<String>,
+        among books: some Sequence<SpokenWordBook>
+    ) -> String? {
+        guard !chapterIDs.isEmpty else { return nil }
+        var best: (id: String, count: Int)?
+        for book in books {
+            let count = book.items.reduce(0) { $0 + (chapterIDs.contains($1.id) ? 1 : 0) }
+            guard count > 0 else { continue }
+            if let current = best, current.count > count || (current.count == count && current.id < book.id) {
+                continue
+            }
+            best = (book.id, count)
+        }
+        return best?.id
+    }
 }
 
 extension SpokenWordPlaybackRatePolicy {
