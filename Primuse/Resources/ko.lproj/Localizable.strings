@@ -5886,6 +5886,8 @@
 "transcript_reader_theme_custom" = "사용자 지정";
 "transcript_reader_custom_text_color" = "텍스트 색상";
 "transcript_reader_custom_background_color" = "배경 색상";
+"transcript_reader_custom_versions_footer" = "모양을 자동으로 두면 시스템의 라이트·다크 모드에 맞춰 이 두 가지 색 조합이 바뀝니다. 다크용을 따로 바꾸기 전에는 라이트용과 같습니다.";
+"transcript_reader_custom_dark_reset" = "라이트와 동일하게";
 "transcript_reader_highlight" = "재생 중 강조";
 "transcript_reader_highlight_sentence" = "문장";
 "transcript_reader_highlight_paragraph" = "문단";

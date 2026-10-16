@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "Personalizado";
 "transcript_reader_custom_text_color" = "Cor do texto";
 "transcript_reader_custom_background_color" = "Cor do fundo";
+"transcript_reader_custom_versions_footer" = "Com a aparência no automático, esses dois conjuntos de cores acompanham o modo claro e escuro do sistema. O escuro fica igual ao claro até você mudá-lo.";
+"transcript_reader_custom_dark_reset" = "Igual ao claro";
 "transcript_reader_highlight" = "Destaque ao ouvir";
 "transcript_reader_highlight_sentence" = "Frase";
 "transcript_reader_highlight_paragraph" = "Parágrafo";

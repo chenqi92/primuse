@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "Özel";
 "transcript_reader_custom_text_color" = "Metin rengi";
 "transcript_reader_custom_background_color" = "Arka plan rengi";
+"transcript_reader_custom_versions_footer" = "Görünüm otomatik olduğunda bu iki renk takımı sistemin açık ve koyu moduna göre değişir. Koyu takım siz değiştirene kadar açık takımla aynıdır.";
+"transcript_reader_custom_dark_reset" = "Açıkla aynı";
 "transcript_reader_highlight" = "Dinlerken vurgula";
 "transcript_reader_highlight_sentence" = "Cümle";
 "transcript_reader_highlight_paragraph" = "Paragraf";

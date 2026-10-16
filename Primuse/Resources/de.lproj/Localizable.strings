@@ -5886,6 +5886,8 @@
 "transcript_reader_theme_custom" = "Eigenes";
 "transcript_reader_custom_text_color" = "Textfarbe";
 "transcript_reader_custom_background_color" = "Hintergrundfarbe";
+"transcript_reader_custom_versions_footer" = "Bei automatischem Erscheinungsbild wechseln diese beiden Farbsätze mit dem hellen und dunklen Modus des Systems. Der dunkle Satz entspricht dem hellen, bis du ihn änderst.";
+"transcript_reader_custom_dark_reset" = "Wie hell";
 "transcript_reader_highlight" = "Hervorhebung beim Hören";
 "transcript_reader_highlight_sentence" = "Satz";
 "transcript_reader_highlight_paragraph" = "Absatz";

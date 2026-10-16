@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "กำหนดเอง";
 "transcript_reader_custom_text_color" = "สีตัวอักษร";
 "transcript_reader_custom_background_color" = "สีพื้นหลัง";
+"transcript_reader_custom_versions_footer" = "เมื่อตั้งรูปลักษณ์เป็นอัตโนมัติ สีสองชุดนี้จะสลับตามโหมดสว่างและมืดของระบบ ชุดสีมืดจะเหมือนชุดสว่างจนกว่าคุณจะปรับ";
+"transcript_reader_custom_dark_reset" = "เหมือนโหมดสว่าง";
 "transcript_reader_highlight" = "ไฮไลต์ขณะฟัง";
 "transcript_reader_highlight_sentence" = "ประโยค";
 "transcript_reader_highlight_paragraph" = "ย่อหน้า";

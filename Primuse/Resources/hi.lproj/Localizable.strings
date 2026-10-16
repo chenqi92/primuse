@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "कस्टम";
 "transcript_reader_custom_text_color" = "टेक्स्ट का रंग";
 "transcript_reader_custom_background_color" = "पृष्ठभूमि का रंग";
+"transcript_reader_custom_versions_footer" = "रूप स्वचालित होने पर ये दोनों रंग-सेट सिस्टम के लाइट और डार्क मोड के साथ बदलते हैं। डार्क सेट बदलने तक वह लाइट सेट जैसा ही रहता है।";
+"transcript_reader_custom_dark_reset" = "लाइट जैसा ही";
 "transcript_reader_highlight" = "सुनते समय हाइलाइट";
 "transcript_reader_highlight_sentence" = "वाक्य";
 "transcript_reader_highlight_paragraph" = "अनुच्छेद";

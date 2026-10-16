@@ -5863,6 +5863,8 @@
 "transcript_reader_theme_custom" = "自訂";
 "transcript_reader_custom_text_color" = "文字顏色";
 "transcript_reader_custom_background_color" = "背景顏色";
+"transcript_reader_custom_versions_footer" = "外觀選「跟隨系統」時，隨系統的淺色、深色自動換這兩套顏色。深色那套沒單獨調過時和淺色一樣。";
+"transcript_reader_custom_dark_reset" = "和淺色外觀一樣";
 "transcript_reader_highlight" = "朗讀高亮";
 "transcript_reader_highlight_sentence" = "整句";
 "transcript_reader_highlight_paragraph" = "整段";

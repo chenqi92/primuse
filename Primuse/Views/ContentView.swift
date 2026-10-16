@@ -2122,6 +2122,8 @@ struct PlayerOverlay: View {
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
                 // 状态栏跟的是整个窗口的深浅,浅色系统里黑字会压在深色播放页上,这时在播放页里收起它。
                 .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
+                // 全屏文稿等页面「跟随系统」时看这个:播放页上面那行可能已把 colorScheme 换成深色。
+                .environment(\.appColorScheme, systemColorScheme)
                 .statusBarHidden(playerAlwaysDark && systemColorScheme == .light)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same

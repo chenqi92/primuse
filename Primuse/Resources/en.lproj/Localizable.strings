@@ -5646,6 +5646,8 @@
 "transcript_reader_theme_custom" = "Custom";
 "transcript_reader_custom_text_color" = "Text Color";
 "transcript_reader_custom_background_color" = "Background Color";
+"transcript_reader_custom_versions_footer" = "With Appearance set to Automatic, these two sets switch with the system’s light and dark mode. The dark set matches the light one until you change it.";
+"transcript_reader_custom_dark_reset" = "Same as Light";
 "transcript_reader_highlight" = "Highlight While Listening";
 "transcript_reader_highlight_sentence" = "Sentence";
 "transcript_reader_highlight_paragraph" = "Paragraph";

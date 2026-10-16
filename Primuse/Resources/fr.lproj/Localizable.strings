@@ -5886,6 +5886,8 @@
 "transcript_reader_theme_custom" = "Personnalisé";
 "transcript_reader_custom_text_color" = "Couleur du texte";
 "transcript_reader_custom_background_color" = "Couleur du fond";
+"transcript_reader_custom_versions_footer" = "Avec l’apparence automatique, ces deux jeux de couleurs suivent le mode clair et sombre du système. Le jeu sombre reprend le clair tant que vous ne le modifiez pas.";
+"transcript_reader_custom_dark_reset" = "Identique au clair";
 "transcript_reader_highlight" = "Surlignage pendant l’écoute";
 "transcript_reader_highlight_sentence" = "Phrase";
 "transcript_reader_highlight_paragraph" = "Paragraphe";

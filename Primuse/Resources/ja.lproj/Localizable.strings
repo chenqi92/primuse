@@ -5887,6 +5887,8 @@
 "transcript_reader_theme_custom" = "カスタム";
 "transcript_reader_custom_text_color" = "文字の色";
 "transcript_reader_custom_background_color" = "背景の色";
+"transcript_reader_custom_versions_footer" = "外観が「自動」のときは、システムのライト／ダークに合わせてこの2組の色が切り替わります。ダーク用を変更するまではライト用と同じです。";
+"transcript_reader_custom_dark_reset" = "ライトと同じにする";
 "transcript_reader_highlight" = "再生中のハイライト";
 "transcript_reader_highlight_sentence" = "文";
 "transcript_reader_highlight_paragraph" = "段落";

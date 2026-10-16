@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "مخصصة";
 "transcript_reader_custom_text_color" = "لون النص";
 "transcript_reader_custom_background_color" = "لون الخلفية";
+"transcript_reader_custom_versions_footer" = "عند ضبط المظهر على تلقائي، تتبدّل هاتان المجموعتان من الألوان مع الوضع الفاتح والداكن للنظام. وتبقى المجموعة الداكنة مثل الفاتحة إلى أن تغيّرها.";
+"transcript_reader_custom_dark_reset" = "مثل الفاتح";
 "transcript_reader_highlight" = "التمييز أثناء الاستماع";
 "transcript_reader_highlight_sentence" = "جملة";
 "transcript_reader_highlight_paragraph" = "فقرة";

@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "Własny";
 "transcript_reader_custom_text_color" = "Kolor tekstu";
 "transcript_reader_custom_background_color" = "Kolor tła";
+"transcript_reader_custom_versions_footer" = "Przy automatycznym wyglądzie te dwa zestawy kolorów zmieniają się razem z jasnym i ciemnym trybem systemu. Ciemny zestaw jest taki jak jasny, dopóki go nie zmienisz.";
+"transcript_reader_custom_dark_reset" = "Tak jak jasny";
 "transcript_reader_highlight" = "Podświetlanie podczas słuchania";
 "transcript_reader_highlight_sentence" = "Zdanie";
 "transcript_reader_highlight_paragraph" = "Akapit";

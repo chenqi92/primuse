@@ -738,6 +738,9 @@ enum SpokenWordTranscriptReaderPreferences {
     static let highlightKey = "primuse.transcriptReader.highlight"
     static let customTextColorKey = "primuse.transcriptReader.customTextColor"
     static let customBackgroundColorKey = "primuse.transcriptReader.customBackgroundColor"
+    /// 「自定义」主题深色外观那一套;空着表示和浅色外观那套一样(#313)。
+    static let customDarkTextColorKey = "primuse.transcriptReader.customDarkTextColor"
+    static let customDarkBackgroundColorKey = "primuse.transcriptReader.customDarkBackgroundColor"
     /// 滑动文稿时要不要把控件叫出来。默认不叫:读书时手指一滑控件就跳出来又收回去,很扰人;
     /// 点一下屏幕或暂停时才出来。
     static let revealsOnScrollKey = "primuse.transcriptReader.revealsOnScroll"
@@ -997,6 +1000,20 @@ enum SpokenWordTranscriptHighlight: String, CaseIterable, Identifiable {
     }
 }
 
+/// App 本身的浅色 / 深色(系统外观,或「设置 › 外观」里定的那个),由播放页外层放进环境。
+/// 播放页可以整页换成深色(「播放页始终用深色」),全屏文稿还会给自己那一层定深浅,
+/// 两处都会改掉环境里的 `colorScheme`;「跟随系统」要的是这个没被改过的值(#313)。
+private struct AppColorSchemeKey: EnvironmentKey {
+    static let defaultValue: ColorScheme? = nil
+}
+
+extension EnvironmentValues {
+    var appColorScheme: ColorScheme? {
+        get { self[AppColorSchemeKey.self] }
+        set { self[AppColorSchemeKey.self] = newValue }
+    }
+}
+
 /// 文稿页自己的浅色 / 深色,与系统设置无关;「跟随系统」时随系统。
 enum SpokenWordTranscriptAppearance: String, CaseIterable, Identifiable {
     case system, light, dark
@@ -1020,6 +1037,26 @@ enum SpokenWordTranscriptAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// 「自定义」主题的两套颜色:浅色外观一套、深色外观一套,外观「跟随系统」时随系统换(#313)。
+/// 深色那套没单独调过(两个值空着)时和浅色那套一样,所以升级前调好的颜色照旧。
+struct SpokenWordTranscriptCustomColors: Equatable {
+    var lightText: String
+    var lightBackground: String
+    var darkText: String
+    var darkBackground: String
+
+    var hasDarkVersion: Bool {
+        SpokenWordTranscriptTheme.validHex(darkText) != nil
+            && SpokenWordTranscriptTheme.validHex(darkBackground) != nil
+    }
+
+    /// 这个深浅下用的那一套(RRGGBB)。
+    func colors(for scheme: ColorScheme) -> (text: String, background: String) {
+        if scheme == .dark, hasDarkVersion { return (darkText, darkBackground) }
+        return (lightText, lightBackground)
+    }
+}
+
 /// 文稿页的一套颜色。
 struct SpokenWordTranscriptPalette: Equatable {
     var background: Color
@@ -1036,7 +1073,7 @@ struct SpokenWordTranscriptPalette: Equatable {
 }
 
 /// 阅读主题:几套预设(参照 Apple 图书),每套有浅色、深色两版。深色版的底不用纯黑、字不用纯白,
-/// 长时间看不刺眼。「自定义」用自己挑的字色与底色,不分深浅。
+/// 长时间看不刺眼。「自定义」用自己挑的字色与底色,浅色、深色外观可以各调一套。
 enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
     case original, paper, warm, quiet, green, custom
 
@@ -1055,8 +1092,7 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
 
     func palette(
         for scheme: ColorScheme,
-        customTextHex: String,
-        customBackgroundHex: String
+        custom: SpokenWordTranscriptCustomColors
     ) -> SpokenWordTranscriptPalette {
         let dark = scheme == .dark
         switch self {
@@ -1076,9 +1112,10 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
             return dark ? Self.makePalette(background: "1F2722", text: "C3D3BF", dark: true)
                 : Self.makePalette(background: "DCEBD4", text: "2E3B2B", dark: false)
         case .custom:
-            let background = Self.validHex(customBackgroundHex)
+            let picked = custom.colors(for: scheme)
+            let background = Self.validHex(picked.background)
                 ?? SpokenWordTranscriptReaderPreferences.defaultCustomBackgroundHex
-            let text = Self.validHex(customTextHex)
+            let text = Self.validHex(picked.text)
                 ?? SpokenWordTranscriptReaderPreferences.defaultCustomTextHex
             return Self.makePalette(background: background, text: text, dark: Self.luminance(ofHex: background) < 0.45)
         }
@@ -1167,7 +1204,8 @@ struct SpokenWordTranscriptReader: View {
     }
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.colorScheme) private var environmentColorScheme
+    @Environment(\.appColorScheme) private var appColorScheme
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontKey)
     private var fontRawValue = SpokenWordTranscriptFont.system.rawValue
@@ -1189,6 +1227,10 @@ struct SpokenWordTranscriptReader: View {
     private var customTextHex = SpokenWordTranscriptReaderPreferences.defaultCustomTextHex
     @AppStorage(SpokenWordTranscriptReaderPreferences.customBackgroundColorKey)
     private var customBackgroundHex = SpokenWordTranscriptReaderPreferences.defaultCustomBackgroundHex
+    @AppStorage(SpokenWordTranscriptReaderPreferences.customDarkTextColorKey)
+    private var customDarkTextHex = ""
+    @AppStorage(SpokenWordTranscriptReaderPreferences.customDarkBackgroundColorKey)
+    private var customDarkBackgroundHex = ""
     @AppStorage(SpokenWordTranscriptReaderPreferences.revealsOnScrollKey)
     private var revealsChromeOnScroll = false
     @AppStorage(SpokenWordTranscriptReaderPreferences.paragraphModeKey)
@@ -1255,19 +1297,23 @@ struct SpokenWordTranscriptReader: View {
                     SpokenWordTranscriptReaderPreferences.fontSizeRange.upperBound))
     }
 
-    /// 主题与外观选定的明暗;主题块也按它画。
-    private var appearanceScheme: ColorScheme { appearance.resolved(systemColorScheme) }
+    /// 主题与外观选定的明暗;主题块也按它画。「跟随系统」看 App 本身的深浅:这一页自己定过的深浅
+    /// 会写回这一层的环境,拿它当「系统」就会一直停在上次选的那一档(#313)。
+    private var appearanceScheme: ColorScheme { appearance.resolved(appColorScheme ?? environmentColorScheme) }
+
+    private var customColors: SpokenWordTranscriptCustomColors {
+        SpokenWordTranscriptCustomColors(
+            lightText: customTextHex,
+            lightBackground: customBackgroundHex,
+            darkText: customDarkTextHex,
+            darkBackground: customDarkBackgroundHex
+        )
+    }
 
     private var palette: SpokenWordTranscriptPalette {
-        theme.palette(for: appearanceScheme, customTextHex: customTextHex, customBackgroundHex: customBackgroundHex)
+        theme.palette(for: appearanceScheme, custom: customColors)
     }
 
-    #if os(iOS)
-    /// 外观不跟随系统(或自定义的底色定了深浅)时整页换过去,状态栏的字也跟着变。
-    private var preferredScheme: ColorScheme? {
-        theme == .custom || appearance != .system ? palette.colorScheme : nil
-    }
-    #endif
 
     /// 没开着菜单面板、没在搜索拖动滑动时,控件才会自己收起;暂停着也收,点一下再出来。
     /// 旁白开着、文稿是空的时候一直显示。
@@ -1329,6 +1375,8 @@ struct SpokenWordTranscriptReader: View {
                 highlightRawValue: $highlightRawValue,
                 customTextHex: $customTextHex,
                 customBackgroundHex: $customBackgroundHex,
+                customDarkTextHex: $customDarkTextHex,
+                customDarkBackgroundHex: $customDarkBackgroundHex,
                 revealsChromeOnScroll: $revealsChromeOnScroll,
                 paragraphModeRawValue: $paragraphModeRawValue,
                 colorScheme: appearanceScheme
@@ -1352,7 +1400,9 @@ struct SpokenWordTranscriptReader: View {
         }
         .environment(\.colorScheme, palette.colorScheme)
         #if os(iOS)
-        .preferredColorScheme(preferredScheme)
+        // 整页(连同状态栏的字)换成这一套的深浅。总给一个确定的值:改回 nil 时系统不会把这一层
+        // 换回去,「跟随系统」就会停在上次选的深浅上。
+        .preferredColorScheme(palette.colorScheme)
         #endif
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 640)
@@ -2345,12 +2395,25 @@ struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var highlightRawValue: String
     @Binding var customTextHex: String
     @Binding var customBackgroundHex: String
+    @Binding var customDarkTextHex: String
+    @Binding var customDarkBackgroundHex: String
     @Binding var revealsChromeOnScroll: Bool
     @Binding var paragraphModeRawValue: String
     /// 主题块按这个明暗画,和文稿那边看到的一样。
     let colorScheme: ColorScheme
 
     @Environment(\.dismiss) private var dismiss
+    /// 「自定义」下面两个取色器改的是哪一套;打开时对准文稿此刻用的那一套。
+    @State private var editsDarkCustom: Bool?
+
+    private var customColors: SpokenWordTranscriptCustomColors {
+        SpokenWordTranscriptCustomColors(
+            lightText: customTextHex,
+            lightBackground: customBackgroundHex,
+            darkText: customDarkTextHex,
+            darkBackground: customDarkBackgroundHex
+        )
+    }
 
     private var fontLibrary: SpokenWordTranscriptFontLibrary { .shared }
 
@@ -2374,20 +2437,17 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                Section("transcript_reader_theme") {
+                Section {
                     themeGrid
                         .padding(.vertical, 4)
                     if themeRawValue == SpokenWordTranscriptTheme.custom.rawValue {
-                        ColorPicker(
-                            "transcript_reader_custom_text_color",
-                            selection: colorBinding($customTextHex),
-                            supportsOpacity: false
-                        )
-                        ColorPicker(
-                            "transcript_reader_custom_background_color",
-                            selection: colorBinding($customBackgroundHex),
-                            supportsOpacity: false
-                        )
+                        customColorRows
+                    }
+                } header: {
+                    Text("transcript_reader_theme")
+                } footer: {
+                    if themeRawValue == SpokenWordTranscriptTheme.custom.rawValue {
+                        Text("transcript_reader_custom_versions_footer")
                     }
                 }
                 Section {
@@ -2488,12 +2548,60 @@ struct SpokenWordTranscriptTypographyPanel: View {
         }
     }
 
-    private func themeTile(_ theme: SpokenWordTranscriptTheme) -> some View {
-        let palette = theme.palette(
-            for: colorScheme,
-            customTextHex: customTextHex,
-            customBackgroundHex: customBackgroundHex
+    /// 浅色、深色外观各一套:先挑改哪一套,再是文字与背景两个取色器。深色那套没调过时显示浅色那套的颜色,
+    /// 一改就把两样都存下来;调过的可以一键改回「和浅色外观一样」。
+    @ViewBuilder
+    private var customColorRows: some View {
+        let editsDark = editsDarkCustom ?? (colorScheme == .dark)
+        Picker("transcript_reader_appearance", selection: Binding(
+            get: { editsDark },
+            set: { editsDarkCustom = $0 }
+        )) {
+            Text("transcript_reader_appearance_light").tag(false)
+            Text("transcript_reader_appearance_dark").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        let shown = customColors.colors(for: editsDark ? .dark : .light)
+        ColorPicker(
+            "transcript_reader_custom_text_color",
+            selection: customColorBinding(shown.text, isDark: editsDark, isText: true),
+            supportsOpacity: false
         )
+        ColorPicker(
+            "transcript_reader_custom_background_color",
+            selection: customColorBinding(shown.background, isDark: editsDark, isText: false),
+            supportsOpacity: false
+        )
+        if editsDark, customColors.hasDarkVersion {
+            Button("transcript_reader_custom_dark_reset") {
+                customDarkTextHex = ""
+                customDarkBackgroundHex = ""
+            }
+        }
+    }
+
+    private func customColorBinding(_ shownHex: String, isDark: Bool, isText: Bool) -> Binding<Color> {
+        Binding(
+            get: { Color(hex: SpokenWordTranscriptTheme.validHex(shownHex) ?? "808080") },
+            set: { color in
+                guard let value = SpokenWordTranscriptTheme.hex(from: color) else { return }
+                if isDark {
+                    // 深色那套头一回调:另一样先沿用浅色那套的颜色,两样一起存下来。
+                    let current = customColors.colors(for: .dark)
+                    customDarkTextHex = isText ? value : current.text
+                    customDarkBackgroundHex = isText ? current.background : value
+                } else if isText {
+                    customTextHex = value
+                } else {
+                    customBackgroundHex = value
+                }
+            }
+        )
+    }
+
+    private func themeTile(_ theme: SpokenWordTranscriptTheme) -> some View {
+        let palette = theme.palette(for: colorScheme, custom: customColors)
         let isSelected = theme.rawValue == themeRawValue
         return Button {
             themeRawValue = theme.rawValue
@@ -2530,15 +2638,6 @@ struct SpokenWordTranscriptTypographyPanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func colorBinding(_ hex: Binding<String>) -> Binding<Color> {
-        Binding(
-            get: { Color(hex: SpokenWordTranscriptTheme.validHex(hex.wrappedValue) ?? "808080") },
-            set: { color in
-                if let value = SpokenWordTranscriptTheme.hex(from: color) { hex.wrappedValue = value }
-            }
-        )
     }
 
     private func fontChip(_ font: SpokenWordTranscriptFont) -> some View {

@@ -5792,6 +5792,8 @@
 "transcript_reader_theme_custom" = "Власна";
 "transcript_reader_custom_text_color" = "Колір тексту";
 "transcript_reader_custom_background_color" = "Колір тла";
+"transcript_reader_custom_versions_footer" = "За автоматичного оформлення ці два набори кольорів перемикаються разом зі світлим і темним режимом системи. Поки ви не зміните темний набір, він збігається зі світлим.";
+"transcript_reader_custom_dark_reset" = "Як у світлого";
 "transcript_reader_highlight" = "Підсвічування під час прослуховування";
 "transcript_reader_highlight_sentence" = "Речення";
 "transcript_reader_highlight_paragraph" = "Абзац";
