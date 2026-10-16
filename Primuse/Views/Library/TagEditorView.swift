@@ -1655,6 +1655,8 @@ struct TagEditorView: View {
                 return false
             }
             updated.coverArtFileName = newFileName
+            // 换的图在其它设备上也换(iCloud 同步手改的标签)。
+            SongTagEditStore.shared.recordUserChosenCovers(songIDs: [song.id])
         }
 
         let lyricsChanged = hasLyricsChanges

@@ -286,6 +286,8 @@ final class MetadataBackfillService {
     @ObservationIgnored private var peerLyricsPendingIDs: Set<String> = []
     /// 读完一轮标签(至少读了一首)时告诉 AppServices,好让别的设备早点拿到结果。
     @ObservationIgnored var readingProgressHandler: ((Int) -> Void)?
+    /// 每批读好的行写进曲库之后报出 id。别的设备手改的标签在等这些行读完(见 `SongTagEditStore`)。
+    @ObservationIgnored var tagReadsPublishedHandler: ((Set<String>) -> Void)?
     @ObservationIgnored private var peerCoverSweepTask: Task<Void, Never>?
 
     private struct PeerCoverGroup: Codable, Sendable {
@@ -3383,6 +3385,30 @@ final class MetadataBackfillService {
         }
     }
 
+    /// 别的设备恢复了文件标签:这些歌的标记已经撤掉,逐首按文件重读。返回读完了的,以及读不了
+    /// 文件(CUE 分轨、服务端曲库、串流描述)、不必再等的;源停用、正在读、读失败的不算,留给下次。
+    /// 不经 `restoreFileTags`:那会再记一次恢复,把恢复之后别处又改的字段也作废。
+    func rereadForRemoteRestore(songIDs: [String]) async -> Set<String> {
+        var settled: Set<String> = []
+        for id in songIDs {
+            guard !Task.isCancelled else { break }
+            guard let song = library.storedSong(id: id) else {
+                settled.insert(id)
+                continue
+            }
+            guard !library.disabledSourceIDs.contains(song.sourceID) else { continue }
+            guard canRereadTags(for: song) else {
+                settled.insert(id)
+                continue
+            }
+            switch await rereadTags(songID: id, expectedSourceID: song.sourceID) {
+            case .completed, .unsupported: settled.insert(id)
+            case .failed, .alreadyReading: break
+            }
+        }
+        return settled
+    }
+
     /// 恢复文件标签:清掉这些歌的「用户编辑」标记,再按文件重新读一遍 —— 手动编辑与刮削
     /// 改过的标题、艺术家、专辑、年份等换回文件里的标签。服务端曲库源和 CUE 分轨没有能单独
     /// 重读的文件,清掉标记后下一次同步 / 扫描跟随源里的值。返回实际重读的结果。
@@ -3393,6 +3419,8 @@ final class MetadataBackfillService {
             song.userMetadataEditedAt = nil
             return song
         }
+        // 其它设备上的手改(连只换过的封面)一起作废;要在撤掉标记之前记,没记过的老改动靠标记认。
+        SongTagEditStore.shared.recordRestore(songIDs: songs.map(\.id))
         if !cleared.isEmpty { library.replaceSongs(cleared) }
         let rereadable = Dictionary(grouping: songs.filter(canRereadTags(for:)), by: \.sourceID)
         plog("🔁 restore file tags songs=\(songs.count) cleared=\(cleared.count) rereading=\(rereadable.values.reduce(0) { $0 + $1.count })")
@@ -4119,6 +4147,7 @@ final class MetadataBackfillService {
         artistInspectionIDsRequiringReplacement.subtract(batchIDs)
         markMetadataInspected(songIDs: pendingMetadataInspectionIDs)
         pendingMetadataInspectionIDs.removeAll(keepingCapacity: true)
+        if !batchIDs.isEmpty { tagReadsPublishedHandler?(batchIDs) }
         PrimuseSignposts.hitch.endInterval("backfill.flushApply", flushSignpost)
         await refreshRemainingCountsOffMain(force: isFinal)
     }
@@ -6369,6 +6398,27 @@ final class MetadataBackfillService {
 
     /// 扫描或一次补齐用上了别的设备读好的行:标签当作已经检查过,封面与歌词另行安排。
     /// 在那些行写进资料库之前调用 —— 写进去之后到这里之间,补读不该把它们再派出去读。
+    /// 别的设备手改的标签现在能不能套到这一行上(见 `SongTagEditStore`)。套上就打了「用户编辑」
+    /// 标记,之后补读读到的标题、专辑、封面都当成手改保护起来、不再写进这一行,所以还在等读
+    /// 标签的行先不套(停用的源、断网暂时搁下的行也算在等);改动里没有本机套得上的封面、这一行
+    /// 又还在等读内嵌封面时也先不套。不读标签的源、读失败放弃了的行照套。
+    func isReadyForSyncedTagEdit(_ song: Song, includesCover: Bool, sourceReadsTags: Bool) -> Bool {
+        guard sourceReadsTags, !failedSongIDs.contains(song.id) else { return true }
+        let read = (song.duration > 0 && (song.sampleRate != nil || song.bitRate != nil))
+            || titleCheckedIDs.contains(song.id)
+            || incompleteSongIDs.contains(song.id)
+        guard read else { return false }
+        guard !includesCover, song.coverArtFileName?.isEmpty ?? true else { return true }
+        // 在等同组那首读封面的(别的设备读好的同一张内嵌封面)也算在等。
+        if peerCoverKeyBySongID[song.id] != nil { return false }
+        // 只读裸行的源不会为已经有时长的行再去读封面,等也等不来。
+        if !restrictsToBareRows(song), Self.needsEmbeddedArtworkBackfill(song),
+           !artworkGivenUpIDs.contains(song.id) {
+            return false
+        }
+        return true
+    }
+
     func acknowledgePeerSeedAdoptions(_ adoptions: [PeerScanSeedAdoption], refreshesCounts: Bool = true) {
         guard !adoptions.isEmpty else { return }
         let ids = Set(adoptions.map(\.songID))

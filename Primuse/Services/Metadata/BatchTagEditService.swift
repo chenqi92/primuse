@@ -109,6 +109,9 @@ enum BatchTagEditService {
         }
 
         library.replaceSongs(published)
+        if coverData != nil {
+            SongTagEditStore.shared.recordUserChosenCovers(songIDs: published.map(\.id))
+        }
         for song in published {
             player.syncSongMetadata(song)
         }

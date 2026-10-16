@@ -3380,6 +3380,19 @@ enum LibraryReviewReconciliationPolicy {
         merged.ratingFromServer = rating.ratingFromServer
         return merged
     }
+
+    /// 两条评分说的是同一件事:分数、评论、删没删、两个修改时间和服务端绑定都一样。
+    /// `winner` 每次都重新构造一条,`updatedAt` 之类的派生字段不必逐字相同。
+    static func isEquivalent(_ lhs: LibraryReview, _ rhs: LibraryReview) -> Bool {
+        lhs.subject == rhs.subject
+            && lhs.rating == rhs.rating
+            && lhs.comment == rhs.comment
+            && lhs.isDeleted == rhs.isDeleted
+            && lhs.ratingVersion == rhs.ratingVersion
+            && lhs.commentVersion == rhs.commentVersion
+            && lhs.serverRatingTarget == rhs.serverRatingTarget
+            && lhs.ratingFromServer == rhs.ratingFromServer
+    }
 }
 
 /// 库的发布状态。`.preparing` 表示可观察模型尚未装载完成:
@@ -3743,6 +3756,12 @@ final class MusicLibrary {
     private(set) var serverFavoriteErrorMessage: String?
     @ObservationIgnored var serverRatingTargetProvider: ((Song) -> ServerSongRatingTarget?)?
     @ObservationIgnored var ratingStateMutationHandler: ((LibraryReview) -> Void)?
+    /// 手改标签的行(`userMetadataEditedAt` 变了,含「恢复文件标签」清掉标记),改前改后各一份。
+    /// iCloud 同步据此记下改了哪些字段(见 `SongTagEditStore`)。
+    @ObservationIgnored var userMetadataEditHandler: (([(previous: Song, updated: Song)]) -> Void)?
+    /// 歌曲 id 整体换了(旧 id → 新 id)。手改标签的同步记录跟着换键。
+    @ObservationIgnored var userMetadataEditRemapHandler: (([String: String]) -> Void)?
+    @ObservationIgnored private var libraryReviewCloudKeyMap: [String: String]?
     /// 整张专辑 / 一位艺人的全部歌曲改成了同一个新名字（标签编辑、刮削）时报出来，
     /// 专辑 / 艺人的「喜欢」据此跟过去（见 `LibraryFavoritesStore.applyCollectionRenames`）。
     @ObservationIgnored var collectionRenameHandler: (([CollectionRename]) -> Void)?
@@ -7065,6 +7084,7 @@ final class MusicLibrary {
         libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged([subject.storageKey])
         return review
     }
 
@@ -7085,7 +7105,7 @@ final class MusicLibrary {
                 toAccountFingerprint: current
             )
         }) { return }
-        var changed = false
+        var reboundKeys: [String] = []
         for (key, review) in libraryReviewsBySubject {
             guard let target = review.serverRatingTarget,
                   target.sourceID == sourceID,
@@ -7098,18 +7118,19 @@ final class MusicLibrary {
                 itemKind: target.itemKind
             )
             libraryReviewsBySubject[key] = rebound
-            changed = true
+            reboundKeys.append(key)
         }
-        guard changed else { return }
+        guard !reboundKeys.isEmpty else { return }
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged(reboundKeys)
     }
 
     /// 按服务端条目建一次现有评分的表,不再每条都把全部评分过滤一遍(评分上千条时
     /// 回前台就是几百万次比较,#182)。写进一条后表作废,下一条按写过的状态重建。
     func restoreLocallyAuthoredServerRatings(_ reviews: [LibraryReview]) {
         var reviewsByTarget: [ServerSongRatingTarget: LibraryReview]?
-        var changed = false
+        var restoredKeys: [String] = []
         for review in reviews {
             guard let target = review.serverRatingTarget else { continue }
             let byTarget = reviewsByTarget ?? reviewsByServerRatingTarget()
@@ -7121,11 +7142,12 @@ final class MusicLibrary {
             } ?? review
             libraryReviewsBySubject[restored.subject.storageKey] = restored
             reviewsByTarget = nil
-            changed = true
+            restoredKeys.append(restored.subject.storageKey)
         }
-        guard changed else { return }
+        guard !restoredKeys.isEmpty else { return }
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged(restoredKeys)
     }
 
     /// 与逐个调用 `review(forServerRatingTarget:)` 的结果相同:同一条目的评分按同样的顺序取胜者。
@@ -7175,6 +7197,7 @@ final class MusicLibrary {
         libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged([subject.storageKey])
         return review
     }
 
@@ -7237,7 +7260,87 @@ final class MusicLibrary {
         libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        notifyLibraryReviewsChanged([subject.storageKey])
         if changedRating { ratingStateMutationHandler?(review) }
+    }
+
+    // MARK: - 评分评论的 iCloud 同步
+
+    private func notifyLibraryReviewsChanged(_ keys: [String]) {
+        guard !keys.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .primuseLibraryReviewsDidChange,
+            object: nil,
+            userInfo: ["keys": keys]
+        )
+    }
+
+    /// 全部评分评论的存储键,连删除留下的墓碑一起。同步通道打开时整批补传。
+    var libraryReviewStorageKeysForSync: [String] {
+        Array(libraryReviewsBySubject.keys)
+    }
+
+    /// 按存储键原样取一条(含墓碑),不像界面那样按服务端条目合并几条。
+    func libraryReviewForSync(storageKey: String) -> LibraryReview? {
+        libraryReviewsBySubject[storageKey]
+    }
+
+    /// iCloud 记录名里的键换回存储键。记录名只能是 ASCII:流派之类的键在记录名里是哈希
+    /// (`CloudRecordNameEncoding`),这里按需建一张反查表;查不到或表里那条已经不在时重建一次。
+    func libraryReviewStorageKey(forCloudRecordKey key: String) -> String? {
+        if CloudRecordNameEncoding.isPlain(key) {
+            return libraryReviewsBySubject[key] == nil ? nil : key
+        }
+        if let cached = libraryReviewCloudKeyMap?[key], libraryReviewsBySubject[cached] != nil {
+            return cached
+        }
+        var map: [String: String] = [:]
+        for storageKey in libraryReviewsBySubject.keys where !CloudRecordNameEncoding.isPlain(storageKey) {
+            map[CloudRecordNameEncoding.recordName(for: storageKey)] = storageKey
+        }
+        libraryReviewCloudKeyMap = map
+        return map[key]
+    }
+
+    /// 套用 iCloud 送来的一条评分评论:评分与评论各按自己的修改时间取新的(与 Apple TV
+    /// 合并快照同一套规则)。不经 `ratingStateMutationHandler` —— 写回服务端由打分的那台
+    /// 设备负责。返回本机是否还有比它新的内容,需要传回去。
+    @discardableResult
+    func applyRemoteLibraryReview(_ remote: LibraryReview) -> Bool {
+        // S2: 发布前本机的评分还没装载,合并要等到重放时做;返回 false 不回推。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.applyRemoteLibraryReview(remote)
+        }) { return false }
+        let remote = localizedServerRatingTarget(remote)
+        let key = remote.subject.storageKey
+        let merged = localizedServerRatingTarget(libraryReviewsBySubject[key].map {
+            LibraryReviewReconciliationPolicy.winner(local: $0, remote: remote)
+        } ?? remote)
+        if libraryReviewsBySubject[key].map({
+            !LibraryReviewReconciliationPolicy.isEquivalent($0, merged)
+        }) ?? true {
+            libraryReviewsBySubject[key] = merged
+            libraryReviewRevision &+= 1
+            persistSnapshot()
+        }
+        return !LibraryReviewReconciliationPolicy.isEquivalent(merged, remote)
+    }
+
+    /// 别处送来的评分绑着同一个服务端条目,只是账号指纹不同(音乐源换了线路,本机或对方还
+    /// 没改绑)时,换成本机现在算出的那个:界面按本机算出的条目找评分,指纹对不上就看不到;
+    /// 两台设备各按自己的指纹合并,也不会为指纹来回传。
+    private func localizedServerRatingTarget(_ review: LibraryReview) -> LibraryReview {
+        guard let target = review.serverRatingTarget, !target.isAlbum,
+              review.subject.kind == .song,
+              let song = songForSynchronization(id: review.subject.entityID),
+              let current = serverRatingTargetProvider?(song),
+              current != target,
+              current.sourceID == target.sourceID,
+              current.itemID == target.itemID,
+              current.itemKind == target.itemKind else { return review }
+        var localized = review
+        localized.serverRatingTarget = current
+        return localized
     }
 
     /// 专辑 / 艺人简介;删掉的不返回。
@@ -10532,6 +10635,9 @@ final class MusicLibrary {
         // a stale pending identity finally match.
         schedulePendingIdentityFlush()
         persistSongChanges(upserts: [s])
+        if previousSong.userMetadataEditedAt != s.userMetadataEditedAt {
+            userMetadataEditHandler?([(previousSong, s)])
+        }
     }
 
     /// Same text in every field that album/artist grouping and text repair
@@ -10593,6 +10699,7 @@ final class MusicLibrary {
         var songListSnapshotChanged = false
         var repairedIndexLookup = false
         var renamePairs: [(previous: Song, updated: Song)] = []
+        var editTransitions: [(previous: Song, updated: Song)] = []
         let derivedIDMemo = DerivedIDMemo()
         for updated in updatedSongs {
             var index = idToIndex[updated.id]
@@ -10638,6 +10745,9 @@ final class MusicLibrary {
             }
             if previousSong.albumID != s.albumID || previousSong.artistID != s.artistID {
                 renamePairs.append((previousSong, s))
+            }
+            if previousSong.userMetadataEditedAt != s.userMetadataEditedAt {
+                editTransitions.append((previousSong, s))
             }
             nextSongs[index] = s
             lastApplied = s
@@ -10689,6 +10799,9 @@ final class MusicLibrary {
         persistSongChanges(
             upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
         )
+        if !editTransitions.isEmpty {
+            userMetadataEditHandler?(editTransitions)
+        }
     }
 
     private struct StableMetadataReplacementRequest: Sendable {
@@ -11613,8 +11726,11 @@ final class MusicLibrary {
                 LibraryReviewReconciliationPolicy.winner(local: $0, remote: remapped)
             } ?? remapped
         }
+        let movedReviewKeys = remappedReviews.keys.filter { libraryReviewsBySubject[$0] == nil }
         libraryReviewsBySubject = remappedReviews
         libraryReviewRevision &+= 1
+        notifyLibraryReviewsChanged(movedReviewKeys)
+        userMetadataEditRemapHandler?(replacements)
         songs = Self.songsByRemappingIDs(songs, replacements: replacements)
         for playlistID in playlistSongIDs.keys {
             var included = Set<String>()
@@ -15014,6 +15130,9 @@ extension Notification.Name {
     /// audio session 让给 ApplicationMusicPlayer。
     static let primuseAppleMusicWillPlay = Notification.Name("primuse.appleMusicWillPlay")
     static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
+    /// 本机的评分或评论变了(含扫描读回的服务端评分、改绑服务端条目)。userInfo["keys"] 是
+    /// `LibraryReviewSubject.storageKey`,iCloud 同步据此上传;套用 iCloud 送来的评分时不发。
+    static let primuseLibraryReviewsDidChange = Notification.Name("primuse.libraryReviewsDidChange")
     static let primuseArtworkOverridesDidChange = Notification.Name("primuse.artworkOverridesDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
     static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")

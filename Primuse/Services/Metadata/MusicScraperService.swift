@@ -465,6 +465,17 @@ final class MusicScraperService {
 
     /// Scrape single song — never overwrites existing cover/lyrics with nil
     /// dryRun: if true, returns updated song without writing to library
+    /// 刮削结果是按开始时取的那一行算的。那之后这首歌又被手改过(本机,或别的设备同步来的),
+    /// 手改的字段以库里现在的为准,不能拿旧行盖回去、把标记也抹掉。
+    static func rebasedOntoLatestUserEdits(_ songs: [Song], in library: MusicLibrary) -> [Song] {
+        songs.map { song in
+            guard let live = library.storedSong(id: song.id),
+                  let liveMarker = live.userMetadataEditedAt,
+                  (song.userMetadataEditedAt ?? .distantPast) < liveMarker else { return song }
+            return SongUserMetadataPolicy.preservingUserEdits(from: live, in: song)
+        }
+    }
+
     func scrapeSingle(
         song: Song,
         in library: MusicLibrary,
@@ -555,7 +566,11 @@ final class MusicScraperService {
             if await !sourceManager.isServerLibrarySource(for: song) {
                 updatedSong = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: updatedSong)
             }
-            library.replaceSong(updatedSong)
+            library.replaceSong(Self.rebasedOntoLatestUserEdits([updatedSong], in: library)[0])
+            // 单曲重新刮削是用户亲手做的,刮到的封面在其它设备上也换;整张专辑、整库的补全不传图。
+            if coverData != nil {
+                SongTagEditStore.shared.recordUserChosenCovers(songIDs: [updatedSong.id])
+            }
 
             // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
             plog("📝 Sidecar: coverData=\(sidecarCoverData?.count ?? 0)B lyricsLines=\(sidecarLyricsLines?.count ?? 0) for '\(updatedSong.title)'")
@@ -1165,7 +1180,7 @@ final class MusicScraperService {
             @MainActor func publishPendingSongBatch() {
                 guard let completedSongID = lastCompletedSongID else { return }
                 if !pendingSongUpdates.isEmpty {
-                    library.replaceSongs(pendingSongUpdates)
+                    library.replaceSongs(Self.rebasedOntoLatestUserEdits(pendingSongUpdates, in: library))
                 }
                 for operation in pendingSidecarOperations {
                     startSidecarWriteTask(operation)
@@ -1928,7 +1943,7 @@ final class MusicScraperService {
         var pendingSongUpdates: [Song] = []
         @MainActor func publishPendingSongUpdates() {
             guard !pendingSongUpdates.isEmpty else { return }
-            library.replaceSongs(pendingSongUpdates)
+            library.replaceSongs(Self.rebasedOntoLatestUserEdits(pendingSongUpdates, in: library))
             pendingSongUpdates.removeAll(keepingCapacity: true)
         }
 

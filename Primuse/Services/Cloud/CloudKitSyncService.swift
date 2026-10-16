@@ -94,6 +94,12 @@ final class CloudKitSyncService {
         static let scraperConfig = "ScraperConfig"
         /// 专辑 / 艺人的喜欢，一条一条存（见 `LibraryFavorite`）。个人偏好，不进家庭共享。
         static let libraryFavorite = "LibraryFavorite"
+        /// 评分与评论，一个对象（歌曲、专辑、歌单、流派）一条（见 `LibraryReview`）。个人偏好，不进家庭共享。
+        static let libraryReview = "LibraryReview"
+        /// 一首歌手改过的标签（见 `SongTagEdit`）。Apple TV 不收：它装手机的整库快照。
+        static let songTagEdit = "SongTagEdit"
+        /// 手改标签用到的封面图，按内容哈希一张一条，几首歌共用。
+        static let songTagEditCover = "SongTagEditCover"
     }
 
     /// 是否家庭共享, 启用后 shareable record 写到 family zone, 否则继续走老的
@@ -363,6 +369,8 @@ final class CloudKitSyncService {
         // 同步没在跑时本机改过的电台同理：每次 start 都补，与只做一次的首次上传无关。
         // 仍是先拉后推，拉到的远端改动按修改时间与补传的记录比较。
         flushDeferredRadioStationChanges()
+        seedRecordTypesAddedAfterInitialUpload()
+        flushDeferredRecordChanges()
 
         // Push existing local state once after install so the engine has a
         // baseline. After that CKSyncEngine's persisted state tracks per-record
@@ -751,10 +759,14 @@ final class CloudKitSyncService {
             artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
             libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
+            libraryReviewsChanged(keys: library.libraryReviewStorageKeysForSync)
         case .sources:
             sourcesChanged(ids: sourceIDsForCatchUp())
             // 电台逐条同步，不全量重传；只补通道关着时本机改过的那些。
             flushDeferredRadioStationChanges()
+            #if !os(tvOS)
+            enqueueAllSongTagEdits()
+            #endif
         case .playbackHistory:
             enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
         case .listeningStats:
@@ -922,7 +934,14 @@ final class CloudKitSyncService {
             // A missing Production schema is also CKError 12, but unlike a
             // duplicate save it must stay pending so it can succeed after the
             // server schema is deployed.
-            guard Self.schemaError(in: error) == nil else { return false }
+            if Self.schemaError(in: error) != nil {
+                // 后来加的记录类型例外:只是这几类先不传、下次启动整批再试,不拖住别的记录。
+                guard let recordType = recordMetadata(for: recordID)?.recordType,
+                      Self.recordTypesAddedAfterInitialUpload.contains(recordType) else { return false }
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                forgetSeededRecordType(recordType)
+                return true
+            }
             dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
             return true
         case .unknownItem:
@@ -1112,6 +1131,21 @@ final class CloudKitSyncService {
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.libraryFavoritesPurged(ids: ids) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseLibraryReviewsDidChange, object: nil, queue: .main) { [weak self] note in
+            let keys = (note.userInfo?["keys"] as? [String]) ?? []
+            Task { @MainActor in self?.libraryReviewsChanged(keys: keys) }
+        })
+        #if !os(tvOS)
+        observerTokens.append(nc.addObserver(forName: .primuseSongTagEditsDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.songTagEditsChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseSongTagEditCoversDidChange, object: nil, queue: .main) { [weak self] note in
+            let uploads = (note.userInfo?["ids"] as? [String]) ?? []
+            let deleted = (note.userInfo?["deleted"] as? [String]) ?? []
+            Task { @MainActor in self?.songTagEditCoversChanged(uploads: uploads, deleted: deleted) }
+        })
+        #endif
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -1339,6 +1373,122 @@ final class CloudKitSyncService {
         enqueueDeletes(recordType: RecordType.libraryFavorite, ids: ids)
     }
 
+    private static let seededRecordTypesKey = "primuse.cloudSync.seededRecordTypes"
+    nonisolated static let recordTypesAddedAfterInitialUpload: Set<String> = [
+        RecordType.libraryReview, RecordType.songTagEdit, RecordType.songTagEditCover,
+    ]
+
+    /// 生产环境还没有这类记录:下次启动整批补传(封面图跟着手改标签一起补)。
+    private func forgetSeededRecordType(_ recordType: String) {
+        let seededType = recordType == RecordType.songTagEditCover ? RecordType.songTagEdit : recordType
+        var seeded = Set(UserDefaults.standard.stringArray(forKey: Self.seededRecordTypesKey) ?? [])
+        guard seeded.remove(seededType) != nil else { return }
+        UserDefaults.standard.set(Array(seeded).sorted(), forKey: Self.seededRecordTypesKey)
+    }
+
+    /// 后来才加的记录类型（评分评论、手改标签）：已经做过首次上传的设备不会再整份重传，
+    /// 升级前就有的那些要在这里补传一次。首次上传本身会带上它们，那种情况只记账。
+    private func seedRecordTypesAddedAfterInitialUpload() {
+        guard canEnqueueRecordChanges else { return }
+        var seeded = Set(UserDefaults.standard.stringArray(forKey: Self.seededRecordTypesKey) ?? [])
+        var types = [RecordType.libraryReview]
+        #if !os(tvOS)
+        types.append(RecordType.songTagEdit)
+        #endif
+        let missing = types.filter { !seeded.contains($0) }
+        guard !missing.isEmpty else { return }
+        if didCompleteInitialUpload {
+            if missing.contains(RecordType.libraryReview) {
+                libraryReviewsChanged(keys: library.libraryReviewStorageKeysForSync)
+            }
+            #if !os(tvOS)
+            if missing.contains(RecordType.songTagEdit) { enqueueAllSongTagEdits() }
+            #endif
+            plog("☁️ CloudKitSync: seeded record types added after the initial upload: \(missing.joined(separator: ","))")
+        }
+        // 通道关着时这里排不进去；之后打开通道会走整批补传（`catchUp`），不必再记着。
+        seeded.formUnion(missing)
+        UserDefaults.standard.set(Array(seeded).sorted(), forKey: Self.seededRecordTypesKey)
+    }
+
+    private static let deferredRecordChangesKey = "primuse.cloudSync.deferredRecordChanges"
+    private static let deferredRecordChangesLimit = 20_000
+
+    /// 评分评论、手改标签逐条随改随传，没有整份重传兜底：引擎还没起来（启动早期、账号短暂
+    /// 不可用）时的改动先记在本机，下次 `start()` 补传。通道或总开关关着时不记 —— 打开时会整批补传。
+    private func enqueueOrDefer(recordType: String, ids: [String], deleting: Bool = false) {
+        guard !ids.isEmpty else { return }
+        if canEnqueueRecordChanges {
+            if deleting {
+                enqueueDeletes(recordType: recordType, ids: ids)
+            } else {
+                enqueueSaves(recordType: recordType, ids: ids)
+            }
+            return
+        }
+        let defaults = UserDefaults.standard
+        var changes = defaults.stringArray(forKey: Self.deferredRecordChangesKey) ?? []
+        changes.append(contentsOf: ids.map { "\(deleting ? "-" : "+")\(recordType)/\($0)" })
+        if changes.count > Self.deferredRecordChangesLimit {
+            changes.removeFirst(changes.count - Self.deferredRecordChangesLimit)
+        }
+        defaults.set(changes, forKey: Self.deferredRecordChangesKey)
+    }
+
+    /// 同一条记录先存后删（或反过来）只按最后一次排。
+    private func flushDeferredRecordChanges() {
+        guard canEnqueueRecordChanges else { return }
+        let defaults = UserDefaults.standard
+        let changes = defaults.stringArray(forKey: Self.deferredRecordChangesKey) ?? []
+        guard !changes.isEmpty else { return }
+        defaults.removeObject(forKey: Self.deferredRecordChangesKey)
+        var lastOperation: [String: Bool] = [:]
+        for change in changes {
+            guard let operation = change.first, operation == "+" || operation == "-" else { continue }
+            lastOperation[String(change.dropFirst())] = operation == "-"
+        }
+        var saves: [String: [String]] = [:]
+        var deletes: [String: [String]] = [:]
+        for (name, deleting) in lastOperation {
+            guard let meta = recordMetadata(for: CKRecord.ID(recordName: name)),
+                  let channel = Self.channel(for: meta.recordType),
+                  CloudSyncChannel.isEnabled(channel) else { continue }
+            if deleting {
+                deletes[meta.recordType, default: []].append(meta.localID)
+            } else {
+                saves[meta.recordType, default: []].append(meta.localID)
+            }
+        }
+        for (type, ids) in saves { enqueueSaves(recordType: type, ids: ids) }
+        for (type, ids) in deletes { enqueueDeletes(recordType: type, ids: ids) }
+        plog("☁️ CloudKitSync: queued \(lastOperation.count) change(s) made while sync was not running")
+    }
+
+    func libraryReviewsChanged(keys: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists), !keys.isEmpty else { return }
+        enqueueOrDefer(recordType: RecordType.libraryReview, ids: keys.map(CloudRecordNameEncoding.recordName(for:)))
+    }
+
+    #if !os(tvOS)
+    func songTagEditsChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources), !ids.isEmpty else { return }
+        enqueueOrDefer(recordType: RecordType.songTagEdit, ids: ids.map(CloudRecordNameEncoding.recordName(for:)))
+    }
+
+    /// 封面图先于用到它的标签记录排队；没有歌再用的那张从云端删掉。
+    func songTagEditCoversChanged(uploads: [String], deleted: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: uploads)
+        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: deleted, deleting: true)
+    }
+
+    private func enqueueAllSongTagEdits() {
+        let store = SongTagEditStore.shared
+        songTagEditCoversChanged(uploads: store.allPortableCoverIDs, deleted: [])
+        songTagEditsChanged(ids: store.allSongIDs)
+    }
+    #endif
+
     func scraperConfigsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
         enqueueSaves(recordType: RecordType.scraperConfig, ids: ids)
@@ -1487,6 +1637,9 @@ final class CloudKitSyncService {
         case RecordType.listeningStats: return .listeningStats
         case RecordType.scraperConfig: return .settings
         case RecordType.libraryFavorite: return .playlists
+        case RecordType.libraryReview: return .playlists
+        case RecordType.songTagEdit: return .sources
+        case RecordType.songTagEditCover: return .sources
         default: return nil
         }
     }
@@ -1700,7 +1853,8 @@ final class CloudKitSyncService {
                 + "smartPlaylists=\(library.allSmartPlaylists.count) "
                 + "radioStations=\(radioStationsStore.allStations.count) "
                 + "scraperConfigs=\(scraperConfigStore.allConfigsIncludingDeleted.count) "
-                + "libraryFavorites=\(libraryFavoritesStore.allEntriesIncludingDeleted.count)"
+                + "libraryFavorites=\(libraryFavoritesStore.allEntriesIncludingDeleted.count) "
+                + "libraryReviews=\(library.libraryReviewStorageKeysForSync.count)"
         )
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
@@ -1714,6 +1868,10 @@ final class CloudKitSyncService {
         }
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
+        libraryReviewsChanged(keys: library.libraryReviewStorageKeysForSync)
+        #if !os(tvOS)
+        enqueueAllSongTagEdits()
+        #endif
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
         if CloudSyncChannel.isEnabled(.playbackHistory) {
@@ -1889,6 +2047,9 @@ final class CloudKitSyncService {
             library.flushArmedSnapshotWriteNow()
         }
         PlayHistoryStore.shared.flushPendingSave()
+        #if !os(tvOS)
+        SongTagEditStore.shared.flushPendingWrite()
+        #endif
     }
 
     private func withReadyLibrary(_ apply: @MainActor () -> Void) async {
@@ -2008,6 +2169,14 @@ final class CloudKitSyncService {
             return populateScraperConfigRecord(record, configID: id)
         case RecordType.libraryFavorite:
             return populateLibraryFavoriteRecord(record, favoriteID: id)
+        case RecordType.libraryReview:
+            return populateLibraryReviewRecord(record, cloudKey: id)
+        #if !os(tvOS)
+        case RecordType.songTagEdit:
+            return populateSongTagEditRecord(record, cloudKey: id)
+        case RecordType.songTagEditCover:
+            return populateSongTagEditCoverRecord(record, contentID: id)
+        #endif
         case RecordType.playbackHistory:
             return populatePlaybackHistoryRecord(record)
         case RecordType.listeningStats:
@@ -2018,6 +2187,12 @@ final class CloudKitSyncService {
     }
 
     fileprivate func applyRemoteRecord(_ record: CKRecord, decodedListeningStats: [PlayHistoryStore.Entry]? = nil) {
+        #if os(tvOS)
+        // 手改标签由手机的整库快照带到电视上,这两类记录电视不收,也不必记它们的 changeTag。
+        if record.recordType == RecordType.songTagEdit || record.recordType == RecordType.songTagEditCover {
+            return
+        }
+        #endif
         if record.recordType == RecordType.musicSource,
            let source = decodedSource(from: record),
            !MusicSourceCloudSyncPolicy.isEligible(source) {
@@ -2057,6 +2232,14 @@ final class CloudKitSyncService {
             applyScraperConfigRecord(record)
         case RecordType.libraryFavorite:
             applyLibraryFavoriteRecord(record)
+        case RecordType.libraryReview:
+            applyLibraryReviewRecord(record)
+        #if !os(tvOS)
+        case RecordType.songTagEdit:
+            applySongTagEditRecord(record)
+        case RecordType.songTagEditCover:
+            applySongTagEditCoverRecord(record)
+        #endif
         case RecordType.playbackHistory:
             applyPlaybackHistoryRecord(record)
         case RecordType.listeningStats:
@@ -2145,6 +2328,10 @@ final class CloudKitSyncService {
                 applyRemoteRecord(record)
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             }
+        case RecordType.libraryReview, RecordType.songTagEdit, RecordType.songTagEditCover:
+            // 逐项合并的记录：并进本机之后，待传的那份重建出来就是合并结果，照常发；
+            // 与服务器上的相同时由下面撤掉。
+            applyRemoteRecord(record)
         default:
             // Atomic records keep their existing last-writer-wins behavior.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
@@ -2323,6 +2510,25 @@ final class CloudKitSyncService {
             scraperConfigStore.deleteFromRemote(id: id)
         case RecordType.libraryFavorite:
             libraryFavoritesStore.removeRemote(id: id)
+        case RecordType.libraryReview:
+            // 评分清掉也是存一条墓碑，正常不会删记录；云端那条没了而本机还有，就传回去。
+            if library.libraryReviewStorageKey(forCloudRecordKey: id) != nil,
+               let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
+            }
+        #if !os(tvOS)
+        case RecordType.songTagEdit:
+            if SongTagEditStore.shared.remoteEntryDeleted(cloudRecordKey: id),
+               let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
+            }
+        case RecordType.songTagEditCover:
+            // 别的设备以为没人用了删掉的,本机还有歌在用就传回去。
+            if SongTagEditStore.shared.remotePortableCoverDeleted(contentID: id),
+               let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
+            }
+        #endif
         case RecordType.playbackHistory:
             library.clearPlaybackHistory()
         case RecordType.listeningStats:
@@ -2777,6 +2983,86 @@ final class CloudKitSyncService {
         libraryFavoritesStore.applyRemote(entry)
     }
 
+    // MARK: - Library review mapping
+
+    private func populateLibraryReviewRecord(_ record: CKRecord, cloudKey: String) -> Bool {
+        guard let storageKey = library.libraryReviewStorageKey(forCloudRecordKey: cloudKey),
+              let review = library.libraryReviewForSync(storageKey: storageKey) else { return false }
+        do {
+            record["payload"] = try JSONEncoder().encode(review)
+            record["updatedAt"] = Date(timeIntervalSince1970: max(review.ratingVersion, review.commentVersion))
+            return true
+        } catch {
+            plog("CloudKitSync: encode library review failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applyLibraryReviewRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let review = try? JSONDecoder().decode(LibraryReview.self, from: data),
+              let cloudKey = parseLocalID(from: record.recordID, recordType: RecordType.libraryReview),
+              CloudRecordNameEncoding.recordName(for: review.subject.storageKey) == cloudKey else { return }
+        // 本机那条有更新的评分或评论：合并结果传回去。
+        if library.applyRemoteLibraryReview(review), let target = engine(for: record.recordID.zoneID) {
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: target)
+        }
+    }
+
+    #if !os(tvOS)
+    // MARK: - Song tag edit mapping
+
+    /// 只传跨设备的音乐源上的歌:本机文件夹这类只在这台设备上的源,别的设备没有这首歌。
+    /// 库里没有这首歌时照传(别的设备送来、本机还没扫到的那些要能传回去)。
+    private func songTagEditIsSyncable(songID: String) -> Bool {
+        guard let song = library.storedSong(id: songID) else { return true }
+        guard let source = sourcesStore.source(id: song.sourceID) else { return false }
+        return MusicSourceCloudSyncPolicy.isEligible(source)
+    }
+
+    private func populateSongTagEditRecord(_ record: CKRecord, cloudKey: String) -> Bool {
+        guard let entry = SongTagEditStore.shared.entry(forCloudRecordKey: cloudKey),
+              songTagEditIsSyncable(songID: entry.songID) else { return false }
+        do {
+            record["payload"] = try JSONEncoder().encode(entry)
+            record["updatedAt"] = Date(
+                timeIntervalSince1970: max(entry.latestModification ?? 0, entry.restoredAt ?? 0)
+            )
+            return true
+        } catch {
+            plog("CloudKitSync: encode song tag edit failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applySongTagEditRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let entry = try? JSONDecoder().decode(SongTagEdit.self, from: data),
+              let cloudKey = parseLocalID(from: record.recordID, recordType: RecordType.songTagEdit),
+              CloudRecordNameEncoding.recordName(for: entry.songID) == cloudKey else { return }
+        if SongTagEditStore.shared.applyRemote(entry), let target = engine(for: record.recordID.zoneID) {
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: target)
+        }
+    }
+
+    private func populateSongTagEditCoverRecord(_ record: CKRecord, contentID: String) -> Bool {
+        let store = SongTagEditStore.shared
+        guard LibraryArtworkContentIDPolicy.isValid(contentID),
+              store.songIDs(usingPortableCover: contentID).contains(where: { songTagEditIsSyncable(songID: $0) }),
+              let data = store.portableCoverData(contentID: contentID) else { return false }
+        record["image"] = data
+        return true
+    }
+
+    private func applySongTagEditCoverRecord(_ record: CKRecord) {
+        guard let contentID = parseLocalID(from: record.recordID, recordType: RecordType.songTagEditCover),
+              LibraryArtworkContentIDPolicy.isValid(contentID),
+              let data = record["image"] as? Data,
+              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes else { return }
+        SongTagEditStore.shared.applyRemotePortableCover(contentID: contentID, data: data)
+    }
+    #endif
+
     // MARK: - Playback history mapping
 
     private func populatePlaybackHistoryRecord(_ record: CKRecord) -> Bool {
@@ -3168,6 +3454,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         let ckError = failed.error
 
         if let schemaError = Self.schemaError(in: ckError) {
+            // 后来加的记录类型(评分评论、手改标签)生产环境还没部署时,只是这几类不同步、下次启动
+            // 再试,别的照常 —— 不把整个同步打成出错、也不因此每次启动整份重传。
+            if Self.recordTypesAddedAfterInitialUpload.contains(failed.record.recordType) {
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                forgetSeededRecordType(failed.record.recordType)
+                plog(
+                    "CloudKitSync: Production schema missing for "
+                        + "\(failed.record.recordType), will retry next start: \(schemaError.localizedDescription)"
+                )
+                return
+            }
             let message = schemaError.localizedDescription
             didCompleteInitialUpload = false
             unresolvedRecordSaveError = message
@@ -3330,6 +3627,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
                 return
             }
+        case RecordType.libraryReview, RecordType.songTagEdit, RecordType.songTagEditCover:
+            // 并进本机后重传合并结果；与服务器上的已经相同就不传。
+            applyRemoteRecord(server)
+            addCoalescedRecordZoneChanges([.saveRecord(local.recordID)], to: syncEngine)
+            dropPendingSaveIfServerMatches(server, syncEngine: syncEngine)
+            return
         default:
             // Remaining payload-based atomic types use LWW on updatedAt.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast

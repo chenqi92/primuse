@@ -5836,8 +5836,8 @@
 "catalog_prune_mode_confirm" = "確認後移除";
 "catalog_prune_mode_immediate" = "立即移除";
 "catalog_prune_mode_description" = "確認後移除：掃描時發現伺服器上少了的歌先保留，之後的完整掃描裡仍然不在才移除，伺服器偶爾少回傳或資料庫暫時沒掛載時不會誤刪。立即移除：一次完整掃描裡不在就移除，伺服器上的資料庫暫時沒掛載時也會移除；掃描途中內容有變動或沒掃完時仍然不刪。";
-"icloud_sync_settings_channel_footer" = "播放器與介面版面的偏好，以及收藏裡的歌單、有聲書、目錄和收藏順序，跟著設定一起同步；本機音樂來源上的目錄與書只留在這台裝置。收藏的專輯與藝人跟著歌單同步。";
-"icloud_sync_scan_results_footer" = "音樂來源同步開啟時，同一帳號的 iPhone、iPad 和 Mac 共用已經讀好的歌曲標籤：一台讀完，其他裝置掃描同一個音樂來源時只讀新增或改過的檔案。";
+"icloud_sync_settings_channel_footer" = "播放器與介面版面的偏好，以及收藏裡的歌單、有聲書、目錄和收藏順序，跟著設定一起同步；本機音樂來源上的目錄與書只留在這台裝置。收藏的專輯與藝人、評分和評論跟著歌單同步。";
+"icloud_sync_scan_results_footer" = "音樂來源同步開啟時，同一帳號的 iPhone、iPad 和 Mac 共用已經讀好的歌曲標籤：一台讀完，其他裝置掃描同一個音樂來源時只讀新增或改過的檔案。手動改過的標籤和換過的封面也跟著同步，在一台裝置上「恢復檔案標籤」，其他裝置一起恢復。";
 "transcript_reader_menu" = "選單";
 "transcript_reader_search" = "搜尋文字稿";
 "transcript_reader_search_prompt" = "搜尋文字稿";

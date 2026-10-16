@@ -1334,6 +1334,25 @@ final class AppServices {
         }
         metadataBackfill.readingProgressHandler = { [weak peerScanSeeds] _ in
             peerScanSeeds?.readingProgressDidAdvance()
+            SongTagEditStore.shared.libraryRowsMayHaveChanged()
+        }
+        // 手改的标签与别的 iPhone / iPad / Mac 互相同步;别处改的要等本机读完这首歌再套。
+        let tagEdits = SongTagEditStore.shared
+        tagEdits.attach(library: library)
+        tagEdits.readinessProvider = { [weak metadataBackfill, weak store] song, includesCover in
+            // 读标签的源(停用的也算):这类源上还没读的行要等;服务端曲库的标签来自目录,照套。
+            let readsTags = store?.source(id: song.sourceID).map {
+                $0.type.supportsEmbeddedMetadataBackfill || $0.type == .local
+            } ?? false
+            return metadataBackfill?.isReadyForSyncedTagEdit(
+                song, includesCover: includesCover, sourceReadsTags: readsTags
+            ) ?? true
+        }
+        tagEdits.restoreHandler = { [weak metadataBackfill] songIDs in
+            await metadataBackfill?.rereadForRemoteRestore(songIDs: songIDs) ?? Set(songIDs)
+        }
+        metadataBackfill.tagReadsPublishedHandler = { songIDs in
+            SongTagEditStore.shared.libraryRowsMayHaveChanged(songIDs: songIDs)
         }
         scanService.successfulSourceScanHandler = {
             [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds]
@@ -1341,6 +1360,7 @@ final class AppServices {
             completion in
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
             peerScanSeeds?.sourceScanSucceeded(sourceID: sourceID)
+            SongTagEditStore.shared.libraryRowsMayHaveChanged()
             if completion == .committedSnapshot {
                 library?.sourceSyncDidComplete()
             }

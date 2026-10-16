@@ -1891,6 +1891,10 @@ struct ScrapeOptionsView: View {
                     lyricsRef: appliedFinal.lyricsFileName
                 )
             }
+            if needsCover, coverData != nil {
+                // 挑的封面在其它设备上也换(iCloud 同步手改的标签)。
+                SongTagEditStore.shared.recordUserChosenCovers(songIDs: [songID])
+            }
 
             if needsLyrics, let lines = lyricsLines {
                 let wordLevel = lines.filter { $0.isWordLevel }.count
