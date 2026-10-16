@@ -6007,6 +6007,10 @@
 "player_backdrop_strength_footer" = "Plus le curseur est à droite, plus l’arrière-plan se rapproche des couleurs de la pochette. En mode clair, les couleurs très sombres s’arrêtent là où le texte reste lisible. Avec une image d’arrière-plan comme Pochette floutée, cela règle l’intensité du voile qui l’assombrit.";
 "player_progress_style_title" = "Barre de progression";
 "player_progress_style_footer" = "La vague ne s’anime que pendant la lecture et redevient une ligne droite en pause ou pendant que vous la faites glisser. S’applique au lecteur sur iPhone, iPad et Mac. Les podcasts et livres audio suivent aussi, sauf la présentation portrait des livres audio, qui ne passe qu’à la vague et garde sinon sa propre ligne fine.";
+"player_artwork_style_title" = "Style de la pochette";
+"player_artwork_style_card" = "Carte";
+"player_artwork_style_full_bleed" = "Bord à bord";
+"player_artwork_style_footer" = "Bord à bord étend la pochette sur toute la largeur en haut du lecteur, avec un fondu vers l’arrière-plan, et la réduit en petite pochette quand vous passez aux paroles. S’applique au lecteur de l’iPhone en portrait ; les clips, la radio, les podcasts et les livres audio gardent la carte.";
 "player_always_dark_title" = "Lecteur toujours sombre";
 "player_always_dark_footer" = "Le lecteur reste sombre même quand le système est clair, comme dans Apple Music, livres audio compris. La barre d’état est alors masquée dans le lecteur.";
 "player_progress_style_standard" = "Par défaut";

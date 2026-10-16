@@ -608,6 +608,10 @@ private struct LyricsArtworkAnchor {
     let cornerRadius: CGFloat
     let shadow: LyricsArtworkShadow
     let showsVideoPreparation: Bool
+    /// 下沿渐隐进背景的那一截占高度的比例；0 是不渐隐（卡片封面、歌词小封面）。
+    var bottomFade: CGFloat = 0
+    /// 铺满封面从屏幕顶端画起，把手和状态栏压在封面上，这一层要替它们垫一道淡淡的底色。
+    var coversTopChrome = false
 }
 
 private struct LyricsArtworkAnchorKey: PreferenceKey {
@@ -626,25 +630,30 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 /// 位置、边长、圆角、阴影是同一份动画数据，每一帧一起插值；圆角裁在缩放之前，
 /// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
 /// 移动途中只变换不重新排版。
+///
+/// 槽位不是正方形时（铺满封面在矮屏上被压扁）按长边铺满、居中裁掉多出来的那截，
+/// 下沿渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
 private struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
     var cornerRadius: CGFloat
     var shadow: LyricsArtworkShadow
+    var bottomFade: CGFloat
     let renderSize: CGFloat
 
     nonisolated var animatableData: AnimatablePair<
-        AnimatablePair<CGRect.AnimatableData, CGFloat>,
+        AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, CGFloat>>,
         AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>>
     > {
         get {
             AnimatablePair(
-                AnimatablePair(rect.animatableData, cornerRadius),
+                AnimatablePair(rect.animatableData, AnimatablePair(cornerRadius, bottomFade)),
                 AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, shadow.y))
             )
         }
         set {
             rect.animatableData = newValue.first.first
-            cornerRadius = newValue.first.second
+            cornerRadius = newValue.first.second.first
+            bottomFade = newValue.first.second.second
             shadow.opacity = newValue.second.first
             shadow.radius = newValue.second.second.first
             shadow.y = newValue.second.second.second
@@ -652,13 +661,52 @@ private struct LyricsArtworkFlight: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        let scale = max(rect.width, 1) / renderSize
+        let scale = max(rect.width, rect.height, 1) / renderSize
+        let visible = CGSize(width: max(rect.width, 0) / scale, height: max(rect.height, 0) / scale)
+        let fade = min(max(bottomFade, 0), 1)
+        // 不渐隐时整张都是实色：只改色值不改结构，飞行途中渐隐收到 0 时这一层不会被重建。
+        let fades = fade > 0.001
         content
             .frame(width: renderSize, height: renderSize)
-            .clipShape(RoundedRectangle(cornerRadius: max(0, cornerRadius) / scale, style: .continuous))
+            .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
+            .mask {
+                // 渐隐那一截按 smoothstep 取五个点，起止两头都是平的，看不出从哪一行开始变淡。
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 1 - fade),
+                        .init(color: .black.opacity(fades ? 0.844 : 1), location: 1 - fade * 0.75),
+                        .init(color: .black.opacity(fades ? 0.5 : 1), location: 1 - fade * 0.5),
+                        .init(color: .black.opacity(fades ? 0.156 : 1), location: 1 - fade * 0.25),
+                        .init(color: fades ? .clear : .black, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(width: visible.width, height: visible.height)
+            }
             .scaleEffect(scale)
             .shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
             .position(x: rect.midX, y: rect.midY)
+    }
+}
+
+/// 绘制尺寸那张方图里居中留下 `size` 那么大的圆角矩形。
+private struct LyricsArtworkClipShape: Shape {
+    var size: CGSize
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let width = min(size.width, rect.width)
+        let height = min(size.height, rect.height)
+        let visible = CGRect(
+            x: rect.midX - width / 2,
+            y: rect.midY - height / 2,
+            width: width,
+            height: height
+        )
+        let radius = min(cornerRadius, width / 2, height / 2)
+        return Path(roundedRect: visible, cornerRadius: max(radius, 0), style: .continuous)
     }
 }
 
@@ -838,6 +886,8 @@ struct NowPlayingView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
 
@@ -4795,6 +4845,9 @@ struct NowPlayingView: View {
         let spokenPortraitControls = usesSpokenWordTransport
             ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext(usesToolColumn: usesToolColumn))
             : nil
+        // 封面模式下大封面铺满(设置里的「封面样式」)。歌词模式不铺,小封面照旧。
+        let fullBleedArtwork = !showLyrics
+            && usesFullBleedArtwork(lyricsInline: lyricsInline, usesToolColumn: usesToolColumn)
 
         if usesAudiobookPlayerDesign, !isLyricsImmersive {
             // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
@@ -4822,14 +4875,9 @@ struct NowPlayingView: View {
                     }
 
                     // Playback error toast
-                    if (!showLyrics || !isLyricsImmersive),
+                    if (!showLyrics || !isLyricsImmersive), !fullBleedArtwork,
                        let error = player.lastPlaybackError {
-                        Text(error)
-                            .font(.caption).fontWeight(.medium)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(.red.opacity(0.8), in: Capsule())
-                            .pmSlideTransition(edge: .top, motion: .list)
+                        playbackErrorToast(error)
                     }
 
                     if showLyrics {
@@ -4933,6 +4981,20 @@ struct NowPlayingView: View {
                                 .transition(lyricsPanelTransition)
                                 // 转去横屏等别的版面时收起状态不带过去，回来是完整的播放页。
                                 .onDisappear { isLyricsChromeCollapsed = false }
+                        }
+                    } else if fullBleedArtwork {
+                        // 铺满封面(见 `fullBleedArtworkRegion`):这一块只占把手以下的高度,封面往上伸到屏幕顶端。
+                        // 矮屏照样按剩下的高度压扁,封面居中裁掉上下。
+                        fullBleedArtworkRegion(width: geo.size.width)
+                            .frame(maxHeight: max(0, geo.size.width - Self.portraitGrabberBand(topSafeArea: topSafeArea)))
+                            .layoutPriority(1)
+                            .transition(lyricsHandoffArtworkTransition)
+                            .zIndex(1)
+
+                        // 顶上那一截被封面盖着,出错提示挪到封面下面。
+                        if let error = player.lastPlaybackError {
+                            playbackErrorToast(error)
+                                .padding(.top, 8)
                         }
                     } else {
                         if fillsTallCanvas {
@@ -5913,6 +5975,64 @@ struct NowPlayingView: View {
             }
     }
 
+    /// 铺满封面的大封面位：整宽、从屏幕顶端到这一块的下沿，直角、无阴影，下沿渐隐。
+    private func lyricsArtworkFullBleedSlot(width: CGFloat, height: CGFloat) -> some View {
+        Color.clear
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
+                [.cover: LyricsArtworkAnchor(
+                    bounds: $0,
+                    cornerRadius: 0,
+                    shadow: .init(),
+                    showsVideoPreparation: true,
+                    bottomFade: Self.fullBleedArtworkBottomFade,
+                    coversTopChrome: true
+                )]
+            }
+    }
+
+    /// 铺满封面下沿渐隐的那一截（占封面高度）。
+    private static let fullBleedArtworkBottomFade: CGFloat = 0.4
+
+    /// 竖版顶上把手那一行连同上下留白的高度(把手上方 6、自身 5、下方 10,见 `portraitLayout`)。
+    private static func portraitGrabberBand(topSafeArea: CGFloat) -> CGFloat {
+        topSafeArea + 21
+    }
+
+    /// 铺满封面在竖版里占的那一块：版面里只占把手以下的高度，封面槽位按底边对齐往上伸出把手那一行，
+    /// 从屏幕顶端画起。点封面和卡片封面一样进歌词。
+    private func fullBleedArtworkRegion(width: CGFloat) -> some View {
+        let grabberBand = Self.portraitGrabberBand(topSafeArea: topSafeArea)
+        return GeometryReader { region in
+            lyricsArtworkFullBleedSlot(width: width, height: region.size.height + grabberBand)
+                .onTapGesture { openTextFromArtwork() }
+                .frame(width: region.size.width, height: region.size.height, alignment: .bottom)
+        }
+    }
+
+    private func playbackErrorToast(_ error: String) -> some View {
+        Text(error)
+            .font(.caption).fontWeight(.medium)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(.red.opacity(0.8), in: Capsule())
+            .pmSlideTransition(edge: .top, motion: .list)
+    }
+
+    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满）。只在 iPhone 的整屏竖版上：
+    /// iPad 竖屏太宽，铺满会把下面几行挤没；Duo 分栏、竖栏那一列的版面窄而高，照旧用卡片。
+    /// MV 有自己的画面，有声内容的书封是竖版，都不铺。
+    private func usesFullBleedArtwork(lyricsInline: Bool?, usesToolColumn: Bool) -> Bool {
+        isPhoneCanvas
+            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
+            && lyricsInline == nil
+            && !usesToolColumn
+            && !player.isMusicVideoPlaybackActive
+            && !usesSpokenWordTransport
+            && !player.isLiveRadio
+    }
+
     @ViewBuilder
     private func lyricsThumbnailArtwork(
         size: CGFloat,
@@ -5980,10 +6100,31 @@ struct NowPlayingView: View {
                     rect: rect,
                     cornerRadius: anchor.cornerRadius,
                     shadow: anchor.shadow,
+                    bottomFade: anchor.bottomFade,
                     renderSize: renderSize
                 ))
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+
+                // 铺满封面压住了状态栏与下拉把手：顶上垫一道背景色的淡底，把手画在封面上面。
+                // 版面里那根把手还在原位，被封面盖着；切到歌词时这两样淡出，露出的正是它。
+                if anchor.coversTopChrome {
+                    let band = topSafeArea + 44
+                    LinearGradient(
+                        colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: rect.width, height: band)
+                    .position(x: rect.midX, y: rect.minY + band / 2)
+                    .transition(.opacity)
+
+                    Capsule()
+                        .fill(appearance.primary.opacity(0.5))
+                        .frame(width: 48, height: 5)
+                        .position(x: rect.midX, y: rect.minY + topSafeArea + 8.5)
+                        .transition(.opacity)
+                }
 
                 if anchor.showsVideoPreparation {
                     MusicVideoPreparationBadge(songID: player.currentSong?.id)

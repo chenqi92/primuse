@@ -5913,6 +5913,10 @@
 "player_backdrop_strength_footer" = "Im dalej w prawo, tym bardziej tło zbliża się do kolorów okładki. W trybie jasnym bardzo ciemne kolory zatrzymują się tam, gdzie tekst pozostaje czytelny. Przy obrazie tła, takim jak Rozmyta okładka, reguluje to siłę przyciemniającej warstwy.";
 "player_progress_style_title" = "Pasek postępu";
 "player_progress_style_footer" = "Fala porusza się tylko podczas odtwarzania, a po wstrzymaniu lub podczas przeciągania prostuje się w linię. Dotyczy odtwarzacza na iPhonie, iPadzie i Macu. Podcasty i audiobooki też się dostosowują, tylko pionowy układ audiobooków przełącza się wyłącznie na falę, a w pozostałych przypadkach zachowuje własną cienką linię.";
+"player_artwork_style_title" = "Styl okładki";
+"player_artwork_style_card" = "Karta";
+"player_artwork_style_full_bleed" = "Od krawędzi do krawędzi";
+"player_artwork_style_footer" = "Od krawędzi do krawędzi wypełnia górę odtwarzacza okładką, która płynnie przechodzi w tło, a po przejściu do tekstu zmniejsza się do małej okładki. Dotyczy odtwarzacza iPhone’a w pionie; teledyski, radio, podcasty i audiobooki zachowują kartę.";
 "player_always_dark_title" = "Odtwarzacz zawsze ciemny";
 "player_always_dark_footer" = "Odtwarzacz pozostaje ciemny nawet przy jasnym systemie, jak w Apple Music, także dla audiobooków. Pasek stanu jest wtedy w odtwarzaczu ukryty.";
 "player_progress_style_standard" = "Domyślny";

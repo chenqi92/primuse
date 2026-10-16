@@ -5984,6 +5984,10 @@
 "player_backdrop_strength_footer" = "越往右，背景越貼近封面的顏色。淺色外觀下封面顏色很深時，會停在文字還看得清的程度；選了模糊封面等背景圖時，調的是圖上那層遮罩的深淺。";
 "player_progress_style_title" = "進度條";
 "player_progress_style_footer" = "波浪只在播放時流動，暫停或拖動時撫平成直線。iPhone、iPad 與 Mac 的播放頁都會跟著換。播客和有聲書也一樣，只是有聲書的直式版面只跟著換成波浪，選另外兩種時保留它自己的細線。";
+"player_artwork_style_title" = "封面樣式";
+"player_artwork_style_card" = "卡片";
+"player_artwork_style_full_bleed" = "鋪滿";
+"player_artwork_style_footer" = "鋪滿：封面從螢幕頂端鋪滿整個寬度，下緣漸隱進背景，切到歌詞時縮成頂列的小封面。只用於 iPhone 直向的播放頁；MV、電台、Podcast 和有聲書仍顯示卡片。";
 "player_always_dark_title" = "播放頁始終用深色";
 "player_always_dark_footer" = "系統是淺色時播放頁也用深色，像 Apple Music 那樣，有聲書也一樣。這時播放頁裡不顯示狀態列。";
 "player_progress_style_standard" = "預設";

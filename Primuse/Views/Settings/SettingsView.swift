@@ -572,6 +572,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var themeSettings = ThemeColorSettings.shared
@@ -701,6 +703,28 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
+                Picker(selection: artworkStyleBinding) {
+                    ForEach(NowPlayingArtworkStyle.allCases, id: \.self) { style in
+                        HStack(spacing: 12) {
+                            Text(LocalizedStringKey(style.titleKey))
+                            Spacer(minLength: 12)
+                            PlayerArtworkStylePreview(style: style)
+                        }
+                        .tag(style)
+                    }
+                } label: {
+                    Text("player_artwork_style_title")
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                .settingsAnchor("appearance.playerArtworkStyle")
+            } header: {
+                Text("player_artwork_style_title")
+            } footer: {
+                Text("player_artwork_style_footer")
+            }
+
+            Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
                 .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))
@@ -777,6 +801,13 @@ private struct PlayerAppearanceSettingsView: View {
         )
     }
 
+    private var artworkStyleBinding: Binding<NowPlayingArtworkStyle> {
+        Binding(
+            get: { PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) },
+            set: { artworkStyleRawValue = $0.rawValue }
+        )
+    }
+
     private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {
         Binding(
             get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
@@ -818,6 +849,51 @@ private struct PlayerAppearanceSettingsView: View {
             Int(round(green * 255)),
             Int(round(blue * 255))
         )
+    }
+}
+
+/// 「封面样式」两个选项旁边的小示意:一块手机屏,上面是封面,下面两行字和一条进度。
+private struct PlayerArtworkStylePreview: View {
+    let style: NowPlayingArtworkStyle
+
+    var body: some View {
+        let screen = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        VStack(spacing: 0) {
+            switch style {
+            case .card:
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.85))
+                    .frame(width: 26, height: 26)
+                    .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                    .padding(.top, 9)
+                    .padding(.bottom, 5)
+            case .fullBleed:
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.accentColor.opacity(0.85), location: 0),
+                        .init(color: Color.accentColor.opacity(0.85), location: 0.62),
+                        .init(color: Color.accentColor.opacity(0), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(width: 40, height: 38)
+                .padding(.bottom, 1)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Capsule().fill(Color.primary.opacity(0.55)).frame(width: 20, height: 3)
+                Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 14, height: 3)
+                Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 28, height: 2)
+                    .padding(.top, 2)
+            }
+            .frame(width: 28, alignment: .leading)
+            Spacer(minLength: 0)
+        }
+        .frame(width: 40, height: 64)
+        .background(Color.secondary.opacity(0.12))
+        .clipShape(screen)
+        .overlay { screen.strokeBorder(Color.secondary.opacity(0.35), lineWidth: 0.5) }
+        .accessibilityHidden(true)
     }
 }
 #endif

@@ -5913,6 +5913,10 @@
 "player_backdrop_strength_footer" = "Sağa doğru gittikçe arka plan kapağın renklerine yaklaşır. Açık modda çok koyu kapak renkleri metnin okunabilir kaldığı noktada durur. Bulanık kapak gibi bir arka plan görselinde, görseli koyulaştıran katmanın gücünü ayarlar.";
 "player_progress_style_title" = "İlerleme çubuğu";
 "player_progress_style_footer" = "Dalga yalnızca çalarken akar; duraklatınca veya sürüklerken düz bir çizgiye dönüşür. iPhone, iPad ve Mac'teki çalara uygulanır. Podcast'ler ve sesli kitaplar da buna uyar; yalnızca dikey sesli kitap düzeni sadece dalgaya geçer, diğer iki seçenekte kendi ince çizgisini korur.";
+"player_artwork_style_title" = "Kapak Stili";
+"player_artwork_style_card" = "Kart";
+"player_artwork_style_full_bleed" = "Kenardan Kenara";
+"player_artwork_style_footer" = "Kenardan Kenara, kapağı oynatıcının üst kısmında tüm genişliğe yayar, alt kenarını arka plana karıştırır ve şarkı sözlerine geçince küçük kapağa dönüştürür. Yalnızca dikey iPhone oynatıcısında geçerlidir; müzik videoları, radyo, podcast’ler ve sesli kitaplar kart olarak kalır.";
 "player_always_dark_title" = "Oynatıcı Hep Koyu";
 "player_always_dark_footer" = "Sistem açık renkteyken de oynatıcı Apple Music'teki gibi koyu görünür, sesli kitaplar dahil. Bu durumda oynatıcıda durum çubuğu gizlenir.";
 "player_progress_style_standard" = "Varsayılan";

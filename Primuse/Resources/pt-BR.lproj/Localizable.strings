@@ -5913,6 +5913,10 @@
 "player_backdrop_strength_footer" = "Quanto mais para a direita, mais o fundo se aproxima das cores da capa. No modo claro, cores muito escuras param onde o texto continua legível. Com uma imagem de fundo como Capa desfocada, isto ajusta a intensidade da camada que a escurece.";
 "player_progress_style_title" = "Barra de progresso";
 "player_progress_style_footer" = "A onda só se move durante a reprodução e vira uma linha reta ao pausar ou arrastar. Vale para o player no iPhone, iPad e Mac. Podcasts e audiolivros também seguem, só que o layout vertical de audiolivros muda apenas para a onda e, nas outras opções, mantém sua própria linha fina.";
+"player_artwork_style_title" = "Estilo da capa";
+"player_artwork_style_card" = "Cartão";
+"player_artwork_style_full_bleed" = "De ponta a ponta";
+"player_artwork_style_footer" = "De ponta a ponta preenche o topo do player com a capa, que se dissolve no fundo, e a reduz à capa pequena ao mudar para a letra. Vale para o player do iPhone na vertical; videoclipes, rádio, podcasts e audiolivros mantêm o cartão.";
 "player_always_dark_title" = "Player sempre escuro";
 "player_always_dark_footer" = "O player fica escuro mesmo com o sistema claro, como no Apple Music, inclusive com audiolivros. Nesse caso, a barra de status fica oculta no player.";
 "player_progress_style_standard" = "Padrão";

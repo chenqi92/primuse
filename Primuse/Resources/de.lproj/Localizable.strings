@@ -6007,6 +6007,10 @@
 "player_backdrop_strength_footer" = "Je weiter rechts, desto näher kommt der Hintergrund den Farben des Covers. Im hellen Modus stoppen sehr dunkle Coverfarben dort, wo Text noch gut lesbar ist. Bei einem Hintergrundbild wie „Unscharfes Cover“ steuert dies die Stärke der Abdunklung.";
 "player_progress_style_title" = "Fortschrittsbalken";
 "player_progress_style_footer" = "Die Welle bewegt sich nur bei der Wiedergabe und wird beim Pausieren oder Ziehen zur geraden Linie. Gilt für den Player auf iPhone, iPad und Mac. Podcasts und Hörbücher folgen ebenfalls, nur wechselt das Hörbuch-Layout im Hochformat lediglich zur Welle und behält sonst seine eigene dünne Linie.";
+"player_artwork_style_title" = "Cover-Stil";
+"player_artwork_style_card" = "Karte";
+"player_artwork_style_full_bleed" = "Randlos";
+"player_artwork_style_footer" = "Randlos füllt den oberen Teil des Players mit dem Cover, das nach unten in den Hintergrund ausblendet, und lässt es beim Wechsel zum Songtext zum kleinen Cover schrumpfen. Gilt für den iPhone-Player im Hochformat; Musikvideos, Radio, Podcasts und Hörbücher behalten die Karte.";
 "player_always_dark_title" = "Player immer dunkel";
 "player_always_dark_footer" = "Der Player bleibt auch bei hellem System dunkel, wie bei Apple Music, auch bei Hörbüchern. Die Statusleiste wird im Player dann ausgeblendet.";
 "player_progress_style_standard" = "Standard";

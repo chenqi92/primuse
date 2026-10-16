@@ -162,6 +162,13 @@ enum PlayerAppearancePreferences {
         NowPlayingProgressStyle(rawValue: rawValue) ?? .standard
     }
 
+    /// iPhone 竖屏播放页的大封面:卡片(圆角方图)或铺满(从屏幕顶端铺满整宽、下沿渐隐进背景)。
+    static let artworkStyleKey = "primuse.player.artworkStyle"
+
+    static func artworkStyle(rawValue: String) -> NowPlayingArtworkStyle {
+        NowPlayingArtworkStyle(rawValue: rawValue) ?? .card
+    }
+
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"
     static let defaultGradientLyricsEndColorHex = "AF52DE"
@@ -293,6 +300,20 @@ enum NowPlayingProgressStyle: String, CaseIterable, Sendable {
         case .standard: "player_progress_style_standard"
         case .wave: "player_progress_style_wave"
         case .dot: "player_progress_style_dot"
+        }
+    }
+}
+
+enum NowPlayingArtworkStyle: String, CaseIterable, Sendable {
+    /// 一直以来的圆角方图,带阴影,暂停时缩小一点。
+    case card
+    /// 从屏幕顶端铺满整宽,直角,下沿渐隐进播放页背景。
+    case fullBleed
+
+    var titleKey: String {
+        switch self {
+        case .card: "player_artwork_style_card"
+        case .fullBleed: "player_artwork_style_full_bleed"
         }
     }
 }
