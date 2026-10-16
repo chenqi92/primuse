@@ -776,8 +776,10 @@ struct LibraryView: View {
 
     private var quickAccessItems: some View {
         Group {
-            ForEach(hubPins) { pin in
-                pinnedItemCard(pin)
+            ForEach(hubPins) { @Sendable pin in
+                LazyItemCell {
+                    pinnedItemCard(pin)
+                }
             }
 
             Button {
@@ -811,18 +813,22 @@ struct LibraryView: View {
             if !visibleLibrarySections.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     LazyVStack(spacing: 10) {
-                        ForEach(browseRuns) { run in
-                            if run.isQuickAccess {
-                                quickAccessSection
-                                    .padding(.vertical, 8)
-                            } else {
-                                LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
-                                    ForEach(run.sections) { section in
-                                        NavigationLink(value: section) {
-                                            libraryCategoryRow(section)
+                        ForEach(browseRuns) { @Sendable run in
+                            LazyItemCell {
+                                if run.isQuickAccess {
+                                    quickAccessSection
+                                        .padding(.vertical, 8)
+                                } else {
+                                    LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
+                                        ForEach(run.sections) { @Sendable section in
+                                            LazyItemCell {
+                                                NavigationLink(value: section) {
+                                                    libraryCategoryRow(section)
+                                                }
+                                                .buttonStyle(.plain)
+                                                .padding(.horizontal, 16)
+                                            }
                                         }
-                                        .buttonStyle(.plain)
-                                        .padding(.horizontal, 16)
                                     }
                                 }
                             }

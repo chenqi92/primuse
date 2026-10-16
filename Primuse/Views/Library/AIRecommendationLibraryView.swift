@@ -650,14 +650,17 @@ struct AIRecommendationLibraryView: View {
             alignment: .leading,
             spacing: 14
         ) {
-            ForEach(displayedResults) { result in
-                Button {
-                    play(result.song)
-                } label: {
-                    recommendationCard(result)
+            // 网格嵌在页面的 LazyVStack 里，异步渲染帧会在别的线程上现建格子，见 `LazyItemCell`。
+            ForEach(displayedResults) { @Sendable result in
+                LazyItemCell {
+                    Button {
+                        play(result.song)
+                    } label: {
+                        recommendationCard(result)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
             }
         }
         .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
@@ -785,45 +788,47 @@ struct AIRecommendationLibraryView: View {
                 alignment: .leading,
                 spacing: 14
             ) {
-                ForEach(0..<6, id: \.self) { index in
-                    HStack(spacing: 13) {
-                        recommendationSkeletonBlock(
-                            width: platformArtworkSize,
-                            height: platformArtworkSize,
-                            cornerRadius: 12
-                        )
+                ForEach(0..<6, id: \.self) { @Sendable index in
+                    LazyItemCell {
+                        HStack(spacing: 13) {
+                            recommendationSkeletonBlock(
+                                width: platformArtworkSize,
+                                height: platformArtworkSize,
+                                cornerRadius: 12
+                            )
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            recommendationSkeletonBlock(
-                                width: 78 + CGFloat((index % 3) * 12),
-                                height: 10
-                            )
-                            recommendationSkeletonBlock(
-                                height: 18
-                            )
-                                .frame(
-                                    maxWidth: 156 + CGFloat((index % 2) * 28),
-                                    alignment: .leading
+                            VStack(alignment: .leading, spacing: 8) {
+                                recommendationSkeletonBlock(
+                                    width: 78 + CGFloat((index % 3) * 12),
+                                    height: 10
                                 )
-                            recommendationSkeletonBlock(width: 112, height: 13)
-                            Spacer(minLength: 0)
-                            recommendationSkeletonBlock(width: 64, height: 11)
+                                recommendationSkeletonBlock(
+                                    height: 18
+                                )
+                                    .frame(
+                                        maxWidth: 156 + CGFloat((index % 2) * 28),
+                                        alignment: .leading
+                                    )
+                                recommendationSkeletonBlock(width: 112, height: 13)
+                                Spacer(minLength: 0)
+                                recommendationSkeletonBlock(width: 64, height: 11)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(12)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: platformArtworkSize + 24,
-                        alignment: .leading
-                    )
-                    .background(
-                        platformCardBackground,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(platformDividerColor, lineWidth: 0.5)
+                        .padding(12)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: platformArtworkSize + 24,
+                            alignment: .leading
+                        )
+                        .background(
+                            platformCardBackground,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(platformDividerColor, lineWidth: 0.5)
+                        }
                     }
                 }
             }

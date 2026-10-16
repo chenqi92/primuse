@@ -97,8 +97,10 @@ struct ReleaseDateLibraryView: View {
                     ForEach(layout.decades) { decade in
                         Section {
                             if findQuery != nil || !collapsedDecades.contains(decade.id) {
-                                ForEach(decade.years) { year in
-                                    yearBlock(year, showsHeader: decade.era != .unknown)
+                                ForEach(decade.years) { @Sendable year in
+                                    LazyItemCell {
+                                        yearBlock(year, showsHeader: decade.era != .unknown)
+                                    }
                                 }
                             }
                         } header: {
@@ -172,8 +174,10 @@ struct ReleaseDateLibraryView: View {
                 .accessibilityAddTraits(.isHeader)
             }
             LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
-                ForEach(year.albums) { album in
-                    albumCell(album)
+                ForEach(year.albums) { @Sendable album in
+                    LazyItemCell {
+                        albumCell(album)
+                    }
                 }
             }
         }

@@ -109,15 +109,19 @@ struct QueueView: View {
                     }
                     if !upcoming.queued.isEmpty {
                         queueSection(title: "up_next") {
-                            ForEach(upcoming.queued) { presentation in
-                                upcomingRow(presentation, currentEntry: currentEntry)
+                            ForEach(upcoming.queued) { @Sendable presentation in
+                                LazyItemCell {
+                                    upcomingRow(presentation, currentEntry: currentEntry)
+                                }
                             }
                         }
                     }
                     if !upcoming.autoplay.isEmpty {
                         queueSection(title: "queue_autoplay_section") {
-                            ForEach(upcoming.autoplay) { presentation in
-                                upcomingRow(presentation, currentEntry: currentEntry)
+                            ForEach(upcoming.autoplay) { @Sendable presentation in
+                                LazyItemCell {
+                                    upcomingRow(presentation, currentEntry: currentEntry)
+                                }
                             }
                         }
                     }
@@ -125,8 +129,10 @@ struct QueueView: View {
                     let played = player.playedQueueEntries
                     if !played.isEmpty {
                         queueSection(title: "played") {
-                            ForEach(played) { presentation in
-                                queueRow(entry: presentation.entry, dimmed: true)
+                            ForEach(played) { @Sendable presentation in
+                                LazyItemCell {
+                                    queueRow(entry: presentation.entry, dimmed: true)
+                                }
                             }
                         }
                     }

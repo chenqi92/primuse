@@ -724,13 +724,15 @@ struct SpokenWordShelfContent: View {
     private func bookCollection(_ entries: [SpokenWordLibrarySnapshot.Entry]) -> some View {
         if layout.isGrid {
             LazyVGrid(columns: gridColumns, spacing: gridRowSpacing) {
-                ForEach(entries) { entry in reorderableBookCell(entry, entries: entries) }
+                ForEach(entries) { @Sendable entry in LazyItemCell { reorderableBookCell(entry, entries: entries) } }
             }
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(entries) { entry in
-                    reorderableBookCell(entry, entries: entries)
-                        .overlay(alignment: .bottom) { Divider().padding(.leading, 66) }
+                ForEach(entries) { @Sendable entry in
+                    LazyItemCell {
+                        reorderableBookCell(entry, entries: entries)
+                            .overlay(alignment: .bottom) { Divider().padding(.leading, 66) }
+                    }
                 }
             }
         }

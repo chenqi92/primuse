@@ -236,9 +236,11 @@ struct TVPodcastsView: View {
                     .foregroundStyle(TVColor.text)
                     .padding(.horizontal, 14)
                 LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
-                    ForEach(shows) { book in
-                        TVSpokenWordBookCard(book: book, width: cell) {
-                            presented = .localShow(book)
+                    ForEach(shows) { @Sendable book in
+                        LazyItemCell {
+                            TVSpokenWordBookCard(book: book, width: cell) {
+                                presented = .localShow(book)
+                            }
                         }
                     }
                 }
@@ -259,11 +261,13 @@ struct TVPodcastsView: View {
                 .foregroundStyle(TVColor.text)
                 .padding(.horizontal, 14)
             LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
-                ForEach(shows) { show in
-                    TVPodcastShowCard(show: show, width: cell) {
-                        presented = .show(.show(show.id))
+                ForEach(shows) { @Sendable show in
+                    LazyItemCell {
+                        TVPodcastShowCard(show: show, width: cell) {
+                            presented = .show(.show(show.id))
+                        }
+                        .contextMenu { showMenu(show) }
                     }
-                    .contextMenu { showMenu(show) }
                 }
             }
             .padding(.horizontal, 14)

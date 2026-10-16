@@ -315,8 +315,10 @@ struct OnboardingView: View {
                 .padding(.bottom, 26)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                ForEach(macProtocolGroups) { group in
-                    macProtocolCard(group)
+                ForEach(macProtocolGroups) { @Sendable group in
+                    LazyItemCell {
+                        macProtocolCard(group)
+                    }
                 }
             }
 
@@ -392,15 +394,17 @@ struct OnboardingView: View {
                     .textCase(.uppercase)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 86), spacing: 6)], alignment: .leading, spacing: 6) {
-                    ForEach(group.items, id: \.self) { item in
-                        Text(item)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.white.opacity(0.86))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .frame(height: 23)
-                            .background(Color.white.opacity(0.08), in: .capsule)
+                    ForEach(group.items, id: \.self) { @Sendable item in
+                        LazyItemCell {
+                            Text(item)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.white.opacity(0.86))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .frame(height: 23)
+                                .background(Color.white.opacity(0.08), in: .capsule)
+                        }
                     }
                 }
             }

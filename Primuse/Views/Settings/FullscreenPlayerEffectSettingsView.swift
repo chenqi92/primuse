@@ -34,17 +34,21 @@ struct FullscreenPlayerEffectSettingsView: View {
                 frameRateCard
                 landscapeFullscreenCard
 
-                ForEach(FullscreenEffectCollection.allCases) { collection in
-                    if !collection.effects.isEmpty {
-                        VStack(alignment: .leading, spacing: 11) {
-                            Text(collection.title)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 4)
+                ForEach(FullscreenEffectCollection.allCases) { @Sendable collection in
+                    LazyItemCell {
+                        if !collection.effects.isEmpty {
+                            VStack(alignment: .leading, spacing: 11) {
+                                Text(collection.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 4)
 
-                            LazyVGrid(columns: previewColumns, alignment: .leading, spacing: 12) {
-                                ForEach(collection.effects) { effect in
-                                    effectCard(effect)
+                                LazyVGrid(columns: previewColumns, alignment: .leading, spacing: 12) {
+                                    ForEach(collection.effects) { @Sendable effect in
+                                        LazyItemCell {
+                                            effectCard(effect)
+                                        }
+                                    }
                                 }
                             }
                         }

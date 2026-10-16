@@ -813,16 +813,18 @@ struct PodcastShowsGrid: View {
             }
             .pmClearOfVerticalBar()
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                ForEach(sort.sorted(findQuery.map { Self.shows(matching: $0, in: store.shows) } ?? store.shows)) { show in
-                    Button {
-                        navigation.open(showID: show.id)
-                    } label: {
-                        PodcastShowTile(show: show, newCount: store.newEpisodeCount(showID: show.id),
-                                        hasError: store.refreshFailures[show.id] != nil)
+                ForEach(sort.sorted(findQuery.map { Self.shows(matching: $0, in: store.shows) } ?? store.shows)) { @Sendable show in
+                    LazyItemCell {
+                        Button {
+                            navigation.open(showID: show.id)
+                        } label: {
+                            PodcastShowTile(show: show, newCount: store.newEpisodeCount(showID: show.id),
+                                            hasError: store.refreshFailures[show.id] != nil)
+                        }
+                        .buttonStyle(.pmPressable)
+                        .contextMenu { PodcastShowMenu(show: show) }
+                        .accessibilityIdentifier("podcast.show." + show.id)
                     }
-                    .buttonStyle(.pmPressable)
-                    .contextMenu { PodcastShowMenu(show: show) }
-                    .accessibilityIdentifier("podcast.show." + show.id)
                 }
             }
         }
@@ -876,14 +878,16 @@ struct PodcastLocalShowsSection: View {
                             .padding(.horizontal, 16)
                             .pmClearOfVerticalBar()
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-                            ForEach(shows) { entry in
-                                Button {
-                                    navigation.pushedLocalShowID = entry.id
-                                } label: {
-                                    PodcastLocalShowTile(entry: entry)
+                            ForEach(shows) { @Sendable entry in
+                                LazyItemCell {
+                                    Button {
+                                        navigation.pushedLocalShowID = entry.id
+                                    } label: {
+                                        PodcastLocalShowTile(entry: entry)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("podcast.localShow")
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("podcast.localShow")
                             }
                         }
                         .padding(.horizontal, 16)

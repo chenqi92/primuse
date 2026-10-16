@@ -2218,8 +2218,10 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 12) {
                 macBlockHeader("tab_albums", seeAll: albums.count > shown.count ? .albums : nil)
                 LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 22) {
-                    ForEach(shown) { album in
-                        macAlbumCard(album)
+                    ForEach(shown) { @Sendable album in
+                        LazyItemCell {
+                            macAlbumCard(album)
+                        }
                     }
                 }
             }
@@ -2239,8 +2241,10 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 12) {
                 macBlockHeader("tab_artists", seeAll: candidates.count > shown.count ? .artists : nil)
                 LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 14) {
-                    ForEach(shown) { artist in
-                        macArtistCard(artist)
+                    ForEach(shown) { @Sendable artist in
+                        LazyItemCell {
+                            macArtistCard(artist)
+                        }
                     }
                 }
             }
@@ -2271,8 +2275,10 @@ struct SearchView: View {
                 .frame(maxWidth: 680, alignment: .leading)
             } else {
                 LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 22) {
-                    ForEach(shown, id: \.id) { song in
-                        macAppleMusicCard(song)
+                    ForEach(shown, id: \.id) { @Sendable song in
+                        LazyItemCell {
+                            macAppleMusicCard(song)
+                        }
                     }
                 }
             }

@@ -405,7 +405,7 @@ struct CarPlayEditorCanvas: View {
             } else {
                 let count = min(block.configuration.columns, 6)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: count), spacing: 7) {
-                    ForEach(block.items) { item in itemView(item, block: block) }
+                    ForEach(block.items) { @Sendable item in LazyItemCell { itemView(item, block: block) } }
                 }
             }
         }

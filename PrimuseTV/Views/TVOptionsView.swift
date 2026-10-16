@@ -520,8 +520,10 @@ struct TVFullscreenEffectPicker: View {
                                             .foregroundStyle(.white.opacity(0.66))
 
                                         LazyVGrid(columns: columns, spacing: 18) {
-                                            ForEach(collection.effects) { candidate in
-                                                effectChoice(candidate)
+                                            ForEach(collection.effects) { @Sendable candidate in
+                                                LazyItemCell {
+                                                    effectChoice(candidate)
+                                                }
                                             }
                                         }
                                     }

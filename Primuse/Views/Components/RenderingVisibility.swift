@@ -97,3 +97,27 @@ private struct MacRenderingVisibilityObserver: NSViewRepresentable {
     }
 }
 #endif
+
+/// One cell of a `ForEach` that a lazy stack lays out, written as
+/// `ForEach(items) { @Sendable item in LazyItemCell { … } }`.
+///
+/// While the main thread is busy, SwiftUI draws animation frames on its async
+/// renderer thread (`com.apple.SwiftUI.AsyncRenderer`). When such a frame lays
+/// out a grid nested in a `LazyVStack`, the stack calls the `ForEach` content
+/// closure right there to build the cells that came into view. A closure
+/// written in a view inherits main-actor isolation, and Swift 6 opens it with a
+/// runtime isolation check, so that call traps (`_dispatch_assert_queue_fail`;
+/// recommendations page in 1.11.3 (102), release-date page in 98).
+///
+/// With a nonisolated `ForEach` closure that only stores the builder, nothing
+/// of ours runs on that thread: the cell is built when SwiftUI evaluates this
+/// view's body, which it always does on the main thread.
+struct LazyItemCell<Content: View>: View {
+    private let make: @MainActor () -> Content
+
+    nonisolated init(@ViewBuilder _ make: @escaping @MainActor () -> Content) {
+        self.make = make
+    }
+
+    var body: some View { make() }
+}
