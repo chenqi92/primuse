@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "أضف محطات راديو الإنترنت عبر رابط البث، أو استورد قائمة تشغيل تضم عدة محطات دفعة واحدة. ستظهر هنا وفي الراديو.";
 "search_space_picker" = "البحث في";
 "search_radio_now_playing_format" = "يُذاع الآن: %@";
-"search_spoken_word_matched_item_format" = "يطابق «%@»";
 "tv_spoken_word_listening" = "قيد الاستماع";
 "tv_spoken_word_bookshelf" = "رف الكتب";
 "tv_spoken_word_chapters" = "الفصول";

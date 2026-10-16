@@ -4957,7 +4957,6 @@
 "radio_add_card_message" = "用直播串流位址加入網路電台，或匯入播放列表一次加入多個。加入後會出現在這裡和「電台」中。";
 "search_space_picker" = "搜尋範圍";
 "search_radio_now_playing_format" = "正在播：%@";
-"search_spoken_word_matched_item_format" = "符合：「%@」";
 "tv_spoken_word_listening" = "在聽";
 "tv_spoken_word_bookshelf" = "書架";
 "tv_spoken_word_chapters" = "章節";

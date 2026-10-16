@@ -5073,7 +5073,6 @@
 "radio_add_card_message" = "用直播流地址添加网络电台，或导入播放列表一次添加多个。添加后会出现在这里和「电台」中。";
 "search_space_picker" = "搜索范围";
 "search_radio_now_playing_format" = "正在播：%@";
-"search_spoken_word_matched_item_format" = "命中：“%@”";
 "tv_spoken_word_listening" = "在听";
 "tv_spoken_word_bookshelf" = "书架";
 "tv_spoken_word_chapters" = "章节";

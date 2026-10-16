@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "Добавляйте интернет-радиостанции по адресу потока или импортируйте сразу несколько из плейлиста. Они появятся здесь и в разделе «Радио».";
 "search_space_picker" = "Искать в";
 "search_radio_now_playing_format" = "Сейчас в эфире: %@";
-"search_spoken_word_matched_item_format" = "Совпадение: «%@»";
 "tv_spoken_word_listening" = "Сейчас слушаю";
 "tv_spoken_word_bookshelf" = "Книжная полка";
 "tv_spoken_word_chapters" = "Главы";

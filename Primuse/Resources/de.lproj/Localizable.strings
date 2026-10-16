@@ -4980,7 +4980,6 @@
 "radio_add_card_message" = "Füge Internetradiosender per Stream-URL hinzu oder importiere eine Playlist mit vielen auf einmal. Sie erscheinen hier und unter Radio.";
 "search_space_picker" = "Suchen in";
 "search_radio_now_playing_format" = "Läuft gerade: %@";
-"search_spoken_word_matched_item_format" = "Treffer: „%@“";
 "tv_spoken_word_listening" = "Wird gehört";
 "tv_spoken_word_bookshelf" = "Bücherregal";
 "tv_spoken_word_chapters" = "Kapitel";

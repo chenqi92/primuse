@@ -4981,7 +4981,6 @@
 "radio_add_card_message" = "ストリームURLでインターネットラジオ局を追加するか、プレイリストからまとめて読み込めます。追加した局はここと「ラジオ」に表示されます。";
 "search_space_picker" = "検索対象";
 "search_radio_now_playing_format" = "放送中：%@";
-"search_spoken_word_matched_item_format" = "一致：「%@」";
 "tv_spoken_word_listening" = "聴いている途中";
 "tv_spoken_word_bookshelf" = "本棚";
 "tv_spoken_word_chapters" = "チャプター";

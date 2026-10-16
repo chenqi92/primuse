@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "Dodawaj stacje radia internetowego przez adres strumienia albo zaimportuj wiele naraz z playlisty. Pojawią się tutaj i w sekcji Radio.";
 "search_space_picker" = "Szukaj w";
 "search_radio_now_playing_format" = "Teraz gra: %@";
-"search_spoken_word_matched_item_format" = "Pasuje: „%@”";
 "tv_spoken_word_listening" = "Słuchane teraz";
 "tv_spoken_word_bookshelf" = "Półka";
 "tv_spoken_word_chapters" = "Rozdziały";

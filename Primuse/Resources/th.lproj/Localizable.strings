@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "เพิ่มสถานีวิทยุออนไลน์ด้วย URL สตรีม หรือนำเข้าเพลย์ลิสต์เพื่อเพิ่มหลายสถานีในครั้งเดียว สถานีจะแสดงที่นี่และในวิทยุ";
 "search_space_picker" = "ค้นหาใน";
 "search_radio_now_playing_format" = "กำลังเล่น: %@";
-"search_spoken_word_matched_item_format" = "ตรงกับ “%@”";
 "tv_spoken_word_listening" = "กำลังฟัง";
 "tv_spoken_word_bookshelf" = "ชั้นหนังสือ";
 "tv_spoken_word_chapters" = "บท";

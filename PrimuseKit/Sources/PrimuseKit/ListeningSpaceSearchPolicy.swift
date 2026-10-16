@@ -175,13 +175,17 @@ public enum ListeningSpaceSearchPolicy {
     public struct BookMatch: Hashable, Sendable {
         public var bookID: String
         public var field: BookMatchField
-        /// The first item, in reading order, whose own title or file name
-        /// matched. Set for `.item` matches only.
+        /// The item whose own title or file name matched. Set for `.item`
+        /// matches only: a book that matches on several items gives one
+        /// match per item, in reading order, the way songs are listed.
         public var matchedItemID: String?
     }
 
     /// Books matching the query, best first; ties keep the given order (the
-    /// shelf order from `SpokenWordBookGrouping.books(from:)`).
+    /// shelf order from `SpokenWordBookGrouping.books(from:)`). A book found
+    /// by its title or author is one match; one found only through its items
+    /// gives a match per item, so every chapter that mentions the query is
+    /// listed rather than the first.
     public static func matchBooks(
         query: String,
         in books: [SpokenWordBook]
@@ -190,17 +194,17 @@ public enum ListeningSpaceSearchPolicy {
         guard !normalizedQuery.isEmpty else { return [] }
         let words = tokens(normalizedQuery)
 
-        var ranked: [(rank: Int, offset: Int, match: BookMatch)] = []
+        var ranked: [(rank: Int, offset: Int, matches: [BookMatch])] = []
         for (offset, book) in books.enumerated() {
-            guard let (rank, match) = bookRank(book, query: normalizedQuery, words: words) else {
+            guard let (rank, matches) = bookRank(book, query: normalizedQuery, words: words) else {
                 continue
             }
-            ranked.append((rank, offset, match))
+            ranked.append((rank, offset, matches))
         }
         ranked.sort { lhs, rhs in
             lhs.rank != rhs.rank ? lhs.rank < rhs.rank : lhs.offset < rhs.offset
         }
-        return ranked.map(\.match)
+        return ranked.flatMap(\.matches)
     }
 
     private static func authors(of book: SpokenWordBook) -> [String] {
@@ -223,23 +227,27 @@ public enum ListeningSpaceSearchPolicy {
         _ book: SpokenWordBook,
         query: String,
         words: [String]
-    ) -> (Int, BookMatch)? {
+    ) -> (Int, [BookMatch])? {
+        // A title or author match lists the book once, not its chapters as
+        // well: chapter titles often repeat the book's name, and a 200-part
+        // series would otherwise fill the results.
         if let rank = fieldRank(book.title, query: query) {
-            return (rank, BookMatch(bookID: book.id, field: .title, matchedItemID: nil))
+            return (rank, [BookMatch(bookID: book.id, field: .title, matchedItemID: nil)])
         }
         let authorNames = authors(of: book)
         if authorNames.contains(where: { fieldRank($0, query: query) != nil }) {
-            return (3, BookMatch(bookID: book.id, field: .author, matchedItemID: nil))
+            return (3, [BookMatch(bookID: book.id, field: .author, matchedItemID: nil)])
         }
-        if let item = book.items.first(where: {
+        let itemMatches = book.items.filter {
             fieldRank($0.title, query: query) != nil || fieldRank(itemFileName($0), query: query) != nil
-        }) {
-            return (4, BookMatch(bookID: book.id, field: .item, matchedItemID: item.id))
+        }.map { BookMatch(bookID: book.id, field: .item, matchedItemID: $0.id) }
+        if !itemMatches.isEmpty {
+            return (4, itemMatches)
         }
         if words.count > 1 {
             let haystack = normalized(([book.title] + authorNames).joined(separator: " "))
             if words.allSatisfy(haystack.contains) {
-                return (5, BookMatch(bookID: book.id, field: .words, matchedItemID: nil))
+                return (5, [BookMatch(bookID: book.id, field: .words, matchedItemID: nil)])
             }
         }
         return nil

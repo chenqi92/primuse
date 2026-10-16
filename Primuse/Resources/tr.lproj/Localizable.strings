@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "İnternet radyo istasyonlarını yayın URL’siyle ekle ya da bir çalma listesinden tek seferde birçoğunu içe aktar. Burada ve Radyo’da görünürler.";
 "search_space_picker" = "Şurada Ara";
 "search_radio_now_playing_format" = "Şu an çalıyor: %@";
-"search_spoken_word_matched_item_format" = "Eşleşen: “%@”";
 "tv_spoken_word_listening" = "Dinleniyor";
 "tv_spoken_word_bookshelf" = "Kitaplık";
 "tv_spoken_word_chapters" = "Bölümler";

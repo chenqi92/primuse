@@ -4743,7 +4743,6 @@
 "radio_add_card_message" = "Add internet radio stations by stream URL, or import a playlist of many at once. They appear here and in Radio.";
 "search_space_picker" = "Search In";
 "search_radio_now_playing_format" = "Now playing: %@";
-"search_spoken_word_matched_item_format" = "Matches “%@”";
 "tv_spoken_word_listening" = "Listening Now";
 "tv_spoken_word_bookshelf" = "Bookshelf";
 "tv_spoken_word_chapters" = "Chapters";

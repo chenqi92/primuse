@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "स्ट्रीम URL से इंटरनेट रेडियो स्टेशन जोड़ें, या एक साथ कई स्टेशनों वाली प्लेलिस्ट आयात करें। वे यहाँ और रेडियो में दिखेंगे।";
 "search_space_picker" = "इसमें खोजें";
 "search_radio_now_playing_format" = "अभी चल रहा है: %@";
-"search_spoken_word_matched_item_format" = "मेल: “%@”";
 "tv_spoken_word_listening" = "अभी सुन रहे हैं";
 "tv_spoken_word_bookshelf" = "किताबों की अलमारी";
 "tv_spoken_word_chapters" = "अध्याय";

@@ -4980,7 +4980,6 @@
 "radio_add_card_message" = "Ajoutez des radios Internet par URL de flux, ou importez-en plusieurs d’un coup depuis une playlist. Elles apparaissent ici et dans Radio.";
 "search_space_picker" = "Rechercher dans";
 "search_radio_now_playing_format" = "En cours : %@";
-"search_spoken_word_matched_item_format" = "Correspond à « %@ »";
 "tv_spoken_word_listening" = "En cours d’écoute";
 "tv_spoken_word_bookshelf" = "Bibliothèque";
 "tv_spoken_word_chapters" = "Chapitres";

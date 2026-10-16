@@ -4886,7 +4886,6 @@
 "radio_add_card_message" = "Agrega estaciones de radio por internet con la URL de transmisión o importa una playlist con muchas a la vez. Aparecerán aquí y en Radio.";
 "search_space_picker" = "Buscar en";
 "search_radio_now_playing_format" = "Sonando ahora: %@";
-"search_spoken_word_matched_item_format" = "Coincide con “%@”";
 "tv_spoken_word_listening" = "Escuchando";
 "tv_spoken_word_bookshelf" = "Librero";
 "tv_spoken_word_chapters" = "Capítulos";

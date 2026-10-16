@@ -4980,7 +4980,6 @@
 "radio_add_card_message" = "스트림 URL로 인터넷 라디오 방송국을 추가하거나 재생목록으로 여러 개를 한 번에 가져오세요. 여기와 라디오에 표시됩니다.";
 "search_space_picker" = "검색 대상";
 "search_radio_now_playing_format" = "지금 재생 중: %@";
-"search_spoken_word_matched_item_format" = "일치: “%@”";
 "tv_spoken_word_listening" = "듣는 중";
 "tv_spoken_word_bookshelf" = "책장";
 "tv_spoken_word_chapters" = "챕터";

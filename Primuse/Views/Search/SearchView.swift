@@ -468,15 +468,16 @@ private struct RadioSearchHit: Identifiable {
     var id: String { station.id }
 }
 
-/// 有声里一个命中的书。按书列出, 一套两百集的评书只占一行。
+/// 有声里的一个命中。书名、作者命中时按书列出, 一套两百集的评书只占一行;
+/// 只有章节标题或文件名命中时, 每个命中的章节各占一行, 和音乐里搜到的歌一样。
 private struct BookSearchHit: Identifiable, Sendable {
     let book: SpokenWordBook
     /// 书里的条目, 按章节顺序。
     let songs: [PrimuseKit.Song]
-    /// 命中的是某一章的标题或文件名时, 那一章。行里显示它的标题, 点下去从它开始播。
-    let matchedItemID: String?
-    let matchedItemTitle: String?
-    var id: String { book.id }
+    /// 命中的是某一章的标题或文件名时, 那一章。行里以它为标题, 点下去从它开始播。
+    let matchedItem: SpokenWordBookItem?
+    var matchedItemID: String? { matchedItem?.id }
+    var id: String { matchedItem.map { "\(book.id)\u{1F}\($0.id)" } ?? book.id }
 }
 
 /// 收听空间的颜色取共用的 `ListeningSpace.tint`,和标签页、播放条一致。
@@ -922,17 +923,30 @@ struct SearchView: View {
                     )
                 }
                 try Task.checkCancellation()
-                let hits = ListeningSpaceSearchPolicy.matchBooks(query: query, in: grouped.books).compactMap { match -> BookSearchHit? in
-                    guard let book = grouped.bookByID[match.bookID] else { return nil }
-                    let matchedItem = match.matchedItemID.flatMap { id in
-                        book.items.first { $0.id == id }
+                // 一本书命中好几章时各行共用同一份条目, 不按章重建整本书。
+                var songsByBook: [String: [PrimuseKit.Song]] = [:]
+                var itemsByBook: [String: [String: SpokenWordBookItem]] = [:]
+                var hits: [BookSearchHit] = []
+                for match in ListeningSpaceSearchPolicy.matchBooks(query: query, in: grouped.books) {
+                    guard let book = grouped.bookByID[match.bookID] else { continue }
+                    let songs: [PrimuseKit.Song]
+                    if let shared = songsByBook[book.id] {
+                        songs = shared
+                    } else {
+                        songs = book.items.compactMap { grouped.songsByID[$0.id] }
+                        songsByBook[book.id] = songs
                     }
-                    return BookSearchHit(
-                        book: book,
-                        songs: book.items.compactMap { grouped.songsByID[$0.id] },
-                        matchedItemID: matchedItem?.id,
-                        matchedItemTitle: matchedItem?.title
-                    )
+                    var matchedItem: SpokenWordBookItem?
+                    if let itemID = match.matchedItemID {
+                        if itemsByBook[book.id] == nil {
+                            itemsByBook[book.id] = Dictionary(
+                                book.items.map { ($0.id, $0) },
+                                uniquingKeysWith: { first, _ in first }
+                            )
+                        }
+                        matchedItem = itemsByBook[book.id]?[itemID]
+                    }
+                    hits.append(BookSearchHit(book: book, songs: songs, matchedItem: matchedItem))
                 }
                 return (grouped, hits)
             }
@@ -1042,21 +1056,40 @@ struct SearchView: View {
 
     private func bookResultRow(_ hit: BookSearchHit, compact: Bool) -> some View {
         let book = hit.book
-        let isCurrent = hit.songs.contains { $0.id == player.currentSong?.id }
+        let chapter = hit.matchedItem
+        let isCurrent = chapter.map { $0.id == player.currentSong?.id }
+            ?? hit.songs.contains { $0.id == player.currentSong?.id }
         let tint = SearchSpaceTint.spokenWord(colorScheme)
+        let title = chapter?.title ?? book.title
         var subtitleParts: [String] = []
-        let subtitle = SpokenWordBookSupport.subtitle(book)
-        if !subtitle.isEmpty { subtitleParts.append(subtitle) }
-        if book.isInProgress, let remaining = book.remainingDuration {
-            subtitleParts.append(String(
-                format: String(localized: "spoken_word_remaining_format"),
-                ChapterTimeFormatter.string(from: remaining)
-            ))
+        if let chapter {
+            // 一章一行: 标题写这一章, 下面写它在哪本书里、这一章还剩多久。
+            if book.title != title { subtitleParts.append(book.title) }
+            if let author = book.author { subtitleParts.append(author) }
+            if chapter.isInProgress, let position = chapter.position, chapter.duration > position {
+                subtitleParts.append(String(
+                    format: String(localized: "spoken_word_remaining_format"),
+                    ChapterTimeFormatter.string(from: chapter.duration - position)
+                ))
+            }
+        } else {
+            let subtitle = SpokenWordBookSupport.subtitle(book)
+            if !subtitle.isEmpty { subtitleParts.append(subtitle) }
+            if book.isInProgress, let remaining = book.remainingDuration {
+                subtitleParts.append(String(
+                    format: String(localized: "spoken_word_remaining_format"),
+                    ChapterTimeFormatter.string(from: remaining)
+                ))
+            }
         }
+        let isInProgress = chapter?.isInProgress ?? book.isInProgress
+        let fractionComplete = chapter?.fractionComplete ?? book.fractionComplete
+        let isFinished = chapter?.isFinished ?? book.isFinished
+        let artworkSong = chapter.flatMap { item in hit.songs.first { $0.id == item.id } } ?? hit.songs.first
         let artworkSize: CGFloat = compact ? 32 : 44
         return HStack(spacing: 12) {
             Group {
-                if let song = hit.songs.first {
+                if let song = artworkSong {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
                         songID: song.id,
@@ -1073,7 +1106,7 @@ struct SearchView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: book.title)
+                Text(verbatim: title)
                     .font(compact ? .system(size: 12.5, weight: .medium) : .subheadline)
                     .foregroundStyle(isCurrent ? tint : Color.primary)
                     .lineLimit(1)
@@ -1083,17 +1116,8 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if let itemTitle = hit.matchedItemTitle, itemTitle != book.title {
-                    Text(verbatim: String(
-                        format: String(localized: "search_spoken_word_matched_item_format"),
-                        itemTitle
-                    ))
-                    .font(compact ? .system(size: 10.5) : .caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                }
-                if book.isInProgress {
-                    ProgressView(value: book.fractionComplete)
+                if isInProgress {
+                    ProgressView(value: fractionComplete)
                         .progressViewStyle(.linear)
                         .tint(tint)
                         .frame(maxWidth: 180)
@@ -1101,7 +1125,7 @@ struct SearchView: View {
                 }
             }
             Spacer(minLength: 0)
-            if book.isFinished {
+            if isFinished {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(Text("spoken_word_finished"))

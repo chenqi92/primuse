@@ -122,6 +122,24 @@ struct ListeningSpaceSearchPolicyTests {
         #expect(matches.first?.matchedItemID == "t2")
     }
 
+    @Test func bookListsEveryMatchingItemInReadingOrder() {
+        let matches = Policy.matchBooks(query: "act", in: shelf)
+        #expect(matches.map(\.field) == [.item, .item])
+        #expect(matches.map(\.matchedItemID) == ["r1", "r2"])
+        #expect(Set(matches.map(\.bookID)).count == 1)
+    }
+
+    @Test func bookTitleMatchIsNotRepeatedPerItem() {
+        let books = SpokenWordBookGrouping.books(from: book("Philosophy Notes", author: "A", items: [
+            ("p1", "Philosophy Notes 1", "/p/1.mp3"),
+            ("p2", "Philosophy Notes 2", "/p/2.mp3"),
+        ]))
+        let matches = Policy.matchBooks(query: "philosophy", in: books)
+        #expect(matches.count == 1)
+        #expect(matches.first?.field == .title)
+        #expect(matches.first?.matchedItemID == nil)
+    }
+
     @Test func bookFileNameIgnoresFolderAndExtension() {
         #expect(Policy.matchBooks(query: "books", in: shelf).isEmpty)
         #expect(Policy.matchBooks(query: "mp3", in: shelf).isEmpty)
