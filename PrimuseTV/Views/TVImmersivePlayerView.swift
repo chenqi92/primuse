@@ -956,19 +956,30 @@ struct TVImmersivePlayerView: View {
 
     @MainActor
     private func observeLyricPlayback() async {
-        activeLyricIndex = nil
-        lyricInterlude = false
         guard hasSynchronizedLyrics else { return }
 
         while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            updateLyricPlaybackPosition()
+        }
+    }
+
+    private func updateLyricPlaybackPosition(disablesAnimations: Bool = false) {
+        var index: Int?
+        var isInterlude = false
+        if hasSynchronizedLyrics {
             let playbackTime = lyricPlaybackTime
-            let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            index = LyricPlaybackPositionPolicy.activeLineIndex(
                 in: store.lyrics,
                 at: playbackTime,
                 lookahead: 0.25,
                 timestamp: \.time
             )
-            let isInterlude: Bool
             if lyricsMotionEnabled,
                let index,
                store.lyrics.indices.contains(index) {
@@ -977,18 +988,19 @@ struct TVImmersivePlayerView: View {
                     LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0.lyricSyllable)
                 } ?? (line.time + 3.5)
                 isInterlude = playbackTime - estimatedEnd > 6
-            } else {
-                isInterlude = false
             }
+        }
 
+        let update = {
             if activeLyricIndex != index { activeLyricIndex = index }
             if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
-
-            do {
-                try await Task.sleep(for: .milliseconds(100))
-            } catch {
-                return
-            }
+        }
+        if disablesAnimations {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction, update)
+        } else {
+            update()
         }
     }
 
@@ -996,6 +1008,9 @@ struct TVImmersivePlayerView: View {
         lyricObservationTask?.cancel()
         lyricObservationTask = nil
         guard presentationActivity.isRenderingActive else { return }
+        // 进全屏、换歌、从队列回来时当场定好当前句，不带过渡。等观察任务头一回报要晚几帧，
+        // 那几帧舞台会先摆出歌词第一行（不少 LRC 是「歌名 - 歌手」），再和真正的当前句叠着淡入淡出。
+        updateLyricPlaybackPosition(disablesAnimations: true)
         lyricObservationTask = Task { @MainActor in
             await observeLyricPlayback()
         }

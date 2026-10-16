@@ -1241,7 +1241,7 @@ struct TVNowPlayingView: View {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
                 Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
-                    .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
+                    .modifier(TVLyricGlow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2))
                     .multilineTextAlignment(textAlignment)
             }
             ForEach(ln.background) { background in
@@ -1386,7 +1386,6 @@ struct TVKaraokeLine: View {
                     .overlay(alignment: .leading) {
                         Text(s.w)
                             .foregroundStyle(TVColor.text)
-                            .shadow(color: tint.opacity(0.8), radius: 12)
                             .mask {
                                 GeometryReader { g in
                                     Rectangle()
@@ -1400,14 +1399,31 @@ struct TVKaraokeLine: View {
                                 }
                                 .environment(\.layoutDirection, .leftToRight)
                             }
+                            // 光晕套在遮罩外面，跟着亮起的笔画走。套在里面会被裁成字框大小，
+                            // 唱过的字后面就垫着一排硬边色块。
+                            .modifier(TVLyricGlow(color: tint.opacity(0.8), radius: 12))
                     }
                     .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * raise, anchor: .bottom)
                     .offset(y: -size * LyricSyllableEmphasisPolicy.raisedLiftRatio * raise)
             }
         }
         .font(.system(size: size, weight: .bold))
-        .shadow(color: tint.opacity(0.4), radius: 16, y: 2)
+        .modifier(TVLyricGlow(color: tint.opacity(0.4), radius: 16, y: 2))
         .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+}
+
+/// 当前句的主题色光晕，只在深色底上加。浅色底上是深色字，外面再晕一圈封面主题色只会显脏。
+private struct TVLyricGlow: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+    var y: CGFloat = 0
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let glows = colorScheme == .dark
+        content.shadow(color: glows ? color : .clear, radius: glows ? radius : 0, y: glows ? y : 0)
     }
 }
 
