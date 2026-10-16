@@ -1174,6 +1174,15 @@ final class AudioPlayerService {
     /// Songs in the queue that carry a medley slice rather than their own
     /// timeline. Their library rows must never learn the slice's length.
     @ObservationIgnored var medleySongIDs: Set<String> = []
+    /// Medley songs playing the playback range their listener set; their
+    /// slice is never replaced by a found highlight.
+    @ObservationIgnored var medleyChosenRangeSongIDs: Set<String> = []
+    /// Medley songs already looked up in the lyrics cache, and already
+    /// analysed from their audio, this medley.
+    @ObservationIgnored var medleyLyricsCheckedSongIDs: Set<String> = []
+    @ObservationIgnored var medleyAudioCheckedSongIDs: Set<String> = []
+    /// Finds the highlights of the next slices while the current one plays.
+    @ObservationIgnored var medleyHighlightTask: Task<Void, Never>?
     /// Re-applies the current song's playback range shortly after it was edited.
     @ObservationIgnored var playbackRangeRefreshTask: Task<Void, Never>?
     @ObservationIgnored var isInstallingMedleyQueue = false
@@ -6686,6 +6695,7 @@ final class AudioPlayerService {
         var retainedSongIDs = Set(nextSongs.map(\.id))
         if let currentSong { retainedSongIDs.insert(currentSong.id) }
         sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
+        refineUpcomingMedleySlices()
         guard !nextSongs.isEmpty else { return }
 
         // A medley blends into each slice mid-file, which only works on audio
@@ -6722,7 +6732,7 @@ final class AudioPlayerService {
         nextSongsInQueue(count: 1).first
     }
 
-    private func nextSongsInQueue(count: Int) -> [Song] {
+    func nextSongsInQueue(count: Int) -> [Song] {
         guard !queueEntries.isEmpty, count > 0 else { return [] }
         if repeatMode == .one { return [] }
 

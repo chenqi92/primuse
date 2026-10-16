@@ -120,8 +120,12 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 有声内容的后退 / 前进秒数, 取值见 `SpokenWordSkipPolicy.allowedIntervals`。
     var spokenWordSkipBackwardSeconds: Int = 15
     var spokenWordSkipForwardSeconds: Int = 30
-    /// 串烧每首截取的秒数。
+    /// 串烧每首截取的秒数（`medleyAutomaticLength` 关着时才用）。
     var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
+    /// 串烧每首按它的高潮段本身的长短播，而不是固定秒数。
+    var medleyAutomaticLength: Bool = true
+    /// 歌曲设过并开着「播放时间段」时，串烧直接播这一段，不再自动找高潮。
+    var medleyPrefersPlaybackRange: Bool = false
     /// 音乐队列自然播完后按最后几首续上相似歌曲(#166)。默认开:Siri、CarPlay、
     /// 搜索点播的单曲队列最需要它;关掉就是播完即停。
     var autoContinueSimilarEnabled: Bool = true
@@ -190,6 +194,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
         medleySegmentSeconds = try c.decodeIfPresent(Int.self, forKey: .medleySegmentSeconds)
             ?? MedleySegmentPolicy.defaultSegmentLength
+        medleyAutomaticLength = try c.decodeIfPresent(Bool.self, forKey: .medleyAutomaticLength) ?? true
+        medleyPrefersPlaybackRange = try c.decodeIfPresent(Bool.self, forKey: .medleyPrefersPlaybackRange) ?? false
         autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
@@ -234,6 +240,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
         medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength,
+        medleyAutomaticLength: Bool = true,
+        medleyPrefersPlaybackRange: Bool = false,
         autoContinueSimilarEnabled: Bool = true,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
@@ -276,6 +284,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
         self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
         self.medleySegmentSeconds = medleySegmentSeconds
+        self.medleyAutomaticLength = medleyAutomaticLength
+        self.medleyPrefersPlaybackRange = medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
@@ -499,6 +509,33 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var medleyAutomaticLength: Bool { didSet { persist() } }
+    var medleyPrefersPlaybackRange: Bool { didSet { persist() } }
+    /// The one-line "play as medley" menu title, naming the length per song.
+    var medleyPlayQueueTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_play_queue_automatic")
+            : String(format: String(localized: "medley_play_queue_format"), medleySegmentSeconds)
+    }
+    /// The badge shown while a medley plays.
+    var medleyBadgeTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_badge_automatic")
+            : String(format: String(localized: "medley_badge_format"), medleySegmentSeconds)
+    }
+    /// What the length picker shows: `MedleySegmentPolicy.automaticSegmentChoice`
+    /// for the highlight's own length, otherwise the fixed seconds.
+    var medleySegmentChoice: Int {
+        get { medleyAutomaticLength ? MedleySegmentPolicy.automaticSegmentChoice : medleySegmentSeconds }
+        set {
+            if newValue == MedleySegmentPolicy.automaticSegmentChoice {
+                medleyAutomaticLength = true
+            } else {
+                medleySegmentSeconds = newValue
+                medleyAutomaticLength = false
+            }
+        }
+    }
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
@@ -555,6 +592,8 @@ final class PlaybackSettingsStore {
         self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
         self.medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
+        self.medleyAutomaticLength = s.medleyAutomaticLength
+        self.medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
@@ -633,6 +672,8 @@ final class PlaybackSettingsStore {
         spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
+        medleyAutomaticLength = s.medleyAutomaticLength
+        medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
@@ -686,6 +727,8 @@ final class PlaybackSettingsStore {
             spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
             spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,
             medleySegmentSeconds: medleySegmentSeconds,
+            medleyAutomaticLength: medleyAutomaticLength,
+            medleyPrefersPlaybackRange: medleyPrefersPlaybackRange,
             autoContinueSimilarEnabled: autoContinueSimilarEnabled,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,

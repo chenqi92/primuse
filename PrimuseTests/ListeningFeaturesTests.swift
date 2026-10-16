@@ -69,7 +69,8 @@ final class ListeningFeaturesTests: XCTestCase {
 
     func testMedleySlicesCarryTheirWindowAndSkipWhatCannotBeSliced() throws {
         let player = try makePlayer()
-        player.playbackSettings.medleySegmentSeconds = 45
+        player.playbackSettings.medleySegmentChoice = 45
+        XCTAssertFalse(player.playbackSettings.medleyAutomaticLength)
         let slices = player.medleySlices(for: [
             song("a"),
             song("a"), // duplicate
@@ -98,7 +99,8 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertTrue(player.isMedleyActive)
         XCTAssertEqual(player.medleySongIDs, ["a", "b", "c"])
         XCTAssertEqual(player.queue.map(\.id), ["a", "b", "c"])
-        XCTAssertEqual(player.queue.first?.duration, 10)
+        // Automatic length with no highlight known yet: thirty seconds.
+        XCTAssertEqual(player.queue.first?.duration, 30)
         XCTAssertEqual(player.repeatMode, .off, "repeat-one would never crossfade")
         XCTAssertTrue(player.shouldUseCrossfade(player.playbackSettings.snapshot()))
         XCTAssertTrue(PlayHistoryStore.shared.isRecordingSuspended)
@@ -127,10 +129,53 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(entry.title, "Renamed")
         XCTAssertEqual(entry.cueStartTime, slices[1].cueStartTime)
         XCTAssertEqual(entry.cueEndTime, slices[1].cueEndTime)
-        XCTAssertEqual(entry.duration, 10)
+        XCTAssertEqual(entry.duration, 30)
 
         // The hand-off refresh must not reintroduce the library's length.
-        XCTAssertEqual(player.songRefreshingLatestDuration(entry).duration, 10)
+        XCTAssertEqual(player.songRefreshingLatestDuration(entry).duration, 30)
+    }
+
+    func testMedleySlicesStartOnARecordedHighlight() throws {
+        let player = try makePlayer()
+        let first = song("medley-highlight-\(UUID().uuidString)")
+        let second = song("medley-highlight-\(UUID().uuidString)")
+        for song in [first, second] {
+            MedleyHighlightStore.shared.store(
+                MedleyHighlightRecord(
+                    songDuration: 240,
+                    highlight: MedleyHighlight(start: 60, end: 90, basis: .lyricsAndAudio),
+                    includesAudio: true,
+                    includesLyrics: true
+                ),
+                for: song.id
+            )
+        }
+        let slices = player.medleySlices(for: [first, second])
+        // The opening slice starts right on the chorus; the next one reaches
+        // a crossfade's length either side of it.
+        XCTAssertEqual(slices.map(\.cueStartTime), [60, 56])
+        XCTAssertEqual(slices.map(\.cueEndTime), [94, 94])
+
+        player.playbackSettings.medleySegmentChoice = 20
+        let fixed = player.medleySlices(for: [first, second])
+        XCTAssertEqual(fixed.map(\.cueStartTime), [60, 56])
+        XCTAssertEqual(fixed.map(\.duration), [20, 20])
+    }
+
+    func testMedleyMenuTitleNamesTheLength() throws {
+        let settings = PlaybackSettingsStore(defaults: try makeDefaults())
+        XCTAssertTrue(settings.medleyAutomaticLength)
+        XCTAssertEqual(settings.medleySegmentChoice, MedleySegmentPolicy.automaticSegmentChoice)
+        XCTAssertEqual(settings.medleyPlayQueueTitle, String(localized: "medley_play_queue_automatic"))
+        settings.medleySegmentChoice = 30
+        XCTAssertEqual(settings.medleySegmentSeconds, 30)
+        XCTAssertEqual(
+            settings.medleyPlayQueueTitle,
+            String(format: String(localized: "medley_play_queue_format"), 30)
+        )
+        settings.medleySegmentChoice = MedleySegmentPolicy.automaticSegmentChoice
+        XCTAssertTrue(settings.medleyAutomaticLength)
+        XCTAssertEqual(settings.medleySegmentSeconds, 30, "the fixed length is kept for later")
     }
 
     func testMedleyCandidatesComeFromTheCurrentRoundOfTheQueue() throws {

@@ -6514,7 +6514,7 @@ struct NowPlayingView: View {
                 && player.canPlayMedleyFromQueue && shows(.medley),
             canStartKaraoke: !isSpokenWord && player.currentSong != nil && !player.isAppleMusicMode
                 && !player.isLiveRadio && !menuSuppressed.contains(.karaoke) && shows(.karaoke),
-            medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
+            medleyPlayQueueTitle: playbackSettings.medleyPlayQueueTitle,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
@@ -7452,11 +7452,8 @@ struct NowPlayingView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "rectangle.stack.badge.play")
                         .font(.caption2)
-                    Text(String(
-                        format: String(localized: "medley_badge_format"),
-                        playbackSettings.medleySegmentSeconds
-                    ))
-                    .lineLimit(1)
+                    Text(playbackSettings.medleyBadgeTitle)
+                        .lineLimit(1)
                     Text("·")
                     Text("medley_continue_full_short")
                         .fontWeight(.semibold)
@@ -10539,7 +10536,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isMedleyActive: Bool
     let canStartMedley: Bool
     let canStartKaraoke: Bool
-    let medleySegmentSeconds: Int
+    let medleyPlayQueueTitle: String
     let colorScheme: ColorScheme
     let colorSchemeContrast: ColorSchemeContrast
     /// iPhone Duo 竖栏那一列放不下时收进这里的按钮。
@@ -10969,10 +10966,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         // 一步开始，不再套两层子菜单；每首时长在设置 › 播放里改。
                         // 时长直接缀在标题后，一行放下，不占副标题行。
                         Button(action: onStartMedley) {
-                            Label(String(
-                                format: String(localized: "medley_play_queue_format"),
-                                snapshot.medleySegmentSeconds
-                            ), systemImage: "rectangle.stack.badge.play")
+                            Label(snapshot.medleyPlayQueueTitle, systemImage: "rectangle.stack.badge.play")
                         }
                     }
                 }

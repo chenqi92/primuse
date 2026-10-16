@@ -530,9 +530,17 @@ final class TVStore {
     @ObservationIgnored private var activePlaybackRequestID: UUID?
     private(set) var isMedleyActive = false
     private(set) var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
+    /// 每段按那首歌高潮本身的长短播;关掉才用固定秒数。
+    private(set) var medleyAutomaticLength = true
+    /// 设过并开着「播放时间段」的歌,串烧直接播那一段。
+    private(set) var medleyPrefersPlaybackRange = false
     @ObservationIgnored private var medleyPlayback: TVMedleyPlayback?
     @ObservationIgnored private var medleySlices: [String: Song] = [:]
     @ObservationIgnored private var medleyOriginals: [String: Song] = [:]
+    /// 本次串烧里播自己时间段的歌(不换成找到的高潮),和已经找过高潮的歌。
+    @ObservationIgnored private var medleyChosenRangeIDs: Set<String> = []
+    @ObservationIgnored private var medleyCheckedIDs: Set<String> = []
+    @ObservationIgnored private var medleyHighlightTask: Task<Void, Never>?
 
     func karaokeAudioFile(for song: Song) async throws -> KaraokeAudioFile {
         guard currentSongID == song.id, let requestID = activePlaybackRequestID else { throw CancellationError() }
@@ -595,6 +603,8 @@ final class TVStore {
             (defaults.object(forKey: "tv.medley.segmentSeconds") as? Int)
                 ?? MedleySegmentPolicy.defaultSegmentLength
         )
+        medleyAutomaticLength = (defaults.object(forKey: "tv.medley.automaticLength") as? Bool) ?? true
+        medleyPrefersPlaybackRange = defaults.bool(forKey: "tv.medley.prefersPlaybackRange")
         self.snapshotRecovery = recover
         self.scanPersistence = scanPersistence
         self.sessionStore = sessionStore
@@ -7588,6 +7598,39 @@ extension TVStore {
         defaults.set(medleySegmentSeconds, forKey: "tv.medley.segmentSeconds")
     }
 
+    /// `MedleySegmentPolicy.automaticSegmentChoice` for the highlight's own
+    /// length, otherwise the fixed seconds.
+    var medleySegmentChoice: Int {
+        medleyAutomaticLength ? MedleySegmentPolicy.automaticSegmentChoice : medleySegmentSeconds
+    }
+
+    func setMedleySegmentChoice(_ choice: Int) {
+        if choice == MedleySegmentPolicy.automaticSegmentChoice {
+            medleyAutomaticLength = true
+        } else {
+            setMedleySegmentSeconds(choice)
+            medleyAutomaticLength = false
+        }
+        defaults.set(medleyAutomaticLength, forKey: "tv.medley.automaticLength")
+    }
+
+    func setMedleyPrefersPlaybackRange(_ prefers: Bool) {
+        medleyPrefersPlaybackRange = prefers
+        defaults.set(prefers, forKey: "tv.medley.prefersPlaybackRange")
+    }
+
+    var medleyLengthTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_segment_automatic")
+            : String(format: String(localized: "seconds_value_format"), medleySegmentSeconds)
+    }
+
+    var medleyBadgeTitle: String {
+        medleyAutomaticLength
+            ? String(localized: "medley_badge_automatic")
+            : String(format: String(localized: "medley_badge_format"), activeMedleySegmentSeconds)
+    }
+
     var activeMedleySegmentSeconds: Int {
         currentSongID.flatMap { medleySlices[$0] }.map { Int($0.duration) } ?? medleySegmentSeconds
     }
@@ -7630,9 +7673,25 @@ extension TVStore {
         var originals: [String: Song] = [:]
         var slices: [String: Song] = [:]
         var ids: [String] = []
+        var chosenRangeIDs: Set<String> = []
+        let length = MedleySegmentPolicy.sliceLength(automatic: medleyAutomaticLength, seconds: medleySegmentSeconds)
         for id in songIDs where originals[id] == nil {
-            guard let raw = library.song(id: id), canIncludeInMedley(raw),
-                  let segment = MedleySegmentPolicy.segment(duration: raw.duration, segmentLength: medleySegmentSeconds) else { continue }
+            guard let raw = library.song(id: id), canIncludeInMedley(raw) else { continue }
+            let segment: MedleySegment?
+            if medleyPrefersPlaybackRange, supportsPlaybackRange(for: raw),
+               let range = SongPlaybackRangeStore.shared.applied(for: raw) {
+                segment = MedleySegmentPolicy.segment(playbackRange: range)
+                chosenRangeIDs.insert(id)
+            } else {
+                // 这台电视以前找到过的高潮;没找到过就先估一个,播的时候再找(`refineUpcomingMedleySlices`)。
+                segment = MedleySegmentPolicy.segment(
+                    duration: raw.duration,
+                    length: length,
+                    highlight: MedleyHighlightStore.shared.highlight(for: raw),
+                    leadsIn: !ids.isEmpty
+                )
+            }
+            guard let segment else { continue }
             originals[id] = raw
             var slice = raw
             slice.cueStartTime = segment.start
@@ -7651,6 +7710,7 @@ extension TVStore {
         isMedleyActive = true
         medleyOriginals = originals
         medleySlices = slices
+        medleyChosenRangeIDs = chosenRangeIDs
         canonicalQueue = ids
         queueCanonicalIndices = Array(ids.indices)
         queue = ids
@@ -7685,6 +7745,7 @@ extension TVStore {
         medleyPlayback = session
         session.start(slice, at: time, autoPlay: autoPlay)
         presentMedleySelection(slice, requestID: requestID, at: time)
+        refineUpcomingMedleySlices()
     }
 
     private func nextMedleySlice(after id: String, excluding failed: Set<String>) -> Song? {
@@ -7710,6 +7771,7 @@ extension TVStore {
         if let raw = library.song(id: slice.id) ?? medleyOriginals[slice.id] {
             coordinator.loadMedleyLyrics(song: raw, requestID: requestID)
         }
+        refineUpcomingMedleySlices()
     }
 
     func continueCurrentMedleySongInFull() {
@@ -7729,6 +7791,105 @@ extension TVStore {
         isMedleyActive = false
         medleySlices = [:]
         medleyOriginals = [:]
+        medleyChosenRangeIDs = []
+        medleyCheckedIDs = []
+        medleyHighlightTask?.cancel()
+        medleyHighlightTask = nil
+    }
+
+    // MARK: 播放中找后面几段的高潮
+
+    /// 接下来两段里还没找过高潮的,一段一段找;正在跑就不另起。换段时再叫一次。
+    private func refineUpcomingMedleySlices() {
+        guard isMedleyActive, medleyHighlightTask == nil else { return }
+        medleyHighlightTask = Task { [weak self] in
+            await self?.runMedleyHighlightRefinement()
+            // 取消了的是被下一次串烧换掉的,别清掉新任务的句柄。
+            guard !Task.isCancelled else { return }
+            self?.medleyHighlightTask = nil
+        }
+    }
+
+    private func runMedleyHighlightRefinement() async {
+        while isMedleyActive, !Task.isCancelled {
+            guard let id = upcomingMedleySongIDs(limit: 2).first(where: {
+                      !medleyCheckedIDs.contains($0) && !medleyChosenRangeIDs.contains($0)
+                  }),
+                  let whole = medleyOriginals[id] else { return }
+            medleyCheckedIDs.insert(id)
+            await refineMedleySlice(whole)
+        }
+    }
+
+    private func upcomingMedleySongIDs(limit: Int) -> [String] {
+        guard isMedleyActive, queue.indices.contains(queueIndex) else { return [] }
+        let available = repeatMode == .all ? queue.count - 1 : queue.count - queueIndex - 1
+        guard available > 0 else { return [] }
+        var result: [String] = []
+        for offset in 1...available {
+            let id = queue[(queueIndex + offset) % queue.count]
+            if medleySlices[id] != nil, id != currentSongID, !result.contains(id) { result.append(id) }
+            if result.count == limit { break }
+        }
+        return result
+    }
+
+    /// 先看缓存过的歌词(立刻能改),再在不按流量计费的网络上把整首取来分析音频。
+    private func refineMedleySlice(_ whole: Song) async {
+        let store = MedleyHighlightStore.shared
+        let duration = whole.duration
+        guard duration.isFinite, duration > 0 else { return }
+        let lyrics = await MedleyHighlightAnalysis.cachedLyricLines(songID: whole.id)
+        var record = store.record(for: whole.id)
+        if !lyrics.isEmpty, MedleyHighlightRecordPolicy.needsAnalysis(
+            record, songDuration: duration, audioAvailable: false, lyricsAvailable: true
+        ) {
+            let found = MedleyHighlightAnalysis.record(
+                songDuration: duration, lyrics: lyrics, features: nil, sectionStarts: []
+            )
+            if found.highlight != nil || record == nil {
+                store.store(found, for: whole.id)
+                record = found
+            }
+        }
+        if let highlight = store.highlight(for: whole) { applyMedleyHighlight(highlight, to: whole) }
+
+        guard isMedleyActive, !Task.isCancelled,
+              !TVMedleyNetworkState.shared.isMetered,
+              duration <= MedleyAudioFeatureExtractor.maximumDuration,
+              MedleyHighlightRecordPolicy.needsAnalysis(
+                  record, songDuration: duration, audioAvailable: true, lyricsAvailable: !lyrics.isEmpty
+              ) else { return }
+        guard let features = await coordinator.readingMedleyAnalysisFile(for: whole, { url in
+            try MedleyHighlightAnalysis.audioFeatures(readingFileAt: url, expectedDuration: duration)
+        }) else { return }
+        let found = await Task.detached(priority: .utility) {
+            MedleyHighlightAnalysis.record(songDuration: duration, lyrics: lyrics, features: features, sectionStarts: [])
+        }.value
+        store.store(found, for: whole.id)
+        if let highlight = found.highlight {
+            plog(String(format: "🎛️ TV medley highlight '%@': %.1f–%.1fs via %@",
+                        whole.title, highlight.start, highlight.end, highlight.basis.rawValue))
+            applyMedleyHighlight(highlight, to: whole)
+        }
+    }
+
+    /// 把还没开播的那段改切到高潮。已经备好的下一段按新窗口重开,离淡入不到 8 秒就不动了。
+    private func applyMedleyHighlight(_ highlight: MedleyHighlight, to whole: Song) {
+        guard isMedleyActive, currentSongID != whole.id,
+              !medleyChosenRangeIDs.contains(whole.id),
+              var slice = medleySlices[whole.id],
+              let segment = MedleySegmentPolicy.segment(
+                  duration: whole.duration,
+                  length: MedleySegmentPolicy.sliceLength(automatic: medleyAutomaticLength, seconds: medleySegmentSeconds),
+                  highlight: highlight
+              ),
+              slice.cueStartTime != segment.start || slice.cueEndTime != segment.end else { return }
+        slice.cueStartTime = segment.start
+        slice.cueEndTime = segment.end
+        slice.duration = segment.length
+        medleySlices[whole.id] = slice
+        medleyPlayback?.refreshSuccessor(songID: whole.id, minimumLead: 8)
     }
 }
 

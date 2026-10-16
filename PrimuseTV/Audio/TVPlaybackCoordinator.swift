@@ -1568,6 +1568,42 @@ final class TVPlaybackCoordinator {
         return KaraokeAudioFile(url: url, removeAfterDecoding: true)
     }
 
+    /// 串烧找高潮用:把下一段的整首歌下载到 tmp,交给 `read` 读完就删。电视不留播放过的音频,
+    /// 只有这样才读得到整首。AVFoundation 打不开的格式(APE、OGG 这类)不下载,那段就用歌词或估算的位置。
+    func readingMedleyAnalysisFile<Value: Sendable>(
+        for song: Song,
+        _ read: @escaping @Sendable (URL) throws -> Value
+    ) async -> Value? {
+        guard let store,
+              let source = store.sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted,
+              !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: song.sourceID),
+              !song.isStreamDescriptor else { return nil }
+        let asset = playbackAsset(for: song, preferMusicVideo: false)
+        guard !asset.isVideo,
+              Self.medleyAnalysisExtensions.contains(asset.fileExtension.lowercased()) else { return nil }
+        let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        let url: URL
+        do {
+            url = try await downloadToTemp(
+                song: asset.song, source: source, credential: credential,
+                ext: asset.fileExtension, directStream: asset.directStream, requestID: nil
+            )
+        } catch {
+            if !(error is CancellationError) {
+                plog("🎛️ TV medley highlight: download failed for '\(song.title)': \(error.localizedDescription)")
+            }
+            return nil
+        }
+        defer {
+            _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(url, in: FileManager.default.temporaryDirectory)
+        }
+        return try? await Task.detached(priority: .utility) { try read(url) }.value
+    }
+
+    private static let medleyAnalysisExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "mp4", "aac", "alac", "flac", "wav", "aif", "aiff", "aifc", "caf",
+    ]
+
     /// 把整文件下载到 tmp:协议源走 reader 分块落盘,HTTP 源走 resolve + URLSession。
     /// `requestID` 为 nil 时是给下一首做的预取:不绑定当前播放请求,只响应取消。
     private func downloadToTemp(song: Song, source: MusicSource,

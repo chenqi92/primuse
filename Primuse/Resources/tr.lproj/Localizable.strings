@@ -4537,7 +4537,7 @@
 "medley_play_queue_format" = "Medley olarak çal (%lld sn)";
 "medley_play_selection" = "Medley olarak çal";
 "medley_segment_length" = "Şarkı başına süre";
-"medley_settings_footer" = "Medley her şarkının en tanınan bölümünü çalar ve kısa geçişlerle birleştirir. Dinleme geçmişine ve scrobble'a sayılmaz.";
+"medley_settings_footer" = "Medley her şarkının nakaratını bulur — senkron şarkı sözü varsa en çok tekrarlanan dizelerden, yoksa sesi analiz ederek — hemen öncesinde yavaşça girer ve bitince yavaşça çıkar. Otomatik'te her parça nakaratı kadar sürer. Dinleme geçmişine ve scrobble'a sayılmaz.";
 "medley_continue_full" = "Bu şarkıyı tamamını dinle";
 "medley_continue_full_short" = "Tamamı";
 "medley_badge_format" = "Medley · her biri %lld sn";
@@ -4547,6 +4547,11 @@
 "medley_data_dont_ask" = "Çal, bir daha sorma";
 "medley_data_prompt_toggle" = "Mobil veride uyar";
 "medley_data_prompt_hint" = "Mobil veride veya Düşük Veri Modu'nda medley başlatmadan önce sor; sıradaki şarkılar tamamen indirilir.";
+"medley_segment_automatic" = "Otomatik (nakaratın tamamı)";
+"medley_prefers_playback_range" = "Şarkının kendi aralığını tercih et";
+"medley_prefers_playback_range_hint" = "Bir şarkıda çalma aralığı açıksa medley nakaratı aramak yerine tam olarak o aralığı çalar.";
+"medley_play_queue_automatic" = "Medley olarak çal (nakaratlar)";
+"medley_badge_automatic" = "Medley · nakaratlar";
 "smart_nudge_section" = "Dinlerken öneriler";
 "smart_nudge_enabled" = "Önerileri göster";
 "smart_nudge_footer" = "Ara sıra küçük bir afiş o ana uygun bir şey önerir; örneğin sürekli tekrar dinlediğin şarkıyı Favorilere eklemek. Çalmayı kesmez, kendiliğinden kaybolur ve reddettiğinde tekrarlanmaz. Her şey bu cihazda hesaplanır.";

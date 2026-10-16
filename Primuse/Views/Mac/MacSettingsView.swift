@@ -2479,14 +2479,23 @@ private struct MacSTPlaybackView: View {
                     divider: false
                 ) {
                     MacSTPicker(
-                        selection: $s.medleySegmentSeconds,
-                        options: MedleySegmentPolicy.allowedSegmentLengths.map {
-                            ($0, String(format: String(localized: "seconds_value_format"), $0))
+                        selection: $s.medleySegmentChoice,
+                        options: MedleySegmentPolicy.segmentChoices.map {
+                            ($0, $0 == MedleySegmentPolicy.automaticSegmentChoice
+                                ? String(localized: "medley_segment_automatic")
+                                : String(format: String(localized: "seconds_value_format"), $0))
                         },
-                        width: 120
+                        width: 180
                     )
                 }
                 .settingsAnchor("playback.medley")
+                MacSTRow(
+                    String(localized: "medley_prefers_playback_range"),
+                    hint: String(localized: "medley_prefers_playback_range_hint"),
+                    hintLineLimit: 2
+                ) {
+                    MacSTToggle(isOn: $s.medleyPrefersPlaybackRange)
+                }
                 MacSTRow(
                     String(localized: "medley_data_prompt_toggle"),
                     hint: String(localized: "medley_data_prompt_hint"),

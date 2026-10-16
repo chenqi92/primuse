@@ -31,18 +31,30 @@ struct TVMedleySettingsView: View {
                 Text("medley_title").tvFont(.pageTitle)
                 Text("medley_segment_length").tvFont(.rowTitle)
                 HStack(spacing: 22) {
-                    ForEach(MedleySegmentPolicy.allowedSegmentLengths, id: \.self) { seconds in
-                        TVPillButton(title: String(format: String(localized: "seconds_value_format"), seconds),
-                                     systemImage: store.medleySegmentSeconds == seconds ? "checkmark.circle.fill" : "circle") {
-                            store.setMedleySegmentSeconds(seconds)
+                    ForEach(MedleySegmentPolicy.segmentChoices, id: \.self) { choice in
+                        let isSelected = store.medleySegmentChoice == choice
+                        TVPillButton(title: choice == MedleySegmentPolicy.automaticSegmentChoice
+                                        ? String(localized: "medley_segment_automatic")
+                                        : String(format: String(localized: "seconds_value_format"), choice),
+                                     systemImage: isSelected ? "checkmark.circle.fill" : "circle") {
+                            store.setMedleySegmentChoice(choice)
                         }
-                        .accessibilityIdentifier("tv.medley.seconds.\(seconds)")
-                        .accessibilityAddTraits(store.medleySegmentSeconds == seconds ? .isSelected : [])
+                        .accessibilityIdentifier(choice == MedleySegmentPolicy.automaticSegmentChoice
+                                                    ? "tv.medley.seconds.auto" : "tv.medley.seconds.\(choice)")
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
                 Text("medley_settings_footer").tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("medley_prefers_playback_range", isOn: Binding(
+                        get: { store.medleyPrefersPlaybackRange },
+                        set: { store.setMedleyPrefersPlaybackRange($0) }
+                    ))
+                    .accessibilityIdentifier("tv.medley.prefersPlaybackRange")
+                    Text("medley_prefers_playback_range_hint").tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                }
+                .padding(.top, 24)
                 Toggle("medley_data_prompt_toggle", isOn: Binding(get: { !promptDisabled }, set: { promptDisabled = !$0 }))
-                    .padding(.top, 24)
             }
             .foregroundStyle(TVColor.text)
             .frame(maxWidth: 1400, alignment: .leading)

@@ -4394,7 +4394,7 @@
 "medley_play_queue_format" = "Play as Medley (%llds)";
 "medley_play_selection" = "Play as Medley";
 "medley_segment_length" = "Length per Song";
-"medley_settings_footer" = "A medley plays the most recognisable part of each song and blends them with short crossfades. It does not count toward listening history or scrobbles.";
+"medley_settings_footer" = "A medley finds each song's chorus — from its most repeated lines when it has synced lyrics, otherwise from the audio — fades in just before it and fades out once it ends. With Automatic, each part lasts as long as its chorus. It does not count toward listening history or scrobbles.";
 "medley_continue_full" = "Keep Playing This Song in Full";
 "medley_continue_full_short" = "Play in Full";
 "medley_badge_format" = "Medley · %lld s each";
@@ -4404,6 +4404,11 @@
 "medley_data_dont_ask" = "Play, Don't Ask Again";
 "medley_data_prompt_toggle" = "Warn on Mobile Data";
 "medley_data_prompt_hint" = "Ask before starting a medley on mobile data or in Low Data Mode, since it downloads the next songs in full.";
+"medley_segment_automatic" = "Automatic (Whole Chorus)";
+"medley_prefers_playback_range" = "Prefer Songs' Own Play Ranges";
+"medley_prefers_playback_range_hint" = "When a song has a Play Range turned on, the medley plays exactly that range instead of finding its chorus.";
+"medley_play_queue_automatic" = "Play as Medley (Choruses)";
+"medley_badge_automatic" = "Medley · Choruses";
 "smart_nudge_section" = "Suggestions While Playing";
 "smart_nudge_enabled" = "Show Suggestions";
 "smart_nudge_footer" = "A small banner now and then offers what fits the moment — for example adding a song you keep replaying to Favorites. It never interrupts playback, disappears on its own, and is not repeated after you turn it down. Everything is worked out on this device.";

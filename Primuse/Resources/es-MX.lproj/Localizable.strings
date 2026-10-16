@@ -4537,7 +4537,7 @@
 "medley_play_queue_format" = "Reproducir como popurrí (%lld s)";
 "medley_play_selection" = "Reproducir como popurrí";
 "medley_segment_length" = "Duración por canción";
-"medley_settings_footer" = "Un popurrí reproduce la parte más reconocible de cada canción y las une con fundidos cortos. No cuenta en el historial ni en los scrobbles.";
+"medley_settings_footer" = "Un popurrí encuentra el estribillo de cada canción —por sus líneas más repetidas si tiene letra sincronizada; si no, analizando el audio—, entra con un fundido justo antes y sale al terminar. En Automática, cada parte dura lo que su estribillo. No cuenta en el historial ni en los scrobbles.";
 "medley_continue_full" = "Seguir con esta canción completa";
 "medley_continue_full_short" = "Completa";
 "medley_badge_format" = "Popurrí · %lld s cada una";
@@ -4547,6 +4547,11 @@
 "medley_data_dont_ask" = "Reproducir y no volver a preguntar";
 "medley_data_prompt_toggle" = "Avisar con datos móviles";
 "medley_data_prompt_hint" = "Preguntar antes de iniciar un popurrí con datos móviles o en modo de datos reducidos, ya que descarga completas las siguientes canciones.";
+"medley_segment_automatic" = "Automática (estribillo completo)";
+"medley_prefers_playback_range" = "Preferir el intervalo de cada canción";
+"medley_prefers_playback_range_hint" = "Si una canción tiene activado un intervalo de reproducción, el popurrí reproduce exactamente ese intervalo en lugar de buscar su estribillo.";
+"medley_play_queue_automatic" = "Reproducir como popurrí (estribillos)";
+"medley_badge_automatic" = "Popurrí · estribillos";
 "smart_nudge_section" = "Sugerencias al escuchar";
 "smart_nudge_enabled" = "Mostrar sugerencias";
 "smart_nudge_footer" = "De vez en cuando, un pequeño aviso sugiere lo que encaja con el momento, como agregar a Favoritos una canción que repites. No interrumpe la reproducción, desaparece solo y no se repite si lo rechazas. Todo se calcula en este dispositivo.";

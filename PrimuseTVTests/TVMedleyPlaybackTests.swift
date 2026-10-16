@@ -18,10 +18,13 @@ final class TVMedleyPlaybackTests: XCTestCase {
         let songs: [Song]
         let audioURLs: [URL]
 
-        init() async throws {
+        /// The playback tests time ten-second slices; `fixedLength: false`
+        /// keeps the default, as long as each song's highlight.
+        init(fixedLength: Bool = true) async throws {
             directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             defaults = UserDefaults(suiteName: defaultsName)!
+            if fixedLength { defaults.set(false, forKey: "tv.medley.automaticLength") }
             let sources = SourcesStore(storageDirectoryURL: directory)
             var source = MusicSource(id: TVLocalTransferSource.sourceID, name: "Medley fixture", type: .local)
             source.basePath = TVLocalTransferSource.root.path
@@ -89,6 +92,23 @@ final class TVMedleyPlaybackTests: XCTestCase {
         XCTAssertEqual(f.store.duration, 10)
         XCTAssertEqual(f.library.song(id: f.songs[0].id)?.duration, 60)
         XCTAssertNil(f.library.song(id: f.songs[0].id)?.cueStartTime)
+        await f.cleanup()
+    }
+
+    func testAutomaticLengthIsTheDefaultChoice() async throws {
+        let f = try await Fixture(fixedLength: false)
+        XCTAssertTrue(f.store.medleyAutomaticLength)
+        XCTAssertEqual(f.store.medleySegmentChoice, MedleySegmentPolicy.automaticSegmentChoice)
+        f.store.setMedleySegmentChoice(20)
+        XCTAssertFalse(f.store.medleyAutomaticLength)
+        XCTAssertEqual(f.store.medleySegmentSeconds, 20)
+        XCTAssertEqual(f.defaults.object(forKey: "tv.medley.automaticLength") as? Bool, false)
+        f.store.setMedleySegmentChoice(MedleySegmentPolicy.automaticSegmentChoice)
+        XCTAssertTrue(f.store.medleyAutomaticLength)
+        XCTAssertFalse(f.store.medleyPrefersPlaybackRange)
+        XCTAssertTrue(f.store.playMedley(songIDs: f.songs.map(\.id)))
+        // A minute-long song with no highlight known yet: thirty seconds, a third in.
+        XCTAssertEqual(f.store.duration, 30)
         await f.cleanup()
     }
 

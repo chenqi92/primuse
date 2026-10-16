@@ -472,10 +472,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             } else if !isSpokenWord, !player.isLiveRadio, !player.isAppleMusicMode,
                       player.canPlayMedleyFromQueue {
-                menuRow(titleText: String(
-                    format: String(localized: "medley_play_queue_format"),
-                    player.playbackSettings.medleySegmentSeconds
-                ), symbol: "rectangle.stack.badge.play") {
+                menuRow(titleText: player.playbackSettings.medleyPlayQueueTitle,
+                        symbol: "rectangle.stack.badge.play") {
                     let songs = player.medleyCandidatesFromQueue
                     if player.medleyNeedsDataUsageConfirmation(for: songs) {
                         pendingMedleySongs = songs

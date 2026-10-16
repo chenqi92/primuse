@@ -4631,7 +4631,7 @@
 "medley_play_queue_format" = "Als Medley abspielen (%lld s)";
 "medley_play_selection" = "Als Medley abspielen";
 "medley_segment_length" = "Länge pro Song";
-"medley_settings_footer" = "Ein Medley spielt den bekanntesten Teil jedes Songs und verbindet sie mit kurzen Überblendungen. Es zählt nicht zum Hörverlauf und wird nicht gescrobbelt.";
+"medley_settings_footer" = "Ein Medley findet den Refrain jedes Songs – bei synchronisierten Songtexten an den am häufigsten wiederholten Zeilen, sonst am Audio –, blendet kurz davor ein und danach aus. Mit „Automatisch“ dauert jeder Teil so lange wie sein Refrain. Es zählt nicht zum Hörverlauf und wird nicht gescrobbelt.";
 "medley_continue_full" = "Diesen Song ganz weiterhören";
 "medley_continue_full_short" = "Ganz hören";
 "medley_badge_format" = "Medley · je %lld s";
@@ -4641,6 +4641,11 @@
 "medley_data_dont_ask" = "Abspielen, nicht mehr fragen";
 "medley_data_prompt_toggle" = "Bei mobilen Daten warnen";
 "medley_data_prompt_hint" = "Vor einem Medley über mobile Daten oder im Modus „Wenig Daten“ nachfragen, da es die nächsten Titel vollständig lädt.";
+"medley_segment_automatic" = "Automatisch (ganzer Refrain)";
+"medley_prefers_playback_range" = "Eigene Wiedergabebereiche bevorzugen";
+"medley_prefers_playback_range_hint" = "Hat ein Song einen eingeschalteten Wiedergabebereich, spielt das Medley genau diesen Bereich, statt den Refrain zu suchen.";
+"medley_play_queue_automatic" = "Als Medley abspielen (Refrains)";
+"medley_badge_automatic" = "Medley · Refrains";
 "smart_nudge_section" = "Vorschläge beim Hören";
 "smart_nudge_enabled" = "Vorschläge anzeigen";
 "smart_nudge_footer" = "Ab und zu schlägt ein kleines Banner vor, was gerade passt – etwa einen oft wiederholten Song zu den Favoriten hinzuzufügen. Es unterbricht nichts, verschwindet von selbst und wird nach einer Ablehnung nicht wiederholt. Alles wird auf diesem Gerät berechnet.";

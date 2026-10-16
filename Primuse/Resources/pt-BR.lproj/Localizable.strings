@@ -4537,7 +4537,7 @@
 "medley_play_queue_format" = "Tocar como medley (%lld s)";
 "medley_play_selection" = "Tocar como medley";
 "medley_segment_length" = "Duração por música";
-"medley_settings_footer" = "Um medley toca o trecho mais reconhecível de cada música e as une com transições curtas. Não entra no histórico nem nos scrobbles.";
+"medley_settings_footer" = "Um medley encontra o refrão de cada música — pelas linhas mais repetidas quando a letra é sincronizada, senão analisando o áudio —, entra com uma transição pouco antes e sai quando ele termina. Em Automática, cada trecho dura o mesmo que seu refrão. Não entra no histórico nem nos scrobbles.";
 "medley_continue_full" = "Ouvir esta música inteira";
 "medley_continue_full_short" = "Inteira";
 "medley_badge_format" = "Medley · %lld s cada";
@@ -4547,6 +4547,11 @@
 "medley_data_dont_ask" = "Tocar e não perguntar de novo";
 "medley_data_prompt_toggle" = "Avisar em dados móveis";
 "medley_data_prompt_hint" = "Perguntar antes de iniciar um medley em dados móveis ou no Modo Pouco Dados, pois ele baixa as próximas músicas inteiras.";
+"medley_segment_automatic" = "Automática (refrão inteiro)";
+"medley_prefers_playback_range" = "Preferir o intervalo de cada música";
+"medley_prefers_playback_range_hint" = "Quando uma música tem um intervalo de reprodução ativado, o medley toca exatamente esse intervalo em vez de procurar o refrão.";
+"medley_play_queue_automatic" = "Tocar como medley (refrões)";
+"medley_badge_automatic" = "Medley · refrões";
 "smart_nudge_section" = "Sugestões durante a reprodução";
 "smart_nudge_enabled" = "Mostrar sugestões";
 "smart_nudge_footer" = "De vez em quando, um pequeno aviso sugere o que combina com o momento, como adicionar aos Favoritos uma música que você repete. Não interrompe a reprodução, some sozinho e não se repete depois de recusado. Tudo é calculado neste dispositivo.";

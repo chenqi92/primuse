@@ -13,17 +13,35 @@ public struct MedleySegment: Equatable, Sendable {
     public var length: TimeInterval { end - start }
 }
 
+/// How long each song of a medley plays.
+public enum MedleySliceLength: Hashable, Sendable {
+    /// As long as the song's highlight lasts.
+    case automatic
+    /// The same number of seconds for every song.
+    case fixed(Int)
+}
+
 /// Chooses which slice of each song a medley ("串烧") plays and how long
 /// neighbouring slices overlap.
 ///
-/// The slice aims at the part people recognise a song by. Without analysis
-/// that is usually the first chorus, a third of the way in; when structure
-/// analysis has marked section starts, the section nearest that point is
-/// used instead so the slice begins on a musical boundary rather than
-/// mid-phrase. A song too short to cut is played whole.
+/// The slice aims at the part people recognise a song by: its highlight
+/// (`MedleyHighlight`, the chorus) when one has been found. Played at its own
+/// length, the slice reaches a little before the chorus and a little past it,
+/// so the crossfade blends the lead-in and the tail-off rather than the
+/// chorus itself. Without a highlight it falls back to a third of the way in,
+/// or the structure-analysis section nearest that point. A song too short to
+/// cut is played whole.
 public enum MedleySegmentPolicy {
     public static let allowedSegmentLengths = [10, 20, 30, 45, 60, 90]
     public static let defaultSegmentLength = 10
+    /// The settings value meaning "as long as the highlight": the picker's
+    /// first choice, ahead of the fixed lengths.
+    public static let automaticSegmentChoice = 0
+    public static let segmentChoices = [automaticSegmentChoice] + allowedSegmentLengths
+    /// Played when a song's highlight is not known yet.
+    public static let automaticFallbackLength = 30
+    /// A highlight shorter than this is not trusted.
+    public static let minimumHighlightLength: TimeInterval = 6
 
     /// Where in the song the slice aims to start, as a fraction of its length.
     static let targetFraction = 0.33
@@ -76,6 +94,66 @@ public enum MedleySegmentPolicy {
             start = target.rounded()
         }
         return MedleySegment(start: start, end: min(duration, start + length))
+    }
+
+    public static func sliceLength(automatic: Bool, seconds: Int) -> MedleySliceLength {
+        automatic ? .automatic : .fixed(clampedSegmentLength(seconds))
+    }
+
+    /// The slice to play, or nil when the song should be skipped.
+    ///
+    /// - Parameters:
+    ///   - highlight: the song's chorus, when it has been found.
+    ///   - leadsIn: false for the opening slice of a medley, which starts
+    ///     right on the chorus instead of fading in ahead of it.
+    public static func segment(
+        duration: TimeInterval,
+        length: MedleySliceLength,
+        highlight: MedleyHighlight?,
+        sectionStarts: [TimeInterval] = [],
+        leadsIn: Bool = true
+    ) -> MedleySegment? {
+        guard duration.isFinite else { return nil }
+        let usable = highlight.flatMap { usableHighlight($0, duration: duration) }
+        switch length {
+        case .fixed(let seconds):
+            let length = TimeInterval(clampedSegmentLength(seconds))
+            guard let usable, duration > length + wholeSongSlack else {
+                return segment(duration: duration, segmentLength: seconds, sectionStarts: sectionStarts)
+            }
+            let lead = leadsIn ? overlap(segmentLength: length) : 0
+            let start = min(max(0, usable.start - lead), duration - length)
+            return MedleySegment(start: start, end: start + length)
+        case .automatic:
+            let fallback = TimeInterval(automaticFallbackLength)
+            guard duration > 0 else { return MedleySegment(start: 0, end: fallback) }
+            guard duration > fallback + wholeSongSlack else {
+                return MedleySegment(start: 0, end: duration)
+            }
+            guard let usable else {
+                return segment(duration: duration, segmentLength: automaticFallbackLength, sectionStarts: sectionStarts)
+            }
+            let margin = overlap(segmentLength: usable.length)
+            let start = max(0, usable.start - (leadsIn ? margin : 0))
+            let end = min(duration, usable.end + margin)
+            return MedleySegment(start: start, end: end)
+        }
+    }
+
+    /// The slice for a song the listener gave a playback range: exactly that range.
+    public static func segment(playbackRange: AppliedSongPlaybackRange) -> MedleySegment? {
+        guard playbackRange.length >= SongPlaybackRangePolicy.minimumLength else { return nil }
+        return MedleySegment(start: playbackRange.start, end: playbackRange.end)
+    }
+
+    static func usableHighlight(_ highlight: MedleyHighlight, duration: TimeInterval) -> MedleyHighlight? {
+        guard highlight.start.isFinite, highlight.end.isFinite,
+              highlight.start >= 0,
+              duration <= 0 || highlight.end <= duration + 0.5,
+              highlight.length >= minimumHighlightLength else { return nil }
+        var clamped = highlight
+        if duration > 0 { clamped.end = min(clamped.end, duration) }
+        return clamped
     }
 
     /// Overlap between neighbouring slices: long enough to hear as a blend,

@@ -2324,12 +2324,21 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
-                Picker("medley_segment_length", selection: $settings.medleySegmentSeconds) {
-                    ForEach(MedleySegmentPolicy.allowedSegmentLengths, id: \.self) { seconds in
-                        Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
+                Picker("medley_segment_length", selection: $settings.medleySegmentChoice) {
+                    ForEach(MedleySegmentPolicy.segmentChoices, id: \.self) { seconds in
+                        if seconds == MedleySegmentPolicy.automaticSegmentChoice {
+                            Text("medley_segment_automatic").tag(seconds)
+                        } else {
+                            Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
+                        }
                     }
                 }
                 .settingsAnchor("playback.medley")
+                Toggle(isOn: $settings.medleyPrefersPlaybackRange) {
+                    SettingsInfoLabel("medley_prefers_playback_range") {
+                        Text("medley_prefers_playback_range_hint")
+                    }
+                }
                 Toggle("medley_data_prompt_toggle", isOn: Binding(
                     get: { !medleyDataPromptDisabled },
                     set: { medleyDataPromptDisabled = !$0 }

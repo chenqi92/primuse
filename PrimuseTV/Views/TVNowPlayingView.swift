@@ -626,7 +626,7 @@ struct TVNowPlayingView: View {
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
             artistLine(np).padding(.top, 8)
             if store.isMedleyActive {
-                TVPillButton(title: String(format: String(localized: "medley_badge_format"), store.activeMedleySegmentSeconds),
+                TVPillButton(title: store.medleyBadgeTitle,
                              systemImage: "shuffle") { store.continueCurrentMedleySongInFull() }
                     .accessibilityLabel(Text("medley_continue_full"))
                     .accessibilityIdentifier("tv.medley.continueFull")

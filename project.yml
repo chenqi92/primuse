@@ -810,6 +810,8 @@ targets:
       - path: Primuse/Services/Audio/AudioPlayerNodeClockReader.m
       - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
       - path: Primuse/Services/Audio/KaraokeSeparationService.swift
+      # 串烧找高潮:结果缓存与读整首做分析,手机、Mac、电视同一份。
+      - path: Primuse/Services/Audio/MedleyHighlightStore.swift
       - path: Primuse/Services/Audio/KaraokeVocalSeparator.swift
       # 离线歌词翻译(英语 ↔ 波斯语):电视没有系统翻译,只用可下载的本地模型;
       # 翻译设置、缓存与译前准备与 iOS / macOS 同一份实现。

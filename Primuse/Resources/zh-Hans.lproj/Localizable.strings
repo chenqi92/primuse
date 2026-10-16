@@ -4724,7 +4724,7 @@
 "medley_play_queue_format" = "串烧播放（%llds）";
 "medley_play_selection" = "串烧播放";
 "medley_segment_length" = "每首时长";
-"medley_settings_footer" = "串烧会截取每首歌最有辨识度的一段，用短暂的淡入淡出连起来。串烧不计入收听记录，也不会上报 Scrobble。";
+"medley_settings_footer" = "串烧会找出每首歌的高潮（有带时间轴的歌词时按重复最多的段落，否则分析音频），在高潮前淡入、唱完再淡出接下一首；选「自动」时每首长短跟着高潮走。串烧不计入收听记录，也不会上报 Scrobble。";
 "medley_continue_full" = "完整播放这首歌";
 "medley_continue_full_short" = "听完整版";
 "medley_badge_format" = "串烧 · 每首 %lld 秒";
@@ -4734,6 +4734,11 @@
 "medley_data_dont_ask" = "继续，不再提醒";
 "medley_data_prompt_toggle" = "移动网络下提醒流量";
 "medley_data_prompt_hint" = "在移动网络或低数据模式下开始串烧前先提醒，串烧会提前下载接下来的整首歌。";
+"medley_segment_automatic" = "自动（整段高潮）";
+"medley_prefers_playback_range" = "优先播放自己设的时间段";
+"medley_prefers_playback_range_hint" = "歌曲设过「播放时间段」并且开着时，串烧直接播这一段，不再自动找高潮。";
+"medley_play_queue_automatic" = "串烧播放（高潮）";
+"medley_badge_automatic" = "串烧 · 每首高潮";
 "smart_nudge_section" = "播放时的智能提示";
 "smart_nudge_enabled" = "显示智能提示";
 "smart_nudge_footer" = "播放时偶尔在顶部弹出一条小提示，比如反复在听的歌要不要加入我喜欢。它不打断播放、几秒后自动消失，拒绝过的提示不会反复出现。所有判断都在本机完成。";

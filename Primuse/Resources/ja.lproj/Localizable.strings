@@ -4632,7 +4632,7 @@
 "medley_play_queue_format" = "メドレーで再生（%lld秒）";
 "medley_play_selection" = "メドレーで再生";
 "medley_segment_length" = "1曲あたりの長さ";
-"medley_settings_footer" = "メドレーは各曲の聴きどころを再生し、短いクロスフェードでつなぎます。再生履歴や Scrobble には記録されません。";
+"medley_settings_footer" = "メドレーは各曲のサビを見つけ（同期歌詞があれば最も繰り返される部分、なければ音声を解析）、その少し前からフェードインし、歌い終わったらフェードアウトして次の曲へつなぎます。「自動」では各曲の長さがサビに合わせて決まります。再生履歴や Scrobble には記録されません。";
 "medley_continue_full" = "この曲を最後まで聴く";
 "medley_continue_full_short" = "全部聴く";
 "medley_badge_format" = "メドレー・各 %lld 秒";
@@ -4642,6 +4642,11 @@
 "medley_data_dont_ask" = "再生して今後は確認しない";
 "medley_data_prompt_toggle" = "モバイルデータ通信時に確認";
 "medley_data_prompt_hint" = "モバイルデータ通信や省データモードでメドレーを始める前に確認します。メドレーは次の曲を丸ごと先にダウンロードします。";
+"medley_segment_automatic" = "自動（サビ全体）";
+"medley_prefers_playback_range" = "曲ごとの再生範囲を優先";
+"medley_prefers_playback_range_hint" = "曲に「再生範囲」が設定されオンになっているときは、サビを探さずにその範囲をそのまま再生します。";
+"medley_play_queue_automatic" = "メドレーで再生（サビ）";
+"medley_badge_automatic" = "メドレー・各曲のサビ";
 "smart_nudge_section" = "再生中の提案";
 "smart_nudge_enabled" = "提案を表示";
 "smart_nudge_footer" = "ときどき小さなバナーで、今に合った操作を提案します（何度も聴いている曲をお気に入りに追加するなど）。再生を妨げず、自動で消え、断った提案は繰り返しません。すべてこのデバイス上で判断します。";

@@ -4631,7 +4631,7 @@
 "medley_play_queue_format" = "Lire en medley (%lld s)";
 "medley_play_selection" = "Lire en medley";
 "medley_segment_length" = "Durée par morceau";
-"medley_settings_footer" = "Un medley joue le passage le plus reconnaissable de chaque morceau et les enchaîne par de courts fondus. Il n’est compté ni dans l’historique ni dans les scrobbles.";
+"medley_settings_footer" = "Un medley trouve le refrain de chaque morceau — par ses lignes les plus répétées si les paroles sont synchronisées, sinon en analysant l’audio —, l’amorce par un fondu juste avant et le quitte une fois terminé. En Automatique, chaque passage dure le temps de son refrain. Il n’est compté ni dans l’historique ni dans les scrobbles.";
 "medley_continue_full" = "Écouter ce morceau en entier";
 "medley_continue_full_short" = "En entier";
 "medley_badge_format" = "Medley · %lld s chacun";
@@ -4641,6 +4641,11 @@
 "medley_data_dont_ask" = "Lire, ne plus demander";
 "medley_data_prompt_toggle" = "Avertir en données cellulaires";
 "medley_data_prompt_hint" = "Demander avant de lancer un medley en données cellulaires ou en mode Données réduites, car il télécharge entièrement les morceaux suivants.";
+"medley_segment_automatic" = "Automatique (refrain entier)";
+"medley_prefers_playback_range" = "Préférer la plage de chaque morceau";
+"medley_prefers_playback_range_hint" = "Si un morceau a une plage de lecture activée, le medley joue exactement cette plage au lieu de chercher son refrain.";
+"medley_play_queue_automatic" = "Lire en medley (refrains)";
+"medley_badge_automatic" = "Medley · refrains";
 "smart_nudge_section" = "Suggestions pendant l’écoute";
 "smart_nudge_enabled" = "Afficher les suggestions";
 "smart_nudge_footer" = "De temps en temps, un petit bandeau propose ce qui convient au moment – par exemple ajouter aux favoris un morceau que vous réécoutez. Il n’interrompt rien, disparaît seul et ne revient pas après un refus. Tout est calculé sur cet appareil.";

@@ -187,6 +187,19 @@ final class TVMedleyPlayback {
                                       status: status, spectrum: audible.engine.spectrumLevels)
     }
 
+    /// Opens the prepared successor `songID` again, from the slice it has now,
+    /// unless the blend into it starts within `minimumLead` seconds: then it
+    /// keeps the slice it was opened with.
+    func refreshSuccessor(songID: String, minimumLead: Double) {
+        guard outgoing == nil, decks[1 - active].song?.id == songID else { return }
+        let current = decks[active]
+        if current.ready {
+            let remaining = max(0, current.engine.duration - current.engine.currentTime)
+            guard remaining > minimumLead else { return }
+        }
+        decks[1 - active].reset()
+    }
+
     func invalidateSuccessor() {
         guard outgoing == nil else { return }
         decks[1 - active].reset()

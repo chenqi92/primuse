@@ -4537,7 +4537,7 @@
 "medley_play_queue_format" = "Odtwórz jako składankę (%lld s)";
 "medley_play_selection" = "Odtwórz jako składankę";
 "medley_segment_length" = "Długość na utwór";
-"medley_settings_footer" = "Składanka odtwarza najbardziej rozpoznawalny fragment każdego utworu i łączy je krótkimi przejściami. Nie trafia do historii słuchania ani scrobbli.";
+"medley_settings_footer" = "Składanka znajduje refren każdego utworu — po najczęściej powtarzanych wersach, gdy tekst jest zsynchronizowany, a w przeciwnym razie z analizy dźwięku — wchodzi tuż przed nim i wycisza się, gdy się skończy. W trybie Automatycznie każdy fragment trwa tyle, co jego refren. Nie trafia do historii słuchania ani scrobbli.";
 "medley_continue_full" = "Słuchaj całego utworu";
 "medley_continue_full_short" = "Całość";
 "medley_badge_format" = "Składanka · po %lld s";
@@ -4547,6 +4547,11 @@
 "medley_data_dont_ask" = "Odtwórz i nie pytaj ponownie";
 "medley_data_prompt_toggle" = "Ostrzegaj przy danych komórkowych";
 "medley_data_prompt_hint" = "Pytaj przed uruchomieniem składanki na danych komórkowych lub w trybie niskiego zużycia danych, bo pobiera ona kolejne utwory w całości.";
+"medley_segment_automatic" = "Automatycznie (cały refren)";
+"medley_prefers_playback_range" = "Preferuj zakres ustawiony dla utworu";
+"medley_prefers_playback_range_hint" = "Gdy utwór ma włączony zakres odtwarzania, składanka odtwarza dokładnie ten zakres zamiast szukać refrenu.";
+"medley_play_queue_automatic" = "Odtwórz jako składankę (refreny)";
+"medley_badge_automatic" = "Składanka · refreny";
 "smart_nudge_section" = "Podpowiedzi podczas słuchania";
 "smart_nudge_enabled" = "Pokazuj podpowiedzi";
 "smart_nudge_footer" = "Od czasu do czasu mały baner podpowiada coś pasującego do chwili – na przykład dodanie do ulubionych utworu, którego słuchasz w kółko. Nie przerywa odtwarzania, znika sam i nie wraca po odrzuceniu. Wszystko jest liczone na tym urządzeniu.";

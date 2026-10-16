@@ -194,7 +194,7 @@ struct TVSettingsView: View {
                             )
                             settingDivider
                             navRow("shuffle", String(localized: "medley_title"),
-                                   String(format: String(localized: "seconds_value_format"), store.medleySegmentSeconds),
+                                   store.medleyLengthTitle,
                                    action: { showsMedleySettings = true })
                             settingDivider
                             navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),

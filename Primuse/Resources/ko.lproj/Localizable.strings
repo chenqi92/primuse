@@ -4631,7 +4631,7 @@
 "medley_play_queue_format" = "메들리로 재생 (%lld초)";
 "medley_play_selection" = "메들리로 재생";
 "medley_segment_length" = "곡당 길이";
-"medley_settings_footer" = "메들리는 각 곡에서 가장 익숙한 부분을 재생하고 짧은 크로스페이드로 이어 줍니다. 감상 기록과 스크로블에는 포함되지 않습니다.";
+"medley_settings_footer" = "메들리는 각 곡의 후렴을 찾아(싱크 가사가 있으면 가장 많이 반복되는 부분, 없으면 오디오 분석) 후렴 직전에 페이드인하고 끝나면 페이드아웃하며 다음 곡으로 이어 줍니다. '자동'에서는 곡마다 후렴 길이만큼 재생합니다. 감상 기록과 스크로블에는 포함되지 않습니다.";
 "medley_continue_full" = "이 곡 전체 듣기";
 "medley_continue_full_short" = "전체 듣기";
 "medley_badge_format" = "메들리 · 곡당 %lld초";
@@ -4641,6 +4641,11 @@
 "medley_data_dont_ask" = "재생하고 다시 묻지 않기";
 "medley_data_prompt_toggle" = "모바일 데이터 사용 시 알림";
 "medley_data_prompt_hint" = "모바일 데이터나 저데이터 모드에서 메들리를 시작하기 전에 묻습니다. 메들리는 다음 곡을 통째로 미리 내려받습니다.";
+"medley_segment_automatic" = "자동 (후렴 전체)";
+"medley_prefers_playback_range" = "곡별 재생 구간 우선";
+"medley_prefers_playback_range_hint" = "곡에 '재생 구간'이 설정되어 켜져 있으면 후렴을 찾지 않고 그 구간을 그대로 재생합니다.";
+"medley_play_queue_automatic" = "메들리로 재생 (후렴)";
+"medley_badge_automatic" = "메들리 · 곡별 후렴";
 "smart_nudge_section" = "재생 중 제안";
 "smart_nudge_enabled" = "제안 표시";
 "smart_nudge_footer" = "가끔 작은 배너로 지금에 맞는 동작을 제안합니다(자주 반복해 듣는 곡을 즐겨찾기에 추가 등). 재생을 방해하지 않고 저절로 사라지며, 거절한 제안은 반복하지 않습니다. 모든 판단은 이 기기에서 이뤄집니다.";

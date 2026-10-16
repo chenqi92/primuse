@@ -12,7 +12,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.speed", titleKey: "playback_rate", iosPage: .playback, macPage: .playback, keywords: ["speed", "倍速", "速度", "语速", "播放太快", "Playback Rate"]),
         SettingDefinition(id: "playback.spokenWordRate", titleKey: "spoken_word_playback_rate", iosPage: .playback, macPage: .playback, keywords: ["有声书", "听书", "倍速", "audiobook", "podcast", "speed"]),
         SettingDefinition(id: "playback.smartNudges", titleKey: "smart_nudge_enabled", iosPage: .playback, macPage: .playback, keywords: ["智能推荐", "提示", "弹窗", "建议", "我喜欢", "suggestion", "nudge", "recommendation"]),
-        SettingDefinition(id: "playback.medley", titleKey: "medley_segment_length", iosPage: .playback, macPage: .playback, keywords: ["串烧", "混音", "medley", "mashup", "片段"]),
+        SettingDefinition(id: "playback.medley", titleKey: "medley_segment_length", iosPage: .playback, macPage: .playback, keywords: ["串烧", "混音", "medley", "mashup", "片段", "高潮", "副歌", "chorus", "播放时间段"]),
         SettingDefinition(id: "playback.spokenWordSkip", titleKey: "spoken_word_skip_backward", iosPage: .playback, macPage: .playback, keywords: ["有声书", "快进", "快退", "15 秒", "30 秒", "audiobook", "skip"]),
         SettingDefinition(id: "playback.resetSpeed", titleKey: "playback_rate_reset", iosPage: .playback, macPage: nil, anchor: "playback.speed"),
         SettingDefinition(id: "playback.autoContinueSimilar", titleKey: "auto_continue_similar", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "相似歌曲", "自动续播", "继续播放", "播完", "Siri", "CarPlay"]),
