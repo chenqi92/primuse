@@ -345,6 +345,67 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertEqual(listed, ["/Music/A", "/Music/A/NewDisc"])
     }
 
+    func testFolderRescanKeepsTagsReadFromUnchangedFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FolderRescanTags-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Books\"]")
+        let book = RemoteFileItem(name: "Novel", path: "/Books/Novel", isDirectory: true, size: 0, modifiedDate: nil)
+        func chapter(_ name: String, size: Int64 = 1_000) -> RemoteFileItem {
+            RemoteFileItem(name: name, path: "/Books/Novel/" + name, isDirectory: false,
+                           size: size, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FolderRescanTestConnector(listings: [
+            "/Books": [book],
+            "/Books/Novel": [chapter("Chapter-001.mp3"), chapter("Chapter-002.mp3")],
+        ])
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let manager = SourceManager(sourcesProvider: { [] })
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        // What the backfill reads from each file's tags.
+        library.replaceSongs(library.songs.map { song in
+            var song = song
+            song.title = "Tagged " + song.title
+            song.albumTitle = "Tagged Book"
+            song.trackNumber = 7
+            song.duration = 30
+            return song
+        })
+        await library.waitForPendingIndex()
+        let first = try XCTUnwrap(library.songs.first { $0.filePath == "/Books/Novel/Chapter-001.mp3" })
+        let second = try XCTUnwrap(library.songs.first { $0.filePath == "/Books/Novel/Chapter-002.mp3" })
+
+        // Chapter 2 was replaced on the server; chapter 1 is untouched.
+        await connector.replaceListings([
+            "/Books": [book],
+            "/Books/Novel": [chapter("Chapter-001.mp3"), chapter("Chapter-002.mp3", size: 2_000)],
+        ])
+        XCTAssertTrue(scan.rescanFolder(
+            of: source,
+            request: SourceFolderRescanRequest(anchorSongID: first.id, levelsAbove: 0),
+            sourceManager: manager, library: library, sourceStore: store
+        ))
+        await scan.waitForActiveScansToComplete()
+
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        let kept = try XCTUnwrap(library.storedSong(id: first.id))
+        XCTAssertEqual(kept.title, first.title)
+        XCTAssertEqual(kept.albumTitle, "Tagged Book")
+        XCTAssertEqual(kept.trackNumber, 7)
+        XCTAssertEqual(kept.duration, 30)
+        let replaced = try XCTUnwrap(library.storedSong(id: second.id))
+        XCTAssertEqual(replaced.fileSize, 2_000)
+        XCTAssertEqual(replaced.duration, 0, "A replaced file is read again")
+        XCTAssertNil(replaced.albumTitle)
+    }
+
     func testDirectoryPickerRescanStartsAtTheNamedFolderOrItsNearestKnownParent() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("PickerRescan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

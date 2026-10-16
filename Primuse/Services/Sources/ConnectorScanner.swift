@@ -388,10 +388,7 @@ actor ConnectorScanner {
                     }
                     for song in cueSongs {
                         if let existing = existingSongs.first(where: { $0.id == song.id }) {
-                            songsByID[song.id] = SongUserMetadataPolicy.preservingUserEdits(
-                                from: existing,
-                                in: song
-                            )
+                            songsByID[song.id] = carriedOverCueTrack(existing: existing, rebuilt: song, cueImage: cueImage)
                         } else {
                             songsByID[song.id] = song
                         }
@@ -411,13 +408,10 @@ actor ConnectorScanner {
                 let songID = preferredID ?? generatedSongID(for: item)
                 let incoming = buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
-                    let previousTitle = old.title
-                    if !ServerSongCatalogMergePolicy.contentChanged(existing: old, incoming: incoming) {
-                        refreshSuspiciousSourceTitle(in: &old, from: item)
-                    }
-                    // A corrected title still differs from the bare filename;
-                    // that difference must not discard the verified tags.
-                    if old.title != previousTitle || !songContentChanged(existing: old, incoming: incoming) {
+                    // `incoming` is a bare row named after the file; the stored
+                    // row's title, album and track came from its tags. Only the
+                    // file itself decides whether those tags still stand.
+                    if !Self.fileIdentityChanged(existing: old, item: item) {
                         old.filePath = item.path
                         old.fileSize = item.size
                         old.lastModified = item.modifiedDate ?? old.lastModified
@@ -1006,38 +1000,14 @@ actor ConnectorScanner {
                                     for cueSong in cueSongs {
                                         encounteredSongIDs.insert(cueSong.id)
                                         if let existing = existingByID[cueSong.id] {
-                                            if songContentChanged(existing: existing, incoming: cueSong),
-                                               let index = allSongIndexByID[cueSong.id] {
-                                                var replacement = cueSong
-                                                replacement.dateAdded = existing.dateAdded
-                                                replacement = SongUserMetadataPolicy.preservingUserEdits(
-                                                    from: existing,
-                                                    in: replacement
+                                            if let index = allSongIndexByID[cueSong.id] {
+                                                let carried = carriedOverCueTrack(
+                                                    existing: existing,
+                                                    rebuilt: cueSong,
+                                                    cueImage: cueImage
                                                 )
-                                                allSongs[index] = replacement
-                                                recordRow(replacement, for: cueSong.id)
-                                            } else if let index = allSongIndexByID[cueSong.id] {
-                                                var refreshed = existing
-                                                refreshed.filePath = cueSong.filePath
-                                                refreshed.fileSize = cueSong.fileSize
-                                                refreshed.lastModified = cueSong.lastModified ?? existing.lastModified
-                                                refreshed.revision = cueSong.revision ?? existing.revision
-                                                applySidecarHints(from: cueImage, to: &refreshed)
-                                                // 整轨的提示只带整张专辑的同名歌词;每一轨按自己
-                                                // 挑出的分轨歌词对账。
-                                                refreshed.lyricsFileName = SourceSidecarReferencePolicy
-                                                    .reconciledReference(
-                                                        existing: existing.lyricsFileName,
-                                                        incoming: cueSong.lyricsFileName,
-                                                        currentParentPath: cueImage.parentPath
-                                                            ?? (cueImage.path as NSString).deletingLastPathComponent,
-                                                        authoritative: cueImage.sidecarHints?.isAuthoritative == true
-                                                    )
-                                                refreshed.cueSheetPath = cueSong.cueSheetPath
-                                                refreshed.cueStartTime = cueSong.cueStartTime
-                                                refreshed.cueEndTime = cueSong.cueEndTime
-                                                allSongs[index] = refreshed
-                                                recordRow(refreshed, for: cueSong.id)
+                                                allSongs[index] = carried
+                                                recordRow(carried, for: cueSong.id)
                                             }
                                             continue
                                         }
@@ -1066,18 +1036,7 @@ actor ConnectorScanner {
                                     // Aliyun / Dropbox listFiles return nil mtime
                                     // and a same-size overwrite would slip past the
                                     // first two checks.
-                                    let sizeChanged = item.size > 0 && existing.fileSize > 0 && item.size != existing.fileSize
-                                    let mtimeChanged: Bool = {
-                                        guard let a = item.modifiedDate, let b = existing.lastModified else { return false }
-                                        return a != b
-                                    }()
-                                    let revisionChanged: Bool = {
-                                        guard let a = item.revision, let b = existing.revision else { return false }
-                                        return a != b
-                                    }()
-                                    let revisionAdded = item.revision != nil && existing.revision == nil
-                                    let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
-                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded) {
+                                    if !Self.fileIdentityChanged(existing: existing, item: item) {
                                         if let idx = allSongIndexByID[songID] {
                                             var refreshed = existing
                                             refreshed.filePath = item.path
@@ -1578,6 +1537,54 @@ actor ConnectorScanner {
             incoming[index].id = existing.id
             incoming[index].dateAdded = existing.dateAdded
         }
+    }
+
+    /// A CUE track already in the library, met again in a listing of its
+    /// image. While the image and the track's cue entry are unchanged the row
+    /// keeps what was read into it and only follows the image's path,
+    /// identity and sidecars; otherwise the rebuilt track replaces it.
+    private func carriedOverCueTrack(existing: Song, rebuilt cueSong: Song, cueImage: RemoteFileItem) -> Song {
+        if songContentChanged(existing: existing, incoming: cueSong) {
+            var replacement = cueSong
+            replacement.dateAdded = existing.dateAdded
+            return SongUserMetadataPolicy.preservingUserEdits(from: existing, in: replacement)
+        }
+        var refreshed = existing
+        refreshed.filePath = cueSong.filePath
+        refreshed.fileSize = cueSong.fileSize
+        refreshed.lastModified = cueSong.lastModified ?? existing.lastModified
+        refreshed.revision = cueSong.revision ?? existing.revision
+        applySidecarHints(from: cueImage, to: &refreshed)
+        // 整轨的提示只带整张专辑的同名歌词;每一轨按自己挑出的分轨歌词对账。
+        refreshed.lyricsFileName = SourceSidecarReferencePolicy.reconciledReference(
+            existing: existing.lyricsFileName,
+            incoming: cueSong.lyricsFileName,
+            currentParentPath: cueImage.parentPath ?? (cueImage.path as NSString).deletingLastPathComponent,
+            authoritative: cueImage.sidecarHints?.isAuthoritative == true
+        )
+        refreshed.cueSheetPath = cueSong.cueSheetPath
+        refreshed.cueStartTime = cueSong.cueStartTime
+        refreshed.cueEndTime = cueSong.cueEndTime
+        return refreshed
+    }
+
+    /// Whether the file at a stored row's path was replaced: its size,
+    /// modification time or provider revision differ, or the listing reports
+    /// one of the latter two for the first time. The tags read into the row
+    /// never count — a bare row built from the file name never matches them.
+    private static func fileIdentityChanged(existing: Song, item: RemoteFileItem) -> Bool {
+        let sizeChanged = item.size > 0 && existing.fileSize > 0 && item.size != existing.fileSize
+        let mtimeChanged: Bool = {
+            guard let a = item.modifiedDate, let b = existing.lastModified else { return false }
+            return a != b
+        }()
+        let revisionChanged: Bool = {
+            guard let a = item.revision, let b = existing.revision else { return false }
+            return a != b
+        }()
+        let revisionAdded = item.revision != nil && existing.revision == nil
+        let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
+        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
     }
 
     private func songContentChanged(existing: Song, incoming: Song) -> Bool {
