@@ -209,7 +209,6 @@ struct HomeBooksInProgressStrip: View {
             VStack(alignment: .leading, spacing: 10) {
                 HomeSpaceSectionHeader(
                     titleKey: "home_books_in_progress_title",
-                    space: .spokenWord,
                     actionKey: "home_books_open_shelf",
                     action: { openSpace(.spokenWord) }
                 )
@@ -259,7 +258,6 @@ struct HomeRadioSpaceSection: View {
             } else {
                 HomeSpaceSectionHeader(
                     titleKey: "listening_space_radio",
-                    space: .radio,
                     actionKey: "home_radio_open_all",
                     action: { openSpace(.radio) }
                 )
@@ -303,7 +301,6 @@ struct HomeAudiobooksSection: View {
             VStack(alignment: .leading, spacing: 10) {
                 HomeSpaceSectionHeader(
                     titleKey: "home_section_audiobooks",
-                    space: .spokenWord,
                     actionKey: "home_books_open_shelf",
                     action: { openSpace(.spokenWord) }
                 )
@@ -393,16 +390,13 @@ extension HomeSectionKind {
 
 struct HomeSpaceSectionHeader: View {
     let titleKey: LocalizedStringKey
-    let space: ListeningSpace
     let actionKey: LocalizedStringKey
     let action: () -> Void
 
     var body: some View {
+        // 标题前不放空间色的小圆点(#313):跟随封面时几类颜色可能一样,点就分不出什么;
+        // 首页别的区块标题也没有点,去掉后标题一致。
         HStack(alignment: .firstTextBaseline) {
-            Circle()
-                .fill(space.tint)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
             Text(titleKey)
                 .font(.title3.weight(.bold))
             Spacer()

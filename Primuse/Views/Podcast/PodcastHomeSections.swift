@@ -36,7 +36,6 @@ struct HomePodcastsSection: View {
             } else {
                 HomeSpaceSectionHeader(
                     titleKey: "home_section_podcasts",
-                    space: .podcast,
                     actionKey: "home_podcasts_open_all",
                     action: { openSpace(.podcast) }
                 )
