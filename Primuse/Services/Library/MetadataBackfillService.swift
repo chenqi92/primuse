@@ -2427,8 +2427,18 @@ final class MetadataBackfillService {
         titleCheckedIDs.formUnion(songIDs)
         guard titleCheckedIDs.count != previousTitleCount else { return }
         saveInspectionState()
-        refreshRemainingCounts(force: true)
+        // 扫描每带回一批读过标签的歌都会走到这里, 节奏只受主线程忙闲限制;
+        // 原来每次都在主线程上整库重算剩余数(几万首要几百毫秒)。改到后台算,
+        // 连着到来的几批只算一次。
+        guard scannerInspectionRecountTask == nil else { return }
+        scannerInspectionRecountTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self else { return }
+            self.scannerInspectionRecountTask = nil
+            await self.refreshRemainingCountsOffMain(force: true)
+        }
     }
+    @ObservationIgnored private var scannerInspectionRecountTask: Task<Void, Never>?
 
     /// True when the system background-processing window this service was
     /// running in has already expired, so the system is taking the execution
@@ -6128,13 +6138,17 @@ final class MetadataBackfillService {
         fileSize: Int64,
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> Int? {
-        let bytes = [UInt8](head)
+        // 这个函数随所在的类跑在主线程上: 不能把整段首段(带封面时上 MB)拷成
+        // [UInt8], 只按需取 4 字节块头; 帧扫描交给 `inspectFLACFrames`。
         var fetchedHeaders: [Int: [UInt8]] = [:]
         var audioStart: Int?
         do {
             for _ in 0..<8 where audioStart == nil {
                 let located = FLACEffectiveBitDepthParser.audioOffset { offset in
-                    if offset >= 0, offset + 4 <= bytes.count { return Array(bytes[offset..<(offset + 4)]) }
+                    if offset >= 0, offset + 4 <= head.count {
+                        let start = head.startIndex + offset
+                        return Array(head[start..<(start + 4)])
+                    }
                     return fetchedHeaders[offset]
                 }
                 switch located {
@@ -6153,22 +6167,37 @@ final class MetadataBackfillService {
             var length = Int64(remoteFLACFrameInspectionByteCount)
             if fileSize > 0 { length = min(length, fileSize - Int64(audioStart)) }
             guard length > 0 else { return nil }
-            let frames: Data
-            if audioStart + Int(length) <= bytes.count {
-                frames = head.subdata(in: (head.startIndex + audioStart)..<(head.startIndex + audioStart + Int(length)))
-            } else {
-                frames = try await fetch(Int64(audioStart), length)
+            if audioStart + Int(length) <= head.count {
+                let start = head.startIndex + audioStart
+                return await inspectFLACFrames(
+                    in: head,
+                    range: start..<(start + Int(length)),
+                    declaredBitDepth: declaredBitDepth
+                )
             }
-            return FLACEffectiveBitDepthParser.effectiveBitDepth(
-                frames: frames,
-                declaredBitDepth: declaredBitDepth
-            )?.effectiveBitDepth
+            let frames = try await fetch(Int64(audioStart), length)
+            return await inspectFLACFrames(in: frames, range: nil, declaredBitDepth: declaredBitDepth)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             plog("📥 Backfill: FLAC bit-depth probe skipped: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 逐字节找帧同步码、核对 CRC, 几百 KB 要走一遍(Debug 包里慢得多), 放在主线程上
+    /// 补读每读到一首高位深 FLAC 就顿一下。
+    @concurrent
+    private nonisolated static func inspectFLACFrames(
+        in data: Data,
+        range: Range<Int>?,
+        declaredBitDepth: Int
+    ) async -> Int? {
+        let frames = range.map { data.subdata(in: $0) } ?? data
+        return FLACEffectiveBitDepthParser.effectiveBitDepth(
+            frames: frames,
+            declaredBitDepth: declaredBitDepth
+        )?.effectiveBitDepth
     }
 
     /// 远端只补读这么多音频帧:补零的 24 bit 立体声一帧十来 KB,够看二三十帧。

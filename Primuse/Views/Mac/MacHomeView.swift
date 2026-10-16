@@ -420,7 +420,7 @@ struct MacHomeView: View {
         case .recentlyAdded: showRecentlyAdded
         case .recentlyPlayed: showContinueListening
         case .radio: showRadio && !radioStationsStore.stations.isEmpty
-        case .books: showBooks && !library.spokenWordSongs.isEmpty
+        case .books: showBooks && library.hasSpokenWordContent
         case .podcasts: showPodcasts
         case .topArtists: showTopArtists
         }

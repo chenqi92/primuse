@@ -119,7 +119,10 @@ final class SpotlightIndexService {
             generation == .max ? 1 : generation + 1,
             forKey: synchronizationGenerationKey
         )
-        defaults.set(true, forKey: synchronizationPendingKey)
+        // 已经记着待同步就不再写一遍, 理由同 `LibrarySearchIndex.persistLibraryChangePending`。
+        if defaults.object(forKey: synchronizationPendingKey) as? Bool != true {
+            defaults.set(true, forKey: synchronizationPendingKey)
+        }
     }
 
     private nonisolated static var synchronizationGeneration: Int {

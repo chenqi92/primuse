@@ -958,7 +958,7 @@ struct ContentView: View {
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
         // 没有有声内容时不摆这个入口。
-        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
+        .filter { $0 != .spokenWord || library.hasSpokenWordContent }
     }
 
     private var minimalMusicSections: [LibrarySection] {

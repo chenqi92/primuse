@@ -542,7 +542,7 @@ struct LibraryView: View {
         )
         // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
         // 给它们摆一个永远空着的入口是噪音。
-        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
+        .filter { $0 != .spokenWord || library.hasSpokenWordContent }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -1593,7 +1593,7 @@ struct LibraryView: View {
             // 「歌曲」只数音乐,有声内容在有声那一页按书计。
             return countText(library.musicSongs.count, unitKey: "songs_count")
         case .spokenWord:
-            return countText(library.spokenWordSongs.count, unitKey: "songs_count")
+            return countText(library.spokenWordSongCount, unitKey: "songs_count")
         case .albums:
             return countText(albums.count, unitKey: "albums_count")
         case .artists:

@@ -7,6 +7,87 @@ import UIKit
 import AppKit
 #endif
 
+/// 封面视图要读的几项动态封面偏好, 整个 App 共用一份。
+///
+/// 每个 `@AppStorage` 都是一个独立的偏好观察者, 而这个 App 的键都带点号, SwiftUI 只能
+/// 退回到监听整个 UserDefaults 的变更通知: 任何一处写偏好(扫描、补读标签写回时记的
+/// 索引标记也算), 屏幕上每张封面的这几个属性都要各自醒来重读一遍, 一屏几十张封面就是
+/// 上百次, 都压在写偏好的那一刻。这里只监听一次, 值真变了才通知读过它的视图。
+@MainActor
+@Observable
+final class AnimatedArtworkPreferences {
+    static let shared = AnimatedArtworkPreferences()
+
+    private(set) var animatedArtworkEnabled: Bool
+    private(set) var animatedArtworkUnmeteredOnly: Bool
+    private(set) var motionArtworkServiceEnabled: Bool
+    private(set) var motionArtworkServiceEndpoint: String
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var observer: NSObjectProtocol?
+
+    private init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        animatedArtworkEnabled = Self.bool(
+            PlayerAppearancePreferences.animatedArtworkEnabledKey,
+            default: PlayerAppearancePreferences.animatedArtworkEnabledByDefault,
+            in: defaults
+        )
+        animatedArtworkUnmeteredOnly = Self.bool(
+            PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey,
+            default: PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault,
+            in: defaults
+        )
+        motionArtworkServiceEnabled = Self.bool(
+            PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+            default: PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault,
+            in: defaults
+        )
+        motionArtworkServiceEndpoint = defaults.string(
+            forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey
+        ) ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+        observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            // 变更通知在写偏好的那条线程上同步送达。
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.refresh() }
+            } else {
+                Task { @MainActor in self?.refresh() }
+            }
+        }
+    }
+
+    private func refresh() {
+        let enabled = Self.bool(
+            PlayerAppearancePreferences.animatedArtworkEnabledKey,
+            default: PlayerAppearancePreferences.animatedArtworkEnabledByDefault,
+            in: defaults
+        )
+        if animatedArtworkEnabled != enabled { animatedArtworkEnabled = enabled }
+        let unmeteredOnly = Self.bool(
+            PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey,
+            default: PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault,
+            in: defaults
+        )
+        if animatedArtworkUnmeteredOnly != unmeteredOnly { animatedArtworkUnmeteredOnly = unmeteredOnly }
+        let serviceEnabled = Self.bool(
+            PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+            default: PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault,
+            in: defaults
+        )
+        if motionArtworkServiceEnabled != serviceEnabled { motionArtworkServiceEnabled = serviceEnabled }
+        let endpoint = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+            ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+        if motionArtworkServiceEndpoint != endpoint { motionArtworkServiceEndpoint = endpoint }
+    }
+
+    private static func bool(_ key: String, default value: Bool, in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? value
+    }
+}
+
 enum PlayerAppearancePreferences {
     /// 手机播放页转成横屏时直接进入所选的全屏效果，转回竖屏时退出(#191)。默认关：
     /// 横屏另有自己的双栏播放页(封面与控件在左、歌词在右)。

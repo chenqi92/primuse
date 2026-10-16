@@ -75,14 +75,12 @@ struct CachedArtworkView: View {
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.displayScale) private var displayScale
-    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
-    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
-    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
-    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+    // 不用 @AppStorage: 每张封面四个偏好观察者, 一屏几十张, 任何一处写偏好都要全部醒来一遍。
+    // 见 `AnimatedArtworkPreferences`。
+    private var animatedArtworkEnabled: Bool { AnimatedArtworkPreferences.shared.animatedArtworkEnabled }
+    private var animatedArtworkUnmeteredOnly: Bool { AnimatedArtworkPreferences.shared.animatedArtworkUnmeteredOnly }
+    private var motionArtworkServiceEnabled: Bool { AnimatedArtworkPreferences.shared.motionArtworkServiceEnabled }
+    private var motionArtworkServiceEndpoint: String { AnimatedArtworkPreferences.shared.motionArtworkServiceEndpoint }
     // Keep the bitmap in a reference holder: closures retained by a lazy
     // container otherwise capture old View / State values containing it.
     @State private var decodedArtworkState = DecodedArtworkState()

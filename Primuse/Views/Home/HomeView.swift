@@ -1278,7 +1278,7 @@ struct HomeView: View {
         #endif
         return HomeFilterBarConfiguration.decode(homeFilterBarRawValue).visibleSpaces(
             sectionShown: isFilterSectionShown,
-            isAvailable: { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
+            isAvailable: { $0 != .spokenWord || library.hasSpokenWordContent }
         )
     }
 
@@ -1837,7 +1837,7 @@ struct HomeView: View {
                 )
             }
         case .audiobooks:
-            if showAudiobooks, showsCrossSpace, !library.spokenWordSongs.isEmpty {
+            if showAudiobooks, showsCrossSpace, library.hasSpokenWordContent {
                 HomeAudiobooksSection(
                     snapshot: books,
                     limit: sectionItemCount(.audiobooks, 10),
@@ -2908,7 +2908,7 @@ struct HomeView: View {
         case .continueListening, .stats:
             return !library.recentPlaybackSongIDsForSync.isEmpty
         case .booksInProgress, .audiobooks:
-            return !library.spokenWordSongs.isEmpty
+            return library.hasSpokenWordContent
         default:
             return true
         }

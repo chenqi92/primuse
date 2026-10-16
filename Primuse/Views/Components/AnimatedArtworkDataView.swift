@@ -25,8 +25,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
     let maximumPixelSize: Int
     @ViewBuilder let fallback: () -> Fallback
 
-    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
-    private var isEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    private var isEnabled: Bool { AnimatedArtworkPreferences.shared.animatedArtworkEnabled }
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages

@@ -294,7 +294,6 @@ struct PlaylistArtworkView: View {
         [
             playlist.id,
             String(library.playlistCollectionRevision),
-            library.songReplacementToken.uuidString,
             String(library.artworkOverrideRevision),
             String(NetworkMonitor.shared.pathGeneration),
             String(reloadRevision),
@@ -325,7 +324,6 @@ struct PlaylistArtworkView: View {
             guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
             let cacheDiscriminator = [
                 String(playlistSnapshot.updatedAt.timeIntervalSinceReferenceDate),
-                library.songReplacementToken.uuidString,
                 String(reloadRevision),
             ].joined(separator: "#")
             if resolvedPlanSignature != currentPlan.signature {
@@ -377,6 +375,13 @@ struct PlaylistArtworkView: View {
                 uploadedImage = $0
             }
         }
+        .onChange(of: library.songReplacementToken) { _, _ in
+            // 只在这一批里有本歌单的歌时才重来。原来替换令牌直接进任务键和缓存键:
+            // 后台每写回一批标签(不管是谁的歌), 屏幕上每个歌单封面都整套重排、
+            // 换缓存键重新解码再淡入一遍。
+            guard replacementAffectsPlaylist(library.lastReplacedSongIDs) else { return }
+            reloadRevision &+= 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
             guard notification(
                 note,
@@ -395,6 +400,17 @@ struct PlaylistArtworkView: View {
             ) else { return }
             reloadRevision &+= 1
         }
+    }
+
+    private func replacementAffectsPlaylist(_ replacedIDs: Set<String>) -> Bool {
+        guard !replacedIDs.isEmpty else { return false }
+        let memberIDs = library.rawSongIDs(forPlaylist: playlist.id)
+        guard !memberIDs.isEmpty else { return false }
+        if memberIDs.count <= replacedIDs.count {
+            return memberIDs.contains { replacedIDs.contains($0) }
+        }
+        let members = Set(memberIDs)
+        return replacedIDs.contains { members.contains($0) }
     }
 
     @ViewBuilder

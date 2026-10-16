@@ -690,7 +690,11 @@ actor LibrarySearchIndex {
         let current = defaults.integer(forKey: preparationGenerationKey)
         let generation = LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: current)
         defaults.set(generation, forKey: preparationGenerationKey)
-        defaults.set(true, forKey: preparationPendingKey)
+        // 已经记着待重建就不再写一遍: 每写一次偏好, 屏幕上所有 `@AppStorage`
+        // 都要醒来重读, 而补读、扫描每写回一批都会走到这里。
+        if defaults.object(forKey: preparationPendingKey) as? Bool != true {
+            defaults.set(true, forKey: preparationPendingKey)
+        }
         return generation
     }
 
@@ -3880,6 +3884,8 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var musicSongsRevision: UInt64 = 0
     /// Set at each publish: the music songs are the visible songs.
     @ObservationIgnored private var musicSongsSharesVisibleSongs = false
+    /// 共用可见集时, 上次通知 `musicSongs` 读者那一刻的可见集。
+    @ObservationIgnored private weak var musicSongsPublishedVisibleReference: LibraryArrayReference<Song>?
     /// 扫描分批入库期间共用: 新存进来的歌的重复字段(源 ID、专辑/歌手名与 ID、
     /// 流派、封面文件名、拼音…)和前几批并成一份。装载时 `loadSongs` 也这么做,
     /// 没有这一步时首轮扫描几十万首要到下次启动才省下这一半内存。
@@ -3893,9 +3899,21 @@ final class MusicLibrary {
             let previous = spokenWordSongsReference
             spokenWordSongsReference = LibraryArrayReference(newValue)
             spokenWordContentRevision &+= 1
+            if hasSpokenWordContent == newValue.isEmpty {
+                hasSpokenWordContent = !newValue.isEmpty
+            }
+            if spokenWordSongCount != newValue.count {
+                spokenWordSongCount = newValue.count
+            }
             LibraryArrayReclaimer.release(previous)
         }
     }
+    /// 书架上有没有东西。根视图、首页、资料库只问这一句时读它: 读
+    /// `spokenWordSongs.isEmpty` 会订阅整份数组, 后台每换一次可见集
+    /// (扫描、补读标签)整个标签页都跟着重算。
+    private(set) var hasSpokenWordContent = false
+    /// 书架条数, 只在条数真变了时写。理由同上。
+    private(set) var spokenWordSongCount = 0
     @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = [] {
         didSet {
             // Music rankings and stats read the split from the play history.
@@ -4164,6 +4182,36 @@ final class MusicLibrary {
         let preferredArtworkSongIDByAlbumID: [String: String]
         let preferredArtworkSongIDByArtistID: [String: String]
         let orderedIDsChanged: Bool
+    }
+    /// 后台整库重建与发起时已发布的那份内容相同的集合, 存的是当时那份的引用。
+    ///
+    /// 每次重建都是新算出来的数组, 原样赋上去就是一个新引用, 读过它的视图
+    /// (专辑墙、艺人列表、首页、侧栏)全部重算 —— 而补读时长、码率这类字段时
+    /// 艺人、流派、书架多半一样没变。内容比较放在后台线程上做; 落地时这份引用
+    /// 还是已发布的那份(期间没被别的路径换掉), 才保留原数组不发布。
+    fileprivate struct UnchangedVisibleCollections: Sendable {
+        var albums: LibraryArrayReference<Album>?
+        var artists: LibraryArrayReference<Artist>?
+        var albumArtists: LibraryArrayReference<Artist>?
+        var genres: LibraryArrayReference<LibraryGenre>?
+        var spokenWordSongs: LibraryArrayReference<Song>?
+
+        static let none = UnchangedVisibleCollections()
+
+        /// 按内容比一遍, 只留下相同的那几份。在后台线程上调用。
+        func keepingUnchanged(comparedWith prepared: PreparedVisibleCache) -> Self {
+            Self(
+                albums: albums.flatMap { $0.value == prepared.albums ? $0 : nil },
+                artists: artists.flatMap { $0.value == prepared.artists ? $0 : nil },
+                albumArtists: albumArtists.flatMap {
+                    $0.value == prepared.albumArtistIndex.artists ? $0 : nil
+                },
+                genres: genres.flatMap { $0.value == prepared.genres ? $0 : nil },
+                spokenWordSongs: spokenWordSongs.flatMap {
+                    $0.value == prepared.spokenWordSongs ? $0 : nil
+                }
+            )
+        }
     }
     /// Changes only when the ordered set of visible song IDs changes. Views
     /// that cache a sorted song list observe this lightweight counter instead
@@ -4583,7 +4631,12 @@ final class MusicLibrary {
         applyPreparedVisibleCache(prepared)
     }
 
-    private func applyPreparedVisibleCache(_ prepared: PreparedVisibleCache) {
+    /// - Parameter unchanged: 与已发布那份内容相同、不必重新发布的集合(只有后台整库
+    ///   重建会算这个)。引用还是已发布的那份才算数。
+    private func applyPreparedVisibleCache(
+        _ prepared: PreparedVisibleCache,
+        unchanged: UnchangedVisibleCollections = .none
+    ) {
         visibleContentClassification = prepared.spokenWordClassification
         let signpost = PrimuseSignposts.hitch.beginInterval("library.applyVisibleCache")
         defer { PrimuseSignposts.hitch.endInterval("library.applyVisibleCache", signpost) }
@@ -4634,11 +4687,34 @@ final class MusicLibrary {
                         prepared.preferredArtworkSongIDByArtistID,
                     ]
                 )
-        visibleSongs = prepared.songs
+        // 每赋一次就是一个新引用, 读过它的视图全部重算。没有停用的源时重建拿的
+        // 就是整库那份数组本身, 补读写回早已把可见集换成了同一份: 同一块缓冲
+        // 就不再发布。
+        if !sharesStorage(visibleSongs, prepared.songs) {
+            visibleSongs = prepared.songs
+        }
         let musicShares = sharesStorage(prepared.musicSongs, prepared.songs)
+        // 与可见集共用时, 读 `musicSongs` 的视图看到的就是可见集; 上次通知它们时
+        // 已经是这一份可见集, 就不必再通知。补读写回换可见集时不通知这些读者,
+        // 要等到这里, 所以比的是「上次通知时的那份」而不是「这次换没换」。
+        let musicSongsStillCurrent = musicShares
+            && musicSongsSharesVisibleSongs
+            && musicSongsPublishedVisibleReference === visibleSongsReference
         musicSongsSharesVisibleSongs = musicShares
-        musicSongs = musicShares ? [] : prepared.musicSongs
-        spokenWordSongs = prepared.spokenWordSongs
+        if !musicSongsStillCurrent {
+            musicSongs = musicShares ? [] : prepared.musicSongs
+            musicSongsPublishedVisibleReference = musicShares ? visibleSongsReference : nil
+        }
+        let spokenWordSongsUnchanged =
+            (unchanged.spokenWordSongs.map { $0 === spokenWordSongsReference } ?? false)
+                || (spokenWordSongs.isEmpty && prepared.spokenWordSongs.isEmpty)
+        if !spokenWordSongsUnchanged {
+            spokenWordSongs = prepared.spokenWordSongs
+        } else if spokenWordBookIDs != prepared.spokenWordBookIDs
+                    || spokenWordDisplayTitles != prepared.spokenWordDisplayTitles {
+            // 章节一首没变、分书变了(目录标签、分类规则): 按修订号缓存分组的书架照样要重分。
+            spokenWordContentRevision &+= 1
+        }
         spokenWordSongIDs = prepared.spokenWordSongIDs
         // 有书或节目这次分组里没了:多半是换了 id(读出第一集的专辑,按目录成书改按专辑成书),
         // 按章节找出接手的书,把按书 id 记的设置带过去。
@@ -4655,17 +4731,27 @@ final class MusicLibrary {
         spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
         spokenWordBookIDSet = prepared.spokenWordBookIDSet
         localPodcastBookIDSet = prepared.podcastBookIDSet
-        spokenWordBookCount = prepared.spokenWordBookIDSet.count
+        if spokenWordBookCount != prepared.spokenWordBookIDSet.count {
+            spokenWordBookCount = prepared.spokenWordBookIDSet.count
+        }
         if booksWentAway || showsWentAway {
             carryRenamedSpokenWordBooks(
                 books: booksWentAway ? (previousBookIDs, prepared.spokenWordBookIDs) : nil,
                 shows: showsWentAway ? (previousShowIDs, prepared.podcastBookIDs) : nil
             )
         }
-        visibleAlbums = prepared.albums
-        visibleArtists = prepared.artists
-        visibleAlbumArtists = prepared.albumArtistIndex.artists
-        visibleGenres = prepared.genres
+        if unchanged.albums.map({ $0 !== visibleAlbumsReference }) ?? true {
+            visibleAlbums = prepared.albums
+        }
+        if unchanged.artists.map({ $0 !== visibleArtistsReference }) ?? true {
+            visibleArtists = prepared.artists
+        }
+        if unchanged.albumArtists.map({ $0 !== visibleAlbumArtistsReference }) ?? true {
+            visibleAlbumArtists = prepared.albumArtistIndex.artists
+        }
+        if unchanged.genres.map({ $0 !== visibleGenresReference }) ?? true {
+            visibleGenres = prepared.genres
+        }
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
         visibleAlbumByID = prepared.albumByID
@@ -11340,6 +11426,9 @@ final class MusicLibrary {
         let disabledSourceIDs: Set<String>
         let spokenWordClassification: SpokenWordClassificationInputs
         let previousVisibleSongs: [Song]
+        /// 发起重建时已发布的几份派生集合。后台算完拿它们比内容,
+        /// 见 `UnchangedVisibleCollections`。
+        let previousCollections: UnchangedVisibleCollections
     }
 
     private struct DerivedIndexComputation: Sendable {
@@ -11353,6 +11442,8 @@ final class MusicLibrary {
         /// The request's songs with the corrections applied, when there were
         /// any; the visible cache was built from this very array.
         var correctedSongs: [Song]? = nil
+        /// 与发起时已发布那份内容相同的集合。
+        var unchangedCollections: UnchangedVisibleCollections = .none
     }
 
     /// 上一次后台整库重建花了多久：扫描期间的合并间隔按它放宽（大曲库每次重建要好几秒）。
@@ -11475,7 +11566,14 @@ final class MusicLibrary {
             albumArtistFolders: albumArtistFolders,
             disabledSourceIDs: disabledSourceIDs,
             spokenWordClassification: SpokenWordStore.shared.classificationSnapshot,
-            previousVisibleSongs: visibleSongs
+            previousVisibleSongs: visibleSongs,
+            previousCollections: UnchangedVisibleCollections(
+                albums: visibleAlbumsReference,
+                artists: visibleArtistsReference,
+                albumArtists: visibleAlbumArtistsReference,
+                genres: visibleGenresReference,
+                spokenWordSongs: spokenWordSongsReference
+            )
         )
 
         switch rebuildIndexWorkState.submit(generation: request.generation) {
@@ -11537,16 +11635,54 @@ final class MusicLibrary {
                             albumIDCorrections: result.albumIDCorrections,
                             visibleCache: visibleCache,
                             elapsedSeconds: ProcessInfo.processInfo.systemUptime - startedAt,
-                            correctedSongs: result.albumIDCorrections.isEmpty ? nil : correctedSongs
+                            correctedSongs: result.albumIDCorrections.isEmpty ? nil : correctedSongs,
+                            unchangedCollections: request.previousCollections
+                                .keepingUnchanged(comparedWith: visibleCache)
                         )
                     }
                 }
             }
+            #if os(iOS) || os(macOS)
+            if computation != nil, !Task.isCancelled {
+                let held = await Self.waitForScrollToSettle()
+                if held >= 0.5 {
+                    plog(String(format: "⏸ Library: held index publish %.1fs while the list scrolled", held))
+                }
+            }
+            #endif
             await MainActor.run { [weak self] in
                 self?.finishIndexRebuild(request: request, computation: computation)
             }
         }
     }
+
+    #if os(iOS) || os(macOS)
+    /// 后台重建算好时用户正在滑动, 就先压着: 换上新的可见集、专辑、艺人会让
+    /// 正在滑的那一页整页重算。停稳后再落地, 一直在滑最多压
+    /// `LibraryPublishTimingPolicy.maximumScrollHold`。有更新的重建(本任务被取消)
+    /// 时立刻返回。返回压了多久。
+    private nonisolated static func waitForScrollToSettle() async -> TimeInterval {
+        let startedAt = Date()
+        while !Task.isCancelled {
+            let gate = await MainActor.run {
+                LibraryPublishTimingPolicy.scrollGate(
+                    activity: UserScrollActivityMonitor.shared.activity(),
+                    holdingSince: startedAt,
+                    pendingCount: 0,
+                    batchSize: 1,
+                    now: Date()
+                )
+            }
+            guard gate == .hold else { break }
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                break
+            }
+        }
+        return Date().timeIntervalSince(startedAt)
+    }
+    #endif
 
     private func finishIndexRebuild(
         request: DerivedIndexRequest,
@@ -11563,7 +11699,10 @@ final class MusicLibrary {
             albums = computation.albums
             artists = computation.artists
             derivedIndexSignature = computation.signature
-            applyPreparedVisibleCache(computation.visibleCache)
+            applyPreparedVisibleCache(
+                computation.visibleCache,
+                unchanged: computation.unchangedCollections
+            )
             applyAlbumIDCorrections(
                 computation.albumIDCorrections,
                 correctedSongs: computation.correctedSongs

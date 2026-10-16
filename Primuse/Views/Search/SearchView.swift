@@ -1228,7 +1228,7 @@ struct SearchView: View {
             guard !renderedQuery.isEmpty, !radioStore.stations.isEmpty else { return }
             refreshSpaceResults(query: renderedQuery, includesBooks: false)
         }
-        .onChange(of: library.spokenWordSongs.count) { _, _ in
+        .onChange(of: library.spokenWordSongCount) { _, _ in
             // 有歌被改标成有声 / 音乐: 两边的结果都要重算。
             guard !searchText.isEmpty else { return }
             performSearch(query: searchText)

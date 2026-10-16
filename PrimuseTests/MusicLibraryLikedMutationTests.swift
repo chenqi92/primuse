@@ -1082,6 +1082,55 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 整库重建算出来的专辑、书架与已发布的一样时不重新发布: 每发布一次,
+    /// 读过它们的视图(专辑墙、艺人列表、首页、根视图)就整页重算一遍。
+    func testIndexRebuildKeepsUnchangedCollectionsPublished() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseUnchangedCollections-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { true }
+        )
+        var first = makeSong(id: "first", path: "/music/first.mp3")
+        first.albumTitle = "Album A"
+        first.artistName = "Artist A"
+        first.genre = "Rock"
+        first.trackNumber = 1
+        first.duration = 120
+        var second = makeSong(id: "second", path: "/music/second.mp3")
+        second.albumTitle = "Album A"
+        second.artistName = "Artist A"
+        second.genre = "Rock"
+        second.trackNumber = 2
+        second.duration = 180
+        library.addSongs([first, second], affectedSourceIDs: [first.sourceID])
+        await library.waitForPendingIndex()
+        XCTAssertFalse(library.hasSpokenWordContent)
+        let albumsRevision = library.visibleAlbumsRevision
+        let spokenWordRevision = library.spokenWordContentRevision
+
+        // 音轨号会触发整库重建, 但专辑、艺人、流派、书架都和已发布的一样。
+        first.trackNumber = 3
+        library.replaceSongs([first], maintenance: .immediate)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.unobservedVisibleSong(id: "first")?.trackNumber, 3)
+        XCTAssertEqual(library.visibleAlbumsRevision, albumsRevision)
+        XCTAssertEqual(library.spokenWordContentRevision, spokenWordRevision)
+
+        // 专辑真的变了(总时长)照样发布。
+        first.duration = 300
+        library.replaceSongs([first], maintenance: .immediate)
+        await library.waitForPendingIndex()
+        XCTAssertGreaterThan(library.visibleAlbumsRevision, albumsRevision)
+        XCTAssertEqual(library.visibleAlbums.first?.totalDuration ?? 0, 480, accuracy: 0.001)
+        XCTAssertEqual(library.spokenWordContentRevision, spokenWordRevision)
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The unchanged-collections fixture did not finish persistence")
+        }
+    }
+
     private func makeSong(id: String, path: String) -> Song {
         Song(
             id: id,

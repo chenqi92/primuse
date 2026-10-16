@@ -1273,6 +1273,94 @@ private struct NetworkPathChangeObserver: View {
     }
 }
 
+/// 场景根上原来的资料库与封面监听, 挪进一个零尺寸视图, 理由见 `NetworkPathChangeObserver`:
+/// 扫描、补读标签每写回一次都会改 `songs` / `songReplacementToken`、发封面通知, 挂在场景根上
+/// 就是每次都从根上重算整棵视图树。
+private struct LibraryReplacementObserver: View {
+    @Environment(\.scenePhase) private var scenePhase
+
+    let musicLibrary: MusicLibrary
+    let playerService: AudioPlayerService
+    let themeService: ThemeService
+    let metadataBackfill: MetadataBackfillService
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            // Sync player when library replaces a song (e.g. batch scraping
+            // or metadata backfill updates metadata). Backfill uses
+            // batched `replaceSongs`, so the currently-playing song may
+            // be ANYWHERE in the batch, not just the last entry — we
+            // check `lastReplacedSongIDs` to catch every case.
+            .onChange(of: musicLibrary.songReplacementToken) { _, _ in
+                guard let currentID = playerService.currentSong?.id,
+                      musicLibrary.lastReplacedSongIDs.contains(currentID),
+                      let updated = musicLibrary.song(id: currentID)
+                else { return }
+                let previousArtwork = playerService.currentSong.map(PrimuseApp.nowPlayingArtworkIdentity)
+                playerService.syncSongMetadata(updated)
+                // 冷启动的回填/复查/服务端同步会成批替换当前歌但封面没变; 那时也
+                // bump coverRevision 会让所有播放器封面换缓存键重读再淡入, 背景重新
+                // 取色, 看起来一直在闪。只在封面来源变了时重载; 同名封面被重新刮削
+                // (coverRef 不变) 由下面的 .primuseArtworkDidInvalidate 接住。
+                guard NowPlayingArtworkRefreshPolicy.replacementRequiresReload(
+                    previous: previousArtwork,
+                    updated: PrimuseApp.nowPlayingArtworkIdentity(updated)
+                ) else { return }
+                PrimuseApp.refreshNowPlayingArtwork(
+                    for: updated,
+                    player: playerService,
+                    theme: themeService
+                )
+            }
+            // 封面通知同理: 补读每存下一张封面就发一次, 挂在场景根上每次都要把根上整串
+            // 修饰符复制一遍再跑处理。
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                guard let cachedSongID = note.object as? String,
+                      let currentSong = playerService.currentSong,
+                      currentSong.id == cachedSongID else { return }
+                playerService.retryNowPlayingArtwork(afterCachingSongID: cachedSongID)
+                themeService.updateFromCoverArt(
+                    fileName: currentSong.coverArtFileName,
+                    songID: currentSong.id,
+                    appleMusicID: currentSong.sourceID == AppleMusicLibraryService.systemSourceID
+                        ? currentSong.filePath
+                        : nil
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+                guard let currentSong = playerService.currentSong,
+                      NowPlayingArtworkRefreshPolicy.invalidationTargetsSong(
+                          songID: currentSong.id,
+                          artworkReference: currentSong.coverArtFileName,
+                          object: note.object as? String,
+                          tokens: ["songID", "oldRef", "newRef"].compactMap { note.userInfo?[$0] as? String }
+                              + (note.userInfo?["tokens"] as? [String] ?? [])
+                              + (note.userInfo?["songIDs"] as? [String] ?? []),
+                          isBroadcastToAll: note.userInfo?["all"] as? Bool == true
+                      ) else { return }
+                PrimuseApp.refreshNowPlayingArtwork(
+                    for: currentSong,
+                    player: playerService,
+                    theme: themeService
+                )
+            }
+            // Continue a background scan/backfill pipeline as new bare
+            // rows arrive. On iOS, an ordinary foreground publication only
+            // marks durable pending work; it must not start maintenance.
+            .onChange(of: musicLibrary.songs.count) { _, _ in
+                #if os(iOS)
+                metadataBackfill.refreshQueue(
+                    startImmediately: scenePhase == .background
+                )
+                #else
+                metadataBackfill.refreshQueue()
+                #endif
+            }
+    }
+}
+
 private struct SourceAuthenticationAlert: Identifiable {
     let source: MusicSource
     let message: String
@@ -1576,7 +1664,7 @@ struct PrimuseApp: App {
     }
     #endif
 
-    private static func nowPlayingArtworkIdentity(
+    fileprivate static func nowPlayingArtworkIdentity(
         _ song: Song
     ) -> NowPlayingArtworkRefreshPolicy.ArtworkIdentity {
         .init(
@@ -1590,9 +1678,13 @@ struct PrimuseApp: App {
 
     /// forceRefreshNowPlayingArtwork 内部已 bump coverRevision, 播放器各处封面按
     /// revisionToken 重载, 即便 coverArtFileName 字符串没变。
-    private func refreshNowPlayingArtwork(for song: Song) {
-        playerService.forceRefreshNowPlayingArtwork()
-        themeService.updateFromCoverArt(
+    fileprivate static func refreshNowPlayingArtwork(
+        for song: Song,
+        player: AudioPlayerService,
+        theme: ThemeService
+    ) {
+        player.forceRefreshNowPlayingArtwork()
+        theme.updateFromCoverArt(
             fileName: song.coverArtFileName,
             songID: song.id,
             appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
@@ -1805,54 +1897,6 @@ struct PrimuseApp: App {
                 // 别的设备把某条改成了有声或音乐:重新分一次,标签页和列表跟着变。
                 .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordClassificationDidChange)) { _ in
                     AppServices.shared.musicLibrary.refreshContentClassification()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
-                    guard let cachedSongID = note.object as? String,
-                          let currentSong = playerService.currentSong,
-                          currentSong.id == cachedSongID else { return }
-                    playerService.retryNowPlayingArtwork(afterCachingSongID: cachedSongID)
-                    themeService.updateFromCoverArt(
-                        fileName: currentSong.coverArtFileName,
-                        songID: currentSong.id,
-                        appleMusicID: currentSong.sourceID == AppleMusicLibraryService.systemSourceID
-                            ? currentSong.filePath
-                            : nil
-                    )
-                }
-                // Sync player when library replaces a song (e.g. batch scraping
-                // or metadata backfill updates metadata). Backfill uses
-                // batched `replaceSongs`, so the currently-playing song may
-                // be ANYWHERE in the batch, not just the last entry — we
-                // check `lastReplacedSongIDs` to catch every case.
-                .onChange(of: musicLibrary.songReplacementToken) { _, _ in
-                    guard let currentID = playerService.currentSong?.id,
-                          musicLibrary.lastReplacedSongIDs.contains(currentID),
-                          let updated = musicLibrary.song(id: currentID)
-                    else { return }
-                    let previousArtwork = playerService.currentSong.map(Self.nowPlayingArtworkIdentity)
-                    playerService.syncSongMetadata(updated)
-                    // 冷启动的回填/复查/服务端同步会成批替换当前歌但封面没变; 那时也
-                    // bump coverRevision 会让所有播放器封面换缓存键重读再淡入, 背景重新
-                    // 取色, 看起来一直在闪。只在封面来源变了时重载; 同名封面被重新刮削
-                    // (coverRef 不变) 由下面的 .primuseArtworkDidInvalidate 接住。
-                    guard NowPlayingArtworkRefreshPolicy.replacementRequiresReload(
-                        previous: previousArtwork,
-                        updated: Self.nowPlayingArtworkIdentity(updated)
-                    ) else { return }
-                    refreshNowPlayingArtwork(for: updated)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
-                    guard let currentSong = playerService.currentSong,
-                          NowPlayingArtworkRefreshPolicy.invalidationTargetsSong(
-                              songID: currentSong.id,
-                              artworkReference: currentSong.coverArtFileName,
-                              object: note.object as? String,
-                              tokens: ["songID", "oldRef", "newRef"].compactMap { note.userInfo?[$0] as? String }
-                                  + (note.userInfo?["tokens"] as? [String] ?? [])
-                                  + (note.userInfo?["songIDs"] as? [String] ?? []),
-                              isBroadcastToAll: note.userInfo?["all"] as? Bool == true
-                          ) else { return }
-                    refreshNowPlayingArtwork(for: currentSong)
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")
@@ -2233,18 +2277,6 @@ struct PrimuseApp: App {
                     )
                     #endif
                 }
-                // Continue a background scan/backfill pipeline as new bare
-                // rows arrive. On iOS, an ordinary foreground publication only
-                // marks durable pending work; it must not start maintenance.
-                .onChange(of: musicLibrary.songs.count) { _, _ in
-                    #if os(iOS)
-                    metadataBackfill.refreshQueue(
-                        startImmediately: scenePhase == .background
-                    )
-                    #else
-                    metadataBackfill.refreshQueue()
-                    #endif
-                }
                 // Network changes are observed in a separate, zero-size view.
                 // Keeping them on this scene root made every path callback
                 // invalidate the complete tab/navigation/song-list hierarchy.
@@ -2253,6 +2285,16 @@ struct PrimuseApp: App {
                         metadataBackfill: metadataBackfill,
                         sourcesStore: sourcesStore,
                         scanService: scanService
+                    )
+                }
+                // 资料库换歌也一样: 场景根上读 `songs.count` / `songReplacementToken`,
+                // 扫描和补读标签每写回一次, 整棵视图树就从根上重算一遍。
+                .background {
+                    LibraryReplacementObserver(
+                        musicLibrary: musicLibrary,
+                        playerService: playerService,
+                        themeService: themeService,
+                        metadataBackfill: metadataBackfill
                     )
                 }
                 .modifier(SourceAuthenticationPresentationModifier(
