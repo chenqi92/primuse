@@ -856,6 +856,13 @@ final class TVStore {
         let roots: [String]
         let state: SourceScanResumeState
     }
+    /// 完整列表扫描里没再列到的歌各被看到过几次（`ServerCatalogDeletionConfirmationPolicy`），
+    /// 按源存在扫描断点旁边。连接或扫描目录换了就作废。
+    private struct ScanDeletionEvidence: Codable {
+        let connectionIdentity: String
+        let roots: [String]
+        let missingCounts: [String: Int]
+    }
     private var isApplyingSnapshot = false
     /// 每次进入 `installSnapshot` 自增。安装的纯计算挪到主 actor 之外后,回到主
     /// actor 的那一段要靠它确认自己仍然是当前这次安装。
@@ -4682,7 +4689,17 @@ final class TVStore {
             // above) but cannot vouch for songs it never listed.
             let isCompleteListing = result.canPrune && mode == .full && folder == nil
             if isCompleteListing {
-                pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+                pruningRecovery = library.beginScanPruning(
+                    confirmedScanIncoming(
+                        result.songs,
+                        source: source,
+                        connection: connection,
+                        roots: roots,
+                        evidenceURL: checkpointURL.deletingLastPathComponent()
+                            .appendingPathComponent(TVScanPipelinePolicy.hash32(source.id) + "-missing.json")
+                    ),
+                    sourceID: source.id
+                )
             } else if let folder, result.canPrune {
                 pruningRecovery = library.beginScanPruning(
                     folderScanIncoming(result.songs, folders: [folder], sourceID: source.id),
@@ -4768,6 +4785,49 @@ final class TVStore {
             scanner.phase = error is CancellationError ? .idle : .failed(PMString("ext.tv.persistence.failed"))
             return false
         }
+    }
+
+    /// 完整列表扫描交给剪枝的歌：这次列到的，加上还在等确认的那些。
+    ///
+    /// 一次少了一大批，和硬盘没挂上、共享文件夹暂时是空的读起来一模一样：照手机的规矩先留着，
+    /// 再完整扫描几次都不在才删；零星删歌照旧一次就删。没有证词文件（第一次扫、缓存被清）时
+    /// 也照这个判，宁可多留一轮。
+    private func confirmedScanIncoming(
+        _ listed: [Song],
+        source: MusicSource,
+        connection: String,
+        roots: [String],
+        evidenceURL: URL
+    ) -> [Song] {
+        let existing = library.songs.filter { $0.sourceID == source.id }
+        let previous = (try? Data(contentsOf: evidenceURL)).flatMap {
+            try? JSONDecoder().decode(ScanDeletionEvidence.self, from: $0)
+        }
+        let carried = previous.flatMap {
+            $0.connectionIdentity == connection && $0.roots == roots ? $0.missingCounts : nil
+        } ?? [:]
+        let plan = ServerCatalogDeletionConfirmationPolicy.plan(
+            existingSongIDs: Set(existing.map(\.id)),
+            authoritativeSongIDs: Set(listed.map(\.id)),
+            previousMissingCounts: carried,
+            previousEvidenceRevision: nil,
+            currentRevision: nil,
+            authority: .authoritative
+        )
+        let evidence = ScanDeletionEvidence(
+            connectionIdentity: connection,
+            roots: roots,
+            missingCounts: plan.missingCounts
+        )
+        // 小源一次扫完、从没存过断点时这个目录还不存在；写不进去就永远只算第一票。
+        try? FileManager.default.createDirectory(
+            at: evidenceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? JSONEncoder().encode(evidence).write(to: evidenceURL, options: .atomic)
+        guard plan.hasPendingConfirmations else { return listed }
+        plog("⏸ TV scan \(source.name): keeping \(plan.pendingSongIDs.count) song(s) missing from the listing until another complete scan confirms (mass=\(plan.isMassDisappearance))")
+        return listed + existing.filter { plan.pendingSongIDs.contains($0.id) }
     }
 
     /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。

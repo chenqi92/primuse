@@ -5761,6 +5761,7 @@
 "home_filter_bar_label_style_footer" = "Otomatik seçenekte yer yettiğinde her filtre simgesini ve metnini gösterir. Yetmezse seçili filtre tam kalır, diğerlerinde yalnızca metin ya da simge kalır. Satır yine sığmazsa yana kaydırabilirsiniz.";
 /* Server catalogue: songs deleted on the server (#155) */
 "catalog_prune_held_format" = "Sunucu kataloğu daha önce listelediği %1$d parçayı artık içermiyor. Geçici bir sorun ihtimaline karşı korunuyorlar; %2$d tam tarama daha onları bulamazsa kaldırılacaklar. Korunmalarını istemiyorsanız “Sunucuda silinen parçalar” ayarını “Hemen kaldır” yapın.";
+"scan_prune_held_format" = "Bu tarama öncekine göre %1$d şarkı daha az buldu; bir sürücü veya paylaşılan klasör şu anda bağlı olmayabilir. Önlem olarak tutuluyorlar ve %2$d tam tarama daha onları bulamazsa kaldırılacaklar.";
 "catalog_prune_mode_title" = "Sunucuda silinen parçalar";
 "catalog_prune_mode_confirm" = "Doğrulandıktan sonra kaldır";
 "catalog_prune_mode_immediate" = "Hemen kaldır";

@@ -5855,6 +5855,7 @@
 "home_filter_bar_label_style_footer" = "En automatique, chaque filtre affiche son icône et son texte s’il y a la place. Sinon, le filtre sélectionné reste complet et les autres ne gardent que leur texte ou leur icône. Si la rangée est encore trop large, faites-la défiler latéralement.";
 /* Server catalogue: songs deleted on the server (#155) */
 "catalog_prune_held_format" = "Le catalogue du serveur ne liste plus %1$d morceaux qu’il contenait auparavant. Ils sont conservés par précaution et seront retirés si %2$d analyses complètes de plus ne les trouvent toujours pas. Pour ne plus les conserver, réglez « Morceaux supprimés sur le serveur » sur « Retirer immédiatement ».";
+"scan_prune_held_format" = "Cette analyse a trouvé %1$d morceaux de moins que la dernière fois ; un disque ou un dossier partagé n’est peut-être pas monté pour le moment. Ils sont conservés par précaution et seront retirés si %2$d analyses complètes de plus ne les trouvent toujours pas.";
 "catalog_prune_mode_title" = "Morceaux supprimés sur le serveur";
 "catalog_prune_mode_confirm" = "Retirer après confirmation";
 "catalog_prune_mode_immediate" = "Retirer immédiatement";

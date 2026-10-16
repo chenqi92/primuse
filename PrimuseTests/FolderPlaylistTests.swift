@@ -524,6 +524,89 @@ final class FolderPlaylistTests: XCTestCase {
         }
     }
 
+    // MARK: 一轮走查少了一大批
+
+    /// 共享文件夹还在、底下的硬盘没挂上：目录列出来是空的，和真删了读起来一样。
+    func testWalkThatLosesMostSongsKeepsThemUntilRepeatedScansConfirm() async throws {
+        let fixture = try makeSwitchableWalkFixture(trackCount: 60)
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songCount, 60)
+
+        await fixture.connector.setTrackCount(0)
+        for pass in 1...2 {
+            try await fixture.scanOnce()
+            XCTAssertEqual(fixture.songCount, 60, "pass \(pass) must keep the songs")
+            XCTAssertNotNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+        }
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songCount, 0)
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+    }
+
+    func testSongsThatComeBackClearTheHeldEvidence() async throws {
+        let fixture = try makeSwitchableWalkFixture(trackCount: 60)
+        try await fixture.scanOnce()
+        await fixture.connector.setTrackCount(0)
+        try await fixture.scanOnce()
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songCount, 60)
+
+        await fixture.connector.setTrackCount(60)
+        try await fixture.scanOnce()
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+
+        // The drive drops out again: the count starts over instead of
+        // finishing the earlier, interrupted run of witnesses.
+        await fixture.connector.setTrackCount(0)
+        try await fixture.scanOnce()
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songCount, 60)
+    }
+
+    func testOrdinaryDeletionStillRemovesOnTheFirstScan() async throws {
+        let fixture = try makeSwitchableWalkFixture(trackCount: 60)
+        try await fixture.scanOnce()
+        await fixture.connector.setTrackCount(55)
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songCount, 55)
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+    }
+
+    private struct SwitchableWalkFixture {
+        let source: MusicSource
+        let connector: SwitchableListingConnector
+        let scan: ScanService
+        let library: MusicLibrary
+        let store: SourcesStore
+        let manager: SourceManager
+
+        @MainActor var songCount: Int { library.songs.filter { $0.sourceID == source.id }.count }
+
+        @MainActor func scanOnce() async throws {
+            let started = scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store)
+            XCTAssertTrue(started)
+            await scan.waitForActiveScansToComplete()
+            await library.waitForPendingIndex()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        }
+    }
+
+    private func makeSwitchableWalkFixture(trackCount: Int) throws -> SwitchableWalkFixture {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("WalkConfirm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = MusicSource(id: "source", name: "NAS", type: .smb, extraConfig: "[\"/Music\"]")
+        let connector = SwitchableListingConnector(trackCount: trackCount)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        return SwitchableWalkFixture(source: source, connector: connector, scan: scan,
+                                     library: library, store: store, manager: SourceManager(sourcesProvider: { [] }))
+    }
+
     private struct DirectoryScanFixture {
         let source: MusicSource
         let connector: FolderPlaylistTestConnector
@@ -583,6 +666,31 @@ private actor FolderPlaylistTestConnector: MusicSourceConnector {
         }
         if missingPaths.contains(path) { throw SourceError.pathNotFound(path) }
         return listings[path] ?? []
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        .init { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
+    }
+}
+
+/// `/Music` lists the first `trackCount` tracks; the count can change between scans.
+private actor SwitchableListingConnector: MusicSourceConnector {
+    let sourceID = "source"
+    private var trackCount: Int
+
+    init(trackCount: Int) { self.trackCount = trackCount }
+    func setTrackCount(_ count: Int) { trackCount = count }
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        guard path == "/Music" else { return [] }
+        return (0..<trackCount).map {
+            RemoteFileItem(name: "Track \($0).mp3", path: "/Music/Track \($0).mp3",
+                           isDirectory: false, size: Int64(1_000 + $0), modifiedDate: nil)
+        }
     }
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

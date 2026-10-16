@@ -3305,6 +3305,44 @@ final class ScanService {
             if !peerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(peerSeedAdoptions) }
             let scanIndex = await scanner.syncIndexSnapshot()
             let scanReconciliation = await scanner.syncReconciliationSnapshot()
+            // 同一扫描范围下一轮走查少了一大批，和硬盘没挂上、共享文件夹暂时是空的读起来
+            // 一模一样：照服务端目录的规矩先留着，再完整走查几次都不在才删。零星删歌照旧
+            // 一次就删；扫描范围改了（移掉了文件夹）没有上一份状态，也照旧立刻删。
+            // 百度网盘的快照有自己的删除确认（`scanReconciliation`）。
+            var deletionPlan: ServerCatalogDeletionConfirmationPolicy.Plan?
+            var prunableSongIDs: Set<String>?
+            if allowsAuthoritativeCatalogPrune,
+               let previousState = workingState,
+               !(connector is any ResumableSnapshotMusicSourceConnector) {
+                let existingIDs = Set(knownExisting.map(\.id))
+                let snapshotIDs = Set(lastSongs.map(\.id))
+                let plan = ServerCatalogDeletionConfirmationPolicy.plan(
+                    existingSongIDs: existingIDs,
+                    authoritativeSongIDs: snapshotIDs,
+                    previousMissingCounts: previousState.missingCatalogSongIDs,
+                    previousEvidenceRevision: previousState.deletionEvidenceRevision,
+                    currentRevision: UUID().uuidString,
+                    authority: .authoritative
+                )
+                deletionPlan = plan
+                if plan.hasPendingConfirmations {
+                    prunableSongIDs = ServerCatalogDeletionConfirmationPolicy.retainedAuthoritativeSongIDs(
+                        existingSongIDs: existingIDs,
+                        authoritativeSongIDs: snapshotIDs,
+                        confirmedDeletionSongIDs: plan.confirmedDeletionSongIDs
+                    )
+                    plog("⏸ \(source.name): keeping \(plan.pendingSongIDs.count) song(s) missing from the walk until another complete scan confirms (mass=\(plan.isMassDisappearance))")
+                }
+            }
+            let heldDisappearance: SourceSyncReconciliation? = deletionPlan.flatMap { plan in
+                plan.holdsMassDisappearance
+                    ? SourceSyncReconciliation(
+                        kind: .serverCatalogMassDisappearance,
+                        unresolvedStableKeys: Array(plan.pendingSongIDs),
+                        detectedAt: Date()
+                    )
+                    : nil
+            }
             let candidateState = SourceSyncState(
                 sourceID: source.id,
                 scopeFingerprint: scopeFingerprint,
@@ -3313,18 +3351,23 @@ final class ScanService {
                 index: scanIndex,
                 pendingDirectories: [],
                 scanEpoch: nextScanEpoch,
-                requiresDeepScan: supportsStatefulRefresh && baselineCursors.isEmpty,
+                // 还有歌在等确认时下一轮要完整走查：增量对账看不到「还是没有」。
+                requiresDeepScan: (supportsStatefulRefresh && baselineCursors.isEmpty)
+                    || heldDisappearance != nil,
                 lastFullScanAt: Date(),
                 lastSuccessfulSyncAt: Date(),
                 identityAliases: workingState?.identityAliases ?? [:],
                 rootIdentities: rootIdentities,
-                reconciliation: scanReconciliation.reconciliation,
-                missingStableKeys: scanReconciliation.missingStableKeys
+                reconciliation: scanReconciliation.reconciliation ?? heldDisappearance,
+                missingStableKeys: scanReconciliation.missingStableKeys,
+                missingCatalogSongIDs: deletionPlan?.missingCounts ?? [:],
+                deletionEvidenceRevision: deletionPlan?.evidenceRevision
             )
             try await completeScan(
                 sourceID: source.id,
                 generation: generation,
                 songs: lastSongs,
+                authoritativeSongIDs: prunableSongIDs,
                 pruneMissingSongs: allowsAuthoritativeCatalogPrune,
                 forcesCatalogCommit: publishedIntermediateRows,
                 expectedScopeFingerprint: scopeFingerprint,
@@ -5326,9 +5369,12 @@ final class ScanService {
         case .baiduIdentityAndDeletionConfirmation:
             String(localized: "baidu_snapshot_reconciliation_required")
         case .serverCatalogMassDisappearance:
-            // 说清还要再完整扫描几次、在哪里改成不保留（#155）。
+            // 说清还要再完整扫描几次、在哪里改成不保留（#155）。只有服务端目录的走查
+            // 记目录标记，也只有它有「服务端删掉的歌」那个设置；SMB 这类目录走查换一句。
             String(
-                format: String(localized: "catalog_prune_held_format"),
+                format: syncState.catalogSyncMarker == nil
+                    ? String(localized: "scan_prune_held_format")
+                    : String(localized: "catalog_prune_held_format"),
                 reconciliation.unresolvedStableKeys.count,
                 ServerCatalogDeletionConfirmationPolicy.remainingMassDisappearanceWitnesses(
                     unresolvedSongIDs: reconciliation.unresolvedStableKeys,

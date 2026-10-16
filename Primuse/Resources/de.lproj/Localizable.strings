@@ -5855,6 +5855,7 @@
 "home_filter_bar_label_style_footer" = "Automatisch zeigt bei jedem Filter Symbol und Text, wenn der Platz reicht. Sonst bleibt der ausgewählte Filter vollständig und die anderen zeigen nur Text oder Symbol. Ist die Leiste dann noch zu breit, lässt sie sich seitlich wischen.";
 /* Server catalogue: songs deleted on the server (#155) */
 "catalog_prune_held_format" = "Im Serverkatalog fehlen %1$d Titel, die zuvor gelistet waren. Sie bleiben vorsichtshalber erhalten und werden entfernt, wenn %2$d weitere vollständige Scans sie ebenfalls nicht finden. Wenn du sie nicht behalten möchtest, stelle „Auf dem Server gelöschte Titel“ auf „Sofort entfernen“.";
+"scan_prune_held_format" = "Bei diesem Scan wurden %1$d Titel weniger gefunden als beim letzten Mal; möglicherweise ist ein Laufwerk oder freigegebener Ordner gerade nicht eingebunden. Sie bleiben vorsichtshalber erhalten und werden entfernt, wenn %2$d weitere vollständige Scans sie ebenfalls nicht finden.";
 "catalog_prune_mode_title" = "Auf dem Server gelöschte Titel";
 "catalog_prune_mode_confirm" = "Nach Bestätigung entfernen";
 "catalog_prune_mode_immediate" = "Sofort entfernen";
