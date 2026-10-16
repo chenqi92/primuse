@@ -4905,18 +4905,23 @@ struct NowPlayingView: View {
 
                         // Full screen lyrics
                         if isLyricsImmersive {
-                            immersiveLyricsExperience(
-                                isLandscape: false,
-                                topRowLeadingInset: insets.immersiveTopRowLeading,
-                                topRowTrailingInset: insets.immersiveTopRowTrailing,
-                                contentTopInset: insets.immersiveContentTop
-                            ) {
-                                if immersiveShowsArtwork {
-                                    immersiveArtworkFace(contentTopInset: insets.immersiveContentTop)
-                                        .transition(.opacity)
-                                } else {
-                                    lyricsFullView
-                                        .transition(.opacity)
+                            // 包一层壳子再构造(见 `NowPlayingDeferredContent`)：这个 VStack 闭包在 Debug 构建里
+                            // 约 440KB、外面的 portraitLayout 约 210KB，原生全屏的顶栏若在这里现场构造就整串叠在
+                            // 它们上面，点全屏必撞主线程栈保护页。
+                            NowPlayingDeferredContent {
+                                immersiveLyricsExperience(
+                                    isLandscape: false,
+                                    topRowLeadingInset: insets.immersiveTopRowLeading,
+                                    topRowTrailingInset: insets.immersiveTopRowTrailing,
+                                    contentTopInset: insets.immersiveContentTop
+                                ) {
+                                    if immersiveShowsArtwork {
+                                        immersiveArtworkFace(contentTopInset: insets.immersiveContentTop)
+                                            .transition(.opacity)
+                                    } else {
+                                        lyricsFullView
+                                            .transition(.opacity)
+                                    }
                                 }
                             }
                             .transition(.opacity)
@@ -6377,6 +6382,10 @@ struct NowPlayingView: View {
 
     /// - Parameter controlSurface: 这份菜单所在的版面是按「播放页按钮」摆的哪一种;nil 是不按配置摆的
     ///   版面(沉浸歌词、iPad 横屏歌词),菜单照旧。
+    /// 「更多」菜单都从这里拿。菜单本身推迟到 `NowPlayingDeferredContent` 里构造：
+    /// 拼快照要逐项读几十个属性，Debug 构建里这一帧约 190KB；它挂在各个布局最深处（竖屏
+    /// 歌名栏、歌词顶栏、原生全屏顶栏），现场构造时这 190KB 叠在整条布局链上，原生全屏
+    /// 那一条因此越过 iPhone 主线程 1MB 的栈。推迟后它在自己那一层单独求值，调用处只多一个闭包。
     private func makeMoreMenu(
         immersiveChrome: Bool = false,
         chromeGlass: NowPlayingChromeGlass = .immersive,
@@ -6384,6 +6393,26 @@ struct NowPlayingView: View {
         controlSurface: NowPlayingControlSurface? = nil,
         plainLabel: NowPlayingMoreMenuPlainLabel? = nil,
         offersImmersiveArtworkToggle: Bool = false
+    ) -> some View {
+        NowPlayingDeferredContent {
+            buildMoreMenu(
+                immersiveChrome: immersiveChrome,
+                chromeGlass: chromeGlass,
+                columnOverflow: columnOverflow,
+                controlSurface: controlSurface,
+                plainLabel: plainLabel,
+                offersImmersiveArtworkToggle: offersImmersiveArtworkToggle
+            )
+        }
+    }
+
+    private func buildMoreMenu(
+        immersiveChrome: Bool,
+        chromeGlass: NowPlayingChromeGlass,
+        columnOverflow: NowPlayingBarColumnOverflow,
+        controlSurface: NowPlayingControlSurface?,
+        plainLabel: NowPlayingMoreMenuPlainLabel?,
+        offersImmersiveArtworkToggle: Bool
     ) -> some View {
         // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
         // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
