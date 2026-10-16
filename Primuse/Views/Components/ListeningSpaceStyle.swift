@@ -12,17 +12,17 @@ extension ListeningSpace {
     /// their own hues (`fixedTint`, shared with Apple TV and the widgets),
     /// which the user can swap for the theme colour, the cover's colour or a
     /// colour of their own (`ListeningSpaceTintSettings`).
+    ///
+    /// 「跟随封面」跟的是这一类自己最后在播时的封面,不是此刻在播的任何封面:
+    /// 暂停听书去放歌,书的页面仍是书封的颜色(`effectiveChoice` 已经把它落成固定色或自带色)。
     @MainActor
     var tint: Color {
         guard let fixed = fixedTint else { return .accentColor }
-        let settings = ListeningSpaceTintSettings.shared
-        switch settings.choice(for: self) {
-        case .standard:
+        switch ListeningSpaceTintSettings.shared.effectiveChoice(for: self) {
+        case .standard, .artwork:
             return Color(light: fixed.light, dark: fixed.dark)
         case .theme:
             return .accentColor
-        case .artwork:
-            return settings.themeService?.artworkLegibleAccent ?? .accentColor
         case .fixed(let hex):
             let picked = ListeningSpaceTint.legible(hex: hex) ?? fixed
             return Color(light: picked.light, dark: picked.dark)
@@ -36,35 +36,31 @@ extension ListeningSpace {
     var glyphTileTint: Color {
         guard let fixed = fixedTint else { return .accentColor }
         let settings = ListeningSpaceTintSettings.shared
-        switch settings.choice(for: self) {
-        case .standard:
+        switch settings.effectiveChoice(for: self) {
+        case .standard, .artwork:
             return Color(light: fixed.light, dark: fixed.light)
         case .theme:
             return settings.themeService.map { Self.lightShade(of: $0.uiAccentColor) } ?? .accentColor
-        case .artwork:
-            return settings.themeService.map { Self.lightShade(of: $0.artworkLegibleAccent) } ?? .accentColor
         case .fixed(let hex):
             let picked = ListeningSpaceTint.legible(hex: hex) ?? fixed
             return Color(light: picked.light, dark: picked.light)
         }
     }
 
-    /// 白字底下那层深底(首页电台大卡)。自带色、自选色把颜色压暗(`ListeningSpaceTint.deepened`);
-    /// 跟主题色、跟封面时直接用主题算好的深色那档,和跟这两样的其它地方一致。
+    /// 白字底下那层深底(首页电台大卡)。自带色、自选色、记下的封面色都从原色压暗
+    /// (`ListeningSpaceTint.deepened`);跟主题色时直接用主题算好的深色那档。
     @MainActor
     var backdropTint: Color {
         let settings = ListeningSpaceTintSettings.shared
         guard let fixed = fixedTint else {
             return settings.themeService?.uiDarkAccent ?? ThemeService.defaultDarkAccent
         }
-        switch settings.choice(for: self) {
-        case .standard:
+        switch settings.effectiveChoice(for: self) {
+        case .standard, .artwork:
             let deep = ListeningSpaceTint.deepened(fixed.light)
             return Color(light: deep, dark: deep)
         case .theme:
             return settings.themeService?.uiDarkAccent ?? ThemeService.defaultDarkAccent
-        case .artwork:
-            return settings.themeService?.artworkDarkAccent ?? ThemeService.defaultDarkAccent
         case .fixed(let hex):
             // 和主题色的深色档一样从挑的原色压暗,不是从压过对比度的那一档再压。
             let deep = ListeningSpaceTint.deepened(UInt32(hex, radix: 16) ?? fixed.light)
@@ -108,20 +104,45 @@ final class ListeningSpaceTintSettings {
     static let shared = ListeningSpaceTintSettings()
 
     private(set) var choices: [ListeningSpace: ListeningSpaceTintChoice]
-    /// 「跟随主题色」「跟随封面」读它的颜色,App 启动时接上。
+    /// 每一类最后在播时的封面主色(`ListeningSpaceArtworkTintStore`),「跟随封面」按它画。
+    private(set) var artworkHexes: [ListeningSpace: String]
+    /// 「跟随主题色」读它的颜色,App 启动时接上。
     @ObservationIgnored weak var themeService: ThemeService?
+    /// 正在播的这一条属于哪一类,App 启动时接上;取完封面色时按它记到那一类名下。
+    @ObservationIgnored var currentSpace: (@MainActor () -> ListeningSpace?)?
 
     private init() {
         var loaded: [ListeningSpace: ListeningSpaceTintChoice] = [:]
+        var artwork: [ListeningSpace: String] = [:]
         for space in ListeningSpaceTintPreferences.customizableSpaces {
             loaded[space] = ListeningSpaceTintPreferences.choice(for: space, in: .standard)
+            artwork[space] = ListeningSpaceArtworkTintStore.hex(for: space, in: .standard)
         }
         choices = loaded
+        artworkHexes = artwork
         publishToWidgets(reloading: false)
     }
 
     func choice(for space: ListeningSpace) -> ListeningSpaceTintChoice {
         choices[space] ?? .standard
+    }
+
+    /// 实际画的颜色:「跟随封面」换成这一类记下的封面色,没记过时是自带色。
+    func effectiveChoice(for space: ListeningSpace) -> ListeningSpaceTintChoice {
+        choice(for: space).resolvingArtwork(artworkHexes[space])
+    }
+
+    /// 取完正在播的那一条的封面色后调(`ThemeService`):记到它所属的那一类名下,音乐不记。
+    /// `hex` 为 nil 表示这一条确实没有封面色,这一类回到自带色。小组件随后跟主题的封面色一起刷新。
+    func recordArtwork(_ hex: String?, for space: ListeningSpace?) {
+        guard let space, ListeningSpaceTintPreferences.customizableSpaces.contains(space) else { return }
+        let normalized = ListeningSpaceTintChoice(storedValue: hex).fixedHex
+        guard artworkHexes[space] != normalized else { return }
+        artworkHexes[space] = normalized
+        ListeningSpaceArtworkTintStore.store(normalized, for: space, in: .standard)
+        if let shared = ListeningSpaceTintPreferences.sharedDefaults {
+            ListeningSpaceArtworkTintStore.store(normalized, for: space, in: shared)
+        }
     }
 
     /// 有一类选了「跟随封面」:主题色固定、播放背景也不取封面色时,封面照样要取色。
@@ -147,6 +168,7 @@ final class ListeningSpaceTintSettings {
         guard let shared = ListeningSpaceTintPreferences.sharedDefaults else { return }
         for space in ListeningSpaceTintPreferences.customizableSpaces {
             ListeningSpaceTintPreferences.store(choice(for: space), for: space, in: shared)
+            ListeningSpaceArtworkTintStore.store(artworkHexes[space], for: space, in: shared)
         }
         #if canImport(WidgetKit)
         if reloading { WidgetCenter.shared.reloadAllTimelines() }

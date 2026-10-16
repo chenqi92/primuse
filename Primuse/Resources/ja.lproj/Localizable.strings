@@ -391,6 +391,8 @@
 "theme_color_saturation" = "彩度";
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "カラー値";
+"theme_color_picker" = "カラーピッカー";
+"theme_color_picker_footer" = "カラーピッカーでは16進数の値を入力したり、スポイトで色を取ったりできます。文字やボタンに使うときは、読みやすいように必要に応じて濃くまたは明るくします。";
 "player_backdrop_title" = "再生画面の背景";
 "player_backdrop_cover_ambient" = "ジャケットの色";
 "player_backdrop_cover_ambient_hint" = "ジャケットの色が流れるカラーフィールド";
@@ -6014,7 +6016,7 @@
 "listening_space_tint_theme" = "テーマカラーに合わせる";
 "listening_space_tint_theme_hint" = "アプリのテーマカラーと同じ色";
 "listening_space_tint_artwork" = "アートワークに追従";
-"listening_space_tint_artwork_hint" = "再生中のアートワークに合わせて変わります。ウィジェットではテーマカラーを使います。";
+"listening_space_tint_artwork_hint" = "このカテゴリで最後に再生したアートワークの色になり、ほかのものを再生している間も変わりません。";
 "listening_space_tint_fixed" = "固定カラー";
 "listening_space_tint_fixed_hint" = "パレットから選ぶか、下で自分で調整します";
 

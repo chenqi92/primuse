@@ -200,6 +200,11 @@ struct ThemeColorSections: View {
                     applyCustomColor(committing: committing)
                 }
 
+                ThemeColorPickerRow(custom: custom) { hex, committing in
+                    applyPickedColor(hex, committing: committing)
+                }
+                .settingsAnchor("appearance.colorPicker")
+
                 HStack {
                     Text("theme_color_hex")
                     Spacer()
@@ -210,6 +215,8 @@ struct ThemeColorSections: View {
                 .settingsAnchor("appearance.hex")
             } header: {
                 Text("theme_color_custom")
+            } footer: {
+                Text("theme_color_picker_footer")
             }
             .settingsAnchor("appearance.hue")
 
@@ -328,6 +335,14 @@ struct ThemeColorSections: View {
 
     private func applyCustomColor(committing: Bool) {
         let hex = ThemeColorSettings.hex(fromHSB: custom)
+        settings.fixedColorHex = hex
+        activateFixedMode(animated: committing)
+        applyBaseAccent(Color(hex: hex), animated: committing, publish: committing)
+    }
+
+    /// 取色器挑的颜色原样存下(不截进滑杆的范围),滑杆只是挪到离它最近的位置。
+    private func applyPickedColor(_ hex: String, committing: Bool) {
+        custom = ThemeColorSettings.hsb(fromHex: hex)
         settings.fixedColorHex = hex
         activateFixedMode(animated: committing)
         applyBaseAccent(Color(hex: hex), animated: committing, publish: committing)
@@ -453,6 +468,40 @@ struct ThemeSwatchCell: View {
         // 挂在单个色块上：勾与描边只跟这一块的选中态走, 换色时两块各自动各自的。
         .pmAnimation(.selection, value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// 系统取色器那一行:色盘、色谱、滑杆里能直接输十六进制,也能用吸管从屏幕上吸(#313)。
+/// 取色器拖动时连续回调、没有松手的时刻,停下片刻才按「定下来」交给 `onPick(hex, true)`
+/// (那时才刷新小组件、做换色动画),途中给 `onPick(hex, false)`。
+struct ThemeColorPickerRow: View {
+    /// 打开时显示的颜色:上面三条滑杆此刻的位置。
+    let custom: ThemeColorSettings.HSB
+    let onPick: (_ hex: String, _ committing: Bool) -> Void
+
+    @State private var commitTask: Task<Void, Never>?
+
+    var body: some View {
+        ColorPicker(selection: selection, supportsOpacity: false) {
+            Label("theme_color_picker", systemImage: "eyedropper")
+        }
+    }
+
+    private var selection: Binding<Color> {
+        Binding(
+            get: { Color(hue: custom.hue, saturation: custom.saturation, brightness: custom.brightness) },
+            set: { color in
+                let hex = ThemeColorSettings.hex(from: color)
+                onPick(hex, false)
+                commitTask?.cancel()
+                // 页面关掉也不取消:最后挑的那个颜色照样要定下来。
+                commitTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard !Task.isCancelled else { return }
+                    onPick(hex, true)
+                }
+            }
+        )
     }
 }
 
@@ -728,6 +777,11 @@ struct ListeningSpaceColorSettingsView: View {
                     apply(.fixed(ThemeColorSettings.hex(fromHSB: custom)), reloadingWidgets: committing)
                 }
 
+                ThemeColorPickerRow(custom: custom) { hex, committing in
+                    custom = ThemeColorSettings.hsb(fromHex: hex)
+                    apply(.fixed(hex), reloadingWidgets: committing)
+                }
+
                 HStack {
                     Text("theme_color_hex")
                     Spacer()
@@ -737,6 +791,8 @@ struct ListeningSpaceColorSettingsView: View {
                 }
             } header: {
                 Text("theme_color_custom")
+            } footer: {
+                Text("theme_color_picker_footer")
             }
         }
         .navigationTitle(space.titleKey)

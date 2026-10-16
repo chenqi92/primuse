@@ -151,6 +151,8 @@
 "theme_color_saturation" = "飽和度";
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "色值";
+"theme_color_picker" = "取色器";
+"theme_color_picker_footer" = "取色器裡可以輸入十六進位色值，也能用滴管取色。用在文字和按鈕上時會視需要加深或提亮，確保看得清楚。";
 "player_backdrop_title" = "播放頁背景";
 "player_backdrop_cover_ambient" = "封面取色";
 "player_backdrop_cover_ambient_hint" = "隨封面顏色流動的色場";
@@ -5990,7 +5992,7 @@
 "listening_space_tint_theme" = "跟隨主題色";
 "listening_space_tint_theme_hint" = "和 App 的主題色一樣";
 "listening_space_tint_artwork" = "跟隨封面";
-"listening_space_tint_artwork_hint" = "跟著正在播放的封面變；小工具裡按主題色顯示。";
+"listening_space_tint_artwork_hint" = "跟著這一類最近播放的封面變，播放別的內容時保持不變。";
 "listening_space_tint_fixed" = "固定顏色";
 "listening_space_tint_fixed_hint" = "從色盤裡挑，或在下面自己調";
 

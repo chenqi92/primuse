@@ -390,6 +390,8 @@
 "theme_color_saturation" = "Sättigung";
 "theme_color_brightness" = "Helligkeit";
 "theme_color_hex" = "Farbwert";
+"theme_color_picker" = "Farbwähler";
+"theme_color_picker_footer" = "Im Farbwähler kannst du einen Hex-Wert eingeben oder die Pipette nutzen. Für Text und Tasten wird die Farbe bei Bedarf abgedunkelt oder aufgehellt, damit sie lesbar bleibt.";
 "player_backdrop_title" = "Player-Hintergrund";
 "player_backdrop_cover_ambient" = "Coverfarben";
 "player_backdrop_cover_ambient_hint" = "Ein fließendes Farbfeld aus dem Cover";
@@ -6013,7 +6015,7 @@
 "listening_space_tint_theme" = "Wie Themenfarbe";
 "listening_space_tint_theme_hint" = "Dieselbe Farbe wie das Thema der App";
 "listening_space_tint_artwork" = "Vom Cover";
-"listening_space_tint_artwork_hint" = "Ändert sich mit dem Cover der aktuellen Wiedergabe. Widgets verwenden die Themenfarbe.";
+"listening_space_tint_artwork_hint" = "Übernimmt die Farbe des zuletzt gespielten Covers dieser Kategorie und behält sie, während anderes läuft.";
 "listening_space_tint_fixed" = "Feste Farbe";
 "listening_space_tint_fixed_hint" = "Aus der Palette wählen oder unten selbst einstellen";
 

@@ -3674,6 +3674,8 @@
 "theme_color_custom_footer" = "अपनी पसंद का कोई भी रंग मिलाने के लिए खींचें।";
 "theme_color_forest" = "वन";
 "theme_color_hex" = "मूल्य";
+"theme_color_picker" = "रंग चुनने वाला";
+"theme_color_picker_footer" = "रंग चुनने वाले में आप हेक्स मान लिख सकते हैं या आईड्रॉपर से रंग ले सकते हैं। टेक्स्ट और बटन पर रंग ज़रूरत के हिसाब से गहरा या हल्का किया जाता है ताकि साफ़ पढ़ा जा सके।";
 "player_backdrop_title" = "प्लेयर पृष्ठभूमि";
 "player_backdrop_cover_ambient" = "कवर के रंग";
 "player_backdrop_cover_ambient_hint" = "कवर से लिया गया बहता रंग-क्षेत्र";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "थीम रंग जैसा";
 "listening_space_tint_theme_hint" = "ऐप के थीम जैसा ही रंग";
 "listening_space_tint_artwork" = "कवर आर्ट से";
-"listening_space_tint_artwork_hint" = "जो चल रहा है उसके कवर के साथ बदलता है। विजेट थीम रंग का उपयोग करते हैं।";
+"listening_space_tint_artwork_hint" = "इस श्रेणी में आख़िरी बार चले कवर का रंग लेता है और कुछ और चलने पर भी वही रहता है।";
 "listening_space_tint_fixed" = "निश्चित रंग";
 "listening_space_tint_fixed_hint" = "पैलेट से चुनें या नीचे अपना रंग बनाएँ";
 

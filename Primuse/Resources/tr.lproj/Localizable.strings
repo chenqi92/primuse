@@ -1080,6 +1080,8 @@
 "replay_gain_desc" = "Ses dosyalarına gömülü ReplayGain etiketlerine göre ses seviyesini otomatik olarak ayarlayın.";
 "lyrics_editor_stamp" = "Zaman damgası ekle";
 "theme_color_hex" = "Değer";
+"theme_color_picker" = "Renk Seçici";
+"theme_color_picker_footer" = "Renk seçicide onaltılık değer girebilir ya da damlalığı kullanabilirsiniz. Metin ve düğmelerde renk, okunaklı kalması için gerektiğinde koyulaştırılır veya açılır.";
 "player_backdrop_title" = "Oynatıcı arka planı";
 "player_backdrop_cover_ambient" = "Kapak renkleri";
 "player_backdrop_cover_ambient_hint" = "Kapaktan alınan akışkan bir renk alanı";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Tema Rengine Uy";
 "listening_space_tint_theme_hint" = "Uygulama temasıyla aynı renk";
 "listening_space_tint_artwork" = "Kapak Resminden";
-"listening_space_tint_artwork_hint" = "Çalan içeriğin kapağıyla değişir. Widget'lar tema rengini kullanır.";
+"listening_space_tint_artwork_hint" = "Bu kategoride en son çalınan kapağın rengini alır ve başka bir şey çalarken de korur.";
 "listening_space_tint_fixed" = "Sabit Renk";
 "listening_space_tint_fixed_hint" = "Paletten seçin veya aşağıda kendiniz ayarlayın";
 

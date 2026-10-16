@@ -3674,6 +3674,8 @@
 "theme_color_custom_footer" = "Przeciągnij, aby wymieszać dowolny kolor.";
 "theme_color_forest" = "Las";
 "theme_color_hex" = "Wartość";
+"theme_color_picker" = "Próbnik kolorów";
+"theme_color_picker_footer" = "W próbniku możesz wpisać wartość szesnastkową albo użyć pipety. Na tekście i przyciskach kolor jest w razie potrzeby przyciemniany lub rozjaśniany, by był czytelny.";
 "player_backdrop_title" = "Tło odtwarzacza";
 "player_backdrop_cover_ambient" = "Kolory okładki";
 "player_backdrop_cover_ambient_hint" = "Płynne pole kolorów z okładki";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Jak kolor motywu";
 "listening_space_tint_theme_hint" = "Ten sam kolor co motyw aplikacji";
 "listening_space_tint_artwork" = "Z okładki";
-"listening_space_tint_artwork_hint" = "Zmienia się wraz z okładką tego, co jest odtwarzane. Widżety używają koloru motywu.";
+"listening_space_tint_artwork_hint" = "Przyjmuje kolor ostatnio odtwarzanej okładki z tej kategorii i zachowuje go, gdy gra coś innego.";
 "listening_space_tint_fixed" = "Stały kolor";
 "listening_space_tint_fixed_hint" = "Wybierz z palety lub dostosuj własny poniżej";
 

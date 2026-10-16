@@ -43,9 +43,10 @@ public enum BrandTintStore {
     }
 
     /// The colour picked from the cover playing now (the theme colour when
-    /// there is none), for radio, spoken word or podcasts set to follow the
-    /// cover. `save` above carries the theme colour itself, which is this same
-    /// colour while the theme follows the cover.
+    /// there is none). Radio, spoken word and podcasts set to follow the cover
+    /// keep a colour of their own (`ListeningSpaceArtworkTintStore`), so the
+    /// widgets no longer draw with this one; the app still writes it, and a
+    /// change here is what refreshes them.
     public static func saveArtwork(_ rgb: RGB) {
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier) else { return }
         defaults.set(rgb.red, forKey: artworkRedKey)

@@ -115,6 +115,45 @@ public enum ListeningSpaceTintChoice: Hashable, Sendable {
         if case .fixed(let hex) = self { return hex }
         return nil
     }
+
+    /// 实际按哪种颜色画:「跟随封面」用这一类自己记下的封面色(`ListeningSpaceArtworkTintStore`),
+    /// 当成挑好的固定色来算;这一类还没记下过封面色时用它自带的颜色。其余选项原样返回。
+    public func resolvingArtwork(_ artworkHex: String?) -> ListeningSpaceTintChoice {
+        guard self == .artwork else { return self }
+        guard let hex = ListeningSpaceTintChoice(storedValue: artworkHex).fixedHex else { return .standard }
+        return .fixed(hex)
+    }
+}
+
+/// 电台、有声书、播客各记各的封面色:每一类最后一次在播时封面的主色(RRGGBB)。
+/// 选了「跟随封面」的那一类按它显示,放别的内容时不跟着变(#313)。播的那一条没有封面色时清掉,
+/// 回到这一类自带的颜色。App 写自己的设置,同时抄一份进 App Group 给小组件。
+public enum ListeningSpaceArtworkTintStore {
+    public static func key(for space: ListeningSpace) -> String {
+        "primuse.listeningSpace.artworkTint.\(space.rawValue)"
+    }
+
+    public static func hex(for space: ListeningSpace, in defaults: UserDefaults) -> String? {
+        guard ListeningSpaceTintPreferences.customizableSpaces.contains(space) else { return nil }
+        return ListeningSpaceTintChoice(storedValue: defaults.string(forKey: key(for: space))).fixedHex
+    }
+
+    public static func store(_ hex: String?, for space: ListeningSpace, in defaults: UserDefaults) {
+        guard ListeningSpaceTintPreferences.customizableSpaces.contains(space) else { return }
+        if let hex = ListeningSpaceTintChoice(storedValue: hex).fixedHex {
+            defaults.set(hex, forKey: key(for: space))
+        } else {
+            defaults.removeObject(forKey: key(for: space))
+        }
+    }
+
+    /// 0...1 的 sRGB 三个通道写成 RRGGBB。
+    public static func hex(red: Double, green: Double, blue: Double) -> String {
+        func channel(_ value: Double) -> Int {
+            Int((min(max(value, 0), 1) * 255).rounded())
+        }
+        return String(format: "%02X%02X%02X", channel(red), channel(green), channel(blue))
+    }
 }
 
 /// Where each space's colour choice is kept. The app writes its own defaults

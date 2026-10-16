@@ -3674,6 +3674,8 @@
 "theme_color_custom_footer" = "اسحب لمزج أي لون تريده.";
 "theme_color_forest" = "الغابة";
 "theme_color_hex" = "القيمة";
+"theme_color_picker" = "منتقي الألوان";
+"theme_color_picker_footer" = "يمكنك في منتقي الألوان إدخال قيمة سداسية عشرية أو استخدام القطّارة. على النصوص والأزرار يُعتَّم اللون أو يُفتَّح عند الحاجة ليبقى واضحًا.";
 "player_backdrop_title" = "خلفية المشغّل";
 "player_backdrop_cover_ambient" = "ألوان الغلاف";
 "player_backdrop_cover_ambient_hint" = "حقل ألوان متدفق مأخوذ من الغلاف";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "مطابقة لون الموضوع";
 "listening_space_tint_theme_hint" = "نفس لون موضوع التطبيق";
 "listening_space_tint_artwork" = "من الغلاف الفني";
-"listening_space_tint_artwork_hint" = "يتغير مع غلاف ما يُشغَّل الآن. تستخدم الأدوات لون الموضوع.";
+"listening_space_tint_artwork_hint" = "يأخذ لون آخر غلاف شُغِّل في هذه الفئة ويحتفظ به أثناء تشغيل محتوى آخر.";
 "listening_space_tint_fixed" = "اللون الثابت";
 "listening_space_tint_fixed_hint" = "اختر لونًا من اللوحة أو اضبط لونك أدناه";
 

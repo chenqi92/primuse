@@ -111,10 +111,14 @@ final class ThemeService {
         appleMusicID: String? = nil
     ) {
         let generation = beginArtworkUpdate()
+        // 取到的颜色也记到正在播的这一条所属的那一类名下:电台、有声书、播客的「跟随封面」
+        // 各跟各的,放别的内容时不跟着变(#313)。音乐不记。
+        let tintSettings = ListeningSpaceTintSettings.shared
+        let space = tintSettings.currentSpace?()
 
         // 电台、有声书、播客里有一类选了「跟随封面」时,主题色固定、背景也不取色照样要取。
         guard colorMode == .automatic || coverDrivenAmbient
-                || ListeningSpaceTintSettings.shared.followsArtwork else {
+                || tintSettings.followsArtwork else {
             applyFallbackTheme()
             return
         }
@@ -124,6 +128,7 @@ final class ThemeService {
         guard normalizedFileName?.isEmpty == false
                 || songID?.isEmpty == false
                 || normalizedAppleMusicID?.isEmpty == false else {
+            tintSettings.recordArtwork(nil, for: space)
             applyFallbackTheme()
             return
         }
@@ -148,6 +153,10 @@ final class ThemeService {
                     || normalizedAppleMusicID?.isEmpty == false
                 await MainActor.run { [weak self] in
                     guard let self, self.updateGeneration == generation else { return }
+                    // 还要去远端或 MusicKit 取的只是暂时回默认色,不改那一类记下的封面色。
+                    if !hasOtherSource {
+                        ListeningSpaceTintSettings.shared.recordArtwork(nil, for: space)
+                    }
                     self.applyFallbackTheme()
                 }
                 guard hasOtherSource else { return }
@@ -189,11 +198,19 @@ final class ThemeService {
                 guard let self else { return }
                 guard self.updateGeneration == generation else { return }
                 guard let result else {
+                    ListeningSpaceTintSettings.shared.recordArtwork(nil, for: space)
                     self.applyFallbackTheme()
                     // 黑白封面没有主题色,流动色彩照样用它自己的灰阶。
                     self.artworkLiquidPalette = liquidPalette
                     return
                 }
+                // 先记下这一类的封面色,`applyArtworkTheme` 刷新小组件时就带上它。
+                ListeningSpaceTintSettings.shared.recordArtwork(
+                    Self.widgetRGB(result.accent).map {
+                        ListeningSpaceArtworkTintStore.hex(red: $0.red, green: $0.green, blue: $0.blue)
+                    },
+                    for: space
+                )
                 self.applyArtworkTheme(
                     result,
                     liquidPalette: liquidPalette,

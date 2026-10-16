@@ -3674,6 +3674,8 @@
 "theme_color_custom_footer" = "Arrastra para mezclar cualquier color que desees.";
 "theme_color_forest" = "Bosque";
 "theme_color_hex" = "Valor";
+"theme_color_picker" = "Selector de color";
+"theme_color_picker_footer" = "En el selector puedes escribir un valor hexadecimal o usar el gotero. En textos y botones, el color se oscurece o aclara si hace falta para que se lea bien.";
 "player_backdrop_title" = "Fondo del reproductor";
 "player_backdrop_cover_ambient" = "Colores de la portada";
 "player_backdrop_cover_ambient_hint" = "Un campo de color fluido tomado de la portada";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Igual al color del tema";
 "listening_space_tint_theme_hint" = "El mismo color que el tema de la app";
 "listening_space_tint_artwork" = "De la portada";
-"listening_space_tint_artwork_hint" = "Cambia con la portada de lo que se reproduce. Los widgets usan el color del tema.";
+"listening_space_tint_artwork_hint" = "Toma el color de la última portada reproducida en esta categoría y lo conserva mientras suena otra cosa.";
 "listening_space_tint_fixed" = "Color fijo";
 "listening_space_tint_fixed_hint" = "Elige uno de la paleta o ajusta el tuyo abajo";
 

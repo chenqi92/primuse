@@ -1080,6 +1080,8 @@
 "replay_gain_desc" = "Автоматически регулировать громкость на основе тегов ReplayGain, встроенных в аудиофайлы.";
 "lyrics_editor_stamp" = "Поставить метку";
 "theme_color_hex" = "Значение";
+"theme_color_picker" = "Выбор цвета";
+"theme_color_picker_footer" = "В окне выбора можно ввести шестнадцатеричное значение или взять цвет пипеткой. Для текста и кнопок цвет при необходимости затемняется или осветляется, чтобы оставаться читаемым.";
 "player_backdrop_title" = "Фон плеера";
 "player_backdrop_cover_ambient" = "Цвета обложки";
 "player_backdrop_cover_ambient_hint" = "Плавное цветовое поле по цветам обложки";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Как цвет темы";
 "listening_space_tint_theme_hint" = "Тот же цвет, что и тема приложения";
 "listening_space_tint_artwork" = "С обложки";
-"listening_space_tint_artwork_hint" = "Меняется вместе с обложкой того, что играет. Виджеты используют цвет темы.";
+"listening_space_tint_artwork_hint" = "Берёт цвет последней обложки из этой категории и сохраняет его, пока играет что-то другое.";
 "listening_space_tint_fixed" = "Фиксированный цвет";
 "listening_space_tint_fixed_hint" = "Выберите в палитре или настройте свой ниже";
 

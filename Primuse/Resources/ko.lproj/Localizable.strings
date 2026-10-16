@@ -390,6 +390,8 @@
 "theme_color_saturation" = "채도";
 "theme_color_brightness" = "명도";
 "theme_color_hex" = "색상 값";
+"theme_color_picker" = "색상 선택기";
+"theme_color_picker_footer" = "색상 선택기에서 16진수 값을 입력하거나 스포이트로 색을 가져올 수 있습니다. 텍스트와 버튼에 쓸 때는 잘 보이도록 필요에 따라 어둡게 또는 밝게 조정합니다.";
 "player_backdrop_title" = "재생 화면 배경";
 "player_backdrop_cover_ambient" = "커버 색상";
 "player_backdrop_cover_ambient_hint" = "앨범 커버 색이 흐르는 컬러 필드";
@@ -6013,7 +6015,7 @@
 "listening_space_tint_theme" = "테마 색상 따르기";
 "listening_space_tint_theme_hint" = "앱 테마와 같은 색상";
 "listening_space_tint_artwork" = "커버 아트 따르기";
-"listening_space_tint_artwork_hint" = "재생 중인 커버에 따라 바뀝니다. 위젯에서는 테마 색상을 사용합니다.";
+"listening_space_tint_artwork_hint" = "이 분류에서 마지막으로 재생한 커버의 색을 따르며, 다른 콘텐츠를 재생하는 동안에도 그대로 유지됩니다.";
 "listening_space_tint_fixed" = "고정 색상";
 "listening_space_tint_fixed_hint" = "팔레트에서 고르거나 아래에서 직접 조정하세요";
 

@@ -144,6 +144,17 @@ final class ThemeColorSettings {
         return HSB(hue: h, saturation: s, brightness: b)
     }
 
+    /// 系统取色器挑出的颜色写成 RRGGBB。它可能给出 Display P3 里超出 sRGB 的分量,按 sRGB 截到 0...1。
+    static func hex(from color: Color) -> String {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        func channel(_ value: CGFloat) -> Int { Int(round(min(max(value, 0), 1) * 255)) }
+        return String(format: "%02X%02X%02X", channel(r), channel(g), channel(b))
+    }
+
     static func hex(fromHSB hsb: HSB) -> String {
         let color = UIColor(
             hue: hsb.hue,

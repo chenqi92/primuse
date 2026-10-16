@@ -3674,6 +3674,8 @@
 "theme_color_custom_footer" = "Arraste para misturar a cor que desejar.";
 "theme_color_forest" = "Floresta";
 "theme_color_hex" = "Valor";
+"theme_color_picker" = "Seletor de cores";
+"theme_color_picker_footer" = "No seletor você pode digitar um valor hexadecimal ou usar o conta-gotas. Em textos e botões, a cor é escurecida ou clareada quando necessário para continuar legível.";
 "player_backdrop_title" = "Fundo do player";
 "player_backdrop_cover_ambient" = "Cores da capa";
 "player_backdrop_cover_ambient_hint" = "Um campo de cor fluido tirado da capa";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Igual à cor do tema";
 "listening_space_tint_theme_hint" = "A mesma cor do tema do app";
 "listening_space_tint_artwork" = "Da arte da capa";
-"listening_space_tint_artwork_hint" = "Muda com a capa do que está tocando. Os widgets usam a cor do tema.";
+"listening_space_tint_artwork_hint" = "Usa a cor da última capa tocada nesta categoria e a mantém enquanto outra coisa toca.";
 "listening_space_tint_fixed" = "Cor Fixa";
 "listening_space_tint_fixed_hint" = "Escolha uma da paleta ou ajuste a sua abaixo";
 

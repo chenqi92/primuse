@@ -159,6 +159,8 @@
 "theme_color_saturation" = "Saturation";
 "theme_color_brightness" = "Brightness";
 "theme_color_hex" = "Value";
+"theme_color_picker" = "Color Picker";
+"theme_color_picker_footer" = "In the color picker you can enter a hex value or use the eyedropper. On text and buttons the color is darkened or lightened as needed so it stays readable.";
 "player_backdrop_title" = "Player Background";
 "player_backdrop_cover_ambient" = "Cover Colors";
 "player_backdrop_cover_ambient_hint" = "A flowing color field taken from the artwork";
@@ -5773,7 +5775,7 @@
 "listening_space_tint_theme" = "Match Theme Color";
 "listening_space_tint_theme_hint" = "The same color as the app’s theme";
 "listening_space_tint_artwork" = "Match Cover Art";
-"listening_space_tint_artwork_hint" = "Changes with the cover of what’s playing. Widgets use the theme color.";
+"listening_space_tint_artwork_hint" = "Takes the color of the last cover played in this category and keeps it while other things play.";
 "listening_space_tint_fixed" = "Fixed Color";
 "listening_space_tint_fixed_hint" = "Pick one from the palette or adjust your own below";
 

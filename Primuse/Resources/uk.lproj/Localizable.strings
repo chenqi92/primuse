@@ -1080,6 +1080,8 @@
 "replay_gain_desc" = "Автоматично регулюйте гучність на основі тегів ReplayGain, вбудованих у аудіофайли.";
 "lyrics_editor_stamp" = "Поставити мітку";
 "theme_color_hex" = "Значення";
+"theme_color_picker" = "Вибір кольору";
+"theme_color_picker_footer" = "У вікні вибору можна ввести шістнадцяткове значення або взяти колір піпеткою. Для тексту й кнопок колір за потреби затемнюється або освітлюється, щоб лишатися читабельним.";
 "player_backdrop_title" = "Тло плеєра";
 "player_backdrop_cover_ambient" = "Кольори обкладинки";
 "player_backdrop_cover_ambient_hint" = "Плавне кольорове поле за кольорами обкладинки";
@@ -5919,7 +5921,7 @@
 "listening_space_tint_theme" = "Як колір теми";
 "listening_space_tint_theme_hint" = "Той самий колір, що й тема застосунку";
 "listening_space_tint_artwork" = "З обкладинки";
-"listening_space_tint_artwork_hint" = "Змінюється разом з обкладинкою того, що грає. Віджети використовують колір теми.";
+"listening_space_tint_artwork_hint" = "Бере колір останньої обкладинки з цієї категорії й зберігає його, поки грає щось інше.";
 "listening_space_tint_fixed" = "Фіксований колір";
 "listening_space_tint_fixed_hint" = "Виберіть у палітрі або налаштуйте свій нижче";
 

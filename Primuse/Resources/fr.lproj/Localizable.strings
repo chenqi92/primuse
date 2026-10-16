@@ -390,6 +390,8 @@
 "theme_color_saturation" = "Saturation";
 "theme_color_brightness" = "Luminosité";
 "theme_color_hex" = "Valeur";
+"theme_color_picker" = "Sélecteur de couleur";
+"theme_color_picker_footer" = "Dans le sélecteur, vous pouvez saisir une valeur hexadécimale ou utiliser la pipette. Sur le texte et les boutons, la couleur est assombrie ou éclaircie si besoin pour rester lisible.";
 "player_backdrop_title" = "Arrière-plan du lecteur";
 "player_backdrop_cover_ambient" = "Couleurs de la pochette";
 "player_backdrop_cover_ambient_hint" = "Un champ de couleurs fluide tiré de la pochette";
@@ -6013,7 +6015,7 @@
 "listening_space_tint_theme" = "Couleur du thème";
 "listening_space_tint_theme_hint" = "La même couleur que le thème de l’app";
 "listening_space_tint_artwork" = "D’après la pochette";
-"listening_space_tint_artwork_hint" = "Change avec la pochette en cours de lecture. Les widgets utilisent la couleur du thème.";
+"listening_space_tint_artwork_hint" = "Prend la couleur de la dernière pochette lue dans cette catégorie et la garde pendant la lecture d’autre chose.";
 "listening_space_tint_fixed" = "Couleur fixe";
 "listening_space_tint_fixed_hint" = "Choisissez-en une dans la palette ou réglez la vôtre ci-dessous";
 

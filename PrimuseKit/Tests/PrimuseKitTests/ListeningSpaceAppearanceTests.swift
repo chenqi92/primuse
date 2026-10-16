@@ -92,6 +92,42 @@ final class ListeningSpaceAppearanceTests: XCTestCase {
         XCTAssertNil(ListeningSpaceTint.legible(hex: "FFF"))
     }
 
+    func testFollowingTheCoverUsesTheSpacesOwnLastCover() {
+        // A remembered cover colour draws like a colour the user picked.
+        XCTAssertEqual(ListeningSpaceTintChoice.artwork.resolvingArtwork("3a7bd5"), .fixed("3A7BD5"))
+        // Nothing remembered yet, or nothing readable: the space's own hue.
+        XCTAssertEqual(ListeningSpaceTintChoice.artwork.resolvingArtwork(nil), .standard)
+        XCTAssertEqual(ListeningSpaceTintChoice.artwork.resolvingArtwork("theme"), .standard)
+        // Every other choice ignores the remembered colour.
+        XCTAssertEqual(ListeningSpaceTintChoice.theme.resolvingArtwork("3A7BD5"), .theme)
+        XCTAssertEqual(ListeningSpaceTintChoice.standard.resolvingArtwork("3A7BD5"), .standard)
+        XCTAssertEqual(ListeningSpaceTintChoice.fixed("E8453C").resolvingArtwork("3A7BD5"), .fixed("E8453C"))
+    }
+
+    func testEachSpaceKeepsItsOwnCoverColour() throws {
+        let suite = "ListeningSpaceArtworkTintStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        ListeningSpaceArtworkTintStore.store("#3a7bd5", for: .spokenWord, in: defaults)
+        ListeningSpaceArtworkTintStore.store("C25E0C", for: .radio, in: defaults)
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(for: .spokenWord, in: defaults), "3A7BD5")
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(for: .radio, in: defaults), "C25E0C")
+        XCTAssertNil(ListeningSpaceArtworkTintStore.hex(for: .podcast, in: defaults))
+
+        // A cover without a colour clears only its own space.
+        ListeningSpaceArtworkTintStore.store(nil, for: .spokenWord, in: defaults)
+        XCTAssertNil(defaults.object(forKey: ListeningSpaceArtworkTintStore.key(for: .spokenWord)))
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(for: .radio, in: defaults), "C25E0C")
+
+        // Music follows the theme and keeps nothing.
+        ListeningSpaceArtworkTintStore.store("3A7BD5", for: .music, in: defaults)
+        XCTAssertNil(defaults.object(forKey: ListeningSpaceArtworkTintStore.key(for: .music)))
+
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(red: 1, green: 0.5, blue: 0), "FF8000")
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(red: -0.2, green: 1.4, blue: 0.2), "00FF33")
+    }
+
     func testDeepenedShadeKeepsTheHueAndCarriesWhiteText() throws {
         func rgb(_ hex: UInt32) -> ThemeAccentContrastPolicy.RGB {
             let parts = ListeningSpaceTint.components(hex)
