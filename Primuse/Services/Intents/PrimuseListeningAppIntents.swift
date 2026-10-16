@@ -381,8 +381,10 @@ extension AppServices {
 
     /// The book's songs in reading order and the one to start from (`itemID`,
     /// or where the book was left), with the resume position prepared.
-    func spokenWordBookStart(bookID: String, from itemID: String? = nil) -> (songs: [Song], index: Int)? {
+    func spokenWordBookStart(bookID requestedBookID: String, from itemID: String? = nil) -> (songs: [Song], index: Int)? {
         let library = musicLibrary
+        // 小组件、快捷指令可能还拿着这本书读出标签之前的 id。
+        let bookID = library.currentSpokenWordBookID(for: requestedBookID)
         let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
         guard !songs.isEmpty else { return nil }
         let store = SpokenWordStore.shared

@@ -847,6 +847,43 @@ extension ListeningFeaturesTests {
                                                   allIDs: ["a", "b", "c"]), ["a", "b", "c"])
     }
 
+    func testBookGivenANewIDKeepsItsShelfPlaceHomePickSpeedArchiveAndShowSettings() throws {
+        // A folder of untagged files is a book named after the folder until its first tags are read.
+        let defaults = try makeDefaults()
+        defaults.set(SpokenWordShelfOrder.encode(["a", "folder", "b"]), forKey: SpokenWordShelfOrder.storageKey)
+        defaults.set(
+            HomeSpotlightSelection(order: .custom, pinnedIDs: ["folder", "c"]).encoded(),
+            forKey: HomeSpotlightSelection.booksStorageKey
+        )
+        SpokenWordShelfOrder.carryStoredBookIDs(renames: ["folder": "album"], defaults: defaults)
+        XCTAssertEqual(SpokenWordShelfOrder.decode(try XCTUnwrap(defaults.string(forKey: SpokenWordShelfOrder.storageKey))),
+                       ["a", "album", "b"])
+        let picks = HomeSpotlightSelection.decode(try XCTUnwrap(defaults.string(forKey: HomeSpotlightSelection.booksStorageKey)))
+        XCTAssertEqual(picks.pinnedIDs, ["album", "c"])
+        XCTAssertEqual(picks.order, .custom)
+
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        store.setPlaybackRate(1.5, forBookID: "folder")
+        store.setArchived(true, bookIDs: ["folder"])
+        store.carryBookState(renames: ["folder": "album", "unrelated": "other"])
+        XCTAssertEqual(store.playbackRate(forBookID: "album"), 1.5)
+        XCTAssertTrue(store.isArchived(bookID: "album"))
+        // The old id keeps them for a device still grouping the book the old way.
+        XCTAssertEqual(store.playbackRate(forBookID: "folder"), 1.5)
+        XCTAssertTrue(store.isArchived(bookID: "folder"))
+        XCTAssertNil(store.playbackRate(forBookID: "other"))
+        // A speed picked for the new book afterwards is not overwritten by carrying again.
+        store.setPlaybackRate(2, forBookID: "album")
+        store.carryBookState(renames: ["folder": "album"])
+        XCTAssertEqual(store.playbackRate(forBookID: "album"), 2)
+
+        let shows = LocalPodcastShowSettingsStore(defaults: defaults)
+        shows.update("show-folder") { $0.order = .custom }
+        shows.carryShows(renames: ["show-folder": "show-album"])
+        XCTAssertEqual(shows.settings(for: "show-album").order, .custom)
+        XCTAssertEqual(shows.settings(for: "show-folder"), .default)
+    }
+
     func testShelfOrderPreservesOtherSectionsAndRejectsForeignDrops() {
         let order = ["a", "current", "finished", "b", "unavailable", "c"]
         XCTAssertEqual(SpokenWordShelfOrder.moving("c", onto: "a", visible: ["a", "b", "c"],

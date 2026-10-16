@@ -2871,6 +2871,15 @@ final class AlwaysDownloadCoordinator {
         scheduleReconciliation(delay: .zero)
     }
 
+    /// 书架给书换了 id(old → new):开着的「保持离线」跟到新 id 上。只存本机,旧 id 不留。
+    func carryBooks(renames: [String: String]) {
+        let next = AudiobookOfflinePolicy.carrying(enabledBooks, renames: renames)
+        guard next != enabledBooks else { return }
+        enabledBooks = next
+        persistBookPreferences()
+        scheduleReconciliation(delay: .zero)
+    }
+
     /// 离线下载清单里记的全部保持者:开着的歌单,和开着的书(`book:<id>`)。
     var enabledOwnerIDs: Set<String> {
         enabledPlaylistIDs.union(enabledBooks.keys.map(AudiobookOfflinePolicy.ownerID(forBook:)))

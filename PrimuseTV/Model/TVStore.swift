@@ -6262,7 +6262,8 @@ final class TVStore {
             sleepStopAfterItemID = nil
             if itemID == endedID { return true }
         }
-        guard let bookID = sleepStopAfterBookID else { return false }
+        // 锁住以后这本书可能读出了标签、换了 id(按目录成书改按专辑成书),按现在的 id 比。
+        guard let bookID = sleepStopAfterBookID.map({ library.currentSpokenWordBookID(for: $0) }) else { return false }
         let nextIndex = queueIndex + 1
         let nextBookID = queue.indices.contains(nextIndex) ? spokenWordBookID(forSongID: queue[nextIndex]) : nil
         guard nextBookID != bookID else { return false }

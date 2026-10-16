@@ -17,16 +17,44 @@ extension SpokenWordBookGrouping {
         among books: some Sequence<SpokenWordBook>
     ) -> String? {
         guard !chapterIDs.isEmpty else { return nil }
-        var best: (id: String, count: Int)?
+        var counts: [String: Int] = [:]
         for book in books {
             let count = book.items.reduce(0) { $0 + (chapterIDs.contains($1.id) ? 1 : 0) }
-            guard count > 0 else { continue }
-            if let current = best, current.count > count || (current.count == count && current.id < book.id) {
-                continue
-            }
-            best = (book.id, count)
+            if count > 0 { counts[book.id] = count }
         }
-        return best?.id
+        return mostHeld(counts)?.id
+    }
+
+    /// Old book id → the book that took over its chapters, for each book of
+    /// `previous` that `current` no longer has (both item id → book id, as
+    /// `bookIDs(for:)` gives them). The successor is found the way an open
+    /// book page follows its book (`bookID(holdingMostOf:among:)`), and must
+    /// hold more than half of the old book's chapters still in the library:
+    /// a book whose chapters scattered or went away has none.
+    public static func renamedBookIDs(
+        from previous: [String: String],
+        to current: [String: String]
+    ) -> [String: String] {
+        guard !previous.isEmpty, !current.isEmpty else { return [:] }
+        let currentBookIDs = Set(current.values)
+        var tallies: [String: [String: Int]] = [:]
+        for (itemID, oldID) in previous where !currentBookIDs.contains(oldID) {
+            guard let newID = current[itemID] else { continue }
+            tallies[oldID, default: [:]][newID, default: 0] += 1
+        }
+        var renames: [String: String] = [:]
+        for (oldID, counts) in tallies {
+            guard let best = mostHeld(counts) else { continue }
+            if best.count * 2 > counts.values.reduce(0, +) { renames[oldID] = best.id }
+        }
+        return renames
+    }
+
+    /// The book holding the most, the smaller id on a tie.
+    static func mostHeld(_ counts: [String: Int]) -> (id: String, count: Int)? {
+        counts.max { lhs, rhs in
+            lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key > rhs.key
+        }.map { ($0.key, $0.value) }
     }
 }
 

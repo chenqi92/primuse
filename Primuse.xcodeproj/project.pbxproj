@@ -223,6 +223,7 @@
 		1B0A3CACE7B4634D20DA6C89 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		1B1495FAE0F8456866676C61 /* ServerPlaylistMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */; };
 		1B495C1C9292861F88C17185 /* SpokenWordBookPlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AFCE912BF9D28B135F69C8A /* SpokenWordBookPlaybackPolicy.swift */; };
+		1DE2A1D1D67532D1AD82423F /* SpokenWordBookRenames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEEAA38E460C73784C0ACAA /* SpokenWordBookRenames.swift */; };
 		1B4ED35B9C20D4E306269836 /* RadioFLACDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 9EB66896DBE96AD0C44855A9 /* RadioFLACDecoderBridge.m */; };
 		1B71B9FA955ABB52D727C409 /* WiFiTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3303C01ACAD990E330C14A /* WiFiTransferServer.swift */; };
 		1B7A7E074FABC7B3C0FCCA49 /* PrimuseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92AF0B0AD1CB169C0066D11 /* PrimuseTheme.swift */; };
@@ -2544,6 +2545,7 @@
 		2AA9AC0DEF8E6DD69FB2D9D2 /* NowPlayingControlLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingControlLayout.swift; sourceTree = "<group>"; };
 		2AB10836AF9263CA5866DCE4 /* ThemeColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeColorSettings.swift; sourceTree = "<group>"; };
 		2AFCE912BF9D28B135F69C8A /* SpokenWordBookPlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordBookPlaybackPolicy.swift; sourceTree = "<group>"; };
+		7BEEAA38E460C73784C0ACAA /* SpokenWordBookRenames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordBookRenames.swift; sourceTree = "<group>"; };
 		2B2A44504B87BF6AE588C274 /* RemoteDirectoryRateLimitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDirectoryRateLimitPolicy.swift; sourceTree = "<group>"; };
 		B7A57564214E4E718E7BA028 /* RequestExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestExecutor.swift; sourceTree = "<group>"; };
 		2BDF06CB5240A50E638F346F /* FolderPlaylistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPlaylistTests.swift; sourceTree = "<group>"; };
@@ -4421,6 +4423,7 @@
 				7575AF311B4B2701FA95DA73 /* SpokenWordBookGroupingRules.swift */,
 				820542FEE66BA301F8E5EE42 /* SpokenWordBookItem+Song.swift */,
 				2AFCE912BF9D28B135F69C8A /* SpokenWordBookPlaybackPolicy.swift */,
+				7BEEAA38E460C73784C0ACAA /* SpokenWordBookRenames.swift */,
 				518582DFCDFFEE176B340033 /* SpokenWordContentPolicy.swift */,
 				6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */,
 				4F93FF0F9DEA42E997404B4B /* SpokenWordCurrentBookCache.swift */,
@@ -6851,6 +6854,7 @@
 				34EDC7CFA8C700F9633BDC2B /* SpokenWordBookGroupingRules.swift in Sources */,
 				A649D7ECA1CA7D0BF86CE4AB /* SpokenWordBookItem+Song.swift in Sources */,
 				1B495C1C9292861F88C17185 /* SpokenWordBookPlaybackPolicy.swift in Sources */,
+				1DE2A1D1D67532D1AD82423F /* SpokenWordBookRenames.swift in Sources */,
 				6BEA4C430BF1F8100C05FA7B /* SpokenWordContentPolicy.swift in Sources */,
 				761B04C86F083F18574E02FD /* SpokenWordCoverLayout.swift in Sources */,
 				D943732D0C25C109CD537241 /* SpokenWordCurrentBookCache.swift in Sources */,

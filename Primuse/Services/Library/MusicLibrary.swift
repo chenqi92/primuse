@@ -3934,8 +3934,64 @@ final class MusicLibrary {
     func displayTitle(for song: Song) -> String {
         spokenWordDisplayTitles.isEmpty ? song.title : (spokenWordDisplayTitles[song.id] ?? song.title)
     }
+
     /// How many books the spoken-word items make.
     private(set) var spokenWordBookCount = 0
+    /// The book ids in `spokenWordBookIDs` and the show ids in
+    /// `localPodcastBookIDs`, so a regrouping that drops one is told apart
+    /// without walking every item on the main actor.
+    @ObservationIgnored private var spokenWordBookIDSet: Set<String> = []
+    @ObservationIgnored private var localPodcastBookIDSet: Set<String> = []
+    /// Ids books went by earlier in this run → the id each goes by now. See
+    /// `carryRenamedSpokenWordBooks`.
+    @ObservationIgnored private var spokenWordBookRenameHistory: [String: String] = [:]
+    /// Carries one regrouping's renames after another, in order.
+    @ObservationIgnored private var spokenWordBookRenameTask: Task<Void, Never>?
+    /// Told about books given new ids (old id → new id, books and the
+    /// listener's own podcast shows), after their speed, archive mark and
+    /// show settings moved over: the app carries what it keeps elsewhere.
+    @ObservationIgnored var spokenWordBooksRenamedHandler: ((_ books: [String: String], _ shows: [String: String]) -> Void)?
+
+    /// The id `bookID`'s book goes by now: a widget, a timer or an intent
+    /// may still hold the one it had before this run regrouped it.
+    func currentSpokenWordBookID(for bookID: String) -> String {
+        SpokenWordBookRenames.currentID(for: bookID, in: spokenWordBookRenameHistory)
+    }
+
+    /// Books (or the listener's own podcast shows) gone from a regrouping:
+    /// find the ones that took over their chapters and carry over what is
+    /// kept by book id (`SpokenWordBookRenames`). A book's id changes when
+    /// its first tags are read — a folder of untagged files is named after
+    /// the folder until the album on one chapter takes over — so a speed,
+    /// archive mark, favourite or shelf place set before then would be lost.
+    ///
+    /// Matching walks every spoken-word item, so it runs off the main actor;
+    /// one regrouping after another, so a book renamed twice in a row reaches
+    /// its second id through its first.
+    private func carryRenamedSpokenWordBooks(
+        books: (previous: [String: String], current: [String: String])?,
+        shows: (previous: [String: String], current: [String: String])?
+    ) {
+        let prior = spokenWordBookRenameTask
+        spokenWordBookRenameTask = Task { @MainActor [weak self] in
+            await prior?.value
+            let renames = await Task.detached(priority: .utility) { () -> (books: [String: String], shows: [String: String]) in
+                var renamedBooks: [String: String] = [:]
+                var renamedShows: [String: String] = [:]
+                if let books { renamedBooks = SpokenWordBookGrouping.renamedBookIDs(from: books.previous, to: books.current) }
+                if let shows { renamedShows = SpokenWordBookGrouping.renamedBookIDs(from: shows.previous, to: shows.current) }
+                return (renamedBooks, renamedShows)
+            }.value
+            guard let self, !renames.books.isEmpty || !renames.shows.isEmpty else { return }
+            let all = renames.books.merging(renames.shows) { book, _ in book }
+            self.spokenWordBookRenameHistory = SpokenWordBookRenames.recording(all, into: self.spokenWordBookRenameHistory)
+            plog("📚 Books regrouped under new ids: books=\(renames.books.count) shows=\(renames.shows.count)")
+            SpokenWordStore.shared.carryBookState(renames: all)
+            LocalPodcastShowSettingsStore.shared.carryShows(renames: renames.shows)
+            self.spokenWordBooksRenamedHandler?(renames.books, renames.shows)
+        }
+    }
+
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
@@ -4084,6 +4140,9 @@ final class MusicLibrary {
         let podcastBookIDs: [String: String]
         /// Spoken-word item id → book id, as the bookshelf groups them.
         let spokenWordBookIDs: [String: String]
+        /// The book ids in `spokenWordBookIDs` and the show ids in `podcastBookIDs`.
+        let spokenWordBookIDSet: Set<String>
+        let podcastBookIDSet: Set<String>
         /// Spoken-word item id → the shelf's title for a file renamed after tagging.
         let spokenWordDisplayTitles: [String: String]
         let albums: [Album]
@@ -4581,6 +4640,12 @@ final class MusicLibrary {
         musicSongs = musicShares ? [] : prepared.musicSongs
         spokenWordSongs = prepared.spokenWordSongs
         spokenWordSongIDs = prepared.spokenWordSongIDs
+        // 有书或节目这次分组里没了:多半是换了 id(读出第一集的专辑,按目录成书改按专辑成书),
+        // 按章节找出接手的书,把按书 id 记的设置带过去。
+        let previousBookIDs = spokenWordBookIDs
+        let previousShowIDs = localPodcastBookIDs
+        let booksWentAway = !spokenWordBookIDSet.isSubset(of: prepared.spokenWordBookIDSet)
+        let showsWentAway = !localPodcastBookIDSet.isSubset(of: prepared.podcastBookIDSet)
         // 扫描时每批都发布一次,没变就不写,播客页不必跟着重画。
         localPodcastBookIDs = prepared.podcastBookIDs
         if localPodcastSongs != prepared.podcastSongs {
@@ -4588,7 +4653,15 @@ final class MusicLibrary {
         }
         spokenWordBookIDs = prepared.spokenWordBookIDs
         spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
-        spokenWordBookCount = Set(prepared.spokenWordBookIDs.values).count
+        spokenWordBookIDSet = prepared.spokenWordBookIDSet
+        localPodcastBookIDSet = prepared.podcastBookIDSet
+        spokenWordBookCount = prepared.spokenWordBookIDSet.count
+        if booksWentAway || showsWentAway {
+            carryRenamedSpokenWordBooks(
+                books: booksWentAway ? (previousBookIDs, prepared.spokenWordBookIDs) : nil,
+                shows: showsWentAway ? (previousShowIDs, prepared.podcastBookIDs) : nil
+            )
+        }
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
         visibleAlbumArtists = prepared.albumArtistIndex.artists
@@ -4717,6 +4790,9 @@ final class MusicLibrary {
         let spokenWordPlacement = spokenWordSongs.isEmpty
             ? SpokenWordBookGrouping.BookPlacement()
             : SpokenWordBookGrouping.bookPlacement(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) })
+        let podcastBookIDs = podcastSongs.isEmpty
+            ? [:]
+            : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
         return PreparedVisibleCache(
             spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
@@ -4724,10 +4800,10 @@ final class MusicLibrary {
             spokenWordSongs: spokenWordSongs,
             spokenWordSongIDs: spokenWordSongIDs,
             podcastSongs: podcastSongs,
-            podcastBookIDs: podcastSongs.isEmpty
-                ? [:]
-                : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) }),
+            podcastBookIDs: podcastBookIDs,
             spokenWordBookIDs: spokenWordPlacement.bookIDs,
+            spokenWordBookIDSet: Set(spokenWordPlacement.bookIDs.values),
+            podcastBookIDSet: Set(podcastBookIDs.values),
             spokenWordDisplayTitles: spokenWordPlacement.displayTitles,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,

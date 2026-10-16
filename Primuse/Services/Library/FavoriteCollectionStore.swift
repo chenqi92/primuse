@@ -156,6 +156,33 @@ final class FavoriteCollectionStore {
         }
     }
 
+    /// 书架给书换了 id(读出第一集的专辑后,按目录成书改按专辑成书,old → new):收藏着的书
+    /// 在新 id 上也收藏着,排在旧的后面。旧的留着 —— 还没读出标签的设备仍按旧 id 分书,
+    /// 这里拿掉就会同步过去把它取消;它在这台设备上对不上,各处显示时本来就跳过。新 id 上
+    /// 有更新的决定(在别的设备上取消过)时照它的。同步状态里的时刻与顺序沿用旧的那一条,
+    /// 每台设备带过去的结果一样,谁先谁后都不会来回改。
+    func carryCollectedBooks(renames: [String: String]) {
+        let pins = storedPins
+        let collected = Set(pins.lazy.filter { $0.kind == .book }.map(\.itemID))
+        var pinRenames: [String: String] = [:]
+        for (oldID, newID) in renames where collected.contains(oldID) {
+            pinRenames[QuickAccessPinReference(kind: .book, itemID: oldID).id] = QuickAccessPinReference(kind: .book, itemID: newID).id
+        }
+        guard !pinRenames.isEmpty else { return }
+        if let state = syncState {
+            let carried = FavoriteCollectionSyncPolicy.carryingMembership(state, renames: pinRenames)
+            // 新 id 上有更新的取消:不收。同步状态里没有的(只在本机的书)跟着旧的收。
+            pinRenames = pinRenames.filter { carried.members[$0.value]?.isCollected ?? true }
+            if carried != state {
+                syncState = carried
+                persistSyncState()
+                scheduleCloudPush()
+            }
+        }
+        let ids = SpokenWordBookRenames.carrying(pins.map(\.id), renames: pinRenames, keepingOldIDs: true)
+        store(ids.compactMap { QuickAccessPinReference(id: $0) })
+    }
+
     private var folderRawValue: String {
         defaults.string(forKey: HomeFolderPinStorage.key) ?? ""
     }

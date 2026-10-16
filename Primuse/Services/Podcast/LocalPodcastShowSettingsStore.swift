@@ -46,6 +46,19 @@ final class LocalPodcastShowSettingsStore {
         }
     }
 
+    /// 节目换了 id(读出标签后分组变了,old → new):排法跟到新 id 上。新 id 已经有自己的
+    /// 排法时那是之后才设的,留着它。只在本机,旧 id 不必留给别的设备。
+    func carryShows(renames: [String: String]) {
+        var next = settingsByShowID
+        for oldID in renames.keys.sorted() {
+            guard let newID = renames[oldID], let settings = next.removeValue(forKey: oldID) else { continue }
+            if next[newID] == nil { next[newID] = settings }
+        }
+        guard next != settingsByShowID else { return }
+        settingsByShowID = next
+        persist()
+    }
+
     private func persist() {
         if settingsByShowID.isEmpty {
             defaults.removeObject(forKey: Self.defaultsKey)

@@ -234,6 +234,27 @@ enum SpokenWordShelfLayout: String, CaseIterable {
 }
 
 enum SpokenWordShelfOrder {
+    static let storageKey = "spokenWord.shelf.order"
+
+    /// 书架给书换了 id(old → new):书架拖出来的顺序和首页「有声书」挑的书里,新 id 站到
+    /// 旧 id 的位置上。两份都只在本机,旧 id 不留。
+    static func carryStoredBookIDs(renames: [String: String], defaults: UserDefaults = .standard) {
+        guard !renames.isEmpty else { return }
+        if let raw = defaults.string(forKey: storageKey) {
+            let order = decode(raw)
+            let carried = SpokenWordBookRenames.carrying(order, renames: renames)
+            if carried != order { defaults.set(encode(carried), forKey: storageKey) }
+        }
+        if let raw = defaults.string(forKey: HomeSpotlightSelection.booksStorageKey) {
+            var selection = HomeSpotlightSelection.decode(raw)
+            let carried = SpokenWordBookRenames.carrying(selection.pinnedIDs, renames: renames)
+            if carried != selection.pinnedIDs {
+                selection.pinnedIDs = carried
+                defaults.set(selection.encoded(), forKey: HomeSpotlightSelection.booksStorageKey)
+            }
+        }
+    }
+
     static func decode(_ value: String) -> [String] {
         guard let data = value.data(using: .utf8),
               let ids = try? JSONDecoder().decode([String].self, from: data) else { return [] }

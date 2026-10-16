@@ -1629,6 +1629,11 @@ final class AppServices {
         observeApplicationActivity()
 
         wireIntentBridge()
+        // 书架给书换了 id(读出第一集的专辑后,按目录成书改按专辑成书):倍速、归档与本地节目的
+        // 排法曲库自己带过去,这里带收藏、书架顺序、首页挑的书和保持离线。
+        musicLibrary.spokenWordBooksRenamedHandler = { [weak self] books, shows in
+            self?.carryRenamedSpokenWordBooks(books: books, shows: shows)
+        }
         let spokenWordWidgets = SpokenWordWidgetPublisher(library: musicLibrary)
         spokenWordWidgets.start()
         spokenWordWidgetPublisher = spokenWordWidgets
@@ -1676,6 +1681,18 @@ final class AppServices {
     /// Draw on the main actor.
     /// 第一次有了本机的播客文件:收着的播客分类亮出来一次。这些文件原先在有声书架上,
     /// 归到播客以后分类还收着的话,看起来就是丢了。亮过一次就不再盯着。
+    private func carryRenamedSpokenWordBooks(books: [String: String], shows: [String: String]) {
+        #if os(iOS) || os(macOS)
+        FavoriteCollectionStore.shared.carryCollectedBooks(renames: books.merging(shows) { book, _ in book })
+        #endif
+        alwaysDownload.carryBooks(renames: books)
+        SpokenWordShelfOrder.carryStoredBookIDs(renames: books)
+        // 正在放的书换了 id:倍速按新 id 上的那份再对一次(两边都设过时留下的是新近的那份)。
+        if let current = playerService.currentBookID, books.values.contains(current) || shows.values.contains(current) {
+            playerService.applyPlaybackRate()
+        }
+    }
+
     private func observeLocalPodcastFiles() {
         guard !UserDefaults.standard.bool(forKey: LibraryDisplayConfiguration.podcastsRevealedForLocalFilesKey) else { return }
         let hasLocalPodcasts = withObservationTracking {
@@ -2711,7 +2728,8 @@ final class AppServices {
             togglePlaybackOfCurrent(player.currentSong?.id == id)
         }
         bridge.togglePlaybackIfCurrentBook = { bookID in
-            togglePlaybackOfCurrent(player.currentBookID == bookID)
+            // 小组件可能还拿着这本书读出标签之前的 id。
+            togglePlaybackOfCurrent(player.currentBookID == library.currentSpokenWordBookID(for: bookID))
         }
         bridge.restorePlaybackSession = { [self] in
             await awaitPlaybackSessionRestore()

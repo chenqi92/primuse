@@ -940,6 +940,26 @@ final class SpokenWordStore {
         didChange(cloud: .prompt)
     }
 
+    // MARK: - Books regrouped under new ids
+
+    /// The library gave books new ids (old id → new id): their speed and
+    /// archive mark go with them. The old id keeps its own, for a device that
+    /// has not read the tags yet and still groups the book the old way; every
+    /// device carrying the same renames reaches the same state, so nothing
+    /// bounces between them (`SpokenWordSyncPolicy.carryingBookState`).
+    func carryBookState(renames: [String: String]) {
+        let affected = renames.keys.contains { bookID in
+            bookRates[bookID] != nil || archivedAt[bookID] != nil
+                || ledger.rateChangedAt[bookID] != nil || ledger.unarchivedAt[bookID] != nil
+        }
+        guard affected else { return }
+        let state = SpokenWordSyncPolicy.state(from: localRecords)
+        let carried = SpokenWordSyncPolicy.carryingBookState(state, renames: renames)
+        guard carried != state else { return }
+        adopt(carried)
+        scheduleCloudPush(.relaxed)
+    }
+
     private func resolvedDuration(for song: Song) -> TimeInterval {
         // A bare row can still have a remembered duration from when it played.
         song.duration > 0 ? song.duration : (positions[song.id]?.duration ?? 0)
