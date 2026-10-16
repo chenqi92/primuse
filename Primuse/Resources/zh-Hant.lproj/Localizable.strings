@@ -2976,7 +2976,7 @@
 
 /* MARK: - 刮削來源未啟用提示 */
 "scraper_no_source_title" = "未啟用刮削來源";
-"scraper_no_source_message" = "刮削需要至少一個已啟用的刮削來源。請前往設定開啟內建刮削來源，或匯入自訂刮削來源。";
+"scraper_no_source_message" = "刮削需要至少一個已啟用的刮削來源，預設開啟的 AMLL TTML DB 只用來找歌詞。請前往設定開啟內建刮削來源，或匯入自訂刮削來源。";
 "scraper_no_source_open_settings" = "前往設定";
 
 /* MARK: - 專注對時 */

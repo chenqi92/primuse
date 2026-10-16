@@ -778,7 +778,7 @@ struct AlbumDetailView: View {
     }
 
     private func scrapeAlbum(parts: ScrapeParts) {
-        guard scraperSettings.hasEnabledSource else {
+        guard scraperSettings.hasEnabledSource(for: parts) else {
             showNoScraperSourceAlert = true
             return
         }

@@ -3338,7 +3338,7 @@
 "weekday_monday_short" = "Pzt";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "Bu işlem üst veri sağlayıcılarına bağlanabilir ve kapak, şarkı sözü veya etiket yazabilir. Devam edilsin mi?";
 "lyrics_font_small" = "Küçük";
-"scraper_no_source_message" = "Üst veri almak için en az bir etkin sağlayıcı gerekir. Yerleşik bir üst veri sağlayıcısını açmak veya özel bir sağlayıcıyı içe aktarmak için Ayarlar'ı açın.";
+"scraper_no_source_message" = "Üst veri almak için en az bir etkin sağlayıcı gerekir. Varsayılan olarak açık olan AMLL TTML DB yalnızca şarkı sözü sağlar. Yerleşik bir üst veri sağlayıcısını açmak veya özel bir sağlayıcıyı içe aktarmak için Ayarlar'ı açın.";
 "icloud_quota_exceeded" = "iCloud depolama alanı dolu";
 "family_sharing_shared_apple_mirror" = "Apple Music arşiv aynası";
 "ai_actions_section" = "Bağlan ve Kaydet";

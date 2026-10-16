@@ -3106,7 +3106,9 @@ final class AppServices {
         guard let displayedSong = playerService.currentSong else { return nil }
         guard SingleSongScrapeGatePolicy.decision(
             for: .appIntent,
-            enabledSourceCount: ScraperSettings.load().enabledSources.count
+            enabledSourceCount: ScraperSettings.load().gateSourceCount(
+                for: SingleSongScrapeEntryPoint.appIntent.requestedParts
+            )
         ) == .proceed else {
             return String(localized: "intent_scrape_no_source")
         }

@@ -2991,7 +2991,7 @@
 
 /* MARK: - No scraper source enabled */
 "scraper_no_source_title" = "스크래핑 소스가 없음";
-"scraper_no_source_message" = "스크래핑하려면 활성화된 소스가 하나 이상 필요합니다. 설정에서 내장 스크래핑 소스를 켜거나 사용자 소스를 가져오세요.";
+"scraper_no_source_message" = "스크래핑하려면 활성화된 소스가 하나 이상 필요합니다. 기본으로 켜져 있는 AMLL TTML DB는 가사만 제공합니다. 설정에서 내장 스크래핑 소스를 켜거나 사용자 소스를 가져오세요.";
 "scraper_no_source_open_settings" = "설정 열기";
 
 /* MARK: - Focused lyric timing */

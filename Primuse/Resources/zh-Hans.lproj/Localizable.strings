@@ -3092,7 +3092,7 @@
 
 /* MARK: - 刮削源未启用提示 */
 "scraper_no_source_title" = "未启用刮削源";
-"scraper_no_source_message" = "刮削需要至少一个已启用的刮削源。请前往设置开启内置刮削源，或导入自定义刮削源。";
+"scraper_no_source_message" = "刮削需要至少一个已启用的刮削源，默认开着的 AMLL TTML DB 只用来找歌词。请前往设置开启内置刮削源，或导入自定义刮削源。";
 "scraper_no_source_open_settings" = "前往设置";
 
 /* MARK: - 专注打轴 */

@@ -2868,7 +2868,7 @@
 "scraper_lrclib_desc" = "Abrir base de datos de letras sincronizadas";
 "scraper_amll_desc" = "Letras sincronizadas palabra por palabra por la comunidad, a menudo con traducción";
 "scraper_musicbrainz_desc" = "Abrir base de datos de música, metadatos y portadas";
-"scraper_no_source_message" = "La obtención de metadatos requiere al menos un proveedor activo. Abre Configuración para activar un proveedor integrado o importar uno personalizado.";
+"scraper_no_source_message" = "La obtención de metadatos requiere al menos un proveedor activo. AMLL TTML DB, activo de forma predeterminada, solo ofrece letras. Abre Configuración para activar un proveedor integrado o importar uno personalizado.";
 "scraper_no_source_open_settings" = "Abrir Configuración";
 "scraper_no_source_title" = "No hay proveedores de metadatos activos";
 "scraper_options" = "Opciones";

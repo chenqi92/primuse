@@ -3,6 +3,32 @@ import Testing
 
 @Suite("Single-song scraper source gate")
 struct SingleSongScrapeGatePolicyTests {
+    @Test("A default-on lyrics source only counts for lyrics-only requests")
+    func defaultOnSourceCountsOnlyForLyrics() {
+        let onlyDefaultOn = [true]
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: onlyDefaultOn, for: .all) == 0)
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: onlyDefaultOn, for: .cover) == 0)
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: onlyDefaultOn, for: [.metadata, .lyrics]) == 0)
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: onlyDefaultOn, for: .lyrics) == 1)
+
+        let userEnabledToo = [true, false]
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: userEnabledToo, for: .all) == 1)
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: userEnabledToo, for: .lyrics) == 2)
+        #expect(ScraperSourceGatePolicy.usableSourceCount(enabledSourcesOnByDefault: [], for: .lyrics) == 0)
+    }
+
+    @Test("Only the one-tap lyrics entries and lyrics purposes are lyrics-only")
+    func requestedParts() {
+        let lyricsEntries: Set<SingleSongScrapeEntryPoint> = [.nowPlayingAutomaticLyrics, .macNowPlayingAutomaticLyrics]
+        for entryPoint in SingleSongScrapeEntryPoint.allCases {
+            #expect(entryPoint.requestedParts == (lyricsEntries.contains(entryPoint) ? .lyrics : .all))
+        }
+        #expect(SingleSongScrapePurpose.lyricsPreview.requestedParts == .lyrics)
+        #expect(SingleSongScrapePurpose.lyricsApply.requestedParts == .lyrics)
+        #expect(SingleSongScrapePurpose.metadataPreview.requestedParts == .all)
+        #expect(SingleSongScrapePurpose.metadataApply.requestedParts == .all)
+    }
+
     @Test("Zero, one, and multiple enabled sources are distinguished")
     func sourceCounts() {
         #expect(SingleSongScrapeGatePolicy.decision(

@@ -33,16 +33,22 @@ extension EnvironmentValues {
 }
 
 /// 刮削源可用性判断的单一出口。UI 用 `ScraperSettingsStore` 做响应式判断,
-/// 后台任务用 `hasEnabledSource` 直读持久化设置。
+/// 后台任务用 `hasEnabledSource(for:)` 直读持久化设置。默认开着的 AMLL 只在只找
+/// 歌词的请求里算数,见 `ScraperSourceGatePolicy`。
 enum ScraperAvailability {
     /// 后台 / 非 View 上下文用。UI 请改用 store,以便开关变化时自动刷新。
-    nonisolated static var hasEnabledSource: Bool {
-        !ScraperSettings.load().enabledSources.isEmpty
+    nonisolated static func hasEnabledSource(for parts: ScrapeParts) -> Bool {
+        ScraperSettings.load().gateSourceCount(for: parts) > 0
     }
 }
 
 extension ScraperSettingsStore {
-    var hasEnabledSource: Bool { !enabledSources.isEmpty }
+    /// 整套刮削(标签、封面、歌词)能不能开始。
+    var hasEnabledSource: Bool { hasEnabledSource(for: .all) }
+
+    func hasEnabledSource(for parts: ScrapeParts) -> Bool {
+        gateSourceCount(for: parts) > 0
+    }
 
     func performSingleSongScrapeAction(
         from entryPoint: SingleSongScrapeEntryPoint,
@@ -51,7 +57,7 @@ extension ScraperSettingsStore {
     ) {
         SingleSongScrapeGatePolicy.perform(
             from: entryPoint,
-            enabledSourceCount: enabledSources.count,
+            enabledSourceCount: gateSourceCount(for: entryPoint.requestedParts),
             onProceed: onProceed,
             onRequireSource: onRequireSource
         )

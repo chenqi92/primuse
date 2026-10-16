@@ -456,7 +456,7 @@ final class SharedScraperRequestTests: XCTestCase {
         let loaded = ScraperSettings.load(defaults: defaults)
         let builtIns = loaded.sources.filter(\.type.isBuiltIn).map(\.type)
         XCTAssertEqual(builtIns, [.itunes, .amll, .lrclib, .musicBrainz, .lyricsServer])
-        XCTAssertEqual(loaded.sources.first { $0.type == .amll }?.isEnabled, false)
+        XCTAssertEqual(loaded.sources.first { $0.type == .amll }?.isEnabled, true)
         XCTAssertEqual(loaded.sources.map(\.priority), Array(loaded.sources.indices))
     }
 

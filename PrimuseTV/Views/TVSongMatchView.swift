@@ -653,15 +653,16 @@ struct TVAlbumScrapeView: View {
         return String(format: format, trackCount)
     }
 
-    private var hasEnabledSource: Bool {
-        !store.scraperSettings.enabledSources.isEmpty
+    /// 默认开着的 AMLL 只管歌词：只有「仅歌词」能靠它开始，整套和仅封面还要另开一个源。
+    private func hasEnabledSource(for parts: ScrapeParts) -> Bool {
+        store.scraperSettings.gateSourceCount(for: parts) > 0
     }
 
     @ViewBuilder
     private var status: some View {
         switch phase {
         case .idle:
-            if !hasEnabledSource {
+            if !hasEnabledSource(for: .all) {
                 Label(String(localized: "scraper_no_source_message"), systemImage: "exclamationmark.triangle")
                     .tvFont(.caption)
                     .foregroundStyle(TVColor.warn)
@@ -701,19 +702,19 @@ struct TVAlbumScrapeView: View {
                     style: .solid,
                     action: { start(parts: .all) }
                 )
-                .disabled(trackCount == 0 || !hasEnabledSource)
+                .disabled(trackCount == 0 || !hasEnabledSource(for: .all))
                 TVPillButton(
                     title: String(localized: "scrape_parts_lyrics_only"),
                     systemImage: "text.quote",
                     action: { start(parts: .lyrics) }
                 )
-                .disabled(trackCount == 0 || !hasEnabledSource)
+                .disabled(trackCount == 0 || !hasEnabledSource(for: .lyrics))
                 TVPillButton(
                     title: String(localized: "scrape_parts_cover_only"),
                     systemImage: "photo",
                     action: { start(parts: .cover) }
                 )
-                .disabled(trackCount == 0 || !hasEnabledSource)
+                .disabled(trackCount == 0 || !hasEnabledSource(for: .cover))
                 TVPillButton(title: String(localized: "cancel"), systemImage: "xmark", action: close)
             case .running:
                 TVPillButton(title: String(localized: "tv_scrape_album_stop"), systemImage: "stop.circle", action: stop)

@@ -2992,7 +2992,7 @@
 
 /* MARK: - No scraper source enabled */
 "scraper_no_source_title" = "スクレイピングソースが未設定です";
-"scraper_no_source_message" = "スクレイピングには有効なソースが少なくとも1つ必要です。設定を開いて内蔵ソースを有効にするか、カスタムソースを読み込んでください。";
+"scraper_no_source_message" = "スクレイピングには有効なソースが少なくとも1つ必要です。最初から有効な AMLL TTML DB は歌詞のみを提供します。設定を開いて内蔵ソースを有効にするか、カスタムソースを読み込んでください。";
 "scraper_no_source_open_settings" = "設定を開く";
 
 /* MARK: - Focused lyric timing */

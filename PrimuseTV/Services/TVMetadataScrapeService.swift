@@ -406,7 +406,7 @@ final class TVMetadataScrapeService {
         let songs = store.library.songs(forAlbum: albumID)
         var result = TVAlbumScrapeResult(total: songs.count)
         let settings = ScraperSettings.load()
-        guard !settings.enabledSources.isEmpty else {
+        guard settings.gateSourceCount(for: parts) > 0 else {
             result.noEnabledSource = true
             return result
         }

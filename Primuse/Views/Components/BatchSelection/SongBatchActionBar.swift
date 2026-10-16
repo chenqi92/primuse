@@ -714,7 +714,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func startScrape(parts: ScrapeParts) {
         let songs = selectedSongs()
         guard !songs.isEmpty else { return }
-        guard scraperSettings.hasEnabledSource else {
+        guard scraperSettings.hasEnabledSource(for: parts) else {
             showNoScraperSourceAlert = true
             return
         }

@@ -2991,7 +2991,7 @@
 
 /* MARK: - No scraper source enabled */
 "scraper_no_source_title" = "Aucune source de récupération activée";
-"scraper_no_source_message" = "La récupération nécessite au moins une source activée. Ouvrez les réglages pour activer une source intégrée ou importer une source personnalisée.";
+"scraper_no_source_message" = "La récupération nécessite au moins une source activée. AMLL TTML DB, activée par défaut, ne fournit que les paroles. Ouvrez les réglages pour activer une source intégrée ou importer une source personnalisée.";
 "scraper_no_source_open_settings" = "Ouvrir les réglages";
 
 /* MARK: - Minutage ciblé */

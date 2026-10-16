@@ -2802,7 +2802,7 @@
 
 /* MARK: - No scraper source enabled */
 "scraper_no_source_title" = "No Scraper Source Enabled";
-"scraper_no_source_message" = "Scraping requires at least one enabled source. Open Settings to turn on a built-in scraper source or import a custom one.";
+"scraper_no_source_message" = "Scraping requires at least one enabled source. AMLL TTML DB, which is on by default, only provides lyrics. Open Settings to turn on a built-in scraper source or import a custom one.";
 "scraper_no_source_open_settings" = "Open Settings";
 
 /* MARK: - Focused lyric timing */

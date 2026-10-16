@@ -389,7 +389,7 @@ final class MusicScraperService {
             break
         }
 
-        guard ScraperAvailability.hasEnabledSource else {
+        guard ScraperAvailability.hasEnabledSource(for: key.purpose.requestedParts) else {
             plog("MusicScraperService: no enabled scraper source, single scrape aborted")
             return .noScraperSource
         }
@@ -1054,7 +1054,9 @@ final class MusicScraperService {
             plog("MusicScraperService: ignored overlapping batch scrape request")
             return .busy
         }
-        guard ScraperAvailability.hasEnabledSource else {
+        guard ScraperAvailability.hasEnabledSource(
+            for: resumeCheckpoint.map { $0.parts ?? .all } ?? requestedParts
+        ) else {
             plog("MusicScraperService: no enabled scraper source, batch scrape not started")
             return .noScraperSource
         }

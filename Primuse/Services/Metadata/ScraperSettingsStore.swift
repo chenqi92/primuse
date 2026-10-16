@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 struct ScraperSettings: Codable, Sendable {
     static let defaultsKey = "primuse_scraper_settings_v3"
@@ -152,6 +153,14 @@ struct ScraperSettings: Codable, Sendable {
     /// Sorted enabled sources
     var enabledSources: [ScraperSourceConfig] {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
+    }
+
+    /// 刮削入口放行时数的源：默认开着的 AMLL 只在只找歌词的请求里算。
+    func gateSourceCount(for parts: ScrapeParts) -> Int {
+        ScraperSourceGatePolicy.usableSourceCount(
+            enabledSourcesOnByDefault: enabledSources.map(\.type.isEnabledByDefault),
+            for: parts
+        )
     }
 
     /// 新内置源在按优先级排好的列表里该插在哪：默认顺序里排在它后面、且已经在列表里的第一个内置源的位置。
@@ -311,6 +320,14 @@ final class ScraperSettingsStore {
 
     var enabledSources: [ScraperSourceConfig] {
         sources.filter(\.isEnabled)
+    }
+
+    /// 同 `ScraperSettings.gateSourceCount(for:)`，UI 读这一份以便开关变化时刷新。
+    func gateSourceCount(for parts: ScrapeParts) -> Int {
+        ScraperSourceGatePolicy.usableSourceCount(
+            enabledSourcesOnByDefault: enabledSources.map(\.type.isEnabledByDefault),
+            for: parts
+        )
     }
 
     func toggleSource(id: String) {

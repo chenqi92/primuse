@@ -178,6 +178,12 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         }
     }
 
+    /// 不用用户动手就开着的内置源（AMLL）。刮削入口不把它算成「用户开过刮削源」，
+    /// 见 `ScraperSourceGatePolicy`。
+    var isEnabledByDefault: Bool {
+        isBuiltIn && ScraperSourceConfig.defaultEnabled(for: self)
+    }
+
     /// 刮削歌词时不走「搜索 → 取歌词」，直接按歌名、歌手取（实例实现 `DirectLyricsLookup`）。
     var usesDirectLyricsLookup: Bool {
         switch self {
