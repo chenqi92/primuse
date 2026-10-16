@@ -1866,6 +1866,16 @@
 "immersive_frame_rate_30" = "30 帧";
 "immersive_frame_rate_60" = "60 帧";
 "immersive_frame_rate_display" = "跟随屏幕";
+"immersive_effect_rotation_title" = "自动换效果";
+"immersive_effect_rotation_subtitle" = "隔一段时间或每首歌换一种全屏效果，像可视化器那样轮着放。只换眼前这一种，选定的效果不变；暂停时不计时，选着“原生”时不换。";
+"immersive_effect_rotation_off" = "关闭";
+"immersive_effect_rotation_per_song" = "每首歌";
+"immersive_effect_rotation_minutes_1" = "每 1 分钟";
+"immersive_effect_rotation_minutes_2" = "每 2 分钟";
+"immersive_effect_rotation_minutes_5" = "每 5 分钟";
+"immersive_effect_rotation_minutes_10" = "每 10 分钟";
+"immersive_effect_rotation_scope_title" = "轮换范围";
+"immersive_effect_rotation_scope_all" = "全部效果";
 "exit_landscape_video" = "退出横屏视频";
 "show_lyrics_background" = "显示歌词背板";
 "hide_lyrics_background" = "隐藏歌词背板";

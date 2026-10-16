@@ -1814,6 +1814,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "ディスプレイに合わせる";
+"immersive_effect_rotation_title" = "エフェクトを自動切り替え";
+"immersive_effect_rotation_subtitle" = "一定時間ごと、または曲ごとに別のフルスクリーンエフェクトへ切り替えます。ビジュアライザーのプリセットのように順番に流れます。変わるのは表示中のものだけで、選んだエフェクトはそのままです。一時停止中は計時せず、「オリジナル」では切り替えません。";
+"immersive_effect_rotation_off" = "オフ";
+"immersive_effect_rotation_per_song" = "曲ごと";
+"immersive_effect_rotation_minutes_1" = "1 分ごと";
+"immersive_effect_rotation_minutes_2" = "2 分ごと";
+"immersive_effect_rotation_minutes_5" = "5 分ごと";
+"immersive_effect_rotation_minutes_10" = "10 分ごと";
+"immersive_effect_rotation_scope_title" = "切り替える範囲";
+"immersive_effect_rotation_scope_all" = "すべてのエフェクト";
 "exit_landscape_video" = "横向き動画を終了";
 "show_lyrics_background" = "歌詞の背景を表示";
 "hide_lyrics_background" = "歌詞の背景を非表示";

@@ -10,6 +10,16 @@
 "immersive_frame_rate_30" = "30 кадр/с";
 "immersive_frame_rate_60" = "60 кадр/с";
 "immersive_frame_rate_display" = "Як в екрана";
+"immersive_effect_rotation_title" = "Автозміна ефектів";
+"immersive_effect_rotation_subtitle" = "Через заданий час або з кожною піснею перемикає на інший повноекранний ефект — як візуалізатор, що перебирає пресети. Змінюється лише те, що на екрані; вибраний ефект лишається тим самим. На паузі відлік зупиняється, а в режимі «Оригінал» зміни немає.";
+"immersive_effect_rotation_off" = "Вимк.";
+"immersive_effect_rotation_per_song" = "З кожною піснею";
+"immersive_effect_rotation_minutes_1" = "Щохвилини";
+"immersive_effect_rotation_minutes_2" = "Кожні 2 хвилини";
+"immersive_effect_rotation_minutes_5" = "Кожні 5 хвилин";
+"immersive_effect_rotation_minutes_10" = "Кожні 10 хвилин";
+"immersive_effect_rotation_scope_title" = "Змінювати серед";
+"immersive_effect_rotation_scope_all" = "Усі ефекти";
 "home_radio_wall_title" = "Мої станції";
 "tag_editor_metadata_writeback_local_only" = "Джерело лише для читання: теги та обкладинка залишаються в Primuse; вихідний файл не змінено.";
 "home_lyrics" = "Наявність текстів пісень";

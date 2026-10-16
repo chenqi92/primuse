@@ -39,6 +39,11 @@ struct MacImmersivePlayerView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationMode.storageKey)
+    private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationScope.storageKey)
+    private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
+    @State private var rotator = ImmersiveEffectRotator()
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
@@ -78,9 +83,26 @@ struct MacImmersivePlayerView: View {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
     }
 
+    /// 眼前显示的效果:自动轮换换上来的那一种,没轮换时就是所选的。
+    private var displayedEffect: FullscreenPlayerEffect {
+        rotator.displayedEffect(selected: effect)
+    }
+
+    private var rotationMode: ImmersiveEffectRotationMode {
+        ImmersiveEffectRotationMode(storedValue: rotationModeRawValue)
+    }
+
+    private var rotationSchedule: ImmersiveEffectRotationSchedule {
+        ImmersiveEffectRotationSchedule(
+            mode: rotationMode,
+            displayedEffect: displayedEffect.rawValue,
+            isRunning: isRenderingActive && isStageReady && player.isPlaying && !isLowPower && !showsEffectPicker
+        )
+    }
+
     private var presentationEffect: FullscreenPlayerEffect {
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
-            selectedRawValue: effect.rawValue,
+            selectedRawValue: displayedEffect.rawValue,
             hasSynchronizedLyrics: hasSynchronizedLyrics,
             hasArtwork: hasResolvedArtwork
         )
@@ -116,6 +138,12 @@ struct MacImmersivePlayerView: View {
                                 Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: .lowPower))
                             }
                         }
+                        // 自动轮换换场时那一下暗场。
+                        .overlay {
+                            Color.black
+                                .opacity(rotator.dipOpacity)
+                                .allowsHitTesting(false)
+                        }
                 } else {
                     entrySurface(metrics: metrics)
                 }
@@ -145,7 +173,7 @@ struct MacImmersivePlayerView: View {
 
                     // 面板贴着顶栏左边那个效果按钮展开。
                     MacImmersiveEffectPicker(
-                        selected: effect,
+                        selected: displayedEffect,
                         effects: FullscreenPlayerEffect.allCases,
                         palette: artworkPalette,
                         onSelect: { candidate in
@@ -232,6 +260,22 @@ struct MacImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             refreshArtworkInputs()
             if isStageReady { updateVisualizer(for: presentationEffect) }
+            if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker {
+                advanceRotation()
+            }
+        }
+        .onChange(of: effectRawValue) { _, _ in
+            // 所选效果变了(这里手动选的,或别的设备同步过来的):回到所选的那一种。
+            rotator.reset()
+        }
+        .onChange(of: rotationModeRawValue) { _, _ in
+            if !rotationMode.isEnabled { rotator.reset() }
+        }
+        .task(id: rotationSchedule) {
+            guard let interval = rotationSchedule.interval else { return }
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            advanceRotation()
         }
         .background {
             MacImmersiveLibraryCountObserver {
@@ -684,7 +728,7 @@ struct MacImmersivePlayerView: View {
             }
         } label: {
             HStack(spacing: 7) {
-                Text(verbatim: effect.localizedTitle)
+                Text(verbatim: displayedEffect.localizedTitle)
                     .font(.system(size: 13, weight: .semibold))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
@@ -1208,8 +1252,18 @@ struct MacImmersivePlayerView: View {
 
     private func selectEffect(_ value: FullscreenPlayerEffect) {
         // 整个场景树包含实时模糊和 Canvas；直接换组，避免隐式动画逐层插值。
+        rotator.reset()
         effectRawValue = value.rawValue
         FullscreenPlayerEffectSync.shared.select(value)
+    }
+
+    /// 自动轮换到下一种(#312)。不叫出控件:轮换是给不碰键鼠时看的。
+    private func advanceRotation() {
+        rotator.advance(
+            selected: effect,
+            scope: ImmersiveEffectRotationScope(storedValue: rotationScopeRawValue),
+            reduceMotion: reduceMotion
+        )
     }
 
     private func updateVisualizer(for value: FullscreenPlayerEffect) {

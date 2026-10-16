@@ -1813,6 +1813,16 @@
 "immersive_frame_rate_30" = "30fps";
 "immersive_frame_rate_60" = "60fps";
 "immersive_frame_rate_display" = "디스플레이에 맞춤";
+"immersive_effect_rotation_title" = "효과 자동 전환";
+"immersive_effect_rotation_subtitle" = "일정 시간마다 또는 곡마다 다른 전체 화면 효과로 바꿉니다. 비주얼라이저 프리셋처럼 차례로 돌아갑니다. 화면에 보이는 것만 바뀌고 선택한 효과는 그대로입니다. 일시 정지하면 시간을 세지 않으며 ‘기본’에서는 바꾸지 않습니다.";
+"immersive_effect_rotation_off" = "끔";
+"immersive_effect_rotation_per_song" = "곡마다";
+"immersive_effect_rotation_minutes_1" = "1분마다";
+"immersive_effect_rotation_minutes_2" = "2분마다";
+"immersive_effect_rotation_minutes_5" = "5분마다";
+"immersive_effect_rotation_minutes_10" = "10분마다";
+"immersive_effect_rotation_scope_title" = "전환 범위";
+"immersive_effect_rotation_scope_all" = "모든 효과";
 "exit_landscape_video" = "가로형 비디오 종료";
 "show_lyrics_background" = "가사 배경 표시";
 "hide_lyrics_background" = "가사 배경 숨기기";

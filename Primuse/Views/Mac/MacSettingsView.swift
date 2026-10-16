@@ -6610,6 +6610,10 @@ private struct MacSTThemeView: View {
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var immersiveFrameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationMode.storageKey)
+    private var immersiveRotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationScope.storageKey)
+    private var immersiveRotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
@@ -6789,6 +6793,33 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.immersiveFrameRate")
+                MacSTRow(
+                    String(localized: "immersive_effect_rotation_title"),
+                    hint: String(localized: "immersive_effect_rotation_subtitle")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ImmersiveEffectRotationMode(storedValue: immersiveRotationModeRawValue).rawValue },
+                            set: { immersiveRotationModeRawValue = $0 }
+                        ),
+                        options: ImmersiveEffectRotationMode.allCases.map { ($0.rawValue, $0.localizedTitle) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("appearance.immersiveEffectRotation")
+                if ImmersiveEffectRotationMode(storedValue: immersiveRotationModeRawValue).isEnabled {
+                    MacSTRow(String(localized: "immersive_effect_rotation_scope_title")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { ImmersiveEffectRotationScope(storedValue: immersiveRotationScopeRawValue).rawValue },
+                                set: { immersiveRotationScopeRawValue = $0 }
+                            ),
+                            options: ImmersiveEffectRotationScope.allCases.map { ($0.rawValue, $0.localizedTitle) },
+                            width: 160
+                        )
+                    }
+                    .pmAppearFade(.contentAppear)
+                }
             }
         }
 

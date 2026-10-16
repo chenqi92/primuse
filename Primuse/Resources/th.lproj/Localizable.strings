@@ -1647,6 +1647,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "ตามหน้าจอ";
+"immersive_effect_rotation_title" = "เปลี่ยนเอฟเฟกต์อัตโนมัติ";
+"immersive_effect_rotation_subtitle" = "สลับไปเอฟเฟกต์เต็มจออื่นตามเวลาที่ตั้งหรือทุกเพลง เหมือนวิชวลไลเซอร์ที่วนพรีเซ็ต เปลี่ยนแค่สิ่งที่แสดงบนจอ เอฟเฟกต์ที่เลือกไว้ยังเหมือนเดิม ระหว่างหยุดชั่วคราวจะไม่นับเวลา และไม่เปลี่ยนเมื่อเลือก “ต้นฉบับ”";
+"immersive_effect_rotation_off" = "ปิด";
+"immersive_effect_rotation_per_song" = "ทุกเพลง";
+"immersive_effect_rotation_minutes_1" = "ทุก 1 นาที";
+"immersive_effect_rotation_minutes_2" = "ทุก 2 นาที";
+"immersive_effect_rotation_minutes_5" = "ทุก 5 นาที";
+"immersive_effect_rotation_minutes_10" = "ทุก 10 นาที";
+"immersive_effect_rotation_scope_title" = "เปลี่ยนในกลุ่ม";
+"immersive_effect_rotation_scope_all" = "เอฟเฟกต์ทั้งหมด";
 "immersive_lyrics_motion_title" = "แอนิเมชันเนื้อเพลง";
 "immersive_now_playing" = "กำลังเล่น";
 "immersive_track_position_format" = "แทร็ก %02d";

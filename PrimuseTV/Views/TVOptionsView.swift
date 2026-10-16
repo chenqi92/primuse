@@ -435,11 +435,17 @@ struct TVFullscreenEffectPicker: View {
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationMode.storageKey)
+    private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationScope.storageKey)
+    private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
     @FocusState private var frameRateFocused: Bool
+    @FocusState private var rotationFocused: Bool
+    @FocusState private var rotationScopeFocused: Bool
     /// 只有焦点停稳的那张卡片播放预览动画。遥控器一路按过去时不逐张启停整套舞台。
     @State private var animatedEffect: FullscreenPlayerEffect?
 
@@ -474,6 +480,10 @@ struct TVFullscreenEffectPicker: View {
                         }
                         Spacer()
                         frameRateButton
+                        rotationButton
+                        if rotationMode.isEnabled {
+                            rotationScopeButton
+                        }
                         Button {
                             lyricsMotionEnabled.toggle()
                         } label: {
@@ -593,6 +603,74 @@ struct TVFullscreenEffectPicker: View {
         .focusEffectDisabled()
         .accessibilityLabel(Text("immersive_frame_rate_title"))
         .accessibilityValue(Text(verbatim: frameRate.localizedTitle))
+    }
+
+    private var rotationMode: ImmersiveEffectRotationMode {
+        ImmersiveEffectRotationMode(storedValue: rotationModeRawValue)
+    }
+
+    private var rotationScope: ImmersiveEffectRotationScope {
+        ImmersiveEffectRotationScope(storedValue: rotationScopeRawValue)
+    }
+
+    /// 自动换效果(#312):按一下换下一档,关、每首歌、每 1/2/5/10 分钟循环。
+    private var rotationButton: some View {
+        headerCycleButton(
+            title: String(localized: "immersive_effect_rotation_title"),
+            symbol: "shuffle",
+            value: rotationMode.localizedTitle,
+            isHighlighted: rotationMode.isEnabled,
+            focused: $rotationFocused
+        ) {
+            let modes = ImmersiveEffectRotationMode.allCases
+            let index = modes.firstIndex(of: rotationMode) ?? 0
+            rotationModeRawValue = modes[(index + 1) % modes.count].rawValue
+        }
+    }
+
+    /// 轮换在哪些效果里挑,只在开着轮换时出现。
+    private var rotationScopeButton: some View {
+        headerCycleButton(
+            title: String(localized: "immersive_effect_rotation_scope_title"),
+            symbol: "square.stack.3d.up",
+            value: rotationScope.localizedTitle,
+            isHighlighted: false,
+            focused: $rotationScopeFocused
+        ) {
+            let scopes = ImmersiveEffectRotationScope.allCases
+            let index = scopes.firstIndex(of: rotationScope) ?? 0
+            rotationScopeRawValue = scopes[(index + 1) % scopes.count].rawValue
+        }
+    }
+
+    private func headerCycleButton(
+        title: String,
+        symbol: String,
+        value: String,
+        isHighlighted: Bool,
+        focused: FocusState<Bool>.Binding,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(title, systemImage: symbol)
+                    .tvFont(.caption, weight: .semibold)
+                Text(verbatim: value)
+                    .tvFont(.meta)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            .foregroundStyle(isHighlighted ? previewPalette.primary : .white.opacity(0.82))
+            .padding(.horizontal, 22)
+            .padding(.vertical, 13)
+            .background(.white.opacity(focused.wrappedValue ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.20), lineWidth: 1) }
+            .tvFocusRing(focused.wrappedValue, radius: 14, accent: .white, scale: 1.04, lift: 5)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused(focused)
+        .focusEffectDisabled()
+        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityValue(Text(verbatim: value))
     }
 
     private func effectChoice(_ candidate: FullscreenPlayerEffect) -> some View {

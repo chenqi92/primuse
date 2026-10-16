@@ -12,6 +12,10 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationMode.storageKey)
+    private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationScope.storageKey)
+    private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
 
@@ -32,6 +36,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             LazyVStack(alignment: .leading, spacing: 22) {
                 lyricsMotionCard
                 frameRateCard
+                rotationCard
                 landscapeFullscreenCard
 
                 ForEach(FullscreenEffectCollection.allCases) { @Sendable collection in
@@ -152,6 +157,73 @@ struct FullscreenPlayerEffectSettingsView: View {
             .tint(previewPalette.primary)
         }
         .settingsAnchor("appearance.immersiveFrameRate")
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+    }
+
+    private var rotationSelection: Binding<String> {
+        Binding(
+            get: { ImmersiveEffectRotationMode(storedValue: rotationModeRawValue).rawValue },
+            set: { rotationModeRawValue = $0 }
+        )
+    }
+
+    private var rotationScopeSelection: Binding<String> {
+        Binding(
+            get: { ImmersiveEffectRotationScope(storedValue: rotationScopeRawValue).rawValue },
+            set: { rotationScopeRawValue = $0 }
+        )
+    }
+
+    /// 自动换效果(#312):隔一段时间或每首歌换一种全屏效果。开着时下面再给一行「在哪些里换」。
+    private var rotationCard: some View {
+        let isEnabled = ImmersiveEffectRotationMode(storedValue: rotationModeRawValue).isEnabled
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("immersive_effect_rotation_title")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("immersive_effect_rotation_subtitle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Picker(selection: rotationSelection) {
+                    ForEach(ImmersiveEffectRotationMode.allCases) { mode in
+                        Text(verbatim: mode.localizedTitle).tag(mode.rawValue)
+                    }
+                } label: {
+                    Text("immersive_effect_rotation_title")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .tint(previewPalette.primary)
+            }
+            if isEnabled {
+                Divider()
+                HStack(spacing: 12) {
+                    Text("immersive_effect_rotation_scope_title")
+                        .font(.system(size: 15))
+                    Spacer(minLength: 8)
+                    Picker(selection: rotationScopeSelection) {
+                        ForEach(ImmersiveEffectRotationScope.allCases) { scope in
+                            Text(verbatim: scope.localizedTitle).tag(scope.rawValue)
+                        }
+                    } label: {
+                        Text("immersive_effect_rotation_scope_title")
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .tint(previewPalette.primary)
+                }
+                .pmAppearFade(.contentAppear)
+            }
+        }
+        .settingsAnchor("appearance.immersiveEffectRotation")
         .padding(16)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),

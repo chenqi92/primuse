@@ -10,6 +10,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "Ekrana uy";
+"immersive_effect_rotation_title" = "Efektleri otomatik değiştir";
+"immersive_effect_rotation_subtitle" = "Belirli aralıklarla ya da her şarkıda başka bir tam ekran efektine geçer; tıpkı bir görselleştiricinin ön ayarlarını dolaşması gibi. Yalnızca ekrandaki değişir, seçtiğin efekt seçili kalır. Duraklatınca süre işlemez, “Orijinal” seçiliyken değişmez.";
+"immersive_effect_rotation_off" = "Kapalı";
+"immersive_effect_rotation_per_song" = "Her şarkıda";
+"immersive_effect_rotation_minutes_1" = "Her dakika";
+"immersive_effect_rotation_minutes_2" = "2 dakikada bir";
+"immersive_effect_rotation_minutes_5" = "5 dakikada bir";
+"immersive_effect_rotation_minutes_10" = "10 dakikada bir";
+"immersive_effect_rotation_scope_title" = "Şunlar arasında";
+"immersive_effect_rotation_scope_all" = "Tüm efektler";
 "home_radio_wall_title" = "İstasyonlarım";
 "tag_editor_metadata_writeback_local_only" = "Salt okunur kaynak: etiketler ve kapak resmi Primuse'de kalır; kaynak dosya değişmez.";
 "home_lyrics" = "Şarkı sözü kapsamı";

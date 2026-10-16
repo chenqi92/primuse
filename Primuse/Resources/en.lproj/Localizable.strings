@@ -1850,6 +1850,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "Match Display";
+"immersive_effect_rotation_title" = "Auto-Switch Effects";
+"immersive_effect_rotation_subtitle" = "Switches to another full-screen effect on a timer or with each song, the way a visualizer cycles presets. Only what’s on screen changes; your chosen effect stays selected. The timer pauses with playback, and Original never switches.";
+"immersive_effect_rotation_off" = "Off";
+"immersive_effect_rotation_per_song" = "Every Song";
+"immersive_effect_rotation_minutes_1" = "Every Minute";
+"immersive_effect_rotation_minutes_2" = "Every 2 Minutes";
+"immersive_effect_rotation_minutes_5" = "Every 5 Minutes";
+"immersive_effect_rotation_minutes_10" = "Every 10 Minutes";
+"immersive_effect_rotation_scope_title" = "Switch Among";
+"immersive_effect_rotation_scope_all" = "All Effects";
 "exit_landscape_video" = "Exit landscape video";
 "show_lyrics_background" = "Show lyrics background";
 "hide_lyrics_background" = "Hide lyrics background";

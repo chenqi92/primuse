@@ -639,6 +639,108 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     }
 }
 
+extension FullscreenPlayerEffect {
+    /// 自动轮换(#312)在哪几种里挑:原生播放页不算;只换声音响应的时候就是那一类。
+    static func rotationPool(_ scope: ImmersiveEffectRotationScope) -> [FullscreenPlayerEffect] {
+        switch scope {
+        case .all: immersiveCases
+        case .audioReactive: immersiveCases.filter { $0.collection == .audioReactive }
+        }
+    }
+}
+
+extension ImmersiveEffectRotationMode {
+    var localizedTitle: String {
+        switch self {
+        case .off: String(localized: "immersive_effect_rotation_off")
+        case .perSong: String(localized: "immersive_effect_rotation_per_song")
+        case .minutes1: String(localized: "immersive_effect_rotation_minutes_1")
+        case .minutes2: String(localized: "immersive_effect_rotation_minutes_2")
+        case .minutes5: String(localized: "immersive_effect_rotation_minutes_5")
+        case .minutes10: String(localized: "immersive_effect_rotation_minutes_10")
+        }
+    }
+}
+
+extension ImmersiveEffectRotationScope {
+    var localizedTitle: String {
+        switch self {
+        case .audioReactive: FullscreenEffectCollection.audioReactive.title
+        case .all: String(localized: "immersive_effect_rotation_scope_all")
+        }
+    }
+}
+
+/// 全屏页什么时候数着时间准备换下一种:定时档、正在播、页面在前台、没在省电休憩、效果抽屉没开着。
+/// 眼前的效果也算在里面,换上一种就从头再数。
+struct ImmersiveEffectRotationSchedule: Hashable {
+    let mode: ImmersiveEffectRotationMode
+    let displayedEffect: String
+    let isRunning: Bool
+
+    var interval: TimeInterval? { isRunning ? mode.interval : nil }
+}
+
+/// 全屏效果自动轮换(#312)眼前换上的那一种,和换场时那一下暗场;iPhone / iPad、Mac、Apple TV 的全屏页共用,
+/// 计时由各页按 `ImmersiveEffectRotationSchedule` 自己做。只在这一次全屏里有效:不写回所选效果(那是三端同步的
+/// 设置),手动换了效果、或者别的设备改了所选效果,就回到所选的那一种。
+@MainActor
+@Observable
+final class ImmersiveEffectRotator {
+    /// 轮换换上来的效果;nil 时显示用户选定的那一种。
+    private(set) var rotatedEffect: FullscreenPlayerEffect?
+    /// 换场时整幅先暗下去、换好再亮起来。舞台里有实时模糊和 Canvas,两套场景叠着交叉淡化太重。
+    private(set) var dipOpacity: Double = 0
+    @ObservationIgnored private var queue = ImmersiveEffectRotationQueue()
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+
+    private static let dipDuration: TimeInterval = 0.45
+
+    func displayedEffect(selected: FullscreenPlayerEffect) -> FullscreenPlayerEffect {
+        rotatedEffect ?? selected
+    }
+
+    /// 回到所选的那一种,换场做到一半的也停下。
+    func reset() {
+        transitionTask?.cancel()
+        transitionTask = nil
+        rotatedEffect = nil
+        if dipOpacity > 0 {
+            withAnimation(.easeOut(duration: Self.dipDuration)) { dipOpacity = 0 }
+        }
+    }
+
+    /// 换到候选里的下一种。减弱动态效果时直接换,不做暗场。
+    func advance(selected: FullscreenPlayerEffect, scope: ImmersiveEffectRotationScope, reduceMotion: Bool) {
+        let current = displayedEffect(selected: selected)
+        let pool = FullscreenPlayerEffect.rotationPool(scope).map(\.rawValue)
+        guard let raw = queue.next(after: current.rawValue, pool: pool),
+              let next = FullscreenPlayerEffect(rawValue: raw) else { return }
+        let target: FullscreenPlayerEffect? = next == selected ? nil : next
+        transitionTask?.cancel()
+        guard !reduceMotion else {
+            transitionTask = nil
+            dipOpacity = 0
+            rotatedEffect = target
+            return
+        }
+        transitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            withAnimation(.easeIn(duration: Self.dipDuration)) { self.dipOpacity = 1 }
+            try? await Task.sleep(for: .seconds(Self.dipDuration))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { self.rotatedEffect = target }
+            // 留一帧给新场景建好再亮起来,不让上一种的最后一帧闪回来。
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: Self.dipDuration * 1.3)) { self.dipOpacity = 0 }
+            self.transitionTask = nil
+        }
+    }
+}
+
 enum ImmersiveLyricsMotionSettings {
     static let storageKey = "primuse.immersiveLyricsMotionEnabled"
     static let defaultValue = true

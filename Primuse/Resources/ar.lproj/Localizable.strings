@@ -1647,6 +1647,16 @@
 "immersive_frame_rate_30" = "30 إطارًا/ث";
 "immersive_frame_rate_60" = "60 إطارًا/ث";
 "immersive_frame_rate_display" = "مطابقة الشاشة";
+"immersive_effect_rotation_title" = "تبديل المؤثرات تلقائيًا";
+"immersive_effect_rotation_subtitle" = "ينتقل إلى مؤثر آخر بملء الشاشة كل فترة أو مع كل أغنية، كما يتنقل المصوِّر الصوتي بين إعداداته. يتغير المعروض فقط، ويبقى المؤثر الذي اخترته محددًا. لا يُحتسب الوقت أثناء الإيقاف المؤقت، ولا يحدث تبديل مع «الأصل».";
+"immersive_effect_rotation_off" = "إيقاف";
+"immersive_effect_rotation_per_song" = "مع كل أغنية";
+"immersive_effect_rotation_minutes_1" = "كل دقيقة";
+"immersive_effect_rotation_minutes_2" = "كل دقيقتين";
+"immersive_effect_rotation_minutes_5" = "كل 5 دقائق";
+"immersive_effect_rotation_minutes_10" = "كل 10 دقائق";
+"immersive_effect_rotation_scope_title" = "التبديل بين";
+"immersive_effect_rotation_scope_all" = "كل المؤثرات";
 "immersive_lyrics_motion_title" = "حركة الكلمات";
 "immersive_now_playing" = "قيد التشغيل الآن";
 "immersive_track_position_format" = "المسار %02d";

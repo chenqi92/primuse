@@ -43,6 +43,11 @@ struct ImmersivePlayerView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationMode.storageKey)
+    private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
+    @AppStorage(ImmersiveEffectRotationScope.storageKey)
+    private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
+    @State private var rotator = ImmersiveEffectRotator()
     @State private var showsChrome = true
     @State private var chromeTask: Task<Void, Never>?
     @State private var ambientTask: Task<Void, Never>?
@@ -80,9 +85,37 @@ struct ImmersivePlayerView: View {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
     }
 
+    /// 眼前显示的效果:自动轮换换上来的那一种,没轮换时就是所选的。
+    private var displayedEffect: FullscreenPlayerEffect {
+        rotator.displayedEffect(selected: effect)
+    }
+
+    private var rotationMode: ImmersiveEffectRotationMode {
+        ImmersiveEffectRotationMode(storedValue: rotationModeRawValue)
+    }
+
+    private var rotationSchedule: ImmersiveEffectRotationSchedule {
+        ImmersiveEffectRotationSchedule(
+            mode: rotationMode,
+            displayedEffect: displayedEffect.rawValue,
+            isRunning: isSceneActive && player.isPlaying && !isLowPower && !showsEffectPicker
+        )
+    }
+
+    /// 手动换效果(抽屉、捏合):记成所选的效果,轮换换上来的那一种作废。
+    private var manualEffectSelection: Binding<FullscreenPlayerEffect> {
+        Binding(
+            get: { displayedEffect },
+            set: { value in
+                rotator.reset()
+                effect = value
+            }
+        )
+    }
+
     private var presentationEffect: FullscreenPlayerEffect {
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
-            selectedRawValue: effect.rawValue,
+            selectedRawValue: displayedEffect.rawValue,
             hasSynchronizedLyrics: hasSynchronizedLyrics,
             hasArtwork: hasResolvedArtwork
         )
@@ -124,6 +157,12 @@ struct ImmersivePlayerView: View {
                         if isAmbientRest {
                             Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: isLowPower ? .lowPower : .resting))
                         }
+                    }
+                    // 自动轮换换场时那一下暗场。
+                    .overlay {
+                        Color.black
+                            .opacity(rotator.dipOpacity)
+                            .allowsHitTesting(false)
                     }
 
                 Color.clear
@@ -173,7 +212,7 @@ struct ImmersivePlayerView: View {
                         .accessibilityHidden(true)
 
                     ImmersiveEffectDrawer(
-                        selection: $effect,
+                        selection: manualEffectSelection,
                         effects: ImmersiveEffectDrawer.fullscreenCases,
                         palette: artworkPalette,
                         appliesOnSettle: true,
@@ -214,6 +253,8 @@ struct ImmersivePlayerView: View {
             await observeLyricPlayback()
         }
         .onChange(of: effect) { _, _ in
+            // 所选效果变了(这里手动选的,或别的设备同步过来的):回到所选的那一种。
+            rotator.reset()
             synchronizeVisualizer()
             if isSceneActive {
                 revealChrome()
@@ -223,6 +264,18 @@ struct ImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             if isSceneActive { refreshArtworkInputs() }
             synchronizeVisualizer()
+            if rotationMode == .perSong, isSceneActive, !showsEffectPicker {
+                advanceRotation()
+            }
+        }
+        .task(id: rotationSchedule) {
+            guard let interval = rotationSchedule.interval else { return }
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            advanceRotation()
+        }
+        .onChange(of: rotationModeRawValue) { _, _ in
+            if !rotationMode.isEnabled { rotator.reset() }
         }
         .background {
             ImmersiveLibraryCountObserver {
@@ -559,7 +612,7 @@ struct ImmersivePlayerView: View {
                 symbol: "viewfinder.rectangular",
                 tint: chromeInk,
                 diameter: 44,
-                isSelected: effect != .native
+                isSelected: displayedEffect != .native
             )
         }
         .buttonStyle(.plain)
@@ -1320,7 +1373,7 @@ struct ImmersivePlayerView: View {
                 guard !showsEffectPicker else { return }
                 guard abs(value.magnification - 1) >= 0.10 else { return }
                 let offset = value.magnification > 1 ? 1 : -1
-                effect = effect.advanced(by: offset)
+                manualEffectSelection.wrappedValue = displayedEffect.advanced(by: offset)
                 registerInteraction(revealControls: true)
             }
     }
@@ -1473,6 +1526,15 @@ struct ImmersivePlayerView: View {
     }
 
     // MARK: - 频谱与控件淡出
+
+    /// 自动轮换到下一种(#312)。不叫出控件:轮换是给不碰屏幕时看的。
+    private func advanceRotation() {
+        rotator.advance(
+            selected: effect,
+            scope: ImmersiveEffectRotationScope(storedValue: rotationScopeRawValue),
+            reduceMotion: reduceMotion
+        )
+    }
 
     private func synchronizeVisualizer(allowRetry: Bool = true) {
         visualizerRetryTask?.cancel()

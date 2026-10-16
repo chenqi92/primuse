@@ -1761,6 +1761,16 @@
 "immersive_frame_rate_30" = "每秒 30 格";
 "immersive_frame_rate_60" = "每秒 60 格";
 "immersive_frame_rate_display" = "跟隨螢幕";
+"immersive_effect_rotation_title" = "自動換效果";
+"immersive_effect_rotation_subtitle" = "隔一段時間或每首歌換一種全螢幕效果，像視覺化工具那樣輪著放。只換眼前這一種，選定的效果不變；暫停時不計時，選著「原生」時不換。";
+"immersive_effect_rotation_off" = "關閉";
+"immersive_effect_rotation_per_song" = "每首歌";
+"immersive_effect_rotation_minutes_1" = "每 1 分鐘";
+"immersive_effect_rotation_minutes_2" = "每 2 分鐘";
+"immersive_effect_rotation_minutes_5" = "每 5 分鐘";
+"immersive_effect_rotation_minutes_10" = "每 10 分鐘";
+"immersive_effect_rotation_scope_title" = "輪換範圍";
+"immersive_effect_rotation_scope_all" = "全部效果";
 "exit_landscape_video" = "退出橫向影片";
 "show_lyrics_background" = "顯示歌詞背板";
 "hide_lyrics_background" = "隱藏歌詞背板";

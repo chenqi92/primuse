@@ -1647,6 +1647,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "Igual que la pantalla";
+"immersive_effect_rotation_title" = "Cambiar efectos automáticamente";
+"immersive_effect_rotation_subtitle" = "Cambia a otro efecto de pantalla completa cada cierto tiempo o con cada canción, como un visualizador que recorre sus preajustes. Solo cambia lo que se ve; el efecto que elegiste sigue seleccionado. El tiempo no corre en pausa y con «Originales» nunca cambia.";
+"immersive_effect_rotation_off" = "Desactivado";
+"immersive_effect_rotation_per_song" = "Con cada canción";
+"immersive_effect_rotation_minutes_1" = "Cada minuto";
+"immersive_effect_rotation_minutes_2" = "Cada 2 minutos";
+"immersive_effect_rotation_minutes_5" = "Cada 5 minutos";
+"immersive_effect_rotation_minutes_10" = "Cada 10 minutos";
+"immersive_effect_rotation_scope_title" = "Cambiar entre";
+"immersive_effect_rotation_scope_all" = "Todos los efectos";
 "immersive_lyrics_motion_title" = "Animación de la letra";
 "immersive_now_playing" = "AHORA JUGANDO";
 "immersive_track_position_format" = "PISTA %02d";

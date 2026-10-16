@@ -1647,6 +1647,16 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "डिस्प्ले के अनुसार";
+"immersive_effect_rotation_title" = "इफ़ेक्ट अपने-आप बदलें";
+"immersive_effect_rotation_subtitle" = "तय समय पर या हर गाने के साथ दूसरे फ़ुल-स्क्रीन इफ़ेक्ट पर चला जाता है, जैसे विज़ुअलाइज़र अपने प्रीसेट बदलता है। सिर्फ़ स्क्रीन पर दिखने वाला बदलता है; आपका चुना इफ़ेक्ट वैसा ही रहता है। रोकने पर समय नहीं गिना जाता, और ‘मूल’ में नहीं बदलता।";
+"immersive_effect_rotation_off" = "बंद";
+"immersive_effect_rotation_per_song" = "हर गाने पर";
+"immersive_effect_rotation_minutes_1" = "हर मिनट";
+"immersive_effect_rotation_minutes_2" = "हर 2 मिनट";
+"immersive_effect_rotation_minutes_5" = "हर 5 मिनट";
+"immersive_effect_rotation_minutes_10" = "हर 10 मिनट";
+"immersive_effect_rotation_scope_title" = "इनमें से बदलें";
+"immersive_effect_rotation_scope_all" = "सभी इफ़ेक्ट";
 "immersive_lyrics_motion_title" = "गीत एनिमेशन";
 "immersive_now_playing" = "अभी चल रहा है";
 "immersive_track_position_format" = "ट्रैक %02d";
