@@ -1683,7 +1683,7 @@ struct TagEditorView: View {
                 // Keep the library aligned with that verified source state even
                 // if the independent lyrics sidecar operation failed afterward.
                 if sourceMutationOccurred {
-                    if let latest = library.song(id: updated.id) {
+                    if let latest = library.storedSong(id: updated.id) {
                         updated.filePath = latest.filePath
                         updated.fileSize = latest.fileSize
                         updated.lastModified = latest.lastModified

@@ -928,7 +928,8 @@ final class ScanService {
                 sourceID: sourceID, mutationEpoch: syncStateMutationEpochs[sourceID, default: 0]
             )
         }
-        guard let previous = library.song(id: original.id) else { return }
+        // 库里存着的那一行:可见集在扫描、补读期间延后发布,拿它改写会把旧值写回去。
+        guard let previous = library.storedSong(id: original.id) else { return }
         var relocated = previous
         relocated.filePath = updated.filePath
         relocated.fileSize = updated.fileSize

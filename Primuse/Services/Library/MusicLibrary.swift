@@ -5940,7 +5940,7 @@ final class MusicLibrary {
         if !replacementIDs.isEmpty {
             lastReplacedSongIDs = replacementIDs
             lastReplacedSong = replacementIDs.count == 1
-                ? replacementIDs.first.flatMap { song(id: $0) }
+                ? replacementIDs.first.flatMap { storedSong(id: $0) }
                 : nil
             if songListSnapshotChanged {
                 songListSnapshotInvalidationRevision &+= 1
@@ -5951,7 +5951,8 @@ final class MusicLibrary {
         let locationTransitions = previousLocationsByID.values
             .sorted { $0.id < $1.id }
             .compactMap { previous -> (previous: Song, current: Song)? in
-                guard let current = song(id: previous.id),
+                // 刚提交的行:可见集要等派生维护才更新,用它会认不出这次的移动。
+                guard let current = storedSong(id: previous.id),
                       current.filePath != previous.filePath else { return nil }
                 return (previous, current)
             }
