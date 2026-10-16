@@ -164,6 +164,9 @@ extension AudioPlayerService {
             (prepared.lookupFinishedAt - prepared.planFinishedAt) * 1_000,
             (restoreFinishedAt - prepared.lookupFinishedAt) * 1_000
         ))
+        // 进度同步可能比恢复先到:恢复出来的这本书在别的设备上已经听到了另一章,就停到那一章。
+        // 等这次恢复收尾(`isRestoringPlaybackSession` 复位)再看。
+        Task { @MainActor [weak self] in self?.followSpokenWordBookIfPaused() }
     }
 
     /// Installs a Handoff selection without starting any audio pipeline. The

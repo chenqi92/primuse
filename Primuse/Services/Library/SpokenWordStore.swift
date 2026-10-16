@@ -14,6 +14,8 @@ final class TingReaderProgressSyncCoordinator {
     private let fetch: @MainActor (MusicSource) async throws -> [TingReaderListeningProgress]
     private let protectedSongID: () -> String?
     private let didAdopt: (Song) -> Void
+    /// 一个源这一轮采纳完了(至少改了一条):播放器停着的那本书可能该换到别的设备听到的那一章。
+    private let didFinishAdopting: () -> Void
     private var disabledSourceIDs: Set<String>
     private(set) var refreshingSourceIDs: Set<String> = []
     private(set) var failedSourceIDs: Set<String> = []
@@ -27,7 +29,8 @@ final class TingReaderProgressSyncCoordinator {
         songs: @escaping (String) -> [Song],
         fetch: @escaping @MainActor (MusicSource) async throws -> [TingReaderListeningProgress],
         protectedSongID: @escaping () -> String?,
-        didAdopt: @escaping (Song) -> Void = { _ in }
+        didAdopt: @escaping (Song) -> Void = { _ in },
+        didFinishAdopting: @escaping () -> Void = {}
     ) {
         self.defaults = defaults
         self.store = store
@@ -36,6 +39,7 @@ final class TingReaderProgressSyncCoordinator {
         self.fetch = fetch
         self.protectedSongID = protectedSongID
         self.didAdopt = didAdopt
+        self.didFinishAdopting = didFinishAdopting
         disabledSourceIDs = Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
     }
 
@@ -81,6 +85,7 @@ final class TingReaderProgressSyncCoordinator {
                         return (ref.chapterID, song)
                     }, uniquingKeysWith: { first, _ in first }
                 )
+                var adoptedAny = false
                 for record in records {
                     guard let song = byChapter[record.chapterID],
                           TingReaderAPIProtocol.trackReference(from: song.filePath)?.bookID == record.bookID,
@@ -89,9 +94,13 @@ final class TingReaderProgressSyncCoordinator {
                     if store.adoptServerProgress(
                         songID: song.id, position: progress.position, duration: progress.duration,
                         isFinished: progress.isFinished, updatedAt: progress.updatedAt
-                    ) { didAdopt(song) }
+                    ) {
+                        adoptedAny = true
+                        didAdopt(song)
+                    }
                 }
                 store.persistLocally()
+                if adoptedAny { didFinishAdopting() }
             } catch is CancellationError {
                 return
             } catch {
@@ -177,6 +186,9 @@ final class SpokenWordStore {
     /// When removals and edits happened, so they survive a merge with a
     /// device that has not seen them yet.
     @ObservationIgnored private var ledger = SpokenWordSyncLedger()
+    /// 这次运行里从服务端采纳的进度,按条目记采纳时那条的时间。条目最后一次改动正是这个时间,
+    /// 就是别的设备听的,不是本机手动标的(手动标听完不该把停着的播放器挪走)。只在内存里。
+    @ObservationIgnored private var serverAdoptedAt: [String: Date] = [:]
     /// Bumped on every change so views and the library aggregation can depend
     /// on one cheap value instead of observing two dictionaries.
     @ObservationIgnored private(set) var revision = 0
@@ -769,13 +781,7 @@ final class SpokenWordStore {
         isFinished: Bool,
         updatedAt: Date
     ) -> Bool {
-        let localStamps = [
-            positions[songID]?.updatedAt,
-            finishedAt[songID],
-            ledger.positionClearedAt[songID],
-            ledger.unfinishedAt[songID],
-        ].compactMap { $0 }
-        if let newest = localStamps.max(), newest >= updatedAt { return false }
+        if let newest = lastChange(forSongID: songID), newest >= updatedAt { return false }
         var changed = false
         if isFinished {
             // Only a newly finished item ends its position; one already
@@ -796,9 +802,26 @@ final class SpokenWordStore {
             changed = true
         }
         guard changed else { return false }
+        serverAdoptedAt[songID] = updatedAt
         evictOldestIfNeeded()
         didChange(cloud: .relaxed, progressOnly: true)
         return true
+    }
+
+    /// 这一条最后一次改动是这次运行里从服务端采纳来的,就是那次的时间;否则 nil。
+    func serverAdoptedChange(forSongID songID: String) -> Date? {
+        guard let adopted = serverAdoptedAt[songID], lastChange(forSongID: songID) == adopted else { return nil }
+        return adopted
+    }
+
+    /// 对这一条最后一次的决定(位置、听完、清掉、取消听完)的时间。服务端带回来的按服务端的时间记。
+    func lastChange(forSongID songID: String) -> Date? {
+        [
+            positions[songID]?.updatedAt,
+            finishedAt[songID],
+            ledger.positionClearedAt[songID],
+            ledger.unfinishedAt[songID],
+        ].compactMap { $0 }.max()
     }
 
     // MARK: - Finished

@@ -186,6 +186,76 @@ actor TVSourceAssetReader {
         }
     }
 
+    /// 这一条所在那本书在服务端的各条进度,按歌曲路径;续播时看别的设备是不是已经听到了这本书的另一条。
+    /// 取不到时为 nil。Audiobookshelf 没有更新时间的那条不回:拿「现在」顶替会让它永远比本机新。
+    func serverSpokenWordBookProgress(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> [String: TVServerSpokenWordProgress]? {
+        do {
+            switch source.type {
+            case .tingReader:
+                guard let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+                let chapters = try await tingReaderClient(for: source, credential: credential)
+                    .chapters(bookID: reference.bookID)
+                var result: [String: TVServerSpokenWordProgress] = [:]
+                for chapter in chapters {
+                    guard let progress = TingReaderProgressPolicy.progress(for: chapter) else { continue }
+                    let path = TingReaderAPIProtocol.trackPath(
+                        bookID: reference.bookID,
+                        chapterID: chapter.id,
+                        fileExtension: chapter.fileExtension
+                    )
+                    result[path] = TVServerSpokenWordProgress(
+                        position: progress.position,
+                        duration: progress.duration,
+                        isFinished: progress.isFinished,
+                        updatedAt: progress.updatedAt
+                    )
+                }
+                return result
+            case .audiobookshelf:
+                guard let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return nil }
+                let client = audiobookshelfClient(for: source, credential: credential)
+                let records = try await client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
+                guard !records.isEmpty else { return [:] }
+                let item: AudiobookshelfCatalogItem
+                if let cached = audiobookshelfItems[reference.itemID] {
+                    item = cached
+                } else if let fetched = try await client.item(id: reference.itemID) {
+                    audiobookshelfItems[reference.itemID] = fetched
+                    item = fetched
+                } else {
+                    return nil
+                }
+                var result: [String: TVServerSpokenWordProgress] = [:]
+                for record in records {
+                    guard let stamp = record.lastUpdate else { continue }
+                    for track in item.trackProgress(from: record) {
+                        let path = AudiobookshelfAPIProtocol.trackPath(
+                            itemID: item.id,
+                            kind: track.kind,
+                            fileExtension: track.fileExtension
+                        )
+                        result[path] = TVServerSpokenWordProgress(
+                            position: track.position,
+                            duration: track.duration,
+                            isFinished: track.isFinished,
+                            updatedAt: stamp
+                        )
+                    }
+                }
+                return result
+            default:
+                return nil
+            }
+        } catch {
+            plog("🎧 TV server book progress read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Ting Reader 网页端给这本书设的片头 / 片尾。按书缓存十分钟;取到的同时记进本机,下一章开播时同步可用。
     func tingReaderIntroOutro(song: Song, source: MusicSource, credential: SourceCredential?) async -> SpokenWordIntroOutro? {
         guard source.type == .tingReader,

@@ -900,6 +900,7 @@
 		6BCCAEF923D3E723E9EB3563 /* MacSongTableLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01ACB48074C4FBB9A9A9561B /* MacSongTableLayout.swift */; };
 		6BD1C7F83B80EF5C35376167 /* PrimuseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE13E2DA7798D1EB66AAB221 /* PrimuseApp.swift */; };
 		6BEA4C430BF1F8100C05FA7B /* SpokenWordContentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 518582DFCDFFEE176B340033 /* SpokenWordContentPolicy.swift */; };
+		E051500ACEF8FBB00210A381 /* SpokenWordBookFollowPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1872B1DA2833552F1157260D /* SpokenWordBookFollowPolicy.swift */; };
 		DEAD7CDB5B8635C14C68BD42 /* SpokenWordIntroOutro.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50191A65D5B9EB743E901712 /* SpokenWordIntroOutro.swift */; };
 		6C03104D9FB6DC24E389421B /* TVSnapshotRowSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C7AA7CCA81AD3F717DE3423 /* TVSnapshotRowSelection.swift */; };
 		6C2879FCBAD6C54C9C0C2B6C /* ThemeColorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F805E78BE07CA73C5056348 /* ThemeColorSettingsView.swift */; };
@@ -2786,6 +2787,7 @@
 		50F855943251044310797011 /* MacLyricsVisibilityPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLyricsVisibilityPreferences.swift; sourceTree = "<group>"; };
 		516D8AB11F65F0CE7E12134E /* MediaServerCatalogPagingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaServerCatalogPagingPolicy.swift; sourceTree = "<group>"; };
 		518582DFCDFFEE176B340033 /* SpokenWordContentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordContentPolicy.swift; sourceTree = "<group>"; };
+		1872B1DA2833552F1157260D /* SpokenWordBookFollowPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordBookFollowPolicy.swift; sourceTree = "<group>"; };
 		50191A65D5B9EB743E901712 /* SpokenWordIntroOutro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordIntroOutro.swift; sourceTree = "<group>"; };
 		51E683B96F169512351E3ACE /* ScrobbleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleService.swift; sourceTree = "<group>"; };
 		51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
@@ -4427,6 +4429,7 @@
 				2AFCE912BF9D28B135F69C8A /* SpokenWordBookPlaybackPolicy.swift */,
 				7BEEAA38E460C73784C0ACAA /* SpokenWordBookRenames.swift */,
 				518582DFCDFFEE176B340033 /* SpokenWordContentPolicy.swift */,
+				1872B1DA2833552F1157260D /* SpokenWordBookFollowPolicy.swift */,
 				50191A65D5B9EB743E901712 /* SpokenWordIntroOutro.swift */,
 				6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */,
 				4F93FF0F9DEA42E997404B4B /* SpokenWordCurrentBookCache.swift */,
@@ -6859,6 +6862,7 @@
 				1B495C1C9292861F88C17185 /* SpokenWordBookPlaybackPolicy.swift in Sources */,
 				1DE2A1D1D67532D1AD82423F /* SpokenWordBookRenames.swift in Sources */,
 				6BEA4C430BF1F8100C05FA7B /* SpokenWordContentPolicy.swift in Sources */,
+				E051500ACEF8FBB00210A381 /* SpokenWordBookFollowPolicy.swift in Sources */,
 				DEAD7CDB5B8635C14C68BD42 /* SpokenWordIntroOutro.swift in Sources */,
 				761B04C86F083F18574E02FD /* SpokenWordCoverLayout.swift in Sources */,
 				D943732D0C25C109CD537241 /* SpokenWordCurrentBookCache.swift in Sources */,

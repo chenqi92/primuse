@@ -165,21 +165,39 @@ final class ListeningFeaturesTests: XCTestCase {
                            tingProgress(chapter: "playing", position: 900, at: newer),
                            tingProgress(chapter: "unscanned", position: 800, at: newer)]
         var adopted: [String] = []
+        var finishedRounds = 0
         var requests = 0
         let sync = TingReaderProgressSyncCoordinator(
             defaults: try makeDefaults(), store: store, sources: { [source] }, songs: { _ in songs },
             fetch: { _ in requests += 1; return records }, protectedSongID: { "playing" },
-            didAdopt: { adopted.append($0.id) }
+            didAdopt: { adopted.append($0.id) },
+            didFinishAdopting: { finishedRounds += 1 }
         )
         await sync.refresh()
         await sync.refresh()
         XCTAssertEqual(requests, 1, "foreground refreshes within the cooldown share the last attempt")
         XCTAssertEqual(adopted, ["remote"])
+        XCTAssertEqual(finishedRounds, 1, "one round that changed something asks the player to follow once")
         XCTAssertEqual(store.position(forSongID: "remote")?.position, 500)
         for id in ["local", "playing", "missing"] { XCTAssertEqual(store.position(forSongID: id)?.position, 100) }
         XCTAssertNil(store.position(forSongID: "unscanned"))
         await sync.refresh(manual: true)
         XCTAssertEqual(requests, 2)
+        XCTAssertEqual(finishedRounds, 1, "a round that changed nothing leaves the player alone")
+    }
+
+    func testServerAdoptedChangeNamesOnlyAServerDecisionThatIsStillTheLatest() throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("progress.json"))
+        let stamp = Date().addingTimeInterval(-60)
+        XCTAssertTrue(store.adoptServerProgress(songID: "heard-elsewhere", position: 600, duration: 3_600,
+                                                isFinished: false, updatedAt: stamp))
+        XCTAssertEqual(store.serverAdoptedChange(forSongID: "heard-elsewhere"), stamp)
+        XCTAssertEqual(store.lastChange(forSongID: "heard-elsewhere"), stamp)
+        store.markFinished(true, songIDs: ["heard-elsewhere"])
+        XCTAssertNil(store.serverAdoptedChange(forSongID: "heard-elsewhere"),
+                     "marking it heard here is this device's decision")
+        store.rememberPosition(300, duration: 3_600, forSongID: "local")
+        XCTAssertNil(store.serverAdoptedChange(forSongID: "local"))
     }
 
     func testServerIntroMovesTheStartPastItButNotAnEarlierPosition() throws {

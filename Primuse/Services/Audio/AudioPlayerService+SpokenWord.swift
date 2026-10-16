@@ -33,6 +33,7 @@ extension AudioPlayerService {
         lastServerSpokenWordPositionPush = 0
         pendingSpokenWordResumeSongID = nil
         currentSpokenWordIntroOutro = nil
+        spokenWordLocalTouchAt = nil
         // 片尾跳过、换走时不存位置,都只对那一条;换到别的条目就作废。
         let playbackState = PodcastPlaybackState.shared
         if playbackState.outroHandledEpisodeID != song?.id { playbackState.outroHandledEpisodeID = nil }
@@ -62,6 +63,7 @@ extension AudioPlayerService {
         // 播客单集:片头跳过与 feed 里的章节。
         preparePodcastItem(song)
         currentSpokenWordIntroOutro = serverSpokenWordIntroOutro(for: song)
+        noteSpokenWordItemSelected(song)
         // Arm the resume even when nothing is stored: the seek is skipped, but
         // the flag also tells the position writer to ignore the opening zeroes.
         if pendingSpokenWordSeekOverride != nil
@@ -118,6 +120,9 @@ extension AudioPlayerService {
     ///
     /// 开播不等这次读取:解码器先从本机记的位置打开,服务端的更新晚到时再跳过去
     /// (`applyPendingServerSpokenWordResumeIfNeeded`)。用户从目录 / 书签点进来的有自己的起点,不跳。
+    ///
+    /// 续播(`resuming`)时整本书一起取:别的设备可能已经听到了这本书的另一条,比本机最后一次动这一条还晚,
+    /// 就换到那一条接着听(`spokenWordFollowTarget`)。
     func refreshServerSpokenWordState(for song: Song, resuming: Bool = false) {
         guard let manager = sourceManager else { return }
         let songID = song.id
@@ -135,7 +140,13 @@ extension AudioPlayerService {
                 }
             }
             guard await manager.supportsServerListeningProgress(for: song) else { return }
-            let progress = await manager.fetchServerListeningProgress(for: song)
+            let bookProgress = resuming ? await manager.fetchServerBookListeningProgress(for: song) : nil
+            let progress: ServerListeningProgress?
+            if let bookProgress {
+                progress = bookProgress.first { $0.songPath == song.filePath }
+            } else {
+                progress = await manager.fetchServerListeningProgress(for: song)
+            }
             guard !Task.isCancelled, let self, self.currentSong?.id == songID,
                   self.serverSpokenWordStateRequestID == requestID else { return }
             if let progress,
@@ -157,6 +168,23 @@ extension AudioPlayerService {
                     self.applySyncedSpokenWordPosition(for: song)
                 }
                 plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
+            }
+            if let bookProgress {
+                self.adoptServerSpokenWordBookProgress(bookProgress, around: song)
+                if followsServer,
+                   abs(self.currentTime - anchor) <= Self.serverSpokenWordResumeWindow,
+                   let target = self.spokenWordFollowTarget() {
+                    let next = target.songs[target.index]
+                    plog("🎧 Spoken word: '\(next.title)' was heard on another device after '\(song.title)'; continuing there")
+                    // 刚续上的这一条不再存位置:它的位置暂停时存过,现在存会把它变成这本书最新的一条。
+                    PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = songID
+                    if self.isPlaying || self.isLoading {
+                        await self.play(queue: target.songs, startingAt: target.index)
+                    } else {
+                        self.followSpokenWordBookIfPaused()
+                    }
+                    return
+                }
             }
             await self.refreshServerSpokenWordIntroOutro(for: song)
             let chapters = await manager.fetchServerChapters(for: song)
@@ -184,6 +212,128 @@ extension AudioPlayerService {
         updateNowPlayingInfo()
         updatePlaybackState()
         persistPlaybackSession()
+    }
+
+    // MARK: - Following the book to another device
+
+    private static let selectedItemDefaultsKey = "primuse.spokenWord.selectedItem.v1"
+
+    /// 记下本机换到这一条的时间。冷启动恢复的那一条用上次记下的,和它自己在本机存位置的时间取晚的
+    /// (刚从服务端采纳来的那次不算本机的)。
+    private func noteSpokenWordItemSelected(_ song: Song) {
+        let defaults = UserDefaults.standard
+        if isRestoringPlaybackSession {
+            let store = SpokenWordStore.shared
+            let saved = defaults.dictionary(forKey: Self.selectedItemDefaultsKey)
+            let selectedAt = (saved?["songID"] as? String) == song.id
+                ? (saved?["at"] as? Double).map(Date.init(timeIntervalSince1970:))
+                : nil
+            let localChange = store.serverAdoptedChange(forSongID: song.id) == nil
+                ? store.lastChange(forSongID: song.id)
+                : nil
+            spokenWordLocalTouchAt = [selectedAt, localChange].compactMap { $0 }.max()
+        } else {
+            let now = Date()
+            spokenWordLocalTouchAt = now
+            defaults.set(["songID": song.id, "at": now.timeIntervalSince1970], forKey: Self.selectedItemDefaultsKey)
+        }
+    }
+
+    /// 续播时整本书取回来的进度:当前这一条之外的也记进本机,书架和「在听」跟着更新。
+    private func adoptServerSpokenWordBookProgress(_ records: [ServerListeningProgress], around song: Song) {
+        guard let library, !records.isEmpty else { return }
+        let bookID = spokenWordBookID(for: song)
+        let idsByPath = Dictionary(
+            library.spokenWordSongs.lazy
+                .filter { $0.sourceID == song.sourceID && library.spokenWordBookIDs[$0.id] == bookID }
+                .map { ($0.filePath, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var adopted = 0
+        for record in records where record.songPath != song.filePath {
+            guard let songID = idsByPath[record.songPath] else { continue }
+            if SpokenWordStore.shared.adoptServerProgress(
+                songID: songID,
+                position: record.position,
+                duration: record.duration,
+                isFinished: record.isFinished,
+                updatedAt: record.updatedAt
+            ) { adopted += 1 }
+        }
+        if adopted > 0 { SpokenWordStore.shared.persistLocally() }
+    }
+
+    /// 当前这本书在别的设备上(从服务端同步回来的)比本机最后一次动当前这一条更晚被听过的那一条,
+    /// 连同要装的队列;nil 表示就该接着当前这一条。本机手动标的听完不算;播客不跟,各集是各听各的。
+    ///
+    /// `allowsUnanchored`:不知道本机什么时候动过当前这一条(升级前存下的会话)时也照最新的那条走。
+    /// 只给照着显示的那一条开播的入口用(书架「继续」、小组件)。
+    func spokenWordFollowTarget(allowsUnanchored: Bool = false) -> (songs: [Song], index: Int)? {
+        let store = SpokenWordStore.shared
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio,
+              !store.isPodcast(song),
+              spokenWordLocalTouchAt != nil || allowsUnanchored,
+              let book = currentSpokenWordBook, book.items.count > 1 else { return nil }
+        let records = book.items.compactMap { item -> SpokenWordBookFollowPolicy.Record? in
+            guard let record = SpokenWordBookFollowPolicy.Record(
+                      itemID: item.id,
+                      positionUpdatedAt: item.positionUpdatedAt,
+                      finishedAt: item.finishedAt
+                  ),
+                  store.serverAdoptedChange(forSongID: item.id) == record.updatedAt else { return nil }
+            return record
+        }
+        guard !records.isEmpty else { return nil }
+        guard let targetID = SpokenWordBookFollowPolicy.target(
+            itemIDs: book.items.map(\.id),
+            currentItemID: song.id,
+            anchor: spokenWordLocalTouchAt,
+            records: records
+        ) else { return nil }
+        let queued = queueEntries.map(\.song)
+        if let index = queued.firstIndex(where: { $0.id == targetID }) { return (queued, index) }
+        // 队列里没有(只装了一段,或是从别处点进来的):整本书装进去。
+        guard let library else { return nil }
+        let bookID = spokenWordBookID(for: song)
+        let members = Dictionary(
+            library.spokenWordSongs.lazy
+                .filter { library.spokenWordBookIDs[$0.id] == bookID }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let songs = book.items.compactMap { members[$0.id] }
+        guard let index = songs.firstIndex(where: { $0.id == targetID }) else { return nil }
+        return (songs, index)
+    }
+
+    /// 别的设备的进度同步进来后:播放器停在这本书上、而那边已经听到了另一条,就换过去,不出声。
+    /// 正在放、正在加载、投放中,或用户刚从目录 / 书签点了起点的不动。
+    func followSpokenWordBookIfPaused() {
+        guard !isPlaying, !isLoading, !isCastingMode, !isAppleMusicMode,
+              pendingSpokenWordSeekOverride == nil,
+              let target = spokenWordFollowTarget() else { return }
+        let song = target.songs[target.index]
+        plog("🎧 Spoken word: the book continues at '\(song.title)' on another device; moving the paused player there")
+        let reusesQueue = queueEntries.indices.contains(target.index)
+            && queueEntries[target.index].song.id == song.id
+        // 停着的这一条暂停时存过位置;别让 stop() 按「现在」再存一次,把它变成这本书最新的一条。
+        lastSpokenWordPositionSave = currentTime
+        stop()
+        setQueue(target.songs, startAt: target.index, keepsContinuation: reusesQueue)
+        stagePausedHandoff(song: song, at: spokenWordResumeTarget(for: song) ?? 0)
+        persistPlaybackSession()
+    }
+
+    /// 「继续」按在停着的当前这本书上(书架、小组件):这本书在别的设备上(或本机早先)已经听到了
+    /// 另一条,就从那一条开播;否则原地接着播。
+    func resumeCurrentSpokenWordBook() {
+        guard !isLoading, !isCastingMode, !isAppleMusicMode,
+              let target = spokenWordFollowTarget(allowsUnanchored: true) else {
+            resume()
+            return
+        }
+        lastSpokenWordPositionSave = currentTime
+        Task { await play(queue: target.songs, startingAt: target.index) }
     }
 
     // MARK: - Intro and outro set on the server
@@ -367,6 +517,7 @@ extension AudioPlayerService {
             duration: resolvedDuration,
             forSongID: song.id
         )
+        spokenWordLocalTouchAt = Date()
         // Straight to disk: a crash or a kill without a background transition
         // must not also lose the debounce window. One small write per
         // autosave interval, the same count the debounce would have made.

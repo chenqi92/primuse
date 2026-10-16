@@ -1300,7 +1300,8 @@ final class AppServices {
                 guard let player, player.isPlaying || player.isLoading else { return nil }
                 return player.currentSong?.id
             },
-            didAdopt: { [weak player] song in player?.applySyncedSpokenWordPosition(for: song) }
+            didAdopt: { [weak player] song in player?.applySyncedSpokenWordPosition(for: song) },
+            didFinishAdopting: { [weak player] in player?.followSpokenWordBookIfPaused() }
         )
         let alwaysDownload = AlwaysDownloadCoordinator(
             library: library,
@@ -1380,7 +1381,7 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync, weak bookFavoriteSync, weak library] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync, weak bookFavoriteSync, weak library, weak player] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             guard applyFence() else { return }
             await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
@@ -1426,6 +1427,7 @@ final class AppServices {
                 }
                 let progress = await manager.fetchServerListeningProgress(for: source, songPaths: Array(songIDsByPath.keys))
                 guard applyFence(), !progress.isEmpty else { return }
+                let follower = player
                 await MainActor.run {
                     var adopted = 0
                     for entry in progress {
@@ -1438,7 +1440,10 @@ final class AppServices {
                             updatedAt: entry.updatedAt
                         ) { adopted += 1 }
                     }
-                    if adopted > 0 { plog("🎧 Adopted \(adopted) server listening position(s) from source \(source.id.prefix(8))…") }
+                    if adopted > 0 {
+                        plog("🎧 Adopted \(adopted) server listening position(s) from source \(source.id.prefix(8))…")
+                        follower?.followSpokenWordBookIfPaused()
+                    }
                 }
             }
         }
@@ -2727,9 +2732,17 @@ final class AppServices {
         bridge.togglePlaybackIfCurrentItem = { id in
             togglePlaybackOfCurrent(player.currentSong?.id == id)
         }
+        // 停着的正是这本书时也先看别的设备是不是已经听到了另一章,有就从那章接着播。
         bridge.togglePlaybackIfCurrentBook = { bookID in
             // 小组件可能还拿着这本书读出标签之前的 id。
-            togglePlaybackOfCurrent(player.currentBookID == library.currentSpokenWordBookID(for: bookID))
+            guard player.currentBookID == library.currentSpokenWordBookID(for: bookID), !player.isLiveRadio else {
+                return false
+            }
+            if !player.isPlaybackActive, !player.isPlaying, !player.isLoading {
+                player.resumeCurrentSpokenWordBook()
+                return true
+            }
+            return togglePlaybackOfCurrent(true)
         }
         bridge.restorePlaybackSession = { [self] in
             await awaitPlaybackSessionRestore()

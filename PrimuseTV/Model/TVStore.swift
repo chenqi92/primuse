@@ -1059,7 +1059,8 @@ final class TVStore {
                 guard let self, self.isPlaying || self.engine.status == .loading else { return nil }
                 return self.currentSongID
             },
-            didAdopt: { [weak self] song in self?.applySyncedSpokenWordPosition(for: song) }
+            didAdopt: { [weak self] song in self?.applySyncedSpokenWordPosition(for: song) },
+            didFinishAdopting: { [weak self] in self?.followSpokenWordBookIfPaused() }
         )
         cachedTingReaderProgressSync = sync
         return sync
@@ -1071,6 +1072,9 @@ final class TVStore {
     @ObservationIgnored private var serverSpokenWordStateSongID: String?
     /// 服务端更新的位置在开播之后才到:记着开播时的起点,还停在起点附近就改从服务端的位置续。
     @ObservationIgnored private var pendingServerSpokenWordResume: (songID: String, anchor: Double)?
+    /// 本机最后一次动当前这一条的时间:换到它、在它上面存位置。这本书在别的设备上听到的另一条
+    /// 要比它晚,才算听到了更新的地方(`spokenWordFollowTarget`)。
+    @ObservationIgnored private var spokenWordLocalTouchAt: Date?
     /// 当前这一条所在那本书在服务端设的片头 / 片尾秒数(Ting Reader)。
     @ObservationIgnored private var currentSpokenWordIntroOutro: SpokenWordIntroOutro?
     /// 片尾已经跳过的那一条:每条只跳一次。
@@ -5267,6 +5271,7 @@ final class TVStore {
         pendingSpokenWordResume = nil
         lastSpokenWordPositionSave = 0
         lastServerSpokenWordPositionPush = 0
+        spokenWordLocalTouchAt = nil
         currentSpokenWordIntroOutro = nil
         if serverOutroHandledSongID != song.id { serverOutroHandledSongID = nil }
         // 有声内容才读章节标记。
@@ -5280,6 +5285,7 @@ final class TVStore {
             sleepStopAfterItemID = nil
         }
         guard isSpokenWord else { return requested }
+        noteSpokenWordItemSelected(song.id)
         if let raw = library.song(id: song.id) { currentSpokenWordIntroOutro = serverSpokenWordIntroOutro(for: raw) }
         if let override = pendingSpokenWordStartOverride {
             pendingSpokenWordStartOverride = nil
@@ -5321,11 +5327,20 @@ final class TVStore {
                     self.serverSpokenWordStateRequestID = nil
                 }
             }
-            let progress = await TVSourceAssetReader.shared.serverSpokenWordProgress(
-                song: raw,
-                source: source,
-                credential: credential
-            )
+            // 续播时整本书一起取:别的设备可能已经听到了这本书的另一条。
+            let bookProgress = resuming
+                ? await TVSourceAssetReader.shared.serverSpokenWordBookProgress(
+                    song: raw, source: source, credential: credential
+                )
+                : nil
+            let progress: TVServerSpokenWordProgress?
+            if let bookProgress {
+                progress = bookProgress[raw.filePath]
+            } else {
+                progress = await TVSourceAssetReader.shared.serverSpokenWordProgress(
+                    song: raw, source: source, credential: credential
+                )
+            }
             guard !Task.isCancelled, let self, self.nowPlaying.songID == songID,
                   self.serverSpokenWordStateRequestID == requestID else { return }
             if let progress, SpokenWordStore.shared.adoptServerProgress(
@@ -5345,8 +5360,101 @@ final class TVStore {
                 self.applySyncedSpokenWordPosition(for: raw)
                 self.applyPendingServerSpokenWordResumeIfNeeded()
             }
+            if let bookProgress {
+                self.adoptServerSpokenWordBookProgress(bookProgress, around: raw)
+                if self.pendingSpokenWordStartOverride == nil,
+                   abs(self.engine.currentTime - anchor) <= Self.serverSpokenWordResumeWindow,
+                   let targetID = self.spokenWordFollowTarget() {
+                    plog("🎧 TV spoken word: the book continues at \(targetID.prefix(8))… on another device")
+                    if self.isPlaying || self.engine.status == .loading {
+                        // 刚续上的这一条不再存位置:它的位置暂停时存过,现在存会把它变成这本书最新的一条。
+                        self.spokenWordPositionArmed = false
+                        self.playSpokenWordBookItem(id: targetID)
+                    } else {
+                        self.followSpokenWordBookIfPaused()
+                    }
+                    return
+                }
+            }
             await self.refreshServerSpokenWordIntroOutro(for: raw, source: source, credential: credential)
         }
+    }
+
+    /// 续播时整本书取回来的进度:当前这一条之外的也记进本机,书架和「在听」跟着更新。
+    private func adoptServerSpokenWordBookProgress(_ records: [String: TVServerSpokenWordProgress], around song: Song) {
+        guard !records.isEmpty, let bookID = spokenWordBookID(forSongID: song.id) else { return }
+        var adopted = 0
+        for member in library.spokenWordSongs
+        where member.sourceID == song.sourceID && member.id != song.id && library.spokenWordBookIDs[member.id] == bookID {
+            guard let record = records[member.filePath] else { continue }
+            if SpokenWordStore.shared.adoptServerProgress(
+                songID: member.id,
+                position: record.position,
+                duration: record.duration,
+                isFinished: record.isFinished,
+                updatedAt: record.updatedAt
+            ) { adopted += 1 }
+        }
+        if adopted > 0 { SpokenWordStore.shared.persistLocally() }
+    }
+
+    private static let selectedSpokenWordItemDefaultsKey = "primuse.spokenWord.selectedItem.v1"
+
+    /// 记下本机换到这一条的时间。
+    private func noteSpokenWordItemSelected(_ songID: String) {
+        let now = Date()
+        spokenWordLocalTouchAt = now
+        defaults.set(["songID": songID, "at": now.timeIntervalSince1970], forKey: Self.selectedSpokenWordItemDefaultsKey)
+    }
+
+    /// 冷启动恢复的那一条:上次记下的换到它的时间,和它自己在本机存位置的时间取晚的(从服务端采纳来的不算)。
+    private func restoredSpokenWordTouch(for songID: String) -> Date? {
+        let store = SpokenWordStore.shared
+        let saved = defaults.dictionary(forKey: Self.selectedSpokenWordItemDefaultsKey)
+        let selectedAt = (saved?["songID"] as? String) == songID
+            ? (saved?["at"] as? Double).map(Date.init(timeIntervalSince1970:))
+            : nil
+        let localChange = store.serverAdoptedChange(forSongID: songID) == nil ? store.lastChange(forSongID: songID) : nil
+        return [selectedAt, localChange].compactMap { $0 }.max()
+    }
+
+    /// 当前这本书在别的设备上(从服务端同步回来的)比本机最后一次动当前这一条更晚被听过的那一条;
+    /// nil 表示就该接着当前这一条。本机手动标的听完不算;播客不跟。
+    private func spokenWordFollowTarget() -> String? {
+        let store = SpokenWordStore.shared
+        guard hasNowPlaying, currentItemIsSpokenWord, !isLiveRadio, currentPodcastEpisodeID == nil,
+              let touch = spokenWordLocalTouchAt,
+              let raw = library.song(id: nowPlaying.songID), !store.isPodcast(raw),
+              let book = currentSpokenWordBook, book.items.count > 1 else { return nil }
+        let records = book.items.compactMap { item -> SpokenWordBookFollowPolicy.Record? in
+            guard let record = SpokenWordBookFollowPolicy.Record(
+                      itemID: item.id,
+                      positionUpdatedAt: item.positionUpdatedAt,
+                      finishedAt: item.finishedAt
+                  ),
+                  store.serverAdoptedChange(forSongID: item.id) == record.updatedAt else { return nil }
+            return record
+        }
+        guard !records.isEmpty else { return nil }
+        return SpokenWordBookFollowPolicy.target(
+            itemIDs: book.items.map(\.id),
+            currentItemID: raw.id,
+            anchor: touch,
+            records: records
+        )
+    }
+
+    /// 别的设备的进度同步进来后:停在这本书上、而那边已经听到了另一条,就换过去,不出声。
+    private func followSpokenWordBookIfPaused() {
+        guard !isPlaying, engine.status != .loading, pendingSpokenWordStartOverride == nil,
+              let targetID = spokenWordFollowTarget(),
+              let index = queue.firstIndex(of: targetID), let target = song(targetID) else { return }
+        plog("🎧 TV spoken word: the book continues at '\(target.title)' on another device; moving the paused player there")
+        // 停着的这一条暂停时存过位置;别再按「现在」存一次,把它变成这本书最新的一条。
+        lastSpokenWordPositionSave = engine.currentTime
+        queueIndex = index
+        startPlaying(target, autoPlay: false, prepareWhenPaused: false)
+        persistPlaybackSession()
     }
 
     /// 服务端给这一条所在那本书设的片头 / 片尾秒数(Ting Reader);没有就是 nil。
@@ -5721,6 +5829,7 @@ final class TVStore {
             duration: duration > 0 ? duration : nowPlaying.duration,
             forSongID: songID
         )
+        spokenWordLocalTouchAt = Date()
         // 直接落盘:闪退或被系统杀掉时,不必再多丢一段防抖窗口。
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(songID: songID, position: position, force: force)
@@ -7242,6 +7351,11 @@ final class TVStore {
             repeatMode = plan.repeatMode == .off ? .off : (plan.repeatMode == .all ? .all : .one)
             if let selected = song(queue[queueIndex]) {
                 startPlaying(selected, resumeTime: plan.currentTime, autoPlay: false, prepareWhenPaused: false)
+                // 恢复不是本机这次换到它:按上次记下的时间算;进度同步可能比恢复先到,再看一次要不要跟过去。
+                if currentItemIsSpokenWord {
+                    spokenWordLocalTouchAt = restoredSpokenWordTouch(for: selected.id)
+                    followSpokenWordBookIfPaused()
+                }
             }
         } catch { plog("TV playback session restore failed: \(error.localizedDescription)") }
     }

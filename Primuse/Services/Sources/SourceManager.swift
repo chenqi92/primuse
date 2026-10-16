@@ -2589,6 +2589,15 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
         }
     }
 
+    func fetchServerBookListeningProgress(containing songPath: String) async throws -> [ServerListeningProgress] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            return try await provider.fetchServerBookListeningProgress(containing: songPath)
+        }
+    }
+
     func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
         try await routing.withMutation { connector in
             guard let provider = connector as? any ServerListeningProgressConnector else {
@@ -2695,6 +2704,15 @@ private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetada
                 throw SourceError.connectionFailed("Server listening progress unavailable")
             }
             return try await provider.fetchServerListeningProgress(for: songPaths)
+        }
+    }
+
+    func fetchServerBookListeningProgress(containing songPath: String) async throws -> [ServerListeningProgress] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            return try await provider.fetchServerBookListeningProgress(containing: songPath)
         }
     }
 
@@ -14300,6 +14318,18 @@ final class SourceManager {
             return try await provider.fetchServerListeningProgress(for: [song.filePath]).first
         } catch {
             plog("🎧 Server progress read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 这首歌所在那本书在服务端的各条进度,现取;源不记进度、或读失败是 nil。
+    func fetchServerBookListeningProgress(for song: Song) async -> [ServerListeningProgress]? {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerListeningProgressConnector else { return nil }
+        do {
+            return try await provider.fetchServerBookListeningProgress(containing: song.filePath)
+        } catch {
+            plog("🎧 Server book progress read failed '\(song.title)': \(error.localizedDescription)")
             return nil
         }
     }

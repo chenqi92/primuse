@@ -416,6 +416,32 @@ extension TingReaderSource: ServerListeningProgressConnector, TingReaderProgress
         return result
     }
 
+    func fetchServerBookListeningProgress(containing songPath: String) async throws -> [ServerListeningProgress] {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: songPath) else { return [] }
+        try await connect()
+        let chapters: [TingReaderChapter]
+        do {
+            chapters = try await client.chapters(bookID: reference.bookID)
+        } catch TingReaderServiceError.badServerResponse(404) {
+            return []
+        }
+        chapterSnapshots[reference.bookID] = (Date(), chapters)
+        return chapters.compactMap { chapter in
+            guard let progress = TingReaderProgressPolicy.progress(for: chapter) else { return nil }
+            return ServerListeningProgress(
+                songPath: TingReaderAPIProtocol.trackPath(
+                    bookID: reference.bookID,
+                    chapterID: chapter.id,
+                    fileExtension: chapter.fileExtension
+                ),
+                position: progress.position,
+                duration: progress.duration,
+                isFinished: progress.isFinished,
+                updatedAt: progress.updatedAt
+            )
+        }
+    }
+
     func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
         guard let reference = TingReaderAPIProtocol.trackReference(from: songPath) else { return }
         try await connect()

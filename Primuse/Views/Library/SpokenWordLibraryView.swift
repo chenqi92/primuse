@@ -1009,8 +1009,10 @@ private struct SpokenWordNowListeningCard: View {
         HStack(alignment: .center, spacing: PMSpace.l24) {
             details
             Button {
-                if isThisBook {
+                if isPlayingThisBook {
                     player.togglePlayPause()
+                } else if isThisBook {
+                    player.resumeCurrentSpokenWordBook()
                 } else {
                     SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                 }
@@ -1045,8 +1047,11 @@ private struct SpokenWordNowListeningCard: View {
             details
 
             Button {
-                if isThisBook {
+                if isPlayingThisBook {
                     player.togglePlayPause()
+                } else if isThisBook {
+                    // 停着的正是这本书:别的设备已经听到了另一章(卡片上显示的那章)就从那章接着播。
+                    player.resumeCurrentSpokenWordBook()
                 } else {
                     SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                 }

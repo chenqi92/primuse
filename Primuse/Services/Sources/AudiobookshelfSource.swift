@@ -406,6 +406,32 @@ extension AudiobookshelfSource: ServerListeningProgressConnector {
         return result
     }
 
+    /// 一个条目在服务端只有一条进度(整本书的时间轴),换算成各个文件:当前文件之前的算听完。
+    /// 没有更新时间的那条不回:拿「现在」顶替会让它永远比本机新。
+    func fetchServerBookListeningProgress(containing songPath: String) async throws -> [ServerListeningProgress] {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: songPath) else { return [] }
+        try await connect()
+        var result: [ServerListeningProgress] = []
+        for progress in try await client.mediaProgress() where progress.libraryItemID == reference.itemID {
+            guard let stamp = progress.lastUpdate,
+                  let item = try await catalogItem(id: progress.libraryItemID) else { continue }
+            for track in item.trackProgress(from: progress) {
+                result.append(ServerListeningProgress(
+                    songPath: AudiobookshelfAPIProtocol.trackPath(
+                        itemID: item.id,
+                        kind: track.kind,
+                        fileExtension: track.fileExtension
+                    ),
+                    position: track.position,
+                    duration: track.duration,
+                    isFinished: track.isFinished,
+                    updatedAt: stamp
+                ))
+            }
+        }
+        return result
+    }
+
     func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
         guard let reference = AudiobookshelfAPIProtocol.trackReference(from: songPath) else { return }
         try await connect()

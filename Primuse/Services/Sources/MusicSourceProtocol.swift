@@ -1993,6 +1993,9 @@ struct ServerListeningProgress: Sendable, Equatable {
 protocol ServerListeningProgressConnector: MusicSourceConnector {
     /// 服务端记的进度,只回 `songPaths` 里有的条目。
     func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress]
+    /// `songPath` 所在那本书(Ting Reader 一本书、Audiobookshelf 一个条目)每一条在服务端的进度,现取。
+    /// 续播时拿来看别的设备是不是已经听到了这本书的另一条。
+    func fetchServerBookListeningProgress(containing songPath: String) async throws -> [ServerListeningProgress]
     /// 把本机这首歌的位置报到服务端。
     func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws
 }
