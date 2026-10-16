@@ -5980,7 +5980,9 @@
 "library_playlist_cover_wall_description" = "Hat eine Playlist oder intelligente Playlist mindestens 4 verschiedene Albumcover, wird der Kopfbereich zu einer schrägen Cover-Wand, die sich alle paar Sekunden neu anordnet. Smartphones im Querformat und Playlists mit eigenem Cover zeigen weiterhin ein einzelnes Cover.";
 "player_backdrop_strength_footer" = "Je weiter rechts, desto näher kommt der Hintergrund den Farben des Covers. Im hellen Modus stoppen sehr dunkle Coverfarben dort, wo Text noch gut lesbar ist. Bei einem Hintergrundbild wie „Unscharfes Cover“ steuert dies die Stärke der Abdunklung.";
 "player_progress_style_title" = "Fortschrittsbalken";
-"player_progress_style_footer" = "Die Welle bewegt sich nur bei der Wiedergabe und wird beim Pausieren oder Ziehen zur geraden Linie. Gilt für den Player auf iPhone, iPad und Mac.";
+"player_progress_style_footer" = "Die Welle bewegt sich nur bei der Wiedergabe und wird beim Pausieren oder Ziehen zur geraden Linie. Gilt für den Player auf iPhone, iPad und Mac. Podcasts und Hörbücher folgen ebenfalls, nur wechselt das Hörbuch-Layout im Hochformat lediglich zur Welle und behält sonst seine eigene dünne Linie.";
+"player_always_dark_title" = "Player immer dunkel";
+"player_always_dark_footer" = "Der Player bleibt auch bei hellem System dunkel, wie bei Apple Music, auch bei Hörbüchern. Die Statusleiste wird im Player dann ausgeblendet.";
 "player_progress_style_standard" = "Standard";
 "player_progress_style_wave" = "Welle";
 "player_progress_style_dot" = "Dünne Linie mit Punkt";

@@ -715,6 +715,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.showsArtworkLyricsKey,
         PlayerAppearancePreferences.audioInfoModeKey,
         PlayerAppearancePreferences.progressStyleKey,
+        PlayerAppearancePreferences.alwaysDarkKey,
         PlayerAppearancePreferences.animatedArtworkEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEndpointKey,

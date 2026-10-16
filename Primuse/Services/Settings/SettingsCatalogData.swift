@@ -113,6 +113,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.volumeBar", titleKey: "player_volume_bar", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.artworkLyrics", titleKey: "player_artwork_lyrics", iosPage: .player, macPage: nil, keywords: ["lyrics under artwork", "mini lyrics", "封面歌词", "小歌词", "播放页歌词"]),
         SettingDefinition(id: "appearance.audioInfo", titleKey: "player_audio_info_title", iosPage: .player, macPage: .appearance, keywords: ["sample rate", "bit depth", "bitrate", "Hi-Res", "lossless", "采样率", "位深", "码率", "无损", "音质", "重采样"]),
+        SettingDefinition(id: "appearance.playerAlwaysDark", titleKey: "player_always_dark_title", iosPage: .player, macPage: nil, keywords: ["深色", "暗色", "黑色", "浅色", "播放页", "dark", "always dark", "player"]),
         SettingDefinition(id: "appearance.playerProgressStyle", titleKey: "player_progress_style_title", iosPage: .player, macPage: .appearance, keywords: ["进度条", "波浪", "圆点", "样式", "progress", "wave", "squiggly", "seek bar"]),
         SettingDefinition(id: "appearance.fullscreenEffect", titleKey: "fullscreen_effect_settings_title", iosPage: .fullscreen, macPage: .appearance, keywords: ["visualizer", "spectrum", "可视化", "频谱", "全屏效果"]),
         SettingDefinition(id: "appearance.lyricsMotion", titleKey: "immersive_lyrics_motion_title", iosPage: .fullscreen, macPage: nil, keywords: ["逐字", "浮起", "发光", "换句", "过渡", "word by word", "karaoke", "animation", "transition"]),

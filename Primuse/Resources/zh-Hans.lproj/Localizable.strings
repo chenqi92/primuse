@@ -6073,7 +6073,9 @@
 "library_playlist_cover_wall_description" = "歌单和智能歌单里有 4 张以上不同的专辑封面时，头图铺成一面倾斜的封面墙，每隔几秒换一次排法。手机横屏和自己设过封面的歌单仍显示单张封面。";
 "player_backdrop_strength_footer" = "越往右，背景越贴近封面的颜色。浅色外观下封面颜色很深时，会停在文字还看得清的程度；选了模糊封面等背景图时，调的是图上那层遮罩的深浅。";
 "player_progress_style_title" = "进度条";
-"player_progress_style_footer" = "波浪只在播放时流动，暂停或拖动时抚平成直线。iPhone、iPad 与 Mac 的播放页都会跟着换。";
+"player_progress_style_footer" = "波浪只在播放时流动，暂停或拖动时抚平成直线。iPhone、iPad 与 Mac 的播放页都会跟着换。播客和有声书也一样，只是有声书的竖屏版式只跟着换成波浪，选另外两种时保留它自己的细线。";
+"player_always_dark_title" = "播放页始终用深色";
+"player_always_dark_footer" = "系统是浅色时播放页也用深色，像 Apple Music 那样，有声书也一样。这时播放页里不显示状态栏。";
 "player_progress_style_standard" = "默认";
 "player_progress_style_wave" = "波浪";
 "player_progress_style_dot" = "细线圆点";

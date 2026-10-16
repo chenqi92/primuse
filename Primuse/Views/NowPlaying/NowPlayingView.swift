@@ -3206,10 +3206,13 @@ struct NowPlayingView: View {
         safeInsets: EdgeInsets,
         occlusions: [OcclusionAvoidancePolicy.Region] = []
     ) -> some View {
-        let preferredArtworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
+        let preferredArtworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.80), 430)
         // 整屏居中(iPhone Duo)时台标在遮挡区那段高度里两边都不碰它;其它设备不设限。
-        // 台标上面还垫着最多三分之一的空余高度,遮挡带按它可能落到的最低处算。
-        let artworkSlack = max(0, geo.size.height - preferredArtworkSize) / 3
+        // 台标上面还垫着最多一半的空余高度,遮挡带按它可能落到的最低处算。
+        let artworkSlack = max(0, geo.size.height - preferredArtworkSize) / 2
+        // 播放键到底排的间距和音乐页同一把尺,高屏拉开一些,但不再把空余高度都堆在这里(#313)。
+        let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
+        let showsVolumeRow = showsPlayerVolumeBar && radioControlLayout.showsVolumeBar
         let artworkSize = min(preferredArtworkSize, CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
             regions: occlusions,
             bandMinY: Double(topSafeArea) + 11,
@@ -3235,8 +3238,8 @@ struct NowPlayingView: View {
                     .pmSlideTransition(edge: .top, motion: .list)
             }
 
-            // 台标、台名和播放键排成紧凑的一组；空出来的高度一份垫在台标上面、
-            // 两份留在播放键下面，底排按钮贴着底边，和播客、音乐的播放页一个排法。
+            // 台名、播放键和底排像音乐页一样收在下面；空出来的高度一份垫在台标上面、
+            // 一份留在台标与台名之间，不再在播放键和底排之间空出一大块(#313)。
             Spacer(minLength: 12)
 
             // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
@@ -3259,6 +3262,8 @@ struct NowPlayingView: View {
                     }
                 }
                 .layoutPriority(1)
+
+            Spacer(minLength: 22)
 
             VStack(spacing: 8) {
                 Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")
@@ -3293,7 +3298,6 @@ struct NowPlayingView: View {
             .padding(.horizontal, 32)
             // 台标先分高度，文字按自己的完整高度留位，不被挤成一行。
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 22)
 
             HStack(spacing: 38) {
                 Button {
@@ -3326,14 +3330,11 @@ struct NowPlayingView: View {
             .foregroundStyle(appearance.primary)
             .padding(.top, 20)
 
-            Spacer(minLength: 16)
-            Spacer(minLength: 0)
-
-            if showsPlayerVolumeBar, radioControlLayout.showsVolumeBar {
+            if showsVolumeRow {
                 playerVolumeRow
                     .frame(maxWidth: 460)
                     .padding(.horizontal, 36)
-                    .padding(.bottom, 14)
+                    .padding(.top, 14 + controlGap)
             }
 
             // 最下面那一排按「播放页按钮 › 电台」的顺序与显隐摆。每项占等宽的一格、
@@ -3347,6 +3348,7 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: 420)
             .padding(.horizontal, 24)
+            .padding(.top, showsVolumeRow ? 14 : 14 + controlGap)
             .padding(.bottom, max(bottomSafeArea, 16))
         }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
@@ -5287,9 +5289,40 @@ struct NowPlayingView: View {
 
     /// 收起键 · 投放 / 喜欢 / 更多。正中留空,书名就在下面,不再重复什么。
     /// 文字稿键默认在传输键那一行最左边;投放进了功能块、喜欢或更多进了格子(「播放页按钮」)时这里不再放。
+    /// 右边一颗都不剩(或都在 Duo 竖栏里)时不再为一颗收起键占一整行:换成音乐播放页那根把手,
+    /// 点它照样收起,下面的书封和书名往上让出这一截(#313)。
+    @ViewBuilder
     private func audiobookTopBar(
         style: AudiobookPlayerStyle,
         usesToolColumn: Bool,
+        controls: SpokenWordResolvedControls
+    ) -> some View {
+        let showsLike = offersLikeAction && controls.headerShowsLike
+        if usesToolColumn
+            || !(controls.headerShowsAirPlay || showsLike || controls.headerShowsMore) {
+            audiobookGrabber(style: style)
+        } else {
+            audiobookTopBarRow(style: style, controls: controls)
+        }
+    }
+
+    private func audiobookGrabber(style: AudiobookPlayerStyle) -> some View {
+        Button { onMinimize?() } label: {
+            Capsule()
+                .fill(style.tertiary)
+                .frame(width: 48, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(onMinimize == nil)
+        .accessibilityLabel(Text("a11y_minimize_player"))
+    }
+
+    private func audiobookTopBarRow(
+        style: AudiobookPlayerStyle,
         controls: SpokenWordResolvedControls
     ) -> some View {
         HStack(spacing: 0) {
@@ -5305,23 +5338,21 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text("a11y_minimize_player"))
             }
             Spacer(minLength: 0)
-            // 竖栏里排着那一列按钮时(iPhone Duo),投放、喜欢与更多在那一列里。
-            if !usesToolColumn {
-                HStack(spacing: 0) {
-                    if controls.headerShowsAirPlay {
-                        AirPlayButton()
-                            .frame(width: 30, height: 30)
-                            .frame(width: 40, height: 44)
-                    }
-                    spokenWordLikeButton(shows: controls.headerShowsLike)
-                    if controls.headerShowsMore {
-                        makeMoreMenu(controlSurface: .portrait)
-                    }
+            // 竖栏里排着那一列按钮时(iPhone Duo),投放、喜欢与更多在那一列里,这时上面已换成把手。
+            HStack(spacing: 0) {
+                if controls.headerShowsAirPlay {
+                    AirPlayButton()
+                        .frame(width: 30, height: 30)
+                        .frame(width: 40, height: 44)
                 }
-                .fixedSize()
-                .pmAnimation(.control, value: controls.headerShowsAirPlay)
-                .pmAnimation(.control, value: controls.headerShowsMore)
+                spokenWordLikeButton(shows: controls.headerShowsLike)
+                if controls.headerShowsMore {
+                    makeMoreMenu(controlSurface: .portrait)
+                }
             }
+            .fixedSize()
+            .pmAnimation(.control, value: controls.headerShowsAirPlay)
+            .pmAnimation(.control, value: controls.headerShowsMore)
         }
         .frame(height: 44)
     }

@@ -5886,7 +5886,9 @@
 "library_playlist_cover_wall_description" = "Cuando una lista o lista inteligente tiene al menos 4 portadas de álbum distintas, el encabezado se convierte en un mural inclinado de portadas que se reacomoda cada pocos segundos. En el teléfono en horizontal y en listas con portada propia se sigue viendo una sola portada.";
 "player_backdrop_strength_footer" = "Mientras más a la derecha, más se acerca el fondo a los colores de la portada. En modo claro, los colores muy oscuros se detienen donde el texto sigue siendo legible. Con una imagen de fondo como Portada difuminada, ajusta la intensidad de la capa que la oscurece.";
 "player_progress_style_title" = "Barra de progreso";
-"player_progress_style_footer" = "La onda solo se mueve durante la reproducción y se vuelve una línea recta al pausar o arrastrar. Aplica al reproductor en iPhone, iPad y Mac.";
+"player_progress_style_footer" = "La onda solo se mueve durante la reproducción y se vuelve una línea recta al pausar o arrastrar. Aplica al reproductor en iPhone, iPad y Mac. También aplica a pódcasts y audiolibros, salvo que el diseño vertical de audiolibros solo cambia a la onda y, si no, conserva su propia línea fina.";
+"player_always_dark_title" = "Reproductor siempre oscuro";
+"player_always_dark_footer" = "El reproductor usa el aspecto oscuro aunque el sistema esté en claro, como Apple Music, también con audiolibros. En ese caso, la barra de estado se oculta en el reproductor.";
 "player_progress_style_standard" = "Predeterminada";
 "player_progress_style_wave" = "Onda";
 "player_progress_style_dot" = "Línea fina con punto";

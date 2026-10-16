@@ -5980,7 +5980,9 @@
 "library_playlist_cover_wall_description" = "재생목록이나 스마트 재생목록에 서로 다른 앨범 커버가 4장 이상 있으면 헤더가 기울어진 커버 월로 바뀌고 몇 초마다 배치가 달라집니다. 휴대폰 가로 화면과 직접 커버를 지정한 재생목록은 커버 한 장을 그대로 표시합니다.";
 "player_backdrop_strength_footer" = "오른쪽으로 갈수록 배경이 커버 색에 가까워집니다. 라이트 모드에서 커버 색이 아주 어두우면 글자가 잘 보이는 정도에서 멈춥니다. 흐린 커버 같은 배경 이미지를 쓰면 이미지 위 어둡게 하는 층의 강도를 조절합니다.";
 "player_progress_style_title" = "진행 막대";
-"player_progress_style_footer" = "물결은 재생 중에만 흐르고, 일시 정지하거나 드래그하면 직선으로 펴집니다. iPhone, iPad, Mac의 플레이어에 적용됩니다.";
+"player_progress_style_footer" = "물결은 재생 중에만 흐르고, 일시 정지하거나 드래그하면 직선으로 펴집니다. iPhone, iPad, Mac의 플레이어에 적용됩니다. 팟캐스트와 오디오북에도 적용됩니다. 다만 오디오북 세로 레이아웃은 물결일 때만 바뀌고, 나머지 두 가지에서는 자체의 가는 선을 유지합니다.";
+"player_always_dark_title" = "플레이어 항상 다크";
+"player_always_dark_footer" = "시스템이 라이트여도 Apple Music처럼 플레이어를 다크로 표시하며, 오디오북도 마찬가지입니다. 이때 플레이어에서는 상태 막대를 숨깁니다.";
 "player_progress_style_standard" = "기본";
 "player_progress_style_wave" = "물결";
 "player_progress_style_dot" = "가는 선과 점";

@@ -5886,7 +5886,9 @@
 "library_playlist_cover_wall_description" = "Bir çalma listesinde veya akıllı listede en az 4 farklı albüm kapağı varsa başlık, birkaç saniyede bir yeniden dizilen eğik bir kapak duvarına dönüşür. Telefon yatay konumdayken ve özel kapağı olan listelerde tek kapak gösterilmeye devam eder.";
 "player_backdrop_strength_footer" = "Sağa doğru gittikçe arka plan kapağın renklerine yaklaşır. Açık modda çok koyu kapak renkleri metnin okunabilir kaldığı noktada durur. Bulanık kapak gibi bir arka plan görselinde, görseli koyulaştıran katmanın gücünü ayarlar.";
 "player_progress_style_title" = "İlerleme çubuğu";
-"player_progress_style_footer" = "Dalga yalnızca çalarken akar; duraklatınca veya sürüklerken düz bir çizgiye dönüşür. iPhone, iPad ve Mac'teki çalara uygulanır.";
+"player_progress_style_footer" = "Dalga yalnızca çalarken akar; duraklatınca veya sürüklerken düz bir çizgiye dönüşür. iPhone, iPad ve Mac'teki çalara uygulanır. Podcast'ler ve sesli kitaplar da buna uyar; yalnızca dikey sesli kitap düzeni sadece dalgaya geçer, diğer iki seçenekte kendi ince çizgisini korur.";
+"player_always_dark_title" = "Oynatıcı Hep Koyu";
+"player_always_dark_footer" = "Sistem açık renkteyken de oynatıcı Apple Music'teki gibi koyu görünür, sesli kitaplar dahil. Bu durumda oynatıcıda durum çubuğu gizlenir.";
 "player_progress_style_standard" = "Varsayılan";
 "player_progress_style_wave" = "Dalga";
 "player_progress_style_dot" = "Noktalı ince çizgi";

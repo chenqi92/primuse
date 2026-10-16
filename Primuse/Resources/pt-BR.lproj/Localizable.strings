@@ -5886,7 +5886,9 @@
 "library_playlist_cover_wall_description" = "Quando uma playlist ou playlist inteligente tem pelo menos 4 capas de álbum diferentes, o cabeçalho vira um mural inclinado de capas que se reorganiza a cada poucos segundos. No celular na horizontal e em playlists com capa personalizada, continua aparecendo uma só capa.";
 "player_backdrop_strength_footer" = "Quanto mais para a direita, mais o fundo se aproxima das cores da capa. No modo claro, cores muito escuras param onde o texto continua legível. Com uma imagem de fundo como Capa desfocada, isto ajusta a intensidade da camada que a escurece.";
 "player_progress_style_title" = "Barra de progresso";
-"player_progress_style_footer" = "A onda só se move durante a reprodução e vira uma linha reta ao pausar ou arrastar. Vale para o player no iPhone, iPad e Mac.";
+"player_progress_style_footer" = "A onda só se move durante a reprodução e vira uma linha reta ao pausar ou arrastar. Vale para o player no iPhone, iPad e Mac. Podcasts e audiolivros também seguem, só que o layout vertical de audiolivros muda apenas para a onda e, nas outras opções, mantém sua própria linha fina.";
+"player_always_dark_title" = "Player sempre escuro";
+"player_always_dark_footer" = "O player fica escuro mesmo com o sistema claro, como no Apple Music, inclusive com audiolivros. Nesse caso, a barra de status fica oculta no player.";
 "player_progress_style_standard" = "Padrão";
 "player_progress_style_wave" = "Onda";
 "player_progress_style_dot" = "Linha fina com ponto";

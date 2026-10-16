@@ -572,6 +572,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
+    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var themeSettings = ThemeColorSettings.shared
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
@@ -640,6 +642,15 @@ private struct PlayerAppearanceSettingsView: View {
                 if ThemeColorSettings.shared.isWhiteTheme {
                     Text("player_control_tint_white_theme_note")
                 }
+            }
+
+            Section {
+                Toggle(isOn: $playerAlwaysDark) {
+                    Label("player_always_dark_title", systemImage: "moon.circle")
+                }
+                .settingsAnchor("appearance.playerAlwaysDark")
+            } footer: {
+                Text("player_always_dark_footer")
             }
 
             // 播放页背景:选哪种背景,再调封面色有多浓(#69)。原来在「颜色和图标」里,不好找。

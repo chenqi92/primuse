@@ -2067,6 +2067,9 @@ struct PlayerOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var systemColorScheme
+    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
+    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var presentationPhase = PresentationPhase.staging
     @State private var presentationHasSettled = false
     /// 拖动隐藏时每帧都在变。放在引用模型里、只由偏移修饰符读取, 拖动就只刷新
@@ -2116,6 +2119,10 @@ struct PlayerOverlay: View {
                 isPresentationActive: presentationPhase == .visible
                     && !dismissalState.isDismissing
             )
+                // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
+                // 状态栏跟的是整个窗口的深浅,浅色系统里黑字会压在深色播放页上,这时在播放页里收起它。
+                .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
+                .statusBarHidden(playerAlwaysDark && systemColorScheme == .light)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.

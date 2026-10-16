@@ -5981,7 +5981,9 @@
 "library_playlist_cover_wall_description" = "プレイリストやスマートプレイリストに異なるアルバムジャケットが4枚以上あると、ヘッダーが傾いたジャケットの壁になり、数秒ごとに並びが変わります。iPhoneの横向き表示と、独自のカバーを設定したプレイリストでは1枚のカバーのままです。";
 "player_backdrop_strength_footer" = "右にするほど背景がジャケットの色に近づきます。ライトモードでジャケットの色がとても濃い場合は、文字が読みやすい程度で止まります。「ぼかしジャケット」などの背景画像では、画像に重ねる暗さの度合いを調整します。";
 "player_progress_style_title" = "プログレスバー";
-"player_progress_style_footer" = "波は再生中だけ流れ、一時停止中やドラッグ中はまっすぐな線になります。iPhone、iPad、Macのプレーヤーに反映されます。";
+"player_progress_style_footer" = "波は再生中だけ流れ、一時停止中やドラッグ中はまっすぐな線になります。iPhone、iPad、Macのプレーヤーに反映されます。ポッドキャストとオーディオブックにも反映されます。ただしオーディオブックの縦向きレイアウトは波のときだけ切り替わり、それ以外は独自の細い線のままです。";
+"player_always_dark_title" = "プレーヤーを常にダークにする";
+"player_always_dark_footer" = "システムがライトでも、Apple Music のようにプレーヤーをダークで表示します（オーディオブックも同様）。このときプレーヤーではステータスバーを表示しません。";
 "player_progress_style_standard" = "デフォルト";
 "player_progress_style_wave" = "波";
 "player_progress_style_dot" = "細い線と丸";

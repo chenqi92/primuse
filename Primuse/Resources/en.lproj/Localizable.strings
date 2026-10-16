@@ -5740,7 +5740,9 @@
 "library_playlist_cover_wall_description" = "When a playlist or smart playlist has at least 4 different album covers, its header becomes a tilted wall of covers that rearranges every few seconds. Phones in landscape and playlists with a custom cover keep the single cover.";
 "player_backdrop_strength_footer" = "Further right brings the background closer to the cover's colors. In Light Mode, very dark cover colors stop where text stays readable. With a background image such as Blurred Cover, this sets how strong the dimming layer is.";
 "player_progress_style_title" = "Progress Bar";
-"player_progress_style_footer" = "The wave flows only while playing and flattens when paused or while you drag. Applies to the player on iPhone, iPad and Mac.";
+"player_progress_style_footer" = "The wave flows only while playing and flattens when paused or while you drag. Applies to the player on iPhone, iPad and Mac. Podcasts and audiobooks follow it too, except that the portrait audiobook layout only switches to the wave and keeps its own thin line otherwise.";
+"player_always_dark_title" = "Always Dark Player";
+"player_always_dark_footer" = "Uses the dark look for the player even when the system is light, like Apple Music, audiobooks included. The status bar is hidden in the player then.";
 "player_progress_style_standard" = "Default";
 "player_progress_style_wave" = "Wave";
 "player_progress_style_dot" = "Thin Line with Dot";

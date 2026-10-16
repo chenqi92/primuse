@@ -280,8 +280,9 @@ struct AudiobookTitleBlock: View {
         Button(action: onOpenBook) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(verbatim: title)
+                    // 墨黑的书名用中粗:粗体在大字号下压过封面和章号栏(#313)。
                     .font(style.isNocturne
-                        ? Font.system(size: titleSize, weight: .bold)
+                        ? Font.system(size: titleSize, weight: .semibold)
                         : Font.system(size: titleSize, weight: .light, design: .serif))
                     .tracking(titleTracking(for: title))
                     .foregroundStyle(style.primary)
@@ -399,6 +400,27 @@ struct AudiobookProgressBar: View {
     let style: AudiobookPlayerStyle
     @Environment(AudioPlayerService.self) private var player
     @State private var previewTime: TimeInterval?
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+
+    /// 设置 › 播放器 › 进度条选了「波浪」时这里也画波浪(#313);「标准」「圆点」都留这套版式
+    /// 自己的细线加圆点——默认就是「标准」,照搬胶囊条会把所有人的书刊版式换掉。
+    private var trackStyle: ProgressSlider.TrackStyle {
+        if PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) == .wave {
+            return ProgressSlider.TrackStyle(
+                restingHeight: 3,
+                draggingHeight: 5,
+                trackColor: style.track,
+                isWave: true
+            )
+        }
+        return ProgressSlider.TrackStyle(
+            restingHeight: 2,
+            draggingHeight: 4,
+            trackColor: style.track,
+            knobDiameter: 9
+        )
+    }
 
     var body: some View {
         let displayedTime = previewTime ?? player.currentTime
@@ -408,12 +430,8 @@ struct AudiobookProgressBar: View {
                 total: player.duration,
                 interactionID: player.currentSong?.id,
                 fillTint: style.accent,
-                trackStyle: ProgressSlider.TrackStyle(
-                    restingHeight: 2,
-                    draggingHeight: 4,
-                    trackColor: style.track,
-                    knobDiameter: 9
-                ),
+                trackStyle: trackStyle,
+                isPlaying: player.isPlaying,
                 onPreview: { previewTime = $0 },
                 onSeek: { player.seek(to: $0) }
             )
