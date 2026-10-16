@@ -2393,7 +2393,7 @@ final class MetadataBackfillService {
     private func resumeNetworkParkedWork() {
         guard !sessionNetworkParkedIDs.isEmpty else { return }
         let retryableIDs = Set(sessionNetworkParkedIDs.filter { songID in
-            guard let song = library.song(id: songID) else { return false }
+            guard let song = library.storedSong(id: songID) else { return false }
             return !Self.automaticRetriesExhausted(
                 songID: songID,
                 sourceID: song.sourceID,
@@ -3304,6 +3304,8 @@ final class MetadataBackfillService {
     }
 
     func canRereadTags(songID: String, expectedSourceID: String) -> Bool {
+        // 文件夹菜单逐行问这一句, 看的只是源和文件类型: 可见集那一行就够, 也不让菜单跟着
+        // 每一次补读落库重算。
         guard let song = library.song(id: songID),
               song.sourceID == expectedSourceID else {
             return false
@@ -3320,7 +3322,7 @@ final class MetadataBackfillService {
         songID: String,
         expectedSourceID: String
     ) -> Bool {
-        guard let song = library.song(id: songID),
+        guard let song = library.storedSong(id: songID),
               song.sourceID == expectedSourceID,
               canRereadTags(for: song),
               backfillableSourceIDs().contains(song.sourceID),
@@ -3340,7 +3342,7 @@ final class MetadataBackfillService {
         songID: String,
         expectedSourceID: String
     ) async -> PlaybackSingleSongTagReadResult {
-        guard let song = library.song(id: songID),
+        guard let song = library.storedSong(id: songID),
               song.sourceID == expectedSourceID,
               canRereadTags(for: song),
               backfillableSourceIDs().contains(song.sourceID) else {
@@ -3385,7 +3387,7 @@ final class MetadataBackfillService {
     /// 改过的标题、艺术家、专辑、年份等换回文件里的标签。服务端曲库源和 CUE 分轨没有能单独
     /// 重读的文件,清掉标记后下一次同步 / 扫描跟随源里的值。返回实际重读的结果。
     func restoreFileTags(songIDs: [String]) async -> MetadataTagRereadProgress {
-        let songs = songIDs.compactMap { library.song(id: $0) }
+        let songs = songIDs.compactMap { library.storedSong(id: $0) }
         let cleared = songs.filter { $0.userMetadataEditedAt != nil }.map { song -> Song in
             var song = song
             song.userMetadataEditedAt = nil
@@ -3486,7 +3488,7 @@ final class MetadataBackfillService {
         guard !Task.isCancelled else {
             return .failed(reason: String(localized: "reread_song_tags_failure_cancelled"))
         }
-        guard let song = library.song(id: songID),
+        guard let song = library.storedSong(id: songID),
               expectedSourceID == nil || song.sourceID == expectedSourceID,
               canRereadTags(for: song) else {
             return .unsupported
@@ -3550,7 +3552,7 @@ final class MetadataBackfillService {
                     reason: String(localized: "reread_song_tags_failure_unrecognized_audio")
                 )
             }
-            guard let live = library.song(id: song.id),
+            guard let live = library.storedSong(id: song.id),
                   live.sourceID == song.sourceID,
                   live.filePath == song.filePath else {
                 return .failed(reason: String(localized: "reread_song_tags_failure_song_changed"))
@@ -3572,7 +3574,7 @@ final class MetadataBackfillService {
 
     @discardableResult
     private func reopenInspection(for songID: String) -> Bool {
-        guard library.song(id: songID) != nil else { return false }
+        guard library.storedSong(id: songID) != nil else { return false }
         failedSongIDs.remove(songID)
         incompleteSongIDs.remove(songID)
         sourceIssueSongIDs.remove(songID)
@@ -3588,7 +3590,7 @@ final class MetadataBackfillService {
         artistCheckedIDs.remove(songID)
         transientFailureCounts[songID] = nil
         clearDiagnostic(songID: songID)
-        if let sourceID = library.song(id: songID)?.sourceID {
+        if let sourceID = library.storedSong(id: songID)?.sourceID {
             sourceTransientFailureCounts[sourceID] = nil
             gatewayBackoff.reset(sourceID: sourceID)
         }
@@ -4094,7 +4096,7 @@ final class MetadataBackfillService {
         // 规模成正比(重发两个上万元素的可观察数组 + 首页/搜索/CarPlay 各一次
         // 整库重算), 与这一批有几首无关。读不出时长又找不到封面的歌每轮都会
         // 原样交回同一行, 这一条把那种空转的代价降到零。
-        let batch = resolved.filter { library.song(id: $0.id) != $0 }
+        let batch = resolved.filter { library.storedSong(id: $0.id) != $0 }
         pendingFlush.removeAll(keepingCapacity: true)
         pendingFlushSongIDs.removeAll(keepingCapacity: true)
         lastFlushAt = Date()
@@ -5265,7 +5267,7 @@ final class MetadataBackfillService {
         guard case .finished(let codec) = probe.step else {
             return BackfillOutcome(song: nil, markFailed: false)
         }
-        var updated = library.song(id: song.id) ?? song
+        var updated = library.storedSong(id: song.id) ?? song
         updated.audioCodec = ContainerAudioCodecPolicy.inspectedCodec(codec, container: updated.fileFormat)
         plog("📥 Backfill: '\(song.title)' container codec \(codec?.rawValue ?? "unknown")")
         return BackfillOutcome(song: updated, markFailed: false)
@@ -5814,14 +5816,18 @@ final class MetadataBackfillService {
             sourceRetryCounts: sourceTransientFailureCounts
         ) else { return false }
         guard isStillReadable(song) else { return false }
-        guard let live = library.song(id: song.id) else { return false }
+        // 这里和下面各处取的都是库里存着的那一行, 不是可见集里的: 扫描提交后可见集
+        // 延后发布, 期间可见集还是提交前读过标签的旧行。拿它判断, 重扫刚退回裸行的
+        // 歌会被当成已读完逐首跳过, 选批却按整库数组一次次选回同一批, 两轮一样就整批挂起;
+        // 拿它当底稿合并再写回, 又会把扫描刚记下的大小、版本盖回旧值。
+        guard let live = library.storedSong(id: song.id) else { return false }
         return self.needsBackfill(live)
     }
 
     private func isStillReadable(_ song: Song) -> Bool {
         guard !library.disabledSourceIDs.contains(song.sourceID) else { return false }
         guard backfillableSourceIDs().contains(song.sourceID) else { return false }
-        guard let live = library.song(id: song.id),
+        guard let live = library.storedSong(id: song.id),
               live.sourceID == song.sourceID,
               live.filePath == song.filePath else {
             return false
@@ -5841,7 +5847,7 @@ final class MetadataBackfillService {
     private func backfillResultForApply(_ song: Song) -> Song? {
         guard !library.disabledSourceIDs.contains(song.sourceID) else { return nil }
         guard backfillableSourceIDs().contains(song.sourceID) else { return nil }
-        guard let live = library.song(id: song.id),
+        guard let live = library.storedSong(id: song.id),
               live.sourceID == song.sourceID,
               live.filePath == song.filePath else {
             return nil
@@ -6459,7 +6465,7 @@ final class MetadataBackfillService {
         var adoptions: [PeerScanSeedAdoption] = []
         for item in prepared {
             // 准备期间资料库可能变了:文件换过、刚被读完或正在读的都跳过。
-            guard let live = library.song(id: item.song.id),
+            guard let live = library.storedSong(id: item.song.id),
                   !pendingFlushSongIDs.contains(live.id),
                   !activeReadSongIDs.contains(live.id),
                   Self.peerSeedCanReplace(live, titleChecked: titleCheckedIDs),
@@ -6580,7 +6586,7 @@ final class MetadataBackfillService {
     /// 从等着的歌里挑一首还在资料库里的当代表,放它去读封面。
     private func promotePeerCoverRepresentative(in group: inout PeerCoverGroup) {
         guard group.localContentKey == nil else { return }
-        let candidates = group.waiting.filter { library.song(id: $0) != nil }
+        let candidates = group.waiting.filter { library.storedSong(id: $0) != nil }
         guard let next = candidates.min() ?? group.waiting.min() else { return }
         group.waiting.remove(next)
         group.representative = next
@@ -6611,7 +6617,7 @@ final class MetadataBackfillService {
     private func linkWaitingPeerCoverMembers(_ group: inout PeerCoverGroup, contentKey: String) -> [Song] {
         var rows: [Song] = []
         for id in group.waiting {
-            guard var row = library.song(id: id) else { continue }
+            guard var row = library.storedSong(id: id) else { continue }
             group.waiting.remove(id)
             peerCoverKeyBySongID[id] = nil
             artworkGivenUpIDs.remove(id)
@@ -6640,7 +6646,7 @@ final class MetadataBackfillService {
         for key in Array(peerCoverGroups.keys) {
             guard var group = peerCoverGroups[key] else { continue }
             if group.localContentKey == nil, let representative = group.representative {
-                if let row = library.song(id: representative) {
+                if let row = library.storedSong(id: representative) {
                     if let cover = row.coverArtFileName, !cover.isEmpty,
                        let contentKey = Self.localCoverContentKey(named: cover) {
                         peerCoverKeyBySongID[representative] = nil
@@ -6650,7 +6656,7 @@ final class MetadataBackfillService {
                         peerCoverKeyBySongID[representative] = nil
                         group.representative = nil
                     }
-                } else if group.waiting.contains(where: { library.song(id: $0) != nil }) {
+                } else if group.waiting.contains(where: { library.storedSong(id: $0) != nil }) {
                     peerCoverKeyBySongID[representative] = nil
                     group.representative = nil
                 }
@@ -6663,7 +6669,7 @@ final class MetadataBackfillService {
             storePeerCoverGroup(group, key: key)
         }
         saveArtworkGivenUp()
-        let changed = rows.filter { library.song(id: $0.id) != $0 }
+        let changed = rows.filter { library.storedSong(id: $0.id) != $0 }
         guard !changed.isEmpty else { return }
         await library.replaceSongsPreparedOffMain(changed, maintenance: .deferred)
         library.flushDeferredLibraryMaintenance()

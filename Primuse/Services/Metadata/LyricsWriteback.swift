@@ -854,7 +854,7 @@ enum LyricsWriteback {
         if case .written(let identity) = embeddedCopy {
             identity.apply(to: &committedSong)
         }
-        if var latestSong = library.song(id: updated.id) {
+        if var latestSong = library.storedSong(id: updated.id) {
             latestSong.lyricsFileName = updated.lyricsFileName
             latestSong.lyricsText = updated.lyricsText
             if case .written(let identity) = embeddedCopy {
@@ -920,7 +920,7 @@ enum LyricsWriteback {
     ) {
         guard case .written(let identity) = result else { return }
         library.flushPendingAssetReferencePatches()
-        guard var latest = library.song(id: songID) else { return }
+        guard var latest = library.storedSong(id: songID) else { return }
         identity.apply(to: &latest)
         library.replaceSong(latest)
     }

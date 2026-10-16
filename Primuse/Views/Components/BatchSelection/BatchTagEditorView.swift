@@ -806,7 +806,7 @@ struct TagChangeReviewView: View {
         isUndoing = true
         defer { isUndoing = false }
         let changes = zip(outcome.applied, outcome.originals).map { applied, original in
-            var restored = library.song(id: applied.id) ?? applied
+            var restored = library.storedSong(id: applied.id) ?? applied
             restored.title = original.title
             restored.artistName = original.artistName
             restored.sourceArtistNames = original.sourceArtistNames

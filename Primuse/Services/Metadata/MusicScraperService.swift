@@ -2434,7 +2434,7 @@ final class MusicScraperService {
             let written = try await write.value
             await MainActor.run {
                 library.flushPendingAssetReferencePatches()
-                guard var latest = library.song(id: song.id) else { return }
+                guard var latest = library.storedSong(id: song.id) else { return }
                 latest.filePath = written.filePath
                 latest.fileSize = written.fileSize
                 latest.lastModified = written.lastModified

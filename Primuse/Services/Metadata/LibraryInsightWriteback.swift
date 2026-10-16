@@ -156,7 +156,7 @@ enum LibraryInsightWriteback {
             do {
                 let updated = try await sourceManager.writeEmbeddedComment(.set(summary), for: target)
                 library.flushPendingAssetReferencePatches()
-                if var latest = library.song(id: song.id) {
+                if var latest = library.storedSong(id: song.id) {
                     latest.filePath = updated.filePath
                     latest.fileSize = updated.fileSize
                     latest.lastModified = updated.lastModified

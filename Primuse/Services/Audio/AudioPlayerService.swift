@@ -3202,7 +3202,7 @@ final class AudioPlayerService {
         if let queueIndex = queueEntries.firstIndex(where: { $0.song.id == song.id }) {
             queueEntries[queueIndex].song.audioCodec = stored
         }
-        if let library, var storedSong = library.song(id: song.id),
+        if let library, var storedSong = library.storedSong(id: song.id),
            ContainerAudioCodecPolicy.isUnread(format: storedSong.fileFormat, audioCodec: storedSong.audioCodec) {
             storedSong.audioCodec = stored
             library.replaceSong(storedSong)
@@ -6131,7 +6131,7 @@ final class AudioPlayerService {
                 // A medley slice reports the slice's length; the song itself
                 // is as long as it always was.
                 if !self.medleySongIDs.contains(songID),
-                   let library = self.library, var existing = library.song(id: songID) {
+                   let library = self.library, var existing = library.storedSong(id: songID) {
                     existing.duration = effectiveDuration
                     library.replaceSong(existing)
                 }
@@ -6582,7 +6582,7 @@ final class AudioPlayerService {
             queueEntries[queueIndex].song.duration = sanitized
         }
 
-        if let library, var storedSong = library.song(id: song.id) {
+        if let library, var storedSong = library.storedSong(id: song.id) {
             storedSong.duration = sanitized
             library.replaceSong(storedSong)
         }
