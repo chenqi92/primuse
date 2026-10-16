@@ -357,6 +357,11 @@ struct NowPlayingFooterInfoRow: View {
         isDownloadingFromICloud || (showsAudioDetail && briefText != nil)
     }
 
+    /// 一个字都不写时(来源关了或只有一个源、音频信息也关了),版面不放这一行。
+    var hasContent: Bool {
+        showsAudioSegment || source != nil
+    }
+
     private var downloadNotice: some View {
         HStack(spacing: 4) {
             Image(systemName: "icloud.and.arrow.down")

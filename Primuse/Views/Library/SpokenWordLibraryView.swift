@@ -1302,13 +1302,16 @@ struct SpokenWordBookDetailView: View {
         }
     }
 
-    @ViewBuilder
     private func header(_ book: SpokenWordBook, songs: [Song]) -> some View {
-        #if os(macOS)
-        macHeader(book, songs: songs)
-        #else
-        phoneHeader(book, songs: songs)
-        #endif
+        Group {
+            #if os(macOS)
+            macHeader(book, songs: songs)
+            #else
+            phoneHeader(book, songs: songs)
+            #endif
+        }
+        // 语速键、「始终保持离线」开关这类系统控件也跟有声书的颜色,不落回 App 主题色(#313)。
+        .tint(ListeningSpace.spokenWord.tint)
     }
 
     #if os(macOS)

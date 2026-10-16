@@ -1266,13 +1266,13 @@ private struct RadioStationCard<Actions: View>: View {
                                 Text("live_badge")
                                     .font(.system(size: 9.5, weight: .bold))
                                     .tracking(0.8)
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(RadioSpacePalette.accent)
                             }
                         }
 
                         Text(metadataTitle ?? station.playbackSubtitle)
                             .font(.caption)
-                            .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                            .foregroundStyle(isCurrent ? RadioSpacePalette.accent : .secondary)
                             .lineLimit(2)
 
                         RadioStationOrganizeLabels(station: station)
@@ -1289,7 +1289,7 @@ private struct RadioStationCard<Actions: View>: View {
 
                     Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                        .foregroundStyle(isPlaying ? Color.red : RadioSpacePalette.accent)
                         .frame(width: 40, height: 40)
                         .background(.thinMaterial, in: Circle())
                         .contentTransition(.symbolEffect(.replace))
@@ -1312,12 +1312,12 @@ private struct RadioStationCard<Actions: View>: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
         .background(
-            isCurrent ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.07),
+            isCurrent ? RadioSpacePalette.accent.opacity(0.1) : Color.secondary.opacity(0.07),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
+                .stroke(isCurrent ? RadioSpacePalette.accent.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
         }
         // 电台条数远小于曲库，底色/描边/LIVE 徽标可以在行内直接挂。
         .pmAnimation(.hover, value: isCurrent)
@@ -1356,7 +1356,7 @@ private struct RadioStationCoverTile<Actions: View>: View {
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                            .foregroundStyle(isPlaying ? Color.red : RadioSpacePalette.accent)
                             .frame(width: 28, height: 28)
                             .background(.thinMaterial, in: Circle())
                             .contentTransition(.symbolEffect(.replace))
@@ -1366,7 +1366,7 @@ private struct RadioStationCoverTile<Actions: View>: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(
-                                isCurrent ? Color.accentColor : Color.secondary.opacity(0.15),
+                                isCurrent ? RadioSpacePalette.accent : Color.secondary.opacity(0.15),
                                 lineWidth: isCurrent ? 1.6 : 0.6
                             )
                     }
@@ -1374,7 +1374,7 @@ private struct RadioStationCoverTile<Actions: View>: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(station.name)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                        .foregroundStyle(isCurrent ? RadioSpacePalette.accent : .primary)
                         .lineLimit(1)
 
                     HStack(spacing: 4) {

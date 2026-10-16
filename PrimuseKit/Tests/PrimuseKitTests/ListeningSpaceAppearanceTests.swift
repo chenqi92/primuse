@@ -91,4 +91,25 @@ final class ListeningSpaceAppearanceTests: XCTestCase {
         XCTAssertNil(ListeningSpaceTint.legible(hex: "XYZ123"))
         XCTAssertNil(ListeningSpaceTint.legible(hex: "FFF"))
     }
+
+    func testDeepenedShadeKeepsTheHueAndCarriesWhiteText() throws {
+        func rgb(_ hex: UInt32) -> ThemeAccentContrastPolicy.RGB {
+            let parts = ListeningSpaceTint.components(hex)
+            return ThemeAccentContrastPolicy.RGB(red: parts.red, green: parts.green, blue: parts.blue)
+        }
+        // Each channel scales by the same factor: hue and saturation stay put.
+        XCTAssertEqual(ListeningSpaceTint.deepened(0xD9480F), 0x772808)
+        XCTAssertEqual(ListeningSpaceTint.deepened(0xFFFFFF, factor: 0.5), 0x808080)
+        XCTAssertEqual(ListeningSpaceTint.deepened(0x123456, factor: 1), 0x123456)
+        XCTAssertEqual(ListeningSpaceTint.deepened(0x123456, factor: 0), 0x000000)
+        // The spaces' own hues, deepened, sit under white text on the home cards.
+        for space in [ListeningSpace.radio, .spokenWord, .podcast] {
+            let tint = try XCTUnwrap(space.fixedTint)
+            XCTAssertGreaterThanOrEqual(
+                ThemeAccentContrastPolicy.contrastRatio(rgb(ListeningSpaceTint.deepened(tint.light)), .white),
+                7,
+                "\(space)"
+            )
+        }
+    }
 }

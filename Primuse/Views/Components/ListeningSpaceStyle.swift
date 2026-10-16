@@ -49,6 +49,29 @@ extension ListeningSpace {
         }
     }
 
+    /// 白字底下那层深底(首页电台大卡)。自带色、自选色把颜色压暗(`ListeningSpaceTint.deepened`);
+    /// 跟主题色、跟封面时直接用主题算好的深色那档,和跟这两样的其它地方一致。
+    @MainActor
+    var backdropTint: Color {
+        let settings = ListeningSpaceTintSettings.shared
+        guard let fixed = fixedTint else {
+            return settings.themeService?.uiDarkAccent ?? ThemeService.defaultDarkAccent
+        }
+        switch settings.choice(for: self) {
+        case .standard:
+            let deep = ListeningSpaceTint.deepened(fixed.light)
+            return Color(light: deep, dark: deep)
+        case .theme:
+            return settings.themeService?.uiDarkAccent ?? ThemeService.defaultDarkAccent
+        case .artwork:
+            return settings.themeService?.artworkDarkAccent ?? ThemeService.defaultDarkAccent
+        case .fixed(let hex):
+            // 和主题色的深色档一样从挑的原色压暗,不是从压过对比度的那一档再压。
+            let deep = ListeningSpaceTint.deepened(UInt32(hex, radix: 16) ?? fixed.light)
+            return Color(light: deep, dark: deep)
+        }
+    }
+
     /// 随外观变的颜色在浅色外观下那一档,深色外观里也用它。
     private static func lightShade(of color: Color) -> Color {
         var environment = EnvironmentValues()

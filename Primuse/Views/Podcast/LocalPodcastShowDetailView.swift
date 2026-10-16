@@ -169,6 +169,7 @@ struct LocalPodcastShowDetailView: View {
                 #if os(iOS)
                 .controlSize(.large)
                 #endif
+                .tint(tint)
             Menu {
                 moreMenu(ordered: ordered)
             } label: {

@@ -163,6 +163,17 @@ extension ListeningSpaceTint {
         )
     }
 
+    /// 垫在白字下面的深底:色相、饱和度不变,HSB 亮度压到 `factor` 倍(三个通道同比缩放)。
+    /// App 主题色的深色那一档也是这样压的(0.55),所以电台大卡用电台色和用主题色时一样深。
+    public static func deepened(_ hex: UInt32, factor: Double = 0.55) -> UInt32 {
+        let rgb = components(hex)
+        let scale = min(max(factor, 0), 1)
+        return packed(
+            ThemeAccentContrastPolicy.RGB(red: rgb.red * scale, green: rgb.green * scale, blue: rgb.blue * scale),
+            rounding: .toNearestOrAwayFromZero
+        )
+    }
+
     private static func packed(_ rgb: ThemeAccentContrastPolicy.RGB, rounding: FloatingPointRoundingRule) -> UInt32 {
         func channel(_ value: Double) -> UInt32 {
             UInt32((min(max(value, 0), 1) * 255).rounded(rounding))

@@ -5109,6 +5109,18 @@ struct NowPlayingView: View {
         let controls = spokenWordControlLayout.resolved(
             in: audiobookPortraitControlContext(usesToolColumn: usesToolColumn)
         )
+        // 功能块全藏了、或都排进 Duo 竖栏时,下面那一排连同它的间距都不出现(#313)。
+        let showsActionRow = !usesToolColumn && !controls.tiles.isEmpty
+        // 最底下那行信息离上面多远:直接跟在传输键下面时留开一些;跟在暖白功能块下面时不再另加,
+        // 那一排自己上下已留着空,再加就显得和来源隔得太开(#313)。
+        let footerGap: CGFloat
+        if !showsActionRow && !showsPlayerVolumeBar {
+            footerGap = isShort ? 10 : 16
+        } else if style.isNocturne {
+            footerGap = isShort ? 4 : 8
+        } else {
+            footerGap = showsPlayerVolumeBar ? 4 : 0
+        }
 
         return VStack(spacing: 0) {
             audiobookTopBar(style: style, usesToolColumn: usesToolColumn, controls: controls)
@@ -5220,16 +5232,19 @@ struct NowPlayingView: View {
                                     .padding(.top, isShort ? 10 : 16)
                             }
                             // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
-                            if !usesToolColumn {
+                            if showsActionRow {
                                 audiobookActionRow(style: style, layout: .stacked, tiles: controls.tiles)
                                     .padding(.top, (isShort ? 6 : 12) + controlGap * 0.3)
                             }
                         } else {
-                            Rectangle()
-                                .fill(style.hairline)
-                                .frame(height: 0.5)
-                                .padding(.top, (isShort ? 12 : 20) + controlGap * 0.3)
-                            if !usesToolColumn {
+                            // 细线只为隔开下面那一排,下面什么都不剩时不画。
+                            if showsActionRow || showsPlayerVolumeBar {
+                                Rectangle()
+                                    .fill(style.hairline)
+                                    .frame(height: 0.5)
+                                    .padding(.top, (isShort ? 12 : 20) + controlGap * 0.3)
+                            }
+                            if showsActionRow {
                                 audiobookActionRow(style: style, layout: .inline, tiles: controls.tiles)
                                     .padding(.top, 6)
                             }
@@ -5243,16 +5258,20 @@ struct NowPlayingView: View {
                     .pmLayoutSwitchFade()
 
                     if let song = player.currentSong {
-                        nowPlayingFooterInfo(
+                        let footer = nowPlayingFooterInfo(
                             for: song,
                             showsSource: spokenWordControlLayout.showsSource,
                             infoColor: style.faint,
                             sourceColor: style.faint,
                             noticeColor: style.secondary
                         )
-                        .tracking(0.6)
-                        .padding(.top, isShort ? 4 : 8)
-                        .pmLayoutSwitchFade()
+                        // 来源关了、音频信息也关了时整行没字,不留一行空白。
+                        if footer.hasContent {
+                            footer
+                                .tracking(0.6)
+                                .padding(.top, footerGap)
+                                .pmLayoutSwitchFade()
+                        }
                     }
                 }
             }
@@ -7239,7 +7258,7 @@ struct NowPlayingView: View {
         infoColor: Color,
         sourceColor: Color,
         noticeColor: Color
-    ) -> some View {
+    ) -> NowPlayingFooterInfoRow {
         NowPlayingFooterInfoRow(
             song: song,
             showsAudioDetail: audioInfoMode != .off,

@@ -1142,7 +1142,7 @@ private struct HomeRadioWallCard: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
+                            .stroke(isCurrent ? RadioSpacePalette.accent : .clear, lineWidth: 2)
                     }
                     // 选中描边看 isCurrent, 徽标看 isPlaying —— 暂停当前台时只有
                     // 后者会变, 两个值各挂一次才不会有一边硬切。
@@ -1191,7 +1191,6 @@ struct HomeView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(RadioStationsStore.self) private var radioStationsStore
-    @Environment(ThemeService.self) private var theme
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.legacyBottomChromeOverlayActive)
@@ -2425,7 +2424,7 @@ struct HomeView: View {
                                 .pmAnimation(.control, value: isPlaying)
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(theme.uiDarkAccent)
+                        .foregroundStyle(ListeningSpace.radio.backdropTint)
                         .background(.white, in: Circle())
                         .accessibilityLabel(isPlaying ? "radio_stop" : "play")
 
@@ -2464,11 +2463,13 @@ struct HomeView: View {
         .pmAnimation(.contentAppear, value: station.id)
     }
 
+    /// 电台这一面跟电台的颜色(颜色和图标里电台那一项),不跟 App 主题色:
+    /// 主题跟随封面时,这张卡不该随正在放的歌变色(#313)。
     private var radioSpotlightBackdrop: some View {
         ZStack {
-            theme.uiDarkAccent
+            ListeningSpace.radio.backdropTint
             LinearGradient(
-                colors: [theme.uiAccentColor.opacity(0.76), .clear],
+                colors: [ListeningSpace.radio.glyphTileTint.opacity(0.76), .clear],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

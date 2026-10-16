@@ -952,7 +952,7 @@ struct RadioSubscriptionDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(station.name)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                        .foregroundStyle(isCurrent ? RadioSpacePalette.accent : .primary)
                         .lineLimit(1)
                     Text(station.playbackSubtitle)
                         .font(.caption2)
@@ -962,7 +962,7 @@ struct RadioSubscriptionDetailView: View {
                 Spacer(minLength: 4)
                 Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                    .foregroundStyle(isPlaying ? Color.red : RadioSpacePalette.accent)
                     .contentTransition(.symbolEffect(.replace))
                     .pmAnimation(.control, value: isPlaying)
             }
