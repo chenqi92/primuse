@@ -1638,7 +1638,7 @@
 "immersive_demo_lyric_16" = "ينجرف الصوت ويجتمع هنا مرة أخرى";
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "قفل الضوابط الغامرة";
-"immersive_lyrics_motion_subtitle" = "تتبدّل الأسطر بسلاسة وتُخفى الكلمات أثناء الفواصل الموسيقية الطويلة. ينطبق على تأثيرات ملء الشاشة غير «الأصل»؛ وعند الإيقاف تتبدّل الأسطر فورًا.";
+"immersive_lyrics_motion_subtitle" = "ترتفع الكلمات التي تُغنّى وتتوهّج، وتتبدّل الأسطر بسلاسة، وتُخفى الكلمات أثناء الفواصل الموسيقية الطويلة. ينطبق على تأثيرات ملء الشاشة غير «الأصل»؛ وعند الإيقاف تُضاء الكلمات فقط وتتبدّل الأسطر فورًا.";
 "player_landscape_fullscreen_title" = "ملء الشاشة في الوضع الأفقي";
 "player_landscape_fullscreen_subtitle" = "تدوير iPhone أفقيًا في شاشة التشغيل يفتح تأثير ملء الشاشة المحدد، وإعادته عموديًا يغلقه.";
 "immersive_frame_rate_title" = "معدل الإطارات";
@@ -1647,7 +1647,7 @@
 "immersive_frame_rate_30" = "30 إطارًا/ث";
 "immersive_frame_rate_60" = "60 إطارًا/ث";
 "immersive_frame_rate_display" = "مطابقة الشاشة";
-"immersive_lyrics_motion_title" = "انتقالات أسطر الكلمات";
+"immersive_lyrics_motion_title" = "حركة الكلمات";
 "immersive_now_playing" = "قيد التشغيل الآن";
 "immersive_track_position_format" = "المسار %02d";
 "immersive_track_position_total_format" = "المسار %02d / %02d";

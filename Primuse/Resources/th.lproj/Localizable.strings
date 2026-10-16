@@ -1638,7 +1638,7 @@
 "immersive_demo_lyric_16" = "เสียงแยกออกจากกันและมาบรรจบกันที่นี่อีกครั้ง";
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "ล็อคการควบคุมที่สมจริง";
-"immersive_lyrics_motion_subtitle" = "บรรทัดเปลี่ยนอย่างนุ่มนวลและซ่อนเนื้อเพลงระหว่างช่วงดนตรียาว ใช้กับเอฟเฟ็กต์เต็มหน้าจออื่นนอกจากต้นฉบับ เมื่อปิด บรรทัดจะเปลี่ยนทันที";
+"immersive_lyrics_motion_subtitle" = "คำที่กำลังร้องจะลอยขึ้นและเรืองแสง บรรทัดเปลี่ยนอย่างนุ่มนวล และซ่อนเนื้อเพลงระหว่างช่วงดนตรียาว ใช้กับเอฟเฟ็กต์เต็มหน้าจออื่นนอกจากต้นฉบับ เมื่อปิด คำจะแค่สว่างขึ้นและบรรทัดจะเปลี่ยนทันที";
 "player_landscape_fullscreen_title" = "เต็มจอเมื่อหมุนแนวนอน";
 "player_landscape_fullscreen_subtitle" = "หมุน iPhone เป็นแนวนอนในหน้าเล่นเพลงเพื่อเปิดเอฟเฟกต์เต็มจอที่เลือกไว้ หมุนกลับเป็นแนวตั้งเพื่อปิด";
 "immersive_frame_rate_title" = "อัตราเฟรม";
@@ -1647,7 +1647,7 @@
 "immersive_frame_rate_30" = "30 fps";
 "immersive_frame_rate_60" = "60 fps";
 "immersive_frame_rate_display" = "ตามหน้าจอ";
-"immersive_lyrics_motion_title" = "การเปลี่ยนบรรทัดเนื้อเพลง";
+"immersive_lyrics_motion_title" = "แอนิเมชันเนื้อเพลง";
 "immersive_now_playing" = "กำลังเล่น";
 "immersive_track_position_format" = "แทร็ก %02d";
 "immersive_track_position_total_format" = "แทร็ก %02d / %02d";

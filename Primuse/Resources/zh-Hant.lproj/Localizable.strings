@@ -1743,8 +1743,8 @@
 "lyrics_exit_full_screen" = "退出全螢幕歌詞";
 "immersive_lock_controls" = "鎖定沉浸式控制";
 "immersive_unlock_controls" = "解鎖沉浸式控制";
-"immersive_lyrics_motion_title" = "歌詞換句過渡";
-"immersive_lyrics_motion_subtitle" = "換句時平滑過渡，較長的間奏時暫時隱藏歌詞；只對原生以外的全螢幕效果起作用。關閉後歌詞直接切換。";
+"immersive_lyrics_motion_title" = "歌詞動效";
+"immersive_lyrics_motion_subtitle" = "正在唱的字浮起發光，換句時平滑過渡，較長的間奏時暫時隱藏歌詞；只對原生以外的全螢幕效果起作用。關閉後逐字只亮起，歌詞直接切換。";
 "player_landscape_fullscreen_title" = "橫向時進入全螢幕";
 "player_landscape_fullscreen_subtitle" = "在播放頁把手機轉成橫向，直接進入所選的全螢幕效果；轉回直向時退出。";
 "immersive_frame_rate_title" = "畫面影格率";

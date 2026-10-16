@@ -616,7 +616,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 开关项:和其它行同一套图标、字号、行高,开着时行尾打勾 —— Mac 菜单表示开关
     /// 状态的方式,与字号子菜单的勾同一画法。不用 `.switch` 开关:它的尺寸不跟行走,
     /// 放在这列里会顶出面板右缘。图标固定不换,勾只占位不增删,行宽不跳。
-    /// 原生全屏是播放页本身，不用「歌词换句过渡」。选着原生时整行画灰、第二行写明，
+    /// 原生全屏是播放页本身，不用「歌词动效」。选着原生时整行画灰、第二行写明，
     /// 但仍然能拨 —— 换成别的全屏效果就按这里的设置来。
     private var lyricsMotionRow: some View {
         let isNative = (FullscreenPlayerEffect(rawValue: fullscreenEffectRawValue) ?? .defaultValue).isNative

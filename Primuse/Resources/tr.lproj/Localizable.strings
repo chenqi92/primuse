@@ -1,7 +1,7 @@
 "onboarding_mac_field_server" = "Sunucu";
 "cloud_authorizing_listening_format" = "URL Şemasını Dinleme · %@";
 "greeting_morning" = "Günaydın";
-"immersive_lyrics_motion_subtitle" = "Satırlar yumuşakça değişir, uzun enstrümantal aralarda sözler gizlenir. Orijinal dışındaki tam ekran efektlerinde geçerlidir; kapalıyken satırlar anında değişir.";
+"immersive_lyrics_motion_subtitle" = "Söylenen kelimeler yükselip parlar, satırlar yumuşakça değişir, uzun enstrümantal aralarda sözler gizlenir. Orijinal dışındaki tam ekran efektlerinde geçerlidir; kapalıyken kelimeler yalnızca aydınlanır ve satırlar anında değişir.";
 "player_landscape_fullscreen_title" = "Yatayda tam ekran";
 "player_landscape_fullscreen_subtitle" = "Çalma ekranında iPhone'u yatay çevirmek seçili tam ekran efektini açar; yeniden dikey çevirmek kapatır.";
 "immersive_frame_rate_title" = "Kare hızı";
@@ -3640,7 +3640,7 @@
 "next" = "İleri";
 "cloud_setup_step_connect" = "Yetkilendirmek için tekrar “Bağlan”a dokunun";
 "onboarding_mac_add_first_desc" = "Daha sonra Kaynaklar'a daha fazlasını ekleyebilirsiniz.";
-"immersive_lyrics_motion_title" = "Şarkı sözü satır geçişleri";
+"immersive_lyrics_motion_title" = "Şarkı sözü animasyonu";
 "cloud_failed_title" = "Bağlantı başarısız oldu";
 "advanced" = "Gelişmiş";
 "source_state_online" = "Çevrimiçi";

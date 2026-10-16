@@ -1796,8 +1796,8 @@
 "lyrics_exit_full_screen" = "全画面歌詞を終了";
 "immersive_lock_controls" = "没入モードの操作をロック";
 "immersive_unlock_controls" = "没入モードの操作をロック解除";
-"immersive_lyrics_motion_title" = "歌詞の行切り替え効果";
-"immersive_lyrics_motion_subtitle" = "行がなめらかに切り替わり、長い間奏の間は歌詞を一時的に隠します。オリジナル以外の全画面エフェクトで有効です。オフにすると行がすぐに切り替わります。";
+"immersive_lyrics_motion_title" = "歌詞のアニメーション";
+"immersive_lyrics_motion_subtitle" = "歌っている文字が浮き上がって光り、行がなめらかに切り替わり、長い間奏の間は歌詞を一時的に隠します。オリジナル以外の全画面エフェクトで有効です。オフにすると文字は光るだけになり、行はすぐに切り替わります。";
 "player_landscape_fullscreen_title" = "横向きで全画面にする";
 "player_landscape_fullscreen_subtitle" = "再生画面で iPhone を横向きにすると、選んだ全画面エフェクトに切り替わります。縦向きに戻すと終了します。";
 "immersive_frame_rate_title" = "フレームレート";

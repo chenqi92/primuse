@@ -1795,8 +1795,8 @@
 "lyrics_exit_full_screen" = "Vollbild-Songtext schließen";
 "immersive_lock_controls" = "Bedienelemente sperren";
 "immersive_unlock_controls" = "Bedienelemente entsperren";
-"immersive_lyrics_motion_title" = "Liedtextübergänge";
-"immersive_lyrics_motion_subtitle" = "Zeilen wechseln weich, und in langen Instrumentalpassagen wird der Liedtext ausgeblendet. Gilt für alle Vollbildeffekte außer Original; ausgeschaltet wechseln die Zeilen sofort.";
+"immersive_lyrics_motion_title" = "Liedtextanimation";
+"immersive_lyrics_motion_subtitle" = "Gesungene Wörter heben sich leuchtend ab, Zeilen wechseln weich, und in langen Instrumentalpassagen wird der Liedtext ausgeblendet. Gilt für alle Vollbildeffekte außer Original; ausgeschaltet leuchten Wörter nur auf und Zeilen wechseln sofort.";
 "player_landscape_fullscreen_title" = "Im Querformat Vollbild";
 "player_landscape_fullscreen_subtitle" = "Drehst du das iPhone im Wiedergabebildschirm quer, öffnet sich der gewählte Vollbildeffekt; drehst du es wieder hochkant, schließt er sich.";
 "immersive_frame_rate_title" = "Bildrate";

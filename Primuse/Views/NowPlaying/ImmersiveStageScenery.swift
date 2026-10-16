@@ -449,13 +449,60 @@ enum ImmersiveDemoStage {
     ]
 
     static var lyrics: [ImmersiveStageLyric] {
+        lyrics(sungFraction: nil, at: 0)
+    }
+
+    /// `sungFraction` 不为 nil 时当前句按字配上时间，`time` 时刻正好唱到这句的这个比例，
+    /// 用来在取证页看逐字浪尖；设置页预览不传，整句保持亮着。
+    static func lyrics(sungFraction: Double?, at time: TimeInterval) -> [ImmersiveStageLyric] {
         Array(ImmersiveDemoContent.lyrics.prefix(3)).enumerated().map { index, text in
             ImmersiveStageLyric(
                 id: index,
                 text: text,
                 isActive: index == 1,
-                offset: index - 1
+                offset: index - 1,
+                syllables: index == 1
+                    ? sungFraction.map { wordTimedSyllables(for: text, sungFraction: $0, at: time) }
+                    : nil
             )
+        }
+    }
+
+    /// 汉字、假名一个字一段，其余按词分段，空白跟在前一段后面；每段 0.32 秒，倒数第三段拖成长音。
+    private static func wordTimedSyllables(
+        for text: String,
+        sungFraction: Double,
+        at time: TimeInterval
+    ) -> [LyricSyllable] {
+        var units: [String] = []
+        for character in text {
+            guard let last = units.last else {
+                units.append(String(character))
+                continue
+            }
+            let continuesWord = !character.isWhitespace
+                && !isIdeographic(character)
+                && last.last?.isWhitespace == false
+                && !last.contains(where: isIdeographic)
+            if character.isWhitespace || continuesWord {
+                units[units.count - 1].append(character)
+            } else {
+                units.append(String(character))
+            }
+        }
+        let longIndex = max(0, units.count - 3)
+        let durations = units.indices.map { $0 == longIndex ? 1.6 : 0.32 }
+        let total = durations.reduce(0, +)
+        var start = time - min(max(sungFraction, 0), 1) * total
+        return units.indices.map { index in
+            defer { start += durations[index] }
+            return LyricSyllable(text: units[index], start: start, end: start + durations[index])
+        }
+    }
+
+    private static func isIdeographic(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            (0x3040...0x30FF).contains(scalar.value) || (0x3400...0x9FFF).contains(scalar.value)
         }
     }
 
@@ -491,12 +538,15 @@ enum ImmersiveDemoStage {
         elapsed: TimeInterval,
         animates: Bool,
         controlsInset: CGFloat = 0,
-        isResting: Bool = false
+        isResting: Bool = false,
+        sungFraction: Double? = nil
     ) -> some View {
         var track = ImmersiveDemoContent.track
         track.isPlaying = animates
         track.elapsed = elapsed
         track.progress = track.duration > 0 ? elapsed / track.duration : 0
+        // 看逐字浪尖的静态帧也要画出浮起与光。
+        let showsLyricMotion = animates || sungFraction != nil
 
         return ImmersiveStageView(
             style: effect,
@@ -504,7 +554,7 @@ enum ImmersiveDemoStage {
             metrics: metrics,
             track: track,
             palette: palette,
-            lyricWindow: lyrics,
+            lyricWindow: lyrics(sungFraction: sungFraction, at: elapsed),
             currentLyric: ImmersiveDemoContent.lyrics[1],
             nextLyric: ImmersiveDemoContent.lyrics[2],
             levels: levels,
@@ -531,8 +581,8 @@ enum ImmersiveDemoStage {
                     .frame(width: side, height: side)
                 )
             },
-            reduceMotion: !animates,
-            lyricsMotionEnabled: animates,
+            reduceMotion: !showsLyricMotion,
+            lyricsMotionEnabled: showsLyricMotion,
             lyricInterlude: false,
             lyricsPlaceholder: ImmersiveDemoContent.lyrics[1],
             controlsInset: controlsInset,
@@ -551,7 +601,8 @@ enum ImmersiveDemoStage {
 /// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
 /// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
 /// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层；
-/// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画，并喂每分钟 120 拍的合成频谱（流星这类间歇出现的元素要连拍才截得到）。
+/// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画，并喂每分钟 120 拍的合成频谱（流星这类间歇出现的元素要连拍才截得到）；
+/// `PRIMUSE_EVIDENCE_WORDS=0.55` 让当前句按字配上时间、停在唱到这句 55% 的那一刻，看逐字浪尖。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
 /// 直接用模拟器截图就能看到三种排版。手机上的各帧另外按全屏播放的真实位置叠上顶部圆钮与底部控件胶囊
 /// （半透明占位），看舞台文字会不会被它们压住。
@@ -579,10 +630,12 @@ struct ImmersiveStageEvidenceHost: View {
     private let frames: [Frame]
     private let resting: RestingVariant?
     private let animates: Bool
+    private let sungFraction: Double?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         resting = RestingVariant(rawValue: environment["PRIMUSE_EVIDENCE_RESTING"] ?? "")
         animates = environment["PRIMUSE_EVIDENCE_ANIMATE"] == "1"
+        sungFraction = environment["PRIMUSE_EVIDENCE_WORDS"].flatMap(Double.init)
         let effects = (environment["PRIMUSE_EVIDENCE_EFFECT"] ?? "radialPulse")
             .split(separator: ",")
             .compactMap { FullscreenPlayerEffect(rawValue: $0.trimmingCharacters(in: .whitespaces)) }
@@ -672,7 +725,8 @@ struct ImmersiveStageEvidenceHost: View {
                                 elapsed: 108,
                                 animates: animates,
                                 controlsInset: controlsInset,
-                                isResting: resting != nil
+                                isResting: resting != nil,
+                                sungFraction: sungFraction
                             )
                             if frame.showsIOSChrome, resting == nil {
                                 ImmersiveEvidenceChromeOverlay(effect: frame.effect, metrics: metrics)

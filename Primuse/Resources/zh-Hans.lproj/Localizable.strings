@@ -1848,8 +1848,8 @@
 "lyrics_exit_full_screen" = "退出全屏歌词";
 "immersive_lock_controls" = "锁定沉浸式控制";
 "immersive_unlock_controls" = "解锁沉浸式控制";
-"immersive_lyrics_motion_title" = "歌词换句过渡";
-"immersive_lyrics_motion_subtitle" = "换句时平滑过渡，较长的间奏时暂时隐藏歌词；只对原生以外的全屏效果起作用。关掉后歌词直接切换。";
+"immersive_lyrics_motion_title" = "歌词动效";
+"immersive_lyrics_motion_subtitle" = "正在唱的字浮起发光，换句时平滑过渡，较长的间奏时暂时隐藏歌词；只对原生以外的全屏效果起作用。关掉后逐字只亮起，歌词直接切换。";
 "player_landscape_fullscreen_title" = "横屏时进入全屏";
 "player_landscape_fullscreen_subtitle" = "在播放页把手机横过来，直接进入所选的全屏效果；竖回来时退出。";
 "immersive_frame_rate_title" = "画面帧率";

@@ -1501,15 +1501,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                     // 休憩时舞台文字已经淡出，逐字扫光不必再按帧画。
                     paused: !playbackClockIsActive || isResting
                 )) { _ in
+                    let now = playbackTime?() ?? track.elapsed
                     activeLyricText(
                         stageLyric,
                         fontSize: fontSize,
                         lineLimit: lineLimit,
                         textAlignment: textAlignment,
-                        progress: activeLyricProgress(
-                            for: stageLyric,
-                            at: playbackTime?() ?? track.elapsed
-                        )
+                        progress: activeLyricProgress(for: stageLyric, at: now),
+                        time: now
                     )
                 }
             } else {
@@ -1544,15 +1543,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                     // 休憩时舞台文字已经淡出，逐字扫光不必再按帧画。
                     paused: !playbackClockIsActive || isResting
                 )) { _ in
+                    let now = playbackTime?() ?? track.elapsed
                     activeLyricText(
                         line,
                         fontSize: fontSize,
                         lineLimit: lineLimit,
                         textAlignment: textAlignment,
-                        progress: activeLyricProgress(
-                            for: line,
-                            at: playbackTime?() ?? track.elapsed
-                        )
+                        progress: activeLyricProgress(for: line, at: now),
+                        time: now
                     )
                 }
             } else if line.isActive {
@@ -1605,7 +1603,52 @@ struct ImmersiveStageView<Artwork: View>: View {
         )
     }
 
+    /// 当前句。逐字歌词走逐字浪尖（`ImmersiveSyllableCrestText`），逐行歌词和 tvOS 17 照旧整句扫光。
+    @ViewBuilder
     private func activeLyricText(
+        _ line: ImmersiveStageLyric,
+        fontSize: CGFloat,
+        lineLimit: Int,
+        textAlignment: TextAlignment,
+        progress: Double,
+        time: TimeInterval? = nil
+    ) -> some View {
+        if #available(tvOS 18.0, *),
+           line.fillProgress == nil,
+           let syllables = line.syllables,
+           let time {
+            ImmersiveSyllableCrestText(
+                syllables: syllables,
+                time: time,
+                fontSize: fontSize,
+                lineLimit: lineLimit,
+                textAlignment: textAlignment,
+                isRightToLeft: writingDirection(for: line) == .rightToLeft,
+                glowColor: palette.primary,
+                showsCrest: syllableCrestIsAnimating
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: PMString(
+                "immersive_current_lyric_accessibility",
+                line.text
+            )))
+        } else {
+            sweptLyricText(
+                line,
+                fontSize: fontSize,
+                lineLimit: lineLimit,
+                textAlignment: textAlignment,
+                progress: progress
+            )
+        }
+    }
+
+    /// 逐字浪尖的浮起、放大与光。歌词动效关掉、减弱动态效果、省电档里只逐字亮起。
+    private var syllableCrestIsAnimating: Bool {
+        lyricsMotionEnabled && !reduceMotion && !isLowPower
+    }
+
+    private func sweptLyricText(
         _ line: ImmersiveStageLyric,
         fontSize: CGFloat,
         lineLimit: Int,

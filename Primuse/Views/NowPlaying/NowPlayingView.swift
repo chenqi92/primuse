@@ -10462,7 +10462,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsLyricsEditor: Bool
     let showsSongInfo: Bool
     let showsLyricsMotion: Bool
-    /// 原生全屏不用「歌词换句过渡」，菜单里那一项要写明。
+    /// 原生全屏不用「歌词动效」，菜单里那一项要写明。
     let fullscreenEffectIsNative: Bool
     /// 竖屏原生全屏里现在是封面那一面还是歌词那一面;不在那里时为 nil,菜单不给切换。
     let immersiveShowsArtwork: Bool?
