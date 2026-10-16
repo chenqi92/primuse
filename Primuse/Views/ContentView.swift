@@ -2086,7 +2086,15 @@ struct PlayerOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             let travel = max(geometry.size.height, geometry.size.width) + 1
-            NowPlayingView(
+            PlayerOverlayContent(
+                // 播放页里用到它的三处都同时要求已落定；落定前固定为 false，展开动画开始那一刻
+                // 这个值不翻转，播放页就不必在动画第一帧上整页重算。
+                isPresentationSettled: presentationHasSettled,
+                isPresentationActive: presentationHasSettled
+                    && presentationPhase == .visible
+                    && !dismissalState.isDismissing,
+                reduceMotion: reduceMotion,
+                layoutDirection: layoutDirection,
                 onOpenAlbum: onOpenAlbum,
                 onOpenArtist: onOpenArtist,
                 onMinimize: { beginDismissal(.dismissingDown) },
@@ -2114,11 +2122,9 @@ struct PlayerOverlay: View {
                         shouldDismiss: shouldDismiss,
                         phase: .dismissingLeading
                     )
-                },
-                isPresentationSettled: presentationHasSettled,
-                isPresentationActive: presentationPhase == .visible
-                    && !dismissalState.isDismissing
+                }
             )
+                .equatable()
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
                 // 状态栏跟的是整个窗口的深浅,浅色系统里黑字会压在深色播放页上,这时在播放页里收起它。
                 .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
@@ -2313,7 +2319,9 @@ struct PlayerOverlay: View {
         }
     }
 
-    private static let entranceSpring = Animation.spring(duration: 0.5, bounce: 0.22)
+    /// 和收起同一组参数：约 0.35 秒就停在离终点几个点以内，冲过头不到 3pt。回弹大了铺满之后
+    /// 整页还要往下溜一截才停，时长拉长了收尾又会慢慢往上爬。
+    private static let entranceSpring = Animation.spring(duration: 0.42, bounce: 0.12)
     private static let dismissalSpring = Animation.spring(duration: 0.42, bounce: 0.12)
     private static let verticalSnapBackSpring = Animation.spring(duration: 0.42, bounce: 0.3)
 
@@ -2324,6 +2332,46 @@ struct PlayerOverlay: View {
         withTransaction(transaction) {
             isPresented = false
         }
+    }
+}
+
+/// 播放页本身。展开、收起途中 PlayerOverlay 每改一次相位、进度或胶囊外框都要重新求值，
+/// 它构造的播放页每次都带着新的回调闭包，SwiftUI 比不出「没变」，整页（连同推迟构造的
+/// 布局）都要跟着重算 —— 落在动画第一帧上就是一下顿挫。这里只按真正影响播放页的几个值比较：
+/// 回调只经 PlayerOverlay 的 @State 与绑定读写，换不换都是同一件事；回调里直接读的
+/// 减少动态效果与书写方向一并比较，变了照样换新。
+private struct PlayerOverlayContent: View, @MainActor Equatable {
+    let isPresentationSettled: Bool
+    let isPresentationActive: Bool
+    let reduceMotion: Bool
+    let layoutDirection: LayoutDirection
+    let onOpenAlbum: (PrimuseKit.Album) -> Void
+    let onOpenArtist: (PrimuseKit.Artist) -> Void
+    let onMinimize: () -> Void
+    let onTopMinimizeDragChanged: (CGFloat) -> Void
+    let onTopMinimizeDragEnded: (Bool) -> Void
+    let onLeadingMinimizeDragChanged: (CGFloat) -> Void
+    let onLeadingMinimizeDragEnded: (Bool) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.isPresentationSettled == rhs.isPresentationSettled
+            && lhs.isPresentationActive == rhs.isPresentationActive
+            && lhs.reduceMotion == rhs.reduceMotion
+            && lhs.layoutDirection == rhs.layoutDirection
+    }
+
+    var body: some View {
+        NowPlayingView(
+            onOpenAlbum: onOpenAlbum,
+            onOpenArtist: onOpenArtist,
+            onMinimize: onMinimize,
+            onTopMinimizeDragChanged: onTopMinimizeDragChanged,
+            onTopMinimizeDragEnded: onTopMinimizeDragEnded,
+            onLeadingMinimizeDragChanged: onLeadingMinimizeDragChanged,
+            onLeadingMinimizeDragEnded: onLeadingMinimizeDragEnded,
+            isPresentationSettled: isPresentationSettled,
+            isPresentationActive: isPresentationActive
+        )
     }
 }
 
@@ -2419,11 +2467,12 @@ private struct PlayerOverlayMorphGeometry {
             overallOpacity = 1
             return
         }
-        func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
-        let minX = lerp(capsule.minX, offset.width)
-        let maxX = lerp(capsule.maxX, offset.width + width)
-        let minY = lerp(capsule.minY, offset.height)
-        let maxY = lerp(capsule.maxY, offset.height + height)
+        func lerp(_ a: CGFloat, _ b: CGFloat, _ p: CGFloat) -> CGFloat { a + (b - a) * p }
+        let vertical = Self.verticalProgress(t)
+        let minX = lerp(capsule.minX, offset.width, t)
+        let maxX = lerp(capsule.maxX, offset.width + width, t)
+        let minY = lerp(capsule.minY, offset.height, vertical)
+        let maxY = lerp(capsule.maxY, offset.height + height, vertical)
         let scale = max((maxX - minX) / width, 0.01)
         transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: minX, ty: minY)
         clipHeight = max(maxY - minY, 0) / scale
@@ -2441,6 +2490,17 @@ private struct PlayerOverlayMorphGeometry {
     private static func smoothstep(_ x: CGFloat) -> CGFloat {
         let v = min(max(x, 0), 1)
         return v * v * (3 - 2 * v)
+    }
+
+    /// 竖直方向（上下边）的进度。宽度照旧按 t 线性走；高度在开头这一段按二次曲线起步，
+    /// 卡片还在淡入淡出（t < 0.12）时高度贴着胶囊，不会顶着两三倍胶囊高的一块半透明卡片
+    /// 出现或淡掉。过了这一段改成直线，弹簧收尾那几帧不再拖出一截往上爬的位移；两段在
+    /// 衔接处数值与斜率都连续，t = 1 时正好是 1，回弹越过 1 时沿同一斜率接着走。
+    private static func verticalProgress(_ t: CGFloat) -> CGFloat {
+        let easeIn: CGFloat = 0.25
+        let slope = 1 / (1 - easeIn / 2)
+        let p = max(t, 0)
+        return p < easeIn ? slope * p * p / (2 * easeIn) : slope * (p - easeIn / 2)
     }
 }
 

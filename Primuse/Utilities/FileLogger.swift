@@ -366,6 +366,11 @@ final class FrameHitchMonitor: NSObject {
     private var lastTimestamp: CFTimeInterval?
     private var windowStart: CFTimeInterval = 0
     private var loggedInWindow = 0
+    /// 开诊断时带了 `PRIMUSE_DIAGNOSTIC_STACK_MS`,掉帧也按同一个门槛记(最低 20ms,即 60Hz 下丢一帧),
+    /// 看得出动画途中零星丢的那几帧;每 10 秒的行数上限跟着放宽。
+    private static let minimumGap: CFTimeInterval = RuntimeDiagnosticsSampler.configuredStackThreshold
+        .map { min(0.05, max(0.02, $0)) } ?? 0.05
+    private static let maximumLinesPerWindow = RuntimeDiagnosticsSampler.configuredStackThreshold == nil ? 20 : 120
 
     func start() {
         guard link == nil else { return }
@@ -388,13 +393,13 @@ final class FrameHitchMonitor: NSObject {
         guard let lastTimestamp, UIApplication.shared.applicationState == .active else { return }
         let gap = link.timestamp - lastTimestamp
         let expected = max(link.targetTimestamp - link.timestamp, 1.0 / 120)
-        guard gap >= 0.05, gap > expected * 1.5, gap < 5 else { return }
+        guard gap >= Self.minimumGap, gap > expected * 1.5, gap < 5 else { return }
         RuntimeDiagnosticsSampler.shared.recordHitch(gap)
         if link.timestamp - windowStart >= 10 {
             windowStart = link.timestamp
             loggedInWindow = 0
         }
-        guard loggedInWindow < 20 else { return }
+        guard loggedInWindow < Self.maximumLinesPerWindow else { return }
         loggedInWindow += 1
         plog(String(format: "🩺 frame hitch %.0fms", gap * 1000))
     }
