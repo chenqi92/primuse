@@ -1503,6 +1503,10 @@
 "settings_apple_music_connect" = "Connect Apple Music";
 "settings_apple_music_denied" = "Apple Music access denied. Enable it in Settings → Primuse.";
 "source_cache_all_short" = "Cache";
+"source_cache_stop_hint" = "Tap to stop caching";
+"source_cache_stop_title_format" = "Stop caching “%@”?";
+"source_cache_stop_message" = "Songs already cached stay on this device, and partly downloaded files are kept. Tap Cache again later to continue with the rest.";
+"source_cache_stop_action" = "Stop Caching";
 "source_cache_all_title" = "Cache this source?";
 "source_cache_all_message_format" = "%@ has %d playable songs. Estimated download size: %@. Primuse will download and pin them for offline playback.";
 "source_cache_all_message_with_cached_format" = "%@ has %d playable songs. Estimated download size: %@. %d already cached song(s) will be skipped.";

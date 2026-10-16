@@ -3335,6 +3335,10 @@
 "source_cache_all_message_format" = "%@ में %d बजाने योग्य गाने हैं। अनुमानित डाउनलोड आकार: %@. Primuse ऑफ़लाइन प्लेबैक के लिए उन्हें डाउनलोड और पिन करेगा।";
 "source_cache_all_message_with_cached_format" = "%@ में %d बजाने योग्य गाने हैं। अनुमानित डाउनलोड आकार: %@. %d पहले से कैश किए गए गाने छोड़ दिए जाएंगे।";
 "source_cache_all_short" = "कैश";
+"source_cache_stop_hint" = "कैश रोकने के लिए टैप करें";
+"source_cache_stop_title_format" = "“%@” का कैश रोकें?";
+"source_cache_stop_message" = "कैश हो चुके गाने इस डिवाइस पर रहेंगे, आधी डाउनलोड हुई फ़ाइलें भी रखी जाएँगी। बाकी के लिए बाद में फिर से “कैश” पर टैप करें।";
+"source_cache_stop_action" = "कैश रोकें";
 "source_cache_all_title" = "इस स्रोत को कैश करें?";
 "source_cache_failed_title" = "कैश विफल";
 "source_cache_partial_message_format" = "%@ कैश्ड %d/%d गाने; %d विफल। %@ जोड़ा गया। विफल गीतों को पुनः प्रयास करने के लिए कैश को फिर से चलाएँ।";

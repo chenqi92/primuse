@@ -268,6 +268,10 @@
 "source_synced_ago_format" = "%@ 동기화됨";
 "source_never_synced" = "아직 동기화 안 됨";
 "source_cache_all_short" = "캐시";
+"source_cache_stop_hint" = "탭하면 캐시를 멈춥니다";
+"source_cache_stop_title_format" = "‘%@’ 캐시를 멈출까요?";
+"source_cache_stop_message" = "이미 캐시한 곡은 이 기기에 남고, 받다 만 파일도 유지됩니다. 나중에 ‘캐시’를 다시 탭하면 나머지를 이어서 받습니다.";
+"source_cache_stop_action" = "캐시 멈추기";
 "source_cache_all_title" = "이 소스를 캐시할까요?";
 "source_cache_all_message_format" = "%@에 재생 가능한 곡이 %d개 있습니다. 예상 다운로드 크기: %@. Primuse가 다운로드해 오프라인 재생용으로 고정합니다.";
 "source_cache_all_message_with_cached_format" = "%@에 재생 가능한 곡이 %d개 있습니다. 예상 다운로드 크기: %@. 이미 캐시된 %d곡은 건너뜁니다.";

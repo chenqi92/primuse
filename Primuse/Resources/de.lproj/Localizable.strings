@@ -268,6 +268,10 @@
 "source_synced_ago_format" = "Synchronisiert %@";
 "source_never_synced" = "Noch nicht synchronisiert";
 "source_cache_all_short" = "Cache";
+"source_cache_stop_hint" = "Tippen, um das Cachen zu stoppen";
+"source_cache_stop_title_format" = "Cachen von „%@“ stoppen?";
+"source_cache_stop_message" = "Bereits gecachte Songs bleiben auf dem Gerät, teilweise geladene Dateien werden behalten. Tippe später erneut auf „Cache“, um mit dem Rest weiterzumachen.";
+"source_cache_stop_action" = "Cachen stoppen";
 "source_cache_all_title" = "Diese Quelle zwischenspeichern?";
 "source_cache_all_message_format" = "%@ enthält %d abspielbare Titel. Geschätzte Downloadgröße: %@. Primuse lädt sie herunter und hält sie offline verfügbar.";
 "source_cache_all_message_with_cached_format" = "%@ enthält %d abspielbare Titel. Geschätzte Downloadgröße: %@. %d bereits gespeicherte(r) Titel werden übersprungen.";

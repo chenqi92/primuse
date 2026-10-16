@@ -3335,6 +3335,10 @@
 "source_cache_all_message_format" = "%@ ma utwory odtwarzane przez %d. Szacowany rozmiar pliku do pobrania: %@. Primuse pobierze i przypnie je do odtwarzania offline.";
 "source_cache_all_message_with_cached_format" = "%@ ma utwory odtwarzane przez %d. Szacowany rozmiar pliku do pobrania: %@. Utwory zapisane w pamięci podręcznej %d zostaną pominięte.";
 "source_cache_all_short" = "Pamięć podręczna";
+"source_cache_stop_hint" = "Stuknij, aby zatrzymać zapisywanie w pamięci podręcznej";
+"source_cache_stop_title_format" = "Zatrzymać zapisywanie „%@” w pamięci podręcznej?";
+"source_cache_stop_message" = "Zapisane już utwory zostają na urządzeniu, a częściowo pobrane pliki są zachowane. Później stuknij ponownie „Pamięć podręczna”, aby kontynuować z resztą.";
+"source_cache_stop_action" = "Zatrzymaj";
 "source_cache_all_title" = "Buforować to źródło?";
 "source_cache_failed_title" = "Błąd pamięci podręcznej";
 "source_cache_partial_message_format" = "%@: zapisano %d/%d utworów w pamięci podręcznej; nieudane: %d. Dodano %@. Uruchom zapis w pamięci podręcznej ponownie, aby ponowić nieudane próby.";

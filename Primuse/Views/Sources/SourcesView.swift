@@ -215,24 +215,47 @@ struct SourceConnectionRouteStrip: View {
 }
 
 private struct SourceCacheProgressState {
-    let handledCount: Int
     let completedCount: Int
     let failedCount: Int
     let totalCount: Int
     let downloadedKnownBytes: Int64
-    let estimatedKnownBytes: Int64
+    let remainingKnownBytes: Int64
     let unknownCount: Int
+    let fraction: Double?
 
-    var remainingKnownBytes: Int64 {
-        max(0, estimatedKnownBytes - downloadedKnownBytes)
+    /// 整源缓存这一轮的计数(见 `OfflineSourceCacheTally`):进度条和「N/M」同一个口径。
+    init(tally: OfflineSourceCacheTally, inFlightBytes: Int64) {
+        completedCount = tally.completedCount
+        failedCount = tally.failedCount
+        totalCount = tally.totalCount
+        downloadedKnownBytes = tally.downloadedBytes(inFlightBytes: inFlightBytes)
+        remainingKnownBytes = tally.remainingBytes(inFlightBytes: inFlightBytes)
+        unknownCount = tally.unknownCount
+        fraction = tally.fraction(inFlightBytes: inFlightBytes)
     }
 
-    var fraction: Double? {
+    init(
+        handledCount: Int,
+        completedCount: Int,
+        failedCount: Int,
+        totalCount: Int,
+        downloadedKnownBytes: Int64,
+        estimatedKnownBytes: Int64,
+        unknownCount: Int
+    ) {
+        self.completedCount = completedCount
+        self.failedCount = failedCount
+        self.totalCount = totalCount
+        self.downloadedKnownBytes = downloadedKnownBytes
+        remainingKnownBytes = max(0, estimatedKnownBytes - downloadedKnownBytes)
+        self.unknownCount = unknownCount
         if estimatedKnownBytes > 0 {
-            return min(1, max(0, Double(downloadedKnownBytes) / Double(estimatedKnownBytes)))
+            fraction = min(1, max(0, Double(downloadedKnownBytes) / Double(estimatedKnownBytes)))
+        } else if totalCount > 0 {
+            fraction = min(1, max(0, Double(handledCount) / Double(totalCount)))
+        } else {
+            fraction = nil
         }
-        guard totalCount > 0 else { return nil }
-        return min(1, max(0, Double(handledCount) / Double(totalCount)))
     }
 }
 
@@ -484,6 +507,8 @@ struct SourcesContentView: View {
     @State private var inspectingHiddenPlaylistsSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
+    /// 点了「缓存中」,等用户确认要不要停下来的那个源(#313)。
+    @State private var stopCachingSource: MusicSource?
     @State private var preparingCacheSourceID: String?
     @State private var cachePreparationTask: Task<Void, Never>?
     @State private var cloudDirectoryNameRefreshID = UUID()
@@ -1023,11 +1048,16 @@ struct SourcesContentView: View {
             localRemovalsButton(source)
             hiddenPlaylistsButton(source)
 
-            if let progress = sourceCacheProgress(
-                for: source,
-                hasExplicitBatch: isSourceCaching
-            ) {
-                sourceCacheProgressView(progress)
+            // 整源缓存的计数每下完一首就变,单独一小块去订阅,不让整张卡片跟着重建。
+            SourceCacheTallyReader(sourceID: source.id) { tally, inFlightBytes in
+                if let tally {
+                    sourceCacheProgressView(SourceCacheProgressState(tally: tally, inFlightBytes: inFlightBytes))
+                } else if let progress = sourceCacheProgress(
+                    for: source,
+                    hasExplicitBatch: isSourceCaching
+                ) {
+                    sourceCacheProgressView(progress)
+                }
             }
 
             #if os(iOS)
@@ -1103,15 +1133,13 @@ struct SourcesContentView: View {
                 } else if source.type.scansEntireLibrary {
                     // 整库来源直接扫描，无需再选目录。macOS Local 的范围已由
                     // 用户选定的 basePath 确定。
-                    sourceActionButton(
-                        cacheButtonTitle,
-                        systemImage: "arrow.down.circle",
-                        prominence: .accent,
-                        isLoading: isSourceCacheBusy,
-                        isDisabled: isSourceCacheBusy || !hasPlayableSongs || isAnotherSourceCaching
-                    ) {
-                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
-                    }
+                    sourceCacheButton(
+                        source,
+                        title: cacheButtonTitle,
+                        isBusy: isSourceCacheBusy,
+                        isCaching: isSourceCaching,
+                        isDisabled: !hasPlayableSongs || isAnotherSourceCaching
+                    )
 
                     SourceScanStateReader(sourceID: source.id) { scanning in
                         sourceActionButton(
@@ -1132,15 +1160,13 @@ struct SourcesContentView: View {
                         connectingSource = source
                     }
 
-                    sourceActionButton(
-                        cacheButtonTitle,
-                        systemImage: "arrow.down.circle",
-                        prominence: .accent,
-                        isLoading: isSourceCacheBusy,
-                        isDisabled: isSourceCacheBusy || !hasPlayableSongs || isAnotherSourceCaching
-                    ) {
-                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
-                    }
+                    sourceCacheButton(
+                        source,
+                        title: cacheButtonTitle,
+                        isBusy: isSourceCacheBusy,
+                        isCaching: isSourceCaching,
+                        isDisabled: !hasPlayableSongs || isAnotherSourceCaching
+                    )
 
                     if !dirs.isEmpty {
                         SourceScanStateReader(sourceID: source.id) { scanning in
@@ -1617,6 +1643,48 @@ struct SourcesContentView: View {
         case neutral
         case accent
         case success
+    }
+
+    /// 「缓存」按钮。整源缓存跑着时显示「缓存中」并转圈,点它问要不要停下来(#313);
+    /// 还在准备(读本地缓存状态)时不能点。
+    private func sourceCacheButton(
+        _ source: MusicSource,
+        title: LocalizedStringKey,
+        isBusy: Bool,
+        isCaching: Bool,
+        isDisabled: Bool
+    ) -> some View {
+        let canStop = isCaching && sourceManager.activeOfflineSourceCacheSourceIDs.contains(source.id)
+        return sourceActionButton(
+            title,
+            systemImage: "arrow.down.circle",
+            prominence: .accent,
+            isLoading: isBusy,
+            isDisabled: canStop ? false : (isBusy || isDisabled)
+        ) {
+            if canStop {
+                stopCachingSource = source
+            } else {
+                presentCacheConfirmation(for: source, songs: playableSongs(for: source))
+            }
+        }
+        .accessibilityHint(canStop ? Text("source_cache_stop_hint") : Text(verbatim: ""))
+        .confirmationDialog(
+            String(format: String(localized: "source_cache_stop_title_format"), source.name),
+            isPresented: Binding(
+                get: { stopCachingSource?.id == source.id },
+                set: { if !$0 { stopCachingSource = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("source_cache_stop_action", role: .destructive) {
+                sourceManager.cancelSourceOfflineCache(sourceID: source.id)
+                stopCachingSource = nil
+            }
+            Button("cancel", role: .cancel) { stopCachingSource = nil }
+        } message: {
+            Text("source_cache_stop_message")
+        }
     }
 
     private func sourceActionButton(
@@ -2131,6 +2199,8 @@ struct SourcesContentView: View {
             )
             guard activeCacheRun?.id == run.id else { return }
             activeCacheRun = nil
+            // 自己点了停止:没下完的不算失败,不弹「部分失败」。
+            guard !result.wasCancelled else { return }
             sourceAlert = .completed(SourceCacheCompletion(
                 sourceName: request.source.name,
                 result: result
@@ -2142,6 +2212,8 @@ struct SourcesContentView: View {
         for source: MusicSource,
         hasExplicitBatch: Bool
     ) -> SourceCacheProgressState? {
+        // 整源缓存跑着时由 `SourceCacheTallyReader` 读 SourceManager 里这一轮的计数,走不到这里;
+        // 这里只剩 SourceManager 登记这一轮之前的那一下。
         if let run = activeCacheRun, run.sourceID == source.id {
             return sourceCacheProgress(songs: run.songs, estimate: run.estimate)
         }
@@ -2945,6 +3017,26 @@ struct SourceDiagnosticsView: View {
 /// 菜单、滑动操作和整排按钮重新构造一遍, 正好跟列表滑动抢主线程, 于是"一边扫描
 /// 一边滑音乐源页"必然掉帧。真正跟着进度动的只有几小块, 让它们各自订阅, 卡片
 /// 主体就不必跟着重算了。
+/// 整源缓存这一轮的计数(#313)。计数在 SourceManager 里,页面重建后也接得上;原来存在页面状态里,
+/// 一丢就改成拿「此刻还没下的」当分母、只算正在下的零头,下到九成的进度条还贴着开头。
+/// 正在下的那几首的零头不进观察,跑着时每秒自己读一次。
+private struct SourceCacheTallyReader<Content: View>: View {
+    let sourceID: String
+    @ViewBuilder let content: (OfflineSourceCacheTally?, Int64) -> Content
+
+    @Environment(SourceManager.self) private var sourceManager
+
+    var body: some View {
+        if let tally = sourceManager.offlineSourceCacheTallies[sourceID] {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                content(tally, sourceManager.offlineSourceCacheInFlightBytes(sourceID: sourceID))
+            }
+        } else {
+            content(nil, 0)
+        }
+    }
+}
+
 struct SourceScanStateReader<Content: View>: View {
     let sourceID: String
     @ViewBuilder let content: (ScanService.ScanState?) -> Content

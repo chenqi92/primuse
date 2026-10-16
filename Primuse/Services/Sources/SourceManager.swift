@@ -99,6 +99,8 @@ struct OfflineDownloadBatchResult: Sendable {
     let failedCount: Int
     let inProgressCount: Int
     let byteCount: Int64
+    /// 用户中途点了停止(整源缓存)。这时没下完的不算失败,不用弹「部分失败」。
+    var wasCancelled = false
 
     var succeeded: Bool {
         requestedCount > 0 && completedCount == requestedCount && failedCount == 0 && inProgressCount == 0
@@ -843,6 +845,7 @@ enum AutomaticOfflineDownloadResult: Sendable {
 }
 
 private struct OfflineDownloadSongResult: Sendable {
+    let song: Song
     let snapshot: OfflineAudioCacheSnapshot
     let fallbackByteCount: Int64
 }
@@ -3334,6 +3337,12 @@ final class SourceManager {
     /// 每个源当前在跑的整源缓存 run 身份, 支撑 `activeOfflineSourceCacheSourceIDs`
     /// 在「替换」期间的引用计数。
     @ObservationIgnored private var offlineSourceCacheRunIDs: [String: Set<UUID>] = [:]
+    /// 整源缓存这一轮的计数(#313),卡片的进度条读它。放在这里而不是页面状态里:离开再回到音乐源页,
+    /// 页面重建后照样接着显示。只在一首下完或失败时变,下载中的零头见 `offlineSourceCacheInFlightBytes`。
+    private(set) var offlineSourceCacheTallies: [String: OfflineSourceCacheTally] = [:]
+    /// 这一轮每首歌在资料库里记的大小,算正在下的那几首的零头用。
+    @ObservationIgnored private var offlineSourceCacheSongSizes: [String: [String: Int64]] = [:]
+    @ObservationIgnored private var offlineSourceCacheTallyRunIDs: [String: UUID] = [:]
 
     init(
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
@@ -7879,6 +7888,13 @@ final class SourceManager {
     ) async -> OfflineDownloadBatchResult {
         let runID = UUID()
         beginOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
+        let batchSongs = Self.offlineBatchCandidates(songs)
+        offlineSourceCacheTallies[sourceID] = OfflineSourceCacheTally(sizes: batchSongs.map(\.fileSize))
+        offlineSourceCacheSongSizes[sourceID] = Dictionary(
+            batchSongs.map { ($0.id, max($0.fileSize, 0)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        offlineSourceCacheTallyRunIDs[sourceID] = runID
         let previousRun = offlineSourceCacheBatches.value(forKey: sourceID)
         if previousRun != nil {
             plog("🔁 Offline source cache restarted, draining previous batch source=\(sourceID.prefix(8))")
@@ -7890,7 +7906,10 @@ final class SourceManager {
                 previousRun.cancelRun()
                 _ = await previousRun.task.value
             }
-            return await self.downloadForOfflineBatch(songs: songs)
+            return await self.downloadForOfflineBatch(songs: songs) { [weak self] song, completed in
+                guard let self, self.offlineSourceCacheTallyRunIDs[sourceID] == runID else { return }
+                self.offlineSourceCacheTallies[sourceID]?.record(size: song.fileSize, completed: completed)
+            }
         }
         offlineSourceCacheBatches.register(
             key: sourceID,
@@ -7900,11 +7919,52 @@ final class SourceManager {
         defer {
             offlineSourceCacheBatches.finish(key: sourceID, runID: runID)
             endOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
+            // 替换时旧那一轮晚收尾,不能把新一轮的计数一起清掉。
+            if offlineSourceCacheTallyRunIDs[sourceID] == runID {
+                offlineSourceCacheTallyRunIDs[sourceID] = nil
+                offlineSourceCacheTallies[sourceID] = nil
+                offlineSourceCacheSongSizes[sourceID] = nil
+            }
         }
-        return await withTaskCancellationHandler {
+        var result = await withTaskCancellationHandler {
             await batch.value
         } onCancel: {
             batch.cancel()
+        }
+        if offlineSourceCacheTallyRunIDs[sourceID] == runID,
+           offlineSourceCacheTallies[sourceID]?.wasCancelled == true {
+            result.wasCancelled = true
+        }
+        return result
+    }
+
+    /// 用户在卡片上点了停止整源缓存(#313):只停这一批,别的请求者也在等的那首照常下完;下了一半的文件留着,
+    /// 下次再点「缓存」从断点接着下。和停用源不同,后台缓存、MV 下载和精简副本都不动。
+    func cancelSourceOfflineCache(sourceID: String) {
+        guard offlineSourceCacheBatches.value(forKey: sourceID) != nil else { return }
+        offlineSourceCacheTallies[sourceID]?.markCancelled()
+        offlineSourceCacheBatches.cancel(key: sourceID)
+        plog("⏹️ Offline source cache stopped by user source=\(sourceID.prefix(8))")
+    }
+
+    /// 整源缓存这一轮里正在下的那几首已经下到的字节(按资料库记的大小乘下载进度折算)。
+    /// 进度不进观察(见 `offlineDownloadingSongIDs` 的说明),卡片按自己的节奏来读。
+    func offlineSourceCacheInFlightBytes(sourceID: String) -> Int64 {
+        guard let sizes = offlineSourceCacheSongSizes[sourceID] else { return 0 }
+        var bytes: Int64 = 0
+        for songID in offlineDownloadingSongIDs {
+            guard let size = sizes[songID], size > 0,
+                  let progress = offlineAudioSnapshots[songID]?.progress else { continue }
+            bytes += Int64(Double(size) * min(1, max(0, progress)))
+        }
+        return bytes
+    }
+
+    /// 批量离线下载实际会去下的那些歌:Apple Music 的歌由系统播放器播放、拿不到音频文件,
+    /// 和歌曲行菜单一样不进离线下载;混进整张歌单里只会逐首失败, 还按源不可用各重试几轮。
+    private static func offlineBatchCandidates(_ songs: [Song]) -> [Song] {
+        songs.filteredPlayable().filter {
+            $0.sourceID != AppleMusicLibraryIdentity.sourceID
         }
     }
 
@@ -7956,15 +8016,14 @@ final class SourceManager {
         plog("⏹️ Source disabled: cancelled background transfers source=\(sourceID.prefix(8))")
     }
 
+    /// - Parameter onSongFinished: 每首下完(`true`)或放弃(`false`)时在主线程上告诉调用者一声,
+    ///   整源缓存拿它记进度。
     func downloadForOfflineBatch(
         songs: [Song],
-        compactsAfterPin: Bool = true
+        compactsAfterPin: Bool = true,
+        onSongFinished: (@MainActor (Song, Bool) -> Void)? = nil
     ) async -> OfflineDownloadBatchResult {
-        // Apple Music 的歌由系统播放器播放、拿不到音频文件, 和歌曲行菜单一样不进离线下载;
-        // 混进整张歌单里只会逐首失败, 还按源不可用各重试几轮。
-        let playableSongs = songs.filteredPlayable().filter {
-            $0.sourceID != AppleMusicLibraryIdentity.sourceID
-        }
+        let playableSongs = Self.offlineBatchCandidates(songs)
         var completedCount = 0
         var failedCount = 0
         var inProgressCount = 0
@@ -8011,6 +8070,7 @@ final class SourceManager {
                         )
                     }
                     return OfflineDownloadSongResult(
+                        song: song,
                         snapshot: await self.offlineAudioSnapshot(for: song),
                         fallbackByteCount: max(song.fileSize, 0)
                     )
@@ -8025,12 +8085,15 @@ final class SourceManager {
                 case .cached, .pinned:
                     completedCount += 1
                     byteCount += snapshot.byteCount ?? result.fallbackByteCount
+                    onSongFinished?(result.song, true)
                 case .failed:
                     failedCount += 1
+                    onSongFinished?(result.song, false)
                 case .downloading:
                     inProgressCount += 1
                 case .notCached:
                     failedCount += 1
+                    onSongFinished?(result.song, false)
                 }
 
                 guard !Task.isCancelled else {

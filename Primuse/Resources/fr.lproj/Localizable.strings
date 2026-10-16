@@ -268,6 +268,10 @@
 "source_synced_ago_format" = "Synchronisé %@";
 "source_never_synced" = "Pas encore synchronisé";
 "source_cache_all_short" = "Cache";
+"source_cache_stop_hint" = "Touchez pour arrêter la mise en cache";
+"source_cache_stop_title_format" = "Arrêter la mise en cache de « %@ » ?";
+"source_cache_stop_message" = "Les morceaux déjà en cache restent sur l’appareil et les fichiers partiellement téléchargés sont conservés. Touchez de nouveau « Cache » plus tard pour continuer avec le reste.";
+"source_cache_stop_action" = "Arrêter la mise en cache";
 "source_cache_all_title" = "Mettre cette source en cache ?";
 "source_cache_all_message_format" = "%@ contient %d morceaux lisibles. Taille estimée à télécharger : %@. Primuse les téléchargera et les gardera disponibles hors ligne.";
 "source_cache_all_message_with_cached_format" = "%@ contient %d morceaux lisibles. Taille estimée à télécharger : %@. %d morceau(x) déjà en cache seront ignorés.";

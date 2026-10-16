@@ -1123,6 +1123,10 @@
 "player_backdrop_tv_images_count" = "Зображень, перенесених з iPhone або Mac за кодом: %lld.";
 "player_backdrop_tv_images_empty" = "На цьому Apple TV ще немає зображень. Виберіть «Мої зображення» на iPhone або Mac і передайте їх, відсканувавши код. До того показуються кольори обкладинки.";
 "source_cache_all_short" = "Кеш";
+"source_cache_stop_hint" = "Торкніться, щоб зупинити кешування";
+"source_cache_stop_title_format" = "Зупинити кешування «%@»?";
+"source_cache_stop_message" = "Уже кешовані пісні лишаться на пристрої, частково завантажені файли теж збережуться. Пізніше знову натисніть «Кеш», щоб продовжити з рештою.";
+"source_cache_stop_action" = "Зупинити кешування";
 "yearly_time_late_night" = "Пізня ніч";
 "server_share_created" = "Публічне посилання";
 "lyrics_translation_target" = "Перекласти на";

@@ -1123,6 +1123,10 @@
 "player_backdrop_tv_images_count" = "iPhone veya Mac’ten kod taranarak aktarılan görseller: %lld.";
 "player_backdrop_tv_images_empty" = "Bu Apple TV’de henüz görsel yok. iPhone veya Mac’te Görsellerim’i seçip kodu tarayarak aktarın; görseller de gelir. O zamana kadar kapak renkleri gösterilir.";
 "source_cache_all_short" = "Önbellek";
+"source_cache_stop_hint" = "Önbelleğe almayı durdurmak için dokun";
+"source_cache_stop_title_format" = "“%@” önbelleğe alma durdurulsun mu?";
+"source_cache_stop_message" = "Önbelleğe alınmış şarkılar cihazda kalır, yarım inen dosyalar da saklanır. Kalanlarla devam etmek için daha sonra yine “Önbellek”e dokun.";
+"source_cache_stop_action" = "Önbelleğe almayı durdur";
 "yearly_time_late_night" = "Gece yarısı";
 "server_share_created" = "Herkese Açık Bağlantı";
 "lyrics_translation_target" = "Çevir";

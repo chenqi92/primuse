@@ -3335,6 +3335,10 @@
 "source_cache_all_message_format" = "%@ มี %d เพลงที่เล่นได้ ขนาดการดาวน์โหลดโดยประมาณ: %@ Primuse จะดาวน์โหลดและปักหมุดไว้เพื่อเล่นแบบออฟไลน์";
 "source_cache_all_message_with_cached_format" = "%@ มี %d เพลงที่เล่นได้ ขนาดการดาวน์โหลดโดยประมาณ: %@ %d เพลงที่แคชไว้แล้วจะถูกข้ามไป";
 "source_cache_all_short" = "แคช";
+"source_cache_stop_hint" = "แตะเพื่อหยุดแคช";
+"source_cache_stop_title_format" = "หยุดแคช “%@” ไหม";
+"source_cache_stop_message" = "เพลงที่แคชแล้วยังอยู่ในเครื่อง ไฟล์ที่โหลดไปครึ่งหนึ่งก็เก็บไว้ แตะ “แคช” อีกครั้งภายหลังเพื่อโหลดส่วนที่เหลือต่อ";
+"source_cache_stop_action" = "หยุดแคช";
 "source_cache_all_title" = "แคชแหล่งที่มานี้หรือไม่";
 "source_cache_failed_title" = "แคชล้มเหลว";
 "source_cache_partial_message_format" = "%@ แคช %d/%d เพลง; %d ล้มเหลว เพิ่ม %@ แล้ว เรียกใช้แคชอีกครั้งเพื่อลองเพลงที่ล้มเหลวอีกครั้ง";

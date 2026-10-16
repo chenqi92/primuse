@@ -1438,6 +1438,10 @@
 "settings_apple_music_connect" = "連接 Apple Music";
 "settings_apple_music_denied" = "Apple Music 存取被拒。請到系統設定 → Primuse 中開啟。";
 "source_cache_all_short" = "快取";
+"source_cache_stop_hint" = "輕點可以停止快取";
+"source_cache_stop_title_format" = "停止快取「%@」？";
+"source_cache_stop_message" = "已快取的歌曲會保留，下載一半的也留著，之後再點「快取」會接著下載剩下的。";
+"source_cache_stop_action" = "停止快取";
 "source_cache_all_title" = "快取此音樂來源？";
 "source_cache_all_message_format" = "「%@」有 %d 首可播放歌曲，預計還需下載 %@。Primuse 會下載並固定為離線可用。";
 "source_cache_all_message_with_cached_format" = "「%@」有 %d 首可播放歌曲，預計還需下載 %@；已有 %d 首會自動略過。";

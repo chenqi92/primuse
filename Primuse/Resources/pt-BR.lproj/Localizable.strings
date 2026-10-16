@@ -3335,6 +3335,10 @@
 "source_cache_all_message_format" = "%@ possui músicas reproduzíveis %d. Tamanho estimado de download: %@. O Primuse irá baixá-los e fixá-los para reprodução offline.";
 "source_cache_all_message_with_cached_format" = "%@ possui músicas reproduzíveis %d. Tamanho estimado de download: %@. As músicas já armazenadas em cache do %d serão ignoradas.";
 "source_cache_all_short" = "Cache";
+"source_cache_stop_hint" = "Toque para parar o cache";
+"source_cache_stop_title_format" = "Parar o cache de “%@”?";
+"source_cache_stop_message" = "As músicas já em cache ficam no aparelho e os arquivos baixados pela metade são mantidos. Toque em “Cache” de novo depois para continuar com o resto.";
+"source_cache_stop_action" = "Parar cache";
 "source_cache_all_title" = "Armazenar esta fonte em cache?";
 "source_cache_failed_title" = "Falha no cache";
 "source_cache_partial_message_format" = "%@: %d/%d músicas salvas em cache; %d falharam. Foram adicionados %@. Execute o armazenamento em cache novamente para tentar as músicas que falharam.";

@@ -269,6 +269,10 @@
 "source_synced_ago_format" = "%@ に同期";
 "source_never_synced" = "未同期";
 "source_cache_all_short" = "キャッシュ";
+"source_cache_stop_hint" = "タップでキャッシュを停止";
+"source_cache_stop_title_format" = "「%@」のキャッシュを停止しますか？";
+"source_cache_stop_message" = "キャッシュ済みの曲はこのデバイスに残り、途中までの分も保持されます。あとで「キャッシュ」をもう一度タップすると残りを続けます。";
+"source_cache_stop_action" = "キャッシュを停止";
 "source_cache_all_title" = "このソースをキャッシュしますか？";
 "source_cache_all_message_format" = "%@ には再生可能な曲が %d 曲あります。推定ダウンロードサイズ: %@。Primuse がダウンロードしてオフライン再生用に固定します。";
 "source_cache_all_message_with_cached_format" = "%@ には再生可能な曲が %d 曲あります。推定ダウンロードサイズ: %@。キャッシュ済みの %d 曲はスキップされます。";
