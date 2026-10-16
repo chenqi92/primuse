@@ -29,6 +29,9 @@ final class SpokenWordWidgetPublisher {
     /// Covers written in this launch, so a book's cover is rendered once
     /// rather than on every publish. A new launch refreshes them.
     private var writtenCovers: Set<String> = []
+    /// 本机封面缓存里没有、这次启动已经去源上取过的书封。只试一次:进度每 15 秒存一次就发布一回,
+    /// 真没有封面的书不该每次都连一趟网盘。之后缓存里有了(比如在 App 里看过这本书)照样会用上。
+    private var sourceCoverAttempts: Set<String> = []
 
     init(library: MusicLibrary) {
         self.library = library
@@ -88,7 +91,7 @@ final class SpokenWordWidgetPublisher {
         let finishedAt = store.finishedAt
         let archived = store.archivedBookIDs
         let alreadyWritten = writtenCovers
-        let (entries, written) = await Task.detached(priority: .utility) {
+        let (entries, cachedWrite) = await Task.detached(priority: .utility) {
             let shelf = Self.shelfEntries(
                 songs: songs,
                 positions: positions,
@@ -100,6 +103,18 @@ final class SpokenWordWidgetPublisher {
             let keptCovers = Set(shelf.entries.compactMap(\.coverImageName))
             return (shelf.entries, Self.writeCovers(shelf.coverJobs, keeping: keptCovers))
         }.value
+        var written = cachedWrite.written
+        // 本机缓存里没有的书封(文件夹里的 cover.jpg、服务器给的封面地址、还没缓存过的内嵌封面)
+        // 照书架的取法去源上取一次,书架有封面、小组件却是占位图的就是这一类(#313)。
+        let sourceJobs = cachedWrite.missing.filter { !sourceCoverAttempts.contains($0.fileName) }
+        if !sourceJobs.isEmpty {
+            sourceCoverAttempts.formUnion(sourceJobs.map(\.fileName))
+            let sourceManager = AppServices.shared.sourceManager
+            let fetched = await Task.detached(priority: .utility) {
+                await Self.writeSourceCovers(sourceJobs, sourceManager: sourceManager)
+            }.value
+            written.formUnion(fetched)
+        }
         writtenCovers.formUnion(written)
         // A cover that could not be rendered is left to the placeholder
         // rather than pointing the widget at a missing file.
@@ -156,6 +171,9 @@ final class SpokenWordWidgetPublisher {
                     coverJobs.append(CoverJob(
                         songID: song.id,
                         legacyCoverName: song.coverArtFileName,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat,
                         fileName: fileName
                     ))
                 }
@@ -175,16 +193,23 @@ final class SpokenWordWidgetPublisher {
     private struct CoverJob: Sendable {
         let songID: String
         let legacyCoverName: String?
+        let sourceID: String
+        let filePath: String
+        let fileFormat: AudioFormat
         let fileName: String
     }
 
     /// Renders each cover as a square the way the shelf draws a book (see
     /// `WidgetBookCoverRenderer`) and removes book covers no longer on the
-    /// shelf. Returns the names written.
-    private nonisolated static func writeCovers(_ jobs: [CoverJob], keeping kept: Set<String>) -> Set<String> {
+    /// shelf. Returns the names written, and the jobs whose cover is not in
+    /// the local cover cache.
+    private nonisolated static func writeCovers(
+        _ jobs: [CoverJob],
+        keeping kept: Set<String>
+    ) -> (written: Set<String>, missing: [CoverJob]) {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return [] }
+        ) else { return ([], []) }
         let fileManager = FileManager.default
         if let existing = try? fileManager.contentsOfDirectory(at: containerURL, includingPropertiesForKeys: nil) {
             for url in existing
@@ -195,6 +220,7 @@ final class SpokenWordWidgetPublisher {
         }
         let assets = MetadataAssetStore.shared
         var written: Set<String> = []
+        var missing: [CoverJob] = []
         for job in jobs {
             var data = assets.readCoverData(named: assets.expectedCoverFileName(for: job.songID))
             if data == nil, let legacy = job.legacyCoverName, !legacy.isEmpty,
@@ -209,9 +235,45 @@ final class SpokenWordWidgetPublisher {
                 quality: 0.82
             ) else {
                 try? fileManager.removeItem(at: destination)
+                missing.append(job)
                 continue
             }
             if (try? jpeg.write(to: destination, options: .atomic)) != nil {
+                written.insert(job.fileName)
+            }
+        }
+        return (written, missing)
+    }
+
+    /// 本机缓存里没有的书封,和书架同一条路取(`CachedArtworkView.resolveImage`:缓存、
+    /// 文件夹封面图、服务器封面、文件里的内嵌封面),再按书封的画法写成小组件用的方图。
+    private nonisolated static func writeSourceCovers(
+        _ jobs: [CoverJob],
+        sourceManager: SourceManager
+    ) async -> Set<String> {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return [] }
+        var written: Set<String> = []
+        for job in jobs {
+            guard !Task.isCancelled else { break }
+            let image = await CachedArtworkView.resolveImage(
+                coverRef: job.legacyCoverName,
+                songID: job.songID,
+                size: CGFloat(coverPixelSize),
+                sourceID: job.sourceID,
+                filePath: job.filePath,
+                fileFormat: job.fileFormat,
+                sourceManager: sourceManager
+            )
+            guard let cgImage = image?.platformCGImage,
+                  let square = WidgetBookCoverRenderer.squareImage(
+                      cgImage,
+                      pixelSize: coverPixelSize,
+                      keepsWholeCover: true
+                  ),
+                  let jpeg = PlayerBackdropImaging.jpegData(square, quality: 0.82) else { continue }
+            if (try? jpeg.write(to: containerURL.appendingPathComponent(job.fileName), options: .atomic)) != nil {
                 written.insert(job.fileName)
             }
         }
