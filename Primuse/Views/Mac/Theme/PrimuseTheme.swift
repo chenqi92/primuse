@@ -1782,7 +1782,8 @@ enum PMColorSchemeOverride: String, CaseIterable, Sendable {
 
 // MARK: - Brand mark (应用内品牌图标)
 
-/// 应用内统一使用默认图标，并按出现位置套用平台圆角和阴影。
+/// 应用内的品牌标识就是 App 图标：跟着「应用图标」里选的那一款走，换了立刻跟着换；
+/// 预览资源带深色变体，明暗跟界面。按出现位置套用平台圆角和阴影。
 struct BrandMonogram: View {
     enum Slot {
         case sidebar
@@ -1797,55 +1798,35 @@ struct BrandMonogram: View {
 
     var body: some View {
         let metrics: (size: CGFloat, corner: CGFloat, shadow: CGFloat, y: CGFloat)
-        let followsTheme: Bool
         switch slot {
         case .sidebar:
-            metrics = (28, 7, 4, 2)
-            followsTheme = true
+            metrics = (28, 7, 3, 1)
         case .update:
             metrics = (58, 14, 16, 6)
-            followsTheme = false
         case .feature:
             metrics = (96, 22, 24, 8)
-            followsTheme = false
         case .onboarding:
             metrics = (110, 26, 36, 12)
-            followsTheme = false
         }
+        let isDark = colorScheme == .dark
+        // 侧栏里只有 28pt，主题色的大光晕会糊成一团，换成很淡的中性投影。
+        let shadow = slot == .sidebar
+            ? Color.black.opacity(isDark ? 0.32 : 0.14)
+            : PMColor.brand.opacity(0.30)
 
-        return Group {
-            if followsTheme {
+        return Image(MacAppIcon.option(for: preferences.appIconID).previewAsset)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(1, contentMode: .fill)
+            .frame(width: metrics.size, height: metrics.size)
+            .clipShape(RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
+            .overlay {
+                // 浅色图标落在浅色侧栏上要一圈细边才分得出轮廓。
                 RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
-                    .fill(preferences.brandColor.opacity(colorScheme == .dark ? 0.20 : 0.12))
-                    .frame(width: metrics.size, height: metrics.size)
-                    .overlay {
-                        Image("BrandGlyph")
-                            .renderingMode(.template)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fit)
-                            .foregroundStyle(preferences.brandColor)
-                            .padding(5)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
-                            .strokeBorder(preferences.brandColor.opacity(colorScheme == .dark ? 0.34 : 0.22), lineWidth: 0.5)
-                    }
-                    .shadow(color: preferences.brandColor.opacity(colorScheme == .dark ? 0.22 : 0.16), radius: metrics.shadow, y: metrics.y)
-            } else {
-                Image("AppIconPreview")
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(1, contentMode: .fill)
-                    .frame(width: metrics.size, height: metrics.size)
-                    .clipShape(RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5)
-                    }
-                    .shadow(color: PMColor.brand.opacity(0.30), radius: metrics.shadow, y: metrics.y)
+                    .strokeBorder(isDark ? Color.white.opacity(0.16) : Color.black.opacity(0.08), lineWidth: 0.5)
             }
-        }
+            .shadow(color: shadow, radius: metrics.shadow, y: metrics.y)
+            .accessibilityHidden(true)
     }
 }
 
