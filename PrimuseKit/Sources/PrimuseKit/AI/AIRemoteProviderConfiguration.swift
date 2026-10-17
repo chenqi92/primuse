@@ -923,6 +923,8 @@ public enum AIFeature: String, Codable, CaseIterable, Sendable {
     case songDiscovery
     case libraryInsight
     case listeningMood
+    /// 自动生成歌词罗马音（设置里选了「智能功能」生成时）。
+    case lyricsRomanization
 }
 
 /// 一个功能交给谁。没有记录就是跟随默认。

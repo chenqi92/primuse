@@ -435,6 +435,28 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         return try Self.decodeLyricsTranslations(from: output, allowedIDs: allowedIDs)
     }
 
+    /// 歌词罗马音：只转写不翻译，JSON 输出，必须与请求同序同数（少一行整批算失败）。
+    func romanizeLyrics(
+        _ lines: [LyricRomanizationAIExchange.Line],
+        sourceLanguageCode: String
+    ) async throws -> [String: String] {
+        let limited = Array(lines.prefix(LyricRomanizationAIExchange.maximumLines))
+        guard let payload = LyricRomanizationAIExchange.payload(
+            lines: limited,
+            sourceLanguageCode: sourceLanguageCode
+        ) else { return [:] }
+        let output = try await generateText(
+            instructions: LyricRomanizationAIExchange.instructions,
+            input: payload,
+            maximumTokens: 4_000
+        )
+        do {
+            return try LyricRomanizationAIExchange.decode(output, allowedIDs: Set(limited.map(\.id)))
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     /// Proposed tag corrections for up to one batch of songs. Returns
     /// proposals only; the review screen decides what is applied.
     func proposeTagCleanup(

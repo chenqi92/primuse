@@ -50,6 +50,11 @@ struct MacNowPlayingView: View {
     @State private var lyricsTranslationRevision: UInt = 0
     @State private var lyricTranslationsByLineID: [String: String] = [:]
     @State private var lyricsTranslationActivity: LyricsTranslationActivity = .idle
+    /// 自动生成的罗马音与双语 LRC 里的读音行。
+    @State private var lyricRomanizationOverlay: LyricRomanizationOverlay = .empty
+    /// 歌词列表与沉浸层显示的那份：按罗马音设置换过正文或附属罗马音；翻译、跳转仍用 `lyrics`。
+    @State private var romanizedLyrics: [LyricLine] = []
+    @State private var romanizedLyricsWritingDirection: LyricWritingDirection = .natural
     /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
     /// 用世代号而不是手工置一个 Bool: `reloadLyrics` 有多条退出路径, 漏掉任何
     /// 一条都会把歌词区永久钉在加载态。
@@ -123,7 +128,7 @@ struct MacNowPlayingView: View {
     private static let manualLyricsScrollGracePeriod: TimeInterval = 6
 
     private var lyricLayoutDirection: LayoutDirection {
-        switch lyricsWritingDirection {
+        switch romanizedLyricsWritingDirection {
         case .natural: inheritedLayoutDirection
         case .leftToRight: .leftToRight
         case .rightToLeft: .rightToLeft
@@ -197,6 +202,13 @@ struct MacNowPlayingView: View {
             translatedTextByLineID: $lyricTranslationsByLineID,
             activity: $lyricsTranslationActivity
         )
+        .lyricsRomanizationTask(
+            songID: player.currentSong?.id,
+            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
+            lyricsRevision: lyricsTranslationRevision,
+            lyrics: lyrics,
+            overlay: $lyricRomanizationOverlay
+        )
     }
 
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
@@ -204,7 +216,7 @@ struct MacNowPlayingView: View {
         ZStack {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
-                    lyrics: lyrics,
+                    lyrics: romanizedLyrics,
                     translatedTextByLineID: lyricTranslationsByLineID,
                     // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
                     ignoresWindowSafeArea: false,
@@ -310,6 +322,8 @@ struct MacNowPlayingView: View {
         .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
             installLyrics(loadedLyrics)
         }
+        .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
@@ -1273,7 +1287,11 @@ struct MacNowPlayingView: View {
             entries.append(MacLyricsListEntry(id: .intro, kind: .interlude(intro, voice: first.voice)))
         }
         for (index, line) in lyrics.enumerated() {
-            entries.append(MacLyricsListEntry(id: .line(line.id), kind: .line(index: index, line: line)))
+            // 显示用罗马音设置换过的那一行(行 id、时间都不变);时间窗仍按原文算。
+            let shown = romanizedLyrics.indices.contains(index) && romanizedLyrics[index].id == line.id
+                ? romanizedLyrics[index]
+                : line
+            entries.append(MacLyricsListEntry(id: .line(line.id), kind: .line(index: index, line: shown)))
             if showsLyricsInterlude,
                let window = LyricPlaybackPositionPolicy.interludeWindow(afterLine: index, in: lyrics) {
                 entries.append(MacLyricsListEntry(
@@ -1864,6 +1882,22 @@ struct MacNowPlayingView: View {
         if newLyrics.isEmpty, !activeBackgroundLineIDs.isEmpty {
             activeBackgroundLineIDs = []
         }
+        refreshRomanizedLyrics()
+    }
+
+    /// 按罗马音设置得出显示用的那份歌词（与 iPhone 播放页同一套规则）。
+    private func refreshRomanizedLyrics() {
+        let mode = LyricsRomanizationSettingsStore.shared.displayMode
+        let display = LyricRomanizationDisplayPolicy.displayLines(
+            lyrics,
+            overlay: lyricRomanizationOverlay,
+            mode: mode
+        )
+        if display != romanizedLyrics { romanizedLyrics = display }
+        let direction = mode == .romanizationOnly && display != lyrics
+            ? LyricWritingDirectionPolicy.resolve(in: display)
+            : lyricsWritingDirection
+        if direction != romanizedLyricsWritingDirection { romanizedLyricsWritingDirection = direction }
     }
 
     /// 按播放时间更新当前句与正在走的提示点,返回该滚到哪(和 iPhone 歌词页的 `updateCurrentLine` 同一套分支)。

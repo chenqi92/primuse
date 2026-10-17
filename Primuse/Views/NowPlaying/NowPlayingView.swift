@@ -1000,6 +1000,13 @@ struct NowPlayingView: View {
     /// 播放页常驻的零尺寸视图上，这份结果同时供歌词面板、全屏舞台和歌词海报读取。
     @State private var lyricTranslationsByLineID: [String: String] = [:]
     @State private var lyricsTranslationActivity: LyricsTranslationActivity = .idle
+    /// 自动生成的罗马音与双语 LRC 里的读音行；罗马音任务和翻译任务挂在同一处。
+    @State private var lyricRomanizationOverlay: LyricRomanizationOverlay = .empty
+    /// 歌词面板与全屏舞台显示的那份：按罗马音设置换过正文或附属罗马音。翻译任务、点歌词跳转、
+    /// 歌词海报、编辑器仍用 `presentedLyrics`。跟着 `presentedLyrics` 一起更新（见
+    /// `refreshRomanizedLyrics`），传下去的数组只在内容真的变了时才换。
+    @State private var romanizedPresentedLyrics: [LyricLine] = []
+    @State private var romanizedLyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricPosterComposer: LyricPosterComposer?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricsRevision: UInt = 0
@@ -2658,6 +2665,23 @@ struct NowPlayingView: View {
                         )
                 }
 
+                // 罗马音同理;另外选了「只显示罗马音」时封面模式那一行歌词也要换成罗马音,
+                // 所以封面模式也挂着(本机生成很快,结果有缓存)。
+                if showLyrics || isFullscreenPlayerPresented
+                    || LyricsRomanizationSettingsStore.shared.displayMode == .romanizationOnly {
+                    Color.clear
+                        .frame(width: 0, height: 0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .lyricsRomanizationTask(
+                            songID: player.currentSong?.id,
+                            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
+                            lyricsRevision: lyricsRevision,
+                            lyrics: presentedLyrics,
+                            overlay: $lyricRomanizationOverlay
+                        )
+                }
+
                 if !isFullscreenPlayerPresented {
                     ZStack {
                         // Opaque base — prevents content bleeding through
@@ -2798,14 +2822,14 @@ struct NowPlayingView: View {
                 if isFullscreenPlayerPresented {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
-                        lyrics: presentedLyrics,
+                        lyrics: romanizedPresentedLyrics,
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
                                 for: $0,
                                 translatedTextByLineID: lyricTranslationsByLineID
                             )
                         },
-                        lyricsWritingDirection: lyricsWritingDirection,
+                        lyricsWritingDirection: romanizedLyricsWritingDirection,
                         isResolvingLyrics: isResolvingLyrics,
                         isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,
@@ -2956,6 +2980,8 @@ struct NowPlayingView: View {
             presentBundledTranslationVisibility()
             lyricsRevision &+= 1
         }
+        .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: isResolvingLyrics) { _, _ in rememberSpokenWordTextPresence() }
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticScrapeCompletion()
@@ -3995,7 +4021,7 @@ struct NowPlayingView: View {
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
         NowPlayingLyricPreview(
-            lyrics: lyrics,
+            lyrics: lyricPreviewLines,
             player: player,
             songID: player.currentSong?.id,
             lyricsRevision: lyricsRevision,
@@ -4007,10 +4033,16 @@ struct NowPlayingView: View {
         )
     }
 
+    /// 封面模式那一行歌词用的那份:和歌词页一样按罗马音设置换过(「只显示罗马音」时正文是罗马音);
+    /// 换好的那份还没出来时先用原来的。
+    private var lyricPreviewLines: [LyricLine] {
+        romanizedPresentedLyrics.isEmpty ? lyrics : romanizedPresentedLyrics
+    }
+
     /// 竖屏封面模式进度条上面正在唱的那一句, 点一下进歌词页。
     private var artworkLyricPreview: some View {
         NowPlayingLyricPreview(
-            lyrics: lyrics,
+            lyrics: lyricPreviewLines,
             player: player,
             songID: player.currentSong?.id,
             lyricsRevision: lyricsRevision,
@@ -7035,8 +7067,8 @@ struct NowPlayingView: View {
 
     private func lyricsScrollView(collapsesChromeOnScroll: Bool) -> some View {
         LyricsScrollView(
-            lyrics: presentedLyrics,
-            lyricsWritingDirection: lyricsWritingDirection,
+            lyrics: romanizedPresentedLyrics,
+            lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
             player: player,
@@ -8935,6 +8967,23 @@ struct NowPlayingView: View {
         )
         presentedLyrics = presentation.lines
         lyricsHaveBundledTranslations = presentation.hasBundledTranslations
+        refreshRomanizedLyrics()
+    }
+
+    /// 按罗马音设置得出显示用的那份歌词。只改显示：原文、行 id、时间戳都不变。「只显示罗马音」
+    /// 时正文可能换了文字方向（阿拉伯文换成拉丁字母），按换过的那份重新判断。
+    private func refreshRomanizedLyrics() {
+        let mode = LyricsRomanizationSettingsStore.shared.displayMode
+        let display = LyricRomanizationDisplayPolicy.displayLines(
+            presentedLyrics,
+            overlay: lyricRomanizationOverlay,
+            mode: mode
+        )
+        if display != romanizedPresentedLyrics { romanizedPresentedLyrics = display }
+        let direction = mode == .romanizationOnly && display != presentedLyrics
+            ? LyricWritingDirectionPolicy.resolve(in: display)
+            : lyricsWritingDirection
+        if direction != romanizedLyricsWritingDirection { romanizedLyricsWritingDirection = direction }
     }
 
     /// 搜索页点歌词命中结果时, player 上挂了一个 pending hint。歌词刚加载

@@ -88,6 +88,8 @@ struct TVSettingsView: View {
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
+    @State private var romanizationSettings = LyricsRomanizationSettingsStore.shared
+    @State private var googleRomanizationAccount = GoogleCloudRomanizationAccount.shared
     @State private var showsTranslationPanel = false
     @State private var appleMusic = TVAppleMusicCatalog()
 
@@ -222,6 +224,7 @@ struct TVSettingsView: View {
                             siriRow
                         }
                         lyricsSection
+                        lyricsRomanizationSection
                         settingsSection(PMString("ext.tv.settings.library")) {
                             toggleRow(
                                 "star.bubble",
@@ -432,6 +435,117 @@ struct TVSettingsView: View {
                 )
             )
         }
+    }
+
+    // MARK: Lyrics romanization
+
+    /// 罗马音：显示方式与生成方式按一下换到下一档；语言逐个开关。Google Cloud 的服务账号密钥
+    /// 只能在 iPhone 或 Mac 上导入，开着凭据同步时会同步过来。
+    @ViewBuilder
+    private var lyricsRomanizationSection: some View {
+        settingsSection(String(localized: "lyrics_romanization_section")) {
+            navRow(
+                "textformat.abc",
+                String(localized: "lyrics_romanization_display"),
+                romanizationSettings.displayMode.localizedTitle,
+                trailing: "arrow.triangle.2.circlepath"
+            ) {
+                romanizationSettings.displayMode = Self.next(
+                    after: romanizationSettings.displayMode,
+                    in: LyricRomanizationDisplayMode.allCases
+                )
+            }
+            .accessibilityIdentifier("tv.lyricsRomanization.display")
+            settingDivider
+            toggleRow(
+                "wand.and.stars",
+                String(localized: "lyrics_romanization_auto_generate"),
+                detail: String(localized: "lyrics_romanization_display_only_footer"),
+                isOn: Binding(
+                    get: { romanizationSettings.isAutoGenerationEnabled },
+                    set: { romanizationSettings.isAutoGenerationEnabled = $0 }
+                )
+            )
+            .accessibilityIdentifier("tv.lyricsRomanization.autoGenerate")
+            if romanizationSettings.isAutoGenerationEnabled {
+                ForEach(LyricRomanizationLanguage.allCases, id: \.self) { language in
+                    settingDivider
+                    toggleRow(
+                        "character",
+                        language.localizedTitle,
+                        detail: language.localizedDetail,
+                        isOn: Binding(
+                            get: { romanizationSettings.isLanguageEnabled(language) },
+                            set: { romanizationSettings.setLanguage(language, enabled: $0) }
+                        )
+                    )
+                    .accessibilityIdentifier("tv.lyricsRomanization.language.\(language.rawValue)")
+                }
+                settingDivider
+                navRow(
+                    "cpu",
+                    String(localized: "lyrics_romanization_method"),
+                    displayedRomanizationMethod.localizedTitle,
+                    trailing: "arrow.triangle.2.circlepath"
+                ) {
+                    romanizationSettings.method = Self.next(
+                        after: displayedRomanizationMethod,
+                        in: offeredRomanizationMethods
+                    )
+                }
+                .accessibilityIdentifier("tv.lyricsRomanization.method")
+                switch displayedRomanizationMethod {
+                case .googleCloud:
+                    settingDivider
+                    infoRow(
+                        "key",
+                        String(localized: "lyrics_romanization_google_title"),
+                        googleRomanizationAccount.lastError
+                            ?? googleRomanizationAccount.summary?.clientEmail
+                            ?? String(localized: "lyrics_romanization_google_tv_import_hint")
+                    )
+                case .intelligent:
+                    let readiness = intelligence.lyricsAIRomanizationReadiness
+                    if readiness != .ready, readiness != .regionUnavailable {
+                        settingDivider
+                        infoRow(
+                            "exclamationmark.circle",
+                            String(localized: "lyrics_romanization_ai_not_ready_title"),
+                            readiness.romanizationExplanation
+                        )
+                    } else if intelligence.lyricsRomanizationFellBackFromBuiltIn {
+                        settingDivider
+                        infoRow(
+                            "info.circle",
+                            String(localized: "lyrics_romanization_ai_builtin_unsupported_title"),
+                            String(localized: "lyrics_romanization_ai_builtin_unsupported")
+                        )
+                    }
+                case .local:
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    private var offeredRomanizationMethods: [LyricRomanizationMethod] {
+        LyricRomanizationMethod.offeredMethods(
+            region: intelligence.regionAvailability.context.region,
+            exposesIntelligentServices: intelligence.shouldExposeRemoteConfiguration
+        )
+    }
+
+    private var displayedRomanizationMethod: LyricRomanizationMethod {
+        LyricRomanizationMethodPolicy.effectiveMethod(
+            romanizationSettings.method,
+            region: intelligence.regionAvailability.context.region,
+            exposesIntelligentServices: intelligence.shouldExposeRemoteConfiguration
+        )
+    }
+
+    private static func next<Value: Equatable>(after value: Value, in values: [Value]) -> Value {
+        guard let index = values.firstIndex(of: value), !values.isEmpty else { return values.first ?? value }
+        return values[(index + 1) % values.count]
     }
 
     private var usesSmartLyricsTranslation: Bool {

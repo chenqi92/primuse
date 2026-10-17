@@ -321,6 +321,18 @@ struct TVAISettingsView: View {
                 routeRow(.lyricsTranslation)
             }
             TVAIDivider()
+            // 和设置页「罗马音 › 生成方式」是同一个设置;打开后在这里选由谁生成。
+            TVAIToggleRow(
+                icon: "textformat.abc",
+                title: String(localized: "lyrics_romanization_use_intelligent"),
+                isOn: smartLyricsRomanizationBinding
+            )
+            .accessibilityIdentifier("tv.ai.lyricsRomanization")
+            if smartLyricsRomanizationBinding.wrappedValue {
+                TVAIDivider()
+                routeRow(.lyricsRomanization)
+            }
+            TVAIDivider()
             // 遥控器上按一下换到下一档:混合 → 歌曲 → 专辑。
             TVAIActionRow(
                 icon: "square.stack",
@@ -345,6 +357,22 @@ struct TVAISettingsView: View {
             }
             .accessibilityIdentifier("tv.ai.recommendationRefresh")
         }
+    }
+
+    /// 打开 = 自动生成罗马音并交给智能功能;关掉 = 改回本机生成(自动生成本身不关)。
+    private var smartLyricsRomanizationBinding: Binding<Bool> {
+        let settings = LyricsRomanizationSettingsStore.shared
+        return Binding(
+            get: { settings.isAutoGenerationEnabled && settings.method == .intelligent },
+            set: { on in
+                if on {
+                    settings.isAutoGenerationEnabled = true
+                    settings.method = .intelligent
+                } else if settings.method == .intelligent {
+                    settings.method = .local
+                }
+            }
+        )
     }
 
     private var smartLyricsTranslationBinding: Binding<Bool> {

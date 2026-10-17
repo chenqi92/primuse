@@ -1052,6 +1052,170 @@ private struct MacLyricsAITranslationReadinessRow: View {
     }
 }
 
+/// 选了智能功能生成罗马音、它却发不出去时:说明差哪一步(这期间用本机生成),右边就地解决。
+private struct MacLyricsAIRomanizationReadinessRow: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    var linksToIntelligenceSettings = true
+    @State private var consentRequest: BuiltInAIConsentRequest?
+
+    var body: some View {
+        let readiness = intelligence.lyricsAIRomanizationReadiness
+        if readiness != .ready, readiness != .regionUnavailable {
+            MacSTRow(
+                String(localized: "lyrics_romanization_ai_not_ready_title"),
+                hint: readiness.romanizationExplanation + "\n"
+                    + String(localized: "lyrics_romanization_ai_uses_local_meanwhile"),
+                hintLineLimit: 4
+            ) {
+                switch readiness {
+                case .needsBuiltInConsent:
+                    MacSTButton(title: String(localized: "ai_consent_pending_action"), prominent: true) {
+                        consentRequest = BuiltInAIConsentRequest()
+                    }
+                case .needsRemoteConsent:
+                    MacSTButton(title: String(localized: "lyrics_translation_ai_allow_sending"), prominent: true) {
+                        try? intelligence.grantRemoteConsent()
+                    }
+                case .noService where linksToIntelligenceSettings:
+                    MacSTButton(title: String(localized: "ai_settings_title")) {
+                        SettingsNavigation.shared.open(SettingsPage.intelligence.id)
+                    }
+                case .noService, .ready, .regionUnavailable:
+                    EmptyView()
+                }
+            }
+            .builtInAIConsentSheet($consentRequest)
+        } else if intelligence.lyricsRomanizationFellBackFromBuiltIn {
+            MacSTRow(
+                String(localized: "lyrics_romanization_ai_builtin_unsupported_title"),
+                hint: String(localized: "lyrics_romanization_ai_builtin_unsupported"),
+                hintLineLimit: 3
+            ) {
+                EmptyView()
+            }
+        }
+    }
+}
+
+/// 歌词设置里「罗马音」一组(与 iPhone 歌词设置同一套设置)。
+private struct MacLyricsRomanizationSection: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @State private var settings = LyricsRomanizationSettingsStore.shared
+    @State private var googleAccount = GoogleCloudRomanizationAccount.shared
+    @State private var showsGoogleSettings = false
+
+    var body: some View {
+        MacSTSection(
+            String(localized: "lyrics_romanization_section"),
+            hint: String(localized: "lyrics_romanization_display_only_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "lyrics_romanization_display"),
+                    hint: String(localized: "lyrics_romanization_display_footer"),
+                    hintLineLimit: 3,
+                    divider: false
+                ) {
+                    MacSTPicker(
+                        selection: $settings.displayMode,
+                        options: LyricRomanizationDisplayMode.allCases.map { ($0, $0.localizedTitle) },
+                        width: 220
+                    )
+                }
+                .settingsAnchor("lyrics.romanizationDisplay")
+                MacSTRow(
+                    String(localized: "lyrics_romanization_auto_generate"),
+                    hint: String(localized: "lyrics_romanization_auto_generate_footer"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTToggle(isOn: $settings.isAutoGenerationEnabled.pmAnimated(.list))
+                }
+                .settingsAnchor("lyrics.romanizationAutoGenerate")
+                if settings.isAutoGenerationEnabled {
+                    MacSTRow(
+                        String(localized: "lyrics_romanization_languages"),
+                        hint: String(localized: "lyrics_romanization_languages_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        MacAIChoiceMenu(title: settings.enabledLanguagesSummary, width: 220) {
+                            ForEach(LyricRomanizationLanguage.allCases, id: \.self) { language in
+                                let isEnabled = settings.isLanguageEnabled(language)
+                                Button {
+                                    settings.setLanguage(language, enabled: !isEnabled)
+                                } label: {
+                                    AIMenuChoiceLabel(title: language.localizedTitle, isSelected: isEnabled)
+                                }
+                            }
+                        }
+                    }
+                    .pmSlideTransition(edge: .top, motion: .list)
+                    .settingsAnchor("lyrics.romanizationLanguages")
+                    MacSTRow(
+                        String(localized: "lyrics_romanization_method"),
+                        hint: String(localized: "lyrics_romanization_method_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTPicker(
+                            selection: displayedMethod,
+                            options: offeredMethods.map { ($0, $0.localizedTitle) },
+                            width: 220
+                        )
+                    }
+                    .pmSlideTransition(edge: .top, motion: .list)
+                    .settingsAnchor("lyrics.romanizationMethod")
+                    if displayedMethod.wrappedValue == .intelligent {
+                        MacLyricsAIRomanizationReadinessRow()
+                    }
+                    if displayedMethod.wrappedValue == .googleCloud {
+                        MacSTRow(
+                            String(localized: "lyrics_romanization_google_title"),
+                            hint: googleAccount.lastError
+                                ?? googleAccount.summary?.clientEmail
+                                ?? String(localized: "lyrics_romanization_google_not_configured"),
+                            hintLineLimit: 3
+                        ) {
+                            MacSTButton(
+                                title: String(localized: googleAccount.summary == nil
+                                              ? "lyrics_romanization_google_set_up"
+                                              : "lyrics_romanization_google_manage"),
+                                systemImage: "key"
+                            ) {
+                                showsGoogleSettings = true
+                            }
+                        }
+                        .settingsAnchor("lyrics.romanizationGoogle")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showsGoogleSettings) {
+            NavigationStack {
+                LyricsRomanizationGoogleSettingsView()
+            }
+        }
+    }
+
+    private var offeredMethods: [LyricRomanizationMethod] {
+        LyricRomanizationMethod.offeredMethods(
+            region: intelligence.regionAvailability.context.region,
+            exposesIntelligentServices: intelligence.shouldExposeRemoteConfiguration
+        )
+    }
+
+    private var displayedMethod: Binding<LyricRomanizationMethod> {
+        Binding(
+            get: {
+                LyricRomanizationMethodPolicy.effectiveMethod(
+                    settings.method,
+                    region: intelligence.regionAvailability.context.region,
+                    exposesIntelligentServices: intelligence.shouldExposeRemoteConfiguration
+                )
+            },
+            set: { settings.method = $0 }
+        )
+    }
+}
+
 private struct MacSTButton: View {
     let title: String
     var systemImage: String? = nil
@@ -1174,6 +1338,7 @@ private struct MacSTIntelligenceView: View {
     @State private var modelDraft = ""
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    @State private var lyricsRomanization = LyricsRomanizationSettingsStore.shared
     /// 「为你」由 AI 整理的开关与全部意图页同源。
     @State private var listeningIntents = ListeningIntentService.shared
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
@@ -1408,6 +1573,15 @@ private struct MacSTIntelligenceView: View {
                         MacLyricsAITranslationReadinessRow(linksToIntelligenceSettings: false)
                     }
                 }
+                // 和歌词设置里「罗马音 › 生成方式」是同一个设置;打开后在这里选由谁生成。
+                MacSTRow(String(localized: "lyrics_romanization_use_intelligent")) {
+                    MacSTToggle(isOn: lyricsRomanizationIntelligentBinding.pmAnimated(.list))
+                }
+                .settingsAnchor("intelligence.lyricsRomanization")
+                if lyricsRomanizationIntelligentBinding.wrappedValue {
+                    routeRow(.lyricsRomanization)
+                    MacLyricsAIRomanizationReadinessRow(linksToIntelligenceSettings: false)
+                }
                 MacSTRow(String(localized: "listening_intent_ai_toggle")) {
                     MacSTToggle(isOn: listeningIntentCurationBinding.pmAnimated(.list))
                 }
@@ -1422,6 +1596,23 @@ private struct MacSTIntelligenceView: View {
         Binding(
             get: { listeningIntents.isAICurationEnabled },
             set: { listeningIntents.setAICurationEnabled($0) }
+        )
+    }
+
+    /// 打开 = 自动生成罗马音并交给智能功能;关掉 = 改回本机生成(自动生成本身不关)。
+    private var lyricsRomanizationIntelligentBinding: Binding<Bool> {
+        Binding(
+            get: {
+                lyricsRomanization.isAutoGenerationEnabled && lyricsRomanization.method == .intelligent
+            },
+            set: { enabled in
+                if enabled {
+                    lyricsRomanization.isAutoGenerationEnabled = true
+                    lyricsRomanization.method = .intelligent
+                } else if lyricsRomanization.method == .intelligent {
+                    lyricsRomanization.method = .local
+                }
+            }
         )
     }
 
@@ -5133,6 +5324,9 @@ private struct MacSTLyricsView: View {
                     }
                 }
             }
+
+            // 罗马音紧跟在翻译后面:都是原文下面的那一行。
+            MacLyricsRomanizationSection()
 
             MacSTSection(
                 String(localized: "lyrics_audio_tools_section"),

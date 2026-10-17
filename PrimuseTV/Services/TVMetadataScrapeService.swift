@@ -1172,6 +1172,7 @@ extension TVStore {
                 forSongID: song.id
             )
             TVLyricsTranslationController.shared.lyricsDidLoad(lyrics, forSongID: song.id, store: self)
+            TVLyricsRomanizationController.shared.lyricsDidLoad(lyrics, forSongID: song.id)
         }
     }
 }

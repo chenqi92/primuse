@@ -22,6 +22,12 @@ struct AILyricsTranslationExecution: Sendable {
     var fallbackDepth: Int
 }
 
+/// 智能功能给出的歌词罗马音：原文 → 罗马音（只含成功的行）。
+struct AILyricsRomanizationExecution: Sendable {
+    var romanizedByText: [String: String]
+    var providerName: String
+}
+
 struct AITagCleanupExecution: Sendable {
     var proposals: [TagCleanupProposal] = []
     /// Batches no service answered; they were skipped.
@@ -332,6 +338,9 @@ final class MusicIntelligenceService {
     /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
     private(set) var builtInTranscriptionNotInPlan = false
     @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
+    /// 内置 AI 回过「没有罗马音这项功能」（中转还是老版本）的时间。几个小时之内不再问它，
+    /// 罗马音直接用本机生成，设置页据此说明。
+    private(set) var builtInRomanizationUnsupportedAt: Date?
     /// 内置 AI 的额度,设置页的「额度」区块读它;每次调用的回复都会顺带更新。
     let builtInQuota: BuiltInAIQuotaModel
 
@@ -572,6 +581,48 @@ final class MusicIntelligenceService {
         guard settingsStore.hasExplicitRemoteConsent else { return .needsRemoteConsent }
         if isPrimuseRelayAvailable(for: .lyricsTranslation) || ownProviders { return .ready }
         return .noService
+    }
+
+    /// 罗马音选了「智能功能」生成时，它此刻发不发得出去。前提与歌词翻译相同（地区、内置 AI
+    /// 的同意、允许发送内容、有服务），只是按「歌词罗马音」这项的分工算。
+    var lyricsAIRomanizationReadiness: LyricsAITranslationReadiness {
+        guard shouldExposeRemoteConfiguration else { return .regionUnavailable }
+        let ownProviders = canUseOwnProviders(
+            for: .lyricsRomanization,
+            regionContext: regionAvailability.context
+        )
+        if needsBuiltInConsent(for: .lyricsRomanization), !ownProviders {
+            return .needsBuiltInConsent
+        }
+        guard settingsStore.hasExplicitRemoteConsent else { return .needsRemoteConsent }
+        if isPrimuseRelayAvailable(for: .lyricsRomanization) || ownProviders { return .ready }
+        return .noService
+    }
+
+    private static let builtInRomanizationRetryInterval: TimeInterval = 6 * 3600
+
+    var isBuiltInRomanizationUnsupported: Bool {
+        guard let builtInRomanizationUnsupportedAt else { return false }
+        return Date().timeIntervalSince(builtInRomanizationUnsupportedAt) < Self.builtInRomanizationRetryInterval
+    }
+
+    /// 罗马音交给内置 AI，但中转暂不支持、也没有自己的服务接手：设置页说明已改用本机生成。
+    var lyricsRomanizationFellBackFromBuiltIn: Bool {
+        isBuiltInRomanizationUnsupported
+            && isPrimuseRelayAvailable(for: .lyricsRomanization)
+            && !canUseOwnProviders(for: .lyricsRomanization, regionContext: regionAvailability.context)
+    }
+
+    /// 生成结果缓存用的引擎身份：内置 AI，或者分工里排第一的那个服务和模型。
+    var lyricsRomanizationEngineID: String? {
+        if isPrimuseRelayAvailable(for: .lyricsRomanization), !isBuiltInRomanizationUnsupported {
+            return "ai.builtin"
+        }
+        guard let configuration = settingsStore.providerSet.routedProviders(for: .lyricsRomanization)
+            .first(where: { !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return nil
+        }
+        return "ai.\(configuration.id.uuidString).\(configuration.generationModel)"
     }
 
     /// 内置 AI 选上了并且同意过,真的会被用到。
@@ -1027,6 +1078,108 @@ final class MusicIntelligenceService {
                     providerName: configuration.displayName,
                     fallbackDepth: effectiveFallbackDepth
                 )
+            } catch is CancellationError {
+                return nil
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// 给一组歌词原文生成罗马音：每 80 行一轮，先问内置 AI（选了它并同意过），不支持或出错再按
+    /// 分工问自己的服务。哪一轮都没成的行不在结果里，调用方保留本机结果。
+    func romanizeLyrics(_ texts: [String], languageCode: String) async -> AILyricsRomanizationExecution? {
+        let regionSnapshot = regionAvailability.snapshot
+        let consent = settingsStore.hasExplicitRemoteConsent
+        guard consent, !texts.isEmpty else { return nil }
+        var seen = Set<String>()
+        let unique = texts.filter { seen.insert($0).inserted }
+        var romanized: [String: String] = [:]
+        var providerName: String?
+        let chunkSize = LyricRomanizationAIExchange.maximumLines
+        for start in stride(from: 0, to: unique.count, by: chunkSize) {
+            guard !Task.isCancelled else { return nil }
+            let chunk = unique[start..<min(start + chunkSize, unique.count)]
+            let lines = chunk.enumerated().map {
+                LyricRomanizationAIExchange.Line(id: "l\($0.offset)", text: $0.element)
+            }
+            guard let answer = await romanizeLyricsChunk(
+                lines,
+                languageCode: languageCode,
+                regionSnapshot: regionSnapshot,
+                consent: consent
+            ) else { continue }
+            for line in lines {
+                if let value = answer.byID[line.id] { romanized[line.text] = value }
+            }
+            providerName = providerName ?? answer.providerName
+        }
+        guard !romanized.isEmpty, let providerName else { return nil }
+        return AILyricsRomanizationExecution(romanizedByText: romanized, providerName: providerName)
+    }
+
+    private func romanizeLyricsChunk(
+        _ lines: [LyricRomanizationAIExchange.Line],
+        languageCode: String,
+        regionSnapshot: AIRegionSnapshot,
+        consent: Bool
+    ) async -> (byID: [String: String], providerName: String)? {
+        if isPrimuseRelayAvailable(for: .lyricsRomanization), !isBuiltInRomanizationUnsupported {
+            guard canUsePrimuseRelay(
+                feature: .lyricsRomanization,
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+            ) else { return nil }
+            do {
+                let byID = try await primuseRelayClient.romanizeLyrics(lines, sourceLanguageCode: languageCode)
+                guard canUsePrimuseRelay(
+                    feature: .lyricsRomanization,
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                ), !byID.isEmpty else { return nil }
+                return (byID, primuseRelayProviderName)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                if PrimuseAIRelayClient.isUnsupportedFeature(error) {
+                    // 老版本中转没有这个接口：静默改用本机（或自己的服务），几个小时后再试。
+                    builtInRomanizationUnsupportedAt = Date()
+                    plog("🔤 Built-in AI has no lyrics romanization yet; falling back")
+                }
+            }
+        }
+
+        let decision = AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: regionSnapshot.context
+        )
+        guard decision.isAllowed else { return nil }
+        for configuration in settingsStore.providerSet.routedProviders(for: .lyricsRomanization) {
+            guard !configuration.generationModel
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  AIRegionRequestPolicy.canSendRemoteRequest(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
+                  ) else { continue }
+            do {
+                let byID = try await engine.romanizeLyrics(
+                    lines,
+                    sourceLanguageCode: languageCode,
+                    configuration: configuration,
+                    regionContext: regionSnapshot.context,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: regionAuthorization(for: regionSnapshot, configuration: configuration)
+                )
+                guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
+                ), !byID.isEmpty else { continue }
+                return (byID, configuration.displayName)
             } catch is CancellationError {
                 return nil
             } catch {
@@ -3387,6 +3540,44 @@ private actor MusicIntelligenceEngine {
         }
     }
 
+    /// 罗马音和歌词翻译发的是同一种内容（歌词原文），走同一项能力与同意。
+    func romanizeLyrics(
+        _ lines: [LyricRomanizationAIExchange.Line],
+        sourceLanguageCode: String,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [String: String] {
+        let configuration = configuration.forGeneration(atLeast: 30)
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.romanizeLyrics(lines, sourceLanguageCode: sourceLanguageCode)
+        }
+    }
+
     /// Tag cleanup is plain text generation over song titles and names —
     /// the same data and the same consent as lyric translation — so it is
     /// routed through that capability rather than a new one.
@@ -3721,7 +3912,7 @@ final class BuiltInAIQuotaModel {
 enum BuiltInAIQuotaText {
     /// 中转的功能标识按 App 里的顺序排;后台建的接口排在后面。
     static let featureOrder = [
-        "recommendations", "semantic_search", "lyrics_translation", "listening_intents",
+        "recommendations", "semantic_search", "lyrics_translation", "lyrics_romanization", "listening_intents",
         "listening_mood", "library_insight", "song_discovery", "tag_cleanup", "audio_transcription",
     ]
 
@@ -3730,6 +3921,7 @@ enum BuiltInAIQuotaText {
         case "recommendations": String(localized: "ai_enable_recommendations")
         case "semantic_search": String(localized: "ai_enable_semantic_search")
         case "lyrics_translation": String(localized: "lyrics_translation_title")
+        case "lyrics_romanization": String(localized: "lyrics_romanization_feature_title")
         case "listening_intents": String(localized: "ai_feature_listening_intents")
         case "tag_cleanup": String(localized: "ai_feature_tag_cleanup")
         case "song_discovery": String(localized: "ai_song_discovery_title")

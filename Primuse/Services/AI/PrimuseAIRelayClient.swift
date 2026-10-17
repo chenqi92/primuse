@@ -598,6 +598,62 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    /// 歌词罗马音（`/v1/lyrics/romanize`）。和歌词翻译同样的流式接口，但只用最后的完整结果：
+    /// 罗马音先由本机给出，内置 AI 的结果回来后整组替换。返回 id → 罗马音，与请求同数，少一行算失败。
+    func romanizeLyrics(
+        _ lines: [LyricRomanizationAIExchange.Line],
+        sourceLanguageCode: String
+    ) async throws -> [String: String] {
+        let limited = Array(lines.prefix(LyricRomanizationAIExchange.maximumLines))
+        let lineIDs = Set(limited.map(\.id))
+        guard !limited.isEmpty, lineIDs.count == limited.count else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        let events = featureEventStream(
+            path: "/v1/lyrics/romanize",
+            purpose: "lyrics_romanization",
+            input: LyricsRomanizationInput(
+                sourceLanguageCode: sourceLanguageCode,
+                lines: limited.map {
+                    LyricsRomanizationLine(
+                        id: $0.id,
+                        text: String($0.text.prefix(LyricRomanizationAIExchange.maximumCharactersPerLine))
+                    )
+                }
+            ),
+            output: LyricsRomanizationOutput.self,
+            progress: LyricsRomanizationProgress.self,
+            progressIdentity: { $0.line.id }
+        ) { rawEvent -> [String: String]? in
+            guard case .completed(let output) = rawEvent else { return nil }
+            var romanized: [String: String] = [:]
+            for line in output.lines where lineIDs.contains(line.id) {
+                let text = line.romanizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { romanized[line.id] = text }
+            }
+            return romanized
+        }
+        var completed: [String: String]?
+        for try await event in events {
+            try Task.checkCancellation()
+            completed = event
+        }
+        guard let completed, completed.count == lineIDs.count else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        return completed
+    }
+
+    /// 中转还没有这项功能（老版本服务端）：接口不存在、或者不认这个功能 / 挑战用途。
+    /// 这种情况静默改用本机生成，不当成故障提示。
+    nonisolated static func isUnsupportedFeature(_ error: Error) -> Bool {
+        guard case .requestFailed(let statusCode, let code, _)? = error as? PrimuseAIRelayError else {
+            return false
+        }
+        return statusCode == 404
+            || ["unsupported_feature", "unsupported_purpose", "route_not_found", "feature_not_found"].contains(code)
+    }
+
     /// Asks for tag corrections for one batch (at most
     /// `TagCleanupAIExchange.batchSize` songs). Song ids never leave the
     /// device: the rows carry short tokens. The answer only becomes
@@ -2045,6 +2101,39 @@ actor PrimuseAIRelayClient {
 
     private struct LyricsTranslationProgress: Decodable, Sendable {
         var line: LyricsTranslationOutput.Line
+    }
+
+    private struct LyricsRomanizationInput: Encodable, Sendable {
+        var sourceLanguageCode: String
+        var lines: [LyricsRomanizationLine]
+
+        private enum CodingKeys: String, CodingKey {
+            case sourceLanguageCode = "source_language_code"
+            case lines
+        }
+    }
+
+    private struct LyricsRomanizationLine: Encodable, Sendable {
+        var id: String
+        var text: String
+    }
+
+    private struct LyricsRomanizationOutput: Decodable, Sendable {
+        struct Line: Decodable, Sendable {
+            var id: String
+            var romanizedText: String
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case romanizedText = "romanized_text"
+            }
+        }
+
+        var lines: [Line]
+    }
+
+    private struct LyricsRomanizationProgress: Decodable, Sendable {
+        var line: LyricsRomanizationOutput.Line
     }
 
     private struct TagCleanupInput: Encodable, Sendable {

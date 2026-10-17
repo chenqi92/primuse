@@ -1339,7 +1339,8 @@ struct TVNowPlayingView: View {
 
     @ViewBuilder
     private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool) -> some View {
-        let ln = store.lyrics[i]
+        // 按「罗马音显示」换过正文或附属罗马音；当前行、时间仍按原来那一行。
+        let ln = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
         let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
         let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
         let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading

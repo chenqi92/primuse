@@ -819,6 +819,9 @@ targets:
       - path: Primuse/Services/Lyrics/LocalLyricsTranslationService.swift
       - path: Primuse/Services/Lyrics/LyricsTranslationCache.swift
       - path: Primuse/Services/Lyrics/LyricsTranslationSettings.swift
+      # 歌词罗马音:设置、本机生成、结果缓存与 Google Cloud / 智能功能请求,与 iOS / macOS 同一份。
+      - path: Primuse/Services/Lyrics/LyricsRomanizationSettings.swift
+      - path: Primuse/Services/Lyrics/LyricsRomanizationService.swift
       - path: Primuse/Utilities/Extensions/Bundle+AppVersion.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift

@@ -200,6 +200,8 @@ struct PrimuseTVApp: App {
                     musicIntelligence.start()
                     // 歌词选了智能翻译时交给它;没有它时电视只用离线翻译包。
                     TVLyricsTranslationController.shared.intelligence = musicIntelligence
+                    // 罗马音选了「智能功能」生成时也交给它。
+                    TVLyricsRomanizationController.shared.intelligence = musicIntelligence
                     FullscreenPlayerEffectSync.shared.install()
                     // 播客:订阅读盘、按店面判定能用哪些入口;刷新等启动忙完再做。
                     PodcastAvailabilityService.shared.start()

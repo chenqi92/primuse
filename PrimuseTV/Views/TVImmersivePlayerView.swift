@@ -957,19 +957,22 @@ struct TVImmersivePlayerView: View {
               store.lyrics.indices.contains(index) else { return [] }
         let lower = max(0, index - 1)
         let upper = min(store.lyrics.count, index + 4)
+        let romanization = TVLyricsRomanizationController.shared
         return (lower..<upper).compactMap { position in
-            let text = store.lyrics[position].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 按「罗马音显示」换过正文或附属罗马音；时间仍按原来那一行。
+            let line = romanization.displayLine(store.lyrics[position], songID: store.currentSongID)
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             return ImmersiveStageLyric(
                 id: position,
                 text: text,
                 isActive: position == index,
                 offset: position - index,
-                syllables: immersiveSyllables(for: store.lyrics[position]),
-                startTime: store.lyrics[position].isSynchronized ? store.lyrics[position].time : nil,
-                endTime: immersiveLineEnd(at: position),
-                writingDirection: store.lyrics[position].writingDirection,
-                background: store.lyrics[position].background.compactMap { background in
+                syllables: immersiveSyllables(for: line),
+                startTime: line.isSynchronized ? line.time : nil,
+                endTime: immersiveLineEnd(at: position, line: line),
+                writingDirection: line.writingDirection,
+                background: line.background.compactMap { background in
                     let text = background.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return nil }
                     return ImmersiveStageBackgroundLyric(
@@ -984,15 +987,14 @@ struct TVImmersivePlayerView: View {
                     )
                 },
                 companions: [
-                    store.lyrics[position].romanization,
-                    store.lyrics[position].translation,
+                    line.romanization,
+                    line.translation,
                 ].map(LyricCompanionTextPolicy.displayText)
             )
         }
     }
 
-    private func immersiveLineEnd(at position: Int) -> TimeInterval? {
-        let line = store.lyrics[position]
+    private func immersiveLineEnd(at position: Int, line: TVLyricLine) -> TimeInterval? {
         guard line.isSynchronized else { return nil }
         if store.lyrics.indices.contains(position + 1) {
             let next = store.lyrics[position + 1].time

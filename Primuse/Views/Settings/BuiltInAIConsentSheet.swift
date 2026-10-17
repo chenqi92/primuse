@@ -99,6 +99,7 @@ enum BuiltInAIConsentContent {
             item(.listeningIntents, "rectangle.stack", "ai_consent_data_listening_intents"),
             item(.semanticSearch, "magnifyingglass", "ai_consent_data_semantic_search"),
             item(.lyricsTranslation, "character.bubble", "ai_consent_data_lyrics_translation"),
+            item(.lyricsRomanization, "textformat.abc", "lyrics_romanization_consent_data"),
             item(.recommendations, "wand.and.stars", "ai_consent_data_recommendations", separate: .listeningContext),
             item(.listeningMood, "chart.bar", "ai_consent_data_listening_mood", separate: .listeningContext),
         ]

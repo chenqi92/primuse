@@ -1258,6 +1258,7 @@ struct AISettingsView: View {
     @State private var manualModelDraft = ""
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    @State private var lyricsRomanization = LyricsRomanizationSettingsStore.shared
     /// 「为你」由 AI 整理的开关与全部意图页同源。
     @State private var listeningIntents = ListeningIntentService.shared
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
@@ -1496,6 +1497,14 @@ struct AISettingsView: View {
                 }
             }
 
+            // 和歌词设置里「罗马音 › 生成方式」是同一个设置；打开后在这里选由谁生成。
+            Toggle("lyrics_romanization_use_intelligent", isOn: lyricsRomanizationIntelligentBinding.animation())
+                .settingsAnchor("intelligence.lyricsRomanization")
+            if lyricsRomanizationIntelligentBinding.wrappedValue {
+                routeRow(.lyricsRomanization)
+                LyricsAIRomanizationReadinessRow(linksToIntelligenceSettings: false)
+            }
+
             Toggle("listening_intent_ai_toggle", isOn: listeningIntentCurationBinding.animation())
             if listeningIntents.isAICurationEnabled {
                 routeRow(.listeningIntents)
@@ -1513,6 +1522,23 @@ struct AISettingsView: View {
         Binding(
             get: { listeningIntents.isAICurationEnabled },
             set: { listeningIntents.setAICurationEnabled($0) }
+        )
+    }
+
+    /// 打开 = 自动生成罗马音并交给智能功能；关掉 = 改回本机生成（自动生成本身不关）。
+    private var lyricsRomanizationIntelligentBinding: Binding<Bool> {
+        Binding(
+            get: {
+                lyricsRomanization.isAutoGenerationEnabled && lyricsRomanization.method == .intelligent
+            },
+            set: { enabled in
+                if enabled {
+                    lyricsRomanization.isAutoGenerationEnabled = true
+                    lyricsRomanization.method = .intelligent
+                } else if lyricsRomanization.method == .intelligent {
+                    lyricsRomanization.method = .local
+                }
+            }
         )
     }
 
@@ -2375,6 +2401,7 @@ extension AIFeature {
         case .songDiscovery: String(localized: "ai_song_discovery_title")
         case .libraryInsight: String(localized: "ai_feature_library_insight")
         case .listeningMood: String(localized: "ai_feature_listening_mood")
+        case .lyricsRomanization: String(localized: "lyrics_romanization_feature_title")
         }
     }
 }

@@ -3127,6 +3127,7 @@ final class TVPlaybackCoordinator {
             forSongID: songID
         )
         TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: store)
+        TVLyricsRomanizationController.shared.lyricsDidLoad(lines, forSongID: songID)
     }
 
     nonisolated static func toTVLyrics(
