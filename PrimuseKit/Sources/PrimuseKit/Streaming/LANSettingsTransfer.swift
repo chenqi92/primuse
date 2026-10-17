@@ -132,6 +132,8 @@ public enum LANSettingsTransferPolicy {
     public static let lyricsTranscriptionKey = "lyrics.transcription.settings.v1"
     public static let playerEffectKey = "primuse.fullscreenPlayerEffect"
     public static let playerBackdropKey = PlayerBackdropSettings.storageKey
+    /// 百度翻译的 APP ID 与密钥(#320),在 App 里由 `BaiduTranslateCredentialStore` 存取。
+    public static let baiduTranslateSecretAccount = "primuse.lyrics.translation.baidu"
 
     /// 单个设置值、单份刮削配置、单条秘密的上限;配置总量另有上限。请求体整体仍受
     /// `LANTransferSizePolicy.maximumSealedBytes` 约束,这些上限让设置永远挤不掉音乐源。
@@ -165,7 +167,7 @@ public enum LANSettingsTransferPolicy {
     }
 
     /// 秘密只认这几类钥匙串账户:自定义刮削源的 Cookie、歌词 API 服务的 Authorization、
-    /// AI 服务商密钥。源凭据走 `CredentialBundle`,本机专用的中继凭据等一概不在其列。
+    /// AI 服务商密钥、百度翻译的 APP ID 与密钥。源凭据走 `CredentialBundle`,本机专用的中继凭据等一概不在其列。
     public static func category(forSecretAccount account: String) -> LANSettingsCategory? {
         guard !account.isEmpty, account.utf8.count <= maximumSecretAccountLength else { return nil }
         if account.hasPrefix("scraper.cookie.config."), account.count > "scraper.cookie.config.".count {
@@ -177,6 +179,9 @@ public enum LANSettingsTransferPolicy {
         }
         if account.hasPrefix("ai.provider."), account.hasSuffix(".apiKey"),
            account.count > "ai.provider.".count + ".apiKey".count {
+            return .intelligence
+        }
+        if account == baiduTranslateSecretAccount {
             return .intelligence
         }
         return nil

@@ -14,6 +14,8 @@ final class LyricsTranslationCache {
     enum ProviderNamespace: Hashable, Sendable {
         case system
         case intelligent
+        /// 百度翻译开放平台(#320)。
+        case baidu
         /// The downloadable offline model; each model build is its own
         /// namespace, so an update never serves the previous build's lines.
         case local(modelVersion: String)
@@ -43,6 +45,7 @@ final class LyricsTranslationCache {
     private static let schemaVersion = 2
     private static let systemProviderVersion = "apple-translation-v2"
     private static let intelligentProviderVersion = "intelligent-translation-v1"
+    private static let baiduProviderVersion = "baidu-translate-v1"
     /// 翻译失败的冷却时间。避免同一次播放期间反复抢占系统展示链，同时不会把
     /// 临时资源错误或用户取消下载长期视为不支持。
     private static let negativeTTL: TimeInterval = 10 * 60
@@ -218,6 +221,8 @@ final class LyricsTranslationCache {
             providerVersion = systemProviderVersion
         case .intelligent:
             providerVersion = intelligentProviderVersion
+        case .baidu:
+            providerVersion = baiduProviderVersion
         case .local(let modelVersion):
             providerVersion = LocalLyricTranslationPolicy.cacheProviderVersion(modelVersion: modelVersion)
         }

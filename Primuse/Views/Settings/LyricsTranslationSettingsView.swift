@@ -39,15 +39,18 @@ struct LyricsSettingsView: View {
                             Text("lyrics_translation_mode_intelligent")
                                 .tag(LyricsTranslationMode.intelligentWithSystemFallback)
                         }
+                        Text("lyrics_translation_mode_baidu")
+                            .tag(LyricsTranslationMode.baidu)
                     } label: {
                         SettingsInfoLabel("lyrics_translation_mode") {
-                            Text(displayedMode.wrappedValue == .system
-                                 ? "lyrics_translation_mode_system_footer"
-                                 : "lyrics_translation_mode_intelligent_footer")
+                            Text(Self.modeFooterKey(displayedMode.wrappedValue))
                         }
                     }
                     if displayedMode.wrappedValue == .intelligentWithSystemFallback {
                         LyricsAITranslationReadinessRow()
+                    }
+                    if displayedMode.wrappedValue == .baidu {
+                        BaiduTranslateStatusRow()
                     }
                 }
 
@@ -159,13 +162,23 @@ struct LyricsSettingsView: View {
         #endif
     }
 
+    /// 百度翻译用自己的 APP ID，不看智能功能在这个地区开不开放。
     private var displayedMode: Binding<LyricsTranslationMode> {
         Binding(
             get: {
-                intelligence.shouldExposeRemoteConfiguration ? settings.mode : .system
+                settings.mode == .intelligentWithSystemFallback && !intelligence.shouldExposeRemoteConfiguration
+                    ? .system : settings.mode
             },
             set: { settings.mode = $0 }
         )
+    }
+
+    static func modeFooterKey(_ mode: LyricsTranslationMode) -> LocalizedStringKey {
+        switch mode {
+        case .system: "lyrics_translation_mode_system_footer"
+        case .intelligentWithSystemFallback: "lyrics_translation_mode_intelligent_footer"
+        case .baidu: "lyrics_translation_mode_baidu_footer"
+        }
     }
 }
 

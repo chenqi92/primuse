@@ -1772,11 +1772,11 @@ private struct TVLyricsTranslationStatusLine: View {
                         tint: activity.tint, hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
                         isTransient: false)
         }
-        if controller.intelligentIssue != nil {
+        if let issue = controller.intelligentIssue {
             if case .translating = activity { return nil }
             return Line(key: "aiIssue|\(songID)",
-                        text: String(localized: "lyrics_translation_ai_fell_back_offline"),
-                        systemImage: "sparkles", tint: TVColor.warn,
+                        text: issue.fellBackText,
+                        systemImage: issue.systemImage, tint: TVColor.warn,
                         hint: String(localized: "lyrics_translation_tv_open_panel_hint"),
                         isTransient: false)
         }

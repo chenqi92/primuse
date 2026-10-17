@@ -7106,6 +7106,8 @@ struct NowPlayingView: View {
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             lyricsTranslationMode: LyricsTranslationSettingsStore.shared.mode,
             offersSmartLyricsTranslation: intelligence.shouldExposeRemoteConfiguration,
+            offersBaiduLyricsTranslation: BaiduTranslateAccount.shared.isConfigured
+                || LyricsTranslationSettingsStore.shared.mode == .baidu,
             lyricsHaveBundledTranslations: lyricsHaveBundledTranslations,
             showsBundledLyricsTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations,
             fallbackActions: menuFallback,
@@ -11042,6 +11044,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let lyricsTranslationMode: LyricsTranslationMode
     /// 这个地区有智能服务时菜单里才给「智能翻译」。
     let offersSmartLyricsTranslation: Bool
+    /// 填好了百度翻译(或正选着它)时菜单里才给「百度翻译」,没用它的人菜单里不多一项(#320)。
+    let offersBaiduLyricsTranslation: Bool
     /// 这首歌词自带译文时才给「显示歌词自带的译文」。
     let lyricsHaveBundledTranslations: Bool
     let showsBundledLyricsTranslations: Bool
@@ -11820,8 +11824,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Picker(selection: Binding<LyricsTranslationMode?>(
                             get: {
                                 guard snapshot.isLyricsTranslationEnabled else { return nil }
-                                return snapshot.offersSmartLyricsTranslation
-                                    ? snapshot.lyricsTranslationMode : .system
+                                return snapshot.lyricsTranslationMode == .intelligentWithSystemFallback
+                                    && !snapshot.offersSmartLyricsTranslation
+                                    ? .system : snapshot.lyricsTranslationMode
                             },
                             set: { onSelectLyricsTranslation($0) }
                         )) {
@@ -11831,6 +11836,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             if snapshot.offersSmartLyricsTranslation {
                                 Text("lyrics_translation_mode_smart")
                                     .tag(LyricsTranslationMode?.some(.intelligentWithSystemFallback))
+                            }
+                            if snapshot.offersBaiduLyricsTranslation {
+                                Text("lyrics_translation_mode_baidu")
+                                    .tag(LyricsTranslationMode?.some(.baidu))
                             }
                         } label: {
                             EmptyView()
@@ -12115,6 +12124,11 @@ enum LyricsTranslationActivity: Equatable {
     case localTranslating
     /// Those pairs need the offline model, which is not downloaded yet.
     case localModelRequired
+    /// 百度翻译在翻(#320)。
+    case baiduLoading
+    case baiduSuccess
+    /// 选了百度翻译却没用上(没填好、译不成这种语言或请求出错),改用了系统翻译。
+    case baiduNotReady(BaiduTranslateIssue)
 }
 
 extension LyricsAITranslationReadiness {
@@ -14078,6 +14092,22 @@ private struct LyricsTranslationStatusChip: View {
                           systemImage: "character.book.closed.fill", tone: .progress, action: nil)
         case .localModelRequired:
             return localModelStatus
+        case .baiduLoading:
+            return Status(key: "baiduLoading",
+                          title: String(localized: "baidu_translate_loading"),
+                          systemImage: "character.bubble", tone: .progress, action: nil)
+        case .baiduSuccess:
+            return Status(key: "baiduSuccess",
+                          title: String(localized: "baidu_translate_success"),
+                          systemImage: "checkmark.circle.fill", tone: .success, action: nil)
+        case .baiduNotReady(let issue):
+            // 没填好的给一键去设置;译不成或出错的只说原因。
+            return Status(key: "baiduNotReady|\(issue)",
+                          title: issue.notice,
+                          systemImage: "character.bubble", tone: .warning,
+                          action: issue == .notConfigured ? {
+                              SettingsNavigation.shared.open("intelligence.baiduTranslate")
+                          } : nil)
         }
     }
 

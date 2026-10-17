@@ -1170,6 +1170,8 @@ struct MacNowPlayingView: View {
                 Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
             case .intelligentNotReady(let readiness):
                 Label(readiness.systemFallbackNotice, systemImage: "sparkles")
+            case .baiduNotReady(let issue):
+                Label(issue.notice, systemImage: "character.bubble")
             default:
                 EmptyView()
             }
@@ -1189,7 +1191,7 @@ struct MacNowPlayingView: View {
         case .localModelRequired:
             if case .downloading = LocalLyricsTranslationService.shared.modelState { return true }
             return LocalLyricsTranslationService.shared.modelState != .ready
-        case .systemPreparationRequired, .systemUnavailable, .intelligentNotReady:
+        case .systemPreparationRequired, .systemUnavailable, .intelligentNotReady, .baiduNotReady:
             return true
         default:
             return false

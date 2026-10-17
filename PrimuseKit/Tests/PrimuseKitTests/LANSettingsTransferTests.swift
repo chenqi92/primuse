@@ -47,6 +47,8 @@ struct LANSettingsTransferTests {
         #expect(Policy.category(forSecretAccount: "scraper.cookie.config.netease") == .scraping)
         #expect(Policy.category(forSecretAccount: "lyrics.apiServer.1234.authorization") == .lyricsServers)
         #expect(Policy.category(forSecretAccount: "ai.provider.abc.endpoint.https://x|responses|bearer.apiKey") == .intelligence)
+        #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu") == .intelligence)
+        #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu.extra") == nil)
         #expect(Policy.category(forSecretAccount: "scraper.cookie.config.") == nil)
         #expect(Policy.category(forSecretAccount: "scraper.cookie.source.row-id") == nil)
         #expect(Policy.category(forSecretAccount: "lyrics.apiServer.1234") == nil)

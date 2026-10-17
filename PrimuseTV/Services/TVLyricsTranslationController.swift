@@ -17,6 +17,8 @@ final class TVLyricsTranslationController {
         /// `provider` is nil when every line came from the cache.
         case intelligent(provider: String?)
         case offline
+        /// 百度翻译(#320)。
+        case baidu
     }
 
     /// What the translation of the lyrics on screen is doing; the player shows it.
@@ -38,6 +40,8 @@ final class TVLyricsTranslationController {
     enum IntelligentIssue: Equatable {
         case notReady(LyricsAITranslationReadiness)
         case requestFailed
+        /// 选了百度翻译却没用上:没有 APP ID 与密钥、译不成这种语言或请求出错。
+        case baidu(BaiduTranslateIssue)
     }
 
     private(set) var activity: Activity = .idle
@@ -134,6 +138,7 @@ final class TVLyricsTranslationController {
         let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
         let skippedSourceLanguageCodes = settings.skippedSourceLanguageCodes
         let intelligence = settings.mode == .intelligentWithSystemFallback ? self.intelligence : nil
+        let usesBaidu = settings.mode == .baidu
         task = Task { @MainActor [weak self] in
             let prepared: LyricsTranslationPreparer.Prepared
             do {
@@ -193,6 +198,24 @@ final class TVLyricsTranslationController {
                 } else if readiness != .regionUnavailable {
                     // 这个地区没有智能服务时设置里也不给选,照离线翻译包算,不当作出了问题。
                     self.intelligentIssue = .notReady(readiness)
+                }
+            }
+            if usesBaidu {
+                if let issue = BaiduTranslateIssue.current(targetLanguageCode: target) {
+                    self.intelligentIssue = .baidu(issue)
+                } else {
+                    let result = await self.translateWithBaidu(
+                        remaining,
+                        target: target,
+                        deduplication: deduplication,
+                        songID: songID,
+                        store: store,
+                        generation: generation
+                    )
+                    guard self.isCurrent(generation, songID: songID, store: store) else { return }
+                    remaining = result.remaining
+                    if result.translated { intelligentResult = .baidu }
+                    if let issue = result.issue { self.intelligentIssue = .baidu(issue) }
                 }
             }
             guard !remaining.isEmpty else {
@@ -345,6 +368,86 @@ final class TVLyricsTranslationController {
         }
         let engine = provider != nil || cachedCount > 0 ? Engine.intelligent(provider: provider) : nil
         return (pending, engine)
+    }
+
+    /// 百度翻译(#320):先用缓存,再按字节上限分批请求,一批一批写上屏、进缓存。出错时停下,
+    /// 已经翻好的留着,剩下的交给离线翻译包。
+    private func translateWithBaidu(
+        _ groups: [LyricTranslationGroup],
+        target: String,
+        deduplication: LyricTranslationDeduplication,
+        songID: String,
+        store: TVStore,
+        generation: UInt
+    ) async -> (remaining: [LyricTranslationGroup], translated: Bool, issue: BaiduTranslateIssue?) {
+        let cache = LyricsTranslationCache.shared
+        func apply(_ id: String, _ text: String) {
+            for lineID in deduplication.lineIDs(for: id) {
+                store.applyLyricTranslation(text, lineID: lineID, forSongID: songID)
+            }
+        }
+        var landed = Set<String>()
+        var pending: [LyricTranslationGroup] = []
+        for group in groups {
+            let rest = group.candidates.filter { candidate in
+                guard let cached = cache.translation(
+                    for: candidate.text,
+                    sourceLang: group.sourceLanguageCode,
+                    targetLang: target,
+                    provider: .baidu
+                ) else { return true }
+                apply(candidate.id, cached)
+                landed.insert(candidate.id)
+                return false
+            }
+            if !rest.isEmpty {
+                pending.append(LyricTranslationGroup(id: group.id, sourceLanguageCode: group.sourceLanguageCode, candidates: rest))
+            }
+        }
+        guard !pending.isEmpty else { return ([], !landed.isEmpty, nil) }
+
+        activity = .translating(.baidu)
+        let startedAt = ContinuousClock.now
+        var failure: BaiduTranslateError?
+        for group in pending where failure == nil {
+            let texts = group.candidates.map(\.text)
+            for batch in BaiduTranslateAPI.batches(texts) where failure == nil {
+                let results: [String?]
+                do {
+                    results = try await BaiduTranslateClient.shared.translate(
+                        batch.map { texts[$0] },
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        targetLanguageCode: target
+                    )
+                } catch let error as BaiduTranslateError {
+                    failure = error
+                    break
+                } catch {
+                    return (groups, false, nil)
+                }
+                guard isCurrent(generation, songID: songID, store: store) else { return (groups, false, nil) }
+                var pairs: [(source: String, sourceLang: String?, translated: String)] = []
+                for (offset, translated) in results.enumerated() {
+                    guard let translated else { continue }
+                    let candidate = group.candidates[batch[offset]]
+                    apply(candidate.id, translated)
+                    landed.insert(candidate.id)
+                    pairs.append((candidate.text, group.sourceLanguageCode, translated))
+                }
+                cache.bulkSet(pairs, targetLang: target, provider: .baidu)
+            }
+        }
+        plog("🌐 TV lyrics Baidu translation \(landed.count) lines after \(Self.secondsText(since: startedAt)), "
+            + "failure=\(failure.map { "\($0)" } ?? "none")")
+        let account = BaiduTranslateAccount.shared
+        var issue: BaiduTranslateIssue?
+        if let failure {
+            account.recordFailure(failure)
+            issue = failure == .notConfigured ? .notConfigured : .failed(BaiduTranslateAccount.message(for: failure))
+        } else {
+            account.recordSuccess()
+        }
+        return (Self.removing(landed, from: groups), !landed.isEmpty, issue)
     }
 
     private static func removing(_ ids: Set<String>, from groups: [LyricTranslationGroup]) -> [LyricTranslationGroup] {

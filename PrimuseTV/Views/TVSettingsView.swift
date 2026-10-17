@@ -554,11 +554,16 @@ struct TVSettingsView: View {
     }
 
     private var lyricsTranslationSummary: String {
-        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: usesSmartLyricsTranslation)
+        let usesBaidu = translationSettings.mode == .baidu
+        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(
+            intelligent: usesSmartLyricsTranslation || usesBaidu
+        )
         let target = LyricsTranslationSettingsStore.target(translationSettings.targetLanguageCode, within: codes)
-        let mode = String(localized: usesSmartLyricsTranslation
-                          ? "lyrics_translation_mode_smart"
-                          : "lyrics_translation_mode_offline")
+        let mode = usesBaidu
+            ? String(localized: "lyrics_translation_mode_baidu")
+            : String(localized: usesSmartLyricsTranslation
+                     ? "lyrics_translation_mode_smart"
+                     : "lyrics_translation_mode_offline")
         return TVLyricsTranslationPanel.languageName(target) + " · " + mode
     }
 

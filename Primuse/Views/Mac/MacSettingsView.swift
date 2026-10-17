@@ -1016,6 +1016,187 @@ private struct MacAIChoiceMenu<Items: View>: View {
 }
 
 /// 选了智能翻译、它却发不出去时放在翻译方式下面:说明差哪一步,右边就地解决。
+/// 翻译方式选了百度翻译时放在方式下面(#320):填没填好,右边去「智能功能 › 服务 › 百度翻译」填。
+private struct MacBaiduTranslateStatusRow: View {
+    @State private var account = BaiduTranslateAccount.shared
+    /// 已经在智能功能页里时直接切到服务栏,不走设置导航。
+    var openService: (() -> Void)? = nil
+
+    var body: some View {
+        MacSTRow(
+            String(localized: "baidu_translate_title"),
+            hint: account.maskedAppID.map {
+                String(format: String(localized: "baidu_translate_status_ready_format"), $0)
+            } ?? String(localized: "baidu_translate_status_needs_setup"),
+            hintLineLimit: 2
+        ) {
+            MacSTButton(
+                title: String(localized: account.isConfigured ? "baidu_translate_manage" : "baidu_translate_set_up"),
+                prominent: !account.isConfigured
+            ) {
+                if let openService {
+                    openService()
+                } else {
+                    SettingsNavigation.shared.open("intelligence.baiduTranslate")
+                }
+            }
+        }
+        .onAppear { account.reload() }
+    }
+}
+
+/// 智能功能 › 服务里选了「百度翻译」时:APP ID、密钥、测试、移除。
+private struct MacBaiduTranslateSections: View {
+    @Environment(\.openURL) private var openURL
+    @State private var account = BaiduTranslateAccount.shared
+    @State private var translation = LyricsTranslationSettingsStore.shared
+    @State private var appIDDraft = ""
+    @State private var secretKeyDraft = ""
+    @State private var saveFailed = false
+    @State private var isTesting = false
+    @State private var testOutcome: BaiduTranslateAccount.TestOutcome?
+    @State private var showsRemoveConfirmation = false
+
+    private static let developerConsoleURL = URL(string: "https://fanyi-api.baidu.com/manage/developer")!
+
+    var body: some View {
+        Group {
+            if translation.mode != .baidu || !translation.isEnabled {
+                MacSTSection {
+                    MacSTGroup {
+                        MacSTRow(
+                            String(localized: "baidu_translate_usage_unused"),
+                            hintLineLimit: 2,
+                            divider: false
+                        ) {
+                            MacSTButton(title: String(localized: "baidu_translate_use_for_lyrics"), prominent: true) {
+                                pmWithAnimation(.list) {
+                                    translation.isEnabled = true
+                                    translation.mode = .baidu
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            MacSTSection(
+                String(localized: "baidu_translate_credentials_section"),
+                hint: (saveFailed ? String(localized: "baidu_translate_save_failed") + "\n" : "")
+                    + String(localized: "baidu_translate_credentials_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "baidu_translate_app_id"), divider: false) {
+                        MacSTTextField(
+                            text: $appIDDraft,
+                            prompt: account.maskedAppID ?? "20240101000000000",
+                            width: 280
+                        )
+                    }
+                    MacSTRow(String(localized: "baidu_translate_secret_key")) {
+                        MacSTTextField(
+                            text: $secretKeyDraft,
+                            prompt: String(localized: account.isConfigured
+                                           ? "baidu_translate_secret_key_saved"
+                                           : "baidu_translate_secret_key_prompt"),
+                            secure: true,
+                            width: 280
+                        )
+                    }
+                    MacSTRow(String(localized: "baidu_translate_console"), hint: "fanyi-api.baidu.com") {
+                        HStack(spacing: 8) {
+                            MacSTButton(
+                                title: String(localized: "baidu_translate_open_console"),
+                                systemImage: "arrow.up.right.square"
+                            ) {
+                                openURL(Self.developerConsoleURL)
+                            }
+                            MacSTButton(title: String(localized: "baidu_translate_save"), prominent: canSave) {
+                                guard canSave else { return }
+                                saveFailed = !account.save(appID: appIDDraft, secretKey: secretKeyDraft)
+                                if !saveFailed {
+                                    appIDDraft = ""
+                                    secretKeyDraft = ""
+                                    testOutcome = nil
+                                }
+                            }
+                            .disabled(!canSave)
+                        }
+                    }
+                }
+            }
+            if account.isConfigured {
+                MacSTSection(hint: String(localized: "baidu_translate_privacy_footer")) {
+                    MacSTGroup {
+                        MacSTRow(
+                            String(localized: "baidu_translate_test"),
+                            hint: testHint,
+                            hintLineLimit: 8,
+                            divider: false
+                        ) {
+                            HStack(spacing: 8) {
+                                if isTesting { ProgressView().controlSize(.small) }
+                                MacSTButton(title: String(localized: "baidu_translate_test")) { runTest() }
+                                    .disabled(isTesting)
+                            }
+                        }
+                        MacSTRow(String(localized: "baidu_translate_remove")) {
+                            MacSTButton(
+                                title: String(localized: "baidu_translate_remove"),
+                                systemImage: "trash",
+                                destructive: true
+                            ) {
+                                showsRemoveConfirmation = true
+                            }
+                            .confirmationDialog(
+                                String(localized: "baidu_translate_remove_confirm"),
+                                isPresented: $showsRemoveConfirmation
+                            ) {
+                                Button(String(localized: "baidu_translate_remove"), role: .destructive) {
+                                    account.remove()
+                                    testOutcome = nil
+                                }
+                                Button(String(localized: "cancel"), role: .cancel) {}
+                            }
+                        }
+                    }
+                }
+            } else {
+                MacSTSection(hint: String(localized: "baidu_translate_privacy_footer")) {
+                    EmptyView()
+                }
+            }
+        }
+        .onAppear { account.reload() }
+    }
+
+    private var canSave: Bool {
+        !appIDDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !secretKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 测试结果或最近一次出错的原因写在「测试」这一行下面。
+    private var testHint: String? {
+        switch testOutcome {
+        case .success(let samples):
+            return (samples.map { "\($0.original) → \($0.translated)" }
+                + [String(localized: "baidu_translate_test_success")]).joined(separator: "\n")
+        case .failure(let message):
+            return message
+        case nil:
+            return account.lastError
+        }
+    }
+
+    private func runTest() {
+        isTesting = true
+        testOutcome = nil
+        Task {
+            testOutcome = await account.test(lines: [], targetLanguageCode: translation.targetLanguageCode)
+            isTesting = false
+        }
+    }
+}
+
 private struct MacLyricsAITranslationReadinessRow: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     /// 已经在智能功能页里时不再给「前往智能功能」。
@@ -1328,6 +1509,8 @@ private struct MacSTIntelligenceView: View {
     private enum ServiceSelection: Hashable {
         case builtIn
         case provider(UUID)
+        /// 歌词翻译专用的百度翻译(#320)。
+        case baiduTranslate
     }
 
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -1354,6 +1537,7 @@ private struct MacSTIntelligenceView: View {
         "intelligence.relayTest",
         "intelligence.providers",
         "intelligence.addProvider",
+        "intelligence.baiduTranslate",
     ]
 
     var body: some View {
@@ -1397,6 +1581,8 @@ private struct MacSTIntelligenceView: View {
                     builtInQuotaSection
                 case .provider:
                     providerEditorSections
+                case .baiduTranslate:
+                    MacBaiduTranslateSections()
                 }
             }
             }
@@ -1437,6 +1623,8 @@ private struct MacSTIntelligenceView: View {
         if Self.serviceAnchors.contains(focusedSettingsAnchor) {
             if focusedSettingsAnchor == "intelligence.relayTest" {
                 serviceSelection = .builtIn
+            } else if focusedSettingsAnchor == "intelligence.baiduTranslate" {
+                serviceSelection = .baiduTranslate
             }
             tab = .services
         } else {
@@ -1563,6 +1751,7 @@ private struct MacSTIntelligenceView: View {
                                 (.system, String(localized: "lyrics_translation_mode_system")),
                                 (.intelligentWithSystemFallback,
                                  String(localized: "lyrics_translation_mode_intelligent")),
+                                (.baidu, String(localized: "lyrics_translation_mode_baidu")),
                             ],
                             width: 220
                         )
@@ -1571,6 +1760,9 @@ private struct MacSTIntelligenceView: View {
                     if lyricsTranslation.mode == .intelligentWithSystemFallback {
                         routeRow(.lyricsTranslation)
                         MacLyricsAITranslationReadinessRow(linksToIntelligenceSettings: false)
+                    }
+                    if lyricsTranslation.mode == .baidu {
+                        MacBaiduTranslateStatusRow { showService(.baiduTranslate) }
                     }
                 }
                 // 和歌词设置里「罗马音 › 生成方式」是同一个设置;打开后在这里选由谁生成。
@@ -1748,6 +1940,8 @@ private struct MacSTIntelligenceView: View {
         switch serviceSelection {
         case .builtIn:
             return .builtIn
+        case .baiduTranslate:
+            return .baiduTranslate
         case .provider(let id) where editor.provider(id) != nil:
             return .provider(id)
         default:
@@ -1771,6 +1965,8 @@ private struct MacSTIntelligenceView: View {
             return String(localized: "ai_primuse_relay_name")
         case .provider:
             return editor.providerTitle(editor.draftConfiguration)
+        case .baiduTranslate:
+            return String(localized: "baidu_translate_title")
         }
     }
 
@@ -1784,6 +1980,16 @@ private struct MacSTIntelligenceView: View {
                 lines.insert(state.localizedTitle, at: 0)
             }
             return lines.joined(separator: "\n")
+        case .baiduTranslate:
+            let account = BaiduTranslateAccount.shared
+            let translation = LyricsTranslationSettingsStore.shared
+            return [
+                account.maskedAppID.map {
+                    String(format: String(localized: "baidu_translate_status_ready_format"), $0)
+                } ?? String(localized: "baidu_translate_status_needs_setup"),
+                String(localized: translation.isEnabled && translation.mode == .baidu
+                       ? "baidu_translate_usage_lyrics" : "baidu_translate_usage_unused"),
+            ].joined(separator: "\n")
         }
     }
 
@@ -1821,6 +2027,20 @@ private struct MacSTIntelligenceView: View {
                                                 == .provider(provider.id)
                                         )
                                     }
+                                }
+                            }
+                            // 不是对话模型、只给某一个功能用的服务。
+                            Section {
+                                Button {
+                                    showService(.baiduTranslate)
+                                } label: {
+                                    AIMenuChoiceLabel(
+                                        title: String(localized: "baidu_translate_title"),
+                                        detail: String(localized: BaiduTranslateAccount.shared.isConfigured
+                                                       ? "baidu_translate_menu_detail"
+                                                       : "baidu_translate_menu_detail_needs_setup"),
+                                        isSelected: resolvedServiceSelection == .baiduTranslate
+                                    )
                                 }
                             }
                         }
@@ -5248,8 +5468,9 @@ private struct MacSTLyricsView: View {
                         MacSTPicker(
                             selection: Binding(
                                 get: {
-                                    intelligence.shouldExposeRemoteConfiguration
-                                        ? settings.mode.rawValue : LyricsTranslationMode.system.rawValue
+                                    settings.mode == .intelligentWithSystemFallback
+                                        && !intelligence.shouldExposeRemoteConfiguration
+                                        ? LyricsTranslationMode.system.rawValue : settings.mode.rawValue
                                 },
                                 set: { settings.mode = LyricsTranslationMode(rawValue: $0) ?? .system }
                             ),
@@ -5259,6 +5480,10 @@ private struct MacSTLyricsView: View {
                     if intelligence.shouldExposeRemoteConfiguration,
                        settings.mode == .intelligentWithSystemFallback {
                         MacLyricsAITranslationReadinessRow()
+                    }
+                    if settings.mode == .baidu {
+                        MacBaiduTranslateStatusRow()
+                            .settingsAnchor("lyrics.baiduTranslate")
                     }
                     MacSTRow(String(localized: "lyrics_translation_target")) {
                         MacSTPicker(
@@ -5526,6 +5751,11 @@ private struct MacSTLyricsView: View {
                 String(localized: "lyrics_translation_mode_intelligent")
             ))
         }
+        // 百度翻译用自己的 APP ID,不看智能功能在这个地区开不开放。
+        options.append((
+            LyricsTranslationMode.baidu.rawValue,
+            String(localized: "lyrics_translation_mode_baidu")
+        ))
         return options
     }
 }

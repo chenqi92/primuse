@@ -51,6 +51,10 @@ enum LANSettingsExporter {
         for (account, apiKey) in await aiAPIKeys(defaults: defaults) {
             secrets[account] = apiKey
         }
+        // 百度翻译(#320):电视上翻译方式选百度翻译时用这一份。
+        if let baidu = KeychainService.getPassword(for: BaiduTranslateCredentialStore.account) {
+            secrets[BaiduTranslateCredentialStore.account] = baidu
+        }
 
         if bundle.values[LANSettingsTransferPolicy.playerBackdropKey] != nil {
             bundle.backdropImages = await backdropImages(defaults: defaults)
@@ -141,6 +145,7 @@ enum LANSettingsExporter {
         assert(LANSettingsTransferPolicy.aiSettingsKey == AISettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.lyricsTranscriptionKey == LyricsTranscriptionSettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.playerEffectKey == FullscreenPlayerEffect.storageKey)
+        assert(LANSettingsTransferPolicy.baiduTranslateSecretAccount == BaiduTranslateCredentialStore.account)
     }
     #endif
 }

@@ -72,6 +72,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let localModelRevision: UInt
         /// 选了智能翻译时它此刻发不发得出去;同意了内置 AI、允许了发送或配好了服务就重来。
         let intelligentReadiness: LyricsAITranslationReadiness?
+        /// 选了百度翻译时 APP ID 与密钥的版本:填好、换掉或移除后重来。
+        let baiduRevision: UInt?
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -89,7 +91,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration,
             localModelRevision: localTranslation.modelRevision,
             intelligentReadiness: settings.mode == .intelligentWithSystemFallback
-                ? intelligence.lyricsAITranslationReadiness : nil
+                ? intelligence.lyricsAITranslationReadiness : nil,
+            baiduRevision: settings.mode == .baidu ? BaiduTranslateAccount.shared.revision : nil
         )
     }
 
@@ -160,9 +163,14 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let usesIntelligentProvider = wantsIntelligentProvider && identity.intelligentReadiness == .ready
         // 选了智能翻译却发不出去(没同意内置 AI、没允许发送、没有服务):照常用系统翻译,
         // 但说清楚差哪一步,别让人以为智能翻译坏了或者根本没生效。
-        let intelligentNotice: LyricsTranslationActivity? = wantsIntelligentProvider && !usesIntelligentProvider
+        var intelligentNotice: LyricsTranslationActivity? = wantsIntelligentProvider && !usesIntelligentProvider
             ? identity.intelligentReadiness.map(LyricsTranslationActivity.intelligentNotReady)
             : nil
+        // 选了百度翻译却没填好、或百度译不成这种语言:同样照常用系统翻译,并说明原因。
+        let baiduIssue = identity.mode == .baidu
+            ? BaiduTranslateIssue.current(targetLanguageCode: identity.targetLanguageCode) : nil
+        let usesBaidu = identity.mode == .baidu && baiduIssue == nil
+        if let baiduIssue { intelligentNotice = .baiduNotReady(baiduIssue) }
         let prefetcher = LyricsTranslationPrefetcher.shared
         if usesIntelligentProvider, let songID = identity.songID {
             // The previous song may already be translating this one; its
@@ -176,7 +184,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             prefetcher.cancel()
         }
         let preferredCacheProvider: LyricsTranslationCache.ProviderNamespace =
-            usesIntelligentProvider ? .intelligent : .system
+            usesIntelligentProvider ? .intelligent : (usesBaidu ? .baidu : .system)
         var hits = manualTranslations
         var uncachedGroups: [LyricTranslationGroup] = []
 
@@ -209,9 +217,23 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         guard !uncachedGroups.isEmpty else {
             if preferredCacheProvider == .intelligent, !hits.isEmpty {
                 activity = .intelligentCached
+            } else if preferredCacheProvider == .baidu, !hits.isEmpty {
+                activity = .baiduSuccess
             }
             if usesIntelligentProvider { prefetchUpcomingSong(identity: identity) }
             return
+        }
+
+        if usesBaidu {
+            guard let outcome = await translateWithBaidu(
+                uncachedGroups,
+                identity: identity,
+                deduplication: deduplication,
+                hits: &hits
+            ) else { return }
+            uncachedGroups = outcome.remaining
+            if let issue = outcome.issue { intelligentNotice = .baiduNotReady(issue) }
+            guard !uncachedGroups.isEmpty else { return }
         }
 
         if usesIntelligentProvider {
@@ -636,6 +658,81 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         guard !pairs.isEmpty else { return }
         LyricsTranslationCache.shared.bulkSet(pairs, targetLang: targetLanguageCode, provider: provider)
         pairs.removeAll(keepingCapacity: true)
+    }
+
+    /// 百度翻译(#320):一组(同一源语言)按字节上限分批发出去,翻完一批写回一批、进缓存。出错时停下,
+    /// 已经翻好的留着,剩下的(`remaining`)交给后面的系统翻译。身份变了或被取消时返回 nil。
+    private func translateWithBaidu(
+        _ groups: [LyricTranslationGroup],
+        identity: TranslationTaskIdentity,
+        deduplication: LyricTranslationDeduplication,
+        hits: inout [String: String]
+    ) async -> (remaining: [LyricTranslationGroup], issue: BaiduTranslateIssue?)? {
+        activity = .baiduLoading
+        let startedAt = ContinuousClock.now
+        var remaining: [LyricTranslationGroup] = []
+        var failure: BaiduTranslateError?
+        var translatedCount = 0
+        for group in groups {
+            let texts = group.candidates.map(\.text)
+            var translatedIDs = Set<String>()
+            for batch in BaiduTranslateAPI.batches(texts) where failure == nil {
+                let results: [String?]
+                do {
+                    results = try await BaiduTranslateClient.shared.translate(
+                        batch.map { texts[$0] },
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        targetLanguageCode: identity.targetLanguageCode
+                    )
+                } catch let error as BaiduTranslateError {
+                    failure = error
+                    break
+                } catch {
+                    return nil
+                }
+                guard !Task.isCancelled, translationTaskIdentity == identity else { return nil }
+                var updates: [String: String] = [:]
+                var cachePairs: [(source: String, sourceLang: String?, translated: String)] = []
+                for (offset, translated) in results.enumerated() {
+                    guard let translated else { continue }
+                    let candidate = group.candidates[batch[offset]]
+                    updates[candidate.id] = translated
+                    cachePairs.append((candidate.text, group.sourceLanguageCode, translated))
+                }
+                guard !updates.isEmpty else { continue }
+                LyricsTranslationCache.shared.bulkSet(
+                    cachePairs,
+                    targetLang: identity.targetLanguageCode,
+                    provider: .baidu
+                )
+                hits.merge(updates) { _, new in new }
+                translatedTextByLineID.merge(deduplication.expanding(updates)) { _, new in new }
+                translatedIDs.formUnion(updates.keys)
+                translatedCount += updates.count
+            }
+            let left = group.candidates.filter { !translatedIDs.contains($0.id) }
+            if !left.isEmpty {
+                remaining.append(LyricTranslationGroup(
+                    id: group.id,
+                    sourceLanguageCode: group.sourceLanguageCode,
+                    candidates: left
+                ))
+            }
+        }
+        plog("🌐 Lyrics Baidu translation finished after \(Self.secondsText(since: startedAt)), "
+            + "\(translatedCount) lines, failure=\(failure.map { "\($0)" } ?? "none")")
+        let account = BaiduTranslateAccount.shared
+        guard let failure else {
+            account.recordSuccess()
+            activity = translatedCount > 0 ? .baiduSuccess : .idle
+            return (remaining, nil)
+        }
+        account.recordFailure(failure)
+        let issue: BaiduTranslateIssue = failure == .notConfigured
+            ? .notConfigured
+            : .failed(BaiduTranslateAccount.message(for: failure))
+        activity = .baiduNotReady(issue)
+        return (remaining, issue)
     }
 
     private static func secondsText(since start: ContinuousClock.Instant) -> String {

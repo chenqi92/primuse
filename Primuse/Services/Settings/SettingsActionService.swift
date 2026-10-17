@@ -64,8 +64,14 @@ struct SettingsActionService {
                 let code = LyricsTranslationSettingsStore.shared.targetLanguageCode
                 value = Locale.current.localizedString(forIdentifier: code) ?? code
             case "lyrics.translationMode":
-                value = String(localized: !showsIntelligence || LyricsTranslationSettingsStore.shared.mode == .system
-                               ? "lyrics_translation_mode_system" : "lyrics_translation_mode_intelligent")
+                switch LyricsTranslationSettingsStore.shared.mode {
+                case .baidu:
+                    value = String(localized: "lyrics_translation_mode_baidu")
+                case .intelligentWithSystemFallback where showsIntelligence:
+                    value = String(localized: "lyrics_translation_mode_intelligent")
+                case .system, .intelligentWithSystemFallback:
+                    value = String(localized: "lyrics_translation_mode_system")
+                }
             case "about.version": value = Bundle.main.appVersion
             case "about.build": value = Bundle.main.appBuildNumber
             default: break

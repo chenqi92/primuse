@@ -831,6 +831,10 @@ extension TVLyricsTranslationController.Activity {
             return String(localized: "lyrics_translation_ai_loading")
         case .translating(.offline):
             return String(localized: "lyrics_translation_local_translating")
+        case .translating(.baidu):
+            return String(localized: "baidu_translate_loading")
+        case .done(.baidu):
+            return String(localized: "baidu_translate_success")
         case .done(.intelligent(let provider)):
             guard let provider else { return String(localized: "lyrics_translation_ai_cached") }
             return String(format: String(localized: "lyrics_translation_ai_success_format"), provider)
@@ -853,6 +857,7 @@ extension TVLyricsTranslationController.Activity {
         case .idle, .notNeeded: "character.bubble"
         case .translating(.intelligent), .done(.intelligent): "sparkles"
         case .translating(.offline), .done(.offline): "character.book.closed"
+        case .translating(.baidu), .done(.baidu): "character.bubble"
         case .needsModel: "arrow.down.circle"
         case .unsupported, .failed: "exclamationmark.triangle"
         }
@@ -887,13 +892,32 @@ extension TVLyricsTranslationController.IntelligentIssue {
             String(localized: "lyrics_translation_ai_no_service")
         case .notReady(.ready), .notReady(.regionUnavailable), .requestFailed:
             String(localized: "lyrics_translation_ai_request_failed")
+        case .baidu(.notConfigured):
+            String(localized: "baidu_translate_tv_needs_setup")
+        case .baidu(let issue):
+            issue.reason
+        }
+    }
+
+    /// 播放页歌词上方那一行:没用上、改用了离线翻译包。
+    var fellBackText: String {
+        switch self {
+        case .baidu: String(localized: "baidu_translate_tv_fell_back_offline")
+        case .notReady, .requestFailed: String(localized: "lyrics_translation_ai_fell_back_offline")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .baidu: "character.bubble"
+        case .notReady, .requestFailed: "sparkles"
         }
     }
 }
 
 /// 歌词翻译:开关、译成什么、交给谁翻,以及这首歌现在翻成什么样。播放页的翻译键和设置页
-/// 都打开它。电视没有系统翻译,翻译方式只有离线翻译包与智能翻译两种;智能翻译没用上时
-/// 这里说清楚差哪一步,并就地给出解决办法。
+/// 都打开它。电视没有系统翻译,翻译方式是离线翻译包、智能翻译与百度翻译三种;智能翻译或
+/// 百度翻译没用上时这里说清楚差哪一步,并就地给出解决办法。
 struct TVLyricsTranslationPanel: View {
     @Environment(TVStore.self) private var store
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -914,8 +938,9 @@ struct TVLyricsTranslationPanel: View {
     private var usesSmartTranslation: Bool {
         offersSmartTranslation && settings.mode == .intelligentWithSystemFallback
     }
+    private var usesBaidu: Bool { settings.mode == .baidu }
     private var targetCodes: [String] {
-        LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: usesSmartTranslation)
+        LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: usesSmartTranslation || usesBaidu)
     }
     private var target: String {
         LyricsTranslationSettingsStore.target(settings.targetLanguageCode, within: targetCodes)
@@ -930,6 +955,7 @@ struct TVLyricsTranslationPanel: View {
                     if showsCurrentSong { currentSongSection }
                     preferencesSection
                     if settings.isEnabled, usesSmartTranslation { smartSection }
+                    if settings.isEnabled, usesBaidu { baiduSection }
                     if settings.isEnabled { offlineSection }
                 }
                 .frame(maxWidth: 1240, alignment: .leading)
@@ -1019,7 +1045,7 @@ struct TVLyricsTranslationPanel: View {
                 }
                 if let issue = controller.intelligentIssue, controller.activitySongID == songID {
                     TVAIDivider()
-                    TVAINoteRow(icon: "sparkles", tint: TVColor.warn, text: issue.explanation)
+                    TVAINoteRow(icon: issue.systemImage, tint: TVColor.warn, text: issue.explanation)
                     if case .notReady(let readiness) = issue {
                         fixRow(for: readiness)
                     }
@@ -1077,39 +1103,114 @@ struct TVLyricsTranslationPanel: View {
                     showsSkippedLanguagePicker = true
                 }
                 .accessibilityIdentifier("tv.lyricsTranslation.skippedLanguages")
-                if offersSmartTranslation {
-                    TVAIDivider()
-                    TVAIActionRow(
-                        icon: usesSmartTranslation ? "sparkles" : "character.book.closed",
-                        title: String(localized: "lyrics_translation_mode"),
-                        value: String(localized: usesSmartTranslation
-                                      ? "lyrics_translation_mode_smart"
-                                      : "lyrics_translation_mode_offline"),
-                        trailing: "arrow.left.arrow.right"
-                    ) {
-                        toggleMode()
-                    }
-                    .accessibilityIdentifier("tv.lyricsTranslation.mode")
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: modeIcon,
+                    title: String(localized: "lyrics_translation_mode"),
+                    value: modeTitle,
+                    trailing: "arrow.left.arrow.right"
+                ) {
+                    cycleMode()
                 }
+                .accessibilityIdentifier("tv.lyricsTranslation.mode")
                 TVAIDivider()
                 TVAINoteRow(
                     icon: "info.circle",
                     tint: TVColor.textFaint,
-                    text: String(localized: usesSmartTranslation
-                                 ? "lyrics_translation_tv_mode_smart_footer"
-                                 : "lyrics_translation_tv_mode_offline_footer")
+                    text: modeFooter
                 )
             }
         }
     }
 
-    private func toggleMode() {
-        let smart = !usesSmartTranslation
-        // 离线翻译包只覆盖几种语言:从智能翻译换回来时目标语言跟着落到它能译的那几种里。
-        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: smart)
+    /// 能选的方式:离线翻译包、(这个地区有智能服务时)智能翻译、百度翻译。电视上 `.system` 就是离线翻译包。
+    private var offeredModes: [LyricsTranslationMode] {
+        offersSmartTranslation ? [.system, .intelligentWithSystemFallback, .baidu] : [.system, .baidu]
+    }
+
+    private var currentMode: LyricsTranslationMode {
+        usesSmartTranslation ? .intelligentWithSystemFallback : (usesBaidu ? .baidu : .system)
+    }
+
+    private var modeTitle: String {
+        switch currentMode {
+        case .intelligentWithSystemFallback: String(localized: "lyrics_translation_mode_smart")
+        case .baidu: String(localized: "lyrics_translation_mode_baidu")
+        case .system: String(localized: "lyrics_translation_mode_offline")
+        }
+    }
+
+    private var modeIcon: String {
+        switch currentMode {
+        case .intelligentWithSystemFallback: "sparkles"
+        case .baidu: "character.bubble"
+        case .system: "character.book.closed"
+        }
+    }
+
+    private var modeFooter: String {
+        switch currentMode {
+        case .intelligentWithSystemFallback: String(localized: "lyrics_translation_tv_mode_smart_footer")
+        case .baidu: String(localized: "lyrics_translation_tv_mode_baidu_footer")
+        case .system: String(localized: "lyrics_translation_tv_mode_offline_footer")
+        }
+    }
+
+    /// 点一下换到下一种方式。
+    private func cycleMode() {
+        let modes = offeredModes
+        let index = modes.firstIndex(of: currentMode) ?? 0
+        setMode(modes[(index + 1) % modes.count])
+    }
+
+    private func setMode(_ mode: LyricsTranslationMode) {
+        // 离线翻译包只覆盖几种语言:换回它时目标语言跟着落到它能译的那几种里。
+        let codes = LyricsTranslationSettingsStore.tvTargetLanguages(intelligent: mode != .system)
         let newTarget = LyricsTranslationSettingsStore.target(settings.targetLanguageCode, within: codes)
         if newTarget != settings.targetLanguageCode { settings.targetLanguageCode = newTarget }
-        settings.mode = smart ? .intelligentWithSystemFallback : .system
+        settings.mode = mode
+    }
+
+    // MARK: 百度翻译
+
+    /// 电视上不填 APP ID 和密钥(遥控器输长串太累):用 iPhone、iPad 或 Mac 上填好的那一份,
+    /// 经 iCloud 钥匙串同步过来,或者随扫码直传带过来。
+    private var baiduSection: some View {
+        TVAISection(title: String(localized: "lyrics_translation_mode_baidu")) {
+            let account = BaiduTranslateAccount.shared
+            if let masked = account.maskedAppID {
+                TVAINoteRow(
+                    icon: "checkmark.circle.fill",
+                    tint: TVColor.ok,
+                    text: String(format: String(localized: "baidu_translate_status_ready_format"), masked)
+                )
+                if let lastError = account.lastError {
+                    TVAIDivider()
+                    TVAINoteRow(icon: "exclamationmark.circle", tint: TVColor.warn, text: lastError)
+                }
+            } else {
+                TVAINoteRow(
+                    icon: "exclamationmark.circle",
+                    tint: TVColor.warn,
+                    text: String(localized: "baidu_translate_tv_needs_setup")
+                )
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: "arrow.clockwise",
+                    title: String(localized: "baidu_translate_tv_check_again")
+                ) {
+                    account.reload()
+                    controller.retranslateCurrentLyrics()
+                }
+            }
+            TVAIDivider()
+            TVAINoteRow(
+                icon: "info.circle",
+                tint: TVColor.textFaint,
+                text: String(localized: "baidu_translate_privacy_footer")
+            )
+        }
+        .onAppear { BaiduTranslateAccount.shared.reload() }
     }
 
     // MARK: 智能翻译
@@ -1207,7 +1308,7 @@ struct TVLyricsTranslationPanel: View {
                 packRow(pack)
             }
             // 翻译包下不来(App Store 那边暂时不给)时,能换智能翻译就给一键换过去。
-            if offersSmartTranslation, !usesSmartTranslation,
+            if offersSmartTranslation, currentMode == .system,
                packs.contains(where: { local.modelState(for: $0) == .failed }) {
                 TVAIDivider()
                 TVAIActionRow(
@@ -1215,7 +1316,7 @@ struct TVLyricsTranslationPanel: View {
                     title: String(localized: "lyrics_translation_offline_failed_try_smart"),
                     trailing: "arrow.left.arrow.right"
                 ) {
-                    toggleMode()
+                    setMode(.intelligentWithSystemFallback)
                 }
             }
             TVAIDivider()

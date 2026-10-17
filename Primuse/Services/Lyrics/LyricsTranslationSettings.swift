@@ -8,6 +8,8 @@ import Translation
 enum LyricsTranslationMode: String, Codable, CaseIterable, Sendable {
     case system
     case intelligentWithSystemFallback
+    /// 百度翻译开放平台，用自己的 APP ID 与密钥(#320)；没填好或出错时同样改用系统翻译。
+    case baidu
 }
 
 /// 歌词翻译设置 — 启用开关 + 目标语言。
@@ -161,7 +163,7 @@ final class LyricsTranslationSettingsStore {
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             isEnabled = decoded.isEnabled
             targetLanguageCode = decoded.targetLanguageCode
-            mode = decoded.mode ?? .system
+            mode = decoded.mode.flatMap(LyricsTranslationMode.init(rawValue:)) ?? .system
             skippedSourceLanguageCodes = Self.normalizedSkippedLanguageCodes(
                 decoded.skippedSourceLanguageCodes ?? []
             )
@@ -299,7 +301,7 @@ final class LyricsTranslationSettingsStore {
         let p = Persisted(
             isEnabled: isEnabled,
             targetLanguageCode: targetLanguageCode,
-            mode: mode,
+            mode: mode.rawValue,
             skippedSourceLanguageCodes: skippedSourceLanguageCodes,
             showsBundledTranslations: showsBundledTranslations
         )
@@ -315,7 +317,8 @@ final class LyricsTranslationSettingsStore {
     private struct Persisted: Codable {
         let isEnabled: Bool
         let targetLanguageCode: String
-        let mode: LyricsTranslationMode?
+        /// 存成字符串：以后再加翻译方式，老版本读到认不出的值只退回系统翻译，不会整份设置丢掉。
+        let mode: String?
         let skippedSourceLanguageCodes: [String]?
         let showsBundledTranslations: Bool?
     }

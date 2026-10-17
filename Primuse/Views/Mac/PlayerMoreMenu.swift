@@ -827,7 +827,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     private var selectedLyricsTranslationChoice: LyricsTranslationMode? {
         let settings = LyricsTranslationSettingsStore.shared
         guard settings.isEnabled else { return nil }
-        return offersSmartLyricsTranslation ? settings.mode : .system
+        return settings.mode == .intelligentWithSystemFallback && !offersSmartLyricsTranslation
+            ? .system : settings.mode
     }
 
     private func lyricsTranslationChoiceTitle(_ choice: LyricsTranslationMode?) -> LocalizedStringKey {
@@ -835,13 +836,18 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         case nil: "lyrics_translation_mode_off"
         case .system: "lyrics_translation_mode_system"
         case .intelligentWithSystemFallback: "lyrics_translation_mode_smart"
+        case .baidu: "lyrics_translation_mode_baidu"
         }
     }
 
     private var translationPickerPopover: some View {
-        let choices: [LyricsTranslationMode?] = offersSmartLyricsTranslation
+        var choices: [LyricsTranslationMode?] = offersSmartLyricsTranslation
             ? [nil, .system, .intelligentWithSystemFallback]
             : [nil, .system]
+        // 填好了百度翻译(或正选着它)才列出来,没用它的人不多一项(#320)。
+        if BaiduTranslateAccount.shared.isConfigured || LyricsTranslationSettingsStore.shared.mode == .baidu {
+            choices.append(.baidu)
+        }
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(choices, id: \.self) { choice in
                 Button {

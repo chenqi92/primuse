@@ -1247,6 +1247,8 @@ struct AISettingsView: View {
     private enum ServiceSelection: Hashable {
         case builtIn
         case provider(UUID)
+        /// 歌词翻译专用的百度翻译(#320),不是对话模型,只管 APP ID 与密钥。
+        case baiduTranslate
     }
 
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -1274,6 +1276,7 @@ struct AISettingsView: View {
         "intelligence.relayTest",
         "intelligence.providers",
         "intelligence.addProvider",
+        "intelligence.baiduTranslate",
     ]
 
     var body: some View {
@@ -1315,6 +1318,8 @@ struct AISettingsView: View {
                         actionSection
                         providerManagementSection
                         providerPrivacySection
+                    case .baiduTranslate:
+                        BaiduTranslateSettingsSections()
                     }
                 }
             }
@@ -1378,6 +1383,8 @@ struct AISettingsView: View {
         if Self.serviceAnchors.contains(focusedSettingsAnchor) {
             if focusedSettingsAnchor == "intelligence.relayTest" {
                 serviceSelection = .builtIn
+            } else if focusedSettingsAnchor == "intelligence.baiduTranslate" {
+                serviceSelection = .baiduTranslate
             }
             tab = .services
         } else {
@@ -1490,10 +1497,27 @@ struct AISettingsView: View {
                         .tag(LyricsTranslationMode.system)
                     Text("lyrics_translation_mode_intelligent")
                         .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                    Text("lyrics_translation_mode_baidu")
+                        .tag(LyricsTranslationMode.baidu)
                 }
                 if lyricsTranslation.mode == .intelligentWithSystemFallback {
                     routeRow(.lyricsTranslation)
                     LyricsAITranslationReadinessRow(linksToIntelligenceSettings: false)
+                }
+                if lyricsTranslation.mode == .baidu {
+                    Button {
+                        showService(.baiduTranslate)
+                    } label: {
+                        LabeledContent {
+                            Text(BaiduTranslateAccount.shared.isConfigured
+                                 ? "baidu_translate_status_ready" : "baidu_translate_status_needs_setup")
+                                .font(.caption)
+                                .foregroundStyle(BaiduTranslateAccount.shared.isConfigured ? Color.secondary : Color.orange)
+                        } label: {
+                            Label("baidu_translate_title", systemImage: "character.bubble")
+                        }
+                    }
+                    .foregroundStyle(.primary)
                 }
             }
 
@@ -1708,6 +1732,8 @@ struct AISettingsView: View {
         switch serviceSelection {
         case .builtIn:
             return .builtIn
+        case .baiduTranslate:
+            return .baiduTranslate
         case .provider(let id) where editor.provider(id) != nil:
             return .provider(id)
         default:
@@ -1729,6 +1755,8 @@ struct AISettingsView: View {
             return String(localized: "ai_settings_engine_builtin")
         case .provider:
             return editor.providerTitle(editor.draftConfiguration)
+        case .baiduTranslate:
+            return String(localized: "baidu_translate_title")
         }
     }
 
@@ -1756,6 +1784,20 @@ struct AISettingsView: View {
                             isSelected: resolvedServiceSelection == .provider(provider.id)
                         )
                     }
+                }
+            }
+            // 不是对话模型、只给某一个功能用的服务。
+            Section {
+                Button {
+                    showService(.baiduTranslate)
+                } label: {
+                    AIMenuChoiceLabel(
+                        title: String(localized: "baidu_translate_title"),
+                        detail: String(localized: BaiduTranslateAccount.shared.isConfigured
+                                       ? "baidu_translate_menu_detail"
+                                       : "baidu_translate_menu_detail_needs_setup"),
+                        isSelected: resolvedServiceSelection == .baiduTranslate
+                    )
                 }
             }
             Section {
