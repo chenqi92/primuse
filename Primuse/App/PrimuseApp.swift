@@ -1335,9 +1335,11 @@ private struct LibraryReplacementObserver: View {
                           songID: currentSong.id,
                           artworkReference: currentSong.coverArtFileName,
                           object: note.object as? String,
-                          tokens: ["songID", "oldRef", "newRef"].compactMap { note.userInfo?[$0] as? String }
+                          tokens: ArtworkInvalidationBatch.from(note).map { batch in
+                              [currentSong.id, currentSong.coverArtFileName].compactMap { $0 }.filter(batch.contains)
+                          } ?? (["songID", "oldRef", "newRef"].compactMap { note.userInfo?[$0] as? String }
                               + (note.userInfo?["tokens"] as? [String] ?? [])
-                              + (note.userInfo?["songIDs"] as? [String] ?? []),
+                              + (note.userInfo?["songIDs"] as? [String] ?? [])),
                           isBroadcastToAll: note.userInfo?["all"] as? Bool == true
                       ) else { return }
                 PrimuseApp.refreshNowPlayingArtwork(

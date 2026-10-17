@@ -1131,6 +1131,75 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 扫描中间提交的派生字段先在后台算好: 入库结果要和原路逐首算的一模一样;
+    /// 准备期间改了歌手名规则, 就照原路按新规则算。
+    func testPreparedScanRowsLandExactlyLikeRawRows() async throws {
+        var directories: [URL] = []
+        defer { directories.forEach { try? FileManager.default.removeItem(at: $0) } }
+        func makeLibrary() -> MusicLibrary {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("PrimusePreparedScanRows-\(UUID().uuidString)", isDirectory: true)
+            directories.append(directory)
+            return MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { true })
+        }
+        let rows: [Song] = (0..<6).map { index in
+            var song = makeSong(id: "row-\(index)", path: "/music/Artist X - Title \(index).mp3")
+            song.title = "Artist X - Title \(index)"
+            song.artistName = index.isMultiple(of: 2) ? "Artist X & Guest;Other" : nil
+            song.albumTitle = index < 3 ? "Album One" : nil
+            return song
+        }
+        func commitRaw(_ library: MusicLibrary) {
+            library.addSongs(
+                rows,
+                affectedSourceIDs: ["source-1"],
+                notifyRemovals: false,
+                pruneMissingSongs: false,
+                indexMaintenance: .deferredIncremental
+            )
+        }
+
+        let raw = makeLibrary()
+        commitRaw(raw)
+        let preparedLibrary = makeLibrary()
+        let prepared = await preparedLibrary.prepareIncomingSongsOffMain(rows)
+        preparedLibrary.addSongs(
+            prepared,
+            affectedSourceIDs: ["source-1"],
+            mergeServerCatalogRows: false,
+            indexMaintenance: .deferredIncremental
+        )
+        XCTAssertEqual(preparedLibrary.songs, raw.songs)
+        XCTAssertNotNil(preparedLibrary.songs.first?.artistID)
+
+        let renamed = ArtistNameConfiguration(
+            separators: ["&"],
+            protectedNames: [],
+            displaySeparator: " & "
+        )
+        let rawRenamed = makeLibrary()
+        rawRenamed.updateArtistNameConfiguration(renamed)
+        commitRaw(rawRenamed)
+        let staleLibrary = makeLibrary()
+        let stale = await staleLibrary.prepareIncomingSongsOffMain(rows)
+        staleLibrary.updateArtistNameConfiguration(renamed)
+        staleLibrary.addSongs(
+            stale,
+            affectedSourceIDs: ["source-1"],
+            mergeServerCatalogRows: false,
+            indexMaintenance: .deferredIncremental
+        )
+        XCTAssertEqual(staleLibrary.songs, rawRenamed.songs)
+        XCTAssertNotEqual(rawRenamed.songs.first?.artistID, raw.songs.first?.artistID)
+
+        for library in [raw, preparedLibrary, rawRenamed, staleLibrary] {
+            await library.waitForPendingIndex()
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("The prepared scan rows fixture did not finish persistence")
+            }
+        }
+    }
+
     private func makeSong(id: String, path: String) -> Song {
         Song(
             id: id,

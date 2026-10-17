@@ -788,6 +788,29 @@ struct MetadataReadSchedulerTests {
         #expect(reads == [1, 2])
     }
 
+    /// 不等间隔、没有快速通道时只在开读那一刻再判一次: 少回一趟主线程,
+    /// 入队之后才失效的条目照样不读。
+    @Test @MainActor func undelayedItemsAreCheckedOnceMoreRightBeforeReading() async {
+        let scheduler = MetadataReadScheduler<Int, Int>()
+        var checks: [Int: Int] = [:]
+        var reads: [Int] = []
+        var completed: [Int] = []
+        let cancelled = await scheduler.run(
+            items: [1, 2, 3],
+            limits: { .init(workerCount: 2, snapshotLimit: 3, interRequestDelay: 0, flushInterval: 1) },
+            shouldRead: { item in
+                checks[item, default: 0] += 1
+                return item != 2 || checks[item, default: 0] == 1
+            },
+            read: { item in reads.append(item); return item },
+            completed: { item, _ in completed.append(item) }
+        )
+        #expect(!cancelled)
+        #expect(reads.sorted() == [1, 3])
+        #expect(completed.sorted() == [1, 3])
+        #expect(checks == [1: 2, 2: 2, 3: 2])
+    }
+
     @Test @MainActor func invalidatedDelayedItemNeverStartsReading() async throws {
         let scheduler = MetadataReadScheduler<Int, Int>()
         var valid = true

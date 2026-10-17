@@ -4456,7 +4456,6 @@ final class TVStore {
         final: Bool,
         sinceLastCommit: TimeInterval
     ) async throws {
-        let startedAt = ProcessInfo.processInfo.systemUptime
         var addMs = 0, persistMs = 0
         if !batch.isEmpty {
             var replacements: [String: String] = [:]
@@ -4469,10 +4468,13 @@ final class TVStore {
                 scanExistingIDsByFile[key] = song.id
             }
             applySongIDReplacements(replacements)
-            library.addSongs(batch, affectedSourceIDs: nil, notifyRemovals: false, pruneMissingSongs: false,
+            // 逐首的派生字段先在后台算好, 主线程上只做合并; addMs 只算合并这一段。
+            let prepared = await library.prepareIncomingSongsOffMain(batch)
+            let addStartedAt = ProcessInfo.processInfo.systemUptime
+            library.addSongs(prepared, affectedSourceIDs: nil, mergeServerCatalogRows: false,
                              indexMaintenance: final ? .immediate : .deferredIncremental)
             let addedAt = ProcessInfo.processInfo.systemUptime
-            addMs = Int((addedAt - startedAt) * 1000)
+            addMs = Int((addedAt - addStartedAt) * 1000)
             guard case .success = await library.persistIncrementalNowAndWait() else {
                 throw CocoaError(.fileWriteUnknown)
             }

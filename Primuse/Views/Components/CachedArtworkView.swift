@@ -1371,6 +1371,10 @@ struct CachedArtworkView: View {
 
         let localTokens = Set([songID, coverRef, albumID, artistID].compactMap { $0 }.filter { !$0.isEmpty })
         guard !localTokens.isEmpty else { return false }
+        // 补读一批写回带着几千个令牌: 拿自己这几个去查发布方建好的集合。
+        if let batch = ArtworkInvalidationBatch.from(note) {
+            return localTokens.contains(where: batch.contains)
+        }
 
         var invalidatedTokens: [String] = []
         if let token = note.object as? String, !token.isEmpty {

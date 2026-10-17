@@ -25,6 +25,20 @@ struct MusicSourceSecurityScopeFingerprintTests {
         #expect(first == "87a60ac7fb36c8fe135bf731c75f7a81da47515974b63eea1e3f47cb6e28eb95")
     }
 
+    @Test func rememberedFingerprintFollowsEditsToTheSameSource() {
+        let source = makeSource()
+        var edited = source
+        edited.host = "replacement.example.com"
+
+        let original = MusicSourceSecurityScopeFingerprint.make(for: source, revision: 7)
+        let afterEdit = MusicSourceSecurityScopeFingerprint.make(for: edited, revision: 7)
+
+        #expect(original != afterEdit)
+        #expect(MusicSourceSecurityScopeFingerprint.make(for: source, revision: 7) == original)
+        #expect(MusicSourceSecurityScopeFingerprint.make(for: edited, revision: 7) == afterEdit)
+        #expect(MusicSourceSecurityScopeFingerprint.make(for: edited, revision: 8) != afterEdit)
+    }
+
     @Test func displayAndScanStateDoNotInvalidateSecurityScope() {
         let source = makeSource()
         var presentationUpdate = source

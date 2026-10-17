@@ -4080,7 +4080,10 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
         platform: .mobile, activeProcessorCount: 6, physicalMemory: 4 * 1_024 * 1_024 * 1_024
     )
 
-    public static var current: Self {
+    /// 读取预算每排一首歌都要问一次, 机器的核数和内存在进程里不会变, 只取一次。
+    public static var current: Self { measuredCurrent }
+
+    private static let measuredCurrent: Self = {
         #if os(macOS)
         let platform = Platform.desktop
         #elseif os(tvOS)
@@ -4091,7 +4094,7 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
         return Self(platform: platform,
                     activeProcessorCount: ProcessInfo.processInfo.activeProcessorCount,
                     physicalMemory: ProcessInfo.processInfo.physicalMemory)
-    }
+    }()
 
     public func maximumWorkers(offlineSource: Bool, pooledHTTPRemoteSource: Bool = false) -> Int {
         let gib: UInt64 = 1_024 * 1_024 * 1_024

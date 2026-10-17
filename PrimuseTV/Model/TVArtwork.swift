@@ -1633,6 +1633,12 @@ struct TVArtworkView: View {
            case .selectedSong(let selectedSongID) = albumArtworkOverride {
             relevantSongIDs.insert(selectedSongID)
         }
+        if let batch = ArtworkInvalidationBatch.from(note) {
+            if relevantSongIDs.contains(where: batch.songIDs.contains) { return true }
+            if !coverKey.isEmpty, batch.references.contains(coverKey) { return true }
+            if let coverRef, !coverRef.isEmpty, batch.references.contains(coverRef) { return true }
+            return false
+        }
         if let notifiedSongID = note.object as? String,
            relevantSongIDs.contains(notifiedSongID) {
             return true

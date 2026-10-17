@@ -292,6 +292,17 @@ private struct TVPlaylistArtworkView: View {
 
     private func notificationAffectsPlaylist(_ note: Notification) -> Bool {
         if note.userInfo?["all"] as? Bool == true { return true }
+        if let batch = ArtworkInvalidationBatch.from(note) {
+            let overrideToken: String? = switch overrideResolution {
+            case .automatic: nil
+            case .selectedSong(let songID): songID
+            case .uploaded(let contentID): contentID
+            }
+            return playlist.artworkCandidates.contains { candidate in
+                batch.songIDs.contains(candidate.songID)
+                    || candidate.coverRef.map(batch.references.contains) == true
+            } || overrideToken.map(batch.contains) == true
+        }
         let songIDs = Set(playlist.artworkCandidates.map(\.songID))
         if let songID = note.object as? String, songIDs.contains(songID) { return true }
         if let songID = note.userInfo?["songID"] as? String, songIDs.contains(songID) {

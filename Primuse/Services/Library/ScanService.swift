@@ -2460,12 +2460,19 @@ final class ScanService {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
-                    // 缓存被反复清空。
+                    // 缓存被反复清空。逐首的派生字段先在后台算好。
+                    let prepared = await library.prepareIncomingSongsOffMain(lastSongs)
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
                     library.addSongs(
-                        lastSongs,
+                        prepared,
                         affectedSourceIDs: Set([source.id]),
-                        notifyRemovals: false,
-                        pruneMissingSongs: false,
+                        mergeServerCatalogRows: false,
                         // 中间 flush 每 1.5 s 一次。派生集合与 Spotlight 脏位
                         // 合并到短上限的延后维护里, 免得滚动时每次 flush 都
                         // 在主线程上重发一遍整库可见集合; 最终提交仍然立即维护。
@@ -3293,19 +3300,41 @@ final class ScanService {
                     // 快照, 整库目录源的文件夹层级也一样。7 万首的媒体服务器
                     // 原本要等整轮走完才第一次入库, 期间资料库和首页都是空的。
                     let changedRows = unpublishedRows
+                    // 逐首的派生字段先在后台算好, 主线程上只做合并。和服务端已有
+                    // 行合并的源要按合并结果重算, 照原路提交。
+                    var prepared: MusicLibrary.PreparedIncomingSongs?
+                    if !changedRows.isEmpty, !source.type.isSubsonicFamily {
+                        prepared = await library.prepareIncomingSongsOffMain(changedRows)
+                        try checkScanCommitFence(
+                            sourceID: source.id,
+                            generation: generation,
+                            expectedScopeFingerprint: scopeFingerprint,
+                            expectedScopeDirectories: directories,
+                            sourceStore: sourceStore
+                        )
+                    }
                     unpublishedRows.removeAll(keepingCapacity: true)
                     if !changedRows.isEmpty {
-                        library.addSongs(
-                            changedRows,
-                            affectedSourceIDs: Set([source.id]),
-                            notifyRemovals: false,
-                            pruneMissingSongs: false,
-                            mergeServerCatalogRows: source.type.isSubsonicFamily,
-                            // 派生集合与 Spotlight 脏位合并到短上限的延后维护里,
-                            // 免得滚动时每次 flush 都在主线程上重发一遍整库可见
-                            // 集合; 最终提交仍然立即维护。
-                            indexMaintenance: .deferredIncremental
-                        )
+                        if let prepared {
+                            library.addSongs(
+                                prepared,
+                                affectedSourceIDs: Set([source.id]),
+                                mergeServerCatalogRows: false,
+                                indexMaintenance: .deferredIncremental
+                            )
+                        } else {
+                            library.addSongs(
+                                changedRows,
+                                affectedSourceIDs: Set([source.id]),
+                                notifyRemovals: false,
+                                pruneMissingSongs: false,
+                                mergeServerCatalogRows: source.type.isSubsonicFamily,
+                                // 派生集合与 Spotlight 脏位合并到短上限的延后维护里,
+                                // 免得滚动时每次 flush 都在主线程上重发一遍整库可见
+                                // 集合; 最终提交仍然立即维护。
+                                indexMaintenance: .deferredIncremental
+                            )
+                        }
                         publishedIntermediateRows = true
                         // 不用 `songs.filter {}.count`: 那会为了一个计数临时分配
                         // 一整份匹配歌曲数组 (整库 retain 一遍)。

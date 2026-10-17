@@ -26,7 +26,7 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
         shouldRead: @escaping @MainActor (Item) -> Bool = { _ in true },
         shouldContinue: @escaping @MainActor () -> Bool = { true },
         priority: TaskPriority = .utility,
-        fastPath: @escaping @MainActor @Sendable (Item) async -> Outcome? = { _ in nil },
+        fastPath: (@MainActor @Sendable (Item) async -> Outcome?)? = nil,
         read: @escaping @MainActor @Sendable (Item) async -> Outcome,
         completed: @escaping @MainActor (Item, Outcome) async -> Void
     ) async -> Bool {
@@ -78,12 +78,17 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
                         let outcome = await read(item)
                         return Task.isCancelled ? .cancelled : .completed(item, outcome)
                     }
+                    let checksBeforeRead = fastPath != nil || budget.interRequestDelay > 0
                     group.addTask(priority: priority) {
-                        guard await shouldRead(item) else {
-                            continuation.yield(.skipped)
-                            return
+                        // 没有快速通道、也不用等间隔时, readWhenAllowed 开头就会判一次,
+                        // 这里再判只是多回一趟主线程。
+                        if checksBeforeRead {
+                            guard await shouldRead(item) else {
+                                continuation.yield(.skipped)
+                                return
+                            }
                         }
-                        if let outcome = await fastPath(item) {
+                        if let fastPath, let outcome = await fastPath(item) {
                             continuation.yield(Task.isCancelled ? .cancelled : .completed(item, outcome))
                             return
                         }

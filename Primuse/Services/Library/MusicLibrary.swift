@@ -5674,7 +5674,7 @@ final class MusicLibrary {
         // 提升只在"优先级变好"时 bump。首选那一首把封面从一个引用换成另一个
         // (sidecar 落盘后回写路径) 时优先级不变, 仍然要让卡片失效。
         if albumArtworkLookupRevision == artworkRevisionBeforePromotion {
-            bumpArtworkLookupRevisionIfPreferred(songIDs: artworkChanges.map(\.songID))
+            bumpArtworkLookupRevisionIfPreferred(songIDs: Set(artworkChanges.map(\.songID)))
         }
         lastReplacedSong = updatedSongs.count == 1 ? updatedSongs.first : nil
         lastReplacedSongIDs = Set(appliedIDs)
@@ -5689,6 +5689,64 @@ final class MusicLibrary {
             )
         }
         persistSongChanges(upserts: updatedSongs)
+    }
+
+    /// 扫描中间提交的新行, 派生字段(文件名带出的标签修复、专辑/歌手 ID、自动歌手图)
+    /// 已在后台按当时的配置算好。远程源扫描每几秒提交一批上千首, 这些逐首的字符串
+    /// 处理放在主线程上, 正好落在用户滑动的时候。
+    struct PreparedIncomingSongs: Sendable {
+        let original: [Song]
+        fileprivate let derived: [Song]
+        fileprivate let artistNameConfiguration: ArtistNameConfiguration
+        fileprivate let automaticArtworkCatalogRevision: UInt64
+    }
+
+    func prepareIncomingSongsOffMain(_ incoming: [Song]) async -> PreparedIncomingSongs {
+        let configuration = artistNameConfiguration
+        let catalogs = automaticArtistArtworkCatalogsBySource
+        let revision = automaticArtistArtworkCatalogRevision
+        let derived = await Task.detached(priority: .utility) {
+            let memo = DerivedIDMemo()
+            return incoming.map { song in
+                var song = song
+                Self.fillDerivedIDs(&song, configuration: configuration, memo: memo)
+                Self.applyAutomaticArtistArtwork(
+                    to: &song,
+                    catalogsBySource: catalogs,
+                    artistNameConfiguration: configuration
+                )
+                return song
+            }
+        }.value
+        return PreparedIncomingSongs(
+            original: incoming,
+            derived: derived,
+            artistNameConfiguration: configuration,
+            automaticArtworkCatalogRevision: revision
+        )
+    }
+
+    /// 只合并不修剪的中间提交用。准备期间名字规则或自动歌手图变了、资料库还在装载,
+    /// 或者要和服务端已有的行合并(合并后要按合并结果重算), 都照原路逐首算。
+    func addSongs(
+        _ prepared: PreparedIncomingSongs,
+        affectedSourceIDs: Set<String>?,
+        mergeServerCatalogRows: Bool,
+        indexMaintenance: LibraryMaintenanceDisposition
+    ) {
+        let derivationIsCurrent = !isPreparing
+            && !mergeServerCatalogRows
+            && prepared.artistNameConfiguration == artistNameConfiguration
+            && prepared.automaticArtworkCatalogRevision == automaticArtistArtworkCatalogRevision
+        addSongs(
+            derivationIsCurrent ? prepared.derived : prepared.original,
+            affectedSourceIDs: affectedSourceIDs,
+            notifyRemovals: false,
+            pruneMissingSongs: false,
+            mergeServerCatalogRows: mergeServerCatalogRows,
+            indexMaintenance: indexMaintenance,
+            derivedFieldsArePrepared: derivationIsCurrent
+        )
     }
 
     /// Add songs from a scan result and rebuild albums/artists.
@@ -5710,7 +5768,9 @@ final class MusicLibrary {
         mergeServerCatalogRows: Bool = false,
         // 中间 flush 传 `.deferredIncremental`: 合并连续 flush 的整库重建与
         // Spotlight 脏位, 最终提交仍然用 `.immediate`。
-        indexMaintenance: LibraryMaintenanceDisposition = .immediate
+        indexMaintenance: LibraryMaintenanceDisposition = .immediate,
+        // 只由 `addSongs(_ prepared:)` 传 true: 派生字段已按当前配置在后台算好。
+        derivedFieldsArePrepared: Bool = false
     ) {
         // S2: 发布前排队, 发布后按原顺序重放, 免得扫描/Siri 把结果并进空库。
         if deferringUntilReady({ [weak self] in
@@ -5721,7 +5781,8 @@ final class MusicLibrary {
                 pruneMissingSongs: pruneMissingSongs,
                 authoritativeIncomingIDs: authoritativeIncomingIDs,
                 mergeServerCatalogRows: mergeServerCatalogRows,
-                indexMaintenance: indexMaintenance
+                indexMaintenance: indexMaintenance,
+                derivedFieldsArePrepared: derivedFieldsArePrepared
             )
         }) { return }
         let signpost = PrimuseSignposts.hitch.beginInterval("library.addSongs")
@@ -5957,12 +6018,14 @@ final class MusicLibrary {
             }
             // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
             // 通过 `albumIDCorrections` 纠正。
-            MusicLibrary.fillDerivedIDs(
-                &newSong,
-                configuration: artistNameConfiguration,
-                memo: derivedIDMemo
-            )
-            applyAutomaticArtistArtwork(to: &newSong)
+            if !derivedFieldsArePrepared {
+                MusicLibrary.fillDerivedIDs(
+                    &newSong,
+                    configuration: artistNameConfiguration,
+                    memo: derivedIDMemo
+                )
+                applyAutomaticArtistArtwork(to: &newSong)
+            }
             if let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]
                 if !newSong.filePath.isEmpty, newSong.filePath != existing.filePath {
@@ -7712,8 +7775,20 @@ final class MusicLibrary {
     /// 首选回退歌的 ID 没变、变的是它自己的封面引用时, 回退映射一模一样, 但
     /// 每一张用它兜底的专辑 / 歌手卡片都要重新取图。只盯
     /// `albumArtworkLookupRevision` 的读者 (资料库快捷入口、CarPlay 编辑器
-    /// 预览) 否则会一直停在旧图 / 占位图上。O(改动行)。
-    private func bumpArtworkLookupRevisionIfPreferred(songIDs: [String]) {
+    /// 预览) 否则会一直停在旧图 / 占位图上。
+    ///
+    /// 补读一次写回几千首时反过来查回退映射: 映射只有专辑数加歌手数那么大, 逐首算
+    /// 歌手 ID 在主线程上要几百毫秒。映射里留着的旧指向也会让版本号多走一格, 代价
+    /// 只是多取一次图。零星几首照旧逐首查, 免得为一首歌把整张映射过一遍。
+    private func bumpArtworkLookupRevisionIfPreferred(songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        if songIDs.count > 32 {
+            if preferredArtworkSongIDByAlbumID.values.contains(where: songIDs.contains)
+                || preferredArtworkSongIDByArtistID.values.contains(where: songIDs.contains) {
+                albumArtworkLookupRevision &+= 1
+            }
+            return
+        }
         for songID in songIDs {
             guard let song = lookupVisibleSong(songID) else { continue }
             if let albumID = song.albumID,
@@ -7870,7 +7945,7 @@ final class MusicLibrary {
         // 回退映射本身不会变 (`artworkFallbackPrecedes` 只看封面 / 碟号 /
         // 音轨号 / ID), 但被选为回退的那一首自己的歌手图引用变了时, 只盯
         // `albumArtworkLookupRevision` 的读者仍然要失效。
-        bumpArtworkLookupRevisionIfPreferred(songIDs: changedSongIDs)
+        bumpArtworkLookupRevisionIfPreferred(songIDs: Set(changedSongIDs))
         // 不动 `visibleSongCollectionRevision`: 成员与顺序都没变, bump 它会让
         // 每一个大列表白白重建。
         lastReplacedSong = changedSongs.count == 1 ? changedSongs.first : nil
@@ -10957,8 +11032,9 @@ final class MusicLibrary {
         }
         songReplacementToken = UUID()
         if !artworkChanges.isEmpty {
-            postArtworkInvalidations(artworkChanges)
-            bumpArtworkLookupRevisionIfPreferred(songIDs: artworkChanges.map(\.songID))
+            let notice = ArtworkInvalidationNotice(artworkChanges)
+            postArtworkInvalidations(notice)
+            bumpArtworkLookupRevisionIfPreferred(songIDs: notice.batch.songIDs)
         }
         invalidateSearchCaches()
         requestLibraryIndexMaintenance(
@@ -11013,7 +11089,7 @@ final class MusicLibrary {
         let appliedSongs: [Song]
         let missedIDs: [String]
         let visibleUpdates: [StableVisibleSongReplacement]
-        let artworkChanges: [StableArtworkReplacement]
+        let artworkInvalidation: ArtworkInvalidationNotice?
         let derivedCollectionsChanged: Bool
         let songListSnapshotChanged: Bool
     }
@@ -11208,7 +11284,9 @@ final class MusicLibrary {
             appliedSongs: appliedSongs,
             missedIDs: missedIDs,
             visibleUpdates: visibleUpdates,
-            artworkChanges: artworkChanges,
+            artworkInvalidation: artworkChanges.isEmpty ? nil : ArtworkInvalidationNotice(
+                artworkChanges.map { ($0.songID, $0.oldReference, $0.newReference) }
+            ),
             derivedCollectionsChanged: derivedCollectionsChanged,
             songListSnapshotChanged: songListSnapshotChanged
         )
@@ -11236,15 +11314,9 @@ final class MusicLibrary {
             songListSnapshotInvalidationRevision &+= 1
         }
         songReplacementToken = UUID()
-        if !prepared.artworkChanges.isEmpty {
-            postArtworkInvalidations(
-                prepared.artworkChanges.map {
-                    ($0.songID, $0.oldReference, $0.newReference)
-                }
-            )
-            bumpArtworkLookupRevisionIfPreferred(
-                songIDs: prepared.artworkChanges.map(\.songID)
-            )
+        if let notice = prepared.artworkInvalidation {
+            postArtworkInvalidations(notice)
+            bumpArtworkLookupRevisionIfPreferred(songIDs: notice.batch.songIDs)
         }
         invalidateSearchCaches()
         requestLibraryIndexMaintenance(
@@ -11390,17 +11462,36 @@ final class MusicLibrary {
         )
     }
 
-    private func postArtworkInvalidations(
-        _ changes: [(songID: String, oldRef: String?, newRef: String?)]
-    ) {
-        let songIDs = changes.map(\.songID)
-        let refs = changes.flatMap { [$0.oldRef, $0.newRef].compactMap { $0 } }
+    /// 一批封面失效要随通知带的东西。补读写回走离主线程的准备, 在那里就建好。
+    private struct ArtworkInvalidationNotice: Sendable {
+        let songIDs: [String]
+        let references: [String]
+        let batch: ArtworkInvalidationBatch
+
+        init(_ changes: [(songID: String, oldRef: String?, newRef: String?)]) {
+            var songIDs: [String] = []
+            var references: [String] = []
+            songIDs.reserveCapacity(changes.count)
+            references.reserveCapacity(changes.count * 2)
+            for change in changes {
+                songIDs.append(change.songID)
+                if let oldRef = change.oldRef { references.append(oldRef) }
+                if let newRef = change.newRef { references.append(newRef) }
+            }
+            self.songIDs = songIDs
+            self.references = references
+            batch = ArtworkInvalidationBatch(songIDs: Set(songIDs), references: Set(references))
+        }
+    }
+
+    private func postArtworkInvalidations(_ notice: ArtworkInvalidationNotice) {
         NotificationCenter.default.post(
             name: .primuseArtworkDidInvalidate,
             object: nil,
             userInfo: [
-                "songIDs": songIDs,
-                "tokens": refs,
+                "songIDs": notice.songIDs,
+                "tokens": notice.references,
+                ArtworkInvalidationBatch.userInfoKey: notice.batch,
             ]
         )
     }
@@ -15419,4 +15510,28 @@ extension Notification.Name {
     static let primuseCloudAccountDidSoftDelete = Notification.Name("primuse.cloudAccountDidSoftDelete")
     /// CloudAccount permanent delete (post-30-day prune).
     static let primuseCloudAccountDidDelete = Notification.Name("primuse.cloudAccountDidDelete")
+}
+
+/// 一次批量封面失效涉及的歌与新旧封面引用, 发布方只建一次集合随通知带上。
+/// 补读一次写回几千首: 屏上每个封面要是各自把整批令牌过一遍, 一次发布就在主线程上
+/// 卡几百毫秒; 拿自己那两三个标识来查就是常数时间。
+final class ArtworkInvalidationBatch: Sendable {
+    static let userInfoKey = "batch"
+
+    let songIDs: Set<String>
+    let references: Set<String>
+
+    init(songIDs: Set<String>, references: Set<String>) {
+        self.songIDs = songIDs
+        self.references = references
+    }
+
+    static func from(_ note: Notification) -> ArtworkInvalidationBatch? {
+        note.userInfo?[userInfoKey] as? ArtworkInvalidationBatch
+    }
+
+    /// 歌曲 ID 或封面引用, 两种都认。
+    func contains(_ token: String) -> Bool {
+        songIDs.contains(token) || references.contains(token)
+    }
 }

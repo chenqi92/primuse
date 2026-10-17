@@ -156,6 +156,10 @@ private struct QuickAccessCustomArtworkView: View {
 
     private func artworkChanged(_ notification: Notification) {
         guard style == .collage else { return }
+        if let batch = ArtworkInvalidationBatch.from(notification) {
+            if watchedArtworkTokens.contains(where: batch.contains) { reloadRevision &+= 1 }
+            return
+        }
         var tokens = notification.userInfo?["tokens"] as? [String] ?? []
         tokens += notification.userInfo?["songIDs"] as? [String] ?? []
         if let token = notification.object as? String { tokens.append(token) }
@@ -501,6 +505,18 @@ struct PlaylistArtworkView: View {
         songs: [PrimuseKit.Song],
         uploadedContentID: String?
     ) -> Bool {
+        if let batch = ArtworkInvalidationBatch.from(notification) {
+            if let contentID = uploadedContentID, batch.references.contains(contentID) { return true }
+            if playlist.hasDedicatedCoverArt,
+               let dedicatedReference = playlist.coverArtPath,
+               batch.references.contains(dedicatedReference) {
+                return true
+            }
+            return songs.contains { song in
+                batch.songIDs.contains(song.id)
+                    || song.coverArtFileName.map(batch.references.contains) == true
+            }
+        }
         if let contentID = uploadedContentID {
             if notification.object as? String == contentID {
                 return true
@@ -627,7 +643,10 @@ struct AlbumArtworkView: View {
     }
 
     private func albumCacheChanged(_ note: Notification) -> Bool {
-        note.userInfo?["all"] as? Bool == true
+        if let batch = ArtworkInvalidationBatch.from(note) {
+            return batch.references.contains(album.id)
+        }
+        return note.userInfo?["all"] as? Bool == true
             || note.object as? String == album.id
             || note.userInfo?["albumID"] as? String == album.id
             || (note.userInfo?["tokens"] as? [String])?.contains(album.id) == true

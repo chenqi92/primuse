@@ -214,11 +214,11 @@ final class MetadataBackfillService {
     /// A declared ID3 boundary may place both artwork and the first MPEG frame
     /// beyond the initial slice. Expansion stays capped so one outlier cannot
     /// turn a library backfill into full-file downloads.
-    private static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
+    private nonisolated static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
     private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
-    private static let fallbackTailBytes: Int64 = 256 * 1024
-    private static let boundedHeadTagExtensions: Set<String> = ["ogg", "opus", "speex", "wma"]
+    private nonisolated static let fallbackTailBytes: Int64 = 256 * 1024
+    private nonisolated static let boundedHeadTagExtensions: Set<String> = ["ogg", "opus", "speex", "wma"]
 
     /// Persisted IDs whose bytes were read successfully but the expected
     /// metadata parser still produced no usable details.
@@ -808,6 +808,7 @@ final class MetadataBackfillService {
     /// Exact session progress, kept non-observable so one completed network
     /// request doesn't invalidate every view that observes this service.
     @ObservationIgnored private var processedTotal: Int = 0
+    @ObservationIgnored private var processedCountPublishedAt = Date.distantPast
     /// Debounced writer for the persisted metadata-state ID sets. Encoding and atomic
     /// file replacement run off the main actor.
     @ObservationIgnored private var statePersistenceTask: Task<Void, Never>?
@@ -2162,6 +2163,7 @@ final class MetadataBackfillService {
     /// refreshes the queue; an active iOS scene keeps running gentle serial
     /// snapshots until the eligible queue drains or the scene changes.
     func sourceScanSucceeded(forSourceID sourceID: String) {
+        let needsBackfill = makeNeedsBackfillPredicate()
         let retryableSongIDs = Set(library.songs.lazy.filter { [self] song in
             song.sourceID == sourceID
                 && !failedSongIDs.contains(song.id)
@@ -3189,6 +3191,7 @@ final class MetadataBackfillService {
         forSource sourceID: String? = nil,
         startImmediately: Bool = true
     ) -> Int {
+        let needsBackfill = makeNeedsBackfillPredicate()
         let retrySongs = library.songs.filter { song in
             if let sourceID, song.sourceID != sourceID { return false }
             return MetadataBackfillRetrySelectionPolicy.shouldReopen(
@@ -3932,9 +3935,13 @@ final class MetadataBackfillService {
                 logReadThroughputIfDue(totalCompleted: processedTotal)
                 // UI progress does not need per-file granularity. Publishing
                 // every ten results prevents an Observable invalidation storm
-                // while retaining responsive feedback.
-                if processedTotal.isMultiple(of: 10) || processedTotal == pendingCount {
+                // while retaining responsive feedback. 读得快的源十首也就几十毫秒,
+                // 进度卡一秒要重画十几次, 所以再按时间限一下。
+                if processedTotal == pendingCount
+                    || (processedTotal.isMultiple(of: 10)
+                        && Date().timeIntervalSince(processedCountPublishedAt) >= 0.5) {
                     processedCount = processedTotal
+                    processedCountPublishedAt = Date()
                 }
                 let songID = result.song.id
                 let canRecordOutcome = isStillEligible(result.song)
@@ -3944,11 +3951,12 @@ final class MetadataBackfillService {
                     // unresolved row from the source so a large library emits
                     // one probe on this network path, not one probe per batch.
                     let sourceID = result.song.sourceID
+                    let needsBackfill = makeNeedsBackfillPredicate()
                     let sourceSongIDs = Set(library.songs.lazy.filter { song in
                         song.sourceID == sourceID
                             && !self.failedSongIDs.contains(song.id)
                             && !self.sourceIssueSongIDs.contains(song.id)
-                            && self.needsBackfill(song)
+                            && needsBackfill(song)
                     }.map(\.id))
                     let wasAlreadyParked = sourceSongIDs.isSubset(of: sessionNetworkParkedIDs)
                     sessionGivenUpIDs.formUnion(sourceSongIDs)
@@ -4163,7 +4171,11 @@ final class MetadataBackfillService {
             libraryPublishDepth -= 1
             libraryPublishGeneration &+= 1
         }
-        var resolved = pendingFlush.compactMap(backfillResultForApply)
+        // 源集合每取一次都要把源列表筛一遍: 一批几千首, 只取一次。
+        let readableSourceIDs = backfillableSourceIDs()
+        var resolved = pendingFlush.compactMap {
+            backfillResultForApply($0, backfillableSourceIDs: readableSourceIDs)
+        }
         // 代表读到了封面:同组等着的歌在同一次发布里指过去,不多发布一次。
         let groupRows = peerCoverMemberRows(resolvedBy: resolved)
         if !groupRows.isEmpty {
@@ -4718,12 +4730,31 @@ final class MetadataBackfillService {
             let timeout = isExplicitReread
                 ? Self.explicitRereadTimeout
                 : Self.perSongTimeout
-            let outcome = try await Self.withHardTimeout(seconds: timeout) { [self] in
-                try await self.processOneCore(
-                    song,
-                    started: started,
-                    isExplicitReread: isExplicitReread
-                )
+            let outcome: BackfillOutcome
+            if let request = tagReadRequest(for: song, started: started, isExplicitReread: isExplicitReread) {
+                let cpuStarted = Self.processCPUTime()
+                let sampleWindow = readCPUSampleWindow
+                // 连接器在时限里解析: 登录卡住和读取卡住一样要放手。之后的读取、解析、
+                // 合并都不在主线程上, 用户滑动时不会被一首首歌的零碎活插进来。
+                let attempt = try await Self.withHardTimeout(seconds: timeout) { [sourceManager = self.sourceManager] in
+                    let reader = try await sourceManager.metadataRangeReader(for: request.song)
+                    return await Self.readTags(request, reader: reader)
+                }
+                // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
+                // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
+                // 并不会让它变便宜 —— 只会让吞吐白掉一截。
+                if !Task.isCancelled,
+                   MetadataReadCPUSamplePolicy.acceptsSample(
+                    before: sampleWindow, after: readCPUSampleWindow
+                   ) {
+                    recordProcessingDuration(MetadataBackfillExecutionPolicy.processingDuration(
+                        cpuTimeBefore: cpuStarted, cpuTimeAfter: Self.processCPUTime(),
+                        fallback: max(0, Date().timeIntervalSince(started) - attempt.rangeElapsed)
+                    ))
+                }
+                outcome = try attempt.outcome.get()
+            } else {
+                outcome = BackfillOutcome(song: nil, markFailed: false)
             }
             notePeerSeedRead(song, outcome: outcome)
             return outcome
@@ -4774,59 +4805,151 @@ final class MetadataBackfillService {
         }
     }
 
-    private func processOneCore(
-        _ song: Song,
+    /// 读一首歌要用到的主线程状态, 开读前在主线程上取一次。之后的读取、解析、合并
+    /// 都在后台照它走, 不再一次次回主线程问。
+    private struct TagReadRequest: Sendable {
+        let song: Song
+        let isExplicitReread: Bool
+        let started: Date
+        let metadataService: MetadataService
+        /// 只有整文件读取(手动重读、本地源补封面)要回主线程找下载地址。
+        let sourceManager: SourceManager
+        let containerCodecOnly: Bool
+        let directFile: Bool
+        let restrictsToBareRows: Bool
+        let titleChecked: Bool
+        let artistChecked: Bool
+        let sourceFileName: String?
+        /// 只认编码的源以库里存着的那一行为底稿。
+        let storedSong: Song?
+        /// 这个源正在 5xx 退让: 读到字节就回主线程把退让撤掉。
+        let gatewayRecovered: (@MainActor @Sendable () -> Void)?
+    }
+
+    private struct TagReadAttempt: Sendable {
+        let outcome: Result<BackfillOutcome, any Error>
+        let rangeElapsed: TimeInterval
+    }
+
+    /// 一首歌里各段读取的耗时, 只在读它的那个任务里累加。
+    private final class RangeReadTally {
+        var elapsed: TimeInterval = 0
+        var count = 0
+    }
+
+    private func tagReadRequest(
+        for song: Song,
         started: Date,
         isExplicitReread: Bool
-    ) async throws -> BackfillOutcome {
+    ) -> TagReadRequest? {
         let remainsReadable = isExplicitReread
             ? isStillReadable(song)
             : isStillEligible(song)
-        guard remainsReadable else {
-            return BackfillOutcome(song: nil, markFailed: false)
+        guard remainsReadable else { return nil }
+        let sourceID = song.sourceID
+        let containerCodecOnly = containerCodecOnlySourceIDs().contains(sourceID)
+        let gatewayRecovered: (@MainActor @Sendable () -> Void)?
+        if gatewayBackoff.failureCount(sourceID: sourceID) > 0 {
+            gatewayRecovered = { [weak self] in
+                guard let self, self.gatewayBackoff.failureCount(sourceID: sourceID) > 0 else { return }
+                self.gatewayBackoff.recordSuccess(sourceID: sourceID)
+                plog("📥 Backfill: gateway recovered source=\(sourceID)")
+            }
+        } else {
+            gatewayRecovered = nil
         }
+        return TagReadRequest(
+            song: song,
+            isExplicitReread: isExplicitReread,
+            started: started,
+            metadataService: metadataService,
+            sourceManager: sourceManager,
+            containerCodecOnly: containerCodecOnly,
+            directFile: directFileSourceIDs().contains(sourceID),
+            restrictsToBareRows: restrictsToBareRows(song),
+            titleChecked: titleCheckedIDs.contains(song.id),
+            artistChecked: artistCheckedIDs.contains(song.id),
+            sourceFileName: sourceFileName(song),
+            storedSong: containerCodecOnly ? library.storedSong(id: song.id) : nil,
+            gatewayRecovered: gatewayRecovered
+        )
+    }
+
+    private nonisolated static func readTags(
+        _ request: TagReadRequest,
+        reader: SourceManager.MetadataRangeReader
+    ) async -> TagReadAttempt {
+        let tally = RangeReadTally()
+        do {
+            let outcome = try await readTagsCore(request, reader: reader, tally: tally)
+            return TagReadAttempt(outcome: .success(outcome), rangeElapsed: tally.elapsed)
+        } catch {
+            return TagReadAttempt(outcome: .failure(error), rangeElapsed: tally.elapsed)
+        }
+    }
+
+    private nonisolated static func readTagsCore(
+        _ request: TagReadRequest,
+        reader: SourceManager.MetadataRangeReader,
+        tally: RangeReadTally
+    ) async throws -> BackfillOutcome {
+        let song = request.song
+        let isExplicitReread = request.isExplicitReread
+        let started = request.started
         // The cached auxiliary connector shares provider login/rate limits,
         // while SMB ranges use its separate background connection.
         let readSession = FileMetadataReader.RangeReadSession()
         let rangeReadIntent: MetadataRangeReadIntent = isExplicitReread
             ? .explicitSingleFileCompleteFallback
             : .bulkBounded
-        var rangeElapsed: TimeInterval = 0
-        var rangeCount = 0
-        let cpuStarted = Self.processCPUTime()
-        let sampleWindow = readCPUSampleWindow
-        defer {
-            // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
-            // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
-            // 并不会让它变便宜 —— 只会让吞吐白掉一截。
-            if !Task.isCancelled,
-               MetadataReadCPUSamplePolicy.acceptsSample(
-                before: sampleWindow, after: readCPUSampleWindow
-               ) {
-                recordProcessingDuration(MetadataBackfillExecutionPolicy.processingDuration(
-                    cpuTimeBefore: cpuStarted, cpuTimeAfter: Self.processCPUTime(),
-                    fallback: max(0, Date().timeIntervalSince(started) - rangeElapsed)
-                ))
-            }
-        }
+        var gatewayRecovered = request.gatewayRecovered
         func fetchRange(offset: Int64, length: Int64) async throws -> Data {
             let rangeStarted = Date()
             defer {
-                rangeElapsed += Date().timeIntervalSince(rangeStarted)
-                rangeCount += 1
+                tally.elapsed += Date().timeIntervalSince(rangeStarted)
+                tally.count += 1
             }
-            let data = try await sourceManager.fetchMetadataRange(
-                for: song, offset: offset, length: length, intent: rangeReadIntent
-            )
+            let data = try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
             // 真的读到字节就是网关恢复了, 立刻把退让撤掉。
-            if gatewayBackoff.failureCount(sourceID: song.sourceID) > 0 {
-                gatewayBackoff.recordSuccess(sourceID: song.sourceID)
-                plog("📥 Backfill: gateway recovered source=\(song.sourceID)")
+            if let recovered = gatewayRecovered {
+                gatewayRecovered = nil
+                await recovered()
             }
             return data
         }
-        if containerCodecOnlySourceIDs().contains(song.sourceID) {
-            return try await probeContainerCodec(for: song, fetch: fetchRange)
+        func extractMetadata(
+            from data: Data,
+            containerTailData: Data? = nil,
+            id3TailData: Data? = nil,
+            song: Song,
+            readSession: FileMetadataReader.RangeReadSession
+        ) async -> MetadataService.SongMetadata {
+            await Self.extractMetadata(
+                from: data,
+                containerTailData: containerTailData,
+                id3TailData: id3TailData,
+                song: song,
+                readSession: readSession,
+                metadataService: request.metadataService
+            )
+        }
+        func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
+            Self.mergeSong(
+                bare: bare,
+                metadata: metadata,
+                restrictsToBareRows: request.restrictsToBareRows,
+                sourceFileName: request.sourceFileName
+            )
+        }
+        func completionKind(
+            for metadata: MetadataService.SongMetadata,
+            original song: Song,
+            merged: Song
+        ) -> MetadataReadCompletionKind {
+            Self.completionKind(for: metadata, original: song, sourceFileName: request.sourceFileName)
+        }
+        if request.containerCodecOnly {
+            return try await Self.probeContainerCodec(for: song, stored: request.storedSong, fetch: fetchRange)
         }
         let fetchStarted = Date()
         // 不用顺带取封面的歌只读一小段: 标签本身几 KB 就够, 整段读会白拉两百多
@@ -4858,13 +4981,13 @@ final class MetadataBackfillService {
         )
         let needsArtistInspection = (song.artistName?
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            && !artistCheckedIDs.contains(song.id)
+            && !request.artistChecked
         var artistInspectionCompleted = !needsArtistInspection
             || metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         if parserExtension == "mp3" {
             let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData)
             let hasTruncatedID3 = (id3ByteCount ?? 0) > headData.count
-            let needsDurationExpansion = metadataLooksMissing(metadata)
+            let needsDurationExpansion = Self.metadataLooksMissing(metadata)
             let needsArtworkExpansion = Self.needsEmbeddedArtworkBackfill(song)
                 && metadata.coverArtFileName == nil && metadata.coverArtData == nil
             let needsArtistExpansion = needsArtistInspection
@@ -4898,7 +5021,7 @@ final class MetadataBackfillService {
             // far as the visible block chain requires, so a 553 KB embedded
             // picture is recovered without charging every cover-less file the
             // full 4 MB ceiling.
-            let needsFullTagInspection = !titleCheckedIDs.contains(song.id)
+            let needsFullTagInspection = !request.titleChecked
             var needsArtworkExpansion = Self.needsEmbeddedArtworkBackfill(song)
                 && metadata.coverArtFileName == nil && metadata.coverArtData == nil
             var needsArtistExpansion = needsArtistInspection
@@ -4988,12 +5111,12 @@ final class MetadataBackfillService {
             && Self.needsEmbeddedArtworkBackfill(song)
             && metadata.coverArtFileName == nil && metadata.coverArtData == nil
         let needsSecondaryTagRange = tailStrategy != .none
-            && (!titleCheckedIDs.contains(song.id)
+            && (!request.titleChecked
                 || needsArtistInspection
                 || (Self.needsEmbeddedArtworkBackfill(song)
                     && metadata.coverArtFileName == nil && metadata.coverArtData == nil))
         var suffixMetadataUnavailable = false
-        if metadataLooksMissing(metadata)
+        if Self.metadataLooksMissing(metadata)
             || needsSecondaryArtistRange
             || needsSecondaryArtworkRange
             || needsSecondaryTagRange {
@@ -5014,7 +5137,7 @@ final class MetadataBackfillService {
                             let foundArtist = metadata.artist?
                                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                             let foundArtwork = metadata.coverArtFileName != nil || metadata.coverArtData != nil
-                            if !metadataLooksMissing(metadata)
+                            if !Self.metadataLooksMissing(metadata)
                                 && (!needsSecondaryArtistRange || foundArtist)
                                 && (!needsSecondaryArtworkRange || foundArtwork) {
                                 break
@@ -5143,19 +5266,19 @@ final class MetadataBackfillService {
         if isExplicitReread,
            (song.fileFormat.requiresFFmpeg
                 || metadata.detectedFileSignature == .unknown
-                || metadataLooksMissing(metadata)
+                || Self.metadataLooksMissing(metadata)
                 || boundedReadMissedArtwork) {
-            metadata = try await loadCompleteFileMetadata(for: song)
+            metadata = try await Self.loadCompleteFileMetadata(for: song, request: request)
             artistInspectionCompleted = true
         } else if boundedReadMissedArtwork,
-                  directFileSourceIDs().contains(song.sourceID) {
+                  request.directFile {
             // 后台维护不会为了封面去下载整个远程库, 但本地源的「完整文件」
             // 就是磁盘上那一个文件, 多打开它一次没有网络代价。导入完成后
             // 直接就有封面, 用户不必自己去找「重新读取标签」。
             // 这一步只在这首歌真的还缺封面时走一次: 读不到就记进
             // artworkGivenUpIDs, 之后不再重复这次开销。
             do {
-                let complete = try await loadCompleteFileMetadata(for: song)
+                let complete = try await Self.loadCompleteFileMetadata(for: song, request: request)
                 // 只有真把封面读出来了才换掉有界结果。这次补读是专为封面做的,
                 // 不该顺带改写已经读好的时长和标签。
                 if complete.coverArtFileName != nil || complete.coverArtData != nil {
@@ -5233,19 +5356,19 @@ final class MetadataBackfillService {
         }
 
         try Task.checkCancellation()
-        metadata = await metadataService.storingEmbeddedAssets(
+        metadata = await request.metadataService.storingEmbeddedAssets(
             in: metadata,
             cacheKey: song.id,
             storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
-        await storeEmbeddedFallbackLyrics(from: metadata, for: song)
+        await Self.storeEmbeddedFallbackLyrics(from: metadata, for: song)
 
         // Duration can fail independently from the ID3 text frames. Preserve
         // any title/artist/album/cover we did recover, then mark the row failed
         // only to stop repeated network reads. Older code returned nil here,
         // so a valid TIT2 was silently thrown away and the filename remained
         // visible until an online scrape replaced the song.
-        if metadataLooksMissing(metadata) {
+        if Self.metadataLooksMissing(metadata) {
             let partial = mergeSong(bare: song, metadata: metadata)
             let partialKind = completionKind(for: metadata, original: song, merged: partial)
             if partial != song
@@ -5353,7 +5476,7 @@ final class MetadataBackfillService {
         // duration=0 in the log means mergeSong didn't actually
         // capture a usable duration despite metadataLooksMissing
         // returning false → bug in the parser or the gate.
-        plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs, ranges %d in %.2fs) format=%@ duration=%.1fs", song.title, totalElapsed, fetchElapsed, rangeCount, rangeElapsed, parserExtension, merged.duration))
+        plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs, ranges %d in %.2fs) format=%@ duration=%.1fs", song.title, totalElapsed, fetchElapsed, tally.count, tally.elapsed, parserExtension, merged.duration))
         if artworkStillMissing {
             plog("📥 Backfill: '\(song.title)' has no parseable embedded artwork; skipping future artwork-only retries")
         }
@@ -5372,8 +5495,9 @@ final class MetadataBackfillService {
 
     /// 服务端曲库源只认编码: 按 `ContainerCodecProbe` 要的范围一段段读, 结果只改
     /// `audioCodec`。认不出也记成读过, 之后不再为它读。
-    private func probeContainerCodec(
+    private nonisolated static func probeContainerCodec(
         for song: Song,
+        stored: Song?,
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> BackfillOutcome {
         var probe = ContainerCodecProbe(container: song.fileFormat, fileSize: song.fileSize)
@@ -5387,13 +5511,13 @@ final class MetadataBackfillService {
         guard case .finished(let codec) = probe.step else {
             return BackfillOutcome(song: nil, markFailed: false)
         }
-        var updated = library.storedSong(id: song.id) ?? song
+        var updated = stored ?? song
         updated.audioCodec = ContainerAudioCodecPolicy.inspectedCodec(codec, container: updated.fileFormat)
         plog("📥 Backfill: '\(song.title)' container codec \(codec?.rawValue ?? "unknown")")
         return BackfillOutcome(song: updated, markFailed: false)
     }
 
-    private static func processCPUTime() -> TimeInterval? {
+    private nonisolated static func processCPUTime() -> TimeInterval? {
         var usage = rusage()
         guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
         return Double(usage.ru_utime.tv_sec) + Double(usage.ru_stime.tv_sec)
@@ -5402,12 +5526,13 @@ final class MetadataBackfillService {
 
     /// Keep parsing state local to this song; store assets only after all
     /// required ranges have contributed their tags.
-    private func extractMetadata(
+    private nonisolated static func extractMetadata(
         from data: Data,
-        containerTailData: Data? = nil,
-        id3TailData: Data? = nil,
+        containerTailData: Data?,
+        id3TailData: Data?,
         song: Song,
-        readSession: FileMetadataReader.RangeReadSession
+        readSession: FileMetadataReader.RangeReadSession,
+        metadataService: MetadataService
     ) async -> MetadataService.SongMetadata {
         let ext = song.fileFormat.rawValue
         let pathTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
@@ -5425,11 +5550,12 @@ final class MetadataBackfillService {
         )
     }
 
-    private func loadCompleteFileMetadata(
-        for song: Song
+    private nonisolated static func loadCompleteFileMetadata(
+        for song: Song,
+        request: TagReadRequest
     ) async throws -> MetadataService.SongMetadata {
         let startedAt = Date()
-        let url = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        let url = try await request.sourceManager.resolveFullDownloadSourceURL(for: song)
         // 只为读这一次标签整首下载的那份读完就删。留在连接器缓存里既不计入
         // 音频缓存上限也不参与淘汰, 批量重读一个缺封面的源能悄悄占掉几个 GB。
         defer {
@@ -5443,14 +5569,14 @@ final class MetadataBackfillService {
             throw SourceError.connectionFailed("Complete metadata read did not resolve a local file")
         }
         let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
-        var metadata = await metadataService.loadMetadata(
+        var metadata = await request.metadataService.loadMetadata(
             for: url,
             cacheKey: song.id,
             allowOnlineFetch: false,
             fallbackTitle: fallbackTitle,
             storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
-        await storeEmbeddedFallbackLyrics(from: metadata, for: song)
+        await Self.storeEmbeddedFallbackLyrics(from: metadata, for: song)
         if song.fileFormat.requiresFFmpeg || metadata.duration <= 0,
            let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
             if metadata.duration <= 0 { metadata.duration = info.duration }
@@ -5467,7 +5593,7 @@ final class MetadataBackfillService {
         return metadata
     }
 
-    private func metadataLooksMissing(_ m: MetadataService.SongMetadata) -> Bool {
+    private nonisolated static func metadataLooksMissing(_ m: MetadataService.SongMetadata) -> Bool {
         // Duration is the load-bearing field — without it the player
         // can't draw a progress bar and SFB streaming may decide the
         // song is shorter than it actually is. We treat duration alone
@@ -5485,16 +5611,17 @@ final class MetadataBackfillService {
         !m.duration.isFinite || m.duration <= 0
     }
 
-    private func resolvedIdentity(
+    private nonisolated static func resolvedIdentity(
         for song: Song,
-        metadata: MetadataService.SongMetadata
+        metadata: MetadataService.SongMetadata,
+        sourceFileName: String?
     ) -> (title: MetadataResolvedText, artist: MetadataResolvedText) {
         let component = (song.filePath as NSString).lastPathComponent
         let rawStem = (component as NSString).deletingPathExtension
         let userEdited = song.userMetadataEditedAt != nil
         let mayInferFromFilename = hasVerifiedAudioEvidence(metadata)
         let fileStems: [String] = if !userEdited, !song.isCueTrack, mayInferFromFilename {
-            [sourceFileName(song).map { ($0 as NSString).deletingPathExtension }, rawStem, song.title]
+            [sourceFileName.map { ($0 as NSString).deletingPathExtension }, rawStem, song.title]
                 .compactMap { $0 }
         } else {
             []
@@ -5539,7 +5666,7 @@ final class MetadataBackfillService {
         )
     }
 
-    private func hasVerifiedAudioEvidence(
+    private nonisolated static func hasVerifiedAudioEvidence(
         _ metadata: MetadataService.SongMetadata
     ) -> Bool {
         MetadataReadEvidencePolicy.hasVerifiedAudioFile(
@@ -5553,11 +5680,19 @@ final class MetadataBackfillService {
         original song: Song,
         merged _: Song
     ) -> MetadataReadCompletionKind {
+        Self.completionKind(for: metadata, original: song, sourceFileName: sourceFileName(song))
+    }
+
+    private nonisolated static func completionKind(
+        for metadata: MetadataService.SongMetadata,
+        original song: Song,
+        sourceFileName: String?
+    ) -> MetadataReadCompletionKind {
         if metadata.hasEmbeddedDescriptiveMetadata { return .embeddedTags }
         if metadata.hasVerifiedSidecarMetadata || hasVerifiedSourceSidecarReference(in: song) {
             return .sidecarMetadata
         }
-        let identity = resolvedIdentity(for: song, metadata: metadata)
+        let identity = resolvedIdentity(for: song, metadata: metadata, sourceFileName: sourceFileName)
         if identity.title.source == .filenameInference
             || identity.artist.source == .filenameInference {
             return .filenameInference
@@ -5566,7 +5701,7 @@ final class MetadataBackfillService {
         return .verifiedNoMetadata
     }
 
-    private func hasVerifiedSourceSidecarReference(in song: Song) -> Bool {
+    private nonisolated static func hasVerifiedSourceSidecarReference(in song: Song) -> Bool {
         let mediaParent = (song.filePath as NSString).deletingLastPathComponent
         return [song.coverArtFileName, song.lyricsFileName, song.mvPath]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -5609,7 +5744,7 @@ final class MetadataBackfillService {
     }
 
     /// 内嵌歌词因为歌旁边有歌词文件而没进缓存时单独留着, 那份文件不在了再用。
-    private func storeEmbeddedFallbackLyrics(
+    private nonisolated static func storeEmbeddedFallbackLyrics(
         from metadata: MetadataService.SongMetadata,
         for song: Song
     ) async {
@@ -5621,8 +5756,21 @@ final class MetadataBackfillService {
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
-        let isBareOnlySource = restrictsToBareRows(bare)
-        let identity = resolvedIdentity(for: bare, metadata: metadata)
+        Self.mergeSong(
+            bare: bare,
+            metadata: metadata,
+            restrictsToBareRows: restrictsToBareRows(bare),
+            sourceFileName: sourceFileName(bare)
+        )
+    }
+
+    private nonisolated static func mergeSong(
+        bare: Song,
+        metadata: MetadataService.SongMetadata,
+        restrictsToBareRows isBareOnlySource: Bool,
+        sourceFileName: String?
+    ) -> Song {
+        let identity = resolvedIdentity(for: bare, metadata: metadata, sourceFileName: sourceFileName)
         let mergedTitle = identity.title.value ?? bare.title
         let mergedArtist = identity.artist.value ?? bare.artistName
         let mergedSourceArtistNames: [String]? = if bare.isCueTrack {
@@ -5964,9 +6112,12 @@ final class MetadataBackfillService {
     /// Validate that an in-flight result still belongs to the live file. This
     /// deliberately ignores failedSongIDs: a partial result is marked failed
     /// before the coalesced flush, but its already-parsed tags must still land.
-    private func backfillResultForApply(_ song: Song) -> Song? {
+    private func backfillResultForApply(
+        _ song: Song,
+        backfillableSourceIDs readableSourceIDs: Set<String>? = nil
+    ) -> Song? {
         guard !library.disabledSourceIDs.contains(song.sourceID) else { return nil }
-        guard backfillableSourceIDs().contains(song.sourceID) else { return nil }
+        guard (readableSourceIDs ?? backfillableSourceIDs()).contains(song.sourceID) else { return nil }
         guard let live = library.storedSong(id: song.id),
               live.sourceID == song.sourceID,
               live.filePath == song.filePath else {
@@ -5997,6 +6148,35 @@ final class MetadataBackfillService {
             artistCheckedIDs: artistCheckedIDs,
             containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
         )
+    }
+
+    /// 整库逐首判断用: 源集合和各份记账集合只取一次。`needsBackfill(_:)` 每问一首
+    /// 都要把源列表筛两遍, 扫完一个上万首的源时这一下在主线程上要走好几秒(Debug)。
+    private func makeNeedsBackfillPredicate() -> (Song) -> Bool {
+        let bareOnlySourceIDs = self.bareOnlySourceIDs()
+        let containerCodecOnlySourceIDs = self.containerCodecOnlySourceIDs()
+        let artworkGivenUpIDs = self.artworkGivenUpIDs
+        let titleCheckedIDs = self.titleCheckedIDs
+        let incompleteSongIDs = self.incompleteSongIDs
+        let albumArtistCheckedIDs = self.albumArtistCheckedIDs
+        let albumArtistUnconfirmedIDs = self.albumArtistUnconfirmedIDs
+        let artistCheckedIDs = self.artistCheckedIDs
+        return { song in
+            Self.needsBackfill(
+                song,
+                restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
+                    sourceUsesBareInventory: bareOnlySourceIDs.contains(song.sourceID),
+                    isStreamDescriptor: song.isStreamDescriptor
+                ),
+                artworkGivenUpIDs: artworkGivenUpIDs,
+                titleCheckedIDs: titleCheckedIDs,
+                incompleteSongIDs: incompleteSongIDs,
+                albumArtistCheckedIDs: albumArtistCheckedIDs,
+                albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
+                artistCheckedIDs: artistCheckedIDs,
+                containerCodecOnly: containerCodecOnlySourceIDs.contains(song.sourceID)
+            )
+        }
     }
 
     private func workReasons(for song: Song) -> MetadataBackfillWorkReasons {
@@ -6132,14 +6312,14 @@ final class MetadataBackfillService {
 
     /// 远端 FLAC 的实际位深。手里的字节没走到元数据块链末尾时,缺哪个块头补读那 4 个字节
     /// (大封面不用整张下载),再读一段音频帧。读不到不算这首歌失败,当作查不出。
-    private static func remoteFLACEffectiveBitDepth(
+    private nonisolated static func remoteFLACEffectiveBitDepth(
         head: Data,
         declaredBitDepth: Int,
         fileSize: Int64,
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> Int? {
-        // 这个函数随所在的类跑在主线程上: 不能把整段首段(带封面时上 MB)拷成
-        // [UInt8], 只按需取 4 字节块头; 帧扫描交给 `inspectFLACFrames`。
+        // 不把整段首段(带封面时上 MB)拷成 [UInt8], 只按需取 4 字节块头;
+        // 帧扫描交给 `inspectFLACFrames`。
         var fetchedHeaders: [Int: [UInt8]] = [:]
         var audioStart: Int?
         do {
@@ -6201,9 +6381,9 @@ final class MetadataBackfillService {
     }
 
     /// 远端只补读这么多音频帧:补零的 24 bit 立体声一帧十来 KB,够看二三十帧。
-    private static let remoteFLACFrameInspectionByteCount = 384 * 1024
+    private nonisolated static let remoteFLACFrameInspectionByteCount = 384 * 1024
 
-    private static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {
+    private nonisolated static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {
         MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat)
             && (song.coverArtFileName?.isEmpty ?? true)
     }
@@ -6330,9 +6510,11 @@ final class MetadataBackfillService {
     }
 
     private func clearDeferredRetries(in songs: [Song]) {
+        // 补读每次发布几千首, 而等着重试的通常一首都没有: 别为空集合把整批 ID 拷一遍。
+        guard !deferredRetryMembership.isEmpty else { return }
         var changed = false
         mutateDeferredRetries {
-            changed = $0.subtract(songs.map(\.id))
+            changed = $0.subtract(songs.lazy.map(\.id))
             return changed
         }
         if changed {
@@ -6864,7 +7046,7 @@ final class MetadataBackfillService {
         }
     }
 
-    private static func hash(_ input: String) -> String {
+    private nonisolated static func hash(_ input: String) -> String {
         let digest = SHA256.hash(data: Data(input.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }

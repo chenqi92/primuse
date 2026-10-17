@@ -7047,6 +7047,10 @@ final class SourceManager {
     /// 是无扩展名的 item id,缓存文件没扩展名时命中后 file:// 播放会因 pathExtension 为空
     /// 被判 "Unsupported format" 而秒退(表现为"播放后瞬间消失")。
     private func cacheFileName(for song: Song) -> String {
+        Self.cacheFileName(for: song)
+    }
+
+    private nonisolated static func cacheFileName(for song: Song) -> String {
         CacheFileNamePolicy.make(
             path: song.filePath,
             preferredExtension: song.fileFormat.rawValue
@@ -7663,14 +7667,20 @@ final class SourceManager {
     /// Populate a row's first snapshot lazily. Negative results are cached as
     /// well, preventing repeated disk stats when the same row is recycled.
     func ensureOfflineAudioSnapshot(for song: Song) async {
-        observeOfflineAudioSong(song)
+        await ensureOfflineAudioSnapshot(for: song, cacheFileName: cacheFileName(for: song))
+    }
+
+    /// 文件名要按路径算一遍, 整页预热时在后台成批算好再传进来。
+    private func ensureOfflineAudioSnapshot(for song: Song, cacheFileName fileName: String) async {
+        let relativePath = "\(song.sourceID)/\(fileName)"
+        observeOfflineAudioSong(song, relativePath: relativePath)
         guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
         }
         guard offlineAudioSnapshots[song.id] == nil else { return }
-        let url = audioCacheTargetURL(for: song)
-        let relativePath = audioCacheRelativePath(for: song)
+        let url = Self.audioCacheDirectoryURL(for: song.sourceID)
+            .appendingPathComponent(fileName, isDirectory: false)
         let info = await Task.detached(priority: .utility) {
             Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
@@ -7685,7 +7695,7 @@ final class SourceManager {
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
-    private func observeOfflineAudioSong(_ song: Song) {
+    private func observeOfflineAudioSong(_ song: Song, relativePath: String? = nil) {
         if let existing = offlineAudioObservedSongs[song.id],
            existing.song.sourceID == song.sourceID,
            existing.song.filePath == song.filePath,
@@ -7694,7 +7704,7 @@ final class SourceManager {
             return
         }
         stopObservingOfflineAudioSong(song.id)
-        let path = audioCacheRelativePath(for: song)
+        let path = relativePath ?? audioCacheRelativePath(for: song)
         offlineAudioObservedSongs[song.id] = (song, path)
         offlineAudioSongIDsByPath[path, default: []].insert(song.id)
     }
@@ -7795,6 +7805,11 @@ final class SourceManager {
     func prepareOfflineAudioSnapshots(for songs: [Song]) async {
         let pending = songs.filter { offlineAudioSnapshots[$0.id] == nil }
         guard !pending.isEmpty else { return }
+        // 缓存文件名逐首按路径算, 歌曲页第一次打开「已下载」列(或扫描进来一大批新歌)
+        // 时就是几万首; 放在主线程上算, 那段时间列表一滑一顿。
+        let fileNames = await Task.detached(priority: .utility) {
+            pending.map { Self.cacheFileName(for: $0) }
+        }.value
 
         let maxConcurrent = min(Self.offlineSnapshotProbeConcurrency, pending.count)
         await withTaskGroup(of: Void.self) { group in
@@ -7803,9 +7818,10 @@ final class SourceManager {
             func enqueueNext() {
                 guard nextIndex < pending.count else { return }
                 let song = pending[nextIndex]
+                let fileName = fileNames[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    await self.ensureOfflineAudioSnapshot(for: song)
+                    await self.ensureOfflineAudioSnapshot(for: song, cacheFileName: fileName)
                 }
             }
 
@@ -13624,40 +13640,62 @@ final class SourceManager {
         length: Int64,
         intent: MetadataRangeReadIntent = .bulkBounded
     ) async throws -> Data {
+        try await metadataRangeReader(for: song).fetch(offset: offset, length: length, intent: intent)
+    }
+
+    /// 一首歌读标签要连着读好几段。连接器和 STRM 指向在开头解析一次, 之后每一段
+    /// 直接交给连接器, 读的过程不用再回主线程。
+    struct MetadataRangeReader: Sendable {
+        fileprivate enum Target: Sendable {
+            case connector(any MusicSourceConnector, path: String)
+            case openList(any OpenListSTRMResolvingConnector, path: String)
+            case remote(URL)
+        }
+
+        fileprivate let target: Target
+
+        func fetch(offset: Int64, length: Int64, intent: MetadataRangeReadIntent) async throws -> Data {
+            switch target {
+            case .connector(let connector, let path):
+                return try await connector.fetchMetadataRange(
+                    path: path,
+                    offset: offset,
+                    length: length,
+                    intent: intent
+                )
+            case .openList(let connector, let path):
+                return try await connector.fetchOpenListSTRMMetadataRange(
+                    for: path,
+                    offset: offset,
+                    length: length,
+                    intent: intent
+                )
+            case .remote(let url):
+                return try await SourceManager.fetchRemoteMetadataRange(
+                    url: url,
+                    offset: offset,
+                    length: length,
+                    intent: intent
+                )
+            }
+        }
+    }
+
+    func metadataRangeReader(for song: Song) async throws -> MetadataRangeReader {
         let connector = try await auxiliaryConnector(for: song)
         guard song.isStreamDescriptor else {
-            return try await connector.fetchMetadataRange(
-                path: song.filePath,
-                offset: offset,
-                length: length,
-                intent: intent
-            )
+            return MetadataRangeReader(target: .connector(connector, path: song.filePath))
         }
         switch try await resolveSTRMTarget(for: song, connector: connector) {
         case .sourcePath(let path):
-            return try await connector.fetchMetadataRange(
-                path: path,
-                offset: offset,
-                length: length,
-                intent: intent
-            )
+            return MetadataRangeReader(target: .connector(connector, path: path))
         case .openListSourcePath(let path, _):
             guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
                 throw SourceError.connectionFailed("OpenList STRM transport unavailable")
             }
-            return try await webDAV.fetchOpenListSTRMMetadataRange(
-                for: path,
-                offset: offset,
-                length: length,
-                intent: intent
-            )
+            return MetadataRangeReader(target: .openList(webDAV, path: path))
         case .remote(let url):
-            return try await Self.fetchRemoteMetadataRange(
-                url: url,
-                offset: offset,
-                length: length,
-                intent: intent
-            )
+            return MetadataRangeReader(target: .remote(url))
         }
     }
 
