@@ -1251,6 +1251,46 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 歌单成员核对只在它读的东西变了时整遍做: 只改内容、只加歌的提交跳过,
+    /// 删歌与改成员照旧整遍核对, 该清掉的成员照样清掉。
+    func testPlaylistCleanupRunsWheneverItsInputsChange() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePlaylistCleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { true })
+        var first = makeSong(id: "a", path: "/music/a.mp3")
+        library.addSongs([first, makeSong(id: "b", path: "/music/b.mp3"), makeSong(id: "c", path: "/music/c.mp3")])
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Cleanup")
+        library.add(songIDs: ["a", "b", "c"], toPlaylist: playlist.id)
+
+        first.title = "A2"
+        library.replaceSongs([first], maintenance: .immediate)
+        let verified = library.playlistCleanupFullPassCount
+
+        first.title = "A3"
+        library.replaceSongs([first], maintenance: .immediate)
+        library.addSongs([makeSong(id: "d", path: "/music/d.mp3")], pruneMissingSongs: false)
+        XCTAssertEqual(library.playlistCleanupFullPassCount, verified)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "b", "c"])
+
+        let deleted = try XCTUnwrap(library.song(id: "b"))
+        _ = library.deleteSong(deleted)
+        XCTAssertGreaterThan(library.playlistCleanupFullPassCount, verified)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "c"])
+
+        let afterDeletion = library.playlistCleanupFullPassCount
+        library.add(songIDs: ["d"], toPlaylist: playlist.id)
+        first.title = "A4"
+        library.replaceSongs([first], maintenance: .immediate)
+        XCTAssertEqual(library.playlistCleanupFullPassCount, afterDeletion + 1)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "c", "d"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The playlist cleanup fixture did not finish persistence")
+        }
+    }
+
     private func makeSong(id: String, path: String) -> Song {
         Song(
             id: id,

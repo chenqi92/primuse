@@ -3683,7 +3683,10 @@ final class MusicLibrary {
     /// tombstone keyed by that. The CloudAccount id is deterministic
     /// (sha256(provider:uid)) and survives the re-add, so tombstones
     /// stick.
-    private(set) var deletedSongIdentities: Set<String> = []
+    private(set) var deletedSongIdentities: Set<String> = [] {
+        didSet { deletedSongIdentitiesRevision &+= 1 }
+    }
+    @ObservationIgnored private var deletedSongIdentitiesRevision: UInt64 = 0
 
     /// 每条墓碑的证据: 什么时候删的、源文件到底删了没有、删除那一刻这行的
     /// 签名, 以及撤销时刻。远端源问不到"文件此刻在不在磁盘上", 只能靠比签名
@@ -3704,7 +3707,10 @@ final class MusicLibrary {
     /// but persisted in a separate device-local file that is never encoded
     /// into `Snapshot`, uploaded to CloudKit, or put into the Apple TV payload.
     private(set) var deviceLocalExcludedSongIdentities: Set<String> = []
-    @ObservationIgnored private var deviceLocalExcludedSongsByID: [String: Song] = [:]
+    @ObservationIgnored private var deviceLocalExcludedSongsByID: [String: Song] = [:] {
+        didSet { deviceLocalExclusionRevision &+= 1 }
+    }
+    @ObservationIgnored private var deviceLocalExclusionRevision: UInt64 = 0
     /// Why each retained row was removed, so the recovery screen can explain an
     /// entry long after the deletion attempt that produced it.
     @ObservationIgnored
@@ -5678,6 +5684,7 @@ final class MusicLibrary {
             }
         }
         guard !appliedIDs.isEmpty else { return }
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
 
         // 只有真要写时才交出数组: 与可见数组共用一份缓冲时就地写, 不整份复制。
         var nextSongs: [Song] = []
@@ -5697,6 +5704,8 @@ final class MusicLibrary {
             songs = nextSongs
             if visibleChanged { visibleSongs = nextVisibleSongs }
         }
+        // 只改了封面 / 歌词 / MV 指针, ID 一个没动。
+        carryPlaylistCleanupVerification(playlistCleanupWasVerified)
         patchSourceAssetReferences(songIDs: appliedIDs)
         let artworkRevisionBeforePromotion = albumArtworkLookupRevision
         for song in promotableSongs {
@@ -5822,6 +5831,7 @@ final class MusicLibrary {
         }) { return }
         let signpost = PrimuseSignposts.hitch.beginInterval("library.addSongs")
         defer { PrimuseSignposts.hitch.endInterval("library.addSongs", signpost) }
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
         // Merge semantics:
         //
         // - Drop songs from the affected sources that the new scan didn't
@@ -6171,6 +6181,8 @@ final class MusicLibrary {
         // 这里改写成员会让回滚认不出来, 所以电视上保持原来的直接清理。
         reassignPlaylistMembers(ofRemoved: removedSongs, leavingPlaceholders: true)
         #endif
+        // 一首没删时库里的 ID 只增不减, 已有成员不可能因此悬空。
+        if removedSongs.isEmpty { carryPlaylistCleanupVerification(playlistCleanupWasVerified) }
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Newly-added songs may resolve identities that were stashed when
@@ -10902,6 +10914,7 @@ final class MusicLibrary {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
         // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
         if deferringUntilReady({ [weak self] in self?.replaceSong(updatedSong) }) { return }
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
         // 整行替换必须排在已入队的旁挂资源补丁之后, 否则窗口内的补丁会把
         // 这次替换里的封面/歌词/MV 指针盖回旧值; 反过来, 调用方拿到的整行
         // 往往读自补丁入队之前, 所以 flush 之后还要把补丁叠回这一行。
@@ -10909,6 +10922,9 @@ final class MusicLibrary {
             overlaying: [updatedSong]
         ).first ?? updatedSong
         // 这里不留整库数组的局部引用: 下面的就地发布要求缓冲只有库自己持有。
+        let indexWasConsistent = songIndexByID[updatedSong.id].map {
+            songsReference.value.indices.contains($0) && songsReference.value[$0].id == updatedSong.id
+        } ?? false
         guard let index = validatedSongIndex(for: updatedSong.id, in: songs) else { return }
         let previousSong = songsReference.value[index]
         let oldCoverRef = previousSong.coverArtFileName
@@ -10973,6 +10989,7 @@ final class MusicLibrary {
             rebuildDerivedCollections: LibraryIndexMaintenancePolicy
                 .derivedCollectionsChanged(from: previousSong, to: s)
         )
+        if indexWasConsistent { carryPlaylistCleanupVerification(playlistCleanupWasVerified) }
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Backfill may have just filled in title/artist/duration that lets
@@ -11015,6 +11032,8 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.replaceSongs(updatedSongs, maintenance: maintenance)
         }) { return }
+        // 整批只改内容、ID 不变(窗口内的补丁也一样), 开头成立的成员核对到清理时仍成立。
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
         // 与 `replaceSong` 同一个约定: 先取出窗口内的补丁, flush 之后叠回整行。
         let updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
         let originalSongs = songs
@@ -11136,6 +11155,7 @@ final class MusicLibrary {
             maintenance,
             rebuildDerivedCollections: derivedCollectionsChanged
         )
+        if !repairedIndexLookup { carryPlaylistCleanupVerification(playlistCleanupWasVerified) }
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Batch backfill may have surfaced enough metadata for a chunk of
@@ -11391,6 +11411,7 @@ final class MusicLibrary {
         _ prepared: PreparedStableMetadataReplacements,
         maintenance: LibraryMaintenanceDisposition
     ) {
+        let playlistCleanupWasVerified = playlistCleanupIsVerified && !prepared.repairedIndexLookup
         if prepared.repairedIndexLookup {
             songIndexByID = prepared.idToIndex
         }
@@ -11398,6 +11419,7 @@ final class MusicLibrary {
 
         songs = prepared.nextSongs
         visibleSongs = prepared.nextVisibleSongs
+        carryPlaylistCleanupVerification(playlistCleanupWasVerified)
         patchSourceAssetReferences(
             songIDs: prepared.visibleUpdates.map(\.song.id),
             invalidatesSort: prepared.songListSnapshotChanged
@@ -14599,7 +14621,49 @@ final class MusicLibrary {
         }
     }
 
+    /// 歌单成员清理只删「库里没有这首、也不是待匹配占位」的成员, 结果只由下面这几样
+    /// 决定。上次整遍核对之后它们都没变, 再核一遍也删不掉任何东西。后台补读每发布
+    /// 一批、扫描每提交一批都会来这里, 几万个成员原来每次都整遍查一次。
+    private struct PlaylistCleanupInputs: Equatable {
+        /// 歌曲表的代次。只改内容、不增删 ID 的提交会把核对结果顺延到新代次。
+        var songs: UInt64
+        let membership: UInt64
+        let pending: UInt64
+        let exclusions: UInt64
+        let deletions: UInt64
+    }
+
+    @ObservationIgnored private var verifiedPlaylistCleanupInputs: PlaylistCleanupInputs?
+    /// 整遍核对的次数, 只给测试看。
+    @ObservationIgnored private(set) var playlistCleanupFullPassCount = 0
+
+    private var playlistCleanupInputs: PlaylistCleanupInputs {
+        PlaylistCleanupInputs(
+            songs: songMutationGeneration,
+            membership: playlistMembershipRevision,
+            pending: playlistPendingRevision,
+            exclusions: deviceLocalExclusionRevision,
+            deletions: deletedSongIdentitiesRevision
+        )
+    }
+
+    private var playlistCleanupIsVerified: Bool {
+        verifiedPlaylistCleanupInputs == playlistCleanupInputs
+    }
+
+    /// 提交开头取一次 `playlistCleanupIsVerified`, 提交只改了歌曲内容或只加了歌
+    /// (库里的 ID 一个没少) 时在清理前调用: 开头时成立的核对结果此刻依然成立。
+    /// 其余输入在提交中途变了的话, 顺延后仍然对不上, 照样整遍核对。
+    private func carryPlaylistCleanupVerification(_ wasVerified: Bool) {
+        guard wasVerified, var verified = verifiedPlaylistCleanupInputs else { return }
+        verified.songs = songMutationGeneration
+        verifiedPlaylistCleanupInputs = verified
+    }
+
     private func cleanPlaylistEntries() {
+        guard !playlistCleanupIsVerified else { return }
+        playlistCleanupFullPassCount += 1
+        defer { verifiedPlaylistCleanupInputs = playlistCleanupInputs }
         for playlistID in playlistSongIDs.keys {
             let current = playlistSongIDs[playlistID] ?? []
             let kept = current.filter {
