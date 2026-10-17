@@ -5747,16 +5747,20 @@ final class MusicLibrary {
         let revision = automaticArtistArtworkCatalogRevision
         let derived = await Task.detached(priority: .utility) {
             let memo = DerivedIDMemo()
-            return incoming.map { song in
-                var song = song
+            var artworkMemo = AutomaticArtistArtworkMemo()
+            var derived: [Song] = []
+            derived.reserveCapacity(incoming.count)
+            for var song in incoming {
                 Self.fillDerivedIDs(&song, configuration: configuration, memo: memo)
                 Self.applyAutomaticArtistArtwork(
                     to: &song,
                     catalogsBySource: catalogs,
-                    artistNameConfiguration: configuration
+                    artistNameConfiguration: configuration,
+                    memo: &artworkMemo
                 )
-                return song
+                derived.append(song)
             }
+            return derived
         }.value
         return PreparedIncomingSongs(
             original: incoming,
@@ -7960,20 +7964,36 @@ final class MusicLibrary {
         }
         automaticArtistArtworkCatalogsBySource[catalog.sourceID] = catalog
         automaticArtistArtworkCatalogRevision &+= 1
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
 
-        var nextSongs = songs
-        var changedSongs: [Song] = []
-        for index in nextSongs.indices where nextSongs[index].sourceID == catalog.sourceID {
-            let previousReference = nextSongs[index].artistArtworkFileName
-            applyAutomaticArtistArtwork(to: &nextSongs[index])
-            if nextSongs[index].artistArtworkFileName != previousReference {
-                changedSongs.append(nextSongs[index])
+        // 先只读不写: 原来对每一首做 inout 访问, 第一首就把整库数组复制一份, 哪怕
+        // 最后一首都没变。同一目录、同样歌手名的歌解析出的引用必然相同, 按这两样
+        // 只算一次 —— 一张专辑十几首原来要各自拆一遍歌手名、各自往上找一遍目录。
+        let currentSongs = songs
+        let catalogs = automaticArtistArtworkCatalogsBySource
+        let configuration = artistNameConfiguration
+        var memo = AutomaticArtistArtworkMemo()
+        var changes: [(index: Int, song: Song)] = []
+        for index in currentSongs.indices where currentSongs[index].sourceID == catalog.sourceID {
+            var song = currentSongs[index]
+            let previousReference = song.artistArtworkFileName
+            Self.applyAutomaticArtistArtwork(
+                to: &song,
+                catalogsBySource: catalogs,
+                artistNameConfiguration: configuration,
+                memo: &memo
+            )
+            if song.artistArtworkFileName != previousReference {
+                changes.append((index, song))
             }
         }
-        guard !changedSongs.isEmpty else {
+        guard !changes.isEmpty else {
             persistSnapshot()
             return
         }
+        var nextSongs = currentSongs
+        for change in changes { nextSongs[change.index] = change.song }
+        let changedSongs = changes.map(\.song)
         // 这个突变只写 `artistArtworkFileName`: 歌曲 ID 与顺序都不变, 所以
         // `songIndexByID` 已经是对的, 可见成员与排序也没变。整库重组一遍
         // (分组 + 排序 + 每一本查找表) 是同步压在主线程上的 O(全库) 工作,
@@ -7992,6 +8012,8 @@ final class MusicLibrary {
         }
         songs = nextSongs
         if visibleChanged { visibleSongs = nextVisible }
+        // 只改了 `artistArtworkFileName`, ID 一个没动。
+        carryPlaylistCleanupVerification(playlistCleanupWasVerified)
         // 按源分组的切片与 macOS 源详情列表由这条既有接缝保持一致。
         patchSourceAssetReferences(songIDs: changedSongIDs)
         // 回退映射本身不会变 (`artworkFallbackPrecedes` 只看封面 / 碟号 /
@@ -8020,6 +8042,33 @@ final class MusicLibrary {
         catalogsBySource: [String: SourceArtistArtworkCatalog],
         artistNameConfiguration: ArtistNameConfiguration
     ) {
+        var memo = AutomaticArtistArtworkMemo()
+        applyAutomaticArtistArtwork(
+            to: &song,
+            catalogsBySource: catalogsBySource,
+            artistNameConfiguration: artistNameConfiguration,
+            memo: &memo
+        )
+    }
+
+    /// 一首歌的自动歌手图只由「它所在的目录」与「它的歌手名」决定(同一趟里目录表与
+    /// 歌手名规则不变), 同一组输入记下结果复用。
+    struct AutomaticArtistArtworkMemo {
+        fileprivate struct Key: Hashable {
+            let sourceID: String
+            let directory: String
+            let artistName: String?
+            let sourceArtistNames: [String]?
+        }
+        fileprivate var references: [Key: String?] = [:]
+    }
+
+    private nonisolated static func applyAutomaticArtistArtwork(
+        to song: inout Song,
+        catalogsBySource: [String: SourceArtistArtworkCatalog],
+        artistNameConfiguration: ArtistNameConfiguration,
+        memo: inout AutomaticArtistArtworkMemo
+    ) {
         // A media server's own artist image is authoritative automatic
         // artwork. Directory discovery only owns values carrying its marker.
         if let current = song.artistArtworkFileName,
@@ -8029,13 +8078,30 @@ final class MusicLibrary {
         guard let catalog = catalogsBySource[song.sourceID] else {
             return
         }
-        song.artistArtworkFileName = catalog.automaticReference(
+        // 目录表里没有这首歌时引用必然为空, 不必再拆歌手名。
+        guard let directory = catalog.songParentDirectories[song.id] else {
+            song.artistArtworkFileName = nil
+            return
+        }
+        let key = AutomaticArtistArtworkMemo.Key(
+            sourceID: catalog.sourceID,
+            directory: directory,
+            artistName: song.artistName,
+            sourceArtistNames: song.sourceArtistNames
+        )
+        if let cached = memo.references[key] {
+            song.artistArtworkFileName = cached
+            return
+        }
+        let reference = catalog.automaticReference(
             forSongID: song.id,
             artistNames: Self.resolvedArtistNames(
                 for: song,
                 configuration: artistNameConfiguration
             )
         )
+        memo.references[key] = .some(reference)
+        song.artistArtworkFileName = reference
     }
 
     @discardableResult

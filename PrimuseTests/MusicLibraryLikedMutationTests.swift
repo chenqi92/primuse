@@ -1251,6 +1251,79 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 自动歌手图按「目录 + 歌手名」记忆复用: 每首的结果必须与逐首直接解析的一样,
+    /// 媒体服务器自带的歌手图不动, 同样的目录表再来一次什么都不改。
+    func testAutomaticArtistArtworkMatchesPerSongResolution() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseArtistArtworkMemo-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { true })
+        func track(_ id: String, _ path: String, artist: String) -> Song {
+            var song = makeSong(id: id, path: path)
+            song.artistName = artist
+            return song
+        }
+        var server = track("server", "/Music/A/One/s.flac", artist: "Alpha")
+        server.artistArtworkFileName = "server/alpha.jpg"
+        let songs = [
+            track("a1", "/Music/A/One/1.flac", artist: "Alpha"),
+            track("a2", "/Music/A/One/2.flac", artist: "Alpha"),
+            track("a3", "/Music/A/Two/1.flac", artist: "Alpha"),
+            track("g1", "/Music/A/Two/2.flac", artist: "Alpha; Guest"),
+            track("b1", "/Music/B/One/1.flac", artist: "Beta"),
+            server,
+        ]
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+
+        func item(_ path: String, parent: String, directory: Bool = false, songIDs: [String] = []) -> SourceSyncIndexedItem {
+            SourceSyncIndexedItem(
+                stableKey: path, path: path, displayName: (path as NSString).lastPathComponent,
+                parentPath: parent, isDirectory: directory, songIDs: songIDs,
+                size: 10, modifiedDate: nil, revision: "r"
+            )
+        }
+        var items = [
+            item("/Music", parent: "/", directory: true),
+            item("/Music/A", parent: "/Music", directory: true),
+            item("/Music/A/One", parent: "/Music/A", directory: true),
+            item("/Music/A/Two", parent: "/Music/A", directory: true),
+            item("/Music/B", parent: "/Music", directory: true),
+            item("/Music/B/One", parent: "/Music/B", directory: true),
+            item("/Music/A/Alpha.jpg", parent: "/Music/A"),
+            item("/Music/A/Two/Guest.png", parent: "/Music/A/Two"),
+            item("/Music/B/One/Beta.png", parent: "/Music/B/One"),
+        ]
+        for song in songs {
+            items.append(item(song.filePath, parent: (song.filePath as NSString).deletingLastPathComponent,
+                              songIDs: [song.id]))
+        }
+        let catalog = SourceArtistArtworkCatalog(
+            sourceID: "source-1",
+            index: Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) })
+        )
+        library.updateAutomaticArtistArtworkCatalog(catalog)
+
+        for song in songs where song.id != "server" {
+            let expected = catalog.automaticReference(
+                forSongID: song.id,
+                artistNames: MusicLibrary.resolvedArtistNames(
+                    for: song,
+                    configuration: library.artistNameConfiguration
+                )
+            )
+            XCTAssertNotNil(expected, song.id)
+            XCTAssertEqual(library.song(id: song.id)?.artistArtworkFileName, expected, song.id)
+        }
+        XCTAssertNotEqual(library.song(id: "a1")?.artistArtworkFileName,
+                          library.song(id: "g1")?.artistArtworkFileName)
+        XCTAssertEqual(library.song(id: "server")?.artistArtworkFileName, "server/alpha.jpg")
+
+        let revision = library.songMutationGenerationForMaintenance
+        library.updateAutomaticArtistArtworkCatalog(catalog)
+        XCTAssertEqual(library.songMutationGenerationForMaintenance, revision)
+    }
+
     /// 歌单成员核对只在它读的东西变了时整遍做: 只改内容、只加歌的提交跳过,
     /// 删歌与改成员照旧整遍核对, 该清掉的成员照样清掉。
     func testPlaylistCleanupRunsWheneverItsInputsChange() async throws {
