@@ -231,6 +231,16 @@ enum SpokenWordShelfLayout: String, CaseIterable {
     case bookshelf, covers, list
 
     var isGrid: Bool { self != .list }
+
+    /// 版式键的图标。只放封面那一种最简单,就是几个方块;带书名的是图下有字(#320)。
+    /// 两种网格的列数一样,不用格子的疏密来分。
+    var symbol: String {
+        switch self {
+        case .bookshelf: "text.below.photo"
+        case .covers: "square.grid.2x2"
+        case .list: "list.bullet"
+        }
+    }
 }
 
 enum SpokenWordShelfOrder {
@@ -585,9 +595,9 @@ struct SpokenWordShelfContent: View {
                             if shelf.count + finished.count + archived.count > 1 {
                                 arrangeButton
                             }
-                            layoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
-                            layoutButton(.covers, icon: "square.grid.3x3", title: "spoken_word_shelf_covers_only")
-                            layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
+                            layoutButton(.bookshelf, icon: SpokenWordShelfLayout.bookshelf.symbol, title: "spoken_word_shelf_section")
+                            layoutButton(.covers, icon: SpokenWordShelfLayout.covers.symbol, title: "spoken_word_shelf_covers_only")
+                            layoutButton(.list, icon: SpokenWordShelfLayout.list.symbol, title: "songs_view_list")
                         }
                         #endif
                     }
@@ -676,9 +686,9 @@ struct SpokenWordShelfContent: View {
     /// 和电台页的版式开关同一个样子; 44pt 见方的触控尺寸在 Mac 上把这一行撑得太高。
     private var macLayoutToggle: some View {
         HStack(spacing: 2) {
-            macLayoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
-            macLayoutButton(.covers, icon: "square.grid.3x3", title: "spoken_word_shelf_covers_only")
-            macLayoutButton(.list, icon: "list.bullet", title: "songs_view_list")
+            macLayoutButton(.bookshelf, icon: SpokenWordShelfLayout.bookshelf.symbol, title: "spoken_word_shelf_section")
+            macLayoutButton(.covers, icon: SpokenWordShelfLayout.covers.symbol, title: "spoken_word_shelf_covers_only")
+            macLayoutButton(.list, icon: SpokenWordShelfLayout.list.symbol, title: "songs_view_list")
         }
         .padding(2)
         .frame(height: 32)
