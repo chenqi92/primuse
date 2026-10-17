@@ -1131,6 +1131,17 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 按连续段计数时, 同一个源被别的源隔开的几段要加在一起。
+    func testSongCountsBySourceAddUpInterleavedRuns() {
+        let sourceIDs = ["a", "a", "b", "a", "c", "c", "a"]
+        let songs = sourceIDs.enumerated().map { index, sourceID in
+            Song(id: "song-\(index)", title: "Song \(index)", fileFormat: .mp3,
+                 filePath: "/\(index).mp3", sourceID: sourceID)
+        }
+        XCTAssertEqual(MusicLibrary.makeSongCountsBySourceID(songs), ["a": 4, "b": 1, "c": 2])
+        XCTAssertEqual(MusicLibrary.makeSongCountsBySourceID([]), [:])
+    }
+
     /// 歌单页一次重绘要问好几遍整张歌单, 结果按版本缓存; 歌曲内容、成员、来源停用
     /// 任一变了, 下一次取到的都必须是新的。
     func testPlaylistSongsCacheFollowsEveryChange() async throws {

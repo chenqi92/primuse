@@ -5053,12 +5053,21 @@ final class MusicLibrary {
         )
     }
 
-    private nonisolated static func makeSongCountsBySourceID(
+    /// 同一个源的歌在库里是连着存的: 按连续段数, 一段只查一次字典。整库扫描收尾
+    /// 与源卡片对账都在主线程上调它。
+    nonisolated static func makeSongCountsBySourceID(
         _ songs: [Song]
     ) -> [String: Int] {
         var counts: [String: Int] = [:]
-        for song in songs {
-            counts[song.sourceID, default: 0] += 1
+        songs.withUnsafeBufferPointer { buffer in
+            var index = 0
+            while index < buffer.count {
+                let sourceID = buffer[index].sourceID
+                var end = index + 1
+                while end < buffer.count, buffer[end].sourceID == sourceID { end += 1 }
+                counts[sourceID, default: 0] += end - index
+                index = end
+            }
         }
         return counts
     }
@@ -7259,7 +7268,11 @@ final class MusicLibrary {
     /// 可能还落后几秒的派生重建。`lazy` 让它只走一遍 `songs`, 不为计数分配
     /// 一整份匹配歌曲数组。
     func exactSongCount(forSourceID sourceID: String) -> Int {
-        songs.lazy.filter { $0.sourceID == sourceID }.count
+        songs.withUnsafeBufferPointer { buffer in
+            var count = 0
+            for index in buffer.indices where buffer[index].sourceID == sourceID { count += 1 }
+            return count
+        }
     }
 
     /// Snapshot-sized dictionary (normally only a handful of sources), backed
