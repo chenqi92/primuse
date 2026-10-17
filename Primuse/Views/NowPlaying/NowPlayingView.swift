@@ -9408,16 +9408,21 @@ struct ProgressSlider: View {
         var knobDiameter: CGFloat? = nil
         /// 播放过的那段画成波浪(#69),播放头上一道竖着的短条。
         var isWave = false
+        /// 播放过的那段和播放头外面一圈同色的光晕(#319)。
+        var glows = false
 
         static let standard = TrackStyle()
 
         /// 设置 › 播放器 › 进度条 选的画法。
-        static func forProgressStyle(_ style: NowPlayingProgressStyle) -> TrackStyle {
+        static func forProgressStyle(_ style: NowPlayingProgressStyle, glows: Bool = false) -> TrackStyle {
+            var track: TrackStyle
             switch style {
-            case .standard: .standard
-            case .wave: TrackStyle(restingHeight: 4, draggingHeight: 7, isWave: true)
-            case .dot: TrackStyle(restingHeight: 3, draggingHeight: 5, knobDiameter: 12)
+            case .standard: track = .standard
+            case .wave: track = TrackStyle(restingHeight: 4, draggingHeight: 7, isWave: true)
+            case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 5, knobDiameter: 12)
             }
+            track.glows = glows
+            return track
         }
     }
 
@@ -9485,6 +9490,15 @@ struct ProgressSlider: View {
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
 
+    private var progressGlow: ProgressGlow {
+        ProgressGlow(
+            color: fillColor,
+            isEnabled: trackStyle.glows,
+            isLit: isPlaying,
+            isLight: appearance.isLight
+        )
+    }
+
     /// 播放时钟 0.5 秒推进一次, 填充条不接一条同长的线性动画就会一格一格地跳。
     /// 这是跟时钟间隔配套的特例曲线, 不属于 PMMotion 的任何一档。
     ///
@@ -9527,12 +9541,14 @@ struct ProgressSlider: View {
             )
             .frame(width: filledWidth)
             .animation(fillAnimation, value: progress)
+            .modifier(progressGlow)
 
             Capsule()
                 .fill(fillColor)
                 .frame(width: trackHeight, height: isDragging ? 20 : 14)
                 .offset(x: filledWidth - trackHeight / 2)
                 .animation(fillAnimation, value: progress)
+                .modifier(progressGlow)
         }
     }
 
@@ -9573,6 +9589,7 @@ struct ProgressSlider: View {
                         // 曲线管, 这里只负责宽度, 免得一开始拖动就把加粗一起掐掉。
                         .animation(fillAnimation, value: progress)
                         .frame(height: trackHeight)
+                        .modifier(progressGlow)
                 }
 
                 if let knob = trackStyle.knobDiameter {
@@ -9582,6 +9599,7 @@ struct ProgressSlider: View {
                         .frame(width: diameter, height: diameter)
                         .offset(x: filledWidth - diameter / 2)
                         .animation(fillAnimation, value: progress)
+                        .modifier(progressGlow)
                 }
             }
             .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
@@ -9657,6 +9675,31 @@ struct ProgressSlider: View {
     }
 }
 
+/// 进度条发光(#319):播放过的那段和播放头外面一圈同色的光晕。播放时亮,暂停时收淡;
+/// 浅色外观下整体压淡,免得在浅底上看着像一道脏阴影。关着时不挂阴影,不白多一层离屏渲染。
+private struct ProgressGlow: ViewModifier {
+    let color: Color
+    let isEnabled: Bool
+    let isLit: Bool
+    let isLight: Bool
+
+    private var opacity: Double {
+        let lit = isLight ? 0.4 : 0.85
+        return isLit ? lit : lit * 0.45
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .shadow(color: color.opacity(opacity), radius: 6)
+                .animation(.easeInOut(duration: 0.35), value: isLit)
+        } else {
+            content
+        }
+    }
+}
+
 /// 波浪进度条播放过的那一段:一条向播放头缓缓流动的正弦线。暂停、拖动时抚平成直线;
 /// 「减弱动态效果」、低电量时停住不流动,形状照旧。只在播放页看得见时走钟。
 private struct ProgressWaveFill: View {
@@ -9729,8 +9772,16 @@ private struct ProgressWaveShape: Shape {
 /// 设置里「进度条」每个选项旁边的小样,静止画出播到一半多的样子。
 struct NowPlayingProgressStylePreview: View {
     let style: NowPlayingProgressStyle
+    /// 设置里打开了「进度条发光」时小样也带上光晕。
+    var glows = false
+
+    @Environment(\.colorScheme) private var colorScheme
 
     private let progress: CGFloat = 0.58
+
+    private var glow: ProgressGlow {
+        ProgressGlow(color: .accentColor, isEnabled: glows, isLit: true, isLight: colorScheme == .light)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -9747,10 +9798,12 @@ struct NowPlayingProgressStylePreview: View {
                     ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
                         .stroke(Color.accentColor, style: StrokeStyle(lineWidth: track.restingHeight, lineCap: .round))
                         .frame(width: filled)
+                        .modifier(glow)
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(width: track.restingHeight, height: 14)
                         .offset(x: filled - track.restingHeight / 2)
+                        .modifier(glow)
                 case .standard, .dot:
                     Capsule()
                         .fill(Color.secondary.opacity(0.3))
@@ -9758,11 +9811,13 @@ struct NowPlayingProgressStylePreview: View {
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(width: filled, height: track.restingHeight)
+                        .modifier(glow)
                     if let knob = track.knobDiameter {
                         Circle()
                             .fill(Color.accentColor)
                             .frame(width: knob, height: knob)
                             .offset(x: filled - knob / 2)
+                            .modifier(glow)
                     }
                 }
             }
@@ -13740,6 +13795,8 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     @Environment(TransportHoldScrub.self) private var holdScrub: TransportHoldScrub?
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @State private var previewTime: TimeInterval?
 
     /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
@@ -13786,7 +13843,8 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         interactionID: player.currentSong?.id,
                         fillTint: fillTint,
                         trackStyle: .forProgressStyle(
-                            PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+                            PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+                            glows: progressGlows
                         ),
                         isPlaying: player.isPlaying,
                         onPreview: { previewTime = $0 },

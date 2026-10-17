@@ -153,6 +153,9 @@ enum PlayerAppearancePreferences {
 
     /// 播放页进度条的画法(#69):胶囊条、波浪、细线加圆点。
     static let progressStyleKey = "primuse.player.progressStyle"
+    /// 进度条播放过的那段外面一圈同色的光晕(#319),三种画法都能叠。播放时亮,暂停时变淡。
+    static let progressGlowKey = "primuse.player.progressGlow"
+    static let progressGlowByDefault = false
 
     /// 系统是浅色时播放页也用深色(像 Apple Music、播客那样),有声书走墨黑版式(#313)。默认跟随系统。
     static let alwaysDarkKey = "primuse.player.alwaysDark"

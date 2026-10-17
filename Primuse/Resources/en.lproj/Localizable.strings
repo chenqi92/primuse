@@ -5776,6 +5776,8 @@
 "player_progress_style_standard" = "Default";
 "player_progress_style_wave" = "Wave";
 "player_progress_style_dot" = "Thin Line with Dot";
+"player_progress_glow" = "Progress Bar Glow";
+"player_progress_glow_description" = "Adds a soft glow in the same color around the played part of the progress bar. It dims while paused. Works with all three styles and shows best in dark appearance.";
 "theme_color_player_backdrop_moved_hint" = "The player background style and color intensity are now in Settings › Player.";
 "theme_color_player_backdrop_moved_link" = "Open Player Settings";
 

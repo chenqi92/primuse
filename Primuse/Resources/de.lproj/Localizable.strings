@@ -6016,6 +6016,8 @@
 "player_progress_style_standard" = "Standard";
 "player_progress_style_wave" = "Welle";
 "player_progress_style_dot" = "Dünne Linie mit Punkt";
+"player_progress_glow" = "Leuchtender Fortschrittsbalken";
+"player_progress_glow_description" = "Legt einen sanften Schein in derselben Farbe um den bereits gespielten Teil des Fortschrittsbalkens. Bei Pause wird er schwächer. Funktioniert mit allen drei Stilen und wirkt im dunklen Erscheinungsbild am stärksten.";
 "theme_color_player_backdrop_moved_hint" = "Stil und Farbintensität des Player-Hintergrunds findest du jetzt unter Einstellungen › Player.";
 "theme_color_player_backdrop_moved_link" = "Player-Einstellungen öffnen";
 

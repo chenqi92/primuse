@@ -572,6 +572,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
@@ -685,7 +687,7 @@ private struct PlayerAppearanceSettingsView: View {
                         HStack(spacing: 12) {
                             Text(LocalizedStringKey(style.titleKey))
                             Spacer(minLength: 12)
-                            NowPlayingProgressStylePreview(style: style)
+                            NowPlayingProgressStylePreview(style: style, glows: progressGlows)
                                 .frame(width: 96)
                         }
                         .tag(style)
@@ -696,6 +698,9 @@ private struct PlayerAppearanceSettingsView: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
                 .settingsAnchor("appearance.playerProgressStyle")
+                Toggle("player_progress_glow", isOn: $progressGlows)
+                    .settingsAnchor("appearance.playerProgressGlow")
+                    .accessibilityHint(Text("player_progress_glow_description"))
             } header: {
                 Text("player_progress_style_title")
             } footer: {

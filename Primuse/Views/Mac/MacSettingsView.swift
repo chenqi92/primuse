@@ -6629,6 +6629,8 @@ private struct MacSTThemeView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -6904,6 +6906,13 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.playerProgressStyle")
+                MacSTRow(
+                    String(localized: "player_progress_glow"),
+                    hint: String(localized: "player_progress_glow_description")
+                ) {
+                    MacSTToggle(isOn: $progressGlows)
+                }
+                .settingsAnchor("appearance.playerProgressGlow")
             }
         }
 

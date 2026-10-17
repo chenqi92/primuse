@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "Padrão";
 "player_progress_style_wave" = "Onda";
 "player_progress_style_dot" = "Linha fina com ponto";
+"player_progress_glow" = "Barra de progresso brilhante";
+"player_progress_glow_description" = "Adiciona um brilho suave da mesma cor ao redor da parte já tocada da barra de progresso. Fica mais fraco quando pausado. Funciona com os três estilos e se destaca mais na aparência escura.";
 "theme_color_player_backdrop_moved_hint" = "O estilo e a intensidade das cores do fundo do player agora ficam em Ajustes › Player.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes do player";
 

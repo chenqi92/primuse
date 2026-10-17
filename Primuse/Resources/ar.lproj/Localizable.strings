@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "الافتراضي";
 "player_progress_style_wave" = "موجة";
 "player_progress_style_dot" = "خط رفيع مع نقطة";
+"player_progress_glow" = "توهج شريط التقدم";
+"player_progress_glow_description" = "يضيف توهجًا ناعمًا بنفس اللون حول الجزء الذي تم تشغيله من شريط التقدم. يخفت أثناء الإيقاف المؤقت. يعمل مع الأنماط الثلاثة ويظهر بوضوح أكبر في المظهر الداكن.";
 "theme_color_player_backdrop_moved_hint" = "أصبح نمط خلفية المشغّل وكثافة ألوانها في الإعدادات › المشغّل.";
 "theme_color_player_backdrop_moved_link" = "فتح إعدادات المشغّل";
 

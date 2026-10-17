@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "डिफ़ॉल्ट";
 "player_progress_style_wave" = "लहर";
 "player_progress_style_dot" = "पतली रेखा और बिंदु";
+"player_progress_glow" = "चमकता प्रोग्रेस बार";
+"player_progress_glow_description" = "प्रोग्रेस बार के चल चुके हिस्से के चारों ओर उसी रंग की हल्की चमक जोड़ता है। रोकने पर चमक धीमी हो जाती है। तीनों स्टाइल के साथ काम करता है और डार्क मोड में सबसे अच्छा दिखता है।";
 "theme_color_player_backdrop_moved_hint" = "प्लेयर बैकग्राउंड की शैली और रंग की तीव्रता अब सेटिंग्स › प्लेयर में है।";
 "theme_color_player_backdrop_moved_link" = "प्लेयर सेटिंग्स खोलें";
 

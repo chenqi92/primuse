@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "Varsayılan";
 "player_progress_style_wave" = "Dalga";
 "player_progress_style_dot" = "Noktalı ince çizgi";
+"player_progress_glow" = "Parlayan ilerleme çubuğu";
+"player_progress_glow_description" = "İlerleme çubuğunun çalınmış kısmının çevresine aynı renkte yumuşak bir parıltı ekler. Duraklatıldığında soluklaşır. Üç stilin hepsiyle çalışır ve en çok koyu görünümde belirgindir.";
 "theme_color_player_backdrop_moved_hint" = "Çalar arka planının stili ve renk yoğunluğu artık Ayarlar › Çalar bölümünde.";
 "theme_color_player_backdrop_moved_link" = "Çalar ayarlarını aç";
 

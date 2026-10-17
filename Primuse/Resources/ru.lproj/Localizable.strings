@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "По умолчанию";
 "player_progress_style_wave" = "Волна";
 "player_progress_style_dot" = "Тонкая линия с точкой";
+"player_progress_glow" = "Свечение полосы прогресса";
+"player_progress_glow_description" = "Добавляет мягкое свечение того же цвета вокруг проигранной части полосы прогресса. На паузе оно слабеет. Работает со всеми тремя стилями и лучше всего видно в тёмном оформлении.";
 "theme_color_player_backdrop_moved_hint" = "Стиль и насыщенность цвета фона плеера теперь настраиваются в разделе «Настройки › Плеер».";
 "theme_color_player_backdrop_moved_link" = "Открыть настройки плеера";
 

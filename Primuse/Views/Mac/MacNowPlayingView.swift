@@ -1824,6 +1824,8 @@ private struct MacNowPlayingProgressRow: View {
     let accent: Color
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @State private var preview: TimeInterval?
 
     var body: some View {
@@ -1836,7 +1838,8 @@ private struct MacNowPlayingProgressRow: View {
                 interactionID: player.currentSong?.id,
                 fillTint: accent,
                 trackStyle: .forProgressStyle(
-                    PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+                    PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+                    glows: progressGlows
                 ),
                 isPlaying: player.isPlaying,
                 onPreview: { preview = $0 },

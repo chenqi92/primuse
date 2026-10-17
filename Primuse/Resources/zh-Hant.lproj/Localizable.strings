@@ -5993,6 +5993,8 @@
 "player_progress_style_standard" = "預設";
 "player_progress_style_wave" = "波浪";
 "player_progress_style_dot" = "細線圓點";
+"player_progress_glow" = "進度條發光";
+"player_progress_glow_description" = "進度條播放過的那段外面亮起一圈同色的光暈，暫停時變淡。三種進度條都能用，深色外觀下最明顯。";
 "theme_color_player_backdrop_moved_hint" = "播放頁背景的樣式和顏色濃淡，現在在「設定 › 播放器」裡調整。";
 "theme_color_player_backdrop_moved_link" = "前往播放器設定";
 

@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "Domyślny";
 "player_progress_style_wave" = "Fala";
 "player_progress_style_dot" = "Cienka linia z kropką";
+"player_progress_glow" = "Świecący pasek postępu";
+"player_progress_glow_description" = "Dodaje delikatną poświatę w tym samym kolorze wokół odtworzonej części paska postępu. Podczas pauzy przygasa. Działa ze wszystkimi trzema stylami i najlepiej widać ją w ciemnym wyglądzie.";
 "theme_color_player_backdrop_moved_hint" = "Styl i intensywność kolorów tła odtwarzacza ustawisz teraz w Ustawienia › Odtwarzacz.";
 "theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
 

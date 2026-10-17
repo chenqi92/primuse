@@ -6016,6 +6016,8 @@
 "player_progress_style_standard" = "기본";
 "player_progress_style_wave" = "물결";
 "player_progress_style_dot" = "가는 선과 점";
+"player_progress_glow" = "진행 막대 빛 효과";
+"player_progress_glow_description" = "진행 막대에서 재생된 부분 주위에 같은 색의 은은한 빛을 더합니다. 일시정지 중에는 흐려집니다. 세 가지 스타일 모두에서 쓸 수 있으며 다크 모드에서 가장 잘 보입니다.";
 "theme_color_player_backdrop_moved_hint" = "플레이어 배경 스타일과 색 농도는 이제 설정 › 플레이어에서 조절합니다.";
 "theme_color_player_backdrop_moved_link" = "플레이어 설정 열기";
 

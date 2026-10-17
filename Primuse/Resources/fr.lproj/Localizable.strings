@@ -6016,6 +6016,8 @@
 "player_progress_style_standard" = "Par défaut";
 "player_progress_style_wave" = "Vague";
 "player_progress_style_dot" = "Ligne fine avec point";
+"player_progress_glow" = "Barre de progression lumineuse";
+"player_progress_glow_description" = "Ajoute un halo doux de la même couleur autour de la partie déjà lue de la barre de progression. Il s’atténue en pause. Fonctionne avec les trois styles et ressort surtout en apparence sombre.";
 "theme_color_player_backdrop_moved_hint" = "Le style et l’intensité des couleurs de l’arrière-plan du lecteur se règlent désormais dans Réglages › Lecteur.";
 "theme_color_player_backdrop_moved_link" = "Ouvrir les réglages du lecteur";
 

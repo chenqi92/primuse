@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "Predeterminada";
 "player_progress_style_wave" = "Onda";
 "player_progress_style_dot" = "Línea fina con punto";
+"player_progress_glow" = "Barra de progreso luminosa";
+"player_progress_glow_description" = "Agrega un brillo suave del mismo color alrededor de la parte ya reproducida de la barra de progreso. Se atenúa en pausa. Funciona con los tres estilos y se nota más con la apariencia oscura.";
 "theme_color_player_backdrop_moved_hint" = "El estilo y la intensidad de color del fondo del reproductor ahora están en Configuración › Reproductor.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes del reproductor";
 

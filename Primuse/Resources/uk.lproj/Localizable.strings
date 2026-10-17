@@ -5922,6 +5922,8 @@
 "player_progress_style_standard" = "Типово";
 "player_progress_style_wave" = "Хвиля";
 "player_progress_style_dot" = "Тонка лінія з крапкою";
+"player_progress_glow" = "Світіння смуги прогресу";
+"player_progress_glow_description" = "Додає м’яке світіння того самого кольору навколо програної частини смуги прогресу. На паузі воно слабшає. Працює з усіма трьома стилями й найкраще видно в темному оформленні.";
 "theme_color_player_backdrop_moved_hint" = "Стиль і насиченість кольору фону програвача тепер налаштовуються в «Параметри › Програвач».";
 "theme_color_player_backdrop_moved_link" = "Відкрити параметри програвача";
 
