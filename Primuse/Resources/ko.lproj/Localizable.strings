@@ -1586,7 +1586,7 @@
 "diagnostics_title" = "진단 리포트";
 "diagnostics_empty_title" = "진단 리포트 없음";
 "diagnostics_empty_subtitle" = "Primuse가 충돌하거나 멈추면 iOS가 개발자와 공유할 수 있는 리포트를 여기에 남깁니다.";
-"diagnostics_footer" = "리포트는 이 기기에만 저장됩니다. 탭하여 이메일 또는 AirDrop으로 개발자와 공유하세요.";
+"diagnostics_footer" = "리포트는 이 기기에 저장되며 자동으로 전송되지 않습니다. 탭하여 하나씩 공유하거나, '개발자에게 보내기'로 메시지와 함께 보낼 수 있습니다.";
 "diagnostics_clear" = "모든 리포트 지우기";
 "diagnostics_clear_confirm" = "모든 리포트를 삭제하시겠습니까?";
 "diagnostics_send_button" = "개발자에게 보내기";
@@ -1595,8 +1595,6 @@
 "diagnostics_send_sent_title" = "보고서를 보냈습니다";
 "diagnostics_send_sent_message" = "감사합니다. 이 기기에 저장된 보고서를 지금 지울까요?";
 "diagnostics_send_keep" = "유지";
-"diagnostics_send_unavailable_title" = "메일을 보낼 수 없음";
-"diagnostics_send_unavailable_message %@" = "이 기기에 메일 계정이 설정되어 있지 않습니다. 보고서를 공유하거나 로그를 내보내 %@ 주소로 보내세요.";
 "diagnostics_send_failed_title" = "보내지 못함";
 "diagnostics_send_failed_message" = "메일 App이 메시지를 보내지 못했습니다. 보고서는 이 기기에 그대로 있습니다.";
 "source_diagnostics" = "소스 진단";
@@ -4679,11 +4677,30 @@
 "diagnostics_feedback_compose" = "메일 열기";
 "diagnostics_feedback_images" = "이미지(선택 사항)";
 "diagnostics_feedback_add_image" = "이미지 추가";
-"diagnostics_feedback_images_footer %lld" = "최대 %lld장. 크기를 줄여 이메일과 함께 보냅니다.";
+"diagnostics_feedback_images_footer %lld" = "최대 %lld장. 크기를 줄여 피드백과 함께 보냅니다.";
 "diagnostics_feedback_images_loading" = "이미지 불러오는 중…";
 "diagnostics_feedback_image_failed" = "읽을 수 없는 이미지가 있어 건너뛰었습니다.";
 "diagnostics_feedback_remove_image" = "이미지 제거";
 "diagnostics_logs_title" = "로그";
+"diagnostics_feedback_share" = "공유";
+"diagnostics_log_contents_info" = "로그에는 최근 재생, 스캔, 동기화 과정이 기록됩니다. 노래 제목, 파일 경로, 짧은 태그로 바뀐 음악 소스 주소와 계정이 들어 있으며, 비밀번호와 토큰 같은 인증 정보는 기록하기 전에 제거됩니다. 업로드하거나 공유할 때는 최근 부분만 보냅니다.";
+"diagnostics_upload_button" = "개발자에게 업로드";
+"diagnostics_upload_use_mail" = "대신 이메일로 보내기";
+"diagnostics_upload_use_share" = "대신 공유하기";
+"diagnostics_upload_consent" = "내용은 개발자의 서버로 업로드되어 문제 해결에만 사용되며 30일 후 삭제됩니다.";
+"diagnostics_upload_packaging" = "묶는 중…";
+"diagnostics_upload_progress %lld" = "업로드 중 %lld%%";
+"diagnostics_upload_confirming" = "확인 중…";
+"diagnostics_upload_done_title" = "개발자에게 업로드했습니다";
+"diagnostics_upload_copy_code" = "코드 복사";
+"diagnostics_upload_code_copied" = "복사됨";
+"diagnostics_upload_done_hint" = "GitHub나 이메일로 문의할 때 이 코드를 알려 주시면 개발자가 리포트를 찾을 수 있습니다. 리포트는 개발자의 서버에 30일간 보관됩니다.";
+"diagnostics_upload_error_too_large" = "묶은 파일이 8MB 한도를 넘습니다. 로그나 일부 이미지를 빼고 다시 시도하세요.";
+"diagnostics_upload_error_daily_limit %@" = "이 기기는 오늘 업로드 횟수를 모두 사용했습니다. %@ 이후에 다시 업로드할 수 있습니다.";
+"diagnostics_upload_error_unavailable" = "지금은 업로드를 사용할 수 없습니다. 아무것도 전송되지 않았습니다.";
+"diagnostics_upload_error_network" = "연결할 수 없어 업로드하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요.";
+"diagnostics_upload_error_other %@" = "업로드를 완료하지 못했습니다(%@). 잠시 후 다시 시도하세요.";
+"diagnostics_upload_message_placeholder" = "개발자에게 보낼 메시지(선택 사항)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "북마크 추가";

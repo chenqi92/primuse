@@ -9015,7 +9015,7 @@ private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
             return
         }
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -9443,6 +9443,18 @@ private struct MacDiagnosticsWindowView: View {
     @State private var cpuText = "—"
     @State private var cacheUsedText = "—"
     @State private var cacheLimitText = "—"
+    @State private var uploader = DiagnosticReportUploader()
+    @State private var uploadMessage = ""
+    @State private var uploadIncludesReports = true
+    /// 测试渠道默认带日志;正式版要用户自己勾(说明在勾选框的悬停提示里)。
+    @State private var uploadIncludesLog = DiagnosticLogExportPolicy.exposesExportEntry(
+        channel: Bundle.main.distributionChannel
+    )
+    @State private var diagnosticReportURLs: [URL] = []
+    @State private var uploadTask: Task<Void, Never>?
+    @State private var uploadedCode: String?
+    @State private var uploadCodeCopied = false
+    @State private var uploadError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -9473,6 +9485,13 @@ private struct MacDiagnosticsWindowView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+
+            // 中转收诊断上传时才出现;传完后留着编号,直到点「完成」。
+            if uploader.availability == true || uploadedCode != nil {
+                uploadSection
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 14)
+            }
 
             HStack(spacing: 8) {
                 Text(verbatim: Lz("Live Logs"))
@@ -9541,6 +9560,21 @@ private struct MacDiagnosticsWindowView: View {
             .padding(.bottom, 16)
         }
         .background(PMColor.bg)
+        .alert(
+            String(localized: "diagnostics_send_failed_title"),
+            isPresented: Binding(
+                get: { uploadError != nil },
+                set: { if !$0 { uploadError = nil } }
+            )
+        ) {
+            Button(String(localized: "ok"), role: .cancel) { uploadError = nil }
+        } message: {
+            Text(uploadError ?? "")
+        }
+        .task {
+            refreshDiagnosticReportURLs()
+            await uploader.refreshAvailability()
+        }
         .task {
             await refreshMetrics()
             while !Task.isCancelled {
@@ -9634,6 +9668,161 @@ private struct MacDiagnosticsWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(row.pasteboardText, forType: .string)
         copiedRowID = row.id
+    }
+
+    // MARK: 上传给作者
+
+    private var uploadSection: some View {
+        MacSTGroup {
+            MacSTRow(
+                String(localized: "diagnostics_upload_button"),
+                hint: String(localized: "diagnostics_upload_consent"),
+                divider: false,
+                block: true
+            ) {
+                if let uploadedCode {
+                    uploadedRow(code: uploadedCode)
+                } else {
+                    uploadForm
+                }
+            }
+        }
+    }
+
+    private var uploadForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(
+                "",
+                text: $uploadMessage,
+                prompt: Text("diagnostics_upload_message_placeholder"),
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .foregroundStyle(PMColor.text)
+            .lineLimit(2...4)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(PMColor.bg, in: .rect(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+            }
+            .disabled(uploader.isRunning)
+
+            HStack(spacing: 14) {
+                if !diagnosticReportURLs.isEmpty {
+                    Toggle(isOn: $uploadIncludesReports) {
+                        Text("diagnostics_title")
+                    }
+                    .disabled(uploader.isRunning)
+                }
+                Toggle(isOn: $uploadIncludesLog) {
+                    Text("diagnostics_logs_title")
+                }
+                .help(String(localized: "diagnostics_log_contents_info"))
+                .disabled(uploader.isRunning)
+                Spacer(minLength: 8)
+                if let phase = uploader.phase {
+                    if case .uploading(let fraction) = phase {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                            .frame(width: 120)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(verbatim: DiagnosticReportUploader.describe(phase))
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(PMColor.textMuted)
+                    MacSTButton(title: String(localized: "cancel")) {
+                        uploadTask?.cancel()
+                    }
+                } else {
+                    MacSTButton(
+                        title: String(localized: "diagnostics_upload_button"),
+                        systemImage: "arrow.up.circle",
+                        prominent: true,
+                        action: startUpload
+                    )
+                    .disabled(!hasUploadContent)
+                    .opacity(hasUploadContent ? 1 : 0.5)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .font(.system(size: 12))
+        }
+    }
+
+    private func uploadedRow(code: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PMColor.ok)
+                    .accessibilityHidden(true)
+                Text(verbatim: code)
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(PMColor.text)
+                    .textSelection(.enabled)
+                MacSTButton(
+                    title: uploadCodeCopied
+                        ? String(localized: "diagnostics_upload_code_copied")
+                        : String(localized: "diagnostics_upload_copy_code"),
+                    systemImage: uploadCodeCopied ? "checkmark" : "doc.on.doc"
+                ) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(code, forType: .string)
+                    uploadCodeCopied = true
+                }
+                Spacer(minLength: 8)
+                MacSTButton(title: String(localized: "done")) {
+                    uploadedCode = nil
+                    uploadMessage = ""
+                }
+            }
+            Text("diagnostics_upload_done_hint")
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var hasUploadContent: Bool {
+        uploadIncludesLog
+            || (uploadIncludesReports && !diagnosticReportURLs.isEmpty)
+            || !uploadMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func refreshDiagnosticReportURLs() {
+        let service = AppServices.shared.crashDiagnostics
+        diagnosticReportURLs = service.reports().map(\.url) + service.metricReports().map(\.url)
+    }
+
+    private func startUpload() {
+        refreshDiagnosticReportURLs()
+        let selection = DiagnosticReportUploader.Selection(
+            reportURLs: uploadIncludesReports ? diagnosticReportURLs : [],
+            includesLog: uploadIncludesLog,
+            message: uploadMessage,
+            screenshots: []
+        )
+        uploadTask = Task {
+            defer { uploadTask = nil }
+            do {
+                let code = try await uploader.upload(selection)
+                uploadCodeCopied = false
+                uploadedCode = code
+            } catch is CancellationError {
+                // 用户自己停的,不提示。
+            } catch let failure as DiagnosticUpload.Failure {
+                if failure == .unavailable {
+                    uploader.markUnavailable()
+                }
+                uploadError = DiagnosticReportUploader.message(for: failure)
+            } catch {
+                uploadError = error.localizedDescription
+            }
+        }
     }
 }
 

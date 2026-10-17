@@ -1610,7 +1610,7 @@
 "diagnostics_title" = "诊断报告";
 "diagnostics_empty_title" = "暂无诊断报告";
 "diagnostics_empty_subtitle" = "Primuse 崩溃或卡顿时，iOS 会在此留下报告供你分享给开发者。";
-"diagnostics_footer" = "报告仅保存在本机。点击通过邮件 / AirDrop 分享给开发者。";
+"diagnostics_footer" = "报告保存在本机，不会自动发出。点一份报告可以单独分享，或用「发送给作者」连同留言一起发给作者。";
 "diagnostics_clear" = "清空全部报告";
 "diagnostics_clear_confirm" = "确定要删除所有报告吗？";
 "diagnostics_send_button" = "发送给作者";
@@ -1619,8 +1619,6 @@
 "diagnostics_send_sent_title" = "报告已发送";
 "diagnostics_send_sent_message" = "感谢反馈。现在要清空本机保存的报告吗？";
 "diagnostics_send_keep" = "保留";
-"diagnostics_send_unavailable_title" = "无法发送邮件";
-"diagnostics_send_unavailable_message %@" = "这台设备还没有设置邮件账户。你可以分享诊断报告或导出日志，发送到 %@。";
 "diagnostics_send_failed_title" = "发送失败";
 "diagnostics_send_failed_message" = "邮件 App 未能发出这封邮件。你的报告仍保存在本机。";
 "source_diagnostics" = "音乐源体检";
@@ -4772,11 +4770,30 @@
 "diagnostics_feedback_compose" = "打开邮件";
 "diagnostics_feedback_images" = "图片（可选）";
 "diagnostics_feedback_add_image" = "添加图片";
-"diagnostics_feedback_images_footer %lld" = "最多 %lld 张，会缩小后随邮件一起发送。";
+"diagnostics_feedback_images_footer %lld" = "最多 %lld 张，缩小后随反馈一起发送。";
 "diagnostics_feedback_images_loading" = "正在读取图片…";
 "diagnostics_feedback_image_failed" = "有的图片读不出来，已跳过。";
 "diagnostics_feedback_remove_image" = "移除图片";
 "diagnostics_logs_title" = "日志";
+"diagnostics_feedback_share" = "分享";
+"diagnostics_log_contents_info" = "日志记录最近的播放、扫描和同步过程，里面有歌名、文件路径，以及折成短标记的音乐源地址和账号；密码、令牌等凭据在写入前已去掉。上传或分享时只带最近的一段。";
+"diagnostics_upload_button" = "上传给作者";
+"diagnostics_upload_use_mail" = "改用邮件发送";
+"diagnostics_upload_use_share" = "改用系统分享";
+"diagnostics_upload_consent" = "内容会上传到作者的服务器，只用来排查问题，30 天后删除。";
+"diagnostics_upload_packaging" = "正在打包…";
+"diagnostics_upload_progress %lld" = "正在上传 %lld%%";
+"diagnostics_upload_confirming" = "正在确认…";
+"diagnostics_upload_done_title" = "已上传给作者";
+"diagnostics_upload_copy_code" = "复制编号";
+"diagnostics_upload_code_copied" = "已复制";
+"diagnostics_upload_done_hint" = "在 GitHub 或邮件里反馈时提一下这个编号，作者就能找到这份报告。报告在作者的服务器上保存 30 天。";
+"diagnostics_upload_error_too_large" = "打包后超过 8 MB 的上限，传不上去。去掉日志或部分图片后再试。";
+"diagnostics_upload_error_daily_limit %@" = "这台设备今天的上传次数已用完，%@ 之后可以再传。";
+"diagnostics_upload_error_unavailable" = "上传服务现在不可用，没有传出任何内容。";
+"diagnostics_upload_error_network" = "网络连接失败，没有上传成功。检查网络后再试。";
+"diagnostics_upload_error_other %@" = "上传没有完成（%@）。请稍后再试。";
+"diagnostics_upload_message_placeholder" = "想对作者说的话（可选）";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "添加书签";

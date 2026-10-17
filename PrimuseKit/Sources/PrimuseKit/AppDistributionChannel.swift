@@ -35,6 +35,9 @@ public enum AppDistributionChannel: String, Sendable, CaseIterable {
 /// 来帮着找问题的, 对他们开放; App Store 正式版仍然不显示 —— 日志里凭据虽已由
 /// `LogRedactionPolicy` 脱敏, 仍带着音乐源主机名与本地路径这类使用痕迹, 不该在
 /// 正式版里摆一个随手就能外发的按钮。
+///
+/// 正式版用户仍可以在「发送给作者」反馈页里主动勾选日志(默认不勾,勾选框旁说明了
+/// 日志里有什么),上传或分享时只带末尾一段,见 `DiagnosticUpload.logTailBytes`。
 public enum DiagnosticLogExportPolicy {
     public static func exposesExportEntry(channel: AppDistributionChannel) -> Bool {
         channel != .appStore

@@ -338,7 +338,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "about.bugReport", titleKey: "github_bug_report", iosPage: .about, macPage: .about),
         SettingDefinition(id: "about.featureRequest", titleKey: "github_feature_request", iosPage: .about, macPage: .about),
         SettingDefinition(id: "diagnostics.shareReport", titleKey: "diagnostics_title", iosPage: .diagnostics, macPage: nil, anchor: "page.diagnostics", macAnchor: "diagnostics.shareReport", hint: "Choose a diagnostic report to share. Reports appear here when available."),
-        SettingDefinition(id: "diagnostics.sendReports", titleKey: "diagnostics_send_button", iosPage: .diagnostics, macPage: nil, keywords: ["hi@yzs.ai", "email", "邮箱", "反馈", "建议"]),
+        SettingDefinition(id: "diagnostics.sendReports", titleKey: "diagnostics_send_button", iosPage: .diagnostics, macPage: nil, keywords: ["hi@yzs.ai", "email", "邮箱", "反馈", "建议", "upload", "上传"]),
         SettingDefinition(id: "diagnostics.clearReports", titleKey: "diagnostics_clear", iosPage: .diagnostics, macPage: nil),
         SettingDefinition(id: "duplicates.showAll", titleKey: "Show all duplicate groups", table: "SettingsSearch", iosPage: .duplicates, macPage: nil),
         SettingDefinition(id: "duplicates.cleanAll", titleKey: "dup_clean_all_action", iosPage: .duplicates, macPage: nil),

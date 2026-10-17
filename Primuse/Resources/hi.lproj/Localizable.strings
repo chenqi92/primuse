@@ -1173,13 +1173,11 @@
 "diagnostics_send_sent_title" = "रिपोर्ट भेजी गई";
 "diagnostics_send_sent_message" = "धन्यवाद। क्या आप इस डिवाइस पर सहेजी गई रिपोर्ट अभी हटाना चाहते हैं?";
 "diagnostics_send_keep" = "रखें";
-"diagnostics_send_unavailable_title" = "मेल नहीं भेजा जा सकता";
-"diagnostics_send_unavailable_message %@" = "इस डिवाइस पर कोई ईमेल खाता सेट अप नहीं है। रिपोर्ट साझा करें या लॉग निर्यात करके %@ पर भेजें।";
 "diagnostics_send_failed_title" = "भेजा नहीं जा सका";
 "diagnostics_send_failed_message" = "मेल ऐप संदेश नहीं भेज सका। आपकी रिपोर्ट इस डिवाइस पर बनी हुई हैं।";
 "diagnostics_empty_subtitle" = "यदि Primuse क्रैश या फ्रीज हो जाता है, तो iOS डेवलपर के साथ साझा करने के लिए आपके लिए यहां एक रिपोर्ट छोड़ देगा।";
 "diagnostics_empty_title" = "कोई नैदानिक रिपोर्ट नहीं";
-"diagnostics_footer" = "रिपोर्टें इस डिवाइस पर रहती हैं। डेवलपर के साथ ईमेल या एयरड्रॉप के माध्यम से साझा करने के लिए टैप करें।";
+"diagnostics_footer" = "रिपोर्टें तब तक इसी डिवाइस पर रहती हैं जब तक आप उन्हें न भेजें। किसी रिपोर्ट को शेयर करने के लिए उस पर टैप करें, या संदेश के साथ भेजने के लिए «लेखक को भेजें» इस्तेमाल करें।";
 "diagnostics_title" = "डायग्नोस्टिक रिपोर्ट";
 "directories_selected" = "निर्देशिकाएँ चयनित";
 "directory_audio_files_format" = "%1$d फ़ाइलें · %2$@";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "मेल खोलें";
 "diagnostics_feedback_images" = "छवियाँ (वैकल्पिक)";
 "diagnostics_feedback_add_image" = "छवियाँ जोड़ें";
-"diagnostics_feedback_images_footer %lld" = "अधिकतम %lld छवियाँ, छोटी करके ईमेल के साथ भेजी जाएँगी।";
+"diagnostics_feedback_images_footer %lld" = "अधिकतम %lld छवियाँ, छोटी करके आपकी प्रतिक्रिया के साथ भेजी जाएँगी।";
 "diagnostics_feedback_images_loading" = "छवियाँ लोड हो रही हैं…";
 "diagnostics_feedback_image_failed" = "कुछ छवियाँ पढ़ी नहीं जा सकीं और छोड़ दी गईं।";
 "diagnostics_feedback_remove_image" = "छवि हटाएँ";
 "diagnostics_logs_title" = "लॉग";
+"diagnostics_feedback_share" = "शेयर करें";
+"diagnostics_log_contents_info" = "लॉग में हाल का प्लेबैक, स्कैन और सिंक दर्ज होता है। इसमें गानों के नाम, फ़ाइल पाथ, और छोटे टैग में बदले गए म्यूज़िक सोर्स के पते व खाते होते हैं; पासवर्ड, टोकन और अन्य क्रेडेंशियल लिखने से पहले ही हटा दिए जाते हैं। अपलोड या शेयर करते समय केवल सबसे हाल का हिस्सा भेजा जाता है।";
+"diagnostics_upload_button" = "लेखक को अपलोड करें";
+"diagnostics_upload_use_mail" = "इसके बजाय ईमेल से भेजें";
+"diagnostics_upload_use_share" = "इसके बजाय शेयर करें";
+"diagnostics_upload_consent" = "सामग्री लेखक के सर्वर पर अपलोड होती है, केवल समस्या की जाँच के लिए इस्तेमाल होती है और 30 दिन बाद हटा दी जाती है।";
+"diagnostics_upload_packaging" = "पैक किया जा रहा है…";
+"diagnostics_upload_progress %lld" = "अपलोड हो रहा है %lld%%";
+"diagnostics_upload_confirming" = "पुष्टि की जा रही है…";
+"diagnostics_upload_done_title" = "लेखक को अपलोड हो गया";
+"diagnostics_upload_copy_code" = "कोड कॉपी करें";
+"diagnostics_upload_code_copied" = "कॉपी हो गया";
+"diagnostics_upload_done_hint" = "GitHub या ईमेल पर यह कोड बताएँ, ताकि लेखक आपकी रिपोर्ट ढूँढ सके। रिपोर्ट लेखक के सर्वर पर 30 दिन तक रखी जाती है।";
+"diagnostics_upload_error_too_large" = "पैकेज 8 MB की सीमा से बड़ा है। लॉग या कुछ छवियाँ हटाकर फिर से कोशिश करें।";
+"diagnostics_upload_error_daily_limit %@" = "इस डिवाइस के आज के सभी अपलोड इस्तेमाल हो चुके हैं। %@ के बाद फिर से अपलोड कर सकते हैं।";
+"diagnostics_upload_error_unavailable" = "अभी अपलोड उपलब्ध नहीं है। कुछ भी नहीं भेजा गया।";
+"diagnostics_upload_error_network" = "कनेक्ट नहीं हो सका, इसलिए कुछ भी अपलोड नहीं हुआ। अपना कनेक्शन जाँचकर फिर से कोशिश करें।";
+"diagnostics_upload_error_other %@" = "अपलोड पूरा नहीं हुआ (%@)। कृपया बाद में फिर से कोशिश करें।";
+"diagnostics_upload_message_placeholder" = "लेखक के लिए संदेश (वैकल्पिक)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "बुकमार्क जोड़ें";

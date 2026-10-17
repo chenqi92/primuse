@@ -346,7 +346,8 @@ final class MusicIntelligenceService {
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
-    private let primuseRelayClient: PrimuseAIRelayClient
+    /// 诊断报告上传也走它:同一台设备只该有一份注册凭据,两个客户端各自注册会互相覆盖。
+    let primuseRelayClient: PrimuseAIRelayClient
     private let primuseRelayRecommendationCoordinator: PrimuseRelayRecommendationCoordinator
     @ObservationIgnored private var semanticPlanCache: [SemanticPlanCacheKey: SemanticPlanCacheEntry] = [:]
     @ObservationIgnored private var recommendationCache: [

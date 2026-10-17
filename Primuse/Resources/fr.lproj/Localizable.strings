@@ -1586,7 +1586,7 @@
 "diagnostics_title" = "Rapports de diagnostic";
 "diagnostics_empty_title" = "Aucun rapport de diagnostic";
 "diagnostics_empty_subtitle" = "Si Primuse plante ou se bloque, iOS laissera ici un rapport que vous pourrez partager avec le développeur.";
-"diagnostics_footer" = "Les rapports restent sur cet appareil. Touchez pour les partager avec le développeur par e-mail ou AirDrop.";
+"diagnostics_footer" = "Les rapports restent sur cet appareil jusqu’à ce que vous les envoyiez. Touchez-en un pour le partager, ou utilisez « Envoyer à l’auteur » pour les envoyer avec un message.";
 "diagnostics_clear" = "Effacer tous les rapports";
 "diagnostics_clear_confirm" = "Supprimer tous les rapports ?";
 "diagnostics_send_button" = "Envoyer à l’auteur";
@@ -1595,8 +1595,6 @@
 "diagnostics_send_sent_title" = "Rapport envoyé";
 "diagnostics_send_sent_message" = "Merci. Voulez-vous effacer maintenant les rapports enregistrés sur cet appareil ?";
 "diagnostics_send_keep" = "Conserver";
-"diagnostics_send_unavailable_title" = "Impossible d'envoyer l'e-mail";
-"diagnostics_send_unavailable_message %@" = "Aucun compte de messagerie n’est configuré sur cet appareil. Partagez un rapport ou exportez les journaux et envoyez-les à %@.";
 "diagnostics_send_failed_title" = "Échec de l'envoi";
 "diagnostics_send_failed_message" = "L'app Mail n'a pas pu envoyer le message. Vos rapports restent sur cet appareil.";
 "source_diagnostics" = "Diagnostic de la source";
@@ -4679,11 +4677,30 @@
 "diagnostics_feedback_compose" = "Ouvrir Mail";
 "diagnostics_feedback_images" = "Images (facultatif)";
 "diagnostics_feedback_add_image" = "Ajouter des images";
-"diagnostics_feedback_images_footer %lld" = "Jusqu’à %lld images, réduites et envoyées avec l’e-mail.";
+"diagnostics_feedback_images_footer %lld" = "Jusqu’à %lld images, réduites et envoyées avec votre retour.";
 "diagnostics_feedback_images_loading" = "Chargement des images…";
 "diagnostics_feedback_image_failed" = "Certaines images n’ont pas pu être lues et ont été ignorées.";
 "diagnostics_feedback_remove_image" = "Supprimer l’image";
 "diagnostics_logs_title" = "Journaux";
+"diagnostics_feedback_share" = "Partager";
+"diagnostics_log_contents_info" = "Le journal enregistre la lecture, l’analyse et la synchronisation récentes. Il contient des titres de morceaux, des chemins de fichiers, ainsi que les adresses et comptes des sources musicales réduits à de courts repères ; les mots de passe, jetons et autres identifiants sont retirés avant l’écriture. L’envoi ou le partage n’inclut que la partie la plus récente.";
+"diagnostics_upload_button" = "Téléverser vers l’auteur";
+"diagnostics_upload_use_mail" = "Envoyer plutôt par e-mail";
+"diagnostics_upload_use_share" = "Partager plutôt";
+"diagnostics_upload_consent" = "Les envois arrivent sur le serveur de l’auteur, servent uniquement au diagnostic et sont supprimés au bout de 30 jours.";
+"diagnostics_upload_packaging" = "Préparation…";
+"diagnostics_upload_progress %lld" = "Envoi : %lld %%";
+"diagnostics_upload_confirming" = "Confirmation…";
+"diagnostics_upload_done_title" = "Envoyé à l’auteur";
+"diagnostics_upload_copy_code" = "Copier le code";
+"diagnostics_upload_code_copied" = "Copié";
+"diagnostics_upload_done_hint" = "Indiquez ce code sur GitHub ou par e-mail pour que l’auteur retrouve votre rapport. Il est conservé 30 jours sur le serveur de l’auteur.";
+"diagnostics_upload_error_too_large" = "Le paquet dépasse la limite de 8 Mo. Retirez le journal ou quelques images, puis réessayez.";
+"diagnostics_upload_error_daily_limit %@" = "Cet appareil a utilisé tous ses envois du jour. Vous pourrez réessayer après %@.";
+"diagnostics_upload_error_unavailable" = "L’envoi n’est pas disponible pour le moment. Rien n’a été envoyé.";
+"diagnostics_upload_error_network" = "Connexion impossible : rien n’a été envoyé. Vérifiez votre connexion et réessayez.";
+"diagnostics_upload_error_other %@" = "L’envoi n’a pas abouti (%@). Réessayez plus tard.";
+"diagnostics_upload_message_placeholder" = "Message pour l’auteur (facultatif)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Ajouter un signet";

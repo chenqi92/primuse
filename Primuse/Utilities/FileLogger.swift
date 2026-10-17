@@ -324,6 +324,45 @@ final class FileLogger: @unchecked Sendable {
         }
     }
 
+    /// 日志末尾最多 `maxBytes` 字节,从整行开始。刚轮转过、当前文件不够长时从上一代
+    /// (`.1`)的末尾补上,免得刚好在轮转后上传只剩几行。只读要用的那一段,不整份读进内存。
+    func tailData(maxBytes: Int) async -> Data {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.flushPendingSummaries()
+                let budget = max(0, maxBytes)
+                let current = Self.readTail(of: self.fileURL, maxBytes: budget)
+                var combined = current.data
+                var truncated = current.truncated
+                if !truncated, combined.count < budget {
+                    let previous = Self.readTail(of: self.generationURL(1), maxBytes: budget - combined.count)
+                    if !previous.data.isEmpty {
+                        combined = previous.data + combined
+                        truncated = previous.truncated
+                    }
+                }
+                continuation.resume(returning: truncated
+                    ? DiagnosticUpload.alignedToLineStart(combined)
+                    : combined)
+            }
+        }
+    }
+
+    /// 文件最后 `maxBytes` 字节;`truncated` 表示开头切在了一行中间(前面还有没读的半行)。
+    /// 多读前面一个字节来判断:它是换行就说明恰好切在行首,不用再丢一行。读不到当作空。
+    private nonisolated static func readTail(of url: URL, maxBytes: Int) -> (data: Data, truncated: Bool) {
+        guard maxBytes > 0,
+              let handle = try? FileHandle(forReadingFrom: url) else { return (Data(), false) }
+        defer { try? handle.close() }
+        guard let end = try? handle.seekToEnd() else { return (Data(), false) }
+        let start = end > UInt64(maxBytes) ? end - UInt64(maxBytes) : 0
+        let readFrom = start > 0 ? start - 1 : 0
+        guard (try? handle.seek(toOffset: readFrom)) != nil else { return (Data(), false) }
+        let data = (try? handle.readToEnd()) ?? Data()
+        guard start > 0, let first = data.first else { return (data, false) }
+        return (Data(data.dropFirst()), first != 0x0A)
+    }
+
     /// Returns recent log content (last N bytes). 用 FileHandle.seek 只读尾部,
     /// 避免把可能数 MB 的整个文件全量读进内存。
     func recentContent(maxBytes: Int = 50_000) -> String {

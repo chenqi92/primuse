@@ -442,7 +442,7 @@
 "ai_enable_recommendations" = "Интеллектуальные рекомендации по сценам.";
 "synology_address" = "Домен или адрес IP";
 "radio_test_failed %@" = "Невозможно воспроизвести этот поток: %@";
-"diagnostics_footer" = "Отчеты остаются на этом устройстве. Нажмите, чтобы поделиться с разработчиком по электронной почте или через AirDrop.";
+"diagnostics_footer" = "Отчёты хранятся на этом устройстве, пока вы их не отправите. Нажмите на отчёт, чтобы поделиться им, или используйте «Отправить автору», чтобы отправить их вместе с сообщением.";
 "undo" = "Отменить";
 "lyrics_transcription_fetch_models" = "Загрузка доступных моделей транскрипции";
 "source_diag_advice_auth_message" = "Сервер отклонил текущие учетные данные.";
@@ -982,8 +982,6 @@
 "diagnostics_send_sent_title" = "Отчёт отправлен";
 "diagnostics_send_sent_message" = "Спасибо. Очистить отчёты, сохранённые на этом устройстве?";
 "diagnostics_send_keep" = "Оставить";
-"diagnostics_send_unavailable_title" = "Не удаётся отправить письмо";
-"diagnostics_send_unavailable_message %@" = "На устройстве не настроена почта. Поделитесь отчётом или экспортируйте журналы и отправьте их на %@.";
 "diagnostics_send_failed_title" = "Не отправлено";
 "diagnostics_send_failed_message" = "Приложению «Почта» не удалось отправить письмо. Отчёты остались на устройстве.";
 "ai_playlist_create" = "Создать плейлист";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "Открыть почту";
 "diagnostics_feedback_images" = "Изображения (необязательно)";
 "diagnostics_feedback_add_image" = "Добавить изображения";
-"diagnostics_feedback_images_footer %lld" = "До %lld изображений, уменьшенных и отправленных вместе с письмом.";
+"diagnostics_feedback_images_footer %lld" = "До %lld изображений, уменьшенных и отправленных вместе с отзывом.";
 "diagnostics_feedback_images_loading" = "Загрузка изображений…";
 "diagnostics_feedback_image_failed" = "Некоторые изображения не удалось прочитать, они пропущены.";
 "diagnostics_feedback_remove_image" = "Удалить изображение";
 "diagnostics_logs_title" = "Журналы";
+"diagnostics_feedback_share" = "Поделиться";
+"diagnostics_log_contents_info" = "Журнал фиксирует недавнее воспроизведение, сканирование и синхронизацию. В нём есть названия песен, пути к файлам, а также адреса и учётные записи источников музыки, заменённые короткими метками; пароли, токены и другие учётные данные удаляются ещё до записи. При загрузке или отправке передаётся только последняя часть.";
+"diagnostics_upload_button" = "Загрузить автору";
+"diagnostics_upload_use_mail" = "Отправить по почте";
+"diagnostics_upload_use_share" = "Поделиться другим способом";
+"diagnostics_upload_consent" = "Данные загружаются на сервер автора, используются только для поиска проблем и удаляются через 30 дней.";
+"diagnostics_upload_packaging" = "Упаковка…";
+"diagnostics_upload_progress %lld" = "Загрузка: %lld%%";
+"diagnostics_upload_confirming" = "Подтверждение…";
+"diagnostics_upload_done_title" = "Отправлено автору";
+"diagnostics_upload_copy_code" = "Скопировать код";
+"diagnostics_upload_code_copied" = "Скопировано";
+"diagnostics_upload_done_hint" = "Укажите этот код на GitHub или в письме — так автор найдёт ваш отчёт. Он хранится на сервере автора 30 дней.";
+"diagnostics_upload_error_too_large" = "Пакет больше допустимых 8 МБ. Уберите журнал или часть изображений и повторите попытку.";
+"diagnostics_upload_error_daily_limit %@" = "Лимит загрузок на сегодня для этого устройства исчерпан. Снова загрузить можно будет после %@.";
+"diagnostics_upload_error_unavailable" = "Загрузка сейчас недоступна. Ничего не отправлено.";
+"diagnostics_upload_error_network" = "Не удалось подключиться, ничего не загружено. Проверьте подключение и повторите попытку.";
+"diagnostics_upload_error_other %@" = "Загрузка не завершилась (%@). Повторите попытку позже.";
+"diagnostics_upload_message_placeholder" = "Сообщение автору (необязательно)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Добавить закладку";

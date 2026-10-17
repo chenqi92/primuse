@@ -442,7 +442,7 @@
 "ai_enable_recommendations" = "Інтелектуальні рекомендації щодо сцени";
 "synology_address" = "Домен або адреса IP";
 "radio_test_failed %@" = "Неможливо відтворити цей потік: %@";
-"diagnostics_footer" = "Звіти залишаються на цьому пристрої. Торкніться, щоб поділитися з розробником електронною поштою або AirDrop.";
+"diagnostics_footer" = "Звіти зберігаються на цьому пристрої, доки ви їх не надішлете. Торкніться звіту, щоб поділитися ним, або скористайтеся «Надіслати автору», щоб надіслати їх разом із повідомленням.";
 "undo" = "Скасувати";
 "lyrics_transcription_fetch_models" = "Завантажити доступні моделі транскрипції";
 "source_diag_advice_auth_message" = "Сервер відхилив поточні облікові дані.";
@@ -982,8 +982,6 @@
 "diagnostics_send_sent_title" = "Звіт надіслано";
 "diagnostics_send_sent_message" = "Дякуємо. Очистити звіти, збережені на цьому пристрої?";
 "diagnostics_send_keep" = "Залишити";
-"diagnostics_send_unavailable_title" = "Не вдається надіслати лист";
-"diagnostics_send_unavailable_message %@" = "На пристрої не налаштовано пошту. Поділіться звітом або експортуйте журнали й надішліть їх на %@.";
 "diagnostics_send_failed_title" = "Не надіслано";
 "diagnostics_send_failed_message" = "Програмі «Пошта» не вдалося надіслати лист. Ваші звіти залишилися на пристрої.";
 "ai_playlist_create" = "Створити список відтворення";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "Відкрити пошту";
 "diagnostics_feedback_images" = "Зображення (необов’язково)";
 "diagnostics_feedback_add_image" = "Додати зображення";
-"diagnostics_feedback_images_footer %lld" = "До %lld зображень, зменшених і надісланих разом із листом.";
+"diagnostics_feedback_images_footer %lld" = "До %lld зображень, зменшених і надісланих разом із відгуком.";
 "diagnostics_feedback_images_loading" = "Завантаження зображень…";
 "diagnostics_feedback_image_failed" = "Деякі зображення не вдалося прочитати, їх пропущено.";
 "diagnostics_feedback_remove_image" = "Вилучити зображення";
 "diagnostics_logs_title" = "Журнали";
+"diagnostics_feedback_share" = "Поділитися";
+"diagnostics_log_contents_info" = "Журнал фіксує нещодавнє відтворення, сканування та синхронізацію. У ньому є назви пісень, шляхи до файлів, а також адреси й облікові записи джерел музики, замінені короткими мітками; паролі, токени та інші облікові дані видаляються ще до запису. Під час завантаження чи надсилання передається лише остання частина.";
+"diagnostics_upload_button" = "Завантажити автору";
+"diagnostics_upload_use_mail" = "Надіслати поштою";
+"diagnostics_upload_use_share" = "Поділитися іншим способом";
+"diagnostics_upload_consent" = "Дані завантажуються на сервер автора, використовуються лише для пошуку проблем і видаляються через 30 днів.";
+"diagnostics_upload_packaging" = "Пакування…";
+"diagnostics_upload_progress %lld" = "Завантаження: %lld%%";
+"diagnostics_upload_confirming" = "Підтвердження…";
+"diagnostics_upload_done_title" = "Надіслано автору";
+"diagnostics_upload_copy_code" = "Скопіювати код";
+"diagnostics_upload_code_copied" = "Скопійовано";
+"diagnostics_upload_done_hint" = "Вкажіть цей код на GitHub або в листі — так автор знайде ваш звіт. Він зберігається на сервері автора 30 днів.";
+"diagnostics_upload_error_too_large" = "Пакет більший за допустимі 8 МБ. Приберіть журнал або частину зображень і спробуйте ще раз.";
+"diagnostics_upload_error_daily_limit %@" = "Ліміт завантажень на сьогодні для цього пристрою вичерпано. Знову завантажити можна буде після %@.";
+"diagnostics_upload_error_unavailable" = "Завантаження зараз недоступне. Нічого не надіслано.";
+"diagnostics_upload_error_network" = "Не вдалося під’єднатися, нічого не завантажено. Перевірте з’єднання та спробуйте ще раз.";
+"diagnostics_upload_error_other %@" = "Завантаження не завершилося (%@). Спробуйте пізніше.";
+"diagnostics_upload_message_placeholder" = "Повідомлення автору (необов’язково)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Додати закладку";

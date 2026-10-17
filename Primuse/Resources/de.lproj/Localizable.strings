@@ -1586,7 +1586,7 @@
 "diagnostics_title" = "Diagnoseberichte";
 "diagnostics_empty_title" = "Keine Diagnoseberichte";
 "diagnostics_empty_subtitle" = "Wenn Primuse abstürzt oder einfriert, hinterlegt iOS hier einen Bericht, den du mit dem Entwickler teilen kannst.";
-"diagnostics_footer" = "Berichte bleiben auf diesem Gerät. Tippe, um sie per E-Mail oder AirDrop mit dem Entwickler zu teilen.";
+"diagnostics_footer" = "Berichte bleiben auf diesem Gerät, bis du sie sendest. Tippe auf einen, um ihn zu teilen, oder nutze „An den Autor senden“, um sie mit einer Nachricht zu schicken.";
 "diagnostics_clear" = "Alle Berichte löschen";
 "diagnostics_clear_confirm" = "Alle Berichte löschen?";
 "diagnostics_send_button" = "An den Autor senden";
@@ -1595,8 +1595,6 @@
 "diagnostics_send_sent_title" = "Bericht gesendet";
 "diagnostics_send_sent_message" = "Danke. Möchtest du die auf diesem Gerät gespeicherten Berichte jetzt löschen?";
 "diagnostics_send_keep" = "Behalten";
-"diagnostics_send_unavailable_title" = "E-Mail kann nicht gesendet werden";
-"diagnostics_send_unavailable_message %@" = "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Teile einen Bericht oder exportiere Protokolle und sende sie an %@.";
 "diagnostics_send_failed_title" = "Senden fehlgeschlagen";
 "diagnostics_send_failed_message" = "Die Mail-App konnte die Nachricht nicht senden. Deine Berichte bleiben auf diesem Gerät.";
 "source_diagnostics" = "Quellendiagnose";
@@ -4679,11 +4677,30 @@
 "diagnostics_feedback_compose" = "Mail öffnen";
 "diagnostics_feedback_images" = "Bilder (optional)";
 "diagnostics_feedback_add_image" = "Bilder hinzufügen";
-"diagnostics_feedback_images_footer %lld" = "Bis zu %lld Bilder, verkleinert und mit der E-Mail gesendet.";
+"diagnostics_feedback_images_footer %lld" = "Bis zu %lld Bilder, verkleinert und mit deinem Feedback gesendet.";
 "diagnostics_feedback_images_loading" = "Bilder werden geladen …";
 "diagnostics_feedback_image_failed" = "Einige Bilder konnten nicht gelesen werden und wurden übersprungen.";
 "diagnostics_feedback_remove_image" = "Bild entfernen";
 "diagnostics_logs_title" = "Protokolle";
+"diagnostics_feedback_share" = "Teilen";
+"diagnostics_log_contents_info" = "Das Protokoll zeichnet die letzten Wiedergabe-, Scan- und Synchronisierungsvorgänge auf. Es enthält Songtitel, Dateipfade sowie Adressen und Konten von Musikquellen, die zu kurzen Kennungen verkürzt sind; Passwörter, Tokens und andere Zugangsdaten werden vor dem Schreiben entfernt. Beim Hochladen oder Teilen wird nur der neueste Teil mitgeschickt.";
+"diagnostics_upload_button" = "An den Autor hochladen";
+"diagnostics_upload_use_mail" = "Stattdessen per E-Mail senden";
+"diagnostics_upload_use_share" = "Stattdessen teilen";
+"diagnostics_upload_consent" = "Hochgeladene Inhalte landen auf dem Server des Autors, dienen nur der Fehlersuche und werden nach 30 Tagen gelöscht.";
+"diagnostics_upload_packaging" = "Wird gepackt…";
+"diagnostics_upload_progress %lld" = "Wird hochgeladen: %lld %%";
+"diagnostics_upload_confirming" = "Wird bestätigt…";
+"diagnostics_upload_done_title" = "An den Autor hochgeladen";
+"diagnostics_upload_copy_code" = "Code kopieren";
+"diagnostics_upload_code_copied" = "Kopiert";
+"diagnostics_upload_done_hint" = "Nenne diesen Code auf GitHub oder per E-Mail, dann findet der Autor deinen Bericht. Er bleibt 30 Tage auf dem Server des Autors.";
+"diagnostics_upload_error_too_large" = "Das Paket ist größer als die Obergrenze von 8 MB. Lass das Protokoll oder einige Bilder weg und versuche es erneut.";
+"diagnostics_upload_error_daily_limit %@" = "Dieses Gerät hat heute keine Uploads mehr frei. Ab %@ kannst du wieder hochladen.";
+"diagnostics_upload_error_unavailable" = "Hochladen ist gerade nicht verfügbar. Es wurde nichts gesendet.";
+"diagnostics_upload_error_network" = "Keine Verbindung, es wurde nichts hochgeladen. Prüfe deine Verbindung und versuche es erneut.";
+"diagnostics_upload_error_other %@" = "Der Upload wurde nicht abgeschlossen (%@). Bitte versuche es später erneut.";
+"diagnostics_upload_message_placeholder" = "Nachricht an den Autor (optional)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Lesezeichen hinzufügen";

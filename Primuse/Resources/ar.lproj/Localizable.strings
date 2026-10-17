@@ -1173,13 +1173,11 @@
 "diagnostics_send_sent_title" = "تم إرسال التقرير";
 "diagnostics_send_sent_message" = "شكرًا لك. هل تريد مسح التقارير المحفوظة على هذا الجهاز الآن؟";
 "diagnostics_send_keep" = "الاحتفاظ";
-"diagnostics_send_unavailable_title" = "تعذر إرسال البريد";
-"diagnostics_send_unavailable_message %@" = "لم يتم إعداد حساب بريد على هذا الجهاز. يمكنك مشاركة تقرير أو تصدير السجلات وإرسالها إلى %@.";
 "diagnostics_send_failed_title" = "تعذر الإرسال";
 "diagnostics_send_failed_message" = "لم يتمكن تطبيق البريد من إرسال الرسالة. لا تزال تقاريرك على هذا الجهاز.";
 "diagnostics_empty_subtitle" = "إذا تعطل Primuse أو تجمد، iOS سيترك تقريرًا هنا لمشاركته مع المطور.";
 "diagnostics_empty_title" = "لا توجد تقارير تشخيصية";
-"diagnostics_footer" = "تبقى التقارير على هذا الجهاز. انقر للمشاركة مع المطور عبر البريد الإلكتروني أو AirDrop.";
+"diagnostics_footer" = "تبقى التقارير على هذا الجهاز حتى ترسلها. انقر على تقرير لمشاركته، أو استخدم «إرسال إلى المطوّر» لإرسالها مع رسالة.";
 "diagnostics_title" = "التقارير التشخيصية";
 "directories_selected" = "الدلائل المختارة";
 "directory_audio_files_format" = "%1$d ملفات · %2$@";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "فتح البريد";
 "diagnostics_feedback_images" = "الصور (اختياري)";
 "diagnostics_feedback_add_image" = "إضافة صور";
-"diagnostics_feedback_images_footer %lld" = "حتى %lld صور، يتم تصغيرها وإرسالها مع البريد الإلكتروني.";
+"diagnostics_feedback_images_footer %lld" = "حتى %lld صور، يتم تصغيرها وإرسالها مع ملاحظاتك.";
 "diagnostics_feedback_images_loading" = "جارٍ تحميل الصور…";
 "diagnostics_feedback_image_failed" = "تعذّر قراءة بعض الصور وتم تخطيها.";
 "diagnostics_feedback_remove_image" = "إزالة الصورة";
 "diagnostics_logs_title" = "السجلات";
+"diagnostics_feedback_share" = "مشاركة";
+"diagnostics_log_contents_info" = "يسجّل السجل عمليات التشغيل والفحص والمزامنة الأخيرة. يحتوي على أسماء الأغاني ومسارات الملفات، وعناوين مصادر الموسيقى وحساباتها بعد تحويلها إلى رموز قصيرة؛ وتُزال كلمات المرور والرموز المميزة وبيانات الاعتماد الأخرى قبل الكتابة. عند الرفع أو المشاركة يُرسَل الجزء الأحدث فقط.";
+"diagnostics_upload_button" = "الرفع إلى المطوّر";
+"diagnostics_upload_use_mail" = "الإرسال بالبريد الإلكتروني بدلًا من ذلك";
+"diagnostics_upload_use_share" = "المشاركة بدلًا من ذلك";
+"diagnostics_upload_consent" = "يُرفع المحتوى إلى خادم المطوّر، ويُستخدم فقط لتشخيص المشكلات، ويُحذف بعد 30 يومًا.";
+"diagnostics_upload_packaging" = "جارٍ التجهيز…";
+"diagnostics_upload_progress %lld" = "جارٍ الرفع %lld%%";
+"diagnostics_upload_confirming" = "جارٍ التأكيد…";
+"diagnostics_upload_done_title" = "تم الرفع إلى المطوّر";
+"diagnostics_upload_copy_code" = "نسخ الرمز";
+"diagnostics_upload_code_copied" = "تم النسخ";
+"diagnostics_upload_done_hint" = "اذكر هذا الرمز على GitHub أو في البريد الإلكتروني ليتمكّن المطوّر من العثور على تقريرك. يُحفظ التقرير على خادم المطوّر لمدة 30 يومًا.";
+"diagnostics_upload_error_too_large" = "الحزمة أكبر من الحد المسموح وهو 8 ميغابايت. أزل السجل أو بعض الصور ثم حاول مرة أخرى.";
+"diagnostics_upload_error_daily_limit %@" = "استنفد هذا الجهاز عدد مرات الرفع المسموح بها اليوم. يمكنك الرفع مرة أخرى بعد %@.";
+"diagnostics_upload_error_unavailable" = "الرفع غير متاح حاليًا. لم يُرسَل أي شيء.";
+"diagnostics_upload_error_network" = "تعذّر الاتصال، لذلك لم يُرفع أي شيء. تحقق من اتصالك ثم حاول مرة أخرى.";
+"diagnostics_upload_error_other %@" = "لم يكتمل الرفع (%@). حاول مرة أخرى لاحقًا.";
+"diagnostics_upload_message_placeholder" = "رسالة إلى المطوّر (اختياري)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "إضافة إشارة مرجعية";

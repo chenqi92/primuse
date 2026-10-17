@@ -1594,7 +1594,7 @@
 "diagnostics_title" = "Diagnostic Reports";
 "diagnostics_empty_title" = "No diagnostic reports";
 "diagnostics_empty_subtitle" = "If Primuse crashes or freezes, iOS will leave a report here for you to share with the developer.";
-"diagnostics_footer" = "Reports stay on this device. Tap to share with the developer via email or AirDrop.";
+"diagnostics_footer" = "Reports stay on this device until you send them. Tap one to share it, or use Send to the author to send reports along with a message.";
 "diagnostics_clear" = "Clear all reports";
 "diagnostics_clear_confirm" = "Delete all reports?";
 "diagnostics_send_button" = "Send to the author";
@@ -1603,8 +1603,6 @@
 "diagnostics_send_sent_title" = "Report sent";
 "diagnostics_send_sent_message" = "Thanks. Do you want to clear the reports stored on this device now?";
 "diagnostics_send_keep" = "Keep";
-"diagnostics_send_unavailable_title" = "Can't send mail";
-"diagnostics_send_unavailable_message %@" = "No mail account is set up on this device. You can share a report or export logs and send them to %@.";
 "diagnostics_send_failed_title" = "Couldn't send";
 "diagnostics_send_failed_message" = "The Mail app couldn't send the message. Your reports are still on this device.";
 "source_diagnostics" = "Source Diagnostics";
@@ -4442,11 +4440,30 @@
 "diagnostics_feedback_compose" = "Open Mail";
 "diagnostics_feedback_images" = "Images (optional)";
 "diagnostics_feedback_add_image" = "Add Images";
-"diagnostics_feedback_images_footer %lld" = "Up to %lld images, scaled down and sent with the email.";
+"diagnostics_feedback_images_footer %lld" = "Up to %lld images, scaled down and sent with your feedback.";
 "diagnostics_feedback_images_loading" = "Loading images…";
 "diagnostics_feedback_image_failed" = "Some images could not be read and were skipped.";
 "diagnostics_feedback_remove_image" = "Remove image";
 "diagnostics_logs_title" = "Logs";
+"diagnostics_feedback_share" = "Share";
+"diagnostics_log_contents_info" = "The log records recent playback, scanning and syncing. It contains song titles, file paths, and music source addresses and accounts folded into short tags; passwords, tokens and other credentials are removed before anything is written. Uploading or sharing includes only the most recent part.";
+"diagnostics_upload_button" = "Upload to the Author";
+"diagnostics_upload_use_mail" = "Send by Email Instead";
+"diagnostics_upload_use_share" = "Share Instead";
+"diagnostics_upload_consent" = "Uploads go to the author’s server, are used only to troubleshoot, and are deleted after 30 days.";
+"diagnostics_upload_packaging" = "Packaging…";
+"diagnostics_upload_progress %lld" = "Uploading %lld%%";
+"diagnostics_upload_confirming" = "Confirming…";
+"diagnostics_upload_done_title" = "Uploaded to the author";
+"diagnostics_upload_copy_code" = "Copy Code";
+"diagnostics_upload_code_copied" = "Copied";
+"diagnostics_upload_done_hint" = "Mention this code on GitHub or by email and the author can find your report. It is kept on the author’s server for 30 days.";
+"diagnostics_upload_error_too_large" = "The package is larger than the 8 MB limit. Leave out the log or some images and try again.";
+"diagnostics_upload_error_daily_limit %@" = "This device has used all of today’s uploads. You can upload again after %@.";
+"diagnostics_upload_error_unavailable" = "Uploading isn’t available right now. Nothing was sent.";
+"diagnostics_upload_error_network" = "Couldn’t connect, so nothing was uploaded. Check your connection and try again.";
+"diagnostics_upload_error_other %@" = "The upload didn’t finish (%@). Please try again later.";
+"diagnostics_upload_message_placeholder" = "Message to the author (optional)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Add Bookmark";

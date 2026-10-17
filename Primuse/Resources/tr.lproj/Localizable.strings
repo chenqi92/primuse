@@ -442,7 +442,7 @@
 "ai_enable_recommendations" = "Akıllı sahne önerileri";
 "synology_address" = "Etki Alanı veya IP Adresi";
 "radio_test_failed %@" = "Bu akış oynatılamıyor: %@";
-"diagnostics_footer" = "Raporlar bu cihazda kalır. Geliştiriciyle e-posta veya AirDrop aracılığıyla paylaşmak için dokunun.";
+"diagnostics_footer" = "Raporlar siz gönderene kadar bu cihazda kalır. Paylaşmak için birine dokunun ya da raporları bir mesajla birlikte göndermek için Geliştiriciye gönder’i kullanın.";
 "undo" = "Geri al";
 "lyrics_transcription_fetch_models" = "Mevcut Transkripsiyon Modellerini Yükle";
 "source_diag_advice_auth_message" = "Sunucu mevcut kimlik bilgisini reddetti.";
@@ -982,8 +982,6 @@
 "diagnostics_send_sent_title" = "Rapor gönderildi";
 "diagnostics_send_sent_message" = "Teşekkürler. Bu cihazda saklanan raporları şimdi silmek ister misin?";
 "diagnostics_send_keep" = "Sakla";
-"diagnostics_send_unavailable_title" = "E-posta gönderilemiyor";
-"diagnostics_send_unavailable_message %@" = "Bu cihazda e-posta hesabı ayarlanmamış. Bir rapor paylaşabilir veya günlükleri dışa aktarıp %@ adresine gönderebilirsiniz.";
 "diagnostics_send_failed_title" = "Gönderilemedi";
 "diagnostics_send_failed_message" = "Mail uygulaması iletiyi gönderemedi. Raporların bu cihazda duruyor.";
 "ai_playlist_create" = "Çalma Listesi Oluştur";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "Postayı aç";
 "diagnostics_feedback_images" = "Görseller (isteğe bağlı)";
 "diagnostics_feedback_add_image" = "Görsel Ekle";
-"diagnostics_feedback_images_footer %lld" = "En fazla %lld görsel; küçültülüp e-postayla birlikte gönderilir.";
+"diagnostics_feedback_images_footer %lld" = "En fazla %lld görsel; küçültülüp geri bildiriminizle birlikte gönderilir.";
 "diagnostics_feedback_images_loading" = "Görseller yükleniyor…";
 "diagnostics_feedback_image_failed" = "Bazı görseller okunamadı ve atlandı.";
 "diagnostics_feedback_remove_image" = "Görseli kaldır";
 "diagnostics_logs_title" = "Günlükler";
+"diagnostics_feedback_share" = "Paylaş";
+"diagnostics_log_contents_info" = "Günlük, son oynatma, tarama ve eşitleme işlemlerini kaydeder. Şarkı adları, dosya yolları ve kısa etiketlere dönüştürülmüş müzik kaynağı adresleri ile hesapları içerir; parolalar, belirteçler ve diğer kimlik bilgileri yazılmadan önce çıkarılır. Yüklerken veya paylaşırken yalnızca en son bölüm gönderilir.";
+"diagnostics_upload_button" = "Geliştiriciye yükle";
+"diagnostics_upload_use_mail" = "Bunun yerine e-postayla gönder";
+"diagnostics_upload_use_share" = "Bunun yerine paylaş";
+"diagnostics_upload_consent" = "Yüklenenler geliştiricinin sunucusuna gider, yalnızca sorun gidermek için kullanılır ve 30 gün sonra silinir.";
+"diagnostics_upload_packaging" = "Paketleniyor…";
+"diagnostics_upload_progress %lld" = "Yükleniyor %%%lld";
+"diagnostics_upload_confirming" = "Onaylanıyor…";
+"diagnostics_upload_done_title" = "Geliştiriciye yüklendi";
+"diagnostics_upload_copy_code" = "Kodu kopyala";
+"diagnostics_upload_code_copied" = "Kopyalandı";
+"diagnostics_upload_done_hint" = "Bu kodu GitHub’da veya e-postada belirtin; geliştirici raporunuzu bulabilir. Rapor geliştiricinin sunucusunda 30 gün saklanır.";
+"diagnostics_upload_error_too_large" = "Paket 8 MB sınırını aşıyor. Günlüğü veya bazı görselleri çıkarıp yeniden deneyin.";
+"diagnostics_upload_error_daily_limit %@" = "Bu cihaz bugünkü yükleme hakkının tamamını kullandı. %@ sonrasında yeniden yükleyebilirsiniz.";
+"diagnostics_upload_error_unavailable" = "Yükleme şu anda kullanılamıyor. Hiçbir şey gönderilmedi.";
+"diagnostics_upload_error_network" = "Bağlanılamadı, hiçbir şey yüklenmedi. Bağlantınızı kontrol edip yeniden deneyin.";
+"diagnostics_upload_error_other %@" = "Yükleme tamamlanmadı (%@). Lütfen daha sonra yeniden deneyin.";
+"diagnostics_upload_message_placeholder" = "Geliştiriciye mesaj (isteğe bağlı)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Yer imi ekle";

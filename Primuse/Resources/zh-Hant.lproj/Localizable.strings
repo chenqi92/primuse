@@ -1529,7 +1529,7 @@
 "diagnostics_title" = "診斷報告";
 "diagnostics_empty_title" = "目前沒有診斷報告";
 "diagnostics_empty_subtitle" = "Primuse 當機或卡頓時，iOS 會在此留下報告供你分享給開發者。";
-"diagnostics_footer" = "報告僅保存在本機。點擊透過郵件 / AirDrop 分享給開發者。";
+"diagnostics_footer" = "報告保存在本機，不會自動送出。點一份報告可以單獨分享，或用「傳送給作者」連同留言一起傳給作者。";
 "diagnostics_clear" = "清空全部報告";
 "diagnostics_clear_confirm" = "確定要刪除所有報告嗎？";
 "diagnostics_send_button" = "傳送給作者";
@@ -1538,8 +1538,6 @@
 "diagnostics_send_sent_title" = "報告已寄出";
 "diagnostics_send_sent_message" = "感謝回報。現在要清除本機儲存的報告嗎？";
 "diagnostics_send_keep" = "保留";
-"diagnostics_send_unavailable_title" = "無法寄送郵件";
-"diagnostics_send_unavailable_message %@" = "這部裝置尚未設定郵件帳號。你可以分享診斷報告或匯出日誌，傳送至 %@。";
 "diagnostics_send_failed_title" = "寄送失敗";
 "diagnostics_send_failed_message" = "郵件 App 未能寄出這封郵件。你的報告仍保存在本機。";
 "source_diagnostics" = "音樂來源健檢";
@@ -4656,11 +4654,30 @@
 "diagnostics_feedback_compose" = "開啟郵件";
 "diagnostics_feedback_images" = "圖片（可選）";
 "diagnostics_feedback_add_image" = "加入圖片";
-"diagnostics_feedback_images_footer %lld" = "最多 %lld 張，會縮小後隨郵件一起傳送。";
+"diagnostics_feedback_images_footer %lld" = "最多 %lld 張，縮小後隨回饋一起傳送。";
 "diagnostics_feedback_images_loading" = "正在讀取圖片…";
 "diagnostics_feedback_image_failed" = "有的圖片讀不出來，已略過。";
 "diagnostics_feedback_remove_image" = "移除圖片";
 "diagnostics_logs_title" = "日誌";
+"diagnostics_feedback_share" = "分享";
+"diagnostics_log_contents_info" = "日誌記錄最近的播放、掃描和同步過程，裡面有歌名、檔案路徑，以及折成短標記的音樂來源位址和帳號；密碼、權杖等憑證在寫入前已移除。上傳或分享時只帶最近的一段。";
+"diagnostics_upload_button" = "上傳給作者";
+"diagnostics_upload_use_mail" = "改用郵件傳送";
+"diagnostics_upload_use_share" = "改用系統分享";
+"diagnostics_upload_consent" = "內容會上傳到作者的伺服器，只用來排查問題，30 天後刪除。";
+"diagnostics_upload_packaging" = "正在打包…";
+"diagnostics_upload_progress %lld" = "正在上傳 %lld%%";
+"diagnostics_upload_confirming" = "正在確認…";
+"diagnostics_upload_done_title" = "已上傳給作者";
+"diagnostics_upload_copy_code" = "複製編號";
+"diagnostics_upload_code_copied" = "已複製";
+"diagnostics_upload_done_hint" = "在 GitHub 或郵件裡回報時提一下這個編號，作者就能找到這份報告。報告在作者的伺服器上保存 30 天。";
+"diagnostics_upload_error_too_large" = "打包後超過 8 MB 的上限，傳不上去。去掉日誌或部分圖片後再試。";
+"diagnostics_upload_error_daily_limit %@" = "這台裝置今天的上傳次數已用完，%@ 之後可以再傳。";
+"diagnostics_upload_error_unavailable" = "上傳服務現在無法使用，沒有傳出任何內容。";
+"diagnostics_upload_error_network" = "網路連線失敗，沒有上傳成功。檢查網路後再試。";
+"diagnostics_upload_error_other %@" = "上傳沒有完成（%@）。請稍後再試。";
+"diagnostics_upload_message_placeholder" = "想對作者說的話（選填）";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "加入書籤";

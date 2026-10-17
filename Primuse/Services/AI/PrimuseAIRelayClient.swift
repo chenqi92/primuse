@@ -845,11 +845,27 @@ actor PrimuseAIRelayClient {
     /// 内置 AI 现在有没有转写模型可用(后台没配好时听歌识词入口不该出现)。
     /// 读不到就是不知道,返回 nil。
     func isAudioTranscriptionOffered() async -> Bool? {
+        guard let info = await serviceInfo(timeout: 15) else { return nil }
+        switch info.audioTranscription {
+        case "available": return true
+        case nil: return nil
+        default: return false
+        }
+    }
+
+    /// 中转收不收诊断报告上传。老版本中转不报这一项,算不收;读不到(断网、超时)返回 nil。
+    /// 这是一次不带设备标识的公开查询,不需要同意内置 AI —— 上传本身由用户在诊断页亲手发起。
+    func diagnosticsUploadAvailability() async -> Bool? {
+        guard let info = await serviceInfo(timeout: 8) else { return nil }
+        return info.diagnosticsUpload == "available"
+    }
+
+    private func serviceInfo(timeout: TimeInterval) async -> ServiceInfoOutput? {
         guard let url = URL(string: "/v1/service-info", relativeTo: baseURL)?.absoluteURL else { return nil }
         var request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: 15
+            timeoutInterval: timeout
         )
         request.httpMethod = "GET"
         if let userAgent = Self.platformUserAgent {
@@ -862,12 +878,96 @@ actor PrimuseAIRelayClient {
               let envelope = try? decoder.decode(SuccessEnvelope<ServiceInfoOutput>.self, from: data) else {
             return nil
         }
-        switch envelope.data.audioTranscription {
-        case "available": return true
-        case nil: return nil
-        default: return false
+        return envelope.data
+    }
+
+    // MARK: - 诊断报告上传
+
+    /// 要一个上传位:中转记下这次要传多大、带了哪几类东西,回一个预签名的 PUT 地址和编号。
+    /// 签名请求(用途 diagnostics),这台设备还没注册过时会先注册;不看内置 AI 的同意,
+    /// 上传是用户在诊断页亲手点的,与智能功能无关。错误统一折成 `DiagnosticUpload.Failure`。
+    func requestDiagnosticsUpload(_ request: DiagnosticUpload.Request) async throws -> DiagnosticUpload.Slot {
+        let output: DiagnosticsUploadSlotOutput
+        do {
+            output = try await performFeature(
+                path: "/v1/diagnostics/uploads",
+                purpose: "diagnostics",
+                input: request
+            )
+        } catch {
+            throw Self.diagnosticUploadError(error)
+        }
+        guard let slot = DiagnosticUpload.validatedSlot(
+            uploadID: output.uploadID,
+            code: output.code,
+            uploadURL: output.uploadURL,
+            method: output.method,
+            headers: output.headers,
+            byteCount: request.byteCount,
+            expiresAt: output.expiresAt
+        ) else {
+            throw DiagnosticUpload.Failure.other(code: "invalid_upload_slot")
+        }
+        return slot
+    }
+
+    /// 告诉中转那个包已经 PUT 上去了;中转核对存储里的对象后回编号。
+    func completeDiagnosticsUpload(id: String) async throws -> String {
+        let output: DiagnosticsUploadCompleteOutput
+        do {
+            output = try await performFeature(
+                path: "/v1/diagnostics/uploads/complete",
+                purpose: "diagnostics",
+                input: DiagnosticsUploadCompleteInput(uploadID: id)
+            )
+        } catch {
+            throw Self.diagnosticUploadError(error)
+        }
+        guard DiagnosticUpload.isDisplayableCode(output.code) else {
+            throw DiagnosticUpload.Failure.other(code: "invalid_response")
+        }
+        return output.code
+    }
+
+    /// 取消原样交回(界面不提示);注册不上(App Attest、StoreKit 兜底都不成)算「不可用」,
+    /// 界面改走邮件;其余按中转的错误码归类。在 URLSession 的回调链上也会用到,所以不碰
+    /// 任何主线程隔离的类型,注册类错误码单独列在下面。
+    nonisolated static func diagnosticUploadError(_ error: Error) -> Error {
+        if error is CancellationError || error is DiagnosticUpload.Failure { return error }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled ? CancellationError() : DiagnosticUpload.Failure.network
+        }
+        if (error as NSError).domain == DCError.errorDomain {
+            return DiagnosticUpload.Failure.unavailable
+        }
+        guard let relayError = error as? PrimuseAIRelayError else {
+            return DiagnosticUpload.Failure.other(code: "unknown_error")
+        }
+        switch relayError {
+        case .requestFailed(let statusCode, let code, let retryAt):
+            let failure = DiagnosticUpload.failure(statusCode: statusCode, code: code, retryAt: retryAt)
+            if case .other = failure, diagnosticsRegistrationCodes.contains(code) {
+                return DiagnosticUpload.Failure.unavailable
+            }
+            return failure
+        case .unsupportedDevice, .credentialUnavailable, .credentialCorrupted,
+             .credentialPersistenceFailed, .storeKitTransactionUnavailable,
+             .storeKitTransactionUnverified, .storeKitAuthenticationCancelled:
+            return DiagnosticUpload.Failure.unavailable
+        case .invalidResponse:
+            return DiagnosticUpload.Failure.other(code: "invalid_response")
+        case .responseTooLarge:
+            return DiagnosticUpload.Failure.other(code: "response_too_large")
         }
     }
+
+    /// 设备注册被拒的错误码(与 `PrimuseAIRelayDiagnostic` 归到 deviceRegistration 的一致)。
+    private nonisolated static let diagnosticsRegistrationCodes: Set<String> = [
+        "invalid_attestation",
+        "invalid_app_attest_policy",
+        "invalid_app_transaction",
+        "storekit_enrollment_unavailable",
+    ]
 
     /// 当前套餐有没有听歌识词:套餐没开放,或转写线路都只留给更高的套餐时,中转在
     /// 用量接口的套餐里不列出它,这时去识别只会被拒。读不到就是不知道,返回 nil。
@@ -2286,10 +2386,76 @@ actor PrimuseAIRelayClient {
 
     private struct ServiceInfoOutput: Decodable, Sendable {
         var audioTranscription: String?
+        var diagnosticsUpload: String?
 
         private enum CodingKeys: String, CodingKey {
             case audioTranscription = "audio_transcription"
+            case diagnosticsUpload = "diagnostics_upload"
         }
+    }
+
+    private struct DiagnosticsUploadSlotOutput: Decodable, Sendable {
+        var uploadID: String
+        var code: String
+        var uploadURL: String
+        var method: String
+        var headers: [String: String]
+        var expiresAt: Date?
+
+        private enum CodingKeys: String, CodingKey {
+            case uploadID = "upload_id"
+            case code
+            case uploadURL = "upload_url"
+            case method
+            case headers
+            case expiresAt = "expires_at"
+        }
+
+        /// 头的值照约定是字符串,数字也收下(Content-Length 写成数字时签名一样对得上);
+        /// 过期时间只做参考,ISO 8601 或 Unix 秒都认,认不出不算错。
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            uploadID = try container.decode(String.self, forKey: .uploadID)
+            code = try container.decode(String.self, forKey: .code)
+            uploadURL = try container.decode(String.self, forKey: .uploadURL)
+            method = try container.decodeIfPresent(String.self, forKey: .method) ?? "PUT"
+            let rawHeaders = try container.decodeIfPresent([String: HeaderValue].self, forKey: .headers) ?? [:]
+            headers = rawHeaders.mapValues(\.text)
+            if let text = try? container.decodeIfPresent(String.self, forKey: .expiresAt) {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                expiresAt = formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+            } else if let seconds = try? container.decodeIfPresent(Double.self, forKey: .expiresAt) {
+                expiresAt = Date(timeIntervalSince1970: seconds > 100_000_000_000 ? seconds / 1_000 : seconds)
+            } else {
+                expiresAt = nil
+            }
+        }
+
+        private struct HeaderValue: Decodable, Sendable {
+            var text: String
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.singleValueContainer()
+                if let string = try? container.decode(String.self) {
+                    text = string
+                } else {
+                    text = String(try container.decode(Int.self))
+                }
+            }
+        }
+    }
+
+    private struct DiagnosticsUploadCompleteInput: Encodable, Sendable {
+        var uploadID: String
+
+        private enum CodingKeys: String, CodingKey {
+            case uploadID = "upload_id"
+        }
+    }
+
+    private struct DiagnosticsUploadCompleteOutput: Decodable, Sendable {
+        var code: String
     }
 }
 

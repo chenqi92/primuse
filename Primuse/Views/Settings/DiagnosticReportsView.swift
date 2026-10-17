@@ -6,8 +6,8 @@ import PhotosUI
 
 /// Settings → 关于 → 诊断报告。显示由 MetricKit 上报的 crash / hang 报告
 /// 列表,点击可以分享 (邮件 / AirDrop / 复制) 给开发者排查。报告全部本地
-/// 存放,不会自动外发 —— 顶部的「发送给开发者」按钮也只是把系统邮件草稿
-/// 填好,仍然要用户自己按发送。
+/// 存放,不会自动外发 —— 顶部的「发送给作者」按钮打开反馈页,由用户勾选内容后
+/// 亲手点上传(中转开着上传时)、填好系统邮件草稿,或交给系统分享面板。
 struct DiagnosticReportsView: View {
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「发送」带上标题优先留在竖栏里,「清空」并进系统溢出菜单。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -24,6 +24,8 @@ struct DiagnosticReportsView: View {
     @State private var pendingMailDraft: DiagnosticReportMailer.Draft?
     #endif
     @State private var showSentPrompt = false
+    /// 反馈页里已经上传或分享出去的报告份数;反馈页收起后据此提议清空本机报告。
+    @State private var deliveredReportCount = 0
     @State private var failureMessage: String?
     private let service: CrashDiagnosticsService
 
@@ -42,11 +44,15 @@ struct DiagnosticReportsView: View {
         .sheet(isPresented: $showFeedback, onDismiss: presentPreparedDraft) {
             DiagnosticFeedbackView(
                 reportURLs: reports.map(\.url) + metricReports.map(\.url),
-                canExportLogs: canExportLogs
-            ) { draft in
-                pendingMailDraft = draft
-                showFeedback = false
-            }
+                canExportLogs: canExportLogs,
+                onPrepared: { draft in
+                    pendingMailDraft = draft
+                    showFeedback = false
+                },
+                onDelivered: { count in
+                    deliveredReportCount = count
+                }
+            )
         }
         #else
         reportsList
@@ -216,6 +222,11 @@ struct DiagnosticReportsView: View {
     private func presentPreparedDraft() {
         mailDraft = pendingMailDraft
         pendingMailDraft = nil
+        // 上传或分享成功后同邮件「已发送」一样,提议清空本机报告。
+        if deliveredReportCount > 0 {
+            showSentPrompt = true
+        }
+        deliveredReportCount = 0
         reload()
     }
     #endif
@@ -236,102 +247,317 @@ struct DiagnosticReportsView: View {
 
 #if os(iOS)
 
+/// 反馈页:勾选附件、加截图、写留言,然后发给作者。
+///
+/// 中转开着诊断上传时,主按钮是「上传给作者」(底部常驻,紧挨着隐私说明),邮件或系统分享
+/// 退为次要选项;中转没开、是老版本、或这台设备注册不上时,照旧只有右上角的「打开邮件」。
+/// 没配邮件账户时,邮件换成把同一个压缩包交给系统分享面板。
 private struct DiagnosticFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var includesReports = true
-    @State private var includesLogs = true
+    @State private var includesLogs: Bool
     @State private var message = ""
     @State private var isPreparing = false
-    @State private var showMailUnavailable = false
     @State private var failureMessage: String?
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var images: [DiagnosticFeedbackImage] = []
     @State private var isLoadingImages = false
     @State private var imageNotice: String?
+    @State private var uploader = DiagnosticReportUploader()
+    @State private var uploadTask: Task<Void, Never>?
+    @State private var uploadedCode: String?
+    @State private var codeCopied = false
+    @State private var shareItem: DiagnosticShareItem?
+    /// 正在分享的那个包:分享面板收起后删掉它的临时目录。
+    @State private var sharedItem: DiagnosticShareItem?
+    @State private var shareCompleted = false
     let reportURLs: [URL]
     let canExportLogs: Bool
     let onPrepared: (DiagnosticReportMailer.Draft) -> Void
+    /// 上传或分享成功,参数是带出去的报告份数。
+    let onDelivered: (Int) -> Void
+    private let canSendMail: Bool
+
+    init(
+        reportURLs: [URL],
+        canExportLogs: Bool,
+        onPrepared: @escaping (DiagnosticReportMailer.Draft) -> Void,
+        onDelivered: @escaping (Int) -> Void
+    ) {
+        self.reportURLs = reportURLs
+        self.canExportLogs = canExportLogs
+        self.onPrepared = onPrepared
+        self.onDelivered = onDelivered
+        canSendMail = DiagnosticReportMailer.canSendMail
+        // 测试渠道照旧默认带日志;正式版的日志要用户自己勾。
+        _includesLogs = State(initialValue: canExportLogs)
+    }
+
+    private var uploadAvailable: Bool { uploader.availability == true }
+
+    /// 正式版只在上传或分享时提供日志:那两条路都只带日志末尾一段,并且先看得到说明。
+    private var logOffered: Bool {
+        canExportLogs || uploadAvailable || !canSendMail
+    }
 
     private var selection: DiagnosticReportMail.Selection {
         DiagnosticReportMail.Selection(
             includesReports: includesReports && !reportURLs.isEmpty,
-            includesLogs: includesLogs && canExportLogs
+            includesLogs: includesLogs && logOffered
         )
     }
 
+    private var uploadSelection: DiagnosticReportUploader.Selection {
+        DiagnosticReportUploader.Selection(
+            reportURLs: selection.includesReports ? reportURLs : [],
+            includesLog: selection.includesLogs,
+            message: message,
+            screenshots: images.map(\.jpeg)
+        )
+    }
+
+    private var hasContent: Bool {
+        selection != .none || !images.isEmpty
+            || !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isBusy: Bool { isPreparing || uploader.isRunning }
+
+    private var canSend: Bool { hasContent && !isBusy && !isLoadingImages }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("diagnostics_feedback_attachments") {
-                    Toggle("diagnostics_title", isOn: $includesReports)
-                        .disabled(reportURLs.isEmpty)
-                    if canExportLogs {
-                        Toggle("diagnostics_logs_title", isOn: $includesLogs)
+            content
+                .navigationTitle(String(localized: "diagnostics_send_button"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { toolbarContent }
+                .interactiveDismissDisabled(isBusy)
+                .alert(
+                    String(localized: "diagnostics_send_failed_title"),
+                    isPresented: Binding(
+                        get: { failureMessage != nil },
+                        set: { if !$0 { failureMessage = nil } }
+                    )
+                ) {
+                    Button(String(localized: "ok"), role: .cancel) { failureMessage = nil }
+                } message: {
+                    Text(failureMessage ?? String(localized: "diagnostics_send_failed_message"))
+                }
+                .sheet(item: $shareItem, onDismiss: finishSharing) { item in
+                    DiagnosticArchiveShareSheet(fileURL: item.archive.zipURL) { completed in
+                        shareCompleted = completed
+                        shareItem = nil
+                    }
+                    .ignoresSafeArea()
+                }
+        }
+        .task { await uploader.refreshAvailability() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let uploadedCode {
+            uploadedView(code: uploadedCode)
+        } else {
+            form
+        }
+    }
+
+    private var form: some View {
+        Form {
+            Section("diagnostics_feedback_attachments") {
+                Toggle("diagnostics_title", isOn: $includesReports)
+                    .disabled(reportURLs.isEmpty)
+                if logOffered {
+                    Toggle(isOn: $includesLogs) {
+                        SettingsInfoLabel("diagnostics_logs_title") {
+                            Text("diagnostics_log_contents_info")
+                        }
                     }
                 }
-                imagesSection
-                Section {
-                    TextEditor(text: $message)
-                        .frame(minHeight: 160)
-                        .accessibilityLabel(String(localized: "diagnostics_feedback_message"))
-                } header: {
-                    Text("diagnostics_feedback_message")
-                } footer: {
+            }
+            imagesSection
+            Section {
+                TextEditor(text: $message)
+                    .frame(minHeight: 160)
+                    .accessibilityLabel(String(localized: "diagnostics_feedback_message"))
+            } header: {
+                Text("diagnostics_feedback_message")
+            } footer: {
+                if !uploadAvailable {
                     Text(verbatim: DiagnosticReportMail.recipient)
                 }
             }
-            .onChange(of: pickerItems) { _, items in
-                guard !items.isEmpty else { return }
-                pickerItems = []
-                importPicked(items)
+        }
+        .onChange(of: pickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            pickerItems = []
+            importPicked(items)
+        }
+        .disabled(isBusy)
+        .safeAreaInset(edge: .bottom) {
+            if uploadAvailable {
+                uploadPanel
             }
-            .disabled(isPreparing)
-            .navigationTitle(String(localized: "diagnostics_send_button"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                        .disabled(isPreparing)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if uploadedCode != nil {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("done") { dismiss() }
+            }
+        } else {
+            ToolbarItem(placement: .cancellationAction) {
+                // 上传途中「取消」只停下上传,留在本页,写好的留言不丢。
+                Button("cancel") {
+                    if uploader.isRunning {
+                        uploadTask?.cancel()
+                    } else {
+                        dismiss()
+                    }
                 }
+                .disabled(isPreparing)
+            }
+            if !uploadAvailable {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: prepareMail) {
-                        if isPreparing {
+                    Button(action: sendWithoutUpload) {
+                        if isPreparing || uploader.availability == nil {
                             ProgressView()
-                        } else {
+                        } else if canSendMail {
                             Text("diagnostics_feedback_compose")
+                        } else {
+                            Text("diagnostics_feedback_share")
                         }
                     }
-                    .accessibilityLabel(String(localized: "diagnostics_feedback_compose"))
-                    .disabled(isPreparing || isLoadingImages
-                              || (selection == .none && images.isEmpty
-                                  && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .accessibilityLabel(canSendMail
+                        ? String(localized: "diagnostics_feedback_compose")
+                        : String(localized: "diagnostics_feedback_share"))
+                    .disabled(!canSend || uploader.availability == nil)
                 }
             }
-            .interactiveDismissDisabled(isPreparing)
-            .alert(String(localized: "diagnostics_send_unavailable_title"), isPresented: $showMailUnavailable) {
-                Button(String(localized: "ok"), role: .cancel) {}
-            } message: {
-                Text(String(format: String(localized: "diagnostics_send_unavailable_message %@"), DiagnosticReportMail.recipient))
+        }
+    }
+
+    /// 底部常驻:主按钮上传,次要的邮件 / 分享,和上传前必须看得到的去向说明。
+    private var uploadPanel: some View {
+        VStack(spacing: 10) {
+            Button(action: startUpload) {
+                HStack(spacing: 8) {
+                    if let phase = uploader.phase {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(verbatim: DiagnosticReportUploader.describe(phase))
+                            .monospacedDigit()
+                    } else {
+                        Label("diagnostics_upload_button", systemImage: "arrow.up.circle")
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
-            .alert(
-                String(localized: "diagnostics_send_failed_title"),
-                isPresented: Binding(
-                    get: { failureMessage != nil },
-                    set: { if !$0 { failureMessage = nil } }
-                )
-            ) {
-                Button(String(localized: "ok"), role: .cancel) { failureMessage = nil }
-            } message: {
-                Text(failureMessage ?? String(localized: "diagnostics_send_failed_message"))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canSend)
+            if let uploadFraction {
+                ProgressView(value: uploadFraction)
             }
+            Button(action: sendWithoutUpload) {
+                if isPreparing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if canSendMail {
+                    Text("diagnostics_upload_use_mail")
+                } else {
+                    Text("diagnostics_upload_use_share")
+                }
+            }
+            .font(.subheadline)
+            .disabled(!canSend)
+            Text("diagnostics_upload_consent")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(.bar)
+    }
+
+    private var uploadFraction: Double? {
+        if case .uploading(let fraction) = uploader.phase { return fraction }
+        return nil
+    }
+
+    /// 传完:编号要醒目、能复制,并说清楚拿它去哪儿用。
+    private func uploadedView(code: String) -> some View {
+        Form {
+            Section {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.green)
+                        .accessibilityHidden(true)
+                    Text("diagnostics_upload_done_title")
+                        .font(.headline)
+                    Text(verbatim: code)
+                        .font(.system(.largeTitle, design: .monospaced, weight: .semibold))
+                        .textSelection(.enabled)
+                    Button {
+                        UIPasteboard.general.string = code
+                        codeCopied = true
+                    } label: {
+                        Label(
+                            codeCopied
+                                ? String(localized: "diagnostics_upload_code_copied")
+                                : String(localized: "diagnostics_upload_copy_code"),
+                            systemImage: codeCopied ? "checkmark" : "doc.on.doc"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            } footer: {
+                Text("diagnostics_upload_done_hint")
+            }
+        }
+    }
+
+    private func startUpload() {
+        let selection = uploadSelection
+        let reportCount = selection.reportURLs.count
+        uploadTask = Task {
+            defer { uploadTask = nil }
+            do {
+                let code = try await uploader.upload(selection)
+                codeCopied = false
+                uploadedCode = code
+                onDelivered(reportCount)
+            } catch is CancellationError {
+                // 用户自己停的,不提示。
+            } catch let failure as DiagnosticUpload.Failure {
+                if failure == .unavailable {
+                    // 中转不收或这台设备注册不上:页面回到邮件 / 分享。
+                    uploader.markUnavailable()
+                }
+                failureMessage = DiagnosticReportUploader.message(for: failure)
+            } catch {
+                failureMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func sendWithoutUpload() {
+        if canSendMail {
+            prepareMail()
+        } else {
+            prepareShare()
         }
     }
 
     private func prepareMail() {
-        guard DiagnosticReportMailer.canSendMail else {
-            showMailUnavailable = true
-            return
-        }
         isPreparing = true
         Task {
             defer { isPreparing = false }
@@ -343,6 +569,35 @@ private struct DiagnosticFeedbackView: View {
             } catch {
                 failureMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// 没配邮件账户:同样的内容打成一个压缩包,交给系统分享面板。
+    private func prepareShare() {
+        let selection = uploadSelection
+        isPreparing = true
+        Task {
+            defer { isPreparing = false }
+            do {
+                let archive = try await DiagnosticReportUploader.shareableArchive(selection)
+                let item = DiagnosticShareItem(archive: archive, reportCount: selection.reportURLs.count)
+                shareCompleted = false
+                sharedItem = item
+                shareItem = item
+            } catch {
+                failureMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func finishSharing() {
+        guard let item = sharedItem else { return }
+        sharedItem = nil
+        item.archive.remove()
+        if shareCompleted {
+            shareCompleted = false
+            onDelivered(item.reportCount)
+            dismiss()
         }
     }
 
@@ -427,7 +682,14 @@ private struct DiagnosticFeedbackView: View {
     }
 }
 
-/// One picture going into the mail: the scaled JPEG that is attached and a
+/// 交给系统分享面板的一个压缩包。
+private struct DiagnosticShareItem: Identifiable {
+    let id = UUID()
+    let archive: DiagnosticReportPackager.Archive
+    let reportCount: Int
+}
+
+/// One picture going into the feedback: the scaled JPEG that is attached and a
 /// small decoded copy for the strip. A 12MP photo is never decoded whole.
 struct DiagnosticFeedbackImage: Identifiable, @unchecked Sendable {
     static let maximumCount = 6

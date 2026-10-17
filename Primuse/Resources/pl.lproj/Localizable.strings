@@ -1173,13 +1173,11 @@
 "diagnostics_send_sent_title" = "Raport wysłany";
 "diagnostics_send_sent_message" = "Dziękujemy. Czy wyczyścić teraz raporty zapisane na tym urządzeniu?";
 "diagnostics_send_keep" = "Zachowaj";
-"diagnostics_send_unavailable_title" = "Nie można wysłać wiadomości";
-"diagnostics_send_unavailable_message %@" = "Na tym urządzeniu nie skonfigurowano konta pocztowego. Udostępnij raport lub wyeksportuj dzienniki i wyślij je na %@.";
 "diagnostics_send_failed_title" = "Nie wysłano";
 "diagnostics_send_failed_message" = "Aplikacja Mail nie mogła wysłać wiadomości. Twoje raporty pozostają na tym urządzeniu.";
 "diagnostics_empty_subtitle" = "Jeśli Primuse ulegnie awarii lub zawiesi się, iOS pozostawi tutaj raport, który możesz udostępnić programiście.";
 "diagnostics_empty_title" = "Brak raportów diagnostycznych";
-"diagnostics_footer" = "Raporty pozostają na tym urządzeniu. Kliknij, aby udostępnić programiście przez e-mail lub AirDrop.";
+"diagnostics_footer" = "Raporty zostają na tym urządzeniu, dopóki ich nie wyślesz. Stuknij raport, aby go udostępnić, lub użyj opcji Wyślij do autora, aby wysłać je razem z wiadomością.";
 "diagnostics_title" = "Raporty diagnostyczne";
 "directories_selected" = "wybrane katalogi";
 "directory_audio_files_format" = "Pliki %1$d · %2$@";
@@ -4585,11 +4583,30 @@
 "diagnostics_feedback_compose" = "Otwórz pocztę";
 "diagnostics_feedback_images" = "Obrazy (opcjonalnie)";
 "diagnostics_feedback_add_image" = "Dodaj obrazy";
-"diagnostics_feedback_images_footer %lld" = "Do %lld obrazów, pomniejszonych i wysłanych razem z wiadomością.";
+"diagnostics_feedback_images_footer %lld" = "Do %lld obrazów, pomniejszonych i wysłanych razem z opinią.";
 "diagnostics_feedback_images_loading" = "Wczytywanie obrazów…";
 "diagnostics_feedback_image_failed" = "Niektórych obrazów nie udało się odczytać i zostały pominięte.";
 "diagnostics_feedback_remove_image" = "Usuń obraz";
 "diagnostics_logs_title" = "Dzienniki";
+"diagnostics_feedback_share" = "Udostępnij";
+"diagnostics_log_contents_info" = "Dziennik zapisuje ostatnie odtwarzanie, skanowanie i synchronizację. Zawiera tytuły utworów, ścieżki plików oraz adresy i konta źródeł muzyki zamienione na krótkie znaczniki; hasła, tokeny i inne dane logowania są usuwane przed zapisem. Przy przesyłaniu lub udostępnianiu dołączana jest tylko najnowsza część.";
+"diagnostics_upload_button" = "Prześlij autorowi";
+"diagnostics_upload_use_mail" = "Wyślij e-mailem";
+"diagnostics_upload_use_share" = "Udostępnij w inny sposób";
+"diagnostics_upload_consent" = "Przesłane dane trafiają na serwer autora, służą wyłącznie do diagnozowania problemów i są usuwane po 30 dniach.";
+"diagnostics_upload_packaging" = "Pakowanie…";
+"diagnostics_upload_progress %lld" = "Przesyłanie: %lld%%";
+"diagnostics_upload_confirming" = "Potwierdzanie…";
+"diagnostics_upload_done_title" = "Przesłano autorowi";
+"diagnostics_upload_copy_code" = "Kopiuj kod";
+"diagnostics_upload_code_copied" = "Skopiowano";
+"diagnostics_upload_done_hint" = "Podaj ten kod na GitHubie lub w e-mailu, a autor znajdzie Twój raport. Jest przechowywany na serwerze autora przez 30 dni.";
+"diagnostics_upload_error_too_large" = "Paczka przekracza limit 8 MB. Pomiń dziennik lub część obrazów i spróbuj ponownie.";
+"diagnostics_upload_error_daily_limit %@" = "To urządzenie wykorzystało dzisiejszy limit przesyłania. Możesz spróbować ponownie po %@.";
+"diagnostics_upload_error_unavailable" = "Przesyłanie jest teraz niedostępne. Nic nie zostało wysłane.";
+"diagnostics_upload_error_network" = "Nie udało się połączyć, więc nic nie zostało przesłane. Sprawdź połączenie i spróbuj ponownie.";
+"diagnostics_upload_error_other %@" = "Przesyłanie nie zostało ukończone (%@). Spróbuj ponownie później.";
+"diagnostics_upload_message_placeholder" = "Wiadomość do autora (opcjonalnie)";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
 "spoken_word_add_bookmark" = "Dodaj zakładkę";
