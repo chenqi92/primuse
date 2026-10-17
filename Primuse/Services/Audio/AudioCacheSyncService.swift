@@ -976,42 +976,48 @@ final class AudioCacheSyncService {
         let downloadedIDs = await sourceManager.downloadedSongIDs(in: songs)
         guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
 
-        var draftsByID: [String: LocalDraft] = [:]
-        draftsByID.reserveCapacity(downloadedIDs.count)
-        for song in songs where downloadedIDs.contains(song.id) {
-            guard let source = sourceByID[song.sourceID] else { continue }
-            let cacheFileName = CacheFileNamePolicy.make(
-                path: song.filePath,
-                preferredExtension: song.fileFormat.rawValue
-            )
-            guard AudioCacheSyncPolicy.isSafeCacheFileName(cacheFileName) else { continue }
-            let id = AudioCacheSyncPolicy.itemID(
-                sourceID: song.sourceID,
-                cacheFileName: cacheFileName
-            )
-            if var existing = draftsByID[id] {
-                if existing.songIDs.count < 64, !existing.songIDs.contains(song.id) {
-                    existing.songIDs.append(song.id)
-                }
-                existing.catalogByteCount = max(existing.catalogByteCount, song.fileSize)
-                draftsByID[id] = existing
-            } else {
-                draftsByID[id] = LocalDraft(
-                    songIDs: [song.id],
-                    sourceID: song.sourceID,
-                    sourceFingerprint: MusicSourceScopeFingerprint.make(
-                        for: source,
-                        includeSourceID: true
-                    ),
-                    cacheFileName: cacheFileName,
-                    catalogByteCount: song.fileSize,
-                    url: sourceManager.audioCacheTargetURL(for: song),
-                    title: song.title
+        // 逐首算缓存文件名、目标路径和源指纹也放到后台: 已下载的歌一多, 在主线程上
+        // 算完才能打开同步页。
+        let drafts = await Task.detached(priority: .utility) {
+            var fingerprintsBySourceID: [String: String] = [:]
+            var draftsByID: [String: LocalDraft] = [:]
+            draftsByID.reserveCapacity(downloadedIDs.count)
+            for song in songs where downloadedIDs.contains(song.id) {
+                guard let source = sourceByID[song.sourceID] else { continue }
+                let cacheFileName = CacheFileNamePolicy.make(
+                    path: song.filePath,
+                    preferredExtension: song.fileFormat.rawValue
                 )
+                guard AudioCacheSyncPolicy.isSafeCacheFileName(cacheFileName) else { continue }
+                let id = AudioCacheSyncPolicy.itemID(
+                    sourceID: song.sourceID,
+                    cacheFileName: cacheFileName
+                )
+                if var existing = draftsByID[id] {
+                    if existing.songIDs.count < 64, !existing.songIDs.contains(song.id) {
+                        existing.songIDs.append(song.id)
+                    }
+                    existing.catalogByteCount = max(existing.catalogByteCount, song.fileSize)
+                    draftsByID[id] = existing
+                } else {
+                    let fingerprint = fingerprintsBySourceID[source.id]
+                        ?? MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
+                    fingerprintsBySourceID[source.id] = fingerprint
+                    draftsByID[id] = LocalDraft(
+                        songIDs: [song.id],
+                        sourceID: song.sourceID,
+                        sourceFingerprint: fingerprint,
+                        cacheFileName: cacheFileName,
+                        catalogByteCount: song.fileSize,
+                        url: SourceManager.audioCacheTargetURL(for: song),
+                        title: song.title
+                    )
+                }
             }
-        }
+            return draftsByID.map { ($0.key, $0.value) }
+        }.value
+        guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
 
-        let drafts = draftsByID.map { ($0.key, $0.value) }
         let files = await Task.detached(priority: .utility) {
             drafts.compactMap { id, draft -> AudioCacheSyncLocalFile? in
                 guard let attributes = try? FileManager.default.attributesOfItem(

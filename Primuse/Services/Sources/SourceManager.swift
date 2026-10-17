@@ -7039,7 +7039,12 @@ final class SourceManager {
     /// Unlike `cacheURL(for:)`, this does not create directories, stat files,
     /// or run legacy migration on the main actor.
     func audioCacheTargetURL(for song: Song) -> URL {
-        Self.audioCacheDirectoryURL(for: song.sourceID)
+        Self.audioCacheTargetURL(for: song)
+    }
+
+    /// 同一个路径, 不碰主线程上的状态; 后台成批算的时候用。
+    nonisolated static func audioCacheTargetURL(for song: Song) -> URL {
+        audioCacheDirectoryURL(for: song.sourceID)
             .appendingPathComponent(cacheFileName(for: song), isDirectory: false)
     }
 
