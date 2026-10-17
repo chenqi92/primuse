@@ -1832,6 +1832,13 @@
 "immersive_high_refresh_message_tv" = "60fps와 ‘디스플레이에 맞춤’은 전체 화면 효과를 매 프레임 그립니다. Apple TV가 더 뜨거워지고 이전 모델에서는 프레임이 떨어질 수 있으며, 화면 전체를 흐리게 하는 일부 효과는 TV에서 여전히 최대 30fps입니다. 동의하면 움직임 강도도 함께 최대로 올려 움직임과 음악 반응을 가장 뚜렷하게 볼 수 있습니다.";
 "immersive_high_refresh_maximize" = "동의하고 최대로";
 "immersive_high_refresh_frame_rate_only" = "프레임률만 높이기";
+"immersive_spectrum_unavailable_title" = "이 곡에는 실시간 스펙트럼이 없습니다";
+"immersive_spectrum_unavailable_detail" = "일부 소스(Apple Music, 라디오, 뮤직비디오, 다른 기기로 캐스팅 등)는 오디오 데이터를 받을 수 없어 음악에 따라 움직이는 효과가 멈춰 있습니다. 음악을 따르지 않는 효과는 영향을 받지 않습니다.";
+"immersive_power_reason_low_power" = "저전력 모드가 켜져 있음";
+"immersive_power_reason_thermal" = "기기 온도가 높음";
+"immersive_power_lowered_both" = "전체 화면 효과를 잠시 30fps, 움직임 강도 ‘표준’으로 표시합니다. 해제되면 설정대로 돌아갑니다.";
+"immersive_power_lowered_frame_rate" = "전체 화면 효과를 잠시 30fps로 표시합니다. 해제되면 설정대로 돌아갑니다.";
+"immersive_power_lowered_intensity" = "움직임 강도를 잠시 ‘표준’으로 표시합니다. 해제되면 설정대로 돌아갑니다.";
 "immersive_effect_rotation_title" = "효과 자동 전환";
 "immersive_effect_rotation_subtitle" = "일정 시간마다 또는 곡마다 다른 전체 화면 효과로 바꿉니다. 비주얼라이저 프리셋처럼 차례로 돌아갑니다. 화면에 보이는 것만 바뀌고 선택한 효과는 그대로입니다. 일시 정지하면 시간을 세지 않으며 ‘기본’에서는 바꾸지 않습니다.";
 "immersive_effect_rotation_off" = "끔";

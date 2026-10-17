@@ -99,6 +99,17 @@ final class TVAudioEngine {
     )
     var displayPlayer: AVPlayer { player }
 
+    /// 挂频谱时发现没有音轨可读的那一项(部分直播流)。只对眼前这一项有效。
+    private var spectrumUnavailableItemID: ObjectIdentifier?
+
+    /// 眼前这首拿不到声音数据:Apple Music 交给系统播放器、MV、读不到音轨的直播流。
+    /// 全屏页据此写明跟着声音动的效果为什么停着。
+    var isSpectrumSourceUnavailable: Bool {
+        if isExternallyDriven || isVideoMode { return true }
+        guard let spectrumUnavailableItemID, !usingSFB else { return false }
+        return spectrumUnavailableItemID == activeItemID
+    }
+
     // MARK: 外部播放器接管(Apple Music)
 
     /// 系统播放器(MusicKit `ApplicationMusicPlayer`)是否正在接管播放。
@@ -1482,6 +1493,9 @@ final class TVAudioEngine {
             guard let item else { return }
             do {
                 let tracks = try await item.asset.loadTracks(withMediaType: .audio)
+                if tracks.isEmpty, !Task.isCancelled, let self, self.activeItemID == expectedItemID {
+                    self.spectrumUnavailableItemID = expectedItemID
+                }
                 guard !Task.isCancelled,
                       let self,
                       self.spectrumAnalysisEnabled || self.karaokeTapWanted || carriesOver,
@@ -1502,11 +1516,15 @@ final class TVAudioEngine {
                 self.processingTap = tap
                 self.tappedItemID = expectedItemID
                 self.isKaraokeTapInstalled = true
+                self.spectrumUnavailableItemID = nil
                 plog("📺 TV engine: spectrum tap attached carriesOver=\(carriesOver)")
                 if self.spectrumAnalysisEnabled { self.startSpectrumPolling() }
             } catch {
                 // 部分直播流没有可枚举的 AVAssetTrack；这时保持零频谱，绝不伪造数据。
                 plog("TVAudioEngine: spectrum track unavailable — \(error.localizedDescription)")
+                if let self, self.activeItemID == expectedItemID {
+                    self.spectrumUnavailableItemID = expectedItemID
+                }
             }
         }
     }

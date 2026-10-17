@@ -6884,6 +6884,18 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.immersiveMotionIntensity")
+                // 低电量模式或发热时全屏页临时降了档:写一行,免得以为设置没生效。
+                if let constraintNotice = ImmersiveDeviceConditions.shared.budget(
+                    frameRate: ImmersiveFrameRateMode(storedValue: immersiveFrameRateRawValue),
+                    intensity: ImmersiveMotionIntensity(storedValue: immersiveMotionIntensityRawValue)
+                ).noticeItem {
+                    MacSTRow(constraintNotice.title, hint: constraintNotice.detail, hintLineLimit: 3) {
+                        Image(systemName: constraintNotice.symbol)
+                            .foregroundStyle(.orange)
+                            .accessibilityHidden(true)
+                    }
+                    .pmAppearFade(.contentAppear)
+                }
                 MacSTRow(
                     String(localized: "immersive_effect_rotation_title"),
                     hint: String(localized: "immersive_effect_rotation_subtitle")

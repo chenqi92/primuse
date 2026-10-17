@@ -41,6 +41,7 @@ struct FullscreenPlayerEffectSettingsView: View {
                 lyricsMotionCard
                 frameRateCard
                 motionIntensityCard
+                deviceConstraintNote
                 rotationCard
                 landscapeFullscreenCard
 
@@ -160,6 +161,33 @@ struct FullscreenPlayerEffectSettingsView: View {
             get: { ImmersiveMotionIntensity(storedValue: motionIntensityRawValue).rawValue },
             set: { motionIntensityRawValue = $0 }
         )
+    }
+
+    /// 低电量模式或发热时全屏页临时降了档:写在两张卡下面,免得以为设置没生效。
+    @ViewBuilder
+    private var deviceConstraintNote: some View {
+        let budget = ImmersiveDeviceConditions.shared.budget(
+            frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
+            intensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+        )
+        if let item = budget.noticeItem {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: item.symbol)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: item.title)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(verbatim: item.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 6)
+            .accessibilityElement(children: .combine)
+            .pmAppearFade(.contentAppear)
+        }
     }
 
     private var motionIntensityCard: some View {

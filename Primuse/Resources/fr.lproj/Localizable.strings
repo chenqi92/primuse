@@ -1832,6 +1832,13 @@
 "immersive_high_refresh_message_tv" = "Avec 60 i/s et « Selon l’écran », les effets plein écran sont dessinés à chaque image. L'Apple TV chauffe davantage et les anciens modèles peuvent perdre des images ; quelques effets avec flou plein écran restent limités à 30 i/s sur la TV. Si vous acceptez, l'intensité des animations peut aussi passer au maximum pour des mouvements et une réaction à la musique les plus marqués.";
 "immersive_high_refresh_maximize" = "Accepter et tout au maximum";
 "immersive_high_refresh_frame_rate_only" = "Augmenter seulement la fréquence";
+"immersive_spectrum_unavailable_title" = "Pas de spectre en direct pour ce morceau";
+"immersive_spectrum_unavailable_detail" = "Certaines sources ne fournissent pas de données audio (comme Apple Music, la radio, les clips ou la diffusion vers un autre appareil) : les effets qui suivent la musique restent immobiles. Les effets qui ne suivent pas la musique ne sont pas concernés.";
+"immersive_power_reason_low_power" = "Le mode Économie d'énergie est activé";
+"immersive_power_reason_thermal" = "L'appareil chauffe";
+"immersive_power_lowered_both" = "Les effets plein écran sont temporairement dessinés à 30 i/s avec l'intensité « Standard ». Vos réglages reviennent ensuite automatiquement.";
+"immersive_power_lowered_frame_rate" = "Les effets plein écran sont temporairement dessinés à 30 i/s. Vos réglages reviennent ensuite automatiquement.";
+"immersive_power_lowered_intensity" = "L'intensité des animations est temporairement sur « Standard ». Vos réglages reviennent ensuite automatiquement.";
 "immersive_effect_rotation_title" = "Changer d’effet automatiquement";
 "immersive_effect_rotation_subtitle" = "Passe à un autre effet plein écran à intervalles réguliers ou à chaque morceau, comme un visualiseur qui enchaîne ses préréglages. Seul l’affichage change ; l’effet choisi reste sélectionné. Le minuteur s’arrête pendant la pause, et « D’origine » ne change jamais.";
 "immersive_effect_rotation_off" = "Désactivé";

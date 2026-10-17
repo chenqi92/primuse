@@ -1869,6 +1869,13 @@
 "immersive_high_refresh_message_tv" = "60 fps and Match Display draw the full-screen effects on every frame. Apple TV runs warmer and older models may drop frames; a few effects with full-screen blur still stay at up to 30 fps on TV. If you agree, Motion Intensity can go to Maximum too, so the motion and the response to the music are as strong as possible.";
 "immersive_high_refresh_maximize" = "Agree and Go Maximum";
 "immersive_high_refresh_frame_rate_only" = "Raise Frame Rate Only";
+"immersive_spectrum_unavailable_title" = "No live spectrum for this track";
+"immersive_spectrum_unavailable_detail" = "Some sources don't provide audio data (such as Apple Music, radio, music videos or casting to another device), so effects that move with the music stand still. Effects that don't follow the music aren't affected.";
+"immersive_power_reason_low_power" = "Low Power Mode is on";
+"immersive_power_reason_thermal" = "Your device is running warm";
+"immersive_power_lowered_both" = "Full-screen effects are temporarily drawn at 30 fps with Standard motion intensity. Your settings come back once this clears.";
+"immersive_power_lowered_frame_rate" = "Full-screen effects are temporarily drawn at 30 fps. Your settings come back once this clears.";
+"immersive_power_lowered_intensity" = "Motion intensity is temporarily set to Standard. Your settings come back once this clears.";
 "immersive_effect_rotation_title" = "Auto-Switch Effects";
 "immersive_effect_rotation_subtitle" = "Switches to another full-screen effect on a timer or with each song, the way a visualizer cycles presets. Only what’s on screen changes; your chosen effect stays selected. The timer pauses with playback, and Original never switches.";
 "immersive_effect_rotation_off" = "Off";

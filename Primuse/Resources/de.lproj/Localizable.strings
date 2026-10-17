@@ -1832,6 +1832,13 @@
 "immersive_high_refresh_message_tv" = "Mit 60 fps und „An Display anpassen“ werden die Vollbildeffekte bei jedem Bild gezeichnet. Das Apple TV wird wärmer, und ältere Modelle können Bilder auslassen; einige Effekte mit Vollbild-Unschärfe bleiben auf dem Fernseher bei höchstens 30 fps. Wenn du zustimmst, kann auch die Bewegungsintensität auf Maximum gehen – dann sind Bewegung und Reaktion auf die Musik am stärksten.";
 "immersive_high_refresh_maximize" = "Zustimmen und maximieren";
 "immersive_high_refresh_frame_rate_only" = "Nur Bildrate erhöhen";
+"immersive_spectrum_unavailable_title" = "Kein Live-Spektrum für diesen Titel";
+"immersive_spectrum_unavailable_detail" = "Manche Quellen liefern keine Audiodaten (etwa Apple Music, Radio, Musikvideos oder die Übertragung auf ein anderes Gerät). Effekte, die sich mit der Musik bewegen, stehen dann still. Effekte, die nicht der Musik folgen, sind nicht betroffen.";
+"immersive_power_reason_low_power" = "Stromsparmodus ist aktiv";
+"immersive_power_reason_thermal" = "Dein Gerät ist warm";
+"immersive_power_lowered_both" = "Vollbildeffekte werden vorübergehend mit 30 fps und Bewegungsintensität „Standard“ gezeichnet. Danach gelten wieder deine Einstellungen.";
+"immersive_power_lowered_frame_rate" = "Vollbildeffekte werden vorübergehend mit 30 fps gezeichnet. Danach gelten wieder deine Einstellungen.";
+"immersive_power_lowered_intensity" = "Die Bewegungsintensität steht vorübergehend auf „Standard“. Danach gelten wieder deine Einstellungen.";
 "immersive_effect_rotation_title" = "Effekte automatisch wechseln";
 "immersive_effect_rotation_subtitle" = "Wechselt nach einer festen Zeit oder mit jedem Song zu einem anderen Vollbildeffekt – so wie ein Visualizer seine Presets durchläuft. Nur die Anzeige wechselt, der gewählte Effekt bleibt eingestellt. Bei Pause läuft die Zeit nicht weiter, und bei „Original“ wird nicht gewechselt.";
 "immersive_effect_rotation_off" = "Aus";

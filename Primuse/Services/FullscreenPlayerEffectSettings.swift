@@ -874,6 +874,92 @@ extension ImmersiveMotionIntensity {
     }
 }
 
+/// 低电量模式与发热状态，全屏页和设置页共用一份。两个通知都可能在后台线程上发出：
+/// 观察者挂 `queue: nil` 再回主线程改，不让发通知的线程去等主线程。
+@MainActor
+@Observable
+final class ImmersiveDeviceConditions {
+    static let shared = ImmersiveDeviceConditions()
+
+    private(set) var constraint: ImmersiveDeviceConstraint?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        refresh()
+        let center = NotificationCenter.default
+        for name in [Notification.Name.NSProcessInfoPowerStateDidChange, ProcessInfo.thermalStateDidChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: nil) { _ in
+                Task { @MainActor in ImmersiveDeviceConditions.shared.refresh() }
+            })
+        }
+    }
+
+    func refresh() {
+        let info = ProcessInfo.processInfo
+        let thermalIsSerious = info.thermalState == .serious || info.thermalState == .critical
+        #if os(tvOS)
+        // Apple TV 没有低电量模式。
+        let lowPowerModeEnabled = false
+        #else
+        let lowPowerModeEnabled = info.isLowPowerModeEnabled
+        #endif
+        let next = ImmersiveDeviceConstraint.current(
+            lowPowerModeEnabled: lowPowerModeEnabled,
+            thermalStateIsSerious: thermalIsSerious
+        )
+        if next != constraint { constraint = next }
+    }
+
+    /// 选的档位经当前设备状态封顶之后，全屏页实际用的那一组。
+    func budget(
+        frameRate: ImmersiveFrameRateMode,
+        intensity: ImmersiveMotionIntensity
+    ) -> ImmersiveRenderBudget {
+        ImmersiveRenderBudget(selectedFrameRate: frameRate, selectedIntensity: intensity, constraint: constraint)
+    }
+}
+
+extension ImmersiveRenderBudget {
+    /// 临时降档的说明：第一行写原因，第二行写降到了哪一档；没降档时为 nil。
+    var noticeItem: ImmersiveStageNoticeItem? {
+        guard let constraint else { return nil }
+        let title: String
+        let symbol: String
+        switch constraint {
+        case .lowPowerMode:
+            title = String(localized: "immersive_power_reason_low_power")
+            symbol = "battery.25percent"
+        case .thermal:
+            title = String(localized: "immersive_power_reason_thermal")
+            symbol = "thermometer.high"
+        }
+        let detail: String
+        switch (lowersFrameRate, lowersIntensity) {
+        case (true, true): detail = String(localized: "immersive_power_lowered_both")
+        case (true, false): detail = String(localized: "immersive_power_lowered_frame_rate")
+        default: detail = String(localized: "immersive_power_lowered_intensity")
+        }
+        return ImmersiveStageNoticeItem(
+            id: "power.\(constraint.rawValue).\(lowersFrameRate).\(lowersIntensity)",
+            symbol: symbol,
+            title: title,
+            detail: detail
+        )
+    }
+}
+
+extension ImmersiveStageNoticeItem {
+    /// 这首歌拿不到声音数据，跟着声音动的效果停在原地。
+    static var spectrumUnavailable: ImmersiveStageNoticeItem {
+        ImmersiveStageNoticeItem(
+            id: "spectrum.unavailable",
+            symbol: "waveform.slash",
+            title: String(localized: "immersive_spectrum_unavailable_title"),
+            detail: String(localized: "immersive_spectrum_unavailable_detail")
+        )
+    }
+}
+
 /// 「跟随屏幕」档按屏幕最高刷新率发布频谱，免得在 60 Hz 屏上空算一倍。
 @MainActor
 enum ImmersiveDisplayRefresh {

@@ -22,6 +22,13 @@
 "immersive_high_refresh_message_tv" = "60 fps ve “Ekrana uy” tam ekran efektlerini her karede çizer. Apple TV daha çok ısınır ve eski modellerde kare atlanabilir; tüm ekranı bulanıklaştıran birkaç efekt TV'de yine en fazla 30 fps'de kalır. Kabul edersen Hareket Yoğunluğu da En Yüksek'e çıkarılabilir; hareket ve müziğe tepki en belirgin hâlini alır.";
 "immersive_high_refresh_maximize" = "Kabul Et ve En Yükseğe Çıkar";
 "immersive_high_refresh_frame_rate_only" = "Yalnızca Kare Hızını Artır";
+"immersive_spectrum_unavailable_title" = "Bu parça için canlı spektrum yok";
+"immersive_spectrum_unavailable_detail" = "Bazı kaynaklar ses verisi sağlamaz (Apple Music, radyo, müzik videoları veya başka bir cihaza yayın gibi); bu yüzden müzikle hareket eden efektler durur. Müziği takip etmeyen efektler etkilenmez.";
+"immersive_power_reason_low_power" = "Düşük Güç Modu açık";
+"immersive_power_reason_thermal" = "Cihaz ısınmış durumda";
+"immersive_power_lowered_both" = "Tam ekran efektleri geçici olarak 30 fps ve “Standart” hareket yoğunluğuyla çiziliyor. Durum geçince ayarların kendiliğinden geri gelir.";
+"immersive_power_lowered_frame_rate" = "Tam ekran efektleri geçici olarak 30 fps ile çiziliyor. Durum geçince ayarların kendiliğinden geri gelir.";
+"immersive_power_lowered_intensity" = "Hareket yoğunluğu geçici olarak “Standart”. Durum geçince ayarların kendiliğinden geri gelir.";
 "immersive_effect_rotation_title" = "Efektleri otomatik değiştir";
 "immersive_effect_rotation_subtitle" = "Belirli aralıklarla ya da her şarkıda başka bir tam ekran efektine geçer; tıpkı bir görselleştiricinin ön ayarlarını dolaşması gibi. Yalnızca ekrandaki değişir, seçtiğin efekt seçili kalır. Duraklatınca süre işlemez, “Orijinal” seçiliyken değişmez.";
 "immersive_effect_rotation_off" = "Kapalı";

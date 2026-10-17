@@ -1885,6 +1885,13 @@
 "immersive_high_refresh_message_tv" = "60 帧和“跟随屏幕”会让全屏效果逐帧绘制，Apple TV 更容易发热，较早的机型可能掉帧；几种整屏模糊的效果在电视上仍最多每秒 30 帧。同意后可以把动效强度一起拉满，起伏和跟着声音的反应最明显。";
 "immersive_high_refresh_maximize" = "同意并拉满效果";
 "immersive_high_refresh_frame_rate_only" = "只提高帧率";
+"immersive_spectrum_unavailable_title" = "这首没有实时频谱";
+"immersive_spectrum_unavailable_detail" = "有些来源拿不到声音数据（比如 Apple Music、电台、MV、投放到其他设备），跟着声音动的效果会停住。换一种不跟着声音动的效果就不受影响。";
+"immersive_power_reason_low_power" = "低电量模式已打开";
+"immersive_power_reason_thermal" = "设备温度偏高";
+"immersive_power_lowered_both" = "全屏效果暂按 30 帧、“标准”动效强度显示，解除后自动恢复你的设置。";
+"immersive_power_lowered_frame_rate" = "全屏效果暂按 30 帧显示，解除后自动恢复你的设置。";
+"immersive_power_lowered_intensity" = "动效强度暂按“标准”显示，解除后自动恢复你的设置。";
 "immersive_effect_rotation_title" = "自动换效果";
 "immersive_effect_rotation_subtitle" = "隔一段时间或每首歌换一种全屏效果，像可视化器那样轮着放。只换眼前这一种，选定的效果不变；暂停时不计时，选着“原生”时不换。";
 "immersive_effect_rotation_off" = "关闭";

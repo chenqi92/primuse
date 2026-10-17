@@ -1659,6 +1659,13 @@
 "immersive_high_refresh_message_tv" = "Con 60 fps y «Igual que la pantalla», los efectos de pantalla completa se dibujan en cada cuadro. El Apple TV se calienta más y los modelos anteriores pueden perder cuadros; algunos efectos con desenfoque de pantalla completa siguen limitados a 30 fps en la TV. Si aceptas, la intensidad de animación también puede ir al máximo para que el movimiento y la reacción a la música sean lo más marcados posible.";
 "immersive_high_refresh_maximize" = "Aceptar y llevar al máximo";
 "immersive_high_refresh_frame_rate_only" = "Solo subir la tasa de cuadros";
+"immersive_spectrum_unavailable_title" = "Esta canción no tiene espectro en tiempo real";
+"immersive_spectrum_unavailable_detail" = "Algunas fuentes no entregan datos de audio (como Apple Music, la radio, los videos musicales o la transmisión a otro dispositivo), así que los efectos que se mueven con la música se quedan quietos. Los efectos que no siguen la música no se ven afectados.";
+"immersive_power_reason_low_power" = "El modo de bajo consumo está activado";
+"immersive_power_reason_thermal" = "El dispositivo está caliente";
+"immersive_power_lowered_both" = "Los efectos de pantalla completa se dibujan por ahora a 30 fps con intensidad «Estándar». Tu configuración vuelve sola cuando esto termine.";
+"immersive_power_lowered_frame_rate" = "Los efectos de pantalla completa se dibujan por ahora a 30 fps. Tu configuración vuelve sola cuando esto termine.";
+"immersive_power_lowered_intensity" = "La intensidad de animación está por ahora en «Estándar». Tu configuración vuelve sola cuando esto termine.";
 "immersive_effect_rotation_title" = "Cambiar efectos automáticamente";
 "immersive_effect_rotation_subtitle" = "Cambia a otro efecto de pantalla completa cada cierto tiempo o con cada canción, como un visualizador que recorre sus preajustes. Solo cambia lo que se ve; el efecto que elegiste sigue seleccionado. El tiempo no corre en pausa y con «Originales» nunca cambia.";
 "immersive_effect_rotation_off" = "Desactivado";

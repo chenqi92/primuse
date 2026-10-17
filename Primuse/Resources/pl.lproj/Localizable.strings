@@ -1659,6 +1659,13 @@
 "immersive_high_refresh_message_tv" = "Przy 60 kl./s i „Jak ekran” efekty pełnoekranowe są rysowane w każdej klatce. Apple TV bardziej się nagrzewa, a starsze modele mogą gubić klatki; kilka efektów z rozmyciem całego ekranu nadal działa na telewizorze z maks. 30 kl./s. Jeśli się zgodzisz, intensywność animacji też może przejść na maksimum, by ruch i reakcja na muzykę były jak najmocniejsze.";
 "immersive_high_refresh_maximize" = "Zgadzam się, maksimum";
 "immersive_high_refresh_frame_rate_only" = "Tylko więcej klatek";
+"immersive_spectrum_unavailable_title" = "Brak widma na żywo dla tego utworu";
+"immersive_spectrum_unavailable_detail" = "Niektóre źródła nie udostępniają danych dźwięku (np. Apple Music, radio, teledyski lub przesyłanie na inne urządzenie), więc efekty poruszające się z muzyką stoją w miejscu. Efekty, które nie podążają za muzyką, działają normalnie.";
+"immersive_power_reason_low_power" = "Tryb niskiego zużycia energii jest włączony";
+"immersive_power_reason_thermal" = "Urządzenie się nagrzało";
+"immersive_power_lowered_both" = "Efekty pełnoekranowe są chwilowo rysowane z 30 kl./s i intensywnością „Standardowa”. Potem wrócą Twoje ustawienia.";
+"immersive_power_lowered_frame_rate" = "Efekty pełnoekranowe są chwilowo rysowane z 30 kl./s. Potem wrócą Twoje ustawienia.";
+"immersive_power_lowered_intensity" = "Intensywność animacji jest chwilowo ustawiona na „Standardowa”. Potem wrócą Twoje ustawienia.";
 "immersive_effect_rotation_title" = "Automatyczna zmiana efektów";
 "immersive_effect_rotation_subtitle" = "Co pewien czas lub z każdym utworem przełącza na inny efekt pełnoekranowy — tak jak wizualizer przechodzi przez swoje presety. Zmienia się tylko to, co na ekranie; wybrany efekt pozostaje zaznaczony. W pauzie czas nie biegnie, a przy „Oryginał” nic się nie zmienia.";
 "immersive_effect_rotation_off" = "Wył.";

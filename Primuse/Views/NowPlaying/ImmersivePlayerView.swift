@@ -76,6 +76,8 @@ struct ImmersivePlayerView: View {
     @State private var lyricInterlude = false
     @State private var visualizerOwnerID = UUID()
     @State private var visualizerRetryTask: Task<Void, Never>?
+    /// 重试过也挂不上频谱的那首歌(引擎没在出声、换了出口等)。换歌或挂上了就清掉。
+    @State private var spectrumFeedMissingSongID: String?
 
     /// iPhone(含 iPhone Duo 内屏)上的全屏页。内屏的画布有五六百点高,舞台照手机的构图放大,
     /// 不走 iPad / Mac 的大画布那一套。
@@ -85,6 +87,36 @@ struct ImmersivePlayerView: View {
 
     private var frameRate: ImmersiveFrameRateMode {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
+    }
+
+    /// 实际用的帧率与动效强度:低电量模式或发热时临时封顶,不改设置。
+    private var renderBudget: ImmersiveRenderBudget {
+        ImmersiveDeviceConditions.shared.budget(
+            frameRate: frameRate,
+            intensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+        )
+    }
+
+    /// 这首歌拿不到声音数据:Apple Music、电台、MV、投放一开始就知道;别的要挂过两次才知道。
+    private var lacksSpectrumFeed: Bool {
+        if player.isAppleMusicMode || player.isLiveRadio || player.isCastingMode
+            || player.isSystemMediaPlaybackActive {
+            return true
+        }
+        guard let songID = player.currentSong?.id else { return false }
+        return spectrumFeedMissingSongID == songID
+    }
+
+    /// 顶部说明:跟着声音动的效果这首没有频谱、因低电量或发热临时降了档。
+    private var stageNoticeItems: [ImmersiveStageNoticeItem] {
+        var items: [ImmersiveStageNoticeItem] = []
+        if presentationEffect.usesRealtimeSpectrum, player.isPlaying, lacksSpectrumFeed {
+            items.append(.spectrumUnavailable)
+        }
+        if let power = renderBudget.noticeItem {
+            items.append(power)
+        }
+        return items
     }
 
     /// 眼前显示的效果:自动轮换换上来的那一种,没轮换时就是所选的。
@@ -202,6 +234,16 @@ struct ImmersivePlayerView: View {
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
 
+                // 顶上那排圆钮下面:没有实时频谱、临时降档时写明原因。
+                ImmersiveStageNotice(
+                    items: stageNoticeItems,
+                    isChromeVisible: showsChrome,
+                    isSuppressed: isAmbientRest || showsEffectPicker || player.lastPlaybackError != nil
+                )
+                .padding(.top, topChromeInset(chromeMetrics) + 56)
+                .padding(.horizontal, max(chromeMetrics.safeArea.leading, chromeMetrics.safeArea.trailing) + 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
                 // 抽屉是这一层 ZStack 里的覆盖物而不是系统 popover: 宿主才能准确知道它
                 // 开着,继续暂停控件自动隐藏与滑动切效果。舞台不被它包住,开抽屉不会重建舞台。
                 if showsEffectPicker {
@@ -294,6 +336,10 @@ struct ImmersivePlayerView: View {
             if isSceneActive { refreshFlowNeighbors() }
         }
         .onChange(of: frameRateRawValue) { _, _ in
+            synchronizeVisualizer()
+        }
+        .onChange(of: renderBudget.frameRate) { _, _ in
+            // 低电量模式、发热开始或解除:频谱的发布节奏跟着实际帧率走。
             synchronizeVisualizer()
         }
         .onChange(of: player.isPlaying) { _, isPlaying in
@@ -412,8 +458,8 @@ struct ImmersivePlayerView: View {
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
-            frameRate: frameRate,
-            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
+            frameRate: renderBudget.frameRate,
+            motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: isResolvingLyrics
                 ? String(localized: "lyrics_loading")
@@ -1553,10 +1599,11 @@ struct ImmersivePlayerView: View {
               engine.isRunning else {
             visualizer.release(owner: visualizerOwnerID)
             scheduleVisualizerRetry(allowRetry: allowRetry)
+            noteSpectrumFeedMissingIfFinal(allowRetry: allowRetry)
             return
         }
 
-        visualizer.setPacing(frameRate.spectrumPacing(
+        visualizer.setPacing(renderBudget.frameRate.spectrumPacing(
             displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
         ))
         guard visualizer.acquire(
@@ -1566,8 +1613,17 @@ struct ImmersivePlayerView: View {
         ) else {
             visualizer.release(owner: visualizerOwnerID)
             scheduleVisualizerRetry(allowRetry: allowRetry)
+            noteSpectrumFeedMissingIfFinal(allowRetry: allowRetry)
             return
         }
+        spectrumFeedMissingSongID = nil
+    }
+
+    /// 重试那一次也没挂上:这首歌记为拿不到频谱,顶部说明写出来。第一次失败常常只是
+    /// 换歌时音频图还在重建,不算数。
+    private func noteSpectrumFeedMissingIfFinal(allowRetry: Bool) {
+        guard !allowRetry else { return }
+        spectrumFeedMissingSongID = player.currentSong?.id
     }
 
     private func scheduleVisualizerRetry(allowRetry: Bool) {

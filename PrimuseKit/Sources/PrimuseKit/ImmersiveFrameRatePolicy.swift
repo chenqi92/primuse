@@ -154,6 +154,59 @@ public enum ImmersiveMotionIntensity: String, CaseIterable, Identifiable, Sendab
     }
 }
 
+/// 设备自己在省电或发热时，全屏效果临时降档。不改存下来的设置，条件解除就回到原来那档。
+public enum ImmersiveDeviceConstraint: String, Equatable, Sendable {
+    /// iPhone / iPad / Mac 打开了低电量模式。
+    case lowPowerMode
+    /// 系统报告的发热状态到了「严重」或「危急」。
+    case thermal
+
+    /// 两样都有时报低电量模式：那是用户自己打开的，说明里写它更好懂。
+    public static func current(lowPowerModeEnabled: Bool, thermalStateIsSerious: Bool) -> Self? {
+        if lowPowerModeEnabled { return .lowPowerMode }
+        if thermalStateIsSerious { return .thermal }
+        return nil
+    }
+}
+
+/// 全屏页实际用的帧率与动效强度：选的档位经设备状态封顶之后的结果。
+public struct ImmersiveRenderBudget: Equatable, Sendable {
+    /// 降档时帧率最多到这一档，动效强度最多到「标准」。
+    public static let constrainedFrameRateCeiling = ImmersiveFrameRateMode.fps30
+    public static let constrainedIntensityCeiling = ImmersiveMotionIntensity.standard
+
+    public let frameRate: ImmersiveFrameRateMode
+    public let intensity: ImmersiveMotionIntensity
+    /// 因为什么降的档；选的本来就不超过上限时为 nil，用不着提示。
+    public let constraint: ImmersiveDeviceConstraint?
+    public let lowersFrameRate: Bool
+    public let lowersIntensity: Bool
+
+    public init(
+        selectedFrameRate: ImmersiveFrameRateMode,
+        selectedIntensity: ImmersiveMotionIntensity,
+        constraint: ImmersiveDeviceConstraint?
+    ) {
+        let lowersFrameRate = constraint != nil && selectedFrameRate.isHighRefresh
+        let lowersIntensity = constraint != nil && Self.exceedsCeiling(selectedIntensity)
+        self.frameRate = lowersFrameRate ? Self.constrainedFrameRateCeiling : selectedFrameRate
+        self.intensity = lowersIntensity ? Self.constrainedIntensityCeiling : selectedIntensity
+        self.lowersFrameRate = lowersFrameRate
+        self.lowersIntensity = lowersIntensity
+        self.constraint = lowersFrameRate || lowersIntensity ? constraint : nil
+    }
+
+    /// 真的被调低了才需要告诉用户。
+    public var isLowered: Bool { constraint != nil }
+
+    private static func exceedsCeiling(_ intensity: ImmersiveMotionIntensity) -> Bool {
+        switch intensity {
+        case .vivid, .maximum: true
+        case .subtle, .standard: false
+        }
+    }
+}
+
 public enum SpectrumPublishPacing: Equatable, Sendable {
     /// 每到一批新采样就分析最新一窗并发布一次。
     case onArrival(pollInterval: TimeInterval)

@@ -1659,6 +1659,13 @@
 "immersive_high_refresh_message_tv" = "Com 60 fps e “Igual à tela”, os efeitos de tela cheia são desenhados a cada quadro. A Apple TV esquenta mais e modelos mais antigos podem perder quadros; alguns efeitos com desfoque de tela cheia continuam limitados a 30 fps na TV. Se você concordar, a intensidade da animação também pode ir ao máximo para que o movimento e a reação à música fiquem o mais fortes possível.";
 "immersive_high_refresh_maximize" = "Concordar e levar ao máximo";
 "immersive_high_refresh_frame_rate_only" = "Só aumentar a taxa de quadros";
+"immersive_spectrum_unavailable_title" = "Esta música não tem espectro em tempo real";
+"immersive_spectrum_unavailable_detail" = "Algumas fontes não fornecem dados de áudio (como Apple Music, rádio, clipes ou transmissão para outro aparelho), então os efeitos que acompanham a música ficam parados. Efeitos que não acompanham a música não são afetados.";
+"immersive_power_reason_low_power" = "O Modo de Pouca Energia está ativado";
+"immersive_power_reason_thermal" = "O aparelho está quente";
+"immersive_power_lowered_both" = "Os efeitos de tela cheia estão sendo desenhados por enquanto a 30 fps com intensidade “Padrão”. Seus ajustes voltam sozinhos quando isso passar.";
+"immersive_power_lowered_frame_rate" = "Os efeitos de tela cheia estão sendo desenhados por enquanto a 30 fps. Seus ajustes voltam sozinhos quando isso passar.";
+"immersive_power_lowered_intensity" = "A intensidade da animação está por enquanto em “Padrão”. Seus ajustes voltam sozinhos quando isso passar.";
 "immersive_effect_rotation_title" = "Trocar efeitos automaticamente";
 "immersive_effect_rotation_subtitle" = "Troca para outro efeito de tela cheia de tempos em tempos ou a cada música, como um visualizador que percorre suas predefinições. Só muda o que está na tela; o efeito escolhido continua selecionado. O tempo não corre na pausa e com “Originais” nunca troca.";
 "immersive_effect_rotation_off" = "Desativado";

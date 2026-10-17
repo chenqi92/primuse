@@ -40,6 +40,94 @@ extension ImmersiveFrameRateMode {
     }
 }
 
+// MARK: - 顶部说明
+
+/// 全屏页顶部那条说明里的一项。
+struct ImmersiveStageNoticeItem: Identifiable, Equatable {
+    /// 内容一变 id 也跟着变，提示会重新亮一次。
+    let id: String
+    let symbol: String
+    let title: String
+    let detail: String
+}
+
+/// 全屏页顶部那条说明（这首没有实时频谱、因低电量或发热临时降档）。条目一变先亮几秒，
+/// 之后跟着控件一起出现、一起隐去；只是文字，不接点按。
+struct ImmersiveStageNotice: View {
+    let items: [ImmersiveStageNoticeItem]
+    let isChromeVisible: Bool
+    /// 休憩、选择器开着、播放出错提示占着这块地方时不出现。
+    var isSuppressed = false
+    var isTelevision = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var flashingKey: String?
+
+    /// 刚出现或内容变了之后亮着的秒数。
+    private static let flashDuration: Duration = .seconds(6)
+
+    private var key: String {
+        items.map(\.id).joined(separator: "|")
+    }
+
+    private var isVisible: Bool {
+        !items.isEmpty && !isSuppressed && (isChromeVisible || flashingKey == key)
+    }
+
+    var body: some View {
+        let visible = isVisible
+        VStack(alignment: .leading, spacing: isTelevision ? 16 : 9) {
+            ForEach(items) { item in
+                row(item)
+            }
+        }
+        .padding(.horizontal, isTelevision ? 30 : 14)
+        .padding(.vertical, isTelevision ? 20 : 11)
+        .background(
+            Color.black.opacity(0.46),
+            in: RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
+        }
+        .frame(maxWidth: isTelevision ? 860 : 380)
+        .opacity(visible ? 1 : 0)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: visible)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityHidden(!visible)
+        .task(id: key) {
+            guard !items.isEmpty else {
+                flashingKey = nil
+                return
+            }
+            flashingKey = key
+            try? await Task.sleep(for: Self.flashDuration)
+            guard !Task.isCancelled else { return }
+            flashingKey = nil
+        }
+    }
+
+    private func row(_ item: ImmersiveStageNoticeItem) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: isTelevision ? 14 : 8) {
+            Image(systemName: item.symbol)
+                .font(.system(size: isTelevision ? 26 : 13, weight: .semibold))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: isTelevision ? 4 : 2) {
+                Text(verbatim: item.title)
+                    .font(.system(size: isTelevision ? 26 : 13, weight: .semibold))
+                Text(verbatim: item.detail)
+                    .font(.system(size: isTelevision ? 22 : 12))
+                    .foregroundStyle(Color.white.opacity(0.74))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .foregroundStyle(Color.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // MARK: - 调色板
 
 /// Nocturne 语义色,取值对应设计稿 `_ds` 里的 CSS 变量。改这里等于改全端。

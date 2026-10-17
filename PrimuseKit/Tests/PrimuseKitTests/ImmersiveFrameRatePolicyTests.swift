@@ -110,6 +110,52 @@ struct ImmersiveMotionIntensityTests {
     }
 }
 
+@Suite("Immersive render budget under device constraints")
+struct ImmersiveRenderBudgetTests {
+    @Test("Low power mode wins over heat when both are present")
+    func constraintPriority() {
+        #expect(ImmersiveDeviceConstraint.current(lowPowerModeEnabled: true, thermalStateIsSerious: true) == .lowPowerMode)
+        #expect(ImmersiveDeviceConstraint.current(lowPowerModeEnabled: false, thermalStateIsSerious: true) == .thermal)
+        #expect(ImmersiveDeviceConstraint.current(lowPowerModeEnabled: false, thermalStateIsSerious: false) == nil)
+    }
+
+    @Test("Without a constraint the selection is used as is")
+    func unconstrained() {
+        let budget = ImmersiveRenderBudget(selectedFrameRate: .display, selectedIntensity: .maximum, constraint: nil)
+        #expect(budget.frameRate == .display)
+        #expect(budget.intensity == .maximum)
+        #expect(!budget.isLowered)
+    }
+
+    @Test("A constraint caps high refresh at 30 fps and intensity at standard")
+    func capsBoth() {
+        let budget = ImmersiveRenderBudget(selectedFrameRate: .fps60, selectedIntensity: .vivid, constraint: .thermal)
+        #expect(budget.frameRate == .fps30)
+        #expect(budget.intensity == .standard)
+        #expect(budget.lowersFrameRate && budget.lowersIntensity)
+        #expect(budget.constraint == .thermal)
+    }
+
+    @Test("Only what exceeds the ceiling is lowered, and nothing lowered means no notice")
+    func lowersOnlyWhatExceeds() {
+        let frameOnly = ImmersiveRenderBudget(selectedFrameRate: .display, selectedIntensity: .subtle, constraint: .lowPowerMode)
+        #expect(frameOnly.frameRate == .fps30)
+        #expect(frameOnly.intensity == .subtle)
+        #expect(frameOnly.lowersFrameRate && !frameOnly.lowersIntensity)
+
+        let intensityOnly = ImmersiveRenderBudget(selectedFrameRate: .balanced, selectedIntensity: .maximum, constraint: .lowPowerMode)
+        #expect(intensityOnly.frameRate == .balanced)
+        #expect(intensityOnly.intensity == .standard)
+        #expect(!intensityOnly.lowersFrameRate && intensityOnly.lowersIntensity)
+
+        let nothing = ImmersiveRenderBudget(selectedFrameRate: .fps30, selectedIntensity: .standard, constraint: .thermal)
+        #expect(nothing.frameRate == .fps30)
+        #expect(nothing.intensity == .standard)
+        #expect(!nothing.isLowered)
+        #expect(nothing.constraint == nil)
+    }
+}
+
 @Suite("Spectrum sample ring")
 struct SpectrumSampleRingTests {
     private func window(_ ring: SpectrumSampleRing, end: Int64, count: Int) -> [Float] {

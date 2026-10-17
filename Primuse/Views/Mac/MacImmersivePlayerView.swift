@@ -72,6 +72,9 @@ struct MacImmersivePlayerView: View {
 
     private var isRenderingActive: Bool { isPresentationActive && isWindowVisible }
     @State private var visualizerOwnerID = UUID()
+    @State private var visualizerRetryTask: Task<Void, Never>?
+    /// 重试过也挂不上频谱的那首歌。换歌或挂上了就清掉。
+    @State private var spectrumFeedMissingSongID: String?
     @FocusState private var acceptsKeyInput: Bool
 
     private var effect: FullscreenPlayerEffect {
@@ -83,6 +86,36 @@ struct MacImmersivePlayerView: View {
 
     private var frameRate: ImmersiveFrameRateMode {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
+    }
+
+    /// 实际用的帧率与动效强度:低电量模式或发热时临时封顶,不改设置。
+    private var renderBudget: ImmersiveRenderBudget {
+        ImmersiveDeviceConditions.shared.budget(
+            frameRate: frameRate,
+            intensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+        )
+    }
+
+    /// 这首歌拿不到声音数据:Apple Music、电台、MV、投放一开始就知道;别的要挂过两次才知道。
+    private var lacksSpectrumFeed: Bool {
+        if player.isAppleMusicMode || player.isLiveRadio || player.isCastingMode
+            || player.isSystemMediaPlaybackActive {
+            return true
+        }
+        guard let songID = player.currentSong?.id else { return false }
+        return spectrumFeedMissingSongID == songID
+    }
+
+    /// 顶部说明:跟着声音动的效果这首没有频谱、因低电量或发热临时降了档。
+    private var stageNoticeItems: [ImmersiveStageNoticeItem] {
+        var items: [ImmersiveStageNoticeItem] = []
+        if presentationEffect.usesRealtimeSpectrum, player.isPlaying, lacksSpectrumFeed {
+            items.append(.spectrumUnavailable)
+        }
+        if let power = renderBudget.noticeItem {
+            items.append(power)
+        }
+        return items
     }
 
     /// 眼前显示的效果:自动轮换换上来的那一种,没轮换时就是所选的。
@@ -164,6 +197,17 @@ struct MacImmersivePlayerView: View {
                     chrome(metrics: metrics)
                         .transition(.opacity)
                 }
+
+                // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
+                ImmersiveStageNotice(
+                    items: stageNoticeItems,
+                    isChromeVisible: showsChrome,
+                    isSuppressed: !isStageReady || !isRenderingActive || isLowPower || showsEffectPicker
+                        || player.lastPlaybackError != nil
+                )
+                .padding(.top, 70)
+                .padding(.horizontal, 26)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 // 遮罩压在顶栏之上：面板一开就接管整块界面，点面板之外的任何地方
                 // （包括顶栏那排按钮）都只是把它收起来。
@@ -257,6 +301,10 @@ struct MacImmersivePlayerView: View {
             refreshFlowNeighbors()
         }
         .onChange(of: frameRateRawValue) { _, _ in
+            if isStageReady { updateVisualizer(for: presentationEffect) }
+        }
+        .onChange(of: renderBudget.frameRate) { _, _ in
+            // 低电量模式、发热开始或解除:频谱的发布节奏跟着实际帧率走。
             if isStageReady { updateVisualizer(for: presentationEffect) }
         }
         .onChange(of: player.currentSong?.id) { _, _ in
@@ -379,8 +427,8 @@ struct MacImmersivePlayerView: View {
             isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
-            frameRate: frameRate,
-            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
+            frameRate: renderBudget.frameRate,
+            motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
@@ -1269,17 +1317,23 @@ struct MacImmersivePlayerView: View {
         )
     }
 
-    private func updateVisualizer(for value: FullscreenPlayerEffect) {
+    private func updateVisualizer(for value: FullscreenPlayerEffect, allowRetry: Bool = true) {
+        visualizerRetryTask?.cancel()
+        visualizerRetryTask = nil
         guard isRenderingActive,
               !isLowPower,
               player.isPlaying,
-              value.usesRealtimeSpectrum,
-              let audioEngine = player.audioEngine.engineForVisualizer,
-              let tapNode = player.audioEngine.visualizerTapNode else {
+              value.usesRealtimeSpectrum else {
             visualizer.release(owner: visualizerOwnerID)
             return
         }
-        visualizer.setPacing(frameRate.spectrumPacing(
+        guard let audioEngine = player.audioEngine.engineForVisualizer,
+              let tapNode = player.audioEngine.visualizerTapNode else {
+            visualizer.release(owner: visualizerOwnerID)
+            handleVisualizerAttachFailure(for: value, allowRetry: allowRetry)
+            return
+        }
+        visualizer.setPacing(renderBudget.frameRate.spectrumPacing(
             displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
         ))
         guard visualizer.acquire(
@@ -1288,7 +1342,31 @@ struct MacImmersivePlayerView: View {
             on: tapNode
         ) else {
             visualizer.release(owner: visualizerOwnerID)
+            handleVisualizerAttachFailure(for: value, allowRetry: allowRetry)
             return
+        }
+        spectrumFeedMissingSongID = nil
+    }
+
+    /// 第一次挂不上常常只是换歌时音频图还在重建:隔 350ms 再试一次,还不行才把这首记为
+    /// 拿不到频谱,顶部说明写出来。和 iPhone / iPad 全屏页同一个做法。
+    private func handleVisualizerAttachFailure(for value: FullscreenPlayerEffect, allowRetry: Bool) {
+        guard allowRetry else {
+            spectrumFeedMissingSongID = player.currentSong?.id
+            return
+        }
+        let expectedSongID = player.currentSong?.id
+        visualizerRetryTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  player.currentSong?.id == expectedSongID,
+                  presentationEffect == value else { return }
+            visualizerRetryTask = nil
+            updateVisualizer(for: value, allowRetry: false)
         }
     }
 
@@ -1302,6 +1380,8 @@ struct MacImmersivePlayerView: View {
         chromeTask?.cancel()
         idleTask?.cancel()
         restDriftTask?.cancel()
+        visualizerRetryTask?.cancel()
+        visualizerRetryTask = nil
         visualizer.release(owner: visualizerOwnerID)
         var transaction = Transaction()
         transaction.disablesAnimations = true

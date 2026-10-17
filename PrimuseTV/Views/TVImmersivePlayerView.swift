@@ -262,6 +262,26 @@ struct TVImmersivePlayerView: View {
         voiceOverEnabled || switchControlEnabled
     }
 
+    /// 实际用的帧率与动效强度:电视发热时临时封顶,不改设置(Apple TV 没有低电量模式)。
+    private var renderBudget: ImmersiveRenderBudget {
+        ImmersiveDeviceConditions.shared.budget(
+            frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
+            intensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+        )
+    }
+
+    /// 顶部说明:跟着声音动的效果这首没有频谱、因发热临时降了档。
+    private var stageNoticeItems: [ImmersiveStageNoticeItem] {
+        var items: [ImmersiveStageNoticeItem] = []
+        if presentationEffect.usesRealtimeSpectrum, store.isPlaying, store.engine.isSpectrumSourceUnavailable {
+            items.append(.spectrumUnavailable)
+        }
+        if let power = renderBudget.noticeItem {
+            items.append(power)
+        }
+        return items
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let metrics = ImmersiveStageMetrics(size: geometry.size, prefersWide: true)
@@ -315,6 +335,17 @@ struct TVImmersivePlayerView: View {
                         .disabled(showsModePicker)
                         .accessibilityHidden(showsModePicker)
                 }
+
+                // 顶部正中:没有实时频谱、临时降档时写明原因。右上角是「返回」提示。
+                ImmersiveStageNotice(
+                    items: stageNoticeItems,
+                    isChromeVisible: showsChrome,
+                    isSuppressed: isLowPower || showsModePicker || showsQueue,
+                    isTelevision: true
+                )
+                .padding(.top, 56)
+                .padding(.horizontal, 320)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 if showsModePicker {
                     modePicker
@@ -436,6 +467,10 @@ struct TVImmersivePlayerView: View {
         .onChange(of: frameRateRawValue) { _, _ in
             updateSpectrumAnalysis(for: presentationEffect)
         }
+        .onChange(of: renderBudget.frameRate) { _, _ in
+            // 发热开始或解除:频谱的发布节奏跟着实际帧率走。
+            updateSpectrumAnalysis(for: presentationEffect)
+        }
         .onChange(of: showsModePicker) { _, _ in
             updateSpectrumAnalysis(for: presentationEffect)
         }
@@ -547,8 +582,8 @@ struct TVImmersivePlayerView: View {
             isRenderingActive: presentationActivity.isRenderingActive && !showsModePicker,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
-            frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
-            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
+            frameRate: renderBudget.frameRate,
+            motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
@@ -1088,7 +1123,7 @@ struct TVImmersivePlayerView: View {
     }
 
     private func updateSpectrumAnalysis(for presentation: FullscreenPlayerEffect) {
-        var pacing = ImmersiveFrameRateMode(storedValue: frameRateRawValue).spectrumPacing(
+        var pacing = renderBudget.frameRate.spectrumPacing(
             displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
         )
         // 环形声谱的整屏光晕和整块模糊的那层频谱环都随频谱发布重画，每发布一次系统都要整屏重新

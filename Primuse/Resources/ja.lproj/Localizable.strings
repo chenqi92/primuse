@@ -1833,6 +1833,13 @@
 "immersive_high_refresh_message_tv" = "60fps と「ディスプレイに合わせる」では全画面エフェクトを毎フレーム描画します。Apple TV が熱くなりやすく、古いモデルではコマ落ちすることがあります。画面全体をぼかす一部のエフェクトは、テレビでは引き続き最大 30fps です。同意すると動きの強さも「最大」にでき、揺れや音への反応がいちばんはっきり出ます。";
 "immersive_high_refresh_maximize" = "同意して最大にする";
 "immersive_high_refresh_frame_rate_only" = "フレームレートだけ上げる";
+"immersive_spectrum_unavailable_title" = "この曲にはリアルタイムのスペクトルがありません";
+"immersive_spectrum_unavailable_detail" = "一部のソース（Apple Music、ラジオ、ミュージックビデオ、ほかのデバイスへのキャストなど）では音声データを取得できないため、音に合わせて動くエフェクトは止まったままになります。音に合わせないエフェクトには影響しません。";
+"immersive_power_reason_low_power" = "低電力モードがオンです";
+"immersive_power_reason_thermal" = "デバイスの温度が高くなっています";
+"immersive_power_lowered_both" = "全画面エフェクトを一時的に 30fps、動きの強さ「標準」で表示しています。解除されると設定どおりに戻ります。";
+"immersive_power_lowered_frame_rate" = "全画面エフェクトを一時的に 30fps で表示しています。解除されると設定どおりに戻ります。";
+"immersive_power_lowered_intensity" = "動きの強さを一時的に「標準」にしています。解除されると設定どおりに戻ります。";
 "immersive_effect_rotation_title" = "エフェクトを自動切り替え";
 "immersive_effect_rotation_subtitle" = "一定時間ごと、または曲ごとに別のフルスクリーンエフェクトへ切り替えます。ビジュアライザーのプリセットのように順番に流れます。変わるのは表示中のものだけで、選んだエフェクトはそのままです。一時停止中は計時せず、「オリジナル」では切り替えません。";
 "immersive_effect_rotation_off" = "オフ";
