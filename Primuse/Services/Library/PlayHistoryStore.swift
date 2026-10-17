@@ -51,7 +51,30 @@ final class PlayHistoryStore {
     /// 大约 250h = 10 天纯听歌, 实际能覆盖 1-2 年的零散听歌。
     static let maxRetainedEntries = 5000
 
-    private(set) var entries: [Entry] = []
+    private(set) var entries: [Entry] = [] {
+        didSet { entriesMutation &+= 1 }
+    }
+    @ObservationIgnored private var entriesMutation: UInt64 = 0
+    @ObservationIgnored private var playCountsCache: (mutation: UInt64, counts: [String: Int])?
+
+    /// 每首歌各被播放过几次。歌单页每次重绘都要读, 原来每读一次都把整份历史折叠一遍。
+    /// 读它同时登记对 `entries` 的观察, 和直接读历史时一样。
+    var playCountsBySongID: [String: Int] {
+        _ = entries
+        if let cache = playCountsCache, cache.mutation == entriesMutation { return cache.counts }
+        var counts: [String: Int] = [:]
+        for entry in entries {
+            counts[entry.songID, default: 0] += 1
+        }
+        playCountsCache = (entriesMutation, counts)
+        return counts
+    }
+
+    /// `playCountsBySongID` 的版本, 按它缓存排序结果。
+    var playCountsVersion: UInt64 {
+        _ = entries
+        return entriesMutation
+    }
     /// Songs the library currently counts as spoken word, kept in step by
     /// `MusicLibrary`. Books are not music: they stay in `entries` (and in
     /// sync) but are left out of every music ranking, summary and

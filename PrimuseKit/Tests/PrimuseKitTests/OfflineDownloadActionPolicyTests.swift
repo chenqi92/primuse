@@ -59,6 +59,9 @@ struct OfflineDownloadActionPolicyTests {
                 == [tracks[1].id])
         #expect(OfflineDownloadActionPolicy.downloadableSongs(in: [tracks[0]], sources: [local]).isEmpty)
         #expect(OfflineDownloadActionPolicy.downloadableSongs(in: [], sources: [remote]).isEmpty)
+        #expect(OfflineDownloadActionPolicy.containsDownloadableSong(in: tracks, sources: [local, remote, music]))
+        #expect(!OfflineDownloadActionPolicy.containsDownloadableSong(in: [tracks[0], tracks[2]], sources: [local, remote, music]))
+        #expect(!OfflineDownloadActionPolicy.containsDownloadableSong(in: [], sources: [remote]))
     }
 
     private func song(sourceID: String) -> Song {

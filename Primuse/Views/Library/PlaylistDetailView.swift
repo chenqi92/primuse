@@ -26,6 +26,7 @@ struct PlaylistDetailView: View {
     /// 歌曲表手工分窗：页面滚到的首行 (按 SongListScrollWindow.rowStride 取整) 和表格行在页面里的起点。
     @State private var macTableFirstVisibleRow = 0
     @State private var macTableRowsTop: CGFloat = 0
+    @State private var macTableRowsCache = MacTableRowsCache()
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -49,6 +50,7 @@ struct PlaylistDetailView: View {
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
+    @State private var sortedSongsCache = PlaylistSortedSongsCache()
     /// 空串 = 歌单顺序。存 raw value 是为了让"歌单顺序"也能占一个合法取值。
     @AppStorage("playlistDetailSortOrder") private var displaySortRawValue = ""
     /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
@@ -80,10 +82,19 @@ struct PlaylistDetailView: View {
     /// 眼前这一列,不是歌单里存的那一列。
     private var songs: [Song] {
         guard let order = displaySortOrder else { return storedSongs }
-        let values: SongListSortValues = order.criterion == .playCount
-            ? SongListSortValues(playCountsBySongID: playCountsBySongID)
-            : .empty
-        return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
+        let usesPlayCounts = order.criterion == .playCount
+        let key = PlaylistSortedSongsCache.Key(
+            content: library.playlistContentVersion,
+            playlistID: playlist.id,
+            order: order,
+            playCountsVersion: usesPlayCounts ? PlayHistoryStore.shared.playCountsVersion : 0
+        )
+        return sortedSongsCache.songs(for: key) {
+            let values: SongListSortValues = usesPlayCounts
+                ? SongListSortValues(playCountsBySongID: playCountsBySongID)
+                : .empty
+            return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
+        }
     }
 
     /// 整张歌单的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
@@ -136,11 +147,7 @@ struct PlaylistDetailView: View {
 
     /// 按播放次数排序和 macOS 的曲目表都要读它,所以放在平台分支之外。
     private var playCountsBySongID: [String: Int] {
-        var dict: [String: Int] = [:]
-        for e in PlayHistoryStore.shared.entries {
-            dict[e.songID, default: 0] += 1
-        }
-        return dict
+        PlayHistoryStore.shared.playCountsBySongID
     }
 
     /// nil = 保持歌单自己的顺序。
@@ -220,10 +227,31 @@ struct PlaylistDetailView: View {
         )
     }
 
+    /// 菜单与按钮要的几个「有没有」。页面每重画一次都要问; 全是本地原始文件的歌单
+    /// 碰不到能下载的歌, 每次都得把整张走完, 所以按歌单内容与音乐源配置缓存。
+    private var songAvailability: PlaylistSortedSongsCache.Availability {
+        let key = PlaylistSortedSongsCache.AvailabilityKey(
+            content: .init(content: library.playlistContentVersion, playlistID: playlist.id),
+            sources: sourcesStore.allSources
+        )
+        return sortedSongsCache.availability(for: key) {
+            let songs = storedSongs
+            return .init(
+                hasPlayable: songs.contains(where: \.isPlayable),
+                hasDownloadable: sourcesStore.containsDownloadableSong(in: songs),
+                supportsAlwaysDownload: Self.supportsAlwaysDownload(songs, sources: sourcesStore.sources)
+            )
+        }
+    }
+
     private var supportsAlwaysDownload: Bool {
+        songAvailability.supportsAlwaysDownload
+    }
+
+    private static func supportsAlwaysDownload(_ songs: [Song], sources: [MusicSource]) -> Bool {
         if songs.isEmpty { return true }
         let sourcesByID = Dictionary(
-            sourcesStore.sources.map { ($0.id, $0) },
+            sources.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return songs.contains { song in
@@ -914,10 +942,9 @@ struct PlaylistDetailView: View {
             .accessibilityAddTraits(isFavorite ? .isSelected : [])
             .accessibilityIdentifier("playlistDetail.favorite")
 
-            let downloads = sourcesStore.downloadableSongs(in: songs)
-            if !downloads.isEmpty {
+            if songAvailability.hasDownloadable {
                 Button {
-                    sourceManager.downloadForOffline(songs: downloads)
+                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: songs))
                 } label: {
                     Image(systemName: "arrow.down.circle")
                         .font(.headline)
@@ -1315,7 +1342,10 @@ struct PlaylistDetailView: View {
     }
 
     private var playlistSubtitle: String {
-        let duration = songs.reduce(0) { $0 + $1.duration }
+        // 总时长与显示顺序无关, 按歌单内容缓存; 不然后台每发布一批, 几万首都要再加一遍。
+        let duration = sortedSongsCache.totalDuration(
+            for: .init(content: library.playlistContentVersion, playlistID: playlist.id)
+        ) { storedSongs.reduce(0) { $0 + $1.duration } }
         return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(playlistKindLabel)"
     }
 
@@ -1418,7 +1448,9 @@ struct PlaylistDetailView: View {
 
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 重排 / 离线 / 导出 / 删除。
     private var playlistMoreMenu: AnyView {
-        let playable = songs.filteredPlayable()
+        // 页面每重画一次就重建一遍菜单: 这里只判断有没有, 要用的列表等点下去再取。
+        let availability = songAvailability
+        let hasPlayable = availability.hasPlayable
         let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
         let canDelete = canDeletePlaylist(playlist.id)
 
@@ -1433,13 +1465,12 @@ struct PlaylistDetailView: View {
                 showReorderSheet = true
             })
         }
-        let downloads = sourcesStore.downloadableSongs(in: songs)
-        if !downloads.isEmpty {
+        if availability.hasDownloadable {
             middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
-                sourceManager.downloadForOffline(songs: downloads)
+                sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: songs))
             })
         }
-        if supportsAlwaysDownload {
+        if availability.supportsAlwaysDownload {
             middle.append(.init(
                 icon: alwaysDownloadBinding.wrappedValue ? "checkmark.circle.fill" : "arrow.down.circle",
                 title: String(localized: "playlist_always_download")
@@ -1489,15 +1520,15 @@ struct PlaylistDetailView: View {
             ],
             [
                 .init(icon: "play.fill", title: String(localized: "play_all"),
-                      enabled: !playable.isEmpty) { playAll() },
+                      enabled: hasPlayable) { playAll() },
                 .init(icon: "shuffle", title: String(localized: "shuffle"),
-                      enabled: !playable.isEmpty) {
+                      enabled: hasPlayable) {
                     playAll(shuffled: true)
                 },
                 .init(icon: "text.line.last.and.arrowtriangle.forward", title: String(localized: "add_to_queue"),
-                      enabled: !playable.isEmpty) { player.appendToQueue(playable) },
+                      enabled: hasPlayable) { player.appendToQueue(songs.filteredPlayable()) },
                 .init(icon: "text.line.first.and.arrowtriangle.forward", title: String(localized: "up_next"),
-                      enabled: !playable.isEmpty) { player.insertNextInQueue(playable) },
+                      enabled: hasPlayable) { player.insertNextInQueue(songs.filteredPlayable()) },
             ],
             middle,
             [
@@ -1542,7 +1573,42 @@ struct PlaylistDetailView: View {
         }
     }
 
+    /// 页面每滚过一段 (SongListScrollWindow.rowStride 行) 就重算一次页面; 整张表的行与
+    /// 行高偏移只随歌单内容、排序与找歌的字变, 几万首的歌单不必每次重建。
+    private final class MacTableRowsCache {
+        struct Key: Equatable {
+            let content: MusicLibrary.PlaylistContentVersion
+            let playlistID: String
+            let order: LibrarySongSortOrder?
+            let playCountsVersion: UInt64
+            let findText: String
+        }
+
+        private var key: Key?
+        private var rows: MacTableRows?
+
+        func rows(for key: Key, make: () -> MacTableRows) -> MacTableRows {
+            if key == self.key, let rows { return rows }
+            let made = make()
+            self.key = key
+            rows = made
+            return made
+        }
+    }
+
     private func macTableRows() -> MacTableRows {
+        let order = displaySortOrder
+        let key = MacTableRowsCache.Key(
+            content: library.playlistContentVersion,
+            playlistID: playlist.id,
+            order: order,
+            playCountsVersion: order?.criterion == .playCount ? PlayHistoryStore.shared.playCountsVersion : 0,
+            findText: findText
+        )
+        return macTableRowsCache.rows(for: key, make: makeMacTableRows)
+    }
+
+    private func makeMacTableRows() -> MacTableRows {
         var songCounter = 0
         var rows = orderedEntries.map { entry in
             guard case .song = entry else { return MacTableRow(entry: entry, songIndex: songCounter) }
@@ -2379,3 +2445,59 @@ private struct MacPlaylistSongCells: View, Equatable {
     }
 }
 #endif
+
+/// 选了排序维度时, 歌单页一次重绘要读好几遍排好序的歌; 每读一遍都整份重排。
+/// 按歌单内容、排序方式和播放次数的版本记住。
+private final class PlaylistSortedSongsCache {
+    struct Key: Equatable {
+        let content: MusicLibrary.PlaylistContentVersion
+        let playlistID: String
+        let order: LibrarySongSortOrder
+        let playCountsVersion: UInt64
+    }
+
+    struct ContentKey: Equatable {
+        let content: MusicLibrary.PlaylistContentVersion
+        let playlistID: String
+    }
+
+    struct AvailabilityKey: Equatable {
+        let content: ContentKey
+        let sources: [MusicSource]
+    }
+
+    struct Availability {
+        let hasPlayable: Bool
+        let hasDownloadable: Bool
+        let supportsAlwaysDownload: Bool
+    }
+
+    private var key: Key?
+    private var cached: [Song] = []
+    private var durationKey: ContentKey?
+    private var cachedDuration: TimeInterval = 0
+    private var availabilityKey: AvailabilityKey?
+    private var cachedAvailability: Availability?
+
+    func songs(for key: Key, make: () -> [Song]) -> [Song] {
+        if key == self.key { return cached }
+        cached = make()
+        self.key = key
+        return cached
+    }
+
+    func availability(for key: AvailabilityKey, make: () -> Availability) -> Availability {
+        if key == availabilityKey, let cachedAvailability { return cachedAvailability }
+        let made = make()
+        availabilityKey = key
+        cachedAvailability = made
+        return made
+    }
+
+    func totalDuration(for key: ContentKey, make: () -> TimeInterval) -> TimeInterval {
+        if key == durationKey { return cachedDuration }
+        cachedDuration = make()
+        durationKey = key
+        return cachedDuration
+    }
+}

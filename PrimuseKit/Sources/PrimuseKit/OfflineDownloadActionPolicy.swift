@@ -20,4 +20,11 @@ public enum OfflineDownloadActionPolicy {
         let sourcesByID = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return songs.filter { allowsDownload(for: $0, source: sourcesByID[$0.sourceID]) }
     }
+
+    /// 只问有没有: 遇到第一首能下载的就停。菜单与按钮每次重画都要判断, 真正的
+    /// 下载列表等点下去再筛。
+    public static func containsDownloadableSong(in songs: [Song], sources: [MusicSource]) -> Bool {
+        let sourcesByID = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return songs.contains { allowsDownload(for: $0, source: sourcesByID[$0.sourceID]) }
+    }
 }

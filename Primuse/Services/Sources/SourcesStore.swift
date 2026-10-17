@@ -164,6 +164,10 @@ final class SourcesStore {
         OfflineDownloadActionPolicy.downloadableSongs(in: songs, sources: allSources)
     }
 
+    func containsDownloadableSong(in songs: [Song]) -> Bool {
+        OfflineDownloadActionPolicy.containsDownloadableSong(in: songs, sources: allSources)
+    }
+
     /// tvOS 下载到新 sources.json 后重新从磁盘加载。
     func reloadFromDisk() {
         load()

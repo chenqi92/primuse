@@ -1131,6 +1131,46 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
+    /// 歌单页一次重绘要问好几遍整张歌单, 结果按版本缓存; 歌曲内容、成员、来源停用
+    /// 任一变了, 下一次取到的都必须是新的。
+    func testPlaylistSongsCacheFollowsEveryChange() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePlaylistCache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { true })
+        var first = makeSong(id: "first", path: "/music/first.mp3")
+        let second = makeSong(id: "second", path: "/music/second.mp3")
+        var other = makeSong(id: "other", path: "/music/other.mp3")
+        other.sourceID = "source-2"
+        library.addSongs([first, second, other])
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Cache")
+        library.add(songIDs: ["first", "second", "other"], toPlaylist: playlist.id)
+
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["first", "second", "other"])
+        let version = library.playlistContentVersion
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["first", "second", "other"])
+        XCTAssertEqual(library.playlistContentVersion, version)
+
+        first.title = "Renamed"
+        library.replaceSongs([first], maintenance: .immediate)
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).first?.title, "Renamed")
+        XCTAssertNotEqual(library.playlistContentVersion, version)
+
+        library.remove(songID: "second", fromPlaylist: playlist.id)
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["first", "other"])
+        XCTAssertEqual(library.entries(forPlaylist: playlist.id).count, 2)
+
+        library.updateDisabledSourceIDs(["source-2"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["first"])
+        XCTAssertEqual(library.entries(forPlaylist: playlist.id).count, 1)
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The playlist cache fixture did not finish persistence")
+        }
+    }
+
     /// 扫描中间提交的派生字段先在后台算好: 入库结果要和原路逐首算的一模一样;
     /// 准备期间改了歌手名规则, 就照原路按新规则算。
     func testPreparedScanRowsLandExactlyLikeRawRows() async throws {

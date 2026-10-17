@@ -14,6 +14,7 @@ import PrimuseKit
 /// - `wait:<秒>`：等待。
 /// - `playlist:<歌单名>`：等曲库装好，把全部音乐建成（或沿用）这个名字的歌单，
 ///   并把 Mac 主窗口下次启动恢复的页面设成它。
+/// - `openplaylist:<歌单名>`：同上，再把主窗口当场换到这张歌单 —— 量大歌单页的构造开销用。
 /// - `scrollend` / `scrolltop`：对所有暴露 `AXScrollToBottom` / `AXScrollToTop` 的元素执行该动作。
 /// - `report`：记下窗口里每个滚动视图的位置与文档尺寸。
 /// - `window:<宽>x<高>`：把主窗口改成这个尺寸（点）。
@@ -51,6 +52,9 @@ enum DebugAccessibilityScript {
             try? await Task.sleep(for: .seconds(Double(argument) ?? 1))
         case "playlist":
             await preparePlaylist(named: argument)
+        case "openplaylist":
+            let id = await preparePlaylist(named: argument)
+            NotificationCenter.default.post(name: .primuseDebugSelectRoute, object: "playlist:\(id)")
         case "scrollend":
             await perform("AXScrollToBottom")
         case "scrolltop":
@@ -80,7 +84,8 @@ enum DebugAccessibilityScript {
     }
 
     @MainActor
-    private static func preparePlaylist(named name: String) async {
+    @discardableResult
+    private static func preparePlaylist(named name: String) async -> String {
         let library = AppServices.shared.musicLibrary
         for _ in 0..<120 where !library.isReady || library.musicSongs.isEmpty {
             try? await Task.sleep(for: .seconds(1))
@@ -90,6 +95,7 @@ enum DebugAccessibilityScript {
             ?? library.createPlaylist(name: name, songIDs: songIDs)
         UserDefaults.standard.set("playlist:\(playlist.id)", forKey: "primuse.navigation.macRoute.v1")
         plog("🧪 AX script: playlist '\(name)' id=\(playlist.id) songs=\(library.songs(forPlaylist: playlist.id).count)")
+        return playlist.id
     }
 
     @MainActor

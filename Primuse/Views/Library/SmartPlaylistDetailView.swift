@@ -412,10 +412,9 @@ struct SmartPlaylistDetailView: View {
             .buttonStyle(.bordered)
             .disabled(matched.isEmpty)
 
-            let downloads = sourcesStore.downloadableSongs(in: matched)
-            if !downloads.isEmpty {
+            if sourcesStore.containsDownloadableSong(in: matched) {
                 Button {
-                    sourceManager.downloadForOffline(songs: downloads)
+                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
                 } label: {
                     Label("offline_download", systemImage: "arrow.down.circle")
                         .labelStyle(.iconOnly)
@@ -446,10 +445,9 @@ struct SmartPlaylistDetailView: View {
             .buttonStyle(.bordered)
             .disabled(matched.isEmpty)
 
-            let downloads = sourcesStore.downloadableSongs(in: matched)
-            if !downloads.isEmpty {
+            if sourcesStore.containsDownloadableSong(in: matched) {
                 Button {
-                    sourceManager.downloadForOffline(songs: downloads)
+                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
                 } label: {
                     Label("offline_download", systemImage: "arrow.down.circle")
                         .frame(maxWidth: .infinity)
@@ -554,10 +552,9 @@ struct SmartPlaylistDetailView: View {
                 scraperService.scrapeMissingMetadata(songs: matched, in: library)
             },
         ]
-        let downloads = sourcesStore.downloadableSongs(in: matched)
-        if !downloads.isEmpty {
+        if sourcesStore.containsDownloadableSong(in: matched) {
             actions.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
-                sourceManager.downloadForOffline(songs: downloads)
+                sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
             }, at: 1)
         }
         return AnyView(MacHeaderMoreMenu(sections: [

@@ -3647,7 +3647,10 @@ final class MusicLibrary {
     /// 歌单里置灰的占位条目(见 `PlaylistPendingEntry`), 键是占位 id —— 也就是
     /// `playlistSongIDs` 里占着位置的那个元素。和上面的 pending identities 不同:
     /// 它们在界面上看得见、保持原来的位置, 也不过期, 一直等到曲库里有了为止。
-    private(set) var playlistPendingEntries: [String: PlaylistPendingEntry] = [:]
+    private(set) var playlistPendingEntries: [String: PlaylistPendingEntry] = [:] {
+        didSet { playlistPendingRevision &+= 1 }
+    }
+    @ObservationIgnored private var playlistPendingRevision: UInt64 = 0
     @ObservationIgnored private var playlistPendingResolutionTask: Task<Void, Never>?
     @ObservationIgnored private var playlistPendingResolutionGeneration: UInt64 = 0
     @ObservationIgnored let playlistEntryMatchKeyCache = PlaylistEntryMatchKeyCache()
@@ -3844,6 +3847,9 @@ final class MusicLibrary {
     /// 路径可以在 `songs` 不变的情况下换掉 visibleSongs 与它的索引; 离主线程
     /// 准备好的补丁必须能看出这一点, 否则会用旧副本盖掉更新的可见缓存。
     @ObservationIgnored private var visibleCacheGeneration: UInt64 = 0
+    /// 查找表(歌手、流派、来源的歌曲表)整组换掉时前进。可见歌曲同一块缓冲不重发时,
+    /// 只有它能告诉视图缓存要重算。
+    @ObservationIgnored private var visibleLookupGeneration: UInt64 = 0
     private(set) var visibleSongs: [Song] {
         get { visibleSongsReference.value }
         set {
@@ -4760,6 +4766,7 @@ final class MusicLibrary {
         albumIDsByAlbumOnlyArtistID = prepared.albumArtistIndex.albumIDsByAlbumOnlyArtistID
         albumOnlyArtistSongIDsCache = [:]
         visibleSongIDsByArtistID = prepared.songIDsByArtistID
+        visibleLookupGeneration &+= 1
         visibleSongIDsByGenreID = prepared.songIDsByGenreID
         visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
         visibleSongPositionsBySourceID = prepared.songPositionsBySourceID
@@ -6381,6 +6388,7 @@ final class MusicLibrary {
         let removedSourceIDs = Set(removedVisibleIDs.compactMap { lookupVisibleSong($0)?.sourceID })
         visibleSongs = nextVisibleSongs
         visibleSongIndexByID = rebuiltIndexByID
+        visibleLookupGeneration &+= 1
         // 下标整体前移, 按源的位置表跟着重排一遍 (与上面的数组重建同为 O(可见行))。
         rebuildSourcePositions()
         if musicSongsSharesVisibleSongs { musicSongsRevision &+= 1 }
@@ -8323,7 +8331,53 @@ final class MusicLibrary {
 
     func songs(forPlaylist playlistID: String) -> [Song] {
         _ = visibleSongsReference
-        return (playlistSongIDs[playlistID] ?? []).compactMap { lookupVisibleSong($0) }
+        let ids = playlistSongIDs[playlistID] ?? []
+        let key = playlistMaterializationKey
+        if let cached = materializedPlaylistSongs[playlistID], cached.key == key { return cached.songs }
+        let songs = ids.compactMap { lookupVisibleSong($0) }
+        if materializedPlaylistSongs.count >= Self.materializedPlaylistLimit {
+            materializedPlaylistSongs.removeAll(keepingCapacity: true)
+        }
+        materializedPlaylistSongs[playlistID] = (key, songs)
+        return songs
+    }
+
+    /// 歌单页一次重绘要把整张歌单问上十几遍(计数、是否为空、表格、排序、分享、
+    /// 多选), 每遍都逐首查出、整份拷贝; 上千首的「我喜欢」每次重绘就是几万次拷贝。
+    /// 可见歌曲、查找表、歌单成员、待匹配条目任一变了才重新取。
+    fileprivate struct PlaylistMaterializationKey: Equatable {
+        let cacheGeneration: UInt64
+        let lookupGeneration: UInt64
+        let membershipRevision: UInt64
+        let pendingRevision: UInt64
+    }
+
+    private var playlistMaterializationKey: PlaylistMaterializationKey {
+        PlaylistMaterializationKey(
+            cacheGeneration: visibleCacheGeneration,
+            lookupGeneration: visibleLookupGeneration,
+            membershipRevision: playlistMembershipRevision,
+            pendingRevision: playlistPendingRevision
+        )
+    }
+
+    @ObservationIgnored private var materializedPlaylistSongs:
+        [String: (key: PlaylistMaterializationKey, songs: [Song])] = [:]
+    @ObservationIgnored private var materializedPlaylistEntries:
+        [String: (key: PlaylistMaterializationKey, entries: [PlaylistEntry])] = [:]
+    private static let materializedPlaylistLimit = 32
+
+    /// 歌单内容的版本, 视图按它缓存排序之类的派生结果。读它同时登记对可见歌曲、
+    /// 歌单成员与待匹配条目的观察。
+    struct PlaylistContentVersion: Equatable {
+        fileprivate let key: PlaylistMaterializationKey
+    }
+
+    var playlistContentVersion: PlaylistContentVersion {
+        _ = visibleSongsReference
+        _ = playlistSongIDs
+        _ = playlistPendingEntries
+        return PlaylistContentVersion(key: playlistMaterializationKey)
     }
 
     /// The playlist's entries as stored, including songs that are not visible
@@ -9510,11 +9564,20 @@ final class MusicLibrary {
     /// `songs(forPlaylist:)` 一样不出现。
     func entries(forPlaylist playlistID: String) -> [PlaylistEntry] {
         _ = visibleSongsReference
-        return (playlistSongIDs[playlistID] ?? []).compactMap { id -> PlaylistEntry? in
+        let ids = playlistSongIDs[playlistID] ?? []
+        let pending = playlistPendingEntries
+        let key = playlistMaterializationKey
+        if let cached = materializedPlaylistEntries[playlistID], cached.key == key { return cached.entries }
+        let entries = ids.compactMap { id -> PlaylistEntry? in
             if let song = lookupVisibleSong(id) { return .song(song) }
-            if let entry = playlistPendingEntries[id] { return .pending(entry) }
+            if let entry = pending[id] { return .pending(entry) }
             return nil
         }
+        if materializedPlaylistEntries.count >= Self.materializedPlaylistLimit {
+            materializedPlaylistEntries.removeAll(keepingCapacity: true)
+        }
+        materializedPlaylistEntries[playlistID] = (key, entries)
+        return entries
     }
 
     func pendingEntryCount(forPlaylist playlistID: String) -> Int {
