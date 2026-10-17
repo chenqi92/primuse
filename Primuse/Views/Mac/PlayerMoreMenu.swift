@@ -23,6 +23,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @Environment(MusicIntelligenceService.self) private var intelligence: MusicIntelligenceService?
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -871,15 +872,32 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             fontPickerRow("lyrics_font_medium", value: 1.0)
             fontPickerRow("lyrics_font_large", value: 1.2)
             fontPickerRow("lyrics_font_xlarge", value: 1.5)
+            // 译文(和注音)行单独的字号(#320)。
+            divider()
+            Text("lyrics_translation_font_size")
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+            fontPickerRow("lyrics_translation_font_follow", value: 0, translation: true)
+            fontPickerRow("lyrics_font_small", value: 0.85, translation: true)
+            fontPickerRow("lyrics_font_medium", value: 1.0, translation: true)
+            fontPickerRow("lyrics_font_large", value: 1.2, translation: true)
+            fontPickerRow("lyrics_font_xlarge", value: 1.5, translation: true)
         }
         .padding(.vertical, 6)
-        .frame(width: 160)
+        .frame(width: 180)
         .focusEffectDisabled()
     }
 
-    private func fontPickerRow(_ title: LocalizedStringKey, value: Double) -> some View {
-        Button {
-            lyricsFontScale = value
+    private func fontPickerRow(_ title: LocalizedStringKey, value: Double, translation: Bool = false) -> some View {
+        let current = translation ? lyricsTranslationFontScale : lyricsFontScale
+        return Button {
+            if translation {
+                lyricsTranslationFontScale = value
+            } else {
+                lyricsFontScale = value
+            }
             fontPickerShown = false
         } label: {
             HStack {
@@ -887,7 +905,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     .font(.callout)
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                if abs(lyricsFontScale - value) < 0.001 {
+                if abs(current - value) < 0.001 {
                     Image(systemName: "checkmark")
                         .font(.caption)
                         .foregroundStyle(PMColor.brand)

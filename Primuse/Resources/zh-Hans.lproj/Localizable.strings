@@ -5222,6 +5222,9 @@
 "transcript_typography" = "字体与排版";
 "transcript_font" = "字体";
 "transcript_font_size" = "字号";
+"lyrics_translation_font_size" = "译文字号";
+"lyrics_translation_font_follow" = "跟随原文";
+"lyrics_translation_font_follows_original" = "译文跟随原文字号";
 "transcript_line_spacing" = "行距";
 "transcript_paragraph_spacing" = "段距";
 "transcript_spacing_compact" = "紧凑";

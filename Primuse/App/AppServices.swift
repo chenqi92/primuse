@@ -1808,6 +1808,7 @@ final class AppServices {
         #endif
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
+        CloudKVSSync.shared.register(key: CloudKVSKey.lyricsTranslationFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }

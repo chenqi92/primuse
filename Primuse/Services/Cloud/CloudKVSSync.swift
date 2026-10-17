@@ -620,6 +620,8 @@ enum CloudKVSKey {
     static let playbackSettings = "primuse_playback_settings_v1"
     static let scraperSettings = "primuse_scraper_settings_v3"
     static let lyricsFontScale = "lyricsFontScale"
+    /// 译文(和注音)行的字号;0 = 跟原文一起缩放(#320)。
+    static let lyricsTranslationFontScale = "lyricsTranslationFontScale"
     static let recentSearches = "search_recent_queries"
     static let aiRecommendationIntents = AIRecommendationIntentStoragePolicy.storageKey
     static let aiRecommendationHiddenPresets =

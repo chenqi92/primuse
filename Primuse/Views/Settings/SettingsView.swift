@@ -352,6 +352,7 @@ struct LyricsAppearanceSections: View {
     @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -495,6 +496,30 @@ struct LyricsAppearanceSections: View {
                 }
             }
             .settingsAnchor("lyrics.fontSize")
+
+            // 译文(和注音)行的字号,默认跟原文一起缩放;关掉后单独拖(#320)。
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("lyrics_translation_font_follows_original", isOn: Binding(
+                    get: { lyricsTranslationFontScale <= 0 },
+                    set: { lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale }
+                ))
+                if lyricsTranslationFontScale > 0 {
+                    HStack {
+                        Text("lyrics_translation_font_size")
+                        Spacer(minLength: 12)
+                        Text(verbatim: "\(Int((lyricsTranslationFontScale * 100).rounded()))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $lyricsTranslationFontScale, in: 0.7...1.8, step: 0.05) {
+                        Text("lyrics_translation_font_size")
+                    }
+                }
+            }
+            .onChange(of: lyricsTranslationFontScale) { _, _ in
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
+            }
+            .settingsAnchor("lyrics.translationFontSize")
 
             Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
             .settingsAnchor("lyrics.blurInactive")

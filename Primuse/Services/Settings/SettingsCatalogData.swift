@@ -78,6 +78,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.interludeDots", titleKey: "player_lyrics_interlude_dots", iosPage: .lyrics, macPage: .lyrics, keywords: ["interlude", "dots", "ellipsis", "intro", "instrumental", "heartbeat", "间奏", "前奏", "三个点", "省略号", "间隔", "心跳"]),
         SettingDefinition(id: "lyrics.browseTimeline", titleKey: "player_lyrics_browse_timeline", iosPage: .lyrics, macPage: nil, keywords: ["lyrics ruler", "timeline", "歌词标尺", "定位线", "拖动歌词"]),
         SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: .lyrics, macPage: .lyrics),
+        SettingDefinition(id: "lyrics.translationFontSize", titleKey: "lyrics_translation_font_size", iosPage: .lyrics, macPage: .lyrics, keywords: ["translation size", "bilingual", "subtitle", "译文字号", "翻译字号", "双语", "字幕", "注音"]),
         SettingDefinition(id: "lyrics.menuBar", titleKey: "menu_bar_lyrics", iosPage: nil, macPage: .lyrics, keywords: ["menu bar lyrics", "status bar lyrics", "菜单栏歌词", "状态栏歌词", "顶部歌词"]),
         SettingDefinition(id: "lyrics.island", titleKey: "desktop_lyrics_island", iosPage: nil, macPage: .lyrics, keywords: ["dynamic island", "notch", "lyrics island", "desktop lyrics", "灵动岛", "刘海", "上岛", "歌词岛", "桌面歌词"]),
         SettingDefinition(id: "lyrics.islandSystemStatus", titleKey: "desktop_lyrics_island_system_status", iosPage: nil, macPage: .lyrics, keywords: ["headphones", "airpods", "volume", "battery", "charging", "耳机", "音量", "充电", "电量"]),

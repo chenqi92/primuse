@@ -5130,6 +5130,9 @@
 "transcript_typography" = "文字の設定";
 "transcript_font" = "フォント";
 "transcript_font_size" = "文字サイズ";
+"lyrics_translation_font_size" = "訳文の文字サイズ";
+"lyrics_translation_font_follow" = "原文に合わせる";
+"lyrics_translation_font_follows_original" = "訳文を原文と同じ比率にする";
 "transcript_line_spacing" = "行間";
 "transcript_paragraph_spacing" = "段落の間隔";
 "transcript_spacing_compact" = "狭い";

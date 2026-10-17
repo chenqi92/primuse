@@ -5106,6 +5106,9 @@
 "transcript_typography" = "字體與排版";
 "transcript_font" = "字體";
 "transcript_font_size" = "字級";
+"lyrics_translation_font_size" = "譯文字級";
+"lyrics_translation_font_follow" = "跟隨原文";
+"lyrics_translation_font_follows_original" = "譯文跟隨原文字級";
 "transcript_line_spacing" = "行距";
 "transcript_paragraph_spacing" = "段距";
 "transcript_spacing_compact" = "緊湊";

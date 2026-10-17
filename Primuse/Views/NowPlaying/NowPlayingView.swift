@@ -1388,6 +1388,8 @@ struct NowPlayingView: View {
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    /// 译文字号;「更多」里改了在绑定里同步 iCloud(播放页那条修饰链不能再加 onChange)。
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(LyricPosterPreferences.styleKey) private var lyricPosterStyleRawValue = ""
     @AppStorage(LyricPosterPreferences.canvasKey) private var lyricPosterCanvasRawValue = ""
     @AppStorage(LyricPosterPreferences.prefersMotionKey)
@@ -7009,6 +7011,8 @@ struct NowPlayingView: View {
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
+            lyricsTranslationFontScale: lyricsTranslationFontScale,
+            showsCompanionFontSize: LyricsTranslationSettingsStore.shared.isEnabled || lyricsHaveBundledTranslations,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
             // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
             showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil
@@ -7058,6 +7062,13 @@ struct NowPlayingView: View {
         return NowPlayingMoreMenu(
             snapshot: snapshot,
             lyricsFontScale: $lyricsFontScale,
+            lyricsTranslationFontScale: Binding(
+                get: { lyricsTranslationFontScale },
+                set: {
+                    lyricsTranslationFontScale = $0
+                    CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
+                }
+            ),
             playbackRate: currentPlaybackRateBinding,
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
@@ -10908,6 +10919,10 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
+    /// 译文行自己的字号;0 = 跟原文(#320)。
+    let lyricsTranslationFontScale: Double
+    /// 有译文可看(开着翻译,或歌词自带译文)时才给「译文字号」。
+    let showsCompanionFontSize: Bool
     let canChangePlaybackRate: Bool
     let showsEqualizer: Bool
     /// 高保真直通的图里没有均衡器。
@@ -11101,6 +11116,7 @@ struct NowPlayingBarColumnOverflow: Equatable {
 private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let snapshot: NowPlayingMoreMenuSnapshot
     @Binding var lyricsFontScale: Double
+    @Binding var lyricsTranslationFontScale: Double
     @Binding var playbackRate: Float
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
@@ -11553,6 +11569,19 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
                     }
                     .pickerStyle(.menu)
+
+                    if snapshot.showsCompanionFontSize {
+                        Picker(selection: $lyricsTranslationFontScale) {
+                            Text("lyrics_translation_font_follow").tag(0.0)
+                            Text("lyrics_font_small").tag(0.85)
+                            Text("lyrics_font_medium").tag(1.0)
+                            Text("lyrics_font_large").tag(1.2)
+                            Text("lyrics_font_xlarge").tag(1.5)
+                        } label: {
+                            Label(String(localized: "lyrics_translation_font_size"), systemImage: "character.textbox")
+                        }
+                        .pickerStyle(.menu)
+                    }
 
                     // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。
                     Menu {
@@ -12287,6 +12316,8 @@ struct LyricsScrollView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    /// 译文(和注音)行自己的字号;0 = 跟原文一起缩放(#320)。
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
@@ -12357,6 +12388,13 @@ struct LyricsScrollView: View {
 
     private var effectiveLyricsScale: Double {
         let combined = lyricsFontScale * Double(lyricsPinchScale)
+        return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
+    }
+
+    /// 译文与注音行的缩放:单独设过就用自己的,捏合照样一起放大缩小;没设过跟原文。
+    private var effectiveCompanionScale: Double {
+        guard lyricsTranslationFontScale > 0 else { return effectiveLyricsScale }
+        let combined = lyricsTranslationFontScale * Double(lyricsPinchScale)
         return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
     }
 
@@ -12777,6 +12815,9 @@ struct LyricsScrollView: View {
                 .onChange(of: lyricsFontScale) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
+                .onChange(of: lyricsTranslationFontScale) { _, _ in
+                    scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
+                }
                 .task(id: lineLevelScrollIdentity) {
                     guard isSceneActive else { return }
                     isRestoringVisualPosition = true
@@ -12914,6 +12955,9 @@ struct LyricsScrollView: View {
                     scroll(to: target, proxy: proxy, animated: true)
                 }
                 .onChange(of: lyricsFontScale) { _, _ in
+                    scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
+                }
+                .onChange(of: lyricsTranslationFontScale) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .task(id: lyricsPresentationIdentity) {
@@ -13249,6 +13293,7 @@ struct LyricsScrollView: View {
     ) -> some View {
         let isActive = index == currentLineIndex
         let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
+        let companionFontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveCompanionScale) * 0.65
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
         // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
@@ -13288,12 +13333,12 @@ struct LyricsScrollView: View {
                 }
                 .frame(width: availableWidth, alignment: frameAlignment)
 
-            // 歌词翻译 — 在原文下面以略小的字号显示。字号取原文的 0.65 +
-            // medium weight, 视觉上是 secondary。注音和译文共用一个时间戳时
-            // 两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
+            // 歌词翻译 — 在原文下面以略小的字号显示。字号默认取原文的 0.65 +
+            // medium weight, 视觉上是 secondary; 设置里可以单独调(#320)。注音和译文
+            // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
             ForEach(companions.indices, id: \.self) { slot in
                 Text(companions[slot])
-                    .font(.system(size: fontSize * 0.65, weight: .medium))
+                    .font(.system(size: companionFontSize, weight: .medium))
                     .foregroundStyle(
                         dimmedByAmbient
                             ? appearance.secondary
@@ -13349,7 +13394,7 @@ struct LyricsScrollView: View {
                     let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
                     ForEach(backgroundCompanions.indices, id: \.self) { slot in
                         Text(backgroundCompanions[slot])
-                            .font(.system(size: fontSize * 0.7 * 0.65, weight: .medium))
+                            .font(.system(size: companionFontSize * 0.7, weight: .medium))
                             .foregroundStyle(appearance.secondary)
                             .multilineTextAlignment(rowAlignment.textAlignment)
                             .fixedSize(horizontal: false, vertical: true)

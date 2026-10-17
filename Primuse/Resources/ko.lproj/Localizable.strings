@@ -5129,6 +5129,9 @@
 "transcript_typography" = "텍스트 옵션";
 "transcript_font" = "서체";
 "transcript_font_size" = "글자 크기";
+"lyrics_translation_font_size" = "번역 글자 크기";
+"lyrics_translation_font_follow" = "원문과 같게";
+"lyrics_translation_font_follows_original" = "번역 크기를 원문에 맞춤";
 "transcript_line_spacing" = "줄 간격";
 "transcript_paragraph_spacing" = "문단 간격";
 "transcript_spacing_compact" = "좁게";

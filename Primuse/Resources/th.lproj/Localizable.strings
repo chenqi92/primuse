@@ -5035,6 +5035,9 @@
 "transcript_typography" = "ตัวเลือกข้อความ";
 "transcript_font" = "แบบอักษร";
 "transcript_font_size" = "ขนาดข้อความ";
+"lyrics_translation_font_size" = "ขนาดคำแปล";
+"lyrics_translation_font_follow" = "ตามต้นฉบับ";
+"lyrics_translation_font_follows_original" = "ขนาดคำแปลตามต้นฉบับ";
 "transcript_line_spacing" = "ระยะห่างบรรทัด";
 "transcript_paragraph_spacing" = "ระยะห่างย่อหน้า";
 "transcript_spacing_compact" = "แน่น";

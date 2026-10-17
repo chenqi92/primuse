@@ -5204,6 +5204,7 @@ private struct MacSTLyricsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale = 0.0
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -5363,6 +5364,27 @@ private struct MacSTLyricsView: View {
                         )
                     }
                     .settingsAnchor("lyrics.fontSize")
+                    // 译文(和注音)行的字号,默认跟原文一起缩放(#320)。
+                    MacSTRow(String(localized: "lyrics_translation_font_follows_original")) {
+                        MacSTToggle(isOn: Binding(
+                            get: { lyricsTranslationFontScale <= 0 },
+                            set: { lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale }
+                        ))
+                        .accessibilityLabel(Text("lyrics_translation_font_follows_original"))
+                    }
+                    .settingsAnchor("lyrics.translationFontSize")
+                    if lyricsTranslationFontScale > 0 {
+                        MacSTRow(String(localized: "lyrics_translation_font_size")) {
+                            MacSTSlider(
+                                value: Binding(
+                                    get: { lyricsTranslationFontScale * 100 },
+                                    set: { lyricsTranslationFontScale = $0 / 100 }
+                                ),
+                                in: 70...180,
+                                formatter: { String(format: "%.0f%%", $0) }
+                            )
+                        }
+                    }
                     MacSTRow(String(localized: "player_tap_lyrics_to_seek")) {
                         MacSTToggle(isOn: $tapLyricsToSeek)
                             .accessibilityLabel(Text("player_tap_lyrics_to_seek"))

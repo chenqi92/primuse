@@ -107,6 +107,8 @@ struct MacNowPlayingView: View {
     /// 之前的 `now_playing_lyrics_base_font` 是 macOS 独有的本地键,改这里
     /// 同时让 iOS 端的 4 档预设也直接生效。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    /// 译文(和注音)行自己的字号;0 = 跟原文一起缩放(#320)。
+    @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
@@ -318,6 +320,9 @@ struct MacNowPlayingView: View {
         }
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
+        }
+        .onChange(of: lyricsTranslationFontScale) { _, _ in
+            CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
         }
         .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
             installLyrics(loadedLyrics)
@@ -1404,7 +1409,13 @@ struct MacNowPlayingView: View {
                 tint: tint,
                 textAlignment: textAlignment
             )
-            macLyricCompanions(for: line, fontSize: scaledSize, textAlignment: textAlignment)
+            macLyricCompanions(
+                for: line,
+                fontSize: lyricsTranslationFontScale > 0
+                    ? fontSize * CGFloat(lyricsTranslationFontScale)
+                    : scaledSize,
+                textAlignment: textAlignment
+            )
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
                     macSingleLyricLine(

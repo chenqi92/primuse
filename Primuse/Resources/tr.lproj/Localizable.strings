@@ -5035,6 +5035,9 @@
 "transcript_typography" = "Metin seçenekleri";
 "transcript_font" = "Yazı tipi";
 "transcript_font_size" = "Metin boyutu";
+"lyrics_translation_font_size" = "Çeviri boyutu";
+"lyrics_translation_font_follow" = "Orijinalle aynı";
+"lyrics_translation_font_follows_original" = "Çeviri boyutu orijinale uyar";
 "transcript_line_spacing" = "Satır aralığı";
 "transcript_paragraph_spacing" = "Paragraf aralığı";
 "transcript_spacing_compact" = "Sıkı";

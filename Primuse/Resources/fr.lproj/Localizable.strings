@@ -5129,6 +5129,9 @@
 "transcript_typography" = "Options du texte";
 "transcript_font" = "Police";
 "transcript_font_size" = "Taille du texte";
+"lyrics_translation_font_size" = "Taille de la traduction";
+"lyrics_translation_font_follow" = "Comme l’original";
+"lyrics_translation_font_follows_original" = "Traduction à la taille de l’original";
 "transcript_line_spacing" = "Interligne";
 "transcript_paragraph_spacing" = "Espacement des paragraphes";
 "transcript_spacing_compact" = "Compact";

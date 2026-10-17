@@ -4892,6 +4892,9 @@
 "transcript_typography" = "Text Options";
 "transcript_font" = "Font";
 "transcript_font_size" = "Text Size";
+"lyrics_translation_font_size" = "Translation Size";
+"lyrics_translation_font_follow" = "Match Original";
+"lyrics_translation_font_follows_original" = "Translation Size Matches Original";
 "transcript_line_spacing" = "Line Spacing";
 "transcript_paragraph_spacing" = "Paragraph Spacing";
 "transcript_spacing_compact" = "Compact";

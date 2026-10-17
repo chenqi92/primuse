@@ -5035,6 +5035,9 @@
 "transcript_typography" = "Параметри тексту";
 "transcript_font" = "Шрифт";
 "transcript_font_size" = "Розмір тексту";
+"lyrics_translation_font_size" = "Розмір перекладу";
+"lyrics_translation_font_follow" = "Як оригінал";
+"lyrics_translation_font_follows_original" = "Розмір перекладу як в оригіналу";
 "transcript_line_spacing" = "Міжрядковий інтервал";
 "transcript_paragraph_spacing" = "Інтервал між абзацами";
 "transcript_spacing_compact" = "Щільно";

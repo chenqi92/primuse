@@ -5035,6 +5035,9 @@
 "transcript_typography" = "Opções de texto";
 "transcript_font" = "Fonte";
 "transcript_font_size" = "Tamanho do texto";
+"lyrics_translation_font_size" = "Tamanho da tradução";
+"lyrics_translation_font_follow" = "Igual ao original";
+"lyrics_translation_font_follows_original" = "Tradução no tamanho do original";
 "transcript_line_spacing" = "Espaçamento entre linhas";
 "transcript_paragraph_spacing" = "Espaçamento entre parágrafos";
 "transcript_spacing_compact" = "Compacto";

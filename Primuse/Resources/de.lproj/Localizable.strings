@@ -5129,6 +5129,9 @@
 "transcript_typography" = "Textoptionen";
 "transcript_font" = "Schrift";
 "transcript_font_size" = "Textgröße";
+"lyrics_translation_font_size" = "Übersetzungsgröße";
+"lyrics_translation_font_follow" = "Wie Original";
+"lyrics_translation_font_follows_original" = "Übersetzung so groß wie Original";
 "transcript_line_spacing" = "Zeilenabstand";
 "transcript_paragraph_spacing" = "Absatzabstand";
 "transcript_spacing_compact" = "Kompakt";

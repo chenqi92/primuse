@@ -5035,6 +5035,9 @@
 "transcript_typography" = "خيارات النص";
 "transcript_font" = "الخط";
 "transcript_font_size" = "حجم النص";
+"lyrics_translation_font_size" = "حجم الترجمة";
+"lyrics_translation_font_follow" = "مثل الأصل";
+"lyrics_translation_font_follows_original" = "حجم الترجمة يتبع الأصل";
 "transcript_line_spacing" = "تباعد الأسطر";
 "transcript_paragraph_spacing" = "تباعد الفقرات";
 "transcript_spacing_compact" = "مضغوط";
