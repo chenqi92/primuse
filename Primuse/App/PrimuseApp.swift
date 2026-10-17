@@ -2510,6 +2510,7 @@ private struct DebugEvidenceOrientation: ViewModifier {
 /// - `PRIMUSE_DEBUG_PODCAST_MAC_SNAPSHOT=<目录>`（Mac）：把播客页放进屏幕外窗口截成 PNG，见 `MacPodcastDebugSnapshot`。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
+///   `PRIMUSE_AUTOPLAY_SEEK=<秒>` 时开播后跳到这个位置（配 `PAUSE=1` 就停在这里，看前奏、间奏里歌词那一行的样子）；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）。
 private struct DebugLaunchAutomation: ViewModifier {
@@ -2543,6 +2544,7 @@ private struct DebugLaunchAutomation: ViewModifier {
                     } else {
                         await player.play(song: song)
                     }
+                    let seekTarget = env["PRIMUSE_AUTOPLAY_SEEK"].flatMap(Double.init)
                     if env["PRIMUSE_AUTOPLAY_PAUSE"] == "1" {
                         var waits = 0
                         while !player.isPlaybackActive, waits < 40 {
@@ -2550,8 +2552,16 @@ private struct DebugLaunchAutomation: ViewModifier {
                             waits += 1
                         }
                         player.pause()
-                        player.seek(to: 0, startPlaying: false)
-                        plog("🧪 DebugLaunchAutomation: paused at the start")
+                        player.seek(to: seekTarget ?? 0, startPlaying: false)
+                        plog("🧪 DebugLaunchAutomation: paused at \(seekTarget ?? 0)")
+                    } else if let seekTarget {
+                        var waits = 0
+                        while !player.isPlaybackActive, waits < 40 {
+                            try? await Task.sleep(for: .milliseconds(250))
+                            waits += 1
+                        }
+                        player.seek(to: seekTarget)
+                        plog("🧪 DebugLaunchAutomation: seek to \(seekTarget)")
                     }
                     return
                 }

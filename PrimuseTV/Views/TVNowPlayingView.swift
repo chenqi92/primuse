@@ -55,6 +55,12 @@ struct TVNowPlayingView: View {
     @State private var showTranslation = false
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
+    /// 和 iPhone、Mac 同一个键(设置 › 歌词 › 间奏提示点)。
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    /// 展开着的那一行提示点(正在走的前奏或间奏)。跟着歌词位置变,变的时候和滚动同一次动画,
+    /// 下面几句被推开、拉回也走同一条曲线。
+    @State private var expandedLyricsMarker: TVLyricsAnchor?
     /// 按歌手名打开的艺人页(多位艺人时先选一位)。
     @State private var artistLink: TVArtistLinkPresentation?
     @State private var showShelf = tvDebugShelfLaunch.show
@@ -107,8 +113,7 @@ struct TVNowPlayingView: View {
             )
         coveredPlayback.capture(
             currentTime: store.currentTime,
-            lyricTime: store.interpolatedTime(),
-            lyricIndex: store.currentLyricIndex
+            lyricTime: store.interpolatedTime()
         )
         showImmersive = true
     }
@@ -1138,19 +1143,40 @@ struct TVNowPlayingView: View {
     }
 
     private var lyricsList: some View {
-        let cur = isCoveredByImmersive ? coveredPlayback.lyricIndex : store.currentLyricIndex
+        let position = lyricsPosition()
+        let cur = position.current
         let followsPlayback = store.lyricsFollowPlayback
         // 跟手机端一致:整列歌词放进可滚动容器,随播放进度平滑把当前行滚到视觉中心
         //(`scrollTo(anchor:.center)` + `.smooth`),不再按 index 重算固定窗口硬跳。
+        // 前奏与长间奏里滚到那一行提示点上(和 iPhone、Mac 同一套判定)。
         return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 let isDuet = Self.isDuetLyrics(store.lyrics)
-                LazyVStack(alignment: .leading, spacing: 30) {
+                // 行间距由每一行自己在上面留(`lyricsRowSpacing`):收起的提示点高度为 0,不多出一份间距。
+                LazyVStack(alignment: .leading, spacing: 0) {
                     Color.clear.frame(height: 260)   // 顶部留白:首行也能滚到中心
-                    ForEach(Array(store.lyrics.enumerated()), id: \.offset) { i, _ in
-                        lyricLine(index: i, current: cur, isDuet: isDuet).id(i)
+                    // 提示点各占一行、和歌词行同在一个 ForEach 里,惰性堆栈里还没建出来也能按身份滚过去。
+                    // 没轮到的收起,不显示也不占位置。它们只是装饰:不可聚焦,不抢遥控器焦点。
+                    ForEach(lyricsListEntries()) { entry in
+                        switch entry.id {
+                        case .line(let i):
+                            lyricLine(index: i, current: cur, isDuet: isDuet)
+                                .id(entry.id)
+                                .padding(.top, Self.lyricsRowSpacing)
+                        case .intro, .interlude:
+                            if let window = entry.window {
+                                interludeMarker(
+                                    window,
+                                    isActive: expandedLyricsMarker == entry.id,
+                                    voice: entry.voice,
+                                    isDuet: isDuet
+                                )
+                                .id(entry.id)
+                            }
+                        }
                     }
                     Color.clear.frame(height: 360)   // 底部留白:末行也能滚到中心
+                        .padding(.top, Self.lyricsRowSpacing)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1162,28 +1188,35 @@ struct TVNowPlayingView: View {
                     .init(color: .black, location: 0.84), .init(color: .clear, location: 1),
                 ], startPoint: .top, endPoint: .bottom)
             )
-            .onChange(of: cur) { _, new in
-                guard followsPlayback, let new else { return }
+            .onChange(of: position.anchor) { _, new in
+                // 提示点那一行展开或收起与滚动放在同一次动画里。
+                let update = {
+                    let marker = new?.isMarker == true ? new : nil
+                    if expandedLyricsMarker != marker { expandedLyricsMarker = marker }
+                    if followsPlayback, let new { proxy.scrollTo(new, anchor: .center) }
+                }
                 if reduceMotion {
-                    proxy.scrollTo(new, anchor: .center)
+                    update()
                 } else {
-                    withAnimation(.smooth(duration: 0.55, extraBounce: 0)) {
-                        proxy.scrollTo(new, anchor: .center)
-                    }
+                    withAnimation(.smooth(duration: 0.55, extraBounce: 0), update)
                 }
             }
             .onChange(of: store.lyricsRevision) {
-                guard store.lyricsFollowPlayback, let current = store.currentLyricIndex else { return }
+                let anchor = lyricsPosition().anchor
+                // 换了歌词直接到位,不做展开动画。
+                expandedLyricsMarker = anchor?.isMarker == true ? anchor : nil
+                guard store.lyricsFollowPlayback, let anchor else { return }
                 Task { @MainActor in
                     await Task.yield()
-                    proxy.scrollTo(current, anchor: .center)
+                    proxy.scrollTo(anchor, anchor: .center)
                 }
             }
             .onAppear {
-                guard followsPlayback, let cur else { return }
+                expandedLyricsMarker = position.anchor?.isMarker == true ? position.anchor : nil
+                guard followsPlayback, let anchor = position.anchor else { return }
                 Task { @MainActor in
                     await Task.yield()
-                    proxy.scrollTo(cur, anchor: .center)
+                    proxy.scrollTo(anchor, anchor: .center)
                 }
             }
         }
@@ -1193,6 +1226,109 @@ struct TVNowPlayingView: View {
     /// 逐字扫光的时钟。被全屏效果盖住时停在盖上那一刻，不读 `store`:读了就随每次进度回调重算。
     private func karaokeTime(at date: Date) -> TimeInterval {
         isCoveredByImmersive ? coveredPlayback.lyricTime : store.interpolatedTime(at: date)
+    }
+
+    /// 歌词列表里的一行:一句歌词,或第一句前、某一句后的提示点。
+    private enum TVLyricsAnchor: Hashable {
+        case intro
+        case line(Int)
+        case interlude(afterLine: Int)
+
+        var isMarker: Bool {
+            if case .line = self { return false }
+            return true
+        }
+    }
+
+    /// 歌词行与行之间的距离。每一行(和展开的提示点)在自己上面留这么多。
+    private static let lyricsRowSpacing: CGFloat = 30
+
+    private struct TVLyricsListEntry: Identifiable {
+        let id: TVLyricsAnchor
+        /// 提示点的时间窗;歌词行是 nil。
+        let window: LyricPlaybackPositionPolicy.InterludeWindow?
+        /// 提示点跟着挨着的那一句站在同一侧(对唱时跟那一句那边)。
+        let voice: LyricVoice
+    }
+
+    private struct TVLyricsPosition: Equatable {
+        /// 高亮哪一句。间奏里仍是上一句,前奏里没有。
+        var current: Int?
+        /// 滚到哪:当前这一句,或正在走的那一行提示点。
+        var anchor: TVLyricsAnchor?
+    }
+
+    private func lyricsPosition() -> TVLyricsPosition {
+        let time = isCoveredByImmersive ? coveredPlayback.lyricTime : store.interpolatedTime()
+        switch store.lyricScrollTarget(at: time) {
+        case .line(let index)?:
+            return TVLyricsPosition(current: index, anchor: .line(index))
+        case .interlude(let index)?:
+            // 关掉了间奏提示点就没有那一行可停,照旧停在上一句。
+            return TVLyricsPosition(
+                current: index,
+                anchor: showsLyricsInterlude ? .interlude(afterLine: index) : .line(index)
+            )
+        case .intro?:
+            return TVLyricsPosition(current: nil, anchor: showsLyricsInterlude ? .intro : nil)
+        case nil:
+            return TVLyricsPosition(current: nil, anchor: nil)
+        }
+    }
+
+    private func lyricsListEntries() -> [TVLyricsListEntry] {
+        let lyrics = store.lyrics
+        // 纯文本歌词不滚动,也就没有提示点。
+        let showsMarkers = showsLyricsInterlude && store.lyricsFollowPlayback
+        var entries: [TVLyricsListEntry] = []
+        entries.reserveCapacity(lyrics.count + 1)
+        if showsMarkers, let first = lyrics.first, let intro = store.lyricIntroWindow {
+            entries.append(TVLyricsListEntry(id: .intro, window: intro, voice: first.voice))
+        }
+        for (index, line) in lyrics.enumerated() {
+            entries.append(TVLyricsListEntry(id: .line(index), window: nil, voice: line.voice))
+            if showsMarkers, let window = store.lyricInterludeWindow(afterLine: index) {
+                entries.append(TVLyricsListEntry(id: .interlude(afterLine: index), window: window, voice: line.voice))
+            }
+        }
+        return entries
+    }
+
+    /// 前奏与长间奏里的三个点(和 iPhone、Mac 同一个 `LyricInterludeDots`),按电视歌词字号放大。
+    /// 只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
+    private func interludeMarker(
+        _ window: LyricPlaybackPositionPolicy.InterludeWindow,
+        isActive: Bool,
+        voice: LyricVoice,
+        isDuet: Bool
+    ) -> some View {
+        let isTrailing = LyricDuetLayoutPolicy.side(for: voice, preferred: .leading, isDuet: isDuet) == .trailing
+        let size = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue).pointSize
+        let markerHeight = (size * 0.92).rounded()
+        let spacing = Self.lyricsRowSpacing
+        return LyricInterludeDots(
+            isActive: isActive,
+            // 被全屏效果盖住时停住,不跟前面的效果抢主线程。
+            isPlaying: store.isPlaying && !isCoveredByImmersive,
+            phase: {
+                LyricPlaybackPositionPolicy.phase(
+                    of: window,
+                    at: isCoveredByImmersive ? coveredPlayback.lyricTime : store.interpolatedTime(),
+                    lookahead: TVStore.lyricsLookahead
+                )
+            },
+            tint: TVColor.text,
+            restingOpacity: 0,
+            dotSize: (size * 0.31).rounded(),
+            spacing: (size * 0.27).rounded()
+        )
+        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+        .frame(height: markerHeight)
+        // 展开时自带上面那份行间距,和歌词行一样。
+        .padding(.top, spacing)
+        .opacity(isActive ? 1 : 0)
+        .frame(height: isActive ? markerHeight + spacing : 0, alignment: .top)
+        .allowsHitTesting(false)
     }
 
     /// 整首有两个声部时对唱分左右（与 iPhone 歌词页同一规则）。
@@ -1868,25 +2004,23 @@ final class TVInteractionClock {
     }
 }
 
-/// 全屏效果盖住播放页时，页面停在的进度与歌词行。和 `TVInteractionClock` 一样不参与观察:
+/// 全屏效果盖住播放页时，页面停在的进度与歌词时刻。和 `TVInteractionClock` 一样不参与观察:
 /// 盖上前记一次，盖着时读它而不读 `store`,播放页就不再跟着进度回调重算。
 final class TVCoveredPlaybackSnapshot {
     private(set) var isCaptured = false
     private(set) var currentTime: Double = 0
     /// 按墙上时钟补过的播放时间，逐字扫光用。
     private(set) var lyricTime: TimeInterval = 0
-    private(set) var lyricIndex: Int?
 
-    func capture(currentTime: Double, lyricTime: TimeInterval, lyricIndex: Int?) {
+    /// 歌词行与间奏提示点都按 `lyricTime` 重新判定,和没盖上时同一条路。
+    func capture(currentTime: Double, lyricTime: TimeInterval) {
         self.currentTime = currentTime
         self.lyricTime = lyricTime
-        self.lyricIndex = lyricIndex
         isCaptured = true
     }
 
     func reset() {
         isCaptured = false
-        lyricIndex = nil
     }
 }
 

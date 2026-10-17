@@ -63,6 +63,9 @@ struct TVSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    /// 和 iPhone、Mac 同一个键,经 iCloud 键值同步(启动时在 App 里登记)。
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
     @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
@@ -218,7 +221,7 @@ struct TVSettingsView: View {
                             settingDivider
                             siriRow
                         }
-                        lyricsTranslationSection
+                        lyricsSection
                         settingsSection(PMString("ext.tv.settings.library")) {
                             toggleRow(
                                 "star.bubble",
@@ -369,13 +372,26 @@ struct TVSettingsView: View {
         }
     }
 
-    // MARK: Lyrics translation
+    // MARK: Lyrics
 
-    /// 开关留在这一页;译成什么、离线翻译包还是智能翻译、下载翻译包都在面板里,
-    /// 和播放页「歌词翻译」键打开的是同一个。
+    /// 间奏提示点,和歌词翻译。翻译的开关留在这一页;译成什么、离线翻译包还是智能翻译、
+    /// 下载翻译包都在面板里,和播放页「歌词翻译」键打开的是同一个。
     @ViewBuilder
-    private var lyricsTranslationSection: some View {
-        settingsSection(String(localized: "lyrics_translation_section")) {
+    private var lyricsSection: some View {
+        settingsSection(String(localized: "Lyrics")) {
+            toggleRow(
+                "ellipsis",
+                String(localized: "player_lyrics_interlude_dots"),
+                detail: String(localized: "player_lyrics_interlude_dots_description"),
+                isOn: Binding(
+                    get: { showsLyricsInterlude },
+                    set: { shows in
+                        showsLyricsInterlude = shows
+                        CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.showsLyricsInterludeKey)
+                    }
+                )
+            )
+            settingDivider
             toggleRow(
                 "character.bubble",
                 String(localized: "lyrics_translation_enabled"),

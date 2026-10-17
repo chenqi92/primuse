@@ -3170,7 +3170,9 @@ final class TVPlaybackCoordinator {
                         // stops them from competing for the current row.
                         background: (line.background ?? []).map {
                             toTVLyricLine($0, documentWritingDirection: documentWritingDirection)
-                        })
+                        },
+                        // 行末(字幕、TTML 行级、合并进来的和声行)让间奏判定和 iPhone 一样知道人声几时停。
+                        endTimestamp: line.endTimestamp)
     }
 
     /// 取 .lrc 用的 session:接受自签证书(个人 NAS),与播放用的 resource loader 同策略。

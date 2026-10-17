@@ -191,6 +191,8 @@ struct PrimuseTVApp: App {
                         key: CloudKVSKey.aiRecommendationHiddenPresets
                     ) { }
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+                    // 歌词的间奏提示点跟着 iPhone / Mac 的设置走(那两端由 InterfaceLayoutSync 登记同一个键)。
+                    CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeKey) { }
                     _ = ArtistNameSettingsStore.shared
                     // 歌词 API 服务的地址列表要有 store 登记才会跟 iCloud 键值同步,扫码直传来的
                     // 也靠它重新载入;电视上以前从没建过它,地址列表一直到不了。

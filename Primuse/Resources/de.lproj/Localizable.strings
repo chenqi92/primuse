@@ -3226,7 +3226,7 @@
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
 "player_artwork_lyrics" = "Liedtext unter dem Cover";
-"player_artwork_lyrics_description" = "Zeigt die gerade gesungene und die nächste Zeile unter dem Titel, ohne zur Liedtextansicht zu wechseln. Das Cover wird bei Bedarf etwas kleiner, um Platz zu schaffen. Tippe auf den Liedtext, um die Liedtextansicht zu öffnen.";
+"player_artwork_lyrics_description" = "Zeigt die gerade gesungene Zeile direkt über der Fortschrittsleiste, ohne zur Liedtextansicht zu wechseln. Im Intro und in Instrumentalpassagen erscheint ein kurzer Hinweis statt der nächsten Zeile. Das Cover wird bei Bedarf etwas kleiner, um Platz zu schaffen. Tippe auf den Liedtext, um die Liedtextansicht zu öffnen.";
 "player_audio_info_title" = "Audioinfos im Player";
 "player_audio_info_off" = "Aus";
 "player_audio_info_lossless_only" = "Nur verlustfrei";
@@ -5874,7 +5874,7 @@
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Textgröße & Übersetzung";
 "player_lyrics_interlude_dots" = "Zwischenspiel-Punkte";
-"player_lyrics_interlude_dots_description" = "Bei einem langen Zwischenspiel erscheinen unter der vorigen Zeile drei Punkte, die im Verlauf nacheinander aufleuchten und sich an der Ausrichtung des Liedtexts orientieren.";
+"player_lyrics_interlude_dots_description" = "Im Intro vor der ersten Zeile und bei langen Zwischenspielen erscheinen drei Punkte, die nacheinander aufleuchten, kurz vor der nächsten Zeile zweimal sanft pulsieren und sich an der Ausrichtung des Liedtexts orientieren. Bei wortgenauen Liedtexten zählen auch kürzere Pausen.";
 "home_filter_bar_title" = "Filter oben";
 "home_filter_bar_edit" = "Filter oben bearbeiten";
 "home_filter_bar_none" = "Keine Filter oben auf der Startseite";
@@ -6189,3 +6189,10 @@
 
 "podcast_sections_title" = "Bereiche anordnen";
 "podcast_sections_footer" = "Ausgeschaltete Bereiche werden ausgeblendet. „Sendungen“ bleibt immer sichtbar.";
+
+"lyrics_preview_intro_starting" = "Dein Song beginnt…";
+"lyrics_preview_intro_mood" = "Die Stimmung baut sich auf…";
+"lyrics_preview_intro_take_over" = "Lass dich von der Musik tragen…";
+"lyrics_preview_intro_almost" = "Gleich geht’s los…";
+"lyrics_preview_intro_vocals" = "Gleich setzt der Gesang ein…";
+"lyrics_preview_instrumental" = "Instrumental";

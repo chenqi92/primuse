@@ -5015,6 +5015,8 @@ private struct MacSTLyricsView: View {
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(MacMenuBarController.lyricsEnabledKey)
     private var menuBarLyricsEnabled = false
     @AppStorage(DesktopLyricsWindowController.islandVisibleKey)
@@ -5178,6 +5180,21 @@ private struct MacSTLyricsView: View {
                             ))
                     }
                     .settingsAnchor("lyrics.tapToSeek")
+                    MacSTRow(
+                        String(localized: "player_lyrics_interlude_dots"),
+                        hint: String(localized: "player_lyrics_interlude_dots_description"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTToggle(isOn: $showsLyricsInterlude)
+                            .accessibilityLabel(Text("player_lyrics_interlude_dots"))
+                            .accessibilityHint(Text("player_lyrics_interlude_dots_description"))
+                            .accessibilityValue(Text(
+                                showsLyricsInterlude
+                                    ? "desktop_widget_sync_status_enabled"
+                                    : "desktop_widget_sync_status_disabled"
+                            ))
+                    }
+                    .settingsAnchor("lyrics.interludeDots")
                     MacSTRow(
                         String(localized: "menu_bar_lyrics"),
                         hint: String(localized: "menu_bar_lyrics_description"),

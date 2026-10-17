@@ -3854,7 +3854,7 @@
 "sync" = "Senkronizasyon";
 "player_volume_bar_description" = "Oynatıcıda ses düzeyi kaydırıcısını gösterin. Diğer kontroller gizlendiğinde doğal olarak mevcut alanı doldurur.";
 "player_artwork_lyrics" = "Kapağın Altında Şarkı Sözleri";
-"player_artwork_lyrics_description" = "Söz ekranına geçmeden, şarkı adının altında söylenen satırı ve sonrakini gösterir. Gerektiğinde kapak yer açmak için biraz küçülür. Söz ekranını açmak için sözlere dokunun.";
+"player_artwork_lyrics_description" = "Söz ekranına geçmeden, ilerleme çubuğunun hemen üstünde söylenen satırı gösterir. Girişte ve enstrümantal aralarda sonraki satırı önceden göstermek yerine kısa bir bilgi gösterir. Gerektiğinde kapak yer açmak için biraz küçülür. Söz ekranını açmak için sözlere dokunun.";
 "player_audio_info_title" = "Oynatıcıda ses bilgisi";
 "player_audio_info_off" = "Kapalı";
 "player_audio_info_lossless_only" = "Yalnızca kayıpsız";
@@ -5780,7 +5780,7 @@
 "player_menu_item_medley" = "Potpuri";
 "player_menu_item_lyrics_display" = "Söz Boyutu ve Çevirisi";
 "player_lyrics_interlude_dots" = "Ara Bölüm Noktaları";
-"player_lyrics_interlude_dots_description" = "Uzun bir enstrümantal arada önceki satırın altında üç nokta belirir, ara ilerledikçe sırayla yanar ve sözlerle aynı tarafa hizalanır.";
+"player_lyrics_interlude_dots_description" = "İlk satırdan önceki girişte ve uzun enstrümantal aralarda üç nokta belirir, sırayla yanar, sonraki satırdan hemen önce iki kez hafifçe atar ve sözlerle aynı tarafa hizalanır. Kelime kelime senkronize sözlerde daha kısa aralar da sayılır.";
 "home_filter_bar_title" = "Üst filtreler";
 "home_filter_bar_edit" = "Üst filtreleri düzenle";
 "home_filter_bar_none" = "Ana sayfanın üstünde filtre yok";
@@ -6095,3 +6095,10 @@
 
 "podcast_sections_title" = "Bölümleri Düzenle";
 "podcast_sections_footer" = "Kapattığınız bölümler gizlenir. “Programlar” her zaman görünür.";
+
+"lyrics_preview_intro_starting" = "Şarkın başlıyor…";
+"lyrics_preview_intro_mood" = "Atmosfer hazırlanıyor…";
+"lyrics_preview_intro_take_over" = "Bırak müzik seni alsın…";
+"lyrics_preview_intro_almost" = "Az kaldı…";
+"lyrics_preview_intro_vocals" = "Vokal geliyor…";
+"lyrics_preview_instrumental" = "Enstrümantal";

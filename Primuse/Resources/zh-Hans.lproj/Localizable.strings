@@ -3327,7 +3327,7 @@
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
 "player_artwork_lyrics" = "封面下显示歌词";
-"player_artwork_lyrics_description" = "不用切到歌词页，在歌名下面就能看到正在唱的一句和下一句。打开后封面会按需缩小一点，给歌词让出位置；点歌词进入歌词页。";
+"player_artwork_lyrics_description" = "不用切到歌词页，在进度条上面就能看到正在唱的那一句。前奏和间奏里显示简短的提示，不会提前露出下一句。打开后封面会按需缩小一点，给歌词让出位置；点歌词进入歌词页。";
 "player_audio_info_title" = "播放页显示音频信息";
 "player_audio_info_off" = "关闭";
 "player_audio_info_lossless_only" = "仅无损音质";
@@ -5967,7 +5967,7 @@
 "player_menu_item_medley" = "串烧播放";
 "player_menu_item_lyrics_display" = "歌词字号与翻译";
 "player_lyrics_interlude_dots" = "间奏提示点";
-"player_lyrics_interlude_dots_description" = "两句歌词之间有较长的间奏时，在上一句下面显示三个点，跟着间奏的时间依次点亮，并和歌词同一侧对齐。";
+"player_lyrics_interlude_dots_description" = "第一句之前的前奏和两句之间较长的间奏里显示三个点，跟着时间依次点亮，下一句开唱前轻轻跳两下，并和歌词同一侧对齐。逐字歌词的间奏短一些也会显示。";
 "home_filter_bar_title" = "顶部切换";
 "home_filter_bar_edit" = "调整顶部切换";
 "home_filter_bar_none" = "首页顶上不显示切换按钮";
@@ -6282,3 +6282,10 @@
 
 "podcast_sections_title" = "调整区块";
 "podcast_sections_footer" = "关掉的区块不再显示。「我的节目」始终显示。";
+
+"lyrics_preview_intro_starting" = "歌曲即将开始…";
+"lyrics_preview_intro_mood" = "正在酝酿气氛…";
+"lyrics_preview_intro_take_over" = "让音乐带你走…";
+"lyrics_preview_intro_almost" = "就快到了…";
+"lyrics_preview_intro_vocals" = "人声马上进来…";
+"lyrics_preview_instrumental" = "间奏";

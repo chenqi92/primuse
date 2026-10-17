@@ -2494,7 +2494,7 @@
 "player_volume_bar" = "منزلق الصوت";
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";
 "player_artwork_lyrics" = "الكلمات أسفل الغلاف";
-"player_artwork_lyrics_description" = "يعرض السطر الذي يُغنّى الآن والسطر التالي أسفل اسم الأغنية دون الانتقال إلى عرض الكلمات. يصغر الغلاف قليلاً عند الحاجة لإفساح المجال. اضغط على الكلمات لفتح عرض الكلمات.";
+"player_artwork_lyrics_description" = "يعرض السطر الذي يُغنّى الآن فوق شريط التقدم مباشرة دون الانتقال إلى عرض الكلمات. في المقدمة والفواصل الموسيقية تظهر رسالة قصيرة بدل السطر التالي. يصغر الغلاف قليلاً عند الحاجة لإفساح المجال. اضغط على الكلمات لفتح عرض الكلمات.";
 "player_audio_info_title" = "معلومات الصوت في المشغّل";
 "player_audio_info_off" = "إيقاف";
 "player_audio_info_lossless_only" = "الصوت غير المضغوط فقط";
@@ -5780,7 +5780,7 @@
 "player_menu_item_medley" = "ميدلي";
 "player_menu_item_lyrics_display" = "حجم الكلمات وترجمتها";
 "player_lyrics_interlude_dots" = "نقاط الفاصل";
-"player_lyrics_interlude_dots_description" = "أثناء فاصل موسيقي طويل تظهر ثلاث نقاط تحت السطر السابق، تضيء تباعًا مع تقدم الفاصل وتصطف في جهة الكلمات نفسها.";
+"player_lyrics_interlude_dots_description" = "في المقدمة قبل السطر الأول وأثناء الفواصل الموسيقية الطويلة تظهر ثلاث نقاط تضيء تباعًا، وتنبض نبضتين خفيفتين قبل السطر التالي مباشرة، وتصطف في جهة الكلمات نفسها. مع الكلمات المتزامنة كلمةً بكلمة تُحتسب الفواصل الأقصر أيضًا.";
 "home_filter_bar_title" = "عوامل التصفية في الأعلى";
 "home_filter_bar_edit" = "تعديل عوامل التصفية في الأعلى";
 "home_filter_bar_none" = "لا توجد عوامل تصفية أعلى الصفحة الرئيسية";
@@ -6095,3 +6095,10 @@
 
 "podcast_sections_title" = "ترتيب الأقسام";
 "podcast_sections_footer" = "الأقسام التي توقفها تُخفى. يبقى قسم «البرامج» ظاهرًا دائمًا.";
+
+"lyrics_preview_intro_starting" = "أغنيتك تبدأ…";
+"lyrics_preview_intro_mood" = "نُهيّئ الأجواء…";
+"lyrics_preview_intro_take_over" = "دع الموسيقى تأخذك…";
+"lyrics_preview_intro_almost" = "اقتربنا…";
+"lyrics_preview_intro_vocals" = "الغناء قادم…";
+"lyrics_preview_instrumental" = "فاصل موسيقي";

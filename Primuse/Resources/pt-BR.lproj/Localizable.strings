@@ -2494,7 +2494,7 @@
 "player_volume_bar" = "Controle deslizante de volume";
 "player_volume_bar_description" = "Mostrar o controle deslizante de volume no player. Outros controles preenchem naturalmente o espaço disponível quando estão ocultos.";
 "player_artwork_lyrics" = "Letra abaixo da capa";
-"player_artwork_lyrics_description" = "Mostra a linha que está sendo cantada e a próxima abaixo do título, sem mudar para a tela de letra. A capa diminui um pouco quando necessário para abrir espaço. Toque na letra para abrir a tela de letra.";
+"player_artwork_lyrics_description" = "Mostra a linha que está sendo cantada logo acima da barra de progresso, sem mudar para a tela de letra. Na introdução e nos trechos instrumentais aparece um aviso curto em vez de adiantar a próxima linha. A capa diminui um pouco quando necessário para abrir espaço. Toque na letra para abrir a tela de letra.";
 "player_audio_info_title" = "Informações de áudio no player";
 "player_audio_info_off" = "Desativado";
 "player_audio_info_lossless_only" = "Somente sem perdas";
@@ -5780,7 +5780,7 @@
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Tamanho e tradução da letra";
 "player_lyrics_interlude_dots" = "Pontos de interlúdio";
-"player_lyrics_interlude_dots_description" = "Durante um interlúdio longo, três pontos aparecem sob a linha anterior, acendem um após o outro conforme o interlúdio avança e seguem o alinhamento da letra.";
+"player_lyrics_interlude_dots_description" = "Na introdução antes da primeira linha e em interlúdios longos aparecem três pontos que acendem um após o outro, pulsam de leve duas vezes logo antes da próxima linha e seguem o alinhamento da letra. Com letras sincronizadas por palavra, pausas mais curtas também contam.";
 "home_filter_bar_title" = "Filtros no topo";
 "home_filter_bar_edit" = "Editar filtros no topo";
 "home_filter_bar_none" = "Nenhum filtro no topo do Início";
@@ -6095,3 +6095,10 @@
 
 "podcast_sections_title" = "Organizar seções";
 "podcast_sections_footer" = "As seções desativadas ficam ocultas. “Programas” sempre aparece.";
+
+"lyrics_preview_intro_starting" = "Sua música está começando…";
+"lyrics_preview_intro_mood" = "Criando o clima…";
+"lyrics_preview_intro_take_over" = "Deixe a música te levar…";
+"lyrics_preview_intro_almost" = "Quase lá…";
+"lyrics_preview_intro_vocals" = "A voz já vem…";
+"lyrics_preview_instrumental" = "Instrumental";

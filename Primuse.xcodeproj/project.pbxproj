@@ -361,6 +361,7 @@
 		2E430470240024D086AA4B67 /* AudioPlayerNodeClockReaderTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 9088A2C3DC8D2D25A3C340DF /* AudioPlayerNodeClockReaderTests.m */; };
 		2E7C059A7243349F4D7BBB23 /* LibraryInsightBatchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0178243499743E59140E4898 /* LibraryInsightBatchViews.swift */; };
 		2E8D2AA64CC077D5625523F5 /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
+		FED3186C5732309283E57944 /* LyricInterludeDots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02EDA236649EF22C5CBD58D /* LyricInterludeDots.swift */; };
 		2EFBCB657D83A2B64F03C9C3 /* WidgetDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB675457344DDF1B61FF4AF /* WidgetDesignSystem.swift */; };
 		2EFD97CCA156C68D8534CFB1 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = DC2DC04BE4BDDDCB572F13A1 /* SwiftDraw */; };
 		2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
@@ -1767,6 +1768,7 @@
 		E1E6E2746C97E7523587FBF4 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38FB8C7B3EA4A58B80265EDC /* Playlist.swift */; };
 		E1EA3F7A3D5C3F95F1FF92B0 /* SidecarWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CD6571B6CA1E276A954F2F /* SidecarWriteService.swift */; };
 		E1F03B0F5F84CD3EC3339D8D /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
+		94C5064A902482A31F2D823C /* LyricInterludeDots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02EDA236649EF22C5CBD58D /* LyricInterludeDots.swift */; };
 		E20CD86639EC304A4521720F /* AppIconSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */; };
 		E23AFB756A0AE8BE326DD956 /* ListeningWidgetPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9787FCA7533C3F0E35CBC4A4 /* ListeningWidgetPublisher.swift */; };
 		E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
@@ -1931,6 +1933,7 @@
 		F9049DEBC46D78EB9137EB7D /* PrimuseSettingsIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 465B35F98B45AB86C0B0080B /* PrimuseSettingsIntents.swift */; };
 		F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
 		F92AD1060642092C75F73447 /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
+		420EB00B435F607890AC40F4 /* LyricInterludeDots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02EDA236649EF22C5CBD58D /* LyricInterludeDots.swift */; };
 		F92F2E0C9CCD4B7BED470692 /* QueueContinuationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787EACC2CBF4BF7957F90B96 /* QueueContinuationPolicy.swift */; };
 		F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		F96F6724D08B5EDCD5B75987 /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
@@ -3128,6 +3131,7 @@
 		8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPnPSource.swift; sourceTree = "<group>"; };
 		8A7F95CBAC16C3359EA0E3C8 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeLineView.swift; sourceTree = "<group>"; };
+		C02EDA236649EF22C5CBD58D /* LyricInterludeDots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricInterludeDots.swift; sourceTree = "<group>"; };
 		8ACAB6625A73ABEC6FBF2A3D /* ImmersiveLyricRowFillPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveLyricRowFillPolicy.swift; sourceTree = "<group>"; };
 		8AFBA8DC0C727712FFE7F7B1 /* HomeListeningSpaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeListeningSpaces.swift; sourceTree = "<group>"; };
 		8B0D01801DC6F46B45DDF04F /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
@@ -4635,6 +4639,7 @@
 				62A323DB607FAB5DFC8100D0 /* KaraokeRemoteMicView.swift */,
 				A193969AEB37D85A2C3D824B /* KaraokeStageView.swift */,
 				1897C6A56D3F89FC2E6A5DE7 /* LiquidArtworkBackdrop.swift */,
+				C02EDA236649EF22C5CBD58D /* LyricInterludeDots.swift */,
 				17B0AA78E88E38E994B2B300 /* LyricsTranslationTask.swift */,
 				973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */,
 				5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */,
@@ -7199,6 +7204,7 @@
 				5C12BDEFA9567005F214183F /* KaraokeMicrophone.swift in Sources */,
 				B12030E80FB7A276AE98C080 /* KaraokeRemoteMicView.swift in Sources */,
 				9592BBC06A894C525901C382 /* KaraokeSeparationService.swift in Sources */,
+				FED3186C5732309283E57944 /* LyricInterludeDots.swift in Sources */,
 				E5F4DBB6A21D7B57C7245D69 /* MedleyHighlightStore.swift in Sources */,
 				F5D4AE33F3F172EAF01D910B /* KaraokeSession.swift in Sources */,
 				1915525554F289A98B5B20DC /* KaraokeStageView.swift in Sources */,
@@ -7587,6 +7593,7 @@
 				DC571DB52F8E3EDB1DC25309 /* ImmersiveSyllableCrestText.swift in Sources */,
 				F92AD1060642092C75F73447 /* KaraokeLineView.swift in Sources */,
 				38880CDB964A3E0FE9035019 /* KaraokeSeparationService.swift in Sources */,
+				420EB00B435F607890AC40F4 /* LyricInterludeDots.swift in Sources */,
 				761E079FB4A79D35B5F0B314 /* MedleyHighlightStore.swift in Sources */,
 				34F458FA2C648F09B7B9217C /* KaraokeVocalSeparator.swift in Sources */,
 				B94F720537A1813FAC3ACA53 /* KeychainService.swift in Sources */,
@@ -7941,6 +7948,7 @@
 				1790837EA4F8EC1AF716BF70 /* KaraokeMicrophone.swift in Sources */,
 				1076B6D0A5C286CE6360D417 /* KaraokeRemoteMicView.swift in Sources */,
 				7A78BF36C6E819AC6B28E8B2 /* KaraokeSeparationService.swift in Sources */,
+				94C5064A902482A31F2D823C /* LyricInterludeDots.swift in Sources */,
 				59DCD6E8CDBD98E560732C13 /* MedleyHighlightStore.swift in Sources */,
 				9D473241BD1B489658F931A8 /* KaraokeSession.swift in Sources */,
 				7213B28B78C257A8E0A5ACC9 /* KaraokeStageView.swift in Sources */,

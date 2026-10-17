@@ -2494,7 +2494,7 @@
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
 "player_artwork_lyrics" = "Tekst pod okładką";
-"player_artwork_lyrics_description" = "Pokazuje śpiewany wers i następny pod tytułem utworu, bez przełączania na widok tekstu. W razie potrzeby okładka lekko się zmniejsza, aby zrobić miejsce. Stuknij tekst, aby otworzyć widok tekstu.";
+"player_artwork_lyrics_description" = "Pokazuje śpiewany wers tuż nad paskiem postępu, bez przełączania na widok tekstu. Podczas intro i przerw instrumentalnych zamiast następnego wersu wyświetla krótki komunikat. W razie potrzeby okładka lekko się zmniejsza, aby zrobić miejsce. Stuknij tekst, aby otworzyć widok tekstu.";
 "player_audio_info_title" = "Informacje o dźwięku w odtwarzaczu";
 "player_audio_info_off" = "Wyłączone";
 "player_audio_info_lossless_only" = "Tylko bezstratne";
@@ -5780,7 +5780,7 @@
 "player_menu_item_medley" = "Składanka";
 "player_menu_item_lyrics_display" = "Rozmiar i tłumaczenie tekstu";
 "player_lyrics_interlude_dots" = "Kropki przerwy";
-"player_lyrics_interlude_dots_description" = "Podczas długiej przerwy instrumentalnej pod poprzednią linijką pojawiają się trzy kropki, które zapalają się po kolei w miarę trwania przerwy i są wyrównane tak jak tekst.";
+"player_lyrics_interlude_dots_description" = "W intro przed pierwszym wersem i podczas długich przerw instrumentalnych pojawiają się trzy kropki, które zapalają się po kolei, tuż przed następnym wersem dwa razy delikatnie pulsują i są wyrównane tak jak tekst. Przy tekście synchronizowanym słowo po słowie liczą się też krótsze przerwy.";
 "home_filter_bar_title" = "Filtry u góry";
 "home_filter_bar_edit" = "Edytuj filtry u góry";
 "home_filter_bar_none" = "Brak filtrów u góry ekranu głównego";
@@ -6095,3 +6095,10 @@
 
 "podcast_sections_title" = "Uporządkuj sekcje";
 "podcast_sections_footer" = "Wyłączone sekcje są ukryte. Sekcja „Podcasty” jest zawsze widoczna.";
+
+"lyrics_preview_intro_starting" = "Utwór się zaczyna…";
+"lyrics_preview_intro_mood" = "Budujemy klimat…";
+"lyrics_preview_intro_take_over" = "Daj się ponieść muzyce…";
+"lyrics_preview_intro_almost" = "Już prawie…";
+"lyrics_preview_intro_vocals" = "Zaraz wejdzie wokal…";
+"lyrics_preview_instrumental" = "Instrumentalnie";

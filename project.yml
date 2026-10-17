@@ -831,6 +831,8 @@ targets:
       - path: Primuse/Services/PlayerBackdropImaging.swift
       - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
       - path: Primuse/Views/NowPlaying/KaraokeLineView.swift
+      # 歌词前奏与间奏的提示点,与 iPhone / Mac 播放页同一份
+      - path: Primuse/Views/NowPlaying/LyricInterludeDots.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageScenery.swift
       - path: Primuse/Views/Components/RenderingVisibility.swift
       # Google Drive 接入调整的提醒文案,与 iOS / macOS 同一份

@@ -41,6 +41,8 @@ struct MacNowPlayingView: View {
     @State private var loadedLyrics: [LyricLine] = []
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var currentIndex: Int = -1
+    /// 正在走的那段前奏或间奏的提示点;不在间奏里(或关掉了提示点)是 nil。滚动停在它上面。
+    @State private var activeInterludeAnchor: MacLyricsScrollAnchor?
     @State private var activeBackgroundLineIDs: Set<String> = []
     @State private var lyricsLoadRevision: UInt = 0
     /// Bumped whenever the installed lyric lines change, so translation
@@ -80,6 +82,8 @@ struct MacNowPlayingView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -967,12 +971,15 @@ struct MacNowPlayingView: View {
                 // Every row keeps the same layout height. Only the active row is
                 // subtly scaled at the rendering layer, so switching lines does
                 // not reflow the stack or produce a hard jump.
-                LazyVStack(alignment: .leading, spacing: isWindowFullScreen ? 18 : 14) {
+                // 行间距由每一行自己在上面留(`lyricsRowSpacing`):收起的间奏提示点高度为 0,
+                // 不再多出一份间距。
+                LazyVStack(alignment: .leading, spacing: 0) {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
                         if player.currentSong == nil || isLoadingLyrics {
                             Color.clear.frame(height: 1)
+                                .padding(.top, lyricsRowSpacing)
                         } else {
                             VStack(spacing: 12) {
                                 Text("no_lyrics")
@@ -1032,31 +1039,46 @@ struct MacNowPlayingView: View {
                             // 过渡期间离场的那支还占着布局, 会把空态顶下去再弹回。
                             // 用 pmAppearFade —— 旧分支瞬间消失, 空态自己淡进来。
                             .pmAppearFade(.contentAppear)
+                            .padding(.top, lyricsRowSpacing)
                         }
                     } else {
                         let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
-                            let isActive = i == currentIndex
-                            macLyricLine(
-                                line: line,
-                                index: i,
-                                isActive: isActive,
-                                fontSize: lyricLayoutFontSize,
-                                isDuet: isDuet
-                            )
-                                .id(line.id)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .if(canSeekToLyricLine(line)) { view in
-                                    view
-                                        .onTapGesture { seekToLyricLine(line) }
-                                        .accessibilityAddTraits(.isButton)
-                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                                }
+                        // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
+                        // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。
+                        ForEach(lyricsListEntries) { entry in
+                            switch entry.kind {
+                            case .line(let i, let line):
+                                macLyricLine(
+                                    line: line,
+                                    index: i,
+                                    isActive: i == currentIndex,
+                                    fontSize: lyricLayoutFontSize,
+                                    isDuet: isDuet
+                                )
+                                    .id(entry.id)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .if(canSeekToLyricLine(line)) { view in
+                                        view
+                                            .onTapGesture { seekToLyricLine(line) }
+                                            .accessibilityAddTraits(.isButton)
+                                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                    }
+                                    .padding(.top, lyricsRowSpacing)
+                            case .interlude(let window, let voice):
+                                macInterludeMarker(
+                                    window,
+                                    isActive: activeInterludeAnchor == entry.id,
+                                    voice: voice,
+                                    isDuet: isDuet
+                                )
+                                .id(entry.id)
+                            }
                         }
                     }
                     Spacer(minLength: isWindowFullScreen ? 240 : 200)
                         .frame(height: isWindowFullScreen ? 240 : 200)
+                        .padding(.top, lyricsRowSpacing)
                 }
                 .padding(.horizontal, isWindowFullScreen ? 0 : PMSpace.l24)
             }
@@ -1064,7 +1086,7 @@ struct MacNowPlayingView: View {
                 startStop: isWindowFullScreen ? 0.18 : 0.12,
                 endStop: isWindowFullScreen ? 0.82 : 0.88
             )
-            .onChange(of: currentIndex) { _, new in
+            .onChange(of: lyricsScrollAnchor) { _, new in
                 guard Date().timeIntervalSince(lastManualLyricsScroll) >= Self.manualLyricsScrollGracePeriod else { return }
                 scrollLyrics(to: new, proxy: proxy, animated: true)
             }
@@ -1094,10 +1116,10 @@ struct MacNowPlayingView: View {
                     }
             )
             .task(id: lyricsScrollIdentity) {
-                let targetIndex = updateIndex(time: player.currentTime)
+                let target = updateIndex(time: player.currentTime, animated: false)
                 await Task.yield()
-                guard !Task.isCancelled, let targetIndex else { return }
-                scrollLyrics(to: targetIndex, proxy: proxy, animated: false)
+                guard !Task.isCancelled, let target else { return }
+                scrollLyrics(to: target, proxy: proxy, animated: false)
             }
             .onDisappear {
                 lyricsAutoFollowTask?.cancel()
@@ -1187,7 +1209,7 @@ struct MacNowPlayingView: View {
             try? await Task.sleep(for: .seconds(Self.manualLyricsScrollGracePeriod))
             guard !Task.isCancelled,
                   Date().timeIntervalSince(lastManualLyricsScroll) >= Self.manualLyricsScrollGracePeriod else { return }
-            scrollLyrics(to: currentIndex, proxy: proxy, animated: true)
+            scrollLyrics(to: lyricsScrollAnchor, proxy: proxy, animated: true)
         }
     }
 
@@ -1201,11 +1223,11 @@ struct MacNowPlayingView: View {
         scheduleLyricsAutoFollow(proxy: proxy)
     }
 
-    private func scrollLyrics(to index: Int, proxy: ScrollViewProxy, animated: Bool) {
-        guard lyrics.indices.contains(index) else { return }
+    private func scrollLyrics(to target: MacLyricsScrollAnchor?, proxy: ScrollViewProxy, animated: Bool) {
+        guard let target else { return }
         let update = {
             proxy.scrollTo(
-                lyrics[index].id,
+                target,
                 anchor: UnitPoint(x: 0.5, y: Self.lyricsVisualAnchor)
             )
         }
@@ -1220,6 +1242,106 @@ struct MacNowPlayingView: View {
 
     private var lyricLayoutFontSize: CGFloat {
         isWindowFullScreen ? Self.lyricsBaseSizeFS : Self.lyricsBaseSize
+    }
+
+    /// 歌词列表里的一行:一句歌词,或某一句后面(第一句前面)的间奏提示点。
+    private enum MacLyricsScrollAnchor: Hashable {
+        case intro
+        case line(String)
+        case interlude(afterLineID: String)
+    }
+
+    private struct MacLyricsListEntry: Identifiable {
+        enum Kind {
+            case line(index: Int, line: LyricLine)
+            /// 提示点跟着它挨着的那一句站在同一侧(对唱时跟那一句那边)。
+            case interlude(LyricPlaybackPositionPolicy.InterludeWindow, voice: LyricVoice)
+        }
+
+        let id: MacLyricsScrollAnchor
+        let kind: Kind
+    }
+
+    /// 歌词行与提示点按显示顺序排开。前奏够长时第一句上面一行点,长间奏时那一句下面一行点,
+    /// 门槛与 iPhone 歌词页同一套(Kit `LyricPlaybackPositionPolicy`)。
+    private var lyricsListEntries: [MacLyricsListEntry] {
+        var entries: [MacLyricsListEntry] = []
+        entries.reserveCapacity(lyrics.count + 1)
+        if showsLyricsInterlude,
+           let first = lyrics.first,
+           let intro = LyricPlaybackPositionPolicy.introWindow(in: lyrics) {
+            entries.append(MacLyricsListEntry(id: .intro, kind: .interlude(intro, voice: first.voice)))
+        }
+        for (index, line) in lyrics.enumerated() {
+            entries.append(MacLyricsListEntry(id: .line(line.id), kind: .line(index: index, line: line)))
+            if showsLyricsInterlude,
+               let window = LyricPlaybackPositionPolicy.interludeWindow(afterLine: index, in: lyrics) {
+                entries.append(MacLyricsListEntry(
+                    id: .interlude(afterLineID: line.id),
+                    kind: .interlude(window, voice: line.voice)
+                ))
+            }
+        }
+        return entries
+    }
+
+    /// 自动跟随停在哪:间奏里停在提示点上,否则是当前这一句。
+    private var lyricsScrollAnchor: MacLyricsScrollAnchor? {
+        if let activeInterludeAnchor { return activeInterludeAnchor }
+        guard lyrics.indices.contains(currentIndex) else { return nil }
+        return .line(lyrics[currentIndex].id)
+    }
+
+    private var lyricsLookahead: TimeInterval {
+        lyrics.contains { $0.isWordLevel } ? Self.wordLevelLookahead : Self.lineLevelLookahead
+    }
+
+    /// 歌词行与行之间的距离。每一行(和展开的提示点)在自己上面留这么多。
+    private var lyricsRowSpacing: CGFloat {
+        isWindowFullScreen ? 18 : 14
+    }
+
+    /// 前奏与长间奏里的三个点(和 iPhone 歌词页同一个 `LyricInterludeDots`),大小跟着歌词字号。
+    /// 只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
+    /// 展开、收起与滚动走同一条曲线(见 `updateIndex`)。
+    private func macInterludeMarker(
+        _ window: LyricPlaybackPositionPolicy.InterludeWindow,
+        isActive: Bool,
+        voice: LyricVoice,
+        isDuet: Bool
+    ) -> some View {
+        let isTrailing = LyricDuetLayoutPolicy.side(
+            for: voice,
+            preferred: .leading,
+            isDuet: isDuet
+        ) == .trailing
+        let scaledSize = lyricLayoutFontSize * CGFloat(lyricsFontScale)
+        let lookahead = lyricsLookahead
+        let markerHeight = (scaledSize * 0.92).rounded()
+        let spacing = lyricsRowSpacing
+        return LyricInterludeDots(
+            isActive: isActive,
+            isPlaying: player.isPlaying,
+            phase: {
+                LyricPlaybackPositionPolicy.phase(
+                    of: window,
+                    at: player.interpolatedTime(),
+                    lookahead: lookahead
+                )
+            },
+            tint: playerPrimaryColor,
+            restingOpacity: 0,
+            dotSize: (scaledSize * 0.31).rounded(),
+            spacing: (scaledSize * 0.27).rounded()
+        )
+        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
+        .frame(height: markerHeight)
+        // 展开时自带上面那份行间距,和歌词行一样。
+        .padding(.top, spacing)
+        .opacity(isActive ? 1 : 0)
+        .frame(height: isActive ? markerHeight + spacing : 0, alignment: .top)
+        .allowsHitTesting(false)
+        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     @ViewBuilder
@@ -1693,7 +1815,7 @@ struct MacNowPlayingView: View {
            pendingLyricsOverride.songID == player.currentSong?.id {
             self.pendingLyricsOverride = nil
             installLyrics(pendingLyricsOverride.lyrics)
-            _ = updateIndex(time: player.currentTime)
+            _ = updateIndex(time: player.currentTime, animated: false)
             return
         }
         pendingLyricsOverride = nil
@@ -1704,11 +1826,13 @@ struct MacNowPlayingView: View {
         guard let song = player.currentSong else {
             installLyrics([])
             currentIndex = -1
+            activeInterludeAnchor = nil
             return
         }
         // 先清掉上一首的内容,避免在异步加载途中显示「上首歌的歌词」。
         installLyrics([])
         currentIndex = -1
+        activeInterludeAnchor = nil
 
         let loaded = await LyricsLoader.load(
             for: song,
@@ -1720,7 +1844,7 @@ struct MacNowPlayingView: View {
         // 但 LyricsLoader 内部网络拉取不一定及时响应取消,做一道防御。
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         installLyrics(loaded)
-        _ = updateIndex(time: player.currentTime)
+        _ = updateIndex(time: player.currentTime, animated: false)
     }
 
     private func installLyrics(_ loaded: [LyricLine]) {
@@ -1742,22 +1866,52 @@ struct MacNowPlayingView: View {
         }
     }
 
+    /// 按播放时间更新当前句与正在走的提示点,返回该滚到哪(和 iPhone 歌词页的 `updateCurrentLine` 同一套分支)。
+    /// 提示点展开或收起会把下面几句推开、拉回,`animated` 时和滚动走同一条曲线;刚装上歌词时直接到位。
     @discardableResult
-    private func updateIndex(time: TimeInterval) -> Int? {
+    private func updateIndex(time: TimeInterval, animated: Bool = true) -> MacLyricsScrollAnchor? {
         updateActiveBackgroundLines(at: time)
-        let hasWordLevelLyrics = lyrics.contains { $0.isWordLevel }
-        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
+        let index: Int
+        let interlude: MacLyricsScrollAnchor?
+        switch LyricPlaybackPositionPolicy.scrollTarget(
             in: lyrics,
             at: time,
-            lookahead: hasWordLevelLyrics
-                ? Self.wordLevelLookahead
-                : Self.lineLevelLookahead
-        ) else {
-            if currentIndex != -1 { currentIndex = -1 }
-            return nil
+            lookahead: lyricsLookahead
+        ) {
+        case .line(let line)?:
+            index = line
+            interlude = nil
+        case .interlude(let line)?:
+            index = line
+            // 关掉了间奏提示点就没有那一行可停,照旧停在上一句。
+            interlude = showsLyricsInterlude && lyrics.indices.contains(line)
+                ? .interlude(afterLineID: lyrics[line].id)
+                : nil
+        case .intro?:
+            // 第一句还没开始:没有当前句;关掉了提示点就像原来一样停在开头不动。
+            index = -1
+            interlude = showsLyricsInterlude ? .intro : nil
+        case nil:
+            index = -1
+            interlude = nil
         }
-        if currentIndex != index { currentIndex = index }
-        return index
+        if activeInterludeAnchor != interlude {
+            let update = {
+                if currentIndex != index { currentIndex = index }
+                activeInterludeAnchor = interlude
+            }
+            if animated {
+                withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), update)
+            } else {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction, update)
+            }
+        } else if currentIndex != index {
+            currentIndex = index
+        }
+        if let interlude { return interlude }
+        return lyrics.indices.contains(index) ? .line(lyrics[index].id) : nil
     }
 
     private func updateActiveBackgroundLines(at time: TimeInterval) {

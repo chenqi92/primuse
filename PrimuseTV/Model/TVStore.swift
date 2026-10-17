@@ -439,6 +439,8 @@ struct TVLyricLine: Identifiable, Hashable {
     /// Backing vocals answering this line. They keep their own time window, so
     /// they are nested rather than placed in the list as rows of their own.
     let background: [TVLyricLine]
+    /// 文件里写明的行末(字幕、TTML 行级、合并进来的和声行),同 `LyricLine.endTimestamp`。
+    let endTimestamp: TimeInterval?
 
     init(
         id: String = UUID().uuidString,
@@ -450,7 +452,8 @@ struct TVLyricLine: Identifiable, Hashable {
         romanization: String = "",
         writingDirection: LyricWritingDirection = .natural,
         voice: LyricVoice = .primary,
-        background: [TVLyricLine] = []
+        background: [TVLyricLine] = [],
+        endTimestamp: TimeInterval? = nil
     ) {
         self.id = id
         self.time = time
@@ -462,6 +465,25 @@ struct TVLyricLine: Identifiable, Hashable {
         self.writingDirection = writingDirection
         self.voice = voice
         self.background = background
+        self.endTimestamp = endTimestamp
+    }
+
+    /// 行结束时间:行末与最后一个字取较晚者,与 `LyricLine.endTime` 同一口径。
+    var endTime: TimeInterval? {
+        [endTimestamp, syllables.last?.end]
+            .compactMap { $0 }
+            .filter { $0 >= time }
+            .max()
+    }
+
+    /// 间奏判定用:这一句人声唱到什么时候(含和声),口径见 Kit `LyricPlaybackPositionPolicy.vocalEnd`。
+    var interludeVocalEnd: TimeInterval? {
+        LyricPlaybackPositionPolicy.vocalEnd(lineEnd: endTime, backgroundEnds: background.map(\.endTime))
+    }
+
+    /// LRC 里标出间奏的空时间标签:没有字也没有和声。
+    var isInterludeBlank: Bool {
+        LyricPlaybackPositionPolicy.isInterludeBlank(text: text, hasBackground: !background.isEmpty)
     }
 }
 
@@ -5101,6 +5123,9 @@ final class TVStore {
         )
     }
 
+    /// 换行、间奏提示点与它们的心跳共用的提前量。
+    static let lyricsLookahead: TimeInterval = 0.25
+
     /// 当前播放时间所在的歌词行索引。纯文本歌词没有时间轴，不参与自动跟随。
     var currentLyricIndex: Int? {
         guard lyricsFollowPlayback else { return nil }
@@ -5109,8 +5134,43 @@ final class TVStore {
         return LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
             at: interpolatedTime(),
-            lookahead: 0.25,
+            lookahead: Self.lyricsLookahead,
             timestamp: \.time
+        )
+    }
+
+    /// 歌词此刻该停在哪:某一句、某一句后面的间奏,或第一句前的前奏。门槛、出现时刻与心跳
+    /// 和 iPhone、Mac 歌词页同一套(Kit `LyricPlaybackPositionPolicy`)。纯文本歌词是 nil。
+    func lyricScrollTarget(at time: TimeInterval) -> LyricPlaybackPositionPolicy.ScrollTarget? {
+        guard lyricsFollowPlayback else { return nil }
+        return LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: time,
+            lookahead: Self.lyricsLookahead,
+            timestamp: \.time,
+            vocalEnd: \.interludeVocalEnd,
+            isBlank: \.isInterludeBlank
+        )
+    }
+
+    /// 某一句后面那段够长的间奏;没有就是 nil。播放页每列一行都要问一次,所以不在这里再查
+    /// `lyricsFollowPlayback`(整份歌词扫一遍),由调用方先查一次。
+    func lyricInterludeWindow(afterLine index: Int) -> LyricPlaybackPositionPolicy.InterludeWindow? {
+        LyricPlaybackPositionPolicy.interludeWindow(
+            afterLine: index,
+            in: lyrics,
+            timestamp: \.time,
+            vocalEnd: \.interludeVocalEnd,
+            isBlank: \.isInterludeBlank
+        )
+    }
+
+    /// 第一句前够长的前奏;没有就是 nil。和 `lyricInterludeWindow` 一样由调用方先查 `lyricsFollowPlayback`。
+    var lyricIntroWindow: LyricPlaybackPositionPolicy.InterludeWindow? {
+        LyricPlaybackPositionPolicy.introWindow(
+            in: lyrics,
+            timestamp: \.time,
+            isBlank: \.isInterludeBlank
         )
     }
     // MARK: 播放控制(AVPlayer 流式播放,真实流 URL 由 TVPlaybackCoordinator 解析)
@@ -7899,14 +7959,16 @@ private extension TVLyricLine {
     func withTranslation(_ translation: String) -> TVLyricLine {
         TVLyricLine(id: id, time: time, text: text, isSynchronized: isSynchronized,
                     syllables: syllables, translation: translation, romanization: romanization,
-                    writingDirection: writingDirection, voice: voice, background: background)
+                    writingDirection: writingDirection, voice: voice, background: background,
+                    endTimestamp: endTimestamp)
     }
 
     func shiftedForMedley(by offset: Double) -> TVLyricLine {
         TVLyricLine(id: id, time: time - offset, text: text, isSynchronized: isSynchronized,
                     syllables: syllables.map { TVSyllable(w: $0.w, start: $0.start - offset, end: $0.end - offset, endTiming: $0.endTiming) },
                     translation: translation, romanization: romanization, writingDirection: writingDirection,
-                    voice: voice, background: background.map { $0.shiftedForMedley(by: offset) })
+                    voice: voice, background: background.map { $0.shiftedForMedley(by: offset) },
+                    endTimestamp: endTimestamp.map { $0 - offset })
     }
 }
 

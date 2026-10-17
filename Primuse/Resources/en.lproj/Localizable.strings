@@ -2995,7 +2995,7 @@
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
 "player_artwork_lyrics" = "Lyrics Under Artwork";
-"player_artwork_lyrics_description" = "Show the line being sung and the next one below the song title, without switching to the lyrics view. The artwork shrinks a little when needed to make room. Tap the lyrics to open the lyrics view.";
+"player_artwork_lyrics_description" = "Show the line being sung just above the progress bar, without switching to the lyrics view. During the intro and instrumental breaks it shows a short status instead of jumping ahead to the next line. The artwork shrinks a little when needed to make room. Tap the lyrics to open the lyrics view.";
 "player_audio_info_title" = "Audio Info in Player";
 "player_audio_info_off" = "Off";
 "player_audio_info_lossless_only" = "Lossless Only";
@@ -5634,7 +5634,7 @@
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Lyrics Size & Translation";
 "player_lyrics_interlude_dots" = "Interlude Dots";
-"player_lyrics_interlude_dots_description" = "During a long instrumental break, three dots appear under the previous line, light up in turn as the break plays, and line up with your lyrics alignment.";
+"player_lyrics_interlude_dots_description" = "Before the first line and during long instrumental breaks, three dots appear, light up in turn as the break plays, give a gentle double beat just before the next line, and line up with your lyrics alignment. With word-synced lyrics, shorter breaks count too.";
 "home_filter_bar_title" = "Top Filters";
 "home_filter_bar_edit" = "Edit Top Filters";
 "home_filter_bar_none" = "No filters at the top of Home";
@@ -5949,3 +5949,10 @@
 
 "podcast_sections_title" = "Arrange Sections";
 "podcast_sections_footer" = "Sections you turn off are hidden. “Shows” always stays visible.";
+
+"lyrics_preview_intro_starting" = "Your song is starting…";
+"lyrics_preview_intro_mood" = "Setting the mood…";
+"lyrics_preview_intro_take_over" = "Let the music take over…";
+"lyrics_preview_intro_almost" = "Almost there…";
+"lyrics_preview_intro_vocals" = "Vocals incoming…";
+"lyrics_preview_instrumental" = "Instrumental";

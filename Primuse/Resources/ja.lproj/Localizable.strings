@@ -3227,7 +3227,7 @@
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
 "player_artwork_lyrics" = "アートワークの下に歌詞を表示";
-"player_artwork_lyrics_description" = "歌詞画面に切り替えなくても、曲名の下に今歌っている行と次の行を表示します。必要に応じてアートワークが少し小さくなり、歌詞の場所を空けます。歌詞をタップすると歌詞画面を開きます。";
+"player_artwork_lyrics_description" = "歌詞画面に切り替えなくても、再生バーのすぐ上に今歌っている行を表示します。前奏や間奏の間は次の行を先に出さず、短い案内を表示します。必要に応じてアートワークが少し小さくなり、歌詞の場所を空けます。歌詞をタップすると歌詞画面を開きます。";
 "player_audio_info_title" = "再生画面に音声情報を表示";
 "player_audio_info_off" = "オフ";
 "player_audio_info_lossless_only" = "ロスレスのみ";
@@ -5875,7 +5875,7 @@
 "player_menu_item_medley" = "メドレー再生";
 "player_menu_item_lyrics_display" = "歌詞のサイズと翻訳";
 "player_lyrics_interlude_dots" = "間奏のドット";
-"player_lyrics_interlude_dots_description" = "歌詞の間に長い間奏があると、前の行の下に 3 つのドットが表示され、間奏の進み具合に合わせて順に点灯し、歌詞と同じ側にそろいます。";
+"player_lyrics_interlude_dots_description" = "最初の行の前の前奏や歌詞の間の長い間奏で 3 つのドットを表示し、進み具合に合わせて順に点灯して、次の行の直前に軽く 2 回脈打ちます。ドットは歌詞と同じ側にそろいます。単語単位の歌詞では短めの間奏でも表示されます。";
 "home_filter_bar_title" = "上部の切り替え";
 "home_filter_bar_edit" = "上部の切り替えを編集";
 "home_filter_bar_none" = "ホーム上部に切り替えボタンはありません";
@@ -6190,3 +6190,10 @@
 
 "podcast_sections_title" = "セクションを並べ替え";
 "podcast_sections_footer" = "オフにしたセクションは表示されません。「番組」は常に表示されます。";
+
+"lyrics_preview_intro_starting" = "曲が始まります…";
+"lyrics_preview_intro_mood" = "ムードを高めています…";
+"lyrics_preview_intro_take_over" = "音楽に身をまかせて…";
+"lyrics_preview_intro_almost" = "もうすぐです…";
+"lyrics_preview_intro_vocals" = "まもなく歌が始まります…";
+"lyrics_preview_instrumental" = "間奏";

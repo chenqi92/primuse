@@ -60,6 +60,8 @@ public enum LyricPlaybackPositionPolicy {
     public enum ScrollTarget: Equatable, Sendable {
         case line(Int)
         case interlude(afterLine: Int)
+        /// 第一句之前的前奏。
+        case intro
     }
 
     public static func shouldFollowPlayback(in lyrics: [LyricLine]) -> Bool {
@@ -141,76 +143,239 @@ public enum LyricPlaybackPositionPolicy {
         return max(currentStart, next.timestamp - max(0, lookahead))
     }
 
+    /// 间奏判定用的几个时长。逐字歌词(或带结束时间的行、标出间奏的空行)知道人声什么时候停,
+    /// 门槛可以低;普通 LRC 只有每句的开始时间,唱完的时刻是估出来的,门槛放低会把句间换气也当成间奏。
+    public struct InterludeTiming: Equatable, Sendable {
+        /// 没有结束时间的一句按唱这么久估算。
+        public var lineLevelEstimatedDuration: TimeInterval
+        /// 估出来的结束到下一句至少空这么久才算间奏。
+        public var lineLevelMinimumGap: TimeInterval
+        /// 估出来的结束之后再等这么久才出现提示,免得一句还没唱完就换成点。
+        public var lineLevelActivationDelay: TimeInterval
+        /// 知道人声结束时间时,空这么久就算间奏。
+        public var timedMinimumGap: TimeInterval
+        /// 人声停下后隔这么久出现提示,让上一句先淡出。
+        public var timedActivationDelay: TimeInterval
+        /// 第一句前空这么久才算前奏。第一句的开始时间在哪种格式里都可靠。
+        public var minimumIntro: TimeInterval
+        /// 下一句开始前这么久进入「快要唱了」的心跳。
+        public var anticipation: TimeInterval
+
+        public init(
+            lineLevelEstimatedDuration: TimeInterval = 3.5,
+            lineLevelMinimumGap: TimeInterval = 12,
+            lineLevelActivationDelay: TimeInterval = 6,
+            timedMinimumGap: TimeInterval = 4,
+            timedActivationDelay: TimeInterval = 0.6,
+            minimumIntro: TimeInterval = 5,
+            anticipation: TimeInterval = 0.8
+        ) {
+            self.lineLevelEstimatedDuration = lineLevelEstimatedDuration
+            self.lineLevelMinimumGap = lineLevelMinimumGap
+            self.lineLevelActivationDelay = lineLevelActivationDelay
+            self.timedMinimumGap = timedMinimumGap
+            self.timedActivationDelay = timedActivationDelay
+            self.minimumIntro = minimumIntro
+            self.anticipation = anticipation
+        }
+
+        public static let standard = InterludeTiming()
+    }
+
+    /// 一段间奏(或前奏)的时间窗。
+    public struct InterludeWindow: Equatable, Sendable {
+        /// 跟在哪一句后面;nil 表示第一句之前的前奏。
+        public let afterLine: Int?
+        /// 人声停下的时刻(前奏是 0)。
+        public let vocalsEnd: TimeInterval
+        /// 提示出现的时刻。
+        public let activation: TimeInterval
+        /// 下一句开始的时刻。
+        public let nextLineStart: TimeInterval
+
+        public init(
+            afterLine: Int?,
+            vocalsEnd: TimeInterval,
+            activation: TimeInterval,
+            nextLineStart: TimeInterval
+        ) {
+            self.afterLine = afterLine
+            self.vocalsEnd = vocalsEnd
+            self.activation = activation
+            self.nextLineStart = nextLineStart
+        }
+    }
+
+    /// 提示点此刻走到哪:从出现到下一句开始走了多少(0…1),以及离下一句开始还有几秒。
+    public struct InterludePhase: Equatable, Sendable {
+        public let progress: Double
+        public let secondsUntilNextLine: TimeInterval
+
+        public init(progress: Double, secondsUntilNextLine: TimeInterval) {
+            self.progress = progress
+            self.secondsUntilNextLine = secondsUntilNextLine
+        }
+
+        public static let idle = InterludePhase(progress: 0, secondsUntilNextLine: .infinity)
+    }
+
     /// Keeps the semantic active row unchanged during a long instrumental
     /// break while allowing a lyrics surface to move to a dedicated interlude
     /// marker. Line-level lyrics have no explicit end time, so their visible
     /// singing window is conservatively estimated before the break begins.
+    /// 第一句之前的前奏够长时返回 `.intro`。
     public static func scrollTarget(
         in lyrics: [LyricLine],
         at playbackTime: TimeInterval,
         lookahead: TimeInterval = 0,
-        lineLevelEstimatedDuration: TimeInterval = 3.5,
-        interludeActivationDelay: TimeInterval = 6,
-        minimumInterludeDuration: TimeInterval = 12
+        timing: InterludeTiming = .standard
     ) -> ScrollTarget? {
-        guard let activeIndex = activeLineIndex(
+        scrollTarget(
             in: lyrics,
             at: playbackTime,
-            lookahead: lookahead
-        ) else { return nil }
-        guard let window = interludeWindow(
-            afterLine: activeIndex,
-            in: lyrics,
-            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
-            interludeActivationDelay: interludeActivationDelay,
-            minimumInterludeDuration: minimumInterludeDuration
-        ) else {
-            return .line(activeIndex)
-        }
+            lookahead: lookahead,
+            timing: timing,
+            timestamp: \.timestamp,
+            vocalEnd: vocalEnd(of:),
+            isBlank: isBlankLine
+        )
+    }
 
-        let targetTime = playbackTime + max(0, lookahead)
-        guard targetTime >= window.activation,
-              targetTime < window.nextLineStart else {
-            return .line(activeIndex)
+    /// 自己存歌词行的界面(电视)用的同一份判定:每一行的开始时间、人声唱到什么时候
+    /// (`vocalEnd(lineEnd:backgroundEnds:)`)、是不是空行(`isInterludeBlank(text:hasBackground:)`)
+    /// 由调用方取,门槛与时刻和 `LyricLine` 那一份完全相同。
+    public static func scrollTarget<Element>(
+        in lyrics: [Element],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        timing: InterludeTiming = .standard,
+        timestamp: (Element) -> TimeInterval,
+        vocalEnd: (Element) -> TimeInterval?,
+        isBlank: (Element) -> Bool
+    ) -> ScrollTarget? {
+        guard let window = activeInterlude(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timing: timing,
+            timestamp: timestamp,
+            vocalEnd: vocalEnd,
+            isBlank: isBlank
+        ) else {
+            return activeLineIndex(
+                in: lyrics,
+                at: playbackTime,
+                lookahead: lookahead,
+                timestamp: timestamp
+            ).map { .line($0) }
         }
-        return .interlude(afterLine: activeIndex)
+        guard let afterLine = window.afterLine else { return .intro }
+        return .interlude(afterLine: afterLine)
+    }
+
+    /// 此刻正在显示提示的那段间奏或前奏;没有就是 nil。时间窗和 `scrollTarget` 是同一个。
+    public static func activeInterlude(
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        timing: InterludeTiming = .standard
+    ) -> InterludeWindow? {
+        activeInterlude(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timing: timing,
+            timestamp: \.timestamp,
+            vocalEnd: vocalEnd(of:),
+            isBlank: isBlankLine
+        )
+    }
+
+    /// 见 `scrollTarget(in:at:lookahead:timing:timestamp:vocalEnd:isBlank:)`。
+    public static func activeInterlude<Element>(
+        in lyrics: [Element],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        timing: InterludeTiming = .standard,
+        timestamp: (Element) -> TimeInterval,
+        vocalEnd: (Element) -> TimeInterval?,
+        isBlank: (Element) -> Bool
+    ) -> InterludeWindow? {
+        guard playbackTime.isFinite else { return nil }
+        let targetTime = playbackTime + max(0, lookahead)
+        let window: InterludeWindow?
+        if let activeIndex = activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timestamp: timestamp
+        ), !isLeadingBlank(activeIndex, in: lyrics, isBlank: isBlank) {
+            window = interludeWindow(
+                afterLine: activeIndex,
+                in: lyrics,
+                timing: timing,
+                timestamp: timestamp,
+                vocalEnd: vocalEnd,
+                isBlank: isBlank
+            )
+        } else {
+            // 第一句之前(包括开头那几个空时间标签)都算前奏。
+            window = introWindow(in: lyrics, timing: timing, timestamp: timestamp, isBlank: isBlank)
+        }
+        guard let window,
+              targetTime >= window.activation,
+              targetTime < window.nextLineStart else { return nil }
+        return window
     }
 
     public static func hasLongInterlude(
         afterLine index: Int,
         in lyrics: [LyricLine],
-        lineLevelEstimatedDuration: TimeInterval = 3.5,
-        minimumInterludeDuration: TimeInterval = 12
+        timing: InterludeTiming = .standard
     ) -> Bool {
-        interludeWindow(
-            afterLine: index,
-            in: lyrics,
-            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
-            interludeActivationDelay: 0,
-            minimumInterludeDuration: minimumInterludeDuration
-        ) != nil
+        interludeWindow(afterLine: index, in: lyrics, timing: timing) != nil
     }
 
-    /// 间奏提示点从出现到下一句开始走了多少(0…1)。时间窗和 `scrollTarget` 一致:上一句唱完后再过
-    /// `interludeActivationDelay` 秒出现,下一句开始时走满;之前为 0、之后为 1。这一句后面没有长间奏时为 nil。
+    /// 第一句前有没有够长的前奏。
+    public static func hasIntro(
+        in lyrics: [LyricLine],
+        timing: InterludeTiming = .standard
+    ) -> Bool {
+        introWindow(in: lyrics, timing: timing) != nil
+    }
+
+    /// 间奏提示点从出现到下一句开始走了多少(0…1)。时间窗和 `scrollTarget` 一致;之前为 0、之后为 1。
+    /// 这一句后面没有长间奏时为 nil。
     public static func interludeProgress(
         afterLine index: Int,
         in lyrics: [LyricLine],
         at playbackTime: TimeInterval,
-        lineLevelEstimatedDuration: TimeInterval = 3.5,
-        interludeActivationDelay: TimeInterval = 6,
-        minimumInterludeDuration: TimeInterval = 12
+        timing: InterludeTiming = .standard
     ) -> Double? {
-        guard let window = interludeWindow(
-            afterLine: index,
-            in: lyrics,
-            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
-            interludeActivationDelay: interludeActivationDelay,
-            minimumInterludeDuration: minimumInterludeDuration
-        ) else { return nil }
+        interludeWindow(afterLine: index, in: lyrics, timing: timing)
+            .map { phase(of: $0, at: playbackTime).progress }
+    }
+
+    /// 这段间奏此刻的进度与离下一句还有几秒。`lookahead` 与滚动用的一致时,
+    /// 心跳正好在提示点让位给下一句的那一刻停下。
+    public static func phase(
+        of window: InterludeWindow,
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0
+    ) -> InterludePhase {
+        guard playbackTime.isFinite else { return .idle }
+        let targetTime = playbackTime + max(0, lookahead)
         let span = window.nextLineStart - window.activation
-        guard span > 0, playbackTime.isFinite else { return playbackTime >= window.nextLineStart ? 1 : 0 }
-        return min(max((playbackTime - window.activation) / span, 0), 1)
+        let progress: Double
+        if span > 0 {
+            progress = min(max((targetTime - window.activation) / span, 0), 1)
+        } else {
+            progress = targetTime >= window.nextLineStart ? 1 : 0
+        }
+        return InterludePhase(
+            progress: progress,
+            secondsUntilNextLine: max(window.nextLineStart - targetTime, 0)
+        )
     }
 
     /// 间奏三个点各亮到多少(0…1):按进度依次点亮,第一个在前三分之一里亮满,依此类推。
@@ -219,34 +384,294 @@ public enum LyricPlaybackPositionPolicy {
         return (0..<count).map { min(max(p - Double($0), 0), 1) }
     }
 
-    private static func interludeWindow(
+    /// 下一句开始前那一小段的心跳:两下一大一小的脉冲,只在 `timing.anticipation` 秒内,
+    /// 下一句开始(`secondsUntilNextLine` 为 0)时已经回到 1。之外一律是 1,所以绝不会在开唱后才跳。
+    public static func interludeHeartbeatScale(
+        secondsUntilNextLine: TimeInterval,
+        timing: InterludeTiming = .standard
+    ) -> Double {
+        let window = timing.anticipation
+        guard window > 0,
+              secondsUntilNextLine.isFinite,
+              secondsUntilNextLine > 0,
+              secondsUntilNextLine <= window else { return 1 }
+        let u = 1 - secondsUntilNextLine / window
+        func pulse(_ center: Double, _ width: Double) -> Double {
+            let d = (u - center) / width
+            return exp(-d * d)
+        }
+        let beat = 0.16 * pulse(0.3, 0.085) + 0.11 * pulse(0.62, 0.085)
+        // 尾端收成 0,开唱那一刻不留残余的放大。
+        let tail = min(max((1 - u) / 0.12, 0), 1)
+        return 1 + beat * tail
+    }
+
+    /// 某一句后面那段间奏的时间窗;不够长(或后面没有下一句)时为 nil。
+    public static func interludeWindow(
         afterLine index: Int,
         in lyrics: [LyricLine],
-        lineLevelEstimatedDuration: TimeInterval,
-        interludeActivationDelay: TimeInterval,
-        minimumInterludeDuration: TimeInterval
-    ) -> (activation: TimeInterval, nextLineStart: TimeInterval)? {
+        timing: InterludeTiming = .standard
+    ) -> InterludeWindow? {
+        interludeWindow(
+            afterLine: index,
+            in: lyrics,
+            timing: timing,
+            timestamp: \.timestamp,
+            vocalEnd: vocalEnd(of:),
+            isBlank: isBlankLine
+        )
+    }
+
+    /// 见 `scrollTarget(in:at:lookahead:timing:timestamp:vocalEnd:isBlank:)`。
+    public static func interludeWindow<Element>(
+        afterLine index: Int,
+        in lyrics: [Element],
+        timing: InterludeTiming = .standard,
+        timestamp: (Element) -> TimeInterval,
+        vocalEnd: (Element) -> TimeInterval?,
+        isBlank: (Element) -> Bool
+    ) -> InterludeWindow? {
         guard lyrics.indices.contains(index) else { return nil }
 
-        let line = lyrics[index]
-        // 同一时间戳上的兄弟行（注音、译文、另一个声部）不是「下一句」，
-        // 拿它们当下一句会把每一段间奏的时长算成 0。
-        guard let nextLineStart = lyrics[(index + 1)...]
-            .first(where: { $0.timestamp > line.timestamp })?.timestamp else {
-            return nil
+        let lineStart = timestamp(lyrics[index])
+        // 开头那几个空时间标签属于前奏(见 `introWindow`)。
+        guard lineStart.isFinite, !isLeadingBlank(index, in: lyrics, isBlank: isBlank) else { return nil }
+        // 同一时间戳上的兄弟行(注音、译文、另一个声部)不是「下一句」,
+        // 拿它们当下一句会把每一段间奏的时长算成 0。它们的结束时间算进这一句。
+        var groupEnd = index
+        while groupEnd + 1 < lyrics.count,
+              timestamp(lyrics[groupEnd + 1]) - lineStart <= sameRowTolerance {
+            groupEnd += 1
         }
-        let fallbackEnd = line.timestamp + max(0, lineLevelEstimatedDuration)
-        let explicitEnd = line.endTime.flatMap { $0.isFinite ? $0 : nil }
-        let estimatedEnd = max(line.timestamp, explicitEnd ?? fallbackEnd)
-        let duration = nextLineStart - estimatedEnd
-        guard estimatedEnd.isFinite,
-              nextLineStart.isFinite,
-              duration >= max(0, minimumInterludeDuration) else { return nil }
+        guard groupEnd + 1 < lyrics.count else { return nil }
+        let nextLineStart = timestamp(lyrics[groupEnd + 1])
+        guard nextLineStart.isFinite else { return nil }
 
-        return (
-            activation: estimatedEnd + max(0, interludeActivationDelay),
+        let group = lyrics[index...groupEnd]
+        let groupIsBlank = group.allSatisfy(isBlank)
+        let explicitEnds = group.compactMap(vocalEnd).filter(\.isFinite)
+        let vocalsEnd: TimeInterval
+        let minimumGap: TimeInterval
+        let activationDelay: TimeInterval
+        if groupIsBlank {
+            // 在间奏开头打的空行:这一刻人声已经停了。.lrc 里的空时间标签解析时就丢掉了,
+            // 那种歌走不到这里,按估算的门槛算。
+            vocalsEnd = lineStart
+            minimumGap = timing.timedMinimumGap
+            activationDelay = timing.timedActivationDelay
+        } else if let explicitEnd = explicitEnds.max() {
+            vocalsEnd = max(lineStart, explicitEnd)
+            minimumGap = timing.timedMinimumGap
+            activationDelay = timing.timedActivationDelay
+        } else {
+            vocalsEnd = lineStart + max(0, timing.lineLevelEstimatedDuration)
+            minimumGap = timing.lineLevelMinimumGap
+            activationDelay = timing.lineLevelActivationDelay
+        }
+        guard vocalsEnd.isFinite,
+              nextLineStart - vocalsEnd >= max(0, minimumGap) else { return nil }
+
+        return InterludeWindow(
+            afterLine: index,
+            vocalsEnd: vocalsEnd,
+            activation: vocalsEnd + max(0, activationDelay),
             nextLineStart: nextLineStart
         )
+    }
+
+    /// 第一句之前的前奏;第一句来得早时为 nil。
+    public static func introWindow(
+        in lyrics: [LyricLine],
+        timing: InterludeTiming = .standard
+    ) -> InterludeWindow? {
+        introWindow(in: lyrics, timing: timing, timestamp: \.timestamp, isBlank: isBlankLine)
+    }
+
+    /// 见 `scrollTarget(in:at:lookahead:timing:timestamp:vocalEnd:isBlank:)`。
+    public static func introWindow<Element>(
+        in lyrics: [Element],
+        timing: InterludeTiming = .standard,
+        timestamp: (Element) -> TimeInterval,
+        isBlank: (Element) -> Bool
+    ) -> InterludeWindow? {
+        guard let first = lyrics.first(where: { !isBlank($0) }) else { return nil }
+        let firstStart = timestamp(first)
+        guard firstStart.isFinite,
+              firstStart >= max(0, timing.minimumIntro) else { return nil }
+        return InterludeWindow(
+            afterLine: nil,
+            vocalsEnd: 0,
+            activation: 0,
+            nextLineStart: firstStart
+        )
+    }
+
+    /// 没有字也没有和声的行:标出间奏的空行。
+    public static func isInterludeBlank(text: String, hasBackground: Bool) -> Bool {
+        !hasBackground && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 一句人声唱到什么时候:这一行的结束时间(行末与最后一个字取较晚者),以及和声里最晚的那个。
+    /// 都不知道时为 nil,按普通 LRC 估算。
+    public static func vocalEnd(
+        lineEnd: TimeInterval?,
+        backgroundEnds: [TimeInterval?]
+    ) -> TimeInterval? {
+        ([lineEnd] + backgroundEnds)
+            .compactMap { $0 }
+            .filter(\.isFinite)
+            .max()
+    }
+
+    private static func isBlankLine(_ line: LyricLine) -> Bool {
+        isInterludeBlank(text: line.text, hasBackground: line.background?.isEmpty == false)
+    }
+
+    /// 第一句之前的空行。
+    private static func isLeadingBlank<Element>(
+        _ index: Int,
+        in lyrics: [Element],
+        isBlank: (Element) -> Bool
+    ) -> Bool {
+        isBlank(lyrics[index]) && lyrics[..<index].allSatisfy(isBlank)
+    }
+
+    private static func vocalEnd(of line: LyricLine) -> TimeInterval? {
+        vocalEnd(lineEnd: line.endTime, backgroundEnds: (line.background ?? []).map(\.endTime))
+    }
+}
+
+/// 播放页歌名下那一行歌词(竖屏封面模式、手机横屏左栏)此刻放什么:前奏里轮换的几句提示、
+/// 正在唱的那一句、间奏标签,或下一句开唱前跳动的三个点。全部由播放时间推出来,
+/// 拖动、暂停、倍速之后直接重算,不靠计时器接力。
+public enum NowPlayingLyricPreviewPolicy {
+    /// 前奏里依次出现的提示。第一条和最后一条固定,中间轮换。
+    public enum IntroMessage: CaseIterable, Equatable, Sendable {
+        case starting
+        case settingTheMood
+        case musicTakesOver
+        case almostThere
+        case vocalsIncoming
+    }
+
+    public enum Display: Equatable, Sendable {
+        /// 什么都不放:没有时间轴、前奏太短、句间普通的空行。
+        case empty
+        case line(Int)
+        case intro(IntroMessage)
+        case instrumental
+        /// 下一句马上开始;带着这段的时间窗,视图按它算心跳。
+        case anticipation(LyricPlaybackPositionPolicy.InterludeWindow)
+    }
+
+    public struct Resolution: Equatable, Sendable {
+        public let display: Display
+        /// 之后最早可能变的播放时刻;不知道就是 nil(照常轮询)。
+        public let nextChange: TimeInterval?
+
+        public init(display: Display, nextChange: TimeInterval?) {
+            self.display = display
+            self.nextChange = nextChange
+        }
+    }
+
+    /// 每条前奏提示停留的时长。
+    public static let introMessageInterval: TimeInterval = 2.8
+
+    public static func resolve(
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        showsInterludes: Bool = true,
+        timing: LyricPlaybackPositionPolicy.InterludeTiming = .standard
+    ) -> Resolution {
+        guard playbackTime.isFinite,
+              lyrics.contains(where: \.isSynchronized) else {
+            return Resolution(display: .empty, nextChange: nil)
+        }
+        let lookahead = max(0, lookahead)
+        let target = playbackTime + lookahead
+
+        if showsInterludes,
+           let window = LyricPlaybackPositionPolicy.activeInterlude(
+               in: lyrics,
+               at: playbackTime,
+               lookahead: lookahead,
+               timing: timing
+           ) {
+            let anticipationStart = window.nextLineStart - max(0, timing.anticipation)
+            if target >= anticipationStart {
+                return Resolution(
+                    display: .anticipation(window),
+                    nextChange: window.nextLineStart - lookahead
+                )
+            }
+            guard window.afterLine == nil else {
+                return Resolution(display: .instrumental, nextChange: anticipationStart - lookahead)
+            }
+            let slot = introMessage(
+                elapsed: target - window.activation,
+                span: anticipationStart - window.activation
+            )
+            return Resolution(
+                display: .intro(slot.message),
+                nextChange: min(window.activation + slot.end, anticipationStart) - lookahead
+            )
+        }
+
+        let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead
+        )
+        // 下一组时间戳开始的时刻(它到了就换行)。
+        let nextGroupStart: TimeInterval? = {
+            let current = activeIndex.map { lyrics[$0].timestamp } ?? -.infinity
+            return lyrics.first(where: { $0.timestamp > current + 0.002 && $0.timestamp > target })?.timestamp
+        }()
+        var nextChange = nextGroupStart.map { $0 - lookahead }
+        if showsInterludes {
+            let upcoming: LyricPlaybackPositionPolicy.InterludeWindow?
+            if let activeIndex {
+                upcoming = LyricPlaybackPositionPolicy.interludeWindow(afterLine: activeIndex, in: lyrics, timing: timing)
+            } else {
+                upcoming = LyricPlaybackPositionPolicy.introWindow(in: lyrics, timing: timing)
+            }
+            if let upcoming, upcoming.activation > target {
+                nextChange = min(nextChange ?? .infinity, upcoming.activation - lookahead)
+            }
+        }
+
+        guard let activeIndex,
+              !lyrics[activeIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // 第一句还没唱(前奏不够长、或关掉了间奏提示),或者停在句间的空行上:都不提前露出下一句。
+            return Resolution(display: .empty, nextChange: nextChange)
+        }
+        return Resolution(display: .line(activeIndex), nextChange: nextChange)
+    }
+
+    /// 前奏的第几条提示,以及这一条在前奏里什么时候结束(相对提示开始)。`span` 是提示能占的总时长
+    /// (到心跳开始为止)。前奏短就少放几条;最后一条总是「人声快来了」,倒数第二条是「快到了」。
+    public static func introMessage(
+        elapsed: TimeInterval,
+        span: TimeInterval
+    ) -> (message: IntroMessage, end: TimeInterval) {
+        let interval = introMessageInterval
+        let slots = max(1, Int((max(span, 0) / interval).rounded(.down)))
+        let raw = elapsed.isFinite ? Int((max(elapsed, 0) / interval).rounded(.down)) : 0
+        let slot = min(raw, slots - 1)
+        let end = slot == slots - 1 ? max(span, 0) : Double(slot + 1) * interval
+        let message: IntroMessage
+        if slot == 0 {
+            message = .starting
+        } else if slot == slots - 1 {
+            message = .vocalsIncoming
+        } else if slot == slots - 2, slots >= 4 {
+            message = .almostThere
+        } else {
+            message = (slot - 1).isMultiple(of: 2) ? .settingTheMood : .musicTakesOver
+        }
+        return (message, end)
     }
 }
 

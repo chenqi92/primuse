@@ -2494,7 +2494,7 @@
 "player_volume_bar" = "Control deslizante de volumen";
 "player_volume_bar_description" = "Muestra el control deslizante de volumen en el reproductor. Otros controles llenan naturalmente el espacio disponible cuando está oculto.";
 "player_artwork_lyrics" = "Letra debajo de la portada";
-"player_artwork_lyrics_description" = "Muestra la línea que se está cantando y la siguiente debajo del título, sin cambiar a la vista de letra. La portada se reduce un poco cuando hace falta para dejarles espacio. Toca la letra para abrir la vista de letra.";
+"player_artwork_lyrics_description" = "Muestra la línea que se está cantando justo encima de la barra de progreso, sin cambiar a la vista de letra. Durante la introducción y los interludios muestra un aviso breve en lugar de adelantar la siguiente línea. La portada se reduce un poco cuando hace falta para dejarle espacio. Toca la letra para abrir la vista de letra.";
 "player_audio_info_title" = "Información de audio en el reproductor";
 "player_audio_info_off" = "Desactivado";
 "player_audio_info_lossless_only" = "Solo sin pérdida";
@@ -5780,7 +5780,7 @@
 "player_menu_item_medley" = "Popurrí";
 "player_menu_item_lyrics_display" = "Tamaño y traducción de la letra";
 "player_lyrics_interlude_dots" = "Puntos de interludio";
-"player_lyrics_interlude_dots_description" = "Durante un interludio largo aparecen tres puntos bajo la línea anterior, se iluminan uno tras otro según avanza el interludio y se alinean como la letra.";
+"player_lyrics_interlude_dots_description" = "En la introducción antes de la primera línea y en los interludios largos aparecen tres puntos que se iluminan uno tras otro, laten suavemente dos veces justo antes de la siguiente línea y se alinean como la letra. Con letras sincronizadas por palabra también cuentan pausas más cortas.";
 "home_filter_bar_title" = "Filtros superiores";
 "home_filter_bar_edit" = "Editar filtros superiores";
 "home_filter_bar_none" = "Sin filtros en la parte superior de Inicio";
@@ -6095,3 +6095,10 @@
 
 "podcast_sections_title" = "Organizar secciones";
 "podcast_sections_footer" = "Las secciones que desactives se ocultan. «Programas» siempre se muestra.";
+
+"lyrics_preview_intro_starting" = "Tu canción está empezando…";
+"lyrics_preview_intro_mood" = "Creando el ambiente…";
+"lyrics_preview_intro_take_over" = "Déjate llevar por la música…";
+"lyrics_preview_intro_almost" = "Ya casi…";
+"lyrics_preview_intro_vocals" = "Ya viene la voz…";
+"lyrics_preview_instrumental" = "Instrumental";
