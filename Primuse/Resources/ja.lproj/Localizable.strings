@@ -6274,3 +6274,23 @@
 "lyrics_preview_intro_almost" = "もうすぐです…";
 "lyrics_preview_intro_vocals" = "まもなく歌が始まります…";
 "lyrics_preview_instrumental" = "間奏";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "再生画面のスタイルとボタン";
+"player_style_editor_subtitle" = "アートワーク、プログレスバー、音量、色、背景、ボタンをライブプレビューで調整";
+"player_style_preview_actual_size" = "実際のサイズ";
+"player_style_section_colors" = "色";
+"player_transport_style_title" = "再生ボタンのスタイル";
+"player_transport_style_footer" = "上の列で再生/一時停止ボタン、下の列で前へ・次へボタンを変更します。iPhone の横向き、iPad、全画面歌詞の下部バーにも反映されます。ポッドキャストの早戻し・早送りは変わらず、オーディオブックとラジオは独自の見た目のままです。";
+"player_play_style_filled_circle" = "塗りつぶし";
+"player_play_style_plain" = "枠なし";
+"player_play_style_outlined_circle" = "輪郭";
+"player_play_style_filled_square" = "四角";
+"player_skip_style_standard" = "標準";
+"player_skip_style_bold" = "太字";
+"player_skip_style_track" = "縦線付き";
+"player_skip_style_filled_circle" = "塗りつぶし";
+"player_skip_style_outlined_circle" = "輪郭";
+"player_preview_sample_title" = "曲名";
+"player_preview_sample_artist" = "アーティスト · アルバム";
+"player_preview_sample_lyric" = "いま歌っている歌詞がここに表示されます";

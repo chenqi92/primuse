@@ -323,13 +323,14 @@ private struct SettingsPageContent: View {
         case .themeColor: ThemeColorSettingsView()
         case .player: PlayerAppearanceSettingsView()
         case .fullscreen: FullscreenPlayerEffectSettingsView()
+        case .playerStyle: NowPlayingControlsEditorView()
         case .appIcon: AppIconSettingsView()
         case .cacheSync: StorageManagementView(opensCacheSync: true)
         case .siri: SiriSettingsView()
         case .carplay: CarPlaySettingsView()
         #else
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .cacheSync, .siri,
-             .carplay, .home: EmptyView()
+             .carplay, .home, .playerStyle: EmptyView()
         #endif
         case .keyboard, .widgets: EmptyView()
         }
@@ -563,23 +564,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
-    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
-    @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
-    private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
-    @AppStorage(PlayerAppearancePreferences.controlTintKey)
-    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
-    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
-    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
-    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
-    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
-    @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
-    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
-    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
-    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
-    @State private var themeSettings = ThemeColorSettings.shared
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
@@ -590,6 +576,25 @@ private struct PlayerAppearanceSettingsView: View {
 
     var body: some View {
         Form {
+            // 封面样式、进度条、音量条、颜色、背景和按钮都在这一页,顶上有一张实时画的播放页。
+            Section {
+                NavigationLink {
+                    NowPlayingControlsEditorView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("player_style_editor_title")
+                            Text("player_style_editor_subtitle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "rectangle.bottomthird.inset.filled")
+                    }
+                }
+                .settingsAnchor("appearance.playerControls")
+            }
+
             Section {
                 Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
                 .settingsAnchor("appearance.animatedArtwork")
@@ -621,130 +626,6 @@ private struct PlayerAppearanceSettingsView: View {
                 .disabled(!motionArtworkServiceEnabled)
             }
 
-            Section {
-                NavigationLink {
-                    NowPlayingControlsEditorView()
-                } label: {
-                    Label("player_controls_title", systemImage: "rectangle.bottomthird.inset.filled")
-                }
-                .settingsAnchor("appearance.playerControls")
-
-                Picker(selection: Binding(
-                    get: { PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) },
-                    set: { controlTintRawValue = $0.rawValue }
-                )) {
-                    ForEach(NowPlayingControlTint.allCases, id: \.self) { tint in
-                        Text(LocalizedStringKey(tint.titleKey)).tag(tint)
-                    }
-                } label: {
-                    SettingsInfoLabel("player_control_tint_title") {
-                        Text("player_control_tint_footer")
-                    }
-                }
-                .settingsAnchor("appearance.playerControlTint")
-            } footer: {
-                // 主题色选了「白色」时两个选项画出来一样,说一声免得以为没生效。
-                if ThemeColorSettings.shared.isWhiteTheme {
-                    Text("player_control_tint_white_theme_note")
-                }
-            }
-
-            Section {
-                Toggle(isOn: $playerAlwaysDark) {
-                    Label {
-                        SettingsInfoLabel("player_always_dark_title") {
-                            Text("player_always_dark_footer")
-                        }
-                    } icon: {
-                        Image(systemName: "moon.circle")
-                    }
-                }
-                .settingsAnchor("appearance.playerAlwaysDark")
-            }
-
-            // 播放页背景:选哪种背景,再调封面色有多浓(#69)。原来在「颜色和图标」里,不好找。
-            PlayerBackdropSettingsSections()
-
-            Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Label {
-                            SettingsInfoLabel(verbatim: PMString("ext.tv.settings.ambientIntensity")) {
-                                Text("player_backdrop_strength_footer")
-                            }
-                        } icon: {
-                            Image(systemName: "sun.haze.fill")
-                        }
-                        Spacer()
-                        Text(verbatim: "\(Int(round(themeSettings.ambientStrength * 100)))%")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: ambientStrengthBinding, in: 0...1, step: 0.05)
-                }
-                .padding(.vertical, 4)
-                .settingsAnchor("appearance.ambientStrength")
-            }
-
-            Section {
-                Picker(selection: progressStyleBinding) {
-                    ForEach(NowPlayingProgressStyle.allCases, id: \.self) { style in
-                        HStack(spacing: 12) {
-                            Text(LocalizedStringKey(style.titleKey))
-                            Spacer(minLength: 12)
-                            NowPlayingProgressStylePreview(style: style, glows: progressGlows)
-                                .frame(width: 96)
-                        }
-                        .tag(style)
-                    }
-                } label: {
-                    Text("player_progress_style_title")
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                .settingsAnchor("appearance.playerProgressStyle")
-                Toggle("player_progress_glow", isOn: $progressGlows)
-                    .settingsAnchor("appearance.playerProgressGlow")
-                    .accessibilityHint(Text("player_progress_glow_description"))
-            } header: {
-                SettingsInfoHeader("player_progress_style_title") {
-                    Text("player_progress_style_footer")
-                }
-            }
-
-            Section {
-                Picker(selection: artworkStyleBinding) {
-                    ForEach(NowPlayingArtworkStyle.allCases, id: \.self) { style in
-                        HStack(spacing: 12) {
-                            Text(LocalizedStringKey(style.titleKey))
-                            Spacer(minLength: 12)
-                            PlayerArtworkStylePreview(style: style)
-                        }
-                        .tag(style)
-                    }
-                } label: {
-                    Text("player_artwork_style_title")
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                .settingsAnchor("appearance.playerArtworkStyle")
-            } header: {
-                SettingsInfoHeader("player_artwork_style_title") {
-                    Text("player_artwork_style_footer")
-                }
-            }
-
-            Section {
-                Toggle("player_volume_bar", isOn: $showsVolumeBar)
-                .settingsAnchor("appearance.volumeBar")
-                    .accessibilityHint(Text("player_volume_bar_description"))
-                Toggle(isOn: $showsArtworkLyrics) {
-                    SettingsInfoLabel("player_artwork_lyrics") {
-                        Text("player_artwork_lyrics_description")
-                    }
-                }
-                .settingsAnchor("appearance.artworkLyrics")
-            }
             Section {
                 Picker(selection: audioInfoModeBinding) {
                     ForEach(NowPlayingAudioInfoMode.allCases, id: \.self) { mode in
@@ -797,27 +678,6 @@ private struct PlayerAppearanceSettingsView: View {
         #endif
     }
 
-    private var ambientStrengthBinding: Binding<Double> {
-        Binding(
-            get: { themeSettings.ambientStrength },
-            set: { themeSettings.ambientStrength = AppThemePreferences.normalizedAmbientStrength($0) }
-        )
-    }
-
-    private var progressStyleBinding: Binding<NowPlayingProgressStyle> {
-        Binding(
-            get: { PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) },
-            set: { progressStyleRawValue = $0.rawValue }
-        )
-    }
-
-    private var artworkStyleBinding: Binding<NowPlayingArtworkStyle> {
-        Binding(
-            get: { PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) },
-            set: { artworkStyleRawValue = $0.rawValue }
-        )
-    }
-
     private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {
         Binding(
             get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
@@ -862,50 +722,6 @@ private struct PlayerAppearanceSettingsView: View {
     }
 }
 
-/// 「封面样式」两个选项旁边的小示意:一块手机屏,上面是封面,下面两行字和一条进度。
-private struct PlayerArtworkStylePreview: View {
-    let style: NowPlayingArtworkStyle
-
-    var body: some View {
-        let screen = RoundedRectangle(cornerRadius: 7, style: .continuous)
-        VStack(spacing: 0) {
-            switch style {
-            case .card:
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.85))
-                    .frame(width: 26, height: 26)
-                    .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                    .padding(.top, 9)
-                    .padding(.bottom, 5)
-            case .fullBleed:
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.accentColor.opacity(0.85), location: 0),
-                        .init(color: Color.accentColor.opacity(0.85), location: 0.62),
-                        .init(color: Color.accentColor.opacity(0), location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: 40, height: 38)
-                .padding(.bottom, 1)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Capsule().fill(Color.primary.opacity(0.55)).frame(width: 20, height: 3)
-                Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 14, height: 3)
-                Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 28, height: 2)
-                    .padding(.top, 2)
-            }
-            .frame(width: 28, alignment: .leading)
-            Spacer(minLength: 0)
-        }
-        .frame(width: 40, height: 64)
-        .background(Color.secondary.opacity(0.12))
-        .clipShape(screen)
-        .overlay { screen.strokeBorder(Color.secondary.opacity(0.35), lineWidth: 0.5) }
-        .accessibilityHidden(true)
-    }
-}
 #endif
 
 private struct LibraryDisplaySettingsView: View {

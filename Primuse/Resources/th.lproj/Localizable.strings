@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "ใกล้แล้ว…";
 "lyrics_preview_intro_vocals" = "เสียงร้องกำลังมา…";
 "lyrics_preview_instrumental" = "ช่วงดนตรี";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "สไตล์และปุ่มของเครื่องเล่น";
+"player_style_editor_subtitle" = "ปก แถบความคืบหน้า ระดับเสียง สี พื้นหลัง และปุ่ม พร้อมดูตัวอย่างแบบสด";
+"player_style_preview_actual_size" = "ขนาดจริง";
+"player_style_section_colors" = "สี";
+"player_transport_style_title" = "สไตล์ปุ่มเล่น";
+"player_transport_style_footer" = "แถวบนเปลี่ยนปุ่มเล่น/หยุดชั่วคราว แถวล่างเปลี่ยนปุ่มก่อนหน้าและถัดไป ใช้กับแนวนอนบน iPhone, iPad และแถบใต้เนื้อเพลงแบบเต็มจอด้วย ปุ่มข้ามของพอดแคสต์ไม่เปลี่ยน ส่วนหนังสือเสียงและวิทยุยังคงรูปแบบของตัวเอง";
+"player_play_style_filled_circle" = "ทึบ";
+"player_play_style_plain" = "ไม่มีกรอบ";
+"player_play_style_outlined_circle" = "เส้นขอบ";
+"player_play_style_filled_square" = "สี่เหลี่ยม";
+"player_skip_style_standard" = "มาตรฐาน";
+"player_skip_style_bold" = "ใหญ่";
+"player_skip_style_track" = "มีเส้น";
+"player_skip_style_filled_circle" = "ทึบ";
+"player_skip_style_outlined_circle" = "เส้นขอบ";
+"player_preview_sample_title" = "ชื่อเพลง";
+"player_preview_sample_artist" = "ศิลปิน · อัลบั้ม";
+"player_preview_sample_lyric" = "เนื้อเพลงท่อนที่กำลังร้องจะแสดงที่นี่";

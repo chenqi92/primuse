@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "اقتربنا…";
 "lyrics_preview_intro_vocals" = "الغناء قادم…";
 "lyrics_preview_instrumental" = "فاصل موسيقي";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "نمط المشغل والأزرار";
+"player_style_editor_subtitle" = "الغلاف وشريط التقدم ومستوى الصوت والألوان والخلفية والأزرار، مع معاينة مباشرة";
+"player_style_preview_actual_size" = "الحجم الفعلي";
+"player_style_section_colors" = "الألوان";
+"player_transport_style_title" = "نمط أزرار التشغيل";
+"player_transport_style_footer" = "الصف العلوي يغيّر زر التشغيل/الإيقاف المؤقت، والصف السفلي يغيّر زري السابق والتالي. يتغيّر أيضًا الوضع الأفقي على iPhone وiPad والشريط أسفل كلمات الأغاني بملء الشاشة. أزرار التخطي في البودكاست تبقى كما هي، وتحتفظ الكتب الصوتية والراديو بمظهرها الخاص.";
+"player_play_style_filled_circle" = "ممتلئ";
+"player_play_style_plain" = "بلا إطار";
+"player_play_style_outlined_circle" = "محيط";
+"player_play_style_filled_square" = "مربع";
+"player_skip_style_standard" = "قياسي";
+"player_skip_style_bold" = "عريض";
+"player_skip_style_track" = "مع خط";
+"player_skip_style_filled_circle" = "ممتلئ";
+"player_skip_style_outlined_circle" = "محيط";
+"player_preview_sample_title" = "عنوان الأغنية";
+"player_preview_sample_artist" = "الفنان · الألبوم";
+"player_preview_sample_lyric" = "يظهر هنا السطر الذي يُغنّى الآن";

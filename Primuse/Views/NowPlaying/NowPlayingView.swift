@@ -8,7 +8,7 @@ import MediaPlayer
 import AppKit
 #endif
 
-private struct NowPlayingAppearance {
+struct NowPlayingAppearance {
     let colorScheme: ColorScheme
     let contrast: ColorSchemeContrast
 
@@ -367,6 +367,181 @@ extension View {
     }
 }
 #endif
+
+/// 播放页背景:封面取色的色场(或流动色彩)、声音律动、明暗两种遮罩,以及铺在最上面的背景图
+/// (封面模糊 / 专辑封底 / 自选图片)。播放页和设置里「播放页样式与按钮」那张预览共用,
+/// 预览里看到的就是播放页的背景。
+struct NowPlayingAmbientBackdrop: View {
+    private enum AmbientBackdropTuning {
+        static let transitionDuration = 0.5
+    }
+
+    let song: Song?
+    let isPlaying: Bool
+    /// 播放页是正在看的那一面:色场与律动的动画时钟、背景图轮播只在这时走。
+    let isSurfaceVisible: Bool
+    let isSceneActive: Bool
+    /// 入场动画结束前不开始读盘解码背景图。
+    let allowsImageLoading: Bool
+
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @AppStorage(AppThemePreferences.ambientStrengthKey)
+    private var ambientStrength = AppThemePreferences.defaultAmbientStrength
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    var body: some View {
+        let hasArtworkTheme = theme.hasArtworkAmbient
+        let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
+        let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
+        let usesLiquid = backdropSource == .liquid
+        var accentOpacity = (hasArtworkTheme
+            ? appearance.artworkAccentOpacity
+            : appearance.fallbackAccentOpacity) * strength
+        var lowerAccentOpacity = (hasArtworkTheme
+            ? appearance.artworkLowerAccentOpacity
+            : appearance.fallbackLowerAccentOpacity) * strength
+        var lightOverlay = AmbientLightOverlayPolicy.resolve(
+            hasArtworkTheme: hasArtworkTheme,
+            usesIncreasedContrast: colorSchemeContrast == .increased,
+            strength: strength
+        )
+        // 浅色外观把氛围强度调过默认值:背景往封面颜色上靠,封面色太深时停在深色字还看得清的地方(#69)。
+        if appearance.isLight, hasArtworkTheme, !usesLiquid,
+           strength > AppThemePreferences.defaultAmbientStrength {
+            let defaultStrength = AppThemePreferences.defaultAmbientStrength
+            let defaultOverlay = AmbientLightOverlayPolicy.resolve(
+                hasArtworkTheme: true,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                strength: defaultStrength
+            )
+            let levels = NowPlayingLightAmbientPolicy.levels(
+                atDefault: NowPlayingLightAmbientLevels(
+                    primaryOpacity: appearance.artworkAccentOpacity * defaultStrength,
+                    secondaryOpacity: appearance.artworkLowerAccentOpacity * defaultStrength,
+                    overlayTopOpacity: defaultOverlay.topOpacity,
+                    overlayBottomOpacity: defaultOverlay.bottomOpacity
+                ),
+                vivid: appearance.vividLightAmbientLevels,
+                strength: strength,
+                defaultStrength: defaultStrength,
+                primaryLuma: theme.artworkAccentLuma,
+                secondaryLuma: theme.artworkSecondaryLuma,
+                usesIncreasedContrast: colorSchemeContrast == .increased
+            )
+            accentOpacity = levels.primaryOpacity
+            lowerAccentOpacity = levels.secondaryOpacity
+            lightOverlay = AmbientLightOverlay(
+                topOpacity: levels.overlayTopOpacity,
+                bottomOpacity: levels.overlayBottomOpacity
+            )
+        }
+        let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: theme.artworkLuminance,
+            primaryOpacity: accentOpacity,
+            secondaryOpacity: lowerAccentOpacity,
+            usesIncreasedContrast: colorSchemeContrast == .increased
+        )
+
+        return ZStack {
+            if usesLiquid {
+                // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
+                LiquidArtworkBackdrop(
+                    palette: theme.liquidPalette,
+                    isLight: appearance.isLight,
+                    strength: strength,
+                    isVisible: isSurfaceVisible,
+                    isSceneActive: isSceneActive,
+                    isPlaying: isPlaying
+                )
+            } else {
+                AdaptiveNowPlayingBackdrop(
+                    baseColor: appearance.backgroundBase,
+                    primaryAccent: theme.accentColor,
+                    secondaryAccent: theme.secondaryAccent,
+                    darkAccent: theme.darkAccent,
+                    primaryOpacity: accentOpacity,
+                    secondaryOpacity: lowerAccentOpacity,
+                    hasArtworkPalette: hasArtworkTheme,
+                    // 背景图铺满时色场被盖住，停掉它的动画时钟。
+                    isVisible: isSurfaceVisible && !PlayerBackdropResolver.shared.isShowingImage,
+                    isSceneActive: isSceneActive,
+                    isPlaying: isPlaying,
+                    paletteVibrancy: theme.artworkVibrancy,
+                    paletteLuminance: theme.artworkLuminance
+                )
+            }
+
+            if backdropSource == .visualizer {
+                // 设置里选了「声音律动」:色场上再画一层跟着声音动的频谱、波形或星尘(#312)。
+                // 压在下面两层遮罩底下,字的对比度照旧由遮罩保证。
+                PlayerVisualizerBackdrop(
+                    style: PlayerBackdropSettingsStore.shared.settings.visualizerStyle,
+                    primary: theme.accentColor,
+                    secondary: theme.secondaryAccent,
+                    deep: theme.darkAccent,
+                    isLight: appearance.isLight,
+                    strength: strength,
+                    isVisible: isSurfaceVisible,
+                    isSceneActive: isSceneActive
+                )
+            }
+
+            if appearance.isLight {
+                // Keep a stable light surface for dark controls without
+                // washing the cover-driven hue back to near-neutral.
+                LinearGradient(
+                    colors: [
+                        .white.opacity(lightOverlay.topOpacity),
+                        .white.opacity(lightOverlay.bottomOpacity)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            } else {
+                // Bright covers receive a little more local protection while
+                // the extracted color field remains visible around the art.
+                LinearGradient(
+                    stops: [
+                        .init(
+                            color: .black.opacity(darkOverlay.topOpacity),
+                            location: 0
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.middleOpacity),
+                            location: 0.56
+                        ),
+                        .init(
+                            color: .black.opacity(darkOverlay.bottomOpacity),
+                            location: 1
+                        )
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+
+            // 设置里选了封面模糊 / 专辑封底 / 自选图片时铺在色场上面。
+            PlayerBackdropImageHost(
+                song: song,
+                isLight: appearance.isLight,
+                strength: strength,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                isSurfaceVisible: isSurfaceVisible && isSceneActive,
+                allowsLoading: allowsImageLoading
+            )
+        }
+        .animation(
+            .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
+            value: theme.colorID
+        )
+        .allowsHitTesting(false)
+    }
+}
 
 /// A single low-frequency color field shared by the standard iOS and macOS
 /// players. The artwork palette remains visible when motion is unavailable;
@@ -858,10 +1033,6 @@ private enum SpokenWordTextPresenceMemo {
 }
 
 struct NowPlayingView: View {
-    private enum AmbientBackdropTuning {
-        static let transitionDuration = 0.5
-    }
-
     var onOpenAlbum: ((Album) -> Void)? = nil
     var onOpenArtist: ((Artist) -> Void)? = nil
     var onMinimize: (() -> Void)? = nil
@@ -912,6 +1083,10 @@ struct NowPlayingView: View {
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
+    private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -4089,7 +4264,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
 
             playerSkipButton(
-                symbol: transportBackwardSymbol,
+                symbol: transportGlyphSymbol(forward: false),
                 label: transportBackwardLabel
             ) {
                 transportBackward()
@@ -4100,7 +4275,7 @@ struct NowPlayingView: View {
             playerPlayButton
 
             playerSkipButton(
-                symbol: transportForwardSymbol,
+                symbol: transportGlyphSymbol(forward: true),
                 label: transportForwardLabel
             ) {
                 transportForward()
@@ -4146,12 +4321,55 @@ struct NowPlayingView: View {
         player.currentItemIsSpokenWord || playbackSettings.outputMode == .effects
     }
 
+    private var playButtonStyle: NowPlayingPlayButtonStyle {
+        PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
+    }
+
+    /// 上一首 / 下一首按「播放页样式与按钮」里选的画;有声内容那两颗是快退 / 快进,不跟着换。
+    private var skipButtonStyle: NowPlayingSkipButtonStyle {
+        usesSpokenWordTransport
+            ? .standard
+            : PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
+    }
+
     private var transportBackwardSymbol: String {
-        usesSpokenWordTransport ? player.spokenWordSkipBackwardSymbol : "backward.fill"
+        usesSpokenWordTransport ? player.spokenWordSkipBackwardSymbol : skipButtonStyle.symbol(forward: false)
     }
 
     private var transportForwardSymbol: String {
-        usesSpokenWordTransport ? player.spokenWordSkipForwardSymbol : "forward.fill"
+        usesSpokenWordTransport ? player.spokenWordSkipForwardSymbol : skipButtonStyle.symbol(forward: true)
+    }
+
+    /// 压在玻璃胶囊里的那两颗(手机横屏、浮起来的原生全屏底排):胶囊已经是框,不再套圆。
+    private func transportGlyphSymbol(forward: Bool) -> String {
+        if usesSpokenWordTransport {
+            return forward ? player.spokenWordSkipForwardSymbol : player.spokenWordSkipBackwardSymbol
+        }
+        return skipButtonStyle.glyphSymbol(forward: forward)
+    }
+
+    /// 播放页传输键一行的播放 / 暂停键:加载中转圈,其余按样式画。`diameter` 是键的边长。
+    private func transportPlayPauseFace(diameter: CGFloat) -> some View {
+        ZStack {
+            // Anchor sizing so the button doesn't reflow.
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: diameter)).opacity(0)
+            if player.showsLoadingIndicator {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(appearance.primary)
+                    .pmFadeTransition(motion: .control)
+            } else {
+                NowPlayingPlayPauseFace(
+                    style: playButtonStyle,
+                    showsPause: player.isPlaying || player.isLoading,
+                    diameter: diameter,
+                    tint: appearance.primary
+                )
+                // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
+                .pmFadeTransition(motion: .control)
+            }
+        }
     }
 
     private var transportBackwardLabel: String {
@@ -4250,25 +4468,37 @@ struct NowPlayingView: View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter)
         // 实心圆用前景色填充，图标反过来用背景底色，深浅两种外观下都是高对比。
         let glyphTint = appearance.backgroundBase
+        let style = playButtonStyle
         return Button {
             guard !player.isLoading else { return }
             player.togglePlayPause()
         } label: {
             ZStack {
-                Circle()
-                    .fill(appearance.primary)
+                if style == .filledCircle {
+                    Circle()
+                        .fill(appearance.primary)
+                }
 
                 if player.showsLoadingIndicator {
                     ProgressView()
-                        .tint(glyphTint)
+                        .tint(style == .filledCircle ? glyphTint : appearance.primary)
                         .pmFadeTransition(motion: .control)
-                } else {
+                } else if style == .filledCircle {
                     Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(glyphTint)
                         .contentTransition(.symbolEffect(.replace))
                         // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
                         .pmFadeTransition(motion: .control)
+                } else {
+                    // 其它样式和竖屏那一颗同一种画法,按这颗键的大小缩放。
+                    NowPlayingPlayPauseFace(
+                        style: style,
+                        showsPause: player.isPlaying || player.isLoading,
+                        diameter: diameter * 0.86,
+                        tint: appearance.primary
+                    )
+                    .pmFadeTransition(motion: .control)
                 }
             }
             .frame(width: diameter, height: diameter)
@@ -4563,7 +4793,7 @@ struct NowPlayingView: View {
                 Spacer()
                 Button { transportBackward() } label: {
                     Image(systemName: transportBackwardSymbol)
-                        .font(.title).foregroundStyle(appearance.primary)
+                        .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
@@ -4575,17 +4805,7 @@ struct NowPlayingView: View {
                     guard !player.isLoading else { return }
                     player.togglePlayPause()
                 } label: {
-                    ZStack {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 60)).opacity(0)
-                        if player.showsLoadingIndicator {
-                            ProgressView().controlSize(.large).tint(appearance.primary)
-                        } else {
-                            Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 60)).foregroundStyle(appearance.primary)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                    }
+                    transportPlayPauseFace(diameter: 60)
                 }
                 .disabled(player.showsLoadingIndicator)
                 .accessibilityLabel(player.isPlaying || player.isLoading
@@ -4594,7 +4814,7 @@ struct NowPlayingView: View {
                 Spacer()
                 Button { transportForward() } label: {
                     Image(systemName: transportForwardSymbol)
-                        .font(.title).foregroundStyle(appearance.primary)
+                        .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
@@ -5715,7 +5935,7 @@ struct NowPlayingView: View {
         Spacer(minLength: gap)
         Button { transportBackward() } label: {
             Image(systemName: transportBackwardSymbol)
-                .font(.title).foregroundStyle(appearance.primary)
+                .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
                 .contentTransition(.symbolEffect(.replace))
         }
         .frame(width: 56, height: 56)
@@ -5727,23 +5947,7 @@ struct NowPlayingView: View {
             guard !player.isLoading else { return }
             player.togglePlayPause()
         } label: {
-            ZStack {
-                // Anchor sizing so the button doesn't reflow.
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 56)).opacity(0)
-                if player.showsLoadingIndicator {
-                    ProgressView()
-                        .controlSize(.large)
-                        .tint(appearance.primary)
-                        .pmFadeTransition(motion: .control)
-                } else {
-                    Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 56)).foregroundStyle(appearance.primary)
-                        .contentTransition(.symbolEffect(.replace))
-                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
-                        .pmFadeTransition(motion: .control)
-                }
-            }
+            transportPlayPauseFace(diameter: 56)
         }
         .disabled(player.showsLoadingIndicator)
         .accessibilityLabel(player.isPlaying || player.isLoading
@@ -5752,7 +5956,7 @@ struct NowPlayingView: View {
         Spacer(minLength: gap)
         Button { transportForward() } label: {
             Image(systemName: transportForwardSymbol)
-                .font(.title).foregroundStyle(appearance.primary)
+                .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
                 .contentTransition(.symbolEffect(.replace))
         }
         .frame(width: 56, height: 56)
@@ -6026,7 +6230,7 @@ struct NowPlayingView: View {
         let label = forward ? transportForwardLabel : transportBackwardLabel
         Group {
             if floats {
-                playerSkipButton(symbol: symbol, label: label) {
+                playerSkipButton(symbol: transportGlyphSymbol(forward: forward), label: label) {
                     if forward { transportForward() } else { transportBackward() }
                 }
             } else {
@@ -6035,7 +6239,7 @@ struct NowPlayingView: View {
                     if forward { transportForward() } else { transportBackward() }
                 } label: {
                     Image(systemName: symbol)
-                        .font(.title)
+                        .font(skipButtonStyle.font)
                         .foregroundStyle(appearance.primary)
                         .contentTransition(.symbolEffect(.replace))
                         .frame(
@@ -6933,151 +7137,13 @@ struct NowPlayingView: View {
     // MARK: - Ambient background from cover dominant color
 
     private var backgroundGradient: some View {
-        let hasArtworkTheme = theme.hasArtworkAmbient
-        let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
-        let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
-        let usesLiquid = backdropSource == .liquid
-        var accentOpacity = (hasArtworkTheme
-            ? appearance.artworkAccentOpacity
-            : appearance.fallbackAccentOpacity) * strength
-        var lowerAccentOpacity = (hasArtworkTheme
-            ? appearance.artworkLowerAccentOpacity
-            : appearance.fallbackLowerAccentOpacity) * strength
-        var lightOverlay = AmbientLightOverlayPolicy.resolve(
-            hasArtworkTheme: hasArtworkTheme,
-            usesIncreasedContrast: colorSchemeContrast == .increased,
-            strength: strength
+        NowPlayingAmbientBackdrop(
+            song: player.isLiveRadio ? nil : player.currentSong,
+            isPlaying: player.isPlaying,
+            isSurfaceVisible: isNowPlayingSurfaceExposed,
+            isSceneActive: isVisualSceneActive,
+            allowsImageLoading: isPresentationSettled
         )
-        // 浅色外观把氛围强度调过默认值:背景往封面颜色上靠,封面色太深时停在深色字还看得清的地方(#69)。
-        if appearance.isLight, hasArtworkTheme, !usesLiquid,
-           strength > AppThemePreferences.defaultAmbientStrength {
-            let defaultStrength = AppThemePreferences.defaultAmbientStrength
-            let defaultOverlay = AmbientLightOverlayPolicy.resolve(
-                hasArtworkTheme: true,
-                usesIncreasedContrast: colorSchemeContrast == .increased,
-                strength: defaultStrength
-            )
-            let levels = NowPlayingLightAmbientPolicy.levels(
-                atDefault: NowPlayingLightAmbientLevels(
-                    primaryOpacity: appearance.artworkAccentOpacity * defaultStrength,
-                    secondaryOpacity: appearance.artworkLowerAccentOpacity * defaultStrength,
-                    overlayTopOpacity: defaultOverlay.topOpacity,
-                    overlayBottomOpacity: defaultOverlay.bottomOpacity
-                ),
-                vivid: appearance.vividLightAmbientLevels,
-                strength: strength,
-                defaultStrength: defaultStrength,
-                primaryLuma: theme.artworkAccentLuma,
-                secondaryLuma: theme.artworkSecondaryLuma,
-                usesIncreasedContrast: colorSchemeContrast == .increased
-            )
-            accentOpacity = levels.primaryOpacity
-            lowerAccentOpacity = levels.secondaryOpacity
-            lightOverlay = AmbientLightOverlay(
-                topOpacity: levels.overlayTopOpacity,
-                bottomOpacity: levels.overlayBottomOpacity
-            )
-        }
-        let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
-            paletteLuminance: theme.artworkLuminance,
-            primaryOpacity: accentOpacity,
-            secondaryOpacity: lowerAccentOpacity,
-            usesIncreasedContrast: colorSchemeContrast == .increased
-        )
-
-        return ZStack {
-            if usesLiquid {
-                // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
-                LiquidArtworkBackdrop(
-                    palette: theme.liquidPalette,
-                    isLight: appearance.isLight,
-                    strength: strength,
-                    isVisible: isNowPlayingSurfaceExposed,
-                    isSceneActive: isVisualSceneActive,
-                    isPlaying: player.isPlaying
-                )
-            } else {
-                AdaptiveNowPlayingBackdrop(
-                    baseColor: appearance.backgroundBase,
-                    primaryAccent: theme.accentColor,
-                    secondaryAccent: theme.secondaryAccent,
-                    darkAccent: theme.darkAccent,
-                    primaryOpacity: accentOpacity,
-                    secondaryOpacity: lowerAccentOpacity,
-                    hasArtworkPalette: hasArtworkTheme,
-                    // 背景图铺满时色场被盖住，停掉它的动画时钟。
-                    isVisible: isNowPlayingSurfaceExposed && !PlayerBackdropResolver.shared.isShowingImage,
-                    isSceneActive: isVisualSceneActive,
-                    isPlaying: player.isPlaying,
-                    paletteVibrancy: theme.artworkVibrancy,
-                    paletteLuminance: theme.artworkLuminance
-                )
-            }
-
-            if backdropSource == .visualizer {
-                // 设置里选了「声音律动」:色场上再画一层跟着声音动的频谱、波形或星尘(#312)。
-                // 压在下面两层遮罩底下,字的对比度照旧由遮罩保证。
-                PlayerVisualizerBackdrop(
-                    style: PlayerBackdropSettingsStore.shared.settings.visualizerStyle,
-                    primary: theme.accentColor,
-                    secondary: theme.secondaryAccent,
-                    deep: theme.darkAccent,
-                    isLight: appearance.isLight,
-                    strength: strength,
-                    isVisible: isNowPlayingSurfaceExposed,
-                    isSceneActive: isVisualSceneActive
-                )
-            }
-
-            if appearance.isLight {
-                // Keep a stable light surface for dark controls without
-                // washing the cover-driven hue back to near-neutral.
-                LinearGradient(
-                    colors: [
-                        .white.opacity(lightOverlay.topOpacity),
-                        .white.opacity(lightOverlay.bottomOpacity)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            } else {
-                // Bright covers receive a little more local protection while
-                // the extracted color field remains visible around the art.
-                LinearGradient(
-                    stops: [
-                        .init(
-                            color: .black.opacity(darkOverlay.topOpacity),
-                            location: 0
-                        ),
-                        .init(
-                            color: .black.opacity(darkOverlay.middleOpacity),
-                            location: 0.56
-                        ),
-                        .init(
-                            color: .black.opacity(darkOverlay.bottomOpacity),
-                            location: 1
-                        )
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-
-            // 设置里选了封面模糊 / 专辑封底 / 自选图片时铺在色场上面。
-            PlayerBackdropImageHost(
-                song: player.isLiveRadio ? nil : player.currentSong,
-                isLight: appearance.isLight,
-                strength: strength,
-                usesIncreasedContrast: colorSchemeContrast == .increased,
-                isSurfaceVisible: isNowPlayingSurfaceExposed && isVisualSceneActive,
-                allowsLoading: isPresentationSettled
-            )
-        }
-        .animation(
-            .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
-            value: theme.colorID
-        )
-        .allowsHitTesting(false)
     }
 
     // MARK: - Full Lyrics
@@ -9845,65 +9911,6 @@ private struct ProgressWaveShape: Shape {
     private func waveOffset(at x: CGFloat, width: CGFloat, taper: CGFloat) -> CGFloat {
         let envelope = min(1, max(0, (width - x) / taper))
         return amplitude * envelope * sin(2 * .pi * x / Self.wavelength - phase)
-    }
-}
-
-/// 设置里「进度条」每个选项旁边的小样,静止画出播到一半多的样子。
-struct NowPlayingProgressStylePreview: View {
-    let style: NowPlayingProgressStyle
-    /// 设置里打开了「进度条发光」时小样也带上光晕。
-    var glows = false
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    private let progress: CGFloat = 0.58
-
-    private var glow: ProgressGlow {
-        ProgressGlow(color: .accentColor, isEnabled: glows, isLit: true, isLight: colorScheme == .light)
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let filled = width * progress
-            let track = ProgressSlider.TrackStyle.forProgressStyle(style)
-            ZStack(alignment: .leading) {
-                switch style {
-                case .wave:
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(width: width - filled, height: track.restingHeight)
-                        .offset(x: filled)
-                    ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: track.restingHeight, lineCap: .round))
-                        .frame(width: filled)
-                        .modifier(glow)
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(width: track.restingHeight, height: 14)
-                        .offset(x: filled - track.restingHeight / 2)
-                        .modifier(glow)
-                case .standard, .dot:
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: track.restingHeight)
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(width: filled, height: track.restingHeight)
-                        .modifier(glow)
-                    if let knob = track.knobDiameter {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: knob, height: knob)
-                            .offset(x: filled - knob / 2)
-                            .modifier(glow)
-                    }
-                }
-            }
-            .frame(height: geo.size.height)
-        }
-        .frame(height: 18)
-        .accessibilityHidden(true)
     }
 }
 

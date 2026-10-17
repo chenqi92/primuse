@@ -39,7 +39,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case playback, equalizer, effects, lyrics, transcription
     case home, libraryDisplay, player, appearance
-    case themeColor, fullscreen, appIcon
+    case themeColor, fullscreen, appIcon, playerStyle
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
     case intelligence, appleMusic, scrobble, siri, carplay
@@ -54,7 +54,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
              .keyboard, .siri, .carplay: .playback
         case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync: .library
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay,
-             .widgets: .appearance
+             .widgets, .playerStyle: .appearance
         case .cloud, .family: .sync
         // Apple TV 与投放本就是对外连接的一种，不值得单开一个只有两项的分类。
         case .intelligence, .appleMusic, .scrobble, .dlna, .appleTV, .relay: .integrations
@@ -73,6 +73,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .themeColor: "theme_color_title"
         case .player: "interface_editor_player"
         case .fullscreen: "fullscreen_effect_settings_title"
+        case .playerStyle: "player_style_editor_title"
         case .appIcon: "app_icon"
         case .home: "interface_editor_home"
         case .libraryDisplay: "interface_editor_library"
@@ -115,6 +116,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .themeColor: "paintpalette"
         case .player: "play.rectangle"
         case .fullscreen: "viewfinder.rectangular"
+        case .playerStyle: "rectangle.bottomthird.inset.filled"
         case .appIcon: "app.badge"
         case .home: "house"
         case .libraryDisplay: "books.vertical"
@@ -154,12 +156,12 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     /// 跳转目标，设置搜索直接命中。
     var isListed: Bool {
         // 外观这一组现在按「哪个界面」列：首页、资料库、播放器、设置页。
-        // 主题色与 App 图标收进设置页，全屏效果收进播放器 —— 它们改的都是那个
+        // 主题色与 App 图标收进设置页，全屏效果与播放页样式收进播放器 —— 它们改的都是那个
         // 界面的样子，摊在根菜单上就看不出改的是哪儿。都仍可被设置搜索命中。
         // about 与 appleTV 不是可跳转的页面，只是设置搜索用来定位根列表上那一行
         // 的锚点（版本信息、Apple TV 推送按钮都直接长在根列表里）。当成普通行
         // 渲染会推出一个空白页。
-        ![.cacheSync, .transcription, .themeColor, .appIcon, .fullscreen,
+        ![.cacheSync, .transcription, .themeColor, .appIcon, .fullscreen, .playerStyle,
           .appleTV, .about].contains(self)
     }
 

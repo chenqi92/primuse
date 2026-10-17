@@ -6273,3 +6273,23 @@
 "lyrics_preview_intro_almost" = "Gleich geht’s los…";
 "lyrics_preview_intro_vocals" = "Gleich setzt der Gesang ein…";
 "lyrics_preview_instrumental" = "Instrumental";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Player-Stil & Tasten";
+"player_style_editor_subtitle" = "Cover, Fortschrittsbalken, Lautstärke, Farben, Hintergrund und Tasten – mit Live-Vorschau";
+"player_style_preview_actual_size" = "Originalgröße";
+"player_style_section_colors" = "Farben";
+"player_transport_style_title" = "Stil der Wiedergabetasten";
+"player_transport_style_footer" = "Die obere Reihe ändert die Wiedergabe-/Pause-Taste, die untere „Zurück“ und „Weiter“. Querformat auf dem iPhone, iPad und die Leiste unter den Vollbild-Liedtexten übernehmen das ebenfalls. Die Sprungtasten bei Podcasts bleiben gleich; Hörbücher und Radio behalten ihr eigenes Aussehen.";
+"player_play_style_filled_circle" = "Gefüllt";
+"player_play_style_plain" = "Ohne Rahmen";
+"player_play_style_outlined_circle" = "Umriss";
+"player_play_style_filled_square" = "Quadrat";
+"player_skip_style_standard" = "Standard";
+"player_skip_style_bold" = "Fett";
+"player_skip_style_track" = "Mit Strich";
+"player_skip_style_filled_circle" = "Gefüllt";
+"player_skip_style_outlined_circle" = "Umriss";
+"player_preview_sample_title" = "Songtitel";
+"player_preview_sample_artist" = "Künstler · Album";
+"player_preview_sample_lyric" = "Hier steht die gerade gesungene Zeile";

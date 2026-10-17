@@ -6250,3 +6250,23 @@
 "lyrics_preview_intro_almost" = "就快到了…";
 "lyrics_preview_intro_vocals" = "人聲馬上進來…";
 "lyrics_preview_instrumental" = "間奏";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "播放頁樣式與按鈕";
+"player_style_editor_subtitle" = "封面、進度條、音量條、顏色、背景和按鈕，邊改邊看效果";
+"player_style_preview_actual_size" = "實際大小";
+"player_style_section_colors" = "顏色";
+"player_transport_style_title" = "播放鍵樣式";
+"player_transport_style_footer" = "上面一排換播放 / 暫停鍵，下面一排換上一首、下一首。手機橫向、iPad 和全螢幕歌詞底部那一排也跟著換；Podcast 的倒退、快轉不變，有聲書和電台保留自己的樣子。";
+"player_play_style_filled_circle" = "實心圓";
+"player_play_style_plain" = "無框";
+"player_play_style_outlined_circle" = "圓圈";
+"player_play_style_filled_square" = "方塊";
+"player_skip_style_standard" = "標準";
+"player_skip_style_bold" = "大號";
+"player_skip_style_track" = "帶豎線";
+"player_skip_style_filled_circle" = "圓底";
+"player_skip_style_outlined_circle" = "圓圈";
+"player_preview_sample_title" = "歌曲名稱";
+"player_preview_sample_artist" = "藝人 · 專輯";
+"player_preview_sample_lyric" = "這裡是正在唱的那一句歌詞";

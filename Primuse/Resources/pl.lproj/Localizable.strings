@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "Już prawie…";
 "lyrics_preview_intro_vocals" = "Zaraz wejdzie wokal…";
 "lyrics_preview_instrumental" = "Instrumentalnie";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Styl i przyciski odtwarzacza";
+"player_style_editor_subtitle" = "Okładka, pasek postępu, głośność, kolory, tło i przyciski – z podglądem na żywo";
+"player_style_preview_actual_size" = "Rzeczywisty rozmiar";
+"player_style_section_colors" = "Kolory";
+"player_transport_style_title" = "Styl przycisków odtwarzania";
+"player_transport_style_footer" = "Górny rząd zmienia przycisk odtwarzania/pauzy, dolny – przyciski poprzedni i następny. Dotyczy to też iPhone’a w poziomie, iPada i paska pod tekstem na pełnym ekranie. Przyciski przewijania w podcastach się nie zmieniają; audiobooki i radio zachowują własny wygląd.";
+"player_play_style_filled_circle" = "Wypełniony";
+"player_play_style_plain" = "Bez ramki";
+"player_play_style_outlined_circle" = "Kontur";
+"player_play_style_filled_square" = "Kwadrat";
+"player_skip_style_standard" = "Standard";
+"player_skip_style_bold" = "Duże";
+"player_skip_style_track" = "Z kreską";
+"player_skip_style_filled_circle" = "Wypełnione";
+"player_skip_style_outlined_circle" = "Kontur";
+"player_preview_sample_title" = "Tytuł utworu";
+"player_preview_sample_artist" = "Wykonawca · Album";
+"player_preview_sample_lyric" = "Tu pojawia się właśnie śpiewany wers";

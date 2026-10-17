@@ -6033,3 +6033,23 @@
 "lyrics_preview_intro_almost" = "Almost there…";
 "lyrics_preview_intro_vocals" = "Vocals incoming…";
 "lyrics_preview_instrumental" = "Instrumental";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Player Style & Buttons";
+"player_style_editor_subtitle" = "Artwork, progress bar, volume, colors, background and buttons, with a live preview";
+"player_style_preview_actual_size" = "Actual Size";
+"player_style_section_colors" = "Colors";
+"player_transport_style_title" = "Playback Button Style";
+"player_transport_style_footer" = "The top row changes the play/pause button, the bottom row changes previous and next. Landscape on iPhone, iPad and the bar under full-screen lyrics follow too. Podcast skip-back and skip-forward stay the same; audiobooks and radio keep their own look.";
+"player_play_style_filled_circle" = "Filled";
+"player_play_style_plain" = "No Frame";
+"player_play_style_outlined_circle" = "Outline";
+"player_play_style_filled_square" = "Square";
+"player_skip_style_standard" = "Standard";
+"player_skip_style_bold" = "Bold";
+"player_skip_style_track" = "With Bar";
+"player_skip_style_filled_circle" = "Filled";
+"player_skip_style_outlined_circle" = "Outline";
+"player_preview_sample_title" = "Song Title";
+"player_preview_sample_artist" = "Artist · Album";
+"player_preview_sample_lyric" = "The line being sung appears here";

@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "Уже скоро…";
 "lyrics_preview_intro_vocals" = "Сейчас вступит вокал…";
 "lyrics_preview_instrumental" = "Проигрыш";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Стиль и кнопки плеера";
+"player_style_editor_subtitle" = "Обложка, полоса прогресса, громкость, цвета, фон и кнопки — с живым предпросмотром";
+"player_style_preview_actual_size" = "Реальный размер";
+"player_style_section_colors" = "Цвета";
+"player_transport_style_title" = "Стиль кнопок воспроизведения";
+"player_transport_style_footer" = "Верхний ряд меняет кнопку воспроизведения/паузы, нижний — кнопки «Назад» и «Далее». Альбомная ориентация iPhone, iPad и панель под полноэкранным текстом песни тоже меняются. Кнопки перемотки в подкастах остаются прежними; аудиокниги и радио сохраняют свой вид.";
+"player_play_style_filled_circle" = "Заливка";
+"player_play_style_plain" = "Без рамки";
+"player_play_style_outlined_circle" = "Контур";
+"player_play_style_filled_square" = "Квадрат";
+"player_skip_style_standard" = "Стандарт";
+"player_skip_style_bold" = "Крупные";
+"player_skip_style_track" = "С чертой";
+"player_skip_style_filled_circle" = "Заливка";
+"player_skip_style_outlined_circle" = "Контур";
+"player_preview_sample_title" = "Название песни";
+"player_preview_sample_artist" = "Исполнитель · Альбом";
+"player_preview_sample_lyric" = "Здесь — строка, которую сейчас поют";

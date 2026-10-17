@@ -172,6 +172,18 @@ enum PlayerAppearancePreferences {
         NowPlayingArtworkStyle(rawValue: rawValue) ?? .card
     }
 
+    /// 播放页播放 / 暂停键与上一首 / 下一首的图标样式(「播放页样式与按钮」里挑)。
+    static let playButtonStyleKey = "primuse.player.playButtonStyle"
+    static let skipButtonStyleKey = "primuse.player.skipButtonStyle"
+
+    static func playButtonStyle(rawValue: String) -> NowPlayingPlayButtonStyle {
+        NowPlayingPlayButtonStyle(rawValue: rawValue) ?? .filledCircle
+    }
+
+    static func skipButtonStyle(rawValue: String) -> NowPlayingSkipButtonStyle {
+        NowPlayingSkipButtonStyle(rawValue: rawValue) ?? .standard
+    }
+
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"
     static let defaultGradientLyricsEndColorHex = "AF52DE"
@@ -317,6 +329,69 @@ enum NowPlayingArtworkStyle: String, CaseIterable, Sendable {
         switch self {
         case .card: "player_artwork_style_card"
         case .fullBleed: "player_artwork_style_full_bleed"
+        }
+    }
+}
+
+/// 播放页播放 / 暂停键的样子。iPhone / iPad 的音乐与播客播放页(竖屏、手机横屏、iPad 横屏、
+/// 原生全屏底部那一排)用它;有声书的竖版、电台各有自己的样子。
+enum NowPlayingPlayButtonStyle: String, CaseIterable, Sendable {
+    /// 一直以来的实心圆,三角在圆里挖空。
+    case filledCircle
+    /// 只有三角 / 两竖,不带框。
+    case plain
+    /// 细圆圈里一个三角。
+    case outlinedCircle
+    /// 实心圆角方块,三角挖空。
+    case filledSquare
+
+    var titleKey: String {
+        switch self {
+        case .filledCircle: "player_play_style_filled_circle"
+        case .plain: "player_play_style_plain"
+        case .outlinedCircle: "player_play_style_outlined_circle"
+        case .filledSquare: "player_play_style_filled_square"
+        }
+    }
+}
+
+/// 播放页上一首 / 下一首的样子。只换音乐的这两颗;有声内容那两颗是快退 / 快进秒数,不跟着换。
+enum NowPlayingSkipButtonStyle: String, CaseIterable, Sendable {
+    /// 一直以来的双三角。
+    case standard
+    /// 双三角放大加粗。
+    case bold
+    /// 双三角带一道竖线(跳到上一首 / 下一首的老写法)。
+    case track
+    /// 实心圆里的双三角。
+    case filledCircle
+    /// 细圆圈里的双三角。
+    case outlinedCircle
+
+    var titleKey: String {
+        switch self {
+        case .standard: "player_skip_style_standard"
+        case .bold: "player_skip_style_bold"
+        case .track: "player_skip_style_track"
+        case .filledCircle: "player_skip_style_filled_circle"
+        case .outlinedCircle: "player_skip_style_outlined_circle"
+        }
+    }
+
+    func symbol(forward: Bool) -> String {
+        switch self {
+        case .standard, .bold: forward ? "forward.fill" : "backward.fill"
+        case .track: forward ? "forward.end.fill" : "backward.end.fill"
+        case .filledCircle: forward ? "forward.circle.fill" : "backward.circle.fill"
+        case .outlinedCircle: forward ? "forward.circle" : "backward.circle"
+        }
+    }
+
+    /// 压在自己的玻璃胶囊里时(手机横屏那一排)用的字形:胶囊已经是框,圆底、圆圈两种换成不带圆的。
+    func glyphSymbol(forward: Bool) -> String {
+        switch self {
+        case .standard, .bold, .filledCircle, .outlinedCircle: forward ? "forward.fill" : "backward.fill"
+        case .track: forward ? "forward.end.fill" : "backward.end.fill"
         }
     }
 }

@@ -6273,3 +6273,23 @@
 "lyrics_preview_intro_almost" = "C’est presque le moment…";
 "lyrics_preview_intro_vocals" = "La voix arrive…";
 "lyrics_preview_instrumental" = "Instrumental";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Style et boutons du lecteur";
+"player_style_editor_subtitle" = "Pochette, barre de progression, volume, couleurs, arrière-plan et boutons, avec aperçu en direct";
+"player_style_preview_actual_size" = "Taille réelle";
+"player_style_section_colors" = "Couleurs";
+"player_transport_style_title" = "Style des boutons de lecture";
+"player_transport_style_footer" = "La rangée du haut change le bouton lecture/pause, celle du bas les boutons précédent et suivant. Le mode paysage sur iPhone, l’iPad et la barre sous les paroles plein écran suivent aussi. Les boutons de saut des podcasts ne changent pas ; les livres audio et la radio gardent leur propre apparence.";
+"player_play_style_filled_circle" = "Plein";
+"player_play_style_plain" = "Sans cadre";
+"player_play_style_outlined_circle" = "Contour";
+"player_play_style_filled_square" = "Carré";
+"player_skip_style_standard" = "Standard";
+"player_skip_style_bold" = "Gras";
+"player_skip_style_track" = "Avec barre";
+"player_skip_style_filled_circle" = "Plein";
+"player_skip_style_outlined_circle" = "Contour";
+"player_preview_sample_title" = "Titre du morceau";
+"player_preview_sample_artist" = "Artiste · Album";
+"player_preview_sample_lyric" = "La ligne chantée s’affiche ici";

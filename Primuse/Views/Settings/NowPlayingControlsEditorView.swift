@@ -2,9 +2,11 @@
 import PrimuseKit
 import SwiftUI
 
-/// 设置 › 播放器 › 播放页按钮。分音乐、有声书、播客、电台四页:
-/// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面,各一张缩小的示意,虚线框就是能换的位置,
-///   点一下挑按钮;没放上去的都在「更多」里。最底下那行状态显示哪几项也在封面那一页。
+/// 设置 › 播放器 › 播放页样式与按钮。分音乐、有声书、播客、电台四页:
+/// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面。封面那一面顶上常驻一张按真机比例实时画的播放页
+///   (`NowPlayingStylePreview`),下面改的封面样式、进度条、音量条、颜色、背景、播放键图标都立刻画上去;
+///   虚线框就是能换的位置,点一下挑按钮,没放上去的都在「更多」里。最底下那行状态显示哪几项也在这一页。
+///   另外三种界面各一张缩小的示意。
 /// - 有声书、播客:一张示意,播放键一行两端与(有声书)章节那一行的虚线框能换按钮;那一排功能块的
 ///   显隐与顺序(AirPlay 也能挪进来),喜欢、文字稿键与上一章 / 下一章,有声书最底下写不写音乐源,
 ///   上滑文字稿时收不收控件。
@@ -59,9 +61,14 @@ struct NowPlayingControlsEditorView: View {
     private var audiobookTextCollapses = NowPlayingTextScrollPreference.collapsesByDefault
     @AppStorage(NowPlayingTextScrollPreference.collapsesKey(for: .podcast))
     private var podcastTextCollapses = NowPlayingTextScrollPreference.collapsesByDefault
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
+    private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     @State private var editing: NowPlayingControlEditingTarget?
+    @State private var showsActualSizePreview = false
 
     #if DEBUG
     /// 取证用:`PRIMUSE_DEBUG_PLAYER_CONTROLS=music|audiobook|podcast|radio`(音乐可以接界面,
@@ -86,40 +93,100 @@ struct NowPlayingControlsEditorView: View {
     /// 看歌词时实际用的那组按钮(全屏歌词「跟歌名旁」跟的就是它的歌名旁那一格)。
     private var lyricsLayout: NowPlayingControlLayout { lyricsControls.resolvedLayout(cover: layout) }
 
+    /// 封面那一面顶上常驻实时预览;其余几页的示意图照旧在列表里。
+    private var showsLivePreview: Bool {
+        page == .music && surface == .cover
+    }
+
     var body: some View {
-        Form {
-            Section {
-                Picker(selection: $page) {
-                    ForEach(Page.allCases) { page in
-                        Text(page.titleKey).tag(page)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                pinnedHeader(in: geometry.size)
+                Divider()
+                form
+            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("player_style_editor_title")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editing) { target in
+            picker(for: target)
+                .presentationDetents([.medium, .large])
+        }
+        .fullScreenCover(isPresented: $showsActualSizePreview) {
+            NowPlayingActualSizePreview(layout: layout)
+        }
+    }
+
+    /// 不随列表滚动的那一块:分页、(音乐)分界面,封面那一面再加实时预览。改下面的设置时预览一直看得见。
+    private func pinnedHeader(in available: CGSize) -> some View {
+        VStack(spacing: 10) {
+            Picker(selection: $page) {
+                ForEach(Page.allCases) { page in
+                    Text(page.titleKey).tag(page)
+                }
+            } label: {
+                Text("player_controls_title")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            if page == .music {
+                Picker(selection: $surface) {
+                    ForEach(MusicSurface.allCases) { surface in
+                        Text(surface.titleKey).tag(surface)
                     }
                 } label: {
-                    Text("player_controls_title")
+                    Text("player_controls_surface_header")
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
 
+            if showsLivePreview {
+                livePreview(in: available)
+            }
+        }
+        .frame(maxWidth: 600)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 预览占这一页高度的不到一半,宽度按这台设备竖屏的比例跟着走;右下角一颗键看实际大小。
+    private func livePreview(in available: CGSize) -> some View {
+        let canvas = NowPlayingPreviewCanvas.current()
+        let aspect = canvas.size.width / max(canvas.size.height, 1)
+        let height = max(160, min(available.height * 0.46, (available.width - 32) / aspect))
+        return NowPlayingStylePreview(
+            canvas: canvas,
+            layout: layout,
+            selectedSlot: editing?.coverSlot
+        ) { editing = .cover($0) }
+            .frame(width: height * aspect, height: height)
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    showsActualSizePreview = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Color(uiColor: .secondarySystemGroupedBackground)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .accessibilityLabel(Text("player_style_preview_actual_size"))
+            }
+    }
+
+    private var form: some View {
+        Form {
             switch page {
             case .music:
-                Section {
-                    Picker(selection: $surface) {
-                        ForEach(MusicSurface.allCases) { surface in
-                            Text(surface.titleKey).tag(surface)
-                        }
-                    } label: {
-                        Text("player_controls_surface_header")
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                } header: {
-                    Text("player_controls_surface_header")
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-
                 switch surface {
                 case .cover: coverSections
                 case .lyrics: lyricsSections
@@ -142,26 +209,12 @@ struct NowPlayingControlsEditorView: View {
                 RadioControlsSections(storage: $radioStorage)
             }
         }
-        .navigationTitle("player_controls_title")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $editing) { target in
-            picker(for: target)
-                .presentationDetents([.medium, .large])
-        }
     }
 
     // MARK: 封面
 
     @ViewBuilder
     private var coverSections: some View {
-            Section {
-                NowPlayingControlsPreview(layout: layout, selectedSlot: editing?.coverSlot) { editing = .cover($0) }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            } footer: {
-                Text("player_controls_footer")
-            }
-
             Section {
                 NavigationLink {
                     NowPlayingMenuItemsEditor(storage: $storage)
@@ -175,7 +228,38 @@ struct NowPlayingControlsEditorView: View {
                         Label("player_menu_items_title", systemImage: "ellipsis.circle")
                     }
                 }
+            } footer: {
+                Text("player_controls_footer")
             }
+
+            Section {
+                NowPlayingStyleChoiceRow(
+                    choices: NowPlayingPlayButtonStyle.allCases,
+                    selection: playButtonStyleBinding,
+                    title: { LocalizedStringKey($0.titleKey) }
+                ) { style in
+                    NowPlayingPlayPauseFace(style: style, showsPause: false, diameter: 34, tint: .primary)
+                }
+                .settingsAnchor("appearance.playerTransportIcons")
+                NowPlayingStyleChoiceRow(
+                    choices: NowPlayingSkipButtonStyle.allCases,
+                    selection: skipButtonStyleBinding,
+                    title: { LocalizedStringKey($0.titleKey) }
+                ) { style in
+                    HStack(spacing: 4) {
+                        Image(systemName: style.symbol(forward: false))
+                        Image(systemName: style.symbol(forward: true))
+                    }
+                    .font(style.font(scale: 0.5))
+                    .foregroundStyle(.primary)
+                }
+            } header: {
+                SettingsInfoHeader("player_transport_style_title") {
+                    Text("player_transport_style_footer")
+                }
+            }
+
+            PlayerLookSettingsSections()
 
             Section {
                 Toggle("player_controls_status_source", isOn: statusBinding(.source))
@@ -190,11 +274,31 @@ struct NowPlayingControlsEditorView: View {
             Section {
                 Button("player_controls_reset") {
                     storage = layout.resettingActions().encoded()
+                    playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+                    skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
                 }
-                .disabled(layout.actions == NowPlayingControlLayout.defaultActions)
+                .disabled(
+                    layout.actions == NowPlayingControlLayout.defaultActions
+                        && playButtonStyleBinding.wrappedValue == .filledCircle
+                        && skipButtonStyleBinding.wrappedValue == .standard
+                )
             } footer: {
                 Text("player_controls_duo_footer")
             }
+    }
+
+    private var playButtonStyleBinding: Binding<NowPlayingPlayButtonStyle> {
+        Binding(
+            get: { PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue) },
+            set: { playButtonStyleRawValue = $0.rawValue }
+        )
+    }
+
+    private var skipButtonStyleBinding: Binding<NowPlayingSkipButtonStyle> {
+        Binding(
+            get: { PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue) },
+            set: { skipButtonStyleRawValue = $0.rawValue }
+        )
     }
 
     private func statusBinding(_ item: NowPlayingStatusItem) -> Binding<Bool> {
@@ -381,6 +485,221 @@ extension NowPlayingControlsEditorView {
             choices.append(.action(action))
         }
         return choices
+    }
+}
+
+/// 播放页封面那一面的样子:封面样式与封面下的歌词、进度条、音量条、控件颜色与深色、背景。
+/// 原来在「设置 › 播放器」,挪到这里和顶上的实时预览放在一起,改了立刻看得到。
+private struct PlayerLookSettingsSections: View {
+    @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
+    private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.controlTintKey)
+    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
+    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
+    @State private var themeSettings = ThemeColorSettings.shared
+
+    var body: some View {
+        Section {
+            Picker(selection: Binding(
+                get: { PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) },
+                set: { artworkStyleRawValue = $0.rawValue }
+            )) {
+                ForEach(NowPlayingArtworkStyle.allCases, id: \.self) { style in
+                    Text(LocalizedStringKey(style.titleKey)).tag(style)
+                }
+            } label: {
+                Text("player_artwork_style_title")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .settingsAnchor("appearance.playerArtworkStyle")
+            Toggle(isOn: $showsArtworkLyrics) {
+                SettingsInfoLabel("player_artwork_lyrics") {
+                    Text("player_artwork_lyrics_description")
+                }
+            }
+            .settingsAnchor("appearance.artworkLyrics")
+        } header: {
+            SettingsInfoHeader("player_artwork_style_title") {
+                Text("player_artwork_style_footer")
+            }
+        }
+
+        Section {
+            Picker(selection: Binding(
+                get: { PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) },
+                set: { progressStyleRawValue = $0.rawValue }
+            )) {
+                ForEach(NowPlayingProgressStyle.allCases, id: \.self) { style in
+                    Text(LocalizedStringKey(style.titleKey)).tag(style)
+                }
+            } label: {
+                Text("player_progress_style_title")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .settingsAnchor("appearance.playerProgressStyle")
+            Toggle("player_progress_glow", isOn: $progressGlows)
+                .settingsAnchor("appearance.playerProgressGlow")
+                .accessibilityHint(Text("player_progress_glow_description"))
+        } header: {
+            SettingsInfoHeader("player_progress_style_title") {
+                Text("player_progress_style_footer")
+            }
+        }
+
+        Section {
+            Toggle(isOn: $showsVolumeBar) {
+                SettingsInfoLabel("player_volume_bar") {
+                    Text("player_volume_bar_description")
+                }
+            }
+            .settingsAnchor("appearance.volumeBar")
+        }
+
+        Section {
+            Picker(selection: Binding(
+                get: { PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) },
+                set: { controlTintRawValue = $0.rawValue }
+            )) {
+                ForEach(NowPlayingControlTint.allCases, id: \.self) { tint in
+                    Text(LocalizedStringKey(tint.titleKey)).tag(tint)
+                }
+            } label: {
+                SettingsInfoLabel("player_control_tint_title") {
+                    Text("player_control_tint_footer")
+                }
+            }
+            .settingsAnchor("appearance.playerControlTint")
+            Toggle(isOn: $playerAlwaysDark) {
+                Label {
+                    SettingsInfoLabel("player_always_dark_title") {
+                        Text("player_always_dark_footer")
+                    }
+                } icon: {
+                    Image(systemName: "moon.circle")
+                }
+            }
+            .settingsAnchor("appearance.playerAlwaysDark")
+        } header: {
+            Text("player_style_section_colors")
+        } footer: {
+            // 主题色选了「白色」时控件颜色两个选项画出来一样,说一声免得以为没生效。
+            if themeSettings.isWhiteTheme {
+                Text("player_control_tint_white_theme_note")
+            }
+        }
+
+        // 播放页背景:选哪种背景,再调封面色有多浓(#69)。
+        PlayerBackdropSettingsSections()
+
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label {
+                        SettingsInfoLabel(verbatim: PMString("ext.tv.settings.ambientIntensity")) {
+                            Text("player_backdrop_strength_footer")
+                        }
+                    } icon: {
+                        Image(systemName: "sun.haze.fill")
+                    }
+                    Spacer()
+                    Text(verbatim: "\(Int(round(themeSettings.ambientStrength * 100)))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { themeSettings.ambientStrength },
+                    set: { themeSettings.ambientStrength = AppThemePreferences.normalizedAmbientStrength($0) }
+                ), in: 0...1, step: 0.05)
+            }
+            .padding(.vertical, 4)
+            .settingsAnchor("appearance.ambientStrength")
+        }
+    }
+}
+
+/// 一排样式小样,点一个就选它。每格等宽分掉这一行,放不下的名字缩小一点。
+private struct NowPlayingStyleChoiceRow<Choice: Hashable, Face: View>: View {
+    let choices: [Choice]
+    @Binding var selection: Choice
+    let title: (Choice) -> LocalizedStringKey
+    @ViewBuilder let face: (Choice) -> Face
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(choices, id: \.self) { choice in
+                let isSelected = choice == selection
+                Button {
+                    selection = choice
+                } label: {
+                    VStack(spacing: 6) {
+                        face(choice)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(uiColor: .tertiarySystemFill))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), lineWidth: 2)
+                            )
+                        Text(title(choice))
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(title(choice)))
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+/// 「实际大小」:整屏铺开那张预览,和真的播放页一样大。点哪儿都关。
+private struct NowPlayingActualSizePreview: View {
+    let layout: NowPlayingControlLayout
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black
+                .ignoresSafeArea()
+            NowPlayingStylePreview(canvas: .current(), layout: layout, editsSlots: false)
+                .ignoresSafeArea()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .padding(.trailing, 16)
+            .accessibilityLabel(Text("close"))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { dismiss() }
     }
 }
 
@@ -1021,111 +1340,6 @@ extension NowPlayingMenuItem {
 }
 
 // MARK: - 缩小的播放页
-
-/// 竖屏音乐播放页的示意:封面、歌名、进度、传输键、底栏与状态行。固定不动的部分画淡,
-/// 能换的六个位置画成虚线框,里面是此刻放的按钮(空着时是一个加号)。
-private struct NowPlayingControlsPreview: View {
-    let layout: NowPlayingControlLayout
-    let selectedSlot: NowPlayingControlSlot?
-    let onSelect: (NowPlayingControlSlot) -> Void
-
-    private let width: CGFloat = 236
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Capsule()
-                .fill(.quaternary)
-                .frame(width: 30, height: 4)
-                .padding(.top, 10)
-
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.tint.opacity(0.18))
-                .overlay {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(.tint.opacity(0.55))
-                }
-                .frame(width: width - 64, height: width - 64)
-                .padding(.top, 16)
-
-            HStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 5) {
-                    EditorPlaceholderLine(width: 92, height: 9)
-                    EditorPlaceholderLine(width: 64, height: 7)
-                }
-                Spacer(minLength: 0)
-                slotButton(.header)
-                EditorFixedIcon(symbol: "ellipsis")
-            }
-            .padding(.top, 14)
-
-            EditorProgressLine()
-                .padding(.top, 10)
-
-            HStack(spacing: 0) {
-                slotButton(.leadingEdge)
-                Spacer(minLength: 0)
-                EditorFixedIcon(symbol: "backward.fill", size: 17)
-                Spacer(minLength: 0)
-                EditorFixedIcon(symbol: "play.circle.fill", size: 34)
-                Spacer(minLength: 0)
-                EditorFixedIcon(symbol: "forward.fill", size: 17)
-                Spacer(minLength: 0)
-                slotButton(.trailingEdge)
-            }
-            .padding(.top, 8)
-
-            HStack(spacing: 0) {
-                slotButton(.barLeading)
-                Spacer(minLength: 0)
-                slotButton(.barCenter)
-                Spacer(minLength: 0)
-                slotButton(.barTrailing)
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-
-            statusLine
-                .padding(.top, 6)
-                .padding(.bottom, 12)
-        }
-        .editorPhoneFrame(width: width)
-    }
-
-    private func slotButton(_ slot: NowPlayingControlSlot) -> some View {
-        let action = layout.action(in: slot)
-        return EditorSlotButton(
-            symbol: action?.editorSymbol,
-            isSelected: selectedSlot == slot,
-            title: slot.editorTitleKey,
-            value: action?.editorTitleKey ?? "player_controls_empty"
-        ) { onSelect(slot) }
-    }
-
-    /// 最底下那行:关掉的项不写,全关了就空着一行。
-    private var statusLine: some View {
-        let items: [(item: NowPlayingStatusItem, symbol: String)] = [
-            (item: .source, symbol: "externaldrive"),
-            (item: .output, symbol: "headphones"),
-            (item: .sleepTimer, symbol: "moon.zzz.fill"),
-        ]
-        let shown = items.filter { layout.showsStatusItem($0.item) }
-        return HStack(spacing: 5) {
-            ForEach(Array(shown.enumerated()), id: \.offset) { index, entry in
-                if index > 0 {
-                    Text(verbatim: "·")
-                }
-                Image(systemName: entry.symbol)
-                    .imageScale(.small)
-                EditorPlaceholderLine(width: 22, height: 4)
-            }
-        }
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
-        .frame(height: 14)
-        .accessibilityHidden(true)
-    }
-}
 
 /// 竖屏看歌词的示意:顶上小封面与歌名、歌词页多出来那一格、歌名旁那一格和更多,中间几行歌词,
 /// 下面进度、传输键与底栏。没单独设置时六个位置跟封面界面一样,只画不让点(多出来那一格总能换)。

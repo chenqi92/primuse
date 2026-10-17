@@ -6366,3 +6366,23 @@
 "lyrics_preview_intro_almost" = "就快到了…";
 "lyrics_preview_intro_vocals" = "人声马上进来…";
 "lyrics_preview_instrumental" = "间奏";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "播放页样式与按钮";
+"player_style_editor_subtitle" = "封面、进度条、音量条、颜色、背景和按钮，边改边看效果";
+"player_style_preview_actual_size" = "实际大小";
+"player_style_section_colors" = "颜色";
+"player_transport_style_title" = "播放键样式";
+"player_transport_style_footer" = "上面一排换播放 / 暂停键，下面一排换上一首、下一首。手机横屏、iPad 和全屏歌词底部那一排也跟着换；播客的快退、快进不变，有声书和电台保留自己的样子。";
+"player_play_style_filled_circle" = "实心圆";
+"player_play_style_plain" = "无框";
+"player_play_style_outlined_circle" = "圆圈";
+"player_play_style_filled_square" = "方块";
+"player_skip_style_standard" = "标准";
+"player_skip_style_bold" = "大号";
+"player_skip_style_track" = "带竖线";
+"player_skip_style_filled_circle" = "圆底";
+"player_skip_style_outlined_circle" = "圆圈";
+"player_preview_sample_title" = "歌曲名称";
+"player_preview_sample_artist" = "艺人 · 专辑";
+"player_preview_sample_lyric" = "这里是正在唱的那一句歌词";

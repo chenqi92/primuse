@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "Quase lá…";
 "lyrics_preview_intro_vocals" = "A voz já vem…";
 "lyrics_preview_instrumental" = "Instrumental";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Estilo e botões do player";
+"player_style_editor_subtitle" = "Capa, barra de progresso, volume, cores, fundo e botões, com prévia ao vivo";
+"player_style_preview_actual_size" = "Tamanho real";
+"player_style_section_colors" = "Cores";
+"player_transport_style_title" = "Estilo dos botões de reprodução";
+"player_transport_style_footer" = "A fileira de cima muda o botão de reproduzir/pausar e a de baixo os de anterior e próxima. Também vale para o iPhone na horizontal, o iPad e a barra sob a letra em tela cheia. Os botões de pular dos podcasts não mudam; audiolivros e rádio mantêm a própria aparência.";
+"player_play_style_filled_circle" = "Preenchido";
+"player_play_style_plain" = "Sem moldura";
+"player_play_style_outlined_circle" = "Contorno";
+"player_play_style_filled_square" = "Quadrado";
+"player_skip_style_standard" = "Padrão";
+"player_skip_style_bold" = "Grande";
+"player_skip_style_track" = "Com barra";
+"player_skip_style_filled_circle" = "Preenchido";
+"player_skip_style_outlined_circle" = "Contorno";
+"player_preview_sample_title" = "Título da música";
+"player_preview_sample_artist" = "Artista · Álbum";
+"player_preview_sample_lyric" = "Aqui aparece o verso que está sendo cantado";

@@ -6179,3 +6179,23 @@
 "lyrics_preview_intro_almost" = "Az kaldı…";
 "lyrics_preview_intro_vocals" = "Vokal geliyor…";
 "lyrics_preview_instrumental" = "Enstrümantal";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "Oynatıcı Stili ve Düğmeler";
+"player_style_editor_subtitle" = "Kapak, ilerleme çubuğu, ses, renkler, arka plan ve düğmeler; canlı önizlemeyle";
+"player_style_preview_actual_size" = "Gerçek Boyut";
+"player_style_section_colors" = "Renkler";
+"player_transport_style_title" = "Oynatma Düğmesi Stili";
+"player_transport_style_footer" = "Üst sıra oynat/duraklat düğmesini, alt sıra önceki ve sonraki düğmelerini değiştirir. iPhone yatay görünümü, iPad ve tam ekran şarkı sözlerinin altındaki çubuk da buna uyar. Podcast atlama düğmeleri değişmez; sesli kitaplar ve radyo kendi görünümünü korur.";
+"player_play_style_filled_circle" = "Dolu";
+"player_play_style_plain" = "Çerçevesiz";
+"player_play_style_outlined_circle" = "Dış Çizgi";
+"player_play_style_filled_square" = "Kare";
+"player_skip_style_standard" = "Standart";
+"player_skip_style_bold" = "Kalın";
+"player_skip_style_track" = "Çizgili";
+"player_skip_style_filled_circle" = "Dolu";
+"player_skip_style_outlined_circle" = "Dış Çizgi";
+"player_preview_sample_title" = "Şarkı Adı";
+"player_preview_sample_artist" = "Sanatçı · Albüm";
+"player_preview_sample_lyric" = "Şu an söylenen satır burada görünür";

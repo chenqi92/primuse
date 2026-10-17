@@ -6,6 +6,33 @@ import XCTest
 @testable import Primuse
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
+    func testTransportIconStylesFallBackToTheOriginalLook() {
+        XCTAssertEqual(PlayerAppearancePreferences.playButtonStyle(rawValue: ""), .filledCircle)
+        XCTAssertEqual(PlayerAppearancePreferences.playButtonStyle(rawValue: "sparkly"), .filledCircle)
+        XCTAssertEqual(PlayerAppearancePreferences.skipButtonStyle(rawValue: ""), .standard)
+        XCTAssertEqual(NowPlayingSkipButtonStyle.standard.symbol(forward: false), "backward.fill")
+        XCTAssertEqual(NowPlayingSkipButtonStyle.standard.symbol(forward: true), "forward.fill")
+        // 存进设置的是原始值,改名就丢了用户选的样式。
+        XCTAssertEqual(
+            NowPlayingPlayButtonStyle.allCases.map(\.rawValue),
+            ["filledCircle", "plain", "outlinedCircle", "filledSquare"]
+        )
+        XCTAssertEqual(
+            NowPlayingSkipButtonStyle.allCases.map(\.rawValue),
+            ["standard", "bold", "track", "filledCircle", "outlinedCircle"]
+        )
+        for style in NowPlayingSkipButtonStyle.allCases {
+            // 上一首、下一首是一对:同一种写法,只是方向相反。
+            XCTAssertEqual(
+                style.symbol(forward: false).replacingOccurrences(of: "backward", with: "forward"),
+                style.symbol(forward: true)
+            )
+            // 手机横屏那两颗自己有玻璃胶囊,不再套圆。
+            XCTAssertFalse(style.glyphSymbol(forward: false).contains("circle"))
+            XCTAssertFalse(style.glyphSymbol(forward: true).contains("circle"))
+        }
+    }
+
     func testLightAmbientOverlayKeepsDefaultAppearance() {
         let overlay = AmbientLightOverlayPolicy.resolve(
             hasArtworkTheme: true,

@@ -6273,3 +6273,23 @@
 "lyrics_preview_intro_almost" = "거의 다 왔어요…";
 "lyrics_preview_intro_vocals" = "곧 노래가 시작됩니다…";
 "lyrics_preview_instrumental" = "간주";
+
+/* 播放页样式与按钮 */
+"player_style_editor_title" = "재생 화면 스타일 및 버튼";
+"player_style_editor_subtitle" = "앨범 아트, 진행 막대, 볼륨, 색상, 배경, 버튼을 실시간 미리보기로 조정";
+"player_style_preview_actual_size" = "실제 크기";
+"player_style_section_colors" = "색상";
+"player_transport_style_title" = "재생 버튼 스타일";
+"player_transport_style_footer" = "위 줄은 재생/일시정지 버튼, 아래 줄은 이전·다음 버튼을 바꿉니다. iPhone 가로 화면, iPad, 전체 화면 가사 아래 막대에도 적용됩니다. 팟캐스트의 뒤로·앞으로 건너뛰기는 그대로이며, 오디오북과 라디오는 고유한 모양을 유지합니다.";
+"player_play_style_filled_circle" = "채움";
+"player_play_style_plain" = "테두리 없음";
+"player_play_style_outlined_circle" = "윤곽선";
+"player_play_style_filled_square" = "사각형";
+"player_skip_style_standard" = "기본";
+"player_skip_style_bold" = "굵게";
+"player_skip_style_track" = "막대 포함";
+"player_skip_style_filled_circle" = "채움";
+"player_skip_style_outlined_circle" = "윤곽선";
+"player_preview_sample_title" = "노래 제목";
+"player_preview_sample_artist" = "아티스트 · 앨범";
+"player_preview_sample_lyric" = "지금 부르는 가사가 여기에 표시됩니다";
