@@ -6211,3 +6211,6 @@
 "source_diag_download_no_song" = "चुने गए फ़ोल्डरों में कोई गाना नहीं मिला, इसलिए डाउनलोड की जाँच नहीं की गई।";
 "source_diag_advice_download_quota_title" = "डाउनलोड कोटा खत्म";
 "source_diag_advice_download_quota_suggestion" = "अगले महीने कोटा रीसेट होने का इंतज़ार करें या इस क्लाउड स्टोरेज की सदस्यता लें। कैश और ऑफ़लाइन गाने चलते रहेंगे।";
+
+"source_skip_countdown %@ %lld" = "%1$@ %2$lld सेकंड में इस संगीत स्रोत के गाने छोड़कर दूसरे स्रोतों के गाने चलेंगे।";
+"source_skip_now" = "अभी छोड़ें";

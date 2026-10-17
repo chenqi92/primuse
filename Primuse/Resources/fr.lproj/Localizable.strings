@@ -6305,3 +6305,6 @@
 "source_diag_download_no_song" = "Aucun morceau trouvé dans les dossiers sélectionnés : le téléchargement n’a pas été testé.";
 "source_diag_advice_download_quota_title" = "Quota de téléchargement épuisé";
 "source_diag_advice_download_quota_suggestion" = "Attendez la réinitialisation le mois prochain ou souscrivez l’abonnement de ce stockage en ligne. Les morceaux en cache et hors ligne restent lisibles.";
+
+"source_skip_countdown %@ %lld" = "%1$@ Dans %2$lld s, les morceaux de cette source musicale seront ignorés et ceux d’autres sources seront lus.";
+"source_skip_now" = "Ignorer maintenant";

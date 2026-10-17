@@ -6211,3 +6211,6 @@
 "source_diag_download_no_song" = "W wybranych folderach nie znaleziono utworów, więc pobierania nie sprawdzono.";
 "source_diag_advice_download_quota_title" = "Wykorzystano limit pobierania";
 "source_diag_advice_download_quota_suggestion" = "Poczekaj na odnowienie limitu w przyszłym miesiącu lub wykup członkostwo w tej usłudze chmurowej. Utwory z pamięci podręcznej i offline nadal można odtwarzać.";
+
+"source_skip_countdown %@ %lld" = "%1$@ Za %2$lld s utwory z tego źródła muzyki zostaną pominięte i zaczną grać utwory z innych źródeł.";
+"source_skip_now" = "Pomiń teraz";

@@ -6398,3 +6398,6 @@
 "source_diag_download_no_song" = "所选目录里没有找到歌曲，没有试下载。";
 "source_diag_advice_download_quota_title" = "下载流量已用完";
 "source_diag_advice_download_quota_suggestion" = "等下月流量重置，或开通这个云盘的会员；已缓存和离线下载的歌曲照常播放。";
+
+"source_skip_countdown %@ %lld" = "%1$@%2$lld 秒后跳过这个音乐源的歌，接着播放其他音乐源的歌曲。";
+"source_skip_now" = "立即跳过";

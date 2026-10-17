@@ -682,6 +682,13 @@ final class AudioPlayerService {
         }
     }
     private(set) var lastPlaybackError: String?
+    /// 整个来源暂时放不了(云盘本月下载流量用完)、队列后面还有别的歌能播时,跳过这个来源之前的倒计时。
+    /// 界面据此在出错提示上加「取消」「立即跳过」。
+    private(set) var pendingSourceSkip: PendingSourceSkip?
+    @ObservationIgnored var pendingSourceSkipTask: Task<Void, Never>?
+    /// 这一轮已经倒数跳过的来源:同一来源再失败就直接跳,不再每首都倒数。来源恢复后
+    /// (`CloudDownloadQuotaState` 清掉)不会再走到这里,所以不必单独清。
+    @ObservationIgnored var acknowledgedSkippedSourceIDs: Set<String> = []
     /// 起播前正在把这首歌从 iCloud 云盘下到本机(值是歌曲 id)。界面据此把通用的
     /// 转圈换成「正在从 iCloud 下载」。
     var iCloudDownloadingSongID: String?
@@ -3871,6 +3878,103 @@ final class AudioPlayerService {
         errorDismissTask?.cancel()
         errorDismissTask = nil
         lastPlaybackError = nil
+        clearPendingSourceSkip()
+    }
+
+    private func clearPendingSourceSkip() {
+        pendingSourceSkipTask?.cancel()
+        pendingSourceSkipTask = nil
+        if pendingSourceSkip != nil { pendingSourceSkip = nil }
+    }
+
+    /// 整个来源暂时放不了(目前只有云盘本月下载流量用完):队列后面还有别的来源、或本机有
+    /// 完整音频的歌时,停在这首把原因和倒计时摆出来,到点跳过这个来源没缓存的歌;暂停、换歌、
+    /// 点「取消」都会作废。后面没有能播的就只说明原因。同一来源这一轮倒数过就直接跳。
+    func handleUnavailableSourceFailure(song: Song, reason: String) async {
+        isLoading = false
+        substituteQueuedCopies(fromUnavailableSource: song.sourceID)
+        guard hasPlayableSuccessor(skippingSourceID: song.sourceID) else {
+            suspendPlaybackAfterFailure(reason: "unavailable-source-no-alternative", message: reason)
+            return
+        }
+        if acknowledgedSkippedSourceIDs.contains(song.sourceID) {
+            plog("⏭️ Source \(song.sourceID.prefix(8)) still unavailable; skipping without countdown")
+            await autoAdvanceAfterFailure(skippingSourceID: song.sourceID, trigger: "unavailable-source-repeat")
+            return
+        }
+        clearPendingSourceSkip()
+        let skip = PendingSourceSkip(
+            sourceID: song.sourceID,
+            songID: song.id,
+            reason: reason,
+            secondsRemaining: PendingSourceSkip.countdownSeconds
+        )
+        pendingSourceSkip = skip
+        showPlaybackError(skip.message, automaticallyDismiss: false)
+        republishNowPlayingSurfaces()
+        plog("⏳ Source \(song.sourceID.prefix(8)) unavailable; skipping its songs in \(skip.secondsRemaining)s")
+        pendingSourceSkipTask = Task { @MainActor [weak self] in
+            var remaining = skip.secondsRemaining
+            while remaining > 0 {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, self.pendingSourceSkip?.songID == skip.songID else { return }
+                guard self.interruptionResumePolicy.playbackIsIntended,
+                      self.currentSong?.id == skip.songID else {
+                    self.cancelPendingSourceSkip()
+                    return
+                }
+                remaining -= 1
+                guard remaining > 0 else { break }
+                self.pendingSourceSkip?.secondsRemaining = remaining
+                if let current = self.pendingSourceSkip {
+                    self.showPlaybackError(current.message, automaticallyDismiss: false)
+                }
+            }
+            guard let self else { return }
+            // 前进会重新起播,起播时会清倒计时;先放掉自己,免得把正在跑的这次前进一起取消。
+            self.pendingSourceSkipTask = nil
+            await self.completeSourceSkip(skip)
+        }
+    }
+
+    /// 倒计时里点「立即跳过」。
+    func skipUnavailableSourceNow() {
+        guard let skip = pendingSourceSkip else { return }
+        pendingSourceSkipTask?.cancel()
+        pendingSourceSkipTask = nil
+        Task { @MainActor [weak self] in await self?.completeSourceSkip(skip) }
+    }
+
+    /// 倒计时里点「取消」,或者期间暂停、换了歌:留在这首,只留原因。
+    func cancelPendingSourceSkip() {
+        guard let skip = pendingSourceSkip else { return }
+        clearPendingSourceSkip()
+        plog("✋ Source skip countdown cancelled for \(skip.sourceID.prefix(8))")
+        if currentSong?.id == skip.songID {
+            showPlaybackError(skip.reason, automaticallyDismiss: false)
+        }
+    }
+
+    private func completeSourceSkip(_ skip: PendingSourceSkip) async {
+        guard pendingSourceSkip?.songID == skip.songID, currentSong?.id == skip.songID else { return }
+        pendingSourceSkip = nil
+        acknowledgedSkippedSourceIDs.insert(skip.sourceID)
+        await autoAdvanceAfterFailure(skippingSourceID: skip.sourceID, trigger: "unavailable-source-skip")
+        if currentSong?.id == skip.songID, !isPlaying, !isLoading {
+            // 前进没成(期间换了队列之类):至少把原因留在这首上。
+            showPlaybackError(skip.reason, automaticallyDismiss: false)
+        }
+    }
+
+    /// 跳过这个来源没缓存的歌之后,队列里还有没有能接着播的。
+    private func hasPlayableSuccessor(skippingSourceID sourceID: String) -> Bool {
+        upcomingQueueTraversalTargets(maximumCount: queueEntries.count).contains { target in
+            let song = queueEntries[target.queueIndex].song
+            return !SourceFailureAdvancePolicy.shouldSkipCandidate(
+                failedSourceID: sourceID,
+                candidateSourceID: song.sourceID
+            ) || sourceManager?.hasUsableCachedAudioForPlayback(song) == true
+        }
     }
 
     func dismissPlaybackError() {
@@ -4235,6 +4339,10 @@ final class AudioPlayerService {
                 break
             }
             plog("Playback URL resolution error: \(error)")
+            if case CloudDriveError.downloadQuotaExceeded = error {
+                await handleUnavailableSourceFailure(song: song, reason: error.localizedDescription)
+                return
+            }
             if playbackMetadataSourceType?(song.sourceID) == .appleMusicLibrary {
                 suspendPlaybackAfterFailure(
                     reason: "apple-music-local-resolution-failure",
@@ -5286,7 +5394,7 @@ final class AudioPlayerService {
                     // 云盘这个月的下载流量用完了:整首下载一样会被拒,不再兜底,
                     // 直接说清原因,别让人以为是文件坏了。
                     plog("⛔️ '\(song.title)' not playable: cloud download quota exhausted")
-                    suspendPlaybackAfterFailure(reason: "cloud-download-quota-exhausted", message: quotaMessage)
+                    await handleUnavailableSourceFailure(song: song, reason: quotaMessage)
                 } else if await cloudFullDownloadFallback(
                     song: song,
                     outputFormat: outputFormat,
@@ -5525,6 +5633,10 @@ final class AudioPlayerService {
                     }
                     self.showPlaybackError(quotaMessage ?? String(localized: "playback_error_decode"))
                     if scheduledCount < 3 {
+                        if let quotaMessage {
+                            await self.handleUnavailableSourceFailure(song: song, reason: quotaMessage)
+                            return
+                        }
                         // Too little decoded to be worth playing — bail now.
                         // Helper handles repeat-one (stop, don't loop broken
                         // file), shuffle correctness, and stop-when-no-next.
@@ -8058,4 +8170,23 @@ final class AudioPlayerService {
     var lastWidgetCoverKey: String?
     /// Coalesces repeated WidgetKit reload requests with identical content.
     var lastWidgetTimelineSignature: String?
+}
+
+/// 跳过整个来源之前的倒计时(见 `AudioPlayerService.handleUnavailableSourceFailure`)。
+struct PendingSourceSkip: Equatable {
+    static let countdownSeconds = 5
+
+    let sourceID: String
+    let songID: String
+    /// 来源为什么放不了,倒计时作废后留在提示上。
+    let reason: String
+    var secondsRemaining: Int
+
+    var message: String {
+        String(
+            format: String(localized: "source_skip_countdown %@ %lld"),
+            reason,
+            Int64(secondsRemaining)
+        )
+    }
 }

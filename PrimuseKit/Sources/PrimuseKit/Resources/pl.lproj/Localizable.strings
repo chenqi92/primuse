@@ -991,3 +991,6 @@
 
 /* 歌词换句过渡在原生全屏下不起作用 */
 "immersive_lyrics_motion_native_note" = "Efekt Oryginał tego nie używa";
+
+/* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
+"ext.tv.playback.quotaSkipCountdown" = "%1$@: wykorzystano limit pobierania na ten miesiąc. Za %2$d s utwory z tego źródła zostaną pominięte i zagrają utwory z innych źródeł. Naciśnij Odtwórz/Pauza, aby zostać przy tym utworze, lub Dalej, aby pominąć od razu.";

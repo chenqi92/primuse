@@ -6282,3 +6282,6 @@
 "source_diag_download_no_song" = "所選目錄裡沒有找到歌曲，沒有試下載。";
 "source_diag_advice_download_quota_title" = "下載流量已用完";
 "source_diag_advice_download_quota_suggestion" = "等下個月流量重設，或開通這個雲端硬碟的會員；已快取和離線下載的歌曲照常播放。";
+
+"source_skip_countdown %@ %lld" = "%1$@%2$lld 秒後跳過這個音樂來源的歌，接著播放其他音樂來源的歌曲。";
+"source_skip_now" = "立即跳過";

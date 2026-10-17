@@ -6211,3 +6211,6 @@
 "source_diag_download_no_song" = "No se encontraron canciones en las carpetas seleccionadas, así que no se probó la descarga.";
 "source_diag_advice_download_quota_title" = "Cuota de descarga agotada";
 "source_diag_advice_download_quota_suggestion" = "Espera a que se restablezca el próximo mes o contrata la membresía de este almacenamiento en la nube. Las canciones en caché y sin conexión se siguen reproduciendo.";
+
+"source_skip_countdown %@ %lld" = "%1$@ En %2$lld s se omitirán las canciones de esta fuente de música y se reproducirán canciones de otras fuentes.";
+"source_skip_now" = "Omitir ahora";

@@ -6211,3 +6211,6 @@
 "source_diag_download_no_song" = "Seçilen klasörlerde şarkı bulunamadı, bu yüzden indirme denenmedi.";
 "source_diag_advice_download_quota_title" = "İndirme kotası doldu";
 "source_diag_advice_download_quota_suggestion" = "Kotanın gelecek ay sıfırlanmasını bekleyin veya bu bulut depolamanın üyeliğine geçin. Önbellekteki ve çevrimdışı şarkılar çalmaya devam eder.";
+
+"source_skip_countdown %@ %lld" = "%1$@ %2$lld sn sonra bu müzik kaynağındaki şarkılar atlanacak ve diğer kaynaklardaki şarkılar çalınacak.";
+"source_skip_now" = "Şimdi atla";

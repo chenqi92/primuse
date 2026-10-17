@@ -6305,3 +6305,6 @@
 "source_diag_download_no_song" = "선택한 폴더에서 노래를 찾지 못해 다운로드를 확인하지 않았습니다.";
 "source_diag_advice_download_quota_title" = "다운로드 용량 소진";
 "source_diag_advice_download_quota_suggestion" = "다음 달 초기화를 기다리거나 이 클라우드 드라이브의 멤버십에 가입하세요. 캐시된 노래와 오프라인 노래는 계속 재생됩니다.";
+
+"source_skip_countdown %@ %lld" = "%1$@ %2$lld초 후 이 음악 소스의 노래를 건너뛰고 다른 소스의 노래를 재생합니다.";
+"source_skip_now" = "지금 건너뛰기";

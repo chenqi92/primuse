@@ -6211,3 +6211,6 @@
 "source_diag_download_no_song" = "Nenhuma música encontrada nas pastas selecionadas, então o download não foi testado.";
 "source_diag_advice_download_quota_title" = "Cota de download esgotada";
 "source_diag_advice_download_quota_suggestion" = "Aguarde a renovação no próximo mês ou contrate o plano de membro deste armazenamento em nuvem. Músicas em cache e offline continuam tocando.";
+
+"source_skip_countdown %@ %lld" = "%1$@ Em %2$lld s, as músicas desta fonte serão puladas e músicas de outras fontes vão tocar.";
+"source_skip_now" = "Pular agora";

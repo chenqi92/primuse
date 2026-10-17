@@ -6065,3 +6065,6 @@
 "source_diag_download_no_song" = "No songs were found in the selected folders, so downloading wasn’t tested.";
 "source_diag_advice_download_quota_title" = "Download allowance used up";
 "source_diag_advice_download_quota_suggestion" = "Wait for the allowance to reset next month, or get a membership for this cloud drive. Cached and offline songs still play.";
+
+"source_skip_countdown %@ %lld" = "%1$@ In %2$lld s, songs from this music source will be skipped and songs from other sources will play.";
+"source_skip_now" = "Skip Now";

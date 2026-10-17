@@ -6306,3 +6306,6 @@
 "source_diag_download_no_song" = "選択したフォルダに曲が見つからないため、ダウンロードは確認していません。";
 "source_diag_advice_download_quota_title" = "ダウンロード容量の上限に達しました";
 "source_diag_advice_download_quota_suggestion" = "来月のリセットを待つか、このクラウドストレージの会員になってください。キャッシュ済みの曲とオフラインの曲は再生できます。";
+
+"source_skip_countdown %@ %lld" = "%1$@ %2$lld 秒後にこのミュージックソースの曲をスキップし、ほかのソースの曲を再生します。";
+"source_skip_now" = "今すぐスキップ";

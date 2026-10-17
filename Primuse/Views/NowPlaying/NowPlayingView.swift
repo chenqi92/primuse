@@ -4731,14 +4731,9 @@ struct NowPlayingView: View {
                 .padding(.bottom, 10)
 
             if let error = player.lastPlaybackError {
-                Text(error)
-                    .font(.caption).fontWeight(.medium)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(.red.opacity(0.8), in: Capsule())
-                    // lastPlaybackError 由服务层裸赋值, 调用点包不住动画事务,
-                    // 曲线只能附在过渡本身上。
-                    .pmSlideTransition(edge: .top, motion: .list)
+                // lastPlaybackError 由服务层裸赋值, 调用点包不住动画事务,
+                // 曲线只能附在过渡本身上(提示条里已经带了)。
+                playbackErrorToast(error)
             }
 
             GeometryReader { artworkGeometry in
@@ -5502,13 +5497,8 @@ struct NowPlayingView: View {
                 .pmLayoutSwitchFade()
 
             if let error = player.lastPlaybackError {
-                Text(error)
-                    .font(.caption).fontWeight(.medium)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(.red.opacity(0.8), in: Capsule())
+                playbackErrorToast(error)
                     .padding(.top, 4)
-                    .pmSlideTransition(edge: .top, motion: .list)
             }
 
             VStack(spacing: 0) {
@@ -6350,12 +6340,43 @@ struct NowPlayingView: View {
     }
 
     private func playbackErrorToast(_ error: String) -> some View {
-        Text(error)
-            .font(.caption).fontWeight(.medium)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(.red.opacity(0.8), in: Capsule())
-            .pmSlideTransition(edge: .top, motion: .list)
+        let offersSourceSkip = player.pendingSourceSkip != nil
+        return VStack(spacing: 8) {
+            Text(error)
+                .font(.caption).fontWeight(.medium)
+                .multilineTextAlignment(.center)
+            // 整个来源放不了、正在倒数跳过时:可以留在这首,也可以不等了。
+            if offersSourceSkip {
+                HStack(spacing: 10) {
+                    playbackErrorToastButton("cancel") { player.cancelPendingSourceSkip() }
+                    playbackErrorToastButton("source_skip_now") { player.skipUnavailableSourceNow() }
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(
+            .red.opacity(0.8),
+            in: offersSourceSkip
+                ? AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                : AnyShape(Capsule())
+        )
+        .padding(.horizontal, offersSourceSkip ? 16 : 0)
+        .pmSlideTransition(edge: .top, motion: .list)
+    }
+
+    private func playbackErrorToastButton(
+        _ title: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(.white.opacity(0.22), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满）。只在 iPhone 的整屏竖版上：

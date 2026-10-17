@@ -91,6 +91,42 @@ final class PlaybackSourceAvailabilityTests: XCTestCase {
     }
 
     @MainActor
+    func testUnavailableSourceCountsDownOnlyWhenAnotherSourceCanPlay() async throws {
+        let suite = "unavailable-source-skip-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("A source-skip prompt must not activate audio") }
+        )
+        func song(_ id: String, source: String) -> Song {
+            Song(id: id, title: id, duration: 180, fileFormat: .mp3, filePath: "/\(id).mp3", sourceID: source)
+        }
+        let reason = "quota used up"
+
+        player.setQueue([song("a", source: "pan123"), song("b", source: "pan123"), song("c", source: "nas")], startAt: 0)
+        player.currentSong = player.queue.first
+        await player.handleUnavailableSourceFailure(song: player.queue[0], reason: reason)
+        let skip = try XCTUnwrap(player.pendingSourceSkip)
+        XCTAssertEqual(skip.sourceID, "pan123")
+        XCTAssertEqual(skip.secondsRemaining, PendingSourceSkip.countdownSeconds)
+        XCTAssertEqual(player.lastPlaybackError, skip.message)
+        XCTAssertTrue(skip.message.contains(reason))
+        player.cancelPendingSourceSkip()
+        XCTAssertNil(player.pendingSourceSkip)
+        XCTAssertEqual(player.lastPlaybackError, reason)
+
+        player.setQueue([song("d", source: "pan123"), song("e", source: "pan123")], startAt: 0)
+        player.currentSong = player.queue.first
+        await player.handleUnavailableSourceFailure(song: player.queue[0], reason: reason)
+        XCTAssertNil(player.pendingSourceSkip, "Nothing else can play, so there is nothing to count down to")
+        XCTAssertEqual(player.lastPlaybackError, reason)
+    }
+
+    @MainActor
     func testFNConnectionFailureSkipsTheSourceWithoutAFileLevelNetworkProbe() async throws {
         let suite = "fn-source-failure-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

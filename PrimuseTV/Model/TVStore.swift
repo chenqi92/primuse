@@ -550,6 +550,19 @@ final class TVStore {
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?
+    /// 云盘本月下载流量用完、队列里还有别的来源的歌时,倒数几秒后跳过这个来源。
+    private struct SourceQuotaSkip {
+        let id = UUID()
+        let requestID: UUID
+        let sourceID: String
+        let serviceName: String
+        let reason: String
+    }
+    @ObservationIgnored private var sourceQuotaSkip: SourceQuotaSkip?
+    @ObservationIgnored private var sourceQuotaSkipTask: Task<Void, Never>?
+    /// 这个月已经倒数跳过过一次的源(值是年月):再遇到同源失败直接跳过,不再每首都倒数。
+    @ObservationIgnored private var quotaSkippedSourceMonths: [String: Int] = [:]
+    static let sourceQuotaSkipSeconds = 5
     private(set) var isMedleyActive = false
     private(set) var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
     /// 每段按那首歌高潮本身的长短播;关掉才用固定秒数。
@@ -5176,6 +5189,11 @@ final class TVStore {
     // MARK: 播放控制(AVPlayer 流式播放,真实流 URL 由 TVPlaybackCoordinator 解析)
 
     func togglePlayPause() {
+        if activeSourceQuotaSkip != nil {
+            // 倒数时按播放/暂停:留在这首,只说原因。
+            endSourceQuotaSkip(showingReason: true)
+            return
+        }
         if isLiveRadio {
             if engine.status == .playing || engine.status == .loading {
                 pausePlayback()
@@ -5192,6 +5210,7 @@ final class TVStore {
     }
 
     private func pausePlayback() {
+        endSourceQuotaSkip(showingReason: true)
         if isMedleyActive { engine.pause(); return }
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
@@ -6219,6 +6238,10 @@ final class TVStore {
             switchRadioStation(by: 1)
             return
         }
+        if activeSourceQuotaSkip != nil {
+            skipQuotaExhaustedSource()
+            return
+        }
         // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
         guard let nextIndex = QueueTraversalPolicy.nextAvailableIndex(
             queueCount: queue.count,
@@ -6676,6 +6699,7 @@ final class TVStore {
             switchRadioStation(by: -1)
             return
         }
+        endSourceQuotaSkip(showingReason: true)
         // 播过 3 秒先回到开头(播放时间段的开头),否则切上一首。
         if restartCurrentIfNeeded, currentTime - engine.playbackFloor > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
@@ -6812,6 +6836,7 @@ final class TVStore {
         upcomingPrefetchTask = nil
         preparedStreamRefreshTask?.cancel()
         preparedStreamRefreshTask = nil
+        endSourceQuotaSkip(showingReason: false)
         let requestID = UUID()
         activePlaybackRequestID = requestID
         playbackIssue = nil
@@ -6838,6 +6863,7 @@ final class TVStore {
                 isCancelled: Task.isCancelled
             ) else { return }
             self.playbackTask = nil
+            self.handleDownloadQuotaFailure(requestID: requestID)
         }
     }
 
@@ -7573,6 +7599,113 @@ final class TVStore {
                 self.scheduleRadioReconnect()
             }
         }
+    }
+
+    // MARK: 云盘本月下载流量用完时跳过这个来源
+
+    private var activeSourceQuotaSkip: SourceQuotaSkip? {
+        guard let skip = sourceQuotaSkip, skip.requestID == activePlaybackRequestID else { return nil }
+        return skip
+    }
+
+    /// 起播失败是因为云盘这个月的下载流量用完:队列后面还有别的来源的歌,就倒数后跳过这个来源;
+    /// 这个月已经倒数过一次的源直接跳。没有别的歌可放时只留下原因。
+    private func handleDownloadQuotaFailure(requestID: UUID) {
+        guard let failure = coordinator.downloadQuotaFailure,
+              failure.requestID == requestID,
+              activePlaybackRequestID == requestID else { return }
+        guard Self.sourceSkipTarget(
+            queueSourceIDs: queue.map { library.visibleSong(id: $0)?.sourceID },
+            currentIndex: queueIndex,
+            wraps: repeatMode == .all,
+            skippingSourceID: failure.sourceID
+        ) != nil else {
+            plog("⏸️ TV: download quota exhausted for \(failure.sourceID.prefix(8)); nothing from another source to play")
+            return
+        }
+        sourceQuotaSkip = SourceQuotaSkip(
+            requestID: requestID,
+            sourceID: failure.sourceID,
+            serviceName: failure.serviceName,
+            reason: failure.message
+        )
+        if quotaSkippedSourceMonths[failure.sourceID] == Self.quotaMonth(Date()) {
+            skipQuotaExhaustedSource()
+            return
+        }
+        runSourceQuotaSkipCountdown()
+    }
+
+    private func runSourceQuotaSkipCountdown() {
+        guard let skip = sourceQuotaSkip else { return }
+        sourceQuotaSkipTask?.cancel()
+        sourceQuotaSkipTask = Task { @MainActor [weak self] in
+            for remaining in stride(from: Self.sourceQuotaSkipSeconds, through: 1, by: -1) {
+                guard let self, self.activeSourceQuotaSkip?.id == skip.id else { return }
+                self.playbackIssue = .failed(
+                    PMString("ext.tv.playback.quotaSkipCountdown", skip.serviceName, remaining)
+                )
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+            guard let self, self.activeSourceQuotaSkip?.id == skip.id else { return }
+            self.skipQuotaExhaustedSource()
+        }
+    }
+
+    /// 倒数到点或按了「下一首」:跳到队列里下一首别的来源的歌。
+    private func skipQuotaExhaustedSource() {
+        guard let skip = activeSourceQuotaSkip else { return }
+        sourceQuotaSkipTask?.cancel()
+        sourceQuotaSkipTask = nil
+        sourceQuotaSkip = nil
+        quotaSkippedSourceMonths[skip.sourceID] = Self.quotaMonth(Date())
+        guard let index = Self.sourceSkipTarget(
+            queueSourceIDs: queue.map { library.visibleSong(id: $0)?.sourceID },
+            currentIndex: queueIndex,
+            wraps: repeatMode == .all,
+            skippingSourceID: skip.sourceID
+        ), let target = song(queue[index]) else {
+            playbackIssue = .failed(skip.reason)
+            return
+        }
+        plog("⏭️ TV: download quota exhausted for \(skip.sourceID.prefix(8)); skipping to queue #\(index)")
+        queueIndex = index
+        startPlaying(target)
+    }
+
+    /// 暂停、换歌、按播放键留下时作废倒数;留在这首时提示换回只说原因。
+    private func endSourceQuotaSkip(showingReason: Bool) {
+        sourceQuotaSkipTask?.cancel()
+        sourceQuotaSkipTask = nil
+        guard let skip = sourceQuotaSkip else { return }
+        sourceQuotaSkip = nil
+        if showingReason, skip.requestID == activePlaybackRequestID {
+            playbackIssue = .failed(skip.reason)
+        }
+    }
+
+    /// 队列里当前这首之后第一首不属于这个来源的歌。
+    nonisolated static func sourceSkipTarget(
+        queueSourceIDs: [String?],
+        currentIndex: Int,
+        wraps: Bool,
+        skippingSourceID: String
+    ) -> Int? {
+        QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: queueSourceIDs.count,
+            after: currentIndex,
+            wraps: wraps,
+            isAvailable: { index in
+                guard let sourceID = queueSourceIDs[index] else { return false }
+                return sourceID != skippingSourceID
+            }
+        )
+    }
+
+    /// 流量按月重置:跳过记录只在同一个月里算数。
+    nonisolated static func quotaMonth(_ date: Date, calendar: Calendar = .current) -> Int {
+        let parts = calendar.dateComponents([.year, .month], from: date)
+        return (parts.year ?? 0) * 100 + (parts.month ?? 0)
     }
 
     func isCurrentPlaybackRequest(_ requestID: UUID, isCancelled: Bool) -> Bool {

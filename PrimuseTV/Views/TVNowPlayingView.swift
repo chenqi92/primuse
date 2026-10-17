@@ -580,7 +580,7 @@ struct TVNowPlayingView: View {
                     Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                         .tvFont(.caption, weight: .medium)
                         .foregroundStyle(TVColor.warn)
-                        .lineLimit(2)
+                        .lineLimit(3)
                         .padding(.bottom, 18)
                 } else if let preparing = MusicVideoPreparationStatus.shared.label(for: np.songID) {
                     Label(preparing, systemImage: "film")

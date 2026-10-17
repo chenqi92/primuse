@@ -326,6 +326,15 @@ final class TVPlaybackCoordinator {
     /// The next song's stream, resolved while the current song plays (see
     /// `PreparedStream`).
     private var preparedStream: PreparedStream?
+    /// 这一次起播失败是因为云盘本月下载流量用完(见 `resolveFailureIssue`)。
+    /// 电视端据此跳过这个来源的歌。
+    struct DownloadQuotaFailure: Equatable {
+        let requestID: UUID
+        let sourceID: String
+        let serviceName: String
+        let message: String
+    }
+    private(set) var downloadQuotaFailure: DownloadQuotaFailure?
 
     private struct PlaybackMetadataIdentity: Hashable, Sendable {
         let songID: String
@@ -472,6 +481,7 @@ final class TVPlaybackCoordinator {
             }
         }
         playbackIssue = nil
+        downloadQuotaFailure = nil
         guard let song = playbackSongOverride ?? store.library.song(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
             guard isCurrent(requestID, store: store) else { return }
@@ -695,7 +705,11 @@ final class TVPlaybackCoordinator {
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = issue(for: error, source: source)
+            let failure = await resolveFailureIssue(
+                error, song: playbackSong, source: source, credential: credential, requestID: requestID
+            )
+            guard isCurrent(requestID, store: store) else { return }
+            playbackIssue = failure
         } catch {
             plog("🎬 TV play: resolve error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
@@ -1456,7 +1470,11 @@ final class TVPlaybackCoordinator {
         } catch let e as StreamResolveError {
             plog("🎬 TV play: non-native resolve FAILED — \(e)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = issue(for: e, source: source)
+            let failure = await resolveFailureIssue(
+                e, song: song, source: source, credential: credential, requestID: requestID
+            )
+            guard isCurrent(requestID, store: store) else { return }
+            playbackIssue = failure
         } catch {
             plog("🎬 TV play: non-native download error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
@@ -3194,6 +3212,53 @@ final class TVPlaybackCoordinator {
     /// 共享令牌刷新途中会话被作废（凭据改了、退出登录）时，网盘解析器抛
     /// userAuthenticationRequired 而不是拿旧凭据重试；手工构造的 URLError 系统只给
     /// 「NSURLErrorDomain 错误 -1013」，换成要重新登录的说法。其余错误保留原文。
+    /// 解析器把 123 云盘「本月下载流量已用完」(download_info 回 5113)和别的拿不到链接一样
+    /// 报成 `cannotBuildURL`。用与手机同一份连接器再要一次链接:确实是流量用完就说清原因,
+    /// 并记下是哪个源,电视端据此跳过这个来源的歌。
+    private func resolveFailureIssue(
+        _ error: StreamResolveError,
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID
+    ) async -> TVPlaybackIssue {
+        if error == .cannotBuildURL,
+           let message = await Self.downloadQuotaMessage(song: song, source: source, credential: credential) {
+            downloadQuotaFailure = DownloadQuotaFailure(
+                requestID: requestID,
+                sourceID: source.id,
+                serviceName: source.type.displayName,
+                message: message
+            )
+            return .failed(message)
+        }
+        return issue(for: error, source: source)
+    }
+
+    /// 只要链接、按一个字节读:流量没用完时也几乎不占流量。
+    private nonisolated static func downloadQuotaMessage(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> String? {
+        guard source.type == .pan123,
+              let connector = TVCloudConnectorFactory.makeConnector(source: source) as? Pan123Source else {
+            return nil
+        }
+        await TVCloudConnectorFactory.seedKeychainIfNeeded(
+            sourceID: source.id, type: source.type, credential: credential
+        )
+        do {
+            _ = try await connector.fetchRange(path: song.filePath, offset: 0, length: 1)
+        } catch let error as CloudDriveError {
+            if case .downloadQuotaExceeded = error {
+                plog("⛔️ TV play: \(source.type.rawValue) download quota exhausted for source \(source.id.prefix(8))")
+                return error.localizedDescription
+            }
+        } catch {}
+        return nil
+    }
+
     private static func failureText(_ error: Error) -> String {
         if (error as? URLError)?.code == .userAuthenticationRequired {
             return PMString("ext.tv.playback.authFailed")

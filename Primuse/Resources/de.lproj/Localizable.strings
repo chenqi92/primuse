@@ -6305,3 +6305,6 @@
 "source_diag_download_no_song" = "In den ausgewählten Ordnern wurden keine Titel gefunden, daher wurde der Download nicht getestet.";
 "source_diag_advice_download_quota_title" = "Download-Kontingent aufgebraucht";
 "source_diag_advice_download_quota_suggestion" = "Warte auf das Zurücksetzen im nächsten Monat oder schließe eine Mitgliedschaft für diesen Cloud-Speicher ab. Zwischengespeicherte und offline gespeicherte Titel lassen sich weiterhin abspielen.";
+
+"source_skip_countdown %@ %lld" = "%1$@ In %2$lld s werden die Titel dieser Musikquelle übersprungen und Titel aus anderen Quellen abgespielt.";
+"source_skip_now" = "Jetzt überspringen";

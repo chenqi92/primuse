@@ -18,9 +18,19 @@ private struct MacPlaybackErrorFeedbackModifier: ViewModifier {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundStyle(.orange)
                         .accessibilityHidden(true)
-                    Text(verbatim: message)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(verbatim: message)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // 整个来源放不了、正在倒数跳过时:可以留在这首,也可以不等了。
+                        if player.pendingSourceSkip != nil {
+                            HStack(spacing: 8) {
+                                Button("cancel") { player.cancelPendingSourceSkip() }
+                                Button("source_skip_now") { player.skipUnavailableSourceNow() }
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Button {
                         player.dismissPlaybackError()
                     } label: {
