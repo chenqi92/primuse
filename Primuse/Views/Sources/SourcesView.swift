@@ -2195,6 +2195,7 @@ struct SourcesContentView: View {
         Task { @MainActor in
             let result = await sourceManager.downloadSourceForOffline(
                 sourceID: request.source.id,
+                sourceName: request.source.name,
                 songs: request.songs
             )
             guard activeCacheRun?.id == run.id else { return }
@@ -2285,6 +2286,11 @@ struct SourcesContentView: View {
     }
 
     private func sourceCacheProgressMessage(for progress: SourceCacheProgressState) -> String {
+        // 断网时这一批停在原地等网络回来(见 `SourceManager.downloadForOfflineBatch`)。
+        let network = NetworkMonitor.shared
+        if network.hasDeterminedPath, !network.isReachable {
+            return String(localized: "source_cache_waiting_network")
+        }
         let downloadedSize = cacheSizeDescription(knownBytes: progress.downloadedKnownBytes, unknownCount: 0)
         let remainingSize = cacheSizeDescription(knownBytes: progress.remainingKnownBytes, unknownCount: progress.unknownCount)
         if progress.failedCount > 0 {
@@ -2330,6 +2336,9 @@ struct SourcesContentView: View {
         if completion.result.succeeded {
             return String(localized: "source_cache_success_title")
         }
+        if completion.result.stopReason != nil {
+            return String(localized: "source_cache_stopped_title")
+        }
         if completion.result.completedCount == 0 {
             return String(localized: "source_cache_failed_title")
         }
@@ -2348,7 +2357,23 @@ struct SourcesContentView: View {
             )
         }
 
-        return String(
+        if let stopReason = completion.result.stopReason {
+            let format = switch stopReason {
+            case .insufficientStorage: String(localized: "source_cache_stopped_storage_format")
+            case .networkUnavailable: String(localized: "source_cache_stopped_network_format")
+            case .sourceUnreachable: String(localized: "source_cache_stopped_unreachable_format")
+            case .sourceAuthentication: String(localized: "source_cache_stopped_auth_format")
+            }
+            return String(
+                format: format,
+                completion.sourceName,
+                completion.result.completedCount,
+                completion.result.requestedCount,
+                size
+            )
+        }
+
+        let message = String(
             format: String(localized: "source_cache_partial_message_format"),
             completion.sourceName,
             completion.result.completedCount,
@@ -2356,6 +2381,26 @@ struct SourcesContentView: View {
             completion.result.failedCount,
             size
         )
+        guard let reasons = cacheFailureReasons(completion.result.failureCounts) else { return message }
+        return message + "\n" + reasons
+    }
+
+    /// 「失败原因：3 首连不上或超时、1 首服务器报错或文件已不在。」没有失败时为 nil。
+    private func cacheFailureReasons(_ counts: [OfflineBatchFailureCategory: Int]) -> String? {
+        let parts: [String] = OfflineBatchFailureCategory.allCases.compactMap { category in
+            guard let count = counts[category], count > 0 else { return nil }
+            let format = switch category {
+            case .connectivity: String(localized: "source_cache_failure_connectivity_format")
+            case .authentication: String(localized: "source_cache_failure_auth_format")
+            case .accessDenied: String(localized: "source_cache_failure_denied_format")
+            case .storage: String(localized: "source_cache_failure_storage_format")
+            case .other: String(localized: "source_cache_failure_other_format")
+            }
+            return String(format: format, count)
+        }
+        guard !parts.isEmpty else { return nil }
+        let joined = ListFormatter.localizedString(byJoining: parts)
+        return String(format: String(localized: "source_cache_failure_reasons_format"), joined)
     }
 
     private func cacheSizeDescription(knownBytes: Int64, unknownCount: Int) -> String {

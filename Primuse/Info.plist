@@ -13,6 +13,7 @@
 		<string>com.welape.yuanyin.scan-resume</string>
 		<string>com.welape.yuanyin.metadata-reading.*</string>
 		<string>com.welape.yuanyin.source-scan.*</string>
+		<string>com.welape.yuanyin.offline-download.*</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

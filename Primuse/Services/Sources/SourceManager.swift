@@ -101,9 +101,16 @@ struct OfflineDownloadBatchResult: Sendable {
     let byteCount: Int64
     /// 用户中途点了停止(整源缓存)。这时没下完的不算失败,不用弹「部分失败」。
     var wasCancelled = false
+    /// 源连不上、断网太久或空间不够时这一批提前停下了。
+    var stopReason: OfflineBatchStopReason?
+    /// 提前停下时还没开始的歌。不算失败:下了一半的留着,再点「缓存」接着下。
+    var skippedCount = 0
+    /// 失败的歌按原因分的首数。
+    var failureCounts: [OfflineBatchFailureCategory: Int] = [:]
 
     var succeeded: Bool {
-        requestedCount > 0 && completedCount == requestedCount && failedCount == 0 && inProgressCount == 0
+        requestedCount > 0 && completedCount == requestedCount && failedCount == 0
+            && inProgressCount == 0 && skippedCount == 0
     }
 }
 
@@ -223,6 +230,27 @@ enum AutomaticOfflineFailureKind: String, Sendable {
         case .rateLimited, .sourceUnavailable, .resourceDeferred, .transient:
             return true
         }
+    }
+}
+
+extension OfflineBatchFailureCategory {
+    /// 手动批量下载按这次失败的错误归类(见 `OfflineBatchFailureBreaker`)。
+    /// 连接层的错误、超时和手机整个断网算连不上; 服务器答了话、只是这一首不行的
+    /// (文件不在、单首报错) 算单首问题, 不让熔断把还通着的源停掉。
+    nonisolated static func classify(
+        _ error: Error,
+        kind: AutomaticOfflineFailureKind,
+        deviceIsOffline: Bool
+    ) -> Self {
+        if case OfflineTransferValidationError.insufficientCapacity(_, _) = error { return .storage }
+        switch kind {
+        case .authentication: return .authentication
+        case .sourceAccessDenied: return .accessDenied
+        case .rateLimited, .sourceUnavailable, .resourceDeferred, .transient: break
+        }
+        if deviceIsOffline || SourceNetworkFailurePolicy.isNetworkFailure(error) { return .connectivity }
+        if case SourceError.timeout = error { return .connectivity }
+        return .other
     }
 }
 
@@ -850,6 +878,8 @@ private struct OfflineDownloadSongResult: Sendable {
     let song: Song
     let snapshot: OfflineAudioCacheSnapshot
     let fallbackByteCount: Int64
+    /// 最后一次尝试失败在哪一类; 下完或取消时为 nil。
+    let failureCategory: OfflineBatchFailureCategory?
 }
 
 private enum OfflineDownloadPinIntent: Sendable {
@@ -866,7 +896,11 @@ private struct OfflineCompactionTaskRecord {
 private enum OfflineDownloadTransferResult: Sendable {
     case completed(byteCount: Int64?)
     case cancelled
-    case failed(kind: AutomaticOfflineFailureKind, message: String)
+    case failed(
+        kind: AutomaticOfflineFailureKind,
+        message: String,
+        category: OfflineBatchFailureCategory = .other
+    )
 }
 
 private struct OfflineDownloadTaskRecord {
@@ -7976,9 +8010,21 @@ final class SourceManager {
     }
 
     func downloadForOffline(songs: [Song]) {
-        Task { [weak self] in
-            _ = await self?.downloadForOfflineBatch(songs: songs)
+        let backgroundRun = OfflineBatchBackgroundRun(
+            title: String(localized: "offline_batch_task_title"),
+            totalCount: Self.offlineBatchCandidates(songs).count
+        )
+        let batch = Task { [weak self] in
+            guard let self else {
+                backgroundRun.end(success: false)
+                return
+            }
+            let result = await self.downloadForOfflineBatch(songs: songs) { _, _ in
+                backgroundRun.recordSongFinished()
+            }
+            backgroundRun.end(success: result.succeeded)
         }
+        backgroundRun.begin { batch.cancel() }
     }
 
     /// 同一个源再点一次「整源缓存」按替换处理: UI (`SourcesView.startCaching`)
@@ -7989,11 +8035,18 @@ final class SourceManager {
     /// 排空期间源被停用一样能取消到。
     func downloadSourceForOffline(
         sourceID: String,
+        sourceName: String? = nil,
         songs: [Song]
     ) async -> OfflineDownloadBatchResult {
         let runID = UUID()
         beginOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
         let batchSongs = Self.offlineBatchCandidates(songs)
+        let backgroundRun = OfflineBatchBackgroundRun(
+            title: sourceName.map {
+                String(format: String(localized: "offline_batch_task_source_title_format"), $0)
+            } ?? String(localized: "offline_batch_task_title"),
+            totalCount: batchSongs.count
+        )
         offlineSourceCacheTallies[sourceID] = OfflineSourceCacheTally(sizes: batchSongs.map(\.fileSize))
         offlineSourceCacheSongSizes[sourceID] = Dictionary(
             batchSongs.map { ($0.id, max($0.fileSize, 0)) },
@@ -8012,6 +8065,7 @@ final class SourceManager {
                 _ = await previousRun.task.value
             }
             return await self.downloadForOfflineBatch(songs: songs) { [weak self] song, completed in
+                backgroundRun.recordSongFinished()
                 guard let self, self.offlineSourceCacheTallyRunIDs[sourceID] == runID else { return }
                 self.offlineSourceCacheTallies[sourceID]?.record(size: song.fileSize, completed: completed)
             }
@@ -8021,6 +8075,12 @@ final class SourceManager {
             value: OfflineSourceCacheBatchRun(task: batch),
             id: runID
         )
+        // 系统收回后台时间(或用户在系统卡片上点了停止)时 App 不在前台: 按用户
+        // 停止处理, 已缓存的和下了一半的都留着。
+        backgroundRun.begin { [weak self] in
+            guard let self, self.offlineSourceCacheTallyRunIDs[sourceID] == runID else { return }
+            self.cancelSourceOfflineCache(sourceID: sourceID)
+        }
         defer {
             offlineSourceCacheBatches.finish(key: sourceID, runID: runID)
             endOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
@@ -8040,6 +8100,7 @@ final class SourceManager {
            offlineSourceCacheTallies[sourceID]?.wasCancelled == true {
             result.wasCancelled = true
         }
+        backgroundRun.end(success: result.succeeded)
         return result
     }
 
@@ -8121,6 +8182,10 @@ final class SourceManager {
         plog("⏹️ Source disabled: cancelled background transfers source=\(sourceID.prefix(8))")
     }
 
+    /// 断网、源连不上、空间不够时不再逐首试完剩下的歌(#321): 手机整个断网就停在原地
+    /// 等网络回来; 同一个源连续几首都连不上或账号失效, 这个源剩下的不再开始; 空间
+    /// 不够整批停下。停下时还没开始的歌记进 `skippedCount`, 下了一半的文件留着。
+    ///
     /// - Parameter onSongFinished: 每首下完(`true`)或放弃(`false`)时在主线程上告诉调用者一声,
     ///   整源缓存拿它记进度。
     func downloadForOfflineBatch(
@@ -8132,7 +8197,10 @@ final class SourceManager {
         var completedCount = 0
         var failedCount = 0
         var inProgressCount = 0
+        var skippedCount = 0
         var byteCount: Int64 = 0
+        var failureCounts: [OfflineBatchFailureCategory: Int] = [:]
+        var breaker = OfflineBatchFailureBreaker()
         let maxConcurrent = min(Self.offlineBatchConcurrency, max(playableSongs.count, 1))
 
         plog("⬇️ Offline batch start songs=\(playableSongs.count) concurrency=\(maxConcurrent)")
@@ -8140,84 +8208,170 @@ final class SourceManager {
         await withTaskGroup(of: OfflineDownloadSongResult.self) { group in
             var nextIndex = 0
 
+            // 跳过已经停下的源, 停在下一首能开始的歌上 (不越过它)。
+            func nextAdmittedSong() -> Song? {
+                while nextIndex < playableSongs.count {
+                    let song = playableSongs[nextIndex]
+                    if breaker.admits(sourceID: song.sourceID) { return song }
+                    nextIndex += 1
+                    skippedCount += 1
+                }
+                return nil
+            }
+
             func enqueueNext() {
-                guard nextIndex < playableSongs.count else { return }
-                let song = playableSongs[nextIndex]
+                guard let song = nextAdmittedSong() else { return }
                 nextIndex += 1
                 group.addTask {
-                    var attempt = 1
-                    var result = await self.waitForOfflineDownload(
-                        song,
-                        pinIntent: .manual,
-                        compactsAfterPin: compactsAfterPin
-                    )
-                    while case .failed(let kind, _) = result,
-                          OfflineBatchRetryPolicy.shouldRetry(
-                            afterAttempt: attempt,
-                            isRetryable: kind.allowsBatchRetry
-                          ) {
-                        let delay = OfflineBatchRetryPolicy.retryDelay(
-                            afterAttempt: attempt,
-                            isRateLimited: kind == .rateLimited
-                        )
-                        do {
-                            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                        } catch {
-                            break
-                        }
-                        guard !Task.isCancelled else { break }
-                        attempt += 1
-                        plog("🔁 Offline batch retry '\(song.title)' attempt=\(attempt) after \(kind.rawValue)")
-                        result = await self.waitForOfflineDownload(
-                            song,
-                            pinIntent: .manual,
-                            compactsAfterPin: compactsAfterPin
-                        )
-                    }
-                    return OfflineDownloadSongResult(
-                        song: song,
-                        snapshot: await self.offlineAudioSnapshot(for: song),
-                        fallbackByteCount: max(song.fileSize, 0)
-                    )
+                    await self.downloadOfflineBatchSong(song, compactsAfterPin: compactsAfterPin)
                 }
             }
 
+            if nextAdmittedSong() != nil, await waitForReachableNetwork() == false, !Task.isCancelled {
+                breaker.stopAll(.networkUnavailable)
+            }
             for _ in 0..<maxConcurrent { enqueueNext() }
 
             while let result = await group.next() {
                 let snapshot = result.snapshot
+                let sourceID = result.song.sourceID
                 switch snapshot.state {
                 case .cached, .pinned:
                     completedCount += 1
                     byteCount += snapshot.byteCount ?? result.fallbackByteCount
+                    breaker.recordSuccess(sourceID: sourceID)
                     onSongFinished?(result.song, true)
-                case .failed:
+                case .failed, .notCached:
                     failedCount += 1
+                    let category = result.failureCategory ?? .other
+                    failureCounts[category, default: 0] += 1
+                    if let failureCategory = result.failureCategory {
+                        let wasAdmitted = breaker.admits(sourceID: sourceID)
+                        breaker.recordFailure(sourceID: sourceID, category: failureCategory)
+                        if wasAdmitted, !breaker.admits(sourceID: sourceID) {
+                            plog("⛔️ Offline batch stopped source=\(sourceID.prefix(8)) after '\(result.song.title)' category=\(failureCategory.rawValue)")
+                        }
+                    }
                     onSongFinished?(result.song, false)
                 case .downloading:
                     inProgressCount += 1
-                case .notCached:
-                    failedCount += 1
-                    onSongFinished?(result.song, false)
                 }
 
                 guard !Task.isCancelled else {
                     group.cancelAll()
                     continue
                 }
+                if nextAdmittedSong() != nil, await waitForReachableNetwork() == false, !Task.isCancelled {
+                    breaker.stopAll(.networkUnavailable)
+                }
                 enqueueNext()
             }
         }
 
-        plog("⬇️ Offline batch done requested=\(playableSongs.count) completed=\(completedCount) failed=\(failedCount) inProgress=\(inProgressCount) bytes=\(byteCount / 1024 / 1024)MB")
+        let stopReason = Task.isCancelled ? nil : breaker.primaryStopReason
+        plog("⬇️ Offline batch done requested=\(playableSongs.count) completed=\(completedCount) failed=\(failedCount) inProgress=\(inProgressCount) skipped=\(skippedCount) stop=\(stopReason?.rawValue ?? "none") bytes=\(byteCount / 1024 / 1024)MB")
 
-        return OfflineDownloadBatchResult(
+        var result = OfflineDownloadBatchResult(
             requestedCount: playableSongs.count,
             completedCount: completedCount,
             failedCount: failedCount,
             inProgressCount: inProgressCount,
             byteCount: byteCount
         )
+        result.stopReason = stopReason
+        result.skippedCount = skippedCount
+        result.failureCounts = failureCounts
+        return result
+    }
+
+    /// 批量里的一首: 普通失败按 `OfflineBatchRetryPolicy` 退避重试; 手机整个断网时
+    /// 不算一次尝试, 等网络回来从断点接着下。
+    private func downloadOfflineBatchSong(
+        _ song: Song,
+        compactsAfterPin: Bool
+    ) async -> OfflineDownloadSongResult {
+        var attempt = 1
+        var networkRetries = 0
+        var result = await waitForOfflineDownload(
+            song,
+            pinIntent: .manual,
+            compactsAfterPin: compactsAfterPin
+        )
+        while case .failed(let kind, _, let category) = result, !Task.isCancelled {
+            if OfflineBatchNetworkWaitPolicy.waitsForNetwork(
+                category: category,
+                deviceIsOffline: deviceIsOffline,
+                networkRetriesSoFar: networkRetries
+            ) {
+                guard await waitForReachableNetwork() else { break }
+                networkRetries += 1
+                plog("🔁 Offline batch resume '\(song.title)' after network came back")
+            } else {
+                guard OfflineBatchRetryPolicy.shouldRetry(
+                    afterAttempt: attempt,
+                    isRetryable: kind.allowsBatchRetry && category != .storage
+                ) else { break }
+                let delay = OfflineBatchRetryPolicy.retryDelay(
+                    afterAttempt: attempt,
+                    isRateLimited: kind == .rateLimited
+                )
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                attempt += 1
+                plog("🔁 Offline batch retry '\(song.title)' attempt=\(attempt) after \(kind.rawValue) category=\(category.rawValue)")
+            }
+            result = await waitForOfflineDownload(
+                song,
+                pinIntent: .manual,
+                compactsAfterPin: compactsAfterPin
+            )
+        }
+        let failureCategory: OfflineBatchFailureCategory?
+        if case .failed(_, _, let category) = result {
+            failureCategory = category
+        } else {
+            failureCategory = nil
+        }
+        return OfflineDownloadSongResult(
+            song: song,
+            snapshot: offlineAudioSnapshot(for: song),
+            fallbackByteCount: max(song.fileSize, 0),
+            failureCategory: failureCategory
+        )
+    }
+
+    /// 手机此刻整个断网 (不是某个源连不上)。
+    private var deviceIsOffline: Bool {
+        NetworkMonitor.shared.hasDeterminedPath && !NetworkMonitor.shared.isReachable
+    }
+
+    /// 断网时停在这里等网络回来。有网立刻返回 `true`; 等满
+    /// `OfflineBatchNetworkWaitPolicy.maximumWait` 或被取消返回 `false`。按轮询次数
+    /// 计时而不是墙钟: App 被挂起的那段不算等过, 回到前台网络一恢复就接着下。
+    private func waitForReachableNetwork() async -> Bool {
+        guard deviceIsOffline else { return true }
+        plog("📶 Offline batch waiting for network")
+        let interval = OfflineBatchNetworkWaitPolicy.pollInterval
+        let maximumPolls = Int(OfflineBatchNetworkWaitPolicy.maximumWait / interval)
+        var polls = 0
+        while deviceIsOffline {
+            guard polls < maximumPolls else {
+                plog("📶 Offline batch gave up waiting for network")
+                return false
+            }
+            do {
+                try await Task.sleep(for: .seconds(interval))
+            } catch {
+                return false
+            }
+            polls += 1
+        }
+        plog("📶 Offline batch network is back after \(polls)s")
+        return true
     }
 
     func removeOfflineDownload(song: Song) {
@@ -8530,7 +8684,7 @@ final class SourceManager {
             return .completed
         case .cancelled:
             return .cancelled
-        case .failed(let kind, let message):
+        case .failed(let kind, let message, _):
             if kind.authenticationRequired {
                 SourceAuthAlert.report(sourceID: song.sourceID, message: message)
             }
@@ -9405,7 +9559,12 @@ final class SourceManager {
             let failureKind = AutomaticOfflineFailureClassifier.classify(error)
             return .failed(
                 kind: failureKind,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                category: OfflineBatchFailureCategory.classify(
+                    error,
+                    kind: failureKind,
+                    deviceIsOffline: deviceIsOffline
+                )
             )
         }
     }

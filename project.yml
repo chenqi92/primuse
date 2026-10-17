@@ -219,6 +219,7 @@ targets:
           - com.welape.yuanyin.scan-resume
           - com.welape.yuanyin.metadata-reading.*
           - com.welape.yuanyin.source-scan.*
+          - com.welape.yuanyin.offline-download.*
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
