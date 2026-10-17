@@ -548,3 +548,57 @@ struct SpokenWordTranscriptEdgeTapPolicyTests {
         #expect(!Policy.isEdgeTap(x: 10, viewportWidth: 0))
     }
 }
+
+@Suite("Transcript timing offset (#320)")
+struct SpokenWordTranscriptOffsetPolicyTests {
+    private typealias Policy = SpokenWordTranscriptOffsetPolicy
+
+    @Test("A positive delay shows each line later and keeps the line ids")
+    func delayShiftsLater() {
+        let lines = [
+            LyricLine(id: "a", timestamp: 1, text: "First", endTimestamp: 2.5),
+            LyricLine(id: "b", timestamp: 3, text: "Second",
+                      syllables: [LyricSyllable(text: "Sec", start: 3, end: 3.4),
+                                  LyricSyllable(text: "ond", start: 3.4, end: 4)]),
+        ]
+        let shifted = Policy.applying(delay: 1.5, to: lines)
+        #expect(shifted.map(\.id) == ["a", "b"])
+        #expect(shifted.map(\.timestamp) == [2.5, 4.5])
+        #expect(shifted[0].endTimestamp == 4)
+        #expect(shifted[1].syllables?.map(\.start) == [4.5, 4.9])
+    }
+
+    @Test("A negative delay shows lines earlier but never before zero")
+    func advanceClampsAtZero() {
+        let lines = [
+            LyricLine(timestamp: 0.4, text: "Intro"),
+            LyricLine(timestamp: 10, text: "Body"),
+        ]
+        #expect(Policy.applying(delay: -2, to: lines).map(\.timestamp) == [0, 8])
+    }
+
+    @Test("Plain text transcripts and a zero delay are left alone")
+    func untimedUntouched() {
+        let plain = [LyricLine(timestamp: 0, text: "No times", isSynchronized: false)]
+        #expect(Policy.applying(delay: 3, to: plain) == plain)
+        let timed = [LyricLine(timestamp: 5, text: "Timed")]
+        #expect(Policy.applying(delay: 0, to: timed) == timed)
+    }
+
+    @Test("Global and per-item layers add up, rounded and clamped")
+    func layersAdd() {
+        #expect(Policy.effectiveDelay(global: 1.2, item: 0.5) == 1.7)
+        #expect(Policy.effectiveDelay(global: -0.5, item: nil) == -0.5)
+        #expect(Policy.normalized(0.04) == 0)
+        #expect(Policy.normalized(2.26) == 2.3)
+        #expect(Policy.normalized(10_000) == Policy.limit)
+        #expect(Policy.normalized(.nan) == 0)
+    }
+
+    @Test("Podcast episodes keep their own offset, book chapters share the book's")
+    func itemKeys() {
+        #expect(Policy.itemKey(songID: "ep1", bookID: "show", isPodcastEpisode: true) == "song:ep1")
+        #expect(Policy.itemKey(songID: "ch3", bookID: "book9", isPodcastEpisode: false) == "book:book9")
+        #expect(Policy.itemKey(songID: "single", bookID: nil, isPodcastEpisode: false) == "song:single")
+    }
+}

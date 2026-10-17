@@ -435,6 +435,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .popover(isPresented: $fontPickerShown, arrowEdge: .leading) {
                 fontPickerPopover
             }
+            // 有文稿的有声内容:这一集 / 这本书的文稿往前、往后挪(#320)。
+            if isSpokenWord, let song = player.currentSong,
+               SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) != nil {
+                SpokenWordTranscriptOffsetRow(scope: .item(song), compact: true)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 2)
+            }
             // 歌词翻译:关闭 / 系统翻译 / 智能翻译直接在这里选,和 iPhone 播放页菜单一致。
             if !isSpokenWord {
                 Button { translationPickerShown.toggle() } label: {

@@ -3172,20 +3172,14 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showChapterList) {
-            SpokenWordContentsView(requestedTab: $contentsRequestedTab)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        #if os(iOS)
-        .fullScreenCover(isPresented: $showsTranscriptReader) {
-            SpokenWordTranscriptReader(lines: lyrics, title: player.currentSong?.title ?? "", player: player)
-        }
-        #else
-        .sheet(isPresented: $showsTranscriptReader) {
-            SpokenWordTranscriptReader(lines: lyrics, title: player.currentSong?.title ?? "", player: player)
-        }
-        #endif
+        .modifier(NowPlayingSpokenWordTextPresentations(
+            showChapterList: $showChapterList,
+            contentsRequestedTab: $contentsRequestedTab,
+            showsTranscriptReader: $showsTranscriptReader,
+            player: player,
+            transcriptReaderLines: { transcriptReaderLines },
+            onTranscriptOffsetChange: refreshTranscriptOffset
+        ))
         #if os(iOS)
         .sheet(
             item: $presentedAlbum,
@@ -7013,6 +7007,12 @@ struct NowPlayingView: View {
             lyricsFontScale: lyricsFontScale,
             lyricsTranslationFontScale: lyricsTranslationFontScale,
             showsCompanionFontSize: LyricsTranslationSettingsStore.shared.isEnabled || lyricsHaveBundledTranslations,
+            transcriptOffsetItemKey: lyrics.isEmpty ? nil : player.currentSong.flatMap {
+                SpokenWordTranscriptOffsetStore.shared.itemKey(for: $0)
+            },
+            transcriptOffsetItemDelay: player.currentSong
+                .flatMap { SpokenWordTranscriptOffsetStore.shared.itemKey(for: $0) }
+                .flatMap { SpokenWordTranscriptOffsetStore.shared.itemDelay(forKey: $0) } ?? 0,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
             // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
             showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil
@@ -9105,12 +9105,27 @@ struct NowPlayingView: View {
         consumePendingLyricsJump(from: value)
     }
 
+    /// 全屏文字稿读的那份:原文加上这一集 / 这本书的时间偏移(#320)。
+    private var transcriptReaderLines: [LyricLine] {
+        SpokenWordTranscriptOffsetStore.shared.presenting(lyrics, for: player.currentSong)
+    }
+
+    /// 文字稿偏移变了:按新的偏移重排一遍,歌词页按新时间轴重新对位。
+    private func refreshTranscriptOffset() {
+        presentBundledTranslationVisibility()
+        lyricsRevision &+= 1
+    }
+
     private func presentBundledTranslationVisibility() {
         let presentation = LyricBundledTranslationPolicy.presentation(
             of: lyrics,
             showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
         )
-        presentedLyrics = presentation.lines
+        // 文字稿按这一集 / 这本书的偏移平移时间轴(#320);音乐原样。
+        presentedLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(
+            presentation.lines,
+            for: player.currentSong
+        )
         lyricsHaveBundledTranslations = presentation.hasBundledTranslations
         refreshRomanizedLyrics()
     }
@@ -10923,6 +10938,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let lyricsTranslationFontScale: Double
     /// 有译文可看(开着翻译,或歌词自带译文)时才给「译文字号」。
     let showsCompanionFontSize: Bool
+    /// 有声内容有文字稿时,「文字稿时间」调的是这一集 / 这本书那一层;nil 时不给(#320)。
+    let transcriptOffsetItemKey: String?
+    let transcriptOffsetItemDelay: TimeInterval
     let canChangePlaybackRate: Bool
     let showsEqualizer: Bool
     /// 高保真直通的图里没有均衡器。
@@ -10968,6 +10986,39 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let fullscreenEffectIsNative: Bool
     /// 竖屏原生全屏里现在是封面那一面还是歌词那一面;不在那里时为 nil,菜单不给切换。
     let immersiveShowsArtwork: Bool?
+}
+
+/// 有声内容的目录、全屏文字稿两个弹出页和文字稿偏移的通知。单独成一个修饰:播放页那条修饰链
+/// 已经长到编译器推断不过来,别再往上加(#320)。
+private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
+    @Binding var showChapterList: Bool
+    @Binding var contentsRequestedTab: SpokenWordContentsView.Tab?
+    @Binding var showsTranscriptReader: Bool
+    let player: AudioPlayerService
+    /// 全屏文字稿读的那份,打开时才算。
+    let transcriptReaderLines: () -> [LyricLine]
+    let onTranscriptOffsetChange: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .primuseTranscriptOffsetDidChange)) { _ in
+                onTranscriptOffsetChange()
+            }
+            .sheet(isPresented: $showChapterList) {
+                SpokenWordContentsView(requestedTab: $contentsRequestedTab)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+            #if os(iOS)
+            .fullScreenCover(isPresented: $showsTranscriptReader) {
+                SpokenWordTranscriptReader(lines: transcriptReaderLines(), title: player.currentSong?.title ?? "", player: player)
+            }
+            #else
+            .sheet(isPresented: $showsTranscriptReader) {
+                SpokenWordTranscriptReader(lines: transcriptReaderLines(), title: player.currentSong?.title ?? "", player: player)
+            }
+            #endif
+    }
 }
 
 /// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
@@ -11173,6 +11224,53 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             && lhs.immersiveChrome == rhs.immersiveChrome
             && lhs.chromeGlass == rhs.chromeGlass
             && lhs.plainLabel == rhs.plainLabel
+    }
+
+    /// 文字稿时间:这一集 / 这本书往前、往后挪。iPhone 上点了菜单不收起,能连着点几下(#320)。
+    private func transcriptOffsetMenu(key: String, delay: TimeInterval) -> some View {
+        let store = SpokenWordTranscriptOffsetStore.shared
+        let step = SpokenWordTranscriptOffsetPolicy.step
+        return Menu {
+            Section {
+                Button {
+                    store.setItemDelay(delay - step, forKey: key)
+                } label: {
+                    Label("transcript_offset_earlier_step", systemImage: "backward")
+                }
+                Button {
+                    store.setItemDelay(delay + step, forKey: key)
+                } label: {
+                    Label("transcript_offset_later_step", systemImage: "forward")
+                }
+            }
+            Section {
+                Button {
+                    store.setItemDelay(delay - 5, forKey: key)
+                } label: {
+                    Label("transcript_offset_earlier_coarse", systemImage: "backward.end")
+                }
+                Button {
+                    store.setItemDelay(delay + 5, forKey: key)
+                } label: {
+                    Label("transcript_offset_later_coarse", systemImage: "forward.end")
+                }
+            }
+            if delay != 0 {
+                Button("transcript_offset_reset") {
+                    store.setItemDelay(0, forKey: key)
+                }
+            }
+        } label: {
+            Label {
+                Text("transcript_offset_title")
+                Text(verbatim: SpokenWordTranscriptOffsetRow.valueText(delay))
+            } icon: {
+                Image(systemName: "arrow.left.arrow.right")
+            }
+        }
+        #if os(iOS)
+        .menuActionDismissBehavior(.disabled)
+        #endif
     }
 
     private var appearance: NowPlayingAppearance {
@@ -11581,6 +11679,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             Label(String(localized: "lyrics_translation_font_size"), systemImage: "character.textbox")
                         }
                         .pickerStyle(.menu)
+                    }
+
+                    if let offsetKey = snapshot.transcriptOffsetItemKey {
+                        transcriptOffsetMenu(key: offsetKey, delay: snapshot.transcriptOffsetItemDelay)
                     }
 
                     // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。

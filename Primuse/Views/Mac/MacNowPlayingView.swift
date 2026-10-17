@@ -1878,10 +1878,14 @@ struct MacNowPlayingView: View {
 
     private func installLyrics(_ loaded: [LyricLine]) {
         loadedLyrics = loaded
-        let newLyrics = LyricBundledTranslationPolicy.presentation(
-            of: loaded,
-            showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
-        ).lines
+        // 文稿按这一集 / 这本书的偏移平移时间轴(#320);音乐原样。
+        let newLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(
+            LyricBundledTranslationPolicy.presentation(
+                of: loaded,
+                showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
+            ).lines,
+            for: player.currentSong
+        )
         if lyrics != newLyrics {
             lyricsTranslationRevision &+= 1
         }

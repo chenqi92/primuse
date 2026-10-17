@@ -232,7 +232,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         lyricsSongID = song.id
         let services = AppServices.shared
         lyricsTask = Task { @MainActor [weak self] in
-            let loaded = await LyricsLoader.load(
+            let loaded = await LyricsLoader.loadForDisplay(
                 for: song,
                 sourceManager: services.sourceManager,
                 sourceType: services.sourcesStore.source(id: song.sourceID)?.type

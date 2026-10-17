@@ -826,7 +826,7 @@ struct DesktopLyricsView: View {
     private func reloadLyrics() async {
         guard let song = player.currentSong else { lyrics = []; currentIndex = -1; return }
         lyrics = []; currentIndex = -1
-        let loaded = await LyricsLoader.load(
+        let loaded = await LyricsLoader.loadForDisplay(
             for: song,
             sourceManager: sourceManager,
             sourceType: sourcesStore.source(id: song.sourceID)?.type

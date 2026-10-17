@@ -717,3 +717,44 @@ public enum SpokenWordTranscriptEdgeTapPolicy {
         return x <= width || x >= viewportWidth - width
     }
 }
+
+/// 文稿(播客文字稿、有声书字幕)显示时的时间偏移(#320)。
+///
+/// 声音和文字对不上有两种来源:输出设备本身有延迟(CarPlay、蓝牙、AirPlay),对所有文稿都一样;
+/// 播客插播的动态广告让后面整段往后挪,只对那一集成立。所以分两层:全局一层,加上这一集 / 这本书
+/// 自己的一层,两层相加。偏移改的是显示用的文稿时间轴,不改缓存里的原文:点一行跳过去,跳到的是
+/// 平移后的时间,也就是这句话在音频里真正出现的地方。
+public enum SpokenWordTranscriptOffsetPolicy {
+    /// 微调一下的步长。
+    public static let step: TimeInterval = 0.5
+    /// 插播广告可能有一两分钟;再大多半是误操作。
+    public static let limit: TimeInterval = 600
+
+    /// 存起来之前统一取到 0.1 秒、夹在范围内。
+    public static func normalized(_ delay: TimeInterval) -> TimeInterval {
+        guard delay.isFinite else { return 0 }
+        let clamped = min(max(delay, -limit), limit)
+        let rounded = (clamped * 10).rounded() / 10
+        return rounded == 0 ? 0 : rounded
+    }
+
+    /// 两层相加后的偏移。
+    public static func effectiveDelay(global: TimeInterval, item: TimeInterval?) -> TimeInterval {
+        normalized(global + (item ?? 0))
+    }
+
+    /// 一集播客按单集记,一本书按书记(同一本书的章节出自同一套音频,偏差一样),
+    /// 其余按这首(一个文件)记。
+    public static func itemKey(songID: String, bookID: String?, isPodcastEpisode: Bool) -> String {
+        if !isPodcastEpisode, let bookID, !bookID.isEmpty { return "book:\(bookID)" }
+        return "song:\(songID)"
+    }
+
+    /// `delay` 为正:文稿往后挪,晚一点出来(声音比文字慢);为负:提前。整份一起挪(时间为 0 的
+    /// 第一行也算),和 LRC 的 `[offset:]` 同一种平移。不带时间的纯文本文稿原样返回。
+    public static func applying(delay: TimeInterval, to lines: [LyricLine]) -> [LyricLine] {
+        let delay = normalized(delay)
+        guard delay != 0, lines.contains(where: \.isSynchronized) else { return lines }
+        return LyricDocumentOffsetPolicy.applying(offset: -delay, to: lines)
+    }
+}

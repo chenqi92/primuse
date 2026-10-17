@@ -7839,7 +7839,7 @@ final class AudioPlayerService {
                     lyrics = []
                 }
             } else if let capturedSourceManager {
-                lyrics = await LyricsLoader.load(
+                lyrics = await LyricsLoader.loadForDisplay(
                     for: song,
                     sourceManager: capturedSourceManager
                 )

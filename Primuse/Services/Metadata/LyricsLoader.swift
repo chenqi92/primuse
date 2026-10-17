@@ -211,6 +211,17 @@ enum LyricsLoader {
         }
     }
 
+    /// 显示用的歌词:播客、有声书的文稿按这一集 / 这本书的偏移平移时间轴(#320)。
+    /// 编辑器、写回、比对缓存仍用 `load` 拿原始时间轴。
+    static func loadForDisplay(
+        for song: Song,
+        sourceManager: SourceManager,
+        sourceType: MusicSourceType? = nil
+    ) async -> [LyricLine] {
+        let lines = await load(for: song, sourceManager: sourceManager, sourceType: sourceType)
+        return SpokenWordTranscriptOffsetStore.shared.presenting(lines, for: song)
+    }
+
     /// - Parameter allowsAutomaticOnlineLyrics: 普通源确实没有歌词时是否允许 Tier4 自动在线兜底。
     ///   播放类调用保持默认；歌词编辑器打开时传 false，免得多等一轮网络请求、把在线歌词预填成用户编辑。
     static func load(

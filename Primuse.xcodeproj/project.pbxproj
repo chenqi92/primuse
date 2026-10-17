@@ -727,6 +727,7 @@
 		511CE77407C10F2DD2A84F0A /* PrimuseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		515E5908976D73ED3CC2E32C /* HomeListeningSpaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFBA8DC0C727712FFE7F7B1 /* HomeListeningSpaces.swift */; };
 		51788D2CE6B14D8AEC96F19F /* SmartNudgeCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */; };
+		ED5A1D2602464619C70FB2F6 /* SpokenWordTranscriptOffsetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13776125295910835F4641D2 /* SpokenWordTranscriptOffsetStore.swift */; };
 		517E15C731F3D032AE11F6C9 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		51A139BDA91C3D1378607A22 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
 		51D0E75113BD5B877CE4B83F /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
@@ -1401,6 +1402,7 @@
 		F86921E487074FE5B999C30B /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */; };
 		AC890ABEFC36A612F24D411B /* PlaylistPendingEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E66686E2D510DC7D6E6DD0 /* PlaylistPendingEntryRow.swift */; };
 		AC8C2032CECB70E36A882108 /* SmartNudgeCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */; };
+		D2B0B825A79460CED8C05A41 /* SpokenWordTranscriptOffsetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13776125295910835F4641D2 /* SpokenWordTranscriptOffsetStore.swift */; };
 		ACA5BF36C76363FF308627C8 /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
 		ACC1C625BFCE56DDB17F8EFD /* SettingsSearch.strings in Resources */ = {isa = PBXBuildFile; fileRef = FC407F4D27FB07B48B5C8A85 /* SettingsSearch.strings */; };
 		ACDB0068D3CF83756F697E4C /* PMVerticalBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BE8990000EEE4B1133209E1 /* PMVerticalBarChrome.swift */; };
@@ -3175,6 +3177,7 @@
 		8D173D8CC7D37EB5E31E5B8D /* CloudInputSourceObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudInputSourceObjC.h; sourceTree = "<group>"; };
 		8D5809673781FF8F935A6E82 /* PodcastModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastModels.swift; sourceTree = "<group>"; };
 		8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartNudgeCenter.swift; sourceTree = "<group>"; };
+		13776125295910835F4641D2 /* SpokenWordTranscriptOffsetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordTranscriptOffsetStore.swift; sourceTree = "<group>"; };
 		8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSync.swift; sourceTree = "<group>"; };
 		8E9331C4FF0398A26F758BA0 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/CacheSync.strings; sourceTree = "<group>"; };
 		8ECFDEED1E57CE52C2B071B5 /* DebugAccessibilityScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugAccessibilityScript.swift; sourceTree = "<group>"; };
@@ -5021,6 +5024,7 @@
 				632A16B1EB87A560435B7039 /* ScanService.swift */,
 				6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */,
 				8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */,
+				13776125295910835F4641D2 /* SpokenWordTranscriptOffsetStore.swift */,
 				C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */,
 				61EACF0F812C134ED35D5209 /* SongBatchRemovalService.swift */,
 				D24D75902E225384315DFADB /* SpokenWordStore.swift */,
@@ -7520,6 +7524,7 @@
 				2397DE1952ABED43B577663D /* SiriSettingsView.swift in Sources */,
 				84BFE398306533A2FDC82BC4 /* SiriSpokenNamesGuideView.swift in Sources */,
 				51788D2CE6B14D8AEC96F19F /* SmartNudgeCenter.swift in Sources */,
+				ED5A1D2602464619C70FB2F6 /* SpokenWordTranscriptOffsetStore.swift in Sources */,
 				1195F4C685A15098540F4A80 /* SmartNudgeOverlay.swift in Sources */,
 				AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */,
 				02E10BC9F8CC678F5BE29C76 /* SmartPlaylistEditorView.swift in Sources */,
@@ -8274,6 +8279,7 @@
 				086F04A798AC70AC16E0B9D4 /* SiriSettingsView.swift in Sources */,
 				7033B713D39A8C0E1605A1A9 /* SiriSpokenNamesGuideView.swift in Sources */,
 				AC8C2032CECB70E36A882108 /* SmartNudgeCenter.swift in Sources */,
+				D2B0B825A79460CED8C05A41 /* SpokenWordTranscriptOffsetStore.swift in Sources */,
 				6F5899A91CEA7698A1F8C916 /* SmartNudgeOverlay.swift in Sources */,
 				360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */,
 				485FA0D21F794529DC075FC1 /* SmartPlaylistEditorView.swift in Sources */,

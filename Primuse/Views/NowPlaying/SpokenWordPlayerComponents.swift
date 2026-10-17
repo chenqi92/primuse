@@ -1384,7 +1384,8 @@ struct SpokenWordTranscriptReader: View {
                 customDarkBackgroundHex: $customDarkBackgroundHex,
                 revealsChromeOnScroll: $revealsChromeOnScroll,
                 paragraphModeRawValue: $paragraphModeRawValue,
-                colorScheme: appearanceScheme
+                colorScheme: appearanceScheme,
+                offsetSong: player.currentSong
             )
             #if os(iOS)
             .presentationDetents([.medium, .large])
@@ -1791,6 +1792,14 @@ struct SpokenWordTranscriptReader: View {
             menuRow("transcript_reader_themes_settings", systemImage: "textformat.size") { chooseMenuAction(.settings) }
             Divider()
             playbackRateRow
+            if let song = player.currentSong, SpokenWordTranscriptOffsetStore.shared.itemKey(for: song) != nil {
+                Divider()
+                SpokenWordTranscriptOffsetRow(scope: .item(song), compact: true)
+                    .font(.body)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 4)
+            }
             Divider()
             HStack(spacing: 0) {
                 menuIconButton("bookmark", label: "spoken_word_add_bookmark") {
@@ -2410,6 +2419,8 @@ struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var paragraphModeRawValue: String
     /// 主题块按这个明暗画,和文稿那边看到的一样。
     let colorScheme: ColorScheme
+    /// 「文稿时间」里「这一集 / 这本书」那一行调的是它;nil 时只有「所有文稿」。
+    var offsetSong: Song? = nil
 
     @Environment(\.dismiss) private var dismiss
     /// 「自定义」下面两个取色器改的是哪一套;打开时对准文稿此刻用的那一套。
@@ -2492,6 +2503,16 @@ struct SpokenWordTranscriptTypographyPanel: View {
                         Image(systemName: "textformat.size.larger")
                             .foregroundStyle(.secondary)
                     }
+                }
+                Section {
+                    if let offsetSong, SpokenWordTranscriptOffsetStore.shared.itemKey(for: offsetSong) != nil {
+                        SpokenWordTranscriptOffsetRow(scope: .item(offsetSong))
+                    }
+                    SpokenWordTranscriptOffsetRow(scope: .all)
+                } header: {
+                    Text("transcript_offset_title")
+                } footer: {
+                    Text("transcript_offset_footer")
                 }
                 Section("transcript_line_spacing") {
                     spacingPicker("transcript_line_spacing", selection: $lineSpacingRawValue)
@@ -2738,5 +2759,125 @@ struct SpokenWordTranscriptTypographyPanel: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+    }
+}
+
+/// 文稿时间偏移的一行:− 秒数 +(#320)。正数是文稿往后挪,晚一点出来。
+/// 「这一集 / 这本书」改的是当前这一项自己的那层,「所有文稿」改全局那层。
+struct SpokenWordTranscriptOffsetRow: View {
+    enum Scope {
+        case item(Song)
+        case all
+    }
+
+    let scope: Scope
+    var compact = false
+
+    private var store: SpokenWordTranscriptOffsetStore { .shared }
+
+    private var itemKey: String? {
+        guard case .item(let song) = scope else { return nil }
+        return store.itemKey(for: song)
+    }
+
+    private var delay: TimeInterval {
+        switch scope {
+        case .item:
+            return itemKey.flatMap(store.itemDelay(forKey:)) ?? 0
+        case .all:
+            return store.globalDelay
+        }
+    }
+
+    private var titleKey: LocalizedStringKey {
+        switch scope {
+        case .all:
+            return "transcript_offset_all"
+        case .item(let song):
+            if compact { return "transcript_offset_title" }
+            let isPodcast = PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song)
+            return isPodcast ? "transcript_offset_this_episode" : "transcript_offset_this_book"
+        }
+    }
+
+    var body: some View {
+        let limit = SpokenWordTranscriptOffsetPolicy.limit
+        HStack(spacing: 2) {
+            Text(titleKey)
+            Spacer(minLength: 8)
+            stepButton("minus", label: "transcript_offset_earlier", disabled: delay <= -limit) {
+                set(delay - SpokenWordTranscriptOffsetPolicy.step)
+            }
+            Text(verbatim: Self.valueText(delay))
+                .monospacedDigit()
+                .foregroundStyle(delay == 0 ? .secondary : .primary)
+                .contentTransition(.numericText(value: delay))
+                .animation(.snappy(duration: 0.2), value: delay)
+                .frame(minWidth: 64)
+                .contextMenu {
+                    Button("transcript_offset_reset") { set(0) }
+                        .disabled(delay == 0)
+                }
+            stepButton("plus", label: "transcript_offset_later", disabled: delay >= limit) {
+                set(delay + SpokenWordTranscriptOffsetPolicy.step)
+            }
+        }
+        .disabled(isUnavailable)
+        #if os(iOS)
+        .sensoryFeedback(.selection, trigger: delay)
+        #endif
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(titleKey))
+        .accessibilityValue(Text(verbatim: Self.valueText(delay)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: set(delay + SpokenWordTranscriptOffsetPolicy.step)
+            case .decrement: set(delay - SpokenWordTranscriptOffsetPolicy.step)
+            @unknown default: break
+            }
+        }
+    }
+
+    private var isUnavailable: Bool {
+        if case .item = scope { return itemKey == nil }
+        return false
+    }
+
+    private func set(_ value: TimeInterval) {
+        switch scope {
+        case .all:
+            store.setGlobalDelay(value)
+        case .item:
+            guard let itemKey else { return }
+            store.setItemDelay(value, forKey: itemKey)
+        }
+    }
+
+    private func stepButton(
+        _ systemImage: String,
+        label: LocalizedStringKey,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.3 : 1)
+        .accessibilityLabel(Text(label))
+    }
+
+    /// 「+1.5 秒」「−0.5 秒」「0 秒」。
+    static func valueText(_ delay: TimeInterval) -> String {
+        let number = delay.formatted(
+            .number
+                .precision(.fractionLength(0...1))
+                .sign(strategy: .always(includingZero: false))
+        )
+        return String(format: String(localized: "transcript_offset_seconds_format"), number)
     }
 }
