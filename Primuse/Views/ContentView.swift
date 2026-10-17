@@ -1613,6 +1613,8 @@ struct ContentView: View {
         .onChange(of: SettingsNavigation.shared.request, initial: true) { _, request in
             guard let request, SettingsNavigation.shared.activatedToken != request.token else { return }
             SettingsNavigation.shared.activatedToken = request.token
+            // 从展开的播放页里跳设置(比如「生成文稿」里的「去设置」):先收起,不然设置页被挡在后面。
+            showNowPlaying = false
             selectMinimalPage(.settings)
         }
         .environment(\.openScraperSettings, OpenScraperSettingsAction {

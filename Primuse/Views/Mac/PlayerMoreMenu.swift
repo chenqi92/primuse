@@ -38,6 +38,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var shareSong: Song?
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
+    /// 「生成文稿」(#314):打开给哪一集的面板;这一集现在有没有文稿(读缓存得出)。
+    @State private var transcriptGenerationSong: Song?
+    @State private var currentHasTranscript: Bool?
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showChapterList = false
@@ -143,6 +146,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .sheet(isPresented: $showKaraoke) {
             KaraokeStageView()
         }
+        .modifier(PlayerMoreMenuTranscriptGeneration(
+            songID: player.currentSong?.id,
+            transcriptGenerationSong: $transcriptGenerationSong,
+            currentHasTranscript: $currentHasTranscript
+        ))
         .sheet(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(song: song) { updated in
                 guard player.currentSong?.id == updated.id else { return }
@@ -192,6 +200,21 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 歌词动效与听歌记录这些音乐的玩法, 「转到专辑/艺人」换成「转到这本书」。
     private var isSpokenWord: Bool {
         player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    /// 「生成文稿」那一行的字:没有文稿时「生成」,生成过的「重新生成」,生成中写进度;
+    /// 自带文稿的不给(#314)。
+    private var transcriptGenerationRow: String? {
+        guard isSpokenWord, let song = player.currentSong,
+              SpokenTranscriptGenerator.canGenerate(for: song) else { return nil }
+        let generator = SpokenTranscriptGenerator.shared
+        if let job = generator.activeJob, job.song.id == song.id {
+            return SpokenTranscriptGenerationSheet.phaseText(job.phase)
+        }
+        if generator.records[song.id] != nil {
+            return String(localized: "transcript_generation_regenerate")
+        }
+        return currentHasTranscript == false ? String(localized: "transcript_generation_action") : nil
     }
 
     /// 播客单集不在曲库里: 加歌单、改标签与歌词、歌曲信息都没有落处。
@@ -360,6 +383,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                         symbol: "quote.bubble",
                         disabled: player.currentSong == nil) {
                     lyricsEditorTargetSong = player.currentSong
+                }
+            }
+            if let generation = transcriptGenerationRow {
+                menuRow(titleText: generation, symbol: "waveform.and.mic") {
+                    transcriptGenerationSong = player.currentSong
                 }
             }
             // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
@@ -1762,6 +1790,36 @@ struct MacSimilarSongsPopover: View {
             lastFmCandidates = []
         }
         isLoadingLastFm = false
+    }
+}
+
+/// 「生成文字稿」的面板,和「这一集现在有没有文字稿」(读缓存得出,歌词一变就重读)(#314)。
+/// 单独成一个修饰,不再加长菜单那条修饰链。
+private struct PlayerMoreMenuTranscriptGeneration: ViewModifier {
+    let songID: String?
+    @Binding var transcriptGenerationSong: Song?
+    @Binding var currentHasTranscript: Bool?
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $transcriptGenerationSong) { song in
+                SpokenTranscriptGenerationSheet(song: song)
+                    .environment(AppServices.shared.musicIntelligence)
+            }
+            .task(id: songID) { await refresh(songID) }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
+                guard let changed = note.object as? String, changed == songID else { return }
+                Task { await refresh(changed) }
+            }
+    }
+
+    private func refresh(_ songID: String?) async {
+        guard let songID else {
+            currentHasTranscript = nil
+            return
+        }
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
+        currentHasTranscript = cached?.isEmpty == false
     }
 }
 #endif

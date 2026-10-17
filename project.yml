@@ -275,6 +275,7 @@ targets:
           - INMediaCategoryRadio
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
+        NSSpeechRecognitionUsageDescription: "Primuse uses on-device speech recognition to create transcripts for podcast episodes and audiobooks. The audio stays on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         # 卡拉OK AI 人声模型是 App Store 托管的按需资源包, 由下面的下载扩展接收。
         BAAppGroupID: group.com.welape.yuanyin
@@ -630,6 +631,7 @@ targets:
         # AudioEngine.swift 用 CMHeadphoneMotionManager 做空间音频头部追踪(随 Primuse/ 源
         # 编进 macOS 二进制),即使 mac 上少用,Apple 校验也要求声明,否则上传报 90683。
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
+        NSSpeechRecognitionUsageDescription: "Primuse uses on-device speech recognition to create transcripts for podcast episodes and audiobooks. The audio stays on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         # 卡拉OK AI 人声模型是 App Store 托管的按需资源包, 由下面的下载扩展接收。
         BAAppGroupID: group.com.welape.yuanyin

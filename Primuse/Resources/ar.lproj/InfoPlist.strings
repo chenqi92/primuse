@@ -4,3 +4,4 @@
 "NSMotionUsageDescription" = "يستخدم Primuse حركة سماعات الرأس للحفاظ على ثبات الصوت المكاني أثناء تحريك رأسك.";
 "NSSiriUsageDescription" = "يُستخدم لبدء التشغيل والتحكم في Primuse بالأوامر الصوتية عبر Siri.";
 "NSMicrophoneUsageDescription" = "يستخدم Primuse الميكروفون في وضع الكاريوكي لتقييم غنائك وإسماعك صوتك في سماعات الرأس وتسجيل أدائك على هذا الجهاز.";
+"NSSpeechRecognitionUsageDescription" = "يستخدم Primuse التعرّف على الكلام على الجهاز لإنشاء نصوص حلقات البودكاست والكتب الصوتية، ويبقى الصوت على هذا الجهاز.";

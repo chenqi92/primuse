@@ -814,6 +814,34 @@ actor PrimuseAIRelayClient {
         fileURL: URL,
         languageCodes: [String] = []
     ) async throws -> AIAudioTranscriptionResult {
+        try await transcribeAudio(
+            fileURL: fileURL,
+            languageCodes: languageCodes,
+            path: "/v1/audio/transcriptions",
+            purpose: "audio_transcription"
+        )
+    }
+
+    /// 文稿生成:播客单集、有声书章节里的一段(最长 10 分钟的 M4A)交给内置 AI,词的时间从
+    /// 这一段的开头算;中转按段计次(#314)。
+    func transcribeTranscriptSegment(
+        fileURL: URL,
+        languageCodes: [String] = []
+    ) async throws -> AIAudioTranscriptionResult {
+        try await transcribeAudio(
+            fileURL: fileURL,
+            languageCodes: languageCodes,
+            path: "/v1/audio/transcript-segments",
+            purpose: "transcript_generation"
+        )
+    }
+
+    private func transcribeAudio(
+        fileURL: URL,
+        languageCodes: [String],
+        path: String,
+        purpose: String
+    ) async throws -> AIAudioTranscriptionResult {
         let audio = try Data(contentsOf: fileURL, options: .mappedIfSafe)
         guard !audio.isEmpty,
               audio.count <= AIAudioTranscriptionPolicy.builtInMaximumUploadBytes else {
@@ -821,8 +849,8 @@ actor PrimuseAIRelayClient {
         }
         var completed: AudioTranscriptionOutput?
         try await performStreamingFeature(
-            path: "/v1/audio/transcriptions",
-            purpose: "audio_transcription",
+            path: path,
+            purpose: purpose,
             input: AudioTranscriptionInput(
                 audioBase64: audio.base64EncodedString(),
                 mimeType: "audio/m4a",
@@ -846,7 +874,17 @@ actor PrimuseAIRelayClient {
     /// 读不到就是不知道,返回 nil。
     func isAudioTranscriptionOffered() async -> Bool? {
         guard let info = await serviceInfo(timeout: 15) else { return nil }
-        switch info.audioTranscription {
+        return Self.offered(info.audioTranscription)
+    }
+
+    /// 内置 AI 有没有给文稿生成配转写模型;旧的中转不报这一项,当作没有(#314)。
+    func isTranscriptGenerationOffered() async -> Bool? {
+        guard let info = await serviceInfo(timeout: 15) else { return nil }
+        return Self.offered(info.transcriptGeneration) ?? false
+    }
+
+    private static func offered(_ value: String?) -> Bool? {
+        switch value {
         case "available": return true
         case nil: return nil
         default: return false
@@ -978,6 +1016,34 @@ actor PrimuseAIRelayClient {
             input: UsageQueryInput(limit: 1)
         ) else { return nil }
         return (usage.plan?.features?["audio_transcription"] ?? 0) > 0
+    }
+
+    /// 当前套餐有没有文稿生成;读不到就是不知道,返回 nil(#314)。
+    func isTranscriptGenerationInPlan() async -> Bool? {
+        guard let usage: UsagePlanOutput = try? await performFeature(
+            path: "/v1/account/usage",
+            purpose: "usage",
+            input: UsageQueryInput(limit: 1)
+        ) else { return nil }
+        return (usage.plan?.features?["transcript_generation"] ?? 0) > 0
+    }
+
+    /// 今天和这个周期文稿生成用了几段、上限多少:开始前告诉用户这一集要几段、还剩几段。
+    /// 用量接口不占次数;读不到返回 nil。
+    func transcriptGenerationAllowance() async -> SpokenTranscriptBuiltInAllowance? {
+        guard let usage: UsageAllowanceOutput = try? await performFeature(
+            path: "/v1/account/usage",
+            purpose: "usage",
+            input: UsageQueryInput(limit: 1)
+        ), let today = usage.today else { return nil }
+        let feature = today.features?["transcript_generation"]
+        let periodFeature = usage.period?.features?["transcript_generation"]
+        return SpokenTranscriptBuiltInAllowance(
+            segmentsToday: feature?.requests ?? 0,
+            dailyLimit: feature?.limit,
+            segmentsThisPeriod: periodFeature?.requests ?? 0,
+            periodLimit: periodFeature?.limit
+        )
     }
 
     /// 今天(和这个周期)简介用了几次、各项上限多少:批量补简介前估一下还能补几个。
@@ -2387,10 +2453,12 @@ actor PrimuseAIRelayClient {
     private struct ServiceInfoOutput: Decodable, Sendable {
         var audioTranscription: String?
         var diagnosticsUpload: String?
+        var transcriptGeneration: String?
 
         private enum CodingKeys: String, CodingKey {
             case audioTranscription = "audio_transcription"
             case diagnosticsUpload = "diagnostics_upload"
+            case transcriptGeneration = "transcript_generation"
         }
     }
 

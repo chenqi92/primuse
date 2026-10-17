@@ -1046,6 +1046,8 @@ struct NowPlayingView: View {
     var isPresentationSettled = true
     var isPresentationActive = true
     @State private var showChapterList = false
+    /// 正在给哪一集 / 哪一章打开「生成文字稿」(#314)。
+    @State private var transcriptGenerationSong: Song?
     /// 目录面板(sheet 或右栏)该翻到哪一页;播客的「接下来」块与队列键用它。
     @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     @State private var bookmarkFeedbackToken = 0
@@ -3179,7 +3181,9 @@ struct NowPlayingView: View {
             player: player,
             transcriptReaderLines: { transcriptReaderLines },
             transcriptTranslations: { lyricTranslationsByLineID },
-            onTranscriptOffsetChange: refreshTranscriptOffset
+            onTranscriptOffsetChange: refreshTranscriptOffset,
+            transcriptGenerationSong: $transcriptGenerationSong,
+            intelligence: intelligence
         ))
         #if os(iOS)
         .sheet(
@@ -4308,6 +4312,26 @@ struct NowPlayingView: View {
     /// 有声书、评书、相声用「后退 15 秒 / 前进 30 秒」代替切曲。一整本书就是
     /// 一个条目, 切到下一条目等于整本跳过; 真实需求是漏听一句往回倒。
     /// 电台那套控件在另一处单独实现, 不受影响。
+    /// 「更多」里的「生成文字稿」:没有文字稿的有声内容给「生成」,生成过的给「重新生成」,
+    /// 生成中写进度;自带文字稿(节目给的、源里的)不给(#314)。
+    private var transcriptGenerationMenuItem: SpokenTranscriptGenerationMenuItem? {
+        guard usesSpokenWordTransport,
+              let song = player.currentSong,
+              SpokenTranscriptGenerator.canGenerate(for: song) else { return nil }
+        let generator = SpokenTranscriptGenerator.shared
+        if let job = generator.activeJob, job.song.id == song.id {
+            return SpokenTranscriptGenerationMenuItem(
+                titleKey: "transcript_generation_menu_running",
+                detail: SpokenTranscriptGenerationSheet.phaseText(job.phase)
+            )
+        }
+        if generator.records[song.id] != nil, !lyrics.isEmpty {
+            return SpokenTranscriptGenerationMenuItem(titleKey: "transcript_generation_regenerate", detail: nil)
+        }
+        guard lyrics.isEmpty, !isResolvingLyrics else { return nil }
+        return SpokenTranscriptGenerationMenuItem(titleKey: "transcript_generation_action", detail: nil)
+    }
+
     private var usesSpokenWordTransport: Bool {
         player.currentItemIsSpokenWord && !player.isLiveRadio
     }
@@ -6975,6 +6999,7 @@ struct NowPlayingView: View {
                 && shows(.podcastGoToShow),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
+            transcriptGeneration: transcriptGenerationMenuItem,
             podcastShareURL: podcastShareURL,
             canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil && shows(.goToBook),
             hasChapterList: (player.hasChapters || isSpokenWord) && shows(.chaptersAndBookmarks),
@@ -7100,6 +7125,7 @@ struct NowPlayingView: View {
             onOpenBook: { presentCurrentBook() },
             onOpenPodcastShow: { openCurrentPodcastShow?() },
             onMarkPodcastPlayed: { player.markCurrentPodcastEpisodePlayed() },
+            onGenerateTranscript: { transcriptGenerationSong = player.currentSong },
             onShowChapterList: { openContentsPanel() },
             onOpenInAppleMusic: {
                 guard let url = appleMusicCatalogURL else { return }
@@ -10911,6 +10937,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 播客单集的「标为已播放」与「下载」,「播放页按钮 › 『更多』菜单」里能关。
     let showsPodcastMarkPlayed: Bool
     let showsPodcastDownload: Bool
+    /// 有声内容的「生成文字稿」;没有这一项时为 nil(#314)。
+    let transcriptGeneration: SpokenTranscriptGenerationMenuItem?
     let podcastShareURL: URL?
     let canOpenBook: Bool
     let hasChapterList: Bool
@@ -11002,9 +11030,20 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
     /// 各行译文,全屏文字稿的「双语」「只看译文」用(#320)。
     let transcriptTranslations: () -> [String: String]
     let onTranscriptOffsetChange: () -> Void
+    /// 「生成文字稿」打开给哪一集(#314)。
+    @Binding var transcriptGenerationSong: Song?
+    let intelligence: MusicIntelligenceService
 
     func body(content: Content) -> some View {
         content
+            .sheet(item: $transcriptGenerationSong) { song in
+                SpokenTranscriptGenerationSheet(song: song)
+                    .environment(intelligence)
+                    #if os(iOS)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                    #endif
+            }
             .onReceive(NotificationCenter.default.publisher(for: .primuseTranscriptOffsetDidChange)) { _ in
                 onTranscriptOffsetChange()
             }
@@ -11205,6 +11244,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenBook: () -> Void
     let onOpenPodcastShow: () -> Void
     let onMarkPodcastPlayed: () -> Void
+    let onGenerateTranscript: () -> Void
     let onShowChapterList: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
@@ -11466,6 +11506,21 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     if snapshot.showsPodcastDownload {
                         PodcastPlayerDownloadMenuItem()
+                    }
+                }
+            }
+
+            if let generation = snapshot.transcriptGeneration {
+                Section {
+                    Button(action: onGenerateTranscript) {
+                        Label {
+                            Text(generation.titleKey)
+                            if let detail = generation.detail {
+                                Text(verbatim: detail)
+                            }
+                        } icon: {
+                            Image(systemName: "waveform.and.mic")
+                        }
                     }
                 }
             }

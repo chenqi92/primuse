@@ -8,3 +8,4 @@
 "NSLocalNetworkUsageDescription" = "Primuse 需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。";
 "NSMotionUsageDescription" = "Primuse 会使用支持的耳机运动数据，让空间音频在您转动头部时保持稳定定位。";
 "NSMicrophoneUsageDescription" = "Primuse 在卡拉OK模式下使用麦克风为你的演唱打分、在耳机中播放你的声音，并在本机录下你的演唱。";
+"NSSpeechRecognitionUsageDescription" = "Primuse 使用本机语音识别为播客单集和有声书生成文稿，音频不会离开这台设备。";

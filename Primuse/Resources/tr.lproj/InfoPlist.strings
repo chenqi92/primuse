@@ -4,3 +4,4 @@
 "NSSiriUsageDescription" = "Siri sesli komutlarıyla oynatmayı başlatmak ve Primuse'ı denetlemek için kullanılır.";
 "NSMotionUsageDescription" = "Primuse, başınızı hareket ettirdiğinizde Uzamsal Ses'in konumunu korumak için kulaklık hareketini kullanır.";
 "NSMicrophoneUsageDescription" = "Primuse, karaoke modunda şarkını puanlamak, sesini kulaklıkta duymanı sağlamak ve performansını bu cihaza kaydetmek için mikrofonu kullanır.";
+"NSSpeechRecognitionUsageDescription" = "Primuse, podcast bölümleri ve sesli kitaplar için metin oluşturmak üzere cihaz üzerinde konuşma tanımayı kullanır. Ses bu cihazdan çıkmaz.";

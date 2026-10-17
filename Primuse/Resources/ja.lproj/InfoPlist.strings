@@ -9,3 +9,4 @@
 "NSLocalNetworkUsageDescription" = "PrimuseはNASデバイスやメディアサーバ、その他の音楽ソースを検出して接続するために、ローカルネットワークへのアクセスを必要とします。";
 "NSMotionUsageDescription" = "Primuseはヘッドフォンのモーションデータを使用して、頭を動かしても空間オーディオの定位を安定させます。";
 "NSMicrophoneUsageDescription" = "Primuse はカラオケモードでマイクを使い、歌を採点し、ヘッドフォンで自分の声を聴けるようにし、この端末に歌を録音します。";
+"NSSpeechRecognitionUsageDescription" = "Primuse は端末上の音声認識を使って、ポッドキャストのエピソードやオーディオブックの文字起こしを作成します。音声はこの端末から出ません。";

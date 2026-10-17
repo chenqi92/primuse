@@ -224,6 +224,8 @@ private struct PodcastEpisodeActions: View {
     var needsInsecureConsent: @MainActor (String) -> Void
 
     @Environment(AudioPlayerService.self) private var player
+    /// 「更多」里点了「生成文稿」(#314)。
+    @State private var transcriptGenerationSong: Song?
     private var store: PodcastStore { PodcastStore.shared }
     private var tint: Color { ListeningSpace.podcast.tint }
 
@@ -289,7 +291,13 @@ private struct PodcastEpisodeActions: View {
                         episode: episode,
                         continuing: continuing,
                         openShow: openShow,
-                        needsInsecureConsent: needsInsecureConsent
+                        needsInsecureConsent: needsInsecureConsent,
+                        generateTranscript: { episode in
+                            transcriptGenerationSong = PodcastPlaybackSong.song(
+                                for: episode,
+                                show: store.show(id: episode.showID)
+                            )
+                        }
                     )
                 } label: {
                     PodcastCircleKey(systemName: "ellipsis")
@@ -299,6 +307,10 @@ private struct PodcastEpisodeActions: View {
                 .menuIndicator(.hidden)
                 .accessibilityLabel(Text("more"))
                 .accessibilityIdentifier("podcast.episode.more")
+                .sheet(item: $transcriptGenerationSong) { song in
+                    SpokenTranscriptGenerationSheet(song: song)
+                        .environment(AppServices.shared.musicIntelligence)
+                }
             }
             if total > 0, position > 0, !state.isFinished {
                 VStack(alignment: .leading, spacing: 4) {

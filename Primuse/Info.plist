@@ -126,6 +126,8 @@
 	<string>Primuse 需要保存歌词海报和实况照片到你的相册。</string>
 	<key>NSSiriUsageDescription</key>
 	<string>用 Siri 语音点播、控制 Primuse 播放。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Primuse uses on-device speech recognition to create transcripts for podcast episodes and audiobooks. The audio stays on this device.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>

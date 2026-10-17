@@ -338,6 +338,10 @@ final class MusicIntelligenceService {
     /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
     private(set) var builtInTranscriptionNotInPlan = false
     @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
+    /// 内置 AI 有没有给文稿生成配转写模型、当前套餐能不能用(#314);没问到之前当作没有。
+    private(set) var builtInTranscriptGenerationOffered = false
+    private(set) var builtInTranscriptGenerationNotInPlan = false
+    @ObservationIgnored private var builtInTranscriptGenerationCheckedAt: Date?
     /// 内置 AI 回过「没有罗马音这项功能」（中转还是老版本）的时间。几个小时之内不再问它，
     /// 罗马音直接用本机生成，设置页据此说明。
     private(set) var builtInRomanizationUnsupportedAt: Date?
@@ -2402,6 +2406,162 @@ final class MusicIntelligenceService {
         #endif
     }
 
+    // MARK: - 文稿生成(#314)
+
+    /// 文稿生成里「内置智能」「自己的 Google 密钥」两条路现在能不能走,不能时差在哪一步。
+    enum TranscriptGenerationCloudState: Equatable {
+        case ready
+        /// 内置 AI 关着或还没同意使用条款。
+        case builtInAIOff
+        case deviceUnsupported
+        case regionRestricted
+        /// 后台没给文稿生成配转写模型,或还没问到。
+        case notOffered
+        case notInPlan
+        /// 「听歌识词」里还没设好 Google 密钥和转写模型。
+        case ownKeyNotConfigured
+    }
+
+    /// 问一次内置 AI 有没有开放文稿生成、当前套餐有没有;半小时内问过就不再问(`force` 除外)。
+    func refreshBuiltInTranscriptGenerationOffer(force: Bool = false) async {
+        guard settingsStore.primuseRelayEnabled,
+              settingsStore.hasBuiltInAIConsent,
+              PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
+        if !force, let checkedAt = builtInTranscriptGenerationCheckedAt,
+           Date().timeIntervalSince(checkedAt) < 30 * 60 {
+            return
+        }
+        guard let offered = await primuseRelayClient.isTranscriptGenerationOffered() else { return }
+        var inPlan = true
+        if offered, let planned = await primuseRelayClient.isTranscriptGenerationInPlan() {
+            inPlan = planned
+        }
+        builtInTranscriptGenerationCheckedAt = Date()
+        builtInTranscriptGenerationOffered = offered && inPlan
+        builtInTranscriptGenerationNotInPlan = offered && !inPlan
+    }
+
+    var builtInTranscriptGenerationState: TranscriptGenerationCloudState {
+        guard settingsStore.primuseRelayEnabled, settingsStore.hasBuiltInAIConsent else { return .builtInAIOff }
+        guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return .deviceUnsupported }
+        guard AIAvailabilityPolicy.decision(
+            for: .bundledRemote,
+            regionContext: regionAvailability.context
+        ).isAllowed else { return .regionRestricted }
+        if builtInTranscriptGenerationNotInPlan { return .notInPlan }
+        return builtInTranscriptGenerationOffered ? .ready : .notOffered
+    }
+
+    /// 自己的 Google 密钥:用「听歌识词」里设好的密钥与转写模型,不看听歌识词开没开。
+    var ownKeyTranscriptGenerationState: TranscriptGenerationCloudState {
+        let configuration = lyricsTranscriptionSettingsStore.configuration
+        guard AIAudioTranscriptionPolicy.supports(configuration: configuration),
+              lyricsTranscriptionCredentialAvailable else { return .ownKeyNotConfigured }
+        guard AIProviderRegionPolicy.allows(
+            configuration: configuration,
+            region: regionAvailability.context.region,
+            purpose: .generation
+        ), regionAvailability.remoteProviderDecision.isAllowed else { return .regionRestricted }
+        return .ready
+    }
+
+    /// 今天和这个周期还能生成几段;读不到返回 nil。
+    func transcriptGenerationAllowance() async -> SpokenTranscriptBuiltInAllowance? {
+        guard builtInTranscriptGenerationState == .ready else { return nil }
+        return await primuseRelayClient.transcriptGenerationAllowance()
+    }
+
+    /// 内置 AI 识别一段(最长 10 分钟的 M4A);中转按段计次。
+    func transcribeTranscriptSegmentWithBuiltIn(fileURL: URL) async -> AIAudioTranscriptionOutcome {
+        let regionSnapshot = regionAvailability.snapshot
+        guard builtInTranscriptGenerationState == .ready else { return .unavailable }
+        do {
+            let result = try await primuseRelayClient.transcribeTranscriptSegment(fileURL: fileURL)
+            guard regionSnapshot == regionAvailability.snapshot else { return .failed }
+            return .success(AIAudioTranscriptionExecution(
+                result: result,
+                providerName: String(localized: "ai_primuse_relay_name"),
+                fallbackDepth: 0
+            ))
+        } catch is CancellationError {
+            return .failed
+        } catch let error as PrimuseAIRelayError {
+            guard case .requestFailed(let statusCode, let code, _) = error else { return .failed }
+            plog("[transcript] built-in AI refused: \(statusCode) \(code)")
+            switch code {
+            case "feature_quota_exhausted", "daily_request_limit_exhausted", "daily_quota_exhausted":
+                return .limitReached
+            case "period_quota_exhausted":
+                return .monthlyLimitReached
+            case "audio_too_long", "request_too_large":
+                return .tooLong
+            case "feature_not_in_plan":
+                builtInTranscriptGenerationOffered = false
+                builtInTranscriptGenerationNotInPlan = true
+                builtInTranscriptGenerationCheckedAt = Date()
+                return .notInPlan
+            case "feature_disabled", "feature_unavailable", "route_not_found":
+                builtInTranscriptGenerationOffered = false
+                builtInTranscriptGenerationCheckedAt = Date()
+                return .unavailable
+            default:
+                return .failed
+            }
+        } catch {
+            return .failed
+        }
+    }
+
+    /// 自己的 Google 密钥识别一段。上传前已在文稿生成里请用户确认过。
+    func transcribeTranscriptSegmentWithOwnKey(
+        fileURL: URL,
+        mimeType: String,
+        displayName: String
+    ) async -> AIAudioTranscriptionOutcome {
+        guard ownKeyTranscriptGenerationState == .ready else { return .unavailable }
+        let regionSnapshot = regionAvailability.snapshot
+        let configuration = await resolvedLyricsTranscriptionConfiguration()
+        guard AIAudioTranscriptionPolicy.supports(configuration: configuration),
+              AIAudioTranscriptionPolicy.supportsInput(mimeType: mimeType),
+              AIRegionRequestPolicy.canSendRemoteRequest(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                configuration: configuration
+              ) else { return .unavailable }
+        let request = AIAudioTranscriptionRequest(
+            audioFileURL: fileURL,
+            mimeType: mimeType,
+            displayName: displayName
+        )
+        do {
+            let result = try await engine.transcribeAudio(
+                request,
+                configuration: configuration,
+                regionContext: regionSnapshot.context,
+                hasExplicitAudioUploadConsent: true,
+                requestAuthorization: regionAuthorization(
+                    for: regionSnapshot,
+                    configuration: configuration
+                )
+            )
+            guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                configuration: configuration
+            ) else { return .failed }
+            return .success(AIAudioTranscriptionExecution(
+                result: result,
+                providerName: configuration.displayName,
+                fallbackDepth: 0
+            ))
+        } catch is CancellationError {
+            return .failed
+        } catch {
+            plog("[transcript] own key failed: \(error)")
+            return .failed
+        }
+    }
+
     func prepareLyricsTranscriptionCredentialMigration() async {
         _ = await hasStoredLyricsTranscriptionAPIKey()
     }
@@ -3915,6 +4075,7 @@ enum BuiltInAIQuotaText {
     static let featureOrder = [
         "recommendations", "semantic_search", "lyrics_translation", "lyrics_romanization", "listening_intents",
         "listening_mood", "library_insight", "song_discovery", "tag_cleanup", "audio_transcription",
+        "transcript_generation",
     ]
 
     static func title(for feature: BuiltInAIQuotaOverview.Feature) -> String {
@@ -3929,6 +4090,7 @@ enum BuiltInAIQuotaText {
         case "library_insight": String(localized: "ai_feature_library_insight")
         case "listening_mood": String(localized: "ai_feature_listening_mood")
         case "audio_transcription": String(localized: "ai_audio_transcription_title")
+        case "transcript_generation": String(localized: "transcript_generation_title")
         default: feature.name ?? feature.id
         }
     }

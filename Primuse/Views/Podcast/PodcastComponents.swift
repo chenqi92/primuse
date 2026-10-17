@@ -417,6 +417,8 @@ struct PodcastEpisodeMenu: View {
     /// 给了就多一项「前往节目」(单集页、跨节目的列表里用)。
     var openShow: ((String) -> Void)?
     var needsInsecureConsent: (@MainActor (String) -> Void)?
+    /// 给了就多一项「生成文稿」:没有文字稿的单集,或生成过的(重新生成)(#314)。
+    var generateTranscript: (@MainActor (PodcastEpisode) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -481,6 +483,19 @@ struct PodcastEpisodeMenu: View {
                 Label("podcast_download", systemImage: "arrow.down.circle")
             }
         }
+        if let generateTranscript {
+            let generated = SpokenTranscriptGenerator.shared.records[episode.id] != nil
+            if episode.transcriptURL == nil || generated {
+                Button {
+                    generateTranscript(episode)
+                } label: {
+                    Label(
+                        generated ? "transcript_generation_regenerate" : "transcript_generation_action",
+                        systemImage: "waveform.and.mic"
+                    )
+                }
+            }
+        }
         if let openShow {
             Divider()
             Button {
@@ -506,6 +521,7 @@ private struct PodcastEpisodeContextMenu: ViewModifier {
 
     @Environment(AudioPlayerService.self) private var player
     @State private var pendingInsecureHost: String?
+    @State private var transcriptGenerationSong: Song?
 
     func body(content: Content) -> some View {
         content
@@ -514,11 +530,21 @@ private struct PodcastEpisodeContextMenu: ViewModifier {
                     episode: episode,
                     continuing: continuing,
                     openShow: openShow,
-                    needsInsecureConsent: { pendingInsecureHost = $0 }
+                    needsInsecureConsent: { pendingInsecureHost = $0 },
+                    generateTranscript: { episode in
+                        transcriptGenerationSong = PodcastPlaybackSong.song(
+                            for: episode,
+                            show: PodcastStore.shared.show(id: episode.showID)
+                        )
+                    }
                 )
             }
             .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
                 PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { _ in }
+            }
+            .sheet(item: $transcriptGenerationSong) { song in
+                SpokenTranscriptGenerationSheet(song: song)
+                    .environment(AppServices.shared.musicIntelligence)
             }
     }
 }

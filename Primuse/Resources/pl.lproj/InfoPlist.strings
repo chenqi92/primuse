@@ -4,3 +4,4 @@
 "NSMotionUsageDescription" = "Primuse wykorzystuje ruch słuchawek, aby utrzymywać stałe położenie dźwięku przestrzennego podczas poruszania głową.";
 "NSSiriUsageDescription" = "Umożliwia rozpoczynanie odtwarzania i sterowanie Primuse poleceniami głosowymi Siri.";
 "NSMicrophoneUsageDescription" = "Primuse używa mikrofonu w trybie karaoke, aby oceniać Twój śpiew, pozwolić Ci słyszeć się w słuchawkach i nagrywać występ na tym urządzeniu.";
+"NSSpeechRecognitionUsageDescription" = "Primuse używa rozpoznawania mowy na urządzeniu, aby tworzyć transkrypcje odcinków podcastów i audiobooków. Dźwięk nie opuszcza tego urządzenia.";
