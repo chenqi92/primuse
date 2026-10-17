@@ -52,6 +52,36 @@ enum PlayerBackdropImaging {
         return ciContext.createCGImage(blurred, from: extent)
     }
 
+    /// 铺满封面下面那一截的底图：封面下沿占高度 `fraction` 的那条，下面接上它的上下镜像，
+    /// 缩成小图一起模糊一次。上半垫在封面渐隐那段底下，下半往下铺到屏幕底；接缝两边是封面
+    /// 最下面同一行像素，所以渐隐处看到的就是封面自己的颜色。
+    nonisolated static func fullBleedExtension(from image: CGImage, fraction: CGFloat) -> CGImage? {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        guard width > 0, height > 0 else { return nil }
+        let stripHeight = max(1, (height * min(max(fraction, 0.05), 1)).rounded())
+        // Core Image 的原点在左下角：y 从 0 到 stripHeight 就是封面最下面那一条。
+        let strip = CIImage(cgImage: image)
+            .cropped(to: CGRect(x: 0, y: 0, width: width, height: stripHeight))
+        let upper = strip.transformed(by: CGAffineTransform(translationX: 0, y: stripHeight))
+        let mirrored = strip.transformed(
+            by: CGAffineTransform(scaleX: 1, y: -1).concatenating(CGAffineTransform(translationX: 0, y: stripHeight))
+        )
+        let scale = min(1, fullBleedExtensionWidth / width)
+        let combined = upper.composited(over: mirrored)
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = combined.extent.integral
+        let blurred = combined
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(extent.width * 0.06))
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.1])
+            .cropped(to: extent)
+        return ciContext.createCGImage(blurred, from: extent)
+    }
+
+    /// 延伸底图的宽度。模糊过的图放大到整屏宽看不出差别。
+    private nonisolated static let fullBleedExtensionWidth: CGFloat = 96
+
     nonisolated static func jpegData(_ image: CGImage, quality: Double) -> Data? {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(

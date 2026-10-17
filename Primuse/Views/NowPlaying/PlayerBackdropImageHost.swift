@@ -121,6 +121,196 @@ struct PlayerBackdropImageHost: View {
     }
 }
 
+/// 铺满封面（「封面样式」选了铺满）下面那一截：封面下沿接着往下延伸的模糊镜像，盖住封面取色
+/// 色场的下半。色场下半是封面里另挑的第二种颜色再压暗，跟封面下沿往往不是一个色，渐隐处像接了
+/// 一块别的底（暖色封面常常压成一片棕）；换成封面自己的像素，渐隐就是封面慢慢化开。
+/// 遮罩和背景图共用一套规则，跟着「背景浓淡」走。
+///
+/// 只在背景选的是封面取色时铺：流动色彩、声音律动和背景图是用户特意选的，封面下面照旧露出它们。
+struct FullBleedArtworkExtension: View {
+    /// 封面下沿渐隐那一截占封面高度的比例，播放页的铺满封面位用同一个值。
+    nonisolated static let fadeFraction: CGFloat = 0.4
+
+    let song: Song?
+    let coverRevision: Int
+    /// 铺满封面在这一层坐标里的位置。
+    let artworkRect: CGRect
+    let pageSize: CGSize
+    let isLight: Bool
+    let strength: Double
+    let usesIncreasedContrast: Bool
+    /// 入场动画结束前不开始取图；内存里已经有的照样立刻用。
+    let allowsLoading: Bool
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var shown: FullBleedArtworkExtensionImages?
+
+    init(
+        song: Song?,
+        coverRevision: Int,
+        artworkRect: CGRect,
+        pageSize: CGSize,
+        isLight: Bool,
+        strength: Double,
+        usesIncreasedContrast: Bool,
+        allowsLoading: Bool
+    ) {
+        self.song = song
+        self.coverRevision = coverRevision
+        self.artworkRect = artworkRect
+        self.pageSize = pageSize
+        self.isLight = isLight
+        self.strength = strength
+        self.usesIncreasedContrast = usesIncreasedContrast
+        self.allowsLoading = allowsLoading
+        // 播放页每次展开都重新挂载：备好的那张直接用上，不再淡入一遍。
+        _shown = State(initialValue: song.flatMap {
+            FullBleedArtworkExtensionImages.cached(song: $0, coverRevision: coverRevision)
+        })
+    }
+
+    private struct LoadKey: Equatable {
+        let cacheKey: String?
+        let allowsLoading: Bool
+    }
+
+    var body: some View {
+        let cacheKey = song.map {
+            FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: coverRevision)
+        }
+        ZStack {
+            if let shown {
+                extensionLayer(shown)
+                    .id(shown.key)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: pageSize.width, height: pageSize.height)
+        .task(id: LoadKey(cacheKey: cacheKey, allowsLoading: allowsLoading)) {
+            guard let song, let cacheKey, shown?.key != cacheKey else { return }
+            if let cached = FullBleedArtworkExtensionImages.cached(song: song, coverRevision: coverRevision) {
+                withAnimation(Self.crossfade) { shown = cached }
+                return
+            }
+            // 换歌后新封面没好之前留着上一首的，好了再交叉淡入；取不到封面就退回色场。
+            guard allowsLoading else { return }
+            let loaded = await FullBleedArtworkExtensionImages.load(
+                song: song,
+                coverRevision: coverRevision,
+                sourceManager: sourceManager
+            )
+            guard !Task.isCancelled else { return }
+            withAnimation(Self.crossfade) { shown = loaded }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static let crossfade = Animation.easeInOut(duration: 0.35)
+
+    private func extensionLayer(_ images: FullBleedArtworkExtensionImages) -> some View {
+        let width = max(artworkRect.width, pageSize.width)
+        let fadeHeight = max(1, artworkRect.height * Self.fadeFraction)
+        // 往屏幕底外多铺一截，版面比窗口略矮时底边也不露缝。
+        let lowerHeight = max(1, pageSize.height - artworkRect.maxY + 40)
+        let total = fadeHeight + lowerHeight
+        return VStack(spacing: 0) {
+            Image(decorative: images.upper, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: width, height: fadeHeight)
+            Image(decorative: images.lower, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: width, height: lowerHeight)
+        }
+        .overlay {
+            scrim(seam: fadeHeight / total, settle: min(1, fadeHeight * 1.6 / total))
+        }
+        .frame(width: width, height: total)
+        .position(x: pageSize.width / 2, y: artworkRect.maxY - fadeHeight + total / 2)
+    }
+
+    /// 渐隐那段从无到有，封面下沿处到背景图遮罩的中段，再往下一点到底部那一档：
+    /// 歌名、进度条和按钮压在上面和压在模糊封面背景上一样看得清。
+    private func scrim(seam: CGFloat, settle: CGFloat) -> some View {
+        let value = PlayerBackdropScrimPolicy.scrim(
+            isLight: isLight,
+            strength: strength,
+            usesIncreasedContrast: usesIncreasedContrast
+        )
+        let base: Color = isLight ? .white : .black
+        return LinearGradient(
+            stops: [
+                .init(color: base.opacity(0), location: 0),
+                .init(color: base.opacity(value.middleOpacity), location: seam),
+                .init(color: base.opacity(value.bottomOpacity), location: max(seam, settle)),
+                .init(color: base.opacity(value.bottomOpacity), location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+/// 铺满封面延伸底图（`PlayerBackdropImaging.fullBleedExtension`）切成的上下两半。
+struct FullBleedArtworkExtensionImages: Sendable {
+    let key: String
+    let upper: CGImage
+    let lower: CGImage
+
+    private init?(key: String, combined: CGImage) {
+        let half = combined.height / 2
+        guard half > 0,
+              let upper = combined.cropping(to: CGRect(x: 0, y: 0, width: combined.width, height: half)),
+              let lower = combined.cropping(
+                to: CGRect(x: 0, y: half, width: combined.width, height: combined.height - half)
+              )
+        else { return nil }
+        self.key = key
+        self.upper = upper
+        self.lower = lower
+    }
+
+    static func cacheKey(song: Song, coverRevision: Int) -> String {
+        "fullbleed|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)"
+    }
+
+    static func cached(song: Song, coverRevision: Int) -> FullBleedArtworkExtensionImages? {
+        let key = cacheKey(song: song, coverRevision: coverRevision)
+        guard let image = PlayerBackdropMemoryCache.shared.image(forKey: key) else { return nil }
+        return FullBleedArtworkExtensionImages(key: key, combined: image)
+    }
+
+    /// 取封面小图、在后台做一次模糊，结果放进背景图的内存缓存。
+    static func load(
+        song: Song,
+        coverRevision: Int,
+        sourceManager: SourceManager
+    ) async -> FullBleedArtworkExtensionImages? {
+        if let cached = cached(song: song, coverRevision: coverRevision) { return cached }
+        let key = cacheKey(song: song, coverRevision: coverRevision)
+        let cover = await CachedArtworkView.resolveImage(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: 256,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat,
+            sourceManager: sourceManager,
+            cacheDiscriminator: String(coverRevision)
+        )
+        guard !Task.isCancelled, let image = cover?.platformCGImage else { return nil }
+        let fraction = FullBleedArtworkExtension.fadeFraction
+        let combined = await Task.detached(priority: .userInitiated) {
+            PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction)
+        }.value
+        guard let combined else { return nil }
+        PlayerBackdropMemoryCache.shared.insert(combined, forKey: key)
+        return FullBleedArtworkExtensionImages(key: key, combined: combined)
+    }
+}
+
 #if os(iOS)
 /// 播放页没打开时先把背景图备好。播放页是点迷你条才挂载的，宿主要等入场动画结束才开始读图，
 /// 第一次展开（以及换歌后再展开）整个入场露的都是底下的色场。这里按宿主会算出的同一份请求
@@ -135,9 +325,17 @@ struct PlayerBackdropPrewarmer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store = PlayerBackdropSettingsStore.shared
     @State private var resolver = PlayerBackdropResolver.shared
+    @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
 
     private struct PrewarmKey: Equatable {
         let request: PlayerBackdropResolver.Request
+        let isSceneActive: Bool
+    }
+
+    /// 铺满封面下面那截延伸（`FullBleedArtworkExtension`）也提前备好。
+    private struct ExtensionKey: Equatable {
+        let cacheKey: String?
         let isSceneActive: Bool
     }
 
@@ -173,8 +371,30 @@ struct PlayerBackdropPrewarmer: View {
         .onChange(of: song?.id, initial: true) { _, songID in
             resolver.observeSong(songID, rotation: settings.rotation)
         }
+        .task(id: extensionKey(song: song, source: source)) {
+            guard let song, extensionKey(song: song, source: source).isSceneActive else { return }
+            _ = await FullBleedArtworkExtensionImages.load(
+                song: song,
+                coverRevision: player.coverRevision,
+                sourceManager: sourceManager
+            )
+        }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// 只有 iPhone 选了铺满封面、背景是封面取色时才用得上；电台和 MV 不铺，也不备。
+    private func extensionKey(song: Song?, source: PlayerBackdropSource) -> ExtensionKey {
+        let applies = UIDevice.current.userInterfaceIdiom == .phone
+            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
+            && source == .coverAmbient
+            && !player.isMusicVideoPlaybackActive
+        return ExtensionKey(
+            cacheKey: applies ? song.map {
+                FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: player.coverRevision)
+            } : nil,
+            isSceneActive: applies && scenePhase == .active
+        )
     }
 }
 #endif

@@ -70,6 +70,47 @@ final class PlayerBackdropImagingTests: XCTestCase {
         XCTAssertGreaterThan(blurred.width, 0)
     }
 
+    /// 铺满封面的延伸底图：封面下沿那一条接上它的镜像，接缝处是封面最下面的颜色，两头是往上一点的颜色。
+    func testFullBleedExtensionMirrorsTheBottomEdgeAroundTheSeam() throws {
+        let side = 400
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        // CGContext 原点在左下：先铺橙色，再在最下面 10% 画一道红。
+        context.setFillColor(CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.setFillColor(CGColor(red: 0.9, green: 0.08, blue: 0.08, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side / 10))
+        let cover = try XCTUnwrap(context.makeImage())
+
+        let extended = try XCTUnwrap(PlayerBackdropImaging.fullBleedExtension(from: cover, fraction: 0.4))
+        XCTAssertLessThanOrEqual(extended.width, 96)
+        // 上下两半各是封面高度的 0.4，按同一比例缩小。
+        XCTAssertEqual(Double(extended.height), Double(extended.width) * 0.8, accuracy: 2)
+
+        let pixels = try rgbaPixels(of: extended)
+        func green(row: Int) -> UInt8 { pixels[(row * extended.width + extended.width / 2) * 4 + 1] }
+        let seam = extended.height / 2
+        XCTAssertLessThan(green(row: seam), green(row: 1))
+        XCTAssertLessThan(green(row: seam), green(row: extended.height - 2))
+    }
+
+    private func rgbaPixels(of image: CGImage) throws -> [UInt8] {
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(
+                data: buffer.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return pixels
+    }
+
     func testCustomImageListStaysLocalAndRemovingDeletesTheFile() throws {
         let suite = "PlayerBackdropImagingTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -5176,6 +5176,32 @@ struct NowPlayingView: View {
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
                 .padding(.leading, insets.containerLeading)
                 .padding(.trailing, insets.containerTrailing)
+                // 铺满封面下面那一截垫在歌名和控件底下，盖住色场的下半(见 `FullBleedArtworkExtension`)。
+                .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
+                    fullBleedArtworkExtension(anchor: fullBleedArtwork ? anchors[.cover] : nil)
+                }
+        }
+    }
+
+    /// 铺满封面且背景选的是封面取色时，封面下沿接着往下延伸；其它背景照旧露出来。
+    @ViewBuilder
+    private func fullBleedArtworkExtension(anchor: LyricsArtworkAnchor?) -> some View {
+        if let anchor, anchor.bottomFade > 0,
+           PlayerBackdropSettingsStore.shared.effectiveSource == .coverAmbient {
+            GeometryReader { proxy in
+                FullBleedArtworkExtension(
+                    song: player.currentSong,
+                    coverRevision: player.coverRevision,
+                    artworkRect: proxy[anchor.bounds],
+                    pageSize: proxy.size,
+                    isLight: appearance.isLight,
+                    strength: AppThemePreferences.normalizedAmbientStrength(ambientStrength),
+                    usesIncreasedContrast: colorSchemeContrast == .increased,
+                    allowsLoading: isPresentationSettled
+                )
+            }
+            .ignoresSafeArea()
+            .transition(.opacity)
         }
     }
 
@@ -6100,8 +6126,8 @@ struct NowPlayingView: View {
             }
     }
 
-    /// 铺满封面下沿渐隐的那一截（占封面高度）。
-    private static let fullBleedArtworkBottomFade: CGFloat = 0.4
+    /// 铺满封面下沿渐隐的那一截（占封面高度），封面下面那截延伸按同一个值接上。
+    private static let fullBleedArtworkBottomFade = FullBleedArtworkExtension.fadeFraction
 
     /// 竖版顶上把手那一行连同上下留白的高度(把手上方 6、自身 5、下方 10,见 `portraitLayout`)。
     private static func portraitGrabberBand(topSafeArea: CGFloat) -> CGFloat {
