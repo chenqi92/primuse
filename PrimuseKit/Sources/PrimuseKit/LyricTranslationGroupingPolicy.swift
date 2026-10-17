@@ -144,6 +144,45 @@ public enum LyricTranslationPlaybackOrderPolicy {
     }
 }
 
+/// 流式回来的译文先攒着，隔一小会儿整批交给播放页。逐句写回时每一句都让整页歌词连同所有行重算一遍，
+/// 播客生成的文字稿动辄上千行，翻译期间主线程一直是满的。第一批不等，正在唱的那句先出来；
+/// 行越多每批隔得越久，一首歌的歌词仍然几乎是逐句冒出来。
+public struct LyricTranslationStreamBatch: Sendable {
+    public let flushInterval: TimeInterval
+    public private(set) var pendingLines: [String: String] = [:]
+    private var lastFlushTime: TimeInterval?
+
+    public init(lineCount: Int) {
+        flushInterval = Self.flushInterval(lineCount: lineCount)
+    }
+
+    public static func flushInterval(lineCount: Int) -> TimeInterval {
+        switch lineCount {
+        case ..<120: 0.1
+        case ..<400: 0.4
+        default: 1.0
+        }
+    }
+
+    public mutating func add(_ text: String, forLines lineIDs: [String]) {
+        for lineID in lineIDs { pendingLines[lineID] = text }
+    }
+
+    /// 距上一批够久了就交出攒下的这一批；`now` 是单调递增的秒数。
+    public mutating func takeIfDue(now: TimeInterval) -> [String: String]? {
+        guard !pendingLines.isEmpty else { return nil }
+        if let lastFlushTime, now - lastFlushTime < flushInterval { return nil }
+        lastFlushTime = now
+        return takeAll()
+    }
+
+    public mutating func takeAll() -> [String: String] {
+        let lines = pendingLines
+        pendingLines = [:]
+        return lines
+    }
+}
+
 public enum LyricTranslationTerminalState: Equatable, Sendable {
     case notNeeded
     case ready

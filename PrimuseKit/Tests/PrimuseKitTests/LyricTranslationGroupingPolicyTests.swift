@@ -2236,3 +2236,42 @@ struct LyricChineseScriptConversionPolicyTests {
         #expect(ordered == [group])
     }
 }
+
+@Suite("Streamed translations reach the page in batches")
+struct LyricTranslationStreamBatchTests {
+    @Test func firstBatchIsImmediateAndLaterOnesWaitForTheInterval() {
+        var batch = LyricTranslationStreamBatch(lineCount: 1_155)
+        #expect(batch.flushInterval == 1.0)
+        batch.add("一", forLines: ["a"])
+        #expect(batch.takeIfDue(now: 100) == ["a": "一"])
+        batch.add("二", forLines: ["b"])
+        batch.add("三", forLines: ["c", "c2"])
+        #expect(batch.takeIfDue(now: 100.5) == nil)
+        #expect(batch.pendingLines.count == 3)
+        #expect(batch.takeIfDue(now: 101) == ["b": "二", "c": "三", "c2": "三"])
+        #expect(batch.pendingLines.isEmpty)
+    }
+
+    @Test func emptyBatchDoesNotStartTheInterval() {
+        var batch = LyricTranslationStreamBatch(lineCount: 40)
+        #expect(batch.takeIfDue(now: 10) == nil)
+        batch.add("x", forLines: ["a"])
+        #expect(batch.takeIfDue(now: 10.01) == ["a": "x"])
+    }
+
+    @Test func remainderIsHandedOverRegardlessOfTiming() {
+        var batch = LyricTranslationStreamBatch(lineCount: 500)
+        batch.add("x", forLines: ["a"])
+        _ = batch.takeIfDue(now: 1)
+        batch.add("y", forLines: ["b"])
+        #expect(batch.takeIfDue(now: 1.1) == nil)
+        #expect(batch.takeAll() == ["b": "y"])
+        #expect(batch.takeAll().isEmpty)
+    }
+
+    @Test func intervalGrowsWithTheNumberOfLines() {
+        #expect(LyricTranslationStreamBatch.flushInterval(lineCount: 60) == 0.1)
+        #expect(LyricTranslationStreamBatch.flushInterval(lineCount: 250) == 0.4)
+        #expect(LyricTranslationStreamBatch.flushInterval(lineCount: 400) == 1.0)
+    }
+}

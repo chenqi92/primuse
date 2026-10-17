@@ -12007,6 +12007,21 @@ private struct NowPlayingEqualizerMenu: View {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
+/// 歌词各行的竖排容器:行数多时惰性排版,只建屏幕附近的行(见 `LyricsScrollView.usesLazyRows`)。
+private struct LyricsRowStack<Content: View>: View {
+    let isLazy: Bool
+    let spacing: CGFloat
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if isLazy {
+            LazyVStack(alignment: .leading, spacing: spacing) { content }
+        } else {
+            VStack(alignment: .leading, spacing: spacing) { content }
+        }
+    }
+}
+
 /// Reserves the largest footprint a lyric row can occupy while its render-layer
 /// emphasis animates. `scaleEffect` deliberately does not affect SwiftUI layout;
 /// without this stable envelope a wrapped active row can draw outside its
@@ -12876,62 +12891,13 @@ struct LyricsScrollView: View {
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: Self.lyricsRowSpacing) {
+                    LyricsRowStack(isLazy: usesLazyRows, spacing: Self.lyricsRowSpacing) {
                         // Give the first and last rows enough physical room to
                         // reach the same visual anchor as every middle row.
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            let activity = lineLevelRowVisualActivity(index: index)
-                            let alignment = duetAlignment(for: line, isDuet: isDuet)
-                            // 一句和跟在它后面的间奏提示点算一格:提示点收起时不占位置,也不多出一份行间距。
-                            VStack(alignment: .leading, spacing: 0) {
-                                if index == 0 {
-                                    introMarker(isDuet: isDuet)
-                                }
-
-                                LyricsScaleEnvelopeLayout(
-                                    maximumScale: Self.lyricsActiveVisualScale,
-                                    horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
-                                ) {
-                                    lyricsRow(
-                                        line: line,
-                                        index: index,
-                                        dimmedByAmbient: true,
-                                        availableWidth: textWidth,
-                                        visualScale: CGFloat(activity.scale),
-                                        rowAlignment: alignment
-                                    )
-                                }
-                                    .id(LyricsScrollTarget.line(id: line.id))
-                                    .opacity(browsedOpacity(index: index, base: activity.opacity))
-                                    .blur(radius: inactiveLyricBlurRadius(for: index))
-                                    // Match the word-level path: highlight, scale,
-                                    // and scroll all travel on one curve instead of
-                                    // snapping the row style before scrolling it.
-                                    .animation(
-                                        .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
-                                        value: currentLineIndex
-                                    )
-                                    .padding(.vertical, 5)
-                                    .onGeometryChange(for: CGFloat.self) { proxy in
-                                        Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
-                                    } action: { y in
-                                        rowAnchorYs.values[index] = y
-                                    }
-
-                                if showsLyricsInterlude, let window = LyricPlaybackPositionPolicy.interludeWindow(
-                                    afterLine: index,
-                                    in: lyrics
-                                ) {
-                                    interludeMarker(
-                                        window,
-                                        isActive: activeInterlude == .afterLine(index),
-                                        alignment: alignment
-                                    )
-                                    .id(LyricsScrollTarget.interlude(afterLineID: line.id))
-                                }
-                            }
+                        lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
+                            lineLevelRowVisualActivity(index: index)
                         }
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
@@ -13050,59 +13016,13 @@ struct LyricsScrollView: View {
             let isDuet = isDuetLyrics
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: Self.lyricsRowSpacing) {
+                    LyricsRowStack(isLazy: usesLazyRows, spacing: Self.lyricsRowSpacing) {
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
                         wordLevelBadge
 
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            let activity = rowVisualActivity(index: index)
-                            let alignment = duetAlignment(for: line, isDuet: isDuet)
-                            // 一句和跟在它后面的间奏提示点算一格:提示点收起时不占位置,也不多出一份行间距。
-                            VStack(alignment: .leading, spacing: 0) {
-                                if index == 0 {
-                                    introMarker(isDuet: isDuet)
-                                }
-
-                                LyricsScaleEnvelopeLayout(
-                                    maximumScale: Self.lyricsActiveVisualScale,
-                                    horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
-                                ) {
-                                    lyricsRow(
-                                        line: line,
-                                        index: index,
-                                        dimmedByAmbient: true,
-                                        availableWidth: textWidth,
-                                        visualScale: CGFloat(activity.scale),
-                                        rowAlignment: alignment
-                                    )
-                                }
-                                .id(LyricsScrollTarget.line(id: line.id))
-                                .opacity(browsedOpacity(index: index, base: activity.opacity))
-                                .blur(radius: inactiveLyricBlurRadius(for: index))
-                                .animation(
-                                    .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
-                                    value: currentLineIndex
-                                )
-                                .padding(.vertical, 5)
-                                .onGeometryChange(for: CGFloat.self) { proxy in
-                                    Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
-                                } action: { y in
-                                    rowAnchorYs.values[index] = y
-                                }
-
-                                if showsLyricsInterlude, let window = LyricPlaybackPositionPolicy.interludeWindow(
-                                    afterLine: index,
-                                    in: lyrics
-                                ) {
-                                    interludeMarker(
-                                        window,
-                                        isActive: activeInterlude == .afterLine(index),
-                                        alignment: alignment
-                                    )
-                                    .id(LyricsScrollTarget.interlude(afterLineID: line.id))
-                                }
-                            }
+                        lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
+                            rowVisualActivity(index: index)
                         }
 
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
@@ -13383,9 +13303,10 @@ struct LyricsScrollView: View {
         proxy: ScrollViewProxy,
         animated: Bool
     ) {
+        let resolvedTarget = lazyRowScrollTarget(for: target)
         let update = {
             proxy.scrollTo(
-                target,
+                resolvedTarget,
                 anchor: UnitPoint(x: 0.5, y: Self.lyricsVisualAnchor)
             )
         }
@@ -13436,6 +13357,122 @@ struct LyricsScrollView: View {
     private static let interludeMarkerHeight: CGFloat = 24
     /// 歌词列表里行与行之间的距离(两种列表的 VStack spacing)。
     private static let lyricsRowSpacing: CGFloat = 12
+
+    /// 行数多到这个份上(播客、有声书生成的文字稿动辄上千行)就改用惰性排版:全部实排时
+    /// 每换一句、每写回一批译文都要把上千行连同逐字排版重算一遍,主线程一直是满的。
+    /// 一首歌的歌词远到不了这么多行,照旧全部排好,滚动定位和过渡都不变。
+    private static let lazyRowThreshold = 240
+
+    private var usesLazyRows: Bool { lyrics.count >= Self.lazyRowThreshold }
+
+    /// 惰性排版时间奏提示点在格子里面,那一格没建出来就找不到它;改滚到它所在的那一格。
+    private func lazyRowScrollTarget(for target: LyricsScrollTarget) -> LyricsScrollTarget {
+        guard usesLazyRows else { return target }
+        switch target {
+        case .line:
+            return target
+        case .interlude(let lineID):
+            return .line(id: lineID)
+        case .intro:
+            return lyrics.first.map { .line(id: $0.id) } ?? target
+        }
+    }
+
+    private struct LyricRowEntry: Identifiable {
+        let index: Int
+        let line: LyricLine
+        var id: LyricsScrollTarget { .line(id: line.id) }
+    }
+
+    /// 歌词的每一格。惰性排版时还没建出来的行也要能滚过去:滚动目标挂在格子本身上,
+    /// 并且和 ForEach 的身份是同一个值(Mac 歌词同一种做法);全部实排时仍挂在那一句上。
+    @ViewBuilder
+    private func lyricRowCells(
+        isDuet: Bool,
+        textWidth: CGFloat,
+        activity: @escaping (Int) -> RowActivity
+    ) -> some View {
+        if usesLazyRows {
+            ForEach(lyrics.indices.map { LyricRowEntry(index: $0, line: lyrics[$0]) }) { entry in
+                lyricRowCell(
+                    index: entry.index,
+                    line: entry.line,
+                    activity: activity(entry.index),
+                    isDuet: isDuet,
+                    textWidth: textWidth
+                )
+                .id(entry.id)
+            }
+        } else {
+            ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                lyricRowCell(
+                    index: index,
+                    line: line,
+                    activity: activity(index),
+                    isDuet: isDuet,
+                    textWidth: textWidth
+                )
+            }
+        }
+    }
+
+    /// 一句和跟在它后面的间奏提示点算一格:提示点收起时不占位置,也不多出一份行间距。
+    @ViewBuilder
+    private func lyricRowCell(
+        index: Int,
+        line: LyricLine,
+        activity: RowActivity,
+        isDuet: Bool,
+        textWidth: CGFloat
+    ) -> some View {
+        let alignment = duetAlignment(for: line, isDuet: isDuet)
+        VStack(alignment: .leading, spacing: 0) {
+            if index == 0 {
+                introMarker(isDuet: isDuet)
+            }
+
+            LyricsScaleEnvelopeLayout(
+                maximumScale: Self.lyricsActiveVisualScale,
+                horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
+            ) {
+                lyricsRow(
+                    line: line,
+                    index: index,
+                    dimmedByAmbient: true,
+                    availableWidth: textWidth,
+                    visualScale: CGFloat(activity.scale),
+                    rowAlignment: alignment
+                )
+            }
+            .if(!usesLazyRows) { $0.id(LyricsScrollTarget.line(id: line.id)) }
+            .opacity(browsedOpacity(index: index, base: activity.opacity))
+            .blur(radius: inactiveLyricBlurRadius(for: index))
+            // Highlight, scale, and scroll all travel on one curve instead of
+            // snapping the row style before scrolling it.
+            .animation(
+                .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
+                value: currentLineIndex
+            )
+            .padding(.vertical, 5)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
+            } action: { y in
+                rowAnchorYs.values[index] = y
+            }
+
+            if showsLyricsInterlude, let window = LyricPlaybackPositionPolicy.interludeWindow(
+                afterLine: index,
+                in: lyrics
+            ) {
+                interludeMarker(
+                    window,
+                    isActive: activeInterlude == .afterLine(index),
+                    alignment: alignment
+                )
+                .id(LyricsScrollTarget.interlude(afterLineID: line.id))
+            }
+        }
+    }
 
     /// 第一句前的前奏够长时,第一句上面那一行点(只在前奏里展开);对齐跟第一句。
     @ViewBuilder

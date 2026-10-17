@@ -36,6 +36,7 @@ final class LyricsTranslationCache {
     private var pairNegativeEntries: [String: Date] = [:]
     private let fileURL: URL
     private var saveTask: Task<Void, Never>?
+    private static let writeQueue = DispatchQueue(label: "com.welape.primuse.lyrics-translation-cache", qos: .utility)
 
     /// 内存条目上限 — 超过这个数量按插入顺序丢最早的 (简化 LRU)。
     private static let maxEntries = 5000
@@ -175,10 +176,13 @@ final class LyricsTranslationCache {
             entries[k] = translated
             negativeEntries[k] = nil
         }
-        // LRU 收割
-        while insertionOrder.count > Self.maxEntries {
-            let drop = insertionOrder.removeFirst()
-            entries[drop] = nil
+        // LRU 收割:超出的一次删掉,不逐条 removeFirst 把整串往前搬。
+        let overflow = insertionOrder.count - Self.maxEntries
+        if overflow > 0 {
+            for drop in insertionOrder.prefix(overflow) {
+                entries[drop] = nil
+            }
+            insertionOrder.removeFirst(overflow)
         }
         scheduleSave()
     }
@@ -189,7 +193,13 @@ final class LyricsTranslationCache {
         insertionOrder.removeAll()
         negativeEntries.removeAll()
         pairNegativeEntries.removeAll()
-        try? FileManager.default.removeItem(at: fileURL)
+        saveTask?.cancel()
+        saveTask = nil
+        // 排在还没写完的那次存盘后面删,免得旧内容又被写回来。
+        let url = fileURL
+        Self.writeQueue.async {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     var count: Int { entries.count }
@@ -214,23 +224,41 @@ final class LyricsTranslationCache {
         let source = sourceLang.map(cacheLanguageIdentity) ?? "auto"
         let target = cacheLanguageIdentity(targetLang)
         let raw = "\(providerVersion)|\(source)|\(target)|\(text)"
-        let digest = SHA256.hash(data: Data(raw.utf8))
-        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return hexKey(SHA256.hash(data: Data(raw.utf8)))
     }
 
     private static func makePairKey(sourceLang: String?, targetLang: String) -> String {
         let source = sourceLang.map(cacheLanguageIdentity) ?? "auto"
         let target = cacheLanguageIdentity(targetLang)
         let raw = "\(systemProviderVersion)|pair|\(source)|\(target)"
-        let digest = SHA256.hash(data: Data(raw.utf8))
-        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return hexKey(SHA256.hash(data: Data(raw.utf8)))
     }
 
+    private static let hexDigits = Array("0123456789abcdef".utf8)
+
+    /// 摘要前 16 字节的小写十六进制。一行一个键,上千行的文字稿逐字节 `String(format:)` 太慢。
+    private static func hexKey(_ digest: SHA256.Digest) -> String {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(32)
+        for byte in digest.prefix(16) {
+            bytes.append(hexDigits[Int(byte >> 4)])
+            bytes.append(hexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// 语言码规范化要拆串、查表,每行都算两遍(原文语言、目标语言);同一首里就那么几种,记下来。
+    private static var cacheLanguageIdentities: [String: String] = [:]
+
     private static func cacheLanguageIdentity(_ raw: String) -> String {
+        if let known = cacheLanguageIdentities[raw] { return known }
         let identity = LyricTranslationGroupingPolicy.languageIdentity(raw)
-        return LyricTranslationGroupingPolicy.representsSameTranslationLanguage(identity, "fa")
+        let resolved = LyricTranslationGroupingPolicy.representsSameTranslationLanguage(identity, "fa")
             ? "fa"
             : identity
+        if cacheLanguageIdentities.count >= 256 { cacheLanguageIdentities.removeAll() }
+        cacheLanguageIdentities[raw] = resolved
+        return resolved
     }
 
     private func scheduleSave() {
@@ -254,11 +282,15 @@ final class LyricsTranslationCache {
             pairNegativeEntries: pairNegativeEntries,
             insertionOrder: insertionOrder
         )
-        do {
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            plog("⚠️ LyricsTranslationCache save failed: \(error.localizedDescription)")
+        // 几千条译文编码成 JSON 不在主线程做;串行队列保证先排的先写完。
+        let url = fileURL
+        Self.writeQueue.async {
+            do {
+                let data = try JSONEncoder().encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                plog("⚠️ LyricsTranslationCache save failed: \(error.localizedDescription)")
+            }
         }
     }
 

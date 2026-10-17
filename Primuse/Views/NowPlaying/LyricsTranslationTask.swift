@@ -225,6 +225,16 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             let startedAt = ContinuousClock.now
             var loggedFirstLine = false
             var streamedTranslations: [String: String] = [:]
+            // 和系统翻译一样整批写回、整批进缓存(见 `runTranslation`)。
+            var stream = LyricTranslationStreamBatch(lineCount: lyrics.count)
+            var pendingCachePairs: [(source: String, sourceLang: String?, translated: String)] = []
+            defer {
+                Self.storeTranslations(
+                    &pendingCachePairs,
+                    targetLanguageCode: identity.targetLanguageCode,
+                    provider: .intelligent
+                )
+            }
             // 服务商一次只收前 80 行。长歌词一轮翻完前 80 行后接着发剩下的,
             // 不再把后半首交给系统翻译(前后两种译文的质量会突然变)。
             var round = 0
@@ -233,7 +243,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 let pendingCandidates = uncachedGroups.flatMap(\.candidates)
                 // 「重来」事件只撤销这一轮流式出来的行,前几轮已经落定的不动。
                 streamedTranslations = [:]
-                guard let execution = await intelligence.translateLyrics(
+                let execution = await intelligence.translateLyrics(
                     pendingCandidates,
                     targetLanguageCode: identity.targetLanguageCode,
                     onStreamEvent: { event in
@@ -241,11 +251,15 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                               translationTaskIdentity == identity else { return }
                         switch event {
                         case .reset:
+                            // 还没写上去的直接丢掉;已经写上去的一次换回原样。
+                            _ = stream.takeAll()
+                            var restored = translatedTextByLineID
                             for id in streamedTranslations.keys {
                                 for lineID in deduplication.lineIDs(for: id) {
-                                    translatedTextByLineID[lineID] = hits[id]
+                                    restored[lineID] = hits[id]
                                 }
                             }
+                            translatedTextByLineID = restored
                             streamedTranslations = [:]
                         case .translation(let id, let text):
                             if !loggedFirstLine {
@@ -257,23 +271,35 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                             // Keep every finished row, so leaving the song midway
                             // does not throw away what was already translated.
                             if let source = pendingSources[id] {
-                                cache.setTranslation(
-                                    text,
-                                    for: source.text,
-                                    sourceLang: source.sourceLang,
-                                    targetLang: identity.targetLanguageCode,
-                                    provider: .intelligent
-                                )
+                                pendingCachePairs.append((source.text, source.sourceLang, text))
                             }
                             streamedTranslations[id] = text
-                            for lineID in deduplication.lineIDs(for: id) {
-                                translatedTextByLineID[lineID] = text
+                            stream.add(text, forLines: deduplication.lineIDs(for: id))
+                            if let due = stream.takeIfDue(now: ProcessInfo.processInfo.systemUptime) {
+                                translatedTextByLineID.merge(due) { _, new in new }
+                                Self.storeTranslations(
+                                    &pendingCachePairs,
+                                    targetLanguageCode: identity.targetLanguageCode,
+                                    provider: .intelligent
+                                )
                             }
                         case .completed:
                             break
                         }
                     }
-                ), !Task.isCancelled, translationTaskIdentity == identity else { break translationRounds }
+                )
+                Self.storeTranslations(
+                    &pendingCachePairs,
+                    targetLanguageCode: identity.targetLanguageCode,
+                    provider: .intelligent
+                )
+                guard !Task.isCancelled, translationTaskIdentity == identity else { break translationRounds }
+                // 服务商中途失败时,已经流回来的行留在屏幕上(下面退回系统翻译只翻剩下的)。
+                let streamedRemainder = stream.takeAll()
+                if !streamedRemainder.isEmpty {
+                    translatedTextByLineID.merge(streamedRemainder) { _, new in new }
+                }
+                guard let execution else { break translationRounds }
                 var cachePairs: [(source: String, sourceLang: String?, translated: String)] = []
                 for group in uncachedGroups {
                     for candidate in group.candidates {
@@ -379,18 +405,24 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             uncachedGroups.removeAll { localGroupIDs.contains($0.id) }
             let activityBeforeLocal = activity
             if localTranslation.isModelReady { activity = .localTranslating }
+            var stream = LyricTranslationStreamBatch(lineCount: lyrics.count)
             let outcome = await localTranslation.translate(
                 groups: localGroups,
                 targetLanguageCode: identity.targetLanguageCode,
                 systemTranslator: LyricsSystemTranslationBridge.installedPacks,
                 isCurrent: { translationTaskIdentity == identity },
                 onTranslation: { id, text in
-                    for lineID in deduplication.lineIDs(for: id) {
-                        translatedTextByLineID[lineID] = text
+                    stream.add(text, forLines: deduplication.lineIDs(for: id))
+                    if let due = stream.takeIfDue(now: ProcessInfo.processInfo.systemUptime) {
+                        translatedTextByLineID.merge(due) { _, new in new }
                     }
                 }
             )
             guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+            let localRemainder = stream.takeAll()
+            if !localRemainder.isEmpty {
+                translatedTextByLineID.merge(localRemainder) { _, new in new }
+            }
             if activity == .localTranslating { activity = activityBeforeLocal }
             localUnsupportedGroups = outcome.unsupportedGroups
             localNeedsModel = !outcome.groupsNeedingModel.isEmpty
@@ -595,6 +627,17 @@ struct LyricsTranslationTaskModifier: ViewModifier {
     /// 一轮最多 80 行,十轮够八百行 —— 再长的歌词也翻得完,又不会在服务端出错时无限重试。
     private static let maximumIntelligentTranslationRounds = 10
 
+    /// 把攒下的译文一次写进缓存并清空。
+    private static func storeTranslations(
+        _ pairs: inout [(source: String, sourceLang: String?, translated: String)],
+        targetLanguageCode: String,
+        provider: LyricsTranslationCache.ProviderNamespace
+    ) {
+        guard !pairs.isEmpty else { return }
+        LyricsTranslationCache.shared.bulkSet(pairs, targetLang: targetLanguageCode, provider: provider)
+        pairs.removeAll(keepingCapacity: true)
+    }
+
     private static func secondsText(since start: ContinuousClock.Instant) -> String {
         let elapsed = (ContinuousClock.now - start).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
@@ -671,7 +714,15 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
         guard !requests.isEmpty else { return }
 
-        var newCachePairs: [(source: String, sourceLang: String?, translated: String)] = []
+        // 译文和缓存都整批写:逐句写回会让整页歌词每一句重算一遍,逐句写缓存每句都要算键、排一次存盘。
+        // 攒着的缓存在任何一条退出路径上都要写掉,中途切走时已经翻好的不白翻。
+        var stream = LyricTranslationStreamBatch(lineCount: lyrics.count)
+        var pendingCachePairs: [(source: String, sourceLang: String?, translated: String)] = []
+        defer {
+            Self.storeTranslations(&pendingCachePairs, targetLanguageCode: identity.targetLanguageCode, provider: .system)
+        }
+        // 一批里检测出来的语言就那么几种,规范化一次记下来,不必每句再解析一遍语言码。
+        var normalizedDetectedLanguages: [String: String] = [:]
         var newStateUpdates: [String: String] = [:]
         var translationFailed = false
         do {
@@ -680,40 +731,38 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 let id = response.clientIdentifier ?? ""
                 let translated = response.targetText
                 if !id.isEmpty { newStateUpdates[id] = translated }
-                let detectedSourceLanguageCode = LyricsTranslationSettingsStore
-                    .normalizedLanguageCode(response.sourceLanguage.minimalIdentifier)
-                newCachePairs.append(
+                let rawDetected = response.sourceLanguage.minimalIdentifier
+                let detectedSourceLanguageCode: String
+                if let known = normalizedDetectedLanguages[rawDetected] {
+                    detectedSourceLanguageCode = known
+                } else {
+                    detectedSourceLanguageCode = LyricsTranslationSettingsStore.normalizedLanguageCode(rawDetected)
+                    normalizedDetectedLanguages[rawDetected] = detectedSourceLanguageCode
+                }
+                pendingCachePairs.append(
                     (
                         source: response.sourceText,
                         sourceLang: group.sourceLanguageCode,
                         translated: translated
                     )
                 )
-                if !id.isEmpty {
-                    for lineID in deduplication.lineIDs(for: id) {
-                        translatedTextByLineID[lineID] = translated
-                    }
-                    LyricsTranslationCache.shared.setTranslation(
-                        translated,
-                        for: response.sourceText,
-                        sourceLang: group.sourceLanguageCode,
-                        targetLang: identity.targetLanguageCode,
-                        provider: .system
-                    )
-                }
                 if group.sourceLanguageCode != detectedSourceLanguageCode {
-                    newCachePairs.append(
+                    pendingCachePairs.append(
                         (
                             source: response.sourceText,
                             sourceLang: detectedSourceLanguageCode,
                             translated: translated
                         )
                     )
-                    LyricsTranslationCache.shared.setTranslation(
-                        translated,
-                        for: response.sourceText,
-                        sourceLang: detectedSourceLanguageCode,
-                        targetLang: identity.targetLanguageCode,
+                }
+                if !id.isEmpty {
+                    stream.add(translated, forLines: deduplication.lineIDs(for: id))
+                }
+                if let due = stream.takeIfDue(now: ProcessInfo.processInfo.systemUptime) {
+                    translatedTextByLineID.merge(due) { _, new in new }
+                    Self.storeTranslations(
+                        &pendingCachePairs,
+                        targetLanguageCode: identity.targetLanguageCode,
                         provider: .system
                     )
                 }
@@ -743,13 +792,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
               translationTaskIdentity == identity,
               activeGroupIndex == groupIndex else { return }
 
-        if !newCachePairs.isEmpty {
-            LyricsTranslationCache.shared.bulkSet(
-                newCachePairs,
-                targetLang: identity.targetLanguageCode,
-                provider: .system
-            )
-        }
+        Self.storeTranslations(&pendingCachePairs, targetLanguageCode: identity.targetLanguageCode, provider: .system)
         if !translationFailed {
             LyricsTranslationCache.shared.clearPairFailure(
                 sourceLang: group.sourceLanguageCode,

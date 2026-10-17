@@ -72,6 +72,9 @@ struct KaraokeLineView: View {
     /// 超过该时间后，这一行已经让位给下一行；即使外层 active index 还没刷新，
     /// 也不要继续在旧行上扫光或弹动。
     let deactivationTime: TimeInterval?
+    /// 这一行自己的书写方向。body 里十几处要用;每次现算都要从头扫一遍字符属性,
+    /// 文字稿上千行一起重画时就成了热点,建视图时算一次。
+    private let resolvedWritingDirection: LyricWritingDirection
 
     init(
         line: LyricLine,
@@ -105,6 +108,10 @@ struct KaraokeLineView: View {
         self.isolatesAnimatedProgressFromLayout = isolatesAnimatedProgressFromLayout
         self.deactivationTime = deactivationTime
         self.glowsSungSyllables = glowsSungSyllables
+        self.resolvedWritingDirection = LyricWritingDirectionPolicy.resolvePresentationDirection(
+            for: line,
+            documentFallback: writingDirection
+        )
     }
 
     init(
@@ -170,12 +177,6 @@ struct KaraokeLineView: View {
         return glowsSungSyllables ? max(lift, (fontSize * Self.glowRadiusRatio * 2).rounded(.up)) : lift
     }
 
-    private var resolvedWritingDirection: LyricWritingDirection {
-        LyricWritingDirectionPolicy.resolvePresentationDirection(
-            for: line,
-            documentFallback: writingDirection
-        )
-    }
 
     private var lyricLayoutDirection: LayoutDirection {
         switch resolvedWritingDirection {
