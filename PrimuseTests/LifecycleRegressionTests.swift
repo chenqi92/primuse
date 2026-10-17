@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import PrimuseKit
 import UIKit
 import XCTest
@@ -850,6 +851,53 @@ final class LifecycleRegressionTests: XCTestCase {
             backfill.hasPendingWork,
             "后台唤醒判定不许在准备中的库上把队列对账并落盘成干净的"
         )
+    }
+
+    /// 补读时剩余数每对账一次, 以前每一行歌都跟着重画。行现在只订阅自己那首的
+    /// 读取状态: 别的歌进库让剩余数变了, 状态没变的行不该收到通知, 音乐源页照常收到。
+    @MainActor
+    func testStatusReconciliationOnlyNotifiesRowsWhoseStateChanged() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let backfill = MetadataBackfillService(
+            library: library,
+            sourceManager: SourceManager(sourcesProvider: { [MusicSource]() }),
+            backfillableSourceIDs: { ["source-1"] }
+        )
+        let visible = Song(
+            id: "visible-row",
+            title: "Visible",
+            duration: 0,
+            fileFormat: .flac,
+            filePath: "/tmp/visible.flac",
+            sourceID: "source-1"
+        )
+        library.addSongs([visible])
+        backfill.refreshStatusSnapshot()
+
+        let rowNotified = expectation(description: "row invalidated by an unrelated reconciliation")
+        rowNotified.isInverted = true
+        let state = withObservationTracking {
+            backfill.detailsState(for: visible, isLocalSource: false)
+        } onChange: {
+            rowNotified.fulfill()
+        }
+        let statusRevision = backfill.statusRevision
+        library.addSongs([
+            Song(
+                id: "another-row",
+                title: "Another",
+                duration: 0,
+                fileFormat: .flac,
+                filePath: "/tmp/another.flac",
+                sourceID: "source-1"
+            )
+        ])
+        backfill.refreshStatusSnapshot()
+        XCTAssertGreaterThan(backfill.statusRevision, statusRevision)
+        XCTAssertEqual(XCTWaiter.wait(for: [rowNotified], timeout: 0.05), .completed)
+        XCTAssertEqual(backfill.detailsState(for: visible, isLocalSource: false), state)
     }
 
     /// 滚动卡顿: 每 5 秒一次的状态对账会推进 `statusRevision`, 而歌曲行以前

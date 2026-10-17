@@ -2638,12 +2638,81 @@ final class MetadataBackfillService {
         cachedDeferredRetryCount > 0
     }
 
+    /// 一首歌在歌曲行上显示的读取状态。行只订阅自己那一格: 原来所有行都订阅同一个
+    /// `statusRevision`, 补读时剩余数每对账一次(几秒一回), 屏上每一行都要重画。
+    @Observable
+    final class DetailsStatusCell {
+        fileprivate(set) var revision = 0
+        @ObservationIgnored fileprivate var song: Song?
+        @ObservationIgnored fileprivate var isLocalSource = false
+        @ObservationIgnored fileprivate var delivered: SongDetailsState?
+        @ObservationIgnored fileprivate var lastUse: UInt64 = 0
+    }
+
+    @ObservationIgnored private var detailsStatusCells: [String: DetailsStatusCell] = [:]
+    @ObservationIgnored private var detailsStatusUseClock: UInt64 = 0
+    private static let detailsStatusCellLimit = 4000
+
     func detailsState(for song: Song, isLocalSource: Bool) -> SongDetailsState {
         // The backing ID sets are intentionally observation-ignored: otherwise
         // completing one file invalidates every visible row that queried a
-        // different ID. This coarse revision publishes the same state at the
-        // existing batch/status cadence instead of once per network response.
-        _ = statusRevision
+        // different ID. Each row observes only its own cell, which the status
+        // reconciliation bumps when that row's state actually changed.
+        let cell = detailsStatusCell(for: song.id)
+        _ = cell.revision
+        let state = computeDetailsState(
+            for: song,
+            isLocalSource: isLocalSource,
+            needsBackfill: { self.needsBackfill($0) }
+        )
+        cell.song = song
+        cell.isLocalSource = isLocalSource
+        cell.delivered = state
+        return state
+    }
+
+    private func detailsStatusCell(for songID: String) -> DetailsStatusCell {
+        detailsStatusUseClock &+= 1
+        if let cell = detailsStatusCells[songID] {
+            cell.lastUse = detailsStatusUseClock
+            return cell
+        }
+        if detailsStatusCells.count >= Self.detailsStatusCellLimit {
+            // 留下最近用过的一半; 屏上的行每重画一次就刷新一次使用时间。
+            let kept = detailsStatusCells
+                .sorted { $0.value.lastUse > $1.value.lastUse }
+                .prefix(Self.detailsStatusCellLimit / 2)
+            detailsStatusCells = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
+        }
+        let cell = DetailsStatusCell()
+        cell.lastUse = detailsStatusUseClock
+        detailsStatusCells[songID] = cell
+        return cell
+    }
+
+    /// 对账之后只给读取状态真变了的行发信号。
+    private func refreshDetailsStatusCells() {
+        guard !detailsStatusCells.isEmpty else { return }
+        let needsBackfill = makeNeedsBackfillPredicate()
+        for cell in detailsStatusCells.values {
+            guard let song = cell.song else { continue }
+            let state = computeDetailsState(
+                for: song,
+                isLocalSource: cell.isLocalSource,
+                needsBackfill: needsBackfill
+            )
+            if state != cell.delivered {
+                cell.delivered = state
+                cell.revision &+= 1
+            }
+        }
+    }
+
+    private func computeDetailsState(
+        for song: Song,
+        isLocalSource: Bool,
+        needsBackfill: (Song) -> Bool
+    ) -> SongDetailsState {
         let waitingForSource = sourceIssueSongIDs.contains(song.id)
             || sessionGivenUpIDs.contains(song.id)
             || Self.automaticRetriesExhausted(
@@ -3085,6 +3154,7 @@ final class MetadataBackfillService {
         if presentationChanged {
             statusRevision = statusRevision == .max ? 1 : statusRevision + 1
         }
+        refreshDetailsStatusCells()
         guard !precedesLibraryPublication else {
             // 只把数字发出去。落盘会把这个偏小的总数写进 backfill-queue-state.json,
             // 而后台唤醒里那份文件就是唯一的信号; `remainingTotal == 0` 同理,
