@@ -6270,3 +6270,10 @@
 "player_preview_sample_title" = "歌曲名稱";
 "player_preview_sample_artist" = "藝人 · 專輯";
 "player_preview_sample_lyric" = "這裡是正在唱的那一句歌詞";
+
+"cloud_download_quota_exceeded %@" = "%@本月的下載流量已用完，要等下個月重設後才能繼續播放。";
+"source_diag_download_title" = "下載";
+"source_diag_download_ok" = "可以正常下載，本月下載流量還沒用完。";
+"source_diag_download_no_song" = "所選目錄裡沒有找到歌曲，沒有試下載。";
+"source_diag_advice_download_quota_title" = "下載流量已用完";
+"source_diag_advice_download_quota_suggestion" = "等下個月流量重設，或開通這個雲端硬碟的會員；已快取和離線下載的歌曲照常播放。";

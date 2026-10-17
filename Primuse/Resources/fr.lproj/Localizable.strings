@@ -6293,3 +6293,10 @@
 "player_preview_sample_title" = "Titre du morceau";
 "player_preview_sample_artist" = "Artiste · Album";
 "player_preview_sample_lyric" = "La ligne chantée s’affiche ici";
+
+"cloud_download_quota_exceeded %@" = "%@ : le quota de téléchargement de ce mois est épuisé. La lecture reprendra après sa réinitialisation le mois prochain.";
+"source_diag_download_title" = "Téléchargement";
+"source_diag_download_ok" = "Le téléchargement fonctionne. Le quota de ce mois n’est pas épuisé.";
+"source_diag_download_no_song" = "Aucun morceau trouvé dans les dossiers sélectionnés : le téléchargement n’a pas été testé.";
+"source_diag_advice_download_quota_title" = "Quota de téléchargement épuisé";
+"source_diag_advice_download_quota_suggestion" = "Attendez la réinitialisation le mois prochain ou souscrivez l’abonnement de ce stockage en ligne. Les morceaux en cache et hors ligne restent lisibles.";

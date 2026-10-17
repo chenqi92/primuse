@@ -70,6 +70,9 @@ enum CloudDriveError: Error, LocalizedError {
     case invalidResponse
     case fileNotFound(String)
     case rateLimited
+    /// 账号这个月的下载流量用完了(123 云盘免费账号按月限量)。服务端只拒绝发下载链接,
+    /// 列目录照常。`detail` 是服务端原话,只进日志。
+    case downloadQuotaExceeded(service: String, detail: String)
 
     var errorDescription: String? {
         switch self {
@@ -112,7 +115,30 @@ enum CloudDriveError: Error, LocalizedError {
             return String(format: String(localized: "error_file_not_found %@"), path)
         case .rateLimited:
             return String(localized: "error_rate_limited")
+        case .downloadQuotaExceeded(let service, _):
+            return String(format: String(localized: "cloud_download_quota_exceeded %@"), service)
         }
+    }
+}
+
+/// 哪些云盘源这个月的下载流量已经用完。流量用完时解码器只能看到读不到数据,
+/// 报的是「格式无法识别」;播放失败时据此说出真正的原因。只在内存里记:
+/// 连接器再拿到下载链接就清掉,重启后也从头再看服务端怎么说。
+final class CloudDownloadQuotaState: @unchecked Sendable {
+    static let shared = CloudDownloadQuotaState()
+    private let lock = NSLock()
+    private var messages: [String: String] = [:]
+
+    func record(sourceID: String, message: String) {
+        lock.withLock { messages[sourceID] = message }
+    }
+
+    func clear(sourceID: String) {
+        _ = lock.withLock { messages.removeValue(forKey: sourceID) }
+    }
+
+    func exhaustedMessage(sourceID: String) -> String? {
+        lock.withLock { messages[sourceID] }
     }
 }
 

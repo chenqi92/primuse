@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "Şarkı Adı";
 "player_preview_sample_artist" = "Sanatçı · Albüm";
 "player_preview_sample_lyric" = "Şu an söylenen satır burada görünür";
+
+"cloud_download_quota_exceeded %@" = "%@ bu ayki indirme kotasını doldurdu. Kota gelecek ay sıfırlandığında yeniden oynatabilirsiniz.";
+"source_diag_download_title" = "İndirme";
+"source_diag_download_ok" = "İndirme çalışıyor. Bu ayki indirme kotası henüz dolmadı.";
+"source_diag_download_no_song" = "Seçilen klasörlerde şarkı bulunamadı, bu yüzden indirme denenmedi.";
+"source_diag_advice_download_quota_title" = "İndirme kotası doldu";
+"source_diag_advice_download_quota_suggestion" = "Kotanın gelecek ay sıfırlanmasını bekleyin veya bu bulut depolamanın üyeliğine geçin. Önbellekteki ve çevrimdışı şarkılar çalmaya devam eder.";

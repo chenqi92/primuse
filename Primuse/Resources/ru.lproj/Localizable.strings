@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "Название песни";
 "player_preview_sample_artist" = "Исполнитель · Альбом";
 "player_preview_sample_lyric" = "Здесь — строка, которую сейчас поют";
+
+"cloud_download_quota_exceeded %@" = "%@: лимит скачивания на этот месяц исчерпан. Воспроизведение станет доступно после его сброса в следующем месяце.";
+"source_diag_download_title" = "Скачивание";
+"source_diag_download_ok" = "Скачивание работает. Лимит на этот месяц ещё не исчерпан.";
+"source_diag_download_no_song" = "В выбранных папках не найдено песен, поэтому скачивание не проверялось.";
+"source_diag_advice_download_quota_title" = "Лимит скачивания исчерпан";
+"source_diag_advice_download_quota_suggestion" = "Дождитесь сброса лимита в следующем месяце или оформите подписку этого облачного хранилища. Кэшированные и офлайн-песни воспроизводятся как обычно.";

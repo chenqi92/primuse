@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "ชื่อเพลง";
 "player_preview_sample_artist" = "ศิลปิน · อัลบั้ม";
 "player_preview_sample_lyric" = "เนื้อเพลงท่อนที่กำลังร้องจะแสดงที่นี่";
+
+"cloud_download_quota_exceeded %@" = "%@ ใช้โควตาดาวน์โหลดของเดือนนี้หมดแล้ว จะเล่นได้อีกครั้งเมื่อรีเซ็ตในเดือนหน้า";
+"source_diag_download_title" = "ดาวน์โหลด";
+"source_diag_download_ok" = "ดาวน์โหลดได้ตามปกติ โควตาดาวน์โหลดของเดือนนี้ยังไม่หมด";
+"source_diag_download_no_song" = "ไม่พบเพลงในโฟลเดอร์ที่เลือก จึงไม่ได้ทดสอบการดาวน์โหลด";
+"source_diag_advice_download_quota_title" = "โควตาดาวน์โหลดหมดแล้ว";
+"source_diag_advice_download_quota_suggestion" = "รอให้โควตารีเซ็ตในเดือนหน้า หรือสมัครสมาชิกของบริการคลาวด์นี้ เพลงที่แคชไว้และเพลงออฟไลน์ยังเล่นได้ตามปกติ";

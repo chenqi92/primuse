@@ -231,6 +231,45 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    @MainActor
+    func testPan123MonthlyDownloadQuotaIsNamedAndClearedByTheNextLink() async throws {
+        let linkRequests = CloudTestCounter()
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { request, _ in
+            if request.url?.path.hasSuffix("/file/list") == true {
+                return .init(status: 200, body: Data(#"{"code":0,"data":{"lastFileId":-1,"fileList":[{"filename":"cover.jpg","fileId":41,"type":0,"size":1},{"filename":"song.mp3","fileId":42,"type":0,"size":10}]}}"#.utf8))
+            }
+            linkRequests.increment()
+            if linkRequests.value == 1 {
+                return .init(status: 200, body: Data(#"{"code":5113,"message":"您本月下载流量已超出10GB限制"}"#.utf8))
+            }
+            return .init(status: 200, body: Data(#"{"code":0,"data":{"downloadUrl":"https://download.invalid/song.mp3"}}"#.utf8))
+        })
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove(); CloudDownloadQuotaState.shared.clear(sourceID: fixture.id) }
+        let source = Pan123Source(sourceID: fixture.id, session: session, tokenProvider: { "fixture" })
+
+        do { _ = try await source.diagnosticDownloadProbe(roots: ["/"]); XCTFail("Expected the monthly quota failure") }
+        catch let error as CloudDriveError {
+            guard case .downloadQuotaExceeded(_, let detail) = error else { return XCTFail("Unexpected \(error)") }
+            XCTAssertTrue(detail.contains("10GB"))
+            XCTAssertEqual(AutomaticOfflineFailureClassifier.classify(error), .sourceAccessDenied)
+            XCTAssertTrue(MetadataBackfillService.isSourceUnavailableBackfillError(error))
+            XCTAssertEqual(CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: fixture.id), error.localizedDescription)
+            let manager = SourceManager(sourcesProvider: { [] })
+            let message = manager.scanFailureMessage(
+                for: error, source: MusicSource(id: fixture.id, name: "fixture", type: .pan123)
+            )
+            XCTAssertTrue(message.contains(String(localized: "source_diag_advice_download_quota_title")))
+        }
+        XCTAssertNil(CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: UUID().uuidString))
+
+        let found = try await source.diagnosticDownloadProbe(roots: ["/"])
+        XCTAssertTrue(found)
+        XCTAssertEqual(linkRequests.value, 2)
+        XCTAssertNil(CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: fixture.id))
+        XCTAssertTrue(fixture.requests.contains { $0.url?.query?.contains("fileId=42") == true })
+    }
+
     func testBaiduBusinessQuotaSurvivesHTTP200AndConnectorRecreation() async throws {
         let fixture = CloudHTTPFixture(responses: [.init(status: 200, headers: ["Retry-After": "3600"], body: Data(#"{"errno":31034}"#.utf8))])
         let session = fixture.session()

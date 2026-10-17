@@ -4487,7 +4487,8 @@ final class MetadataBackfillService {
              CloudDriveError.tokenRefreshFailed,
              CloudDriveError.tokenPersistenceFailed,
              CloudDriveError.permissionDenied(.accountAccess),
-             CloudDriveError.rateLimited:
+             CloudDriveError.rateLimited,
+             CloudDriveError.downloadQuotaExceeded:
             return true
         case CloudDriveError.apiError(let code, _):
             return code == 401 || code == 429

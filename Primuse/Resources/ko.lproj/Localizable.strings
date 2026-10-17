@@ -6293,3 +6293,10 @@
 "player_preview_sample_title" = "노래 제목";
 "player_preview_sample_artist" = "아티스트 · 앨범";
 "player_preview_sample_lyric" = "지금 부르는 가사가 여기에 표시됩니다";
+
+"cloud_download_quota_exceeded %@" = "%@의 이번 달 다운로드 용량을 모두 사용했습니다. 다음 달에 초기화되면 다시 재생할 수 있습니다.";
+"source_diag_download_title" = "다운로드";
+"source_diag_download_ok" = "다운로드할 수 있습니다. 이번 달 다운로드 용량이 남아 있습니다.";
+"source_diag_download_no_song" = "선택한 폴더에서 노래를 찾지 못해 다운로드를 확인하지 않았습니다.";
+"source_diag_advice_download_quota_title" = "다운로드 용량 소진";
+"source_diag_advice_download_quota_suggestion" = "다음 달 초기화를 기다리거나 이 클라우드 드라이브의 멤버십에 가입하세요. 캐시된 노래와 오프라인 노래는 계속 재생됩니다.";

@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "Título da música";
 "player_preview_sample_artist" = "Artista · Álbum";
 "player_preview_sample_lyric" = "Aqui aparece o verso que está sendo cantado";
+
+"cloud_download_quota_exceeded %@" = "%@: a cota de download deste mês acabou. A reprodução volta quando ela for renovada no próximo mês.";
+"source_diag_download_title" = "Download";
+"source_diag_download_ok" = "Os downloads funcionam. A cota deste mês ainda não acabou.";
+"source_diag_download_no_song" = "Nenhuma música encontrada nas pastas selecionadas, então o download não foi testado.";
+"source_diag_advice_download_quota_title" = "Cota de download esgotada";
+"source_diag_advice_download_quota_suggestion" = "Aguarde a renovação no próximo mês ou contrate o plano de membro deste armazenamento em nuvem. Músicas em cache e offline continuam tocando.";

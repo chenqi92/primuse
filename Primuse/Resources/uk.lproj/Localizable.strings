@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "Назва пісні";
 "player_preview_sample_artist" = "Виконавець · Альбом";
 "player_preview_sample_lyric" = "Тут — рядок, який зараз співають";
+
+"cloud_download_quota_exceeded %@" = "%@: ліміт завантаження на цей місяць вичерпано. Відтворення стане доступним після його скидання наступного місяця.";
+"source_diag_download_title" = "Завантаження";
+"source_diag_download_ok" = "Завантаження працює. Ліміт на цей місяць ще не вичерпано.";
+"source_diag_download_no_song" = "У вибраних папках не знайдено пісень, тож завантаження не перевірялося.";
+"source_diag_advice_download_quota_title" = "Ліміт завантаження вичерпано";
+"source_diag_advice_download_quota_suggestion" = "Дочекайтеся скидання ліміту наступного місяця або оформіть підписку цього хмарного сховища. Кешовані та офлайн-пісні відтворюються як звичайно.";

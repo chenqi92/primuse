@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "Título de la canción";
 "player_preview_sample_artist" = "Artista · Álbum";
 "player_preview_sample_lyric" = "Aquí aparece la línea que se está cantando";
+
+"cloud_download_quota_exceeded %@" = "%@: se agotó la cuota de descarga de este mes. Podrás reproducir de nuevo cuando se restablezca el próximo mes.";
+"source_diag_download_title" = "Descarga";
+"source_diag_download_ok" = "Las descargas funcionan. La cuota de este mes aún no se agota.";
+"source_diag_download_no_song" = "No se encontraron canciones en las carpetas seleccionadas, así que no se probó la descarga.";
+"source_diag_advice_download_quota_title" = "Cuota de descarga agotada";
+"source_diag_advice_download_quota_suggestion" = "Espera a que se restablezca el próximo mes o contrata la membresía de este almacenamiento en la nube. Las canciones en caché y sin conexión se siguen reproduciendo.";

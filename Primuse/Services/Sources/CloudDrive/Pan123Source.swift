@@ -708,16 +708,59 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
 
     // MARK: - 下载直链
 
+    /// 本月下载流量用完时 download_info 回的业务码(「您本月下载流量已超出10GB限制…」)。
+    private static let downloadQuotaExceededCode = 5113
+
     private func getDownloadURL(for fileId: String) async throws -> URL {
         if let cached = downloadURLCache[fileId], cached.expiresAt > Date() { return cached.url }
-        let json = try await authedRequest("/api/v1/file/download_info?fileId=\(fileId)")
+        let url = try await requestDownloadURL(for: fileId)
+        downloadURLCache[fileId] = (url, Date().addingTimeInterval(Self.downloadURLTTL))
+        return url
+    }
+
+    /// 只要下载链接、不下载内容,不占下载流量。流量额度按月、按账号类型都会变,
+    /// 开放平台也查不到还剩多少,所以以服务端肯不肯发链接为准。
+    private func requestDownloadURL(for fileId: String) async throws -> URL {
+        let json: [String: Any]
+        do {
+            json = try await authedRequest("/api/v1/file/download_info?fileId=\(fileId)")
+        } catch CloudDriveError.apiError(let code, let detail) where code == Self.downloadQuotaExceededCode {
+            let error = CloudDriveError.downloadQuotaExceeded(
+                service: MusicSourceType.pan123.displayName, detail: detail
+            )
+            CloudDownloadQuotaState.shared.record(sourceID: sourceID, message: error.localizedDescription)
+            plog("⛔️ 123 Drive download quota exhausted for source \(sourceID.prefix(8)): \(detail)")
+            throw error
+        }
+        CloudDownloadQuotaState.shared.clear(sourceID: sourceID)
         let data = json["data"] as? [String: Any] ?? [:]
         guard let link = data["downloadUrl"] as? String, let url = URL(string: link) else {
             throw CloudDriveError.fileNotFound(fileId)
         }
-        downloadURLCache[fileId] = (url, Date().addingTimeInterval(Self.downloadURLTTL))
         return url
     }
+
+    /// 音乐源体检用:在所选目录里找一首歌要一次下载链接,看这个月还能不能下载。
+    /// 找不到音频文件时返回 false。
+    func diagnosticDownloadProbe(roots: [String]) async throws -> Bool {
+        var pending = roots
+        var listed = 0
+        while !pending.isEmpty, listed < Self.diagnosticProbeListingLimit {
+            let items = try await listFiles(at: pending.removeFirst())
+            listed += 1
+            if let song = items.first(where: {
+                !$0.isDirectory
+                    && PrimuseConstants.supportedAudioExtensions.contains(($0.name as NSString).pathExtension.lowercased())
+            }) {
+                _ = try await requestDownloadURL(for: song.path)
+                return true
+            }
+            pending.append(contentsOf: items.filter(\.isDirectory).map(\.path))
+        }
+        return false
+    }
+
+    private static let diagnosticProbeListingLimit = 8
 
     private func invalidateDownloadURL(for fileId: String) {
         downloadURLCache.removeValue(forKey: fileId)

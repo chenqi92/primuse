@@ -6199,3 +6199,10 @@
 "player_preview_sample_title" = "عنوان الأغنية";
 "player_preview_sample_artist" = "الفنان · الألبوم";
 "player_preview_sample_lyric" = "يظهر هنا السطر الذي يُغنّى الآن";
+
+"cloud_download_quota_exceeded %@" = "استنفد %@ حصة التنزيل لهذا الشهر. يمكنك التشغيل مجددًا عند إعادة تعيينها الشهر القادم.";
+"source_diag_download_title" = "التنزيل";
+"source_diag_download_ok" = "التنزيل يعمل. لم تُستنفد حصة التنزيل لهذا الشهر بعد.";
+"source_diag_download_no_song" = "لم يُعثر على أغانٍ في المجلدات المحددة، لذلك لم يُختبر التنزيل.";
+"source_diag_advice_download_quota_title" = "استُنفدت حصة التنزيل";
+"source_diag_advice_download_quota_suggestion" = "انتظر إعادة تعيين الحصة الشهر القادم أو اشترك في عضوية خدمة التخزين السحابي هذه. تبقى الأغاني المخزنة مؤقتًا والمتاحة دون اتصال قابلة للتشغيل.";

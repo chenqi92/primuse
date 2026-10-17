@@ -5282,6 +5282,11 @@ final class AudioPlayerService {
                         playID: id,
                         shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
+                } else if let quotaMessage = CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: song.sourceID) {
+                    // 云盘这个月的下载流量用完了:整首下载一样会被拒,不再兜底,
+                    // 直接说清原因,别让人以为是文件坏了。
+                    plog("⛔️ '\(song.title)' not playable: cloud download quota exhausted")
+                    suspendPlaybackAfterFailure(reason: "cloud-download-quota-exhausted", message: quotaMessage)
                 } else if await cloudFullDownloadFallback(
                     song: song,
                     outputFormat: outputFormat,
@@ -5511,12 +5516,14 @@ final class AudioPlayerService {
                     guard !Task.isCancelled, self.playID == id else { return }
                     midStreamError = true
                     plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
-                    if self.playbackSettings.audioCacheEnabled,
+                    let quotaMessage = self.activeDecoderKind == .cloudStream
+                        ? CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: song.sourceID) : nil
+                    if quotaMessage == nil, self.playbackSettings.audioCacheEnabled,
                        self.activeDecoderKind == .cloudStream || self.activeDecoderKind == .httpStream {
                         self.beginRemoteMidStreamRecovery(song: song, playID: id)
                         return
                     }
-                    self.showPlaybackError(String(localized: "playback_error_decode"))
+                    self.showPlaybackError(quotaMessage ?? String(localized: "playback_error_decode"))
                     if scheduledCount < 3 {
                         // Too little decoded to be worth playing — bail now.
                         // Helper handles repeat-one (stop, don't loop broken

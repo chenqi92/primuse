@@ -6294,3 +6294,10 @@
 "player_preview_sample_title" = "曲名";
 "player_preview_sample_artist" = "アーティスト · アルバム";
 "player_preview_sample_lyric" = "いま歌っている歌詞がここに表示されます";
+
+"cloud_download_quota_exceeded %@" = "%@ の今月のダウンロード容量を使い切りました。来月リセットされると再生できます。";
+"source_diag_download_title" = "ダウンロード";
+"source_diag_download_ok" = "ダウンロードできます。今月のダウンロード容量はまだ残っています。";
+"source_diag_download_no_song" = "選択したフォルダに曲が見つからないため、ダウンロードは確認していません。";
+"source_diag_advice_download_quota_title" = "ダウンロード容量の上限に達しました";
+"source_diag_advice_download_quota_suggestion" = "来月のリセットを待つか、このクラウドストレージの会員になってください。キャッシュ済みの曲とオフラインの曲は再生できます。";

@@ -341,6 +341,8 @@ enum AutomaticOfflineFailureClassifier {
             }
         case .rateLimited:
             return .rateLimited
+        case .downloadQuotaExceeded:
+            return .sourceAccessDenied
         case .invalidResponse:
             return .sourceUnavailable
         case .fileNotFound:
@@ -1223,6 +1225,14 @@ protocol SourceDiagnosticConnectionPreparing: MusicSourceConnector {
 extension FnMusicSource: SourceDiagnosticConnectionPreparing {}
 extension SynologySource: SourceDiagnosticConnectionPreparing {}
 extension SynologyAudioStationSource: SourceDiagnosticConnectionPreparing {}
+
+/// 下载额度和列目录分开算的源:体检时在所选目录里挑一首歌要一次下载链接。
+/// 返回 false 表示没找到可以试的歌。
+protocol SourceDiagnosticDownloadProbing: MusicSourceConnector {
+    func diagnosticDownloadProbe(roots: [String]) async throws -> Bool
+}
+
+extension Pan123Source: SourceDiagnosticDownloadProbing {}
 
 struct SourceDiagnosticReport: Identifiable, Sendable {
     let id: UUID
@@ -4029,8 +4039,10 @@ final class SourceManager {
             ? source.diagnosticConnectionCandidates.map { Optional($0) }
             : [nil]
         let roots = source.type.scansEntireLibrary ? ["/"] : diagnosticProbeRoots(for: source, explicitDirectories: nil)
+        let probesDownload = Self.diagnosticDownloadProbeTypes.contains(source.type)
         var progress = SourceDiagnosticProgress(totalChecks: configuration.count + candidates.reduce(0) {
             $0 + ($1?.endpoint == nil ? 0 : 1) + ($1?.kind == .vendorRemote ? 1 : 0) + 1 + roots.count
+                + (probesDownload ? 1 : 0)
         })
         var connections: [SourceDiagnosticConnectionResult] = []
         var routeResults: [(kind: SourceConnectionCandidateKind, isAvailable: Bool)] = []
@@ -4221,6 +4233,28 @@ final class SourceManager {
                 available = available && readable
             }
             if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+            // 列目录不占下载流量:额度用完时上面全部通过,歌却一首也放不了。
+            // 这一项只说明能不能下载,不算进这条线路通不通。
+            if probesDownload {
+                let downloadTitle = title(String(localized: "source_diag_download_title"))
+                if available, let prober = connector as? any SourceDiagnosticDownloadProbing {
+                    let probeRoots = roots
+                    _ = await perform(downloadTitle) {
+                        let found = try await Self.withTimeout(seconds: 20) {
+                            try await prober.diagnosticDownloadProbe(roots: probeRoots)
+                        }
+                        return SourceDiagnosticCheck(
+                            status: found ? .passed : .skipped,
+                            title: downloadTitle,
+                            message: String(localized: found
+                                ? "source_diag_download_ok" : "source_diag_download_no_song")
+                        )
+                    }
+                } else {
+                    await skip(downloadTitle)
+                }
+                if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+            }
             connections.append(SourceDiagnosticConnectionResult(title: routeTitle, isAvailable: available))
             if let kind = candidate?.kind { routeResults.append((kind, available)) }
         }
@@ -4237,6 +4271,9 @@ final class SourceManager {
             wasCancelled: wasCancelled || Task.isCancelled, connections: connections
         )
     }
+
+    /// 体检时要单独试一次下载的源(见 `SourceDiagnosticDownloadProbing`)。
+    nonisolated static let diagnosticDownloadProbeTypes: Set<MusicSourceType> = [.pan123]
 
     /// A login or relay resolution that timed out, dropped or failed TLS after
     /// the port had answered.
@@ -4721,6 +4758,12 @@ final class SourceManager {
                 )
             case .fileNotFound(let path):
                 return pathAdvice(path: path)
+            case .downloadQuotaExceeded:
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_advice_download_quota_title"),
+                    message: cloudError.localizedDescription,
+                    suggestion: String(localized: "source_diag_advice_download_quota_suggestion")
+                )
             case .apiError(let code, let message):
                 if code == 401 { return authAdvice() }
                 if code == 403, source.type == .drime {

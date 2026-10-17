@@ -6053,3 +6053,10 @@
 "player_preview_sample_title" = "Song Title";
 "player_preview_sample_artist" = "Artist · Album";
 "player_preview_sample_lyric" = "The line being sung appears here";
+
+"cloud_download_quota_exceeded %@" = "%@ has used up this month’s download allowance. Playback resumes when it resets next month.";
+"source_diag_download_title" = "Download";
+"source_diag_download_ok" = "Downloads work. This month’s download allowance isn’t used up.";
+"source_diag_download_no_song" = "No songs were found in the selected folders, so downloading wasn’t tested.";
+"source_diag_advice_download_quota_title" = "Download allowance used up";
+"source_diag_advice_download_quota_suggestion" = "Wait for the allowance to reset next month, or get a membership for this cloud drive. Cached and offline songs still play.";
