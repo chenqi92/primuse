@@ -5,6 +5,42 @@ private struct ArtistListeningSnapshot {
     var monthlyListenCount = 0
     var playCountsBySongID: [String: Int] = [:]
     var playCountsByAlbumID: [String: Int] = [:]
+    /// 每重算一次前进, 排行按它和歌曲版本缓存。
+    var revision = 0
+}
+
+/// 艺人页一次重绘要问好几遍「这位艺人的歌」(计数、是否为空、分享、排行、货架),
+/// 每问一遍都要从库里逐首查出、整份拷贝; 排行还要整份排序。按可见歌曲的版本记住。
+private final class ArtistSongsCache {
+    struct Key: Equatable {
+        let version: MusicLibrary.VisibleSongsVersion
+        let artistID: String
+    }
+
+    private struct RankedKey: Equatable {
+        let songs: Key
+        let listeningRevision: Int
+    }
+
+    private var songsKey: Key?
+    private var cachedSongs: [Song] = []
+    private var rankedKey: RankedKey?
+    private var cachedRanked: [Song] = []
+
+    func songs(for key: Key, make: () -> [Song]) -> [Song] {
+        if key == songsKey { return cachedSongs }
+        cachedSongs = make()
+        songsKey = key
+        return cachedSongs
+    }
+
+    func ranked(for key: Key, listeningRevision: Int, make: () -> [Song]) -> [Song] {
+        let rankedKey = RankedKey(songs: key, listeningRevision: listeningRevision)
+        if rankedKey == self.rankedKey { return cachedRanked }
+        cachedRanked = make()
+        self.rankedKey = rankedKey
+        return cachedRanked
+    }
 }
 
 private struct ArtistAlbumShelves {
@@ -58,13 +94,20 @@ struct ArtistDetailView: View {
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var listeningSnapshot = ArtistListeningSnapshot()
     @State private var albumShelvesCache = ArtistAlbumShelvesCache()
+    @State private var songsCache = ArtistSongsCache()
 
     init(artist: Artist, onMacInlineBack: (() -> Void)? = nil) {
         self.artist = artist
         self.onMacInlineBack = onMacInlineBack
     }
 
-    private var songs: [Song] { library.songs(forArtist: artist.id) }
+    private var songsKey: ArtistSongsCache.Key {
+        ArtistSongsCache.Key(version: library.visibleSongsVersion, artistID: artist.id)
+    }
+
+    private var songs: [Song] {
+        songsCache.songs(for: songsKey) { library.songs(forArtist: artist.id) }
+    }
     private var playableSongs: [Song] { songs.filteredPlayable() }
 
     #if os(iOS)
@@ -124,6 +167,12 @@ struct ArtistDetailView: View {
     }
 
     private var rankedSongs: [Song] {
+        songsCache.ranked(for: songsKey, listeningRevision: listeningSnapshot.revision) {
+            rankSongs(songs)
+        }
+    }
+
+    private func rankSongs(_ songs: [Song]) -> [Song] {
         var originalIndex: [String: Int] = [:]
         for (index, song) in songs.enumerated() where originalIndex[song.id] == nil {
             originalIndex[song.id] = index
@@ -953,13 +1002,16 @@ struct ArtistDetailView: View {
         let currentSongs = songs
         let relevantIDs = Set(currentSongs.map(\.id))
         guard !relevantIDs.isEmpty else {
-            listeningSnapshot = ArtistListeningSnapshot()
+            listeningSnapshot = ArtistListeningSnapshot(revision: listeningSnapshot.revision &+ 1)
             return
         }
 
+        // 后台每发布一批这里就重算一次: 用历史里已经折好的每首播放次数, 只查本歌手的歌,
+        // 不再把整份播放历史逐条过一遍。
+        let allCounts = PlayHistoryStore.shared.playCountsBySongID
         var songCounts: [String: Int] = [:]
-        for entry in PlayHistoryStore.shared.entries where relevantIDs.contains(entry.songID) {
-            songCounts[entry.songID, default: 0] += 1
+        for songID in relevantIDs {
+            if let count = allCounts[songID] { songCounts[songID] = count }
         }
 
         let albumIDBySongID = Dictionary(
@@ -979,7 +1031,8 @@ struct ArtistDetailView: View {
         listeningSnapshot = ArtistListeningSnapshot(
             monthlyListenCount: monthlyCount,
             playCountsBySongID: songCounts,
-            playCountsByAlbumID: albumCounts
+            playCountsByAlbumID: albumCounts,
+            revision: listeningSnapshot.revision &+ 1
         )
     }
 
@@ -1013,8 +1066,13 @@ private struct ArtistAllSongsView: View {
 
     let artist: Artist
     @State private var selection = SongSelectionModel()
+    @State private var songsCache = ArtistSongsCache()
 
-    private var songs: [Song] { library.songs(forArtist: artist.id) }
+    private var songs: [Song] {
+        songsCache.songs(
+            for: ArtistSongsCache.Key(version: library.visibleSongsVersion, artistID: artist.id)
+        ) { library.songs(forArtist: artist.id) }
+    }
     private var playableSongs: [Song] { songs.filteredPlayable() }
 
     var body: some View {

@@ -3850,6 +3850,21 @@ final class MusicLibrary {
     /// 查找表(歌手、流派、来源的歌曲表)整组换掉时前进。可见歌曲同一块缓冲不重发时,
     /// 只有它能告诉视图缓存要重算。
     @ObservationIgnored private var visibleLookupGeneration: UInt64 = 0
+
+    /// 可见歌曲或它的查找表每换一版就变。视图拿它当缓存键, 一次重绘里不必把同一份派生
+    /// 结果算好几遍; 读它同时登记对可见歌曲的观察, 和直接读 `songs(forArtist:)` 时一样。
+    struct VisibleSongsVersion: Equatable {
+        fileprivate let cacheGeneration: UInt64
+        fileprivate let lookupGeneration: UInt64
+    }
+
+    var visibleSongsVersion: VisibleSongsVersion {
+        _ = visibleSongsReference
+        return VisibleSongsVersion(
+            cacheGeneration: visibleCacheGeneration,
+            lookupGeneration: visibleLookupGeneration
+        )
+    }
     private(set) var visibleSongs: [Song] {
         get { visibleSongsReference.value }
         set {
