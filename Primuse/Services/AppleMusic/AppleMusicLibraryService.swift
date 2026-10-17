@@ -321,11 +321,13 @@ final class AppleMusicLibraryService {
     private func failUnavailablePlaybackRequestIfCurrent(_ requestID: UUID) {
         guard appleMusic.isPlaybackRequestPending(requestID),
               !Task.isCancelled else { return }
+        let isAuthorized = appleMusic.authState == .authorized
         appleMusic.failPlaybackRequest(
             requestID,
-            message: appleMusic.authState == .authorized
+            message: isAuthorized
                 ? String(localized: "playback_error_apple_music_generic")
-                : AppleMusicAuthorizationGuidance.notAuthorizedMessage
+                : AppleMusicAuthorizationGuidance.notAuthorizedMessage,
+            stopsSource: !isAuthorized
         )
     }
 

@@ -162,6 +162,48 @@ extension AudioPlayerService {
         await performTrackEnd(trigger: "apple-music-end")
     }
 
+    /// 托管队列里一首 Apple Music 歌起不来(查不到、MusicKit 报错、15 秒没起播)
+    /// 时像本地歌一样跳到下一首, 不让整条混排队列停在这首。授权、订阅这类换哪首
+    /// 都一样的失败, 以及单曲循环、已到队尾, 仍停在这首并显示原因。
+    func skipAfterAppleMusicStartFailure(
+        requestID: UUID,
+        ticket: PlaybackAdvanceTicket
+    ) async {
+        let appleMusic = AppServices.shared.appleMusic
+        let intended = interruptionResumePolicy.playbackIsIntended
+        guard isPrimuseManagingAppleMusicQueue,
+              playID == requestID,
+              activeAppleMusicRequestID == requestID,
+              case .failed = appleMusic.playbackPhase(for: requestID),
+              repeatMode != .one,
+              nextSongInQueue() != nil,
+              playbackAdvancePolicy.decision(
+                for: ticket,
+                currentItemID: currentSong?.id,
+                playbackIsIntended: intended,
+                transportIsActive: intended
+              ) == .accepted else { return }
+        guard appleMusicStartFailureSkips.shouldSkip(
+            failureStopsSource: appleMusic.failureStopsSource(requestID),
+            at: ProcessInfo.processInfo.systemUptime
+        ) else {
+            plog("Apple Music start failed; staying on this song request=\(requestID.uuidString.prefix(8))")
+            return
+        }
+        guard automaticAdvanceDecision(
+            for: ticket,
+            trigger: "apple-music-start-failure",
+            consume: true,
+            transportIsActive: intended
+        ) == .accepted else { return }
+        plog("Apple Music start failed; skipping to the next song request=\(requestID.uuidString.prefix(8))")
+        await next(
+            isAutomaticAdvance: true,
+            caller: "auto-failure:apple-music-start",
+            callerLine: 0
+        )
+    }
+
     private func performTrackEnd(trigger: String) async {
         plog("⏭️ track end trigger=\(trigger) playID=\(playID?.uuidString.prefix(8) ?? "nil") queueGeneration=\(queueGeneration)")
         // 曲终停止 sleep 模式 ── 锁定的歌刚播完, 暂停而不是 advance。

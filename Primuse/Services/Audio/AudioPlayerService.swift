@@ -957,6 +957,9 @@ final class AudioPlayerService {
     var appleMusicPlaybackTask: Task<Void, Never>?
     var appleMusicTimeoutTask: Task<Void, Never>?
     var activeAppleMusicRequestID: UUID?
+    /// 托管队列里 Apple Music 歌起不来时跳下一首的次数上限, 见
+    /// `skipAfterAppleMusicStartFailure`。
+    @ObservationIgnored var appleMusicStartFailureSkips = AppleMusicStartFailureSkipPolicy()
     var pendingAppleMusicRestoredPosition: (songID: String, time: TimeInterval)?
     private var appleMusicMirrorTask: Task<Void, Never>?
     /// Invalidates suspended observation tasks when playback changes owner.
@@ -4347,6 +4350,7 @@ final class AudioPlayerService {
                   ),
                   AppServices.shared.appleMusic.isPlaybackRequestActive(id) else { return }
             let am = AppServices.shared.appleMusic
+            var timedOut = false
             switch am.playbackPhase(for: id) {
             case .started:
                 self.isLoading = false
@@ -4361,12 +4365,16 @@ final class AudioPlayerService {
                 am.failPlaybackRequest(id, message: message)
                 self.isLoading = false
                 self.lastPlaybackError = message
+                timedOut = true
             case nil:
                 return
             }
             self.appleMusicTimeoutTask = nil
             self.updateNowPlayingInfo()
             self.updatePlaybackState()
+            if timedOut {
+                await self.skipAfterAppleMusicStartFailure(requestID: id, ticket: transportTicket)
+            }
         }
 
         // 不阻塞 play(song:) 调用方。成功后 AppleMusicService 的 mirror 会把
@@ -4381,6 +4389,15 @@ final class AudioPlayerService {
                   self.activeAppleMusicRequestID == id,
                   self.playID == id else { return }
             self.appleMusicPlaybackTask = nil
+            switch AppServices.shared.appleMusic.playbackPhase(for: id) {
+            case .started:
+                self.appleMusicStartFailureSkips.recordStart()
+            case .failed:
+                await self.skipAfterAppleMusicStartFailure(requestID: id, ticket: transportTicket)
+                return
+            case .pending, nil:
+                break
+            }
             self.synchronizeAppleMusicQueue()
         }
         appleMusicPlaybackTask = playbackTask

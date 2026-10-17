@@ -2619,6 +2619,34 @@ public enum AppleMusicAudioSessionInterruptionPolicy {
     }
 }
 
+/// Whether an Apple Music start that failed may move on to the next song, as
+/// a broken local file does. Authorization and subscription failures stay on
+/// the song: every Apple Music entry would fail the same way. Skips are
+/// bounded so an outage cannot walk an all-Apple-Music queue indefinitely.
+public struct AppleMusicStartFailureSkipPolicy: Equatable, Sendable {
+    public static let maximumSkips = 5
+    public static let window: TimeInterval = 180
+
+    private var recentSkipTimes: [TimeInterval] = []
+
+    public init() {}
+
+    /// `uptime` is a monotonic clock reading in seconds.
+    public mutating func shouldSkip(failureStopsSource: Bool, at uptime: TimeInterval) -> Bool {
+        guard !failureStopsSource else { return false }
+        recentSkipTimes.removeAll { uptime - $0 >= Self.window }
+        guard recentSkipTimes.count < Self.maximumSkips else { return false }
+        recentSkipTimes.append(uptime)
+        return true
+    }
+
+    /// A start that succeeded ends the run of failures.
+    public mutating func recordStart() {
+        guard !recentSkipTimes.isEmpty else { return }
+        recentSkipTimes.removeAll()
+    }
+}
+
 public enum NetworkCredentialPolicy {
     public enum LookupResult: Equatable, Sendable {
         case found(String)

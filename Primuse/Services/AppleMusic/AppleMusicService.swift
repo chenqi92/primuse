@@ -205,6 +205,8 @@ final class AppleMusicService {
     /// 最近一次把队列交给 MusicKit 起播的请求。起播确认之前收到的会话打断
     /// 多半是 MusicKit 自己起播造成的, 见 `isSystemStartInFlight`。
     @ObservationIgnored private var systemStartRequestID: UUID?
+    /// 因授权、订阅失败的请求: 换哪首 Apple Music 歌都一样放不了。
+    @ObservationIgnored private var sourceWideFailureRequestID: UUID?
     @ObservationIgnored private var lastObservedPlaybackTime: TimeInterval?
     @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
     @ObservationIgnored private var nearEndStallSampleCount = 0
@@ -340,7 +342,11 @@ final class AppleMusicService {
         guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return false }
         authState = Self.mapStatus(MusicAuthorization.currentStatus)
         guard authState == .authorized else {
-            failPlaybackRequest(requestID, message: AppleMusicAuthorizationGuidance.notAuthorizedMessage)
+            failPlaybackRequest(
+                requestID,
+                message: AppleMusicAuthorizationGuidance.notAuthorizedMessage,
+                stopsSource: true
+            )
             return false
         }
         guard AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: source) else {
@@ -354,7 +360,7 @@ final class AppleMusicService {
                 let message = subscription.canBecomeSubscriber
                     ? String(localized: "apple_music_needs_subscription")
                     : String(localized: "apple_music_unavailable")
-                failPlaybackRequest(requestID, message: message)
+                failPlaybackRequest(requestID, message: message, stopsSource: true)
                 // 还能订阅的话顺手把系统的订阅页请出来 —— 只弹一句"需要订阅"
                 // 是条死胡同,用户还得自己去 Apple Music App 里找入口。
                 if subscription.canBecomeSubscriber {
@@ -1203,6 +1209,11 @@ final class AppleMusicService {
              && playbackRequestState?.phase == .pending
      }
 
+     /// 这个请求失败的原因换一首 Apple Music 歌也一样, 跳过去没有意义。
+     func failureStopsSource(_ requestID: UUID) -> Bool {
+         sourceWideFailureRequestID == requestID
+     }
+
      /// 队列已经交给 MusicKit、还在等它确认起播。
      func isSystemStartInFlight(_ requestID: UUID) -> Bool {
          systemStartRequestID == requestID && isPlaybackRequestPending(requestID)
@@ -1213,8 +1224,9 @@ final class AppleMusicService {
          return playbackRequestState?.phase
      }
 
-     func failPlaybackRequest(_ requestID: UUID, message: String) {
+     func failPlaybackRequest(_ requestID: UUID, message: String, stopsSource: Bool = false) {
          guard isPlaybackRequestPending(requestID) else { return }
+         if stopsSource { sourceWideFailureRequestID = requestID }
          playbackStatusObservation?.cancel()
          playbackStatusObservation = nil
          ApplicationMusicPlayer.shared.stop()

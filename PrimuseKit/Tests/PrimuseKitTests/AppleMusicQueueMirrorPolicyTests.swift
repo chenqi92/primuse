@@ -133,6 +133,57 @@ struct AppleMusicAudioSessionInterruptionPolicyTests {
     }
 }
 
+@Suite("Apple Music start failure skip policy")
+struct AppleMusicStartFailureSkipPolicyTests {
+    @Test("A song that cannot start skips like a broken local file, up to a bound")
+    func boundsSkipsInARow() {
+        var policy = AppleMusicStartFailureSkipPolicy()
+        for attempt in 0..<AppleMusicStartFailureSkipPolicy.maximumSkips {
+            let skipped = policy.shouldSkip(failureStopsSource: false, at: TimeInterval(attempt * 15))
+            #expect(skipped)
+        }
+        let skippedPastBound = policy.shouldSkip(failureStopsSource: false, at: 80)
+        #expect(!skippedPastBound)
+    }
+
+    @Test("Authorization and subscription failures stay on the song without using the budget")
+    func sourceWideFailuresStayOnTheSong() {
+        var policy = AppleMusicStartFailureSkipPolicy()
+        let skippedSourceWide = policy.shouldSkip(failureStopsSource: true, at: 0)
+        #expect(!skippedSourceWide)
+        for attempt in 0..<AppleMusicStartFailureSkipPolicy.maximumSkips {
+            let skipped = policy.shouldSkip(failureStopsSource: false, at: TimeInterval(attempt))
+            #expect(skipped)
+        }
+    }
+
+    @Test("Failures spread far apart do not add up")
+    func oldSkipsExpire() {
+        var policy = AppleMusicStartFailureSkipPolicy()
+        for attempt in 0..<AppleMusicStartFailureSkipPolicy.maximumSkips {
+            _ = policy.shouldSkip(failureStopsSource: false, at: TimeInterval(attempt))
+        }
+        let skippedWithinWindow = policy.shouldSkip(failureStopsSource: false, at: 10)
+        #expect(!skippedWithinWindow)
+        let skippedAfterWindow = policy.shouldSkip(
+            failureStopsSource: false,
+            at: 4 + AppleMusicStartFailureSkipPolicy.window
+        )
+        #expect(skippedAfterWindow)
+    }
+
+    @Test("A successful start ends the run of failures")
+    func startEndsTheRun() {
+        var policy = AppleMusicStartFailureSkipPolicy()
+        for attempt in 0..<AppleMusicStartFailureSkipPolicy.maximumSkips {
+            _ = policy.shouldSkip(failureStopsSource: false, at: TimeInterval(attempt))
+        }
+        policy.recordStart()
+        let skippedAfterStart = policy.shouldSkip(failureStopsSource: false, at: 6)
+        #expect(skippedAfterStart)
+    }
+}
+
 @Suite("Apple Music subscription gate policy")
 struct AppleMusicSubscriptionGatePolicyTests {
     @Test("Catalog results require subscription capability")
