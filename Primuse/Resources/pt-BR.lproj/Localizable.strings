@@ -2886,6 +2886,9 @@
 "scrape_writeback_sidecar_hint" = "Grava arquivos secundários próximos à origem · Tempo limite de 30 segundos · tarefa em segundo plano";
 "scraper_confirm_import" = "Confirmar importação";
 "scraper_import_auto_footer" = "Cole o JSON do provedor de metadados ou uma URL HTTPS de configuração. O formato é detectado automaticamente.";
+"scraper_import_file_button" = "Importar de arquivo";
+"scraper_import_file_too_large" = "O arquivo tem mais de 2 MB e não pode ser importado como provedor de metadados.";
+"scraper_import_file_unreadable" = "Não foi possível ler este arquivo. Escolha um arquivo de configuração JSON com codificação UTF-8.";
 "scraper_itunes_desc" = "Pesquisa iTunes do Apple API — metadados e capas de alta resolução";
 "scraper_lrclib_desc" = "Abrir banco de dados de letras sincronizadas";
 "scraper_amll_desc" = "Letras sincronizadas palavra por palavra pela comunidade, muitas vezes com tradução";
@@ -2912,7 +2915,7 @@
 "scraper_review_unknown" = "Desconhecido";
 "scraper_source_pasted_json" = "JSON colado";
 "scraper_sources" = "Provedores de metadados";
-"scraper_sources_footer" = "Arraste para reordenar. As fontes são testadas de cima para baixo até que uma correspondência seja encontrada.";
+"scraper_sources_footer" = "Arraste para reordenar. As fontes são testadas de cima para baixo até que uma correspondência seja encontrada. Se a letra não estiver sincronizada por palavra, até mais duas fontes são consultadas em busca de uma versão mais precisa.";
 "scraper_warn_custom_headers" = "Esta configuração adiciona cabeçalhos de solicitação personalizados.";
 "scraper_warn_includes_cookie" = "Esta configuração inclui dados de cookies. Importe apenas configurações de pessoas em quem você confia.";
 "scraper_warn_includes_secrets" = "Esta configuração inclui segredos locais. Eles serão armazenados separadamente e não sincronizados como configuração pública JSON.";

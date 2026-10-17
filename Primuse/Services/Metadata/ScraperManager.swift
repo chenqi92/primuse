@@ -274,14 +274,19 @@ actor ScraperManager {
             }
         }
 
-        // Scrape lyrics from first successful source
+        // Lyrics: ask the enabled sources in the user's order. A result short of
+        // word timing asks at most two more sources for a finer one; the pick
+        // keeps the first of equal timing and never loses what it already has.
         if needs.lyrics {
             plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
+            var pick = OnlineLyricsTimingPick<[LyricLine]>()
             for config in enabledSources where config.type.supportsLyrics {
+                guard pick.wantsNextSource else { break }
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
                     continue
                 }
+                var sourceLyrics: [LyricLine]?
                 do {
                     let scraper = getScraper(for: config)
 
@@ -297,8 +302,7 @@ actor ScraperManager {
                         )
                         registerSuccess(config)
                         if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
-                            result.lyrics = parseLyrics(lyricsResult)
-                            if result.lyrics != nil { break }
+                            sourceLyrics = parseLyrics(lyricsResult)
                         }
                     } else {
                         // Standard search → getLyrics flow
@@ -336,7 +340,7 @@ actor ScraperManager {
                                 guard let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
                                 if parsed.contains(where: { $0.isWordLevel }) {
                                     plog("🎤 [\(config.type.displayName)] picked WORD-level lyrics from '\(candidate.title)' (\(parsed.count) lines)")
-                                    result.lyrics = parsed
+                                    sourceLyrics = parsed
                                     break
                                 } else if lineLevelFallback == nil {
                                     lineLevelFallback = parsed
@@ -348,14 +352,13 @@ actor ScraperManager {
                                 if await isBackingOff(config) || isCircuitOpen(config) { break }
                             }
                         }
-                        if result.lyrics == nil, let fb = lineLevelFallback {
+                        if sourceLyrics == nil, let fb = lineLevelFallback {
                             plog("🎤 [\(config.type.displayName)] picked LINE-level fallback (\(fb.count) lines)")
-                            result.lyrics = fb
+                            sourceLyrics = fb
                         }
-                        if result.lyrics == nil {
+                        if sourceLyrics == nil {
                             plog("🎤 [\(config.type.displayName)] NO lyrics found: tried=\(triedCount) hasLyrics=\(hasLyricsCount) — moving to next source")
                         }
-                        if result.lyrics != nil { break }
                     }
                 } catch {
                     if isCancellation(error) { return result }
@@ -363,6 +366,15 @@ actor ScraperManager {
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
+                }
+                // `result.lyrics` 跟着选中的那份走，后面的源被取消时提前返回也带着它。
+                if pick.record(sourceLyrics) {
+                    result.lyrics = pick.lyrics
+                    let level = pick.level.map { "\($0)" } ?? "-"
+                    plog("🎤 [\(config.type.displayName)] picked \(level)-timed lyrics\(pick.extraSourcesAsked > 0 ? " over the earlier source" : "")")
+                }
+                if pick.lyrics != nil, pick.wantsNextSource {
+                    plog("🎤 Lyrics are not word-timed yet — the next lyrics source may be asked (\(pick.extraSourcesAsked)/\(OnlineLyricsTimingPick<[LyricLine]>.extraSourceLimit) extra)")
                 }
             }
             if result.lyrics == nil {

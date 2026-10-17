@@ -676,6 +676,51 @@ public enum LyricsTimingLevel: Int, Comparable, Sendable {
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
+/// 在线歌词源按用户排的顺序一个个问。拿到的那份不是逐字时，再往后问最多
+/// `extraSourceLimit` 个源：时间轴更细的（逐字 > 逐行 > 没有时间轴）换掉先拿到的，
+/// 同级留先拿到的（用户的顺序优先），拿到逐字立刻停。后面的源没有、出错都不动已经
+/// 拿到的那份；因退避或熔断跳过、根本没发请求的源不记、不占名额。
+public struct OnlineLyricsTimingPick<Lyrics: Sendable>: Sendable {
+    /// 拿到第一份之后最多再问几个源。批量刮削时每首歌也就多问这么几次。
+    public static var extraSourceLimit: Int { 2 }
+
+    /// 目前选中的那份。
+    public private(set) var lyrics: Lyrics?
+    /// 选中那份的时间轴精度。
+    public private(set) var level: LyricsTimingLevel?
+    /// 拿到第一份之后又问过几个源（不管有没有拿到）。
+    public private(set) var extraSourcesAsked = 0
+
+    public init() {}
+
+    /// 还要不要问下一个源：一份都没拿到时一直问；拿到了但不是逐字，名额没用完就接着问。
+    public var wantsNextSource: Bool {
+        guard let level else { return true }
+        return level < .word && extraSourcesAsked < Self.extraSourceLimit
+    }
+
+    /// 记下问过的一个源的结果，`candidate` 为 nil 表示这个源没有或出错了。
+    /// 返回这份是不是被选中了。
+    @discardableResult
+    public mutating func record(_ candidate: Lyrics?, level candidateLevel: LyricsTimingLevel) -> Bool {
+        if level != nil { extraSourcesAsked += 1 }
+        guard let candidate else { return false }
+        if let level, candidateLevel <= level { return false }
+        lyrics = candidate
+        level = candidateLevel
+        return true
+    }
+}
+
+extension OnlineLyricsTimingPick where Lyrics == [LyricLine] {
+    /// 记下一个源解析好的歌词；nil 或空数组表示这个源没有或出错了。
+    @discardableResult
+    public mutating func record(_ lines: [LyricLine]?) -> Bool {
+        guard let lines, !lines.isEmpty else { return record(nil, level: .plain) }
+        return record(lines, level: LyricsTimingLevel(lines: lines))
+    }
+}
+
 extension LyricsSidecarSelectionPolicy {
     /// 同一首歌旁边有几份歌词文件、又没有人选定时,按内容的时间轴精度自动挑一份:
     /// 逐字 > 逐行 > 没有时间轴。精度一样的仍按原来的规则(可写优先、格式、文件名),

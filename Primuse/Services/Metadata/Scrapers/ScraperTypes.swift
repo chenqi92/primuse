@@ -192,8 +192,8 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         }
     }
 
-    /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序找到即停，
-    /// 逐字歌词库放后面就永远轮不到。
+    /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序问，先拿到
+    /// 逐字的就不再往后问；不是逐字时最多再问后面两个源（`OnlineLyricsTimingPick`）。
     static var builtInOrder: [MusicScraperType] {
         [.itunes, .musicBrainz, .amll, .lrclib, .lyricsServer]
     }

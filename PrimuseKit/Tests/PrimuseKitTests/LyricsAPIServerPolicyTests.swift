@@ -185,4 +185,63 @@ struct LyricsAPIServerPolicyClassifyTests {
     @Test func jsonObjectWithoutLyricsIsNotFound() {
         #expect(classify(200, #"{"code":404,"msg":"not found"}"#) == .notFound)
     }
+
+    // MARK: TTML 与逐字格式
+
+    /// Apple / AMLL 风格：整份 TTML 只有一行。
+    private static let singleLineTTML = #"<?xml version="1.0" encoding="utf-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div><p begin="00:10.000" end="00:12.000" ttm:agent="v1"><span begin="00:10.000" end="00:11.000">故</span><span begin="00:11.000" end="00:12.000">事</span></p><p begin="00:13.000" end="00:15.000"><span begin="00:13.000" end="00:14.000">的</span><span begin="00:14.000" end="00:15.000">花</span></p></div></body></tt>"#
+
+    private static let yrcDocument = """
+    {"t":0,"c":[{"tx":"作词: 某人"}]}
+    [190871,1984](190871,361,0)For (191232,172,0)the (191404,376,0)first (191780,1075,0)time
+    [193459,1000](193459,412,0)Again
+    """
+
+    @Test func singleLineTTMLIsLyricsAndParsesWordTimed() throws {
+        let classified = classify(200, Self.singleLineTTML + "\n", contentType: "application/xml")
+        #expect(classified == .lyrics(lrc: Self.singleLineTTML, plain: nil))
+        guard case .lyrics(let lrc?, _) = classified else { return }
+        // 下游按内容认格式：放进 lrc 的 TTML 照样读成逐字歌词。
+        let lines = LyricsContentParser.parseText(lrc)
+        #expect(lines.map(\.text) == ["故事", "的花"])
+        #expect(LyricsTimingLevel(lines: lines) == .word)
+    }
+
+    @Test func ttmlWithoutDeclarationOrWithBOMIsLyrics() {
+        let bare = String(Self.singleLineTTML.drop { $0 != ">" }.dropFirst())
+        #expect(bare.hasPrefix("<tt "))
+        #expect(classify(200, bare) == .lyrics(lrc: bare, plain: nil))
+        #expect(classify(200, "\u{FEFF}" + Self.singleLineTTML, contentType: "text/plain; charset=utf-8")
+            == .lyrics(lrc: Self.singleLineTTML, plain: nil))
+    }
+
+    @Test func wordTimedDocumentsAreLyrics() {
+        #expect(classify(200, Self.yrcDocument) == .lyrics(lrc: Self.yrcDocument, plain: nil))
+        let qrc = #"<?xml version="1.0" encoding="utf-8"?><QrcInfos><LyricInfo LyricCount="1"><Lyric_1 LyricType="1" LyricContent="[0,2000]Hello (0,500)world(500,600)"/></LyricInfo></QrcInfos>"#
+        #expect(classify(200, qrc) == .lyrics(lrc: qrc, plain: nil))
+        let lys = "[4]Dreaming (5245,696)about (5941,471)the (6412,306)things(6718,458)"
+        #expect(classify(200, lys) == .lyrics(lrc: lys, plain: nil))
+    }
+
+    @Test func jsonLyricsFieldWithTTMLOrWordTimingIsLRC() throws {
+        let ttmlBody = String(
+            data: try JSONSerialization.data(withJSONObject: [["id": "1", "lyrics": Self.singleLineTTML]]),
+            encoding: .utf8
+        ) ?? ""
+        #expect(classify(200, ttmlBody, contentType: "application/json")
+            == .lyrics(lrc: Self.singleLineTTML, plain: nil))
+        let yrcBody = String(
+            data: try JSONSerialization.data(withJSONObject: ["lrc": Self.yrcDocument]),
+            encoding: .utf8
+        ) ?? ""
+        #expect(classify(200, yrcBody) == .lyrics(lrc: Self.yrcDocument, plain: nil))
+    }
+
+    @Test func htmlPagesStayNotFoundEvenWithTTTags() {
+        #expect(classify(200, "<!DOCTYPE html><html><body><tt>monospace</tt></body></html>") == .notFound)
+        #expect(classify(200, #"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><tt>x</tt></html>"#)
+            == .notFound)
+        // 不以 `<` 开头的单行文字仍是「没找到」。
+        #expect(classify(200, "No lyrics for <tt>this</tt> song") == .notFound)
+    }
 }

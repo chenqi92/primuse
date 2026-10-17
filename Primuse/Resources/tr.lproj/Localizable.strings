@@ -1215,7 +1215,7 @@
 "synology_error_not_logged_in" = "Oturum açılmadı";
 "Diagnostic Logs" = "Tanılama Günlükleri";
 "backfill_done_title" = "Etiket okuma tamamlandı";
-"scraper_sources_footer" = "Yeniden sıralamak için sürükleyin. Bir eşleşme bulunana kadar kaynaklar yukarıdan aşağıya doğru denenir.";
+"scraper_sources_footer" = "Yeniden sıralamak için sürükleyin. Bir eşleşme bulunana kadar kaynaklar yukarıdan aşağıya doğru denenir. Sözler kelime kelime senkronize değilse daha ayrıntılı bir sürüm için en fazla iki kaynağa daha bakılır.";
 "discovery_reason_libraryPick" = "Arşivden seçim";
 "settings_dlna_devices_section" = "Bağlı Cihazlar";
 "onboarding_personalization_home" = "Ana Sayfadaki bölümleri gösterin, gizleyin ve yeniden sıralayın";
@@ -2639,6 +2639,9 @@
 "Interactive" = "İnteraktif";
 "volume" = "Hacim";
 "scraper_import_auto_footer" = "Üst veri alma komut dosyasını JSON veya HTTPS yapılandırmasını URL yapıştırın. Format otomatik olarak algılanır.";
+"scraper_import_file_button" = "Dosyadan içe aktar";
+"scraper_import_file_too_large" = "Dosya 2 MB'tan büyük olduğu için üst veri sağlayıcısı olarak içe aktarılamaz.";
+"scraper_import_file_unreadable" = "Bu dosya okunamadı. UTF-8 kodlamalı bir JSON yapılandırma dosyası seçin.";
 "scrobble_mac_recent_reports_subtitle" = "Yakın zamanda Last.fm / ListenBrainz'ye gönderildi";
 "View Year in Review" = "Yılı İncelemede Görüntüle";
 "cloud_pending_desc_format" = "Primuse, %@ açık platformuna resmi erişim için başvuruyor. Onaylandıktan sonra doğrudan oturum açabileceksiniz; bizi izlemeye devam edin. Bu platformda zaten bir geliştirici uygulamanız varsa hemen denemek için kimlik bilgilerini aşağıya girebilirsiniz.";

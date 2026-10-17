@@ -169,3 +169,111 @@ struct EmbeddedLyricsPrecedencePolicyTests {
         #expect(!deleted.hasEvaluatedAutomaticPick(forSongID: "s"))
     }
 }
+
+@Suite("Online lyrics sources are picked by timing")
+struct OnlineLyricsTimingPickTests {
+    private typealias Pick = OnlineLyricsTimingPick<String>
+
+    @Test("Word timing from the first source stops the search")
+    func wordTimingStops() {
+        var pick = Pick()
+        #expect(pick.wantsNextSource)
+        let adopted1 = pick.record("word", level: .word)
+        #expect(adopted1)
+        #expect(!pick.wantsNextSource)
+        #expect(pick.lyrics == "word")
+        #expect(pick.extraSourcesAsked == 0)
+    }
+
+    @Test("A finer later source replaces the first one, then word timing stops")
+    func finerLaterSourceWins() {
+        var pick = Pick()
+        let adopted2 = pick.record("plain", level: .plain)
+        #expect(adopted2)
+        #expect(pick.wantsNextSource)
+        let adopted3 = pick.record("line", level: .line)
+        #expect(adopted3)
+        #expect(pick.lyrics == "line" && pick.level == .line)
+        #expect(pick.wantsNextSource)
+        let adopted4 = pick.record("word", level: .word)
+        #expect(adopted4)
+        #expect(pick.lyrics == "word")
+        #expect(!pick.wantsNextSource)
+        #expect(pick.extraSourcesAsked == 2)
+    }
+
+    @Test("At most two more sources are asked after the first result")
+    func extraBudget() {
+        var pick = Pick()
+        pick.record("line", level: .line)
+        let adopted5 = pick.record(nil, level: .plain)
+        #expect(!adopted5)
+        #expect(pick.wantsNextSource)
+        let adopted6 = pick.record("other line", level: .line)
+        #expect(!adopted6)
+        #expect(!pick.wantsNextSource)
+        #expect(pick.lyrics == "line")
+        #expect(Pick.extraSourceLimit == 2)
+    }
+
+    @Test("Equal or coarser timing keeps the earlier source")
+    func userOrderWinsTies() {
+        var pick = Pick()
+        pick.record("first line", level: .line)
+        let adopted7 = pick.record("second line", level: .line)
+        #expect(!adopted7)
+        let adopted8 = pick.record("plain", level: .plain)
+        #expect(!adopted8)
+        #expect(pick.lyrics == "first line" && pick.level == .line)
+    }
+
+    @Test("Misses before the first result do not use the extra budget")
+    func missesBeforeFirstResult() {
+        var pick = Pick()
+        for _ in 0..<4 {
+            let adopted9 = pick.record(nil, level: .plain)
+            #expect(!adopted9)
+            #expect(pick.wantsNextSource)
+        }
+        #expect(pick.extraSourcesAsked == 0)
+        pick.record("plain", level: .plain)
+        #expect(pick.wantsNextSource)
+        // 后面的源出错（nil）不动已经拿到的那份。
+        pick.record(nil, level: .plain)
+        pick.record(nil, level: .plain)
+        #expect(pick.lyrics == "plain")
+        #expect(!pick.wantsNextSource)
+    }
+
+    @Test("Parsed lyric lines are ranked by their own timing")
+    func lyricLines() {
+        let plain = [LyricLine(timestamp: 0, text: "Let it be", isSynchronized: false)]
+        let timed = [LyricLine(timestamp: 10.45, text: "Let it be")]
+        let wordTimed = [LyricLine(
+            timestamp: 10.45,
+            text: "Let it be",
+            syllables: [
+                LyricSyllable(text: "Let ", start: 10.45, end: 10.8),
+                LyricSyllable(text: "it be", start: 10.8, end: 11.6),
+            ]
+        )]
+        var pick = OnlineLyricsTimingPick<[LyricLine]>()
+        let adopted10 = pick.record([])
+        #expect(!adopted10)
+        #expect(pick.extraSourcesAsked == 0)
+        let adopted11 = pick.record(plain)
+        #expect(adopted11)
+        let adopted12 = pick.record(timed)
+        #expect(adopted12)
+        #expect(pick.level == .line)
+        let adopted13 = pick.record([])
+        #expect(!adopted13)
+        #expect(!pick.wantsNextSource)
+        #expect(pick.lyrics?.first?.isSynchronized == true)
+
+        var wordFirst = OnlineLyricsTimingPick<[LyricLine]>()
+        let adopted14 = wordFirst.record(wordTimed)
+        #expect(adopted14)
+        #expect(wordFirst.level == .word && !wordFirst.wantsNextSource)
+    }
+}

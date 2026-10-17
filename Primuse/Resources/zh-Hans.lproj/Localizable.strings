@@ -602,7 +602,7 @@
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";
 "scraper_sources" = "刮削源";
-"scraper_sources_footer" = "拖拽调整顺序。刮削时按从上到下的顺序依次尝试，找到结果即停止。";
+"scraper_sources_footer" = "拖拽调整顺序。刮削时按从上到下的顺序依次尝试，找到结果即停止。歌词不是逐字时，会再问后面最多两个源，有更细的就用更细的。";
 "scraper_options" = "选项";
 "only_fill_missing" = "仅补全缺失字段";
 "reset_scraper_defaults" = "恢复默认设置";
@@ -686,6 +686,9 @@
 "paste_config_footer" = "粘贴刮削源的 JSON 配置内容。";
 "url_config_footer" = "输入 JSON 刮削源配置文件的 URL。";
 "scraper_import_auto_footer" = "粘贴刮削源 JSON 或 HTTPS 配置 URL，系统会自动识别。";
+"scraper_import_file_button" = "从文件导入";
+"scraper_import_file_too_large" = "文件超过 2 MB，无法作为刮削源导入。";
+"scraper_import_file_unreadable" = "无法读取这个文件，请选择 UTF-8 编码的 JSON 配置文件。";
 "JSON or Manifest URL" = "JSON 或配置 URL";
 "Input recognized" = "已识别输入";
 "Paste JSON or an HTTPS URL" = "请粘贴 JSON 或 HTTPS URL";

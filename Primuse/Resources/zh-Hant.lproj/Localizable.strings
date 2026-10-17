@@ -580,7 +580,7 @@
 "remove_from_playlist" = "從播放清單中移除";
 "metadata_scraping" = "中繼資料與刮削";
 "scraper_sources" = "刮削來源";
-"scraper_sources_footer" = "拖曳調整順序。刮削時按從上到下的順序依序嘗試，找到結果即停止。";
+"scraper_sources_footer" = "拖曳調整順序。刮削時按從上到下的順序依序嘗試，找到結果即停止。歌詞不是逐字時，會再問後面最多兩個來源，有更細的就用更細的。";
 "scraper_options" = "選項";
 "only_fill_missing" = "僅補齊缺少欄位";
 "reset_scraper_defaults" = "還原預設設定";
@@ -662,6 +662,9 @@
 "paste_config_footer" = "貼上刮削來源的 JSON 設定內容。";
 "url_config_footer" = "輸入 JSON 刮削來源設定檔的 URL。";
 "scraper_import_auto_footer" = "貼上刮削來源 JSON 或 HTTPS 設定 URL，系統會自動辨識。";
+"scraper_import_file_button" = "從檔案匯入";
+"scraper_import_file_too_large" = "檔案超過 2 MB，無法作為刮削來源匯入。";
+"scraper_import_file_unreadable" = "無法讀取這個檔案，請選擇 UTF-8 編碼的 JSON 設定檔。";
 "JSON or Manifest URL" = "JSON 或設定 URL";
 "Input recognized" = "已辨識輸入";
 "Paste JSON or an HTTPS URL" = "請貼上 JSON 或 HTTPS URL";

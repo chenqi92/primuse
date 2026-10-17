@@ -76,7 +76,8 @@ public enum LyricsAPIServerPolicy {
     public enum ResponseClassification: Equatable, Sendable {
         /// 该服务明确没有：404、204、空体、HTML 页面、JSON 里没有歌词、只有一行的短文本
         case notFound
-        /// 至少一个非空
+        /// 至少一个非空。`lrc` 也装 TTML 和逐字格式（yrc / qrc / lys）的原文，
+        /// 解析时按内容认格式。
         case lyrics(lrc: String?, plain: String?)
         /// 401/403/429/5xx 等其它状态码
         case failed(statusCode: Int)
@@ -90,7 +91,8 @@ public enum LyricsAPIServerPolicy {
         if statusCode == 404 || statusCode == 204 { return .notFound }
         guard statusCode == 200 else { return .failed(statusCode: statusCode) }
         guard body.count <= maximumBodyBytes else { return .notFound }
-        guard let text = String(data: body, encoding: .utf8) else { return .notFound }
+        guard let decoded = String(data: body, encoding: .utf8) else { return .notFound }
+        let text = decoded.hasPrefix("\u{FEFF}") ? String(decoded.dropFirst()) : decoded
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let declaresJSON = contentType?.lowercased().contains("json") == true
@@ -135,7 +137,9 @@ public enum LyricsAPIServerPolicy {
     private static func classifyLyricString(_ value: String) -> ResponseClassification {
         let text = normalizedNewlines(value).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return .notFound }
-        return containsTimestamp(text) ? .lyrics(lrc: text, plain: nil) : .lyrics(lrc: nil, plain: text)
+        return containsTimestamp(text) || isTimedLyricsDocument(text)
+            ? .lyrics(lrc: text, plain: nil)
+            : .lyrics(lrc: nil, plain: text)
     }
 
     private static func classifyText(_ raw: String) -> ResponseClassification {
@@ -145,7 +149,8 @@ public enum LyricsAPIServerPolicy {
             let lowered = text.lowercased()
             if lowered.contains("<html") || lowered.contains("<!doctype") { return .notFound }
         }
-        if containsTimestamp(text) { return .lyrics(lrc: text, plain: nil) }
+        // Apple / AMLL 风格的 TTML 常常整份只有一行，不能按「单行短文本」当成没找到。
+        if isTimedLyricsDocument(text) || containsTimestamp(text) { return .lyrics(lrc: text, plain: nil) }
         let nonEmptyLines = text.split(separator: "\n").filter {
             !$0.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -156,6 +161,13 @@ public enum LyricsAPIServerPolicy {
     private static func normalizedNewlines(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    /// 自带时间轴、但不是 `[mm:ss]` 写法的歌词原文：以 `<` 开头的 TTML（`<?xml …`、`<tt …`），
+    /// 或毫秒逐字格式 yrc / qrc / lys。
+    private static func isTimedLyricsDocument(_ text: String) -> Bool {
+        if text.hasPrefix("<"), LyricsContentParser.isTTML(text) { return true }
+        return WordTimedLyricsParser.detect(text) != nil
     }
 
     private static func containsTimestamp(_ text: String) -> Bool {

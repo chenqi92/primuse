@@ -1,6 +1,7 @@
 import CloudKit
 import SwiftUI
 import PrimuseKit
+import UniformTypeIdentifiers
 import UserNotifications
 #if os(iOS)
 import UIKit
@@ -1421,6 +1422,9 @@ struct MetadataScrapingView: View {
     }
     @State private var importError: String?
     @State private var importPreview: ScraperImportSummary?
+    @State private var showsImportFilePicker = false
+    /// 刚从文件读进输入框的内容：它已经直接生成了预览，填进输入框不算用户改了文字。
+    @State private var importFileText: String?
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
     @State private var isReordering = false
@@ -1561,6 +1565,7 @@ struct MetadataScrapingView: View {
             Section {
                 Button {
                     importText = ""
+                    importFileText = nil
                     importError = nil
                     importPreview = nil
                     showImportSheet = true
@@ -1899,6 +1904,11 @@ struct MetadataScrapingView: View {
                             // 说明与错误提示全顶到折叠线以下。
                             .frame(minHeight: heightClass.value(200, compact: 110))
                             .textInputAutocapitalization(.never)
+                        Button {
+                            showsImportFilePicker = true
+                        } label: {
+                            Label("scraper_import_file_button", systemImage: "folder")
+                        }
                     } footer: {
                         Text("scraper_import_auto_footer")
                     }
@@ -1946,11 +1956,50 @@ struct MetadataScrapingView: View {
                     .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .fileImporter(
+                isPresented: $showsImportFilePicker,
+                allowedContentTypes: [.json, .plainText],
+                onCompletion: loadImportFile
+            )
         }
         .presentationDetents([.medium, .large])
-        .onChange(of: importText) { _, _ in
+        .onChange(of: importText) { _, newValue in
+            guard newValue != importFileText else { return }
+            importFileText = nil
             importPreview = nil
             importError = nil
+        }
+    }
+
+    /// 「从文件导入」：读选中的 .json / 纯文本文件，内容放进输入框，并直接生成导入预览。
+    private func loadImportFile(_ result: Result<URL, any Error>) {
+        let url: URL
+        switch result {
+        case .success(let picked):
+            url = picked
+        case .failure(let error):
+            if (error as? CocoaError)?.code == .userCancelled { return }
+            importError = error.localizedDescription
+            return
+        }
+        let text: String
+        do {
+            text = try ScraperConfigStore.shared.readImportFile(at: url)
+        } catch {
+            plog("📥 Import file read failed: \(error.localizedDescription)")
+            importError = error.localizedDescription
+            return
+        }
+        plog("📥 Import: file textLen=\(text.count)")
+        importFileText = text
+        importText = text
+        do {
+            importPreview = try ScraperConfigStore.shared.previewImportFromJSON(text, fileName: url.lastPathComponent)
+            importError = nil
+        } catch {
+            plog("📥 Import failed: \(error.localizedDescription)")
+            importPreview = nil
+            importError = error.localizedDescription
         }
     }
 

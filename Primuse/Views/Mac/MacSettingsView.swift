@@ -3613,6 +3613,7 @@ private struct MacSTScrapingView: View {
     @State private var showImportSheet = false
     @State private var importText = ""
     @State private var importError: String?
+    @State private var showsImportFilePicker = false
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
     @AppStorage(LibraryInsightWritebackPolicy.fileWriteEnabledKey) private var insightFileWriteEnabled = true
@@ -3907,8 +3908,31 @@ private struct MacSTScrapingView: View {
             text: $importText,
             error: importError,
             onCancel: { showImportSheet = false },
-            onImport: { performImport() }
+            onImport: { performImport() },
+            onChooseFile: { showsImportFilePicker = true }
         )
+        .fileImporter(
+            isPresented: $showsImportFilePicker,
+            allowedContentTypes: [.json, .plainText],
+            onCompletion: loadImportFile
+        )
+    }
+
+    /// 「从文件导入」：读选中的 .json / 纯文本文件，内容放进输入框，右侧照常显示解析结果。
+    private func loadImportFile(_ result: Result<URL, any Error>) {
+        switch result {
+        case .success(let url):
+            do {
+                importText = try ScraperConfigStore.shared.readImportFile(at: url)
+                importError = nil
+            } catch {
+                plog("📥 Import file read failed: \(error.localizedDescription)")
+                importError = error.localizedDescription
+            }
+        case .failure(let error):
+            if (error as? CocoaError)?.code == .userCancelled { return }
+            importError = error.localizedDescription
+        }
     }
 
     private func performImport() {
@@ -4317,6 +4341,7 @@ private struct MacScraperImportSheet: View {
     let error: String?
     let onCancel: () -> Void
     let onImport: () -> Void
+    let onChooseFile: () -> Void
 
     private var preview: MacScraperImportPreview {
         MacScraperImportPreview.parse(text) ?? .sample
@@ -4590,6 +4615,11 @@ private struct MacScraperImportSheet: View {
 
     private var footer: some View {
         HStack {
+            MacSTButton(
+                title: String(localized: "scraper_import_file_button"),
+                systemImage: "folder",
+                action: onChooseFile
+            )
             Spacer()
             MacSTButton(title: Lz("Cancel"), action: onCancel)
             MacSTButton(title: Lz("Add and Enable"), prominent: true, action: onImport)

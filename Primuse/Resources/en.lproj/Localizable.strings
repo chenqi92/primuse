@@ -602,7 +602,7 @@
 // MARK: - Scraping
 "metadata_scraping" = "Metadata & Scraping";
 "scraper_sources" = "Scraper Sources";
-"scraper_sources_footer" = "Drag to reorder. Sources are tried from top to bottom until a match is found.";
+"scraper_sources_footer" = "Drag to reorder. Sources are tried from top to bottom until a match is found. For lyrics that aren’t word-synced, up to two more sources are checked for a finer version.";
 "scraper_options" = "Options";
 "only_fill_missing" = "Only Fill Missing Fields";
 "reset_scraper_defaults" = "Reset to Defaults";
@@ -671,6 +671,9 @@
 "paste_config_footer" = "Paste the JSON configuration for a scraper source.";
 "url_config_footer" = "Enter the URL of a JSON scraper configuration file.";
 "scraper_import_auto_footer" = "Paste scraper JSON or an HTTPS configuration URL. The format is detected automatically.";
+"scraper_import_file_button" = "Import from File";
+"scraper_import_file_too_large" = "The file is larger than 2 MB and can't be imported as a scraper source.";
+"scraper_import_file_unreadable" = "This file can't be read. Choose a UTF-8 JSON configuration file.";
 "JSON or Manifest URL" = "JSON or Manifest URL";
 "Input recognized" = "Input recognized";
 "Paste JSON or an HTTPS URL" = "Paste JSON or an HTTPS URL";

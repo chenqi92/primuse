@@ -441,6 +441,62 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.map(\.url?.path), ["/v1/lyrics/search", "/v1/lyrics/get", "/api/get"])
     }
 
+    func testLineTimedLyricsAskTheNextSourceForWordTiming() async {
+        let fixture = ScraperHTTPFixture { request in
+            switch request.url?.path {
+            case "/api/get":
+                return .init(body: Data(#"{"syncedLyrics":"[00:10.00]Hello\n[03:10.00]World"}"#.utf8))
+            case "/v1/lyrics/search":
+                return .init(body: SharedScraperRequestTests.amllSearchBody([(7, "Song", "Artist")]))
+            case "/v1/lyrics/get":
+                return .init(body: SharedScraperRequestTests.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+            default:
+                return .init(status: 404)
+            }
+        }
+        defer { fixture.close() }
+        let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let lrclib = LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { config in
+            if config.type == .amll { return amll }
+            return lrclib
+        })
+        // LRCLIB 排在前面、只给逐行：再问后面的 AMLL，拿到逐字就用逐字。
+        let result = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: 269,
+            needs: .init(metadata: false, cover: false, lyrics: true), settings: .init(sources: [
+                .init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0),
+                .init(id: "amll", type: .amll, isEnabled: true, priority: 1)
+            ]))
+        XCTAssertEqual(result.lyrics?.count, 2)
+        XCTAssertTrue(result.lyrics?.allSatisfy(\.isWordLevel) ?? false)
+        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/api/get", "/v1/lyrics/search", "/v1/lyrics/get"])
+    }
+
+    func testTimingPickAsksTwoMoreSourcesAndKeepsWhatItHas() async {
+        let first = StubDirectLyricsScraper(.success("[00:01.00]Hello\n[00:03.00]World"))
+        let failing = StubDirectLyricsScraper(.failure(ScraperError.networkError("HTTP 500")))
+        let sameLevel = StubDirectLyricsScraper(.success("[00:01.00]Other\n[00:03.00]Lyrics"))
+        let wordTimed = StubDirectLyricsScraper(.success("[00:01.00]<00:01.00>Hel<00:01.50>lo"))
+        let stubs = ["a": first, "b": failing, "c": sameLevel, "d": wordTimed]
+        let manager = ScraperManager(scraperFactory: { config in stubs[config.id] ?? wordTimed })
+        let result = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: nil,
+            needs: .init(metadata: false, cover: false, lyrics: true), settings: .init(sources: [
+                .init(id: "a", type: .lrclib, isEnabled: true, priority: 0),
+                .init(id: "b", type: .lrclib, isEnabled: true, priority: 1),
+                .init(id: "c", type: .lrclib, isEnabled: true, priority: 2),
+                .init(id: "d", type: .lrclib, isEnabled: true, priority: 3)
+            ]))
+        // 出错的和同级的都不顶掉先拿到的那份；多问两个之后就停，第四个源不问。
+        XCTAssertEqual(result.lyrics?.map(\.text), ["Hello", "World"])
+        XCTAssertEqual(result.errors.count, 1)
+        let first1 = await first.requestCount
+        let failing1 = await failing.requestCount
+        let same1 = await sameLevel.requestCount
+        let word1 = await wordTimed.requestCount
+        XCTAssertEqual([first1, failing1, same1, word1], [1, 1, 1, 0])
+    }
+
     func testExistingSettingsGainAMLLRightBeforeLRCLIB() throws {
         let suite = "amll-settings-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -600,4 +656,35 @@ private final class ScraperTestClock: @unchecked Sendable {
     var now: TimeInterval { lock.withLock { value } }
     func advance(to time: TimeInterval) { lock.withLock { value = time } }
     var timing: RequestExecutor.Timing { .init(now: { self.now }) }
+}
+
+/// 直接按歌名取歌词的源的替身：固定返回一份歌词、没有或出错，并记下被问了几次。
+private actor StubDirectLyricsScraper: MusicScraper, DirectLyricsLookup {
+    let type = MusicScraperType.lrclib
+    private let reply: Result<String?, any Error>
+    private(set) var requestCount = 0
+
+    init(_ reply: Result<String?, any Error>) {
+        self.reply = reply
+    }
+
+    func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
+        .empty(.lrclib)
+    }
+
+    func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
+
+    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] { [] }
+
+    func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+
+    func fetchLyrics(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?
+    ) async throws -> ScraperLyricsResult? {
+        requestCount += 1
+        return try reply.get().map { ScraperLyricsResult(source: .lrclib, lrcContent: $0) }
+    }
 }

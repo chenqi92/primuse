@@ -816,7 +816,7 @@
 "remove_from_playlist" = "재생 목록에서 제거";
 "metadata_scraping" = "메타데이터 및 스크래핑";
 "scraper_sources" = "스크래퍼 소스";
-"scraper_sources_footer" = "드래그하여 순서를 변경합니다. 일치하는 항목을 찾을 때까지 위에서 아래 순서로 소스를 시도합니다.";
+"scraper_sources_footer" = "드래그하여 순서를 변경합니다. 일치하는 항목을 찾을 때까지 위에서 아래 순서로 소스를 시도합니다. 가사가 단어 단위로 동기화되지 않았다면 더 정밀한 가사를 찾기 위해 최대 두 개의 소스를 더 확인합니다.";
 "scraper_options" = "옵션";
 "only_fill_missing" = "비어 있는 필드만 채우기";
 "reset_scraper_defaults" = "기본값으로 재설정";
@@ -898,6 +898,9 @@
 "paste_config_footer" = "가져오기 소스의 JSON 설정을 붙여넣으세요.";
 "url_config_footer" = "JSON 가져오기 소스 설정 파일의 URL을 입력하세요.";
 "scraper_import_auto_footer" = "스크레이퍼 JSON 또는 HTTPS 설정 URL을 붙여넣으세요. 형식은 자동으로 감지됩니다.";
+"scraper_import_file_button" = "파일에서 가져오기";
+"scraper_import_file_too_large" = "파일이 2MB를 넘어서 소스 설정으로 가져올 수 없습니다.";
+"scraper_import_file_unreadable" = "이 파일을 읽을 수 없습니다. UTF-8로 인코딩된 JSON 설정 파일을 선택하세요.";
 "JSON or Manifest URL" = "JSON 또는 설정 URL";
 "Input recognized" = "입력이 인식되었습니다";
 "Paste JSON or an HTTPS URL" = "JSON 또는 HTTPS URL을 붙여넣으세요";

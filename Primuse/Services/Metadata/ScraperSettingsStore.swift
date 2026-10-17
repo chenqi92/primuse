@@ -207,7 +207,8 @@ struct ScraperSettings: Codable, Sendable {
                 priority: nextPriority
             )
             // 后来加的内置源排到默认顺序里紧跟它的那个内置源前面（AMLL 在 LRCLIB 前），
-            // 不然它落到列表末尾，歌词按顺序找到即停就轮不到它；优先级随后统一重排。
+            // 不然它落到列表末尾，歌词按顺序问、拿到之后最多再问两个源，常常轮不到它；
+            // 优先级随后统一重排。
             if let insertionIndex = Self.builtInInsertionIndex(for: builtIn, in: reconciled.sources) {
                 reconciled.sources.sort { $0.priority < $1.priority }
                 reconciled.sources.insert(added, at: insertionIndex)

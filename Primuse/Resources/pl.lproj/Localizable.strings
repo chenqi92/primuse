@@ -2886,6 +2886,9 @@
 "scrape_writeback_sidecar_hint" = "Zapisuje pliki poboczne obok źródła · Limit czasu 30 s · zadanie w tle";
 "scraper_confirm_import" = "Potwierdź import";
 "scraper_import_auto_footer" = "Wklej konfigurację JSON dostawcy metadanych lub jej adres HTTPS. Format zostanie wykryty automatycznie.";
+"scraper_import_file_button" = "Importuj z pliku";
+"scraper_import_file_too_large" = "Plik jest większy niż 2 MB i nie można go zaimportować jako dostawcy metadanych.";
+"scraper_import_file_unreadable" = "Nie można odczytać tego pliku. Wybierz plik konfiguracji JSON zakodowany w UTF-8.";
 "scraper_itunes_desc" = "Wyszukiwarka iTunes Apple API — metadane i okładki w wysokiej rozdzielczości";
 "scraper_lrclib_desc" = "Otwórz bazę danych zsynchronizowanych tekstów";
 "scraper_amll_desc" = "Teksty synchronizowane słowo po słowie przez społeczność, często z tłumaczeniem";
@@ -2912,7 +2915,7 @@
 "scraper_review_unknown" = "Nieznane";
 "scraper_source_pasted_json" = "Wklejono JSON";
 "scraper_sources" = "Dostawcy metadanych";
-"scraper_sources_footer" = "Przeciągnij, aby zmienić kolejność. Źródła są sprawdzane od góry do dołu, aż do znalezienia dopasowania.";
+"scraper_sources_footer" = "Przeciągnij, aby zmienić kolejność. Źródła są sprawdzane od góry do dołu, aż do znalezienia dopasowania. Jeśli tekst nie jest synchronizowany słowo po słowie, sprawdzane są jeszcze maksymalnie dwa źródła w poszukiwaniu dokładniejszej wersji.";
 "scraper_warn_custom_headers" = "Ta konfiguracja dodaje niestandardowe nagłówki żądań.";
 "scraper_warn_includes_cookie" = "Ta konfiguracja zawiera dane cookie. Importuj tylko konfiguracje od osób, którym ufasz.";
 "scraper_warn_includes_secrets" = "Ta konfiguracja zawiera lokalne sekrety. Będą przechowywane oddzielnie i nie będą synchronizowane jako konfiguracja publiczna JSON.";

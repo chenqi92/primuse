@@ -5,6 +5,8 @@ import PrimuseKit
 struct ScraperImportSummary: Sendable {
     let configs: [ScraperConfig]
     let sourceHost: String?
+    /// 从文件导入时的文件名。
+    let sourceFileName: String?
     let domains: [String]
     let sslTrustDomains: [String]
     let capabilities: [String]
@@ -18,6 +20,7 @@ struct ScraperImportSummary: Sendable {
 
     var sourceDescription: String {
         if let sourceHost { return sourceHost }
+        if let sourceFileName { return sourceFileName }
         return String(localized: "scraper_source_pasted_json")
     }
 }
@@ -101,8 +104,28 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     /// Parse and validate one or more configs without writing them to disk.
-    func previewImportFromJSON(_ jsonString: String) throws -> ScraperImportSummary {
-        try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: nil)
+    /// `fileName` names the file the JSON was read from, for the review sheet.
+    func previewImportFromJSON(_ jsonString: String, fileName: String? = nil) throws -> ScraperImportSummary {
+        try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: nil, fileName: fileName)
+    }
+
+    /// 读用户在文件选择器里挑的配置文件（.json 或纯文本）。选择器给的是沙箱外的 URL，
+    /// 要开安全作用域才读得到；大小上限与在线下载相同，内容按 UTF-8 读（去掉 BOM）。
+    func readImportFile(at url: URL) throws -> String {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > Self.maxRemoteImportBytes {
+            throw ScraperConfigError.importFileTooLarge
+        }
+        let data = try Data(contentsOf: url)
+        guard data.count <= Self.maxRemoteImportBytes else {
+            throw ScraperConfigError.importFileTooLarge
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw ScraperConfigError.importFileUnreadable
+        }
+        return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
     }
 
     /// Recognize inline JSON and HTTPS manifest URLs without requiring the
@@ -185,7 +208,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// Download, parse and validate a remote config without writing it to disk.
     func previewImportFromURL(_ url: URL) async throws -> ScraperImportSummary {
         let jsonString = try await downloadConfigJSON(from: url)
-        return try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: url)
+        return try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: url, fileName: nil)
     }
 
     private func downloadConfigJSON(from url: URL) async throws -> String {
@@ -229,7 +252,11 @@ final class ScraperConfigStore: @unchecked Sendable {
         return jsonString
     }
 
-    private func makeImportSummary(configs: [ScraperConfig], sourceURL: URL?) throws -> ScraperImportSummary {
+    private func makeImportSummary(
+        configs: [ScraperConfig],
+        sourceURL: URL?,
+        fileName: String?
+    ) throws -> ScraperImportSummary {
         guard !configs.isEmpty else {
             throw ScraperConfigError.invalidJSON("No config object found")
         }
@@ -288,6 +315,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         return ScraperImportSummary(
             configs: configs,
             sourceHost: sourceURL?.host?.lowercased(),
+            sourceFileName: fileName,
             domains: Array(Set(endpointDomains)).sorted(),
             sslTrustDomains: Array(Set(sslTrustDomains)).sorted(),
             capabilities: Array(Set(capabilities)).sorted(),
@@ -760,6 +788,8 @@ enum ScraperConfigError: Error, LocalizedError {
     case invalidJSON(String)
     case downloadFailed(String)
     case validationFailed(String)
+    case importFileUnreadable
+    case importFileTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -771,6 +801,10 @@ enum ScraperConfigError: Error, LocalizedError {
             String(format: String(localized: "error_download_failed %@"), message)
         case .validationFailed(let message):
             String(format: String(localized: "error_validation_failed %@"), message)
+        case .importFileUnreadable:
+            String(localized: "scraper_import_file_unreadable")
+        case .importFileTooLarge:
+            String(localized: "scraper_import_file_too_large")
         }
     }
 }

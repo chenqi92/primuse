@@ -817,7 +817,7 @@
 "remove_from_playlist" = "プレイリストから削除";
 "metadata_scraping" = "メタデータとスクレイピング";
 "scraper_sources" = "スクレイピングソース";
-"scraper_sources_footer" = "ドラッグして並べ替えできます。一致が見つかるまで上から順に試されます。";
+"scraper_sources_footer" = "ドラッグして並べ替えできます。一致が見つかるまで上から順に試されます。歌詞が単語単位で同期していない場合は、より細かい歌詞を求めて後ろの最大 2 つのソースにも問い合わせます。";
 "scraper_options" = "オプション";
 "only_fill_missing" = "欠落しているフィールドのみ補完";
 "reset_scraper_defaults" = "デフォルトに戻す";
@@ -899,6 +899,9 @@
 "paste_config_footer" = "取得ソースの JSON 設定を貼り付けてください。";
 "url_config_footer" = "JSON 取得ソース設定ファイルの URL を入力してください。";
 "scraper_import_auto_footer" = "スクレイパーの JSON または HTTPS 設定 URL を貼り付けてください。形式は自動判定されます。";
+"scraper_import_file_button" = "ファイルから読み込む";
+"scraper_import_file_too_large" = "ファイルが 2 MB を超えているため、取得ソースとして読み込めません。";
+"scraper_import_file_unreadable" = "このファイルを読み込めませんでした。UTF-8 の JSON 設定ファイルを選択してください。";
 "JSON or Manifest URL" = "JSON または設定 URL";
 "Input recognized" = "入力を認識しました";
 "Paste JSON or an HTTPS URL" = "JSON または HTTPS URL を貼り付けてください";

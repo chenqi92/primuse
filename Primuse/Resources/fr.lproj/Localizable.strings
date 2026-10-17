@@ -816,7 +816,7 @@
 "remove_from_playlist" = "Retirer de la liste de lecture";
 "metadata_scraping" = "Métadonnées et récupération";
 "scraper_sources" = "Sources de récupération";
-"scraper_sources_footer" = "Faites glisser pour réorganiser. Les sources sont essayées de haut en bas jusqu'à ce qu'une correspondance soit trouvée.";
+"scraper_sources_footer" = "Faites glisser pour réorganiser. Les sources sont essayées de haut en bas jusqu'à ce qu'une correspondance soit trouvée. Si les paroles ne sont pas synchronisées mot à mot, jusqu’à deux autres sources sont consultées pour une version plus précise.";
 "scraper_options" = "Options";
 "only_fill_missing" = "Compléter uniquement les champs manquants";
 "reset_scraper_defaults" = "Rétablir les réglages par défaut";
@@ -898,6 +898,9 @@
 "paste_config_footer" = "Collez la configuration JSON d'une source de récupération.";
 "url_config_footer" = "Saisissez l'URL d'un fichier de configuration JSON de source de récupération.";
 "scraper_import_auto_footer" = "Collez le JSON de la source ou une URL de configuration HTTPS. Le format est détecté automatiquement.";
+"scraper_import_file_button" = "Importer depuis un fichier";
+"scraper_import_file_too_large" = "Le fichier dépasse 2 Mo et ne peut pas être importé comme source de récupération.";
+"scraper_import_file_unreadable" = "Impossible de lire ce fichier. Choisissez un fichier de configuration JSON encodé en UTF-8.";
 "JSON or Manifest URL" = "JSON ou URL de configuration";
 "Input recognized" = "Entrée reconnue";
 "Paste JSON or an HTTPS URL" = "Collez du JSON ou une URL HTTPS";

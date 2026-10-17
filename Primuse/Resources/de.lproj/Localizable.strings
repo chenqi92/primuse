@@ -816,7 +816,7 @@
 "remove_from_playlist" = "Aus Wiedergabeliste entfernen";
 "metadata_scraping" = "Metadaten & Abrufen";
 "scraper_sources" = "Abrufquellen";
-"scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird.";
+"scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird. Sind die Liedtexte nicht wortgenau, werden bis zu zwei weitere Quellen nach einer genaueren Fassung gefragt.";
 "scraper_options" = "Optionen";
 "only_fill_missing" = "Nur fehlende Felder ausfüllen";
 "reset_scraper_defaults" = "Auf Standardwerte zurücksetzen";
@@ -898,6 +898,9 @@
 "paste_config_footer" = "Füge die JSON-Konfiguration für eine Abrufquelle ein.";
 "url_config_footer" = "Gib die URL einer JSON-Konfigurationsdatei für eine Abrufquelle ein.";
 "scraper_import_auto_footer" = "Füge Scraper-JSON oder eine HTTPS-Konfigurations-URL ein. Das Format wird automatisch erkannt.";
+"scraper_import_file_button" = "Aus Datei importieren";
+"scraper_import_file_too_large" = "Die Datei ist größer als 2 MB und kann nicht als Abrufquelle importiert werden.";
+"scraper_import_file_unreadable" = "Diese Datei konnte nicht gelesen werden. Wähle eine JSON-Konfigurationsdatei mit UTF-8-Kodierung.";
 "JSON or Manifest URL" = "JSON oder Konfigurations-URL";
 "Input recognized" = "Eingabe erkannt";
 "Paste JSON or an HTTPS URL" = "JSON oder eine HTTPS-URL einfügen";

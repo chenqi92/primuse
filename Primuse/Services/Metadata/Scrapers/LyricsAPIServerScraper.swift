@@ -249,9 +249,15 @@ extension LyricsAPIServerScraper {
         }
     }
 
-    /// 自己数行，不依赖 LyricsParser：LRC 数带时间戳且有文字的行，纯文本数非空行。
+    /// LRC 数带时间戳且有文字的行，纯文本数非空行；TTML 与逐字格式（yrc / qrc / lys）
+    /// 的时间不写成 `[mm:ss]`，交给共享解析器数有文字的行。
     private static func lyricLineCount(lrc: String?, plain: String?) -> Int {
         if let lrc, !lrc.isEmpty {
+            if LyricsContentParser.isTTML(lrc) || WordTimedLyricsParser.detect(lrc) != nil {
+                return LyricsContentParser.parseText(lrc).filter {
+                    !$0.text.trimmingCharacters(in: .whitespaces).isEmpty
+                }.count
+            }
             return lrc.split(separator: "\n").filter { line in
                 let text = line.replacingOccurrences(
                     of: #"\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]"#,
