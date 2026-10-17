@@ -217,13 +217,56 @@ public enum SpokenWordTranscriptReadingPolicy {
         public var start: TimeInterval?
         public var end: TimeInterval?
         public var speaker: String?
+        /// 这一行的译文(双语字幕自带的,或歌词翻译给的);没有是 nil。
+        public var translation: String?
 
-        public init(text: String, start: TimeInterval?, end: TimeInterval? = nil, speaker: String? = nil) {
+        public init(
+            text: String,
+            start: TimeInterval?,
+            end: TimeInterval? = nil,
+            speaker: String? = nil,
+            translation: String? = nil
+        ) {
             self.text = text
             self.start = start
             self.end = end
             self.speaker = speaker
+            self.translation = translation
         }
+    }
+
+    /// 双语文稿怎么读(#320):只看原文、原文下面跟着译文,或只看译文。
+    public enum TextMode: String, Sendable, CaseIterable {
+        case original
+        case bilingual
+        case translation
+    }
+
+    /// 按读法换好的文稿:只看原文时去掉译文;只看译文时译文换进正文(这一行没有译文就留原文),
+    /// 分段、整句高亮、搜索都按换过的字算;双语原样,译文跟着各自那一行并进段落。
+    public static func cues(_ cues: [Cue], showing mode: TextMode) -> [Cue] {
+        switch mode {
+        case .bilingual:
+            return cues
+        case .original:
+            return cues.map { cue in
+                var cue = cue
+                cue.translation = nil
+                return cue
+            }
+        case .translation:
+            return cues.map { cue in
+                var cue = cue
+                if let translation = trimmedTranslation(cue) { cue.text = translation }
+                cue.translation = nil
+                return cue
+            }
+        }
+    }
+
+    /// 有没有哪一行带译文;没有时读法选项不必出现。
+    public static func hasTranslation(_ cues: [Cue]) -> Bool {
+        cues.contains { trimmedTranslation($0) != nil }
     }
 
     /// 段落里的一句:整句高亮、搜索后跳到命中的那一句都按它算。多半就是原文稿的一行;一行里有几句时
@@ -248,6 +291,8 @@ public enum SpokenWordTranscriptReadingPolicy {
         public var isHeading = false
         /// 段里的每一句,按先后。
         public var segments: [Segment] = []
+        /// 段里各行译文接成的一段,排在原文下面(双语)。哪一行都没有译文时是 nil。
+        public var translation: String?
 
         public var id: Int { firstCue }
     }
@@ -297,7 +342,8 @@ public enum SpokenWordTranscriptReadingPolicy {
                 text: text,
                 start: cue.start,
                 isHeading: isHeading,
-                segments: segments(cue: index, text: text, start: cue.start, span: spans[index], offset: 0)
+                segments: segments(cue: index, text: text, start: cue.start, span: spans[index], offset: 0),
+                translation: trimmedTranslation(cue)
             )
             currentLength = length
         }
@@ -328,6 +374,13 @@ public enum SpokenWordTranscriptReadingPolicy {
                 paragraph.segments.append(contentsOf: segments(
                     cue: index, text: text, start: cue.start, span: spans[index], offset: lower
                 ))
+                if let addition = trimmedTranslation(cue) {
+                    if let existing = paragraph.translation {
+                        paragraph.translation = existing + Self.separator(between: existing, and: addition) + addition
+                    } else {
+                        paragraph.translation = addition
+                    }
+                }
                 currentLength = lower + length
                 current = paragraph
             } else {
@@ -613,6 +666,12 @@ public enum SpokenWordTranscriptReadingPolicy {
     /// 中日韩文字之间不加空格,拉丁文字之间加一个。
     static func joining(_ head: String, _ tail: String) -> String {
         head + separator(between: head, and: tail) + tail
+    }
+
+    private static func trimmedTranslation(_ cue: Cue) -> String? {
+        guard let trimmed = cue.translation?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private static func separator(between head: String, and tail: String) -> String {

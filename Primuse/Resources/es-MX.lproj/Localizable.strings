@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "Agrupados";
 "transcript_reader_paragraphs_per_line" = "Línea por línea";
 "transcript_reader_paragraphs_footer" = "Agrupados une las líneas de subtítulos consecutivas en párrafos y empieza uno nuevo cuando cambia quien habla, tras una pausa larga o en un título de capítulo. Línea por línea muestra cada línea de subtítulo por separado.";
+"transcript_reader_text_mode" = "Transcripción bilingüe";
+"transcript_reader_text_original" = "Original";
+"transcript_reader_text_bilingual" = "Bilingüe";
+"transcript_reader_text_translation" = "Solo traducción";
+"transcript_reader_text_mode_footer" = "Las traducciones vienen de los subtítulos bilingües de la transcripción o de la traducción de letras cuando está activada. En Solo traducción, las líneas sin traducción quedan en el original, y la búsqueda y el resaltado de lectura siguen la traducción.";
 "transcript_reader_speed_slower" = "Más lento";
 "transcript_reader_speed_faster" = "Más rápido";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Si está desactivado, los controles permanecen ocultos mientras te desplazas por la transcripción. Toca cerca del borde izquierdo o derecho de la pantalla, o pausa, para mostrarlos (tocar un párrafo en el centro reproduce desde ahí); se ocultan de nuevo tras unos segundos, junto con la barra de estado. Mientras se muestran, desliza a la izquierda o a la derecha para cerrar la transcripción en pantalla completa.";

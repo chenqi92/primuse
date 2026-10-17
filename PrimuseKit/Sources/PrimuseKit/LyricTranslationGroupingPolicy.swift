@@ -1246,6 +1246,24 @@ public enum LyricCompanionTextPolicy {
         return companions
     }
 
+    /// 这一句只要一条译文时用哪条：翻译结果里有就用它（文件自带的优先、其次机翻，同歌词页那份），
+    /// 没有就用文件里写的第一条不是读音的译文。罗马音、读音行（`readingIDs`）和与原文相同的都不算。
+    /// 全屏文稿的「双语」「只看译文」用（#320）。
+    public static func translation(
+        for line: LyricLine,
+        translatedText: String?,
+        readingIDs: Set<String> = []
+    ) -> String? {
+        let original = normalized(line.text)
+        if let translated = normalized(translatedText), translated != original {
+            return translated
+        }
+        for translation in line.allManualTranslations where !readingIDs.contains(translation.id) {
+            if let text = normalized(translation.text), text != original { return text }
+        }
+        return nil
+    }
+
     /// 附属文本上屏前包一层 Unicode 首强方向隔离（FSI … PDI）。英文歌词的波斯语
     /// 译文排在从左到右的段落里时，句末的标点会被段落方向拉到错误的一侧；隔离后
     /// 这一行按自己的首个强方向字符排版，对齐仍跟随整列歌词。

@@ -255,7 +255,8 @@ struct MacNowPlayingView: View {
                                     SpokenWordTranscriptReader(
                                         lines: lyrics,
                                         title: player.currentSong?.title ?? "",
-                                        player: player
+                                        player: player,
+                                        translatedTextByLineID: lyricTranslationsByLineID
                                     )
                                 }
                             } else {

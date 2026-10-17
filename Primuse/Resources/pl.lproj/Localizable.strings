@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "Scalone";
 "transcript_reader_paragraphs_per_line" = "Linia po linii";
 "transcript_reader_paragraphs_footer" = "Scalone łączy kolejne linie napisów w akapity i zaczyna nowy przy zmianie mówiącego, po dłuższej pauzie lub przy tytule rozdziału. Linia po linii pokazuje każdą linię napisów osobno.";
+"transcript_reader_text_mode" = "Transkrypcja dwujęzyczna";
+"transcript_reader_text_original" = "Oryginał";
+"transcript_reader_text_bilingual" = "Dwujęzycznie";
+"transcript_reader_text_translation" = "Tylko tłumaczenie";
+"transcript_reader_text_mode_footer" = "Tłumaczenia pochodzą z dwujęzycznych napisów w transkrypcji albo z tłumaczenia tekstów, gdy jest włączone. W trybie Tylko tłumaczenie wiersze bez tłumaczenia zostają w oryginale, a wyszukiwanie i podświetlanie czytania idą za tłumaczeniem.";
 "transcript_reader_speed_slower" = "Wolniej";
 "transcript_reader_speed_faster" = "Szybciej";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Gdy wyłączone, podczas przewijania transkrypcji sterowanie pozostaje ukryte. Dotknij przy lewej lub prawej krawędzi ekranu albo wstrzymaj, aby je pokazać (dotknięcie akapitu na środku odtwarza od niego); po kilku sekundach znika ponownie razem z paskiem stanu. Gdy sterowanie jest widoczne, przesunięcie w lewo lub w prawo zamyka transkrypcję na pełnym ekranie.";

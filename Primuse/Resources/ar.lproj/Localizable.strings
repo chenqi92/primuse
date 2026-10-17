@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "مدمجة";
 "transcript_reader_paragraphs_per_line" = "سطرًا بسطر";
 "transcript_reader_paragraphs_footer" = "يجمع خيار «مدمجة» أسطر الترجمة المتتالية في فقرات، ويبدأ فقرة جديدة عند تغيّر المتحدث أو بعد توقف طويل أو عند عنوان فصل. أما «سطرًا بسطر» فيعرض كل سطر ترجمة وحده.";
+"transcript_reader_text_mode" = "نص مزدوج اللغة";
+"transcript_reader_text_original" = "الأصل";
+"transcript_reader_text_bilingual" = "لغتان";
+"transcript_reader_text_translation" = "الترجمة فقط";
+"transcript_reader_text_mode_footer" = "تأتي الترجمات من الترجمة المزدوجة المضمّنة في النص، أو من ترجمة الكلمات عند تشغيلها. في وضع الترجمة فقط تبقى الأسطر التي لا ترجمة لها بلغتها الأصلية، ويتبع البحث وتمييز القراءة الترجمة.";
 "transcript_reader_speed_slower" = "أبطأ";
 "transcript_reader_speed_faster" = "أسرع";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "عند الإيقاف تبقى عناصر التحكم مخفية أثناء تمرير النص. المس قرب الحافة اليسرى أو اليمنى للشاشة أو أوقف التشغيل مؤقتًا لإظهارها (لمس فقرة في المنتصف يبدأ التشغيل منها)، وتختفي مجددًا مع شريط الحالة بعد بضع ثوانٍ. وعندما تكون ظاهرة، يؤدي السحب يمينًا أو يسارًا إلى إغلاق النص بملء الشاشة.";

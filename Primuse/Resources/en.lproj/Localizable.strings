@@ -5800,6 +5800,11 @@
 "transcript_reader_paragraphs_merged" = "Merged";
 "transcript_reader_paragraphs_per_line" = "Line by Line";
 "transcript_reader_paragraphs_footer" = "Merged joins consecutive subtitle lines into paragraphs, starting a new one when the speaker changes, after a long pause or at a chapter title. Line by Line shows each subtitle line on its own.";
+"transcript_reader_text_mode" = "Bilingual Transcript";
+"transcript_reader_text_original" = "Original";
+"transcript_reader_text_bilingual" = "Bilingual";
+"transcript_reader_text_translation" = "Translation Only";
+"transcript_reader_text_mode_footer" = "Translations come from bilingual subtitles in the transcript, or from lyrics translation when it’s on. In Translation Only, lines without a translation stay in the original, and search and read-along highlighting follow the translation.";
 "transcript_reader_speed_slower" = "Slower";
 "transcript_reader_speed_faster" = "Faster";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "When off, scrolling the transcript keeps the controls hidden. Tap near the left or right edge of the screen, or pause, to show them (tapping a paragraph in the middle plays from there); they hide again after a few seconds, along with the status bar. While they are showing, swipe left or right to close the full-screen transcript.";

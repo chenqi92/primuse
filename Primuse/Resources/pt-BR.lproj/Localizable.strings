@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "Agrupados";
 "transcript_reader_paragraphs_per_line" = "Linha por linha";
 "transcript_reader_paragraphs_footer" = "Agrupados junta linhas de legenda consecutivas em parágrafos e começa um novo quando muda quem fala, após uma pausa longa ou em um título de capítulo. Linha por linha mostra cada linha de legenda separadamente.";
+"transcript_reader_text_mode" = "Transcrição bilíngue";
+"transcript_reader_text_original" = "Original";
+"transcript_reader_text_bilingual" = "Bilíngue";
+"transcript_reader_text_translation" = "Só tradução";
+"transcript_reader_text_mode_footer" = "As traduções vêm das legendas bilíngues da transcrição ou da tradução de letras quando ativada. Em Só tradução, linhas sem tradução ficam no original, e a busca e o destaque de leitura seguem a tradução.";
 "transcript_reader_speed_slower" = "Mais devagar";
 "transcript_reader_speed_faster" = "Mais rápido";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Quando desativado, os controles permanecem ocultos enquanto você rola a transcrição. Toque perto da borda esquerda ou direita da tela, ou pause, para mostrá-los (tocar um parágrafo no meio reproduz a partir dele); eles somem novamente após alguns segundos, junto com a barra de status. Enquanto aparecem, deslize para a esquerda ou para a direita para fechar a transcrição em tela cheia.";

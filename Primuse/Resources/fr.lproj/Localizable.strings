@@ -6040,6 +6040,11 @@
 "transcript_reader_paragraphs_merged" = "Regroupés";
 "transcript_reader_paragraphs_per_line" = "Ligne par ligne";
 "transcript_reader_paragraphs_footer" = "Regroupés réunit les lignes de sous-titres consécutives en paragraphes et en commence un nouveau au changement d’intervenant, après une longue pause ou à un titre de chapitre. Ligne par ligne affiche chaque ligne de sous-titre séparément.";
+"transcript_reader_text_mode" = "Transcription bilingue";
+"transcript_reader_text_original" = "Original";
+"transcript_reader_text_bilingual" = "Bilingue";
+"transcript_reader_text_translation" = "Traduction seule";
+"transcript_reader_text_mode_footer" = "Les traductions proviennent des sous-titres bilingues de la transcription, ou de la traduction des paroles lorsqu’elle est activée. En mode Traduction seule, les lignes sans traduction restent en version originale, et la recherche ainsi que la mise en évidence suivent la traduction.";
 "transcript_reader_speed_slower" = "Plus lent";
 "transcript_reader_speed_faster" = "Plus rapide";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Lorsque cette option est désactivée, les commandes restent masquées pendant le défilement de la transcription. Touchez près du bord gauche ou droit de l’écran, ou mettez en pause, pour les afficher (toucher un paragraphe au centre lance la lecture à partir de celui-ci) ; elles disparaissent après quelques secondes, avec la barre d’état. Lorsqu’elles sont affichées, balayez vers la gauche ou la droite pour fermer la transcription en plein écran.";

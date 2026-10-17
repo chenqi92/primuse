@@ -6040,6 +6040,11 @@
 "transcript_reader_paragraphs_merged" = "Zusammengefasst";
 "transcript_reader_paragraphs_per_line" = "Zeile für Zeile";
 "transcript_reader_paragraphs_footer" = "Zusammengefasst fügt aufeinanderfolgende Untertitelzeilen zu Absätzen zusammen und beginnt einen neuen bei Sprecherwechsel, nach einer längeren Pause oder bei einer Kapitelüberschrift. Zeile für Zeile zeigt jede Untertitelzeile einzeln.";
+"transcript_reader_text_mode" = "Zweisprachiges Transkript";
+"transcript_reader_text_original" = "Original";
+"transcript_reader_text_bilingual" = "Zweisprachig";
+"transcript_reader_text_translation" = "Nur Übersetzung";
+"transcript_reader_text_mode_footer" = "Übersetzungen stammen aus zweisprachigen Untertiteln im Transkript oder aus der Liedtextübersetzung, wenn sie aktiviert ist. Bei „Nur Übersetzung“ bleiben Zeilen ohne Übersetzung im Original; Suche und Mitlese-Hervorhebung richten sich nach der Übersetzung.";
 "transcript_reader_speed_slower" = "Langsamer";
 "transcript_reader_speed_faster" = "Schneller";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Wenn aus, bleiben die Bedienelemente beim Scrollen des Transkripts verborgen. Tippe nahe dem linken oder rechten Bildschirmrand oder pausiere, um sie einzublenden (ein Tippen auf einen Absatz in der Mitte spielt ab dort); nach einigen Sekunden werden sie zusammen mit der Statusleiste wieder ausgeblendet. Solange sie sichtbar sind, schließt ein Wisch nach links oder rechts das Vollbild-Transkript.";

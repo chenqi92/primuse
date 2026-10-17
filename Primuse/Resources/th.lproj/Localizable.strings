@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "รวมเป็นย่อหน้า";
 "transcript_reader_paragraphs_per_line" = "ทีละบรรทัด";
 "transcript_reader_paragraphs_footer" = "รวมเป็นย่อหน้าจะต่อบรรทัดคำบรรยายที่ต่อเนื่องกันเป็นย่อหน้า และขึ้นย่อหน้าใหม่เมื่อเปลี่ยนผู้พูด หยุดนาน หรือพบชื่อบท ส่วนทีละบรรทัดจะแสดงคำบรรยายแต่ละบรรทัดแยกกัน";
+"transcript_reader_text_mode" = "บทถอดความสองภาษา";
+"transcript_reader_text_original" = "ต้นฉบับ";
+"transcript_reader_text_bilingual" = "สองภาษา";
+"transcript_reader_text_translation" = "เฉพาะคำแปล";
+"transcript_reader_text_mode_footer" = "คำแปลมาจากคำบรรยายสองภาษาในบทถอดความ หรือจากการแปลเนื้อเพลงเมื่อเปิดไว้ ในโหมดเฉพาะคำแปล บรรทัดที่ไม่มีคำแปลจะยังแสดงต้นฉบับ และการค้นหากับไฮไลต์ขณะอ่านจะตามคำแปล";
 "transcript_reader_speed_slower" = "ช้าลง";
 "transcript_reader_speed_faster" = "เร็วขึ้น";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "เมื่อปิด การเลื่อนข้อความขึ้นลงจะไม่แสดงตัวควบคุม แตะใกล้ขอบซ้ายหรือขวาของหน้าจอ หรือหยุดชั่วคราวเพื่อแสดง (แตะย่อหน้าตรงกลางจะเล่นจากตรงนั้น) และจะซ่อนพร้อมแถบสถานะอีกครั้งหลังจากไม่กี่วินาที ขณะที่ตัวควบคุมแสดงอยู่ ปัดซ้ายหรือขวาเพื่อปิดข้อความแบบเต็มหน้าจอ";

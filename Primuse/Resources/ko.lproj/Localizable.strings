@@ -6040,6 +6040,11 @@
 "transcript_reader_paragraphs_merged" = "문단으로 합치기";
 "transcript_reader_paragraphs_per_line" = "한 줄씩";
 "transcript_reader_paragraphs_footer" = "문단으로 합치기는 이어지는 자막 줄을 하나의 문단으로 묶고, 화자가 바뀌거나 오래 멈추거나 장 제목이 나오면 새 문단을 시작합니다. 한 줄씩은 자막을 줄마다 따로 표시합니다.";
+"transcript_reader_text_mode" = "이중 언어 스크립트";
+"transcript_reader_text_original" = "원문";
+"transcript_reader_text_bilingual" = "이중 언어";
+"transcript_reader_text_translation" = "번역만";
+"transcript_reader_text_mode_footer" = "번역은 스크립트에 포함된 이중 언어 자막이나, 가사 번역을 켰을 때의 결과에서 가져옵니다. 번역만 보기에서는 번역이 없는 줄은 원문으로 표시되고, 검색과 낭독 하이라이트는 번역을 따릅니다.";
 "transcript_reader_speed_slower" = "느리게";
 "transcript_reader_speed_faster" = "빠르게";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "끄면 텍스트를 위아래로 스크롤해도 컨트롤이 나타나지 않습니다. 화면 왼쪽이나 오른쪽 가장자리를 탭하거나 일시 정지하면 표시되고(가운데 문단을 탭하면 그 부분부터 재생), 몇 초 후 상태 막대와 함께 숨겨집니다. 컨트롤이 보일 때 좌우로 쓸어 넘기면 전체 화면을 닫습니다.";

@@ -6041,6 +6041,11 @@
 "transcript_reader_paragraphs_merged" = "まとめて表示";
 "transcript_reader_paragraphs_per_line" = "1行ずつ";
 "transcript_reader_paragraphs_footer" = "まとめて表示では、続く字幕の行を段落にまとめ、話者が変わったとき、長い間があいたとき、章の見出しで改段します。1行ずつでは字幕を1行ごとに表示します。";
+"transcript_reader_text_mode" = "対訳テキスト";
+"transcript_reader_text_original" = "原文";
+"transcript_reader_text_bilingual" = "対訳";
+"transcript_reader_text_translation" = "訳文のみ";
+"transcript_reader_text_mode_footer" = "訳文はテキストに含まれる対訳字幕、または歌詞の翻訳をオンにしたときの結果です。訳文のみでは、訳文のない行は原文のまま表示され、検索と読み上げのハイライトは訳文に合わせます。";
 "transcript_reader_speed_slower" = "遅く";
 "transcript_reader_speed_faster" = "速く";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "オフにすると、テキストを上下にスクロールしてもコントロールは表示されません。画面の左右の端をタップするか一時停止すると表示され（中央の段落をタップするとそこから再生します）、数秒後にステータスバーと一緒に隠れます。表示中に左右にスワイプすると全画面を閉じます。";

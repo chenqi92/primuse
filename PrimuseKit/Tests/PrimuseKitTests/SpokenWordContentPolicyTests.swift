@@ -203,6 +203,46 @@ struct SpokenWordTranscriptReadingPolicyTests {
         #expect(Policy.paragraphIndex(at: 3.0, in: paragraphs) == 0)
     }
 
+    @Test("Bilingual cues carry their translations into the paragraph, joined like the original")
+    func bilingualParagraphs() {
+        let cues = [
+            Policy.Cue(text: "Welcome back", start: 0, end: 1.5, speaker: "A", translation: "欢迎回来，"),
+            Policy.Cue(text: "to the show.", start: 1.6, end: 3, speaker: "A", translation: "继续收听。"),
+            Policy.Cue(text: "No translation here.", start: 9, end: 11, speaker: "A"),
+            Policy.Cue(text: "Chapter 2", start: 12, end: 13, speaker: "A", translation: "第二章"),
+            Policy.Cue(text: "It rained.", start: 13.1, end: 14, speaker: "A", translation: "  "),
+            Policy.Cue(text: "All day.", start: 14.1, end: 15, speaker: "A", translation: "Rain all day"),
+        ]
+        let paragraphs = Policy.paragraphs(from: cues)
+        #expect(paragraphs.map(\.text) == ["Welcome back to the show.", "No translation here.", "Chapter 2", "It rained. All day."])
+        // 中文译文之间不加空格;只有空白的译文不算;一段里只有部分行有译文时也接上有的那些。
+        #expect(paragraphs.map(\.translation) == ["欢迎回来，继续收听。", nil, "第二章", "Rain all day"])
+        #expect(Policy.hasTranslation(cues))
+        #expect(!Policy.hasTranslation(cues.map { Policy.Cue(text: $0.text, start: $0.start) }))
+    }
+
+    @Test("The text mode drops translations, keeps them, or reads the translation instead")
+    func textModes() {
+        let cues = [
+            Policy.Cue(text: "天色渐暗，", start: 0, translation: "Dusk fell,"),
+            Policy.Cue(text: "他推门而出。", start: 3, translation: "and he went out."),
+            Policy.Cue(text: "第二天清晨", start: 30),
+        ]
+        let original = Policy.paragraphs(from: Policy.cues(cues, showing: .original))
+        #expect(original.map(\.text) == ["天色渐暗，他推门而出。", "第二天清晨"])
+        #expect(original.allSatisfy { $0.translation == nil })
+
+        let bilingual = Policy.paragraphs(from: Policy.cues(cues, showing: .bilingual))
+        #expect(bilingual.map(\.translation) == ["Dusk fell, and he went out.", nil])
+
+        // 只看译文:分段、整句位置都按译文算;没有译文的那一行留原文。
+        let translated = Policy.paragraphs(from: Policy.cues(cues, showing: .translation))
+        #expect(translated.map(\.text) == ["Dusk fell, and he went out.", "第二天清晨"])
+        #expect(translated.allSatisfy { $0.translation == nil })
+        #expect(translated[0].segments.map(\.range) == [0..<10, 11..<27])
+        #expect(translated[0].segments.map(\.start) == [0, 3])
+    }
+
     @Test("Chinese joins without spaces and LRC lines break only at long gaps")
     func chineseAndLRC() {
         let cues = [

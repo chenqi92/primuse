@@ -751,6 +751,11 @@ enum SpokenWordTranscriptReaderPreferences {
     static let revealsOnScrollKey = "primuse.transcriptReader.revealsOnScroll"
     /// 字幕并成段落读,还是每一行字幕自己一段(`SpokenWordTranscriptReadingPolicy.ParagraphMode`)。
     static let paragraphModeKey = "primuse.transcriptReader.paragraphMode"
+    /// 带译文的文稿读原文、双语还是只看译文(`SpokenWordTranscriptReadingPolicy.TextMode`,#320)。
+    static let textModeKey = "primuse.transcriptReader.textMode"
+    /// 双语时译文的字号;0 = 跟着原文,是原文字号的 `followingTranslationScale`。
+    static let translationFontSizeKey = "primuse.transcriptReader.translationFontSize"
+    static let followingTranslationScale = 0.85
     static let fontSizeRange: ClosedRange<Double> = 14...36
     static let defaultFontSize = 20.0
     static let defaultCustomTextHex = "3B3127"
@@ -1187,6 +1192,8 @@ struct SpokenWordTranscriptReader: View {
     let lines: [LyricLine]
     let title: String
     let player: AudioPlayerService
+    /// 播放页歌词翻译给出的各行译文(文件自带的优先,其次机翻),双语与只看译文时用(#320)。
+    var translatedTextByLineID: [String: String] = [:]
 
     private typealias Policy = SpokenWordTranscriptReadingPolicy
     private typealias Row = SpokenWordTranscriptParagraphRow
@@ -1197,10 +1204,12 @@ struct SpokenWordTranscriptReader: View {
         let paragraphs: [Policy.Paragraph]
         let query: String?
     }
-    /// 文稿或分段方式一变就重新分段。
+    /// 文稿、分段方式、译文或读法一变就重新分段。
     private struct ParagraphInput: Equatable {
         let lines: [LyricLine]
         let mode: Policy.ParagraphMode
+        let translations: [String: String]
+        let textMode: Policy.TextMode
     }
     /// 顶上安全区的高度,和量它时的宽度(转屏时重新量)。
     private struct TopInsetSample: Equatable {
@@ -1240,7 +1249,13 @@ struct SpokenWordTranscriptReader: View {
     private var revealsChromeOnScroll = false
     @AppStorage(SpokenWordTranscriptReaderPreferences.paragraphModeKey)
     private var paragraphModeRawValue = Policy.ParagraphMode.merged.rawValue
+    @AppStorage(SpokenWordTranscriptReaderPreferences.textModeKey)
+    private var textModeRawValue = Policy.TextMode.original.rawValue
+    @AppStorage(SpokenWordTranscriptReaderPreferences.translationFontSizeKey)
+    private var translationFontSize = 0.0
     @State private var paragraphs: [Policy.Paragraph] = []
+    /// 这份文稿有没有哪一行带译文;没有时设置里不给读法,也一直按原文排。
+    @State private var hasTranslations = false
     @State private var currentIndex: Int?
     /// 正在念的那一句在段里的位置;只有「整句」高亮时才跟。
     @State private var currentSegment: Int?
@@ -1296,6 +1311,9 @@ struct SpokenWordTranscriptReader: View {
     }
     private var paragraphMode: Policy.ParagraphMode {
         Policy.ParagraphMode(rawValue: paragraphModeRawValue) ?? .merged
+    }
+    private var textMode: Policy.TextMode {
+        Policy.TextMode(rawValue: textModeRawValue) ?? .original
     }
     private var size: CGFloat {
         CGFloat(min(max(fontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
@@ -1385,7 +1403,9 @@ struct SpokenWordTranscriptReader: View {
                 revealsChromeOnScroll: $revealsChromeOnScroll,
                 paragraphModeRawValue: $paragraphModeRawValue,
                 colorScheme: appearanceScheme,
-                offsetSong: player.currentSong
+                offsetSong: player.currentSong,
+                textModeRawValue: hasTranslations ? $textModeRawValue : nil,
+                translationFontSize: $translationFontSize
             )
             #if os(iOS)
             .presentationDetents([.medium, .large])
@@ -1413,14 +1433,28 @@ struct SpokenWordTranscriptReader: View {
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 640)
         #endif
-        .task(id: ParagraphInput(lines: lines, mode: paragraphMode)) {
-            let cues = Self.cues(from: lines)
+        .task(id: ParagraphInput(
+            lines: lines,
+            mode: paragraphMode,
+            translations: translatedTextByLineID,
+            textMode: textMode
+        )) {
+            let sourceLines = lines
+            let translations = translatedTextByLineID
             let mode = paragraphMode
-            let updated = await Task.detached(priority: .userInitiated) {
-                SpokenWordTranscriptReadingPolicy.paragraphs(from: cues, mode: mode)
+            let requestedTextMode = textMode
+            let (updated, translated) = await Task.detached(priority: .userInitiated) {
+                let cues = Self.cues(from: sourceLines, translations: translations)
+                let translated = SpokenWordTranscriptReadingPolicy.hasTranslation(cues)
+                let shown = SpokenWordTranscriptReadingPolicy.cues(
+                    cues,
+                    showing: translated ? requestedTextMode : .original
+                )
+                return (SpokenWordTranscriptReadingPolicy.paragraphs(from: shown, mode: mode), translated)
             }.value
             guard !Task.isCancelled else { return }
             paragraphs = updated
+            hasTranslations = translated
             // 换章后文稿是新的,正在念的下标还是旧文稿的:立刻按当前时间重算,别让它在新文稿里
             // 亮错一段再等下一拍纠正。
             updatePlaybackPosition()
@@ -1553,11 +1587,17 @@ struct SpokenWordTranscriptReader: View {
     private func rowStyle(palette: SpokenWordTranscriptPalette) -> Row.Style {
         let isAvailable = SpokenWordTranscriptFontLibrary.shared.isAvailable(font)
         let headingSize: CGFloat = size * 1.15
+        let translationSize = translationFontSize > 0
+            ? CGFloat(min(max(translationFontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
+                          SpokenWordTranscriptReaderPreferences.fontSizeRange.upperBound))
+            : (size * SpokenWordTranscriptReaderPreferences.followingTranslationScale).rounded()
         return Row.Style(
             font: font.font(size: size, weight: fontWeight, isAvailable: isAvailable),
             // 章节名不跟正文的字重走,细体正文配半粗的标题。
             headingFont: font.font(size: headingSize, isAvailable: isAvailable).weight(.semibold),
+            translationFont: font.font(size: translationSize, weight: fontWeight, isAvailable: isAvailable),
             lineSpacing: lineSpacing.lineSpacing(fontSize: size),
+            translationLineSpacing: lineSpacing.lineSpacing(fontSize: translationSize),
             palette: palette
         )
     }
@@ -1631,13 +1671,25 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
-    static func cues(from lines: [LyricLine]) -> [SpokenWordTranscriptReadingPolicy.Cue] {
-        lines.map { line in
+    nonisolated static func cues(
+        from lines: [LyricLine],
+        translations: [String: String] = [:]
+    ) -> [SpokenWordTranscriptReadingPolicy.Cue] {
+        // 双语字幕里跟在原文后面的读音行(罗马音、拼音)不当译文,和歌词页同一套整篇判断。
+        let readingIDs = lines.contains { !$0.allManualTranslations.isEmpty }
+            ? LyricRomanizedReadingPolicy.readingIDs(in: lines)
+            : []
+        return lines.map { line in
             SpokenWordTranscriptReadingPolicy.Cue(
                 text: line.text,
                 start: line.isSynchronized ? line.timestamp : nil,
                 end: line.isSynchronized ? line.endTimestamp : nil,
-                speaker: line.voice.rawValue
+                speaker: line.voice.rawValue,
+                translation: LyricCompanionTextPolicy.translation(
+                    for: line,
+                    translatedText: translations[line.id],
+                    readingIDs: readingIDs
+                )
             )
         }
     }
@@ -2238,7 +2290,9 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
     struct Style: Equatable {
         var font: Font
         var headingFont: Font
+        var translationFont: Font
         var lineSpacing: CGFloat
+        var translationLineSpacing: CGFloat
         var palette: SpokenWordTranscriptPalette
     }
 
@@ -2249,14 +2303,35 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
     let style: Style
 
     var body: some View {
-        Text(attributedText)
-            .font(paragraph.isHeading ? style.headingFont : style.font)
-            .lineSpacing(style.lineSpacing)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // 章节名和上一段多隔开一点,读起来是新的一章。
-            .padding(.top, paragraph.isHeading ? style.lineSpacing + 12 : 0)
-            .accessibilityAddTraits(paragraph.isHeading ? .isHeader : [])
-            .animation(.easeInOut(duration: 0.25), value: emphasis)
+        VStack(alignment: .leading, spacing: style.lineSpacing + 4) {
+            Text(attributedText)
+                .font(paragraph.isHeading ? style.headingFont : style.font)
+                .lineSpacing(style.lineSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            // 双语:这一段的译文排在原文下面,字小一号、颜色淡一档(#320)。
+            if let translation = paragraph.translation {
+                Text(verbatim: translation)
+                    .font(style.translationFont)
+                    .lineSpacing(style.translationLineSpacing)
+                    .foregroundStyle(translationColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        // 章节名和上一段多隔开一点,读起来是新的一章。
+        .padding(.top, paragraph.isHeading ? style.lineSpacing + 12 : 0)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(paragraph.isHeading ? .isHeader : [])
+        .animation(.easeInOut(duration: 0.25), value: emphasis)
+    }
+
+    /// 正在念的段(和没在播时)译文比原文淡一些;别的段跟原文一样压暗。
+    private var translationColor: Color {
+        switch emphasis {
+        case .plain, .paragraph, .segment:
+            style.palette.text.opacity(0.72)
+        case .dimmed:
+            style.palette.dimmedText
+        }
     }
 
     private var attributedText: AttributedString {
@@ -2421,6 +2496,10 @@ struct SpokenWordTranscriptTypographyPanel: View {
     let colorScheme: ColorScheme
     /// 「文稿时间」里「这一集 / 这本书」那一行调的是它;nil 时只有「所有文稿」。
     var offsetSong: Song? = nil
+    /// 原文 / 双语 / 只看译文;这份文稿没有译文时是 nil,不给这一项(#320)。
+    var textModeRawValue: Binding<String>? = nil
+    /// 双语时译文的字号,0 = 跟着原文。
+    @Binding var translationFontSize: Double
 
     @Environment(\.dismiss) private var dismiss
     /// 「自定义」下面两个取色器改的是哪一套;打开时对准文稿此刻用的那一套。
@@ -2496,13 +2575,10 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     .labelsHidden()
                 }
                 Section("transcript_font_size") {
-                    HStack(spacing: 12) {
-                        Image(systemName: "textformat.size.smaller")
-                            .foregroundStyle(.secondary)
-                        Slider(value: $fontSize, in: SpokenWordTranscriptReaderPreferences.fontSizeRange, step: 1)
-                        Image(systemName: "textformat.size.larger")
-                            .foregroundStyle(.secondary)
-                    }
+                    fontSizeSlider($fontSize)
+                }
+                if let textModeRawValue {
+                    translationSection(textModeRawValue)
                 }
                 Section {
                     if let offsetSong, SpokenWordTranscriptOffsetStore.shared.itemKey(for: offsetSong) != nil {
@@ -2561,6 +2637,60 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     Button("done") { dismiss() }
                 }
             }
+        }
+    }
+
+    private func fontSizeSlider(_ value: Binding<Double>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "textformat.size.smaller")
+                .foregroundStyle(.secondary)
+            Slider(value: value, in: SpokenWordTranscriptReaderPreferences.fontSizeRange, step: 1)
+            Image(systemName: "textformat.size.larger")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 带译文的文稿:原文 / 双语 / 只看译文;双语时译文字号可以跟着原文,也可以单独调(#320)。
+    @ViewBuilder
+    private func translationSection(_ textMode: Binding<String>) -> some View {
+        Section {
+            Picker("transcript_reader_text_mode", selection: textMode) {
+                ForEach(SpokenWordTranscriptReadingPolicy.TextMode.allCases, id: \.self) { mode in
+                    Text(textModeTitleKey(mode)).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if textMode.wrappedValue == SpokenWordTranscriptReadingPolicy.TextMode.bilingual.rawValue {
+                Toggle("lyrics_translation_font_follows_original", isOn: Binding(
+                    get: { translationFontSize <= 0 },
+                    set: { follows in
+                        // 改成单独调时从此刻看到的大小起步,不低于滑杆的最小一档。
+                        translationFontSize = follows
+                            ? 0
+                            : max(
+                                SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound,
+                                (fontSize * SpokenWordTranscriptReaderPreferences.followingTranslationScale).rounded()
+                            )
+                    }
+                ))
+                if translationFontSize > 0 {
+                    fontSizeSlider($translationFontSize)
+                        .accessibilityLabel(Text("lyrics_translation_font_size"))
+                }
+            }
+        } header: {
+            Text("transcript_reader_text_mode")
+        } footer: {
+            Text("transcript_reader_text_mode_footer")
+        }
+    }
+
+    private func textModeTitleKey(_ mode: SpokenWordTranscriptReadingPolicy.TextMode) -> LocalizedStringKey {
+        switch mode {
+        case .original: "transcript_reader_text_original"
+        case .bilingual: "transcript_reader_text_bilingual"
+        case .translation: "transcript_reader_text_translation"
         }
     }
 

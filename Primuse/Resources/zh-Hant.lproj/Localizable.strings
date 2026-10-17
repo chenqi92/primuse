@@ -6017,6 +6017,11 @@
 "transcript_reader_paragraphs_merged" = "自動合併段落";
 "transcript_reader_paragraphs_per_line" = "每條字幕一段";
 "transcript_reader_paragraphs_footer" = "自動合併會把同一段話的幾行字幕接成一段，換說話人、停頓較久或遇到章節名時另起一段；每條字幕一段則按原文稿逐行顯示。";
+"transcript_reader_text_mode" = "雙語文字稿";
+"transcript_reader_text_original" = "原文";
+"transcript_reader_text_bilingual" = "雙語";
+"transcript_reader_text_translation" = "只看譯文";
+"transcript_reader_text_mode_footer" = "譯文來自文字稿自帶的雙語字幕，或打開歌詞翻譯後的結果。只看譯文時，沒有譯文的句子仍顯示原文，搜尋和朗讀醒目標示也按譯文算。";
 "transcript_reader_speed_slower" = "慢一檔";
 "transcript_reader_speed_faster" = "快一檔";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "關閉後上下滑動文字稿不會彈出控制項。點畫面左右兩邊或暫停時控制項才出現（點中間的段落從那裡開始播），幾秒不碰自動收起，狀態列也一起藏起來。控制項出現時左右掃一下退出全螢幕。";

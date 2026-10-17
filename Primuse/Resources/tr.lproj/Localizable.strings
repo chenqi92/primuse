@@ -5946,6 +5946,11 @@
 "transcript_reader_paragraphs_merged" = "Birleştirilmiş";
 "transcript_reader_paragraphs_per_line" = "Satır satır";
 "transcript_reader_paragraphs_footer" = "Birleştirilmiş, art arda gelen altyazı satırlarını paragraflarda toplar; konuşan değiştiğinde, uzun bir duraklamadan sonra veya bir bölüm başlığında yeni paragraf başlatır. Satır satır, her altyazı satırını ayrı gösterir.";
+"transcript_reader_text_mode" = "İki Dilli Döküm";
+"transcript_reader_text_original" = "Orijinal";
+"transcript_reader_text_bilingual" = "İki Dilli";
+"transcript_reader_text_translation" = "Yalnızca Çeviri";
+"transcript_reader_text_mode_footer" = "Çeviriler dökümdeki iki dilli altyazılardan veya açıksa şarkı sözü çevirisinden gelir. Yalnızca Çeviri'de çevirisi olmayan satırlar orijinal kalır; arama ve okuma vurgusu çeviriye göre yapılır.";
 "transcript_reader_speed_slower" = "Daha yavaş";
 "transcript_reader_speed_faster" = "Daha hızlı";
 "transcript_reader_reveal_on_scroll_footer_swipe" = "Kapalıyken metni kaydırdığınızda denetimler gizli kalır. Göstermek için ekranın sol veya sağ kenarına yakın bir yere dokunun ya da duraklatın (ortadaki bir paragrafa dokunmak oradan çalar); birkaç saniye sonra durum çubuğuyla birlikte yeniden gizlenirler. Denetimler görünürken sola veya sağa kaydırmak tam ekran metni kapatır.";

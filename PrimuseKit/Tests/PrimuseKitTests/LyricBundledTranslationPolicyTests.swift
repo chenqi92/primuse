@@ -61,6 +61,25 @@ struct LyricBundledTranslationPolicyTests {
         })
     }
 
+    @Test func singleTranslationSkipsReadingsAndPrefersTheTranslationResult() {
+        let lines = Self.document(Self.japaneseSources, Self.romaji, Self.chinese)
+        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: lines)
+        // 文件里同一时间戳的罗马音行是读音,不当译文;取后面那行中文。
+        #expect(lines.map {
+            LyricCompanionTextPolicy.translation(for: $0, translatedText: nil, readingIDs: readingIDs)
+        } == Self.chinese)
+        // 翻译结果里有的用翻译结果;和原文一样、只有空白的不算。
+        #expect(LyricCompanionTextPolicy.translation(
+            for: lines[0], translatedText: "I can hear your voice", readingIDs: readingIDs
+        ) == "I can hear your voice")
+        #expect(LyricCompanionTextPolicy.translation(
+            for: lines[0], translatedText: "  ", readingIDs: readingIDs
+        ) == Self.chinese[0])
+        let romanized = LyricLine(timestamp: 1, text: "君の声", romanization: "kimi no koe")
+        #expect(LyricCompanionTextPolicy.translation(for: romanized, translatedText: nil) == nil)
+        #expect(LyricCompanionTextPolicy.translation(for: romanized, translatedText: "君の声") == nil)
+    }
+
     @Test func readingRowsStayWhenTranslationsAreHidden() {
         let lines = Self.document(Self.japaneseSources, Self.romaji, Self.chinese)
         let presentation = LyricBundledTranslationPolicy.presentation(

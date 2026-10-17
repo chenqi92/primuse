@@ -3178,6 +3178,7 @@ struct NowPlayingView: View {
             showsTranscriptReader: $showsTranscriptReader,
             player: player,
             transcriptReaderLines: { transcriptReaderLines },
+            transcriptTranslations: { lyricTranslationsByLineID },
             onTranscriptOffsetChange: refreshTranscriptOffset
         ))
         #if os(iOS)
@@ -9105,9 +9106,10 @@ struct NowPlayingView: View {
         consumePendingLyricsJump(from: value)
     }
 
-    /// 全屏文字稿读的那份:原文加上这一集 / 这本书的时间偏移(#320)。
+    /// 全屏文字稿读的那份:和歌词页同一份,带着这一集 / 这本书的时间偏移(#320),关了「显示歌词
+    /// 自带的译文」时也去掉文件带的译文,双语那一档才和歌词页说的一样。
     private var transcriptReaderLines: [LyricLine] {
-        SpokenWordTranscriptOffsetStore.shared.presenting(lyrics, for: player.currentSong)
+        presentedLyrics
     }
 
     /// 文字稿偏移变了:按新的偏移重排一遍,歌词页按新时间轴重新对位。
@@ -10997,6 +10999,8 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
     let player: AudioPlayerService
     /// 全屏文字稿读的那份,打开时才算。
     let transcriptReaderLines: () -> [LyricLine]
+    /// 各行译文,全屏文字稿的「双语」「只看译文」用(#320)。
+    let transcriptTranslations: () -> [String: String]
     let onTranscriptOffsetChange: () -> Void
 
     func body(content: Content) -> some View {
@@ -11011,13 +11015,22 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
             }
             #if os(iOS)
             .fullScreenCover(isPresented: $showsTranscriptReader) {
-                SpokenWordTranscriptReader(lines: transcriptReaderLines(), title: player.currentSong?.title ?? "", player: player)
+                transcriptReader
             }
             #else
             .sheet(isPresented: $showsTranscriptReader) {
-                SpokenWordTranscriptReader(lines: transcriptReaderLines(), title: player.currentSong?.title ?? "", player: player)
+                transcriptReader
             }
             #endif
+    }
+
+    private var transcriptReader: SpokenWordTranscriptReader {
+        SpokenWordTranscriptReader(
+            lines: transcriptReaderLines(),
+            title: player.currentSong?.title ?? "",
+            player: player,
+            translatedTextByLineID: transcriptTranslations()
+        )
     }
 }
 
