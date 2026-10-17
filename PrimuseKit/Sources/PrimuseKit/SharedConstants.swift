@@ -5454,16 +5454,23 @@ public final class RemoteRetiredSessions: @unchecked Sendable {
 /// error ever reaches Primuse, so retiring the session afterwards can be too
 /// late. (NFS uses libnfs' synchronous calls instead, see `LibNFSSession`.)
 ///
-/// Clients therefore run with `libraryTimeout`, far beyond any server that
-/// is merely slow, and the deadline is enforced here from the outside. When
+/// Clients therefore run with `libraryTimeout`, which switches the client's
+/// own timeout off, and the deadline is enforced here from the outside. When
 /// it expires the caller stops waiting, while the request itself stays
 /// awaited with a valid callback until its reply or a transport error ends
 /// it. The thrown error is `ETIMEDOUT`, so callers retire that still busy
 /// session (`SMBSessionDisposalPolicy`) and reconnect on a fresh one.
 public enum RemoteRequestDeadline {
-    /// Value for the client's own `timeout`. Still finite, so a request whose
-    /// server never answers eventually ends and frees the library's thread.
-    public static let libraryTimeout: TimeInterval = 300
+    /// Value for the client's own `timeout`: 0 turns AMSMB2's timeout off.
+    ///
+    /// AMSMB2 measures it with `Date()`, so time the device spends asleep
+    /// counts as silence. A request still in flight when an Apple TV or Mac
+    /// went to sleep was given up on the first poll after waking — any finite
+    /// value is shorter than a night — and the late reply then landed on the
+    /// dead stack frame described above. The deadline here runs on uptime
+    /// instead. A request whose server never answers keeps one thread of its
+    /// retired session waiting until the transport reports an error.
+    public static let libraryTimeout: TimeInterval = 0
 
     /// The deadline AMSMB2 and the former NFSKit client used to apply by
     /// themselves (their default timeout); NFSv3 requests time out after it.

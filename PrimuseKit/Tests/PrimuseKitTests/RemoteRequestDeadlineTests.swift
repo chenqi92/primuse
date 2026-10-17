@@ -9,11 +9,11 @@ import Testing
 /// always runs to its real end.
 @Suite("Remote request deadline")
 struct RemoteRequestDeadlineTests {
-    @Test("The libraries' own timeout stays far beyond the deadline Primuse applies")
-    func libraryTimeoutOutlastsDeadline() {
-        let ratio = RemoteRequestDeadline.libraryTimeout / RemoteRequestDeadline.standardStallTimeout
-        #expect(RemoteRequestDeadline.libraryTimeout > 0)
-        #expect(ratio >= 5)
+    /// AMSMB2 times requests with the wall clock, so any finite value expires
+    /// across a device sleep; it only checks the timeout when it is above 0.
+    @Test("The library's own wall-clock timeout is switched off")
+    func libraryTimeoutIsOff() {
+        #expect(RemoteRequestDeadline.libraryTimeout == 0)
     }
 
     @Test("A request that answers in time returns its value")
