@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "खाली";
 "player_controls_slot_hint" = "इस जगह के लिए बटन चुनें";
 "player_controls_picker_footer" = "जो बटन पहले से कहीं और है उसे चुनने पर दोनों जगहें आपस में बदल जाती हैं।";
-"player_controls_surface_header" = "स्क्रीन";
 "player_controls_surface_cover" = "कवर";
 "player_controls_surface_lyrics" = "बोल";
 "player_controls_surface_immersive_lyrics" = "फ़ुल-स्क्रीन बोल";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "बोल के लिए अलग बटन";
 "player_controls_lyrics_own_buttons_footer" = "बंद होने पर बोल और कवर एक जैसे बटन इस्तेमाल करते हैं। चालू करने पर पहले कवर के बटनों की कॉपी से शुरुआत होती है।";
 "player_controls_lyrics_preview_footer_follow" = "छह जगहें कवर स्क्रीन जैसी हैं। उन्हें अलग से बदलने के लिए ऊपर का स्विच चालू करें। शीर्षक के पास वाली अतिरिक्त जगह कभी भी बदली जा सकती है।";
-"player_controls_lyrics_preview_footer_own" = "बटन बदलने के लिए बिंदीदार बॉक्स पर टैप करें। बोल दिखते समय यही सेट इस्तेमाल होता है, लैंडस्केप और फ़ोल्डेबल के स्प्लिट व्यू में भी। स्टेटस लाइन और \"और\" मेन्यू के आइटम कवर स्क्रीन जैसे रहते हैं।";
+"player_controls_lyrics_preview_footer_own" = "बटन बदलने के लिए किसी पंक्ति पर टैप करें। बोल दिखते समय यही सेट इस्तेमाल होता है, लैंडस्केप और फ़ोल्डेबल के स्प्लिट व्यू में भी। स्टेटस लाइन और \"और\" मेन्यू के आइटम कवर स्क्रीन जैसे रहते हैं।";
 "player_controls_lyrics_collapse" = "बोल स्क्रॉल करते समय कंट्रोल छिपाएँ";
 "player_controls_lyrics_collapse_footer" = "बोल खींचने पर प्रोग्रेस बार और नीचे के बटन छिप जाते हैं ताकि बोल पूरी स्क्रीन पर दिखें। उन्हें वापस लाने के लिए बोल की खाली जगह पर टैप करें।";
 "player_controls_slot_lyrics_extra" = "शीर्षक के पास (बोल)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "स्वचालित";
 "player_controls_spoken_slot_automatic_sides" = "ट्रांसक्रिप्ट हो तो बाईं ओर ट्रांसक्रिप्ट, दाईं ओर सूची या एपिसोड नोट्स। न हो तो खाली; पिछला और अगला अध्याय अपनी जगह रहते हैं।";
 "player_controls_spoken_slot_automatic_part_row" = "पिछला / अगला अध्याय, नीचे के \"पिछला / अगला अध्याय\" स्विच के अनुसार।";
-"player_controls_spoken_slot_footer" = "बटन बदलने, जगह खाली छोड़ने या \"स्वचालित\" चुनने के लिए बिंदीदार बॉक्स पर टैप करें। यहाँ रखे बटन टाइलों में या ऊपर दाईं ओर दोबारा नहीं दिखते; लैंडस्केप iPhone और iPad उन्हें अपने लेआउट के अनुसार रखते हैं। iCloud से सिंक होता है।";
+"player_controls_spoken_slot_footer" = "बटन बदलने, जगह खाली छोड़ने या \"स्वचालित\" चुनने के लिए किसी पंक्ति पर टैप करें। यहाँ रखे बटन टाइलों में या ऊपर दाईं ओर दोबारा नहीं दिखते; लैंडस्केप iPhone और iPad उन्हें अपने लेआउट के अनुसार रखते हैं। iCloud से सिंक होता है।";
 "player_controls_spoken_slot_picker_footer" = "किसी दूसरी जगह पहले से रखा बटन चुनने पर दोनों जगहें आपस में बदल जाती हैं। \"स्वचालित\" मूल व्यवस्था रखता है।";
 "player_controls_spoken_source" = "संगीत स्रोत दिखाएँ";
 "player_controls_spoken_source_footer" = "एक से अधिक संगीत स्रोत होने पर प्लेयर की सबसे नीचे की पंक्ति बताती है कि किताब किस स्रोत से है।";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "रेखा सहित";
 "player_skip_style_filled_circle" = "भरा हुआ";
 "player_skip_style_outlined_circle" = "रूपरेखा";
-"player_preview_sample_title" = "गाने का नाम";
-"player_preview_sample_artist" = "कलाकार · एल्बम";
-"player_preview_sample_lyric" = "यहाँ वह पंक्ति दिखती है जो अभी गाई जा रही है";
 "player_controls_slots_title" = "बटनों की जगह";
 "player_controls_slots_info" = "बटन चुनने के लिए किसी पंक्ति पर टैप करें, या उसे खाली छोड़ दें। वास्तविक आकार वाले प्रीव्यू में ऊपर बाईं ओर पेंसिल पर टैप करें और डैश वाले बॉक्स पर सीधे टैप करके बटन बदलें। जो बटन पहले से कहीं और है उसे चुनने पर दोनों की जगह बदल जाती है। जो बटन पेज पर नहीं हैं वे «और» मेन्यू में हैं; iPhone का लैंडस्केप, iPad और फ़ोल्डेबल का साइड कॉलम वही बटन अपने लेआउट में रखते हैं। सेटिंग iCloud से सिंक होती हैं।";
-"player_style_preview_pip_hint" = "प्रीव्यू पेज के ऊपर तैरता है और इन सेटिंग के साथ तुरंत बदलता है। उसे किसी भी कोने में खींचें, बड़ा या छोटा करने के लिए टैप करें, और उसके कोने के बटन से वास्तविक आकार देखें।";
+"player_style_preview_pip_hint" = "प्रीव्यू पेज के ऊपर तैरता है और इन सेटिंग के साथ तुरंत बदलता है। उसे कहीं भी खींचें और आकार बदलने के लिए पिंच करें; नीचे के बटन स्क्रीन बदलते हैं और वास्तविक आकार दिखाते हैं।";
 "player_style_preview_title" = "प्लेयर प्रीव्यू";
-"player_style_preview_toggle_size" = "बड़ा या छोटा करें";
 "player_style_preview_edit_buttons" = "बटनों की जगह बदलें";
+"player_preview_sample_book" = "ऑडियोबुक का नाम";
+"player_preview_sample_author" = "लेखक";
+"player_preview_sample_narrator" = "वाचक";
+"player_preview_sample_chapter" = "अध्याय का नाम";
+"player_preview_sample_episode" = "एपिसोड का नाम";
+"player_preview_sample_show" = "शो का नाम";
+"player_preview_sample_station" = "स्टेशन का नाम";
+"player_preview_sample_station_now" = "अभी प्रसारण पर";
 
 "cloud_download_quota_exceeded %@" = "%@ का इस महीने का डाउनलोड कोटा खत्म हो गया है। अगले महीने रीसेट होने पर फिर से चला सकेंगे।";
 "source_diag_download_title" = "डाउनलोड";

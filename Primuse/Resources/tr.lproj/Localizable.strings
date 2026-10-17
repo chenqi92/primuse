@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "Boş";
 "player_controls_slot_hint" = "Bu yer için düğme seçin";
 "player_controls_picker_footer" = "Başka bir yerde olan bir düğmeyi seçerseniz iki yer yer değiştirir.";
-"player_controls_surface_header" = "Ekran";
 "player_controls_surface_cover" = "Kapak";
 "player_controls_surface_lyrics" = "Sözler";
 "player_controls_surface_immersive_lyrics" = "Tam Ekran Sözler";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "Sözler İçin Ayrı Düğmeler";
 "player_controls_lyrics_own_buttons_footer" = "Kapalıyken sözler ve kapak aynı düğmeleri kullanır. Açınca önce kapak düğmelerinin bir kopyasıyla başlar.";
 "player_controls_lyrics_preview_footer_follow" = "Altı yer Kapak ekranıyla aynıdır. Ayrı ayrı değiştirmek için yukarıdaki anahtarı açın. Başlığın yanındaki ek yer her zaman değiştirilebilir.";
-"player_controls_lyrics_preview_footer_own" = "Bir düğmeyi değiştirmek için kesikli kutuya dokunun. Bu set, sözler açıkken kullanılır (yatay görünüm ve katlanabilir cihazda bölünmüş görünüm dahil). Durum satırı ve Daha Fazla menüsü öğeleri Kapak ekranını izler.";
+"player_controls_lyrics_preview_footer_own" = "Bir düğmeyi değiştirmek için bir satıra dokunun. Bu set, sözler açıkken kullanılır (yatay görünüm ve katlanabilir cihazda bölünmüş görünüm dahil). Durum satırı ve Daha Fazla menüsü öğeleri Kapak ekranını izler.";
 "player_controls_lyrics_collapse" = "Sözleri Kaydırırken Denetimleri Gizle";
 "player_controls_lyrics_collapse_footer" = "Sözleri sürüklediğinizde ilerleme çubuğu ve alttaki düğmeler gizlenir, sözler ekranı doldurur. Geri getirmek için sözlerde boş bir yere dokunun.";
 "player_controls_slot_lyrics_extra" = "Başlığın Yanında (Sözler)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "Otomatik";
 "player_controls_spoken_slot_automatic_sides" = "Döküm varsa solda döküm, sağda içindekiler ya da bölüm notları. Yoksa boş kalır; önceki ve sonraki bölüm kendi yerinde durur.";
 "player_controls_spoken_slot_automatic_part_row" = "Önceki / sonraki bölüm, aşağıdaki Önceki / Sonraki Bölüm anahtarına göre.";
-"player_controls_spoken_slot_footer" = "Düğmesini değiştirmek, boş bırakmak ya da Otomatik seçmek için kesik çizgili kutuya dokunun. Buraya konan düğmeler kutucuklarda ya da sağ üstte tekrarlanmaz; yatay iPhone ve iPad bunları kendi düzenine göre yerleştirir. iCloud ile eşzamanlanır.";
+"player_controls_spoken_slot_footer" = "Düğmesini değiştirmek, boş bırakmak ya da Otomatik seçmek için bir satıra dokunun. Buraya konan düğmeler kutucuklarda ya da sağ üstte tekrarlanmaz; yatay iPhone ve iPad bunları kendi düzenine göre yerleştirir. iCloud ile eşzamanlanır.";
 "player_controls_spoken_slot_picker_footer" = "Başka bir yerde zaten olan bir düğmeyi seçmek ikisinin yerini değiştirir. Otomatik, özgün düzeni korur.";
 "player_controls_spoken_source" = "Müzik Kaynağını Göster";
 "player_controls_spoken_source_footer" = "Birden fazla müzik kaynağı varsa oynatıcının en alt satırı kitabın hangi kaynaktan geldiğini gösterir.";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "Çizgili";
 "player_skip_style_filled_circle" = "Dolu";
 "player_skip_style_outlined_circle" = "Dış Çizgi";
-"player_preview_sample_title" = "Şarkı Adı";
-"player_preview_sample_artist" = "Sanatçı · Albüm";
-"player_preview_sample_lyric" = "Şu an söylenen satır burada görünür";
 "player_controls_slots_title" = "Düğme Konumları";
 "player_controls_slots_info" = "Düğme seçmek için bir satıra dokunun ya da boş bırakın. Gerçek boyuttaki önizlemede sol üstteki kaleme dokunun ve kesikli kutulara doğrudan dokunarak düğmeleri değiştirin. Başka bir yerde olan bir düğmeyi seçerseniz ikisi yer değiştirir. Sayfada olmayan düğmeler Diğer menüsündedir; iPhone yatay görünümü, iPad ve katlanabilir cihazların yan sütunu aynı düğmeleri kendi düzenlerinde yerleştirir. Ayarlar iCloud ile eşzamanlanır.";
-"player_style_preview_pip_hint" = "Önizleme sayfanın üzerinde yüzer ve bu ayarları canlı olarak izler. İstediğiniz köşeye sürükleyin, büyütmek ya da küçültmek için dokunun, köşesindeki düğmeyle gerçek boyutta görün.";
+"player_style_preview_pip_hint" = "Önizleme sayfanın üzerinde yüzer ve bu ayarları canlı olarak izler. İstediğiniz yere sürükleyin, boyutunu iki parmakla değiştirin; altındaki düğmeler ekranlar arasında geçiş yapar ve gerçek boyutu gösterir.";
 "player_style_preview_title" = "Oynatıcı Önizlemesi";
-"player_style_preview_toggle_size" = "Büyüt veya Küçült";
 "player_style_preview_edit_buttons" = "Düğme Konumlarını Düzenle";
+"player_preview_sample_book" = "Sesli Kitap Adı";
+"player_preview_sample_author" = "Yazar";
+"player_preview_sample_narrator" = "Seslendiren";
+"player_preview_sample_chapter" = "Bölüm Adı";
+"player_preview_sample_episode" = "Bölüm Başlığı";
+"player_preview_sample_show" = "Program Adı";
+"player_preview_sample_station" = "İstasyon Adı";
+"player_preview_sample_station_now" = "Şu An Yayında";
 
 "cloud_download_quota_exceeded %@" = "%@ bu ayki indirme kotasını doldurdu. Kota gelecek ay sıfırlandığında yeniden oynatabilirsiniz.";
 "source_diag_download_title" = "İndirme";

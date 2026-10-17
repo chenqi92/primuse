@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "Vazio";
 "player_controls_slot_hint" = "Escolha o botão para este lugar";
 "player_controls_picker_footer" = "Escolher um botão que já está em outro lugar troca os dois lugares.";
-"player_controls_surface_header" = "Tela";
 "player_controls_surface_cover" = "Capa";
 "player_controls_surface_lyrics" = "Letra";
 "player_controls_surface_immersive_lyrics" = "Letra em tela cheia";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "Botões próprios para a letra";
 "player_controls_lyrics_own_buttons_footer" = "Desativado: letra e capa usam os mesmos botões. Ao ativar, começa com uma cópia dos botões da capa.";
 "player_controls_lyrics_preview_footer_follow" = "Os seis lugares seguem a tela Capa. Ative a chave acima para mudá-los separadamente. O lugar extra ao lado do título pode ser trocado a qualquer momento.";
-"player_controls_lyrics_preview_footer_own" = "Toque em um quadro pontilhado para trocar um botão. Este conjunto é usado enquanto a letra aparece, inclusive na horizontal e na tela dividida de dobráveis. A linha de status e os itens do menu Mais seguem a tela Capa.";
+"player_controls_lyrics_preview_footer_own" = "Toque em uma linha para trocar um botão. Este conjunto é usado enquanto a letra aparece, inclusive na horizontal e na tela dividida de dobráveis. A linha de status e os itens do menu Mais seguem a tela Capa.";
 "player_controls_lyrics_collapse" = "Ocultar controles ao rolar a letra";
 "player_controls_lyrics_collapse_footer" = "Arrastar a letra oculta a barra de progresso e os botões abaixo para a letra ocupar a tela. Toque em uma área vazia da letra para trazê-los de volta.";
 "player_controls_slot_lyrics_extra" = "Ao lado do título (letra)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "Automático";
 "player_controls_spoken_slot_automatic_sides" = "Com transcrição: a transcrição à esquerda e o sumário ou as notas à direita. Sem ela, vazio; capítulo anterior e seguinte continuam no lugar deles.";
 "player_controls_spoken_slot_automatic_part_row" = "Capítulo anterior / seguinte, conforme a chave Capítulo anterior / seguinte abaixo.";
-"player_controls_spoken_slot_footer" = "Toque em um quadro tracejado para trocar o botão, deixá-lo vazio ou escolher Automático. Botões colocados aqui não se repetem nos blocos nem no canto superior direito; iPhone e iPad na horizontal os organizam conforme o próprio layout. Sincroniza com o iCloud.";
+"player_controls_spoken_slot_footer" = "Toque em uma linha para trocar o botão, deixá-lo vazio ou escolher Automático. Botões colocados aqui não se repetem nos blocos nem no canto superior direito; iPhone e iPad na horizontal os organizam conforme o próprio layout. Sincroniza com o iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Escolher um botão que já está em outro lugar troca os dois de posição. Automático mantém o arranjo original.";
 "player_controls_spoken_source" = "Mostrar fonte de música";
 "player_controls_spoken_source_footer" = "Com mais de uma fonte de música, a última linha do player mostra de qual fonte o livro vem.";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "Com barra";
 "player_skip_style_filled_circle" = "Preenchido";
 "player_skip_style_outlined_circle" = "Contorno";
-"player_preview_sample_title" = "Título da música";
-"player_preview_sample_artist" = "Artista · Álbum";
-"player_preview_sample_lyric" = "Aqui aparece o verso que está sendo cantado";
 "player_controls_slots_title" = "Posição dos botões";
 "player_controls_slots_info" = "Toque em uma linha para escolher um botão ou deixe vazio. Na prévia em tamanho real, toque no lápis no canto superior esquerdo para trocar os botões tocando direto nas caixas tracejadas. Escolher um botão que já está em outro lugar troca os dois de posição. Os botões que não estão na página ficam no menu Mais; o iPhone na horizontal, o iPad e a coluna lateral dos dobráveis organizam o mesmo conjunto do seu jeito. Os ajustes são sincronizados pelo iCloud.";
-"player_style_preview_pip_hint" = "A prévia flutua sobre a página e acompanha estes ajustes ao vivo. Arraste-a para qualquer canto, toque para aumentar ou diminuir e use o botão no canto dela para ver em tamanho real.";
+"player_style_preview_pip_hint" = "A prévia flutua sobre a página e acompanha estes ajustes ao vivo. Arraste-a para onde quiser e faça pinça para redimensionar; os botões abaixo trocam de tela e mostram em tamanho real.";
 "player_style_preview_title" = "Prévia do player";
-"player_style_preview_toggle_size" = "Aumentar ou diminuir";
 "player_style_preview_edit_buttons" = "Editar posição dos botões";
+"player_preview_sample_book" = "Título do audiolivro";
+"player_preview_sample_author" = "Autor";
+"player_preview_sample_narrator" = "Narrador";
+"player_preview_sample_chapter" = "Título do capítulo";
+"player_preview_sample_episode" = "Título do episódio";
+"player_preview_sample_show" = "Nome do programa";
+"player_preview_sample_station" = "Nome da estação";
+"player_preview_sample_station_now" = "No ar agora";
 
 "cloud_download_quota_exceeded %@" = "%@: a cota de download deste mês acabou. A reprodução volta quando ela for renovada no próximo mês.";
 "source_diag_download_title" = "Download";

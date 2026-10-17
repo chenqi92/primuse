@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "ว่าง";
 "player_controls_slot_hint" = "เลือกปุ่มสำหรับตำแหน่งนี้";
 "player_controls_picker_footer" = "ถ้าเลือกปุ่มที่อยู่ตำแหน่งอื่นแล้ว สองตำแหน่งจะสลับกัน";
-"player_controls_surface_header" = "หน้าจอ";
 "player_controls_surface_cover" = "ปก";
 "player_controls_surface_lyrics" = "เนื้อเพลง";
 "player_controls_surface_immersive_lyrics" = "เนื้อเพลงเต็มจอ";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "ตั้งปุ่มของหน้าเนื้อเพลงแยก";
 "player_controls_lyrics_own_buttons_footer" = "เมื่อปิด หน้าเนื้อเพลงและหน้าปกใช้ปุ่มชุดเดียวกัน เมื่อเปิดจะเริ่มจากสำเนาปุ่มของหน้าปก";
 "player_controls_lyrics_preview_footer_follow" = "หกตำแหน่งเหมือนหน้าปก เปิดสวิตช์ด้านบนเพื่อเปลี่ยนแยก ส่วนช่องที่เพิ่มข้างชื่อเพลงเปลี่ยนได้ตลอด";
-"player_controls_lyrics_preview_footer_own" = "แตะกรอบเส้นประเพื่อเปลี่ยนปุ่ม ชุดนี้ใช้ขณะแสดงเนื้อเพลง รวมถึงแนวนอนและมุมมองแบ่งจอบนเครื่องพับได้ แถวสถานะและรายการในเมนูเพิ่มเติมเป็นไปตามหน้าปก";
+"player_controls_lyrics_preview_footer_own" = "แตะแถวเพื่อเปลี่ยนปุ่ม ชุดนี้ใช้ขณะแสดงเนื้อเพลง รวมถึงแนวนอนและมุมมองแบ่งจอบนเครื่องพับได้ แถวสถานะและรายการในเมนูเพิ่มเติมเป็นไปตามหน้าปก";
 "player_controls_lyrics_collapse" = "ซ่อนตัวควบคุมเมื่อเลื่อนเนื้อเพลง";
 "player_controls_lyrics_collapse_footer" = "ลากเนื้อเพลงแล้วแถบความคืบหน้าและปุ่มด้านล่างจะซ่อน ให้เนื้อเพลงเต็มจอ แตะพื้นที่ว่างในเนื้อเพลงเพื่อให้กลับมา";
 "player_controls_slot_lyrics_extra" = "ข้างชื่อเพลง (เนื้อเพลง)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "อัตโนมัติ";
 "player_controls_spoken_slot_automatic_sides" = "เมื่อมีบทถอดความ ด้านซ้ายเป็นบทถอดความ ด้านขวาเป็นสารบัญหรือรายละเอียดตอน ถ้าไม่มีจะเว้นว่าง บทก่อนหน้า / บทถัดไปยังอยู่ที่เดิม";
 "player_controls_spoken_slot_automatic_part_row" = "บทก่อนหน้า / บทถัดไป ตามสวิตช์บทก่อนหน้า / บทถัดไปด้านล่าง";
-"player_controls_spoken_slot_footer" = "แตะกรอบเส้นประเพื่อเปลี่ยนปุ่ม เว้นว่าง หรือเลือกอัตโนมัติ ปุ่มที่วางไว้ตรงนี้จะไม่ซ้ำในแถวช่องหรือมุมขวาบน iPhone และ iPad แนวนอนจัดวางตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud";
+"player_controls_spoken_slot_footer" = "แตะแถวเพื่อเปลี่ยนปุ่ม เว้นว่าง หรือเลือกอัตโนมัติ ปุ่มที่วางไว้ตรงนี้จะไม่ซ้ำในแถวช่องหรือมุมขวาบน iPhone และ iPad แนวนอนจัดวางตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud";
 "player_controls_spoken_slot_picker_footer" = "เลือกปุ่มที่อยู่อีกตำแหน่งแล้ว สองตำแหน่งจะสลับกัน อัตโนมัติคงการจัดวางเดิมไว้";
 "player_controls_spoken_source" = "แสดงแหล่งเพลง";
 "player_controls_spoken_source_footer" = "เมื่อมีแหล่งเพลงมากกว่าหนึ่งแห่ง บรรทัดล่างสุดของเครื่องเล่นจะบอกว่าหนังสือมาจากแหล่งใด";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "มีเส้น";
 "player_skip_style_filled_circle" = "ทึบ";
 "player_skip_style_outlined_circle" = "เส้นขอบ";
-"player_preview_sample_title" = "ชื่อเพลง";
-"player_preview_sample_artist" = "ศิลปิน · อัลบั้ม";
-"player_preview_sample_lyric" = "เนื้อเพลงท่อนที่กำลังร้องจะแสดงที่นี่";
 "player_controls_slots_title" = "ตำแหน่งปุ่ม";
 "player_controls_slots_info" = "แตะแถวเพื่อเลือกปุ่ม หรือเว้นว่างไว้ก็ได้ ในตัวอย่างขนาดจริง แตะดินสอที่มุมซ้ายบนแล้วแตะกรอบเส้นประเพื่อเปลี่ยนปุ่มได้ทันที ถ้าเลือกปุ่มที่อยู่ที่อื่นแล้ว สองตำแหน่งจะสลับกัน ปุ่มที่ไม่ได้วางบนหน้าจออยู่ในเมนู “เพิ่มเติม” แนวนอนบน iPhone, iPad และคอลัมน์ข้างของเครื่องพับได้จัดปุ่มชุดเดียวกันตามเลย์เอาต์ของตัวเอง การตั้งค่าซิงค์ผ่าน iCloud";
-"player_style_preview_pip_hint" = "ตัวอย่างลอยอยู่เหนือหน้าและเปลี่ยนตามการตั้งค่าเหล่านี้ทันที ลากไปมุมไหนก็ได้ แตะเพื่อขยายหรือย่อ และใช้ปุ่มที่มุมเพื่อดูขนาดจริง";
+"player_style_preview_pip_hint" = "ตัวอย่างลอยอยู่เหนือหน้าและเปลี่ยนตามการตั้งค่าเหล่านี้ทันที ลากไปวางตรงไหนก็ได้และจีบนิ้วเพื่อปรับขนาด ปุ่มด้านล่างใช้สลับหน้าจอและดูขนาดจริง";
 "player_style_preview_title" = "ตัวอย่างหน้าเล่น";
-"player_style_preview_toggle_size" = "ขยายหรือย่อ";
 "player_style_preview_edit_buttons" = "แก้ไขตำแหน่งปุ่ม";
+"player_preview_sample_book" = "ชื่อหนังสือเสียง";
+"player_preview_sample_author" = "ผู้เขียน";
+"player_preview_sample_narrator" = "ผู้อ่าน";
+"player_preview_sample_chapter" = "ชื่อบท";
+"player_preview_sample_episode" = "ชื่อตอน";
+"player_preview_sample_show" = "ชื่อรายการ";
+"player_preview_sample_station" = "ชื่อสถานี";
+"player_preview_sample_station_now" = "กำลังออกอากาศ";
 
 "cloud_download_quota_exceeded %@" = "%@ ใช้โควตาดาวน์โหลดของเดือนนี้หมดแล้ว จะเล่นได้อีกครั้งเมื่อรีเซ็ตในเดือนหน้า";
 "source_diag_download_title" = "ดาวน์โหลด";

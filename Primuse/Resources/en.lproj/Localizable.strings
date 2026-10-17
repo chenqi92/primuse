@@ -5651,7 +5651,6 @@
 "player_controls_empty" = "Empty";
 "player_controls_slot_hint" = "Choose the button for this spot";
 "player_controls_picker_footer" = "Choosing a button that’s already elsewhere swaps the two spots.";
-"player_controls_surface_header" = "Screen";
 "player_controls_surface_cover" = "Artwork";
 "player_controls_surface_lyrics" = "Lyrics";
 "player_controls_surface_immersive_lyrics" = "Full Lyrics";
@@ -5660,7 +5659,7 @@
 "player_controls_lyrics_own_buttons" = "Separate Buttons for Lyrics";
 "player_controls_lyrics_own_buttons_footer" = "When off, lyrics and artwork share one set of buttons. Turning it on starts from a copy of the Artwork buttons.";
 "player_controls_lyrics_preview_footer_follow" = "The six spots match the Artwork screen. Turn on the switch above to change them separately. The extra spot next to the title can always be changed.";
-"player_controls_lyrics_preview_footer_own" = "Tap a dashed box to change a button. This set is used while lyrics are showing, including in phone landscape and foldable split view. The status line and More menu items follow the Artwork screen.";
+"player_controls_lyrics_preview_footer_own" = "Tap a row to change a button. This set is used while lyrics are showing, including in phone landscape and foldable split view. The status line and More menu items follow the Artwork screen.";
 "player_controls_lyrics_collapse" = "Hide Controls While Scrolling Lyrics";
 "player_controls_lyrics_collapse_footer" = "Scrolling up through the lyrics hides the progress bar and the buttons below so the lyrics fill the screen; pulling back down does not. Tap an empty area of the lyrics to bring them back.";
 "player_controls_slot_lyrics_extra" = "Next to Title in Lyrics";
@@ -5965,7 +5964,7 @@
 "player_controls_spoken_slot_automatic" = "Automatic";
 "player_controls_spoken_slot_automatic_sides" = "With a transcript: the transcript on the left, contents or show notes on the right. Without one, empty; previous and next chapter stay in their own spots.";
 "player_controls_spoken_slot_automatic_part_row" = "Previous / next chapter, following the Previous / Next Chapter switch below.";
-"player_controls_spoken_slot_footer" = "Tap a dashed box to change its button, leave it empty, or choose Automatic. Buttons placed here aren’t repeated in the tiles or at the top right; landscape iPhone and iPad arrange them for their own layouts. Syncs with iCloud.";
+"player_controls_spoken_slot_footer" = "Tap a row to change its button, leave it empty, or choose Automatic. Buttons placed here aren’t repeated in the tiles or at the top right; landscape iPhone and iPad arrange them for their own layouts. Syncs with iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Choosing a button that’s already in another spot swaps the two. Automatic keeps the original arrangement.";
 "player_controls_spoken_source" = "Show Music Source";
 "player_controls_spoken_source_footer" = "With more than one music source, the bottom line of the player shows which source the book comes from.";
@@ -6121,15 +6120,19 @@
 "player_skip_style_track" = "With Bar";
 "player_skip_style_filled_circle" = "Filled";
 "player_skip_style_outlined_circle" = "Outline";
-"player_preview_sample_title" = "Song Title";
-"player_preview_sample_artist" = "Artist · Album";
-"player_preview_sample_lyric" = "The line being sung appears here";
 "player_controls_slots_title" = "Button Positions";
 "player_controls_slots_info" = "Tap a row to choose a button, or leave it empty. In the actual-size preview, tap the pencil in the top-left corner to change buttons by tapping the dashed boxes. Choosing a button that is already placed elsewhere swaps the two. Buttons not on the page are in the More menu; iPhone landscape, iPad and the foldable side column arrange the same set in their own layouts. Settings sync through iCloud.";
-"player_style_preview_pip_hint" = "The preview floats over the page and follows these settings live. Drag it to any corner, tap to make it bigger or smaller, and use the button in its corner to see it at actual size.";
+"player_style_preview_pip_hint" = "The preview floats over the page and follows these settings live. Drag it anywhere and pinch to resize; the buttons under it switch between screens and show it at actual size.";
 "player_style_preview_title" = "Player Preview";
-"player_style_preview_toggle_size" = "Make Bigger or Smaller";
 "player_style_preview_edit_buttons" = "Edit Button Positions";
+"player_preview_sample_book" = "Audiobook Title";
+"player_preview_sample_author" = "Author";
+"player_preview_sample_narrator" = "Narrator";
+"player_preview_sample_chapter" = "Chapter Title";
+"player_preview_sample_episode" = "Episode Title";
+"player_preview_sample_show" = "Show Name";
+"player_preview_sample_station" = "Station Name";
+"player_preview_sample_station_now" = "On Air Now";
 
 "cloud_download_quota_exceeded %@" = "%@ has used up this month’s download allowance. Playback resumes when it resets next month.";
 "source_diag_download_title" = "Download";

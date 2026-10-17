@@ -5984,7 +5984,6 @@
 "player_controls_empty" = "空着";
 "player_controls_slot_hint" = "选择放在这里的按钮";
 "player_controls_picker_footer" = "选已经在别处的按钮，两格会对调。";
-"player_controls_surface_header" = "界面";
 "player_controls_surface_cover" = "封面";
 "player_controls_surface_lyrics" = "歌词";
 "player_controls_surface_immersive_lyrics" = "全屏歌词";
@@ -5993,7 +5992,7 @@
 "player_controls_lyrics_own_buttons" = "单独设置歌词界面的按钮";
 "player_controls_lyrics_own_buttons_footer" = "关闭时看歌词和看封面用同一组按钮。打开后先从封面那一组抄一份，再按需要改。";
 "player_controls_lyrics_preview_footer_follow" = "六个位置和封面界面一样，打开上面的开关才能单独换。顶上歌名旁多出来的那一格随时可以换。";
-"player_controls_lyrics_preview_footer_own" = "点虚线框换按钮。看歌词时（包括手机横屏和折叠屏分栏里开着歌词时）用这一组；状态行和「更多」里的项跟封面界面一样。";
+"player_controls_lyrics_preview_footer_own" = "点一行换按钮。看歌词时（包括手机横屏和折叠屏分栏里开着歌词时）用这一组；状态行和「更多」里的项跟封面界面一样。";
 "player_controls_lyrics_collapse" = "上滑歌词时收起播放控件";
 "player_controls_lyrics_collapse_footer" = "往上翻歌词时把进度条和下面的按钮收起来，让歌词铺满；往回拉不会收起。点歌词空白处叫回来。";
 "player_controls_slot_lyrics_extra" = "歌词页歌名旁";
@@ -6298,7 +6297,7 @@
 "player_controls_spoken_slot_automatic" = "自动";
 "player_controls_spoken_slot_automatic_sides" = "有文字稿时左边放文字稿、右边放目录（播客是节目说明）；没有时空着，上一章 / 下一章照旧在它们自己的位置。";
 "player_controls_spoken_slot_automatic_part_row" = "上一章 / 下一章，跟下面「上一章 / 下一章」开关走。";
-"player_controls_spoken_slot_footer" = "点虚线框换按钮，也可以留空或选「自动」。摆进这几格的按钮不再在功能块或右上角重复出现；手机横屏、iPad 横屏按各自的版面摆放。设置经 iCloud 同步。";
+"player_controls_spoken_slot_footer" = "点一行换按钮，也可以留空或选「自动」。摆进这几格的按钮不再在功能块或右上角重复出现；手机横屏、iPad 横屏按各自的版面摆放。设置经 iCloud 同步。";
 "player_controls_spoken_slot_picker_footer" = "选已经在另一格的按钮，两格会对调。「自动」和原来的摆法一样。";
 "player_controls_spoken_source" = "显示音乐源";
 "player_controls_spoken_source_footer" = "有不止一个音乐源时，播放页最下面那行写出这本书来自哪个源。";
@@ -6454,15 +6453,19 @@
 "player_skip_style_track" = "带竖线";
 "player_skip_style_filled_circle" = "圆底";
 "player_skip_style_outlined_circle" = "圆圈";
-"player_preview_sample_title" = "歌曲名称";
-"player_preview_sample_artist" = "艺人 · 专辑";
-"player_preview_sample_lyric" = "这里是正在唱的那一句歌词";
 "player_controls_slots_title" = "按钮位置";
 "player_controls_slots_info" = "点一行换按钮，也可以留空；在预览的实际大小里点左上角的铅笔，可以直接点虚线框换。选已经在别处的按钮，两格会对调。没放在页面上的按钮都在「更多」里；手机横屏、iPad 和折叠屏侧栏按各自的版面摆放同一组按钮。设置经 iCloud 同步。";
-"player_style_preview_pip_hint" = "预览浮在页面上，跟着这一页的设置实时变。可以拖到任意一角，点一下放大或缩小，角上的键看实际大小。";
+"player_style_preview_pip_hint" = "预览浮在页面上，跟着这一页的设置实时变。可以拖到任意位置，双指捏合调大小；下面那一排切换界面、看实际大小。";
 "player_style_preview_title" = "播放页预览";
-"player_style_preview_toggle_size" = "放大或缩小";
 "player_style_preview_edit_buttons" = "编辑按钮位置";
+"player_preview_sample_book" = "有声书书名";
+"player_preview_sample_author" = "作者";
+"player_preview_sample_narrator" = "演播";
+"player_preview_sample_chapter" = "章节标题";
+"player_preview_sample_episode" = "单集标题";
+"player_preview_sample_show" = "节目名称";
+"player_preview_sample_station" = "电台名称";
+"player_preview_sample_station_now" = "正在播出的节目";
 
 "cloud_download_quota_exceeded %@" = "%@本月的下载流量已用完，要等下月重置后才能继续播放。";
 "source_diag_download_title" = "下载";

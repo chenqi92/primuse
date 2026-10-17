@@ -5868,7 +5868,6 @@
 "player_controls_empty" = "留空";
 "player_controls_slot_hint" = "選擇放在這裡的按鈕";
 "player_controls_picker_footer" = "選已經在別處的按鈕，兩格會對調。";
-"player_controls_surface_header" = "介面";
 "player_controls_surface_cover" = "封面";
 "player_controls_surface_lyrics" = "歌詞";
 "player_controls_surface_immersive_lyrics" = "全螢幕歌詞";
@@ -5877,7 +5876,7 @@
 "player_controls_lyrics_own_buttons" = "單獨設定歌詞介面的按鈕";
 "player_controls_lyrics_own_buttons_footer" = "關閉時看歌詞和看封面用同一組按鈕。打開後先從封面那一組抄一份，再按需要改。";
 "player_controls_lyrics_preview_footer_follow" = "六個位置和封面介面一樣，打開上面的開關才能單獨換。頂上歌名旁多出來的那一格隨時可以換。";
-"player_controls_lyrics_preview_footer_own" = "點虛線框換按鈕。看歌詞時（包括手機橫向和摺疊機分欄裡開著歌詞時）用這一組；狀態列和「更多」裡的項目跟封面介面一樣。";
+"player_controls_lyrics_preview_footer_own" = "點一行換按鈕。看歌詞時（包括手機橫向和摺疊機分欄裡開著歌詞時）用這一組；狀態列和「更多」裡的項目跟封面介面一樣。";
 "player_controls_lyrics_collapse" = "上滑歌詞時收起播放控制項";
 "player_controls_lyrics_collapse_footer" = "往上翻歌詞時把進度列和下面的按鈕收起來，讓歌詞鋪滿；往回拉不會收起。點歌詞空白處叫回來。";
 "player_controls_slot_lyrics_extra" = "歌詞頁歌名旁";
@@ -6182,7 +6181,7 @@
 "player_controls_spoken_slot_automatic" = "自動";
 "player_controls_spoken_slot_automatic_sides" = "有文字稿時左邊放文字稿、右邊放目錄（Podcast 是節目說明）；沒有時空著，上一章 / 下一章照舊在它們自己的位置。";
 "player_controls_spoken_slot_automatic_part_row" = "上一章 / 下一章，跟下面「上一章 / 下一章」開關走。";
-"player_controls_spoken_slot_footer" = "點虛線框換按鈕，也可以留空或選「自動」。擺進這幾格的按鈕不再在功能塊或右上角重複出現；手機橫向、iPad 橫向按各自的版面擺放。設定經 iCloud 同步。";
+"player_controls_spoken_slot_footer" = "點一行換按鈕，也可以留空或選「自動」。擺進這幾格的按鈕不再在功能塊或右上角重複出現；手機橫向、iPad 橫向按各自的版面擺放。設定經 iCloud 同步。";
 "player_controls_spoken_slot_picker_footer" = "選已經在另一格的按鈕，兩格會對調。「自動」和原來的擺法一樣。";
 "player_controls_spoken_source" = "顯示音樂來源";
 "player_controls_spoken_source_footer" = "有不止一個音樂來源時，播放頁最下面那行寫出這本書來自哪個來源。";
@@ -6338,15 +6337,19 @@
 "player_skip_style_track" = "帶豎線";
 "player_skip_style_filled_circle" = "圓底";
 "player_skip_style_outlined_circle" = "圓圈";
-"player_preview_sample_title" = "歌曲名稱";
-"player_preview_sample_artist" = "藝人 · 專輯";
-"player_preview_sample_lyric" = "這裡是正在唱的那一句歌詞";
 "player_controls_slots_title" = "按鈕位置";
 "player_controls_slots_info" = "點一行換按鈕，也可以留空；在預覽的實際大小裡點左上角的鉛筆，可以直接點虛線框換。選已經在別處的按鈕，兩格會對調。沒放在頁面上的按鈕都在「更多」裡；手機橫向、iPad 和摺疊機側欄按各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
-"player_style_preview_pip_hint" = "預覽浮在頁面上，跟著這一頁的設定即時變。可以拖到任意一角，點一下放大或縮小，角上的鍵看實際大小。";
+"player_style_preview_pip_hint" = "預覽浮在頁面上，跟著這一頁的設定即時變。可以拖到任意位置，雙指捏合調大小；下面那一排切換介面、看實際大小。";
 "player_style_preview_title" = "播放頁預覽";
-"player_style_preview_toggle_size" = "放大或縮小";
 "player_style_preview_edit_buttons" = "編輯按鈕位置";
+"player_preview_sample_book" = "有聲書書名";
+"player_preview_sample_author" = "作者";
+"player_preview_sample_narrator" = "演播";
+"player_preview_sample_chapter" = "章節標題";
+"player_preview_sample_episode" = "單集標題";
+"player_preview_sample_show" = "節目名稱";
+"player_preview_sample_station" = "電台名稱";
+"player_preview_sample_station_now" = "正在播出的節目";
 
 "cloud_download_quota_exceeded %@" = "%@本月的下載流量已用完，要等下個月重設後才能繼續播放。";
 "source_diag_download_title" = "下載";

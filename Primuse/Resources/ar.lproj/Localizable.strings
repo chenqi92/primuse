@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "فارغ";
 "player_controls_slot_hint" = "اختر الزر لهذا المكان";
 "player_controls_picker_footer" = "اختيار زر موجود في مكان آخر يبدّل المكانين.";
-"player_controls_surface_header" = "الشاشة";
 "player_controls_surface_cover" = "الغلاف";
 "player_controls_surface_lyrics" = "الكلمات";
 "player_controls_surface_immersive_lyrics" = "الكلمات بملء الشاشة";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "أزرار خاصة بالكلمات";
 "player_controls_lyrics_own_buttons_footer" = "عند الإيقاف، تستخدم الكلمات والغلاف الأزرار نفسها. عند التشغيل تبدأ بنسخة من أزرار الغلاف.";
 "player_controls_lyrics_preview_footer_follow" = "الأماكن الستة مطابقة لشاشة الغلاف. شغّل المفتاح أعلاه لتغييرها بشكل مستقل. يمكن تغيير المكان الإضافي بجانب العنوان في أي وقت.";
-"player_controls_lyrics_preview_footer_own" = "اضغط على إطار منقّط لتغيير زر. تُستخدم هذه المجموعة أثناء عرض الكلمات، بما في ذلك الوضع الأفقي والعرض المقسّم على الأجهزة القابلة للطي. يتبع سطر الحالة وعناصر قائمة «المزيد» شاشة الغلاف.";
+"player_controls_lyrics_preview_footer_own" = "اضغط على صف لتغيير زر. تُستخدم هذه المجموعة أثناء عرض الكلمات، بما في ذلك الوضع الأفقي والعرض المقسّم على الأجهزة القابلة للطي. يتبع سطر الحالة وعناصر قائمة «المزيد» شاشة الغلاف.";
 "player_controls_lyrics_collapse" = "إخفاء عناصر التحكم عند تمرير الكلمات";
 "player_controls_lyrics_collapse_footer" = "يؤدي سحب الكلمات إلى إخفاء شريط التقدم والأزرار أسفله لتملأ الكلمات الشاشة. اضغط على مساحة فارغة في الكلمات لإعادتها.";
 "player_controls_slot_lyrics_extra" = "بجانب العنوان (الكلمات)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "تلقائي";
 "player_controls_spoken_slot_automatic_sides" = "مع وجود نص مكتوب: النص على اليسار، والفهرس أو ملاحظات الحلقة على اليمين. بدونه يبقى فارغًا، ويبقى الفصل السابق والتالي في مكانهما.";
 "player_controls_spoken_slot_automatic_part_row" = "الفصل السابق / التالي، حسب مفتاح «الفصل السابق / التالي» أدناه.";
-"player_controls_spoken_slot_footer" = "المس مربعًا منقطًا لتغيير زره أو تركه فارغًا أو اختيار «تلقائي». الأزرار الموضوعة هنا لا تتكرر في المربعات ولا أعلى اليمين، ويرتّبها iPhone وiPad بالوضع الأفقي حسب تخطيطهما. تتم المزامنة عبر iCloud.";
+"player_controls_spoken_slot_footer" = "المس صفًا لتغيير زره أو تركه فارغًا أو اختيار «تلقائي». الأزرار الموضوعة هنا لا تتكرر في المربعات ولا أعلى اليمين، ويرتّبها iPhone وiPad بالوضع الأفقي حسب تخطيطهما. تتم المزامنة عبر iCloud.";
 "player_controls_spoken_slot_picker_footer" = "اختيار زر موجود في مكان آخر يبدّل المكانين. «تلقائي» يحافظ على الترتيب الأصلي.";
 "player_controls_spoken_source" = "إظهار مصدر الموسيقى";
 "player_controls_spoken_source_footer" = "عند وجود أكثر من مصدر موسيقى، يُظهر السطر الأخير في المشغل المصدر الذي جاء منه الكتاب.";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "مع خط";
 "player_skip_style_filled_circle" = "ممتلئ";
 "player_skip_style_outlined_circle" = "محيط";
-"player_preview_sample_title" = "عنوان الأغنية";
-"player_preview_sample_artist" = "الفنان · الألبوم";
-"player_preview_sample_lyric" = "يظهر هنا السطر الذي يُغنّى الآن";
 "player_controls_slots_title" = "مواضع الأزرار";
 "player_controls_slots_info" = "اضغط على صف لاختيار زر، أو اتركه فارغًا. في المعاينة بالحجم الفعلي اضغط القلم في الزاوية العلوية لتغيير الأزرار مباشرة بالضغط على المربعات المنقطة. اختيار زر موجود في مكان آخر يبدّل الموضعين. الأزرار غير الموجودة في الصفحة تجدها في قائمة «المزيد»، ويرتّب الوضع الأفقي على iPhone وiPad والعمود الجانبي للأجهزة القابلة للطي المجموعة نفسها بتخطيطه الخاص. تتم مزامنة الإعدادات عبر iCloud.";
-"player_style_preview_pip_hint" = "تطفو المعاينة فوق الصفحة وتتبع هذه الإعدادات مباشرة. اسحبها إلى أي زاوية، واضغط عليها لتكبيرها أو تصغيرها، واستخدم الزر في زاويتها لعرضها بالحجم الفعلي.";
+"player_style_preview_pip_hint" = "تطفو المعاينة فوق الصفحة وتتبع هذه الإعدادات مباشرة. اسحبها إلى أي مكان وقرّب إصبعيك أو باعدهما لتغيير حجمها؛ الأزرار أسفلها تبدّل الشاشات وتعرضها بالحجم الفعلي.";
 "player_style_preview_title" = "معاينة المشغل";
-"player_style_preview_toggle_size" = "تكبير أو تصغير";
 "player_style_preview_edit_buttons" = "تعديل مواضع الأزرار";
+"player_preview_sample_book" = "عنوان الكتاب الصوتي";
+"player_preview_sample_author" = "المؤلف";
+"player_preview_sample_narrator" = "الراوي";
+"player_preview_sample_chapter" = "عنوان الفصل";
+"player_preview_sample_episode" = "عنوان الحلقة";
+"player_preview_sample_show" = "اسم البرنامج";
+"player_preview_sample_station" = "اسم المحطة";
+"player_preview_sample_station_now" = "على الهواء الآن";
 
 "cloud_download_quota_exceeded %@" = "استنفد %@ حصة التنزيل لهذا الشهر. يمكنك التشغيل مجددًا عند إعادة تعيينها الشهر القادم.";
 "source_diag_download_title" = "التنزيل";

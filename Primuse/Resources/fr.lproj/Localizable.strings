@@ -5891,7 +5891,6 @@
 "player_controls_empty" = "Vide";
 "player_controls_slot_hint" = "Choisissez le bouton pour cet emplacement";
 "player_controls_picker_footer" = "Choisir un bouton déjà placé ailleurs échange les deux emplacements.";
-"player_controls_surface_header" = "Écran";
 "player_controls_surface_cover" = "Pochette";
 "player_controls_surface_lyrics" = "Paroles";
 "player_controls_surface_immersive_lyrics" = "Paroles plein écran";
@@ -5900,7 +5899,7 @@
 "player_controls_lyrics_own_buttons" = "Boutons distincts pour les paroles";
 "player_controls_lyrics_own_buttons_footer" = "Désactivé : paroles et pochette partagent les mêmes boutons. Activé : on part d’une copie des boutons de la pochette.";
 "player_controls_lyrics_preview_footer_follow" = "Les six emplacements suivent l’écran Pochette. Activez l’option ci-dessus pour les modifier séparément. L’emplacement en plus à côté du titre peut toujours être changé.";
-"player_controls_lyrics_preview_footer_own" = "Touchez un cadre en pointillés pour changer un bouton. Ce jeu s’applique quand les paroles sont affichées, y compris en paysage et en vue partagée sur pliable. La ligne d’état et les éléments du menu Plus suivent l’écran Pochette.";
+"player_controls_lyrics_preview_footer_own" = "Touchez une ligne pour changer un bouton. Ce jeu s’applique quand les paroles sont affichées, y compris en paysage et en vue partagée sur pliable. La ligne d’état et les éléments du menu Plus suivent l’écran Pochette.";
 "player_controls_lyrics_collapse" = "Masquer les commandes en faisant défiler les paroles";
 "player_controls_lyrics_collapse_footer" = "Faire glisser les paroles masque la barre de progression et les boutons en dessous pour que les paroles remplissent l’écran. Touchez une zone vide des paroles pour les faire revenir.";
 "player_controls_slot_lyrics_extra" = "À côté du titre (paroles)";
@@ -6205,7 +6204,7 @@
 "player_controls_spoken_slot_automatic" = "Automatique";
 "player_controls_spoken_slot_automatic_sides" = "Avec une transcription : la transcription à gauche, la table des matières ou les notes à droite. Sans transcription, vide ; chapitre précédent et suivant restent à leur place.";
 "player_controls_spoken_slot_automatic_part_row" = "Chapitre précédent / suivant, selon le réglage « Chapitre précédent / suivant » ci-dessous.";
-"player_controls_spoken_slot_footer" = "Touchez une case en pointillés pour changer son bouton, la laisser vide ou choisir Automatique. Les boutons placés ici ne sont pas répétés dans les tuiles ni en haut à droite ; l’iPhone et l’iPad en paysage les disposent selon leur propre mise en page. Synchronisé avec iCloud.";
+"player_controls_spoken_slot_footer" = "Touchez une ligne pour changer le bouton, laisser la place vide ou choisir Automatique. Les boutons placés ici ne sont pas répétés dans les tuiles ni en haut à droite ; l’iPhone et l’iPad en paysage les disposent selon leur propre mise en page. Synchronisé avec iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Choisir un bouton déjà placé ailleurs échange les deux emplacements. Automatique conserve la disposition d’origine.";
 "player_controls_spoken_source" = "Afficher la source musicale";
 "player_controls_spoken_source_footer" = "Avec plusieurs sources musicales, la dernière ligne du lecteur indique de quelle source vient le livre.";
@@ -6361,15 +6360,19 @@
 "player_skip_style_track" = "Avec barre";
 "player_skip_style_filled_circle" = "Plein";
 "player_skip_style_outlined_circle" = "Contour";
-"player_preview_sample_title" = "Titre du morceau";
-"player_preview_sample_artist" = "Artiste · Album";
-"player_preview_sample_lyric" = "La ligne chantée s’affiche ici";
 "player_controls_slots_title" = "Emplacement des boutons";
 "player_controls_slots_info" = "Touchez une ligne pour choisir un bouton, ou laissez-la vide. Dans l’aperçu en taille réelle, touchez le crayon en haut à gauche pour changer les boutons directement en touchant les cadres en pointillés. Choisir un bouton déjà placé ailleurs échange les deux. Les boutons absents de la page se trouvent dans le menu Plus ; l’iPhone en paysage, l’iPad et la colonne latérale des appareils pliables disposent les mêmes boutons à leur façon. Les réglages se synchronisent via iCloud.";
-"player_style_preview_pip_hint" = "L’aperçu flotte au-dessus de la page et suit ces réglages en direct. Faites-le glisser dans n’importe quel coin, touchez-le pour l’agrandir ou le réduire, et utilisez le bouton dans son coin pour le voir en taille réelle.";
+"player_style_preview_pip_hint" = "L’aperçu flotte au-dessus de la page et suit ces réglages en direct. Faites-le glisser où vous voulez et pincez pour le redimensionner ; les boutons en dessous changent d’écran et l’affichent en taille réelle.";
 "player_style_preview_title" = "Aperçu du lecteur";
-"player_style_preview_toggle_size" = "Agrandir ou réduire";
 "player_style_preview_edit_buttons" = "Modifier l’emplacement des boutons";
+"player_preview_sample_book" = "Titre du livre audio";
+"player_preview_sample_author" = "Auteur";
+"player_preview_sample_narrator" = "Narrateur";
+"player_preview_sample_chapter" = "Titre du chapitre";
+"player_preview_sample_episode" = "Titre de l’épisode";
+"player_preview_sample_show" = "Nom de l’émission";
+"player_preview_sample_station" = "Nom de la station";
+"player_preview_sample_station_now" = "À l’antenne";
 
 "cloud_download_quota_exceeded %@" = "%@ : le quota de téléchargement de ce mois est épuisé. La lecture reprendra après sa réinitialisation le mois prochain.";
 "source_diag_download_title" = "Téléchargement";

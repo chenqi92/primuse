@@ -5891,7 +5891,6 @@
 "player_controls_empty" = "Leer";
 "player_controls_slot_hint" = "Taste für diese Position wählen";
 "player_controls_picker_footer" = "Wählst du eine Taste, die schon woanders liegt, tauschen die beiden Positionen.";
-"player_controls_surface_header" = "Ansicht";
 "player_controls_surface_cover" = "Cover";
 "player_controls_surface_lyrics" = "Songtext";
 "player_controls_surface_immersive_lyrics" = "Vollbild-Text";
@@ -5900,7 +5899,7 @@
 "player_controls_lyrics_own_buttons" = "Eigene Tasten für Songtext";
 "player_controls_lyrics_own_buttons_footer" = "Aus: Songtext und Cover teilen sich eine Tastengruppe. Beim Einschalten werden zuerst die Cover-Tasten übernommen.";
 "player_controls_lyrics_preview_footer_follow" = "Die sechs Plätze entsprechen der Cover-Ansicht. Schalte oben den Schalter ein, um sie getrennt zu ändern. Den zusätzlichen Platz neben dem Titel kannst du jederzeit ändern.";
-"player_controls_lyrics_preview_footer_own" = "Tippe auf ein gestricheltes Feld, um eine Taste zu ändern. Diese Gruppe gilt, solange der Songtext angezeigt wird – auch im Querformat und in der geteilten Ansicht. Statuszeile und „Mehr“-Einträge richten sich nach der Cover-Ansicht.";
+"player_controls_lyrics_preview_footer_own" = "Tippe auf eine Zeile, um eine Taste zu ändern. Diese Gruppe gilt, solange der Songtext angezeigt wird – auch im Querformat und in der geteilten Ansicht. Statuszeile und „Mehr“-Einträge richten sich nach der Cover-Ansicht.";
 "player_controls_lyrics_collapse" = "Bedienelemente beim Scrollen ausblenden";
 "player_controls_lyrics_collapse_footer" = "Beim Ziehen des Songtexts werden Fortschrittsbalken und Tasten darunter ausgeblendet, damit der Text den Bildschirm füllt. Tippe auf eine leere Stelle im Text, um sie zurückzuholen.";
 "player_controls_slot_lyrics_extra" = "Neben dem Titel (Songtext)";
@@ -6205,7 +6204,7 @@
 "player_controls_spoken_slot_automatic" = "Automatisch";
 "player_controls_spoken_slot_automatic_sides" = "Mit Transkript: links das Transkript, rechts Inhalt oder Shownotes. Ohne Transkript leer; vorheriges und nächstes Kapitel bleiben an ihrem Platz.";
 "player_controls_spoken_slot_automatic_part_row" = "Vorheriges / nächstes Kapitel, folgt dem Schalter „Vorheriges / nächstes Kapitel“ unten.";
-"player_controls_spoken_slot_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, es leer zu lassen oder „Automatisch“ zu wählen. Tasten hier erscheinen nicht noch einmal bei den Kacheln oder oben rechts; iPhone und iPad im Querformat ordnen sie für ihr eigenes Layout an. Wird über iCloud synchronisiert.";
+"player_controls_spoken_slot_footer" = "Tippe auf eine Zeile, um die Taste zu ändern, den Platz leer zu lassen oder „Automatisch“ zu wählen. Tasten hier erscheinen nicht noch einmal bei den Kacheln oder oben rechts; iPhone und iPad im Querformat ordnen sie für ihr eigenes Layout an. Wird über iCloud synchronisiert.";
 "player_controls_spoken_slot_picker_footer" = "Wählst du eine Taste, die schon an einer anderen Stelle liegt, werden die beiden getauscht. „Automatisch“ behält die ursprüngliche Anordnung.";
 "player_controls_spoken_source" = "Musikquelle anzeigen";
 "player_controls_spoken_source_footer" = "Bei mehr als einer Musikquelle zeigt die unterste Zeile des Players, aus welcher Quelle das Buch stammt.";
@@ -6361,15 +6360,19 @@
 "player_skip_style_track" = "Mit Strich";
 "player_skip_style_filled_circle" = "Gefüllt";
 "player_skip_style_outlined_circle" = "Umriss";
-"player_preview_sample_title" = "Songtitel";
-"player_preview_sample_artist" = "Künstler · Album";
-"player_preview_sample_lyric" = "Hier steht die gerade gesungene Zeile";
 "player_controls_slots_title" = "Tastenpositionen";
 "player_controls_slots_info" = "Tippe auf eine Zeile, um eine Taste zu wählen, oder lass sie leer. In der Vorschau in Originalgröße tippst du oben links auf den Stift und änderst Tasten direkt über die gestrichelten Felder. Wählst du eine Taste, die schon woanders liegt, tauschen beide die Plätze. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat, iPad und die Seitenspalte auf Faltgeräten ordnen dieselben Tasten im eigenen Layout an. Die Einstellungen werden über iCloud synchronisiert.";
-"player_style_preview_pip_hint" = "Die Vorschau schwebt über der Seite und folgt diesen Einstellungen live. Zieh sie in eine beliebige Ecke, tippe sie an, um sie zu vergrößern oder zu verkleinern, und öffne sie mit der Taste in ihrer Ecke in Originalgröße.";
+"player_style_preview_pip_hint" = "Die Vorschau schwebt über der Seite und folgt diesen Einstellungen live. Zieh sie an eine beliebige Stelle und ändere die Größe mit zwei Fingern; mit den Tasten darunter wechselst du die Ansicht oder siehst sie in Originalgröße.";
 "player_style_preview_title" = "Player-Vorschau";
-"player_style_preview_toggle_size" = "Vergrößern oder verkleinern";
 "player_style_preview_edit_buttons" = "Tastenpositionen bearbeiten";
+"player_preview_sample_book" = "Hörbuchtitel";
+"player_preview_sample_author" = "Autor";
+"player_preview_sample_narrator" = "Sprecher";
+"player_preview_sample_chapter" = "Kapiteltitel";
+"player_preview_sample_episode" = "Folgentitel";
+"player_preview_sample_show" = "Name des Podcasts";
+"player_preview_sample_station" = "Sendername";
+"player_preview_sample_station_now" = "Gerade auf Sendung";
 
 "cloud_download_quota_exceeded %@" = "%@: Das Download-Kontingent für diesen Monat ist aufgebraucht. Nach dem Zurücksetzen im nächsten Monat ist die Wiedergabe wieder möglich.";
 "source_diag_download_title" = "Download";

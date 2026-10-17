@@ -5892,7 +5892,6 @@
 "player_controls_empty" = "空ける";
 "player_controls_slot_hint" = "この場所に置くボタンを選択";
 "player_controls_picker_footer" = "ほかの場所にあるボタンを選ぶと、2 つの場所が入れ替わります。";
-"player_controls_surface_header" = "画面";
 "player_controls_surface_cover" = "アートワーク";
 "player_controls_surface_lyrics" = "歌詞";
 "player_controls_surface_immersive_lyrics" = "全画面歌詞";
@@ -5901,7 +5900,7 @@
 "player_controls_lyrics_own_buttons" = "歌詞画面のボタンを個別に設定";
 "player_controls_lyrics_own_buttons_footer" = "オフのときは歌詞とアートワークで同じボタンを使います。オンにすると、まずアートワークのボタンをコピーしてから変更できます。";
 "player_controls_lyrics_preview_footer_follow" = "6 つの位置はアートワーク画面と同じです。上のスイッチをオンにすると個別に変更できます。曲名の横に増える 1 枠はいつでも変更できます。";
-"player_controls_lyrics_preview_footer_own" = "点線の枠をタップしてボタンを変更します。歌詞を表示している間（横向きや折りたたみの分割表示で歌詞を開いているときを含む）はこの組を使います。ステータス行と「その他」の項目はアートワーク画面に従います。";
+"player_controls_lyrics_preview_footer_own" = "行をタップしてボタンを変更します。歌詞を表示している間（横向きや折りたたみの分割表示で歌詞を開いているときを含む）はこの組を使います。ステータス行と「その他」の項目はアートワーク画面に従います。";
 "player_controls_lyrics_collapse" = "歌詞をスクロールしたらコントロールを隠す";
 "player_controls_lyrics_collapse_footer" = "歌詞をドラッグすると、進行バーと下のボタンを隠して歌詞を画面いっぱいに表示します。歌詞の空白部分をタップすると戻ります。";
 "player_controls_slot_lyrics_extra" = "歌詞画面の曲名の横";
@@ -6206,7 +6205,7 @@
 "player_controls_spoken_slot_automatic" = "自動";
 "player_controls_spoken_slot_automatic_sides" = "文字起こしがあるときは左に文字起こし、右に目次(またはエピソード説明)。ないときは空のまま、前の章 / 次の章はそれぞれの位置に残ります。";
 "player_controls_spoken_slot_automatic_part_row" = "前の章 / 次の章。下の「前の章 / 次の章」スイッチに従います。";
-"player_controls_spoken_slot_footer" = "破線の枠をタップするとボタンを変えたり、空けたり、「自動」にしたりできます。ここに置いたボタンはタイルや右上に重ねて表示されません。横向きの iPhone と iPad はそれぞれのレイアウトで配置します。iCloud で同期されます。";
+"player_controls_spoken_slot_footer" = "行をタップするとボタンを変えたり、空けたり、「自動」にしたりできます。ここに置いたボタンはタイルや右上に重ねて表示されません。横向きの iPhone と iPad はそれぞれのレイアウトで配置します。iCloud で同期されます。";
 "player_controls_spoken_slot_picker_footer" = "別の位置にあるボタンを選ぶと、2 つの位置が入れ替わります。「自動」は元の配置のままです。";
 "player_controls_spoken_source" = "ミュージックソースを表示";
 "player_controls_spoken_source_footer" = "ミュージックソースが複数あるとき、プレーヤーの一番下の行にこの本のソースを表示します。";
@@ -6362,15 +6361,19 @@
 "player_skip_style_track" = "縦線付き";
 "player_skip_style_filled_circle" = "塗りつぶし";
 "player_skip_style_outlined_circle" = "輪郭";
-"player_preview_sample_title" = "曲名";
-"player_preview_sample_artist" = "アーティスト · アルバム";
-"player_preview_sample_lyric" = "いま歌っている歌詞がここに表示されます";
 "player_controls_slots_title" = "ボタンの配置";
 "player_controls_slots_info" = "行をタップしてボタンを選びます。空けておくこともできます。実際のサイズのプレビューで左上の鉛筆をタップすると、点線の枠を直接タップして変更できます。すでに別の場所にあるボタンを選ぶと入れ替わります。画面に置いていないボタンは「その他」にあります。iPhone の横向き、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトで配置します。設定は iCloud で同期されます。";
-"player_style_preview_pip_hint" = "プレビューはページの上に浮かび、ここでの設定にリアルタイムで追従します。好きな隅へドラッグでき、タップで拡大・縮小、角のボタンで実際のサイズを表示します。";
+"player_style_preview_pip_hint" = "プレビューはページの上に浮かび、ここでの設定にリアルタイムで追従します。好きな位置にドラッグでき、ピンチで大きさを変えられます。下のボタンで画面を切り替えたり実際のサイズで表示したりできます。";
 "player_style_preview_title" = "再生画面のプレビュー";
-"player_style_preview_toggle_size" = "拡大・縮小";
 "player_style_preview_edit_buttons" = "ボタンの配置を編集";
+"player_preview_sample_book" = "オーディオブックのタイトル";
+"player_preview_sample_author" = "著者";
+"player_preview_sample_narrator" = "ナレーター";
+"player_preview_sample_chapter" = "章のタイトル";
+"player_preview_sample_episode" = "エピソードのタイトル";
+"player_preview_sample_show" = "番組名";
+"player_preview_sample_station" = "局名";
+"player_preview_sample_station_now" = "放送中の番組";
 
 "cloud_download_quota_exceeded %@" = "%@ の今月のダウンロード容量を使い切りました。来月リセットされると再生できます。";
 "source_diag_download_title" = "ダウンロード";

@@ -5797,7 +5797,6 @@
 "player_controls_empty" = "Puste";
 "player_controls_slot_hint" = "Wybierz przycisk dla tego miejsca";
 "player_controls_picker_footer" = "Wybranie przycisku, który jest już gdzie indziej, zamienia oba miejsca.";
-"player_controls_surface_header" = "Ekran";
 "player_controls_surface_cover" = "Okładka";
 "player_controls_surface_lyrics" = "Tekst";
 "player_controls_surface_immersive_lyrics" = "Tekst na pełnym ekranie";
@@ -5806,7 +5805,7 @@
 "player_controls_lyrics_own_buttons" = "Osobne przyciski dla tekstu";
 "player_controls_lyrics_own_buttons_footer" = "Wyłączone: tekst i okładka mają wspólne przyciski. Po włączeniu zaczynasz od kopii przycisków okładki.";
 "player_controls_lyrics_preview_footer_follow" = "Sześć miejsc odpowiada ekranowi Okładka. Włącz przełącznik powyżej, aby zmieniać je osobno. Dodatkowe miejsce obok tytułu można zmienić zawsze.";
-"player_controls_lyrics_preview_footer_own" = "Stuknij przerywaną ramkę, aby zmienić przycisk. Ten zestaw obowiązuje, gdy widać tekst, także w poziomie i w widoku dzielonym na składanym urządzeniu. Wiersz stanu i pozycje menu Więcej są takie jak na ekranie Okładka.";
+"player_controls_lyrics_preview_footer_own" = "Stuknij wiersz, aby zmienić przycisk. Ten zestaw obowiązuje, gdy widać tekst, także w poziomie i w widoku dzielonym na składanym urządzeniu. Wiersz stanu i pozycje menu Więcej są takie jak na ekranie Okładka.";
 "player_controls_lyrics_collapse" = "Ukrywaj sterowanie podczas przewijania tekstu";
 "player_controls_lyrics_collapse_footer" = "Przeciągnięcie tekstu ukrywa pasek postępu i przyciski pod nim, aby tekst wypełnił ekran. Stuknij puste miejsce w tekście, aby je przywrócić.";
 "player_controls_slot_lyrics_extra" = "Obok tytułu (tekst)";
@@ -6111,7 +6110,7 @@
 "player_controls_spoken_slot_automatic" = "Automatycznie";
 "player_controls_spoken_slot_automatic_sides" = "Gdy jest transkrypcja: po lewej transkrypcja, po prawej spis treści lub notatki odcinka. Bez niej puste; poprzedni i następny rozdział zostają na swoim miejscu.";
 "player_controls_spoken_slot_automatic_part_row" = "Poprzedni / następny rozdział, zgodnie z przełącznikiem „Poprzedni / następny rozdział” poniżej.";
-"player_controls_spoken_slot_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, zostawić puste miejsce albo wybrać „Automatycznie”. Przyciski umieszczone tutaj nie powtarzają się w kafelkach ani w prawym górnym rogu; iPhone i iPad w poziomie układają je po swojemu. Synchronizuje się z iCloud.";
+"player_controls_spoken_slot_footer" = "Stuknij wiersz, aby zmienić przycisk, zostawić puste miejsce albo wybrać „Automatycznie”. Przyciski umieszczone tutaj nie powtarzają się w kafelkach ani w prawym górnym rogu; iPhone i iPad w poziomie układają je po swojemu. Synchronizuje się z iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Wybranie przycisku, który jest już w innym miejscu, zamienia je miejscami. „Automatycznie” zachowuje pierwotny układ.";
 "player_controls_spoken_source" = "Pokazuj źródło muzyki";
 "player_controls_spoken_source_footer" = "Gdy źródeł muzyki jest więcej niż jedno, ostatni wiersz odtwarzacza pokazuje, z którego źródła pochodzi książka.";
@@ -6267,15 +6266,19 @@
 "player_skip_style_track" = "Z kreską";
 "player_skip_style_filled_circle" = "Wypełnione";
 "player_skip_style_outlined_circle" = "Kontur";
-"player_preview_sample_title" = "Tytuł utworu";
-"player_preview_sample_artist" = "Wykonawca · Album";
-"player_preview_sample_lyric" = "Tu pojawia się właśnie śpiewany wers";
 "player_controls_slots_title" = "Rozmieszczenie przycisków";
 "player_controls_slots_info" = "Stuknij wiersz, aby wybrać przycisk, albo zostaw puste miejsce. W podglądzie w rzeczywistym rozmiarze stuknij ołówek w lewym górnym rogu i zmieniaj przyciski, stukając w przerywane ramki. Wybranie przycisku, który jest już gdzie indziej, zamienia je miejscami. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie, iPad i boczna kolumna urządzeń składanych układają ten sam zestaw po swojemu. Ustawienia synchronizują się przez iCloud.";
-"player_style_preview_pip_hint" = "Podgląd unosi się nad stroną i na bieżąco odzwierciedla te ustawienia. Przeciągnij go w dowolny róg, stuknij, aby powiększyć lub pomniejszyć, a przyciskiem w jego rogu zobaczysz rzeczywisty rozmiar.";
+"player_style_preview_pip_hint" = "Podgląd unosi się nad stroną i na bieżąco odzwierciedla te ustawienia. Przeciągnij go w dowolne miejsce i uszczypnij, aby zmienić rozmiar; przyciski pod nim przełączają ekrany i pokazują rzeczywisty rozmiar.";
 "player_style_preview_title" = "Podgląd odtwarzacza";
-"player_style_preview_toggle_size" = "Powiększ lub pomniejsz";
 "player_style_preview_edit_buttons" = "Edytuj rozmieszczenie przycisków";
+"player_preview_sample_book" = "Tytuł audiobooka";
+"player_preview_sample_author" = "Autor";
+"player_preview_sample_narrator" = "Lektor";
+"player_preview_sample_chapter" = "Tytuł rozdziału";
+"player_preview_sample_episode" = "Tytuł odcinka";
+"player_preview_sample_show" = "Nazwa audycji";
+"player_preview_sample_station" = "Nazwa stacji";
+"player_preview_sample_station_now" = "Teraz na antenie";
 
 "cloud_download_quota_exceeded %@" = "%@: wykorzystano limit pobierania na ten miesiąc. Odtwarzanie będzie możliwe po jego odnowieniu w przyszłym miesiącu.";
 "source_diag_download_title" = "Pobieranie";
