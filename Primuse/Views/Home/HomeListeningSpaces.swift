@@ -476,12 +476,18 @@ struct HomeSpotlightManagementView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // 勾选、排序方式、「清空」和完成键跟有声书 / 电台自己的颜色,和打开它的书架、电台页一致(#320);
+        // 不跟 App 主题色(可能正跟着封面变)。导航栏按钮不一定继承页面的 tint,单独再设一次。
+        .tint(spaceTint)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("done") { dismiss() }
+                    .tint(spaceTint)
             }
         }
     }
+
+    private var spaceTint: Color? { section.spotlightSpace?.tint }
 
     private var radioCandidates: [Candidate] {
         radioStore.stations.map { station in
