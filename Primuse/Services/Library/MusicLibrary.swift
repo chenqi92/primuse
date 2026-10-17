@@ -8199,11 +8199,11 @@ final class MusicLibrary {
     func visibleSongs(matching identities: [SongIdentity]) -> [Song] {
         guard !identities.isEmpty else { return [] }
         let resolutionIndex = makeIdentityResolutionIndex(for: identities)
-        let visibleIDs = Set(visibleSongs.map(\.id))
+        // 按 ID 查可见集, 不为几十首把整库可见歌曲建成一个集合。
         var seen = Set<String>()
         return identities.compactMap { identity in
             guard let songID = resolveIdentity(identity, using: resolutionIndex),
-                  visibleIDs.contains(songID),
+                  containsVisibleSong(id: songID),
                   seen.insert(songID).inserted else { return nil }
             return song(id: songID)
         }
@@ -8466,6 +8466,9 @@ final class MusicLibrary {
             pendingRevision: playlistPendingRevision
         )
     }
+
+    /// `SmartPlaylistEngine` 按输入版本记下的匹配结果, 跟着这个库实例走。
+    @ObservationIgnored var smartPlaylistMatchCache: [String: SmartPlaylistEngine.CacheEntry] = [:]
 
     @ObservationIgnored private var materializedPlaylistSongs:
         [String: (key: PlaylistMaterializationKey, songs: [Song])] = [:]

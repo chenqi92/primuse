@@ -31,6 +31,7 @@ struct SmartPlaylistDetailView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     @State private var showEditor = false
+    @State private var matchedCache = SmartPlaylistMatchedCache()
     @State private var showNoScraperSourceAlert = false
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放照旧按整张歌单。
     @State private var findText = ""
@@ -51,11 +52,16 @@ struct SmartPlaylistDetailView: View {
         library.smartPlaylists.first(where: { $0.id == smartPlaylistID })
     }
 
-    /// SmartPlaylistEngine.match 是 @MainActor 同步函数, 直接 computed 调用即可。
-    /// 几千歌 + 几条规则在主线程几十 ms, 不需要 async / Task。
+    /// 引擎按输入版本缓存匹配结果。这一页再按同一组输入记一份: 随机排序在页面上
+    /// 不会因为一次无关的重画就重新洗牌, 「播放全部」放的也正是眼前这一列。
     private var matched: [Song] {
         guard let smart else { return [] }
-        return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+        guard let inputs = SmartPlaylistEngine.inputs(for: smart, in: library, history: PlayHistoryStore.shared) else {
+            return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+        }
+        return matchedCache.songs(for: inputs) {
+            SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
+        }
     }
 
     private var findQuery: LibraryFindPolicy.Query? {
@@ -272,7 +278,8 @@ struct SmartPlaylistDetailView: View {
     private func legacyHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
         #if os(iOS)
         // 封面够多时头部换成封面墙（#114），墙面自带名称与歌曲数；手机横屏首屏放不下一面墙。
-        if usesCoverWallHeader, !usesCompactHeaderLayout, CollectionCoverWall.isAvailable(for: matched) {
+        if usesCoverWallHeader, !usesCompactHeaderLayout,
+           matchedCache.coverWallAvailable({ CollectionCoverWall.isAvailable(for: matched) }) {
             coverWallHeader(smart, matched: matched)
         } else {
             classicHeader(smart, matched: matched)
@@ -825,5 +832,28 @@ struct SmartPlaylistDetailView: View {
         case .lessThan: return "<"
         case .between: return "∈"
         }
+    }
+}
+
+/// 详情页的匹配结果与随它而定的封面墙判断, 按引擎的输入版本记一份。
+private final class SmartPlaylistMatchedCache {
+    private var inputs: SmartPlaylistEngine.MatchInputs?
+    private var songs: [Song] = []
+    private var coverWall: Bool?
+
+    func songs(for inputs: SmartPlaylistEngine.MatchInputs, make: () -> [Song]) -> [Song] {
+        if inputs == self.inputs { return songs }
+        songs = make()
+        self.inputs = inputs
+        coverWall = nil
+        return songs
+    }
+
+    /// 判断的是上面记着的这份结果, 随它一起失效。
+    func coverWallAvailable(_ check: () -> Bool) -> Bool {
+        if let coverWall { return coverWall }
+        let available = check()
+        coverWall = available
+        return available
     }
 }

@@ -514,8 +514,10 @@ struct MacSidebar: View {
 
     @ViewBuilder
     private func smartPlaylistContextMenu(for smart: SmartPlaylist) -> some View {
+        // 右键菜单在侧栏建行时就整个构造: 匹配走引擎缓存, 这里只判断有没有能播的,
+        // 要放进队列的列表等点下去再筛。
         let matched = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
-        let playable = matched.filteredPlayable()
+        let hasPlayable = matched.contains(where: \.isPlayable)
 
         Button {
             select(.smartPlaylist(smart))
@@ -528,28 +530,28 @@ struct MacSidebar: View {
         } label: {
             Label("play_all", systemImage: "play.fill")
         }
-        .disabled(playable.isEmpty)
+        .disabled(!hasPlayable)
 
         Button {
             playSmart(smart, shuffled: true)
         } label: {
             Label("shuffle", systemImage: "shuffle")
         }
-        .disabled(playable.isEmpty)
+        .disabled(!hasPlayable)
 
         Button {
-            player.appendToQueue(playable)
+            player.appendToQueue(matched.filteredPlayable())
         } label: {
             Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(!hasPlayable)
 
         Button {
-            player.insertNextInQueue(playable)
+            player.insertNextInQueue(matched.filteredPlayable())
         } label: {
             Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(!hasPlayable)
 
         Button {
             scraperService.scrapeMissingMetadata(songs: matched, in: library)

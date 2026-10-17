@@ -14,8 +14,89 @@ import PrimuseKit
 /// 所有规则共用 ── 不每条规则重算一遍。
 @MainActor
 enum SmartPlaylistEngine {
+    /// 匹配结果只由这些输入决定。侧栏右键菜单(建行时就整个构造)、歌单列表卡片的
+    /// 歌曲数、详情页每次重画都要问一遍, 原来每问一次都把整库按规则过一遍。读这些
+    /// 版本号时登记的观察与直接匹配时读到的一致。
+    struct MatchInputs: Equatable {
+        let smart: SmartPlaylist
+        let visibleSongs: MusicLibrary.VisibleSongsVersion
+        let librarySongs: UInt64
+        /// 只有「在某个歌单里」的规则读歌单成员; 没有这种规则时为 nil, 点个喜欢不必重算。
+        let playlists: MusicLibrary.PlaylistContentVersion?
+        let artistNameConfiguration: ArtistNameConfiguration
+        let history: ObjectIdentifier
+        /// 只有按播放次数 / 最后播放时间筛选或排序时才读播放历史, 否则为 nil。
+        let historyVersion: UInt64?
+        let includesAppleMusicLibrary: Bool
+        /// 有「最近 N 天」这类相对日期规则时按分钟前进, 否则为 nil。
+        let minute: Int?
+    }
+
+    struct CacheEntry {
+        fileprivate let inputs: MatchInputs
+        /// 随机排序时存的是筛完、还没洗牌的结果: 每次取用照旧重新洗牌、截断。
+        fileprivate let songs: [Song]
+    }
+
+    /// AI 歌单返回 nil: 它按身份对回库里的歌, 要用音乐源的账号映射, 那份映射没有
+    /// 版本号可挂, 照旧每次现算(它只查自己那几十首, 本来就不贵)。
+    static func inputs(
+        for smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> MatchInputs? {
+        guard smart.effectiveKind != .ai else { return nil }
+        #if os(tvOS)
+        let includesAppleMusicLibrary = true
+        #else
+        let includesAppleMusicLibrary = AppleMusicFeatureSettings.autoAddToSmartPlaylistsEnabled
+        #endif
+        let rules = smart.effectiveRuleGroups.flatMap(\.rules)
+        let usesRelativeDates = rules.contains { $0.value.hasPrefix("days:") }
+        let usesPlaylists = rules.contains { $0.field == .isInPlaylist }
+        let usesPlayStats = rules.contains { $0.field == .playCount || $0.field == .lastPlayedAt }
+            || smart.sortField == .playCount || smart.sortField == .lastPlayedAt
+        return MatchInputs(
+            smart: smart,
+            visibleSongs: library.visibleSongsVersion,
+            librarySongs: library.songMutationGenerationForMaintenance,
+            playlists: usesPlaylists ? library.playlistContentVersion : nil,
+            artistNameConfiguration: library.artistNameConfiguration,
+            history: ObjectIdentifier(history),
+            historyVersion: usesPlayStats ? history.playCountsVersion : nil,
+            includesAppleMusicLibrary: includesAppleMusicLibrary,
+            minute: usesRelativeDates ? Int(Date().timeIntervalSince1970 / 60) : nil
+        )
+    }
+
     /// 从 library 当前快照里查出匹配 smart 定义的歌曲列表。
     static func match(
+        _ smart: SmartPlaylist,
+        in library: MusicLibrary,
+        history: PlayHistoryStore
+    ) -> [Song] {
+        guard let inputs = inputs(for: smart, in: library, history: history) else {
+            return computeMatch(smart, in: library, history: history)
+        }
+        if let entry = library.smartPlaylistMatchCache[smart.id], entry.inputs == inputs {
+            return finalized(entry.songs, smart: smart)
+        }
+        let songs = computeMatch(smart, in: library, history: history)
+        if library.smartPlaylistMatchCache.count >= 64 {
+            library.smartPlaylistMatchCache.removeAll(keepingCapacity: true)
+        }
+        library.smartPlaylistMatchCache[smart.id] = CacheEntry(inputs: inputs, songs: songs)
+        return finalized(songs, smart: smart)
+    }
+
+    /// 随机排序在取用时才洗牌, 与原来每次匹配都重新洗一遍一致。
+    private static func finalized(_ songs: [Song], smart: SmartPlaylist) -> [Song] {
+        guard smart.sortField == .random else { return songs }
+        let safeLimit = max(0, smart.limit ?? Int.max)
+        return Array(songs.shuffled().prefix(safeLimit))
+    }
+
+    private static func computeMatch(
         _ smart: SmartPlaylist,
         in library: MusicLibrary,
         history: PlayHistoryStore
@@ -350,8 +431,9 @@ enum SmartPlaylistEngine {
             let lookup = PlayStats(history: history).countBySongID
             sorted = songs.sorted { (lookup[$0.id] ?? 0) < (lookup[$1.id] ?? 0) }
         case .random:
-            // random 模式忽略 direction (用户既然要随机就别再纠结升降序)
-            return Array(songs.shuffled().prefix(safeLimit))
+            // random 模式忽略 direction (用户既然要随机就别再纠结升降序)。
+            // 洗牌与截断留到取用时做(见 `finalized`), 缓存的是筛完的整份。
+            return songs
         }
 
         let directional = smart.sortDirection == .descending ? Array(sorted.reversed()) : sorted
