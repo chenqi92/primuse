@@ -9664,11 +9664,18 @@ final class SourceManager {
             let chunkOffset = offset
             let data: Data
             do {
+                // 走后台那条读取通道: SMB 前台连接是播放解码在用的串行连接, 离线下载
+                // 每块 2 MB 排在它前面会让正在播的歌断粮; 没有独立通道的连接器照旧。
                 data = try await OfflineRangeDownloadRetry.fetch(
                     offset: chunkOffset,
                     length: length
                 ) { offset, length in
-                    try await connector.fetchRange(path: transferPath, offset: offset, length: length)
+                    try await connector.fetchRange(
+                        path: transferPath,
+                        offset: offset,
+                        length: length,
+                        priority: .background
+                    )
                 }
             } catch let error where Self.isRangeIgnoredFailure(error) {
                 // A server or reverse proxy that ignores `Range` answers every
