@@ -5117,6 +5117,12 @@
 "transcript_generation_failure_monthly_limit" = "โควตาสร้างข้อความของรอบนี้หมดแล้ว";
 "transcript_generation_failure_own_key" = "คีย์ Google หรือโมเดลถอดเสียงใช้ไม่ได้ ตรวจสอบ \"การถอดเสียงเพลง\" ในการตั้งค่า";
 "transcript_generation_failure_generic" = "สร้างข้อความไม่เสร็จ ลองใหม่ได้ ส่วนที่รู้จำแล้วจะไม่อัปโหลดซ้ำ";
+"transcript_generation_keep_foreground" = "เปิด Primuse ค้างไว้ระหว่างสร้าง การปิดหน้านี้ไม่ทำให้หยุด และดูความคืบหน้าได้ในเครื่องเล่นด้วย";
+"transcript_generation_pill_running_format" = "ข้อความ · %@";
+"transcript_generation_pill_done" = "สร้างข้อความเสร็จแล้ว · ดู";
+"transcript_generation_pill_failed" = "สร้างข้อความไม่เสร็จ · รายละเอียด";
+"transcript_generation_pill_show_hint" = "เปิดข้อความถอดเสียง";
+"transcript_generation_pill_details_hint" = "เปิดหน้าสร้างข้อความเพื่อดูรายละเอียดหรือหยุด";
 "transcript_line_spacing" = "ระยะห่างบรรทัด";
 "transcript_paragraph_spacing" = "ระยะห่างย่อหน้า";
 "transcript_spacing_compact" = "แน่น";

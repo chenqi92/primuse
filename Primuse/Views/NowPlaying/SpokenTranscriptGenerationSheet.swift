@@ -5,6 +5,8 @@ import SwiftUI
 /// 本机识别的语言,开始后显示进度,可以停下;失败了写明原因,能重试。
 struct SpokenTranscriptGenerationSheet: View {
     let song: Song
+    /// 从播放页打开的:开始后面板自己收起,进度在播放页上看(`SpokenTranscriptGenerationStatusPill`)。
+    var dismissesOnStart = false
 
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
@@ -201,7 +203,10 @@ struct SpokenTranscriptGenerationSheet: View {
             }
         } footer: {
             if generator.activeJob?.song.id == song.id {
-                Text("transcript_generation_keep_open")
+                let note: LocalizedStringKey = dismissesOnStart
+                    ? "transcript_generation_keep_foreground"
+                    : "transcript_generation_keep_open"
+                Text(note)
             }
         }
     }
@@ -328,6 +333,7 @@ struct SpokenTranscriptGenerationSheet: View {
     private func startGeneration() {
         guard let engine else { return }
         generator.start(song: song, engine: engine, localeIdentifier: engine == .onDevice ? localeIdentifier : nil)
+        if dismissesOnStart { dismiss() }
     }
 
     // MARK: Text
@@ -399,6 +405,152 @@ struct SpokenTranscriptGenerationSheet: View {
 
     private static func durationText(_ duration: TimeInterval) -> String {
         Duration.seconds(duration).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+}
+
+/// 播放页里的文字稿生成进度(#314)。给正在听的这一集生成时,播放页上挂一条小胶囊写着做到哪一步、几成,
+/// 点开是生成面板,能看详情或停止;做完换成「文字稿已生成 · 查看」,点一下打开文字稿;没做成提示一句,
+/// 点开面板看原因、重试。结果提示过几秒自己收起。不在生成、也没有新结果时什么都不画、不占位置。
+struct SpokenTranscriptGenerationStatusPill: View {
+    let songID: String?
+    let onOpenDetails: () -> Void
+    let onShowTranscript: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 结果提示到点收起时换一下,让这一块重新判断还显不显示。
+    @State private var expiryTick = 0
+
+    private var generator: SpokenTranscriptGenerator { .shared }
+
+    private static let resultVisibleSeconds: TimeInterval = 8
+
+    private enum Display: Equatable {
+        case running(SpokenTranscriptGenerator.Phase)
+        case finished
+        case failed
+    }
+
+    private var display: Display? {
+        _ = expiryTick
+        guard let songID else { return nil }
+        if let job = generator.activeJob, job.song.id == songID {
+            return .running(job.phase)
+        }
+        guard let at = generator.lastOutcomeAt,
+              Date().timeIntervalSince(at) < Self.resultVisibleSeconds else { return nil }
+        switch generator.lastOutcome {
+        case .finished(let id, _)? where id == songID: return .finished
+        case .failed(let id, _)? where id == songID: return .failed
+        default: return nil
+        }
+    }
+
+    /// 没有要显示的就什么都不产出:放在横排里也不多占一份间距。
+    var body: some View {
+        if let display {
+            pill(display)
+                .padding(.vertical, 4)
+                .transition(
+                    .opacity.combined(with: .scale(scale: 0.9, anchor: .top))
+                        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.38, extraBounce: 0.08))
+                )
+                .task(id: generator.lastOutcomeAt) {
+                    guard let at = generator.lastOutcomeAt else { return }
+                    let remaining = Self.resultVisibleSeconds - Date().timeIntervalSince(at)
+                    guard remaining > 0 else { return }
+                    try? await Task.sleep(for: .seconds(remaining))
+                    guard !Task.isCancelled else { return }
+                    expiryTick &+= 1
+                }
+        }
+    }
+
+    private func pill(_ display: Display) -> some View {
+        Button {
+            switch display {
+            case .running, .failed:
+                onOpenDetails()
+            case .finished:
+                generator.clearOutcome()
+                onShowTranscript()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                icon(display)
+                    .frame(width: 16, height: 16)
+                Text(verbatim: title(display))
+                    .lineLimit(1)
+                    .monospacedDigit()
+                if case .running(let phase) = display {
+                    progress(phase)
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: title(display)))
+        .accessibilityHint(Text(accessibilityHintKey(display)))
+    }
+
+    private func accessibilityHintKey(_ display: Display) -> LocalizedStringKey {
+        display == .finished ? "transcript_generation_pill_show_hint" : "transcript_generation_pill_details_hint"
+    }
+
+    @ViewBuilder
+    private func icon(_ display: Display) -> some View {
+        switch display {
+        case .running:
+            Image(systemName: "waveform")
+                .foregroundStyle(.secondary)
+                .symbolEffect(.variableColor.iterative, isActive: !reduceMotion)
+        case .finished:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    /// 有比例的阶段画一圈进度,拿不到比例的(取音频、转格式、下模型、整理)转小菊花。
+    @ViewBuilder
+    private func progress(_ phase: SpokenTranscriptGenerator.Phase) -> some View {
+        if let fraction = SpokenTranscriptGenerationSheet.phaseFraction(phase) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.02, min(1, fraction)))
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.smooth(duration: 0.3), value: fraction)
+            }
+            .frame(width: 13, height: 13)
+            .accessibilityHidden(true)
+        } else {
+            ProgressView()
+                .controlSize(.mini)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func title(_ display: Display) -> String {
+        switch display {
+        case .running(let phase):
+            String(
+                format: String(localized: "transcript_generation_pill_running_format"),
+                SpokenTranscriptGenerationSheet.phaseText(phase)
+            )
+        case .finished:
+            String(localized: "transcript_generation_pill_done")
+        case .failed:
+            String(localized: "transcript_generation_pill_failed")
+        }
     }
 }
 

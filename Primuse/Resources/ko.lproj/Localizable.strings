@@ -5211,6 +5211,12 @@
 "transcript_generation_failure_monthly_limit" = "이번 기간의 텍스트 생성 사용량을 다 썼습니다.";
 "transcript_generation_failure_own_key" = "Google 키나 변환 모델을 사용할 수 없습니다. 설정의 '곡 받아쓰기'를 확인하세요.";
 "transcript_generation_failure_generic" = "텍스트를 끝까지 만들지 못했습니다. 다시 시도하세요. 이미 인식한 부분은 다시 올리지 않습니다.";
+"transcript_generation_keep_foreground" = "생성하는 동안 Primuse를 화면에 띄워 두세요. 이 창을 닫아도 멈추지 않으며, 진행 상황은 재생 화면에도 표시됩니다.";
+"transcript_generation_pill_running_format" = "텍스트 · %@";
+"transcript_generation_pill_done" = "텍스트 준비됨 · 보기";
+"transcript_generation_pill_failed" = "텍스트를 끝내지 못함 · 자세히";
+"transcript_generation_pill_show_hint" = "텍스트를 엽니다.";
+"transcript_generation_pill_details_hint" = "생성 화면을 열어 자세히 보거나 멈춥니다.";
 "transcript_line_spacing" = "줄 간격";
 "transcript_paragraph_spacing" = "문단 간격";
 "transcript_spacing_compact" = "좁게";

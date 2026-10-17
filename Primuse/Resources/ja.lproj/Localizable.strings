@@ -5212,6 +5212,12 @@
 "transcript_generation_failure_monthly_limit" = "この期間のテキスト生成の枠を使い切りました。";
 "transcript_generation_failure_own_key" = "Google キーか文字起こしモデルが使えません。設定の「曲文字起こし」を確認してください。";
 "transcript_generation_failure_generic" = "テキストを作り終えられませんでした。再試行してください。認識済みの区切りは再アップロードしません。";
+"transcript_generation_keep_foreground" = "生成中は Primuse を前面に表示したままにしてください。この画面を閉じても止まらず、進み具合は再生画面にも表示されます。";
+"transcript_generation_pill_running_format" = "テキスト · %@";
+"transcript_generation_pill_done" = "テキストができました · 表示";
+"transcript_generation_pill_failed" = "テキストを作り終えられませんでした · 詳細";
+"transcript_generation_pill_show_hint" = "テキストを開きます。";
+"transcript_generation_pill_details_hint" = "生成画面を開いて、詳細の確認や停止ができます。";
 "transcript_line_spacing" = "行間";
 "transcript_paragraph_spacing" = "段落の間隔";
 "transcript_spacing_compact" = "狭い";

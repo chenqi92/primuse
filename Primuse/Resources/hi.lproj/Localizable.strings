@@ -5117,6 +5117,12 @@
 "transcript_generation_failure_monthly_limit" = "इस अवधि की ट्रांसक्रिप्ट सीमा खत्म हो गई।";
 "transcript_generation_failure_own_key" = "Google कुंजी या ट्रांसक्रिप्शन मॉडल काम नहीं कर रहा। सेटिंग्स में सॉन्ग ट्रांसक्रिप्शन जाँचें।";
 "transcript_generation_failure_generic" = "ट्रांसक्रिप्ट पूरा नहीं हुआ। फिर कोशिश करें; पहचाने जा चुके हिस्से दोबारा अपलोड नहीं होंगे।";
+"transcript_generation_keep_foreground" = "चलते समय Primuse को सामने खुला रखें। यह पैनल बंद करने से काम नहीं रुकता, प्रगति प्लेयर में भी दिखती है।";
+"transcript_generation_pill_running_format" = "ट्रांसक्रिप्ट · %@";
+"transcript_generation_pill_done" = "ट्रांसक्रिप्ट तैयार · देखें";
+"transcript_generation_pill_failed" = "ट्रांसक्रिप्ट पूरा नहीं हुआ · विवरण";
+"transcript_generation_pill_show_hint" = "ट्रांसक्रिप्ट खोलता है।";
+"transcript_generation_pill_details_hint" = "ट्रांसक्रिप्ट बनाने का पैनल खोलता है, जहाँ विवरण देख सकते हैं या रोक सकते हैं।";
 "transcript_line_spacing" = "पंक्ति अंतराल";
 "transcript_paragraph_spacing" = "अनुच्छेद अंतराल";
 "transcript_spacing_compact" = "संकुचित";

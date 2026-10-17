@@ -5117,6 +5117,12 @@
 "transcript_generation_failure_monthly_limit" = "A cota de transcrições deste período acabou.";
 "transcript_generation_failure_own_key" = "A chave do Google ou o modelo não está funcionando. Verifique Transcrição de músicas nos ajustes.";
 "transcript_generation_failure_generic" = "A transcrição não terminou. Tente novamente; as partes já reconhecidas não serão enviadas de novo.";
+"transcript_generation_keep_foreground" = "Mantenha o Primuse em primeiro plano enquanto termina. Fechar esta tela não interrompe; o progresso também aparece no player.";
+"transcript_generation_pill_running_format" = "Transcrição · %@";
+"transcript_generation_pill_done" = "Transcrição pronta · Ver";
+"transcript_generation_pill_failed" = "Transcrição não concluída · Detalhes";
+"transcript_generation_pill_show_hint" = "Abre a transcrição.";
+"transcript_generation_pill_details_hint" = "Abre a geração de transcrição para ver detalhes ou parar.";
 "transcript_line_spacing" = "Espaçamento entre linhas";
 "transcript_paragraph_spacing" = "Espaçamento entre parágrafos";
 "transcript_spacing_compact" = "Compacto";

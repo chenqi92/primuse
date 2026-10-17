@@ -5211,6 +5211,12 @@
 "transcript_generation_failure_monthly_limit" = "Das Kontingent für Transkripte in diesem Zeitraum ist aufgebraucht.";
 "transcript_generation_failure_own_key" = "Google-Schlüssel oder Transkriptionsmodell funktionieren nicht. Prüfe die Songtranskription in den Einstellungen.";
 "transcript_generation_failure_generic" = "Das Transkript wurde nicht fertig. Versuche es erneut; bereits erkannte Teile werden nicht noch einmal hochgeladen.";
+"transcript_generation_keep_foreground" = "Lass Primuse währenddessen im Vordergrund. Das Schließen dieses Fensters stoppt nichts; den Fortschritt siehst du auch im Player.";
+"transcript_generation_pill_running_format" = "Transkript · %@";
+"transcript_generation_pill_done" = "Transkript fertig · Ansehen";
+"transcript_generation_pill_failed" = "Transkript nicht fertig · Details";
+"transcript_generation_pill_show_hint" = "Öffnet das Transkript.";
+"transcript_generation_pill_details_hint" = "Öffnet die Transkript-Erstellung mit Details und Stopp.";
 "transcript_line_spacing" = "Zeilenabstand";
 "transcript_paragraph_spacing" = "Absatzabstand";
 "transcript_spacing_compact" = "Kompakt";

@@ -4355,6 +4355,28 @@ struct NowPlayingView: View {
         player.currentItemIsSpokenWord && !player.isLiveRadio
     }
 
+    /// 给正在听的这一集生成文字稿时挂在播放页上的进度(竖屏、有声书版式和 iPad 在出错提示那一格,
+    /// 手机横屏在顶上那排圆钮中间);不在生成时不占位置。点开是生成面板,做完点一下看文字稿。
+    @ViewBuilder
+    private var transcriptGenerationStatus: some View {
+        if usesSpokenWordTransport {
+            SpokenTranscriptGenerationStatusPill(
+                songID: player.currentSong?.id,
+                onOpenDetails: { transcriptGenerationSong = player.currentSong },
+                onShowTranscript: { showGeneratedTranscript() }
+            )
+        }
+    }
+
+    /// 文字稿刚生成好:打开文字稿那一面。这时歌词可能还在读进来,不走「没有文字稿就不做事」那条判断。
+    private func showGeneratedTranscript() {
+        if isPlayerSplit {
+            selectSidePane(showsQueue: true)
+        } else if !showLyrics {
+            setStandardLyricsVisible(true)
+        }
+    }
+
     /// 有声内容总走效果链(`AudioPlayerService.outputMode(for:)`),语速随时可调;
     /// 音乐只有效果模式能变速。
     private var canChangeCurrentPlaybackRate: Bool {
@@ -4605,6 +4627,8 @@ struct NowPlayingView: View {
                 }
 
                 compactLandscapeAirPlayButton
+
+                transcriptGenerationStatus
             } else {
                 ForEach(chrome.leading, id: \.self) { action in
                     controlButton(action, style: .glass)
@@ -4775,6 +4799,7 @@ struct NowPlayingView: View {
                 // 曲线只能附在过渡本身上(提示条里已经带了)。
                 playbackErrorToast(error)
             }
+            transcriptGenerationStatus
 
             GeometryReader { artworkGeometry in
                 let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
@@ -5190,6 +5215,9 @@ struct NowPlayingView: View {
                        let error = player.lastPlaybackError {
                         playbackErrorToast(error)
                     }
+                    if !showLyrics || !isLyricsImmersive {
+                        transcriptGenerationStatus
+                    }
 
                     if showLyrics {
                         // LYRICS MODE: compact header at top
@@ -5541,6 +5569,7 @@ struct NowPlayingView: View {
                 playbackErrorToast(error)
                     .padding(.top, 4)
             }
+            transcriptGenerationStatus
 
             VStack(spacing: 0) {
                 if showsText {
@@ -11070,7 +11099,7 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(item: $transcriptGenerationSong) { song in
-                SpokenTranscriptGenerationSheet(song: song)
+                SpokenTranscriptGenerationSheet(song: song, dismissesOnStart: true)
                     .environment(intelligence)
                     #if os(iOS)
                     .presentationDetents([.large])

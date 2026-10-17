@@ -5304,6 +5304,12 @@
 "transcript_generation_failure_monthly_limit" = "这个周期的文字稿生成额度用完了。";
 "transcript_generation_failure_own_key" = "Google 密钥或转写模型现在用不了，请检查「听歌识词」里的设置。";
 "transcript_generation_failure_generic" = "生成没有完成，可以重试；已识别的段不会重复上传。";
+"transcript_generation_keep_foreground" = "生成时请让 Primuse 留在前台；关掉这个面板不影响生成，进度在播放页上也能看到。";
+"transcript_generation_pill_running_format" = "文字稿 · %@";
+"transcript_generation_pill_done" = "文字稿已生成 · 查看";
+"transcript_generation_pill_failed" = "文字稿没有生成完 · 查看原因";
+"transcript_generation_pill_show_hint" = "打开文字稿。";
+"transcript_generation_pill_details_hint" = "打开生成面板，查看详情或停止。";
 "transcript_line_spacing" = "行距";
 "transcript_paragraph_spacing" = "段距";
 "transcript_spacing_compact" = "紧凑";

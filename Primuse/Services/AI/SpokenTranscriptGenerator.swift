@@ -58,7 +58,11 @@ final class SpokenTranscriptGenerator {
     }
 
     private(set) var activeJob: Job?
-    private(set) var lastOutcome: Outcome?
+    private(set) var lastOutcome: Outcome? {
+        didSet { lastOutcomeAt = lastOutcome == nil ? nil : Date() }
+    }
+    /// 上一次结果出来的时刻。播放页里的结果提示看它,几秒后自己收起。
+    private(set) var lastOutcomeAt: Date?
     private(set) var records: [String: Record]
 
     @ObservationIgnored private var task: Task<Void, Never>?

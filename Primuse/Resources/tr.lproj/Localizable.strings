@@ -5117,6 +5117,12 @@
 "transcript_generation_failure_monthly_limit" = "Bu dönemin metin oluşturma kotası doldu.";
 "transcript_generation_failure_own_key" = "Google anahtarı veya döküm modeli çalışmıyor. Ayarlar'da Şarkı Transkripsiyonu'nu kontrol edin.";
 "transcript_generation_failure_generic" = "Metin tamamlanmadı. Tekrar deneyin; tanınan parçalar yeniden yüklenmez.";
+"transcript_generation_keep_foreground" = "Çalışırken Primuse'u ön planda tutun. Bu sayfayı kapatmak işlemi durdurmaz; ilerlemeyi oynatıcıda da görebilirsiniz.";
+"transcript_generation_pill_running_format" = "Metin · %@";
+"transcript_generation_pill_done" = "Metin hazır · Göster";
+"transcript_generation_pill_failed" = "Metin tamamlanmadı · Ayrıntılar";
+"transcript_generation_pill_show_hint" = "Metni açar.";
+"transcript_generation_pill_details_hint" = "Metin oluşturmayı açar; ayrıntıları görebilir veya durdurabilirsiniz.";
 "transcript_line_spacing" = "Satır aralığı";
 "transcript_paragraph_spacing" = "Paragraf aralığı";
 "transcript_spacing_compact" = "Sıkı";

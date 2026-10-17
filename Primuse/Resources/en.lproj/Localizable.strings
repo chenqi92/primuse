@@ -4974,6 +4974,12 @@
 "transcript_generation_failure_monthly_limit" = "This period's transcript allowance is used up.";
 "transcript_generation_failure_own_key" = "The Google key or transcription model isn't working. Check Song Transcription in Settings.";
 "transcript_generation_failure_generic" = "The transcript wasn't finished. Try again; parts already recognized won't be uploaded again.";
+"transcript_generation_keep_foreground" = "Keep Primuse in the foreground while it runs. Closing this sheet doesn't stop it, and the player shows the progress.";
+"transcript_generation_pill_running_format" = "Transcript · %@";
+"transcript_generation_pill_done" = "Transcript Ready · View";
+"transcript_generation_pill_failed" = "Transcript Not Finished · Details";
+"transcript_generation_pill_show_hint" = "Opens the transcript.";
+"transcript_generation_pill_details_hint" = "Opens transcript generation to see details or stop it.";
 "transcript_line_spacing" = "Line Spacing";
 "transcript_paragraph_spacing" = "Paragraph Spacing";
 "transcript_spacing_compact" = "Compact";

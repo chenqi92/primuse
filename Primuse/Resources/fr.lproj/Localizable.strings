@@ -5211,6 +5211,12 @@
 "transcript_generation_failure_monthly_limit" = "Le quota de transcriptions de cette période est épuisé.";
 "transcript_generation_failure_own_key" = "La clé Google ou le modèle de transcription ne fonctionne pas. Vérifiez Transcription de morceaux dans les réglages.";
 "transcript_generation_failure_generic" = "La transcription n’a pas abouti. Réessayez ; les parties déjà reconnues ne seront pas renvoyées.";
+"transcript_generation_keep_foreground" = "Gardez Primuse au premier plan pendant l’opération. Fermer cette fenêtre ne l’arrête pas ; la progression s’affiche aussi dans le lecteur.";
+"transcript_generation_pill_running_format" = "Transcription · %@";
+"transcript_generation_pill_done" = "Transcription prête · Voir";
+"transcript_generation_pill_failed" = "Transcription inachevée · Détails";
+"transcript_generation_pill_show_hint" = "Ouvre la transcription.";
+"transcript_generation_pill_details_hint" = "Ouvre la génération de transcription pour voir les détails ou l’arrêter.";
 "transcript_line_spacing" = "Interligne";
 "transcript_paragraph_spacing" = "Espacement des paragraphes";
 "transcript_spacing_compact" = "Compact";

@@ -5188,6 +5188,12 @@
 "transcript_generation_failure_monthly_limit" = "這個週期的文字稿產生額度用完了。";
 "transcript_generation_failure_own_key" = "Google 金鑰或轉寫模型現在用不了，請檢查「聽歌識詞」裡的設定。";
 "transcript_generation_failure_generic" = "產生沒有完成，可以重試；已辨識的段不會重複上傳。";
+"transcript_generation_keep_foreground" = "產生時請讓 Primuse 留在前景；關掉這個面板不影響產生，進度在播放頁上也看得到。";
+"transcript_generation_pill_running_format" = "文字稿 · %@";
+"transcript_generation_pill_done" = "文字稿已產生 · 查看";
+"transcript_generation_pill_failed" = "文字稿沒有產生完 · 查看原因";
+"transcript_generation_pill_show_hint" = "打開文字稿。";
+"transcript_generation_pill_details_hint" = "打開產生面板，查看詳情或停止。";
 "transcript_line_spacing" = "行距";
 "transcript_paragraph_spacing" = "段距";
 "transcript_spacing_compact" = "緊湊";
