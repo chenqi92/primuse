@@ -602,9 +602,9 @@
 "ext.tv.settings.tapToPull" = "Торкніться, щоб отримати найновішу медіатеку";
 "ext.widget.nowPlaying.displayName" = "Зараз грає";
 "ext.widget.coverPlayer.displayName" = "Плеєр з обкладинкою";
-"ext.widget.coverPlayer.description" = "Велика обкладинка на розмитому тлі обкладинки — лише назва, виконавець і кнопки керування.";
+"ext.widget.coverPlayer.description" = "Велика обкладинка на розмитому тлі обкладинки — лише назва, виконавець і кнопки керування. Картка чи На всю ширину — як стиль обкладинки в плеєрі.";
 "ext.widget.nowPlayingClassic.displayName" = "Зараз грає (класичний)";
-"ext.widget.nowPlayingClassic.description" = "Попередній вигляд «Зараз грає»: квадратна обкладинка на градієнтному тлі, з форматом, альбомом, часом відтворення та кнопками.";
+"ext.widget.nowPlayingClassic.description" = "Класичний стиль: квадратна обкладинка на градієнтному тлі, з форматом, текстом пісні, поступом і кнопками.";
 "ext.control.shuffle" = "Перемішати";
 "ext.widget.unlike" = "Видалити з пісень, які сподобалися";
 "ext.tv.sources.remove" = "Прибрати";

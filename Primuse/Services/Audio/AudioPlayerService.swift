@@ -7765,10 +7765,13 @@ final class AudioPlayerService {
 
             guard let configurations = try? await WidgetCenter.shared.currentConfigurations()
             else { return }
+            // 经典款的中号写正唱到的那一句, 大号有歌词面板。
             let isInstalled = configurations.contains { configuration in
                 configuration.kind == "LyricsWidget"
                     || (configuration.kind == "NowPlayingWidget"
                         && configuration.family == .systemLarge)
+                    || (configuration.kind == "NowPlayingClassicWidget"
+                        && (configuration.family == .systemMedium || configuration.family == .systemLarge))
             }
             guard isInstalled != self.hasInstalledLyricsWidgetSurface else {
                 if isInstalled,
@@ -8093,6 +8096,7 @@ final class AudioPlayerService {
         lastPublishedWidgetLyricsSignature = signature
         WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
     }
 
     private func clearWidgetLyricsSnapshotIfNeeded() {
@@ -8101,6 +8105,7 @@ final class AudioPlayerService {
         LyricsSnapshot.clear()
         WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
     }
 
     private func observeLikedSongChanges() {

@@ -357,6 +357,8 @@ struct WidgetCoverImageView: View {
     let coverImageName: String?
     var cornerRadius: CGFloat = 10
     var placeholderIndex: Int = 0
+    /// 一圈细白边; 贴着小组件边铺满的封面不要, 不然边上会多出一道框。
+    var outlined = true
 
     var body: some View {
         if let image = loadImage() {
@@ -364,10 +366,12 @@ struct WidgetCoverImageView: View {
                 .resizable()
                 .widgetAccentedRenderingMode(.fullColor)
                 .aspectRatio(contentMode: .fill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
+                .overlay {
+                    if outlined {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         } else {
             WidgetPlaceholderArtwork(

@@ -391,6 +391,11 @@ extension AudioPlayerService {
         // gates currentTime/duration. (`includesLyrics` is enforced by the
         // lyrics publisher, not here.)
         let scope = WidgetSettings.sharedDataScope()
+        // 「封面播放」小组件跟播放页的封面样式走; 铺满时封面贴着小组件的边画, 那张封面要写大一号才不糊。
+        let fullBleedArtwork = PlayerAppearancePreferences.artworkStyle(
+            rawValue: UserDefaults.standard.string(forKey: PlayerAppearancePreferences.artworkStyleKey) ?? ""
+        ) == .fullBleed
+        let artworkStyleChanged = WidgetPlayerArtworkStyleStore.publish(fullBleed: fullBleedArtwork)
 
         var coverName: String?
         var recentAlbumsChanged = false
@@ -414,13 +419,16 @@ extension AudioPlayerService {
             let sharedCoverName = "widget_cover.png"
             // 有声内容在小组件里画成书封（整张封面垫模糊底）；同一首歌改了归类也要重画。
             let keepsWholeCover = currentItemIsSpokenWord && !isLiveRadio
+            let coverPixelSize: CGFloat = fullBleedArtwork ? 600 : 300
             let coverKey = WidgetBookCoverRenderer.coverKey(songID: song.id, keepsWholeCover: keepsWholeCover)
+                + "\u{1F}\(Int(coverPixelSize))"
             let needsSharedCoverRefresh = coverKey != lastWidgetCoverKey || !sharedWidgetCoverExists(named: sharedCoverName)
 
             if needsSharedCoverRefresh {
                 if let writtenCoverName = writeWidgetCover(
                     song: song,
                     fileName: sharedCoverName,
+                    size: coverPixelSize,
                     keepsWholeCover: keepsWholeCover
                 ) {
                     coverName = writtenCoverName
@@ -485,7 +493,7 @@ extension AudioPlayerService {
         #endif
 
         let timelineSignature = widgetTimelineSignature(for: state)
-        if recentAlbumsChanged || timelineSignature != lastWidgetTimelineSignature {
+        if recentAlbumsChanged || artworkStyleChanged || timelineSignature != lastWidgetTimelineSignature {
             lastWidgetTimelineSignature = timelineSignature
             WidgetCenter.shared.reloadAllTimelines()
         }

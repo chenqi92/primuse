@@ -490,9 +490,9 @@
 "ext.widget.nowPlaying.description" = "شاهد الأغنية الحالية وتقدم التشغيل في لمحة.";
 "ext.widget.nowPlaying.displayName" = "قيد التشغيل الآن";
 "ext.widget.coverPlayer.displayName" = "مشغل الغلاف";
-"ext.widget.coverPlayer.description" = "غلاف كبير على خلفية غلاف ضبابية، مع اسم الأغنية والفنان وأزرار التشغيل فقط.";
+"ext.widget.coverPlayer.description" = "غلاف كبير على خلفية غلاف ضبابية، مع اسم الأغنية والفنان وأزرار التشغيل فقط. البطاقة أو من الحافة إلى الحافة تتبع نمط الغلاف في المشغّل.";
 "ext.widget.nowPlayingClassic.displayName" = "قيد التشغيل (كلاسيكي)";
-"ext.widget.nowPlayingClassic.description" = "مظهر «قيد التشغيل» الأصلي: غلاف مربع على خلفية متدرجة، مع الصيغة والألبوم والوقت المنقضي وأزرار التشغيل.";
+"ext.widget.nowPlayingClassic.description" = "النمط الكلاسيكي: غلاف مربع على خلفية متدرجة، مع الصيغة وكلمات الأغنية والتقدم وأزرار التشغيل.";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — لا شيء يشغّل";
 "ext.widget.nowPlaying.empty.openLarge" = "قم بتوصيل مصدر الموسيقى وستظهر هنا أغنيتك الحالية وتقدمك.";
 "ext.widget.nowPlaying.empty.openMedium" = "افتح Primuse لتكمل من حيث توقفت";

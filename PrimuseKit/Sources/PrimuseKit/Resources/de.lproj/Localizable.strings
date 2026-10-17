@@ -34,9 +34,9 @@
 
 "ext.widget.nowPlaying.displayName"        = "Aktuelle Wiedergabe";
 "ext.widget.coverPlayer.displayName"       = "Cover-Player";
-"ext.widget.coverPlayer.description"       = "Großes Albumcover auf unscharfem Cover-Hintergrund – nur Titel, Künstler und Wiedergabetasten.";
+"ext.widget.coverPlayer.description"       = "Großes Albumcover auf unscharfem Cover-Hintergrund – nur Titel, Künstler und Wiedergabetasten. Karte oder Randlos folgt dem Cover-Stil des Players.";
 "ext.widget.nowPlayingClassic.displayName" = "Aktuelle Wiedergabe (Klassisch)";
-"ext.widget.nowPlayingClassic.description" = "Das ursprüngliche Aussehen der aktuellen Wiedergabe: quadratisches Cover auf Farbverlauf, mit Format, Album, Spielzeit und Tasten.";
+"ext.widget.nowPlayingClassic.description" = "Klassischer Stil: quadratisches Cover auf Farbverlauf, mit Format, Liedtext, Fortschritt und Tasten.";
 "ext.widget.nowPlaying.description"        = "Aktuellen Titel und Wiedergabefortschritt auf einen Blick sehen.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Läuft gerade · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Pausiert · %@";

@@ -513,6 +513,7 @@ private struct PlayerLookSettingsSections: View {
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var themeSettings = ThemeColorSettings.shared
+    @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
         Section {
@@ -529,6 +530,8 @@ private struct PlayerLookSettingsSections: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .settingsAnchor("appearance.playerArtworkStyle")
+            // 「封面播放」小组件跟着换卡片 / 铺满, 立刻重新发布一次。
+            .onChange(of: artworkStyleRawValue) { player.updatePlaybackState() }
             Toggle(isOn: $showsArtworkLyrics) {
                 SettingsInfoLabel("player_artwork_lyrics") {
                     Text("player_artwork_lyrics_description")

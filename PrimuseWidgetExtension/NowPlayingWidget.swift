@@ -4,6 +4,9 @@ import AppIntents
 import PrimuseKit
 
 struct NowPlayingProvider: TimelineProvider {
+    /// 时间线带歌词的尺寸: 「正在播放」只有大号画歌词, 经典款的中号还写正唱到的那一句。
+    var lyricFamilies: [WidgetFamily] = [.systemLarge]
+
     func placeholder(in context: Context) -> NowPlayingEntry {
         let now = Date()
         return NowPlayingEntry(
@@ -30,7 +33,7 @@ struct NowPlayingProvider: TimelineProvider {
             ))
         } else {
             let loadedState = PlaybackState.load()
-            let lyrics = Self.lyricsSnapshot(for: loadedState, family: context.family)
+            let lyrics = lyricsSnapshot(for: loadedState, family: context.family)
             let state = WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
                 loadedState,
                 lyrics: lyrics
@@ -49,7 +52,7 @@ struct NowPlayingProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         let now = Date()
         let loadedState = PlaybackState.load()
-        let lyrics = Self.lyricsSnapshot(for: loadedState, family: context.family)
+        let lyrics = lyricsSnapshot(for: loadedState, family: context.family)
         let state = WidgetLyricsPresentationPolicy.playbackStateAlignedWithLyrics(
             loadedState,
             lyrics: lyrics
@@ -102,11 +105,11 @@ struct NowPlayingProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: policy))
     }
 
-    private static func lyricsSnapshot(
+    private func lyricsSnapshot(
         for state: PlaybackState?,
         family: WidgetFamily
     ) -> LyricsSnapshot? {
-        guard family == .systemLarge,
+        guard lyricFamilies.contains(family),
               let songID = state?.currentSongID,
               let snapshot = LyricsProvider.snapshotAlignedWithPlayback(
                 LyricsSnapshot.load(),
@@ -995,14 +998,71 @@ struct CoverPlayerWidgetView: View {
                 elapsed: entry.playbackElapsed,
                 referenceDate: entry.playbackReferenceDate
             )
+            let prefersFullBleed = WidgetPlayerArtworkStyleStore.prefersFullBleed()
             switch family {
-            case .systemMedium: CoverPlayerMediumView(state: state)
-            case .systemLarge: CoverPlayerLargeView(state: state, progress: progress)
-            default: CoverPlayerSmallView(state: state)
+            case .systemMedium: CoverPlayerMediumView(state: state, prefersFullBleed: prefersFullBleed)
+            case .systemLarge: CoverPlayerLargeView(
+                state: state,
+                progress: progress,
+                prefersFullBleed: prefersFullBleed
+            )
+            default: CoverPlayerSmallView(state: state, prefersFullBleed: prefersFullBleed)
             }
         } else {
             SmallEmptyStateView()
         }
+    }
+}
+
+/// 播放页封面选了「铺满」, 而且这一条铺得了: 全彩外观(色调、透明外观下系统换掉整块底, 封面只能
+/// 摆在内容里)、有封面、是音乐(播放页给有声书、播客和电台一直用卡片)。
+private func coverPlayerBleeds(
+    _ state: PlaybackState,
+    prefersFullBleed: Bool,
+    renderingMode: WidgetRenderingMode
+) -> Bool {
+    prefersFullBleed
+        && renderingMode == .fullColor
+        && state.coverImageName?.isEmpty == false
+        && state.listeningSpace == .music
+}
+
+/// 清晰的封面怎么铺在底上。卡片样式只有模糊封面; 铺满时封面贴着小组件的边画, 靠里的一侧渐隐进
+/// 模糊封面, 和播放页「封面样式 › 铺满」一样连成一整块。
+private enum CoverPlayerBleed {
+    case none
+    /// 整块就是封面, 下半截压暗(小号, 以及经典款的小号)。
+    case whole
+    /// 中号: 左边一块, 往右渐隐。
+    case leading
+    /// 大号: 上面一截铺满整宽, 往下渐隐。
+    case top
+}
+
+private enum CoverPlayerBleedMetrics {
+    /// 中号比整高略宽, 右栏的字照卡片样式的位置排, 正好压在渐隐的尾巴上。
+    static func leadingWidth(in size: CGSize) -> CGFloat {
+        min(size.height * 1.15, size.width * 0.6)
+    }
+    static let leadingFadeStart: CGFloat = 0.55
+
+    /// 大号往下留出歌名、进度和按钮那一截(连下边距约 128pt), 渐隐差不多在歌名顶上收完:
+    /// 封面下沿常有字, 半透明地叠在歌名后面会显得脏。
+    static func topHeight(in size: CGSize) -> CGFloat {
+        max(size.height * 0.55, size.height - 110)
+    }
+    static let topFadeStart: CGFloat = 0.5
+
+    /// 渐隐按 smoothstep 取几个点, 不留硬边。
+    static func fadeStops(from start: CGFloat) -> [Gradient.Stop] {
+        let span = 1 - start
+        return [
+            .init(color: .black, location: start),
+            .init(color: .black.opacity(0.84), location: start + span * 0.25),
+            .init(color: .black.opacity(0.5), location: start + span * 0.5),
+            .init(color: .black.opacity(0.16), location: start + span * 0.75),
+            .init(color: .black.opacity(0), location: 1),
+        ]
     }
 }
 
@@ -1011,16 +1071,16 @@ struct CoverPlayerWidgetView: View {
 private struct CoverPlayerCanvas<Content: View>: View {
     let state: PlaybackState
     var padding: CGFloat = 14
-    var sharpCover = false
+    var bleed: CoverPlayerBleed = .none
     let content: Content
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.colorScheme) private var colorScheme
 
-    init(state: PlaybackState, padding: CGFloat = 14, sharpCover: Bool = false,
+    init(state: PlaybackState, padding: CGFloat = 14, bleed: CoverPlayerBleed = .none,
          @ViewBuilder content: () -> Content) {
         self.state = state
         self.padding = padding
-        self.sharpCover = sharpCover
+        self.bleed = bleed
         self.content = content()
     }
 
@@ -1030,26 +1090,27 @@ private struct CoverPlayerCanvas<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .environment(\.colorScheme, renderingMode == .fullColor ? .dark : colorScheme)
             .containerBackground(for: .widget) {
-                CoverPlayerBackdrop(coverImageName: state.coverImageName, sharp: sharpCover)
+                CoverPlayerBackdrop(coverImageName: state.coverImageName, bleed: bleed)
             }
     }
 }
 
 private struct CoverPlayerBackdrop: View {
     let coverImageName: String?
-    var sharp = false
+    var bleed: CoverPlayerBleed = .none
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         if renderingMode == .fullColor {
             GeometryReader { geometry in
-                ZStack {
+                let size = geometry.size
+                ZStack(alignment: .topLeading) {
                     WidgetDesign.canvasBase
                     if let coverImageName, !coverImageName.isEmpty {
-                        if sharp {
-                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0)
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                            // 小号整块就是封面: 下半截压暗, 字和按钮压在上面。
+                        if bleed == .whole {
+                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+                                .frame(width: size.width, height: size.height)
+                            // 整块就是封面: 下半截压暗, 字和按钮压在上面。
                             LinearGradient(
                                 stops: [
                                     .init(color: .black.opacity(0), location: 0.30),
@@ -1060,7 +1121,7 @@ private struct CoverPlayerBackdrop: View {
                             )
                         } else {
                             WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0)
-                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .frame(width: size.width, height: size.height)
                                 .scaleEffect(1.35)
                                 .blur(radius: 30)
                                 .saturation(1.25)
@@ -1070,6 +1131,7 @@ private struct CoverPlayerBackdrop: View {
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
+                            sharpBleed(coverImageName, in: size)
                         }
                     } else {
                         LinearGradient(
@@ -1079,12 +1141,55 @@ private struct CoverPlayerBackdrop: View {
                         )
                     }
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
+                .frame(width: size.width, height: size.height)
                 .clipped()
             }
             .accessibilityHidden(true)
         } else {
             Color.clear
+        }
+    }
+
+    /// 铺满时压在模糊底上的那张清晰封面。先按自己那一块定框、裁掉, 再套渐隐蒙版。
+    @ViewBuilder
+    private func sharpBleed(_ coverImageName: String, in size: CGSize) -> some View {
+        switch bleed {
+        case .leading:
+            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+                .frame(width: CoverPlayerBleedMetrics.leadingWidth(in: size), height: size.height)
+                .clipped()
+                .mask {
+                    LinearGradient(
+                        stops: CoverPlayerBleedMetrics.fadeStops(from: CoverPlayerBleedMetrics.leadingFadeStart),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                }
+        case .top:
+            let height = CoverPlayerBleedMetrics.topHeight(in: size)
+            // 方封面按整宽画、贴着顶边, 多出来的下半截落在渐隐段里裁掉。
+            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+                .frame(width: size.width, height: max(size.width, height))
+                .frame(width: size.width, height: height, alignment: .top)
+                .clipped()
+                .mask {
+                    LinearGradient(
+                        stops: CoverPlayerBleedMetrics.fadeStops(from: CoverPlayerBleedMetrics.topFadeStart),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            // 歌名和进度压在渐隐的尾巴上, 底下再压暗一层。
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0), location: 0.5),
+                    .init(color: .black.opacity(0.4), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        case .none, .whole:
+            EmptyView()
         }
     }
 }
@@ -1183,41 +1288,59 @@ private struct CoverPlayerControls: View {
     }
 }
 
-/// 小号: 整块就是封面, 下半截压暗后放歌名、歌手和三个按钮。色调、透明外观下没有封面底,
-/// 改在左上角摆一张小封面。
+/// 小号: 卡片样式在模糊封面上左上角摆一张方封面, 铺满时整块就是封面、下半截压暗; 下面都是歌名、
+/// 歌手和三个按钮。色调、透明外观下没有封面底, 照卡片样式摆。
 private struct CoverPlayerSmallView: View {
     let state: PlaybackState
+    let prefersFullBleed: Bool
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        CoverPlayerCanvas(state: state, padding: 12, sharpCover: true) {
-            VStack(alignment: .leading, spacing: 4) {
-                if renderingMode != .fullColor {
-                    CoverPlayerArtwork(state: state, cornerRadius: 8)
-                        .frame(width: 46, height: 46)
+        let bleeds = coverPlayerBleeds(state, prefersFullBleed: prefersFullBleed, renderingMode: renderingMode)
+        CoverPlayerCanvas(state: state, padding: 12, bleed: bleeds ? .whole : .none) {
+            GeometryReader { geometry in
+                // 歌名两行约 34、按钮 30, 加三段间距, 剩下的给封面。
+                let coverSide = min(60, max(36, geometry.size.height - 80))
+                VStack(alignment: .leading, spacing: 4) {
+                    if !bleeds {
+                        CoverPlayerArtwork(state: state, cornerRadius: 10)
+                            .frame(width: coverSide, height: coverSide)
+                    }
+                    Spacer(minLength: 0)
+                    CoverPlayerTitle(state: state, titleSize: 14, subtitleSize: 11.5, alignment: .leading)
+                        .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.35 : 0), radius: 3, x: 0, y: 1)
+                    CoverPlayerControls(state: state, symbolSize: 15)
                 }
-                Spacer(minLength: 0)
-                CoverPlayerTitle(state: state, titleSize: 14, subtitleSize: 11.5, alignment: .leading)
-                    .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.35 : 0), radius: 3, x: 0, y: 1)
-                CoverPlayerControls(state: state, symbolSize: 15)
+                .widgetBounds(geometry.size, alignment: .topLeading)
             }
         }
     }
 }
 
-/// 中号: 左边整高的封面, 右边歌名、歌手, 下面三个大按钮。
+/// 中号: 左边整高的封面(卡片是圆角方图, 铺满时贴着上下左三条边、往右渐隐), 右边歌名、歌手,
+/// 下面三个大按钮。
 private struct CoverPlayerMediumView: View {
     let state: PlaybackState
+    let prefersFullBleed: Bool
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        CoverPlayerCanvas(state: state) {
+        let bleeds = coverPlayerBleeds(state, prefersFullBleed: prefersFullBleed, renderingMode: renderingMode)
+        CoverPlayerCanvas(state: state, bleed: bleeds ? .leading : .none) {
             GeometryReader { geometry in
                 HStack(spacing: 14) {
-                    CoverPlayerArtwork(state: state)
-                        .frame(width: geometry.size.height, height: geometry.size.height)
+                    if bleeds {
+                        // 封面画在底上, 这里只占住同样的宽度, 右栏和卡片样式对齐。
+                        Color.clear
+                            .frame(width: geometry.size.height, height: geometry.size.height)
+                    } else {
+                        CoverPlayerArtwork(state: state)
+                            .frame(width: geometry.size.height, height: geometry.size.height)
+                    }
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         CoverPlayerTitle(state: state, titleSize: 18, subtitleSize: 13.5)
+                            .shadow(color: .black.opacity(bleeds ? 0.3 : 0), radius: 3, x: 0, y: 1)
                         Spacer(minLength: 6)
                         CoverPlayerControls(state: state, symbolSize: 20)
                         Spacer(minLength: 0)
@@ -1230,21 +1353,28 @@ private struct CoverPlayerMediumView: View {
     }
 }
 
-/// 大号: 上面一张大封面, 下面歌名、歌手、进度和三个按钮, 都居中。
+/// 大号: 上面一张大封面(卡片是居中的圆角方图, 铺满时从顶边铺满整宽、往下渐隐), 下面歌名、歌手、
+/// 进度和三个按钮, 都居中。
 private struct CoverPlayerLargeView: View {
     let state: PlaybackState
     let progress: PlaybackProgress
+    let prefersFullBleed: Bool
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        CoverPlayerCanvas(state: state, padding: 18) {
+        let bleeds = coverPlayerBleeds(state, prefersFullBleed: prefersFullBleed, renderingMode: renderingMode)
+        CoverPlayerCanvas(state: state, padding: 18, bleed: bleeds ? .top : .none) {
             GeometryReader { geometry in
                 // 封面下面: 歌名两行约 43、进度条、按钮 44, 加上四段间距共约 130。
                 let side = max(80, min(geometry.size.width, geometry.size.height - 134))
                 VStack(spacing: 10) {
-                    CoverPlayerArtwork(state: state, cornerRadius: 16)
-                        .frame(width: side, height: side)
+                    if !bleeds {
+                        CoverPlayerArtwork(state: state, cornerRadius: 16)
+                            .frame(width: side, height: side)
+                    }
                     Spacer(minLength: 0)
                     CoverPlayerTitle(state: state, titleSize: 19, subtitleSize: 14)
+                        .shadow(color: .black.opacity(bleeds ? 0.35 : 0), radius: 3, x: 0, y: 1)
                     if state.isLiveStream {
                         LiveIndicatorLine()
                     } else {
@@ -1260,16 +1390,20 @@ private struct CoverPlayerLargeView: View {
 
 // MARK: - 正在播放(经典)
 //
-// 1.11.3(98) 之前那一版「正在播放」: 端正的方封面、斜向渐变画布, 眉题写格式, 下面专辑、
-// 已播 / 总时长数字和带细圈的按钮; 小号整块是封面。87df1e49 在原 kind 上换成了唱片套样式,
-// 有用户更喜欢旧的, 所以另立一款并列在小组件库里, 现有「正在播放」不动。时间线、按钮意图都和
-// 「正在播放」同一套(大号带歌词), 写入侧 reloadAllTimelines 一并刷新。
+// 1.11.3(98) 之前那一版「正在播放」: 端正的方封面、斜向渐变画布, 眉题写格式, 下面已播 / 总时长
+// 数字和带细圈的按钮; 小号整块是封面。87df1e49 在原 kind 上换成了唱片套样式, 有用户更喜欢旧的,
+// 所以另立一款并列在小组件库里, 现有「正在播放」不动。时间线、按钮意图都和「正在播放」同一套,
+// 只是中号也带歌词(写正唱到的那一句, 大号是歌词面板); 写入侧 reloadAllTimelines 一并刷新,
+// 歌词更新时按 kind 单独刷。
 
 struct NowPlayingClassicWidget: Widget {
     let kind = "NowPlayingClassicWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: NowPlayingProvider()) { entry in
+        StaticConfiguration(
+            kind: kind,
+            provider: NowPlayingProvider(lyricFamilies: [.systemMedium, .systemLarge])
+        ) { entry in
             NowPlayingClassicWidgetView(entry: entry)
         }
         .contentMarginsDisabled()
@@ -1292,7 +1426,11 @@ struct NowPlayingClassicWidgetView: View {
                 referenceDate: entry.playbackReferenceDate
             )
             switch family {
-            case .systemMedium: ClassicMediumNowPlayingView(state: state, progress: progress)
+            case .systemMedium: ClassicMediumNowPlayingView(
+                state: state,
+                progress: progress,
+                lyricsSnapshot: entry.lyricsSnapshot
+            )
             case .systemLarge: ClassicLargeNowPlayingView(
                 state: state,
                 progress: progress,
@@ -1454,7 +1592,7 @@ private struct ClassicSmallNowPlayingView: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        CoverPlayerCanvas(state: state, padding: 14, sharpCover: true) {
+        CoverPlayerCanvas(state: state, padding: 14, bleed: .whole) {
             VStack(alignment: .leading, spacing: 6) {
                 if renderingMode != .fullColor {
                     ClassicArtwork(state: state, cornerRadius: 8)
@@ -1482,51 +1620,94 @@ private struct ClassicSmallNowPlayingView: View {
     }
 }
 
-/// 中号: 左边方封面, 右边眉题、歌名、歌手、专辑, 下面进度和时长, 最底下一排紧凑按钮。
+/// 中号: 左边方封面, 右边眉题、歌名、歌手, 再一行正唱到的那句歌词(像锁屏歌词那样; 没有歌词、听书和
+/// 电台时写专辑或书的信息), 下面进度和时长, 最底下一排紧凑按钮。
 private struct ClassicMediumNowPlayingView: View {
     let state: PlaybackState
     let progress: PlaybackProgress
+    let lyricsSnapshot: LyricsSnapshot?
 
     var body: some View {
-        ClassicWidgetCanvas(padding: 16) {
+        ClassicWidgetCanvas(padding: 14) {
             GeometryReader { geometry in
                 let coverSide = min(112, geometry.size.height)
-                HStack(spacing: 16) {
+                // 右栏每样一行排满约 124pt。矮一些的中号(4.7 寸 iPhone、部分 iPad)先省掉时长那行,
+                // 再矮就省掉眉题, 不让内容超出高度、上下两头被裁掉。
+                let showsTimes = geometry.size.height >= 126
+                let showsEyebrow = geometry.size.height >= 110
+                let lyric = state.listeningSpace == .music ? classicCurrentLyric(lyricsSnapshot) : nil
+                HStack(spacing: 14) {
                     ClassicArtwork(state: state, cornerRadius: 12)
                         .frame(width: coverSide, height: coverSide)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        NowPlayingEyebrow(state: state)
+                    VStack(alignment: .leading, spacing: 0) {
+                        if showsEyebrow {
+                            NowPlayingEyebrow(state: state)
+                                .padding(.bottom, 4)
+                        }
                         Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
                             .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(2)
+                            .lineLimit(lyric == nil ? 2 : 1)
                             .minimumScaleFactor(0.86)
                         Text(nowPlayingSubtitle(state))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(WidgetDesign.secondaryText)
                             .lineLimit(1)
-                        Text(secondaryMetadata(state))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(WidgetDesign.tertiaryText)
-                            .lineLimit(1)
+                            .padding(.top, 1)
+                        if let lyric {
+                            Text(verbatim: lyric)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(WidgetDesign.brandTint)
+                                .widgetAccentable()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                                .padding(.top, 4)
+                        } else {
+                            Text(secondaryMetadata(state))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(WidgetDesign.tertiaryText)
+                                .lineLimit(1)
+                                .padding(.top, 3)
+                        }
 
-                        Spacer(minLength: 0)
+                        Spacer(minLength: 3)
 
                         if state.isLiveStream {
                             LiveIndicatorLine()
+                        } else if showsTimes {
+                            ClassicProgressBlock(state: state, progress: progress, spacing: 4, fontSize: 9.5)
                         } else {
-                            ClassicProgressBlock(state: state, progress: progress, spacing: 5, fontSize: 9.5)
+                            ProgressLine(progress: progress)
                         }
 
                         NowPlayingControls(state: state, compact: true, classic: true)
+                            .padding(.top, 5)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 }
                 .widgetBounds(geometry.size, alignment: .leading)
             }
         }
     }
+}
+
+/// 经典中号那一行歌词: 正唱到的那一句。间奏的空行接着显示上一句, 第一句还没唱到时先写第一句。
+private func classicCurrentLyric(_ snapshot: LyricsSnapshot?) -> String? {
+    guard let snapshot, !snapshot.lines.isEmpty else { return nil }
+    let lines = snapshot.lines
+    let anchor = min(max(snapshot.anchorIndex, 0), lines.count - 1)
+    func text(at index: Int) -> String? {
+        let text = lines[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+    for index in stride(from: anchor, through: 0, by: -1) {
+        if let text = text(at: index) { return text }
+    }
+    for index in (anchor + 1)..<lines.count {
+        if let text = text(at: index) { return text }
+    }
+    return nil
 }
 
 /// 大号: 封面和歌名一排, 中间一块圆角面板放歌词(有声书换成整本书的进度), 下面进度、时长和整排按钮。

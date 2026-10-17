@@ -152,6 +152,26 @@ public enum WidgetSettings {
     }
 }
 
+/// 播放页「封面样式」在小组件这边的副本。App 每次发布播放状态时写一遍,「封面播放」按它摆封面:
+/// 卡片时是圆角方图压在模糊封面上, 铺满时封面贴着小组件的边、渐隐进模糊底。
+public enum WidgetPlayerArtworkStyleStore {
+    private static let fullBleedKey = "primuse.widget.playerArtworkFullBleed"
+
+    public static func prefersFullBleed() -> Bool {
+        WidgetSharedStore.defaults?.bool(forKey: fullBleedKey) ?? false
+    }
+
+    /// 值变了才写, 返回 true 时调用方要刷新小组件。
+    @discardableResult
+    public static func publish(fullBleed: Bool) -> Bool {
+        guard let defaults = WidgetSharedStore.defaults,
+              defaults.object(forKey: fullBleedKey) == nil || defaults.bool(forKey: fullBleedKey) != fullBleed
+        else { return false }
+        defaults.set(fullBleed, forKey: fullBleedKey)
+        return true
+    }
+}
+
 // MARK: - Lyrics
 
 /// Trimmed lyric line for the widget — drops syllable/voice detail (the widget

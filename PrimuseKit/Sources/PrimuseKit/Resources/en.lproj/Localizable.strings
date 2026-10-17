@@ -32,9 +32,9 @@
 
 "ext.widget.nowPlaying.displayName"        = "Now Playing";
 "ext.widget.coverPlayer.displayName"       = "Cover Player";
-"ext.widget.coverPlayer.description"       = "Large album art on a blurred cover backdrop, with just the song, artist and playback controls.";
+"ext.widget.coverPlayer.description"       = "Large album art on a blurred cover backdrop, with just the song, artist and playback controls. Card or Edge to Edge follows the player’s artwork style.";
 "ext.widget.nowPlayingClassic.displayName" = "Now Playing (Classic)";
-"ext.widget.nowPlayingClassic.description" = "The original Now Playing look: square artwork on a gradient background, with format, album, elapsed time and controls.";
+"ext.widget.nowPlayingClassic.description" = "Classic style: square artwork on a gradient background, with format, lyrics, progress and controls.";
 "ext.widget.nowPlaying.description"        = "See the current song and playback progress at a glance.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Now Playing · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Paused · %@";

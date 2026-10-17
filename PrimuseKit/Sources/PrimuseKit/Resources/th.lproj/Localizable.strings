@@ -490,9 +490,9 @@
 "ext.widget.nowPlaying.description" = "ดูเพลงปัจจุบันและความคืบหน้าในการเล่นได้อย่างรวดเร็ว";
 "ext.widget.nowPlaying.displayName" = "กำลังเล่น";
 "ext.widget.coverPlayer.displayName" = "เครื่องเล่นแบบปก";
-"ext.widget.coverPlayer.description" = "ปกอัลบั้มขนาดใหญ่บนพื้นหลังปกแบบเบลอ แสดงเฉพาะชื่อเพลง ศิลปิน และปุ่มควบคุม";
+"ext.widget.coverPlayer.description" = "ปกอัลบั้มขนาดใหญ่บนพื้นหลังปกแบบเบลอ แสดงเฉพาะชื่อเพลง ศิลปิน และปุ่มควบคุม แบบการ์ดหรือเต็มขอบตามรูปแบบปกของหน้าเล่น";
 "ext.widget.nowPlayingClassic.displayName" = "กำลังเล่น (คลาสสิก)";
-"ext.widget.nowPlayingClassic.description" = "หน้าตากำลังเล่นแบบเดิม: ปกสี่เหลี่ยมบนพื้นหลังไล่สี พร้อมรูปแบบไฟล์ อัลบั้ม เวลาที่เล่นไป และปุ่มควบคุม";
+"ext.widget.nowPlayingClassic.description" = "สไตล์คลาสสิก: ปกสี่เหลี่ยมบนพื้นหลังไล่สี พร้อมรูปแบบไฟล์ เนื้อเพลง ความคืบหน้า และปุ่มควบคุม";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — ไม่มีอะไรเล่น";
 "ext.widget.nowPlaying.empty.openLarge" = "เชื่อมต่อแหล่งเพลงแล้วเพลงปัจจุบันและความคืบหน้าของคุณจะแสดงที่นี่";
 "ext.widget.nowPlaying.empty.openMedium" = "เปิด Primuse เพื่อทำต่อจากจุดที่คุณค้างไว้";

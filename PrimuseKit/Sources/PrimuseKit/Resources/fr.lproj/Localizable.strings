@@ -34,9 +34,9 @@
 
 "ext.widget.nowPlaying.displayName"        = "En cours de lecture";
 "ext.widget.coverPlayer.displayName"       = "Lecteur pochette";
-"ext.widget.coverPlayer.description"       = "Grande pochette sur un fond de pochette flouté, avec seulement le titre, l'artiste et les commandes.";
+"ext.widget.coverPlayer.description"       = "Grande pochette sur un fond de pochette flouté, avec seulement le titre, l’artiste et les commandes. Carte ou Bord à bord suit le style de pochette du lecteur.";
 "ext.widget.nowPlayingClassic.displayName" = "À l'écoute (classique)";
-"ext.widget.nowPlayingClassic.description" = "L'apparence d'origine de « À l'écoute » : pochette carrée sur fond dégradé, avec le format, l'album, le temps écoulé et les commandes.";
+"ext.widget.nowPlayingClassic.description" = "Style classique : pochette carrée sur fond dégradé, avec le format, les paroles, la progression et les commandes.";
 "ext.widget.nowPlaying.description"        = "Voyez le titre en cours et la progression d'un coup d'œil.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "En cours · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "En pause · %@";
