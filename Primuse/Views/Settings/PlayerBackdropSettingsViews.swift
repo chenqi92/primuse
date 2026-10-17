@@ -193,6 +193,28 @@ struct PlayerBackdropAddTile: View {
 }
 
 #if os(iOS)
+/// 播放页设置里「有声书也用这一项」的开关:主题色的书本图标加「有声书」,和背景选项那几行排成一样,
+/// 「也使用」写在圈问号里(#320)。系统 Label 放进开关里图标是白的、不跟主题色,所以自己排。
+struct PlayerAudiobookToggleRow<Hint: View>: View {
+    @Binding var isOn: Bool
+    @ViewBuilder let hint: () -> Hint
+    @Environment(ThemeService.self) private var themeService
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 12) {
+                Image(systemName: ListeningSpace.spokenWord.systemImage)
+                    .font(.body)
+                    .foregroundStyle(themeService.uiAccentColor)
+                    .frame(width: 26)
+                SettingsInfoLabel("listening_space_spoken_word", message: hint)
+            }
+        }
+        // 主题色选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
+        .id(ThemeColorSettings.shared.isWhiteTheme)
+    }
+}
+
 /// iPhone / iPad 设置里的「播放页背景」，和封面取色放在同一页。
 struct PlayerBackdropSettingsSections: View {
     @State private var store = PlayerBackdropSettingsStore.shared
@@ -276,16 +298,9 @@ struct PlayerBackdropSettingsSections: View {
             }
 
             // 有声书默认用自己的纯色底;打开后深色外观下也铺这里选的背景(#283)。
-            Toggle(isOn: audiobooksBinding) {
-                Label {
-                    SettingsInfoLabel("player_backdrop_audiobooks") {
-                        Text("player_backdrop_audiobooks_hint")
-                    }
-                } icon: {
-                    Image(systemName: ListeningSpace.spokenWord.systemImage)
-                }
+            PlayerAudiobookToggleRow(isOn: audiobooksBinding) {
+                Text("player_backdrop_audiobooks_hint")
             }
-            .id(ThemeColorSettings.shared.isWhiteTheme)
         } header: {
             // 每种背景是什么样收进标题旁的圈问号,选项行只留名字。
             SettingsInfoHeader("player_backdrop_title") {

@@ -6113,8 +6113,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "Düşük Güç Modunda duraklatıldı";
 "spoken_word_keep_offline_waiting_thermal" = "Cihaz ısındığı için duraklatıldı";
 "spoken_word_keep_offline_waiting_disk" = "Yer yetersiz, duraklatıldı";
-"player_backdrop_audiobooks" = "Sesli Kitaplarda da Kullan";
-"player_backdrop_audiobooks_hint" = "Koyu modda sesli kitap oynatıcısı da bu arka planı gösterir. Açık mod kâğıt arka planını korur.";
+"player_backdrop_audiobooks_hint" = "Açıkken sesli kitap oynatıcısı da bu arka planı kullanır, yalnızca koyu modda. Açık mod kâğıt arka planını korur.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "“%@” çevrimdışı paketi indirilsin mi?";

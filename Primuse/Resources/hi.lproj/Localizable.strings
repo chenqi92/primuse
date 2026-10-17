@@ -6113,8 +6113,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "लो पावर मोड में रुका है";
 "spoken_word_keep_offline_waiting_thermal" = "डिवाइस गर्म है, रुका है";
 "spoken_word_keep_offline_waiting_disk" = "जगह कम है, रुका है";
-"player_backdrop_audiobooks" = "ऑडियोबुक के लिए भी";
-"player_backdrop_audiobooks_hint" = "डार्क मोड में ऑडियोबुक प्लेयर भी यह पृष्ठभूमि दिखाता है। लाइट मोड में कागज़ जैसी पृष्ठभूमि बनी रहती है।";
+"player_backdrop_audiobooks_hint" = "चालू होने पर ऑडियोबुक प्लेयर भी यही पृष्ठभूमि दिखाता है, सिर्फ़ डार्क मोड में। लाइट मोड में कागज़ जैसी पृष्ठभूमि बनी रहती है।";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "क्या “%@” ऑफ़लाइन पैक डाउनलोड करें?";

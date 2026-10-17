@@ -6113,8 +6113,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "หยุดชั่วคราวในโหมดพลังงานต่ำ";
 "spoken_word_keep_offline_waiting_thermal" = "หยุดชั่วคราวเพราะเครื่องร้อน";
 "spoken_word_keep_offline_waiting_disk" = "หยุดชั่วคราว: พื้นที่ไม่พอ";
-"player_backdrop_audiobooks" = "ใช้กับหนังสือเสียงด้วย";
-"player_backdrop_audiobooks_hint" = "ในโหมดมืด หน้าเล่นหนังสือเสียงจะแสดงพื้นหลังนี้ด้วย ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";
+"player_backdrop_audiobooks_hint" = "เมื่อเปิด หน้าเล่นหนังสือเสียงจะใช้พื้นหลังนี้ด้วย เฉพาะในโหมดมืด ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "ดาวน์โหลดแพ็กออฟไลน์ “%@” ไหม";

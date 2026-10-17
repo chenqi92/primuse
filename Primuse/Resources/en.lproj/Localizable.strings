@@ -5967,8 +5967,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "Paused in Low Power Mode";
 "spoken_word_keep_offline_waiting_thermal" = "Paused while the device is hot";
 "spoken_word_keep_offline_waiting_disk" = "Paused: not enough storage";
-"player_backdrop_audiobooks" = "Use for Audiobooks";
-"player_backdrop_audiobooks_hint" = "In Dark Mode the audiobook player shows this background too. Light Mode keeps its paper background.";
+"player_backdrop_audiobooks_hint" = "When on, the audiobook player uses this background too, in Dark Mode only. Light Mode keeps its paper background.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "Download the “%@” offline pack?";

@@ -6113,8 +6113,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "На паузе в режиме энергосбережения";
 "spoken_word_keep_offline_waiting_thermal" = "На паузе: устройство перегрето";
 "spoken_word_keep_offline_waiting_disk" = "На паузе: мало места";
-"player_backdrop_audiobooks" = "Также для аудиокниг";
-"player_backdrop_audiobooks_hint" = "В тёмном режиме плеер аудиокниг тоже показывает этот фон. В светлом режиме остаётся бумажный фон.";
+"player_backdrop_audiobooks_hint" = "Если включено, плеер аудиокниг тоже показывает этот фон — только в тёмном режиме. В светлом режиме остаётся бумажный фон.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "Загрузить офлайн-пакет «%@»?";

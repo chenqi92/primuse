@@ -6113,8 +6113,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "متوقف في وضع الطاقة المنخفضة";
 "spoken_word_keep_offline_waiting_thermal" = "متوقف لأن الجهاز ساخن";
 "spoken_word_keep_offline_waiting_disk" = "متوقف: مساحة التخزين غير كافية";
-"player_backdrop_audiobooks" = "استخدامها للكتب الصوتية أيضًا";
-"player_backdrop_audiobooks_hint" = "في الوضع الداكن يعرض مشغل الكتب الصوتية هذه الخلفية أيضًا. ويحتفظ الوضع الفاتح بخلفيته الورقية.";
+"player_backdrop_audiobooks_hint" = "عند التشغيل، يعرض مشغل الكتب الصوتية هذه الخلفية أيضًا، في الوضع الداكن فقط. ويحتفظ الوضع الفاتح بخلفيته الورقية.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "هل تريد تنزيل حزمة “%@” دون اتصال؟";

@@ -6184,8 +6184,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "低耗電模式下暫停下載";
 "spoken_word_keep_offline_waiting_thermal" = "裝置過熱，暫停下載";
 "spoken_word_keep_offline_waiting_disk" = "儲存空間不足，暫停下載";
-"player_backdrop_audiobooks" = "有聲書也使用";
-"player_backdrop_audiobooks_hint" = "深色外觀下有聲書播放頁也鋪這個背景；淺色外觀仍是紙面底。";
+"player_backdrop_audiobooks_hint" = "打開後有聲書播放頁也用這裡選的背景，只在深色外觀下生效；淺色外觀仍是紙面底。";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "下載「%@」離線翻譯套件？";

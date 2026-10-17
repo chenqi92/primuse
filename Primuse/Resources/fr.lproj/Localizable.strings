@@ -6207,8 +6207,7 @@
 "spoken_word_keep_offline_waiting_low_power" = "En pause en mode Économie d’énergie";
 "spoken_word_keep_offline_waiting_thermal" = "En pause, l’appareil est trop chaud";
 "spoken_word_keep_offline_waiting_disk" = "En pause : stockage insuffisant";
-"player_backdrop_audiobooks" = "Utiliser pour les livres audio";
-"player_backdrop_audiobooks_hint" = "En mode sombre, le lecteur de livres audio affiche aussi cet arrière-plan. Le mode clair garde son fond papier.";
+"player_backdrop_audiobooks_hint" = "Lorsque cette option est activée, le lecteur de livres audio affiche aussi cet arrière-plan, en mode sombre uniquement. Le mode clair garde son fond papier.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
 "lyrics_translation_local_download_confirm_title_format" = "Télécharger le pack hors ligne « %@ » ?";
