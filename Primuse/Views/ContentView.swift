@@ -1466,21 +1466,19 @@ struct ContentView: View {
             // for those observations every time anything in the player state
             // changes. The slide-in animation is driven by PlayerOverlay's
             // own internal `entered` state on first appear.
-            if showNowPlaying {
-                PlayerOverlay(
-                    isPresented: $showNowPlaying,
-                    onOpenAlbum: { album in
-                        showNowPlaying = false
-                        openLibraryDeepLink(.album(album))
-                    },
-                    onOpenArtist: { artist in
-                        showNowPlaying = false
-                        openLibraryDeepLink(.artist(artist))
-                    }
-                )
-                    .id(nowPlayingPresentationID)
-                    .zIndex(2)
-            }
+            PlayerOverlayMount(
+                isPresented: $showNowPlaying,
+                presentationID: $nowPlayingPresentationID,
+                onOpenAlbum: { album in
+                    showNowPlaying = false
+                    openLibraryDeepLink(.album(album))
+                },
+                onOpenArtist: { artist in
+                    showNowPlaying = false
+                    openLibraryDeepLink(.artist(artist))
+                }
+            )
+                .zIndex(2)
         }
         // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。
         .pmScreenChangeTransition()
@@ -1501,10 +1499,7 @@ struct ContentView: View {
         }
         // 播放页背景选了图时，没展开前先备好，点迷你条拉起来就是那张图，不先露出底色。
         .background {
-            if !showNowPlaying {
-                PlayerBackdropPrewarmer()
-                NowPlayingArtworkPrewarmer()
-            }
+            NowPlayingPrewarmers(isPlayerPresented: $showNowPlaying)
         }
         // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
@@ -2050,6 +2045,39 @@ private struct AuthoritativeSongRemovalObserver: View {
 
 // MARK: - Player Overlay
 
+/// 播放页挂不挂由这一层读，ContentView 的 body 只递绑定、不读值。读值放在 ContentView 里，
+/// 每次展开、收起整个 ContentView 都要重算，底下的首页跟着重建、重新排版，正好压在展开的
+/// 第一帧和收起落到迷你条的那一帧上（#322）。换身份的编号同样经绑定传进来。
+private struct PlayerOverlayMount: View {
+    @Binding var isPresented: Bool
+    @Binding var presentationID: UUID
+    let onOpenAlbum: (PrimuseKit.Album) -> Void
+    let onOpenArtist: (PrimuseKit.Artist) -> Void
+
+    var body: some View {
+        if isPresented {
+            PlayerOverlay(
+                isPresented: $isPresented,
+                onOpenAlbum: onOpenAlbum,
+                onOpenArtist: onOpenArtist
+            )
+                .id(presentationID)
+        }
+    }
+}
+
+/// 播放页没展开时预备背景图与大封面。和 `PlayerOverlayMount` 一样自己读展开状态。
+private struct NowPlayingPrewarmers: View {
+    @Binding var isPlayerPresented: Bool
+
+    var body: some View {
+        if !isPlayerPresented {
+            PlayerBackdropPrewarmer()
+            NowPlayingArtworkPrewarmer()
+        }
+    }
+}
+
 struct PlayerOverlay: View {
     private enum PresentationPhase: Equatable {
         case staging
@@ -2084,17 +2112,19 @@ struct PlayerOverlay: View {
     @State private var morphProgress: CGFloat = 0
     /// 这一次展开 / 收起对准的胶囊外框(窗口坐标)。
     @State private var capsuleFrame: CGRect?
+    /// 开始收起时在这里记一笔，播放页里只有背景与大封面的动画读它。
+    @State private var surfaceMotion = NowPlayingSurfaceMotion()
 
     var body: some View {
         GeometryReader { geometry in
             let travel = max(geometry.size.height, geometry.size.width) + 1
             PlayerOverlayContent(
                 // 播放页里用到它的三处都同时要求已落定；落定前固定为 false，展开动画开始那一刻
-                // 这个值不翻转，播放页就不必在动画第一帧上整页重算。
+                // 这个值不翻转，播放页就不必在动画第一帧上整页重算。开始收起时同样不翻转：
+                // 要停的动画改由 `surfaceMotion` 告诉那几处，不再让整页在收起的第一帧重建（#322）。
                 isPresentationSettled: presentationHasSettled,
-                isPresentationActive: presentationHasSettled
-                    && presentationPhase == .visible
-                    && !dismissalState.isDismissing,
+                isPresentationActive: presentationHasSettled,
+                surfaceMotion: surfaceMotion,
                 reduceMotion: reduceMotion,
                 layoutDirection: layoutDirection,
                 onOpenAlbum: onOpenAlbum,
@@ -2203,6 +2233,7 @@ struct PlayerOverlay: View {
             if dismissalState.isDismissing {
                 dismissalState.cancelForSystemInterruption()
             }
+            surfaceMotion.isDismissing = false
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -2295,6 +2326,7 @@ struct PlayerOverlay: View {
 
         let generation = dismissalState.begin()
         dismissalTask?.cancel()
+        surfaceMotion.isDismissing = true
         if reduceMotion {
             completeDismissal(generation: generation)
             return
@@ -2345,6 +2377,8 @@ struct PlayerOverlay: View {
 private struct PlayerOverlayContent: View, @MainActor Equatable {
     let isPresentationSettled: Bool
     let isPresentationActive: Bool
+    /// PlayerOverlay 的 @State，始终是同一个对象，不参与比较。
+    let surfaceMotion: NowPlayingSurfaceMotion
     let reduceMotion: Bool
     let layoutDirection: LayoutDirection
     let onOpenAlbum: (PrimuseKit.Album) -> Void
@@ -2372,7 +2406,8 @@ private struct PlayerOverlayContent: View, @MainActor Equatable {
             onLeadingMinimizeDragChanged: onLeadingMinimizeDragChanged,
             onLeadingMinimizeDragEnded: onLeadingMinimizeDragEnded,
             isPresentationSettled: isPresentationSettled,
-            isPresentationActive: isPresentationActive
+            isPresentationActive: isPresentationActive,
+            surfaceMotionFromHost: surfaceMotion
         )
     }
 }

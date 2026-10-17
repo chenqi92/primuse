@@ -74,7 +74,11 @@ final class PlayerBackdropResolver {
     // MARK: - Rotation
 
     func observeSong(_ songID: String?, rotation mode: PlayerBackdropRotation) {
-        _ = rotation.observeSong(songID, rotation: mode)
+        // 播放页每次展开都会带着同一首歌再报一次。在 `rotation` 上原地改，什么都没变也会通知
+        // 观察者，展开那一帧背景这一层要白白重算一轮；变了才写回。
+        var next = rotation
+        _ = next.observeSong(songID, rotation: mode)
+        if next != rotation { rotation = next }
     }
 
     func advanceTimer(rotation mode: PlayerBackdropRotation) {

@@ -49,7 +49,10 @@ final class TVPlayerBackdropResolver {
     private nonisolated static let maxPixel = PlayerBackdropPixelPolicy.televisionPixel
 
     func observeSong(_ songID: String?, rotation mode: PlayerBackdropRotation) {
-        _ = rotation.observeSong(songID, rotation: mode)
+        // 同一首歌再报一次时原地改也会通知观察者；变了才写回（同 iOS 的 PlayerBackdropResolver）。
+        var next = rotation
+        _ = next.observeSong(songID, rotation: mode)
+        if next != rotation { rotation = next }
     }
 
     func advanceTimer(rotation mode: PlayerBackdropRotation) {

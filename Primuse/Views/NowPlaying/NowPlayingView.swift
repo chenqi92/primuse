@@ -383,6 +383,8 @@ struct NowPlayingAmbientBackdrop: View {
     let isSceneActive: Bool
     /// 入场动画结束前不开始读盘解码背景图。
     let allowsImageLoading: Bool
+    /// 拖动整页、收进迷你条途中先停下动画。在这一层里读，开始拖、开始收起时只重算背景。
+    var motion: NowPlayingSurfaceMotion? = nil
 
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -395,6 +397,7 @@ struct NowPlayingAmbientBackdrop: View {
     }
 
     var body: some View {
+        let isSurfaceVisible = isSurfaceVisible && !(motion?.isHeld ?? false)
         let hasArtworkTheme = theme.hasArtworkAmbient
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
         let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
@@ -1045,6 +1048,8 @@ struct NowPlayingView: View {
     /// 封面取色不在此列：ThemeService 早已算好，推迟它只会让播放页先以灰底滑上来、停稳后再变色。
     var isPresentationSettled = true
     var isPresentationActive = true
+    /// 外壳（PlayerOverlay）开始收起时在这里记一笔；没有外壳时用自己那份。
+    var surfaceMotionFromHost: NowPlayingSurfaceMotion? = nil
     @State private var showChapterList = false
     /// 正在给哪一集 / 哪一章打开「生成文字稿」(#314)。
     @State private var transcriptGenerationSong: Song?
@@ -1116,11 +1121,10 @@ struct NowPlayingView: View {
     /// 按住文字稿键打开了全屏文稿:松手时按钮自己的点按也会到,那一下不再切换文字稿。
     /// 文稿关掉时清掉,点按没到(触摸被弹出的全屏打断)也不会吃掉下一次正常的点按。
     @State private var transcriptKeyHeld = false
-    @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
-    @State private var activeMinimizeDragStartLocation: CGPoint?
-    /// 下拉收起手势最近一次动静的时刻，见 `returnToArtworkFromLyricsHeader()`。
+    /// 下拉收起手势的起点、方向与最近一次动静的时刻，见 `returnToArtworkFromLyricsHeader()`。
     /// 普通引用：拖动时每一帧都写，不能引起重绘。
     @State private var minimizeDragActivity = NowPlayingMinimizeDragActivity()
+    @State private var ownSurfaceMotion = NowPlayingSurfaceMotion()
     @State private var isLyricsImmersive = false
     /// 竖屏歌词里拖动歌词后收起了底部控件（歌词铺满，顶上的小封面与歌名还在）。
     /// 与全屏歌词互斥：那一套会重建歌词视图，拖到一半切过去会打断滚动。
@@ -1298,8 +1302,13 @@ struct NowPlayingView: View {
             && isPresentationActive
             && !isFullscreenPlayerPresented
             && !hasBlockingNowPlayingPresentation
-            && activeMinimizeDragAxis == nil
-            && activeMinimizeDragStartLocation == nil
+    }
+
+    /// 拖动整页、收进迷你条途中要停的动画只在各自那一层读它（背景、歌词顶上的大封面）：
+    /// 原先拖动状态放在这一页的 `@State` 里、参与上面的判断，手指一动、一松手整页版面
+    /// 都要重建一遍，正好落在下拉的第一帧上（#322）。
+    private var surfaceMotion: NowPlayingSurfaceMotion {
+        surfaceMotionFromHost ?? ownSurfaceMotion
     }
 
     private var initialLyricsLoadIdentity: String {
@@ -1708,7 +1717,8 @@ struct NowPlayingView: View {
                   !isFullscreenPlayerPresented, !isLyricsImmersive,
                   player.currentSong != nil,
                   !player.isMusicVideoPlaybackActive, !player.isLiveRadio, !usesSpokenWordTransport,
-                  isPresentationSettled, isPresentationActive, !hasBlockingNowPlayingPresentation
+                  isPresentationSettled, isPresentationActive, !surfaceMotion.isDismissing,
+                  !hasBlockingNowPlayingPresentation
             else { return }
             lyricsVisibleBeforeLandscapeFullscreen = showLyrics
             presentImmersiveLyrics()
@@ -1814,7 +1824,7 @@ struct NowPlayingView: View {
     /// 拖着停住再松手时按钮可能先到，那时拖动还没结束，也挡。
     private func returnToArtworkFromLyricsHeader() {
         let sinceDrag = Date().timeIntervalSince(minimizeDragActivity.lastEventAt)
-        let isDragging = activeMinimizeDragStartLocation != nil && sinceDrag < 3
+        let isDragging = minimizeDragActivity.startLocation != nil && sinceDrag < 3
         guard sinceDrag > 0.35, !isDragging else { return }
         setStandardLyricsVisible(false)
     }
@@ -1951,6 +1961,10 @@ struct NowPlayingView: View {
         #endif
     }
 
+    /// iOS 上播放页整层铺满、忽略安全区，版面按窗口的安全区排，不读 `geo.safeAreaInsets`：
+    /// 它按这一层在窗口里的位置换算，停稳时是 0；展开、收起、下拉时整页在变形、平移，它跟着
+    /// 出一串过渡值（回弹时左右还漏出零点几），读了它版面闭包就每一帧都重跑，整套版面连同
+    /// 「更多」菜单重建一遍（#322）。
     private func resolvedSafeAreaInsets(for geo: GeometryProxy) -> EdgeInsets {
         #if os(iOS)
         let windowInsets = windowSafeAreaInsets
@@ -1961,10 +1975,10 @@ struct NowPlayingView: View {
             ? windowInsets.left
             : windowInsets.right
         return EdgeInsets(
-            top: max(geo.safeAreaInsets.top, windowInsets.top),
-            leading: max(geo.safeAreaInsets.leading, logicalLeading),
-            bottom: max(geo.safeAreaInsets.bottom, windowInsets.bottom),
-            trailing: max(geo.safeAreaInsets.trailing, logicalTrailing)
+            top: windowInsets.top,
+            leading: logicalLeading,
+            bottom: windowInsets.bottom,
+            trailing: logicalTrailing
         )
         #else
         return geo.safeAreaInsets
@@ -2653,11 +2667,13 @@ struct NowPlayingView: View {
         // also move under the finger and feed the offset back into translation.
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
-                minimizeDragActivity.lastEventAt = Date()
+                let activity = minimizeDragActivity
+                activity.lastEventAt = Date()
                 let isRTL = layoutDirection == .rightToLeft
-                if activeMinimizeDragStartLocation != value.startLocation {
-                    activeMinimizeDragStartLocation = value.startLocation
-                    activeMinimizeDragAxis = nil
+                if activity.startLocation != value.startLocation {
+                    activity.startLocation = value.startLocation
+                    activity.axis = nil
+                    if !surfaceMotion.isDragging { surfaceMotion.isDragging = true }
                 }
                 let startDistance = NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
                     startX: Double(value.startLocation.x),
@@ -2668,7 +2684,7 @@ struct NowPlayingView: View {
                     translationX: Double(value.translation.width),
                     layoutIsRightToLeft: isRTL
                 )
-                let axis = activeMinimizeDragAxis
+                let axis = activity.axis
                     ?? NowPlayingDismissGesturePolicy.recognizedAxis(
                         startY: Double(value.startLocation.y),
                         startDistanceFromLeadingEdge: startDistance,
@@ -2677,7 +2693,7 @@ struct NowPlayingView: View {
                         verticalStartMaximumY: Double(verticalStartMaximumY)
                     )
                 guard let axis else { return }
-                activeMinimizeDragAxis = axis
+                activity.axis = axis
 
                 switch axis {
                 case .horizontal:
@@ -2687,10 +2703,12 @@ struct NowPlayingView: View {
                 }
             }
             .onEnded { value in
-                let axis = activeMinimizeDragAxis
-                activeMinimizeDragAxis = nil
-                activeMinimizeDragStartLocation = nil
-                minimizeDragActivity.lastEventAt = Date()
+                let activity = minimizeDragActivity
+                let axis = activity.axis
+                activity.axis = nil
+                activity.startLocation = nil
+                activity.lastEventAt = Date()
+                if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
                 guard let axis else { return }
 
                 let isRTL = layoutDirection == .rightToLeft
@@ -3123,8 +3141,9 @@ struct NowPlayingView: View {
                 }
             } else {
                 immersiveControlsAutoHideTask?.cancel()
-                activeMinimizeDragAxis = nil
-                activeMinimizeDragStartLocation = nil
+                minimizeDragActivity.axis = nil
+                minimizeDragActivity.startLocation = nil
+                if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
             }
         }
         .onChange(of: showsImmersiveEffectPicker) { _, isPresented in
@@ -6492,7 +6511,7 @@ struct NowPlayingView: View {
                     presentationRole: .animatedHero,
                     animationRequiresPlayback: true,
                     isPlaying: player.isPlaying,
-                    isAnimationVisible: isNowPlayingSurfaceExposed,
+                    isAnimationVisible: isNowPlayingSurfaceExposed && !surfaceMotion.isHeld,
                     loadsHighResolution: isPresentationSettled,
                     revisionToken: player.coverRevision
                 )
@@ -7222,7 +7241,8 @@ struct NowPlayingView: View {
             isPlaying: player.isPlaying,
             isSurfaceVisible: isNowPlayingSurfaceExposed,
             isSceneActive: isVisualSceneActive,
-            allowsImageLoading: isPresentationSettled
+            allowsImageLoading: isPresentationSettled,
+            motion: surfaceMotion
         )
     }
 
@@ -14152,10 +14172,23 @@ extension MusicLibrary {
 
 // MARK: - 下拉收起与顶栏按钮
 
-/// 播放页下拉收起手势最近一次动静的时刻。不可观察：拖动时每一帧都写。
+/// 播放页下拉收起手势的起点、认出的方向与最近一次动静的时刻。不可观察：拖动时每一帧都写。
 @MainActor
 private final class NowPlayingMinimizeDragActivity {
     var lastEventAt = Date.distantPast
+    var startLocation: CGPoint?
+    var axis: NowPlayingDismissGesturePolicy.Axis?
+}
+
+/// 手指拖着整页、或者已经开始收进迷你条时，背景色场、律动与大封面的动画先停下。
+/// 只有那几处动画读它，整页版面不跟着它重建（#322）。
+@MainActor
+@Observable
+final class NowPlayingSurfaceMotion {
+    var isDragging = false
+    var isDismissing = false
+
+    var isHeld: Bool { isDragging || isDismissing }
 }
 
 // MARK: - 按住快退 / 快进
