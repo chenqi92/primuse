@@ -5120,6 +5120,24 @@ final class ScanService {
                 )
             )
         }
+        // 整源提交的逐首派生字段先在后台算好(要和服务端已有行合并的照原路), 扫完
+        // 一个上万首的源时主线程上只剩合并与剪枝。
+        var preparedCatalog: MusicLibrary.PreparedIncomingSongs?
+        if commitsCatalogSnapshot, source?.type.isSubsonicFamily != true {
+            preparedCatalog = await library.prepareIncomingSongsOffMain(catalogSongs)
+            try Task.checkCancellation()
+            guard isCurrentScan(sourceID, generation: generation) else {
+                throw CancellationError()
+            }
+            if let expectedScopeFingerprint {
+                try checkSourceScope(
+                    sourceID: sourceID,
+                    directories: expectedScopeDirectories,
+                    scopeFingerprint: expectedScopeFingerprint,
+                    sourceStore: sourceStore
+                )
+            }
+        }
         let previousFolderMemberships: [String: [String]]
         if let source {
             previousFolderMemberships = library.folderPlaylistBindings(for: source)
@@ -5129,7 +5147,17 @@ final class ScanService {
         } else {
             previousFolderMemberships = [:]
         }
-        if commitsCatalogSnapshot {
+        if let preparedCatalog {
+            library.addSongs(
+                preparedCatalog,
+                affectedSourceIDs: Set([sourceID]),
+                notifyRemovals: true,
+                pruneMissingSongs: pruneMissingSongs,
+                authoritativeIncomingIDs: authoritativeSongIDs,
+                mergeServerCatalogRows: false,
+                indexMaintenance: .immediate
+            )
+        } else if commitsCatalogSnapshot {
             library.addSongs(
                 catalogSongs,
                 affectedSourceIDs: Set([sourceID]),
@@ -5711,6 +5739,14 @@ final class ScanService {
         for source: MusicSource,
         directories: [String]
     ) -> String {
+        let securityRevision = MusicSourceSecurityRevision.revision(for: source.id)
+        // 扫描循环每处理一次进度要核两遍; 输入没变就用上一次的结果。
+        if let cached = scopeFingerprintMemo.withLock({ $0[source.id] }),
+           cached.securityRevision == securityRevision,
+           cached.directories == directories,
+           cached.source == source {
+            return cached.fingerprint
+        }
         let identity = MusicSourceScopeFingerprint.make(
             for: source,
             directories: directories
@@ -5719,7 +5755,6 @@ final class ScanService {
         // Canonicalize to that same representation so a cold launch does not
         // discard a valid checkpoint solely because Date lost sub-seconds.
         let sourceRevision = Int64(source.modifiedAt.timeIntervalSince1970.rounded(.down))
-        let securityRevision = MusicSourceSecurityRevision.revision(for: source.id)
         // Keep the previously persisted fingerprint representation stable while
         // avoiding Optional's debug interpolation, which is not a data format.
         let securityRevisionComponent = securityRevision
@@ -5728,8 +5763,28 @@ final class ScanService {
         let digest = SHA256.hash(
             data: Data("\(identity)\u{1E}\(sourceRevision)\u{1E}\(securityRevisionComponent)".utf8)
         )
-        return digest.map { String(format: "%02x", $0) }.joined()
+        let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
+        scopeFingerprintMemo.withLock {
+            if $0.count >= 64 { $0.removeAll(keepingCapacity: true) }
+            $0[source.id] = ScopeFingerprintMemoEntry(
+                source: source,
+                directories: directories,
+                securityRevision: securityRevision,
+                fingerprint: fingerprint
+            )
+        }
+        return fingerprint
     }
+
+    private struct ScopeFingerprintMemoEntry: Sendable {
+        let source: MusicSource
+        let directories: [String]
+        let securityRevision: UInt64?
+        let fingerprint: String
+    }
+
+    private nonisolated static let scopeFingerprintMemo =
+        OSAllocatedUnfairLock<[String: ScopeFingerprintMemoEntry]>(initialState: [:])
 
     nonisolated static func shouldDeferAutomaticServerCatalogWork(
         context: BaiduSnapshotExecutionContext,

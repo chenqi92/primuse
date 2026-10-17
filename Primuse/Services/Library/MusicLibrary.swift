@@ -5726,11 +5726,14 @@ final class MusicLibrary {
         )
     }
 
-    /// 只合并不修剪的中间提交用。准备期间名字规则或自动歌手图变了、资料库还在装载,
-    /// 或者要和服务端已有的行合并(合并后要按合并结果重算), 都照原路逐首算。
+    /// 准备期间名字规则或自动歌手图变了、资料库还在装载, 或者要和服务端已有的行合并
+    /// (合并后要按合并结果重算), 都照原路逐首算。
     func addSongs(
         _ prepared: PreparedIncomingSongs,
         affectedSourceIDs: Set<String>?,
+        notifyRemovals: Bool = false,
+        pruneMissingSongs: Bool = false,
+        authoritativeIncomingIDs: Set<String>? = nil,
         mergeServerCatalogRows: Bool,
         indexMaintenance: LibraryMaintenanceDisposition
     ) {
@@ -5741,8 +5744,9 @@ final class MusicLibrary {
         addSongs(
             derivationIsCurrent ? prepared.derived : prepared.original,
             affectedSourceIDs: affectedSourceIDs,
-            notifyRemovals: false,
-            pruneMissingSongs: false,
+            notifyRemovals: notifyRemovals,
+            pruneMissingSongs: pruneMissingSongs,
+            authoritativeIncomingIDs: authoritativeIncomingIDs,
             mergeServerCatalogRows: mergeServerCatalogRows,
             indexMaintenance: indexMaintenance,
             derivedFieldsArePrepared: derivationIsCurrent

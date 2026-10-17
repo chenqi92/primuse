@@ -1371,12 +1371,17 @@ final class AppleMusicLibraryService {
                 )
             }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
-            // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
+            // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。逐首的派生字段
+            // 先在后台算好, 上万首的资料库同步时主线程上只剩合并。
+            let prepared = await library.prepareIncomingSongsOffMain(songs + playlistOnlySongs)
+            guard syncGeneration == generation, !Task.isCancelled else { return }
             library.addSongs(
-                songs + playlistOnlySongs,
+                prepared,
                 affectedSourceIDs: [Self.systemSourceID],
                 notifyRemovals: fetchResult.syncMode.shouldPruneMissingSongs,
-                pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs
+                pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs,
+                mergeServerCatalogRows: false,
+                indexMaintenance: .immediate
             )
 
             // 同步生成「Apple Music 资料库」镜像歌单 ── 让用户在资料库 →

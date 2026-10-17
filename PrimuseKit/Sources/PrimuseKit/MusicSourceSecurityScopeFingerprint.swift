@@ -33,6 +33,7 @@ public enum MusicSourceSecurityScopeFingerprint {
         )
         let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
         memoLock.withLock {
+            if memo.count >= 64 { memo.removeAll(keepingCapacity: true) }
             memo[source.id] = MemoEntry(
                 source: source,
                 revisionIdentity: revisionIdentity,

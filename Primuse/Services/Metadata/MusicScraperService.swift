@@ -155,8 +155,15 @@ final class MusicScraperService {
     private var singleScrapeCompletionOrder: [SingleSongScrapeKey] = []
     private var recentSingleScrapeCompletions: [UUID: SingleScrapeCompletion] = [:]
     private var singleScrapeRunOrder: [UUID] = []
-    private var pendingEnrichmentSongIDs: [String] = []
-    private var pendingEnrichmentSongIDSet: Set<String> = []
+    /// 联网补全的待办队列。只在动作里读、不进界面观察: 扫完一个上万首的源时逐首入队,
+    /// 每加一首都会给观察者发一次通知。出队用游标, 不再每取一首就把整个数组往前挪一格。
+    @ObservationIgnored private var pendingEnrichmentSongIDs: [String] = []
+    @ObservationIgnored private var pendingEnrichmentHead = 0
+    @ObservationIgnored private var pendingEnrichmentSongIDSet: Set<String> = []
+
+    private var hasPendingEnrichment: Bool {
+        pendingEnrichmentHead < pendingEnrichmentSongIDs.count
+    }
     private var isPausedForSceneTransition = false
     /// A batch scrape that the transition gate interrupted. Only that scrape
     /// restarts when the scene returns to the foreground without a background
@@ -240,7 +247,7 @@ final class MusicScraperService {
     /// silent when the scene moves to the background.
     var hasPendingBackgroundContinuation: Bool {
         hasPendingScrape
-            || !pendingEnrichmentSongIDs.isEmpty
+            || hasPendingEnrichment
             || isScraping
             || isBackgroundEnriching
     }
@@ -872,7 +879,7 @@ final class MusicScraperService {
         guard !isPausedForSceneTransition,
               !isSingleScraping,
               backgroundEnrichmentTask == nil,
-              !pendingEnrichmentSongIDs.isEmpty else { return }
+              hasPendingEnrichment else { return }
         backgroundEnrichmentTask = Task(priority: .utility) { @MainActor [weak self] in
             await self?.runBackgroundEnrichment(in: library)
         }
@@ -1957,7 +1964,12 @@ final class MusicScraperService {
                 // dropping results which were only task-local.
                 for songID in pendingSongUpdates.map(\.id).reversed()
                     where pendingEnrichmentSongIDSet.insert(songID).inserted {
-                    pendingEnrichmentSongIDs.insert(songID, at: 0)
+                    if pendingEnrichmentHead > 0 {
+                        pendingEnrichmentHead -= 1
+                        pendingEnrichmentSongIDs[pendingEnrichmentHead] = songID
+                    } else {
+                        pendingEnrichmentSongIDs.insert(songID, at: 0)
+                    }
                 }
             }
             backgroundEnrichmentTask = nil
@@ -2034,8 +2046,20 @@ final class MusicScraperService {
     }
 
     private func nextSongForBackgroundEnrichment(in library: MusicLibrary) -> Song? {
-        while let songID = pendingEnrichmentSongIDs.first {
-            pendingEnrichmentSongIDs.removeFirst()
+        defer {
+            // 取空了就清掉; 已取走的攒到一半再整理一次, 摊下来每首常数时间。
+            if pendingEnrichmentHead >= pendingEnrichmentSongIDs.count {
+                pendingEnrichmentSongIDs.removeAll(keepingCapacity: true)
+                pendingEnrichmentHead = 0
+            } else if pendingEnrichmentHead > 512,
+                      pendingEnrichmentHead * 2 > pendingEnrichmentSongIDs.count {
+                pendingEnrichmentSongIDs.removeFirst(pendingEnrichmentHead)
+                pendingEnrichmentHead = 0
+            }
+        }
+        while pendingEnrichmentHead < pendingEnrichmentSongIDs.count {
+            let songID = pendingEnrichmentSongIDs[pendingEnrichmentHead]
+            pendingEnrichmentHead += 1
             pendingEnrichmentSongIDSet.remove(songID)
 
             if let song = library.visibleSong(id: songID) {

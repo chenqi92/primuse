@@ -10,6 +10,39 @@ public enum MusicSourceScopeFingerprint {
         directories: [String]? = nil,
         includeSourceID: Bool = false
     ) -> String {
+        // 扫描循环每处理一次进度、取一次连接器都要核一遍; 同一份源配置结果不变,
+        // 记住上一次的输入和结果, 免得每次都拼串、算哈希、逐字节格式化。
+        let key = MemoKey(sourceID: source.id, directories: directories, includeSourceID: includeSourceID)
+        if let cached = memoLock.withLock({ memo[key] }), cached.source == source {
+            return cached.fingerprint
+        }
+        let fingerprint = compute(for: source, directories: directories, includeSourceID: includeSourceID)
+        memoLock.withLock {
+            if memo.count >= 64 { memo.removeAll(keepingCapacity: true) }
+            memo[key] = MemoEntry(source: source, fingerprint: fingerprint)
+        }
+        return fingerprint
+    }
+
+    private struct MemoKey: Hashable {
+        let sourceID: String
+        let directories: [String]?
+        let includeSourceID: Bool
+    }
+
+    private struct MemoEntry {
+        let source: MusicSource
+        let fingerprint: String
+    }
+
+    private static let memoLock = NSLock()
+    nonisolated(unsafe) private static var memo: [MemoKey: MemoEntry] = [:]
+
+    private static func compute(
+        for source: MusicSource,
+        directories: [String]?,
+        includeSourceID: Bool
+    ) -> String {
         var components: [String] = []
         if includeSourceID { components.append(source.id) }
         components.append(contentsOf: [
