@@ -156,6 +156,10 @@ enum PlayerAppearancePreferences {
     /// 进度条播放过的那段外面一圈同色的光晕(#319),三种画法都能叠。播放时亮,暂停时变淡。
     static let progressGlowKey = "primuse.player.progressGlow"
     static let progressGlowByDefault = false
+    /// 有声书竖屏专版的进度条也照上面选的画法画(#320)。默认关:那套版式保留自己的细线加圆点,
+    /// 只跟着换成波浪(#313)——默认画法是胶囊条,不能悄悄把所有人的书刊版式换掉。
+    static let progressStyleAppliesToAudiobooksKey = "primuse.player.progressStyleAudiobooks"
+    static let progressStyleAppliesToAudiobooksByDefault = false
 
     /// 系统是浅色时播放页也用深色(像 Apple Music、播客那样),有声书走墨黑版式(#313)。默认跟随系统。
     static let alwaysDarkKey = "primuse.player.alwaysDark"

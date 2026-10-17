@@ -6104,7 +6104,7 @@
 "library_playlist_cover_wall_description" = "Lorsqu’une playlist ou une playlist intelligente compte au moins 4 pochettes d’album différentes, son en-tête devient un mur incliné de pochettes qui se réorganise toutes les quelques secondes. En mode paysage sur téléphone et pour les playlists avec une pochette personnalisée, une seule pochette reste affichée.";
 "player_backdrop_strength_footer" = "Plus le curseur est à droite, plus l’arrière-plan se rapproche des couleurs de la pochette. En mode clair, les couleurs très sombres s’arrêtent là où le texte reste lisible. Avec une image d’arrière-plan comme Pochette floutée, cela règle l’intensité du voile qui l’assombrit.";
 "player_progress_style_title" = "Barre de progression";
-"player_progress_style_footer" = "La vague ne s’anime que pendant la lecture et redevient une ligne droite en pause ou pendant que vous la faites glisser. S’applique au lecteur sur iPhone, iPad et Mac. Les podcasts et livres audio suivent aussi, sauf la présentation portrait des livres audio, qui ne passe qu’à la vague et garde sinon sa propre ligne fine.";
+"player_progress_style_footer" = "La vague ne s’anime que pendant la lecture et redevient une ligne droite en pause ou pendant que vous la faites glisser. S’applique au lecteur sur iPhone, iPad et Mac. Les podcasts et livres audio suivent aussi, sauf la présentation portrait des livres audio, qui ne passe qu’à la vague et garde sinon sa propre ligne fine. Activez « Livres audio » ci-dessous pour y appliquer aussi les deux autres.";
 "player_artwork_style_title" = "Style de la pochette";
 "player_artwork_style_card" = "Carte";
 "player_artwork_style_full_bleed" = "Bord à bord";
@@ -6116,6 +6116,7 @@
 "player_progress_style_dot" = "Ligne fine avec point";
 "player_progress_glow" = "Barre de progression lumineuse";
 "player_progress_glow_description" = "Ajoute un halo doux de la même couleur autour de la partie déjà lue de la barre de progression. Il s’atténue en pause. Fonctionne avec les trois styles et ressort surtout en apparence sombre.";
+"player_progress_audiobooks_hint" = "Lorsque cette option est activée, le lecteur de livres audio en portrait dessine sa barre de progression dans le style choisi ci-dessus. Sinon, il garde sa ligne fine avec un point, et seule la vague est reprise.";
 "theme_color_player_backdrop_moved_hint" = "Le style et l’intensité des couleurs de l’arrière-plan du lecteur se règlent désormais dans Réglages › Lecteur.";
 "theme_color_player_backdrop_moved_link" = "Ouvrir les réglages du lecteur";
 

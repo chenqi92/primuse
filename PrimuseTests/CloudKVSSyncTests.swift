@@ -106,6 +106,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.audioInfoModeKey,
             PlayerAppearancePreferences.progressStyleKey,
             PlayerAppearancePreferences.progressGlowKey,
+            PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey,
             PlayerAppearancePreferences.playButtonStyleKey,
             PlayerAppearancePreferences.skipButtonStyleKey,
             PlayerAppearancePreferences.animatedArtworkEnabledKey,

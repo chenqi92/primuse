@@ -6010,7 +6010,7 @@
 "library_playlist_cover_wall_description" = "Cuando una lista o lista inteligente tiene al menos 4 portadas de álbum distintas, el encabezado se convierte en un mural inclinado de portadas que se reacomoda cada pocos segundos. En el teléfono en horizontal y en listas con portada propia se sigue viendo una sola portada.";
 "player_backdrop_strength_footer" = "Mientras más a la derecha, más se acerca el fondo a los colores de la portada. En modo claro, los colores muy oscuros se detienen donde el texto sigue siendo legible. Con una imagen de fondo como Portada difuminada, ajusta la intensidad de la capa que la oscurece.";
 "player_progress_style_title" = "Barra de progreso";
-"player_progress_style_footer" = "La onda solo se mueve durante la reproducción y se vuelve una línea recta al pausar o arrastrar. Aplica al reproductor en iPhone, iPad y Mac. También aplica a pódcasts y audiolibros, salvo que el diseño vertical de audiolibros solo cambia a la onda y, si no, conserva su propia línea fina.";
+"player_progress_style_footer" = "La onda solo se mueve durante la reproducción y se vuelve una línea recta al pausar o arrastrar. Aplica al reproductor en iPhone, iPad y Mac. También aplica a pódcasts y audiolibros, salvo que el diseño vertical de audiolibros solo cambia a la onda y, si no, conserva su propia línea fina. Activa Audiolibros abajo para usar también las otras dos ahí.";
 "player_artwork_style_title" = "Estilo de portada";
 "player_artwork_style_card" = "Tarjeta";
 "player_artwork_style_full_bleed" = "De borde a borde";
@@ -6022,6 +6022,7 @@
 "player_progress_style_dot" = "Línea fina con punto";
 "player_progress_glow" = "Barra de progreso luminosa";
 "player_progress_glow_description" = "Agrega un brillo suave del mismo color alrededor de la parte ya reproducida de la barra de progreso. Se atenúa en pausa. Funciona con los tres estilos y se nota más con la apariencia oscura.";
+"player_progress_audiobooks_hint" = "Si está activado, el reproductor vertical de audiolibros dibuja su barra de progreso con el estilo elegido arriba. Si no, conserva su línea fina con punto y solo adopta la onda.";
 "theme_color_player_backdrop_moved_hint" = "El estilo y la intensidad de color del fondo del reproductor ahora están en Configuración › Reproductor.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes del reproductor";
 

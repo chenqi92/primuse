@@ -412,12 +412,21 @@ struct AudiobookProgressBar: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
+    private var followsProgressStyle = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
 
     /// 设置 › 播放器 › 进度条选了「波浪」时这里也画波浪(#313);「标准」「圆点」都留这套版式
     /// 自己的细线加圆点——默认就是「标准」,照搬胶囊条会把所有人的书刊版式换掉。
+    /// 那里打开了「有声书」时三种都照音乐播放页画,底色仍用这套版式的(#320)。
     /// 「进度条发光」默认关,打开了这里也跟着亮(#319)。
     private var trackStyle: ProgressSlider.TrackStyle {
-        if PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) == .wave {
+        let selected = PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+        if followsProgressStyle {
+            var track = ProgressSlider.TrackStyle.forProgressStyle(selected, glows: progressGlows)
+            track.trackColor = style.track
+            return track
+        }
+        if selected == .wave {
             return ProgressSlider.TrackStyle(
                 restingHeight: 3,
                 draggingHeight: 5,

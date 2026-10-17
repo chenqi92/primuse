@@ -529,6 +529,8 @@ private struct PlayerLookSettingsSections: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
+    private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
@@ -581,6 +583,10 @@ private struct PlayerLookSettingsSections: View {
             Toggle("player_progress_glow", isOn: $progressGlows)
                 .settingsAnchor("appearance.playerProgressGlow")
                 .accessibilityHint(Text("player_progress_glow_description"))
+            // 有声书竖屏专版默认只跟着换成波浪,打开后三种都跟(#320)。
+            PlayerAudiobookToggleRow(isOn: $progressStyleAppliesToAudiobooks) {
+                Text("player_progress_audiobooks_hint")
+            }
         } header: {
             SettingsInfoHeader("player_progress_style_title") {
                 Text("player_progress_style_footer")
