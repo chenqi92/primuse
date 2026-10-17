@@ -2154,8 +2154,35 @@ final class AudioPlayerService {
             self.cancelPendingConfigurationRecovery()
             let pendingAppleMusicRequestID = self.activeAppleMusicRequestID
                 ?? appleMusic.activePlaybackRequestID
-            if let pendingAppleMusicRequestID,
-               appleMusic.playbackPhase(for: pendingAppleMusicRequestID) == .pending {
+            let appleMusicRequestIsPending = pendingAppleMusicRequestID.map {
+                appleMusic.playbackPhase(for: $0) == .pending
+            } ?? false
+            let appleMusicStartIsInFlight = pendingAppleMusicRequestID.map {
+                appleMusic.isSystemStartInFlight($0)
+            } ?? false
+            if AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+                hasActivePlaybackRequest: hasAppleMusicRequest,
+                requestIsPending: appleMusicRequestIsPending,
+                systemStartIsInFlight: appleMusicStartIsInFlight
+            ) {
+                // ApplicationMusicPlayer takes over the route after Primuse's
+                // local engine yields. That handoff interrupts our dormant
+                // AVAudioSession, often before MusicKit has confirmed the
+                // start. Keep MusicKit authoritative so the handoff cannot
+                // clear queue intent or strand a mixed-source queue in a
+                // paused state. Genuine calls/route interruptions are mirrored
+                // by MusicKit; its end watchdog remains suppressed until its
+                // clock advances.
+                if appleMusicRequestIsPending {
+                    appleMusic.markStartInterrupted()
+                    plog("Apple Music start interruption left to MusicKit")
+                } else {
+                    appleMusic.markPlaybackInterrupted()
+                    plog("🔇 Active Apple Music interruption delegated to MusicKit")
+                }
+                return
+            }
+            if appleMusicRequestIsPending, let pendingAppleMusicRequestID {
                 // This request never produced audio. In particular, currentSong
                 // may still describe the previous local item while an ownership
                 // handoff is awaiting a renderer. Cancel the pending generation
@@ -2175,21 +2202,6 @@ final class AudioPlayerService {
                 self.isPlaying = false
                 self.updateNowPlayingInfo()
                 self.updatePlaybackState()
-                return
-            }
-            if AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
-                hasActivePlaybackRequest: hasAppleMusicRequest,
-                requestIsPending: false
-            ) {
-                // ApplicationMusicPlayer takes over the route after Primuse's
-                // local engine yields. That handoff interrupts our dormant
-                // AVAudioSession even though MusicKit is already playing. Keep
-                // MusicKit authoritative so the handoff cannot clear queue
-                // intent or strand a mixed-source queue in a paused state.
-                // Genuine calls/route interruptions are mirrored by MusicKit;
-                // its end watchdog remains suppressed until its clock advances.
-                appleMusic.markPlaybackInterrupted()
-                plog("🔇 Active Apple Music interruption delegated to MusicKit")
                 return
             }
             // A cold catalog request may not have mirrored currentSong yet.

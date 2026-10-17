@@ -202,6 +202,9 @@ final class AppleMusicService {
     @ObservationIgnored private var wasPausedByUser = false
     @ObservationIgnored private var playbackCommandGeneration: UInt64 = 0
     @ObservationIgnored private var isPlaybackInterrupted = false
+    /// 最近一次把队列交给 MusicKit 起播的请求。起播确认之前收到的会话打断
+    /// 多半是 MusicKit 自己起播造成的, 见 `isSystemStartInFlight`。
+    @ObservationIgnored private var systemStartRequestID: UUID?
     @ObservationIgnored private var lastObservedPlaybackTime: TimeInterval?
     @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
     @ObservationIgnored private var nearEndStallSampleCount = 0
@@ -402,6 +405,7 @@ final class AppleMusicService {
               !Task.isCancelled else {
             throw CancellationError()
         }
+        systemStartRequestID = requestID
         let index = startingIndex ?? songs.firstIndex(where: { $0.id == starting.id }) ?? 0
         let entries = songs.map { MusicPlayer.Queue.Entry($0) }
         managedQueueEntryIDs = queueEntryIDs.map {
@@ -1128,6 +1132,13 @@ final class AppleMusicService {
          nearEndStallSampleCount = 0
      }
 
+     /// 起播还没确认时收到的打断: 同样压住曲末判定, 但不推进命令代数 ——
+     /// 推进了, 正在进行的起播会把自己当成过期请求, 把刚出声的歌暂停掉。
+     func markStartInterrupted() {
+         isPlaybackInterrupted = true
+         nearEndStallSampleCount = 0
+     }
+
      /// 中断结束就解除抑制。否则抑制只能靠"再次观察到 MusicKit 的时钟前进"
      /// 解除 —— 本地 engine 让位给 ApplicationMusicPlayer 的那次交接也会被
      /// 报成中断, 如果这一段之后直到播完都没有哪一拍同时采到 .playing 和
@@ -1190,6 +1201,11 @@ final class AppleMusicService {
      func isPlaybackRequestPending(_ requestID: UUID) -> Bool {
          isPlaybackRequestActive(requestID)
              && playbackRequestState?.phase == .pending
+     }
+
+     /// 队列已经交给 MusicKit、还在等它确认起播。
+     func isSystemStartInFlight(_ requestID: UUID) -> Bool {
+         systemStartRequestID == requestID && isPlaybackRequestPending(requestID)
      }
 
      func playbackPhase(for requestID: UUID) -> PlaybackPhase? {

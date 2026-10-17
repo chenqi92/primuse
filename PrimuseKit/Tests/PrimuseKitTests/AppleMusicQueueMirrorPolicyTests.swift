@@ -85,15 +85,34 @@ struct AppleMusicAudioSessionInterruptionPolicyTests {
         ))
     }
 
-    @Test("Pending requests and local playback keep existing handling")
+    @Test("MusicKit's own start interrupting a pending request keeps that start")
+    func delegatesInFlightStartToMusicKit() {
+        #expect(AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: true,
+            requestIsPending: true,
+            systemStartIsInFlight: true
+        ))
+    }
+
+    @Test("Pending requests before MusicKit and local playback keep existing handling")
     func keepsPendingAndLocalHandling() {
         #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
             hasActivePlaybackRequest: true,
             requestIsPending: true
         ))
         #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: true,
+            requestIsPending: true,
+            systemStartIsInFlight: false
+        ))
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
             hasActivePlaybackRequest: false,
             requestIsPending: false
+        ))
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: false,
+            requestIsPending: false,
+            systemStartIsInFlight: true
         ))
     }
 

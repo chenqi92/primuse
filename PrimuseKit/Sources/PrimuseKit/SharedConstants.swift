@@ -2599,11 +2599,16 @@ public enum AppleMusicQueueOwnershipPolicy {
 /// Keeps Primuse's dormant AVAudioSession notifications from overriding the
 /// system-owned MusicKit transport during local/Apple Music queue handoffs.
 public enum AppleMusicAudioSessionInterruptionPolicy {
+    /// A pending request has normally produced no audio and is cancelled
+    /// instead. Once MusicKit holds its queue and is starting, the
+    /// interruption is that start taking the route from the dormant local
+    /// session, and cancelling would stop the song as it begins.
     public static func shouldDeferToSystemTransport(
         hasActivePlaybackRequest: Bool,
-        requestIsPending: Bool
+        requestIsPending: Bool,
+        systemStartIsInFlight: Bool = false
     ) -> Bool {
-        hasActivePlaybackRequest && !requestIsPending
+        hasActivePlaybackRequest && (!requestIsPending || systemStartIsInFlight)
     }
 
     public static func shouldClearSuppression(
