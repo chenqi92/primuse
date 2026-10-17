@@ -106,3 +106,35 @@ struct SpokenTranscriptLanguagePolicyTests {
         #expect(SpokenTranscriptBuiltInAllowance(segmentsToday: 5, dailyLimit: 3).remainingSegments == 0)
     }
 }
+
+@Suite("Transcript layout of Alibaba Cloud results (#314)")
+struct AliyunTranscriptLayoutTests {
+    @Test("Chinese words join without spaces, English words with spaces, and a sentence ends its line")
+    func layout() throws {
+        let body = Data("""
+        {"transcripts":[{"channel_id":0,"sentences":[
+          {"begin_time":100,"end_time":1500,"text":"Hello world.","words":[
+            {"begin_time":100,"end_time":600,"text":"Hello ","punctuation":""},
+            {"begin_time":650,"end_time":1500,"text":"world","punctuation":"."}]},
+          {"begin_time":2000,"end_time":4100,"text":"今天我们聊聊播客。","words":[
+            {"begin_time":2000,"end_time":2600,"text":"今天","punctuation":""},
+            {"begin_time":2600,"end_time":3000,"text":"我们","punctuation":""},
+            {"begin_time":3000,"end_time":3500,"text":"聊聊","punctuation":""},
+            {"begin_time":3500,"end_time":4100,"text":"播客","punctuation":"。"}]}
+        ]}]}
+        """.utf8)
+        let lines = SpokenTranscriptLayout.lines(from: try AliyunFunASR.decodeTranscription(body))
+        #expect(lines.map(\.text) == ["Hello world.", "今天我们聊聊播客。"])
+        #expect(abs((lines.first?.timestamp ?? -1) - 0.1) < 0.000_1)
+        #expect(abs((lines.last?.timestamp ?? -1) - 2.0) < 0.000_1)
+    }
+
+    @Test("Alibaba Cloud uploads the whole file; only the relay and Google go in parts")
+    func segmentedEngines() {
+        #expect(SpokenTranscriptEngine.aliyun.uploadsAudio)
+        #expect(!SpokenTranscriptEngine.aliyun.uploadsInSegments)
+        #expect(SpokenTranscriptEngine.builtIn.uploadsInSegments)
+        #expect(SpokenTranscriptEngine.ownKey.uploadsInSegments)
+        #expect(!SpokenTranscriptEngine.onDevice.uploadsInSegments)
+    }
+}

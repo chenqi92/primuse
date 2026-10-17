@@ -599,6 +599,9 @@ struct GoogleLyricsTranscriptionSettingsView: View {
 
                     statusView
                 }
+
+                // 生成文字稿(#314)用的另一项服务,和上面听歌识词的设置互不影响。
+                AliyunSpeechTranscriptionSettingsSection()
             }
         }
         .navigationTitle("lyrics_transcription_settings_title")
@@ -645,5 +648,129 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.red)
         }
+    }
+}
+
+/// 「听歌识词」页里的阿里云百炼(#314 生成文字稿):API Key、地区、保存并测试、移除。
+/// 只给文字稿生成用;密钥存钥匙串,测试只是要一次上传凭证,不上传音频、不产生费用。
+struct AliyunSpeechTranscriptionSettingsSection: View {
+    @State private var account = AliyunSpeechTranscriptionAccount.shared
+    @State private var apiKeyDraft = ""
+    @State private var region = AliyunFunASR.Region.defaultValue
+    @State private var isWorking = false
+    @State private var outcome: AliyunSpeechTranscriptionAccount.TestOutcome?
+    @State private var didLoad = false
+
+    var body: some View {
+        Section {
+            Picker("aliyun_speech_region", selection: $region) {
+                ForEach(AliyunFunASR.Region.allCases, id: \.self) { region in
+                    Text(verbatim: region.localizedTitle).tag(region)
+                }
+            }
+            .settingsAnchor("lyrics.transcriptionAliyun")
+
+            SecureField("aliyun_speech_api_key", text: $apiKeyDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if let summary = account.summary, apiKeyDraft.isEmpty {
+                Label {
+                    Text(verbatim: "\(summary.maskedAPIKey) · \(summary.region.localizedTitle)")
+                } icon: {
+                    Image(systemName: "checkmark.shield")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Button {
+                Task { await save() }
+            } label: {
+                HStack {
+                    Label("aliyun_speech_save", systemImage: "square.and.arrow.down")
+                    if isWorking {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(!canSave)
+
+            if account.isConfigured {
+                Button {
+                    Task { await test() }
+                } label: {
+                    Label("aliyun_speech_test", systemImage: "checkmark.circle")
+                }
+                .disabled(isWorking)
+
+                Button("aliyun_speech_remove", role: .destructive) {
+                    account.remove()
+                    apiKeyDraft = ""
+                    outcome = nil
+                }
+                .disabled(isWorking)
+            }
+
+            statusView
+        } header: {
+            Text("aliyun_speech_section")
+        } footer: {
+            Text("aliyun_speech_footer")
+        }
+        .task {
+            guard !didLoad else { return }
+            didLoad = true
+            account.reload()
+            if let summary = account.summary { region = summary.region }
+        }
+    }
+
+    /// 填了新密钥,或者只换了地区(沿用存着的密钥)。
+    private var canSave: Bool {
+        guard !isWorking else { return false }
+        let draft = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !draft.isEmpty { return true }
+        guard let summary = account.summary else { return false }
+        return summary.region != region
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        switch outcome {
+        case .success?:
+            Label("aliyun_speech_test_success", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .failure(let message)?:
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+        case nil:
+            if let lastError = account.lastError {
+                Label(
+                    String(format: String(localized: "aliyun_speech_last_error_format"), lastError),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func save() async {
+        isWorking = true
+        outcome = nil
+        let result = await account.save(apiKey: apiKeyDraft, region: region)
+        if account.isConfigured { apiKeyDraft = "" }
+        outcome = result
+        isWorking = false
+    }
+
+    private func test() async {
+        isWorking = true
+        outcome = nil
+        outcome = await account.test()
+        isWorking = false
     }
 }

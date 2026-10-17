@@ -1,7 +1,7 @@
 import PrimuseKit
 import SwiftUI
 
-/// 给一集播客或一章有声书生成文稿(#314):选识别方式(本机 / 内置智能 / 自己的 Google 密钥)、
+/// 给一集播客或一章有声书生成文稿(#314):选识别方式(本机 / 内置智能 / 自己的 Google 密钥 / 阿里云百炼)、
 /// 本机识别的语言,开始后显示进度,可以停下;失败了写明原因,能重试。
 struct SpokenTranscriptGenerationSheet: View {
     let song: Song
@@ -21,6 +21,7 @@ struct SpokenTranscriptGenerationSheet: View {
     @State private var pendingSettingID: String?
 
     private var generator: SpokenTranscriptGenerator { .shared }
+    private var aliyunAccount: AliyunSpeechTranscriptionAccount { .shared }
 
     private var segmentCount: Int? {
         guard song.duration > 0 else { return nil }
@@ -52,7 +53,7 @@ struct SpokenTranscriptGenerationSheet: View {
             ) {
                 Button("cancel", role: .cancel) {}
                 Button("transcript_generation_upload_confirm") {
-                    generator.hasAudioUploadConsent = true
+                    if let engine { generator.grantUploadConsent(for: engine) }
                     startGeneration()
                 }
             } message: {
@@ -79,8 +80,8 @@ struct SpokenTranscriptGenerationSheet: View {
                     .font(.headline)
                     .lineLimit(2)
                 if song.duration > 0 {
-                    // 分段只对上传的两种方式有意义。
-                    let segments = engine?.uploadsAudio == true ? segmentCount : nil
+                    // 分段只对切段上传的两种方式有意义。
+                    let segments = engine?.uploadsInSegments == true ? segmentCount : nil
                     Text(verbatim: [
                         Self.durationText(song.duration),
                         segments.map { String(format: String(localized: "transcript_generation_segments_format"), $0) },
@@ -242,7 +243,11 @@ struct SpokenTranscriptGenerationSheet: View {
     }
 
     private var uploadNoticeKey: LocalizedStringKey {
-        engine == .ownKey ? "transcript_generation_upload_notice_own_key" : "transcript_generation_upload_notice_built_in"
+        switch engine {
+        case .ownKey: "transcript_generation_upload_notice_own_key"
+        case .aliyun: "transcript_generation_upload_notice_aliyun"
+        case .builtIn, .onDevice, nil: "transcript_generation_upload_notice_built_in"
+        }
     }
 
     private struct EngineIssue {
@@ -259,8 +264,18 @@ struct SpokenTranscriptGenerationSheet: View {
             return Self.issue(for: intelligence.builtInTranscriptGenerationState)
         case .ownKey:
             return Self.issue(for: intelligence.ownKeyTranscriptGenerationState)
+        case .aliyun:
+            return aliyunAccount.isConfigured
+                ? nil
+                : EngineIssue(
+                    messageKey: "transcript_generation_aliyun_not_configured",
+                    settingID: Self.aliyunSettingID
+                )
         }
     }
+
+    /// 「听歌识词」页里阿里云百炼那一区。
+    static let aliyunSettingID = "lyrics.transcriptionAliyun"
 
     private static func issue(
         for state: MusicIntelligenceService.TranscriptGenerationCloudState
@@ -286,12 +301,14 @@ struct SpokenTranscriptGenerationSheet: View {
     private func prepare() async {
         let available = await OnDeviceSpeechTranscription.isAvailable()
         onDeviceAvailable = available
+        aliyunAccount.reload()
         await intelligence.refreshBuiltInTranscriptGenerationOffer()
         if engine == nil {
             engine = Self.defaultEngine(
                 onDevice: available,
                 builtIn: intelligence.builtInTranscriptGenerationState == .ready,
                 ownKey: intelligence.ownKeyTranscriptGenerationState == .ready,
+                aliyun: aliyunAccount.isConfigured,
                 previous: generator.records[song.id]?.engine
             )
         }
@@ -314,16 +331,19 @@ struct SpokenTranscriptGenerationSheet: View {
         onDevice: Bool,
         builtIn: Bool,
         ownKey: Bool,
+        aliyun: Bool,
         previous: SpokenTranscriptEngine?
     ) -> SpokenTranscriptEngine {
-        let ready: [SpokenTranscriptEngine: Bool] = [.onDevice: onDevice, .builtIn: builtIn, .ownKey: ownKey]
+        let ready: [SpokenTranscriptEngine: Bool] = [
+            .onDevice: onDevice, .builtIn: builtIn, .ownKey: ownKey, .aliyun: aliyun,
+        ]
         if let previous, ready[previous] == true { return previous }
         return SpokenTranscriptEngine.allCases.first { ready[$0] == true } ?? .onDevice
     }
 
     private func requestStart() {
         guard let engine, canStart else { return }
-        if engine.uploadsAudio, !generator.hasAudioUploadConsent {
+        if engine.uploadsAudio, !generator.hasUploadConsent(for: engine) {
             showsUploadConfirmation = true
             return
         }
@@ -343,6 +363,7 @@ struct SpokenTranscriptGenerationSheet: View {
         case .onDevice: "transcript_generation_engine_on_device"
         case .builtIn: "transcript_generation_engine_built_in"
         case .ownKey: "transcript_generation_engine_own_key"
+        case .aliyun: "transcript_generation_engine_aliyun"
         }
     }
 
@@ -351,6 +372,7 @@ struct SpokenTranscriptGenerationSheet: View {
         case .onDevice: "transcript_generation_engine_on_device_detail"
         case .builtIn: "transcript_generation_engine_built_in_detail"
         case .ownKey: "transcript_generation_engine_own_key_detail"
+        case .aliyun: "transcript_generation_engine_aliyun_detail"
         }
     }
 
@@ -368,6 +390,12 @@ struct SpokenTranscriptGenerationSheet: View {
             return String(format: String(localized: "transcript_generation_phase_transcribing_format"), Int((fraction * 100).rounded()))
         case .uploading(let segment, let total):
             return String(format: String(localized: "transcript_generation_phase_uploading_format"), segment, total)
+        case .uploadingAudio(let fraction?):
+            return String(format: String(localized: "transcript_generation_phase_aliyun_uploading_format"), Int((fraction * 100).rounded()))
+        case .uploadingAudio(nil):
+            return String(localized: "transcript_generation_phase_aliyun_uploading")
+        case .recognizingRemotely:
+            return String(localized: "transcript_generation_phase_aliyun_recognizing")
         case .finishing:
             return String(localized: "transcript_generation_phase_finishing")
         }
@@ -378,7 +406,8 @@ struct SpokenTranscriptGenerationSheet: View {
         case .fetchingAudio(let fraction): return fraction
         case .transcribing(let fraction): return fraction
         case .uploading(let segment, let total): return total > 0 ? Double(segment - 1) / Double(total) : nil
-        case .convertingAudio, .preparingModel, .finishing: return nil
+        case .uploadingAudio(let fraction): return fraction
+        case .convertingAudio, .preparingModel, .recognizingRemotely, .finishing: return nil
         }
     }
 
@@ -395,6 +424,17 @@ struct SpokenTranscriptGenerationSheet: View {
         case .builtInMonthlyLimitReached: "transcript_generation_failure_monthly_limit"
         case .builtInNotInPlan: "transcript_generation_built_in_not_in_plan"
         case .ownKeyUnavailable: "transcript_generation_failure_own_key"
+        case .aliyunNotConfigured: "transcript_generation_aliyun_not_configured"
+        case .aliyunNetwork: "aliyun_speech_error_network"
+        case .aliyunKeyRejected: "transcript_generation_aliyun_failure_key"
+        case .aliyunAccessDenied: "transcript_generation_aliyun_failure_access"
+        case .aliyunBilling: "transcript_generation_aliyun_failure_billing"
+        case .aliyunThrottled: "transcript_generation_aliyun_failure_throttled"
+        case .aliyunContentBlocked: "transcript_generation_aliyun_failure_content"
+        case .aliyunFileRejected: "transcript_generation_aliyun_failure_file"
+        case .aliyunTooLong: "transcript_generation_aliyun_failure_too_long"
+        case .aliyunTimedOut: "transcript_generation_aliyun_failure_timed_out"
+        case .aliyunFailed: "transcript_generation_aliyun_failure_generic"
         case .failed: "transcript_generation_failure_generic"
         }
     }

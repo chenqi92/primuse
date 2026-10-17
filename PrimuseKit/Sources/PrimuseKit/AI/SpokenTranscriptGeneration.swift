@@ -8,9 +8,14 @@ public enum SpokenTranscriptEngine: String, Codable, CaseIterable, Sendable {
     case builtIn
     /// 「听歌识词」里设好的 Google 密钥与转写模型:同样分段上传,按 Google 的价格计费。
     case ownKey
+    /// 自己的阿里云百炼 API Key:整集一次传到百炼的临时存储,交给 Fun-ASR 录音文件识别,按阿里云的价格计费。
+    case aliyun
 
     /// 要把音频传出去的方式,开始前要用户点头。
     public var uploadsAudio: Bool { self != .onDevice }
+
+    /// 按 10 分钟一段切开上传的方式(内置智能和 Google);阿里云一个文件能收 12 小时,不切。
+    public var uploadsInSegments: Bool { self == .builtIn || self == .ownKey }
 }
 
 /// 一集太长,上传给转写模型前切成几段。每段最多 `maximumSegmentSeconds` 秒(中转一段最多收

@@ -20,6 +20,10 @@ final class SpokenTranscriptGenerator {
         case transcribing(Double)
         /// 云端识别:第几段、一共几段(从 1 数)。
         case uploading(segment: Int, of: Int)
+        /// 阿里云百炼:整集上传到临时存储,传了几成;拿不到进度时为 nil。
+        case uploadingAudio(Double?)
+        /// 阿里云百炼:文件交上去了,等它识别完。
+        case recognizingRemotely
         case finishing
     }
 
@@ -35,6 +39,24 @@ final class SpokenTranscriptGenerator {
         case builtInMonthlyLimitReached
         case builtInNotInPlan
         case ownKeyUnavailable
+        case aliyunNotConfigured
+        /// 连不上阿里云百炼。
+        case aliyunNetwork
+        /// 密钥不对,或者和选的地区对不上。
+        case aliyunKeyRejected
+        /// 账号没开通百炼或 Fun-ASR。
+        case aliyunAccessDenied
+        /// 欠费,或者只用免费额度且额度用完了。
+        case aliyunBilling
+        case aliyunThrottled
+        case aliyunContentBlocked
+        /// 文件取不到、格式或内容不对。
+        case aliyunFileRejected
+        /// 超过 Fun-ASR 一次能收的时长或大小。
+        case aliyunTooLong
+        /// 等太久还没出结果;任务还在服务端,重试接着等。
+        case aliyunTimedOut
+        case aliyunFailed
         case failed
     }
 
@@ -68,10 +90,15 @@ final class SpokenTranscriptGenerator {
     @ObservationIgnored private var task: Task<Void, Never>?
     /// 云端识别做完的段,失败后重试从没做的那段接着来。只留最近一次的。
     @ObservationIgnored private var partial: (key: String, results: [Int: AIAudioTranscriptionResult])?
+    /// 交给阿里云百炼、还没拿到结果的任务。超时、停下或断网后重试时接着等它,不再上传、不再计费;
+    /// 服务端说任务失败了才丢掉。
+    @ObservationIgnored private var aliyunPendingTask: (key: String, taskID: String, submittedAt: Date)?
     @ObservationIgnored private let defaults: UserDefaults
 
     private static let recordsKey = "primuse.transcriptGeneration.records.v1"
     private static let uploadConsentKey = "primuse.transcriptGeneration.uploadConsent"
+    /// 阿里云百炼是另一家第三方,第一次用它要另外点一次头;老的总开关只管内置智能与 Google。
+    private static let aliyunUploadConsentKey = "primuse.transcriptGeneration.uploadConsent.aliyun"
     private static let recordLimit = 1_000
 
     init(defaults: UserDefaults = .standard) {
@@ -88,6 +115,23 @@ final class SpokenTranscriptGenerator {
     var hasAudioUploadConsent: Bool {
         get { defaults.bool(forKey: Self.uploadConsentKey) }
         set { defaults.set(newValue, forKey: Self.uploadConsentKey) }
+    }
+
+    /// 这种识别方式要上传音频时,用户对它点过头没有。
+    func hasUploadConsent(for engine: SpokenTranscriptEngine) -> Bool {
+        switch engine {
+        case .onDevice: true
+        case .builtIn, .ownKey: hasAudioUploadConsent
+        case .aliyun: defaults.bool(forKey: Self.aliyunUploadConsentKey)
+        }
+    }
+
+    func grantUploadConsent(for engine: SpokenTranscriptEngine) {
+        switch engine {
+        case .onDevice: break
+        case .builtIn, .ownKey: hasAudioUploadConsent = true
+        case .aliyun: defaults.set(true, forKey: Self.aliyunUploadConsentKey)
+        }
     }
 
     func isRunning(for songID: String) -> Bool { activeJob?.song.id == songID }
@@ -156,6 +200,13 @@ final class SpokenTranscriptGenerator {
                     engine: engine,
                     url: readable.url,
                     duration: readable.duration
+                )
+            case .aliyun:
+                result = try await transcribeWithAliyun(
+                    song: song,
+                    url: readable.url,
+                    duration: readable.duration,
+                    isCompactCopy: readable.temporaryURL != nil
                 )
             }
             try Task.checkCancellation()
@@ -390,7 +441,7 @@ final class SpokenTranscriptGenerator {
             switch engine {
             case .builtIn:
                 outcome = await intelligence.transcribeTranscriptSegmentWithBuiltIn(fileURL: written.url)
-            case .ownKey, .onDevice:
+            case .ownKey, .onDevice, .aliyun:
                 outcome = await intelligence.transcribeTranscriptSegmentWithOwnKey(
                     fileURL: written.url,
                     mimeType: written.mimeType,
@@ -415,6 +466,96 @@ final class SpokenTranscriptGenerator {
             }
         }
         return plan.stitch(results)
+    }
+
+    // MARK: Aliyun
+
+    /// 阿里云百炼:整集一个文件传上去(Fun-ASR 一次收得下 12 小时),提交任务后等结果。
+    private func transcribeWithAliyun(
+        song: Song,
+        url: URL,
+        duration: TimeInterval,
+        isCompactCopy: Bool
+    ) async throws -> AIAudioTranscriptionResult {
+        guard let credentials = AliyunSpeechCredentialStore.load() else { throw Failure.aliyunNotConfigured }
+        guard duration <= AliyunFunASR.maximumDuration else { throw Failure.aliyunTooLong }
+        let client = AliyunSpeechTranscriptionClient.shared
+        let key = "\(song.id)\u{1F}\(credentials.region.rawValue)\u{1F}\(credentials.maskedAPIKey)"
+        do {
+            let taskID: String
+            if let pending = aliyunPendingTask, pending.key == key,
+               Date().timeIntervalSince(pending.submittedAt) < AliyunFunASR.taskRetention {
+                taskID = pending.taskID
+            } else {
+                aliyunPendingTask = nil
+                // 本机转过一份的已经是 22 kHz 单声道 M4A;原样的文件先压成这样再传,省流量也省上传时间。
+                let upload: URL
+                var removesUpload = false
+                if isCompactCopy {
+                    upload = url
+                } else {
+                    setPhase(.convertingAudio)
+                    upload = try await Task.detached(priority: .userInitiated) {
+                        try Self.writeSegment(of: url, from: 0, to: duration, format: .mpeg4)
+                    }.value.url
+                    removesUpload = true
+                }
+                defer { if removesUpload { try? FileManager.default.removeItem(at: upload) } }
+                try Task.checkCancellation()
+                setPhase(.uploadingAudio(nil))
+                let ossURL = try await client.upload(fileURL: upload, credentials: credentials) { fraction in
+                    Task { @MainActor [weak self] in
+                        // 进度回调晚到时,已经进了下一步就别再拨回「上传中」。
+                        guard let self, case .uploadingAudio? = self.activeJob?.phase else { return }
+                        self.setPhase(.uploadingAudio((fraction * 100).rounded(.down) / 100))
+                    }
+                }
+                try Task.checkCancellation()
+                let declared = PodcastPlaybackSong.isEpisode(song)
+                    ? PodcastStore.shared.episode(id: song.id)?.show.language
+                    : nil
+                taskID = try await client.submit(
+                    ossURL: ossURL,
+                    languageHint: AliyunFunASR.languageHint(declaredLanguage: declared),
+                    credentials: credentials
+                )
+                aliyunPendingTask = (key, taskID, Date())
+            }
+            setPhase(.recognizingRemotely)
+            let result = try await client.result(
+                taskID: taskID,
+                credentials: credentials,
+                timeout: AliyunFunASR.resultTimeout(forDuration: duration)
+            )
+            aliyunPendingTask = nil
+            AliyunSpeechTranscriptionAccount.shared.recordSuccess()
+            return result
+        } catch let error as AliyunSpeechTranscriptionError {
+            if case .taskFailed = error { aliyunPendingTask = nil }
+            AliyunSpeechTranscriptionAccount.shared.recordFailure(error)
+            throw Self.failure(for: error)
+        }
+    }
+
+    private static func failure(for error: AliyunSpeechTranscriptionError) -> Failure {
+        switch error {
+        case .notConfigured: return .aliyunNotConfigured
+        case .network: return .aliyunNetwork
+        case .invalidResponse: return .aliyunFailed
+        case .fileTooLarge: return .aliyunTooLong
+        case .timedOut: return .aliyunTimedOut
+        case .uploadRejected(let code, _): return code == "EntityTooLarge" ? .aliyunTooLong : .aliyunFailed
+        case .service(let service), .taskFailed(let service):
+            switch service.kind {
+            case .invalidAPIKey: return .aliyunKeyRejected
+            case .accessDenied: return .aliyunAccessDenied
+            case .billing: return .aliyunBilling
+            case .throttled: return .aliyunThrottled
+            case .contentBlocked: return .aliyunContentBlocked
+            case .fileRejected: return .aliyunFileRejected
+            case .server, .other: return .aliyunFailed
+            }
+        }
     }
 
     private enum SegmentFormat: Sendable {

@@ -69,6 +69,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.transcriptionConsent", titleKey: "lyrics_transcription_audio_consent", iosPage: .transcription, macPage: .transcription),
         SettingDefinition(id: "lyrics.transcriptionSave", titleKey: "save", iosPage: .transcription, macPage: .transcription, anchor: "lyrics.transcriptionEnabled"),
         SettingDefinition(id: "lyrics.transcriptionDeleteKey", titleKey: "ai_delete_current_api_key", iosPage: .transcription, macPage: .transcription, anchor: "lyrics.transcriptionAPIKey"),
+        SettingDefinition(id: "lyrics.transcriptionAliyun", titleKey: "aliyun_speech_section", iosPage: .transcription, macPage: .transcription, keywords: ["阿里云", "百炼", "通义听悟", "听悟", "Fun-ASR", "DashScope", "Aliyun", "Alibaba Cloud", "Model Studio", "API Key", "文字稿", "转写", "语音识别", "transcript", "speech recognition"]),
         SettingDefinition(id: "lyrics.colorMode", titleKey: "player_current_lyric_color", iosPage: .lyrics, macPage: nil, keywords: ["lyrics color", "歌词颜色", "渐变歌词"]),
         SettingDefinition(id: "lyrics.customColor", titleKey: "player_lyrics_custom_color", iosPage: .lyrics, macPage: nil, anchor: "lyrics.colorMode"),
         SettingDefinition(id: "lyrics.gradientStart", titleKey: "player_lyrics_gradient_start_color", iosPage: .lyrics, macPage: nil, anchor: "lyrics.colorMode"),
