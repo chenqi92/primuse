@@ -202,6 +202,10 @@ enum UploadedArtworkLoader {
 /// be displayed by the same cache/source/MusicKit chain used for song covers.
 @MainActor
 enum PlaylistArtworkResourceResolver {
+    private nonisolated static func songIndex(_ songs: [PrimuseKit.Song]) -> [String: PrimuseKit.Song] {
+        Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     static func resolve(
         playlist: PrimuseKit.Playlist,
         plan: PlaylistArtworkResolutionPlan,
@@ -212,7 +216,10 @@ enum PlaylistArtworkResourceResolver {
         cacheDiscriminator: String = "",
         appleMusicLibrary: AppleMusicLibraryService = AppServices.shared.appleMusicLibrary
     ) async -> PlaylistArtworkResolution<PlaylistArtworkResource>? {
-        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // 几万首的歌单在主线程上建这本字典要好一阵; 大歌单挪到后台建。
+        let songsByID = songs.count > 512
+            ? await Task.detached(priority: .userInitiated) { songIndex(songs) }.value
+            : songIndex(songs)
         let dedicatedSourceID = MirrorPlaylistSuppressionPolicy
             .key(forPlaylistID: playlist.id)?
             .sourceID
@@ -281,6 +288,7 @@ struct PlaylistArtworkView: View {
     @State private var uploadedImage: PlatformImage?
     @State private var resolvedPlanSignature: String?
     @State private var reloadRevision = 0
+    @State private var artworkWatch: PlaylistArtworkWatch?
 
     private var currentPlaylist: PrimuseKit.Playlist {
         library.playlist(id: playlist.id) ?? playlist
@@ -319,13 +327,18 @@ struct PlaylistArtworkView: View {
             let identity = loadRevisionIdentity
             let playlistSnapshot = currentPlaylist
             let currentSongs = songs
-            let currentPlan = await Task.detached(priority: .userInitiated) {
-                PlaylistArtworkResolutionPolicy.makePlan(
+            let memberIDs = library.rawSongIDs(forPlaylist: playlist.id)
+            let (currentPlan, fullWatch) = await Task.detached(priority: .userInitiated) {
+                let plan = PlaylistArtworkResolutionPolicy.makePlan(
                     playlist: playlistSnapshot,
                     songs: currentSongs
                 )
+                let members = Set(memberIDs)
+                return (plan, PlaylistArtworkWatch(candidates: plan.candidates[...], memberIDs: members))
             }.value
             guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
+            // 解析期间到的封面通知照旧对整张歌单的候选判断; 解析完再收窄。
+            artworkWatch = fullWatch
             let cacheDiscriminator = [
                 String(playlistSnapshot.updatedAt.timeIntervalSinceReferenceDate),
                 String(reloadRevision),
@@ -346,6 +359,8 @@ struct PlaylistArtworkView: View {
             // actually resolvable candidate underneath it so a failed or
             // temporarily transparent MusicKit render never becomes a blank.
             let frameworkFallback: PlaylistArtworkResource?
+            // 决定画面的候选: 用上的那个; MusicKit 的还要算上垫在下面的那个。
+            let decisiveCandidate: PlaylistArtworkCandidate?
             if let resolved,
                case .musicKit = resolved.value,
                let index = currentPlan.candidates.firstIndex(of: resolved.candidate),
@@ -354,16 +369,19 @@ struct PlaylistArtworkView: View {
                     signature: "\(currentPlan.signature)#framework-fallback",
                     candidates: Array(currentPlan.candidates[(index + 1)...])
                 )
-                frameworkFallback = await PlaylistArtworkResourceResolver.resolve(
+                let fallbackResolution = await PlaylistArtworkResourceResolver.resolve(
                     playlist: playlistSnapshot,
                     plan: fallbackPlan,
                     songs: currentSongs,
                     size: size,
                     sourceManager: sourceManager,
                     cacheDiscriminator: cacheDiscriminator
-                )?.value
+                )
+                frameworkFallback = fallbackResolution?.value
+                decisiveCandidate = fallbackResolution?.candidate
             } else {
                 frameworkFallback = nil
+                decisiveCandidate = resolved?.candidate
             }
             guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
             // 只有真正解析完的这一次才淡入；上面换方案时的清空保持瞬间生效，
@@ -373,6 +391,15 @@ struct PlaylistArtworkView: View {
                 frameworkFallbackResource = frameworkFallback
             }
             resolvedPlanSignature = currentPlan.signature
+            // 候选按顺序试到第一张能用的为止: 排在它后面的封面再怎么变也轮不到,
+            // 之后只盯它和排在它前面的。什么都没解析出来就继续盯整张歌单。
+            if let decisiveCandidate,
+               let decisiveIndex = currentPlan.candidates.firstIndex(of: decisiveCandidate) {
+                artworkWatch = PlaylistArtworkWatch(
+                    candidates: currentPlan.candidates[...decisiveIndex],
+                    memberIDs: fullWatch.memberIDs
+                )
+            }
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {
@@ -390,7 +417,6 @@ struct PlaylistArtworkView: View {
             guard notification(
                 note,
                 affects: currentPlaylist,
-                songs: songs,
                 uploadedContentID: uploadedContentID
             ) else { return }
             reloadRevision &+= 1
@@ -399,7 +425,6 @@ struct PlaylistArtworkView: View {
             guard notification(
                 note,
                 affects: currentPlaylist,
-                songs: songs,
                 uploadedContentID: uploadedContentID
             ) else { return }
             reloadRevision &+= 1
@@ -410,6 +435,10 @@ struct PlaylistArtworkView: View {
         guard !replacedIDs.isEmpty else { return false }
         let memberIDs = library.rawSongIDs(forPlaylist: playlist.id)
         guard !memberIDs.isEmpty else { return false }
+        // 成员集合随封面方案在后台建好(换成员时方案本身会重来), 不必每批都建一遍。
+        if let members = artworkWatch?.memberIDs, members.count == memberIDs.count {
+            return PlaylistArtworkWatch.intersects(replacedIDs, members)
+        }
         if memberIDs.count <= replacedIDs.count {
             return memberIDs.contains { replacedIDs.contains($0) }
         }
@@ -499,54 +528,66 @@ struct PlaylistArtworkView: View {
         }
     }
 
+    /// 后台每存一张封面就发一条通知。原来每条都把整张歌单(几万首)的歌曲 ID
+    /// 与封面引用各建一遍集合, 屏上每个歌单封面各一遍; 现在只对照 `artworkWatch`。
     private func notification(
         _ notification: Notification,
         affects playlist: PrimuseKit.Playlist,
-        songs: [PrimuseKit.Song],
         uploadedContentID: String?
     ) -> Bool {
+        if notification.userInfo?["all"] as? Bool == true { return true }
+        let dedicatedReference = playlist.hasDedicatedCoverArt ? playlist.coverArtPath : nil
         if let batch = ArtworkInvalidationBatch.from(notification) {
             if let contentID = uploadedContentID, batch.references.contains(contentID) { return true }
-            if playlist.hasDedicatedCoverArt,
-               let dedicatedReference = playlist.coverArtPath,
-               batch.references.contains(dedicatedReference) {
-                return true
-            }
-            return songs.contains { song in
-                batch.songIDs.contains(song.id)
-                    || song.coverArtFileName.map(batch.references.contains) == true
-            }
+            if let dedicatedReference, batch.references.contains(dedicatedReference) { return true }
+            // 方案还没算出来时到的通知不用管: 它对应的封面已经存好, 紧接着的解析读得到。
+            guard let watch = artworkWatch else { return false }
+            return PlaylistArtworkWatch.intersects(watch.songIDs, batch.songIDs)
+                || PlaylistArtworkWatch.intersects(watch.references, batch.references)
         }
-        if let contentID = uploadedContentID {
-            if notification.object as? String == contentID {
-                return true
-            }
-            if let tokens = notification.userInfo?["tokens"] as? [String],
-               tokens.contains(contentID) {
-                return true
-            }
+        let tokens = notification.userInfo?["tokens"] as? [String] ?? []
+        if let contentID = uploadedContentID,
+           notification.object as? String == contentID || tokens.contains(contentID) {
+            return true
         }
-        let songIDs = Set(songs.map(\.id))
-        if let songID = notification.object as? String, songIDs.contains(songID) {
+        if let dedicatedReference, tokens.contains(dedicatedReference) { return true }
+        guard let watch = artworkWatch else { return false }
+        if let songID = notification.object as? String, watch.songIDs.contains(songID) {
             return true
         }
         if let songID = notification.userInfo?["songID"] as? String,
-           songIDs.contains(songID) {
+           watch.songIDs.contains(songID) {
             return true
         }
         if let changedSongIDs = notification.userInfo?["songIDs"] as? [String],
-           changedSongIDs.contains(where: songIDs.contains) {
+           changedSongIDs.contains(where: watch.songIDs.contains) {
             return true
         }
-        var references = Set(songs.compactMap(\.coverArtFileName))
-        if playlist.hasDedicatedCoverArt, let dedicatedReference = playlist.coverArtPath {
-            references.insert(dedicatedReference)
+        return tokens.contains(where: watch.references.contains)
+    }
+}
+
+/// 歌单封面要盯的歌曲与封面引用, 外加整张歌单的成员。
+private struct PlaylistArtworkWatch: Sendable {
+    let songIDs: Set<String>
+    let references: Set<String>
+    let memberIDs: Set<String>
+
+    init(candidates: ArraySlice<PlaylistArtworkCandidate>, memberIDs: Set<String>) {
+        var songIDs = Set<String>(minimumCapacity: candidates.count)
+        var references = Set<String>(minimumCapacity: candidates.count)
+        for candidate in candidates {
+            if let songID = candidate.songID { songIDs.insert(songID) }
+            if let reference = candidate.artworkReference { references.insert(reference) }
         }
-        if let tokens = notification.userInfo?["tokens"] as? [String],
-           tokens.contains(where: references.contains) {
-            return true
-        }
-        return false
+        self.songIDs = songIDs
+        self.references = references
+        self.memberIDs = memberIDs
+    }
+
+    /// 拿小的那个去查大的。
+    static func intersects(_ lhs: Set<String>, _ rhs: Set<String>) -> Bool {
+        lhs.count <= rhs.count ? lhs.contains(where: rhs.contains) : rhs.contains(where: lhs.contains)
     }
 }
 
