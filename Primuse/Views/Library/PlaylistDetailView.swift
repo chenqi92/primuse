@@ -236,10 +236,17 @@ struct PlaylistDetailView: View {
         )
         return sortedSongsCache.availability(for: key) {
             let songs = storedSongs
+            #if os(iOS)
+            let coverWallAvailable = CollectionCoverWall.isAvailable(for: songs)
+            #else
+            let coverWallAvailable = false
+            #endif
             return .init(
                 hasPlayable: songs.contains(where: \.isPlayable),
                 hasDownloadable: sourcesStore.containsDownloadableSong(in: songs),
-                supportsAlwaysDownload: Self.supportsAlwaysDownload(songs, sources: sourcesStore.sources)
+                supportsAlwaysDownload: Self.supportsAlwaysDownload(songs, sources: sourcesStore.sources),
+                sourceIDs: Set(songs.lazy.map(\.sourceID)),
+                coverWallAvailable: coverWallAvailable
             )
         }
     }
@@ -797,8 +804,8 @@ struct PlaylistDetailView: View {
             for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
         )
         guard presentation.uploadedContentID == nil, presentation.selectedSong == nil else { return nil }
-        let songs = storedSongs
-        return CollectionCoverWall.isAvailable(for: songs) ? songs : nil
+        // 能不能上墙只看歌单里的歌, 随内容缓存, 不必每次重画都把前几百首挑一遍。
+        return songAvailability.coverWallAvailable ? storedSongs : nil
     }
 
     /// 墙面自带标题与歌曲数；下面接原来的批量刮削进度与操作行。
@@ -991,12 +998,13 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// The set is empty on a network that reaches everything, so the scan only
-    /// runs during an outage.
+    /// The set is empty on a network that reaches everything. During an outage
+    /// the playlist's own source set (cached with its content) is intersected
+    /// instead of walking every song on each redraw.
     private var hasSongsFromUnreachableSources: Bool {
         let unreachable = sourceManager.unreachablePlaybackSourceIDs
         guard !unreachable.isEmpty else { return false }
-        return storedSongs.contains { unreachable.contains($0.sourceID) }
+        return !unreachable.isDisjoint(with: songAvailability.sourceIDs)
     }
 
     private var unreachableSongsNotice: some View {
@@ -2470,6 +2478,10 @@ private final class PlaylistSortedSongsCache {
         let hasPlayable: Bool
         let hasDownloadable: Bool
         let supportsAlwaysDownload: Bool
+        /// 歌单里的歌来自哪几个源。
+        let sourceIDs: Set<String>
+        /// 头图能不能用封面墙(只有 iOS 用)。
+        let coverWallAvailable: Bool
     }
 
     private var key: Key?
