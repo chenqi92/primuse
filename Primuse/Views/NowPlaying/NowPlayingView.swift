@@ -121,6 +121,28 @@ private enum NowPlayingChromeGlass: Equatable {
     case barColumn(itemSize: CGFloat)
 }
 
+/// 原生全屏底部播放条的玻璃底:浮在内容上时垫一块,不浮时原样。
+private struct NowPlayingDockPlate: ViewModifier {
+    let isFloating: Bool
+    let strokeTint: Color
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isFloating {
+            content
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(strokeTint, lineWidth: 0.5)
+                }
+        } else {
+            content
+        }
+    }
+}
+
 /// 跟随明暗外观的玻璃底。
 ///
 /// 浅色外观下在材质上再叠一层白色提亮、描边用极淡的深色；深色外观下的取值与
@@ -4692,7 +4714,7 @@ struct NowPlayingView: View {
 
                 Spacer()
 
-                floatingPlaybackDock
+                playbackDock(floats: true)
                     .frame(maxWidth: 420)
                     .padding(.horizontal, 24)
                     .padding(.bottom, max(safeInsets.bottom, 10))
@@ -5764,6 +5786,14 @@ struct NowPlayingView: View {
             content()
                 .padding(.top, contentTopInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 竖屏底部的播放键直接画在背景上,控件在时歌词在它上面淡出,不和按钮叠在一起。
+                // 封面那一面自己按播放条让出了底部,不用淡。
+                .mask {
+                    immersiveDockClearanceMask(
+                        isActive: !isLandscape && !immersiveShowsArtwork
+                            && immersiveControlsState.showsPrimaryControls
+                    )
+                }
                 .contentShape(Rectangle())
 
             if immersiveControlsState.isLocked || !immersiveControlsState.isVisible {
@@ -5860,11 +5890,12 @@ struct NowPlayingView: View {
 
                 Spacer()
 
-                floatingPlaybackDock
+                // 横屏这一块压在封面卡片和歌词上,仍垫玻璃底;竖屏下面是背景,直接摆。
+                playbackDock(floats: isLandscape)
                     .frame(maxWidth: isLandscape ? 440 : 520)
                     .padding(.leading, leadingSafeInset + (isLandscape ? 28 : 20))
                     .padding(.trailing, trailingSafeInset + (isLandscape ? 28 : 20))
-                    .padding(.bottom, max(bottomSafeArea, 12) + (isLandscape ? 0 : 8))
+                    .padding(.bottom, Self.immersiveDockBottomInset(bottomSafeArea: bottomSafeArea, isLandscape: isLandscape))
             }
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
             .zIndex(2)
@@ -5893,9 +5924,12 @@ struct NowPlayingView: View {
         }
     }
 
-    private var floatingPlaybackDock: some View {
-        VStack(spacing: 8) {
+    /// 进度条 + 传输键。`floats` 时垫一块玻璃底浮在内容上;否则和普通播放页一样直接画在背景上,
+    /// 上一首、下一首只有图标。
+    private func playbackDock(floats: Bool) -> some View {
+        VStack(spacing: floats ? 8 : Self.plainDockRowSpacing) {
             PlaybackProgressBar(fillTint: themedControlAccent)
+                .padding(.horizontal, floats ? 0 : 6)
 
             HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
                 // 播放键两侧按「全屏歌词」那份配置;只摆了一侧时另一侧留同样大的空位,播放键仍在正中。
@@ -5907,25 +5941,11 @@ struct NowPlayingView: View {
 
                 Spacer(minLength: 0)
 
-                playerSkipButton(
-                    symbol: transportBackwardSymbol,
-                    label: transportBackwardLabel
-                ) {
-                    transportBackward()
-                }
-                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
-                .modifier(transportHoldScrubGesture(forward: false))
+                dockSkipButton(forward: false, floats: floats)
 
                 playerPlayButton
 
-                playerSkipButton(
-                    symbol: transportForwardSymbol,
-                    label: transportForwardLabel
-                ) {
-                    transportForward()
-                }
-                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
-                .modifier(transportHoldScrubGesture(forward: true))
+                dockSkipButton(forward: true, floats: floats)
 
                 Spacer(minLength: 0)
 
@@ -5935,14 +5955,66 @@ struct NowPlayingView: View {
             }
             .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(appearance.primary.opacity(0.10), lineWidth: 0.5)
+        .modifier(NowPlayingDockPlate(isFloating: floats, strokeTint: appearance.primary.opacity(0.10)))
+    }
+
+    @ViewBuilder
+    private func dockSkipButton(forward: Bool, floats: Bool) -> some View {
+        let symbol = forward ? transportForwardSymbol : transportBackwardSymbol
+        let label = forward ? transportForwardLabel : transportBackwardLabel
+        Group {
+            if floats {
+                playerSkipButton(symbol: symbol, label: label) {
+                    if forward { transportForward() } else { transportBackward() }
+                }
+            } else {
+                // 和普通播放页那一排同样的图标与字号。
+                Button {
+                    if forward { transportForward() } else { transportBackward() }
+                } label: {
+                    Image(systemName: symbol)
+                        .font(.title)
+                        .foregroundStyle(appearance.primary)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(
+                            width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.secondaryTransportWidth),
+                            height: 56
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(label))
+            }
+        }
+        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: forward) }
+        .modifier(transportHoldScrubGesture(forward: forward))
+    }
+
+    /// 竖屏原生全屏底部那一块(进度条 + 传输键)的上沿以下:控件在时歌词在这里之前淡完。
+    private func immersiveDockClearanceMask(isActive: Bool) -> some View {
+        VStack(spacing: 0) {
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: isActive ? Self.plainDockLyricsFadeHeight : 0)
+            Color.clear
+                .frame(height: isActive
+                    ? Self.immersiveDockBottomInset(bottomSafeArea: bottomSafeArea, isLandscape: false)
+                        + Self.plainDockHeight + Self.plainDockLyricsGap
+                    : 0)
         }
     }
+
+    private static func immersiveDockBottomInset(bottomSafeArea: CGFloat, isLandscape: Bool) -> CGFloat {
+        max(bottomSafeArea, 12) + (isLandscape ? 0 : 8)
+    }
+
+    private static let plainDockRowSpacing: CGFloat = 14
+    /// 不垫底时那一块的高度:进度条连两端时间约 36,加行距与传输键那一行。
+    private static let plainDockHeight: CGFloat = 36 + plainDockRowSpacing
+        + CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter)
+    private static let plainDockLyricsFadeHeight: CGFloat = 56
+    /// 歌词淡完的地方离进度条上沿还留这么多,最后一行不贴着进度条。
+    private static let plainDockLyricsGap: CGFloat = 16
 
     @ViewBuilder
     private func dockEdgeControl(_ action: NowPlayingControlAction?) -> some View {
@@ -6383,7 +6455,8 @@ struct NowPlayingView: View {
     private func immersiveArtworkFace(contentTopInset: CGFloat) -> some View {
         GeometryReader { proxy in
             let topReserve = max(0, max(topSafeArea, 10) + 8 + 44 + 20 - contentTopInset)
-            let bottomReserve = max(bottomSafeArea, 12) + 8 + Self.immersiveDockReservedHeight + 20
+            let bottomReserve = Self.immersiveDockBottomInset(bottomSafeArea: bottomSafeArea, isLandscape: false)
+                + Self.plainDockHeight + 20
             let headingHeight: CGFloat = 56
             let spacing: CGFloat = 22
             let side = max(0, min(
@@ -6438,8 +6511,6 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 浮动播放条(进度条 + 传输键)连同上下内边距的高度,封面那一面按它让出底部。
-    private static let immersiveDockReservedHeight: CGFloat = 140
     private static let immersiveArtworkMaximumSide: CGFloat = 520
 
     /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
