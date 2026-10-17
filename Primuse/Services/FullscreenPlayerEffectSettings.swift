@@ -855,6 +855,23 @@ extension ImmersiveFrameRateMode {
     var localizedTitle: String {
         String(localized: String.LocalizationValue(titleKey))
     }
+
+    /// 换到 60 帧或跟随屏幕之前那段说明：各端耗的东西不一样，电视没有电池。
+    static var highRefreshExplanation: String {
+        #if os(tvOS)
+        String(localized: "immersive_high_refresh_message_tv")
+        #elseif os(macOS)
+        String(localized: "immersive_high_refresh_message_mac")
+        #else
+        String(localized: "immersive_high_refresh_message_ios")
+        #endif
+    }
+}
+
+extension ImmersiveMotionIntensity {
+    var localizedTitle: String {
+        String(localized: String.LocalizationValue(titleKey))
+    }
 }
 
 /// 「跟随屏幕」档按屏幕最高刷新率发布频谱，免得在 60 Hz 屏上空算一倍。

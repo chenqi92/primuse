@@ -46,6 +46,70 @@ struct ImmersiveFrameRatePolicyTests {
     }
 }
 
+@Suite("Immersive high frame rate confirmation")
+struct ImmersiveHighFrameRateConfirmationTests {
+    @Test("Only stepping up into 60 fps or display rate asks first")
+    func confirmationOnlyWhenEnteringHighRefresh() {
+        #expect(ImmersiveFrameRateMode.requiresConfirmation(from: .balanced, to: .fps60))
+        #expect(ImmersiveFrameRateMode.requiresConfirmation(from: .fps30, to: .display))
+        #expect(!ImmersiveFrameRateMode.requiresConfirmation(from: .fps60, to: .display))
+        #expect(!ImmersiveFrameRateMode.requiresConfirmation(from: .display, to: .fps60))
+        #expect(!ImmersiveFrameRateMode.requiresConfirmation(from: .balanced, to: .fps30))
+        #expect(!ImmersiveFrameRateMode.requiresConfirmation(from: .display, to: .balanced))
+        #expect(!ImmersiveFrameRateMode.requiresConfirmation(from: .fps60, to: .fps60))
+    }
+}
+
+@Suite("Immersive motion intensity")
+struct ImmersiveMotionIntensityTests {
+    @Test("Unknown or missing stored values fall back to standard")
+    func storedValueFallback() {
+        #expect(ImmersiveMotionIntensity(storedValue: nil) == .standard)
+        #expect(ImmersiveMotionIntensity(storedValue: "extreme") == .standard)
+        #expect(ImmersiveMotionIntensity(storedValue: "maximum") == .maximum)
+    }
+
+    @Test("Standard leaves every tuned value and level untouched")
+    func standardIsIdentity() {
+        let standard = ImmersiveMotionIntensity.standard
+        #expect(standard.speed == 1)
+        #expect(standard.amplitude == 1)
+        #expect(standard.density == 1)
+        for level in [0.0, 0.03, 0.4, 1.0, 1.2] {
+            #expect(standard.shapedLevel(level) == level)
+        }
+    }
+
+    @Test("Factors grow monotonically from subtle to maximum")
+    func monotonicFactors() {
+        let all = ImmersiveMotionIntensity.allCases
+        for (lower, higher) in zip(all, all.dropFirst()) {
+            #expect(lower.speed < higher.speed)
+            #expect(lower.amplitude < higher.amplitude)
+            #expect(lower.density <= higher.density)
+            #expect(lower.shapedLevel(0.3) < higher.shapedLevel(0.3))
+        }
+        #expect(ImmersiveMotionIntensity.maximum.density > 1)
+        #expect(ImmersiveMotionIntensity.vivid.density == 1)
+    }
+
+    @Test("Shaping lifts quiet passages, stays in range and never invents signal")
+    func shapedLevelRange() {
+        for intensity in ImmersiveMotionIntensity.allCases where intensity != .standard {
+            #expect(intensity.shapedLevel(0) == 0)
+            #expect(intensity.shapedLevel(-0.2) == 0)
+            #expect(intensity.shapedLevel(.nan) == 0)
+            #expect(intensity.shapedLevel(1.6) <= 1)
+            for level in stride(from: 0.05, through: 1.0, by: 0.05) {
+                let shaped = intensity.shapedLevel(level)
+                #expect(shaped >= 0 && shaped <= 1)
+            }
+        }
+        #expect(ImmersiveMotionIntensity.maximum.shapedLevel(0.1) > 0.2)
+        #expect(ImmersiveMotionIntensity.subtle.shapedLevel(0.5) < 0.5)
+    }
+}
+
 @Suite("Spectrum sample ring")
 struct SpectrumSampleRingTests {
     private func window(_ ring: SpectrumSampleRing, end: Int64, count: Int) -> [Float] {

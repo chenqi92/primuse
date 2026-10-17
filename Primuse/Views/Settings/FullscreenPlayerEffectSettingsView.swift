@@ -12,6 +12,10 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var motionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
+    /// 选了 60 帧或跟随屏幕、还没确认的那一档。
+    @State private var pendingHighRefresh: ImmersiveFrameRateMode?
     @AppStorage(ImmersiveEffectRotationMode.storageKey)
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
@@ -36,6 +40,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             LazyVStack(alignment: .leading, spacing: 22) {
                 lyricsMotionCard
                 frameRateCard
+                motionIntensityCard
                 rotationCard
                 landscapeFullscreenCard
 
@@ -127,10 +132,63 @@ struct FullscreenPlayerEffectSettingsView: View {
         }
     }
 
+    /// 从省电、30 帧换到 60 帧或跟随屏幕时先说明耗电，确认了才写进设置。
     private var frameRateSelection: Binding<String> {
         Binding(
             get: { ImmersiveFrameRateMode(storedValue: frameRateRawValue).rawValue },
-            set: { frameRateRawValue = $0 }
+            set: { rawValue in
+                let proposed = ImmersiveFrameRateMode(storedValue: rawValue)
+                let current = ImmersiveFrameRateMode(storedValue: frameRateRawValue)
+                if ImmersiveFrameRateMode.requiresConfirmation(from: current, to: proposed) {
+                    pendingHighRefresh = proposed
+                } else {
+                    frameRateRawValue = proposed.rawValue
+                }
+            }
+        )
+    }
+
+    private var isConfirmingHighRefresh: Binding<Bool> {
+        Binding(
+            get: { pendingHighRefresh != nil },
+            set: { if !$0 { pendingHighRefresh = nil } }
+        )
+    }
+
+    private var motionIntensitySelection: Binding<String> {
+        Binding(
+            get: { ImmersiveMotionIntensity(storedValue: motionIntensityRawValue).rawValue },
+            set: { motionIntensityRawValue = $0 }
+        )
+    }
+
+    private var motionIntensityCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("immersive_motion_intensity_title")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("immersive_motion_intensity_subtitle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Picker(selection: motionIntensitySelection) {
+                ForEach(ImmersiveMotionIntensity.allCases) { intensity in
+                    Text(verbatim: intensity.localizedTitle).tag(intensity.rawValue)
+                }
+            } label: {
+                Text("immersive_motion_intensity_title")
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(previewPalette.primary)
+        }
+        .settingsAnchor("appearance.immersiveMotionIntensity")
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
     }
 
@@ -162,6 +220,29 @@ struct FullscreenPlayerEffectSettingsView: View {
             Color(uiColor: .secondarySystemGroupedBackground),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
+        .alert(
+            Text("immersive_high_refresh_title"),
+            isPresented: isConfirmingHighRefresh,
+            presenting: pendingHighRefresh
+        ) { mode in
+            Button {
+                frameRateRawValue = mode.rawValue
+                motionIntensityRawValue = ImmersiveMotionIntensity.maximum.rawValue
+            } label: {
+                Text("immersive_high_refresh_maximize")
+            }
+            Button {
+                frameRateRawValue = mode.rawValue
+            } label: {
+                Text("immersive_high_refresh_frame_rate_only")
+            }
+            Button(role: .cancel) {
+            } label: {
+                Text("cancel")
+            }
+        } message: { _ in
+            Text(verbatim: ImmersiveFrameRateMode.highRefreshExplanation)
+        }
     }
 
     private var rotationSelection: Binding<String> {

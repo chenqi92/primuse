@@ -57,6 +57,103 @@ public enum ImmersiveFrameRateMode: String, CaseIterable, Identifiable, Sendable
     }
 }
 
+extension ImmersiveFrameRateMode {
+    /// 60 帧与「跟随屏幕」：iPhone / iPad 的 ProMotion 屏会画到 120 帧，频谱分析也跟着变勤。
+    public var isHighRefresh: Bool {
+        self == .fps60 || self == .display
+    }
+
+    /// 从省电、30 帧换到 60 帧或跟随屏幕时先说明耗电，用户同意了才换。
+    /// 已经在高帧率档之间换（60 帧 ↔ 跟随屏幕）不再问。
+    public static func requiresConfirmation(from current: Self, to proposed: Self) -> Bool {
+        proposed.isHighRefresh && !current.isHighRefresh
+    }
+}
+
+/// 全屏效果画面动得多明显。只存本机、不进云同步：和帧率一样，每台设备愿意花的电不同。
+///
+/// 「标准」就是各效果原来调好的样子，不改任何数值。其余几档按倍数调三件事：按时间走的层
+/// 动多快（星点漂移、声纹与极光起伏、封面墙滚动、轨道环），起伏多大（声纹、极光的波幅，
+/// 封面流的呼吸），以及对声音多敏感（所有读频谱的层）。「拉满」再把粒子与星点加多一半。
+public enum ImmersiveMotionIntensity: String, CaseIterable, Identifiable, Sendable {
+    case subtle
+    case standard
+    case vivid
+    case maximum
+
+    public static let storageKey = "primuse.immersiveMotionIntensity"
+    public static let defaultValue = ImmersiveMotionIntensity.standard
+
+    public var id: String { rawValue }
+
+    public init(storedValue: String?) {
+        self = storedValue.flatMap(Self.init(rawValue:)) ?? .defaultValue
+    }
+
+    /// 设置里这一档的名字（本地化键）。
+    public var titleKey: String {
+        switch self {
+        case .subtle: "immersive_motion_intensity_subtle"
+        case .standard: "immersive_motion_intensity_standard"
+        case .vivid: "immersive_motion_intensity_vivid"
+        case .maximum: "immersive_motion_intensity_maximum"
+        }
+    }
+
+    /// 按时间走的层的速度倍数。唱片转速和模拟类效果（沙画、萤火、神经共鸣）的步长不跟这个走：
+    /// 唱片转快了不像唱片，模拟步长放大会让结构散掉，它们靠下面的声音响应变得更活。
+    public var speed: Double {
+        switch self {
+        case .subtle: 0.7
+        case .standard: 1
+        case .vivid: 1.5
+        case .maximum: 2
+        }
+    }
+
+    /// 起伏幅度的倍数。
+    public var amplitude: Double {
+        switch self {
+        case .subtle: 0.7
+        case .standard: 1
+        case .vivid: 1.45
+        case .maximum: 1.8
+        }
+    }
+
+    /// 粒子、星点数量的倍数。只有「拉满」多画，其余档数量不变、开销不变。
+    public var density: Double {
+        self == .maximum ? 1.5 : 1
+    }
+
+    /// 频段先按指数抬（小于 1 时轻声也看得见起伏），再乘增益。
+    var levelExponent: Double {
+        switch self {
+        case .subtle: 1.25
+        case .standard: 1
+        case .vivid: 0.8
+        case .maximum: 0.65
+        }
+    }
+
+    var levelGain: Double {
+        switch self {
+        case .subtle: 0.85
+        case .standard: 1
+        case .vivid: 1.15
+        case .maximum: 1.3
+        }
+    }
+
+    /// 「标准」原样返回频段，其余档按指数与增益重塑后夹在 0…1。只改形状，不凭空造信号：
+    /// 没有频谱（全 0）时仍是 0。
+    public func shapedLevel(_ level: Double) -> Double {
+        guard self != .standard else { return level }
+        guard level.isFinite, level > 0 else { return 0 }
+        return min(1, pow(min(level, 1), levelExponent) * levelGain)
+    }
+}
+
 public enum SpectrumPublishPacing: Equatable, Sendable {
     /// 每到一批新采样就分析最新一窗并发布一次。
     case onArrival(pollInterval: TimeInterval)

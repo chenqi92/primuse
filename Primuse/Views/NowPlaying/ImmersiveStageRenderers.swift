@@ -47,6 +47,7 @@ enum ImmersiveSeed {
 /// 远层星点最小最慢，近层带光晕；所有位置由确定性种子决定。
 struct ImmersiveDeepStarField: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var showsMilkyWay = true
@@ -68,7 +69,7 @@ struct ImmersiveDeepStarField: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 18), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let bounds = Path(CGRect(origin: .zero, size: size))
                 canvas.fill(bounds, with: .linearGradient(
@@ -106,7 +107,8 @@ struct ImmersiveDeepStarField: View {
 
     private func drawStars(in canvas: inout GraphicsContext, size: CGSize, time: TimeInterval) {
         for (layerIndex, layer) in Self.layers.enumerated() {
-            for index in 0..<layer.count {
+            let count = Int((Double(layer.count) * motion.density).rounded())
+            for index in 0..<count {
                 let seedA = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 1)
                 let seedB = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 2)
                 let seedC = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 3)
@@ -215,6 +217,7 @@ struct ImmersiveDeepStarField: View {
 /// 演化；每第四圈用封面色并带柔光，其余为淡色细线。
 struct ImmersiveOrganicContourField: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var center: UnitPoint = .center
@@ -222,13 +225,14 @@ struct ImmersiveOrganicContourField: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 18), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let origin = CGPoint(x: size.width * center.x, y: size.height * center.y)
                 let shortSide = min(size.width, size.height)
                 let base = shortSide * 0.10
                 let step = shortSide * 0.034
                 let pointCount = 140
+                let amplitude: Double = motion.amplitude
 
                 canvas.fill(
                     Path(CGRect(origin: .zero, size: size)),
@@ -254,9 +258,9 @@ struct ImmersiveOrganicContourField: View {
                         let first: Double = sin(angle * 3 + time * 0.31 + ringPhase * 0.29) * 0.075
                         let second: Double = cos(angle * 5 - time * 0.19 + ringPhase * 0.17) * 0.04
                         let third: Double = sin(angle * 2 + time * 0.12 - ringPhase * 0.11) * 0.05
-                        let wobble: CGFloat = CGFloat(first + second + third)
+                        let wobble: CGFloat = CGFloat((first + second + third) * amplitude)
                         let scaled: CGFloat = radius * (1 + wobble)
-                        let drift: CGFloat = CGFloat(sin(time * 0.17 + ringPhase * 0.5)) * radius * 0.05
+                        let drift: CGFloat = CGFloat(sin(time * 0.17 + ringPhase * 0.5) * 0.05 * amplitude) * radius
                         let valueX: CGFloat = origin.x + CGFloat(cos(angle)) * scaled * 1.12 + drift
                         let valueY: CGFloat = origin.y + CGFloat(sin(angle)) * scaled * 0.88
                         let value = CGPoint(x: valueX, y: valueY)
@@ -296,6 +300,7 @@ struct ImmersiveOrganicContourField: View {
 /// 围绕圆形封面的轨道环：一段封面色渐变弧线与一颗亮点反向慢速绕行。
 struct ImmersiveOrbitRing: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var diameter: CGFloat
@@ -303,7 +308,7 @@ struct ImmersiveOrbitRing: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             let angle = -time.truncatingRemainder(dividingBy: period) / period * 360
             ZStack {
                 Circle()
@@ -338,6 +343,7 @@ struct ImmersiveOrbitRing: View {
 /// 经一次模糊后成为丁达尔光。
 struct ImmersiveLightRays: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var origin = UnitPoint(x: 0.10, y: -0.10)
@@ -345,16 +351,17 @@ struct ImmersiveLightRays: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let source = CGPoint(x: size.width * origin.x, y: size.height * origin.y)
                 let reach: CGFloat = (size.width * size.width + size.height * size.height).squareRoot() * 1.2
                 canvas.blendMode = .plusLighter
+                let swayAmplitude: Double = 0.05 * motion.amplitude
                 for index in 0..<rayCount {
                     let seed: Double = ImmersiveSeed.unit(index, salt: 3)
                     let baseAngle: Double = 0.30 + Double(index) / Double(max(rayCount - 1, 1)) * 1.05
                     let sway: Double = isAnimating
-                        ? sin(time / (17 + seed * 9) * 2 * .pi + seed * 6.28) * 0.05
+                        ? sin(time / (17 + seed * 9) * 2 * .pi + seed * 6.28) * swayAmplitude
                         : 0
                     let angle: Double = baseAngle + sway
                     let halfWidth: Double = 0.03 + seed * 0.05
@@ -395,6 +402,7 @@ struct ImmersiveLightRays: View {
 /// 封面背后的呼吸光环：柔光随周期涨落，一圈渐变细环缓慢自转。
 struct ImmersiveBreathingHalo: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var diameter: CGFloat
@@ -402,11 +410,12 @@ struct ImmersiveBreathingHalo: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 20), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             // Double 与 CGFloat 分开标注,避免类型检查器在混算表达式里穷举组合。
             let breath: Double = isAnimating ? (sin(time / period * 2 * .pi) + 1) / 2 : 0.5
-            let ringScale: CGFloat = CGFloat(1.10 + breath * 0.06)
-            let bodyScale: CGFloat = CGFloat(0.98 + breath * 0.05)
+            let swell: Double = breath * motion.amplitude
+            let ringScale: CGFloat = CGFloat(1.10 + swell * 0.06)
+            let bodyScale: CGFloat = CGFloat(0.98 + swell * 0.05)
             ZStack {
                 Circle()
                     .fill(
@@ -680,6 +689,7 @@ struct ImmersiveVinylTonearm: View {
 /// 星空里不放封面色星云：极光本身已经是封面色的彩色元素，再叠一层色团画面会发脏。
 struct ImmersiveAuroraCurtains: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
 
@@ -711,10 +721,11 @@ struct ImmersiveAuroraCurtains: View {
 
             // 整屏叠加再整块模糊，电视上最快每秒 30 次：光幕起伏很慢，60 帧档看不出差别、只多占 GPU。
             TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15, televisionFloor: 1 / 30), paused: !isAnimating)) { context in
-                let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+                let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
                 Canvas(rendersAsynchronously: true) { canvas, size in
                     canvas.blendMode = .plusLighter
                     let samples = 64
+                    let amplitude: Double = motion.amplitude
                     for (index, band) in bands.enumerated() {
                         let offset = Double(index)
                         var curtain = Path()
@@ -724,7 +735,7 @@ struct ImmersiveAuroraCurtains: View {
                             let waveA: Double = sin(x * 5.2 + time * 0.23 * band.speed + offset * 1.7) * 0.06
                             let waveB: Double = sin(x * 11.3 - time * 0.17 * band.speed + offset) * 0.03
                             let waveC: Double = cos(x * 2.1 + time * 0.09 * band.speed) * 0.05
-                            let wave: Double = waveA + waveB + waveC
+                            let wave: Double = (waveA + waveB + waveC) * amplitude
                             let point = CGPoint(
                                 x: CGFloat(x) * size.width,
                                 y: CGFloat(band.baseY + wave) * size.height
@@ -735,7 +746,7 @@ struct ImmersiveAuroraCurtains: View {
                             let x: Double = Double(sample) / Double(samples)
                             let waveA: Double = sin(x * 4.1 - time * 0.19 * band.speed + offset * 0.9) * 0.05
                             let waveB: Double = cos(x * 9.7 + time * 0.13 * band.speed) * 0.025
-                            let wave: Double = waveA + waveB
+                            let wave: Double = (waveA + waveB) * amplitude
                             curtain.addLine(to: CGPoint(
                                 x: CGFloat(x) * size.width,
                                 y: CGFloat(band.baseY + band.height + wave) * size.height
@@ -873,6 +884,7 @@ struct ImmersiveSpectrumSkyline: View {
 /// 尺寸与封面背后的光晕，整体能量决定亮度。
 struct ImmersiveParticleField: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var levelsProvider: @MainActor () -> [CGFloat]
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
@@ -881,7 +893,7 @@ struct ImmersiveParticleField: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             let levels = levelsProvider()
             let bass = ImmersiveSpectrumSummary.bass(levels)
             let energy = ImmersiveSpectrumSummary.energy(levels)
@@ -906,7 +918,8 @@ struct ImmersiveParticleField: View {
                     )
                 )
 
-                for index in 0..<count {
+                let particleCount = Int((Double(count) * motion.density).rounded())
+                for index in 0..<particleCount {
                     let seedA = ImmersiveSeed.unit(index, salt: 31)
                     let seedB = ImmersiveSeed.unit(index, salt: 32)
                     let seedC = ImmersiveSeed.unit(index, salt: 33)
@@ -964,6 +977,7 @@ struct ImmersivePulsingArtwork<Artwork: View>: View {
     var palette: ImmersiveArtworkPalette
     var diameter: CGFloat
     @ViewBuilder var artwork: (CGFloat) -> Artwork
+    @Environment(\.immersiveMotionIntensity) private var motion
 
     var body: some View {
         let energy = ImmersiveSpectrumSummary.energy(levelsProvider())
@@ -975,7 +989,7 @@ struct ImmersivePulsingArtwork<Artwork: View>: View {
                 Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
             }
             .shadow(color: palette.primary.opacity(0.35 + Double(bass) * 0.45), radius: diameter * (0.10 + bass * 0.08))
-            .scaleEffect(1 + energy * 0.035)
+            .scaleEffect(1 + energy * 0.035 * CGFloat(motion.amplitude))
             .animation(.easeOut(duration: 0.12), value: energy)
             .frame(width: diameter, height: diameter)
     }
@@ -986,6 +1000,7 @@ struct ImmersivePulsingArtwork<Artwork: View>: View {
 /// 从频谱环内缘向外扩散的三圈涟漪，透明度随低频强弱。
 struct ImmersiveBassRipples: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var levelsProvider: @MainActor () -> [CGFloat]
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
@@ -994,7 +1009,7 @@ struct ImmersiveBassRipples: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             let bass = ImmersiveSpectrumSummary.bass(levelsProvider())
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)

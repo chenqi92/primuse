@@ -124,6 +124,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.entersFullscreenInLandscapeKey,
             ImmersiveLyricsMotionSettings.storageKey,
             ImmersiveFrameRateMode.storageKey,
+            ImmersiveMotionIntensity.storageKey,
             // 字号与所选全屏效果各有自己的登记, 不在这张表里重复。
             CloudKVSKey.lyricsFontScale,
             FullscreenPlayerEffect.storageKey,

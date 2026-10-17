@@ -435,15 +435,20 @@ struct TVFullscreenEffectPicker: View {
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var motionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationMode.storageKey)
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
     private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 按到 60 帧时先弹说明，确认了才换。
+    @State private var pendingHighRefresh: ImmersiveFrameRateMode?
 
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
     @FocusState private var frameRateFocused: Bool
+    @FocusState private var motionIntensityFocused: Bool
     @FocusState private var rotationFocused: Bool
     @FocusState private var rotationScopeFocused: Bool
     /// 只有焦点停稳的那张卡片播放预览动画。遥控器一路按过去时不逐张启停整套舞台。
@@ -480,6 +485,7 @@ struct TVFullscreenEffectPicker: View {
                         }
                         Spacer()
                         frameRateButton
+                        motionIntensityButton
                         rotationButton
                         if rotationMode.isEnabled {
                             rotationScopeButton
@@ -572,6 +578,32 @@ struct TVFullscreenEffectPicker: View {
         }
         .accessibilityAddTraits(.isModal)
         .environment(\.colorScheme, .dark)
+        .alert(
+            Text("immersive_high_refresh_title"),
+            isPresented: Binding(
+                get: { pendingHighRefresh != nil },
+                set: { if !$0 { pendingHighRefresh = nil } }
+            ),
+            presenting: pendingHighRefresh
+        ) { mode in
+            Button {
+                frameRateRawValue = mode.rawValue
+                motionIntensityRawValue = ImmersiveMotionIntensity.maximum.rawValue
+            } label: {
+                Text("immersive_high_refresh_maximize")
+            }
+            Button {
+                frameRateRawValue = mode.rawValue
+            } label: {
+                Text("immersive_high_refresh_frame_rate_only")
+            }
+            Button(role: .cancel) {
+            } label: {
+                Text("cancel")
+            }
+        } message: { _ in
+            Text(verbatim: ImmersiveFrameRateMode.highRefreshExplanation)
+        }
     }
 
     /// 遥控器上按一下换到下一档，四档循环。
@@ -579,7 +611,12 @@ struct TVFullscreenEffectPicker: View {
         Button {
             let modes = ImmersiveFrameRateMode.allCases
             let index = modes.firstIndex(of: frameRate) ?? 0
-            frameRateRawValue = modes[(index + 1) % modes.count].rawValue
+            let next = modes[(index + 1) % modes.count]
+            if ImmersiveFrameRateMode.requiresConfirmation(from: frameRate, to: next) {
+                pendingHighRefresh = next
+            } else {
+                frameRateRawValue = next.rawValue
+            }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Label(
@@ -603,6 +640,25 @@ struct TVFullscreenEffectPicker: View {
         .focusEffectDisabled()
         .accessibilityLabel(Text("immersive_frame_rate_title"))
         .accessibilityValue(Text(verbatim: frameRate.localizedTitle))
+    }
+
+    private var motionIntensity: ImmersiveMotionIntensity {
+        ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+    }
+
+    /// 动效强度:细腻、标准、强烈、拉满循环。电视上帧率仍按各层的上限走,拉满只加幅度、灵敏度和粒子。
+    private var motionIntensityButton: some View {
+        headerCycleButton(
+            title: String(localized: "immersive_motion_intensity_title"),
+            symbol: "dial.medium",
+            value: motionIntensity.localizedTitle,
+            isHighlighted: motionIntensity != .standard,
+            focused: $motionIntensityFocused
+        ) {
+            let levels = ImmersiveMotionIntensity.allCases
+            let index = levels.firstIndex(of: motionIntensity) ?? 0
+            motionIntensityRawValue = levels[(index + 1) % levels.count].rawValue
+        }
     }
 
     private var rotationMode: ImmersiveEffectRotationMode {

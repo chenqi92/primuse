@@ -14,6 +14,16 @@ extension EnvironmentValues {
     /// 全屏效果的重绘帧率档位，由 `ImmersiveStageView` 按设置注入；
     /// 舞台外复用这些层（设置页预览等）时保持默认档。
     @Entry var immersiveFrameRate: ImmersiveFrameRateMode = .defaultValue
+    /// 全屏效果的动效强度，同样由 `ImmersiveStageView` 注入；设置页预览跟着设置走，取证页保持「标准」。
+    @Entry var immersiveMotionIntensity: ImmersiveMotionIntensity = .defaultValue
+}
+
+extension ImmersiveMotionIntensity {
+    /// 按这一档重塑一组频段；「标准」原样返回，不多拷一份数组。
+    func shaped(_ levels: [CGFloat]) -> [CGFloat] {
+        guard self != .standard else { return levels }
+        return levels.map { CGFloat(shapedLevel(Double($0))) }
+    }
 }
 
 extension ImmersiveFrameRateMode {
@@ -353,6 +363,9 @@ struct ImmersiveEffectPreview: View {
     var palette: ImmersiveArtworkPalette = .fallback
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    /// 预览跟着设置里的动效强度走，调完马上看得出差别。
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var motionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
     @State private var isRenderingVisible = false
 
     private let canvasSize = CGSize(width: 960, height: 540)
@@ -408,7 +421,8 @@ struct ImmersiveEffectPreview: View {
             palette: palette,
             levels: levels,
             elapsed: elapsed,
-            animates: animates
+            animates: animates,
+            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
         )
     }
 
@@ -539,7 +553,8 @@ enum ImmersiveDemoStage {
         animates: Bool,
         controlsInset: CGFloat = 0,
         isResting: Bool = false,
-        sungFraction: Double? = nil
+        sungFraction: Double? = nil,
+        motionIntensity: ImmersiveMotionIntensity = .defaultValue
     ) -> some View {
         var track = ImmersiveDemoContent.track
         track.isPlaying = animates
@@ -583,6 +598,7 @@ enum ImmersiveDemoStage {
             },
             reduceMotion: !showsLyricMotion,
             lyricsMotionEnabled: showsLyricMotion,
+            motionIntensity: motionIntensity,
             lyricInterlude: false,
             lyricsPlaceholder: ImmersiveDemoContent.lyrics[1],
             controlsInset: controlsInset,
@@ -1282,6 +1298,7 @@ struct ImmersiveGlassActionButton: View {
 /// (scaleY .28 → 1,相邻条错开 0.22s)。
 struct ImmersiveEqualizerTicks: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var isAnimating: Bool
     var color: Color
     var barWidth: CGFloat
@@ -1291,7 +1308,7 @@ struct ImmersiveEqualizerTicks: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 20), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             HStack(alignment: .bottom, spacing: spacing) {
                 ForEach(0..<count, id: \.self) { index in
                     Capsule()
@@ -1348,11 +1365,12 @@ struct ImmersiveFormatBadge: View {
 /// 1080p 每帧一次 96pt 模糊,而两者观感几乎没有差别。
 struct ImmersiveAuroraBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var isAnimating: Bool
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
 
             GeometryReader { geometry in
                 let side = max(geometry.size.width, geometry.size.height)
@@ -1412,13 +1430,14 @@ struct ImmersiveAuroraBackdrop: View {
 /// 两层锥形渐变反向自转(90s / 60s)并重度虚化,形成缓慢流动的虹彩金属。
 struct ImmersiveLiquidChromeBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var isAnimating: Bool
     /// 模糊半径。整屏只此一处模糊,tvOS 传更小的值以降低填充率压力。
     var blurRadius: CGFloat = 90
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
 
             GeometryReader { geometry in
                 // 渐变层远大于视口,模糊在边缘取样到的仍是渐变本身,不会透出空白。
@@ -1481,6 +1500,7 @@ struct ImmersiveLiquidChromeBackdrop: View {
 /// 柱子本来就沿半径方向排布,所以一个径向渐变等价于给每根柱子各画一遍纵向渐变。
 struct ImmersiveSpectrumRing: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     /// 0...1 的真实频段强度。少于 barCount 时镜像插值；为空时保持静止基线。
     var levels: [CGFloat]
     var barCount: Int = 72
@@ -1498,7 +1518,7 @@ struct ImmersiveSpectrumRing: View {
         // 柱高跟着频谱发布重画；这条时间表只管自转（两分钟一圈），电视上不必比 24 次更勤，
         // 否则和频谱发布错开，两层频谱环（其中一层整块模糊）一帧里可能画两遍。
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24, televisionFloor: 1 / 24), paused: !isAnimating)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
+            let time = context.date.timeIntervalSinceReferenceDate * motion.speed
             let hasSignal = levels.contains { $0 > 0.002 }
             let spin = isAnimating && hasSignal
                 ? time.truncatingRemainder(dividingBy: spinPeriod) / spinPeriod * 360
@@ -1656,11 +1676,12 @@ struct ImmersiveArtworkReflection: View {
 /// 三层确定性星点分别以 32 / 46 / 62 秒漂移；没有随机状态，也不会在重绘时闪烁。
 struct ImmersiveStarFieldBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var isAnimating: Bool
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 canvas.fill(Path(CGRect(origin: .zero, size: size)), with: .color(ImmersiveStagePalette.obsidian))
                 for layer in 0..<3 {
@@ -1699,11 +1720,12 @@ struct ImmersiveStarFieldBackdrop: View {
 /// 两组椭圆轮廓以 44 / 66 秒反向旋转，并用 12 秒周期轻微呼吸。
 struct ImmersiveContourBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     var isAnimating: Bool
 
     var body: some View {
         TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate * motion.speed : 0
             GeometryReader { geometry in
                 let pulse = isAnimating ? 1 + CGFloat(sin(time / 12 * 2 * .pi)) * 0.035 : 1
                 ZStack {

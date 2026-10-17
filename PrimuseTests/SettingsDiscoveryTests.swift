@@ -12,7 +12,9 @@ final class SettingsDiscoveryTests: XCTestCase {
         XCTAssertEqual(SettingsCatalog.byID["lyrics.colorMode"]?.page, .lyrics)
         XCTAssertEqual(SettingsCatalog.byID["storage.wifiOnly"]?.page, .storage)
         XCTAssertEqual(SettingsCatalog.byID["library.recommendationDirections"]?.page, .libraryDisplay)
+        XCTAssertEqual(SettingsCatalog.byID["appearance.immersiveMotionIntensity"]?.page, .fullscreen)
         #endif
+        XCTAssertTrue(SettingsCatalog.search("动效强度").contains { $0.id == "appearance.immersiveMotionIntensity" })
     }
 
     func testSearchIncludesFunctionalAliasesAndHidesUnavailableIntelligence() {

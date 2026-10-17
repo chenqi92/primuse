@@ -6619,6 +6619,10 @@ private struct MacSTThemeView: View {
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var immersiveFrameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var immersiveMotionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
+    /// 选了 60 帧或跟随屏幕、还没确认的那一档。
+    @State private var pendingHighRefreshFrameRate: ImmersiveFrameRateMode?
     @AppStorage(ImmersiveEffectRotationMode.storageKey)
     private var immersiveRotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
@@ -6797,13 +6801,59 @@ private struct MacSTThemeView: View {
                     MacSTPicker(
                         selection: Binding(
                             get: { ImmersiveFrameRateMode(storedValue: immersiveFrameRateRawValue).rawValue },
-                            set: { immersiveFrameRateRawValue = $0 }
+                            set: { rawValue in
+                                // 换到 60 帧或跟随屏幕前先说明耗电，确认了才写进设置。
+                                let proposed = ImmersiveFrameRateMode(storedValue: rawValue)
+                                let current = ImmersiveFrameRateMode(storedValue: immersiveFrameRateRawValue)
+                                if ImmersiveFrameRateMode.requiresConfirmation(from: current, to: proposed) {
+                                    pendingHighRefreshFrameRate = proposed
+                                } else {
+                                    immersiveFrameRateRawValue = proposed.rawValue
+                                }
+                            }
                         ),
                         options: ImmersiveFrameRateMode.allCases.map { ($0.rawValue, $0.localizedTitle) },
                         width: 160
                     )
                 }
                 .settingsAnchor("appearance.immersiveFrameRate")
+                .alert(
+                    Text("immersive_high_refresh_title"),
+                    isPresented: Binding(
+                        get: { pendingHighRefreshFrameRate != nil },
+                        set: { if !$0 { pendingHighRefreshFrameRate = nil } }
+                    ),
+                    presenting: pendingHighRefreshFrameRate
+                ) { mode in
+                    Button {
+                        immersiveFrameRateRawValue = mode.rawValue
+                        immersiveMotionIntensityRawValue = ImmersiveMotionIntensity.maximum.rawValue
+                    } label: {
+                        Text("immersive_high_refresh_maximize")
+                    }
+                    Button {
+                        immersiveFrameRateRawValue = mode.rawValue
+                    } label: {
+                        Text("immersive_high_refresh_frame_rate_only")
+                    }
+                    Button("cancel", role: .cancel) {}
+                } message: { _ in
+                    Text(verbatim: ImmersiveFrameRateMode.highRefreshExplanation)
+                }
+                MacSTRow(
+                    String(localized: "immersive_motion_intensity_title"),
+                    hint: String(localized: "immersive_motion_intensity_subtitle")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ImmersiveMotionIntensity(storedValue: immersiveMotionIntensityRawValue).rawValue },
+                            set: { immersiveMotionIntensityRawValue = $0 }
+                        ),
+                        options: ImmersiveMotionIntensity.allCases.map { ($0.rawValue, $0.localizedTitle) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("appearance.immersiveMotionIntensity")
                 MacSTRow(
                     String(localized: "immersive_effect_rotation_title"),
                     hint: String(localized: "immersive_effect_rotation_subtitle")

@@ -139,6 +139,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     /// 各动态层的重绘帧率；经环境传给舞台里的每一层。
     var frameRate: ImmersiveFrameRateMode = .defaultValue
+    /// 动效强度：按时间走的层的速度、起伏幅度与对声音的敏感度；经环境传给舞台里的每一层。
+    var motionIntensity: ImmersiveMotionIntensity = .defaultValue
     var lyricInterlude = false
     var lyricsPlaceholder = ""
     var visualizerDisclosure = ""
@@ -188,6 +190,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .background(palette.secondary)
         .foregroundStyle(ImmersiveStagePalette.ink)
         .environment(\.immersiveFrameRate, frameRate)
+        .environment(\.immersiveMotionIntensity, motionIntensity)
         .overlay(alignment: .bottom) {
             ImmersiveHairlinePlaybackProgress(
                 initialElapsed: track.elapsed,
@@ -232,17 +235,32 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     /// 未提供闭包时退回静态数组，与旧的 levels 输入行为一致。
+    /// 动效强度不是「标准」时，频段先按那一档重塑（`ImmersiveMotionIntensity.shaped`）再交给各层。
     private var spectrumProvider: @MainActor () -> [CGFloat] {
-        if let levelsProvider { return levelsProvider }
-        let snapshot = levels
-        return { snapshot }
+        let source: @MainActor () -> [CGFloat]
+        if let levelsProvider {
+            source = levelsProvider
+        } else {
+            let snapshot = levels
+            source = { snapshot }
+        }
+        return shapedByIntensity(source)
     }
 
     /// TimelineView 定节奏的层读这一份：读观察的那份，每发布一次频谱就在时间表之外多画一遍，
     /// 帧率档位管不住（神经共鸣在电视 60 帧档因此只有 35 帧左右）。靠发布驱动重画的层（频谱环、能量光晕、
     /// 天际线、脉动封面）没有时间表，照旧读 `spectrumProvider`。
     private var scheduledSpectrumProvider: @MainActor () -> [CGFloat] {
-        scheduledLevelsProvider ?? spectrumProvider
+        guard let scheduledLevelsProvider else { return spectrumProvider }
+        return shapedByIntensity(scheduledLevelsProvider)
+    }
+
+    private func shapedByIntensity(
+        _ source: @escaping @MainActor () -> [CGFloat]
+    ) -> @MainActor () -> [CGFloat] {
+        let intensity = motionIntensity
+        guard intensity != .standard else { return source }
+        return { intensity.shaped(source()) }
     }
 
     private var baseHorizontalInset: CGFloat {
@@ -1332,7 +1350,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             minimumInterval: frameRate.minimumInterval(base: 1 / 24),
             paused: !sceneIsAnimating
         )) { context in
-            let seconds = context.date.timeIntervalSinceReferenceDate
+            let seconds = context.date.timeIntervalSinceReferenceDate * motionIntensity.speed
             let angle = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: 22) / 22 * 360
             artwork(diameter)
                 .frame(width: diameter, height: diameter)
@@ -2003,6 +2021,7 @@ private struct ImmersiveAlbumFlowCover: View {
 /// 像灯光掠过玻璃。和封面墙、唱片一组，只按时间走、不读频谱；暂停或减少动态效果时停成静止的样子。
 private struct ImmersiveAlbumFlowAmbience: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     let tint: Color
     let glowCenter: UnitPoint
     let glowRadius: CGFloat
@@ -2021,8 +2040,8 @@ private struct ImmersiveAlbumFlowAmbience: View {
             minimumInterval: frameRate.minimumInterval(base: 1.0 / 20, televisionFloor: 1.0 / 30),
             paused: !isAnimating
         )) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-            let breath = isAnimating ? sin(time / Self.breathPeriod * 2 * .pi) : 0
+            let time = context.date.timeIntervalSinceReferenceDate * motion.speed
+            let breath = isAnimating ? sin(time / Self.breathPeriod * 2 * .pi) * motion.amplitude : 0
             let sweep = (time / Self.sweepPeriod).truncatingRemainder(dividingBy: 1)
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
@@ -2098,6 +2117,7 @@ private struct ImmersiveAlbumFlowFloor: View {
 
 private struct ImmersiveGalleryBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
+    @Environment(\.immersiveMotionIntensity) private var motion
     let count: Int
     let palette: ImmersiveArtworkPalette
     let isAnimating: Bool
@@ -2122,8 +2142,9 @@ private struct ImmersiveGalleryBackdrop: View {
                 // rasterized tiles instead of laying out twenty image view trees.
                 TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1.0 / 12), paused: !isAnimating)) { context in
                     Canvas(rendersAsynchronously: true) { canvas, _ in
-                        let time = context.date.timeIntervalSinceReferenceDate
-                        canvas.opacity = 0.50
+                        let time = context.date.timeIntervalSinceReferenceDate * motion.speed
+                        // 墙上的封面压得很暗,强度往上调时一并提亮,不然滚得再快也看不出。
+                        canvas.opacity = min(0.80, 0.50 * motion.amplitude)
                         for index in 0..<visualCount {
                             guard let tile = canvas.resolveSymbol(id: index) else { continue }
                             let column = index % columns

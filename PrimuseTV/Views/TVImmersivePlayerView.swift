@@ -170,6 +170,8 @@ struct TVImmersivePlayerView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var motionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationMode.storageKey)
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
@@ -546,6 +548,7 @@ struct TVImmersivePlayerView: View {
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
+            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),

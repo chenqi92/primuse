@@ -43,6 +43,8 @@ struct ImmersivePlayerView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(ImmersiveMotionIntensity.storageKey)
+    private var motionIntensityRawValue = ImmersiveMotionIntensity.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationMode.storageKey)
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
@@ -411,6 +413,7 @@ struct ImmersivePlayerView: View {
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             frameRate: frameRate,
+            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: isResolvingLyrics
                 ? String(localized: "lyrics_loading")
