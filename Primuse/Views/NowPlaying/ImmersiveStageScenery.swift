@@ -52,7 +52,8 @@ struct ImmersiveStageNoticeItem: Identifiable, Equatable {
 }
 
 /// 全屏页顶部那条说明（这首没有实时频谱、因低电量或发热临时降档）。条目一变先亮几秒，
-/// 之后跟着控件一起出现、一起隐去；只是文字，不接点按。
+/// 之后跟着控件一起出现、一起隐去。手机和 Mac 上只写一句是什么情况，为什么、会怎样收在
+/// 圈问号里，点这条说明才看；电视遥控器点不到，整段照写。
 struct ImmersiveStageNotice: View {
     let items: [ImmersiveStageNoticeItem]
     let isChromeVisible: Bool
@@ -62,6 +63,7 @@ struct ImmersiveStageNotice: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flashingKey: String?
+    @State private var showsDetail = false
 
     /// 刚出现或内容变了之后亮着的秒数。
     private static let flashDuration: Duration = .seconds(6)
@@ -76,37 +78,110 @@ struct ImmersiveStageNotice: View {
 
     var body: some View {
         let visible = isVisible
-        VStack(alignment: .leading, spacing: isTelevision ? 16 : 9) {
-            ForEach(items) { item in
-                row(item)
+        notice
+            .frame(maxWidth: isTelevision ? 860 : 380)
+            .opacity(visible ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: visible)
+            // 隐去时不挡舞台上的点按。
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
+            .task(id: key) {
+                guard !items.isEmpty else {
+                    flashingKey = nil
+                    showsDetail = false
+                    return
+                }
+                flashingKey = key
+                try? await Task.sleep(for: Self.flashDuration)
+                guard !Task.isCancelled else { return }
+                flashingKey = nil
+            }
+    }
+
+    @ViewBuilder
+    private var notice: some View {
+        #if os(tvOS)
+        plate {
+            VStack(alignment: .leading, spacing: isTelevision ? 16 : 9) {
+                ForEach(items) { item in
+                    row(item)
+                }
             }
         }
-        .padding(.horizontal, isTelevision ? 30 : 14)
-        .padding(.vertical, isTelevision ? 20 : 11)
-        .background(
-            Color.black.opacity(0.46),
-            in: RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
-        }
-        .frame(maxWidth: isTelevision ? 860 : 380)
-        .opacity(visible ? 1 : 0)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: visible)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
-        .accessibilityHidden(!visible)
-        .task(id: key) {
-            guard !items.isEmpty else {
-                flashingKey = nil
-                return
+        #else
+        Button {
+            showsDetail = true
+        } label: {
+            plate {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(items) { item in
+                            titleRow(item)
+                        }
+                    }
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.74))
+                }
             }
-            flashingKey = key
-            try? await Task.sleep(for: Self.flashDuration)
-            guard !Task.isCancelled else { return }
-            flashingKey = nil
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Text(verbatim: items.map(\.detail).joined(separator: "\n")))
+        .popover(isPresented: $showsDetail) {
+            detailBubble
+                .presentationCompactAdaptation(.popover)
+        }
+        #endif
+    }
+
+    private func plate<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, isTelevision ? 30 : 14)
+            .padding(.vertical, isTelevision ? 20 : 10)
+            .background(
+                Color.black.opacity(0.46),
+                in: RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: isTelevision ? 24 : 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
+            }
+    }
+
+    private func titleRow(_ item: ImmersiveStageNoticeItem) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: item.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .accessibilityHidden(true)
+            Text(verbatim: item.title)
+                .font(.system(size: 13, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.white)
+    }
+
+    /// 点开说明后的气泡：每一项的标题和为什么、会怎样。
+    private var detailBubble: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: item.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(verbatim: item.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(width: 320, alignment: .leading)
     }
 
     private func row(_ item: ImmersiveStageNoticeItem) -> some View {

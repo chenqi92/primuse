@@ -651,11 +651,15 @@ private struct PlayerAppearanceSettingsView: View {
 
             Section {
                 Toggle(isOn: $playerAlwaysDark) {
-                    Label("player_always_dark_title", systemImage: "moon.circle")
+                    Label {
+                        SettingsInfoLabel("player_always_dark_title") {
+                            Text("player_always_dark_footer")
+                        }
+                    } icon: {
+                        Image(systemName: "moon.circle")
+                    }
                 }
                 .settingsAnchor("appearance.playerAlwaysDark")
-            } footer: {
-                Text("player_always_dark_footer")
             }
 
             // 播放页背景:选哪种背景,再调封面色有多浓(#69)。原来在「颜色和图标」里,不好找。
@@ -665,7 +669,9 @@ private struct PlayerAppearanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Label {
-                            Text(PMString("ext.tv.settings.ambientIntensity"))
+                            SettingsInfoLabel(verbatim: PMString("ext.tv.settings.ambientIntensity")) {
+                                Text("player_backdrop_strength_footer")
+                            }
                         } icon: {
                             Image(systemName: "sun.haze.fill")
                         }
@@ -678,8 +684,6 @@ private struct PlayerAppearanceSettingsView: View {
                 }
                 .padding(.vertical, 4)
                 .settingsAnchor("appearance.ambientStrength")
-            } footer: {
-                Text("player_backdrop_strength_footer")
             }
 
             Section {
@@ -703,9 +707,9 @@ private struct PlayerAppearanceSettingsView: View {
                     .settingsAnchor("appearance.playerProgressGlow")
                     .accessibilityHint(Text("player_progress_glow_description"))
             } header: {
-                Text("player_progress_style_title")
-            } footer: {
-                Text("player_progress_style_footer")
+                SettingsInfoHeader("player_progress_style_title") {
+                    Text("player_progress_style_footer")
+                }
             }
 
             Section {
@@ -725,9 +729,9 @@ private struct PlayerAppearanceSettingsView: View {
                 .labelsHidden()
                 .settingsAnchor("appearance.playerArtworkStyle")
             } header: {
-                Text("player_artwork_style_title")
-            } footer: {
-                Text("player_artwork_style_footer")
+                SettingsInfoHeader("player_artwork_style_title") {
+                    Text("player_artwork_style_footer")
+                }
             }
 
             Section {

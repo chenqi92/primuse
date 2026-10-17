@@ -277,17 +277,26 @@ struct PlayerBackdropSettingsSections: View {
 
             // 有声书默认用自己的纯色底;打开后深色外观下也铺这里选的背景(#283)。
             Toggle(isOn: audiobooksBinding) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("player_backdrop_audiobooks", systemImage: ListeningSpace.spokenWord.systemImage)
-                    Text("player_backdrop_audiobooks_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                Label {
+                    SettingsInfoLabel("player_backdrop_audiobooks") {
+                        Text("player_backdrop_audiobooks_hint")
+                    }
+                } icon: {
+                    Image(systemName: ListeningSpace.spokenWord.systemImage)
                 }
             }
             .id(ThemeColorSettings.shared.isWhiteTheme)
         } header: {
+            // 每种背景是什么样收进标题旁的圈问号,选项行只留名字。
             SettingsInfoHeader("player_backdrop_title") {
+                ForEach(PlayerBackdropSource.allCases, id: \.self) { source in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: PlayerBackdropSettingsText.title(source))
+                            .fontWeight(.semibold)
+                        Text(verbatim: PlayerBackdropSettingsText.hint(source))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text("player_backdrop_footer")
             }
         }
@@ -316,14 +325,8 @@ struct PlayerBackdropSettingsSections: View {
                     .font(.body)
                     .foregroundStyle(themeService.uiAccentColor)
                     .frame(width: 26)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: PlayerBackdropSettingsText.title(source))
-                        .foregroundStyle(.primary)
-                    Text(verbatim: PlayerBackdropSettingsText.hint(source))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(verbatim: PlayerBackdropSettingsText.title(source))
+                    .foregroundStyle(.primary)
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -336,6 +339,7 @@ struct PlayerBackdropSettingsSections: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(Text(verbatim: PlayerBackdropSettingsText.hint(source)))
     }
 
     private var rotationBinding: Binding<PlayerBackdropRotation> {

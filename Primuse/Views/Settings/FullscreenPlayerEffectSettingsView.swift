@@ -86,12 +86,7 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var lyricsMotionCard: some View {
         Toggle(isOn: $lyricsMotionEnabled) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("immersive_lyrics_motion_title")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("immersive_lyrics_motion_subtitle")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                cardTitle("immersive_lyrics_motion_title", info: "immersive_lyrics_motion_subtitle")
                 if selectedEffect.isNative {
                     Label("immersive_lyrics_motion_native_note", systemImage: "info.circle")
                         .font(.system(size: 13, weight: .medium))
@@ -115,12 +110,7 @@ struct FullscreenPlayerEffectSettingsView: View {
         if UIDevice.current.userInterfaceIdiom == .phone {
             Toggle(isOn: $entersFullscreenInLandscape) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("player_landscape_fullscreen_title")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("player_landscape_fullscreen_subtitle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    cardTitle("player_landscape_fullscreen_title", info: "player_landscape_fullscreen_subtitle")
                 }
             }
             .settingsAnchor("appearance.landscapeFullscreen")
@@ -193,12 +183,7 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var motionIntensityCard: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("immersive_motion_intensity_title")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("immersive_motion_intensity_subtitle")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                cardTitle("immersive_motion_intensity_title", info: "immersive_motion_intensity_subtitle")
             }
             Spacer(minLength: 8)
             Picker(selection: motionIntensitySelection) {
@@ -223,12 +208,7 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var frameRateCard: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("immersive_frame_rate_title")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("immersive_frame_rate_subtitle")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                cardTitle("immersive_frame_rate_title", info: "immersive_frame_rate_subtitle")
             }
             Spacer(minLength: 8)
             Picker(selection: frameRateSelection) {
@@ -293,12 +273,7 @@ struct FullscreenPlayerEffectSettingsView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("immersive_effect_rotation_title")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("immersive_effect_rotation_subtitle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    cardTitle("immersive_effect_rotation_title", info: "immersive_effect_rotation_subtitle")
                 }
                 Spacer(minLength: 8)
                 Picker(selection: rotationSelection) {
@@ -338,6 +313,15 @@ struct FullscreenPlayerEffectSettingsView: View {
             Color(uiColor: .secondarySystemGroupedBackground),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
+    }
+
+    /// 卡片标题旁一个圈问号,说明点开才看,和设置页其它说明一样收起来。
+    private func cardTitle(_ title: LocalizedStringKey, info: LocalizedStringKey) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+            SettingsInfoButton { Text(info) }
+        }
     }
 
     private func effectCard(_ effect: FullscreenPlayerEffect) -> some View {
