@@ -489,6 +489,13 @@ actor AudioCacheManager {
         PlaybackSettings.load().audioCacheLimitBytes
     }
 
+    /// 成批的 `snapshot(path:fileExists:byteCount:)`: 几千首一次过来, 不必逐首跨一次 actor。
+    func snapshots(
+        for requests: [(path: String, fileExists: Bool, byteCount: Int64?)]
+    ) -> [OfflineAudioCacheSnapshot] {
+        requests.map { snapshot(path: $0.path, fileExists: $0.fileExists, byteCount: $0.byteCount) }
+    }
+
     func snapshot(path: String, fileExists: Bool, byteCount: Int64?) -> OfflineAudioCacheSnapshot {
         ensureInitialized()
         if let entry = offlineManifest[path], entry.isPinned, fileExists {

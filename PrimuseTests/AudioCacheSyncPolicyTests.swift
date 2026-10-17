@@ -252,6 +252,29 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         }
     }
 
+    func testBatchProbeClassifiesEverySongAndKeepsWatchingUncachedOnes() async throws {
+        let fixture = try await fixture()
+        var other = fixture.song
+        other.id = UUID().uuidString
+        other.filePath = "/songs/other.flac"
+        let otherURL = fixture.manager.cacheURL(for: other)
+        let otherPath = other.sourceID + "/" + otherURL.lastPathComponent
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song, other]) }
+        try Data(repeating: 7, count: 128).write(to: fixture.url)
+        await AudioCacheManager.shared.recordAccess(path: fixture.path)
+
+        // 成批探测: 一首有完整缓存、一首没有, 两首各得其所。
+        let ids = await fixture.manager.downloadedSongIDs(in: [fixture.song, other])
+        XCTAssertEqual(ids, [fixture.song.id])
+        XCTAssertEqual(fixture.manager.offlineAudioSnapshot(for: other).state, .notCached)
+
+        // 没缓存的那首仍在观察名单里, 之后下完能自己亮起来。
+        let otherEntry = fixture.manager.offlineAudioSnapshotEntry(for: other)
+        try Data(repeating: 7, count: 128).write(to: otherURL)
+        await AudioCacheManager.shared.recordAccess(path: otherPath)
+        try await waitUntil { otherEntry.snapshot.isDownloaded }
+    }
+
     private func fixture() async throws -> (manager: SourceManager, song: Song, url: URL, path: String) {
         let source = MusicSource(id: UUID().uuidString, name: "Cache fixture", type: .navidrome)
         let song = Song(id: UUID().uuidString, title: "Cache fixture", fileFormat: .flac,

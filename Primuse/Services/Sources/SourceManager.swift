@@ -6229,7 +6229,6 @@ final class SourceManager {
     private nonisolated static let legacyAudioCacheAdoptionStateFileName =
         "audio_cache_legacy_adoption.json"
     private static let offlineBatchConcurrency = 2
-    private static let offlineSnapshotProbeConcurrency = 16
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     private enum AudioCacheScopeReconciliationResult: Equatable {
@@ -7810,45 +7809,87 @@ final class SourceManager {
     func prepareOfflineAudioSnapshots(for songs: [Song]) async {
         let pending = songs.filter { offlineAudioSnapshots[$0.id] == nil }
         guard !pending.isEmpty else { return }
-        // 缓存文件名逐首按路径算, 歌曲页第一次打开「已下载」列(或扫描进来一大批新歌)
-        // 时就是几万首; 放在主线程上算, 那段时间列表一滑一顿。
-        let fileNames = await Task.detached(priority: .utility) {
-            pending.map { Self.cacheFileName(for: $0) }
-        }.value
-
-        let maxConcurrent = min(Self.offlineSnapshotProbeConcurrency, pending.count)
-        await withTaskGroup(of: Void.self) { group in
-            var nextIndex = 0
-
-            func enqueueNext() {
-                guard nextIndex < pending.count else { return }
-                let song = pending[nextIndex]
-                let fileName = fileNames[nextIndex]
-                nextIndex += 1
-                group.addTask {
-                    await self.ensureOfflineAudioSnapshot(for: song, cacheFileName: fileName)
+        // 歌曲页第一次算「已下载」(或扫描进来一大批新歌)时是几万首。逐首探测时每首都要
+        // 在主线程上来回好几趟(登记、校验、建路径、写状态), 加起来就是十万次主线程片段。
+        // 改成成批: 范围按源校验一次, 路径与文件检查在后台整批做, 每批结果一次写回。
+        var readableSourceIDs: Set<String> = []
+        for sourceID in Set(pending.map(\.sourceID)) where await ensureAudioCacheScopeValidated(for: sourceID) {
+            readableSourceIDs.insert(sourceID)
+        }
+        let readable = readableSourceIDs
+        for chunkStart in stride(from: 0, to: pending.count, by: Self.offlineSnapshotProbeBatchSize) {
+            guard !Task.isCancelled else { return }
+            let chunk = Array(pending[chunkStart..<min(chunkStart + Self.offlineSnapshotProbeBatchSize, pending.count)])
+            let probes = await Task.detached(priority: .utility) {
+                chunk.map { song -> OfflineSnapshotProbe in
+                    let fileName = Self.cacheFileName(for: song)
+                    let relativePath = "\(song.sourceID)/\(fileName)"
+                    guard readable.contains(song.sourceID) else {
+                        return OfflineSnapshotProbe(relativePath: relativePath, isReadable: false, exists: false, byteCount: nil)
+                    }
+                    let url = Self.audioCacheDirectoryURL(for: song.sourceID)
+                        .appendingPathComponent(fileName, isDirectory: false)
+                    let info = Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
+                    return OfflineSnapshotProbe(
+                        relativePath: relativePath,
+                        isReadable: true,
+                        exists: info.exists,
+                        byteCount: info.byteCount
+                    )
                 }
-            }
-
-            for _ in 0..<maxConcurrent { enqueueNext() }
-            while await group.next() != nil {
-                guard !Task.isCancelled else {
-                    group.cancelAll()
+            }.value
+            let snapshots = await AudioCacheManager.shared.snapshots(
+                for: probes.map { ($0.relativePath, $0.exists, $0.byteCount) }
+            )
+            for (song, (probe, snapshot)) in zip(chunk, zip(probes, snapshots)) {
+                observeOfflineAudioSong(song, relativePath: probe.relativePath)
+                guard probe.isReadable else {
+                    setOfflineAudioSnapshot(.notCached, for: song.id)
                     continue
                 }
-                enqueueNext()
+                // 探测期间开始的下载、或别处先探完的, 以它们为准。
+                guard audioCacheReadsAreAllowed(for: song.sourceID),
+                      offlineAudioSnapshots[song.id] == nil else { continue }
+                setOfflineAudioSnapshot(snapshot, for: song.id)
             }
         }
     }
+
+    private struct OfflineSnapshotProbe: Sendable {
+        let relativePath: String
+        let isReadable: Bool
+        let exists: Bool
+        let byteCount: Int64?
+    }
+
+    private static let offlineSnapshotProbeBatchSize = 1000
 
     /// Resolves the filter membership after the bounded background probe has
     /// populated missing cache states. Both ordinary complete cache files and
     /// explicitly pinned downloads are playable without network access.
     func downloadedSongIDs(in songs: [Song]) async -> Set<String> {
-        await prepareOfflineAudioSnapshots(for: songs)
-        return Set(songs.compactMap { song in
-            offlineAudioSnapshots[song.id]?.isDownloaded == true ? song.id : nil
-        })
+        // 歌曲页每次打开都要问一遍整库: 几万首各查两遍状态表(长字符串哈希)放在
+        // 主线程上就是一顿。已知状态的在后台按快照分拣, 只有还没探测过的回来探测。
+        let snapshots = offlineAudioSnapshots
+        let (known, unknown) = await Task.detached(priority: .userInitiated) {
+            var downloaded = Set<String>()
+            var pending: [Song] = []
+            for song in songs {
+                if let snapshot = snapshots[song.id] {
+                    if snapshot.isDownloaded { downloaded.insert(song.id) }
+                } else {
+                    pending.append(song)
+                }
+            }
+            return (downloaded, pending)
+        }.value
+        guard !unknown.isEmpty else { return known }
+        await prepareOfflineAudioSnapshots(for: unknown)
+        var downloaded = known
+        for song in unknown where offlineAudioSnapshots[song.id]?.isDownloaded == true {
+            downloaded.insert(song.id)
+        }
+        return downloaded
     }
 
     private nonisolated static func isUsableCacheFile(
