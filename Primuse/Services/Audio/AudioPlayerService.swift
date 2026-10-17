@@ -977,6 +977,8 @@ final class AudioPlayerService {
     /// 托管队列下 MusicKit 当前 entry 查不到对应队列行时记一次。镜像因此
     /// 两条分支都不收养, currentSong 会停在上一首 —— 每次跃迁只打一行。
     @ObservationIgnored private var didLogUnmappedAppleMusicEntry = false
+    /// 镜像里正在记的这次 Apple Music 播放, 见 `recordAppleMusicListening`。
+    @ObservationIgnored private var appleMusicListening: AppleMusicListeningPolicy.Progress?
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
@@ -4689,9 +4691,6 @@ final class AudioPlayerService {
              duration = am.currentDuration > 0 ? am.currentDuration : song.duration
              isAtTrackEnd = false
              _ = beginAutomaticAdvanceTransport(itemID: song.id, reason: "apple-music-native-transition")
-             library?.recordPlayback(of: song.id)
-             ScrobbleService.shared.handlePlaybackStarted(song: song)
-             PlayHistoryStore.shared.beginSession(song: song)
              persistPlaybackSession()
              updateNowPlayingInfo()
              updateNowPlayingArtworkIfNeeded()
@@ -4748,6 +4747,7 @@ final class AudioPlayerService {
                  }
                  // 这里只对齐显示与索引, 不记播放次数: 规范化 id 在前几拍可能
                  // 从 catalog 版跳到资料库版, 那不是换歌, 记了会让统计虚高。
+                 // 播放记录统一在 recordAppleMusicListening 里按这次播放的身份记。
                  if occurrences.count == 1 {
                      currentIndex = occurrences[0]
                      if usesManagedShuffleOrder,
@@ -4772,6 +4772,7 @@ final class AudioPlayerService {
              pendingAppleMusicRestoredPosition = nil
              clearPendingPlaybackRecovery()
          }
+         recordAppleMusicListening(requestID: requestID)
          // MusicKit 自己换的歌只经过上面的镜像写入。不在这里补发的话, 锁屏 /
          // 灵动岛 / CarPlay 会一直停在上一首, 直到别的事件(暂停、歌词载入完)
          // 顺手发布一次 —— 表现就是系统侧显示与真正在放的那首对不上。
@@ -4807,6 +4808,49 @@ final class AudioPlayerService {
              }
              if repeatMode != am.repeatModeMirror { repeatMode = am.repeatModeMirror }
              if shuffleEnabled != am.shuffleEnabledMirror { shuffleEnabled = am.shuffleEnabledMirror }
+         }
+     }
+
+     /// MusicKit 出声时自家播放时钟不走, 起播、系统自己换歌和收听进度都只
+     /// 经过镜像。不在这里记的话, Apple Music 的歌既不会上报 Last.fm /
+     /// ListenBrainz 和服务端, 也进不了听歌统计和最近播放 (#323)。收听秒数按
+     /// MusicKit 播放时间的前进量算, 拖进度条跳过的部分不算, 和本地引擎一致。
+     private func recordAppleMusicListening(requestID: UUID) {
+         guard let song = currentSong else { return }
+         let am = AppServices.shared.appleMusic
+         let duration = am.currentDuration > 0 ? am.currentDuration : song.duration
+         let step = AppleMusicListeningPolicy.advance(
+            &appleMusicListening,
+            occurrence: .init(
+                requestID: requestID,
+                queueEntryID: am.nowPlayingQueueEntryID,
+                rawSongID: am.nowPlayingRawSongID,
+                songID: song.id
+            ),
+            sample: .init(
+                playbackTime: am.currentPlaybackTime,
+                isPlaying: am.isAppleMusicPlaying,
+                uptime: ProcessInfo.processInfo.systemUptime
+            ),
+            duration: duration
+         )
+         switch step {
+         case .started:
+             library?.recordPlayback(of: song.id)
+             ScrobbleService.shared.handlePlaybackStarted(song: song)
+             PlayHistoryStore.shared.beginSession(song: song)
+         case .continued(let listened):
+             ScrobbleService.shared.handleProgressTick(playedDelta: listened)
+             PlayHistoryStore.shared.tick(playedDelta: listened)
+         }
+         // 资料库里的 Apple Music 歌可能没有时长, scrobble 会话开出来时就没有
+         // 50% 阈值可比; MusicKit 报出时长后补给它。
+         if song.duration <= 0, am.currentDuration > 0,
+            let sessionSongID = appleMusicListening?.sessionSongID {
+             ScrobbleService.shared.handlePlaybackDurationResolved(
+                songID: sessionSongID,
+                duration: am.currentDuration
+             )
          }
      }
 

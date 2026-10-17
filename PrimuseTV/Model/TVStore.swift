@@ -980,6 +980,8 @@ final class TVStore {
     @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var radioRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var historyRequestID: UUID?
+    /// 正在记的这首 Apple Music 目录歌, 见 `recordAppleMusicCatalogListening`。
+    @ObservationIgnored private var appleMusicCatalogListening: AppleMusicListeningPolicy.Progress?
     @ObservationIgnored private var playbackRecoveryAttempt = 0
     @ObservationIgnored private var playbackRestoreAttempted = false
     @ObservationIgnored private var sessionStore = PlaybackSessionStore()
@@ -7393,11 +7395,55 @@ final class TVStore {
     private func finishListeningSession() {
         playbackMonitorTask?.cancel()
         playbackMonitorTask = nil
+        appleMusicCatalogListening = nil
         guard historyRequestID != nil else { return }
         PlayHistoryStore.shared.endSession()
         PlayHistoryStore.shared.flush()
         ScrobbleService.shared.handlePlaybackStopped()
         historyRequestID = nil
+    }
+
+    /// 目录歌和 Apple Music 专辑、歌单由 MusicKit 自己一首接一首放, 曲库队列是空的,
+    /// 上面的收听监视器认不到; 改从系统播放器回灌的每一拍里记, 和手机端同一套
+    /// 判定 (#323)。曲库里的 Apple Music 歌走监视器, 这里不管。
+    func recordAppleMusicCatalogListening(_ tick: TVAppleMusicPlayer.Tick, requestID: UUID) {
+        guard appleMusicSelection != nil, !isMedleyActive, let info = tick.song else { return }
+        // 和手机端把目录歌转成 Song 时同一个 id, 两边的听歌统计对得上。
+        let songID = TVScanPipelinePolicy.songID(sourceID: AppleMusicLibraryIdentity.sourceID, path: info.id)
+        let duration = tick.duration ?? info.duration ?? 0
+        let step = AppleMusicListeningPolicy.advance(
+            &appleMusicCatalogListening,
+            occurrence: .init(requestID: requestID, queueEntryID: nil, rawSongID: info.id, songID: songID),
+            sample: .init(
+                playbackTime: tick.currentTime,
+                isPlaying: tick.isPlaying,
+                uptime: ProcessInfo.processInfo.systemUptime
+            ),
+            duration: duration
+        )
+        switch step {
+        case .started:
+            let song = library.song(id: songID) ?? Song(
+                id: songID,
+                title: info.title,
+                albumTitle: info.album.isEmpty ? nil : info.album,
+                artistName: info.artist,
+                duration: duration,
+                fileFormat: .aac,
+                filePath: info.id,
+                sourceID: AppleMusicLibraryIdentity.sourceID
+            )
+            historyRequestID = requestID
+            library.recordPlayback(of: songID)
+            PlayHistoryStore.shared.beginSession(song: song)
+            ScrobbleService.shared.handlePlaybackStarted(song: song)
+        case .continued(let listened):
+            PlayHistoryStore.shared.tick(playedDelta: listened)
+            ScrobbleService.shared.handleProgressTick(playedDelta: listened)
+        }
+        if duration > 0, let sessionSongID = appleMusicCatalogListening?.sessionSongID {
+            ScrobbleService.shared.handlePlaybackDurationResolved(songID: sessionSongID, duration: duration)
+        }
     }
 
     private func persistPlaybackSession() {

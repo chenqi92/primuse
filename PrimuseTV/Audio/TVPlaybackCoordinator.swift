@@ -1184,6 +1184,7 @@ final class TVPlaybackCoordinator {
                     store.nowPlaying.duration = duration
                 }
             }
+            store.recordAppleMusicCatalogListening(tick, requestID: requestID)
             if tick.didFinish {
                 self.appleMusicPlayer.stopMirroring()
                 self.engine.externalPlaybackDidEnd()
