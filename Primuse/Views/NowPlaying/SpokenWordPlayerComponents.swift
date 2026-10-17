@@ -408,12 +408,17 @@ struct SpokenWordActionTiles: View {
         }
     }
 
+    /// 图标在上的一排里,「1.0×」和定时的月亮比书签、目录宽一大截,同一号字看着大一圈,收小一档(#320)。
     private var rateFont: Font {
         switch layout {
         case .tiles: .body.monospacedDigit().weight(.bold)
-        case .stacked: .title3.monospacedDigit().weight(.light)
+        case .stacked: .body.monospacedDigit().weight(.light)
         case .inline: .callout.monospacedDigit().weight(.medium)
         }
+    }
+
+    private var sleepIconFont: Font {
+        layout == .stacked ? .body.weight(.light) : iconFont
     }
 
     private func upNextTile(_ action: @escaping () -> Void) -> some View {
@@ -462,7 +467,7 @@ struct SpokenWordActionTiles: View {
         Button(action: onSleep) {
             tile {
                 Image(systemName: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                    .font(iconFont)
+                    .font(sleepIconFont)
                     .foregroundStyle(player.isSleepTimerActive ? palette.accent : palette.primary)
             } caption: {
                 if let endDate = player.sleepTimerEndDate {

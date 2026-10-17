@@ -65,6 +65,13 @@ struct AudiobookPlayerStyle: Equatable {
     /// 播放键里的三角,取底色,像在实心圆上挖出来的。
     var onAccent: Color { background }
 
+    /// 播放键以外的按钮(收起、喜欢、更多、上一章 / 下一章、快退快进、两侧的键、语速定时那一排)
+    /// 和进度条。墨黑里统一压到和系统投放键一样暗,只有书名、章节名和播放键是亮白(#320);
+    /// 暖白照设计稿,用 `paper`——那一处原来的颜色。
+    func control(paper: Color) -> Color {
+        isNocturne ? .white.opacity(usesIncreasedContrast ? 0.72 : 0.52) : paper
+    }
+
     /// 章号下那条竖线上的全书进度点。暖白里用深红,不跟近黑的进度条抢。
     var bookMarker: Color {
         isNocturne ? accent : Color(red: 0.62, green: 0.17, blue: 0.14)
@@ -73,8 +80,8 @@ struct AudiobookPlayerStyle: Equatable {
     /// 给通用有声零件(语速、定时、书签、目录那一排)用的配色。
     var palette: SpokenWordPlayerPalette {
         SpokenWordPlayerPalette(
-            primary: primary,
-            secondary: secondary,
+            primary: control(paper: primary),
+            secondary: control(paper: secondary),
             tertiary: tertiary,
             accent: accent,
             tileFill: foreground.opacity(isNocturne ? 0.10 : 0.06)
@@ -203,7 +210,8 @@ struct AudiobookChapterColumn: View {
             .padding(.top, 10)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, style.isNocturne ? 10 : 20)
+        // 墨黑的「CHAPTER」和封面顶边对齐(#320),往下让出的那一截在播放页里加在这一行上面。
+        .padding(.top, style.isNocturne ? 0 : 20)
         .pmAnimation(.control, value: summary.partIndex)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(eyebrowKey(hasParts: hasParts)))
@@ -376,8 +384,8 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
                 if showsPartButtons || showsAccessory {
                     HStack(spacing: 0) {
                         if showsPartButtons {
-                            SpokenWordPartButton(forward: false, color: style.primary, font: .callout)
-                            SpokenWordPartButton(forward: true, color: style.primary, font: .callout)
+                            SpokenWordPartButton(forward: false, color: style.control(paper: style.primary), font: .callout)
+                            SpokenWordPartButton(forward: true, color: style.control(paper: style.primary), font: .callout)
                         }
                         if showsAccessory {
                             accessory()
@@ -434,7 +442,7 @@ struct AudiobookProgressBar: View {
                 value: player.currentTime,
                 total: player.duration,
                 interactionID: player.currentSong?.id,
-                fillTint: style.accent,
+                fillTint: style.control(paper: style.accent),
                 trackStyle: trackStyle,
                 isPlaying: player.isPlaying,
                 onPreview: { previewTime = $0 },

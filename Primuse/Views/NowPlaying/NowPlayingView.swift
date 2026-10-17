@@ -5479,6 +5479,7 @@ struct NowPlayingView: View {
         )
         // 功能块全藏了、或都排进 Duo 竖栏时,下面那一排连同它的间距都不出现(#313)。
         let showsActionRow = !usesToolColumn && !controls.tiles.isEmpty
+        let usesGrabber = audiobookTopBarUsesGrabber(usesToolColumn: usesToolColumn, controls: controls)
         // 最底下那行信息离上面多远:直接跟在传输键下面时留开一些;跟在暖白功能块下面时不再另加,
         // 那一排自己上下已留着空,再加就显得和来源隔得太开(#313)。
         let footerGap: CGFloat
@@ -5514,7 +5515,9 @@ struct NowPlayingView: View {
                         .transition(lyricsPanelTransition)
                         .onDisappear { isLyricsChromeCollapsed = false }
                 } else if style.isNocturne {
+                    // 顶上只剩把手时书名和作者再往上靠一些(#320),多出来的高度落到封面下面。
                     Spacer(minLength: isShort ? 8 : 16)
+                        .frame(maxHeight: usesGrabber ? (isShort ? 8 : 20) : .infinity)
                     AudiobookTitleBlock(style: style) { presentCurrentBook() }
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     AudiobookHeroRowLayout(
@@ -5526,7 +5529,8 @@ struct NowPlayingView: View {
                         AudiobookChapterColumn(style: style)
                         audiobookCover(style: style)
                     }
-                    .padding(.top, isShort ? 14 : 22)
+                    // 封面顶边和左边「CHAPTER」对齐,离作者也就宽一些(#320)。
+                    .padding(.top, isShort ? 24 : 32)
                     .layoutPriority(1)
                     .transition(lyricsHandoffArtworkTransition)
                     Spacer(minLength: isShort ? 16 : 28)
@@ -5569,7 +5573,7 @@ struct NowPlayingView: View {
                             controls.partRow,
                             slot: .partRow,
                             font: .system(size: 18, weight: .regular),
-                            tint: style.primary,
+                            tint: style.control(paper: style.primary),
                             selectedTint: style.accent
                         )
                     }
@@ -5658,13 +5662,20 @@ struct NowPlayingView: View {
         usesToolColumn: Bool,
         controls: SpokenWordResolvedControls
     ) -> some View {
-        let showsLike = offersLikeAction && controls.headerShowsLike
-        if usesToolColumn
-            || !(controls.headerShowsAirPlay || showsLike || controls.headerShowsMore) {
+        if audiobookTopBarUsesGrabber(usesToolColumn: usesToolColumn, controls: controls) {
             audiobookGrabber(style: style)
         } else {
             audiobookTopBarRow(style: style, controls: controls)
         }
+    }
+
+    private func audiobookTopBarUsesGrabber(
+        usesToolColumn: Bool,
+        controls: SpokenWordResolvedControls
+    ) -> Bool {
+        let showsLike = offersLikeAction && controls.headerShowsLike
+        return usesToolColumn
+            || !(controls.headerShowsAirPlay || showsLike || controls.headerShowsMore)
     }
 
     private func audiobookGrabber(style: AudiobookPlayerStyle) -> some View {
@@ -5691,7 +5702,7 @@ struct NowPlayingView: View {
                 Button(action: onMinimize) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(style.primary)
+                        .foregroundStyle(style.control(paper: style.primary))
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -5706,9 +5717,19 @@ struct NowPlayingView: View {
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
                 }
-                spokenWordLikeButton(shows: controls.headerShowsLike)
+                spokenWordLikeButton(
+                    shows: controls.headerShowsLike,
+                    idleTint: style.control(paper: appearance.secondary)
+                )
                 if controls.headerShowsMore {
-                    makeMoreMenu(controlSurface: .portrait)
+                    makeMoreMenu(
+                        controlSurface: .portrait,
+                        plainLabel: NowPlayingMoreMenuPlainLabel(
+                            font: .system(size: 18, weight: .semibold),
+                            tint: style.control(paper: appearance.secondary),
+                            height: 44
+                        )
+                    )
                 }
             }
             .fixedSize()
@@ -5807,7 +5828,7 @@ struct NowPlayingView: View {
                     controls.leadingSide,
                     slot: .leadingSide,
                     font: sideKeyFont,
-                    tint: style.secondary,
+                    tint: style.control(paper: style.secondary),
                     selectedTint: style.accent,
                     height: 56
                 )
@@ -5853,7 +5874,7 @@ struct NowPlayingView: View {
                     controls.trailingSide,
                     slot: .trailingSide,
                     font: sideKeyFont,
-                    tint: style.secondary,
+                    tint: style.control(paper: style.secondary),
                     selectedTint: style.accent,
                     height: 56
                 )
@@ -5870,7 +5891,7 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
                 .font(.system(size: 28, weight: .light))
-                .foregroundStyle(style.primary)
+                .foregroundStyle(style.control(paper: style.primary))
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 56, height: 56)
                 .contentShape(Rectangle())
@@ -7301,12 +7322,12 @@ struct NowPlayingView: View {
     /// 把正在听的这一个文件加进「我喜欢」,和锁屏上的「喜欢」是同一件事;播客单集记在播客自己那份。
     /// `shows` 是这个版面上右上角(或标题旁)那一组里要不要这一颗(喜欢摆进了格子时不要)。
     @ViewBuilder
-    private func spokenWordLikeButton(shows: Bool) -> some View {
+    private func spokenWordLikeButton(shows: Bool, idleTint: Color? = nil) -> some View {
         if offersLikeAction, shows {
             Button { toggleLikedCurrent() } label: {
                 nowPlayingActionIcon(
                     symbol: isCurrentLiked ? "heart.fill" : "heart",
-                    tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
+                    tint: isCurrentLiked ? likedHeartTint : (idleTint ?? appearance.secondary),
                     isSelected: isCurrentLiked
                 )
             }
