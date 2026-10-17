@@ -1253,6 +1253,7 @@
 "home_edit_move_up" = "上移";
 "home_edit_move_down" = "下移";
 "home_settings_restore_all" = "恢復預設版面";
+"home_settings_restore_all_message" = "區塊的順序、樣式和顯示哪些區塊都回到預設；收藏裡刪掉的「我喜歡的」會放回最前，其他收藏不變。";
 "start_song_radio" = "啟動歌曲電台";
 "start_similar_mix" = "播放相似歌曲";
 "similar_songs_empty" = "暫時沒有相似歌曲";

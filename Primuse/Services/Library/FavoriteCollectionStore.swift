@@ -305,6 +305,12 @@ final class FavoriteCollectionStore {
         }
     }
 
+    /// 首页编辑「恢复默认布局」:收藏里默认就有的「我喜欢」被拿掉过就放回最前,别的收藏不动。
+    func restoreDefaultEntries(library: MusicLibrary) {
+        guard !isCollected(Self.anchor, library: library) else { return }
+        collect(Self.anchor, library: library)
+    }
+
     func uncollect(_ pin: QuickAccessPinReference, library: MusicLibrary) {
         userEdit { performUncollect(pin, library: library) }
     }

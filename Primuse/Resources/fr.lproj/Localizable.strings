@@ -1497,6 +1497,7 @@
 "home_edit_move_up" = "Déplacer vers le haut";
 "home_edit_move_down" = "Déplacer vers le bas";
 "home_settings_restore_all" = "Rétablir la disposition par défaut";
+"home_settings_restore_all_message" = "L’ordre, le style et l’affichage des sections reviennent aux réglages par défaut. Si vous avez retiré Titres aimés des Favoris, il revient en tête ; vos autres favoris ne changent pas.";
 "start_song_radio" = "Lancer la radio du morceau";
 "start_similar_mix" = "Lancer un mix similaire";
 "similar_songs_empty" = "Aucun morceau similaire pour l'instant";

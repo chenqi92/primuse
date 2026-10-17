@@ -1497,6 +1497,7 @@
 "home_edit_move_up" = "Nach oben";
 "home_edit_move_down" = "Nach unten";
 "home_settings_restore_all" = "Standardanordnung wiederherstellen";
+"home_settings_restore_all_message" = "Reihenfolge, Darstellung und Sichtbarkeit der Bereiche werden zurückgesetzt. Wenn du „Favoriten“ (deine gelikten Titel) aus den Favoriten entfernt hast, steht es wieder vorne; alle anderen Favoriten bleiben unverändert.";
 "start_song_radio" = "Titelradio starten";
 "start_similar_mix" = "Ähnlichen Mix starten";
 "similar_songs_empty" = "Noch keine ähnlichen Titel";

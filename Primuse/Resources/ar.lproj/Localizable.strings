@@ -1584,6 +1584,7 @@
 "home_edit_move_up" = "تحريك لأعلى";
 "home_edit_move_down" = "تحريك لأسفل";
 "home_settings_restore_all" = "استعادة التخطيط الافتراضي";
+"home_settings_restore_all_message" = "يعود ترتيب الأقسام ومظهرها والأقسام المعروضة إلى الإعدادات الافتراضية. إذا أزلت «الأغاني التي أعجبتني» من المفضلة فستعود إلى البداية، وتبقى بقية المفضلة كما هي.";
 "home_section_quick_access" = "المفضلة";
 "home_section_recently_added" = "أضيف مؤخرا";
 "home_section_top_artists" = "استمع كثيرا";

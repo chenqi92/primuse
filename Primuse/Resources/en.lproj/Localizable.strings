@@ -1317,6 +1317,7 @@
 "home_edit_move_up" = "Move up";
 "home_edit_move_down" = "Move down";
 "home_settings_restore_all" = "Restore default layout";
+"home_settings_restore_all_message" = "Section order, styles, and which sections are shown go back to the defaults. If you removed Liked Songs from Favorites, it returns to the front; your other favorites stay as they are.";
 "similar_songs" = "Similar Songs";
 "start_song_radio" = "Start Song Radio";
 "start_similar_mix" = "Start Similar Mix";

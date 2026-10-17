@@ -1584,6 +1584,7 @@
 "home_edit_move_up" = "Mover para cima";
 "home_edit_move_down" = "Mover para baixo";
 "home_settings_restore_all" = "Restaurar a disposição padrão";
+"home_settings_restore_all_message" = "A ordem, o estilo e quais seções aparecem voltam ao padrão. Se você removeu Músicas curtidas dos Favoritos, ela volta para o início; seus outros favoritos não mudam.";
 "home_section_quick_access" = "Favoritos";
 "home_section_recently_added" = "Adicionado recentemente";
 "home_section_top_artists" = "Ouvido com frequência";

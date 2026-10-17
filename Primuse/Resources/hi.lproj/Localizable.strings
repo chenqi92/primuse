@@ -1584,6 +1584,7 @@
 "home_edit_move_up" = "ऊपर ले जाएँ";
 "home_edit_move_down" = "नीचे ले जाएँ";
 "home_settings_restore_all" = "डिफ़ॉल्ट लेआउट पुनर्स्थापित करें";
+"home_settings_restore_all_message" = "सेक्शन का क्रम, शैली और कौन-से सेक्शन दिखें, सब डिफ़ॉल्ट पर लौट आते हैं। अगर आपने पसंदीदा से पसंदीदा गाने हटाए थे, तो वे सबसे आगे लौट आएँगे; बाकी पसंदीदा वैसे ही रहेंगे।";
 "home_section_quick_access" = "पसंदीदा";
 "home_section_recently_added" = "हाल ही में जोड़ा गया";
 "home_section_top_artists" = "बार-बार सुना गया";

@@ -1333,6 +1333,7 @@
 "home_edit_move_up" = "上移";
 "home_edit_move_down" = "下移";
 "home_settings_restore_all" = "恢复默认布局";
+"home_settings_restore_all_message" = "区块的顺序、样式和显示哪些区块都回到默认；收藏里删掉的「我喜欢的」会放回最前，其他收藏不变。";
 "similar_songs" = "相似歌曲";
 "start_song_radio" = "启动歌曲电台";
 "start_similar_mix" = "播放相似歌曲";

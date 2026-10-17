@@ -1497,6 +1497,7 @@
 "home_edit_move_up" = "위로 이동";
 "home_edit_move_down" = "아래로 이동";
 "home_settings_restore_all" = "기본 레이아웃으로 복원";
+"home_settings_restore_all_message" = "섹션 순서, 스타일, 표시할 섹션이 기본값으로 돌아갑니다. 즐겨찾기에서 좋아요 표시한 곡을 뺐다면 맨 앞에 다시 놓이고, 다른 즐겨찾기는 그대로입니다.";
 "start_song_radio" = "곡 라디오 시작";
 "start_similar_mix" = "비슷한 곡 믹스 시작";
 "similar_songs_empty" = "아직 비슷한 곡이 없습니다";

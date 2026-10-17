@@ -10,6 +10,7 @@ struct HomeInterfaceEditor: View {
     // 可选取值：环境里没有首页模型时（理论上不会发生，设置页就挂在首页那棵树
     // 下面）宁可给一句提示，也不要因为强制解包直接崩在设置里。
     @Environment(HomeView.Model.self) private var homeModel: HomeView.Model?
+    @Environment(MusicLibrary.self) private var library
     @AppStorage(HomeSectionConfiguration.orderKey) private var sectionOrderRawValue = ""
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var sectionLayoutRawValue = ""
     @State private var showsRestoreConfirm = false
@@ -45,8 +46,14 @@ struct HomeInterfaceEditor: View {
                                 HomeSectionConfiguration.defaultOrder
                             )
                             sectionLayoutRawValue = ""
+                            // 关掉的区块重新显示,收藏里拿掉的「我喜欢」放回来:只恢复顺序和样式的话,
+                            // 删过东西的人点了这里什么也看不出变化。
+                            HomeView.restoreDefaultSectionVisibility()
+                            FavoriteCollectionStore.shared.restoreDefaultEntries(library: library)
                         }
                         Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("home_settings_restore_all_message")
                     }
                 }
             }

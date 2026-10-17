@@ -1498,6 +1498,7 @@
 "home_edit_move_up" = "上へ移動";
 "home_edit_move_down" = "下へ移動";
 "home_settings_restore_all" = "レイアウトを既定に戻す";
+"home_settings_restore_all_message" = "セクションの並び順、表示スタイル、表示するセクションが既定に戻ります。お気に入りから「お気に入りの曲」を外していた場合は先頭に戻り、ほかのお気に入りはそのままです。";
 "start_song_radio" = "曲のラジオを開始";
 "start_similar_mix" = "似た曲のミックスを開始";
 "similar_songs_empty" = "似た曲はまだありません";

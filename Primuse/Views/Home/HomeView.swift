@@ -1626,6 +1626,34 @@ struct HomeView: View {
     @AppStorage("primuse.home.showAudiobooks") private var showAudiobooks = true
     /// 「播客更新」默认关着:播客要先订阅才有内容,用的人在界面编辑里打开。
     @AppStorage("primuse.home.showPodcasts") private var showPodcasts = false
+
+    /// 上面这些显隐开关(连同电台那一块)的默认值。首页编辑「恢复默认布局」把它们写回来,
+    /// 经 iCloud 键值同步的那几项也一并推到别的设备。改了哪个开关的键或默认值,这里跟着改。
+    static let defaultSectionVisibility: [String: Bool] = [
+        "primuse.home.showHero": true,
+        "primuse.home.showStatsGlimpse": true,
+        "primuse.home.showForYou": true,
+        "primuse.home.showTopArtists": true,
+        "primuse.home.showRecentlyAdded": true,
+        "primuse.home.showContinueListening": true,
+        "primuse.home.showQuickAccess": true,
+        "primuse.home.showPlaylists": true,
+        "primuse.home.showFolders": true,
+        "primuse.home.showListeningRanking": true,
+        "primuse.home.showContinueSpaces": true,
+        AlbumRecommendationService.homeVisibilityKey: true,
+        ListeningIntentService.homeVisibilityKey: true,
+        "primuse.home.showBooksInProgress": true,
+        "primuse.home.showAudiobooks": true,
+        "primuse.home.showPodcasts": false,
+        "primuse.home.showRadio": true,
+    ]
+
+    static func restoreDefaultSectionVisibility(defaults: UserDefaults = .standard) {
+        for (key, value) in defaultSectionVisibility {
+            defaults.set(value, forKey: key)
+        }
+    }
     /// 首页「播客」那一面的导航与弹出(发现、按地址添加、设置)。
     @State private var podcastNavigation = PodcastNavigationModel()
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""

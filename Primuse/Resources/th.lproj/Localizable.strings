@@ -1584,6 +1584,7 @@
 "home_edit_move_up" = "ย้ายขึ้น";
 "home_edit_move_down" = "ย้ายลง";
 "home_settings_restore_all" = "คืนค่าเลย์เอาต์เริ่มต้น";
+"home_settings_restore_all_message" = "ลำดับ รูปแบบ และส่วนที่แสดงจะกลับเป็นค่าเริ่มต้น ถ้าคุณเอาเพลงที่ชอบออกจากรายการโปรด จะกลับมาอยู่หน้าสุด รายการโปรดอื่นยังเหมือนเดิม";
 "home_section_quick_access" = "รายการโปรด";
 "home_section_recently_added" = "เพิ่มล่าสุด";
 "home_section_top_artists" = "ฟังบ่อยๆ";

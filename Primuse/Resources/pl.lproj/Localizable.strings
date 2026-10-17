@@ -1584,6 +1584,7 @@
 "home_edit_move_up" = "Przenieś w górę";
 "home_edit_move_down" = "Przenieś w dół";
 "home_settings_restore_all" = "Przywróć domyślny układ";
+"home_settings_restore_all_message" = "Kolejność, wygląd i widoczność sekcji wracają do ustawień domyślnych. Jeśli usunięto Polubione utwory z Ulubionych, wrócą na początek; pozostałe ulubione się nie zmienią.";
 "home_section_quick_access" = "Ulubione";
 "home_section_recently_added" = "Ostatnio dodane";
 "home_section_top_artists" = "Często słuchane";

@@ -700,6 +700,7 @@
 "home_edit_move_up" = "Yukarı taşı";
 "home_edit_move_down" = "Aşağı taşı";
 "home_settings_restore_all" = "Varsayılan düzeni geri yükle";
+"home_settings_restore_all_message" = "Bölümlerin sırası, görünümü ve hangilerinin gösterileceği varsayılana döner. Beğenilen Şarkılar’ı Favoriler’den kaldırdıysanız yeniden en başa gelir; diğer favorileriniz değişmez.";
 "ai_audio_transcription_success_format" = "%@ transkripti tamamladı. Kaydetmeden önce düzenleyicide inceleyin.";
 "Reading tags" = "Etiketleri okuma";
 "Valid format" = "Geçerli format";
