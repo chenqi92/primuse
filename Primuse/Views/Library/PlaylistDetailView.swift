@@ -1647,7 +1647,10 @@ struct PlaylistDetailView: View {
 
     private func macSongRow(_ song: Song, index: Int, indexColumnWidth: CGFloat, playCount: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
-        let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
+        let columns = tableLayout.activeColumns
+        let source = columns.contains(.source)
+            ? sourcesStore.sources.first(where: { $0.id == song.sourceID })
+            : nil
         return HStack(spacing: 12) {
             MacPlaylistSelectionIndexCell(
                 index: index,
@@ -1660,18 +1663,21 @@ struct PlaylistDetailView: View {
                 alignment: selection.isActive ? .center : .leading
             )
 
-            CachedArtworkView(
-                coverRef: song.coverArtFileName, songID: song.id,
-                size: 28, cornerRadius: 4,
-                sourceID: song.sourceID, filePath: song.filePath,
-                fileFormat: song.fileFormat
+            MacPlaylistSongCells(
+                song: song,
+                isEmphasized: isCurrent,
+                liked: library.isLiked(songID: song.id),
+                plays: playCount,
+                artistName: columns.contains(.artist) ? library.artistDisplayName(for: song) : nil,
+                sourceName: source.map {
+                    $0.name.components(separatedBy: "·").first?
+                        .trimmingCharacters(in: .whitespaces) ?? $0.name
+                },
+                sourceDotColor: source.map { macSourceDotColor(for: $0) },
+                columns: columns,
+                columnWidths: Dictionary(uniqueKeysWithValues: columns.map { ($0, tableLayout.width($0)) })
             )
-            .frame(width: 32, alignment: .leading)
-
-            ForEach(tableLayout.activeColumns) { column in
-                macSongTableCell(column, song: song, isEmphasized: isCurrent,
-                                 liked: library.isLiked(songID: song.id), plays: playCount, source: source)
-            }
+            .equatable()
         }
         .frame(width: tableLayout.contentWidth(ordinalWidth: indexColumnWidth), alignment: .leading)
         .padding(.horizontal, 10)
@@ -1693,124 +1699,6 @@ struct PlaylistDetailView: View {
                 } label: {
                     Label("remove_from_playlist", systemImage: "trash")
                 }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func macSongTableCell(
-        _ column: MacSongsColumn,
-        song: Song,
-        isEmphasized: Bool,
-        liked: Bool,
-        plays: Int,
-        source: MusicSource?
-    ) -> some View {
-        Group {
-            switch column {
-            case .title:
-                HStack(spacing: 6) {
-                    Text(song.title)
-                        .font(.system(size: 12.5, weight: isEmphasized ? .semibold : .medium))
-                        .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if liked {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(PMColor.brand)
-                    }
-                }
-            case .artist:
-                Text(library.artistDisplayName(for: song) ?? "—")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            case .album:
-                Text(song.albumTitle ?? "—")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            case .format:
-                HStack(spacing: 6) {
-                    PMFormatPill.forFormat(song.codecFormat.displayName)
-                    if let sampleRate = song.formattedSampleRate {
-                        Text(verbatim: sampleRate)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(PMColor.textFaint)
-                    }
-                }
-            case .duration:
-                Text(song.duration.formattedDuration)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(PMColor.textMuted)
-            case .plays:
-                playCountText(plays)
-            case .sourcePlays:
-                playCountText(song.serverPlayCount ?? 0)
-            case .downloaded:
-                MacSongTableDownloadIndicator(song: song)
-            case .source:
-                sourceCell(source)
-            case .year:
-                Text(song.year.map(String.init) ?? "—")
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(PMColor.textMuted)
-            case .rating:
-                Text(verbatim: "—")
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(PMColor.textFaint)
-            case .dateAdded:
-                Text(song.dateAdded, style: .date)
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-            case .bitRate:
-                Text(song.formattedBitRate ?? "—")
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(PMColor.textMuted)
-            case .bitDepth:
-                Text(song.formattedBitDepth ?? "—")
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-        }
-        .frame(width: tableLayout.width(column), alignment: column.alignment)
-    }
-
-    @ViewBuilder
-    private func playCountText(_ plays: Int) -> some View {
-        if plays > 0 {
-            Text("\(plays)")
-                .font(.system(size: 11.5, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(PMColor.textMuted)
-        } else {
-            Text(verbatim: "—")
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(PMColor.textFaint)
-        }
-    }
-
-    private func sourceCell(_ source: MusicSource?) -> some View {
-        HStack(spacing: 5) {
-            if let source {
-                Circle()
-                    .fill(macSourceDotColor(for: source))
-                    .frame(width: 6, height: 6)
-                Text(verbatim: source.name.components(separatedBy: "·").first?
-                    .trimmingCharacters(in: .whitespaces) ?? source.name)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            } else {
-                Text(verbatim: "—")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textFaint)
             }
         }
     }
@@ -2349,3 +2237,145 @@ struct PlaylistReorderSheet: View {
     }
     #endif
 }
+
+#if os(macOS)
+/// 歌单表格一行里封面与各列的格子, 同歌曲页的 `MacSongTableRowContent`: 父视图每重算
+/// 一次, 只有输入真变了的行重建。
+private struct MacPlaylistSongCells: View, Equatable {
+    let song: Song
+    let isEmphasized: Bool
+    let liked: Bool
+    let plays: Int
+    let artistName: String?
+    let sourceName: String?
+    let sourceDotColor: Color?
+    let columns: [MacSongsColumn]
+    let columnWidths: [MacSongsColumn: CGFloat]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName, songID: song.id,
+                size: 28, cornerRadius: 4,
+                sourceID: song.sourceID, filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .frame(width: 32, alignment: .leading)
+
+            ForEach(columns) { column in
+                cell(column)
+                    .frame(width: columnWidths[column] ?? 0, alignment: column.alignment)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cell(_ column: MacSongsColumn) -> some View {
+        Group {
+            switch column {
+            case .title:
+                HStack(spacing: 6) {
+                    Text(song.title)
+                        .font(.system(size: 12.5, weight: isEmphasized ? .semibold : .medium))
+                        .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if liked {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+            case .artist:
+                Text(artistName ?? "—")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            case .album:
+                Text(song.albumTitle ?? "—")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            case .format:
+                HStack(spacing: 6) {
+                    PMFormatPill.forFormat(song.codecFormat.displayName)
+                    if let sampleRate = song.formattedSampleRate {
+                        Text(verbatim: sampleRate)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            case .duration:
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+            case .plays:
+                playCountText(plays)
+            case .sourcePlays:
+                playCountText(song.serverPlayCount ?? 0)
+            case .downloaded:
+                MacSongTableDownloadIndicator(song: song)
+            case .source:
+                sourceCell
+            case .year:
+                Text(song.year.map(String.init) ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            case .rating:
+                Text(verbatim: "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+            case .dateAdded:
+                Text(song.dateAdded, style: .date)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            case .bitRate:
+                Text(song.formattedBitRate ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            case .bitDepth:
+                Text(song.formattedBitDepth ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playCountText(_ plays: Int) -> some View {
+        if plays > 0 {
+            Text("\(plays)")
+                .font(.system(size: 11.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textMuted)
+        } else {
+            Text(verbatim: "—")
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+        }
+    }
+
+    private var sourceCell: some View {
+        HStack(spacing: 5) {
+            if let sourceName {
+                Circle()
+                    .fill(sourceDotColor ?? PMColor.textFaint)
+                    .frame(width: 6, height: 6)
+                Text(verbatim: sourceName)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Text(verbatim: "—")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+        }
+    }
+}
+#endif
