@@ -44,11 +44,11 @@ struct SpokenTranscriptGenerationSheet: View {
                     Button("done") { dismiss() }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 Text("transcript_generation_upload_confirm_title"),
-                isPresented: $showsUploadConfirmation,
-                titleVisibility: .visible
+                isPresented: $showsUploadConfirmation
             ) {
+                Button("cancel", role: .cancel) {}
                 Button("transcript_generation_upload_confirm") {
                     generator.hasAudioUploadConsent = true
                     startGeneration()

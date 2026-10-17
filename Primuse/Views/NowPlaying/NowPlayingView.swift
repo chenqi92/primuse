@@ -5549,7 +5549,10 @@ struct NowPlayingView: View {
                         .transition(lyricsHeaderHandoffTransition)
                         .zIndex(1)
                     // 上滑文字稿时收起下面的播放控件(播放页按钮里可关),点文字稿空白叫回来。
-                    collapsibleLyricsView
+                    lyricsScrollView(
+                        collapsesChromeOnScroll: textCollapsesOnScroll,
+                        showsReaderButton: false
+                    )
                         .padding(.horizontal, -margin)
                         .frame(maxHeight: .infinity)
                         .transition(lyricsPanelTransition)
@@ -5825,29 +5828,32 @@ struct NowPlayingView: View {
 
     /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
     private func audiobookTextHeader(style: AudiobookPlayerStyle) -> some View {
-        Button { returnToArtworkFromLyricsHeader() } label: {
-            HStack(spacing: 12) {
-                lyricsThumbnailArtwork(size: 44, cornerRadius: 4)
-                    .lyricsHeaderReveal(isArtwork: true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: SpokenWordPlayerText.bookTitle(player))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(style.primary)
-                        .lineLimit(1)
-                    if let author = SpokenWordPlayerText.author(player) {
-                        Text(verbatim: author)
-                            .font(.caption)
-                            .foregroundStyle(style.secondary)
+        HStack(spacing: 12) {
+            Button { returnToArtworkFromLyricsHeader() } label: {
+                HStack(spacing: 12) {
+                    lyricsThumbnailArtwork(size: 44, cornerRadius: 4)
+                        .lyricsHeaderReveal(isArtwork: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: SpokenWordPlayerText.bookTitle(player))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(style.primary)
                             .lineLimit(1)
+                        if let author = SpokenWordPlayerText.author(player) {
+                            Text(verbatim: author)
+                                .font(.caption)
+                                .foregroundStyle(style.secondary)
+                                .lineLimit(1)
+                        }
                     }
+                    .lyricsHeaderReveal()
+                    Spacer(minLength: 0)
                 }
-                .lyricsHeaderReveal()
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("a11y_close_lyrics"))
+            transcriptReaderButton
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("a11y_close_lyrics"))
     }
 
     /// 快退 · 播放 · 快进。播放键是实心圆:墨黑橙红、暖白近黑,三角取底色。
@@ -7257,7 +7263,10 @@ struct NowPlayingView: View {
         lyricsScrollView(collapsesChromeOnScroll: textCollapsesOnScroll)
     }
 
-    private func lyricsScrollView(collapsesChromeOnScroll: Bool) -> some View {
+    private func lyricsScrollView(
+        collapsesChromeOnScroll: Bool,
+        showsReaderButton: Bool = true
+    ) -> some View {
         LyricsScrollView(
             lyrics: romanizedPresentedLyrics,
             lyricsWritingDirection: romanizedLyricsWritingDirection,
@@ -7291,7 +7300,13 @@ struct NowPlayingView: View {
             translationActivity: lyricsTranslationActivity,
             onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil
         )
-        .overlay(alignment: .topTrailing) { transcriptReaderButton }
+        .overlay(alignment: .topTrailing) {
+            if showsReaderButton {
+                transcriptReaderButton
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
+            }
+        }
     }
 
     /// 有声书、播客的文稿:右上角一颗键,全屏读、调字体与间距。
@@ -7309,8 +7324,6 @@ struct NowPlayingView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .padding(.top, 8)
-            .padding(.trailing, 12)
             .accessibilityLabel(Text("transcript_read_fullscreen"))
         }
     }
