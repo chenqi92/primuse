@@ -5816,7 +5816,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "再生画面のボタン";
-"player_controls_footer" = "点線の枠をタップするとボタンを変えられます。空けておくこともできます。画面にないボタンは「その他」メニューにあります。横向きの iPhone、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトに並べます。iCloud で同期されます。";
 "player_controls_status_header" = "最下行";
 "player_controls_status_source" = "ミュージックソース";
 "player_controls_status_output" = "出力デバイス";
@@ -6294,6 +6293,12 @@
 "player_preview_sample_title" = "曲名";
 "player_preview_sample_artist" = "アーティスト · アルバム";
 "player_preview_sample_lyric" = "いま歌っている歌詞がここに表示されます";
+"player_controls_slots_title" = "ボタンの配置";
+"player_controls_slots_info" = "行をタップしてボタンを選びます。空けておくこともできます。実際のサイズのプレビューで左上の鉛筆をタップすると、点線の枠を直接タップして変更できます。すでに別の場所にあるボタンを選ぶと入れ替わります。画面に置いていないボタンは「その他」にあります。iPhone の横向き、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトで配置します。設定は iCloud で同期されます。";
+"player_style_preview_pip_hint" = "プレビューはページの上に浮かび、ここでの設定にリアルタイムで追従します。好きな隅へドラッグでき、タップで拡大・縮小、角のボタンで実際のサイズを表示します。";
+"player_style_preview_title" = "再生画面のプレビュー";
+"player_style_preview_toggle_size" = "拡大・縮小";
+"player_style_preview_edit_buttons" = "ボタンの配置を編集";
 
 "cloud_download_quota_exceeded %@" = "%@ の今月のダウンロード容量を使い切りました。来月リセットされると再生できます。";
 "source_diag_download_title" = "ダウンロード";

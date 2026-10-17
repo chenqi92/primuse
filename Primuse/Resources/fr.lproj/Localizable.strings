@@ -5815,7 +5815,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Boutons du lecteur";
-"player_controls_footer" = "Touchez un cadre en pointillés pour changer son bouton, ou laissez-le vide. Les boutons absents de la page se trouvent dans « Plus » ; l’iPhone en paysage, l’iPad et la colonne latérale du pliable disposent les mêmes boutons selon leur mise en page. Synchronisé avec iCloud.";
 "player_controls_status_header" = "Ligne du bas";
 "player_controls_status_source" = "Source musicale";
 "player_controls_status_output" = "Appareil de sortie";
@@ -6293,6 +6292,12 @@
 "player_preview_sample_title" = "Titre du morceau";
 "player_preview_sample_artist" = "Artiste · Album";
 "player_preview_sample_lyric" = "La ligne chantée s’affiche ici";
+"player_controls_slots_title" = "Emplacement des boutons";
+"player_controls_slots_info" = "Touchez une ligne pour choisir un bouton, ou laissez-la vide. Dans l’aperçu en taille réelle, touchez le crayon en haut à gauche pour changer les boutons directement en touchant les cadres en pointillés. Choisir un bouton déjà placé ailleurs échange les deux. Les boutons absents de la page se trouvent dans le menu Plus ; l’iPhone en paysage, l’iPad et la colonne latérale des appareils pliables disposent les mêmes boutons à leur façon. Les réglages se synchronisent via iCloud.";
+"player_style_preview_pip_hint" = "L’aperçu flotte au-dessus de la page et suit ces réglages en direct. Faites-le glisser dans n’importe quel coin, touchez-le pour l’agrandir ou le réduire, et utilisez le bouton dans son coin pour le voir en taille réelle.";
+"player_style_preview_title" = "Aperçu du lecteur";
+"player_style_preview_toggle_size" = "Agrandir ou réduire";
+"player_style_preview_edit_buttons" = "Modifier l’emplacement des boutons";
 
 "cloud_download_quota_exceeded %@" = "%@ : le quota de téléchargement de ce mois est épuisé. La lecture reprendra après sa réinitialisation le mois prochain.";
 "source_diag_download_title" = "Téléchargement";

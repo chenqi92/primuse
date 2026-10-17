@@ -5721,7 +5721,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Botões do player";
-"player_controls_footer" = "Toque em um quadro tracejado para trocar o botão ou deixe-o vazio. Os botões que não estão na página ficam em Mais; o iPhone na horizontal, o iPad e a coluna lateral do dobrável organizam os mesmos botões de acordo com o próprio layout. Sincroniza com o iCloud.";
 "player_controls_status_header" = "Linha inferior";
 "player_controls_status_source" = "Fonte de música";
 "player_controls_status_output" = "Dispositivo de saída";
@@ -6199,6 +6198,12 @@
 "player_preview_sample_title" = "Título da música";
 "player_preview_sample_artist" = "Artista · Álbum";
 "player_preview_sample_lyric" = "Aqui aparece o verso que está sendo cantado";
+"player_controls_slots_title" = "Posição dos botões";
+"player_controls_slots_info" = "Toque em uma linha para escolher um botão ou deixe vazio. Na prévia em tamanho real, toque no lápis no canto superior esquerdo para trocar os botões tocando direto nas caixas tracejadas. Escolher um botão que já está em outro lugar troca os dois de posição. Os botões que não estão na página ficam no menu Mais; o iPhone na horizontal, o iPad e a coluna lateral dos dobráveis organizam o mesmo conjunto do seu jeito. Os ajustes são sincronizados pelo iCloud.";
+"player_style_preview_pip_hint" = "A prévia flutua sobre a página e acompanha estes ajustes ao vivo. Arraste-a para qualquer canto, toque para aumentar ou diminuir e use o botão no canto dela para ver em tamanho real.";
+"player_style_preview_title" = "Prévia do player";
+"player_style_preview_toggle_size" = "Aumentar ou diminuir";
+"player_style_preview_edit_buttons" = "Editar posição dos botões";
 
 "cloud_download_quota_exceeded %@" = "%@: a cota de download deste mês acabou. A reprodução volta quando ela for renovada no próximo mês.";
 "source_diag_download_title" = "Download";

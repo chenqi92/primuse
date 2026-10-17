@@ -5792,7 +5792,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "播放頁按鈕";
-"player_controls_footer" = "點虛線框換按鈕，也可以留空。沒放在頁面上的按鈕都在「更多」裡；手機橫向、iPad 和摺疊螢幕側欄依各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
 "player_controls_status_header" = "最下面一行";
 "player_controls_status_source" = "音樂來源";
 "player_controls_status_output" = "輸出裝置";
@@ -6270,6 +6269,12 @@
 "player_preview_sample_title" = "歌曲名稱";
 "player_preview_sample_artist" = "藝人 · 專輯";
 "player_preview_sample_lyric" = "這裡是正在唱的那一句歌詞";
+"player_controls_slots_title" = "按鈕位置";
+"player_controls_slots_info" = "點一行換按鈕，也可以留空；在預覽的實際大小裡點左上角的鉛筆，可以直接點虛線框換。選已經在別處的按鈕，兩格會對調。沒放在頁面上的按鈕都在「更多」裡；手機橫向、iPad 和摺疊機側欄按各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
+"player_style_preview_pip_hint" = "預覽浮在頁面上，跟著這一頁的設定即時變。可以拖到任意一角，點一下放大或縮小，角上的鍵看實際大小。";
+"player_style_preview_title" = "播放頁預覽";
+"player_style_preview_toggle_size" = "放大或縮小";
+"player_style_preview_edit_buttons" = "編輯按鈕位置";
 
 "cloud_download_quota_exceeded %@" = "%@本月的下載流量已用完，要等下個月重設後才能繼續播放。";
 "source_diag_download_title" = "下載";

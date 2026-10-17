@@ -3,10 +3,10 @@ import PrimuseKit
 import SwiftUI
 
 /// 设置 › 播放器 › 播放页样式与按钮。分音乐、有声书、播客、电台四页:
-/// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面。封面那一面顶上常驻一张按真机比例实时画的播放页
-///   (`NowPlayingStylePreview`),下面改的封面样式、进度条、音量条、颜色、背景、播放键图标都立刻画上去;
-///   虚线框就是能换的位置,点一下挑按钮,没放上去的都在「更多」里。最底下那行状态显示哪几项也在这一页。
-///   另外三种界面各一张缩小的示意。
+/// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面。封面那一面有一张按真机比例实时画的播放页
+///   (`NowPlayingStylePreview`),像画中画一样浮在列表上、能拖到四个角,这一页改的封面样式、进度条、音量条、
+///   颜色、背景、播放键图标都立刻画上去;按钮位置在列表里一行一格地换,也能在实际大小里打开编辑直接点虚线框。
+///   没放上去的都在「更多」里。最底下那行状态显示哪几项也在这一页。另外三种界面各一张缩小的示意。
 /// - 有声书、播客:一张示意,播放键一行两端与(有声书)章节那一行的虚线框能换按钮;那一排功能块的
 ///   显隐与顺序(AirPlay 也能挪进来),喜欢、文字稿键与上一章 / 下一章,有声书最底下写不写音乐源,
 ///   上滑文字稿时收不收控件。
@@ -69,6 +69,10 @@ struct NowPlayingControlsEditorView: View {
     @State private var surface: MusicSurface = Self.initialSurface
     @State private var editing: NowPlayingControlEditingTarget?
     @State private var showsActualSizePreview = false
+    /// 浮动预览停在哪个角(记在本机,下次进来还在那儿)、正在拖多远、是不是放大的那一档。
+    @AppStorage(FloatingPreviewCorner.storageKey)
+    private var previewCornerRawValue = FloatingPreviewCorner.bottomRight.rawValue
+    @State private var previewIsExpanded = false
 
     #if DEBUG
     /// 取证用:`PRIMUSE_DEBUG_PLAYER_CONTROLS=music|audiobook|podcast|radio`(音乐可以接界面,
@@ -93,20 +97,41 @@ struct NowPlayingControlsEditorView: View {
     /// 看歌词时实际用的那组按钮(全屏歌词「跟歌名旁」跟的就是它的歌名旁那一格)。
     private var lyricsLayout: NowPlayingControlLayout { lyricsControls.resolvedLayout(cover: layout) }
 
-    /// 封面那一面顶上常驻实时预览;其余几页的示意图照旧在列表里。
+    /// 封面那一面浮着一张实时预览;其余几页的示意图照旧在列表里。
     private var showsLivePreview: Bool {
         page == .music && surface == .cover
     }
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                pinnedHeader(in: geometry.size)
-                Divider()
-                form
-            }
+            form
+                // 预览停在下面两个角时,列表底下多留出预览那么高,最后几行能滚到它上面。
+                .contentMargins(
+                    .bottom,
+                    showsLivePreview && !floatingPreviewCorner.isTop
+                        ? FloatingStylePreview.size(in: geometry.size, expanded: previewIsExpanded).height
+                            + FloatingStylePreview.margin
+                        : 0,
+                    for: .scrollContent
+                )
+                .overlay {
+                    ZStack {
+                        if showsLivePreview {
+                            FloatingStylePreview(
+                                area: geometry.size,
+                                layout: layout,
+                                selectedSlot: editing?.coverSlot,
+                                isExpanded: $previewIsExpanded,
+                                cornerRawValue: $previewCornerRawValue
+                            ) {
+                                showsActualSizePreview = true
+                            }
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showsLivePreview)
+                }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("player_style_editor_title")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { target in
@@ -114,79 +139,44 @@ struct NowPlayingControlsEditorView: View {
                 .presentationDetents([.medium, .large])
         }
         .fullScreenCover(isPresented: $showsActualSizePreview) {
-            NowPlayingActualSizePreview(layout: layout)
+            NowPlayingActualSizePreview(storage: $storage)
         }
-    }
-
-    /// 不随列表滚动的那一块:分页、(音乐)分界面,封面那一面再加实时预览。改下面的设置时预览一直看得见。
-    private func pinnedHeader(in available: CGSize) -> some View {
-        VStack(spacing: 10) {
-            Picker(selection: $page) {
-                ForEach(Page.allCases) { page in
-                    Text(page.titleKey).tag(page)
-                }
-            } label: {
-                Text("player_controls_title")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            if page == .music {
-                Picker(selection: $surface) {
-                    ForEach(MusicSurface.allCases) { surface in
-                        Text(surface.titleKey).tag(surface)
-                    }
-                } label: {
-                    Text("player_controls_surface_header")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
-            if showsLivePreview {
-                livePreview(in: available)
-            }
-        }
-        .frame(maxWidth: 600)
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 预览占这一页高度的不到一半,宽度按这台设备竖屏的比例跟着走;右下角一颗键看实际大小。
-    private func livePreview(in available: CGSize) -> some View {
-        let canvas = NowPlayingPreviewCanvas.current()
-        let aspect = canvas.size.width / max(canvas.size.height, 1)
-        let height = max(160, min(available.height * 0.46, (available.width - 32) / aspect))
-        return NowPlayingStylePreview(
-            canvas: canvas,
-            layout: layout,
-            selectedSlot: editing?.coverSlot
-        ) { editing = .cover($0) }
-            .frame(width: height * aspect, height: height)
-            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .bottomTrailing) {
-                Button {
-                    showsActualSizePreview = true
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Color(uiColor: .secondarySystemGroupedBackground)))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .accessibilityLabel(Text("player_style_preview_actual_size"))
-            }
     }
 
     private var form: some View {
         Form {
+            Section {
+                Picker(selection: $page) {
+                    ForEach(Page.allCases) { page in
+                        Text(page.titleKey).tag(page)
+                    }
+                } label: {
+                    Text("player_controls_title")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+
             switch page {
             case .music:
+                Section {
+                    Picker(selection: $surface) {
+                        ForEach(MusicSurface.allCases) { surface in
+                            Text(surface.titleKey).tag(surface)
+                        }
+                    } label: {
+                        Text("player_controls_surface_header")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } header: {
+                    Text("player_controls_surface_header")
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+
                 switch surface {
                 case .cover: coverSections
                 case .lyrics: lyricsSections
@@ -211,11 +201,20 @@ struct NowPlayingControlsEditorView: View {
         }
     }
 
+    // MARK: 浮动预览
+
+    private var floatingPreviewCorner: FloatingPreviewCorner {
+        FloatingPreviewCorner(rawValue: previewCornerRawValue) ?? .bottomRight
+    }
+
     // MARK: 封面
 
     @ViewBuilder
     private var coverSections: some View {
             Section {
+                ForEach(NowPlayingControlSlot.allCases) { slot in
+                    slotRow(slot)
+                }
                 NavigationLink {
                     NowPlayingMenuItemsEditor(storage: $storage)
                 } label: {
@@ -228,8 +227,12 @@ struct NowPlayingControlsEditorView: View {
                         Label("player_menu_items_title", systemImage: "ellipsis.circle")
                     }
                 }
+            } header: {
+                SettingsInfoHeader("player_controls_slots_title") {
+                    Text("player_controls_slots_info")
+                }
             } footer: {
-                Text("player_controls_footer")
+                Text("player_style_preview_pip_hint")
             }
 
             Section {
@@ -285,6 +288,33 @@ struct NowPlayingControlsEditorView: View {
             } footer: {
                 Text("player_controls_duo_footer")
             }
+    }
+
+    /// 一格一行:左边这一格此刻放的按钮图标,右边按钮名字;点了挑按钮,浮动预览里圈出这一格。
+    private func slotRow(_ slot: NowPlayingControlSlot) -> some View {
+        let action = layout.action(in: slot)
+        return Button {
+            editing = .cover(slot)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: action?.editorSymbol ?? "circle.dashed")
+                    .font(.body)
+                    .foregroundStyle(action == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
+                    .frame(width: 28)
+                Text(slot.editorTitleKey)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(action?.editorTitleKey ?? "player_controls_empty")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text("player_controls_slot_hint"))
     }
 
     private var playButtonStyleBinding: Binding<NowPlayingPlayButtonStyle> {
@@ -672,34 +702,175 @@ private struct NowPlayingStyleChoiceRow<Choice: Hashable, Face: View>: View {
     }
 }
 
-/// 「实际大小」:整屏铺开那张预览,和真的播放页一样大。点哪儿都关。
-private struct NowPlayingActualSizePreview: View {
+/// 像画中画一样浮在设置列表上的那张实时预览:拖到哪个角就停在哪个角(甩一下也行),点一下在两档大小间切换,
+/// 右上角一颗键看实际大小。不接按钮位置的点按,正在挑按钮的那一格会圈出来。
+private struct FloatingStylePreview: View {
+    let area: CGSize
     let layout: NowPlayingControlLayout
-    @Environment(\.dismiss) private var dismiss
+    let selectedSlot: NowPlayingControlSlot?
+    @Binding var isExpanded: Bool
+    @Binding var cornerRawValue: String
+    let onActualSize: () -> Void
+    /// 拖动中的位移只记在这里,拖的时候不重算整张设置列表。
+    @State private var drag: CGSize = .zero
+
+    static let margin: CGFloat = 12
+
+    /// 按这台设备竖屏的比例;小的一档约三成宽,放大约一半宽,分别不超过这一页高度的四成 / 六成。
+    static func size(in area: CGSize, expanded: Bool) -> CGSize {
+        let canvas = NowPlayingPreviewCanvas.current()
+        let aspect = canvas.size.width / max(canvas.size.height, 1)
+        let widthShare: CGFloat = expanded ? 0.5 : 0.3
+        let heightShare: CGFloat = expanded ? 0.62 : 0.4
+        let width = max(90, min(area.width * widthShare, area.height * heightShare * aspect, 300))
+        return CGSize(width: width, height: width / aspect)
+    }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black
-                .ignoresSafeArea()
-            NowPlayingStylePreview(canvas: .current(), layout: layout, editsSlots: false)
-                .ignoresSafeArea()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .contentShape(Circle())
+        let size = Self.size(in: area, expanded: isExpanded)
+        let corner = FloatingPreviewCorner(rawValue: cornerRawValue) ?? .bottomRight
+        let resting = corner.center(for: size, in: area, margin: Self.margin)
+        NowPlayingStylePreview(
+            canvas: .current(),
+            layout: layout,
+            selectedSlot: selectedSlot,
+            slotMode: .selectionOnly
+        )
+        .frame(width: size.width, height: size.height)
+        .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
+        .overlay(alignment: .topTrailing) {
+            Button(action: onActualSize) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.black.opacity(0.45)))
+                    .padding(6)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.top, 6)
-            .padding(.trailing, 16)
-            .accessibilityLabel(Text("close"))
+            .accessibilityLabel(Text("player_style_preview_actual_size"))
         }
         .contentShape(Rectangle())
-        .onTapGesture { dismiss() }
+        .onTapGesture {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isExpanded.toggle()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { drag = $0.translation }
+                .onEnded { value in
+                    // 按松手时往哪儿甩的落点挑最近的角。
+                    let landing = CGPoint(
+                        x: resting.x + value.predictedEndTranslation.width,
+                        y: resting.y + value.predictedEndTranslation.height
+                    )
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        cornerRawValue = FloatingPreviewCorner.nearest(to: landing, in: area).rawValue
+                        drag = .zero
+                    }
+                }
+        )
+        .position(x: resting.x + drag.width, y: resting.y + drag.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("player_style_preview_title"))
+        .accessibilityAction(named: Text("player_style_preview_toggle_size")) {
+            isExpanded.toggle()
+        }
+    }
+}
+
+/// 浮动预览停靠的四个角(按屏幕上的左右,不随书写方向翻)。
+private enum FloatingPreviewCorner: String {
+    case topLeft
+    case topRight
+    case bottomLeft
+    case bottomRight
+
+    static let storageKey = "primuse.settings.playerStylePreviewCorner"
+
+    var isTop: Bool { self == .topLeft || self == .topRight }
+    private var isLeft: Bool { self == .topLeft || self == .bottomLeft }
+
+    func center(for size: CGSize, in area: CGSize, margin: CGFloat) -> CGPoint {
+        CGPoint(
+            x: isLeft ? margin + size.width / 2 : area.width - margin - size.width / 2,
+            y: isTop ? margin + size.height / 2 : area.height - margin - size.height / 2
+        )
+    }
+
+    static func nearest(to point: CGPoint, in area: CGSize) -> FloatingPreviewCorner {
+        switch (point.y < area.height / 2, point.x < area.width / 2) {
+        case (true, true): .topLeft
+        case (true, false): .topRight
+        case (false, true): .bottomLeft
+        case (false, false): .bottomRight
+        }
+    }
+}
+
+/// 「实际大小」:预览铺满整屏,和真的播放页一样大。左上角打开编辑后六个位置描虚线,点一下直接换按钮。
+private struct NowPlayingActualSizePreview: View {
+    @Binding var storage: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var editsSlots = false
+    @State private var editingSlot: NowPlayingControlSlot?
+
+    private var layout: NowPlayingControlLayout { .decode(storage) }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // 预览这一层铺到安全区外,和播放页一样从屏幕顶端画到底;上面那排键留在安全区里。
+            GeometryReader { geometry in
+                NowPlayingStylePreview(
+                    canvas: .current(),
+                    layout: layout,
+                    selectedSlot: editingSlot,
+                    slotMode: editsSlots ? .editable : .plain
+                ) { editingSlot = $0 }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+            .ignoresSafeArea()
+
+            HStack {
+                chromeButton(
+                    symbol: editsSlots ? "checkmark" : "pencil",
+                    label: editsSlots ? "done" : "player_style_preview_edit_buttons"
+                ) {
+                    withAnimation(.easeInOut(duration: 0.2)) { editsSlots.toggle() }
+                }
+                Spacer()
+                chromeButton(symbol: "xmark", label: "close") { dismiss() }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+        }
+        .background(Color.black.ignoresSafeArea())
+        .sheet(item: $editingSlot) { slot in
+            NowPlayingControlPicker(slot: slot, layout: layout) { action in
+                storage = layout.placing(action, in: slot).encoded()
+                editingSlot = nil
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func chromeButton(
+        symbol: String,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
     }
 }
 

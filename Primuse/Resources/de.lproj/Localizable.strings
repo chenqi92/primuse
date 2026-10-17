@@ -5815,7 +5815,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player-Tasten";
-"player_controls_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, oder lass es leer. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat, iPad und die Seitenleiste des Faltgeräts ordnen dieselben Tasten passend zu ihrem Layout an. Wird über iCloud synchronisiert.";
 "player_controls_status_header" = "Unterste Zeile";
 "player_controls_status_source" = "Musikquelle";
 "player_controls_status_output" = "Ausgabegerät";
@@ -6293,6 +6292,12 @@
 "player_preview_sample_title" = "Songtitel";
 "player_preview_sample_artist" = "Künstler · Album";
 "player_preview_sample_lyric" = "Hier steht die gerade gesungene Zeile";
+"player_controls_slots_title" = "Tastenpositionen";
+"player_controls_slots_info" = "Tippe auf eine Zeile, um eine Taste zu wählen, oder lass sie leer. In der Vorschau in Originalgröße tippst du oben links auf den Stift und änderst Tasten direkt über die gestrichelten Felder. Wählst du eine Taste, die schon woanders liegt, tauschen beide die Plätze. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat, iPad und die Seitenspalte auf Faltgeräten ordnen dieselben Tasten im eigenen Layout an. Die Einstellungen werden über iCloud synchronisiert.";
+"player_style_preview_pip_hint" = "Die Vorschau schwebt über der Seite und folgt diesen Einstellungen live. Zieh sie in eine beliebige Ecke, tippe sie an, um sie zu vergrößern oder zu verkleinern, und öffne sie mit der Taste in ihrer Ecke in Originalgröße.";
+"player_style_preview_title" = "Player-Vorschau";
+"player_style_preview_toggle_size" = "Vergrößern oder verkleinern";
+"player_style_preview_edit_buttons" = "Tastenpositionen bearbeiten";
 
 "cloud_download_quota_exceeded %@" = "%@: Das Download-Kontingent für diesen Monat ist aufgebraucht. Nach dem Zurücksetzen im nächsten Monat ist die Wiedergabe wieder möglich.";
 "source_diag_download_title" = "Download";

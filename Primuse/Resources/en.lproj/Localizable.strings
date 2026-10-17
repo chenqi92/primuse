@@ -5575,7 +5575,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player Buttons";
-"player_controls_footer" = "Tap a dashed box to change its button, or leave it empty. Buttons that aren’t on the page are in the More menu; landscape iPhone, iPad, and the foldable side column arrange the same buttons for their own layouts. Syncs with iCloud.";
 "player_controls_status_header" = "Bottom Line";
 "player_controls_status_source" = "Music Source";
 "player_controls_status_output" = "Output Device";
@@ -6053,6 +6052,12 @@
 "player_preview_sample_title" = "Song Title";
 "player_preview_sample_artist" = "Artist · Album";
 "player_preview_sample_lyric" = "The line being sung appears here";
+"player_controls_slots_title" = "Button Positions";
+"player_controls_slots_info" = "Tap a row to choose a button, or leave it empty. In the actual-size preview, tap the pencil in the top-left corner to change buttons by tapping the dashed boxes. Choosing a button that is already placed elsewhere swaps the two. Buttons not on the page are in the More menu; iPhone landscape, iPad and the foldable side column arrange the same set in their own layouts. Settings sync through iCloud.";
+"player_style_preview_pip_hint" = "The preview floats over the page and follows these settings live. Drag it to any corner, tap to make it bigger or smaller, and use the button in its corner to see it at actual size.";
+"player_style_preview_title" = "Player Preview";
+"player_style_preview_toggle_size" = "Make Bigger or Smaller";
+"player_style_preview_edit_buttons" = "Edit Button Positions";
 
 "cloud_download_quota_exceeded %@" = "%@ has used up this month’s download allowance. Playback resumes when it resets next month.";
 "source_diag_download_title" = "Download";

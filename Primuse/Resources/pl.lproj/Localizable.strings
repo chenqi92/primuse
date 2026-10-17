@@ -5721,7 +5721,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Przyciski odtwarzacza";
-"player_controls_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, albo zostaw ją pustą. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie, iPad i boczna kolumna składanego urządzenia układają te same przyciski według własnego układu. Synchronizowane przez iCloud.";
 "player_controls_status_header" = "Dolny wiersz";
 "player_controls_status_source" = "Źródło muzyki";
 "player_controls_status_output" = "Urządzenie wyjściowe";
@@ -6199,6 +6198,12 @@
 "player_preview_sample_title" = "Tytuł utworu";
 "player_preview_sample_artist" = "Wykonawca · Album";
 "player_preview_sample_lyric" = "Tu pojawia się właśnie śpiewany wers";
+"player_controls_slots_title" = "Rozmieszczenie przycisków";
+"player_controls_slots_info" = "Stuknij wiersz, aby wybrać przycisk, albo zostaw puste miejsce. W podglądzie w rzeczywistym rozmiarze stuknij ołówek w lewym górnym rogu i zmieniaj przyciski, stukając w przerywane ramki. Wybranie przycisku, który jest już gdzie indziej, zamienia je miejscami. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie, iPad i boczna kolumna urządzeń składanych układają ten sam zestaw po swojemu. Ustawienia synchronizują się przez iCloud.";
+"player_style_preview_pip_hint" = "Podgląd unosi się nad stroną i na bieżąco odzwierciedla te ustawienia. Przeciągnij go w dowolny róg, stuknij, aby powiększyć lub pomniejszyć, a przyciskiem w jego rogu zobaczysz rzeczywisty rozmiar.";
+"player_style_preview_title" = "Podgląd odtwarzacza";
+"player_style_preview_toggle_size" = "Powiększ lub pomniejsz";
+"player_style_preview_edit_buttons" = "Edytuj rozmieszczenie przycisków";
 
 "cloud_download_quota_exceeded %@" = "%@: wykorzystano limit pobierania na ten miesiąc. Odtwarzanie będzie możliwe po jego odnowieniu w przyszłym miesiącu.";
 "source_diag_download_title" = "Pobieranie";

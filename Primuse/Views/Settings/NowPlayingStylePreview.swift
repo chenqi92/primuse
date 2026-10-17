@@ -38,12 +38,12 @@ struct NowPlayingPreviewCanvas: Equatable {
 /// 背景直接用播放页那一层(`NowPlayingAmbientBackdrop`);没在放时是占位封面与示例歌名。
 /// 一律按「正在播放」画:波浪在流动、光晕亮着、播放键显示暂停。
 ///
-/// 能换按钮的六个位置描一圈虚线,点一下挑按钮(`editsSlots` 为假时不描、不能点,用在「实际大小」)。
+/// 能换按钮的六个位置怎么画见 `NowPlayingStylePreviewSlotMode`。
 struct NowPlayingStylePreview: View {
     let canvas: NowPlayingPreviewCanvas
     let layout: NowPlayingControlLayout
     var selectedSlot: NowPlayingControlSlot?
-    var editsSlots = true
+    var slotMode: NowPlayingStylePreviewSlotMode = .editable
     var onSelect: (NowPlayingControlSlot) -> Void = { _ in }
 
     @Environment(\.colorScheme) private var systemColorScheme
@@ -61,7 +61,7 @@ struct NowPlayingStylePreview: View {
                 canvas: canvas,
                 layout: layout,
                 selectedSlot: selectedSlot,
-                editsSlots: editsSlots,
+                slotMode: slotMode,
                 strokeScale: 1 / max(scale, 0.01),
                 onSelect: onSelect
             )
@@ -81,7 +81,7 @@ private struct NowPlayingStylePreviewScreen: View {
     let canvas: NowPlayingPreviewCanvas
     let layout: NowPlayingControlLayout
     let selectedSlot: NowPlayingControlSlot?
-    let editsSlots: Bool
+    let slotMode: NowPlayingStylePreviewSlotMode
     /// 缩小之后虚线还要看得清:线宽、虚线段按缩放倒数放大。
     let strokeScale: CGFloat
     let onSelect: (NowPlayingControlSlot) -> Void
@@ -478,10 +478,15 @@ private struct NowPlayingStylePreviewScreen: View {
     @ViewBuilder
     private func slot(_ slot: NowPlayingControlSlot, placement: SlotPlacement) -> some View {
         let action = layout.action(in: slot)
-        let face = slotFace(action, placement: placement)
-            .frame(width: 44, height: 44)
-        if editsSlots {
-            let isSelected = selectedSlot == slot
+        let isSelected = selectedSlot == slot
+        let face = slotFace(
+            action,
+            placement: placement,
+            showsPlaceholder: slotMode == .editable || (slotMode == .selectionOnly && isSelected)
+        )
+        .frame(width: 44, height: 44)
+        switch slotMode {
+        case .editable:
             Button { onSelect(slot) } label: {
                 face
                     .background {
@@ -506,14 +511,34 @@ private struct NowPlayingStylePreviewScreen: View {
             .accessibilityValue(Text(action?.editorTitleKey ?? "player_controls_empty"))
             .accessibilityHint(Text("player_controls_slot_hint"))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-        } else {
+        case .selectionOnly:
+            // 正在给这一格挑按钮时圈出来,看得出改的是哪儿。
+            face
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(.tint.opacity(0.28))
+                    }
+                }
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.tint, lineWidth: 2 * strokeScale)
+                    }
+                }
+                .accessibilityHidden(true)
+        case .plain:
             face
                 .accessibilityHidden(true)
         }
     }
 
     @ViewBuilder
-    private func slotFace(_ action: NowPlayingControlAction?, placement: SlotPlacement) -> some View {
+    private func slotFace(
+        _ action: NowPlayingControlAction?,
+        placement: SlotPlacement,
+        showsPlaceholder: Bool
+    ) -> some View {
         if let action {
             let tint = placement == .header ? appearance.secondary : appearance.tertiary
             if action == .airPlay {
@@ -530,8 +555,8 @@ private struct NowPlayingStylePreviewScreen: View {
                     .font(.body)
                     .foregroundStyle(tint)
             }
-        } else if editsSlots {
-            // 空着的格只在编辑时画个加号,「实际大小」里就是空的。
+        } else if showsPlaceholder {
+            // 空着的格只在编辑时画个加号,看效果时就是空的。
             Image(systemName: "plus")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(appearance.faint)
@@ -540,6 +565,16 @@ private struct NowPlayingStylePreviewScreen: View {
         }
     }
 }
+/// 预览里能换按钮的六个位置怎么画。
+enum NowPlayingStylePreviewSlotMode: Equatable {
+    /// 六格都描虚线、可以点(实际大小里打开编辑时)。
+    case editable
+    /// 只圈出正在挑按钮的那一格,不能点(浮在页面上的小预览)。
+    case selectionOnly
+    /// 什么都不描,就是播放页本来的样子。
+    case plain
+}
+
 /// 铺满封面那一块在预览这块屏里的位置,给封面下面那截延伸定位。
 private struct PreviewFullBleedRegionKey: PreferenceKey {
     static let defaultValue: Anchor<CGRect>? = nil

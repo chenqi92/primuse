@@ -5721,7 +5721,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Botones del reproductor";
-"player_controls_footer" = "Toca un recuadro punteado para cambiar su botón o déjalo vacío. Los botones que no están en la página aparecen en Más; el iPhone en horizontal, el iPad y la columna lateral del plegable acomodan los mismos botones según su diseño. Se sincroniza con iCloud.";
 "player_controls_status_header" = "Línea inferior";
 "player_controls_status_source" = "Fuente de música";
 "player_controls_status_output" = "Dispositivo de salida";
@@ -6199,6 +6198,12 @@
 "player_preview_sample_title" = "Título de la canción";
 "player_preview_sample_artist" = "Artista · Álbum";
 "player_preview_sample_lyric" = "Aquí aparece la línea que se está cantando";
+"player_controls_slots_title" = "Posición de los botones";
+"player_controls_slots_info" = "Toca una fila para elegir un botón o déjala vacía. En la vista previa a tamaño real, toca el lápiz de la esquina superior izquierda para cambiar los botones tocando directamente los recuadros punteados. Si eliges un botón que ya está en otro lugar, se intercambian. Los botones que no están en la página están en el menú Más; el iPhone en horizontal, el iPad y la columna lateral de los plegables acomodan los mismos botones a su manera. La configuración se sincroniza con iCloud.";
+"player_style_preview_pip_hint" = "La vista previa flota sobre la página y sigue estos ajustes en vivo. Arrástrala a cualquier esquina, tócala para agrandarla o achicarla y usa el botón de su esquina para verla a tamaño real.";
+"player_style_preview_title" = "Vista previa del reproductor";
+"player_style_preview_toggle_size" = "Agrandar o achicar";
+"player_style_preview_edit_buttons" = "Editar posición de los botones";
 
 "cloud_download_quota_exceeded %@" = "%@: se agotó la cuota de descarga de este mes. Podrás reproducir de nuevo cuando se restablezca el próximo mes.";
 "source_diag_download_title" = "Descarga";

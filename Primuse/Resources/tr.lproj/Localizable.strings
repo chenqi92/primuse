@@ -5721,7 +5721,6 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Çalar Düğmeleri";
-"player_controls_footer" = "Düğmeyi değiştirmek için kesikli bir kutuya dokunun ya da boş bırakın. Sayfada olmayan düğmeler Diğer menüsündedir; yatay iPhone, iPad ve katlanabilir cihazın yan sütunu aynı düğmeleri kendi düzenlerine göre yerleştirir. iCloud ile eşzamanlanır.";
 "player_controls_status_header" = "En Alt Satır";
 "player_controls_status_source" = "Müzik Kaynağı";
 "player_controls_status_output" = "Çıkış Aygıtı";
@@ -6199,6 +6198,12 @@
 "player_preview_sample_title" = "Şarkı Adı";
 "player_preview_sample_artist" = "Sanatçı · Albüm";
 "player_preview_sample_lyric" = "Şu an söylenen satır burada görünür";
+"player_controls_slots_title" = "Düğme Konumları";
+"player_controls_slots_info" = "Düğme seçmek için bir satıra dokunun ya da boş bırakın. Gerçek boyuttaki önizlemede sol üstteki kaleme dokunun ve kesikli kutulara doğrudan dokunarak düğmeleri değiştirin. Başka bir yerde olan bir düğmeyi seçerseniz ikisi yer değiştirir. Sayfada olmayan düğmeler Diğer menüsündedir; iPhone yatay görünümü, iPad ve katlanabilir cihazların yan sütunu aynı düğmeleri kendi düzenlerinde yerleştirir. Ayarlar iCloud ile eşzamanlanır.";
+"player_style_preview_pip_hint" = "Önizleme sayfanın üzerinde yüzer ve bu ayarları canlı olarak izler. İstediğiniz köşeye sürükleyin, büyütmek ya da küçültmek için dokunun, köşesindeki düğmeyle gerçek boyutta görün.";
+"player_style_preview_title" = "Oynatıcı Önizlemesi";
+"player_style_preview_toggle_size" = "Büyüt veya Küçült";
+"player_style_preview_edit_buttons" = "Düğme Konumlarını Düzenle";
 
 "cloud_download_quota_exceeded %@" = "%@ bu ayki indirme kotasını doldurdu. Kota gelecek ay sıfırlandığında yeniden oynatabilirsiniz.";
 "source_diag_download_title" = "İndirme";
