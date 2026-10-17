@@ -513,6 +513,8 @@ private struct LiveIndicatorLine: View {
 private struct NowPlayingControls: View {
     let state: PlaybackState
     var compact: Bool
+    /// 「正在播放(经典)」那套: 按钮小一号, 次要按钮垫浅底、带一圈细线。
+    var classic = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -630,6 +632,11 @@ private struct NowPlayingControls: View {
             .foregroundStyle(active ? WidgetDesign.brandTint : WidgetDesign.strongText)
             .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
             .background(controlBackground(prominent: prominent, active: active), in: .circle)
+            .overlay {
+                if classic, !prominent {
+                    Circle().strokeBorder(WidgetDesign.hairline, lineWidth: 1)
+                }
+            }
             .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
     }
 
@@ -639,7 +646,9 @@ private struct NowPlayingControls: View {
     }
 
     private func controlFrame(symbol: String) -> CGFloat {
-        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") { return compact ? 32 : 40 }
+        let isPrimary = symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop")
+        if classic { return isPrimary ? (compact ? 26 : 34) : (compact ? 22 : 28) }
+        if isPrimary { return compact ? 32 : 40 }
         return compact ? 26 : 32
     }
 
@@ -647,7 +656,7 @@ private struct NowPlayingControls: View {
         if prominent || active {
             return WidgetDesign.brandTint.opacity(0.22)
         }
-        return .clear
+        return classic ? Color.primary.opacity(0.06) : .clear
     }
 }
 
@@ -1244,6 +1253,408 @@ private struct CoverPlayerLargeView: View {
                     CoverPlayerControls(state: state, symbolSize: 22)
                 }
                 .widgetBounds(geometry.size, alignment: .top)
+            }
+        }
+    }
+}
+
+// MARK: - 正在播放(经典)
+//
+// 1.11.3(98) 之前那一版「正在播放」: 端正的方封面、斜向渐变画布, 眉题写格式, 下面专辑、
+// 已播 / 总时长数字和带细圈的按钮; 小号整块是封面。87df1e49 在原 kind 上换成了唱片套样式,
+// 有用户更喜欢旧的, 所以另立一款并列在小组件库里, 现有「正在播放」不动。时间线、按钮意图都和
+// 「正在播放」同一套(大号带歌词), 写入侧 reloadAllTimelines 一并刷新。
+
+struct NowPlayingClassicWidget: Widget {
+    let kind = "NowPlayingClassicWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: NowPlayingProvider()) { entry in
+            NowPlayingClassicWidgetView(entry: entry)
+        }
+        .contentMarginsDisabled()
+        .configurationDisplayName(PMString("ext.widget.nowPlayingClassic.displayName"))
+        .description(PMString("ext.widget.nowPlayingClassic.description"))
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+struct NowPlayingClassicWidgetView: View {
+    let entry: NowPlayingEntry
+
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        if let state = entry.state, state.currentSongID != nil {
+            let progress = PlaybackProgress(
+                state: state,
+                elapsed: entry.playbackElapsed,
+                referenceDate: entry.playbackReferenceDate
+            )
+            switch family {
+            case .systemMedium: ClassicMediumNowPlayingView(state: state, progress: progress)
+            case .systemLarge: ClassicLargeNowPlayingView(
+                state: state,
+                progress: progress,
+                lyricsSnapshot: entry.lyricsSnapshot
+            )
+            default: ClassicSmallNowPlayingView(state: state, progress: progress)
+            }
+        } else {
+            ClassicEmptyStateView()
+        }
+    }
+}
+
+/// 旧版的配色: 深色是墨黑底, 浅色是米白底, 上面叠石墨—海青—主题色—琥珀和陶土色两层斜向渐变。
+private enum ClassicWidgetPalette {
+    static let ink = Color(red: 0.043, green: 0.067, blue: 0.071)
+    static let paper = Color(red: 0.955, green: 0.958, blue: 0.945)
+    static let graphite = Color(red: 0.135, green: 0.145, blue: 0.135)
+    static let clay = Color(red: 0.82, green: 0.38, blue: 0.24)
+}
+
+private struct ClassicWidgetCanvas<Content: View>: View {
+    var padding: CGFloat = 16
+    let content: Content
+
+    init(padding: CGFloat = 16, @ViewBuilder content: () -> Content) {
+        self.padding = padding
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .containerBackground(for: .widget) {
+                ClassicWidgetBackdrop()
+            }
+    }
+}
+
+/// 渐变和描边都画在容器背景里, 而且只在全彩外观画: 色调、透明外观下系统会换掉整块底,
+/// 画在内容层里会在那两种外观下留一块发白的底(#190)。
+private struct ClassicWidgetBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        if renderingMode == .fullColor {
+            let tint = WidgetDesign.brandTint
+            let isDark = colorScheme == .dark
+            ZStack {
+                isDark ? ClassicWidgetPalette.ink : ClassicWidgetPalette.paper
+                if isDark {
+                    LinearGradient(
+                        colors: [
+                            ClassicWidgetPalette.graphite.opacity(0.94),
+                            WidgetDesign.sea.opacity(0.20),
+                            tint.opacity(0.05),
+                            WidgetDesign.amber.opacity(0.14),
+                            Color.black.opacity(0.30),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                } else {
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.78),
+                            tint.opacity(0.10),
+                            WidgetDesign.amber.opacity(0.12),
+                            Color.black.opacity(0.035),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+                LinearGradient(
+                    colors: [
+                        tint.opacity(isDark ? 0.06 : 0.12),
+                        .clear,
+                        ClassicWidgetPalette.clay.opacity(isDark ? 0.12 : 0.08),
+                    ],
+                    startPoint: .topTrailing,
+                    endPoint: .bottomLeading
+                )
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(isDark ? 0.12 : 0.34),
+                        .clear,
+                        Color.black.opacity(isDark ? 0.18 : 0.04),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .overlay {
+                // 描边跟随系统给的容器形状: macOS 与 iOS 的小组件圆角不同。
+                ContainerRelativeShape()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isDark ? 0.18 : 0.72),
+                                Color.black.opacity(isDark ? 0.00 : 0.10),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            }
+            .accessibilityHidden(true)
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// 端正的方封面, 不倾斜、不带唱片。封面按填满缩放, 先占住方框再叠上去裁掉, 别让它撑开布局。
+private struct ClassicArtwork: View {
+    let state: PlaybackState
+    var cornerRadius: CGFloat
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                WidgetCoverImageView(coverImageName: state.coverImageName, cornerRadius: cornerRadius)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// 进度条下面一行等宽小字: 已播 / 总时长。
+private struct ClassicProgressBlock: View {
+    let state: PlaybackState
+    let progress: PlaybackProgress
+    var spacing: CGFloat
+    var fontSize: CGFloat
+
+    var body: some View {
+        VStack(spacing: spacing) {
+            ProgressLine(progress: progress)
+            HStack {
+                ElapsedTimeText(progress: progress)
+                Spacer()
+                Text(formatTime(state.duration))
+            }
+            .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+            .foregroundStyle(WidgetDesign.tertiaryText)
+        }
+    }
+}
+
+/// 小号: 整块就是封面, 下半截压暗, 白字写歌名、歌手, 底下一条进度。色调、透明外观下没有
+/// 封面底, 左上角摆一张小封面。
+private struct ClassicSmallNowPlayingView: View {
+    let state: PlaybackState
+    let progress: PlaybackProgress
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        CoverPlayerCanvas(state: state, padding: 14, sharpCover: true) {
+            VStack(alignment: .leading, spacing: 6) {
+                if renderingMode != .fullColor {
+                    ClassicArtwork(state: state, cornerRadius: 8)
+                        .frame(width: 46, height: 46)
+                }
+                Spacer(minLength: 0)
+                Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(nowPlayingSubtitle(state))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if state.isLiveStream {
+                    LiveIndicatorLine(lightText: renderingMode == .fullColor)
+                        .padding(.top, 2)
+                } else {
+                    ProgressLine(progress: progress)
+                        .padding(.top, 2)
+                }
+            }
+            .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.30 : 0), radius: 3, x: 0, y: 1)
+        }
+    }
+}
+
+/// 中号: 左边方封面, 右边眉题、歌名、歌手、专辑, 下面进度和时长, 最底下一排紧凑按钮。
+private struct ClassicMediumNowPlayingView: View {
+    let state: PlaybackState
+    let progress: PlaybackProgress
+
+    var body: some View {
+        ClassicWidgetCanvas(padding: 16) {
+            GeometryReader { geometry in
+                let coverSide = min(112, geometry.size.height)
+                HStack(spacing: 16) {
+                    ClassicArtwork(state: state, cornerRadius: 12)
+                        .frame(width: coverSide, height: coverSide)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        NowPlayingEyebrow(state: state)
+                        Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(WidgetDesign.strongText)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.86)
+                        Text(nowPlayingSubtitle(state))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(1)
+                        Text(secondaryMetadata(state))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(WidgetDesign.tertiaryText)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        if state.isLiveStream {
+                            LiveIndicatorLine()
+                        } else {
+                            ClassicProgressBlock(state: state, progress: progress, spacing: 5, fontSize: 9.5)
+                        }
+
+                        NowPlayingControls(state: state, compact: true, classic: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .widgetBounds(geometry.size, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// 大号: 封面和歌名一排, 中间一块圆角面板放歌词(有声书换成整本书的进度), 下面进度、时长和整排按钮。
+private struct ClassicLargeNowPlayingView: View {
+    let state: PlaybackState
+    let progress: PlaybackProgress
+    let lyricsSnapshot: LyricsSnapshot?
+
+    var body: some View {
+        ClassicWidgetCanvas(padding: 18) {
+            GeometryReader { geometry in
+                // 旧版按整块宽度(含两边 18 的边距)取 42%。
+                let coverSide = min(138, max(118, (geometry.size.width + 36) * 0.42))
+                VStack(alignment: .leading, spacing: 13) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ClassicArtwork(state: state, cornerRadius: 14)
+                            .frame(width: coverSide, height: coverSide)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            NowPlayingEyebrow(state: state)
+                            Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                                .font(.system(size: 21, weight: .bold))
+                                .foregroundStyle(WidgetDesign.strongText)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.82)
+                            Text(nowPlayingSubtitle(state))
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(WidgetDesign.secondaryText)
+                                .lineLimit(1)
+                            Text(secondaryMetadata(state))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(WidgetDesign.tertiaryText)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if let spokenWord = state.spokenWord, state.isSpokenWord {
+                        SpokenWordBookProgressPanel(info: spokenWord)
+                            .modifier(ClassicPanelChrome())
+                            .layoutPriority(1)
+                    } else if !state.isLiveStream {
+                        NowPlayingLyricsPreview(snapshot: lyricsSnapshot)
+                            .modifier(ClassicPanelChrome())
+                            .layoutPriority(1)
+                    }
+
+                    if state.isLiveStream {
+                        LiveIndicatorLine()
+                    } else {
+                        ClassicProgressBlock(state: state, progress: progress, spacing: 6, fontSize: 10.5)
+                    }
+
+                    NowPlayingControls(state: state, compact: false, classic: true)
+                }
+                .widgetBounds(geometry.size, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+/// 歌词 / 读书进度那块的圆角浅底和细描边。
+private struct ClassicPanelChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.primary.opacity(0.055), in: .rect(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(WidgetDesign.hairline, lineWidth: 1)
+            }
+    }
+}
+
+private struct ClassicEmptyStateView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .systemMedium:
+            ClassicWidgetCanvas(padding: 18) {
+                HStack(spacing: 16) {
+                    WidgetEmptyStateIcon(systemName: "music.note", size: 64)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(PMString("ext.widget.nowPlaying.empty.title"))
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(WidgetDesign.strongText)
+                        Text(PMString("ext.widget.nowPlaying.empty.openMedium"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        case .systemLarge:
+            ClassicWidgetCanvas(padding: 22) {
+                VStack(alignment: .leading, spacing: 14) {
+                    WidgetEmptyStateIcon(systemName: "music.note", size: 78)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(PMString("ext.widget.nowPlaying.empty.title"))
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(WidgetDesign.strongText)
+                        Text(PMString("ext.widget.nowPlaying.empty.openLarge"))
+                            .font(.system(size: 13))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(3)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        default:
+            ClassicWidgetCanvas(padding: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Spacer(minLength: 0)
+                    WidgetEmptyStateIcon(systemName: "music.note", size: 42)
+                    Text(PMString("ext.widget.nowPlaying.empty.title"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(WidgetDesign.strongText)
+                    Text(PMString("ext.widget.nowPlaying.empty.openShort"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(WidgetDesign.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         }
     }

@@ -603,6 +603,8 @@
 "ext.widget.nowPlaying.displayName" = "Şu an çalıyor";
 "ext.widget.coverPlayer.displayName" = "Kapak Oynatıcı";
 "ext.widget.coverPlayer.description" = "Bulanık kapak arka planında büyük albüm kapağı; yalnızca şarkı, sanatçı ve çalma düğmeleri.";
+"ext.widget.nowPlayingClassic.displayName" = "Şimdi Çalıyor (Klasik)";
+"ext.widget.nowPlayingClassic.description" = "Şimdi Çalıyor'un ilk görünümü: geçişli arka planda kare kapak; biçim, albüm, geçen süre ve düğmelerle.";
 "ext.control.shuffle" = "Karıştır";
 "ext.widget.unlike" = "Beğenilen Şarkılardan Kaldır";
 "ext.tv.sources.remove" = "Kaldır";

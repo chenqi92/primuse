@@ -5,6 +5,8 @@ import SwiftUI
 struct PrimuseWidgetBundle: WidgetBundle {
     var body: some Widget {
         NowPlayingWidget()
+        // 1.11.3(98) 之前那版正在播放: 方封面、渐变画布, 和现在的唱片套样式并列。
+        NowPlayingClassicWidget()
         // 大封面版的正在播放(#143), 目前只上 iPhone / iPad。
         #if os(iOS)
         CoverPlayerWidget()
@@ -31,8 +33,8 @@ struct PrimuseWidgetBundle: WidgetBundle {
     }
 }
 
-/// 听书、播客、电台和收听台。`WidgetBundle` 的结果构建器一层最多十个，iOS 和 macOS
-/// 的主包都已经满了，这几个收在一个子包里、在主包里只占一个位置。
+/// 听书、播客、电台和收听台。`WidgetBundle` 的结果构建器一层最多十个，这几个收在一个
+/// 子包里、在主包里只占一个位置。
 struct ListeningWidgetsBundle: WidgetBundle {
     var body: some Widget {
         SpokenWordShelfWidget()

@@ -603,6 +603,8 @@
 "ext.widget.nowPlaying.displayName" = "Зараз грає";
 "ext.widget.coverPlayer.displayName" = "Плеєр з обкладинкою";
 "ext.widget.coverPlayer.description" = "Велика обкладинка на розмитому тлі обкладинки — лише назва, виконавець і кнопки керування.";
+"ext.widget.nowPlayingClassic.displayName" = "Зараз грає (класичний)";
+"ext.widget.nowPlayingClassic.description" = "Попередній вигляд «Зараз грає»: квадратна обкладинка на градієнтному тлі, з форматом, альбомом, часом відтворення та кнопками.";
 "ext.control.shuffle" = "Перемішати";
 "ext.widget.unlike" = "Видалити з пісень, які сподобалися";
 "ext.tv.sources.remove" = "Прибрати";
