@@ -221,24 +221,26 @@ struct MacContentView: View {
                         }
                         #endif
 
-                    if nowPlayingPresented {
-                        MacNowPlayingView(onClose: {
-                            pmWithAnimation(.panel) {
-                                nowPlayingPresented = false
-                            }
-                        }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
-                           canTranscribeAudio: canTranscribeCurrentSongAudio,
-                           onScrapeCurrentSong: startCurrentSongLyricsScrape,
-                           onTranscribeAudio: openCurrentSongAudioTranscriptionEditor,
-                           onToggleQueue: {
-                               pmWithAnimation(.panel) {
-                                   queuePresented.toggle()
-                                   if queuePresented { showsRecommendationsPanel = false }
-                               }
-                           })
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .zIndex(1)
+                    MacStateSlot(value: $nowPlayingPresented) { isPresented in
+                        if isPresented {
+                            MacNowPlayingView(onClose: {
+                                pmWithAnimation(.panel) {
+                                    nowPlayingPresented = false
+                                }
+                            }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
+                               canTranscribeAudio: canTranscribeCurrentSongAudio,
+                               onScrapeCurrentSong: startCurrentSongLyricsScrape,
+                               onTranscribeAudio: openCurrentSongAudioTranscriptionEditor,
+                               onToggleQueue: {
+                                   pmWithAnimation(.panel) {
+                                       queuePresented.toggle()
+                                       if queuePresented { showsRecommendationsPanel = false }
+                                   }
+                               })
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
+                    .zIndex(1)
 
                     if showsFullscreenEffectPicker {
                         Color.clear
@@ -326,33 +328,35 @@ struct MacContentView: View {
             // 各自那一列的背景色, 卡片真正"浮"在内容上。
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !isFullScreenNowPlaying {
-                    MacBottomBar(
-                        isExpanded: nowPlayingPresented,
-                        isQueueShown: queuePresented,
-                        onToggleNowPlaying: {
-                            pmWithAnimation(.panel) {
-                                nowPlayingPresented.toggle()
-                            }
-                        },
-                        onToggleQueue: {
-                            pmWithAnimation(.panel) {
-                                queuePresented.toggle()
-                                if queuePresented { showsRecommendationsPanel = false }
-                            }
-                        },
-                        onMiniPlayer: {
-                            PrimuseAppDelegate.shared?.toggleMiniPlayer()
-                        },
-                        onFullScreen: {
-                            PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
-                        },
-                        onPickFullscreenEffect: {
-                            pmWithAnimation(.panel) {
-                                showsFullscreenEffectPicker.toggle()
-                            }
-                        },
-                        isFullscreenEffectPickerShown: showsFullscreenEffectPicker
-                    )
+                    MacStateSlot(value: $nowPlayingPresented) { isNowPlayingPresented in
+                        MacBottomBar(
+                            isExpanded: isNowPlayingPresented,
+                            isQueueShown: queuePresented,
+                            onToggleNowPlaying: {
+                                pmWithAnimation(.panel) {
+                                    nowPlayingPresented.toggle()
+                                }
+                            },
+                            onToggleQueue: {
+                                pmWithAnimation(.panel) {
+                                    queuePresented.toggle()
+                                    if queuePresented { showsRecommendationsPanel = false }
+                                }
+                            },
+                            onMiniPlayer: {
+                                PrimuseAppDelegate.shared?.toggleMiniPlayer()
+                            },
+                            onFullScreen: {
+                                PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+                            },
+                            onPickFullscreenEffect: {
+                                pmWithAnimation(.panel) {
+                                    showsFullscreenEffectPicker.toggle()
+                                }
+                            },
+                            isFullscreenEffectPickerShown: showsFullscreenEffectPicker
+                        )
+                    }
                 }
             }
         }
@@ -762,6 +766,17 @@ struct MacContentView: View {
     private func identifier(in value: String, after prefix: String) -> String? {
         guard value.hasPrefix(prefix) else { return nil }
         return String(value.dropFirst(prefix.count))
+    }
+}
+
+/// 只在自己的 body 里读绑定的值。主界面的 body 只递绑定、不读值：播放页的展开状态在主界面里读，
+/// 每次展开、收起整个主界面连同详情页都要重算，压在展开的第一帧和收起的最后一帧上（同 iOS 的 #322）。
+private struct MacStateSlot<Value, Content: View>: View {
+    @Binding var value: Value
+    @ViewBuilder let content: (Value) -> Content
+
+    var body: some View {
+        content(value)
     }
 }
 
