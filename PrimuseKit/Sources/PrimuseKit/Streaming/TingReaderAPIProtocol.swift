@@ -98,6 +98,8 @@ public enum TingReaderAPIProtocol {
         let bookID = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let leaf = String(parts[2])
         let fileExtension = (leaf as NSString).pathExtension.lowercased()
+        // 服务器只认章节 id,后缀只是类型提示;按同目录规则拼出的 `<章节>.lrc` 不是这一章。
+        guard !PrimuseConstants.sidecarFileExtensions.contains(fileExtension) else { return nil }
         let rawID = (leaf as NSString).deletingPathExtension
         let chapterID = rawID.removingPercentEncoding ?? rawID
         guard !bookID.isEmpty, !chapterID.isEmpty else { return nil }

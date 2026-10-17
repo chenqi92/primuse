@@ -1700,6 +1700,14 @@ public enum PrimuseConstants {
     /// scanners enumerate them separately and expand their INDEX 01 entries
     /// into virtual Song rows that all point at the referenced audio image.
     public static let supportedCueSheetExtensions: Set<String> = ["cue"]
+
+    /// 歌旁边的那些文件(歌词、封面、CUE、说明文字)的扩展名。有声书服务器的章节路径只是
+    /// 「书 id + 章节 id」加一个类型提示,按同目录规则拼出来的 `<章节>.lrc` 一类路径
+    /// 不能被认成同一章,否则读歌词会把整章音频当成文字读出来(#304)。
+    public static let sidecarFileExtensions: Set<String> = Set(readableLyricsExtensions)
+        .union(supportedCoverExtensions)
+        .union(supportedCueSheetExtensions)
+        .union(["txt", "nfo", "json", "xml"])
 }
 
 /// Stable identifiers for playlists mirrored from a server-side music library

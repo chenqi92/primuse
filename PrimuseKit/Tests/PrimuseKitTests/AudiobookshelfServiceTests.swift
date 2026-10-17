@@ -35,6 +35,8 @@ struct AudiobookshelfServiceTests {
         #expect(episode.kind == .episode(id: "ep_9"))
         #expect(AudiobookshelfAPIProtocol.trackReference(from: "/items/42.mp3") == nil)
         #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/other/1.mp3") == nil)
+        #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.lrc") == nil)
+        #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_2/episodes/ep_9.vtt") == nil)
 
         let cover = AudiobookshelfAPIProtocol.coverReference(itemID: "li_1", updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
         #expect(AudiobookshelfAPIProtocol.coverItemID(fromReference: cover) == "li_1")

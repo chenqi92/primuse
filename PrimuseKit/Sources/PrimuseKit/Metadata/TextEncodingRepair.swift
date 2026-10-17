@@ -411,6 +411,8 @@ public enum TextEncodingRepair {
         if data.starts(with: [0xFE, 0xFF]) {
             return decodedUTF16(Data(data.dropFirst(2)), encoding: .utf16BigEndian)
         }
+        // 音频文件开头一段按 Latin-1 也「解得出」,会变成一屏 `ftypM4A…moov` 乱码(#304)。
+        guard !MediaFileSignature.matches(data) else { return nil }
         if let utf8 = decodedUTF8(data) { return utf8 }
         if let encoding = unmarkedUTF16Encoding(of: data),
            let utf16 = decodedUTF16(data, encoding: encoding) {
@@ -871,4 +873,59 @@ public struct DecodedTextFile: Equatable, Sendable {
 
     /// 日志与诊断里显示的编码名(「GBK」「UTF-16LE」……)。
     public var encodingName: String { TextEncodingRepair.displayName(of: encoding) }
+}
+
+/// 认音频/视频文件的开头几个字节。歌词这类文本文件的读取口拿到的如果是音频本身
+/// (路径被源认成了章节、服务端回了音频流),按文本解出来就是一屏乱码。
+public enum MediaFileSignature {
+    /// `data` 是不是一个音频或视频容器的开头。
+    public static func matches(_ data: Data) -> Bool {
+        let head = [UInt8](data.prefix(16))
+        guard head.count >= 4 else { return false }
+        func ascii(_ offset: Int, _ text: String) -> Bool {
+            let bytes = Array(text.utf8)
+            guard head.count >= offset + bytes.count else { return false }
+            return Array(head[offset..<(offset + bytes.count)]) == bytes
+        }
+        // ISO 基础媒体(M4A/M4B/MP4/MOV/3GP):`size` + `ftyp`。
+        if ascii(4, "ftyp") { return true }
+        // ID3 标签头:「ID3」+ 主版本 2...4 + 次版本 0。
+        if ascii(0, "ID3"), head.count >= 5, (2...4).contains(head[3]), head[4] == 0 { return true }
+        if ascii(0, "fLaC") || ascii(0, "OggS") || ascii(0, "wvpk") || ascii(0, "MAC ")
+            || ascii(0, "caff") || ascii(0, "DSD ") || ascii(0, "FRM8") {
+            return true
+        }
+        if ascii(0, "RIFF") && (ascii(8, "WAVE") || ascii(8, "AVI ")) { return true }
+        if ascii(0, "FORM") && (ascii(8, "AIFF") || ascii(8, "AIFC")) { return true }
+        // Matroska / WebM(EBML 头)、ASF/WMA。
+        if head.starts(with: [0x1A, 0x45, 0xDF, 0xA3]) { return true }
+        if head.starts(with: [0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11]) { return true }
+        // 没有 ID3 的 MPEG 音频与 ADTS AAC:帧同步 11 个 1。
+        if head[0] == 0xFF, head[1] & 0xE0 == 0xE0 {
+            // ADTS:层固定为 00。
+            if head[1] & 0xF6 == 0xF0 { return true }
+            let version = (head[1] >> 3) & 0x03
+            let layer = (head[1] >> 1) & 0x03
+            return version != 0x01 && layer != 0x00 && head[2] >> 4 != 0x0F
+        }
+        return false
+    }
+
+    /// 已经按文本解出来、存进歌词缓存的一份是不是音频文件头。旧版本读歌词时把整章
+    /// 音频当成文字存了下来,读缓存时据此认出并丢掉。
+    public static func matchesDecodedText(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0) && $0.value >= 0x20
+        }
+        let head = String(String.UnicodeScalarView(scalars.prefix(24)))
+        // `ftyp` 前面那 4 个字节是盒子长度,解出来多半是空格或控制字符,偶尔是一个可见字符。
+        if head.prefix(6).contains("ftyp") { return true }
+        if head.hasPrefix("ID3"), text.unicodeScalars.prefix(8).contains(where: {
+            $0.value < 0x20 && !CharacterSet.whitespacesAndNewlines.contains($0)
+        }) {
+            return true
+        }
+        return head.hasPrefix("fLaC") || head.hasPrefix("OggS")
+            || (head.hasPrefix("RIFF") && head.contains("WAVE"))
+    }
 }

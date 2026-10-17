@@ -540,8 +540,16 @@ actor MetadataAssetStore {
     /// Read cached lyrics by song ID.
     func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
         let fileName = hashedFileName(for: songID, pathExtension: "json")
-        guard let data = try? Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName)) else { return nil }
+        let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
         guard let lines = try? decoder.decode([LyricLine].self, from: data) else { return nil }
+        // 旧版本把有声书整章音频的开头当成歌词存了进来(#304),认出来就丢掉。
+        if let first = lines.first(where: { !$0.text.isEmpty }),
+           MediaFileSignature.matchesDecodedText(first.text) {
+            plog("MetadataAssetStore: dropped lyrics cache decoded from audio bytes for song '\(songID.prefix(8))'")
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
         return Self.normalizedCachedLyrics(lines)
     }
 

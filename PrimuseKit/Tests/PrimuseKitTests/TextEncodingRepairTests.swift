@@ -565,3 +565,53 @@ struct SidecarTextFileDecodingTests {
         #expect(TextEncodingRepair.decodeTextFile(Data()) == nil)
     }
 }
+
+@Suite("Media bytes are not lyrics (#304)")
+struct MediaFileSignatureTests {
+    /// 一段 M4A 文件的开头:`ftyp` 盒子、`moov`、`mvhd`。
+    private static let m4aHead: Data = {
+        var bytes: [UInt8] = [0x00, 0x00, 0x00, 0x20]
+        bytes += Array("ftypM4A ".utf8) + [0x00, 0x00, 0x02, 0x00] + Array("M4A isomiso2".utf8)
+        bytes += [0x00, 0x01, 0xC5, 0x10] + Array("moov".utf8) + [0x00, 0x00, 0x00, 0x6C] + Array("mvhd".utf8)
+        bytes += [0x0A, 0xE8, 0xD8, 0xCB, 0x40, 0x0A] + Array("trak\\tkhd".utf8)
+        return Data(bytes)
+    }()
+
+    @Test("Audio container heads are refused as text files")
+    func refusesMediaHeads() {
+        #expect(MediaFileSignature.matches(Self.m4aHead))
+        #expect(TextEncodingRepair.decodeTextFile(Self.m4aHead) == nil)
+        let id3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x76]) + Data(count: 32)
+        #expect(TextEncodingRepair.decodeTextFile(id3) == nil)
+        let mpegFrame = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(count: 32)
+        #expect(MediaFileSignature.matches(mpegFrame))
+        let adts = Data([0xFF, 0xF1, 0x50, 0x80]) + Data(count: 32)
+        #expect(MediaFileSignature.matches(adts))
+        for magic in ["fLaC", "OggS"] {
+            #expect(MediaFileSignature.matches(Data(magic.utf8) + Data(count: 16)))
+        }
+    }
+
+    @Test("Ordinary lyric files still decode")
+    func keepsLyrics() throws {
+        let lrc = Data("[00:01.00]ftyp 不是开头\n[00:02.00]ID3 也不是".utf8)
+        #expect(!MediaFileSignature.matches(lrc))
+        #expect(TextEncodingRepair.decodeTextFile(lrc)?.text.hasPrefix("[00:01.00]") == true)
+        let gbk = try #require("[00:01.00]我的歌声里".data(using: TextEncodingRepair.gb18030))
+        #expect(TextEncodingRepair.decodeTextFile(gbk)?.text == "[00:01.00]我的歌声里")
+        let utf16 = try #require("\u{FEFF}[00:01.00]hello".data(using: .utf16LittleEndian))
+        #expect(TextEncodingRepair.decodeTextFile(utf16)?.text == "[00:01.00]hello")
+    }
+
+    @Test("A cached document decoded from an M4A head is recognised")
+    func recognisesDecodedHeads() {
+        let latin1 = String(decoding: Self.m4aHead.filter { $0 != 0 }, as: UTF8.self)
+        #expect(MediaFileSignature.matchesDecodedText(latin1))
+        #expect(MediaFileSignature.matchesDecodedText(" ftypM4A M4A isomiso2Åmoovlmvhd"))
+        #expect(MediaFileSignature.matchesDecodedText("$ftypM4B M4B mp42isom"))
+        #expect(MediaFileSignature.matchesDecodedText("ID3\u{03}\u{1F}v TIT2"))
+        #expect(!MediaFileSignature.matchesDecodedText("第一回 吴衙内邻舟赴约"))
+        #expect(!MediaFileSignature.matchesDecodedText("ID3 was the tag format of the day"))
+        #expect(!MediaFileSignature.matchesDecodedText("I wrote ftyp on the board"))
+    }
+}

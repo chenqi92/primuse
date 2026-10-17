@@ -292,6 +292,10 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        // 只有章节本身有数据;播放页按同目录规则来要的 `<章节>.lrc` 这里没有。
+        guard AudiobookshelfAPIProtocol.trackReference(from: path) != nil else {
+            throw SourceError.fileNotFound(path)
+        }
         try await connect()
         return try await client.fetchRange(trackPath: path, offset: offset, length: length)
     }

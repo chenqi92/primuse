@@ -48,6 +48,11 @@ struct TingReaderServiceTests {
         let reference = try #require(TingReaderAPIProtocol.trackReference(from: path))
         #expect(reference == .init(bookID: "book-1", chapterID: "chap-9", fileExtension: "m4a"))
         #expect(TingReaderAPIProtocol.trackReference(from: "/tingreader/books/book-1/other/chap-9.mp3") == nil)
+        // 播放页按同目录规则拼的歌词路径不是这一章(#304:曾把整章音频当歌词读出来)。
+        for sidecar in ["lrc", "ttml", "vtt", "srt", "jpg", "txt"] {
+            #expect(TingReaderAPIProtocol.trackReference(from: "/tingreader/books/book-1/chapters/chap-9.\(sidecar)") == nil)
+        }
+        #expect(TingReaderAPIProtocol.trackReference(from: "/tingreader/books/book-1/chapters/chap-9.bin") != nil)
         #expect(TingReaderAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.m4b") == nil)
 
         for cover in ["/app/storage/三体/cover.jpg", "https://imagev2.example.com/a.jpg#referer=https://example.com"] {

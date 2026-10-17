@@ -119,6 +119,8 @@ public enum AudiobookshelfAPIProtocol {
         let itemID = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let leaf = String(parts[2])
         let fileExtension = (leaf as NSString).pathExtension.lowercased()
+        // 服务器只认文件 ino / 单集 id,后缀只是类型提示;按同目录规则拼出的 `<文件>.lrc` 不是这个文件。
+        guard !PrimuseConstants.sidecarFileExtensions.contains(fileExtension) else { return nil }
         let rawID = (leaf as NSString).deletingPathExtension
         let id = rawID.removingPercentEncoding ?? rawID
         guard !itemID.isEmpty, !id.isEmpty else { return nil }
