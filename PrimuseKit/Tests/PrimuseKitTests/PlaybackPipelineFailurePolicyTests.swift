@@ -22,6 +22,62 @@ struct PlaybackPipelineFailurePolicyTests {
         #expect(error.underlyingError.code == code)
     }
 
+    @Test("A background refusal of exclusive playback retries as mixable")
+    func backgroundRefusalRetriesMixable() {
+        #expect(PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: 560557684,
+            fallbackIsActive: false,
+            capturesMicrophone: false,
+            alreadyMixable: false
+        ))
+        // 别的失败(没权限、硬件忙)换成可混音也不会好, 照旧交给上层保留当前歌。
+        #expect(!PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: 561017449,
+            fallbackIsActive: false,
+            capturesMicrophone: false,
+            alreadyMixable: false
+        ))
+        // 卡拉OK录音要 playAndRecord; 用户自己开了混音时根本不会被拒。
+        #expect(!PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: 560557684,
+            fallbackIsActive: false,
+            capturesMicrophone: true,
+            alreadyMixable: false
+        ))
+        #expect(!PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: 560557684,
+            fallbackIsActive: false,
+            capturesMicrophone: false,
+            alreadyMixable: true
+        ))
+    }
+
+    @Test("A failed return to exclusive playback keeps the mixable session playing")
+    func failedExclusiveRestoreKeepsMixableSession() {
+        #expect(PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: 561017449,
+            fallbackIsActive: true,
+            capturesMicrophone: false,
+            alreadyMixable: false
+        ))
+    }
+
+    @Test("Exclusive playback is restored only while no other app is sounding")
+    func exclusiveRestoreWaitsForSilence() {
+        #expect(PlaybackSessionBackgroundActivationPolicy.shouldAttemptExclusiveRestore(
+            fallbackIsActive: true,
+            otherAudioIsPlaying: false
+        ))
+        #expect(!PlaybackSessionBackgroundActivationPolicy.shouldAttemptExclusiveRestore(
+            fallbackIsActive: true,
+            otherAudioIsPlaying: true
+        ))
+        #expect(!PlaybackSessionBackgroundActivationPolicy.shouldAttemptExclusiveRestore(
+            fallbackIsActive: false,
+            otherAudioIsPlaying: false
+        ))
+    }
+
     @Test("Decoder errors remain eligible for queue recovery")
     func decoderFailureIsNotAnAudioSessionFailure() {
         #expect(PlaybackPipelineFailurePolicy.action(

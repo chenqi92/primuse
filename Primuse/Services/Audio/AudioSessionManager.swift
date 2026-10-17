@@ -1,6 +1,9 @@
 import AVFoundation
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 final class AudioSessionManager {
@@ -25,6 +28,9 @@ final class AudioSessionManager {
     /// 播放页, 方向盘键也到不了这里。
     private(set) var isCarPlayActive = false
     private var mixesWithOthers: Bool { mixesWithOthersRequested && !isCarPlayActive }
+    /// 后台被系统拒绝独占, 眼下用可混音的会话在放(见 `PlaybackSessionBackgroundActivationPolicy`)。
+    private(set) var isBackgroundMixingFallbackActive = false
+    private var exclusiveRestoreTask: Task<Void, Never>?
 
     private init() {}
 
@@ -64,10 +70,77 @@ final class AudioSessionManager {
         do {
             try configurePlaybackSession(session)
             try session.setActive(true)
+            if isBackgroundMixingFallbackActive {
+                endBackgroundMixingFallback()
+                plog("🔊 Audio session back to exclusive playback reason=activation")
+            }
         } catch {
+            if activateBackgroundMixingFallback(session, after: error) { return }
             plog("Failed to activate audio session: \(error)")
             throw PlaybackAudioSessionFailure(error)
         }
+    }
+
+    /// 后台被拒绝独占('!int')时改用可混音激活, 这首歌先接上。成功返回 true。
+    private func activateBackgroundMixingFallback(_ session: AVAudioSession, after error: Error) -> Bool {
+        guard PlaybackSessionBackgroundActivationPolicy.shouldRetryAsMixable(
+            failureCode: (error as NSError).code,
+            fallbackIsActive: isBackgroundMixingFallbackActive,
+            capturesMicrophone: isMicrophoneCaptureActive,
+            alreadyMixable: mixesWithOthers
+        ) else { return false }
+        do {
+            try configurePlaybackSession(session, mixable: true)
+            try session.setActive(true)
+        } catch let fallbackError {
+            plog("Failed to activate mixable audio session after \(error): \(fallbackError)")
+            return false
+        }
+        if !isBackgroundMixingFallbackActive {
+            isBackgroundMixingFallbackActive = true
+            plog("🔊 Exclusive audio session refused in background; playing as mixable until it can be restored: \(error)")
+        }
+        // 这首起播后再试一次切回独占: 已经在出声的会话也许能改类别。
+        exclusiveRestoreTask?.cancel()
+        exclusiveRestoreTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.restoreExclusivePlaybackIfNeeded(reason: "after-mixable-start")
+        }
+        return true
+    }
+
+    /// 靠可混音在放的时候找机会切回独占, 锁屏和耳机按键才重新控制得到 Primuse。
+    func restoreExclusivePlaybackIfNeeded(reason: String) {
+        guard isBackgroundMixingFallbackActive else { return }
+        let session = AVAudioSession.sharedInstance()
+        guard PlaybackSessionBackgroundActivationPolicy.shouldAttemptExclusiveRestore(
+            fallbackIsActive: isBackgroundMixingFallbackActive,
+            otherAudioIsPlaying: session.isOtherAudioPlaying
+        ) else { return }
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionActivate")
+        defer { PrimuseSignposts.hitch.endInterval("player.sessionActivate", signpost) }
+        do {
+            try configurePlaybackSession(session)
+            try session.setActive(true)
+            endBackgroundMixingFallback()
+            plog("🔊 Audio session back to exclusive playback reason=\(reason)")
+        } catch {
+            plog("Exclusive audio session still refused reason=\(reason): \(error)")
+            // 类别可能已经改成独占而激活没成, 改回可混音让正在放的歌接着放。
+            do {
+                try configurePlaybackSession(session, mixable: true)
+                try session.setActive(true)
+            } catch {
+                plog("Failed to keep mixable audio session: \(error)")
+            }
+        }
+    }
+
+    private func endBackgroundMixingFallback() {
+        isBackgroundMixingFallbackActive = false
+        exclusiveRestoreTask?.cancel()
+        exclusiveRestoreTask = nil
     }
 
     /// Sets the playback category and installs lifecycle observers without
@@ -101,6 +174,14 @@ final class AudioSessionManager {
             name: .AVAudioEngineConfigurationChange,
             object: nil
         )
+
+        // 后台靠可混音接上的歌, 回到前台就能切回独占。
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationDidBecomeActive(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     /// 混音偏好或 CarPlay 状态变了。会话已经配过类别时当场换掉: 激活着就立刻按新类别
@@ -113,12 +194,15 @@ final class AudioSessionManager {
         plog("🔊 Audio session mixWithOthers=\(mixesWithOthers) requested=\(requested) carPlay=\(carPlayActive)")
         do {
             try configurePlaybackSession(AVAudioSession.sharedInstance())
+            // 用户自己要混音了, 不再是临时的。
+            if mixesWithOthers { endBackgroundMixingFallback() }
         } catch {
             plog("Failed to switch audio session mixing: \(error)")
         }
     }
 
-    private func configurePlaybackSession(_ session: AVAudioSession) throws {
+    /// `mixable` 不传时按用户设置与 CarPlay 状态; 后台被拒独占时临时传 true。
+    private func configurePlaybackSession(_ session: AVAudioSession, mixable: Bool? = nil) throws {
         // Long-form audio lets AirPlay own this app's route independently from
         // the device's default output, so other apps can keep using the phone.
         // It deliberately stays non-mixable on the selected route.
@@ -131,7 +215,7 @@ final class AudioSessionManager {
                 policy: .default,
                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowAirPlay]
             )
-        } else if mixesWithOthers {
+        } else if mixable ?? mixesWithOthers {
             // 长音频路由策略不许带任何选项(SDK 头文件: Allowed options: None),
             // 要混音只能退回默认策略。
             try session.setCategory(
@@ -206,6 +290,20 @@ final class AudioSessionManager {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
             plog("Failed to deactivate audio session: \(error)")
+            return
+        }
+        leaveBackgroundMixingFallback()
+    }
+
+    /// 会话已经不在激活状态(主动停用或被系统中断)时收掉临时混音, 类别改回独占:
+    /// 视频播放器之类自己激活会话时不该带着它, 回到前台也不必再去唤醒闲着的会话。
+    private func leaveBackgroundMixingFallback() {
+        guard isBackgroundMixingFallbackActive else { return }
+        endBackgroundMixingFallback()
+        do {
+            try configurePlaybackSession(AVAudioSession.sharedInstance())
+        } catch {
+            plog("Failed to restore exclusive audio session category: \(error)")
         }
     }
 
@@ -285,6 +383,7 @@ final class AudioSessionManager {
             switch type {
             case .began:
                 plog("🔇 Audio interruption began reason=\(reasonValue.map(String.init) ?? "nil") outputs=[\(outputTypes)]")
+                self.leaveBackgroundMixingFallback()
                 self.onInterruptionBegan?(eventTime)
 
             case .ended:
@@ -300,6 +399,12 @@ final class AudioSessionManager {
             @unknown default:
                 break
             }
+        }
+    }
+
+    @objc private nonisolated func handleApplicationDidBecomeActive(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.restoreExclusivePlaybackIfNeeded(reason: "foreground")
         }
     }
 
@@ -324,6 +429,7 @@ final class AudioSessionManager {
     @discardableResult
     func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool { true }
     func requirePlaybackSession(reacquiringLocalRouteFocus: Bool = false) throws {}
+    func restoreExclusivePlaybackIfNeeded(reason: String) {}
     func prepareForPlayback() {
         guard !isConfigured else { return }
         isConfigured = true

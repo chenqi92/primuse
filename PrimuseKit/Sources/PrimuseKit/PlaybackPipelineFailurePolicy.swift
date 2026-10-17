@@ -46,6 +46,34 @@ public enum PlaybackPipelineFailurePolicy {
     }
 }
 
+/// App 在后台时系统不许激活不可混音的会话(`AVAudioSession.ErrorCode.cannotInterruptOthers`,
+/// '!int')。锁屏下 Apple Music 播完接本地歌就撞这条: MusicKit 起播时打断了 Primuse 自己的会话,
+/// 后台再要独占系统不给。可混音的会话后台能激活, 先这样把歌接上, 再找机会切回独占 ——
+/// 混音的会话当不了「正在播放」App, 锁屏和耳机按键控制不到它。
+public enum PlaybackSessionBackgroundActivationPolicy {
+    public static let cannotInterruptOthersCode = 560_557_684
+
+    /// 这次激活失败后要不要改用可混音再激活一次。
+    public static func shouldRetryAsMixable(
+        failureCode: Int,
+        fallbackIsActive: Bool,
+        capturesMicrophone: Bool,
+        alreadyMixable: Bool
+    ) -> Bool {
+        guard !capturesMicrophone, !alreadyMixable else { return false }
+        // 已经靠可混音在放时, 切回独占没成不能把正在放的会话丢掉。
+        return fallbackIsActive || failureCode == cannotInterruptOthersCode
+    }
+
+    /// 别的 App 正在出声时切回独占会把它打断, 留到下一首起播再试。
+    public static func shouldAttemptExclusiveRestore(
+        fallbackIsActive: Bool,
+        otherAudioIsPlaying: Bool
+    ) -> Bool {
+        fallbackIsActive && !otherAudioIsPlaying
+    }
+}
+
 public enum SourceConfigurationInvalidationAction: Equatable, Sendable {
     case ignoreNonSecurityChange
     /// The account and the content root are unchanged; only the addresses that
