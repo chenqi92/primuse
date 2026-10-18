@@ -6287,7 +6287,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "Usunąć „%@” z tego Apple TV?";
-"tv_remove_from_device_confirm_message" = "Usuwany jest tylko wpis w bibliotece tego Apple TV; pliki w chmurze lub na serwerze pozostają bez zmian, a kolejne skanowania go nie dodadzą. Tak można też usunąć wpisy, których pliki skasowano i nie da się ich odtworzyć.";
+"tv_remove_from_device_confirm_message" = "Usuwany jest tylko wpis w bibliotece tego Apple TV; pliki w chmurze lub na serwerze pozostają bez zmian, a kolejne skanowania nie dodadzą ponownie tego samego pliku. Inny plik w tym samym miejscu (ponownie osadzona okładka, konwersja zapisana pod tą samą nazwą) zostanie dodany jak zwykle. Tak można też usunąć wpisy, których pliki skasowano i nie da się ich odtworzyć.";
 
 "playlist_import_incomplete_format" = "Wczytano %d utworów, ale playlista jest niekompletna. Możesz je teraz zaimportować lub ponowić wczytywanie.";
 "playlist_import_quota_format" = "Wczytano %1$d utworów; pozostałe strony są wstrzymane. %2$@ Możesz teraz zaimportować wczytane utwory lub spróbować ponownie po odczekaniu.";
@@ -6412,3 +6412,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ Za %2$lld s utwory z tego źródła muzyki zostaną pominięte i zaczną grać utwory z innych źródeł.";
 "source_skip_now" = "Pomiń teraz";
+"tv_local_removals_explanation" = "Te utwory usunięto tylko z tego Apple TV; pliki w chmurze lub na serwerze nadal tam są. Po przywróceniu od razu wracają do biblioteki, bez ponownego skanowania.";
+"tv_local_removals_restore_album" = "Przywróć album";
+"tv_local_removals_removed_at_format" = "Usunięto %@";
+"tv_local_removals_row_hint_format" = "%d usuniętych z tego Apple TV · przytrzymaj, aby przywrócić";

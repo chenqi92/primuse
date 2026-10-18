@@ -6381,7 +6381,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "„%@“ von diesem Apple TV entfernen?";
-"tv_remove_from_device_confirm_message" = "Entfernt nur den Eintrag aus der Mediathek dieses Apple TV; Dateien im Cloud-Speicher oder auf dem Server bleiben unberührt, und spätere Scans fügen ihn nicht wieder hinzu. So lassen sich auch Einträge entfernen, deren Dateien gelöscht wurden und nicht mehr abspielbar sind.";
+"tv_remove_from_device_confirm_message" = "Entfernt nur den Eintrag aus der Mediathek dieses Apple TV; Dateien im Cloud-Speicher oder auf dem Server bleiben unberührt, und spätere Scans fügen dieselbe Datei nicht wieder hinzu. Eine andere Datei am selben Ort (neu eingebettetes Cover, gleichnamig gespeicherte Umwandlung) wird wie gewohnt aufgenommen. So lassen sich auch Einträge entfernen, deren Dateien gelöscht wurden und nicht mehr abspielbar sind.";
 
 "playlist_import_incomplete_format" = "%d Titel geladen, aber die Playlist ist unvollständig. Du kannst diese Titel jetzt importieren oder erneut laden.";
 "playlist_import_quota_format" = "%1$d Titel geladen; weitere Seiten sind pausiert. %2$@ Du kannst die geladenen Titel jetzt importieren oder nach der Wartezeit erneut laden.";
@@ -6506,3 +6506,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ In %2$lld s werden die Titel dieser Musikquelle übersprungen und Titel aus anderen Quellen abgespielt.";
 "source_skip_now" = "Jetzt überspringen";
+"tv_local_removals_explanation" = "Diese Titel wurden nur von diesem Apple TV entfernt; die Dateien in der Cloud oder auf dem Server sind noch da. Wiederhergestellte Titel sind sofort wieder in der Mediathek, ohne erneuten Scan.";
+"tv_local_removals_restore_album" = "Album wiederherstellen";
+"tv_local_removals_removed_at_format" = "Entfernt am %@";
+"tv_local_removals_row_hint_format" = "%d auf diesem Apple TV entfernt · zum Wiederherstellen gedrückt halten";

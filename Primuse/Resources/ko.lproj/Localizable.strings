@@ -6381,7 +6381,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "이 Apple TV에서 ‘%@’을(를) 제거할까요?";
-"tv_remove_from_device_confirm_message" = "이 Apple TV 보관함의 항목만 제거하며 클라우드 드라이브나 서버의 파일은 그대로이고 이후 스캔에서도 다시 추가되지 않습니다. 파일이 삭제되어 재생할 수 없는 항목도 이렇게 정리할 수 있습니다.";
+"tv_remove_from_device_confirm_message" = "이 Apple TV 보관함의 항목만 제거하며 클라우드 드라이브나 서버의 파일은 그대로이고 이후 스캔에서도 같은 파일은 다시 추가되지 않습니다. 같은 위치에 다른 파일을 넣으면(커버를 다시 넣었거나 변환 후 같은 이름으로 저장한 경우) 평소처럼 추가됩니다. 파일이 삭제되어 재생할 수 없는 항목도 이렇게 정리할 수 있습니다.";
 
 "playlist_import_incomplete_format" = "%d곡을 불러왔지만 재생목록이 완전하지 않습니다. 이 곡들을 지금 가져오거나 다시 불러올 수 있습니다.";
 "playlist_import_quota_format" = "%1$d곡을 불러왔으며 나머지 페이지는 일시 중지되었습니다. %2$@ 불러온 곡들을 지금 가져오거나 대기 후 다시 시도할 수 있습니다.";
@@ -6506,3 +6506,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ %2$lld초 후 이 음악 소스의 노래를 건너뛰고 다른 소스의 노래를 재생합니다.";
 "source_skip_now" = "지금 건너뛰기";
+"tv_local_removals_explanation" = "이 곡들은 이 Apple TV에서만 제거되었고 클라우드 드라이브나 서버의 파일은 그대로 있습니다. 복원하면 다시 스캔하지 않아도 바로 보관함에 돌아옵니다.";
+"tv_local_removals_restore_album" = "이 앨범 복원";
+"tv_local_removals_removed_at_format" = "%@에 제거됨";
+"tv_local_removals_row_hint_format" = "이 Apple TV에서 %d곡 제거됨 · 길게 눌러 복원";

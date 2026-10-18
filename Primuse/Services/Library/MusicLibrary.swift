@@ -3753,6 +3753,12 @@ final class MusicLibrary {
     @ObservationIgnored
     var deviceLocalFilePresenceProbe: ((_ candidates: [Song]) -> Set<String>)?
 
+    /// 「从本机移除」挡住的路径上换了文件时放行(`LibrarySongAdmissionPolicy
+    /// .replacedFileReleasesDeviceExclusion`)。只有 Apple TV 打开: 那边它是唯一的删除
+    /// 入口、也没有恢复界面; iPhone / Mac 维持「重新扫描不会加回来」。
+    @ObservationIgnored
+    var deviceExclusionsYieldToReplacedFiles = false
+
     /// 封面覆盖解析的记忆化结果, 按 owner 存一条。解析 `.selectedSong` 覆盖时
     /// 的慢路径 (跨设备挂载导致 songID 不同) 要整库扫一遍, 卡片 body 却会随
     /// `songReplacementToken` 在整轮回填里反复求值。换代后怎么续用见
@@ -5898,6 +5904,8 @@ final class MusicLibrary {
         // 那一支, 所以这份数组通常是空的, 不会再物化一份 `[Song]`。
         var tombstonedCandidates: [Song] = []
         var tombstoneKeyBySongID: [String: String] = [:]
+        // 电视端「从本机移除」让路给同一路径上的新文件: 放行的扫描行与它对应的保留行。
+        var replacedExclusions: [(scanned: Song, retained: Song?)] = []
         // 两条放行规则各自需要的输入: 本机源要探针, 远端源要证据表。两样都
         // 没有就没有任何撤销的可能, 连候选都不必收(旧库全是无证据的旧墓碑,
         // 走的正是这条零开销路径)。
@@ -5915,6 +5923,16 @@ final class MusicLibrary {
                     }
                     continue
                 case .blockedByDeviceExclusion:
+                    if deviceExclusionsYieldToReplacedFiles {
+                        let retained = retainedSongForExclusion(of: song)
+                        if LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+                            retained: retained,
+                            scanned: song
+                        ) {
+                            replacedExclusions.append((song, retained))
+                            break
+                        }
+                    }
                     blockedIDs.insert(song.id)
                     continue
                 }
@@ -5985,6 +6003,9 @@ final class MusicLibrary {
             }
             // 整批撤销一次、落盘一次: 逐首撤销会把整份快照重新编码 N 遍。
             revokeDeletedSongIdentities(revokedKeys)
+        }
+        if !replacedExclusions.isEmpty {
+            releaseDeviceLocalExclusions(replacedExclusions)
         }
 
         // A degraded/partial provider response is not an authoritative source
@@ -6267,6 +6288,7 @@ final class MusicLibrary {
     }
 
     func beginScanPruning(_ incoming: [Song], sourceID: String) -> ScanPruningRecovery {
+        adoptScannedIDsForRetainedSongs(incoming, sourceID: sourceID)
         let incomingIDs = Set(incoming.map(\.id))
         let removed = songs.filter { $0.sourceID == sourceID && !incomingIDs.contains($0.id) }
         let recovery = ScanPruningRecovery(
@@ -6296,6 +6318,36 @@ final class MusicLibrary {
         // after both the library and source checkpoint have committed.
         addSongs(incoming, affectedSourceIDs: [sourceID], notifyRemovals: false)
         return recovery
+    }
+
+    /// 「从本机移除」的保留行可能还带着手机快照里的 ID(和电视扫描的算法不同)。整源合并
+    /// 按 ID 判断保留行的文件还在不在, 对不上就会当成「文件已从网盘消失」清掉, 剩下的键又
+    /// 会让同一个文件被当成新放上去的放行(`deviceExclusionsYieldToReplacedFiles`)。
+    /// 所以先按路径换成这次扫描的 ID。CUE 分轨同一路径好几首, 认不准, 不动。
+    private func adoptScannedIDsForRetainedSongs(_ incoming: [Song], sourceID: String) {
+        let retainedHere = deviceLocalExcludedSongsByID.values.filter {
+            $0.sourceID == sourceID && $0.cueSheetPath == nil
+        }
+        guard !retainedHere.isEmpty else { return }
+        var scannedIDByPath: [String: String] = [:]
+        for song in incoming where song.cueSheetPath == nil {
+            scannedIDByPath[song.filePath] = scannedIDByPath[song.filePath] ?? song.id
+        }
+        var adopted = 0
+        for retained in retainedHere {
+            guard let scannedID = scannedIDByPath[retained.filePath], scannedID != retained.id,
+                  deviceLocalExcludedSongsByID[scannedID] == nil else { continue }
+            var rekeyed = retained
+            rekeyed.id = scannedID
+            deviceLocalExcludedSongsByID[retained.id] = nil
+            deviceLocalExcludedSongsByID[scannedID] = rekeyed
+            deviceLocalRemovalMetadataByID[scannedID] = deviceLocalRemovalMetadataByID.removeValue(forKey: retained.id)
+            adopted += 1
+        }
+        guard adopted > 0 else { return }
+        plog("📥 TV scan adopted scanned IDs for \(adopted) device-local removal(s)")
+        do { try persistDeviceLocalExclusions() }
+        catch { plog("Device-local retained catalogue update failed: \(error.localizedDescription)") }
     }
 
     func rollbackScanPruning(_ recovery: ScanPruningRecovery) {
@@ -6816,6 +6868,35 @@ final class MusicLibrary {
             remainingCounts[song.sourceID, default: 0] += 1
         }
         return remainingCounts
+    }
+
+    /// 「从本机移除」时留下的那一行(同一源、同一路径)。电视扫描的歌曲 ID 由源和路径
+    /// 算出, 一般按 ID 就能直接找到; 从手机快照来的行 ID 算法不同, 再按路径找一遍 ——
+    /// 只有命中排除账本的行才会走到这里, 保留目录也很小。
+    private func retainedSongForExclusion(of song: Song) -> Song? {
+        if let retained = deviceLocalExcludedSongsByID[song.id],
+           retained.sourceID == song.sourceID, retained.filePath == song.filePath {
+            return retained
+        }
+        return deviceLocalExcludedSongsByID.values.first {
+            $0.sourceID == song.sourceID && $0.filePath == song.filePath
+        }
+    }
+
+    /// 同一路径上换了文件, 撤掉这几首的本机排除(两种键形态和保留行一起), 落盘一次。
+    private func releaseDeviceLocalExclusions(_ released: [(scanned: Song, retained: Song?)]) {
+        for (scanned, retained) in released {
+            deviceLocalExcludedSongIdentities.remove(identityKey(for: scanned))
+            deviceLocalExcludedSongIdentities.remove("\(scanned.sourceID):\(scanned.filePath)")
+            if let retained {
+                deviceLocalExcludedSongsByID[retained.id] = nil
+                deviceLocalRemovalMetadataByID[retained.id] = nil
+            }
+        }
+        artworkSongIDResolutions.removeAll(keepingCapacity: true)
+        plog("Device-local removal released for \(released.count) replaced file(s)")
+        do { try persistDeviceLocalExclusions() }
+        catch { plog("Device-local exclusion release failed: \(error.localizedDescription)") }
     }
 
     private func discardRetainedSongs(where shouldRemove: (Song) -> Bool) {

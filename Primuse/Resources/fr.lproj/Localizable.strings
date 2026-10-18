@@ -6381,7 +6381,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "Retirer « %@ » de cet Apple TV ?";
-"tv_remove_from_device_confirm_message" = "Seule l'entrée de la bibliothèque de cet Apple TV est retirée ; les fichiers du cloud ou du serveur ne sont pas touchés et les prochaines analyses ne la rajouteront pas. Utile pour supprimer les entrées dont les fichiers ont été effacés et ne se lisent plus.";
+"tv_remove_from_device_confirm_message" = "Seule l'entrée de la bibliothèque de cet Apple TV est retirée ; les fichiers du cloud ou du serveur ne sont pas touchés et les prochaines analyses ne rajouteront pas le même fichier. Un autre fichier placé au même endroit (pochette réintégrée, conversion enregistrée sous le même nom) est ajouté normalement. Utile pour supprimer les entrées dont les fichiers ont été effacés et ne se lisent plus.";
 
 "playlist_import_incomplete_format" = "%d titres chargés, mais la playlist est incomplète. Vous pouvez les importer maintenant ou réessayer.";
 "playlist_import_quota_format" = "%1$d titres chargés ; les pages restantes sont en pause. %2$@ Vous pouvez importer ces titres maintenant ou réessayer après ce délai.";
@@ -6506,3 +6506,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ Dans %2$lld s, les morceaux de cette source musicale seront ignorés et ceux d’autres sources seront lus.";
 "source_skip_now" = "Ignorer maintenant";
+"tv_local_removals_explanation" = "Ces morceaux ont été retirés de cet Apple TV uniquement ; les fichiers sur le cloud ou le serveur sont toujours là. Une fois restaurés, ils reviennent aussitôt dans la bibliothèque, sans nouvelle analyse.";
+"tv_local_removals_restore_album" = "Restaurer l’album";
+"tv_local_removals_removed_at_format" = "Retiré le %@";
+"tv_local_removals_row_hint_format" = "%d retirés de cet Apple TV · maintenez appuyé pour restaurer";

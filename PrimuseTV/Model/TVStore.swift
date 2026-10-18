@@ -632,6 +632,9 @@ final class TVStore {
         }.map(\.id)).union(defaults.stringArray(forKey: "tv.removedSourceIDs") ?? [])
         self.sourcesStore = initialSources
         self.library = library ?? MusicLibrary.makePreparing(disabledSourceIDs: initiallyHidden)
+        // 电视上「从本机移除」是唯一的删除入口:同一位置换成新文件(重新嵌了封面、转码后
+        // 同名放回)要能重新入库,否则扫描看得见、资料库里永远没有。
+        self.library.deviceExclusionsYieldToReplacedFiles = true
         self.defaults = defaults
         self.scraperSettings = ScraperSettingsStore(defaults: defaults)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(
@@ -1704,6 +1707,43 @@ final class TVStore {
             playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
         }
         refreshVisibility()
+    }
+
+    /// 撤销「从本机移除」:排除表里留着整条记录,直接放回曲库,不用等扫描,源连不上也能恢复。
+    /// 返回是否成功;恢复页在全屏覆层里,看不到播放页上的 `playbackIssue`,要靠它自己提示。
+    @discardableResult
+    func restoreSongsRemovedFromThisDevice(_ songIDs: [String]) -> Bool {
+        guard !songIDs.isEmpty else { return true }
+        // 快照正在安装时放回去的行会被整份快照盖掉,同时排除表已撤销,歌就两头都不在了。
+        guard canMutateLibrary else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return false
+        }
+        do {
+            let remaining = try library.restoreSongsRemovedFromThisDevice(songIDs)
+            for (sourceID, count) in remaining {
+                sourcesStore.updateLocal(sourceID) { $0.songCount = count }
+            }
+            plog("TVStore: restored \(songIDs.count) songs removed from this device")
+        } catch {
+            plog("TVStore: restore removed songs failed \(LogRedactionPolicy.errorSummary(error))")
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return false
+        }
+        refreshVisibility()
+        return true
+    }
+
+    /// 各源「从本机移除」的歌数,只含有记录的源。源页每次重绘都要,先取有记录的源
+    /// (没有任何记录时这一步直接返回空),再只数这几个源,不按源的个数把排除表扫很多遍。
+    func songsRemovedFromThisDeviceCounts() -> [String: Int] {
+        let sourceIDs = library.locallyRemovedSourceIDs
+        guard !sourceIDs.isEmpty else { return [:] }
+        var counts: [String: Int] = [:]
+        for sourceID in sourceIDs {
+            counts[sourceID] = library.locallyRemovedCount(forSourceID: sourceID)
+        }
+        return counts
     }
 
     func toggleLiked(_ id: String) {

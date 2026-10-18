@@ -16,6 +16,8 @@ struct TVSourcesView: View {
     @State private var pendingDelete: TVSource?
     @State private var credentialEditor: TVSource?
     @State private var hiddenPlaylistSource: TVSource?
+    /// 「从本机移除」的恢复页:只在这个源确实有记录时才能从长按菜单打开。
+    @State private var localRemovalsSource: TVSource?
     @State private var testingSourceIDs: Set<String> = []
     @State private var testResult: TVTestResult?
     @State private var queuedTestResults: [TVTestResult] = []
@@ -45,6 +47,7 @@ struct TVSourcesView: View {
             pendingDelete != nil,
             credentialEditor != nil,
             hiddenPlaylistSource != nil,
+            localRemovalsSource != nil,
             testResult != nil,
             typePicker,
             sourceForm != nil,
@@ -68,6 +71,8 @@ struct TVSourcesView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     // 一次重绘只映射一遍源列表(每个源要判定凭据、取歌曲数)。
                     let sources = store.sources
+                    // 本机移除的个数也一次取齐,不在每一行里各扫一遍排除表。
+                    let localRemovalCounts = store.songsRemovedFromThisDeviceCounts()
                     VStack(alignment: .leading, spacing: 6) {
                         Text(PMString("ext.tv.sources.eyebrow"))
                             .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
@@ -100,6 +105,7 @@ struct TVSourcesView: View {
                                                     !TVSourceScanner.serverCatalogTypes.contains($0.type)
                                                 } ?? false,
                                                 hiddenPlaylistCount: store.library.hiddenMirrorPlaylists(forSourceID: s.id).count,
+                                                localRemovalCount: localRemovalCounts[s.id] ?? 0,
                                                 onSelect: {
                                                     if s.status == .disabled {
                                                         store.setSourceEnabled(s.id, true)
@@ -134,7 +140,8 @@ struct TVSourcesView: View {
                                                 onRereadTags: {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
                                                 },
-                                                onShowHiddenPlaylists: { hiddenPlaylistSource = s })
+                                                onShowHiddenPlaylists: { hiddenPlaylistSource = s },
+                                                onShowLocalRemovals: { localRemovalsSource = s })
                                     if let source = store.source(id: s.id), source.type == .tingReader {
                                         let sync = store.tingReaderProgressSync
                                         Toggle(PMString("ting_reader_progress_auto_sync"), isOn: Binding(
@@ -284,6 +291,9 @@ struct TVSourcesView: View {
         .fullScreenCover(item: $hiddenPlaylistSource, onDismiss: restorePrimaryFocus) { source in
             TVHiddenSourcePlaylistsView(source: source).environment(store)
         }
+        .fullScreenCover(item: $localRemovalsSource, onDismiss: restorePrimaryFocus) { source in
+            TVLocalRemovalsView(source: source).environment(store)
+        }
         .fullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
             TVSourceTypePicker { type, prefill in
                 pendingSourceForm = TVSourceForm(
@@ -421,9 +431,13 @@ struct TVSourcesView: View {
             showsGoogleDriveAccessChange = true
         case "cloudCompanionAuth":
             debugCompanionAuthSource = MusicSource(name: "Google Drive", type: .googleDrive)
-        case "credentials", "otp", "scan":
+        case "credentials", "otp", "scan", "localRemovals":
+            // 本机移除的排除表随曲库一起载入,要等它到了才知道哪个源有记录。
+            let needsRemovals = TVDebugLaunch.screen == "localRemovals"
             var tries = 0
-            while store.sources.isEmpty && tries < 25 {
+            while (store.sources.isEmpty
+                   || (needsRemovals && store.songsRemovedFromThisDeviceCounts().isEmpty))
+                    && tries < 25 {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 tries += 1
             }
@@ -435,6 +449,9 @@ struct TVSourcesView: View {
                 if let source = sources.first(where: \.canScan) {
                     scanSource = store.source(id: source.id)
                 }
+            case "localRemovals":
+                let counts = store.songsRemovedFromThisDeviceCounts()
+                localRemovalsSource = sources.first { (counts[$0.id] ?? 0) > 0 }
             default: break
             }
         default:
@@ -777,6 +794,7 @@ private struct TVSourceRow: View {
     var canEdit = false
     var canIncrementalScan = false
     var hiddenPlaylistCount = 0
+    var localRemovalCount = 0                // 这台 Apple TV 上「从本机移除」的歌数
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
     var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
@@ -787,6 +805,7 @@ private struct TVSourceRow: View {
     var onIncrementalScan: () -> Void = {}
     var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
     var onShowHiddenPlaylists: () -> Void = {}
+    var onShowLocalRemovals: () -> Void = {}  // 长按菜单:查看并恢复本机移除的歌
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -820,6 +839,15 @@ private struct TVSourceRow: View {
                         )
                         .tvFont(.meta, weight: .semibold)
                         .foregroundStyle(TVColor.warn)
+                    }
+                    // 恢复入口在长按菜单里;行上写出个数,误删的歌才不会悄无声息地一直不见。
+                    if localRemovalCount > 0 {
+                        Label(
+                            String(format: String(localized: "tv_local_removals_row_hint_format"), localRemovalCount),
+                            systemImage: "arrow.uturn.backward.circle"
+                        )
+                        .tvFont(.meta, weight: .semibold)
+                        .foregroundStyle(TVColor.textMuted)
                     }
                 }
                 Spacer(minLength: 0)
@@ -885,6 +913,14 @@ private struct TVSourceRow: View {
             if hiddenPlaylistCount > 0 {
                 Button(action: onShowHiddenPlaylists) {
                     Label("hidden_source_playlists", systemImage: "eye.slash")
+                }
+            }
+            if localRemovalCount > 0 {
+                Button(action: onShowLocalRemovals) {
+                    Label(
+                        String(format: String(localized: "local_removals_source_row_format"), localRemovalCount),
+                        systemImage: "arrow.uturn.backward.circle"
+                    )
                 }
             }
             Button { onTestConnection() } label: {
@@ -1015,6 +1051,341 @@ private struct TVHiddenSourcePlaylistsView: View {
             if isEmpty { closeFocused = true }
         }
         .onExitCommand { dismiss() }
+    }
+}
+
+// MARK: - 本机移除的歌
+
+/// 这台 Apple TV 上「从本机移除」的歌,按专辑分组。电视上唯一的删除就是长按「从本机移除」,
+/// 之后的扫描都不会把它加回来;没有这一页,误删就既看不见也找不回。整条记录还留在排除表里,
+/// 恢复是直接放回曲库,不用重新扫描,源连不上也能恢复。按下一行就恢复这一首,与隐藏歌单、
+/// 回收站的恢复一样;只有「全部恢复」先确认。
+private struct TVLocalRemovalsView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let source: TVSource
+
+    /// 分组只在排除表变化时算一次(上千条也只在这时排序、取艺人名),不在每次重绘里算。
+    @State private var items: [TVLocalRemovalItem] = []
+    /// 列表里能聚焦的项,按屏幕上从上到下的顺序;恢复掉一项后照它把焦点交给邻居。
+    @State private var focusOrder: [String] = []
+    @State private var loadedCount = 0
+    @State private var hasLoaded = false
+    @State private var confirmsRestoreAll = false
+    @State private var restoreFailed = false
+    @FocusState private var focusedID: String?
+
+    private static let restoreAllFocusID = "restoreAll"
+    private static let doneFocusID = "done"
+
+    var body: some View {
+        // 只数个数,排除表本身是被观察的:扫描发现同一路径换了新文件时会撤掉记录,据此重算分组。
+        let ledgerCount = store.library.locallyRemovedCount(forSourceID: source.id)
+        ZStack {
+            TVAmbientBackdrop(tint: source.color, tint2: TVColor.brandSecondary, strength: 0.4)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                Rectangle().fill(TVColor.divider).frame(height: 1)
+                if items.isEmpty {
+                    if hasLoaded {
+                        Text("local_removals_empty")
+                            .tvFont(.rowTitle)
+                            .foregroundStyle(TVColor.textMuted)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    list
+                }
+            }
+            .padding(44)
+            .frame(width: 1640, height: 900)
+            .tvPanel(radius: 26)
+        }
+        .onChange(of: ledgerCount, initial: true) { _, count in
+            guard !hasLoaded || count != loadedCount else { return }
+            reload()
+        }
+        .confirmationDialog(
+            "local_removals_restore_all",
+            isPresented: $confirmsRestoreAll,
+            titleVisibility: .visible
+        ) {
+            Button("restore") {
+                restore(
+                    store.library.locallyRemovedEntries(forSourceID: source.id).map(\.song.id),
+                    from: nil
+                )
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(verbatim: String(
+                format: String(localized: "local_removals_restore_all_message_format"),
+                loadedCount
+            ))
+        }
+        .alert("local_removals_restore_failed_title", isPresented: $restoreFailed) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(PMString("ext.tv.persistence.failed"))
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("local_removals_title")
+                    .tvFont(size: 36, weight: .bold, relativeTo: .title2)
+                    .foregroundStyle(TVColor.text)
+                Text(verbatim: "\(source.name) · \(String(format: String(localized: "local_removals_source_row_format"), loadedCount))")
+                    .tvFont(.caption, weight: .semibold)
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(1)
+                Text("tv_local_removals_explanation")
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 16) {
+                TVPillButton(
+                    title: String(localized: "local_removals_restore_all"),
+                    systemImage: "arrow.uturn.backward.circle.fill",
+                    style: .solid,
+                    focusBinding: $focusedID,
+                    focusID: Self.restoreAllFocusID
+                ) { confirmsRestoreAll = true }
+                .disabled(loadedCount == 0)
+                TVPillButton(
+                    title: String(localized: "done"),
+                    systemImage: "xmark",
+                    focusBinding: $focusedID,
+                    focusID: Self.doneFocusID
+                ) { dismiss() }
+            }
+            .fixedSize()
+            .focusSection()
+        }
+    }
+
+    /// 专辑头和歌曲行拍平成一列交给 LazyVStack,一张几千首的「未知专辑」也只建看得见的行。
+    private var list: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(items) { item in
+                    switch item {
+                    case .album(let album):
+                        albumHeader(album, focusID: item.id)
+                            .padding(.top, album.isFirst ? 0 : 22)
+                    case .song(let row):
+                        songRow(row, focusID: item.id)
+                    }
+                }
+            }
+            // 给焦点描边留出的边距,不让 ScrollView 把它裁掉。
+            .padding(8)
+        }
+        .focusSection()
+    }
+
+    private func albumHeader(_ album: TVLocalRemovalAlbumHeader, focusID: String) -> some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: album.title)
+                    .tvFont(.cardTitle)
+                    .foregroundStyle(TVColor.text)
+                    .lineLimit(1)
+                Text(verbatim: album.subtitle)
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 只有一首的专辑不给这颗按钮:和下面那一行是同一件事,少一个焦点停靠点。
+            if album.songIDs.count > 1 {
+                TVFocusButton(
+                    radius: 14, scale: 1.02, lift: 0,
+                    action: { restore(album.songIDs, from: focusID) },
+                    focusBinding: $focusedID, focusID: focusID
+                ) { focused in
+                    Label("tv_local_removals_restore_album", systemImage: "arrow.uturn.backward.circle")
+                        .tvFont(.caption, weight: .semibold)
+                        .foregroundStyle(focused ? TVColor.onFocusFill : TVColor.text)
+                        .padding(.horizontal, 22).padding(.vertical, 12)
+                        .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
+                }
+                .fixedSize()
+            }
+        }
+        .padding(.horizontal, 6)
+    }
+
+    /// 整行是一颗按钮(不缩放,全宽行缩放会被 ScrollView 横向裁掉描边);右侧「恢复」常驻,只按焦点换色。
+    private func songRow(_ row: TVLocalRemovalSongRow, focusID: String) -> some View {
+        TVFocusButton(
+            radius: TVRadius.card, scale: 1, lift: 0,
+            action: { restore([row.songID], from: focusID) },
+            focusBinding: $focusedID, focusID: focusID
+        ) { focused in
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: row.title)
+                        .tvFont(.rowTitle)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                    Text(verbatim: row.detail)
+                        .tvFont(.caption)
+                        .foregroundStyle(TVColor.textFaint)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Label("restore", systemImage: "arrow.uturn.backward")
+                    .tvFont(.caption, weight: .semibold)
+                    .foregroundStyle(focused ? TVColor.ok : TVColor.textFaint)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 22).padding(.vertical, 14)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+        }
+    }
+
+    private func reload() {
+        let entries = store.library.locallyRemovedEntries(forSourceID: source.id)
+        let wasLoaded = hasLoaded
+        items = TVLocalRemovalItem.make(entries, library: store.library)
+        focusOrder = items.compactMap(\.focusID)
+        loadedCount = entries.count
+        hasLoaded = true
+        if entries.isEmpty {
+            // 全部恢复完了就关掉;一打开就是空的(刚被别处恢复)留在空态,按「完成」离开。
+            if wasLoaded { dismiss() }
+        } else if !wasLoaded, let first = focusOrder.first {
+            Task { @MainActor in
+                await Task.yield()
+                focusedID = first
+            }
+        }
+    }
+
+    /// 恢复后列表原地更新;焦点交给原来那一项之后第一个还在的项(没有就往前找),
+    /// 不让系统把它扔回列表顶上。
+    private func restore(_ songIDs: [String], from focusID: String?) {
+        let previousOrder = focusOrder
+        guard store.restoreSongsRemovedFromThisDevice(songIDs) else {
+            restoreFailed = true
+            return
+        }
+        reload()
+        guard !items.isEmpty, let focusID,
+              let index = previousOrder.firstIndex(of: focusID) else { return }
+        let remaining = Set(focusOrder)
+        let next = previousOrder[index...].first(where: { remaining.contains($0) })
+            ?? previousOrder[..<index].last(where: { remaining.contains($0) })
+        guard let next else { return }
+        Task { @MainActor in
+            await Task.yield()
+            focusedID = next
+        }
+    }
+}
+
+private struct TVLocalRemovalAlbumHeader {
+    let key: String
+    let title: String
+    let subtitle: String
+    let songIDs: [String]
+    let isFirst: Bool
+}
+
+private struct TVLocalRemovalSongRow {
+    let songID: String
+    let title: String
+    let artist: String
+    /// 排除表 v2 的旧记录没有移除时间(记成 0),那种不显示时间。
+    let removedAt: Date?
+
+    /// 艺人 · 移除时间。时间在这一行显示时才格式化,几千条不在分组时一起格式化。
+    var detail: String {
+        guard let removedAt else { return artist }
+        let stamp = removedAt.formatted(date: .abbreviated, time: .shortened)
+        return "\(artist) · \(String(format: String(localized: "tv_local_removals_removed_at_format"), stamp))"
+    }
+}
+
+private enum TVLocalRemovalItem: Identifiable {
+    case album(TVLocalRemovalAlbumHeader)
+    case song(TVLocalRemovalSongRow)
+
+    var id: String {
+        switch self {
+        case .album(let album): return "album:" + album.key
+        case .song(let row): return "song:" + row.songID
+        }
+    }
+
+    /// 能聚焦的项才进焦点顺序;只有一首的专辑头没有按钮。
+    var focusID: String? {
+        switch self {
+        case .album(let album): return album.songIDs.count > 1 ? id : nil
+        case .song: return id
+        }
+    }
+
+    /// 排除表条目按移除时间从新到旧排好;专辑按其中最近一次移除排,刚误删的那张在最上面。
+    /// 专辑内按碟号、曲目号排,与专辑页一致。
+    @MainActor
+    static func make(_ entries: [SongLocalRemovalEntry], library: MusicLibrary) -> [TVLocalRemovalItem] {
+        var albumKeys: [String] = []
+        var entriesByAlbum: [String: [SongLocalRemovalEntry]] = [:]
+        for entry in entries {
+            let key = albumKey(for: entry.song)
+            if entriesByAlbum[key] == nil { albumKeys.append(key) }
+            entriesByAlbum[key, default: []].append(entry)
+        }
+        let unknownArtist = String(localized: "unknown_artist")
+        let unknownAlbum = PMString("ext.widget.unknownAlbum")
+        var items: [TVLocalRemovalItem] = []
+        items.reserveCapacity(entries.count + albumKeys.count)
+        for key in albumKeys {
+            guard let albumEntries = entriesByAlbum[key],
+                  let first = albumEntries.first?.song else { continue }
+            var removedAtBySongID: [String: Date] = [:]
+            for entry in albumEntries where entry.removedAt.timeIntervalSince1970 > 0 {
+                removedAtBySongID[entry.song.id] = entry.removedAt
+            }
+            let songs = AlbumTrackOrder.sorted(albumEntries.map(\.song))
+            let rawTitle = first.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let rawAlbumArtist = first.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let albumArtist = rawAlbumArtist.isEmpty
+                ? (library.artistDisplayName(for: first) ?? unknownArtist)
+                : rawAlbumArtist
+            items.append(.album(TVLocalRemovalAlbumHeader(
+                key: key,
+                title: rawTitle.isEmpty ? unknownAlbum : rawTitle,
+                subtitle: "\(albumArtist) · \(PMString("ext.tv.songsCount", songs.count))",
+                songIDs: songs.map(\.id),
+                isFirst: items.isEmpty
+            )))
+            for song in songs {
+                items.append(.song(TVLocalRemovalSongRow(
+                    songID: song.id,
+                    title: song.title,
+                    artist: library.artistDisplayName(for: song) ?? unknownArtist,
+                    removedAt: removedAtBySongID[song.id]
+                )))
+            }
+        }
+        return items
+    }
+
+    /// 同一张专辑的歌放一组:有专辑 ID 按 ID,没有就按专辑名加专辑艺人。
+    private static func albumKey(for song: Song) -> String {
+        if let albumID = song.albumID, !albumID.isEmpty { return albumID }
+        return (song.albumTitle ?? "") + "\u{1F}" + (song.albumArtistName ?? song.artistName ?? "")
     }
 }
 

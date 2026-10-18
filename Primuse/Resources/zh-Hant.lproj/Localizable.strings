@@ -6358,7 +6358,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "從這台 Apple TV 移除「%@」？";
-"tv_remove_from_device_confirm_message" = "只移除這台 Apple TV 曲庫裡的記錄，雲端硬碟或伺服器上的檔案不受影響，之後掃描也不會再加回來。雲端上已經刪掉、播不了的失效項目也可以這樣清掉。";
+"tv_remove_from_device_confirm_message" = "只移除這台 Apple TV 曲庫裡的記錄，雲端硬碟或伺服器上的檔案不受影響，之後掃描也不會把同一個檔案加回來；同一位置換成了新檔案（例如重新嵌入封面、轉檔後同名放回）會照常加入。雲端上已經刪掉、播不了的失效項目也可以這樣清掉。";
 
 "playlist_import_incomplete_format" = "已讀取 %d 首歌曲，但歌單尚未完整載入。可以現在匯入這些歌曲，或重新讀取。";
 "playlist_import_quota_format" = "已讀取 %1$d 首歌曲，其餘頁面已暫停。%2$@ 可以現在匯入已讀取的歌曲，或等待後重試。";
@@ -6483,3 +6483,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@%2$lld 秒後跳過這個音樂來源的歌，接著播放其他音樂來源的歌曲。";
 "source_skip_now" = "立即跳過";
+"tv_local_removals_explanation" = "這些歌只從這台 Apple TV 的曲庫移除了，雲端硬碟或伺服器上的檔案還在。復原後馬上回到曲庫，不用重新掃描。";
+"tv_local_removals_restore_album" = "復原這張專輯";
+"tv_local_removals_removed_at_format" = "移除於 %@";
+"tv_local_removals_row_hint_format" = "這台 Apple TV 上移除了 %d 首，長按可復原";

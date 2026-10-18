@@ -163,18 +163,37 @@ public enum LibrarySongAdmissionPolicy {
         lastModified: Date?,
         revision: String?
     ) -> SignatureComparison {
+        signatureComparison(
+            recordedFileSize: recorded.fileSize,
+            recordedLastModified: recorded.lastModified,
+            recordedRevision: recorded.revision,
+            fileSize: fileSize,
+            lastModified: lastModified,
+            revision: revision
+        )
+    }
+
+    /// 同上, 记下的那份签名直接给值(「从本机移除」的保留行就是一整行 `Song`)。
+    public nonisolated static func signatureComparison(
+        recordedFileSize: Int64?,
+        recordedLastModified: Date?,
+        recordedRevision: String?,
+        fileSize: Int64?,
+        lastModified: Date?,
+        revision: String?
+    ) -> SignatureComparison {
         var comparable = false
-        if let recordedRevision = recorded.revision, !recordedRevision.isEmpty,
+        if let recordedRevision, !recordedRevision.isEmpty,
            let revision, !revision.isEmpty {
             comparable = true
             if recordedRevision != revision { return .differentFile }
         }
-        if let recordedSize = recorded.fileSize, recordedSize > 0,
+        if let recordedSize = recordedFileSize, recordedSize > 0,
            let fileSize, fileSize > 0 {
             comparable = true
             if recordedSize != fileSize { return .differentFile }
         }
-        if let recordedModified = recorded.lastModified, let lastModified {
+        if let recordedModified = recordedLastModified, let lastModified {
             comparable = true
             if abs(recordedModified.timeIntervalSince(lastModified))
                 > tombstoneModificationTimeTolerance {
@@ -182,6 +201,33 @@ public enum LibrarySongAdmissionPolicy {
             }
         }
         return comparable ? .sameFile : .notComparable
+    }
+
+    /// 电视端的「从本机移除」什么时候让路。电视上它是唯一的删除入口, 也被拿来清
+    /// 网盘上已经换掉的旧条目: 用户给专辑重新嵌了封面、转码后同名放回, 再把旧专辑
+    /// 从电视上移除 —— 同一路径上的新文件要能进来, 否则扫描看得见、资料库里永远
+    /// 没有, 电视上又没有恢复入口。
+    ///
+    /// - `retained` 是移除那一刻留下的那一行。签名对得上说明还是那个文件, 照旧挡着;
+    ///   换过文件才放行。两边没有一项可比时没有证据, 维持原判。
+    /// - 没有保留行、只剩一把键: 那一行已经在某次完整扫描里因为文件从网盘上消失被
+    ///   清掉了, 这把键守着的文件早就不在, 同一路径上再出现的只能是新放上去的。
+    ///
+    /// iPhone / Mac 不走这条: 那边有逐源的恢复界面, 移除弹窗也承诺过重新扫描不会
+    /// 加回来(批量重写标签会改掉签名)。
+    public nonisolated static func replacedFileReleasesDeviceExclusion(
+        retained: Song?,
+        scanned: Song
+    ) -> Bool {
+        guard let retained else { return true }
+        return signatureComparison(
+            recordedFileSize: retained.fileSize,
+            recordedLastModified: retained.lastModified,
+            recordedRevision: retained.revision,
+            fileSize: scanned.fileSize,
+            lastModified: scanned.lastModified,
+            revision: scanned.revision
+        ) == .differentFile
     }
 
     /// 墓碑的用途是挡住"陈旧的目录快照 / 其它设备的旧快照"把已删的歌带回来,

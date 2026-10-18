@@ -702,3 +702,64 @@ struct LibrarySongTombstoneLedgerMergePolicyTests {
         #expect(merged.details.isEmpty)
     }
 }
+
+@Suite("Apple TV device-local removal yields to a replaced file")
+struct DeviceExclusionReplacedFileTests {
+    private static let modified = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private static func song(
+        fileSize: Int64 = 31_000_000,
+        lastModified: Date? = modified,
+        revision: String? = nil
+    ) -> Song {
+        Song(
+            id: "song", title: "Track", fileFormat: .flac, filePath: "/Music/Album/01.flac",
+            sourceID: "webdav", fileSize: fileSize, lastModified: lastModified, revision: revision
+        )
+    }
+
+    @Test("The same file stays out")
+    func sameFileStaysBlocked() {
+        #expect(!LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(), scanned: Self.song()
+        ))
+        // 服务器把修改时间取整到秒、FAT32 两秒粒度:差在容差里仍是同一个文件。
+        #expect(!LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(),
+            scanned: Self.song(lastModified: Self.modified.addingTimeInterval(1.5))
+        ))
+    }
+
+    @Test("A re-embedded cover or a transcode at the same path comes back")
+    func replacedFileIsReleased() {
+        // 重新嵌了封面:大小变了。
+        #expect(LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(), scanned: Self.song(fileSize: 33_500_000)
+        ))
+        // 大小凑巧一样、但重新上传过。
+        #expect(LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(),
+            scanned: Self.song(lastModified: Self.modified.addingTimeInterval(3600))
+        ))
+        // 服务器给了修订号就以它为准。
+        #expect(LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(revision: "etag-1"), scanned: Self.song(revision: "etag-2")
+        ))
+    }
+
+    @Test("Without anything to compare the removal holds")
+    func noEvidenceHolds() {
+        // WebDAV 没回 getcontentlength(-1)、也没有修改时间。
+        #expect(!LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: Self.song(fileSize: 0, lastModified: nil),
+            scanned: Self.song(fileSize: -1, lastModified: nil)
+        ))
+    }
+
+    @Test("A key whose retained row was cleared after the file vanished lets the new file in")
+    func orphanKeyReleases() {
+        #expect(LibrarySongAdmissionPolicy.replacedFileReleasesDeviceExclusion(
+            retained: nil, scanned: Self.song()
+        ))
+    }
+}

@@ -6382,7 +6382,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "この Apple TV から「%@」を削除しますか？";
-"tv_remove_from_device_confirm_message" = "この Apple TV のライブラリの項目だけを削除します。クラウドドライブやサーバ上のファイルには影響せず、今後のスキャンでも追加されません。ファイルが削除されて再生できなくなった項目もこの方法で消せます。";
+"tv_remove_from_device_confirm_message" = "この Apple TV のライブラリの項目だけを削除します。クラウドドライブやサーバ上のファイルには影響せず、今後のスキャンでも同じファイルは追加されません。同じ場所に別のファイルを置いた場合（カバーを埋め込み直した、変換して同じ名前で戻した など）は通常どおり追加されます。ファイルが削除されて再生できなくなった項目もこの方法で消せます。";
 
 "playlist_import_incomplete_format" = "%d 曲を読み込みましたが、プレイリストは未完了です。読み込んだ曲を今すぐ取り込むか、再読み込みできます。";
 "playlist_import_quota_format" = "%1$d 曲を読み込みました。残りのページの読み込みは一時停止中です。%2$@ 読み込んだ曲を今すぐ取り込むか、待機後に再試行できます。";
@@ -6507,3 +6507,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ %2$lld 秒後にこのミュージックソースの曲をスキップし、ほかのソースの曲を再生します。";
 "source_skip_now" = "今すぐスキップ";
+"tv_local_removals_explanation" = "これらの曲はこの Apple TV のライブラリから外しただけで、クラウドドライブやサーバ上のファイルは残っています。復元するとすぐライブラリに戻り、再スキャンは不要です。";
+"tv_local_removals_restore_album" = "このアルバムを復元";
+"tv_local_removals_removed_at_format" = "%@ に削除";
+"tv_local_removals_row_hint_format" = "この Apple TV で %d 曲を削除済み・長押しで復元";

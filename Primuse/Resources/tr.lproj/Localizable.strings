@@ -6287,7 +6287,7 @@
 
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "“%@” bu Apple TV'den kaldırılsın mı?";
-"tv_remove_from_device_confirm_message" = "Yalnızca bu Apple TV'nin arşivindeki kayıt kaldırılır; bulut sürücüdeki veya sunucudaki dosyalar etkilenmez ve sonraki taramalar onu geri eklemez. Dosyası silinmiş, artık çalmayan kayıtları da böyle temizleyebilirsiniz.";
+"tv_remove_from_device_confirm_message" = "Yalnızca bu Apple TV'nin arşivindeki kayıt kaldırılır; bulut sürücüdeki veya sunucudaki dosyalar etkilenmez ve sonraki taramalar aynı dosyayı geri eklemez. Aynı yere konan farklı bir dosya (yeniden gömülmüş kapak, aynı adla kaydedilmiş dönüştürme) her zamanki gibi eklenir. Dosyası silinmiş, artık çalmayan kayıtları da böyle temizleyebilirsiniz.";
 
 "playlist_import_incomplete_format" = "%d şarkı yüklendi ancak çalma listesi eksik. Bu şarkıları şimdi içe aktarabilir veya yeniden yüklemeyi deneyebilirsiniz.";
 "playlist_import_quota_format" = "%1$d şarkı yüklendi; kalan sayfalar duraklatıldı. %2$@ Yüklenen şarkıları şimdi içe aktarabilir veya bekledikten sonra yeniden deneyebilirsiniz.";
@@ -6412,3 +6412,7 @@
 
 "source_skip_countdown %@ %lld" = "%1$@ %2$lld sn sonra bu müzik kaynağındaki şarkılar atlanacak ve diğer kaynaklardaki şarkılar çalınacak.";
 "source_skip_now" = "Şimdi atla";
+"tv_local_removals_explanation" = "Bu şarkılar yalnızca bu Apple TV'den kaldırıldı; bulut sürücüdeki veya sunucudaki dosyalar yerinde duruyor. Geri yüklediğinizde yeniden tarama gerekmeden hemen arşive dönerler.";
+"tv_local_removals_restore_album" = "Albümü Geri Yükle";
+"tv_local_removals_removed_at_format" = "Kaldırılma: %@";
+"tv_local_removals_row_hint_format" = "Bu Apple TV'den %d kaldırıldı · geri yüklemek için basılı tutun";
