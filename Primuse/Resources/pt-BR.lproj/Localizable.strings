@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "Transcrição não concluída · Detalhes";
 "transcript_generation_pill_show_hint" = "Abre a transcrição.";
 "transcript_generation_pill_details_hint" = "Abre a geração de transcrição para ver detalhes ou parar.";
+"transcript_empty_title" = "Sem transcrição";
+"transcript_empty_generate_detail" = "Você pode gerar uma transcrição que acompanha linha a linha enquanto toca.";
+"transcript_empty_running_detail" = "Ela aparecerá aqui quando estiver pronta. Mantenha o Primuse em primeiro plano enquanto termina.";
+"transcript_empty_failed_title" = "Transcrição não concluída";
+"transcript_empty_details" = "Detalhes";
+"transcript_empty_retry" = "Tentar novamente…";
 "transcript_line_spacing" = "Espaçamento entre linhas";
 "transcript_paragraph_spacing" = "Espaçamento entre parágrafos";
 "transcript_spacing_compact" = "Compacto";

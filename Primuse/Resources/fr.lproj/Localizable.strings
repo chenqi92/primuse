@@ -5310,6 +5310,12 @@
 "transcript_generation_pill_failed" = "Transcription inachevée · Détails";
 "transcript_generation_pill_show_hint" = "Ouvre la transcription.";
 "transcript_generation_pill_details_hint" = "Ouvre la génération de transcription pour voir les détails ou l’arrêter.";
+"transcript_empty_title" = "Aucune transcription";
+"transcript_empty_generate_detail" = "Générez une transcription qui défile ligne par ligne pendant la lecture.";
+"transcript_empty_running_detail" = "Elle s’affichera ici une fois prête. Gardez Primuse au premier plan pendant l’opération.";
+"transcript_empty_failed_title" = "Transcription inachevée";
+"transcript_empty_details" = "Détails";
+"transcript_empty_retry" = "Réessayer…";
 "transcript_line_spacing" = "Interligne";
 "transcript_paragraph_spacing" = "Espacement des paragraphes";
 "transcript_spacing_compact" = "Compact";

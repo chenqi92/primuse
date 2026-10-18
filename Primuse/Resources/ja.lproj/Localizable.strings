@@ -5311,6 +5311,12 @@
 "transcript_generation_pill_failed" = "テキストを作り終えられませんでした · 詳細";
 "transcript_generation_pill_show_hint" = "テキストを開きます。";
 "transcript_generation_pill_details_hint" = "生成画面を開いて、詳細の確認や停止ができます。";
+"transcript_empty_title" = "テキストがありません";
+"transcript_empty_generate_detail" = "テキストを生成すると、再生に合わせて一文ずつ表示されます。";
+"transcript_empty_running_detail" = "できあがるとここに表示されます。生成中は Primuse を前面に表示したままにしてください。";
+"transcript_empty_failed_title" = "テキストを作り終えられませんでした";
+"transcript_empty_details" = "詳細";
+"transcript_empty_retry" = "再試行…";
 "transcript_line_spacing" = "行間";
 "transcript_paragraph_spacing" = "段落の間隔";
 "transcript_spacing_compact" = "狭い";

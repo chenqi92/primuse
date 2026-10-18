@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "Metin tamamlanmadı · Ayrıntılar";
 "transcript_generation_pill_show_hint" = "Metni açar.";
 "transcript_generation_pill_details_hint" = "Metin oluşturmayı açar; ayrıntıları görebilir veya durdurabilirsiniz.";
+"transcript_empty_title" = "Metin yok";
+"transcript_empty_generate_detail" = "Çalarken satır satır ilerleyen bir metin oluşturabilirsiniz.";
+"transcript_empty_running_detail" = "Hazır olunca burada görünür. Çalışırken Primuse'u ön planda tutun.";
+"transcript_empty_failed_title" = "Metin tamamlanmadı";
+"transcript_empty_details" = "Ayrıntılar";
+"transcript_empty_retry" = "Tekrar dene…";
 "transcript_line_spacing" = "Satır aralığı";
 "transcript_paragraph_spacing" = "Paragraf aralığı";
 "transcript_spacing_compact" = "Sıkı";

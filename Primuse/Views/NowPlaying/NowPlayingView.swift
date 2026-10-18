@@ -1862,24 +1862,21 @@ struct NowPlayingView: View {
         reduceMotion ? .easeInOut(duration: 0.16) : .smooth(duration: 0.35, extraBounce: 0)
     }
 
-    /// 点大封面。音乐(和有文字稿的有声内容)切到歌词;有声内容没有文字时那一页是空的
-    /// 「暂无歌词」,改为打开目录 —— 播客没有章节时那里默认是节目说明。
+    /// 点大封面切到歌词。有声内容同样切到文字稿那一页,有没有文字稿都一样:没有时那一页写明没有、
+    /// 能生成就给生成,生成中显示进度(`SpokenTranscriptEmptyState`)。
     private func openTextFromArtwork() {
-        if usesSpokenWordTransport {
-            if isPlayerSplit {
-                // 分栏时有声内容的右栏固定是目录 / 书签 / 文字,只把右栏打开;
-                // 别把 showLyrics 置真,那会让大封面不再充当匹配几何的源。
-                selectSidePane(showsQueue: true)
-                return
-            }
-            if lyrics.isEmpty {
-                // 有声书点封面只用来切文字稿,没有文字稿时不做事:目录在章节那一行和传输键上,
-                // 封面、章号栏、章节行都开目录太多了。播客单集照旧打开节目说明。
-                if SpokenWordPlayerText.isPodcastEpisode(player) { openContentsPanel() }
-                return
-            }
+        if usesSpokenWordTransport, isPlayerSplit {
+            showSpokenWordTextPane()
+            return
         }
         setStandardLyricsVisible(true)
+    }
+
+    /// 分栏时有声内容的右栏固定是目录 / 书签 / 文字:打开右栏并翻到文字那一页;
+    /// 别把 showLyrics 置真,那会让大封面不再充当匹配几何的源。
+    private func showSpokenWordTextPane() {
+        contentsRequestedTab = .text
+        selectSidePane(showsQueue: true)
     }
 
     private func handleImmersiveContentTap() {
@@ -3108,6 +3105,21 @@ struct NowPlayingView: View {
             switch debugPlayerMode ?? ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYER_MODE"] {
             case "lyrics":
                 showLyrics = true
+            case "artworkTap", "artworkTapGenerate", "artworkTapSimulate":
+                // 和手指点大封面走同一条路:有声内容没有文字稿时进文字稿那一页。`artworkTapGenerate`
+                // 接着用本机识别给这一集生成文字稿,`artworkTapSimulate` 只把生成的几个阶段走一遍,
+                // 看那一页上的进度与结果。
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                openTextFromArtwork()
+                let mode = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYER_MODE"]
+                if let song = player.currentSong {
+                    if mode == "artworkTapGenerate" {
+                        SpokenTranscriptGenerator.shared.start(song: song, engine: .onDevice, localeIdentifier: "en-US")
+                    } else if mode == "artworkTapSimulate" {
+                        SpokenTranscriptGenerator.shared.debugSimulateProgress(song: song)
+                    }
+                }
             case "lyricsToggle":
                 let environment = ProcessInfo.processInfo.environment
                 let configuredInterval = Double(environment["PRIMUSE_DEBUG_LYRICS_TOGGLE_INTERVAL"] ?? "") ?? 4
@@ -4438,10 +4450,22 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 文字稿刚生成好:打开文字稿那一面。这时歌词可能还在读进来,不走「没有文字稿就不做事」那条判断。
+    /// 有声内容没有文字稿时文字稿那一页的内容;音乐为空。
+    private var spokenTranscriptEmptyState: SpokenTranscriptEmptyState.Content? {
+        guard usesSpokenWordTransport else { return nil }
+        return SpokenTranscriptEmptyState.Content(
+            song: player.currentSong,
+            onOpenGeneration: { transcriptGenerationSong = player.currentSong },
+            onShowNotes: SpokenWordPlayerText.isPodcastEpisode(player)
+                ? { openContentsPanel(tab: .notes) }
+                : nil
+        )
+    }
+
+    /// 文字稿刚生成好:打开文字稿那一面(这时歌词可能还在读进来)。
     private func showGeneratedTranscript() {
         if isPlayerSplit {
-            selectSidePane(showsQueue: true)
+            showSpokenWordTextPane()
         } else if !showLyrics {
             setStandardLyricsVisible(true)
         }
@@ -4698,7 +4722,10 @@ struct NowPlayingView: View {
 
                 compactLandscapeAirPlayButton
 
-                transcriptGenerationStatus
+                // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
+                if !(showLyrics && lyrics.isEmpty) {
+                    transcriptGenerationStatus
+                }
             } else {
                 ForEach(chrome.leading, id: \.self) { action in
                     controlButton(action, style: .glass)
@@ -5012,7 +5039,7 @@ struct NowPlayingView: View {
             // 跟左栏 grabber 顶端对齐
             Spacer().frame(height: topSafeArea + 21)
             if usesSpokenWordTransport {
-                // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
+                // 有声内容的右栏是这本书的目录、书签与文字稿。
                 spokenWordContentsPane
                     .padding(.bottom, 24)
             } else {
@@ -5025,7 +5052,8 @@ struct NowPlayingView: View {
     private var spokenWordContentsPane: some View {
         SpokenWordContentsView(
             presentation: .embedded(spokenWordPalette),
-            textTab: lyrics.isEmpty ? nil : AnyView(lyricsFullView),
+            // 没有文字稿时这一页也在:写明没有、能生成就给生成,生成中在这里看进度。
+            textTab: AnyView(lyricsFullView),
             requestedTab: $contentsRequestedTab
         )
     }
@@ -5289,7 +5317,8 @@ struct NowPlayingView: View {
                        let error = player.lastPlaybackError {
                         playbackErrorToast(error)
                     }
-                    if !showLyrics || !isLyricsImmersive {
+                    // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
+                    if !showLyrics || (!isLyricsImmersive && !lyrics.isEmpty) {
                         transcriptGenerationStatus
                     }
 
@@ -5667,7 +5696,10 @@ struct NowPlayingView: View {
                 playbackErrorToast(error)
                     .padding(.top, 4)
             }
-            transcriptGenerationStatus
+            // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
+            if !showsText || !lyrics.isEmpty {
+                transcriptGenerationStatus
+            }
 
             VStack(spacing: 0) {
                 if showsText {
@@ -5910,7 +5942,7 @@ struct NowPlayingView: View {
     }
 
     /// 正方形的书封。方的原图正好铺满,竖的、横的整张放进来,空出的边用它自己的模糊放大垫上。
-    /// 和文字稿顶上那张小封面是同一个匹配几何身份,切换时飞过去。点开:有文字稿看文字稿,没有就开目录。
+    /// 和文字稿顶上那张小封面是同一个匹配几何身份,切换时飞过去。点开是文字稿那一页。
     private func audiobookCover(style: AudiobookPlayerStyle) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
         return CachedArtworkView(
@@ -5948,9 +5980,8 @@ struct NowPlayingView: View {
         .onTapGesture { openTextFromArtwork() }
         .accessibilityElement()
         .accessibilityLabel(Text(verbatim: SpokenWordPlayerText.bookTitle(player)))
-        // 没有文字稿时点封面不做事,不报成按钮。
-        .accessibilityAddTraits(lyrics.isEmpty ? [] : .isButton)
-        .accessibilityHint(lyrics.isEmpty ? Text(verbatim: "") : Text("spoken_word_text_tab"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text("spoken_word_text_tab"))
     }
 
     /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
@@ -7444,7 +7475,8 @@ struct NowPlayingView: View {
             },
             translatedTextByLineID: lyricTranslationsByLineID,
             translationActivity: lyricsTranslationActivity,
-            onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil
+            onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil,
+            spokenWordEmptyState: spokenTranscriptEmptyState
         )
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
@@ -12845,6 +12877,9 @@ struct LyricsScrollView: View {
     let translationActivity: LyricsTranslationActivity
     /// 用户亲手往上翻了一段歌词（往回拉、程序滚动、双指缩放不算）。竖屏播放页用它收起底部控件。
     var onUserScroll: (() -> Void)? = nil
+    /// 有声内容没有文字稿时那一页(写明没有、能生成就给生成、生成中显示进度,#314);为空时是音乐的
+    /// 「暂无歌词」与刮削、听歌识词。
+    var spokenWordEmptyState: SpokenTranscriptEmptyState.Content? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -13043,6 +13078,17 @@ struct LyricsScrollView: View {
                         alignment: lyricsAlignment,
                         tint: appearance.faint,
                         layoutDirection: lyricLayoutDirection
+                    )
+                } else if let spokenWordEmptyState {
+                    SpokenTranscriptEmptyState(
+                        content: spokenWordEmptyState,
+                        palette: SpokenWordPlayerPalette(
+                            primary: appearance.primary,
+                            secondary: appearance.secondary,
+                            tertiary: appearance.faint,
+                            accent: appearance.primary,
+                            tileFill: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.12)
+                        )
                     )
                 } else {
                     emptyLyricsView

@@ -5310,6 +5310,12 @@
 "transcript_generation_pill_failed" = "텍스트를 끝내지 못함 · 자세히";
 "transcript_generation_pill_show_hint" = "텍스트를 엽니다.";
 "transcript_generation_pill_details_hint" = "생성 화면을 열어 자세히 보거나 멈춥니다.";
+"transcript_empty_title" = "텍스트 없음";
+"transcript_empty_generate_detail" = "텍스트를 생성하면 재생에 맞춰 한 줄씩 표시됩니다.";
+"transcript_empty_running_detail" = "완성되면 여기에 표시됩니다. 생성하는 동안 Primuse를 화면에 띄워 두세요.";
+"transcript_empty_failed_title" = "텍스트를 끝내지 못함";
+"transcript_empty_details" = "자세히";
+"transcript_empty_retry" = "다시 시도…";
 "transcript_line_spacing" = "줄 간격";
 "transcript_paragraph_spacing" = "문단 간격";
 "transcript_spacing_compact" = "좁게";

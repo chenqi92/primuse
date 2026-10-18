@@ -5287,6 +5287,12 @@
 "transcript_generation_pill_failed" = "文字稿沒有產生完 · 查看原因";
 "transcript_generation_pill_show_hint" = "打開文字稿。";
 "transcript_generation_pill_details_hint" = "打開產生面板，查看詳情或停止。";
+"transcript_empty_title" = "暫無文字稿";
+"transcript_empty_generate_detail" = "可以產生一份文字稿，播放時一句句跟著顯示。";
+"transcript_empty_running_detail" = "產生好就顯示在這裡。產生時請讓 Primuse 留在前景。";
+"transcript_empty_failed_title" = "文字稿沒有產生完";
+"transcript_empty_details" = "查看詳情";
+"transcript_empty_retry" = "重試…";
 "transcript_line_spacing" = "行距";
 "transcript_paragraph_spacing" = "段距";
 "transcript_spacing_compact" = "緊湊";

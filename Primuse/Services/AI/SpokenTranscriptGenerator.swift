@@ -167,6 +167,28 @@ final class SpokenTranscriptGenerator {
         task?.cancel()
     }
 
+    #if DEBUG
+    /// 取证用:不取音频、不识别,只把几个阶段依次走一遍,看播放页上的进度怎么画。停下或走完都不留结果。
+    func debugSimulateProgress(song: Song) {
+        guard activeJob == nil else { return }
+        lastOutcome = nil
+        activeJob = Job(song: song, engine: .onDevice, localeIdentifier: nil, phase: .fetchingAudio(nil))
+        task = Task { [weak self] in
+            let phases: [Phase] = [
+                .fetchingAudio(nil), .fetchingAudio(0.4), .convertingAudio,
+                .transcribing(0.15), .transcribing(0.45), .transcribing(0.8), .finishing,
+            ]
+            for phase in phases {
+                self?.setPhase(phase)
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+            }
+            self?.activeJob = nil
+            self?.task = nil
+        }
+    }
+    #endif
+
     func clearOutcome() {
         lastOutcome = nil
     }

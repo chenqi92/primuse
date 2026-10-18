@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "สร้างข้อความไม่เสร็จ · รายละเอียด";
 "transcript_generation_pill_show_hint" = "เปิดข้อความถอดเสียง";
 "transcript_generation_pill_details_hint" = "เปิดหน้าสร้างข้อความเพื่อดูรายละเอียดหรือหยุด";
+"transcript_empty_title" = "ไม่มีข้อความถอดเสียง";
+"transcript_empty_generate_detail" = "สร้างข้อความถอดเสียงได้ จะแสดงทีละบรรทัดตามเสียงที่เล่น";
+"transcript_empty_running_detail" = "เสร็จแล้วจะแสดงที่นี่ ระหว่างสร้างให้เปิด Primuse ค้างไว้";
+"transcript_empty_failed_title" = "สร้างข้อความไม่เสร็จ";
+"transcript_empty_details" = "รายละเอียด";
+"transcript_empty_retry" = "ลองอีกครั้ง…";
 "transcript_line_spacing" = "ระยะห่างบรรทัด";
 "transcript_paragraph_spacing" = "ระยะห่างย่อหน้า";
 "transcript_spacing_compact" = "แน่น";

@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "Текст не готовий · Докладніше";
 "transcript_generation_pill_show_hint" = "Відкриває текст.";
 "transcript_generation_pill_details_hint" = "Відкриває створення тексту: подробиці та зупинка.";
+"transcript_empty_title" = "Немає тексту";
+"transcript_empty_generate_detail" = "Можна створити текст, що йтиме рядок за рядком під час відтворення.";
+"transcript_empty_running_detail" = "Він з’явиться тут, коли буде готовий. Тримайте Primuse на екрані, поки триває створення.";
+"transcript_empty_failed_title" = "Текст не готовий";
+"transcript_empty_details" = "Докладніше";
+"transcript_empty_retry" = "Повторити…";
 "transcript_line_spacing" = "Міжрядковий інтервал";
 "transcript_paragraph_spacing" = "Інтервал між абзацами";
 "transcript_spacing_compact" = "Щільно";

@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "Transkrypcja nieukończona · Szczegóły";
 "transcript_generation_pill_show_hint" = "Otwiera transkrypcję.";
 "transcript_generation_pill_details_hint" = "Otwiera tworzenie transkrypcji ze szczegółami i zatrzymaniem.";
+"transcript_empty_title" = "Brak transkrypcji";
+"transcript_empty_generate_detail" = "Możesz utworzyć transkrypcję, która podczas odtwarzania przewija się wiersz po wierszu.";
+"transcript_empty_running_detail" = "Pojawi się tutaj, gdy będzie gotowa. Zostaw Primuse na pierwszym planie.";
+"transcript_empty_failed_title" = "Transkrypcja nieukończona";
+"transcript_empty_details" = "Szczegóły";
+"transcript_empty_retry" = "Spróbuj ponownie…";
 "transcript_line_spacing" = "Interlinia";
 "transcript_paragraph_spacing" = "Odstęp między akapitami";
 "transcript_spacing_compact" = "Ciasno";

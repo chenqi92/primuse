@@ -5216,6 +5216,12 @@
 "transcript_generation_pill_failed" = "ट्रांसक्रिप्ट पूरा नहीं हुआ · विवरण";
 "transcript_generation_pill_show_hint" = "ट्रांसक्रिप्ट खोलता है।";
 "transcript_generation_pill_details_hint" = "ट्रांसक्रिप्ट बनाने का पैनल खोलता है, जहाँ विवरण देख सकते हैं या रोक सकते हैं।";
+"transcript_empty_title" = "कोई ट्रांसक्रिप्ट नहीं";
+"transcript_empty_generate_detail" = "आप ट्रांसक्रिप्ट बना सकते हैं, जो चलते समय पंक्ति-दर-पंक्ति साथ चलेगा।";
+"transcript_empty_running_detail" = "तैयार होते ही यहाँ दिखेगा। चलते समय Primuse को सामने खुला रखें।";
+"transcript_empty_failed_title" = "ट्रांसक्रिप्ट पूरा नहीं हुआ";
+"transcript_empty_details" = "विवरण";
+"transcript_empty_retry" = "फिर से कोशिश करें…";
 "transcript_line_spacing" = "पंक्ति अंतराल";
 "transcript_paragraph_spacing" = "अनुच्छेद अंतराल";
 "transcript_spacing_compact" = "संकुचित";

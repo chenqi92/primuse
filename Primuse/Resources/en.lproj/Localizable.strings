@@ -5073,6 +5073,12 @@
 "transcript_generation_pill_failed" = "Transcript Not Finished · Details";
 "transcript_generation_pill_show_hint" = "Opens the transcript.";
 "transcript_generation_pill_details_hint" = "Opens transcript generation to see details or stop it.";
+"transcript_empty_title" = "No Transcript";
+"transcript_empty_generate_detail" = "You can generate a transcript that follows along line by line as it plays.";
+"transcript_empty_running_detail" = "It will appear here when it's ready. Keep Primuse in the foreground while it runs.";
+"transcript_empty_failed_title" = "Transcript Not Finished";
+"transcript_empty_details" = "Details";
+"transcript_empty_retry" = "Try Again…";
 "transcript_line_spacing" = "Line Spacing";
 "transcript_paragraph_spacing" = "Paragraph Spacing";
 "transcript_spacing_compact" = "Compact";

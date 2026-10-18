@@ -78,6 +78,8 @@ struct MacNowPlayingView: View {
     @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     /// 有声内容的文稿全屏读(`SpokenWordTranscriptReader`)。
     @State private var showsTranscriptReader = false
+    /// 从文字稿那一页打开的生成面板(#314)。
+    @State private var transcriptGenerationSong: Song?
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -242,12 +244,10 @@ struct MacNowPlayingView: View {
                                 .frame(width: isWindowFullScreen ? 520 : 380)
                                 .frame(maxHeight: .infinity)
                             if isSpokenWord {
-                                // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
+                                // 有声内容的右栏是这本书的目录、书签与文字稿。
                                 SpokenWordContentsView(
                                     presentation: .embedded(spokenWordPalette),
-                                    textTab: lyrics.isEmpty ? nil : AnyView(
-                                        lyricsPane.overlay(alignment: .topTrailing) { transcriptReaderButton }
-                                    ),
+                                    textTab: AnyView(spokenWordTextTab),
                                     requestedTab: $contentsRequestedTab
                                 )
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -258,6 +258,10 @@ struct MacNowPlayingView: View {
                                         player: player,
                                         translatedTextByLineID: lyricTranslationsByLineID
                                     )
+                                }
+                                .sheet(item: $transcriptGenerationSong) { song in
+                                    SpokenTranscriptGenerationSheet(song: song, dismissesOnStart: true)
+                                        .environment(AppServices.shared.musicIntelligence)
                                 }
                             } else {
                                 lyricsPane
@@ -825,6 +829,11 @@ struct MacNowPlayingView: View {
                         decodeSize: coverSize
                     )
                     .frame(width: coverSize, height: coverSize * 0.96, alignment: frameAlignment)
+                    // 和手机上点封面一样,右栏翻到文字稿那一页。
+                    .contentShape(Rectangle())
+                    .onTapGesture { contentsRequestedTab = .text }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(Text("spoken_word_text_tab"))
                 } else if let song = player.currentSong {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
@@ -1779,6 +1788,27 @@ struct MacNowPlayingView: View {
         }
         .frame(width: 36, height: 36)
         .contentShape(Circle())
+    }
+
+    /// 有声内容右栏的文字稿那一页。没有文字稿时写明没有、能生成就给生成,生成中在这里看进度(#314)。
+    @ViewBuilder
+    private var spokenWordTextTab: some View {
+        if lyrics.isEmpty, !isLoadingLyrics, let song = player.currentSong {
+            SpokenTranscriptEmptyState(
+                content: SpokenTranscriptEmptyState.Content(
+                    song: song,
+                    onOpenGeneration: { transcriptGenerationSong = player.currentSong },
+                    onShowNotes: SpokenWordPlayerText.isPodcastEpisode(player)
+                        ? { contentsRequestedTab = .notes }
+                        : nil
+                ),
+                palette: spokenWordPalette
+            )
+        } else {
+            lyricsPane.overlay(alignment: .topTrailing) {
+                if !lyrics.isEmpty { transcriptReaderButton }
+            }
+        }
     }
 
     /// 文字稿页右上角:全屏读、调字体与间距。

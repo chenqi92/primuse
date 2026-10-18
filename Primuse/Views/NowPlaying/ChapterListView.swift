@@ -20,7 +20,8 @@ struct SpokenWordContentsView: View {
 
     var presentation: Presentation = .sheet
     /// A third tab with the item's timed text (a transcript read as
-    /// lyrics), offered only when the item has one.
+    /// lyrics). 播放页旁边那一栏总给这一页,没有文字稿时那一页写明没有、能生成(#314);
+    /// 弹出的目录面板不给。
     var textTab: AnyView?
     /// Called after a row was opened, so a sheet can close.
     var onOpen: (() -> Void)?

@@ -594,6 +594,251 @@ struct SpokenTranscriptGenerationStatusPill: View {
     }
 }
 
+/// 有声内容(播客、有声书)的文字稿那一页在没有文字稿时画什么(#314)。点封面总是进文字稿,和音乐进歌词
+/// 一样;这里写明没有,这一条能生成就给「生成文字稿…」;正在给它生成时显示做到哪一步、几成,能看详情或停下;
+/// 没做成写明原因、能重试。播客另给一颗「节目说明」。
+struct SpokenTranscriptEmptyState: View {
+    struct Content {
+        var song: Song?
+        /// 打开生成面板:生成、重试、看详情都走它。
+        var onOpenGeneration: () -> Void
+        /// 播客单集的节目说明;不是播客时为空。
+        var onShowNotes: (() -> Void)?
+    }
+
+    let content: Content
+    let palette: SpokenWordPlayerPalette
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 刚生成完的那几秒到点时换一下,让这一块重新判断。
+    @State private var settleTick = 0
+
+    private var generator: SpokenTranscriptGenerator { .shared }
+
+    /// 生成完到文字稿读进播放页之间(换歌词是异步的)接着转,不闪一下「暂无文字稿」。
+    private static let settleSeconds: TimeInterval = 8
+
+    private enum Display: Equatable {
+        case running(SpokenTranscriptGenerator.Phase)
+        /// 在给别的单集、章节生成,做完才能开始这一条。
+        case busy(title: String)
+        case failed(SpokenTranscriptGenerator.Failure)
+        case settling
+        case idle(canGenerate: Bool)
+
+        /// 换了哪一种情形(进度数字变了不算),只在这时淡入淡出。
+        var kind: Int {
+            switch self {
+            case .running: 0
+            case .busy: 1
+            case .failed: 2
+            case .settling: 3
+            case .idle(let canGenerate): canGenerate ? 4 : 5
+            }
+        }
+    }
+
+    private var display: Display {
+        _ = settleTick
+        guard let song = content.song, SpokenTranscriptGenerator.canGenerate(for: song) else {
+            return .idle(canGenerate: false)
+        }
+        if let job = generator.activeJob {
+            return job.song.id == song.id ? .running(job.phase) : .busy(title: job.song.title)
+        }
+        switch generator.lastOutcome {
+        case .failed(let id, let failure)? where id == song.id:
+            return .failed(failure)
+        case .finished(let id, _)? where id == song.id:
+            if let at = generator.lastOutcomeAt, Date().timeIntervalSince(at) < Self.settleSeconds {
+                return .settling
+            }
+        default:
+            break
+        }
+        return .idle(canGenerate: true)
+    }
+
+    var body: some View {
+        let display = self.display
+        VStack(spacing: 12) {
+            Spacer().frame(height: 60)
+            icon(display)
+                .font(.system(size: 30, weight: .regular))
+                .frame(height: 36)
+                .accessibilityHidden(true)
+            Text(titleKey(display))
+                .font(.title3)
+                .foregroundStyle(palette.secondary)
+                .multilineTextAlignment(.center)
+            switch display {
+            case .running(let phase): progress(phase)
+            case .settling: progress(.finishing)
+            default: EmptyView()
+            }
+            if let detail = detailText(display) {
+                detail
+                    .font(.footnote)
+                    .foregroundStyle(palette.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { actions(display) }
+                VStack(spacing: 10) { actions(display) }
+            }
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: display.kind)
+        .task(id: generator.lastOutcomeAt) {
+            guard let at = generator.lastOutcomeAt else { return }
+            let remaining = Self.settleSeconds - Date().timeIntervalSince(at)
+            guard remaining > 0 else { return }
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            settleTick &+= 1
+        }
+    }
+
+    @ViewBuilder
+    private func icon(_ display: Display) -> some View {
+        switch display {
+        case .running, .settling:
+            Image(systemName: "waveform")
+                .foregroundStyle(palette.secondary)
+                .symbolEffect(.variableColor.iterative, isActive: !reduceMotion)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .busy, .idle:
+            Image(systemName: "text.bubble")
+                .foregroundStyle(palette.tertiary)
+        }
+    }
+
+    private func titleKey(_ display: Display) -> LocalizedStringKey {
+        switch display {
+        case .running, .settling: "transcript_generation_menu_running"
+        case .failed: "transcript_empty_failed_title"
+        case .busy, .idle: "transcript_empty_title"
+        }
+    }
+
+    private func detailText(_ display: Display) -> Text? {
+        switch display {
+        case .running:
+            Text("transcript_empty_running_detail")
+        case .settling:
+            nil
+        case .busy(let title):
+            Text(verbatim: String(format: String(localized: "transcript_generation_busy_format"), title))
+        case .failed(let failure):
+            Text(SpokenTranscriptGenerationSheet.failureKey(failure))
+        case .idle(let canGenerate):
+            canGenerate ? Text("transcript_empty_generate_detail") : nil
+        }
+    }
+
+    /// 有比例的阶段画一条进度,拿不到比例的(取音频、转格式、下模型、等云端、整理)转小菊花。
+    private func progress(_ phase: SpokenTranscriptGenerator.Phase) -> some View {
+        let text = SpokenTranscriptGenerationSheet.phaseText(phase)
+        return VStack(spacing: 8) {
+            Text(verbatim: text)
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(palette.primary)
+            Group {
+                if let fraction = SpokenTranscriptGenerationSheet.phaseFraction(phase) {
+                    Capsule()
+                        .fill(palette.primary.opacity(0.16))
+                        .overlay(alignment: .leading) {
+                            GeometryReader { track in
+                                Capsule()
+                                    .fill(palette.primary)
+                                    .frame(width: max(4, track.size.width * min(1, max(0, fraction))))
+                                    .animation(.smooth(duration: 0.3), value: fraction)
+                            }
+                        }
+                        .frame(width: 220, height: 4)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(palette.primary)
+                }
+            }
+            .frame(height: 20)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: text))
+    }
+
+    @ViewBuilder
+    private func actions(_ display: Display) -> some View {
+        switch display {
+        case .running:
+            capsuleButton("transcript_empty_details", prominent: false, action: content.onOpenGeneration)
+            capsuleButton("transcript_generation_stop", prominent: false) { generator.cancel() }
+        case .failed:
+            capsuleButton(
+                "transcript_empty_retry",
+                symbol: "arrow.clockwise",
+                prominent: true,
+                action: content.onOpenGeneration
+            )
+        case .idle(canGenerate: true):
+            capsuleButton(
+                "transcript_generation_action",
+                symbol: "waveform.and.mic",
+                prominent: true,
+                action: content.onOpenGeneration
+            )
+        case .busy, .settling, .idle(canGenerate: false):
+            EmptyView()
+        }
+        if let onShowNotes = content.onShowNotes, offersNotes(display) {
+            capsuleButton("podcast_show_notes", symbol: "text.alignleft", prominent: false, action: onShowNotes)
+        }
+    }
+
+    /// 生成中这一排只放详情与停止。
+    private func offersNotes(_ display: Display) -> Bool {
+        switch display {
+        case .running, .settling: false
+        case .busy, .failed, .idle: true
+        }
+    }
+
+    private func capsuleButton(
+        _ titleKey: LocalizedStringKey,
+        symbol: String? = nil,
+        prominent: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                if let symbol { Image(systemName: symbol) }
+                Text(titleKey)
+            }
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(prominent ? prominentLabel : palette.primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .background(prominent ? palette.primary : palette.tileFill, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 实心那颗拿正文的颜色铺底,字反过来:深色页上白底黑字,浅色页上黑底白字。
+    private var prominentLabel: Color {
+        colorScheme == .dark ? .black : .white
+    }
+}
+
 /// 播放页「更多」里「生成文稿」那一项的标题和副标题(生成中写进度)。
 struct SpokenTranscriptGenerationMenuItem: Equatable {
     var titleKey: LocalizedStringKey
