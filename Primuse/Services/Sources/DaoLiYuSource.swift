@@ -2,7 +2,8 @@ import Foundation
 import PrimuseKit
 
 /// 道理鱼原生 API 的只读整库 connector。
-actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
+actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    ServerPlaylistAppendingConnector {
     let sourceID: String
 
     private static let pageSize = 100
@@ -102,6 +103,52 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     func disconnect() async {
         connected = false
         await client.invalidateSession()
+    }
+
+    // MARK: - 歌单
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    /// 只读镜像:自己的歌单(含「喜欢的音乐」)。服务端没有更新时间可比,每轮整份读。
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
+        try await connect()
+        return ServerPlaylistSnapshot(
+            try await client.playlistSnapshot { await progress(ServerPlaylist($0)) }
+        )
+    }
+
+    /// 服务端会跳过已在歌单里的歌,这里仍先读一次只发缺的,加完再读一次,每首都在才算成功。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        try await connect()
+        let index = try await client.playlistIndex()
+        guard let playlist = index.playlists.first(where: { $0.id == id }) else {
+            throw SourceError.connectionFailed("DaoLiYu playlist not found")
+        }
+        let current = try await client.playlistTrackIDs(id: id)
+        var seen = Set(current)
+        let missing = itemIDs.filter { seen.insert($0).inserted }
+        var trackIDs = current
+        if !missing.isEmpty {
+            var offset = 0
+            while offset < missing.count {
+                try Task.checkCancellation()
+                let chunk = Array(missing[offset..<min(offset + 200, missing.count)])
+                do {
+                    try await client.addTracks(chunk, toPlaylist: id)
+                } catch DaoLiYuServiceError.authenticationFailed {
+                    // 刚用同一个登录读过这张歌单,这时被拒是当前账户不能改它。
+                    throw ServerPlaylistAppendError.readOnly
+                }
+                offset += chunk.count
+            }
+            trackIDs = try await client.playlistTrackIDs(id: id)
+            guard Set(trackIDs).isSuperset(of: missing) else { throw ServerPlaylistAppendError.notConfirmed }
+        }
+        return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs, reportedTrackCount: trackIDs.count)
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {

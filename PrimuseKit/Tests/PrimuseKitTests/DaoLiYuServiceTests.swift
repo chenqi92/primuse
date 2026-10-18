@@ -311,6 +311,89 @@ import Testing
     }
 }
 
+/// 自己的歌单逐个读曲目 id:读不出 id 的条目让列表算作不完整,单份读不到只记进失败,不拖累别的歌单。
+@Test func daoLiYuPlaylistSnapshotReadsOwnPlaylistsAndKeepsFailuresApart() async throws {
+    let transport = DaoLiYuRequestTransport(
+        data: { request in
+            let url = try #require(request.url)
+            let reply: (status: Int, body: String)
+            switch url.path {
+            case "/api/auth/login":
+                reply = (200, #"{"token":"TOKEN"}"#)
+            case "/api/playlists/web/mine":
+                reply = (200, #"[{"id":"pl_1","name":"开车","userId":"u1"},{"id":"pl_2","name":"坏掉"},{"name":"没有 id"}]"#)
+            case "/api/playlists/pl_1/track-ids":
+                reply = (200, #"{"items":["trk_1","trk_2"],"total":2}"#)
+            case "/api/playlists/pl_2/track-ids":
+                reply = (500, "{}")
+            default:
+                throw URLError(.badServerResponse)
+            }
+            return (
+                Data(reply.body.utf8),
+                try #require(HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: nil, headerFields: nil))
+            )
+        },
+        download: { _ in throw URLError(.unsupportedURL) }
+    )
+    let client = DaoLiYuServiceClient(
+        sourceID: "source-1", host: "music.example.com", port: nil, useSSL: true, basePath: nil,
+        username: "qa@example.com", password: "password", transport: transport
+    )
+
+    let snapshot = try await client.playlistSnapshot()
+    #expect(snapshot.playlists == [DaoLiYuPlaylist(id: "pl_1", name: "开车", trackIDs: ["trk_1", "trk_2"])])
+    #expect(snapshot.failedPlaylistIDs == ["pl_2"])
+    #expect(!snapshot.isIndexComplete)
+}
+
+/// 批量加歌照网页端:POST `trackIds`,不带 `startOrder`;Go 版回 201 也算成功。
+@Test func daoLiYuAddsTracksToPlaylistInOneBatch() async throws {
+    let recorder = DaoLiYuPlaybackReportRecorder()
+    let transport = DaoLiYuRequestTransport(
+        data: { request in
+            let url = try #require(request.url)
+            switch url.path {
+            case "/api/auth/login":
+                return (
+                    Data(#"{"token":"TOKEN"}"#.utf8),
+                    try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                )
+            case "/api/playlists/pl_1/tracks/batch":
+                _ = await recorder.recordReport(
+                    method: request.httpMethod,
+                    authorization: request.value(forHTTPHeaderField: "Authorization"),
+                    contentType: request.value(forHTTPHeaderField: "Content-Type"),
+                    body: request.httpBody
+                )
+                return (
+                    Data("[]".utf8),
+                    try #require(HTTPURLResponse(url: url, statusCode: 201, httpVersion: nil, headerFields: nil))
+                )
+            default:
+                throw URLError(.badServerResponse)
+            }
+        },
+        download: { _ in throw URLError(.unsupportedURL) }
+    )
+    let client = DaoLiYuServiceClient(
+        sourceID: "source-1", host: "music.example.com", port: nil, useSSL: true, basePath: nil,
+        username: "qa@example.com", password: "password", transport: transport
+    )
+
+    try await client.addTracks(["trk_1", "trk_2"], toPlaylist: "pl_1")
+    let reports = await recorder.reports
+    #expect(reports.count == 1)
+    let report = try #require(reports.first)
+    #expect(report.method == "POST")
+    #expect(report.contentType == "application/json")
+    let json = try #require(try JSONSerialization.jsonObject(with: try #require(report.body)) as? [String: [String]])
+    #expect(json == ["trackIds": ["trk_1", "trk_2"]])
+    await #expect(throws: (any Error).self) {
+        try await client.addTracks([], toPlaylist: "pl_1")
+    }
+}
+
 private actor DaoLiYuPlaybackReportRecorder {
     struct Report: Sendable {
         let method: String?

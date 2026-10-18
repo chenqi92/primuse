@@ -199,6 +199,28 @@ public struct DaoLiYuCatalogTrack: Sendable {
     }
 }
 
+/// 歌单列表里的一条:只读镜像要用的 id 与名字。
+public struct DaoLiYuPlaylistSummary: Sendable, Equatable {
+    public let id: String
+    public let name: String
+}
+
+/// 道理鱼的一个歌单与它的曲目 id(服务端顺序)。
+public struct DaoLiYuPlaylist: Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let trackIDs: [String]
+}
+
+public struct DaoLiYuPlaylistSnapshot: Sendable, Equatable {
+    public let playlists: [DaoLiYuPlaylist]
+    /// 出现在歌单列表里、但这次没能读到曲目的歌单。调用方要保留它们已有的镜像,
+    /// 不能当成服务端已删除。
+    public let failedPlaylistIDs: Set<String>
+    /// 歌单列表里有读不出的条目时为 false:不在快照里的镜像也可能只是没读出来。
+    public let isIndexComplete: Bool
+}
+
 /// Injectable request transport so application targets can apply their own
 /// certificate and explicitly-approved cleartext policies without duplicating
 /// the DaoLiYu protocol implementation.
@@ -468,17 +490,88 @@ public actor DaoLiYuServiceClient {
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let body = try JSONSerialization.data(
-            withJSONObject: ["trackId": id, "playedAt": formatter.string(from: playedAt)],
-            options: [.sortedKeys]
+        try await postJSON(
+            path: "/library/playback-history",
+            body: ["trackId": id, "playedAt": formatter.string(from: playedAt)]
         )
+    }
+
+    // MARK: - 歌单
+
+    /// 自己的歌单,不带曲目(`/playlists/web/mine`,Node 版 0.2.6 到 Go 版 1.0.4 都有)。只列自己的,
+    /// 别人公开的不在里面,所以列出来的都能加歌。读不出 id 或重复的条目跳过,条数随结果报出。
+    public func playlistIndex() async throws -> (playlists: [DaoLiYuPlaylistSummary], unreadableCount: Int) {
+        let payload = try await authorizedJSON(path: "/playlists/web/mine")
+        guard let rows = payload as? [Any] ?? (payload as? [String: Any])?["items"] as? [Any] else {
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingItemsOrTotal"))
+        }
+        var seen = Set<String>()
+        let playlists = rows.compactMap { row -> DaoLiYuPlaylistSummary? in
+            guard let json = row as? [String: Any],
+                  let id = daoLiYuNonemptyString(json["id"]) ?? daoLiYuInt64(json["id"]).map(String.init),
+                  seen.insert(id).inserted else { return nil }
+            return DaoLiYuPlaylistSummary(id: id, name: daoLiYuNonemptyString(json["name"]) ?? "")
+        }
+        return (playlists, rows.count - playlists.count)
+    }
+
+    /// 歌单曲目 id,按服务端顺序一次给全(`/playlists/{id}/track-ids`,不分页)。
+    public func playlistTrackIDs(id: String) async throws -> [String] {
+        let payload = try await authorizedJSON(path: "/playlists/\(Self.encodedPathComponent(id))/track-ids")
+        guard let items = (payload as? [String: Any])?["items"] as? [Any] else {
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingItemsOrTotal"))
+        }
+        return items.compactMap { daoLiYuNonemptyString($0) ?? daoLiYuInt64($0).map(String.init) }
+    }
+
+    /// 自己的歌单逐个读曲目,读全一个就交出一个。某一份读不到只记进 `failedPlaylistIDs`。
+    /// iPhone、Mac 的连接器与电视端共用这一份。
+    public func playlistSnapshot(
+        onPlaylist: (@Sendable (DaoLiYuPlaylist) async -> Void)? = nil
+    ) async throws -> DaoLiYuPlaylistSnapshot {
+        let index = try await playlistIndex()
+        var playlists: [DaoLiYuPlaylist] = []
+        var failed: Set<String> = []
+        for summary in index.playlists {
+            try Task.checkCancellation()
+            let playlist: DaoLiYuPlaylist
+            do {
+                playlist = DaoLiYuPlaylist(id: summary.id, name: summary.name, trackIDs: try await playlistTrackIDs(id: summary.id))
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                throw CancellationError()
+            } catch {
+                failed.insert(summary.id)
+                continue
+            }
+            playlists.append(playlist)
+            await onPlaylist?(playlist)
+        }
+        return DaoLiYuPlaylistSnapshot(
+            playlists: playlists,
+            failedPlaylistIDs: failed,
+            isIndexComplete: index.unreadableCount == 0
+        )
+    }
+
+    /// 加到歌单末尾(`/playlists/{id}/tracks/batch`,不带 `startOrder`)。服务端跳过已在歌单里的;
+    /// 有一首不在曲库里整批回 404。Go 版回 201 带新加的条目,Node 版回 200 带计数,只看状态码。
+    public func addTracks(_ trackIDs: [String], toPlaylist id: String) async throws {
+        guard !trackIDs.isEmpty else {
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))
+        }
+        try await postJSON(path: "/playlists/\(Self.encodedPathComponent(id))/tracks/batch", body: ["trackIds": trackIDs])
+    }
+
+    /// 带登录态 POST 一段 JSON;401/403 先换一次登录再试,只看状态码。
+    private func postJSON(path: String, body: [String: Any]) async throws {
+        let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         for attempt in 0...1 {
             var request = try await authenticatedRequest(
-                path: "/library/playback-history",
+                path: path,
                 headers: ["Content-Type": "application/json"]
             )
             request.httpMethod = "POST"
-            request.httpBody = body
+            request.httpBody = data
             let (_, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))

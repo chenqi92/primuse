@@ -2246,8 +2246,8 @@ final class TVSourceScanner {
         }
     }
 
-    /// 媒体服务器 / Subsonic 系 / Songloft / 群晖 Audio Station 的服务端歌单。
-    /// 连接器与 iPhone、Mac 是同一份;Audio Station 电视端直接用 Kit 客户端,
+    /// 媒体服务器 / Subsonic 系 / Songloft / 群晖 Audio Station / 道理鱼的服务端歌单。
+    /// 连接器与 iPhone、Mac 是同一份;Audio Station 与道理鱼电视端直接用 Kit 客户端,
     /// 镜像规则同样是三端共用的那一份。
     /// 返回 nil 表示该类型没有歌单能力,调用方不要动本地任何歌单。
     func fetchServerPlaylists(
@@ -2263,6 +2263,13 @@ final class TVSourceScanner {
                 )
             }
             return ServerPlaylistSnapshot(mirrors)
+        }
+        if source.type == .daoliyu {
+            let snapshot = try await withRoutedSource(source) { routedSource in
+                try await DaoLiYuServiceClient(source: routedSource, credential: credential)
+                    .playlistSnapshot { await progress(ServerPlaylist($0)) }
+            }
+            return ServerPlaylistSnapshot(snapshot)
         }
         return try await withRoutedSource(source) { routedSource in
             guard let connector = TVServerCatalogConnectorFactory.make(
@@ -2292,13 +2299,11 @@ final class TVSourceScanner {
     }
 
     /// 电视端能取到服务端歌单的类型。飞牛走自己那条更早接通的路径,不在此列。
-    ///
-    /// 道理鱼不在此列不是电视端的限制:`DaoLiYuServiceClient` 与 `DaoLiYuSource`
-    /// 都只实现了整库分页、单曲、歌词与按段读取,没有歌单或收藏接口,三端皆无。
+    /// 道理鱼与群晖一样直接用 Kit 客户端,镜像规则和 iPhone、Mac 是同一份。
     static let serverPlaylistTypes: Set<MusicSourceType> = [
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .songloft, .synologyAudioStation,
+        .songloft, .synologyAudioStation, .daoliyu,
     ]
 
     /// 服务端的「喜欢」标记。能取的类型由 `ServerFavoriteWritebackPolicy` 决定 ——

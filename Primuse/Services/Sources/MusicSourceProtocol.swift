@@ -2325,6 +2325,15 @@ struct ServerPlaylistSnapshot: Sendable {
             isIndexComplete: audioStation.isIndexComplete
         )
     }
+
+    /// 道理鱼:iPhone、Mac 的连接器与电视端共用。
+    init(_ daoLiYu: DaoLiYuPlaylistSnapshot) {
+        self.init(
+            playlists: daoLiYu.playlists.map(ServerPlaylist.init),
+            failedPlaylistIDs: daoLiYu.failedPlaylistIDs,
+            isIndexComplete: daoLiYu.isIndexComplete
+        )
+    }
 }
 
 extension ServerPlaylist {
@@ -2333,6 +2342,13 @@ extension ServerPlaylist {
             id: audioStation.id, name: audioStation.name,
             trackIDs: audioStation.trackIDs, reportedTrackCount: audioStation.trackIDs.count,
             isReadOnly: audioStation.isSmart, isSmartPlaylist: audioStation.isSmart
+        )
+    }
+
+    init(_ daoLiYu: DaoLiYuPlaylist) {
+        self.init(
+            id: daoLiYu.id, name: daoLiYu.name,
+            trackIDs: daoLiYu.trackIDs, reportedTrackCount: daoLiYu.trackIDs.count
         )
     }
 }
@@ -2362,7 +2378,8 @@ extension ServerPlaylistConnector {
 
 /// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`、Emby / Jellyfin
 /// `POST /Playlists/{id}/Items`、Plex `PUT /playlists/{id}/items`、Songloft
-/// `POST /playlists/{id}/songs`、Audio Station `updatesongs`、飞牛 `/playlist/add-track`)。只追加, 不删不排序 ——
+/// `POST /playlists/{id}/songs`、Audio Station `updatesongs`、飞牛 `/playlist/add-track`、道理鱼
+/// `POST /playlists/{id}/tracks/batch`)。只追加, 不删不排序 ——
 /// 镜像歌单其余的编辑仍以服务端为准。返回追加后服务端的完整明细, 调用方用它
 /// 直接刷新本地镜像。
 protocol ServerPlaylistAppendingConnector: MusicSourceConnector {
