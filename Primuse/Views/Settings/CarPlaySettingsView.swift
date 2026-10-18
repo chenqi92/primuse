@@ -17,6 +17,9 @@ struct CarPlaySettingsView: View {
     @State private var presetName = ""
     @State private var owner = UUID()
     @State private var previewItem: CarPlayHomeItem?
+    /// 浮动预览放在哪儿、多大(记在本机,下次进来还在原处)。
+    @AppStorage(CarPlayPreviewWindow.positionKey) private var previewPosition = ""
+    @AppStorage(CarPlayPreviewWindow.widthKey) private var previewWidth = 0.0
 
     init(settings: CarPlaySettingsStore = .shared, model: CarPlayEditorModel? = nil, showsLibrary: Bool = false) {
         _model = State(initialValue: model ?? CarPlayEditorModel(settings: settings))
@@ -62,20 +65,37 @@ struct CarPlaySettingsView: View {
             Group {
                 if showingLibrary {
                     CarPlayPresetLibrary(model: model) { showingLibrary = false }
-                } else if geometry.size.width >= 700 {
-                    HStack(alignment: .top, spacing: 0) {
-                        previewColumn(width: min(geometry.size.width * 0.5, max(320, (geometry.size.height - 140) * 16 / 9)))
-                            .padding(.leading, 20)
-                            .padding(.trailing, 4)
-                        editorPanel
-                            .frame(maxWidth: .infinity)
-                    }
                 } else {
-                    VStack(spacing: 0) {
-                        previewColumn(width: min(geometry.size.width - 32, max(280, (geometry.size.height - 340) * 16 / 9)))
-                            .frame(maxWidth: .infinity)
-                        editorPanel
-                    }
+                    // 预览和「播放页样式与按钮」一样浮在列表上:拖住下面那一排挪到哪儿停在哪儿,双指捏合调大小,
+                    // 列表占满整页;预览停在下半屏时列表底下多留一截,最后几行能滚到它上面。
+                    let window = FloatingPreviewWindowMetrics.frame(
+                        position: previewPosition,
+                        storedWidth: previewWidth,
+                        shape: CarPlayPreviewWindow.shape,
+                        in: geometry.size
+                    )
+                    editorPanel
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentMargins(
+                            .bottom,
+                            FloatingPreviewWindowMetrics.bottomContentMargin(for: window, in: geometry.size),
+                            for: .scrollContent
+                        )
+                        .overlay {
+                            FloatingPreviewWindow(
+                                area: geometry.size,
+                                shape: CarPlayPreviewWindow.shape,
+                                position: $previewPosition,
+                                storedWidth: $previewWidth,
+                                // 画布里能滚、能拖模块和标签,挪窗口只认下面那一排。
+                                movesByStripOnly: true,
+                                accessibilityTitle: "carplay_preview"
+                            ) {
+                                canvas
+                            } strip: {
+                                CarPlayPreviewStrip()
+                            }
+                        }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -205,13 +225,6 @@ struct CarPlaySettingsView: View {
 
     // MARK: - Preview
 
-    private func previewColumn(width: CGFloat) -> some View {
-        canvas
-            .frame(width: width)
-            .padding(.top, 18)
-            .padding(.bottom, 6)
-    }
-
     private var canvas: some View {
         CarPlayEditorCanvas(blocks: blocks, configuration: model.configuration, selectedID: model.selectedID,
             editing: model.homeEditorVisible, playerPage: false, wide: false, previewItem: previewItem ?? nowPlaying,
@@ -336,6 +349,45 @@ struct CarPlaySettingsView: View {
     private func updateFolderAccess() {
         let needed = model.configuration.tabs.contains { $0.kind == .folders || $0.content?.kind == .folder } || !model.configuration.folderIDs.isEmpty || model.configuration.blocks.contains { $0.kind == .folders || $0.items.contains { $0.kind == .folder } }
         if needed { folders.acquire(owner) } else { folders.release(owner) }
+    }
+}
+#endif
+
+#if os(iOS)
+/// CarPlay 布局页浮动预览的形状与记位置的键:车机屏 16:9,没调过时约屏宽七成。
+enum CarPlayPreviewWindow {
+    static let positionKey = "primuse.settings.carPlayPreviewPosition"
+    static let widthKey = "primuse.settings.carPlayPreviewWidth"
+
+    static var shape: FloatingPreviewShape {
+        FloatingPreviewShape(
+            aspect: 16 / 9,
+            // 画布自己按 14 的圆角裁,垫底的阴影跟着它。
+            cornerRadius: { _ in 14 },
+            defaultWidth: { min($0.width * 0.7, 320) },
+            maximumWidth: 720
+        )
+    }
+}
+
+/// 浮动预览下面那一排:按住它挪窗口(画布里自己能滚、能拖,不拿来挪窗口)。
+private struct CarPlayPreviewStrip: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .bold))
+            Text("carplay_preview")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Capsule())
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Text("carplay_preview_move_hint"))
     }
 }
 #endif

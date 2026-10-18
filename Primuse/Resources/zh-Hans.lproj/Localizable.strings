@@ -6613,3 +6613,5 @@
 
 "player_controls_tile_home_header" = "关着时在右上角";
 "player_controls_tile_home_transport" = "关着时在播放键旁";
+
+"carplay_preview_move_hint" = "按住这一条拖动预览，双指捏合调大小";

@@ -6521,3 +6521,5 @@
 
 "player_controls_tile_home_header" = "オフのときは右上";
 "player_controls_tile_home_transport" = "オフのときは再生ボタンの横";
+
+"carplay_preview_move_hint" = "このバーを長押ししてプレビューを移動、ピンチで大きさを変えられます。";

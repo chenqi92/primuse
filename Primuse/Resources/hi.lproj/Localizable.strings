@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "बंद होने पर: ऊपर दाईं ओर";
 "player_controls_tile_home_transport" = "बंद होने पर: चलाएँ बटन के पास";
+
+"carplay_preview_move_hint" = "प्रीव्यू खिसकाने के लिए इस पट्टी को दबाकर रखें; आकार बदलने के लिए पिंच करें।";

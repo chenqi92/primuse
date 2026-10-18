@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "عند الإيقاف: أعلى اليمين";
 "player_controls_tile_home_transport" = "عند الإيقاف: بجانب زر التشغيل";
+
+"carplay_preview_move_hint" = "المس هذا الشريط مطولًا لتحريك المعاينة، واقرص لتغيير حجمها.";

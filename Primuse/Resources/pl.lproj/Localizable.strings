@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "Po wyłączeniu: prawy górny róg";
 "player_controls_tile_home_transport" = "Po wyłączeniu: obok przycisku odtwarzania";
+
+"carplay_preview_move_hint" = "Przytrzymaj ten pasek, aby przesunąć podgląd; zsuń lub rozsuń palce, aby zmienić rozmiar.";

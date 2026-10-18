@@ -141,7 +141,7 @@ struct NowPlayingControlsEditorView: View {
             let window = FloatingPreviewWindowMetrics.frame(
                 position: previewPosition,
                 storedWidth: previewWidth,
-                canvas: canvas,
+                shape: .player(canvas),
                 in: geometry.size
             )
             form
@@ -154,7 +154,7 @@ struct NowPlayingControlsEditorView: View {
                 .overlay {
                     FloatingPreviewWindow(
                         area: geometry.size,
-                        canvas: canvas,
+                        shape: .player(canvas),
                         position: $previewPosition,
                         storedWidth: $previewWidth
                     ) {
@@ -866,8 +866,28 @@ private struct SlotChoiceRow: View {
     }
 }
 
+/// 浮动预览的形状:宽高比、圆角、没调过时多宽、最宽多宽。播放页按真机竖屏比例,CarPlay 按车机横屏 16:9。
+struct FloatingPreviewShape {
+    /// 宽 ÷ 高。
+    let aspect: CGFloat
+    /// 预览这么宽时圆角多大。
+    let cornerRadius: (CGFloat) -> CGFloat
+    /// 没调过大小时多宽(按可用区域算)。
+    let defaultWidth: (CGSize) -> CGFloat
+    let maximumWidth: CGFloat
+
+    static func player(_ canvas: NowPlayingPreviewCanvas) -> FloatingPreviewShape {
+        FloatingPreviewShape(
+            aspect: canvas.aspect,
+            cornerRadius: { canvas.cornerRadius * $0 / max(canvas.size.width, 1) },
+            defaultWidth: { min($0.width * 0.32, 150) },
+            maximumWidth: 420
+        )
+    }
+}
+
 /// 浮动预览的位置与大小。位置存的是可移动范围里的比例(0…1),换了大小、转了屏也落在同一个相对位置。
-private enum FloatingPreviewWindowMetrics {
+enum FloatingPreviewWindowMetrics {
     static let positionKey = "primuse.settings.playerStylePreviewPosition"
     static let widthKey = "primuse.settings.playerStylePreviewWidth"
     static let stripHeight: CGFloat = 36
@@ -876,22 +896,21 @@ private enum FloatingPreviewWindowMetrics {
     static let margin: CGFloat = 10
     static let minimumWidth: CGFloat = 96
 
-    /// 预览本身的宽:没调过时约三成屏宽;双指缩放后记住,夹在放得下的范围里。
-    static func width(stored: Double, canvas: NowPlayingPreviewCanvas, in area: CGSize) -> CGFloat {
-        let aspect = canvas.aspect
+    /// 预览本身的宽:没调过时按形状给的默认宽;双指缩放后记住,夹在放得下的范围里。
+    static func width(stored: Double, shape: FloatingPreviewShape, in area: CGSize) -> CGFloat {
         let maximum = max(
             minimumWidth,
-            min(area.width - margin * 2, (area.height - margin * 2 - stripHeight - spacing) * aspect, 420)
+            min(area.width - margin * 2, (area.height - margin * 2 - stripHeight - spacing) * shape.aspect, shape.maximumWidth)
         )
-        let base = stored > 0 ? CGFloat(stored) : min(area.width * 0.32, 150)
+        let base = stored > 0 ? CGFloat(stored) : shape.defaultWidth(area)
         return min(max(base, minimumWidth), maximum)
     }
 
     /// 连同下面那排切换键的整块大小。
-    static func size(width: CGFloat, canvas: NowPlayingPreviewCanvas) -> CGSize {
+    static func size(width: CGFloat, shape: FloatingPreviewShape) -> CGSize {
         CGSize(
             width: max(width, stripMinimumWidth),
-            height: width / canvas.aspect + spacing + stripHeight
+            height: width / shape.aspect + spacing + stripHeight
         )
     }
 
@@ -921,10 +940,10 @@ private enum FloatingPreviewWindowMetrics {
     static func frame(
         position: String,
         storedWidth: Double,
-        canvas: NowPlayingPreviewCanvas,
+        shape: FloatingPreviewShape,
         in area: CGSize
     ) -> CGRect {
-        let size = size(width: width(stored: storedWidth, canvas: canvas, in: area), canvas: canvas)
+        let size = size(width: width(stored: storedWidth, shape: shape, in: area), shape: shape)
         let center = center(fraction: fraction(position), size: size, in: area)
         return CGRect(
             x: center.x - size.width / 2,
@@ -933,15 +952,23 @@ private enum FloatingPreviewWindowMetrics {
             height: size.height
         )
     }
+
+    /// 预览在下半屏时,列表底下多留出一截,最后几行能滚到它上面。
+    static func bottomContentMargin(for window: CGRect, in area: CGSize) -> CGFloat {
+        window.midY > area.height / 2 ? area.height - window.minY + 8 : 0
+    }
 }
 
 /// 像画中画一样浮在设置列表上的那张实时预览:按住拖到哪儿就停在哪儿,双指捏合调大小,下面一排切换键。
-/// 拖动、捏合中只改位移和缩放,不重画里面的播放页;松手才记下新位置。
-private struct FloatingPreviewWindow<Content: View, Strip: View>: View {
+/// 拖动、捏合中只改位移和缩放,不重画里面的预览;松手才记下新位置。
+/// 预览里面自己能滚、能拖的(CarPlay 画布)用 `movesByStripOnly`:只有按住下面那一排才挪窗口,双指捏合照样调大小。
+struct FloatingPreviewWindow<Content: View, Strip: View>: View {
     let area: CGSize
-    let canvas: NowPlayingPreviewCanvas
+    let shape: FloatingPreviewShape
     @Binding var position: String
     @Binding var storedWidth: Double
+    let movesByStripOnly: Bool
+    let accessibilityTitle: LocalizedStringKey
     let content: Content
     let strip: Strip
     @GestureState private var drag: CGSize = .zero
@@ -949,33 +976,39 @@ private struct FloatingPreviewWindow<Content: View, Strip: View>: View {
 
     init(
         area: CGSize,
-        canvas: NowPlayingPreviewCanvas,
+        shape: FloatingPreviewShape,
         position: Binding<String>,
         storedWidth: Binding<Double>,
+        movesByStripOnly: Bool = false,
+        accessibilityTitle: LocalizedStringKey = "player_style_preview_title",
         @ViewBuilder content: () -> Content,
         @ViewBuilder strip: () -> Strip
     ) {
         self.area = area
-        self.canvas = canvas
+        self.shape = shape
         _position = position
         _storedWidth = storedWidth
+        self.movesByStripOnly = movesByStripOnly
+        self.accessibilityTitle = accessibilityTitle
         self.content = content()
         self.strip = strip()
     }
 
     var body: some View {
-        let width = FloatingPreviewWindowMetrics.width(stored: storedWidth, canvas: canvas, in: area)
-        let size = FloatingPreviewWindowMetrics.size(width: width, canvas: canvas)
+        let width = FloatingPreviewWindowMetrics.width(stored: storedWidth, shape: shape, in: area)
+        let size = FloatingPreviewWindowMetrics.size(width: width, shape: shape)
         let center = FloatingPreviewWindowMetrics.center(
             fraction: FloatingPreviewWindowMetrics.fraction(position),
             size: size,
             in: area
         )
-        let corner = canvas.cornerRadius * width / max(canvas.size.width, 1)
-        VStack(spacing: FloatingPreviewWindowMetrics.spacing) {
+        let corner = shape.cornerRadius(width)
+        let move = moveGesture(center: center, size: size)
+        let resize = resizeGesture(width: width)
+        return VStack(spacing: FloatingPreviewWindowMetrics.spacing) {
             content
-                .frame(width: width, height: width / canvas.aspect)
-                // 阴影垫在一块同样圆角的底上,拖动时不用跟着播放页重算。
+                .frame(width: width, height: width / shape.aspect)
+                // 阴影垫在一块同样圆角的底上,拖动时不用跟着预览重算。
                 .background {
                     RoundedRectangle(cornerRadius: corner, style: .continuous)
                         .fill(.black)
@@ -986,30 +1019,36 @@ private struct FloatingPreviewWindow<Content: View, Strip: View>: View {
                     width: max(width, FloatingPreviewWindowMetrics.stripMinimumWidth),
                     height: FloatingPreviewWindowMetrics.stripHeight
                 )
+                .gesture(move, including: movesByStripOnly ? .all : .none)
         }
         .scaleEffect(pinch)
         .offset(drag)
-        // 位移按全局坐标量:按窗口自己的坐标量时,窗口一跟手,量到的位移就被抵掉一截,拖起来来回抖。
-        .gesture(
-            DragGesture(minimumDistance: 3, coordinateSpace: .global)
-                .updating($drag) { value, state, _ in state = value.translation }
-                .onEnded { value in
-                    let moved = CGPoint(
-                        x: center.x + value.translation.width,
-                        y: center.y + value.translation.height
-                    )
-                    position = FloatingPreviewWindowMetrics.storedPosition(center: moved, size: size, in: area)
-                }
-                .simultaneously(with: MagnifyGesture()
-                    .updating($pinch) { value, state, _ in state = value.magnification }
-                    .onEnded { value in
-                        storedWidth = Double(width * value.magnification)
-                    }
-                )
-        )
+        .gesture(move.simultaneously(with: resize), including: movesByStripOnly ? .subviews : .all)
+        .simultaneousGesture(resize, including: movesByStripOnly ? .all : .none)
         .position(center)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("player_style_preview_title"))
+        .accessibilityLabel(Text(accessibilityTitle))
+    }
+
+    /// 位移按全局坐标量:按窗口自己的坐标量时,窗口一跟手,量到的位移就被抵掉一截,拖起来来回抖。
+    private func moveGesture(center: CGPoint, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .global)
+            .updating($drag) { value, state, _ in state = value.translation }
+            .onEnded { value in
+                let moved = CGPoint(
+                    x: center.x + value.translation.width,
+                    y: center.y + value.translation.height
+                )
+                position = FloatingPreviewWindowMetrics.storedPosition(center: moved, size: size, in: area)
+            }
+    }
+
+    private func resizeGesture(width: CGFloat) -> some Gesture {
+        MagnifyGesture()
+            .updating($pinch) { value, state, _ in state = value.magnification }
+            .onEnded { value in
+                storedWidth = Double(width * value.magnification)
+            }
     }
 }
 

@@ -6520,3 +6520,5 @@
 
 "player_controls_tile_home_header" = "Désactivé : en haut à droite";
 "player_controls_tile_home_transport" = "Désactivé : à côté de Lecture";
+
+"carplay_preview_move_hint" = "Maintenez cette barre pour déplacer l’aperçu ; pincez pour le redimensionner.";

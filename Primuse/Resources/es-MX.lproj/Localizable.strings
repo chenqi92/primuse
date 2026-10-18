@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "Desactivado: arriba a la derecha";
 "player_controls_tile_home_transport" = "Desactivado: junto a Reproducir";
+
+"carplay_preview_move_hint" = "Mantén presionada esta barra para mover la vista previa; pellizca para cambiar el tamaño.";

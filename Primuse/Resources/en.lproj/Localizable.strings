@@ -6280,3 +6280,5 @@
 
 "player_controls_tile_home_header" = "When off: top right";
 "player_controls_tile_home_transport" = "When off: next to Play";
+
+"carplay_preview_move_hint" = "Touch and hold this bar to move the preview; pinch to resize.";

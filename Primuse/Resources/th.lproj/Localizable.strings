@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "เมื่อปิด: มุมขวาบน";
 "player_controls_tile_home_transport" = "เมื่อปิด: ข้างปุ่มเล่น";
+
+"carplay_preview_move_hint" = "แตะแถบนี้ค้างไว้เพื่อย้ายตัวอย่าง จีบนิ้วเพื่อปรับขนาด";

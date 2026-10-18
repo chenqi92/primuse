@@ -6520,3 +6520,5 @@
 
 "player_controls_tile_home_header" = "끄면 오른쪽 위";
 "player_controls_tile_home_transport" = "끄면 재생 버튼 옆";
+
+"carplay_preview_move_hint" = "이 막대를 길게 눌러 미리 보기를 옮기고, 두 손가락으로 크기를 조절합니다.";

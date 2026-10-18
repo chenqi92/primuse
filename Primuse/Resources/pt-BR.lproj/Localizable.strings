@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "Desativado: canto superior direito";
 "player_controls_tile_home_transport" = "Desativado: ao lado de Reproduzir";
+
+"carplay_preview_move_hint" = "Toque e segure esta barra para mover a prévia; faça o gesto de pinça para redimensionar.";

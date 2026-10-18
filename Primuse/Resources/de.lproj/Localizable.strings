@@ -6520,3 +6520,5 @@
 
 "player_controls_tile_home_header" = "Ausgeschaltet: oben rechts";
 "player_controls_tile_home_transport" = "Ausgeschaltet: neben der Wiedergabetaste";
+
+"carplay_preview_move_hint" = "Halte diese Leiste gedrückt, um die Vorschau zu verschieben; mit zwei Fingern die Größe ändern.";

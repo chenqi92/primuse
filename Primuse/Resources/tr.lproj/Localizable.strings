@@ -6426,3 +6426,5 @@
 
 "player_controls_tile_home_header" = "Kapalıyken: sağ üstte";
 "player_controls_tile_home_transport" = "Kapalıyken: Oynat düğmesinin yanında";
+
+"carplay_preview_move_hint" = "Önizlemeyi taşımak için bu çubuğu basılı tutun; boyutunu değiştirmek için kıstırın.";
