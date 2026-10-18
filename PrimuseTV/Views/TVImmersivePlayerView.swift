@@ -1507,14 +1507,16 @@ private struct TVImmersiveAwayClock: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let area = movableArea(in: geometry.size)
             block
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { blockSize = $0 }
                 .opacity(position == nil || !isShown ? 0 : 1)
                 .offset(x: (position ?? .zero).x, y: (position ?? .zero).y)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .task(id: DriftKey(bounds: area.size, block: roundedBlockSize, reduceMotion: reduceMotion)) {
+                .task(id: DriftKey(bounds: geometry.size, block: roundedBlockSize, reduceMotion: reduceMotion)) {
                     guard blockSize != .zero else { return }
+                    // 范围在开工时按现量的块大小算。第一轮的 id 是块还没量到时定的，
+                    // 那时按 0 算出的范围会把块的左上角放到贴底处，歌名艺人全在屏幕外。
+                    let area = movableArea(in: geometry.size)
                     if reduceMotion {
                         await hop(in: area)
                     } else {
@@ -1600,9 +1602,8 @@ private struct TVImmersiveAwayClock: View {
 
     /// 不漂的时候：隔一阵淡出，换到随机的一处再淡入。
     private func hop(in area: CGRect) async {
-        if position == nil {
-            position = CGPoint(x: area.minX, y: area.maxY)
-        }
+        // 屏幕或块的大小变了，原来的位置可能已经出界，先收回范围里。
+        position = clamped(position ?? CGPoint(x: area.minX, y: area.maxY), to: area)
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: Self.hopInterval)
