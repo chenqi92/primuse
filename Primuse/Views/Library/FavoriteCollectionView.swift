@@ -646,7 +646,7 @@ private func buildFavoriteCollectionEditorContent(
     )
 }
 
-/// 「编辑收藏」：拖动排序、取消收藏，再从资料库里挑专辑、艺人、歌单加进来。
+/// 「编辑收藏」：拖动排序、取消收藏，再从资料库里挑歌单、专辑、艺人加进来。
 /// 目录在目录页里收藏，这里只排序和取消。
 struct FavoriteCollectionEditor: View {
     @Environment(MusicLibrary.self) private var library
@@ -749,6 +749,21 @@ struct FavoriteCollectionEditor: View {
                     }
                 }
 
+                // 歌单通常就几十个，专辑、艺人动辄上千：排在最前，「我喜欢」这类歌单不用翻过整库专辑才找得到。
+                if !content.playlists.isEmpty {
+                    Section("tab_playlists") {
+                        ForEach(content.playlists) { playlist in
+                            pinButton(QuickAccessPinReference(kind: .playlist, itemID: playlist.id)) {
+                                editorPlaylistArtwork(playlist)
+                            } title: {
+                                Text(playlist.name)
+                            } subtitle: {
+                                Text(playlistSubtitle(playlist))
+                            }
+                        }
+                    }
+                }
+
                 if !content.albums.isEmpty {
                     Section("tab_albums") {
                         ForEach(content.albums) { album in
@@ -772,20 +787,6 @@ struct FavoriteCollectionEditor: View {
                                 Text(artist.name)
                             } subtitle: {
                                 Text(verbatim: "\(artist.albumCount) \(String(localized: "albums_count"))")
-                            }
-                        }
-                    }
-                }
-
-                if !content.playlists.isEmpty {
-                    Section("tab_playlists") {
-                        ForEach(content.playlists) { playlist in
-                            pinButton(QuickAccessPinReference(kind: .playlist, itemID: playlist.id)) {
-                                editorPlaylistArtwork(playlist)
-                            } title: {
-                                Text(playlist.name)
-                            } subtitle: {
-                                Text(playlistSubtitle(playlist))
                             }
                         }
                     }
