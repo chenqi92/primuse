@@ -934,20 +934,14 @@ struct TVTabBar: View {
 
     var body: some View {
         HStack(spacing: 40) {
-            // 应用内标识就是 App 图标：BrandMark 是主屏幕分层图标的扁平版（同一张暗色图），
-            // 电视没有备选图标，所以固定用它。
+            // 应用内标识用 App 图标去掉底板的图形本身（AppIconMark，从主屏幕图标原稿抠出），
+            // 跟应用名并排像 Logo；电视没有备选图标，所以固定用它。
             HStack(spacing: 14) {
-                Image("BrandMark")
+                Image("AppIconMark")
                     .resizable()
                     .interpolation(.high)
-                    .aspectRatio(1, contentMode: .fill)
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(TVColor.cardBorder, lineWidth: 1)
-                    }
-                    .shadow(color: TVColor.cardShadow, radius: 12, y: 6)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 50, height: 50)
                     .accessibilityHidden(true)
                 Text(verbatim: PMString("ext.tv.appName"))
                     .tvFont(.eyebrow)

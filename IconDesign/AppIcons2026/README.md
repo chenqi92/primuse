@@ -36,8 +36,14 @@ The asset structure remains:
 - Top Shelf at 1920×720 and 3840×1440;
 - Top Shelf Wide at 2320×720 and 4640×1440.
 
+## Brand marks
+
+The Mac sidebar header and the Apple TV top bar show the glyph without its plate, next to the app name. `AppIcon{N}Mark` holds each catalog icon's glyph on a transparent ground at 128×128, cropped square around the glyph with a 2% margin; the Mac sidebar picks the one matching the selected icon. tvOS has no alternate icons, so `PrimuseTV`'s `AppIconMark` is the primary one at 192×192.
+
+Coverage comes from whichever plate separates the glyph most cleanly from a cubic fit of its ground: the Tinted plate for most icons (cast shadows fall below the ground and drop out), each plate's own colour distance for Pikaqiu (its Tinted star is drawn offset), and the Dark plate above its glow for the soft note (its Tinted cast shadow sits on the glyph's side). Colour is the chosen plate un-mixed from its own ground at the anti-aliased edges. Glyphs that are white on a colour in Light (Letter P, splash, Chris’s Muse) take their colour-tinted Dark glyph in both appearances, as do Primuse (Light fades the note head into the hole through near-white highlights) and NonoEnd (no rim or cast shadow); the soft note's white glyph is recoloured with its aqua tint in Light. A mark carries a dark variant only where the two appearances differ.
+
 ## Regeneration
 
-Run `python3 scripts/generate_app_icon_assets.py` from the repository root. The script regenerates the retained iOS iconsets and previews, the macOS and watchOS primary icons, the contact sheet, and the Light/Dark comparison sheet.
+Run `python3 scripts/generate_app_icon_assets.py` from the repository root. The script regenerates the retained iOS iconsets and previews, the macOS and watchOS primary icons, the contact sheet, and the Light/Dark comparison sheet. `python3 scripts/generate_brand_marks.py` (NumPy as well as Pillow) regenerates the brand marks from the same `raw/` plates.
 
 The source inputs live in `raw/`. `00-primuse*.png`, `20-soft-note*.png` and `15-folded-note*.png` preserve their exact artwork. A `NN-` prefix is the icon's alternate number; `00-` marks whichever design is currently primary. Retired numbers are never reused. In-app preview imagesets are written at 512×512.

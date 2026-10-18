@@ -162,6 +162,22 @@ final class MacSongTableAndIconTests: XCTestCase {
         XCTAssertThrowsError(try MacAppIcon.icnsData(for: missing))
     }
 
+    /// 侧栏左上角放的是去掉底板的图形：每款可选图标都要有，四角透明。
+    func testEverySelectableIconHasTransparentSidebarMark() throws {
+        for icon in MacAppIcon.all {
+            let image = try XCTUnwrap(NSImage(named: icon.markAsset), icon.id)
+            var rect = CGRect(origin: .zero, size: image.size)
+            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(
+                image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+            ))
+            let (maxX, maxY) = (bitmap.pixelsWide - 1, bitmap.pixelsHigh - 1)
+            for (x, y) in [(0, 0), (maxX, 0), (0, maxY), (maxX, maxY)] {
+                XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: x, y: y)).alphaComponent, 0,
+                               accuracy: 0.01, icon.id)
+            }
+        }
+    }
+
     func testMenuBarTextStaysVisibleWithIslandByDefault() throws {
         let defaults = try fixtureDefaults()
         for islandVisible in [false, true] {

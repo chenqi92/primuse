@@ -1783,7 +1783,8 @@ enum PMColorSchemeOverride: String, CaseIterable, Sendable {
 // MARK: - Brand mark (应用内品牌图标)
 
 /// 应用内的品牌标识就是 App 图标：跟着「应用图标」里选的那一款走，换了立刻跟着换；
-/// 预览资源带深色变体，明暗跟界面。按出现位置套用平台圆角和阴影。
+/// 资源带深色变体，明暗跟界面。侧栏左上角只放去掉底板的图形，其余位置是整块图标，
+/// 按出现位置套用平台圆角和阴影。
 struct BrandMonogram: View {
     enum Slot {
         case sidebar
@@ -1797,35 +1798,38 @@ struct BrandMonogram: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let metrics: (size: CGFloat, corner: CGFloat, shadow: CGFloat, y: CGFloat)
+        let icon = MacAppIcon.option(for: preferences.appIconID)
         switch slot {
         case .sidebar:
-            metrics = (28, 7, 3, 1)
+            // 跟应用名并排像 Logo 一样只放图形，带底色的方块在侧栏顶上显得重。
+            Image(icon.markAsset)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
         case .update:
-            metrics = (58, 14, 16, 6)
+            tile(icon, size: 58, corner: 14, shadow: 16, y: 6)
         case .feature:
-            metrics = (96, 22, 24, 8)
+            tile(icon, size: 96, corner: 22, shadow: 24, y: 8)
         case .onboarding:
-            metrics = (110, 26, 36, 12)
+            tile(icon, size: 110, corner: 26, shadow: 36, y: 12)
         }
-        let isDark = colorScheme == .dark
-        // 侧栏里只有 28pt，主题色的大光晕会糊成一团，换成很淡的中性投影。
-        let shadow = slot == .sidebar
-            ? Color.black.opacity(isDark ? 0.32 : 0.14)
-            : PMColor.brand.opacity(0.30)
+    }
 
-        return Image(MacAppIcon.option(for: preferences.appIconID).previewAsset)
+    private func tile(_ icon: MacAppIcon, size: CGFloat, corner: CGFloat, shadow: CGFloat, y: CGFloat) -> some View {
+        Image(icon.previewAsset)
             .resizable()
             .interpolation(.high)
             .aspectRatio(1, contentMode: .fill)
-            .frame(width: metrics.size, height: metrics.size)
-            .clipShape(RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             .overlay {
-                // 浅色图标落在浅色侧栏上要一圈细边才分得出轮廓。
-                RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
-                    .strokeBorder(isDark ? Color.white.opacity(0.16) : Color.black.opacity(0.08), lineWidth: 0.5)
+                // 浅色图标落在浅色底上要一圈细边才分得出轮廓。
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.08), lineWidth: 0.5)
             }
-            .shadow(color: shadow, radius: metrics.shadow, y: metrics.y)
+            .shadow(color: PMColor.brand.opacity(0.30), radius: shadow, y: y)
             .accessibilityHidden(true)
     }
 }
@@ -1842,6 +1846,9 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     let nameKey: String
     /// 这套图标的品牌色 — 仅用于色环展示, 不强行改全局 accent。
     let tint: Color
+
+    /// 去掉底板的透明图形 (侧栏左上角用)，由 scripts/generate_brand_marks.py 从图标原稿抠出。
+    var markAsset: String { (id.isEmpty ? "AppIcon" : id) + "Mark" }
 
     /// 可选图标与 iOS 顺序一致，跟资源目录里的预览资源一一对应。
     static let all: [MacAppIcon] = [
