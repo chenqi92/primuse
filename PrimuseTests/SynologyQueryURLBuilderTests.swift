@@ -314,6 +314,9 @@ private actor AudioStationPlaylistHTTPFixture {
                 "SYNO.API.Auth": ["path": "auth.cgi", "minVersion": 1, "maxVersion": 7],
                 "SYNO.AudioStation.Info": ["path": "AudioStation/info.cgi", "minVersion": 1, "maxVersion": 6],
                 "SYNO.AudioStation.Playlist": ["path": "AudioStation/playlist.cgi", "minVersion": 1, "maxVersion": 3],
+                // Song 与 Stream 是套件必备的接口,缺了会被当成 Audio Station 没装。
+                "SYNO.AudioStation.Song": ["path": "AudioStation/song.cgi", "minVersion": 1, "maxVersion": 3],
+                "SYNO.AudioStation.Stream": ["path": "AudioStation/stream.cgi", "minVersion": 1, "maxVersion": 2],
             ]])
         }
         switch params["api"] {
