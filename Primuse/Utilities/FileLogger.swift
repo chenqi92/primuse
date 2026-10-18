@@ -411,6 +411,9 @@ final class FrameHitchMonitor: NSObject {
         .map { min(0.05, max(0.02, $0)) } ?? 0.05
     private static let maximumLinesPerWindow = RuntimeDiagnosticsSampler.configuredStackThreshold == nil ? 20 : 120
 
+    /// 诊断模式开着时才在跑；别处据此决定要不要记帧率。
+    var isRunning: Bool { link != nil }
+
     func start() {
         guard link == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))

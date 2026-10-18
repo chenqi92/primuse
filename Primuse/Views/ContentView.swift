@@ -2102,14 +2102,11 @@ struct PlayerOverlay: View {
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var presentationPhase = PresentationPhase.staging
     @State private var presentationHasSettled = false
-    /// 拖动隐藏时每帧都在变。放在引用模型里、只由偏移修饰符读取, 拖动就只刷新
-    /// 偏移, 不会每帧重建整个 NowPlayingView (它的 body 很重)。
-    @State private var interactiveDrag = PlayerOverlayInteractiveDrag()
+    /// 变形进度与拖动位移。展开、收起、拖动时每帧都在变，放在引用模型里、只由偏移修饰符读取，
+    /// 每帧只刷新那个修饰符，不会重建整个 NowPlayingView (它的 body 很重)。
+    @State private var motion = PlayerOverlayMotion()
     @State private var dismissalState = PlayerOverlayDismissalState()
     @State private var dismissalTask: Task<Void, Never>?
-    /// 0 = 缩在迷你条胶囊里, 1 = 铺满全屏。从迷你条展开、往下收起都只动它,
-    /// 从左边缘横滑收起与手指拖动仍是整页平移。
-    @State private var morphProgress: CGFloat = 0
     /// 这一次展开 / 收起对准的胶囊外框(窗口坐标)。
     @State private var capsuleFrame: CGRect?
     /// 开始收起时在这里记一笔，播放页里只有背景与大封面的动画读它。
@@ -2117,7 +2114,6 @@ struct PlayerOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let travel = max(geometry.size.height, geometry.size.width) + 1
             PlayerOverlayContent(
                 // 播放页里用到它的三处都同时要求已落定；落定前固定为 false，展开动画开始那一刻
                 // 这个值不翻转，播放页就不必在动画第一帧上整页重算。开始收起时同样不翻转：
@@ -2178,13 +2174,15 @@ struct PlayerOverlay: View {
                 // 几何组让位移只作用在整页上，子视图的动画只管它们自己的变化。
                 .geometryGroup()
                 .modifier(PlayerOverlayOffsetModifier(
-                    drag: interactiveDrag,
-                    phaseOffset: phaseOffset(travel: travel),
-                    morphProgress: morphProgress,
+                    motion: motion,
                     capsule: capsuleRect(in: geometry),
                     containerSize: geometry.size,
                     cardFill: Color(uiColor: .secondarySystemBackground)
                 ))
+                // 整屏尺寸（含安全区），横滑收起的距离按它算；只在转屏、换窗口大小时变。
+                .onChange(of: geometry.size, initial: true) { _, size in
+                    motion.containerSize = size
+                }
         }
         .ignoresSafeArea()
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
@@ -2200,21 +2198,15 @@ struct PlayerOverlay: View {
             }
             guard !Task.isCancelled else { return }
             capsuleFrame = NowPlayingCapsuleGeometry.shared.frameInWindow()
+            presentationPhase = .visible
             if reduceMotion {
-                presentationPhase = .visible
-                morphProgress = 1
+                motion.setProgress(1)
                 completeEntranceIfPossible()
             } else {
                 // 从迷你条胶囊长成整页，带一点回弹：冲过头时卡片略大于屏幕，不会露出下面的界面。
                 // 动作完全停住才放行歌词这些推迟的活：落定那一下要整页重算，放在回弹尾巴上就是
                 // 一次看得见的顿挫。大封面不靠这里，迷你条状态下已经预先解码好了。
-                withAnimation(
-                    Self.entranceSpring,
-                    completionCriteria: .removed
-                ) {
-                    presentationPhase = .visible
-                    morphProgress = 1
-                } completion: {
+                motion.animateProgress(to: 1, spring: Self.entranceSpring) {
                     completeEntranceIfPossible()
                 }
             }
@@ -2225,7 +2217,7 @@ struct PlayerOverlay: View {
                 return
             }
             guard newPhase != .active,
-                  dismissalState.isDismissing || interactiveDrag.offset != .zero else { return }
+                  dismissalState.isDismissing || motion.offset != .zero else { return }
             // Control Center / screen recording can interrupt an in-flight
             // transition. Invalidate its delayed completion and restore the
             // mounted player so an old callback cannot leave an invisible
@@ -2236,17 +2228,14 @@ struct PlayerOverlay: View {
                 dismissalState.cancelForSystemInterruption()
             }
             surfaceMotion.isDismissing = false
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                interactiveDrag.offset = .zero
-                presentationPhase = .visible
-                morphProgress = 1
-            }
+            presentationPhase = .visible
+            motion.setOffset(.zero)
+            motion.setProgress(1)
         }
         .onDisappear {
             dismissalTask?.cancel()
             dismissalTask = nil
+            motion.stop()
         }
         #if DEBUG
         // `PRIMUSE_DEBUG_PLAYER_CYCLE`:和点左上角收起键走同一条路。
@@ -2254,17 +2243,6 @@ struct PlayerOverlay: View {
             beginDismissal(.dismissingDown)
         }
         #endif
-    }
-
-    /// nil = 由拖动偏移决定(收进胶囊时就从松手那个位置缩过去)。只有横滑收起是整页平移出去。
-    private func phaseOffset(travel: CGFloat) -> CGSize? {
-        switch presentationPhase {
-        case .staging, .visible, .dismissingDown:
-            return nil
-        case .dismissingLeading:
-            let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
-            return CGSize(width: travel * direction, height: 0)
-        }
     }
 
     /// 胶囊外框换到这一层的坐标里。没有看得见的胶囊(批量选择、CarPlay 编辑时迷你条
@@ -2291,15 +2269,11 @@ struct PlayerOverlay: View {
 
     private func updateInteractiveOffset(axis: InteractiveAxis, value: CGFloat) {
         guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            switch axis {
-            case .horizontal:
-                interactiveDrag.offset = CGSize(width: value, height: 0)
-            case .vertical:
-                interactiveDrag.offset = CGSize(width: 0, height: value)
-            }
+        switch axis {
+        case .horizontal:
+            motion.setOffset(CGSize(width: value, height: 0))
+        case .vertical:
+            motion.setOffset(CGSize(width: 0, height: value))
         }
     }
 
@@ -2312,12 +2286,10 @@ struct PlayerOverlay: View {
         } else {
             guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
             // 竖着拉回去弹一下，越过的那点同样变成拉伸；横向越过会在另一侧露缝，照旧不回弹。
-            let snapBack: Animation = phase == .dismissingDown
+            let snapBack = phase == .dismissingDown
                 ? Self.verticalSnapBackSpring
-                : .spring(response: 0.34, dampingFraction: 0.86)
-            withAnimation(snapBack) {
-                interactiveDrag.offset = .zero
-            }
+                : Spring(response: 0.34, dampingRatio: 0.86)
+            motion.animateOffset(to: .zero, spring: snapBack)
         }
     }
 
@@ -2338,9 +2310,18 @@ struct PlayerOverlay: View {
             // 转过屏、换过版面后胶囊不在原处了，收的时候按它现在的位置。
             capsuleFrame = frame
         }
-        withAnimation(Self.dismissalSpring) {
-            presentationPhase = phase
-            if phase == .dismissingDown { morphProgress = 0 }
+        presentationPhase = phase
+        switch phase {
+        case .dismissingDown:
+            // 收进胶囊时从松手那个位置缩过去，拖动位移不归零。
+            motion.animateProgress(to: 0, spring: Self.dismissalSpring)
+        case .dismissingLeading:
+            // 横滑收起是整页平移出去。
+            let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
+            let travel = max(motion.containerSize.width, motion.containerSize.height) + 1
+            motion.animateOffset(to: CGSize(width: travel * direction, height: 0), spring: Self.dismissalSpring)
+        case .staging, .visible:
+            break
         }
         dismissalTask = Task { @MainActor in
             do {
@@ -2357,9 +2338,9 @@ struct PlayerOverlay: View {
 
     /// 和收起同一组参数：约 0.35 秒就停在离终点几个点以内，冲过头不到 3pt。回弹大了铺满之后
     /// 整页还要往下溜一截才停，时长拉长了收尾又会慢慢往上爬。
-    private static let entranceSpring = Animation.spring(duration: 0.42, bounce: 0.12)
-    private static let dismissalSpring = Animation.spring(duration: 0.42, bounce: 0.12)
-    private static let verticalSnapBackSpring = Animation.spring(duration: 0.42, bounce: 0.3)
+    private static let entranceSpring = Spring(duration: 0.42, bounce: 0.12)
+    private static let dismissalSpring = Spring(duration: 0.42, bounce: 0.12)
+    private static let verticalSnapBackSpring = Spring(duration: 0.42, bounce: 0.3)
 
     private func completeDismissal(generation: UInt64) {
         guard dismissalState.complete(generation: generation) else { return }
@@ -2414,25 +2395,225 @@ private struct PlayerOverlayContent: View, @MainActor Equatable {
     }
 }
 
+/// 播放页变形的进度与位移。
+///
+/// 展开、收起、横滑收起和拉回都不走 withAnimation：SwiftUI 只有版面上的位置、尺寸动得够快时
+/// 才向显示链接要 80/120Hz，动画这种自定义进度、变换、透明度一律用默认帧率范围，iPhone 上就是
+/// 60Hz，开不开低电量模式看着一样（iOS 26.5 / 27 的 SwiftUICore：AnimatorState 的帧间隔只取自
+/// Transaction 里不公开的字段，没设就是默认）。这里自己开一个要 80–120Hz 的 CADisplayLink，
+/// 按 SwiftUI 同一条 `Spring` 曲线逐帧写值；换目标时从当前的值和速度接着走。手指拖动直接写位移。
 @MainActor
 @Observable
-private final class PlayerOverlayInteractiveDrag {
-    var offset = CGSize.zero
+private final class PlayerOverlayMotion {
+    /// 0 = 缩在迷你条胶囊里, 1 = 铺满全屏。
+    private(set) var progress: CGFloat = 0
+    /// 拖动、横滑收起的整页平移。
+    private(set) var offset = CGSize.zero
+    /// 横滑收起要移出去的距离按它算。
+    @ObservationIgnored var containerSize = CGSize.zero
+
+    @ObservationIgnored private var progressRun: PlayerOverlayMotionRun<CGFloat>?
+    @ObservationIgnored private var offsetRun: PlayerOverlayMotionRun<AnimatablePair<CGFloat, CGFloat>>?
+    @ObservationIgnored private var link: CADisplayLink?
+    /// 最近一帧的显示时刻；中途换目标时按这一刻的速度接着走。
+    @ObservationIgnored private var lastFrameTime: CFTimeInterval?
+    #if DEBUG
+    @ObservationIgnored private var linkStats: (start: CFTimeInterval, frames: Int)?
+    #endif
+
+    func setProgress(_ value: CGFloat) {
+        progressRun = nil
+        progress = value
+        stopLinkIfIdle()
+    }
+
+    func setOffset(_ value: CGSize) {
+        offsetRun = nil
+        offset = value
+        stopLinkIfIdle()
+    }
+
+    /// 停稳后调 `completion`；被新的目标接走时不调。离终点不到 0.001 算到位，和变形几何
+    /// 把进度差 0.001 以内当作铺满是同一条线。
+    func animateProgress(to target: CGFloat, spring: Spring, completion: (@MainActor () -> Void)? = nil) {
+        progressRun = PlayerOverlayMotionRun(
+            from: progress,
+            to: target,
+            initialVelocity: lastFrameTime.flatMap { progressRun?.velocity(at: $0) } ?? 0,
+            spring: spring,
+            valueEpsilon: 0.001,
+            velocityEpsilon: 0.05,
+            completion: completion
+        )
+        startLink()
+    }
+
+    func animateOffset(to target: CGSize, spring: Spring) {
+        offsetRun = PlayerOverlayMotionRun(
+            from: offset.animatableData,
+            to: target.animatableData,
+            initialVelocity: lastFrameTime.flatMap { offsetRun?.velocity(at: $0) } ?? .zero,
+            spring: spring,
+            valueEpsilon: 0.25,
+            velocityEpsilon: 5,
+            completion: nil
+        )
+        startLink()
+    }
+
+    /// 播放页拿掉时停掉链接，未完成的回调不再调。
+    func stop() {
+        progressRun = nil
+        offsetRun = nil
+        stopLinkIfIdle()
+    }
+
+    fileprivate func advance(_ link: CADisplayLink) {
+        let time = link.targetTimestamp
+        lastFrameTime = time
+        #if DEBUG
+        if let stats = linkStats { linkStats = (stats.start, stats.frames + 1) }
+        #endif
+        var completions: [@MainActor () -> Void] = []
+        if var run = progressRun {
+            // 第一帧从上一次上屏的时刻起算，挂载那一下慢了也不会跳过开头。
+            if run.startTime == nil { run.startTime = link.timestamp }
+            let sample = run.sample(at: time)
+            if sample.isSettled {
+                progress = run.target
+                progressRun = nil
+                if let completion = run.completion { completions.append(completion) }
+            } else {
+                progress = sample.value
+                progressRun = run
+            }
+        }
+        if var run = offsetRun {
+            if run.startTime == nil { run.startTime = link.timestamp }
+            let sample = run.sample(at: time)
+            let value = sample.isSettled ? run.target : sample.value
+            offset = CGSize(width: value.first, height: value.second)
+            offsetRun = sample.isSettled ? nil : run
+        }
+        stopLinkIfIdle()
+        completions.forEach { $0() }
+    }
+
+    private func startLink() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: PlayerOverlayDisplayLinkTarget(motion: self), selector: #selector(PlayerOverlayDisplayLinkTarget.tick(_:)))
+        // Info.plist 已开 CADisableMinimumFrameDurationOnPhone；低电量、发热时系统自己往下压。
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        #if DEBUG
+        linkStats = (CACurrentMediaTime(), 0)
+        #endif
+    }
+
+    private func stopLinkIfIdle() {
+        guard progressRun == nil, offsetRun == nil, let link else { return }
+        link.invalidate()
+        self.link = nil
+        lastFrameTime = nil
+        #if DEBUG
+        // 诊断模式下记一行实际帧率，真机上对照低电量模式开关。
+        if let stats = linkStats, FrameHitchMonitor.shared.isRunning {
+            let elapsed = CACurrentMediaTime() - stats.start
+            if elapsed > 0.1 {
+                plog(String(format: "🩺 player motion %.0f fps (%d frames / %.2fs)", Double(stats.frames) / elapsed, stats.frames, elapsed))
+            }
+        }
+        linkStats = nil
+        #endif
+    }
 }
 
-/// 只有这里读拖动偏移, 所以拖动时失效的是这个修饰符而不是整个播放页。
+/// 一段弹簧：从 `from` 走到 `from + delta`，`startTime` 在第一帧上填。
+///
+/// 离终点与速度都小于阈值就算停稳。`Spring.settlingDuration` 把速度也压到同一个阈值，
+/// 进度上要多等约 0.25 秒，停稳才放行的歌词、大图跟着晚到；它只当兜底的上限。
+private struct PlayerOverlayMotionRun<Value: VectorArithmetic> {
+    let spring: Spring
+    let from: Value
+    let delta: Value
+    let initialVelocity: Value
+    let valueEpsilon: Double
+    let velocityEpsilon: Double
+    let maximumDuration: TimeInterval
+    let completion: (@MainActor () -> Void)?
+    var startTime: CFTimeInterval?
+
+    init(
+        from: Value,
+        to target: Value,
+        initialVelocity: Value,
+        spring: Spring,
+        valueEpsilon: Double,
+        velocityEpsilon: Double,
+        completion: (@MainActor () -> Void)?
+    ) {
+        self.spring = spring
+        self.from = from
+        self.delta = target - from
+        self.initialVelocity = initialVelocity
+        self.valueEpsilon = valueEpsilon
+        self.velocityEpsilon = velocityEpsilon
+        self.maximumDuration = spring.settlingDuration(target: delta, initialVelocity: initialVelocity, epsilon: valueEpsilon)
+        self.completion = completion
+    }
+
+    var target: Value { from + delta }
+
+    func sample(at time: CFTimeInterval) -> (value: Value, isSettled: Bool) {
+        let elapsed = elapsed(at: time)
+        let travelled = spring.value(target: delta, initialVelocity: initialVelocity, time: elapsed)
+        let remaining = delta - travelled
+        let velocity = spring.velocity(target: delta, initialVelocity: initialVelocity, time: elapsed)
+        let isSettled = elapsed >= maximumDuration
+            || (remaining.magnitudeSquared < valueEpsilon * valueEpsilon
+                && velocity.magnitudeSquared < velocityEpsilon * velocityEpsilon)
+        return (from + travelled, isSettled)
+    }
+
+    func velocity(at time: CFTimeInterval) -> Value {
+        spring.velocity(target: delta, initialVelocity: initialVelocity, time: elapsed(at: time))
+    }
+
+    private func elapsed(at time: CFTimeInterval) -> TimeInterval {
+        startTime.map { max(0, time - $0) } ?? 0
+    }
+}
+
+/// CADisplayLink 强引用 target；经这层弱引用转发，播放页没了链接自己停。
+@MainActor
+private final class PlayerOverlayDisplayLinkTarget: NSObject {
+    weak var motion: PlayerOverlayMotion?
+
+    init(motion: PlayerOverlayMotion) {
+        self.motion = motion
+    }
+
+    @objc func tick(_ link: CADisplayLink) {
+        guard let motion else {
+            link.invalidate()
+            return
+        }
+        motion.advance(link)
+    }
+}
+
+/// 只有这里读变形进度与拖动位移, 所以每帧失效的是这个修饰符而不是整个播放页。
 private struct PlayerOverlayOffsetModifier: ViewModifier {
-    let drag: PlayerOverlayInteractiveDrag
-    let phaseOffset: CGSize?
-    let morphProgress: CGFloat
+    let motion: PlayerOverlayMotion
     let capsule: CGRect
     let containerSize: CGSize
     let cardFill: Color
 
     func body(content: Content) -> some View {
         content.modifier(PlayerOverlayMorph(
-            progress: morphProgress,
-            offset: phaseOffset ?? drag.offset,
+            progress: motion.progress,
+            offset: motion.offset,
             capsule: capsule,
             containerSize: containerSize,
             cardFill: cardFill
@@ -2445,22 +2626,14 @@ private struct PlayerOverlayOffsetModifier: ViewModifier {
 /// 真的胶囊。进度到 1 之后只剩平移（拖动、横滑收起）；往上越过停靠位置（下拉松手弹回）
 /// 改成以底边为锚的拉伸，底边不离开屏幕底。
 ///
-/// 每帧只重算这个修饰符的 body，播放页本身不重建；所有分支都套同样几层修饰，
-/// 结构不变，播放页的状态不会因为换分支被重置。
-private struct PlayerOverlayMorph: ViewModifier, Animatable {
-    var progress: CGFloat
-    var offset: CGSize
+/// 进度与位移由 `PlayerOverlayMotion` 逐帧给出，这里不做插值。每帧只重算这个修饰符的 body，
+/// 播放页本身不重建；所有分支都套同样几层修饰，结构不变，播放页的状态不会因为换分支被重置。
+private struct PlayerOverlayMorph: ViewModifier {
+    let progress: CGFloat
+    let offset: CGSize
     let capsule: CGRect
     let containerSize: CGSize
     let cardFill: Color
-
-    nonisolated var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(progress, AnimatablePair(offset.width, offset.height)) }
-        set {
-            progress = newValue.first
-            offset = CGSize(width: newValue.second.first, height: newValue.second.second)
-        }
-    }
 
     func body(content: Content) -> some View {
         let geometry = PlayerOverlayMorphGeometry(
