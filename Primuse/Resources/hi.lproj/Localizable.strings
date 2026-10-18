@@ -1072,7 +1072,9 @@
 "cloud_guide_pan115" = "डेवलपर ऐप के लिए आवेदन करने के लिए 115.com ओपन प्लेटफॉर्म पर जाएं";
 "cloud_guide_pan123" = "डेवलपर ऐप के लिए आवेदन करने के लिए 123pan.cn/developer पर जाएं";
 "cloud_guide_guangya" = "डेवलपर ऐप के लिए आवेदन करने के लिए app.guangyapan.com/pan/docs/open-api पर जाएं";
+"cloud_guide_pcloud" = "docs.pcloud.com/my_apps पर ऐप बनाएं और Implicit Grant की अनुमति दें";
 "guangya_err_missing_app_config" = "इस बिल्ड में GuangYa क्रेडेंशियल (client ID, project ID, साइनिंग कुंजी) नहीं हैं";
+"pcloud_err_authorization_revoked" = "pCloud प्राधिकरण अब मान्य नहीं है। कृपया फिर से अधिकृत करें।";
 "cloud_host_default" = "प्राधिकरण सेवा";
 "cloud_oauth_browser_subtitle" = "सिस्टम ब्राउज़र प्राधिकरण";
 "cloud_oauth_checking" = "प्राधिकरण स्थिति की जाँच हो रही है…";

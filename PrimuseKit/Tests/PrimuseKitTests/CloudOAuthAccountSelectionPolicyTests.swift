@@ -37,6 +37,14 @@ struct CloudOAuthAccountSelectionPolicyTests {
             provider: .aliyunDrive,
             intent: .differentAccount
         )["prompt"] == "login")
+        #expect(CloudOAuthAccountSelectionPolicy.authorizationParameters(
+            provider: .pcloud,
+            intent: .differentAccount
+        ) == ["force_reapprove": "1"])
+        #expect(CloudOAuthAccountSelectionPolicy.authorizationParameters(
+            provider: .pcloud,
+            intent: .standard
+        ).isEmpty)
     }
 
     @Test("Undocumented providers do not receive invented query parameters")

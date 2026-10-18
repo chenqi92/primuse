@@ -126,6 +126,8 @@
 	<string>$(GUANGYA_PROJECT_ID)</string>
 	<key>PrimuseGuangYaSignSecret</key>
 	<string>$(GUANGYA_SIGN_SECRET)</string>
+	<key>PrimusePCloudClientID</key>
+	<string>$(PCLOUD_CLIENT_ID)</string>
 	<key>PrimuseInfiniCloudAPIKey</key>
 	<string>$(INFINICLOUD_API_KEY)</string>
 	<key>PrimuseOneDriveClientID</key>

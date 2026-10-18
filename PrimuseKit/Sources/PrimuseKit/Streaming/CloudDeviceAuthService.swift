@@ -15,6 +15,9 @@ public actor CloudDeviceAuthService {
     }
 
     private let session: URLSession
+    /// pCloud 的 poll_token 轮询:请求在用户点同意之前一直挂着不回数据,
+    /// 20 秒的空闲超时会把它掐断,所以单开一个按整段等待时长放宽的会话。
+    private let longPollSession: URLSession
     private let quotaRegistry: RequestQuotaRegistry
     private let timing: RequestExecutor.Timing
 
@@ -25,6 +28,14 @@ public actor CloudDeviceAuthService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         self.session = session ?? URLSession(configuration: configuration)
+        if let session {
+            self.longPollSession = session
+        } else {
+            let longPoll = URLSessionConfiguration.ephemeral
+            longPoll.timeoutIntervalForRequest = PCloudAPIProtocol.pollAuthorizationLifetime + 30
+            longPoll.timeoutIntervalForResource = PCloudAPIProtocol.pollAuthorizationLifetime + 60
+            self.longPollSession = URLSession(configuration: longPoll)
+        }
     }
 
     /// Wait for this device authorization while reporting scan progress to its UI.
@@ -100,6 +111,8 @@ public actor CloudDeviceAuthService {
             }
         case .manualCode:
             return try beginDropbox(clientID: trimmedID)
+        case .pollToken:
+            return try beginPCloud(clientID: trimmedID)
         }
     }
 
@@ -123,6 +136,8 @@ public actor CloudDeviceAuthService {
         case .dropbox:
             // Dropbox 没有设备码通道,授权码只能由用户从手机上抄到电视里。
             return .pending
+        case .pcloud:
+            return try await pollPCloud(authSession, clientID: clientID)
         default:
             throw CloudDeviceAuthError.unsupportedProvider(authSession.provider)
         }
@@ -436,6 +451,117 @@ public actor CloudDeviceAuthService {
             expiresIn: 900,
             extra: ["code_verifier": verifier]
         )
+    }
+
+    // MARK: - pCloud(poll_token)
+
+    private func beginPCloud(clientID: String) throws -> CloudDeviceAuthSession {
+        let requestID = PCloudAPIProtocol.makeRequestID()
+        guard let url = PCloudAPIProtocol.pollAuthorizeURL(clientID: clientID, requestID: requestID) else {
+            throw CloudDeviceAuthError.cannotBuildURL
+        }
+        // 授权网址里带着 40 位请求号,没法手输,电视上只画二维码,不列网址。
+        return CloudDeviceAuthSession(
+            provider: .pcloud,
+            kind: .pollToken,
+            qrCode: .content(url.absoluteString),
+            handle: requestID,
+            interval: 2,
+            expiresIn: PCloudAPIProtocol.pollAuthorizationLifetime
+        )
+    }
+
+    private enum PCloudPollAttempt: Sendable {
+        case authorized(PCloudAPIProtocol.Authorization)
+        case rejected(PCloudAPIProtocol.Envelope)
+        case waiting
+    }
+
+    /// 美国、欧洲两区各挂一个长连接,谁先回 token 用谁;都到点没回就算还在等,
+    /// 由 `pollUntilFinished` 再挂下一轮。两区都明确拒绝(client_id 不对之类)才报错,
+    /// 只有一区拒绝时继续等另一区 —— 账号在哪个区事先不知道。
+    ///
+    /// 长连接不走 token 端点的公共配额:那份配额同一时间只放一个请求、30 秒就超时,
+    /// 而这里一个请求要挂到用户点同意为止,占着它会把其他云盘的 token 刷新全部堵住。
+    private func pollPCloud(
+        _ authSession: CloudDeviceAuthSession,
+        clientID: String
+    ) async throws -> CloudDeviceAuthProgress {
+        let remaining = PollingContext.deadline.map { $0 - timing.now() } ?? authSession.expiresIn
+        guard remaining > 1 else { return .expired }
+        let timeout = min(remaining, PCloudAPIProtocol.pollAuthorizationLifetime)
+        let session = longPollSession
+        let requestID = authSession.handle
+        let authorization = try await withThrowingTaskGroup(
+            of: PCloudPollAttempt.self
+        ) { group -> PCloudAPIProtocol.Authorization? in
+            for host in PCloudAPIProtocol.apiHosts {
+                group.addTask {
+                    try await Self.longPollPCloud(
+                        host: host, clientID: clientID, requestID: requestID,
+                        timeout: timeout, session: session
+                    )
+                }
+            }
+            var rejections: [PCloudAPIProtocol.Envelope] = []
+            for try await attempt in group {
+                switch attempt {
+                case .authorized(let authorization):
+                    group.cancelAll()
+                    return authorization
+                case .rejected(let envelope):
+                    rejections.append(envelope)
+                case .waiting:
+                    break
+                }
+            }
+            if rejections.count == PCloudAPIProtocol.apiHosts.count, let first = rejections.first {
+                throw CloudDeviceAuthError.providerRejected("\(first.result) \(first.message)")
+            }
+            return nil
+        }
+        guard let authorization else { return .pending }
+        var credential = SourceCredential()
+        credential.token = authorization.accessToken
+        // 账号所在区的 API 主机随 token 一起落钥匙串,之后列目录、取直链都打这台。
+        credential.extra = authorization.credentialExtra
+        // pCloud 的 token 不过期,也没有 refresh_token。
+        let result = CloudDeviceAuthResult(credential: credential, expiresAt: nil, tokenType: "bearer")
+        return .authorized(Self.stamping(result, clientID: clientID, clientSecret: nil))
+    }
+
+    private static func longPollPCloud(
+        host: String,
+        clientID: String,
+        requestID: String,
+        timeout: TimeInterval,
+        session: URLSession
+    ) async throws -> PCloudPollAttempt {
+        guard let url = PCloudAPIProtocol.pollTokenURL(host: host, clientID: clientID, requestID: requestID) else {
+            throw CloudDeviceAuthError.cannotBuildURL
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+            // 挂到点或中途断开都只说明这一轮没等到,下一轮重新挂。
+            return .waiting
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            // 网关替上游掐断长连接时回的 502 / 504 之类,同样只是这一轮没等到。
+            return .waiting
+        }
+        switch PCloudAPIProtocol.parsePollResponse(data, answeringHost: host) {
+        case .authorized(let authorization):
+            return .authorized(authorization)
+        case .rejected(let envelope):
+            return .rejected(envelope)
+        case nil:
+            return .rejected(.init(result: -1, message: errorText(data)))
+        }
     }
 
     // MARK: - 传输与小工具

@@ -36,7 +36,8 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         config: CloudOAuthConfig,
         loginIntent: CloudOAuthLoginIntent = .standard
     ) async throws -> CloudTokenManager.Tokens {
-        let pkce = config.usesPKCE ? PKCEChallenge() : nil
+        // 隐式授权没有授权码可换,PKCE 无从谈起。
+        let pkce = config.usesPKCE && config.grant == .authorizationCode ? PKCEChallenge() : nil
 
         // CSRF / authorization-code-injection 防护:每次授权生成一次性随机 state,
         // 写进授权 URL,回调时校验它原样返回。对没有 PKCE 的 provider(如百度)
@@ -60,6 +61,10 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             prefersEphemeralSession: CloudOAuthAccountSelectionPolicy
                 .prefersEphemeralSession(for: loginIntent)
         )
+
+        if config.grant == .implicit {
+            return try extractImplicitTokens(from: callbackURL, expectedState: state, config: config)
+        }
 
         // 3. Extract authorization code from callback (校验 state 一致后才接受)
         let code = try extractCode(from: callbackURL, expectedState: state, config: config)
@@ -93,8 +98,10 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         ]
 
         // 123 云盘授权页(yun.123pan.com/auth)只接受 client_id/redirect_uri/scope/state
-        // (官方示例不带 response_type);其余 provider 走标准 OAuth 加 response_type=code。
-        if !config.authURL.contains("123pan.com") {
+        // (官方示例不带 response_type);其余 provider 走标准 OAuth 加 response_type。
+        if config.grant == .implicit {
+            queryItems.append(.init(name: "response_type", value: "token"))
+        } else if !config.authURL.contains("123pan.com") {
             queryItems.append(.init(name: "response_type", value: "code"))
         }
 
@@ -246,6 +253,59 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         return code
+    }
+
+    // MARK: - Implicit grant
+
+    /// 隐式授权(pCloud):token 在回调 URL 的 fragment 里,不经过 token 端点。
+    /// 和授权码一样,先认回调地址、再认 state,state 对得上才看是成功还是拒绝。
+    private func extractImplicitTokens(
+        from url: URL,
+        expectedState: String,
+        config: CloudOAuthConfig
+    ) throws -> CloudTokenManager.Tokens {
+        guard OAuthCallbackURLMatcher.matches(
+            url,
+            registeredRedirectURI: config.redirectURI,
+            callbackScheme: config.callbackURLScheme
+        ) else {
+            throw OAuthError.invalidCallback("Callback URL does not match registered redirect URI")
+        }
+
+        // 结果按规范在 fragment 里;个别拒绝回调把 error 放在 query,两处合起来看。
+        var parameters = PCloudAPIProtocol.parameters(fromFragment: url.fragment)
+        for item in URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        where parameters[item.name] == nil {
+            parameters[item.name] = item.value ?? ""
+        }
+        guard let returnedState = parameters["state"], constantTimeEquals(returnedState, expectedState) else {
+            // pCloud 在用户拒绝时回跳不带任何参数(官方 SDK 也按拒绝处理),
+            // 这时没有 state 可校验,但也没有任何凭据会被接受。
+            if parameters.isEmpty { throw OAuthError.authorizationDenied("access_denied", nil) }
+            throw OAuthError.invalidCallback("State mismatch in callback URL")
+        }
+        if let error = parameters["error"], !error.isEmpty {
+            throw OAuthError.authorizationDenied(error, parameters["error_description"])
+        }
+
+        switch config.provider {
+        case .pcloud:
+            guard let authorization = PCloudAPIProtocol.authorization(from: parameters) else {
+                plog("☁️ OAuth implicit callback without usable token keys=\(parameters.keys.sorted())")
+                throw OAuthError.tokenExchangeFailed("No access_token or API host in callback")
+            }
+            plog("☁️ OAuth token OK provider=pcloud host=\(authorization.apiHost) location=\(authorization.locationID ?? "-")")
+            // token 不过期、没有 refresh_token;账号所在区的 API 主机随 token 一起落钥匙串。
+            return CloudTokenManager.Tokens(
+                accessToken: authorization.accessToken,
+                refreshToken: nil,
+                expiresAt: nil,
+                tokenType: parameters["token_type"] ?? "bearer",
+                extra: authorization.credentialExtra
+            )
+        default:
+            throw OAuthError.invalidConfiguration("Implicit grant is not supported for \(config.provider.rawValue)")
+        }
     }
 
     // MARK: - Step 4: Exchange Code for Tokens

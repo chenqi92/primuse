@@ -135,6 +135,7 @@ struct SourceSyncStateTests {
             .pan115,
             .pan123,
             .guangya,
+            .pcloud,
         ] {
             #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
                 sourceType: sourceType,
@@ -155,6 +156,7 @@ struct SourceSyncStateTests {
             .pan115,
             .pan123,
             .guangya,
+            .pcloud,
         ] {
             #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
                 sourceType: sourceType,

@@ -138,7 +138,7 @@ enum TVArtistArtworkReader {
             } else {
                 let request: URLRequest
                 if let source {
-                    guard [.webdav, .infiniCloud, .oneDrive, .dropbox].contains(source.type) else { return nil }
+                    guard [.webdav, .infiniCloud, .oneDrive, .dropbox, .pcloud].contains(source.type) else { return nil }
                     let file = Song(id: "artist-artwork", title: "", fileFormat: .mp3, filePath: reference, sourceID: source.id)
                     let resolved = try await StreamResolverRegistry.shared.resolve(for: file, source: source, credential: credential)
                     var value = URLRequest(url: resolved.url)

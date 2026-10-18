@@ -137,7 +137,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         let cred = credential ?? SourceCredential()
         return try await CloudResolverRequests.$account.withValue(.init(source: source, credential: cred)) {
             switch source.type {
-            case .aliyunDrive, .oneDrive, .dropbox, .pan123, .guangya:
+            case .aliyunDrive, .oneDrive, .dropbox, .pan123, .guangya, .pcloud:
                 return ResolvedStream(url: try await streamURL(for: song, source: source, credential: cred))
             case .googleDrive:
                 // Google:端点即下载地址,播放需带 Bearer 头(走 resource loader)。
@@ -432,6 +432,30 @@ public actor CloudDriveStreamResolver: StreamResolver {
                 bodyAuthCodes: [GuangYaAPIProtocol.ResultCode.invalidAccessToken],
                 parse: Self.parseGuangYaURL
             )
+        case .pcloud:
+            // 打账号所在区的那台主机;直链本身带签名,播放时不再需要 token。
+            guard let id = PCloudAPIProtocol.fileID(from: fileID),
+                  let url = PCloudAPIProtocol.fileLinkURL(
+                      host: PCloudAPIProtocol.apiHost(from: cred.extra),
+                      fileID: id
+                  ) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            var req = URLRequest(url: url)
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let data = try await read(req)
+            // pCloud 的业务错误一律 HTTP 200 + result 码。token 无效没法刷新,只能重新授权,
+            // 所以不进 read 的刷新重试,直接报鉴权失败。
+            if let envelope = PCloudAPIProtocol.parseEnvelope(data), !envelope.isSuccess {
+                if PCloudAPIProtocol.indicatesInvalidToken(envelope.result) {
+                    throw StreamResolveError.authFailed
+                }
+                throw StreamResolveError.badServerResponse(envelope.result)
+            }
+            guard let link = PCloudAPIProtocol.parseFileLink(data) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            return link.url
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }

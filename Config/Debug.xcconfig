@@ -15,6 +15,9 @@ PAN123_CLIENT_SECRET =
 GUANGYA_CLIENT_ID =
 GUANGYA_PROJECT_ID =
 GUANGYA_SIGN_SECRET =
+// pCloud 应用(docs.pcloud.com/my_apps)的 client_id。隐式授权与电视的 poll_token
+// 都不用 client_secret,所以只注入这一项。
+PCLOUD_CLIENT_ID =
 LASTFM_API_KEY =
 LASTFM_API_SECRET =
 PRIMUSE_IOS_APP_STORE_ID = 6761675450

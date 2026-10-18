@@ -2297,7 +2297,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         let sourceTypes: [MusicSourceType] = [
             .smb, .webdav, .ftp, .sftp, .nfs, .qnap, .ugreen, .fnos, .s3,
             .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115,
-            .pan123, .guangya,
+            .pan123, .guangya, .pcloud,
         ]
 
         for sourceType in sourceTypes {

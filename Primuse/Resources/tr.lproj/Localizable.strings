@@ -124,7 +124,9 @@
 "playlist_import_ready_badge" = "HAZIR";
 "cloud_guide_pan123" = "Bir geliştirici uygulamasına başvurmak için 123pan.cn/developer adresine gidin";
 "cloud_guide_guangya" = "Bir geliştirici uygulamasına başvurmak için app.guangyapan.com/pan/docs/open-api adresine gidin";
+"cloud_guide_pcloud" = "docs.pcloud.com/my_apps adresinde bir uygulama oluşturun ve Implicit Grant'e izin verin";
 "guangya_err_missing_app_config" = "Bu derlemede GuangYa kimlik bilgileri (client ID, project ID, imzalama anahtarı) yok";
+"pcloud_err_authorization_revoked" = "pCloud yetkilendirmesi artık geçerli değil. Lütfen yeniden yetkilendirin.";
 "lyrics_converter_voice_notice" = "LRC her satırı korur ancak TTML ses hizalaması düzleştirilir.";
 "ai_recommendation_intent_genreExploration" = "Tür Keşfi";
 "auth_connection_limit_reached" = "Sunucu bağlantı sınırına ulaşıldı.";

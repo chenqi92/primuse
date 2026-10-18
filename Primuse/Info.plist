@@ -153,6 +153,8 @@
 	<string>$(GUANGYA_PROJECT_ID)</string>
 	<key>PrimuseGuangYaSignSecret</key>
 	<string>$(GUANGYA_SIGN_SECRET)</string>
+	<key>PrimusePCloudClientID</key>
+	<string>$(PCLOUD_CLIENT_ID)</string>
 	<key>PrimuseLastFmAPIKey</key>
 	<string>$(LASTFM_API_KEY)</string>
 	<key>PrimuseLastFmAPISecret</key>

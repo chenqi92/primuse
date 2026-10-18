@@ -26,6 +26,9 @@ enum BuiltInCloudCredentials {
     // 不经这里:它们只用于设备码授权头与业务接口签名,不该被当成 OAuth 的
     // client_secret 发给 token 端点。取值见 `GuangYaAPIProtocol.bundledAppConfig()`。
     private static let guangYaClientIdKey = GuangYaAPIProtocol.clientIDInfoKey
+    // pCloud 应用的 client_id。授权走隐式授权 / poll_token,两条都不用 client_secret,
+    // 所以不注入 secret,安装包里也就不带它。
+    private static let pCloudClientIdKey = "PrimusePCloudClientID"
 
     // MARK: - Query
 
@@ -76,6 +79,11 @@ enum BuiltInCloudCredentials {
             )
         case .guangya:
             guard let clientId = stringValue(forInfoDictionaryKey: guangYaClientIdKey) else {
+                return nil
+            }
+            return (clientId, nil)
+        case .pcloud:
+            guard let clientId = stringValue(forInfoDictionaryKey: pCloudClientIdKey) else {
                 return nil
             }
             return (clientId, nil)

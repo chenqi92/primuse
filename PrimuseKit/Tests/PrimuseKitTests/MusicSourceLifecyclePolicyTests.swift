@@ -152,7 +152,7 @@ struct MusicSourceLifecyclePolicyTests {
     @Test("Opaque directory IDs never become path-derived labels")
     func opaqueFallbackIsHidden() {
         for type in [MusicSourceType.oneDrive, .googleDrive, .aliyunDrive, .drime, .pan115,
-                     .pan123, .guangya] {
+                     .pan123, .guangya, .pcloud] {
             #expect(SourceDirectoryLabelPolicy.readableFallback(
                 path: "opaque-internal-id",
                 sourceType: type

@@ -259,6 +259,7 @@ targets:
         PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
         PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
         PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
+        PrimusePCloudClientID: "$(PCLOUD_CLIENT_ID)"
         PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
         PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         UILaunchScreen: {}
@@ -663,6 +664,7 @@ targets:
         PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
         PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
         PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
+        PrimusePCloudClientID: "$(PCLOUD_CLIENT_ID)"
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."
@@ -959,6 +961,7 @@ targets:
         PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
         PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
         PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
+        PrimusePCloudClientID: "$(PCLOUD_CLIENT_ID)"
         NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent

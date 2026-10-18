@@ -93,10 +93,10 @@ public actor StreamResolverRegistry {
         // 其余不可直连的源(SMB/NFS/FTP/SFTP/local)经 iPhone 局域网中继。
         let relay = RelayStreamResolver()
         for type in RelayStreamResolver.relayTypes { map[type] = relay }
-        // 云盘:阿里/OneDrive/Dropbox/123/光鸭 直链直连;Google/115/Drime 经
+        // 云盘:阿里/OneDrive/Dropbox/123/光鸭/pCloud 直链直连;Google/115/Drime 经
         // resource loader 带播放头。
         for type in [MusicSourceType.aliyunDrive, .oneDrive, .dropbox, .pan123, .googleDrive,
-                     .pan115, .drime, .guangya] {
+                     .pan115, .drime, .guangya, .pcloud] {
             map[type] = cloud
         }
         map[.baiduPan] = baidu   // list→fs_id→filemetas→CDN,播放带 UA(resource loader)

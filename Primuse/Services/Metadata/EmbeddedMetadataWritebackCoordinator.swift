@@ -411,6 +411,7 @@ enum EmbeddedMetadataWritebackCoordinator {
         case "GoogleDriveSource": return MusicSourceType.googleDrive.displayName
         case "OneDriveSource": return MusicSourceType.oneDrive.displayName
         case "DropboxSource": return MusicSourceType.dropbox.displayName
+        case "PCloudSource": return MusicSourceType.pcloud.displayName
         default:
             let name = String(describing: type)
             return name.hasSuffix("Source") ? String(name.dropLast("Source".count)) : name

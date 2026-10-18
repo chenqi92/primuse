@@ -23,7 +23,7 @@ public extension MusicSourceType {
              .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
              .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
              .baiduPan, .aliyunDrive, .googleDrive, .oneDrive,
-             .dropbox, .drime, .pan115, .pan123, .guangya, .infiniCloud,
+             .dropbox, .drime, .pan115, .pan123, .guangya, .pcloud, .infiniCloud,
              .appleMusic, .local, .appleMusicLibrary:
             return .unavailable
         }

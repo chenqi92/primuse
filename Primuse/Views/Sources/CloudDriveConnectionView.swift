@@ -269,6 +269,7 @@ struct CloudDriveConnectionView: View {
         case .pan115: return String(localized: "cloud_guide_pan115")
         case .pan123: return String(localized: "cloud_guide_pan123")
         case .guangya: return String(localized: "cloud_guide_guangya")
+        case .pcloud: return String(localized: "cloud_guide_pcloud")
         default: return String(localized: "cloud_guide_default")
         }
     }
@@ -544,6 +545,7 @@ struct CloudDriveConnectionView: View {
         case .pan115: return "115.com"
         case .pan123: return "123pan.com"
         case .guangya: return "guangyapan.com"
+        case .pcloud: return "my.pcloud.com"
         default: return String(localized: "cloud_host_default")
         }
     }
@@ -566,6 +568,8 @@ struct CloudDriveConnectionView: View {
             Pan123Source.redirectURI
         case .guangya:
             GuangYaSource.redirectURI
+        case .pcloud:
+            PCloudSource.redirectURI
         default:
             "\(CloudOAuthConfig.callbackScheme)://callback"
         }
@@ -968,6 +972,8 @@ struct CloudDriveConnectionView: View {
             return Pan123Source.oauthConfig(clientId: clientId, clientSecret: clientSecret)
         case .guangya:
             return GuangYaSource.oauthConfig(clientId: clientId)
+        case .pcloud:
+            return PCloudSource.oauthConfig(clientId: clientId)
         default:
             // Fallback — shouldn't happen
             return CloudOAuthConfig(

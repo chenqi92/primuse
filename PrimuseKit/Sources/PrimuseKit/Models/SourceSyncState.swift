@@ -352,7 +352,7 @@ public enum SourceSyncFolderTopologyPolicy {
 
     private static func usesOpaqueProviderItemIDs(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123, .guangya:
+        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123, .guangya, .pcloud:
             return true
         default:
             return false

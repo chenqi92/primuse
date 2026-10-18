@@ -1486,6 +1486,9 @@ extension MusicSourceType {
         case .pan115: sourceBrandColor(0xD81B60)
         case .pan123: sourceBrandColor(0x00838F)
         case .guangya: sourceBrandColor(0x8A6D1F)
+        // pCloud 的品牌青色太浅(白字只有 2.3:1),而深青已经是 123 云盘的;
+        // 往绿那边挪一点、压暗到 3:1,与 123 云盘拉开 ΔE 25。
+        case .pcloud: sourceBrandColor(0x00A690)
 
         // Apple 与本机
         case .appleMusic: sourceBrandColor(0xFA2D48)

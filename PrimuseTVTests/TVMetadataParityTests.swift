@@ -279,7 +279,7 @@ final class TVMetadataParityTests: XCTestCase {
     }
 
     func testSourceRoutesDoNotReadTranscodedServerFilesAsTags() {
-        for type in [MusicSourceType.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox] {
+        for type in [MusicSourceType.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox, .pcloud] {
             XCTAssertTrue(TVPlaybackMetadataPolicy.supports(type), type.rawValue)
         }
         for type in [MusicSourceType.subsonic, .navidrome, .jellyfin, .emby, .plex, .fnMusic, .daoliyu, .songloft,

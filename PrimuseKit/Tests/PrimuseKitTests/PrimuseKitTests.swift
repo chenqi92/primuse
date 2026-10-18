@@ -338,6 +338,8 @@ import Testing
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .synologyAudioStation, format: .flac) == .serverAPI)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .guangya, format: .mp3) == .localOnly)
+    // pCloud 连接器还没接上传,封面、歌词与标签留在本地。
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pcloud, format: .flac) == .localOnly)
 }
 
 @Test func embeddedLyricsCopyIsOptInAndFollowsEmbeddedTagWriteback() throws {

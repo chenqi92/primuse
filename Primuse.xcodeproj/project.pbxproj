@@ -958,6 +958,7 @@
 		6F577B2D1BA585A651766505 /* LibrarySnapshotSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */; };
 		6F5899A91CEA7698A1F8C916 /* SmartNudgeOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E6D8F9E72019BB5755F6F3C /* SmartNudgeOverlay.swift */; };
 		6F7789BD834850AFCF14F44B /* GuangYaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7604FDFCC31C876592711589 /* GuangYaSource.swift */; };
+		9E5B31A474343AE9C7B20BB3 /* PCloudSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2EED69B79C7623BBF41DF /* PCloudSource.swift */; };
 		6FD343D31FDCA5EB52F81D2C /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */; };
 		6FE53DDA9986F85A3897E582 /* EQPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B77E91ECC8568E876861750 /* EQPreset.swift */; };
 		701FA5F7941E71CFD532B0AD /* ListeningRecapComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345BBC9EEE3C23783C54B9E6 /* ListeningRecapComponents.swift */; };
@@ -1097,6 +1098,7 @@
 		F187673C13FB3CCDFD162E7A /* PreparedPlaybackStartPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5EE4B8985E20FD68D331378 /* PreparedPlaybackStartPolicy.swift */; };
 		81373227466DA7A6E21BCEFC /* TagEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */; };
 		81468FC4945D9158A4D4C740 /* GuangYaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7604FDFCC31C876592711589 /* GuangYaSource.swift */; };
+		5198FC779BCEB5AB3EED1584 /* PCloudSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2EED69B79C7623BBF41DF /* PCloudSource.swift */; };
 		8151A11712C2EC0E1B58A83E /* PlayerBackdropSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96CE75F0A073BB8CD03ED6A1 /* PlayerBackdropSettingsStore.swift */; };
 		815721DBF9C6091FB3742B5E /* TVOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D2E1F749F6B5DA908F4E77 /* TVOptionsView.swift */; };
 		816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */; };
@@ -1781,6 +1783,7 @@
 		DCDA96AC3B149B7D18AAD1E5 /* LibraryStartupHarnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F2A8C498BD95803C47AA04 /* LibraryStartupHarnessTests.swift */; };
 		DD17FF53687683EBD64909AE /* LibraryInsightWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE1B094BABD7D22C70C7A0A /* LibraryInsightWriteback.swift */; };
 		DD201E086AF711E4D3F34119 /* GuangYaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7604FDFCC31C876592711589 /* GuangYaSource.swift */; };
+		7AC528044948A2DE98BD20C6 /* PCloudSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E2EED69B79C7623BBF41DF /* PCloudSource.swift */; };
 		DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */; };
 		DD8A9952CD2D01AC1AF8EE1E /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183552F57FE08FA9E466F722 /* ImmersiveStageRenderers.swift */; };
 		DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86E05F2143FF7A15E29948C /* NFSSource.swift */; };
@@ -1903,6 +1906,7 @@
 		EF3E73C2246B8853632A928A /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = A2D615E9E6A58B7DF5A858D1 /* Crypto */; };
 		EF42DC10EBE3F86E7C361E81 /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
 		EF86BBA5CE621E9D18654AA6 /* GuangYaAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */; };
+		AE888375DAD6AC808FD13FCB /* PCloudAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 315981DE4AEB3F6B8962DBD0 /* PCloudAPIProtocol.swift */; };
 		EF8C3D1689C554C52CE908A1 /* CloudTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */; };
 		EF93A959643DEA84F51F6E18 /* DLNARendererSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41195313270BFC6D837603AE /* DLNARendererSettingsView.swift */; };
 		EFAB156F0158347B9BF9C7CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */; };
@@ -3063,6 +3067,7 @@
 		758577225D4912E66F9AA8CE /* WiFiTransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferView.swift; sourceTree = "<group>"; };
 		75E1B693A9FB85D5F3079967 /* RadioStationListeningHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationListeningHistory.swift; sourceTree = "<group>"; };
 		7604FDFCC31C876592711589 /* GuangYaSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuangYaSource.swift; sourceTree = "<group>"; };
+		A0E2EED69B79C7623BBF41DF /* PCloudSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCloudSource.swift; sourceTree = "<group>"; };
 		7606C8DE4C019648E635874B /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/MetadataReading.strings; sourceTree = "<group>"; };
 		7608FA3171F7C4546526AFB8 /* PodcastPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastPlayerComponents.swift; sourceTree = "<group>"; };
 		7636930F6BD3D872DEA692AF /* CloudDeviceAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthService.swift; sourceTree = "<group>"; };
@@ -3094,6 +3099,7 @@
 		7901837A48E8B1B42DEEBA64 /* ExternalTrackMatchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalTrackMatchPolicy.swift; sourceTree = "<group>"; };
 		79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheSyncService.swift; sourceTree = "<group>"; };
 		7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuangYaAPIProtocol.swift; sourceTree = "<group>"; };
+		315981DE4AEB3F6B8962DBD0 /* PCloudAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCloudAPIProtocol.swift; sourceTree = "<group>"; };
 		798556FF163D6F67FB02D263 /* DirectoryBrowserNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryBrowserNavigationState.swift; sourceTree = "<group>"; };
 		79D242F72C10639A4F5F33C7 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/Localizable.strings; sourceTree = "<group>"; };
 		79D258CCAFC472A6F334BD11 /* PodcastMacHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastMacHome.swift; sourceTree = "<group>"; };
@@ -5502,6 +5508,7 @@
 				AC2D3494E7475F44773698F9 /* DropboxSource.swift */,
 				6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */,
 				7604FDFCC31C876592711589 /* GuangYaSource.swift */,
+				A0E2EED69B79C7623BBF41DF /* PCloudSource.swift */,
 				3C85D6EDF29DAED03773957A /* OAuthService.swift */,
 				3E648713A25DB3912120693A /* OneDriveSource.swift */,
 				309F9BB53ECA9FA54F805457 /* Pan123Source.swift */,
@@ -5857,6 +5864,7 @@
 				8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */,
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
+				315981DE4AEB3F6B8962DBD0 /* PCloudAPIProtocol.swift */,
 				8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */,
 				EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */,
 				2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */,
@@ -6719,6 +6727,7 @@
 				6056F37A0D29F91BB020039B /* GaplessSuccessorDiscardPolicy.swift in Sources */,
 				195CA6B0593D922EAA535E82 /* GoogleDriveAccessChangePolicy.swift in Sources */,
 				EF86BBA5CE621E9D18654AA6 /* GuangYaAPIProtocol.swift in Sources */,
+				AE888375DAD6AC808FD13FCB /* PCloudAPIProtocol.swift in Sources */,
 				17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */,
 				D768ACAB75828F3A175088A6 /* HardwareSampleRateNegotiator.swift in Sources */,
 				3E0A1D350F504FD209DBC2F0 /* HomeListeningRanking.swift in Sources */,
@@ -7282,6 +7291,7 @@
 				864731D085894564F66B44C9 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				B26ED4E6532571323A775A66 /* GoogleDriveSource.swift in Sources */,
 				DD201E086AF711E4D3F34119 /* GuangYaSource.swift in Sources */,
+				7AC528044948A2DE98BD20C6 /* PCloudSource.swift in Sources */,
 				3CEA30AE4DAD728B6773785F /* HomeAlbumPickSection.swift in Sources */,
 				C2E29DE1D474D35D4742D02D /* HomeDiscoveryModel.swift in Sources */,
 				9B7F2B5D35C992AA95A93735 /* HomeFoldersSection.swift in Sources */,
@@ -7705,6 +7715,7 @@
 				8CA202637C8D880DFFC96462 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				953506057FBB8C8638906545 /* GoogleDriveSource.swift in Sources */,
 				81468FC4945D9158A4D4C740 /* GuangYaSource.swift in Sources */,
+				5198FC779BCEB5AB3EED1584 /* PCloudSource.swift in Sources */,
 				91432E4B680587827128E1C0 /* ImmersiveSimulationRenderers.swift in Sources */,
 				6FD343D31FDCA5EB52F81D2C /* ITunesScraper.swift in Sources */,
 				DD8A9952CD2D01AC1AF8EE1E /* ImmersiveStageRenderers.swift in Sources */,
@@ -8046,6 +8057,7 @@
 				480C56F0F305BC67E7C4BF22 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */,
 				6F7789BD834850AFCF14F44B /* GuangYaSource.swift in Sources */,
+				9E5B31A474343AE9C7B20BB3 /* PCloudSource.swift in Sources */,
 				867AEA11F26D4956EA342660 /* HomeAlbumPickSection.swift in Sources */,
 				DE124BF8F7E0731A1266A557 /* HomeDiscoveryModel.swift in Sources */,
 				8DB09314546C2B60BB2EF852 /* HomeFoldersSection.swift in Sources */,

@@ -387,6 +387,108 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 5)
     }
 
+    func testPCloudListsOnTheAccountRegionWithBearerHeader() async throws {
+        let listing = Data("""
+        {"result":0,"metadata":{"folderid":230807,"isfolder":true,"name":"Music","id":"d230807","contents":[
+          {"id":"d42","folderid":42,"isfolder":true,"name":"Album","modified":1380719015},
+          {"id":"f7","fileid":7,"isfolder":false,"name":"Song.flac","size":1024,"modified":1380719000,"hash":99}
+        ]}}
+        """.utf8)
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: listing)])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let tokens = CloudTokenManager.Tokens(
+            accessToken: "fixture",
+            extra: PCloudAPIProtocol.credentialExtra(apiHost: "eapi.pcloud.com", locationID: "2")
+        )
+        let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: { tokens })
+
+        let items = try await source.listFiles(at: "d230807")
+
+        let request = try XCTUnwrap(fixture.requests.first)
+        XCTAssertEqual(request.url?.host, "eapi.pcloud.com")
+        XCTAssertEqual(request.url?.path, "/listfolder")
+        XCTAssertTrue(request.url?.query?.contains("folderid=230807") == true)
+        XCTAssertFalse(request.url?.query?.contains("access_token") == true)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+        XCTAssertEqual(items.map(\.path), ["d42", "f7"])
+        XCTAssertEqual(items.map(\.isDirectory), [true, false])
+        XCTAssertEqual(items.map(\.parentPath), ["d230807", "d230807"])
+        XCTAssertEqual(items[1].size, 1024)
+        XCTAssertEqual(items[1].revision, "99")
+    }
+
+    func testPCloudRejectedTokenIsNotRetriedAsAnHTTPFailure() async throws {
+        let fixture = CloudHTTPFixture(responses: [
+            .init(status: 200, body: Data(#"{"result":2094,"error":"Invalid 'access_token' provided."}"#.utf8)),
+        ])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: {
+            CloudTokenManager.Tokens(accessToken: "revoked")
+        })
+        do {
+            _ = try await source.listFiles(at: "/")
+            XCTFail("A revoked pCloud token must ask for a new authorization")
+        } catch is CloudDriveError {
+            // pCloud 没有 refresh_token:钥匙串里没有新 token 时只能请用户重新授权。
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertEqual(fixture.requests.count, 1)
+        XCTAssertEqual(fixture.requests.first?.url?.host, "api.pcloud.com")
+    }
+
+    func testPCloudTransientResultIsRetriedWithinTheAttemptBudget() async throws {
+        let clock = CloudClock()
+        let listing = Data(#"{"result":0,"metadata":{"folderid":0,"isfolder":true,"name":"/","contents":[]}}"#.utf8)
+        let fixture = CloudHTTPFixture(responses: [
+            .init(status: 200, body: Data(#"{"result":5000,"error":"Internal error. Try again later."}"#.utf8)),
+            .init(status: 200, body: listing),
+        ])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = PCloudSource(
+            sourceID: fixture.id, session: session,
+            tokenProvider: { CloudTokenManager.Tokens(accessToken: "fixture") },
+            requests: CloudRequestScheduler(timing: clock.timing, jitter: { _ in 0 })
+        )
+        let task = Task { try await source.listFiles(at: "/") }
+        defer { task.cancel() }
+        try await clock.waitForSleep(at: 0.5)
+        clock.advance(to: 0.5)
+        let items = try await task.value
+        XCTAssertTrue(items.isEmpty)
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
+    func testPCloudDeletionRequiresConfirmedTrashMetadata() async throws {
+        let fixture = CloudHTTPFixture(responses: [
+            .init(status: 200, body: Data(#"{"result":0,"metadata":{"isdeleted":true,"fileid":7,"name":"a.mp3"}}"#.utf8)),
+            .init(status: 200, body: Data(#"{"result":0,"metadata":{"fileid":8,"name":"b.mp3"}}"#.utf8)),
+        ])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: {
+            CloudTokenManager.Tokens(accessToken: "fixture")
+        })
+
+        try await source.deleteFile(at: "f7")
+        do {
+            try await source.deleteFile(at: "f8")
+            XCTFail("An unconfirmed deletion must not be reported as done")
+        } catch {}
+
+        XCTAssertEqual(fixture.requests.map(\.httpMethod), ["POST", "POST"])
+        XCTAssertEqual(fixture.requests.first?.url?.path, "/deletefile")
+        XCTAssertTrue(fixture.requests.first?.url?.query?.contains("fileid=7") == true)
+        do {
+            try await source.deleteFile(at: "d7")
+            XCTFail("A folder ID is not a deletable file")
+        } catch {}
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
     func testCancellingBackoffDoesNotSendAnotherRequest() async throws {
         let clock = CloudClock()
         let fixture = CloudHTTPFixture(responses: [.init(status: 500), .init(status: 200)])

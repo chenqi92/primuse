@@ -15,6 +15,9 @@ public enum CloudDeviceAuthKind: String, Sendable, Equatable {
     /// 没有设备码通道的提供方:二维码只承载授权网址,用户在手机上授权后提供方
     /// 回显一串授权码,再由用户在电视上手动输入。Dropbox 属于这一类。
     case manualCode
+    /// 授权网址里带一个本机生成的请求号,用户在手机上同意后,token 端点上挂着的
+    /// 长连接直接回 token,不需要抄码,也不分「已扫码」中间态。pCloud 属于这一类。
+    case pollToken
 }
 
 public enum CloudDeviceAuthQRCode: Sendable, Equatable {
@@ -116,7 +119,7 @@ public enum CloudDeviceAuthSupport {
     /// - `.drime` 用用户在网页后台自建的 API token,同样是填字段;
     /// - 其余类型不是云盘。
     public static let providers: Set<MusicSourceType> = [
-        .aliyunDrive, .baiduPan, .pan115, .oneDrive, .googleDrive, .dropbox, .guangya,
+        .aliyunDrive, .baiduPan, .pan115, .oneDrive, .googleDrive, .dropbox, .guangya, .pcloud,
     ]
 
     public static func kind(for provider: MusicSourceType) -> CloudDeviceAuthKind? {
@@ -124,6 +127,7 @@ public enum CloudDeviceAuthSupport {
         case .aliyunDrive, .pan115: return .qrCode
         case .baiduPan, .oneDrive, .googleDrive, .guangya: return .deviceCode
         case .dropbox: return .manualCode
+        case .pcloud: return .pollToken
         default: return nil
         }
     }

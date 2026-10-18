@@ -2552,7 +2552,7 @@ struct SourcesContentView: View {
                 onEditAddress: onEditAddress
             )
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
-             .guangya:
+             .guangya, .pcloud:
             CloudDriveConnectionView(
                 source: source,
                 selectedDirectories: selectedDirectories

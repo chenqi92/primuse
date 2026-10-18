@@ -2244,7 +2244,9 @@
 "cloud_guide_pan115" = "Rendez-vous sur la plateforme ouverte 115.com pour demander une application développeur";
 "cloud_guide_pan123" = "Rendez-vous sur 123pan.cn/developer pour demander une application développeur";
 "cloud_guide_guangya" = "Rendez-vous sur app.guangyapan.com/pan/docs/open-api pour demander une application développeur";
+"cloud_guide_pcloud" = "Rendez-vous sur docs.pcloud.com/my_apps pour créer une application et autoriser l'Implicit Grant";
 "guangya_err_missing_app_config" = "Cette version ne contient pas les identifiants GuangYa (client ID, project ID, clé de signature)";
+"pcloud_err_authorization_revoked" = "L'autorisation pCloud n'est plus valide. Veuillez l'autoriser à nouveau.";
 "cloud_guide_default" = "Inscrivez-vous au centre développeur de la plateforme concernée";
 "cloud_auth_connect_format" = "Connecter %@";
 "cloud_auth_prompt_mac" = "Touchez « Autoriser » pour ouvrir la page d'autorisation dans le navigateur système.\nAprès connexion et accord, vous reviendrez automatiquement à Primuse.";

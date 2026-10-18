@@ -4033,6 +4033,8 @@ final class SourceManager {
             connector = Pan123Source(sourceID: source.id)
         case .guangya:
             connector = GuangYaSource(sourceID: source.id)
+        case .pcloud:
+            connector = PCloudSource(sourceID: source.id)
         case .s3:
             // S3 uses host=endpoint, basePath=bucket, and extraConfig holds
             // {"region":..., "dirs":[...]} — read region S3-aware so the dir

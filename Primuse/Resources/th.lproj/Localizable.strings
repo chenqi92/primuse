@@ -1072,7 +1072,9 @@
 "cloud_guide_pan115" = "ไปที่แพลตฟอร์มเปิด 115.com เพื่อสมัครแอปสำหรับนักพัฒนา";
 "cloud_guide_pan123" = "ไปที่ 123pan.cn/developer เพื่อสมัครแอปสำหรับนักพัฒนา";
 "cloud_guide_guangya" = "ไปที่ app.guangyapan.com/pan/docs/open-api เพื่อสมัครแอปสำหรับนักพัฒนา";
+"cloud_guide_pcloud" = "ไปที่ docs.pcloud.com/my_apps เพื่อสร้างแอปและอนุญาต Implicit Grant";
 "guangya_err_missing_app_config" = "บิลด์นี้ไม่มีข้อมูลรับรอง GuangYa (client ID, project ID, คีย์ลงนาม)";
+"pcloud_err_authorization_revoked" = "การอนุญาต pCloud ใช้ไม่ได้แล้ว โปรดอนุญาตอีกครั้ง";
 "cloud_host_default" = "บริการการอนุญาต";
 "cloud_oauth_browser_subtitle" = "การอนุญาตเบราว์เซอร์ของระบบ";
 "cloud_oauth_checking" = "กำลังตรวจสอบสถานะการอนุญาต...";

@@ -132,7 +132,7 @@ actor TVMetadataReaderPool {
     private var rangeTasks: [RangeKey: RangeTask] = [:]
     private var isClosed = false
     private static let resolvedStreamTypes: Set<MusicSourceType> = [
-        .webdav, .infiniCloud, .oneDrive, .dropbox, .synology, .qnap, .ugreen,
+        .webdav, .infiniCloud, .oneDrive, .dropbox, .pcloud, .synology, .qnap, .ugreen,
     ]
     private static let maximumCachedRangeBytes = 24 * 1024 * 1024
     private static let maximumIndividualCachedRangeBytes: Int64 = 4 * 1024 * 1024

@@ -2093,7 +2093,7 @@ struct SongListView: View {
              .audiobookshelf, .synologyAudioStation, .tingReader:
             return Color(red: 0.98, green: 0.66, blue: 0.28)
         case .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
-             .guangya, .infiniCloud: return Color(red: 0.42, green: 0.68, blue: 0.96)
+             .guangya, .pcloud, .infiniCloud: return Color(red: 0.42, green: 0.68, blue: 0.96)
         case .local: return PMColor.textFaint
         }
     }

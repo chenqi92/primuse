@@ -1072,7 +1072,9 @@
 "cloud_guide_pan115" = "Vaya a la plataforma abierta 115.com para solicitar una aplicación de desarrollador";
 "cloud_guide_pan123" = "Vaya a 123pan.cn/developer para solicitar una aplicación de desarrollador";
 "cloud_guide_guangya" = "Vaya a app.guangyapan.com/pan/docs/open-api para solicitar una aplicación de desarrollador";
+"cloud_guide_pcloud" = "Vaya a docs.pcloud.com/my_apps para crear una aplicación y permitir Implicit Grant";
 "guangya_err_missing_app_config" = "Esta versión no incluye las credenciales de GuangYa (client ID, project ID, clave de firma)";
+"pcloud_err_authorization_revoked" = "La autorización de pCloud ya no es válida. Vuelva a autorizar.";
 "cloud_host_default" = "servicio de autorización";
 "cloud_oauth_browser_subtitle" = "Autorización del navegador del sistema";
 "cloud_oauth_checking" = "Comprobando el estado de la autorización…";

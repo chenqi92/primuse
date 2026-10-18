@@ -44,6 +44,10 @@ public enum CloudOAuthAccountSelectionPolicy {
             parameters["force_reapprove"] = "true"
         case (.aliyunDrive, .differentAccount):
             parameters["prompt"] = "login"
+        case (.pcloud, .differentAccount):
+            // pCloud 授权页文档只给了这一个:已同意过的应用也重新弹出同意页,
+            // 页面上显示的是当前登录的账号,用户才有机会在那里换号。
+            parameters["force_reapprove"] = "1"
         default:
             break
         }

@@ -773,7 +773,8 @@ struct AddSourceView: View {
                 macInfoRow(isEditing ? "drime_token_edit_hint" : "drime_token_hint")
                 macInfoRow("drime_token_permission_hint")
             }
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya,
+             .pcloud:
             if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 macSection("cloud_oauth_config") {
                     macTextRow("cloud_client_id_or_app_key", text: $username, focus: .username)
@@ -1518,7 +1519,8 @@ struct AddSourceView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya,
+             .pcloud:
             if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 Section("cloud_oauth_config") {
                     TextField("cloud_client_id_or_app_key", text: $username)
