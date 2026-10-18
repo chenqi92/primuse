@@ -3241,6 +3241,13 @@
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
 "player_artwork_lyrics" = "Liedtext unter dem Cover";
 "player_artwork_lyrics_description" = "Zeigt die gerade gesungene Zeile direkt über der Fortschrittsleiste, ohne zur Liedtextansicht zu wechseln. Im Intro und in Instrumentalpassagen erscheint ein kurzer Hinweis statt der nächsten Zeile. Das Cover wird bei Bedarf etwas kleiner, um Platz zu schaffen. Tippe auf den Liedtext, um die Liedtextansicht zu öffnen.";
+"player_artwork_lyrics_lines" = "Zeilen";
+"player_artwork_lyrics_lines_one" = "1 Zeile";
+"player_artwork_lyrics_lines_two" = "2 Zeilen";
+"player_artwork_lyrics_lines_three" = "3 Zeilen";
+"player_artwork_lyrics_lines_fill" = "Automatisch";
+"player_artwork_lyrics_lines_description" = "Ab zwei Zeilen bleibt die gesungene Zeile an ihrem Platz, darüber die gerade gesungenen und darunter die nächsten Zeilen, abgeblendet. „Automatisch“ zeigt so viele Zeilen, wie zwischen Titel und Fortschrittsleiste Platz haben; ohne Lautstärkeregler oder mit kleinerer Schrift passen mehr hinein. Bei einer festen Zeilenzahl wird das Cover bei Bedarf etwas kleiner.";
+"player_artwork_lyrics_font_size" = "Schriftgröße des Liedtexts";
 "player_audio_info_title" = "Audioinfos im Player";
 "player_audio_info_off" = "Aus";
 "player_audio_info_lossless_only" = "Nur verlustfrei";

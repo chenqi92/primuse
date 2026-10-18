@@ -2606,6 +2606,13 @@
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";
 "player_artwork_lyrics" = "الكلمات أسفل الغلاف";
 "player_artwork_lyrics_description" = "يعرض السطر الذي يُغنّى الآن فوق شريط التقدم مباشرة دون الانتقال إلى عرض الكلمات. في المقدمة والفواصل الموسيقية تظهر رسالة قصيرة بدل السطر التالي. يصغر الغلاف قليلاً عند الحاجة لإفساح المجال. اضغط على الكلمات لفتح عرض الكلمات.";
+"player_artwork_lyrics_lines" = "عدد الأسطر";
+"player_artwork_lyrics_lines_one" = "سطر واحد";
+"player_artwork_lyrics_lines_two" = "سطران";
+"player_artwork_lyrics_lines_three" = "٣ أسطر";
+"player_artwork_lyrics_lines_fill" = "تلقائي";
+"player_artwork_lyrics_lines_description" = "عند اختيار سطرين أو أكثر يبقى السطر الذي يُغنّى في مكانه، وفوقه الأسطر التي غُنّيت للتو وتحته الأسطر التالية بلون أخفت. يعرض «تلقائي» أكبر عدد من الأسطر تتسع له المساحة بين اسم الأغنية وشريط التقدم، وإخفاء شريط الصوت أو تصغير الحجم يتيح أسطرًا أكثر. مع عدد ثابت من الأسطر يصغر الغلاف قليلاً إذا لم تتسع.";
+"player_artwork_lyrics_font_size" = "حجم الكلمات";
 "player_audio_info_title" = "معلومات الصوت في المشغّل";
 "player_audio_info_off" = "إيقاف";
 "player_audio_info_lossless_only" = "الصوت غير المضغوط فقط";

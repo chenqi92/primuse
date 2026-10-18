@@ -3342,6 +3342,13 @@
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
 "player_artwork_lyrics" = "封面下显示歌词";
 "player_artwork_lyrics_description" = "不用切到歌词页，在进度条上面就能看到正在唱的那一句。前奏和间奏里显示简短的提示，不会提前露出下一句。打开后封面会按需缩小一点，给歌词让出位置；点歌词进入歌词页。";
+"player_artwork_lyrics_lines" = "歌词行数";
+"player_artwork_lyrics_lines_one" = "一行";
+"player_artwork_lyrics_lines_two" = "两行";
+"player_artwork_lyrics_lines_three" = "三行";
+"player_artwork_lyrics_lines_fill" = "自动";
+"player_artwork_lyrics_lines_description" = "两行以上时，正在唱的那句停在固定位置，上面是刚唱过的、下面是接下来的几句，颜色调淡。选「自动」按歌名和进度条之间剩下的空间能放几行放几行，关掉音量条或调小字号都会多放几行；选定行数时，放不下会让封面缩小一点。";
+"player_artwork_lyrics_font_size" = "歌词字号";
 "player_audio_info_title" = "播放页显示音频信息";
 "player_audio_info_off" = "关闭";
 "player_audio_info_lossless_only" = "仅无损音质";

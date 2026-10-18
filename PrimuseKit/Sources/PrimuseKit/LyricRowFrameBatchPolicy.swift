@@ -126,7 +126,7 @@ public enum LyricPlaybackPositionPolicy {
     /// 同一句的几行来自同一个 `[mm:ss.xx]`，解析出来本应完全相等；留一点余量
     /// 是为了写成 `[00:12.00]` 和 `[00:12.001]` 这种手抄的文件。与
     /// `LyricBilingualPairingPolicy` 判定同一簇用的余量一致。
-    private static let sameRowTolerance: TimeInterval = 0.002
+    static let sameRowTolerance: TimeInterval = 0.002
 
     /// Companion rows share the source timestamp and must not end its word
     /// sweep. Only a later timestamp group can take over the highlight.
@@ -672,6 +672,81 @@ public enum NowPlayingLyricPreviewPolicy {
             message = (slot - 1).isMultiple(of: 2) ? .settingTheMood : .musicTakesOver
         }
         return (message, end)
+    }
+}
+
+// MARK: - 多行
+
+extension NowPlayingLyricPreviewPolicy {
+    /// 多行时这一格里的那句是唱过的、正在唱的,还是还没到的。
+    public enum LineRole: Equatable, Sendable {
+        case past
+        case current
+        case upcoming
+    }
+
+    /// 多行时每一格放什么。
+    public enum Row: Equatable, Sendable {
+        case line(Int, LineRole)
+        /// 放 `Display` 自己:前奏提示、间奏标签、心跳点;`.empty` 时这一格空着。
+        case status
+        /// 前面或后面已经没有句子可放。
+        case blank
+    }
+
+    /// 正在唱的那一句(或提示)排在第几格:两行以内排第一格;三行起上面留一句唱过的,
+    /// 行数再多,每多三行往上多留一句。
+    public static func anchorRow(rowCount: Int) -> Int {
+        rowCount <= 2 ? 0 : max(1, (rowCount - 1) / 3)
+    }
+
+    /// 多行(「封面下的歌词」选了两行以上)时每一格放什么。正在唱的那一句停在 `anchorRow` 那一格,
+    /// 上面是唱过的、下面是接下来的;同一个时间戳的几行(没配成对的译文、合唱)一起算正在唱。
+    /// 前奏、间奏与句间空行里那一格换成 `Display` 自己,上下照样是唱过的和接下来的,
+    /// 换句时整列往上走一格。一行时和单行的显示一模一样。
+    public static func rows(
+        for display: Display,
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        rowCount: Int
+    ) -> [Row] {
+        let count = max(1, rowCount)
+        guard count > 1 else {
+            if case .line(let index) = display { return [.line(index, .current)] }
+            return [.status]
+        }
+        let shown = lyrics.indices.filter {
+            lyrics[$0].isSynchronized
+                && lyrics[$0].timestamp.isFinite
+                && !lyrics[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let past: [Int]
+        let current: [Row]
+        let upcoming: [Int]
+        if case .line(let index) = display, lyrics.indices.contains(index) {
+            let start = lyrics[index].timestamp
+            let tolerance = LyricPlaybackPositionPolicy.sameRowTolerance
+            past = shown.filter { lyrics[$0].timestamp < start - tolerance }
+            let group = shown.filter { abs(lyrics[$0].timestamp - start) <= tolerance }
+            current = (group.isEmpty ? [index] : group).map { .line($0, .current) }
+            upcoming = shown.filter { lyrics[$0].timestamp > start + tolerance }
+        } else {
+            let target = playbackTime.isFinite ? playbackTime + max(0, lookahead) : -.infinity
+            past = shown.filter { lyrics[$0].timestamp <= target }
+            current = [.status]
+            upcoming = shown.filter { lyrics[$0].timestamp > target }
+        }
+        let anchor = anchorRow(rowCount: count)
+        let above = past.suffix(anchor).map { Row.line($0, .past) }
+        var rows = Array(repeating: Row.blank, count: anchor - above.count) + above + current
+            + upcoming.map { Row.line($0, .upcoming) }
+        if rows.count > count {
+            rows.removeLast(rows.count - count)
+        } else if rows.count < count {
+            rows += Array(repeating: Row.blank, count: count - rows.count)
+        }
+        return rows
     }
 }
 

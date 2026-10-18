@@ -3010,6 +3010,13 @@
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
 "player_artwork_lyrics" = "Lyrics Under Artwork";
 "player_artwork_lyrics_description" = "Show the line being sung just above the progress bar, without switching to the lyrics view. During the intro and instrumental breaks it shows a short status instead of jumping ahead to the next line. The artwork shrinks a little when needed to make room. Tap the lyrics to open the lyrics view.";
+"player_artwork_lyrics_lines" = "Lines";
+"player_artwork_lyrics_lines_one" = "1 Line";
+"player_artwork_lyrics_lines_two" = "2 Lines";
+"player_artwork_lyrics_lines_three" = "3 Lines";
+"player_artwork_lyrics_lines_fill" = "Auto";
+"player_artwork_lyrics_lines_description" = "With two or more lines, the line being sung stays in place, with the lines just sung above it and the next lines below, dimmed. Auto fits as many lines as the space between the song title and the progress bar allows; hiding the volume slider or choosing a smaller size fits more. With a fixed number of lines, the artwork shrinks a little if they don't fit.";
+"player_artwork_lyrics_font_size" = "Lyrics Size";
 "player_audio_info_title" = "Audio Info in Player";
 "player_audio_info_off" = "Off";
 "player_audio_info_lossless_only" = "Lossless Only";

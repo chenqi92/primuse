@@ -823,4 +823,51 @@ struct NowPlayingLyricPreviewPolicyTests {
         #expect(short.message == .vocalsIncoming)
         #expect(short.end == interval * 2.5)
     }
+
+    private func rows(at time: Double, count: Int) -> [NowPlayingLyricPreviewPolicy.Row] {
+        let display = NowPlayingLyricPreviewPolicy.resolve(in: lyrics, at: time).display
+        return NowPlayingLyricPreviewPolicy.rows(for: display, in: lyrics, at: time, rowCount: count)
+    }
+
+    @Test("一行时和单行显示一样:正在唱的那句,或提示那一格")
+    func singleRowMatchesTheSingleLine() {
+        #expect(rows(at: 22, count: 1) == [.line(0, .current)])
+        #expect(rows(at: 5, count: 1) == [.status])
+        #expect(rows(at: 30, count: 1) == [.status])
+    }
+
+    @Test("两行:正在唱的在第一格,下面是下一句,跳过空行")
+    func twoRowsShowTheNextLine() {
+        #expect(rows(at: 22, count: 2) == [.line(0, .current), .line(1, .upcoming)])
+        #expect(rows(at: 25, count: 2) == [.line(1, .current), .line(3, .upcoming)])
+        #expect(rows(at: 5, count: 2) == [.status, .line(0, .upcoming)])
+    }
+
+    @Test("三行起上面留一句唱过的;前面没有句子时空着,后面不够时补空格")
+    func threeRowsKeepOneSungLineAbove() {
+        #expect(NowPlayingLyricPreviewPolicy.anchorRow(rowCount: 3) == 1)
+        #expect(NowPlayingLyricPreviewPolicy.anchorRow(rowCount: 7) == 2)
+        #expect(rows(at: 22, count: 3) == [.blank, .line(0, .current), .line(1, .upcoming)])
+        #expect(rows(at: 25, count: 3) == [.line(0, .past), .line(1, .current), .line(3, .upcoming)])
+        #expect(rows(at: 41, count: 3) == [.line(1, .past), .line(3, .current), .blank])
+    }
+
+    @Test("间奏里提示那一格夹在唱过的和接下来的中间")
+    func interludeKeepsContextAroundTheStatus() {
+        #expect(rows(at: 30, count: 3) == [.line(1, .past), .status, .line(3, .upcoming)])
+        #expect(rows(at: 39.5, count: 4) == [.line(1, .past), .status, .line(3, .upcoming), .blank])
+    }
+
+    @Test("同一个时间戳的几行一起算正在唱")
+    func sameTimestampGroupIsCurrent() {
+        let grouped = [
+            LyricLine(id: "a", timestamp: 1, text: "Source"),
+            LyricLine(id: "b", timestamp: 1, text: "Companion"),
+            LyricLine(id: "c", timestamp: 5, text: "Next"),
+        ]
+        let display = NowPlayingLyricPreviewPolicy.resolve(in: grouped, at: 2).display
+        #expect(display == .line(0))
+        #expect(NowPlayingLyricPreviewPolicy.rows(for: display, in: grouped, at: 2, rowCount: 3)
+            == [.blank, .line(0, .current), .line(1, .current)])
+    }
 }

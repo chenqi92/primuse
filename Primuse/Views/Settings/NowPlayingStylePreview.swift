@@ -477,6 +477,8 @@ private struct MusicPortraitPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
+    private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
@@ -519,9 +521,12 @@ private struct MusicPortraitPreviewScreen: View {
         let size = canvas.size
         let artSize = NowPlayingView.portraitArtworkSize(in: size)
         let controlGap = NowPlayingView.portraitControlGap(forHeight: size.height)
-        // 封面下的那一句歌词只在封面那一面出现。
+        // 封面下的那几行歌词只在封面那一面出现;关掉音量条空出来的高度照播放页的分法
+        // (`NowPlayingView.portraitLayout`):行数选了「自动」时归歌词,否则分到封面上方和几行控件之间。
         let artworkLyrics = showsArtworkLyrics && !showsLyrics
-        let volumeSlack: CGFloat = showsVolumeBar || artworkLyrics
+        let artworkLyricsLines = PlayerAppearancePreferences.artworkLyricsLines(rawValue: artworkLyricsLinesRawValue)
+        let artworkLyricsFill = showsArtworkLyrics && artworkLyricsLines == .fill
+        let volumeSlack: CGFloat = showsVolumeBar || artworkLyricsFill
             ? 0
             : NowPlayingView.portraitVolumeRowHeight + 10 + controlGap
         let grabberBand = canvas.topSafeArea + 21
@@ -581,18 +586,23 @@ private struct MusicPortraitPreviewScreen: View {
                         .padding(.horizontal, 26)
                         .padding(.top, 12)
 
-                    Spacer(minLength: 0)
-
-                    if artworkLyrics {
-                        Text(verbatim: NowPlayingPreviewDemo.lyrics[1])
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(appearance.primary)
-                            .lineLimit(1)
-                            .frame(height: 24, alignment: .leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    // 「自动」照播放页的排法: 这段空白先分给歌词, 下面留着定高的那一格。
+                    if artworkLyricsFill {
+                        Color.clear
+                            .overlay { PreviewArtworkLyricRows(lines: artworkLyricsLines, appearance: appearance) }
                             .padding(.horizontal, 26)
-                            .padding(.top, 14)
+                            .layoutPriority(0.5)
+                        NowPlayingArtworkLyricSlot()
+                            .padding(.top, NowPlayingView.artworkLyricHeadingGap)
                             .padding(.bottom, 4)
+                    } else {
+                        Spacer(minLength: 0)
+                        if artworkLyrics {
+                            PreviewArtworkLyricRows(lines: artworkLyricsLines, appearance: appearance)
+                                .padding(.horizontal, 26)
+                                .padding(.top, NowPlayingView.artworkLyricHeadingGap)
+                                .padding(.bottom, 4)
+                        }
                     }
                 }
 
@@ -910,6 +920,55 @@ struct PreviewLyricLines: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// 封面下的那几行歌词:行数、字号照设置,「自动」时铺在歌名下那段空白上、从下面那一格往上排满;尺寸与
+/// 播放页 `NowPlayingArtworkLyricPreview` 同一套。正在唱的那句停在 `anchorRow` 那一格,唱过的、接下来的调淡。
+private struct PreviewArtworkLyricRows: View {
+    let lines: NowPlayingArtworkLyricsLines
+    let appearance: NowPlayingAppearance
+
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
+    private var fontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
+    @ScaledMetric(relativeTo: .callout) private var baseFontSize: CGFloat = 16
+
+    var body: some View {
+        let fontSize = NowPlayingView.artworkLyricFontSize(base: baseFontSize, scale: fontScale)
+        let lineHeight = NowPlayingView.artworkLyricLineHeight(fontSize: fontSize)
+        if let count = lines.fixedCount {
+            rows(count: count, fontSize: fontSize, lineHeight: lineHeight)
+        } else {
+            GeometryReader { proxy in
+                let height = proxy.size.height + lineHeight
+                rows(
+                    count: NowPlayingView.artworkLyricRowCount(fitting: height, lineHeight: lineHeight),
+                    fontSize: fontSize,
+                    lineHeight: lineHeight
+                )
+                .frame(width: proxy.size.width, height: height, alignment: .bottom)
+                .offset(y: NowPlayingView.artworkLyricHeadingGap)
+            }
+        }
+    }
+
+    private func rows(count: Int, fontSize: CGFloat, lineHeight: CGFloat) -> some View {
+        let demo = NowPlayingPreviewDemo.lyrics
+        let anchor = NowPlayingLyricPreviewPolicy.anchorRow(rowCount: count)
+        // 一行时和原来一样放第二句;上面要留唱过的几句时从第一句排起。
+        let first = max(1, anchor) - anchor
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<count, id: \.self) { row in
+                let index = first + row
+                Text(verbatim: demo.indices.contains(index) ? demo[index] : "")
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(appearance.primary)
+                    .opacity(row == anchor ? 1 : (row < anchor ? appearance.pastLyricOpacity : appearance.futureLyricOpacity))
+                    .lineLimit(1)
+                    .frame(height: lineHeight, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }
 

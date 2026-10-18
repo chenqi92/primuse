@@ -3241,6 +3241,13 @@
 "player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";
 "player_artwork_lyrics" = "Paroles sous la pochette";
 "player_artwork_lyrics_description" = "Affiche la ligne chantée juste au-dessus de la barre de progression, sans passer à la vue des paroles. Pendant l’intro et les passages instrumentaux, un court message s’affiche au lieu de la ligne suivante. La pochette rétrécit un peu si nécessaire pour lui faire de la place. Touchez les paroles pour ouvrir la vue des paroles.";
+"player_artwork_lyrics_lines" = "Lignes";
+"player_artwork_lyrics_lines_one" = "1 ligne";
+"player_artwork_lyrics_lines_two" = "2 lignes";
+"player_artwork_lyrics_lines_three" = "3 lignes";
+"player_artwork_lyrics_lines_fill" = "Automatique";
+"player_artwork_lyrics_lines_description" = "À partir de deux lignes, la ligne chantée reste en place, avec au-dessus celles qui viennent d’être chantées et en dessous les suivantes, atténuées. « Automatique » affiche autant de lignes que l’espace entre le titre et la barre de progression le permet ; masquer le curseur de volume ou réduire la taille en fait tenir davantage. Avec un nombre de lignes fixe, la pochette rétrécit un peu si elles ne tiennent pas.";
+"player_artwork_lyrics_font_size" = "Taille des paroles";
 "player_audio_info_title" = "Infos audio dans le lecteur";
 "player_audio_info_off" = "Désactivé";
 "player_audio_info_lossless_only" = "Sans perte uniquement";

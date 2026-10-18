@@ -3981,6 +3981,13 @@
 "player_volume_bar_description" = "Oynatıcıda ses düzeyi kaydırıcısını gösterin. Diğer kontroller gizlendiğinde doğal olarak mevcut alanı doldurur.";
 "player_artwork_lyrics" = "Kapağın Altında Şarkı Sözleri";
 "player_artwork_lyrics_description" = "Söz ekranına geçmeden, ilerleme çubuğunun hemen üstünde söylenen satırı gösterir. Girişte ve enstrümantal aralarda sonraki satırı önceden göstermek yerine kısa bir bilgi gösterir. Gerektiğinde kapak yer açmak için biraz küçülür. Söz ekranını açmak için sözlere dokunun.";
+"player_artwork_lyrics_lines" = "Satır sayısı";
+"player_artwork_lyrics_lines_one" = "1 satır";
+"player_artwork_lyrics_lines_two" = "2 satır";
+"player_artwork_lyrics_lines_three" = "3 satır";
+"player_artwork_lyrics_lines_fill" = "Otomatik";
+"player_artwork_lyrics_lines_description" = "İki veya daha fazla satırda söylenen satır yerinde kalır; üstünde az önce söylenenler, altında sıradakiler soluk görünür. Otomatik, şarkı adı ile ilerleme çubuğu arasında kalan alana sığdığı kadar satır gösterir; ses çubuğunu gizlemek veya boyutu küçültmek daha fazla satır sığdırır. Sabit satır sayısında sığmazsa kapak biraz küçülür.";
+"player_artwork_lyrics_font_size" = "Söz boyutu";
 "player_audio_info_title" = "Oynatıcıda ses bilgisi";
 "player_audio_info_off" = "Kapalı";
 "player_audio_info_lossless_only" = "Yalnızca kayıpsız";

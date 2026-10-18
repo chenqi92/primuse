@@ -3241,6 +3241,13 @@
 "player_volume_bar_description" = "플레이어에 음량 슬라이더를 표시합니다. 숨기면 다른 컨트롤이 사용 가능한 공간을 자연스럽게 채웁니다.";
 "player_artwork_lyrics" = "아트워크 아래에 가사 표시";
 "player_artwork_lyrics_description" = "가사 화면으로 전환하지 않아도 재생 막대 바로 위에 지금 부르는 줄을 표시합니다. 전주와 간주 동안에는 다음 줄을 미리 보여 주지 않고 짧은 안내를 표시합니다. 필요하면 아트워크가 조금 작아져 가사 자리를 만듭니다. 가사를 탭하면 가사 화면이 열립니다.";
+"player_artwork_lyrics_lines" = "줄 수";
+"player_artwork_lyrics_lines_one" = "1줄";
+"player_artwork_lyrics_lines_two" = "2줄";
+"player_artwork_lyrics_lines_three" = "3줄";
+"player_artwork_lyrics_lines_fill" = "자동";
+"player_artwork_lyrics_lines_description" = "2줄 이상이면 지금 부르는 줄은 같은 자리에 머물고, 위에는 방금 부른 줄, 아래에는 다음 줄이 흐리게 표시됩니다. '자동'은 곡 제목과 재생 막대 사이에 남은 공간에 들어가는 만큼 줄을 표시하며, 음량 막대를 숨기거나 글자를 작게 하면 줄이 늘어납니다. 줄 수를 정하면 자리가 모자랄 때 아트워크가 조금 작아집니다.";
+"player_artwork_lyrics_font_size" = "가사 글자 크기";
 "player_audio_info_title" = "재생 화면에 오디오 정보 표시";
 "player_audio_info_off" = "끔";
 "player_audio_info_lossless_only" = "무손실만";

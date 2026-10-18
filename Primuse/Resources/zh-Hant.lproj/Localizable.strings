@@ -3226,6 +3226,13 @@
 "player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";
 "player_artwork_lyrics" = "封面下顯示歌詞";
 "player_artwork_lyrics_description" = "不用切到歌詞頁，在進度條上方就能看到正在唱的那一句。前奏和間奏裡顯示簡短的提示，不會提前露出下一句。開啟後封面會視需要縮小一點，讓出歌詞的位置；點歌詞進入歌詞頁。";
+"player_artwork_lyrics_lines" = "歌詞行數";
+"player_artwork_lyrics_lines_one" = "一行";
+"player_artwork_lyrics_lines_two" = "兩行";
+"player_artwork_lyrics_lines_three" = "三行";
+"player_artwork_lyrics_lines_fill" = "自動";
+"player_artwork_lyrics_lines_description" = "兩行以上時，正在唱的那句停在固定位置，上面是剛唱過的、下面是接下來的幾句，顏色調淡。選「自動」按歌名和進度條之間剩下的空間能放幾行放幾行，關掉音量條或調小字級都會多放幾行；選定行數時，放不下會讓封面縮小一點。";
+"player_artwork_lyrics_font_size" = "歌詞字級";
 "player_audio_info_title" = "播放頁顯示音訊資訊";
 "player_audio_info_off" = "關閉";
 "player_audio_info_lossless_only" = "僅無損音質";

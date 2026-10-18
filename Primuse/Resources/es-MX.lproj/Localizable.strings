@@ -2606,6 +2606,13 @@
 "player_volume_bar_description" = "Muestra el control deslizante de volumen en el reproductor. Otros controles llenan naturalmente el espacio disponible cuando está oculto.";
 "player_artwork_lyrics" = "Letra debajo de la portada";
 "player_artwork_lyrics_description" = "Muestra la línea que se está cantando justo encima de la barra de progreso, sin cambiar a la vista de letra. Durante la introducción y los interludios muestra un aviso breve en lugar de adelantar la siguiente línea. La portada se reduce un poco cuando hace falta para dejarle espacio. Toca la letra para abrir la vista de letra.";
+"player_artwork_lyrics_lines" = "Líneas";
+"player_artwork_lyrics_lines_one" = "1 línea";
+"player_artwork_lyrics_lines_two" = "2 líneas";
+"player_artwork_lyrics_lines_three" = "3 líneas";
+"player_artwork_lyrics_lines_fill" = "Automático";
+"player_artwork_lyrics_lines_description" = "Con dos o más líneas, la línea que se canta se queda en su lugar, con las que se acaban de cantar arriba y las siguientes abajo, atenuadas. «Automático» muestra tantas líneas como quepan entre el título y la barra de progreso; ocultar el control de volumen o usar un tamaño menor permite mostrar más. Con un número fijo de líneas, la portada se reduce un poco si no caben.";
+"player_artwork_lyrics_font_size" = "Tamaño de la letra";
 "player_audio_info_title" = "Información de audio en el reproductor";
 "player_audio_info_off" = "Desactivado";
 "player_audio_info_lossless_only" = "Solo sin pérdida";

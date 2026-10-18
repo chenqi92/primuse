@@ -500,6 +500,10 @@ private struct PlayerLookSettingsSections: View {
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
+    private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
+    private var artworkLyricsFontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
@@ -538,6 +542,37 @@ private struct PlayerLookSettingsSections: View {
                 }
             }
             .settingsAnchor("appearance.artworkLyrics")
+            if showsArtworkLyrics {
+                Picker(selection: Binding(
+                    get: { PlayerAppearancePreferences.artworkLyricsLines(rawValue: artworkLyricsLinesRawValue) },
+                    set: { artworkLyricsLinesRawValue = $0.rawValue }
+                )) {
+                    ForEach(NowPlayingArtworkLyricsLines.allCases, id: \.self) { lines in
+                        Text(LocalizedStringKey(lines.titleKey)).tag(lines)
+                    }
+                } label: {
+                    SettingsInfoLabel("player_artwork_lyrics_lines") {
+                        Text("player_artwork_lyrics_lines_description")
+                    }
+                }
+                // 和「歌词」设置里那把字号滑块同一种写法,只管封面下这几行。
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("player_artwork_lyrics_font_size")
+                        Spacer(minLength: 12)
+                        Text(verbatim: "\(Int((artworkLyricsFontScale * 100).rounded()))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: $artworkLyricsFontScale,
+                        in: PlayerAppearancePreferences.artworkLyricsFontScaleRange,
+                        step: 0.05
+                    ) {
+                        Text("player_artwork_lyrics_font_size")
+                    }
+                }
+            }
         } header: {
             SettingsInfoHeader("player_artwork_style_title") {
                 Text("player_artwork_style_footer")

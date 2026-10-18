@@ -106,9 +106,23 @@ enum PlayerAppearancePreferences {
     static let motionArtworkServiceEndpointByDefault = ""
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
-    /// 竖屏播放页封面模式在歌名下面显示当前一句与下一句歌词(#69)。
+    /// 竖屏播放页封面模式在进度条上面显示正在唱的那一句(#69、#318)。
     static let showsArtworkLyricsKey = "primuse.player.showsArtworkLyrics"
     static let showsArtworkLyricsByDefault = false
+    /// 封面下的歌词放几行(`NowPlayingArtworkLyricsLines` 的原始值)与字号倍数(`.callout` 为 1)。
+    static let artworkLyricsLinesKey = "primuse.player.artworkLyricsLines"
+    static let artworkLyricsFontScaleKey = "primuse.player.artworkLyricsFontScale"
+    static let artworkLyricsFontScaleByDefault = 1.0
+    static let artworkLyricsFontScaleRange: ClosedRange<Double> = 0.8...1.8
+
+    static func artworkLyricsLines(rawValue: String) -> NowPlayingArtworkLyricsLines {
+        NowPlayingArtworkLyricsLines(rawValue: rawValue) ?? .one
+    }
+
+    static func artworkLyricsFontScale(_ value: Double) -> Double {
+        guard value.isFinite else { return artworkLyricsFontScaleByDefault }
+        return min(max(value, artworkLyricsFontScaleRange.lowerBound), artworkLyricsFontScaleRange.upperBound)
+    }
     /// 播放页底部那行的音频信息档位(`NowPlayingAudioInfoMode` 的原始值)。
     static let audioInfoModeKey = "primuse.player.audioInfoMode"
     /// iPhone 沿用原来只给无损以上标音质的做法;Mac 播放页一直都显示规格,默认始终。
@@ -333,6 +347,34 @@ enum NowPlayingArtworkStyle: String, CaseIterable, Sendable {
         switch self {
         case .card: "player_artwork_style_card"
         case .fullBleed: "player_artwork_style_full_bleed"
+        }
+    }
+}
+
+/// 封面下的歌词放几行。默认一行(#318:进度条上面只放正在唱的那一句);「自动」按歌名与进度条之间
+/// 剩下的高度能放几行放几行,关掉音量条、调小字号都会多出几行。
+enum NowPlayingArtworkLyricsLines: String, CaseIterable, Sendable {
+    case one
+    case two
+    case three
+    case fill
+
+    var titleKey: String {
+        switch self {
+        case .one: "player_artwork_lyrics_lines_one"
+        case .two: "player_artwork_lyrics_lines_two"
+        case .three: "player_artwork_lyrics_lines_three"
+        case .fill: "player_artwork_lyrics_lines_fill"
+        }
+    }
+
+    /// 定好的行数;`fill` 由版面按分到的高度算。
+    var fixedCount: Int? {
+        switch self {
+        case .one: 1
+        case .two: 2
+        case .three: 3
+        case .fill: nil
         }
     }
 }

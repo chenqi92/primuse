@@ -1086,6 +1086,9 @@ struct NowPlayingView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    /// 封面下的歌词几行;字号只在 `NowPlayingArtworkLyricPreview` 里读。
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
+    private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
@@ -2004,6 +2007,28 @@ struct NowPlayingView: View {
 
     /// 竖屏音量行的高度(`SystemVolumeSlider.compactHeight`),关掉音量条时按它把空出来的高度分出去。
     static let portraitVolumeRowHeight: CGFloat = 24
+
+    /// 封面下歌词的字号:`.callout`(跟着系统字体大小)乘上设置里的倍数。
+    static func artworkLyricFontSize(base: CGFloat, scale: Double) -> CGFloat {
+        base * CGFloat(PlayerAppearancePreferences.artworkLyricsFontScale(scale))
+    }
+
+    /// 封面下歌词每一行的高度,字号的 1.5 倍(默认 16 号字、24 高)。
+    static func artworkLyricLineHeight(fontSize: CGFloat) -> CGFloat {
+        max(1, (fontSize * 1.5).rounded())
+    }
+
+    /// 封面下的歌词选了「自动」时最多排几行。
+    static let artworkLyricMaximumRows = 8
+
+    /// 封面下的歌词与上面歌名那几行之间至少空多少。
+    static let artworkLyricHeadingGap: CGFloat = 14
+
+    /// 「自动」时这块高度能排下几行,至少一行。
+    static func artworkLyricRowCount(fitting height: CGFloat, lineHeight: CGFloat) -> Int {
+        guard lineHeight > 0 else { return 1 }
+        return min(max(1, (height / lineHeight).rounded(.down).finiteInt(or: 1)), artworkLyricMaximumRows)
+    }
 
     /// 竖屏播放键、音量与底排之间多拉开的距离:屏幕越高拉得越开,矮屏(700 以下)照旧。
     /// 封面与歌词两种模式用同一个值,切换时这几行不挪位置。
@@ -4234,19 +4259,19 @@ struct NowPlayingView: View {
         romanizedPresentedLyrics.isEmpty ? lyrics : romanizedPresentedLyrics
     }
 
-    /// 竖屏封面模式进度条上面正在唱的那一句, 点一下进歌词页。
-    private var artworkLyricPreview: some View {
-        NowPlayingLyricPreview(
+    /// 竖屏封面模式进度条上面正在唱的那一句(或按设置的几行), 点一下进歌词页。
+    /// `fillsHeight` 时行数按这一块分到的高度定(设置里选了「自动」)。
+    private func artworkLyricPreview(fillsHeight: Bool) -> some View {
+        NowPlayingArtworkLyricPreview(
             lyrics: lyricPreviewLines,
             player: player,
             songID: player.currentSong?.id,
             lyricsRevision: lyricsRevision,
             isSceneActive: isVisualSceneActive,
-            tint: appearance.primary,
-            statusTint: appearance.tertiary,
-            font: .callout,
-            emphasizesLine: true,
-            lineHeight: 24,
+            appearance: appearance,
+            lineCount: fillsHeight
+                ? nil
+                : PlayerAppearancePreferences.artworkLyricsLines(rawValue: artworkLyricsLinesRawValue).fixedCount ?? 1,
             onTap: { setStandardLyricsVisible(true) }
         )
         .accessibilityElement(children: .combine)
@@ -5164,7 +5189,7 @@ struct NowPlayingView: View {
         // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
         let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
-        // 进度条上面那一句歌词(设置里打开)。它占的高度从封面那里让出来: 高屏关着音量条时空白就够,
+        // 进度条上面那几行歌词(设置里打开)。它占的高度从封面那里让出来: 高屏的空白就够,
         // 不够时封面按剩下的高度缩小。不跟歌词页开关走, 进出歌词页时下面几行不挪位置。
         // 分栏时右栏正在放整页歌词(这一栏于是不跟歌词开关走), 这里不再重复。
         let artworkLyricsEnabled = showsArtworkLyrics
@@ -5172,9 +5197,13 @@ struct NowPlayingView: View {
             && !usesSpokenWordTransport
             && !player.isMusicVideoPlaybackActive
             && !player.isLiveRadio
-        // 关掉音量条空出来的高度。分到封面上方和几行控件之间, 不全堆在歌名与进度条之间;
-        // 这些本来是音量行占着的, 矮屏也不会因此更挤。封面与歌词两种模式取同一个值。放歌词时留给歌词。
-        let volumeSlack: CGFloat = showsPlayerVolumeBar || artworkLyricsEnabled
+        // 行数选了「自动」:歌名与进度条之间剩下的高度都给歌词,能放几行放几行。
+        let artworkLyricsFill = artworkLyricsEnabled
+            && PlayerAppearancePreferences.artworkLyricsLines(rawValue: artworkLyricsLinesRawValue) == .fill
+        // 关掉音量条空出来的高度。分到封面上方和几行控件之间, 不全堆在歌名与进度条之间(否则开着
+        // 封面下的歌词时, 歌词和歌名中间空出一大片); 这些本来是音量行占着的, 矮屏也不会因此更挤。
+        // 封面与歌词两种模式取同一个值。歌词选了「自动」时留给歌词, 多排几行。
+        let volumeSlack: CGFloat = showsPlayerVolumeBar || artworkLyricsFill
             ? 0
             : Self.portraitVolumeRowHeight + 10 + controlGap
         // 有声内容(播客,以及全屏文字稿以外不走专版的书)那几格与功能块怎么摆。
@@ -5398,14 +5427,31 @@ struct NowPlayingView: View {
                         }
 
                         // 歌名紧跟封面,剩下的高度都在这里:进度条以下几行贴着底部,和歌词模式同一位置。
-                        Spacer(minLength: 0)
-
-                        // 正在唱的那一句贴在进度条上面(设置里打开),和歌名之间是上面那段空白。
-                        if artworkLyricsEnabled {
-                            artworkLyricPreview
+                        // 歌词选了「自动」时这段高度归歌词: 它先于封面上下的留白分到高度(优先级介于封面与留白之间),
+                        // 下面仍是「一行」时那个定高的格子, 多出来的行从那一格往上排进这段空白。歌词不做成
+                        // 「至少一行、可以一直长高」的一整块: VStack 先排伸缩范围小的留白, 轮到它时不够一行就
+                        // 撑出屏幕, 底排被挤出去。
+                        if artworkLyricsFill {
+                            Color.clear
+                                .overlay { artworkLyricPreview(fillsHeight: true) }
                                 .padding(.horizontal, 26)
                                 .padding(.horizontal, insets.rows)
-                                .padding(.top, 14)
+                                .layoutPriority(0.5)
+                                .pmLayoutSwitchFade()
+                        } else {
+                            Spacer(minLength: 0)
+                        }
+
+                        // 正在唱的那一句贴在进度条上面(设置里打开),和歌名之间是上面那段空白。
+                        if artworkLyricsFill {
+                            NowPlayingArtworkLyricSlot()
+                                .padding(.top, Self.artworkLyricHeadingGap)
+                                .padding(.bottom, 4)
+                        } else if artworkLyricsEnabled {
+                            artworkLyricPreview(fillsHeight: false)
+                                .padding(.horizontal, 26)
+                                .padding(.horizontal, insets.rows)
+                                .padding(.top, Self.artworkLyricHeadingGap)
                                 .padding(.bottom, 4)
                                 .pmLayoutSwitchFade()
                         }
@@ -12223,12 +12269,90 @@ private struct LyricsPausedTimeObserver: View {
     }
 }
 
+/// 竖屏封面模式进度条上面那几行歌词: 行数与字号按「播放页样式与按钮」里的设置。
+/// 字号只在这一层读, 拖字号滑块不牵动整个播放页重算。
+private struct NowPlayingArtworkLyricPreview: View {
+    let lyrics: [LyricLine]
+    let player: AudioPlayerService
+    let songID: String?
+    let lyricsRevision: UInt
+    let isSceneActive: Bool
+    let appearance: NowPlayingAppearance
+    /// 定好的行数; nil 时是「自动」: 这一层铺在歌名下那段空白上, 下面紧接着 `NowPlayingArtworkLyricSlot`
+    /// 那一格。歌词从那一格的底边往上排, 顶上和歌名之间至少留 `artworkLyricHeadingGap`, 能放几行放几行。
+    let lineCount: Int?
+    let onTap: () -> Void
+
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
+    private var fontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
+    /// `.callout` 的字号, 跟着系统字体大小走。
+    @ScaledMetric(relativeTo: .callout) private var baseFontSize: CGFloat = 16
+
+    var body: some View {
+        let fontSize = NowPlayingView.artworkLyricFontSize(base: baseFontSize, scale: fontScale)
+        let lineHeight = NowPlayingView.artworkLyricLineHeight(fontSize: fontSize)
+        if let lineCount {
+            preview(rowCount: lineCount, fontSize: fontSize, lineHeight: lineHeight)
+        } else {
+            GeometryReader { proxy in
+                // 空白和下面那一格之间隔着同样的 `artworkLyricHeadingGap`: 整块往下错开这么多,
+                // 顶上和歌名之间留出间隔, 底边正好落在那一格的底边。
+                let height = proxy.size.height + lineHeight
+                preview(
+                    rowCount: NowPlayingView.artworkLyricRowCount(fitting: height, lineHeight: lineHeight),
+                    fontSize: fontSize,
+                    lineHeight: lineHeight
+                )
+                .frame(width: proxy.size.width, height: height, alignment: .bottom)
+                .offset(y: NowPlayingView.artworkLyricHeadingGap)
+            }
+        }
+    }
+
+    private func preview(rowCount: Int, fontSize: CGFloat, lineHeight: CGFloat) -> some View {
+        NowPlayingLyricPreview(
+            lyrics: lyrics,
+            player: player,
+            songID: songID,
+            lyricsRevision: lyricsRevision,
+            isSceneActive: isSceneActive,
+            tint: appearance.primary,
+            statusTint: appearance.tertiary,
+            font: .system(size: fontSize),
+            emphasizesLine: true,
+            lineHeight: lineHeight,
+            rowCount: rowCount,
+            pastOpacity: appearance.pastLyricOpacity,
+            upcomingOpacity: appearance.futureLyricOpacity,
+            onTap: onTap
+        )
+    }
+}
+
+/// 封面下的歌词选了「自动」时进度条上面那一格: 和「一行」时那一句同一位置、同一高度, 歌词从这一格往上
+/// 排进歌名下的空白(见 `NowPlayingArtworkLyricPreview`)。版面靠这一格定高, 才和「一行」时一样排得下。
+struct NowPlayingArtworkLyricSlot: View {
+    @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
+    private var fontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
+    @ScaledMetric(relativeTo: .callout) private var baseFontSize: CGFloat = 16
+
+    var body: some View {
+        Color.clear
+            .frame(height: NowPlayingView.artworkLyricLineHeight(
+                fontSize: NowPlayingView.artworkLyricFontSize(base: baseFontSize, scale: fontScale)
+            ))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 /// 播放页封面模式里跟着播放走的那一行歌词: 手机横屏普通模式右栏的「当前歌词行」;
-/// 竖屏进度条上面那一行(#69 加的,设置里打开;#318 起只放一行)。
+/// 竖屏进度条上面那一行(#69 加的,设置里打开;#318 起默认只放一行,设置里可以放几行)。
 ///
 /// 放什么由 `NowPlayingLyricPreviewPolicy` 按播放时间定: 第一句开唱前不提前露出它,
 /// 前奏够长时轮换几句提示; 唱的时候只有当前这一句; 间奏里是间奏标签; 下一句开唱前
 /// 换成跳两下的三个点。几种状态占同一个定高的格子, 换来换去下面的进度条不挪。
+/// 多行时正在唱的那句(或这几种提示)停在固定一格, 上下是唱过的和接下来的, 换句时整列上移。
 ///
 /// 当前行得跟着播放位置走, 但 `NowPlayingView.body` 是七千行规模的大 body,
 /// 不能让它跟着时间每几百毫秒重算一遍。所以照 `LyricsScrollView` 的办法把
@@ -12247,6 +12371,10 @@ private struct NowPlayingLyricPreview: View {
     /// 正在唱的那句加粗(竖屏);横屏照常字重。
     var emphasizesLine = false
     let lineHeight: CGFloat
+    /// 几行;大于 1 时唱过的、接下来的几句按这两个浓淡调淡(和歌词页一样)。
+    var rowCount = 1
+    var pastOpacity = 0.32
+    var upcomingOpacity = 0.46
     let onTap: () -> Void
 
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -12254,6 +12382,8 @@ private struct NowPlayingLyricPreview: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var display: NowPlayingLyricPreviewPolicy.Display = .empty
     @State private var nextChange: TimeInterval?
+    /// 多行时每一格放什么;一行时不用。
+    @State private var rows: [NowPlayingLyricPreviewPolicy.Row] = []
 
     /// 最长隔这么久看一次播放位置(拖动进度条、倍速之后靠它跟上)。离下一个变化点
     /// 更近时睡到那一刻, 换行、出现心跳点都准时。
@@ -12266,6 +12396,7 @@ private struct NowPlayingLyricPreview: View {
         let isPlaying: Bool
         let isSceneActive: Bool
         let showsLyricsInterlude: Bool
+        let rowCount: Int
     }
 
     private var hasSynchronizedLyrics: Bool {
@@ -12278,7 +12409,8 @@ private struct NowPlayingLyricPreview: View {
             lyricsRevision: lyricsRevision,
             isPlaying: player.isPlaying,
             isSceneActive: isSceneActive,
-            showsLyricsInterlude: showsLyricsInterlude
+            showsLyricsInterlude: showsLyricsInterlude,
+            rowCount: rowCount
         )
     }
 
@@ -12303,24 +12435,26 @@ private struct NowPlayingLyricPreview: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            content
-                .id(displayIdentity)
-                .transition(.opacity)
+        Group {
+            if rowCount > 1 {
+                multiRowContent
+            } else {
+                ZStack(alignment: .leading) {
+                    content
+                        .id(displayIdentity)
+                        .transition(.opacity)
+                }
+                .animation(.smooth(duration: 0.35, extraBounce: 0), value: displayIdentity)
+            }
         }
-        .animation(.smooth(duration: 0.35, extraBounce: 0), value: displayIdentity)
         // 没有歌词时也占同样高度, 布局不会在有无歌词、几种状态之间上下跳。
-        .frame(height: lineHeight, alignment: .leading)
+        .frame(height: lineHeight * CGFloat(max(1, rowCount)), alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .task(id: followIdentity) {
-            guard hasSynchronizedLyrics else {
-                apply(.init(display: .empty, nextChange: nil))
-                return
-            }
             update()
-            guard activityPolicy.shouldPollLyrics else { return }
+            guard hasSynchronizedLyrics, activityPolicy.shouldPollLyrics else { return }
             while !Task.isCancelled {
                 let now = player.interpolatedTime()
                 let untilChange = nextChange.map { $0 - now } ?? Self.maximumPollInterval
@@ -12345,6 +12479,65 @@ private struct NowPlayingLyricPreview: View {
         }
         .onChange(of: songID) { _, _ in
             apply(.init(display: .empty, nextChange: nil))
+            if !rows.isEmpty { rows = [] }
+        }
+    }
+
+    private struct RowItem: Identifiable {
+        let id: String
+        let row: NowPlayingLyricPreviewPolicy.Row
+    }
+
+    /// 句子按下标认, 换句时同一句从下一格挪到这一格; 提示那一格只有一个; 空格按位置认。
+    private var rowItems: [RowItem] {
+        rows.enumerated().map { position, row in
+            switch row {
+            case .line(let index, _): RowItem(id: "line-\(index)", row: row)
+            case .status: RowItem(id: "status", row: row)
+            case .blank: RowItem(id: "blank-\(position)", row: row)
+            }
+        }
+    }
+
+    /// 多行: 正在唱的满色, 唱过的、接下来的调淡, 字重都一样(换句时只变浓淡, 字不跳);
+    /// 提示那一格照一行时的写法。
+    private var multiRowContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(rowItems) { item in
+                Group {
+                    switch item.row {
+                    case .line(let index, let role):
+                        if lyrics.indices.contains(index) {
+                            Text(verbatim: lyrics[index].text)
+                                .font(emphasizesLine ? font.weight(.semibold) : font)
+                                .foregroundStyle(tint)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .opacity(opacity(for: role))
+                        }
+                    case .status:
+                        ZStack(alignment: .leading) {
+                            content
+                                .id(displayIdentity)
+                                .transition(.opacity)
+                        }
+                    case .blank:
+                        Color.clear
+                    }
+                }
+                .frame(height: lineHeight, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: rows)
+        .animation(.smooth(duration: 0.35, extraBounce: 0), value: displayIdentity)
+    }
+
+    private func opacity(for role: NowPlayingLyricPreviewPolicy.LineRole) -> Double {
+        switch role {
+        case .past: pastOpacity
+        case .current: 1
+        case .upcoming: upcomingOpacity
         }
     }
 
@@ -12406,14 +12599,28 @@ private struct NowPlayingLyricPreview: View {
     private func update() {
         guard hasSynchronizedLyrics else {
             apply(.init(display: .empty, nextChange: nil))
+            if !rows.isEmpty { rows = [] }
             return
         }
-        apply(NowPlayingLyricPreviewPolicy.resolve(
+        let now = player.interpolatedTime()
+        let resolution = NowPlayingLyricPreviewPolicy.resolve(
             in: lyrics,
-            at: player.interpolatedTime(),
+            at: now,
             lookahead: Self.lookahead,
             showsInterludes: showsLyricsInterlude
-        ))
+        )
+        apply(resolution)
+        // 一行时不排格子;多行时每次都按同一刻重排(几十句的筛选,一秒最多四次)。
+        let nextRows = rowCount > 1
+            ? NowPlayingLyricPreviewPolicy.rows(
+                for: resolution.display,
+                in: lyrics,
+                at: now,
+                lookahead: Self.lookahead,
+                rowCount: rowCount
+            )
+            : []
+        if rows != nextRows { rows = nextRows }
     }
 
     private func apply(_ resolution: NowPlayingLyricPreviewPolicy.Resolution) {

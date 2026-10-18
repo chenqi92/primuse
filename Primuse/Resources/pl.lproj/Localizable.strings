@@ -2606,6 +2606,13 @@
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
 "player_artwork_lyrics" = "Tekst pod okładką";
 "player_artwork_lyrics_description" = "Pokazuje śpiewany wers tuż nad paskiem postępu, bez przełączania na widok tekstu. Podczas intro i przerw instrumentalnych zamiast następnego wersu wyświetla krótki komunikat. W razie potrzeby okładka lekko się zmniejsza, aby zrobić miejsce. Stuknij tekst, aby otworzyć widok tekstu.";
+"player_artwork_lyrics_lines" = "Wiersze";
+"player_artwork_lyrics_lines_one" = "1 wiersz";
+"player_artwork_lyrics_lines_two" = "2 wiersze";
+"player_artwork_lyrics_lines_three" = "3 wiersze";
+"player_artwork_lyrics_lines_fill" = "Automatycznie";
+"player_artwork_lyrics_lines_description" = "Przy dwóch lub więcej wierszach śpiewany wers zostaje na miejscu, nad nim właśnie zaśpiewane, pod nim kolejne, przygaszone. „Automatycznie” pokazuje tyle wierszy, ile zmieści się między tytułem a paskiem postępu; po ukryciu suwaka głośności lub przy mniejszym rozmiarze mieści się ich więcej. Przy stałej liczbie wierszy okładka w razie potrzeby lekko się zmniejsza.";
+"player_artwork_lyrics_font_size" = "Rozmiar tekstu";
 "player_audio_info_title" = "Informacje o dźwięku w odtwarzaczu";
 "player_audio_info_off" = "Wyłączone";
 "player_audio_info_lossless_only" = "Tylko bezstratne";

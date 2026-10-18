@@ -3242,6 +3242,13 @@
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
 "player_artwork_lyrics" = "アートワークの下に歌詞を表示";
 "player_artwork_lyrics_description" = "歌詞画面に切り替えなくても、再生バーのすぐ上に今歌っている行を表示します。前奏や間奏の間は次の行を先に出さず、短い案内を表示します。必要に応じてアートワークが少し小さくなり、歌詞の場所を空けます。歌詞をタップすると歌詞画面を開きます。";
+"player_artwork_lyrics_lines" = "行数";
+"player_artwork_lyrics_lines_one" = "1行";
+"player_artwork_lyrics_lines_two" = "2行";
+"player_artwork_lyrics_lines_three" = "3行";
+"player_artwork_lyrics_lines_fill" = "自動";
+"player_artwork_lyrics_lines_description" = "2行以上では、今歌っている行が同じ位置にとどまり、上に歌い終えた行、下にこれからの行を薄く表示します。「自動」は曲名と再生バーの間に残ったスペースに入るだけ行を並べます。音量バーを隠したり文字を小さくしたりすると行が増えます。行数を決めた場合、入りきらないときはアートワークが少し小さくなります。";
+"player_artwork_lyrics_font_size" = "歌詞の文字サイズ";
 "player_audio_info_title" = "再生画面に音声情報を表示";
 "player_audio_info_off" = "オフ";
 "player_audio_info_lossless_only" = "ロスレスのみ";
