@@ -136,6 +136,25 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         XCTAssertEqual(store.source(id: "source")?.name, "NAS on the Mac")
     }
 
+    /// 只有本机新建的源记为「这次运行里建的」:首扫靠它决定要不要先等别的设备的结果。
+    func testOnlySourcesAddedOnThisDeviceCountAsCreatedThisRun() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SourceCreated-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = SourcesStore(storageDirectoryURL: root)
+
+        store.add(MusicSource(id: "added", name: "NAS", type: .webdav))
+        try store.addDurably(MusicSource(id: "durable", name: "SMB", type: .smb))
+        store.upsertFromRemote(MusicSource(id: "remote", name: "From the Mac", type: .webdav))
+        XCTAssertEqual(store.sourceIDsCreatedThisRun, ["added", "durable"])
+
+        // 别的设备先同步过来的源,本机再走 add 保存也不算新建。
+        var edited = try XCTUnwrap(store.source(id: "remote"))
+        edited.name = "Renamed"
+        store.add(edited)
+        XCTAssertEqual(store.sourceIDsCreatedThisRun, ["added", "durable"])
+    }
+
     // MARK: - Helpers
 
     private func post(_ source: MusicSource, origin: String) {

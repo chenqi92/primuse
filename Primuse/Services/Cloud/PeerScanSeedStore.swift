@@ -370,15 +370,19 @@ final class PeerScanSeedCoordinator {
     }
 
     /// 扫描开始前调用。本机还没扫过这个源时先去 iCloud 取一次最新的结果,最多等 15 秒。
+    /// 这段时间扫描还没开始列文件,所以只给可能等得到结果的源等:本机这次刚建的源
+    /// id 是新生成的,别的设备不可能扫过,等了也是空等,只会让新源十几秒一首都不出来。
     func lookup(for source: MusicSource) async -> PeerScanSeedLookup? {
         guard PeerScanSeedStore.isEnabled, PeerScanSeedStore.isEligible(source) else { return nil }
         let hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
-        if !hasLocalRows {
+        if !hasLocalRows, !sourcesStore.sourceIDsCreatedThisRun.contains(source.id) {
             let eligible = eligibleSourceIDs.union([source.id])
             let refresh = Task.detached(priority: .userInitiated) {
                 _ = await PeerScanSeedStore.shared.refresh(eligibleSourceIDs: eligible, force: true)
             }
+            let startedAt = Date()
             await Self.wait(for: refresh, upTo: 15)
+            plog("🧩 peer seeds: waited \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s before the first scan of \(source.name)")
         }
         return PeerScanSeedStore.shared.lookup(forSourceID: source.id)
     }

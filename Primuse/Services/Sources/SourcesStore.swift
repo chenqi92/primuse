@@ -108,6 +108,9 @@ final class SourcesStore {
     @ObservationIgnored private var lastCoalescedPersistAt = Date.distantPast
     /// True once the scene left the foreground; see `setSceneBackgrounded`.
     @ObservationIgnored private var isSceneBackgrounded = false
+    /// 这次运行里在本机新建的源(经 `add` / `addDurably` 进来的新 id)。id 是本机刚生成的,
+    /// 别的设备不可能扫过它,首扫时不必等别的设备的结果(见 `PeerScanSeedCoordinator.lookup`)。
+    @ObservationIgnored private(set) var sourceIDsCreatedThisRun: Set<String> = []
 
     init(
         fileManager: FileManager = .default,
@@ -196,6 +199,9 @@ final class SourcesStore {
     }
 
     func add(_ source: MusicSource) {
+        if self.source(id: source.id) == nil {
+            sourceIDsCreatedThisRun.insert(source.id)
+        }
         upsert(source)
     }
 
@@ -205,6 +211,7 @@ final class SourcesStore {
     func addDurably(_ source: MusicSource) throws {
         let previousSources = allSources
         let previousDeletionRecords = sourceDeletionRecords
+        let isNew = self.source(id: source.id) == nil
         applyUpsert(source)
         do {
             try persistThrowing()
@@ -214,6 +221,7 @@ final class SourcesStore {
             _ = persistSourceDeletions()
             throw error
         }
+        if isNew { sourceIDsCreatedThisRun.insert(source.id) }
         notifyChanged([source.id])
     }
 
