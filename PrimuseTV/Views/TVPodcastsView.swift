@@ -1167,7 +1167,7 @@ struct TVPodcastShowDetailView: View {
             if let summary = PodcastShowNotes.plainSummary(show.summary, limit: 600) {
                 Text(summary).tvFont(.caption).foregroundStyle(TVColor.textMuted).lineLimit(5)
             }
-            HStack(spacing: 16) {
+            TVButtonFlow(spacing: 16, lineSpacing: 16) {
                 if let target {
                     TVPillButton(title: playTitle(target, show: show), systemImage: "play.fill", style: .solid) {
                         play(target, all: episodes)

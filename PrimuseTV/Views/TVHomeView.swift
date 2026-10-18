@@ -732,7 +732,8 @@ struct TVHomeView: View {
     }
 
     private var heroButtons: some View {
-        HStack(spacing: 16) {
+        // 英语、德语一排放不下这几颗，放不下的折到下一行。
+        TVButtonFlow(spacing: 16, lineSpacing: 16) {
             if let heroAlbum, albumPick != nil {
                 // 推荐的专辑:整张按原曲序播放,换一张在这个情景的备选之间轮换。
                 TVPillButton(title: String(localized: "album_pick_play"), systemImage: "play.fill", style: .solid,

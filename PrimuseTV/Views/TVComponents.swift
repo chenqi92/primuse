@@ -879,6 +879,8 @@ struct TVPillButton: View {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
                 Text(title).tvFont(.button, weight: style == .solid ? .bold : .semibold)
                     .lineLimit(1)
+                    // 窄面板里一颗长文案的按钮自己就比一行宽时，先把字缩一点再考虑截断。
+                    .minimumScaleFactor(0.8)
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 18)
@@ -918,6 +920,67 @@ struct TVFavoriteIconButton: View {
         }
         .accessibilityLabel(Text(isLiked ? "library_favorite_unlike" : "library_favorite_like"))
         .accessibilityAddTraits(isLiked ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// 一排药丸按钮：各按完整宽度从左往右排，这一行放不下就折到下一行。德语这类长文案、
+/// 或者本来就窄的左栏里，按钮换行，而不是把字截成「Alle wiederg…」。
+struct TVButtonFlow: Layout {
+    var spacing: CGFloat = 14
+    var lineSpacing: CGFloat = 14
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let lines = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+        let width = lines.map(\.width).max() ?? 0
+        let height = lines.reduce(0) { $0 + $1.height } + lineSpacing * CGFloat(max(0, lines.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for item in line.items {
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + (line.height - item.size.height) / 2),
+                    proposal: ProposedViewSize(item.size)
+                )
+                x += item.size.width + spacing
+            }
+            y += line.height + lineSpacing
+        }
+    }
+
+    private struct Item {
+        var index: Int
+        var size: CGSize
+    }
+
+    private struct Line {
+        var items: [Item] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [Line] {
+        var lines: [Line] = []
+        var current = Line()
+        for index in subviews.indices {
+            var size = subviews[index].sizeThatFits(.unspecified)
+            if size.width > width {
+                // 一颗按钮自己就比一行宽：只给一行的宽度，字按 minimumScaleFactor 缩。
+                size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
+            }
+            if !current.items.isEmpty, current.width + spacing + size.width > width {
+                lines.append(current)
+                current = Line()
+            }
+            current.width += (current.items.isEmpty ? 0 : spacing) + size.width
+            current.height = max(current.height, size.height)
+            current.items.append(Item(index: index, size: size))
+        }
+        if !current.items.isEmpty { lines.append(current) }
+        return lines
     }
 }
 

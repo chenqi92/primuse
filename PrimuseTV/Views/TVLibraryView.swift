@@ -1173,7 +1173,8 @@ struct TVArtistDetailView: View {
                     Text(PMString("ext.tv.songsCount", artistSongIDs.count))
                         .tvFont(.body)
                         .foregroundStyle(TVColor.textMuted)
-                    HStack(spacing: 14) {
+                    // 左栏只有 440 宽，中文的两颗按钮加一颗心就放不下一行，放不下的折到下一行。
+                    TVButtonFlow {
                         TVPillButton(
                             title: PMString("ext.tv.home.playAll"),
                             systemImage: "play.fill",
@@ -1189,8 +1190,8 @@ struct TVArtistDetailView: View {
                             isLiked: LibraryFavoritesStore.shared.isLiked(artistNamed: artist.name),
                             action: { LibraryFavoritesStore.shared.toggle(artistNamed: artist.name) }
                         )
+                        TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
                     }
-                    TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
                     Spacer(minLength: 0)
                 }
                 .frame(width: 440, alignment: .leading)
@@ -1394,7 +1395,7 @@ struct TVAlbumDetailView: View {
         let image: CGImage
     }
 
-    /// 左栏宽:封面加探出来的半张盘,下面一排按钮放得下四颗(长语言的「全部播放」也不截断)。
+    /// 左栏宽:封面加探出来的半张盘,下面一排按钮放得下四颗(德语这类长文案放不下的折到下一行)。
     private static let leftColumnWidth: CGFloat = 660
     private static let coverSize: CGFloat = 260
 
@@ -1599,7 +1600,7 @@ struct TVAlbumDetailView: View {
                 .tvFont(.caption)
                 .foregroundStyle(TVColor.textFaint)
                 .padding(.top, 6)
-            HStack(spacing: 14) {
+            TVButtonFlow {
                 TVPillButton(
                     title: String(localized: "play_all"),
                     systemImage: "play.fill",
