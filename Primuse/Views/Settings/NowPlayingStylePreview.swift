@@ -506,6 +506,61 @@ private struct MusicPortraitPreviewScreen: View {
         showsLyrics ? .lyrics(slot) : .cover(slot)
     }
 
+    /// 这一格排不排出来:和播放页一样空着的不占位;能点的虚线框(编辑时、正在给这一格挑按钮时)照样排出来。
+    private func arranges(_ slot: NowPlayingControlSlot) -> Bool {
+        layout.action(in: slot) != nil || (slotsEditable && context.showsPlaceholder(for: previewTarget(slot)))
+    }
+
+    /// 传输键一行,排法同 `NowPlayingView.musicTransportRow`:左右两半各自排开,播放键在正中。
+    private var transportRow: some View {
+        let hasLeading = arranges(.leadingEdge)
+        let hasTrailing = arranges(.trailingEdge)
+        let keepsCompact = !hasLeading && !hasTrailing
+        return HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Spacer()
+                if hasLeading {
+                    slot(.leadingEdge, style: .edge)
+                    Spacer()
+                } else if keepsCompact {
+                    Color.clear.frame(width: 44, height: 44)
+                    Spacer()
+                }
+                PreviewSkipGlyph(forward: false, tint: appearance.primary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            PreviewPlayGlyph(tint: appearance.primary)
+            HStack(spacing: 0) {
+                Spacer()
+                PreviewSkipGlyph(forward: true, tint: appearance.primary)
+                Spacer()
+                if hasTrailing {
+                    slot(.trailingEdge, style: .edge)
+                    Spacer()
+                } else if keepsCompact {
+                    Color.clear.frame(width: 44, height: 44)
+                    Spacer()
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// 最下面那一排,排法同 `NowPlayingView.musicBottomBar`:空着的格不占位。
+    private var bottomBar: some View {
+        let slots = NowPlayingControlSlot.bar.filter(arranges)
+        return HStack(spacing: 0) {
+            if slots.count == 1 { Spacer(minLength: 0) }
+            ForEach(Array(slots.enumerated()), id: \.element) { index, item in
+                if index > 0 { Spacer(minLength: 0) }
+                slot(item, style: .bar)
+            }
+            if slots.count == 1 { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+
     private var slotsEditable: Bool {
         !showsLyrics || lyricsControls.usesOwnButtons
     }
@@ -610,20 +665,8 @@ private struct MusicPortraitPreviewScreen: View {
                     .padding(.horizontal, 26)
                     .padding(.top, 8)
 
-                HStack(spacing: 0) {
-                    Spacer()
-                    slot(.leadingEdge, style: .edge)
-                    Spacer()
-                    PreviewSkipGlyph(forward: false, tint: appearance.primary)
-                    Spacer()
-                    PreviewPlayGlyph(tint: appearance.primary)
-                    Spacer()
-                    PreviewSkipGlyph(forward: true, tint: appearance.primary)
-                    Spacer()
-                    slot(.trailingEdge, style: .edge)
-                    Spacer()
-                }
-                .padding(.top, 12 + controlGap + volumeSlack * 0.3)
+                transportRow
+                    .padding(.top, 12 + controlGap + volumeSlack * 0.3)
 
                 if showsVolumeBar {
                     PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary)
@@ -631,13 +674,7 @@ private struct MusicPortraitPreviewScreen: View {
                         .padding(.top, 10 + controlGap)
                 }
 
-                HStack {
-                    slot(.barLeading, style: .bar)
-                    Spacer()
-                    slot(.barCenter, style: .bar)
-                    Spacer()
-                    slot(.barTrailing, style: .bar)
-                }
+                bottomBar
                 .font(.body)
                 .padding(.horizontal, 46)
                 .padding(.top, 12)

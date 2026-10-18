@@ -4970,19 +4970,7 @@ struct NowPlayingView: View {
                         )
                     }
                 } else {
-                    HStack(spacing: 0) {
-                        Spacer()
-                        controlSlot(.leadingEdge, style: .edge)
-                        Spacer()
-                        transportSkipButton(forward: false)
-                        Spacer()
-                        transportPlayButton(diameter: 60)
-                        Spacer()
-                        transportSkipButton(forward: true)
-                        Spacer()
-                        controlSlot(.trailingEdge, style: .edge)
-                        Spacer()
-                    }
+                    musicTransportRow(playDiameter: 60)
                 }
             }
             .padding(.top, 14)
@@ -6145,20 +6133,45 @@ struct NowPlayingView: View {
                 )
             }
         } else {
-            // 两头外侧也各留一道间隙,宽屏上两侧的键不贴着屏幕边。
+            musicTransportRow(playDiameter: 56)
+        }
+    }
+
+    /// 音乐的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环),两端按「播放页按钮」摆。
+    /// 和有声内容一样左右两半各自排开:空着的那一端不占位,播放键仍在正中(#320);两端都空时
+    /// 各留一个键位的空白,三颗键不散到屏幕两边。两头外侧也各留一道间隙,宽屏上两端的键不贴着屏幕边。
+    private func musicTransportRow(playDiameter: CGFloat) -> some View {
+        let hasLeading = musicControlLayout.action(in: .leadingEdge) != nil
+        let hasTrailing = musicControlLayout.action(in: .trailingEdge) != nil
+        let keepsCompact = !hasLeading && !hasTrailing
+        return HStack(spacing: 0) {
             HStack(spacing: 0) {
                 Spacer()
-                controlSlot(.leadingEdge, style: .edge)
-                Spacer()
+                if hasLeading {
+                    controlSlot(.leadingEdge, style: .edge)
+                    Spacer()
+                } else if keepsCompact {
+                    transportKeySpace
+                    Spacer()
+                }
                 transportSkipButton(forward: false)
                 Spacer()
-                transportPlayButton(diameter: 56)
+            }
+            .frame(maxWidth: .infinity)
+            transportPlayButton(diameter: playDiameter)
+            HStack(spacing: 0) {
                 Spacer()
                 transportSkipButton(forward: true)
                 Spacer()
-                controlSlot(.trailingEdge, style: .edge)
-                Spacer()
+                if hasTrailing {
+                    controlSlot(.trailingEdge, style: .edge)
+                    Spacer()
+                } else if keepsCompact {
+                    transportKeySpace
+                    Spacer()
+                }
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -6249,8 +6262,7 @@ struct NowPlayingView: View {
             : String(localized: "a11y_play"))
     }
 
-    /// 竖版最下面那一排(默认歌词 · 投放 · 队列)。三个槽位都是 44×44(空着的格也占位),
-    /// HStack 的两个 Spacer 才会把中间那颗分到正中, 左右图标到 padding 边的距离也才相等。
+    /// 竖版最下面那一排(默认歌词 · 投放 · 队列)。音乐见 `musicBottomBar`:空着的格不占位,其余的分开排。
     @ViewBuilder
     private func portraitBottomBar(spokenControls: SpokenWordResolvedControls?) -> some View {
         if let spokenControls {
@@ -6275,14 +6287,18 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 空着的格不占位(#320):三颗时左中右,两颗分在两头,一颗在正中;都空时留一行的高度。
     private var musicBottomBar: some View {
-        HStack {
-            controlSlot(.barLeading, style: .bar)
-            Spacer()
-            controlSlot(.barCenter, style: .bar)
-            Spacer()
-            controlSlot(.barTrailing, style: .bar)
+        let actions = NowPlayingControlSlot.bar.compactMap { musicControlLayout.action(in: $0) }
+        return HStack(spacing: 0) {
+            if actions.count == 1 { Spacer(minLength: 0) }
+            ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                if index > 0 { Spacer(minLength: 0) }
+                controlButton(action, style: .bar)
+            }
+            if actions.count == 1 { Spacer(minLength: 0) }
         }
+        .frame(maxWidth: .infinity, minHeight: 44)
         .font(.body).padding(.horizontal, 46).padding(.top, 12)
     }
 
