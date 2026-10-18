@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector, ServerScrobblingConnector,
+    ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerFavoriteConnector, ServerScrobblingConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector {
     let sourceID: String
     private let client: SongloftServiceClient
@@ -211,6 +211,37 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
             failedPlaylistIDs: failed,
             isIndexComplete: listed.unreadableCount == 0
         )
+    }
+
+    /// 只往普通歌单里加; 收藏有自己的红心入口, 不当成加歌目标。先读一次明细只追加还不在
+    /// 里面的, 加完再读一次, 每首都在才算成功。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        guard let playlistID = Int64(id), playlistID > 0 else { throw ServerPlaylistAppendError.readOnly }
+        let playlist = try await client.playlist(id: playlistID)
+        guard playlist.type == "normal", !playlist.isFavorite else { throw ServerPlaylistAppendError.readOnly }
+        let current = try await client.playlistSongIDs(id: playlistID)
+        var seen = Set(current)
+        let missing = itemIDs.compactMap { Int64($0) }.filter { $0 > 0 && seen.insert($0).inserted }
+        var trackIDs = current
+        if !missing.isEmpty {
+            var offset = 0
+            while offset < missing.count {
+                try Task.checkCancellation()
+                let chunk = Array(missing[offset..<min(offset + 100, missing.count)])
+                do {
+                    try await client.addSongs(chunk, toPlaylist: playlistID)
+                } catch SongloftServiceError.badServerResponse(403) {
+                    throw ServerPlaylistAppendError.readOnly
+                }
+                offset += chunk.count
+            }
+            trackIDs = try await client.playlistSongIDs(id: playlistID)
+            guard Set(trackIDs).isSuperset(of: missing) else { throw ServerPlaylistAppendError.notConfirmed }
+        }
+        return ServerPlaylist(id: id,
+            name: playlist.name.isEmpty ? id : playlist.name,
+            coverArtReference: playlist.coverReference, trackIDs: trackIDs.map(String.init),
+            reportedTrackCount: trackIDs.count)
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {

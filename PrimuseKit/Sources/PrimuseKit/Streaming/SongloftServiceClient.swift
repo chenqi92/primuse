@@ -283,6 +283,23 @@ public actor SongloftServiceClient {
         return SongloftPlaylistSongIDs(ids: result.values, unreadableCount: result.unreadableCount)
     }
 
+    public func playlist(id: Int64) async throws -> SongloftPlaylist {
+        guard id > 0 else { throw SongloftServiceError.invalidResponse }
+        return try await json(path: "/playlists/\(id)")
+    }
+
+    /// 加到歌单末尾, 收藏(`setFavorite`)用的就是这个接口。去重与回读确认由调用方做。
+    public func addSongs(_ songIDs: [Int64], toPlaylist id: Int64) async throws {
+        guard id > 0, !songIDs.isEmpty, songIDs.allSatisfy({ $0 > 0 }) else {
+            throw SongloftServiceError.invalidResponse
+        }
+        _ = try await data(
+            path: "/playlists/\(id)/songs",
+            method: "POST",
+            body: JSONEncoder().encode(["song_ids": songIDs])
+        )
+    }
+
     public func favorites() async throws -> [Int64] {
         try await favoriteSongIDList().ids
     }

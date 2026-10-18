@@ -1752,8 +1752,10 @@ public enum ServerPlaylistIdentity {
 
 /// Which mirrored server playlists accept songs added from Primuse.
 ///
-/// Only the Subsonic family (`updatePlaylist` with `songIdToAdd`) and
-/// Emby/Jellyfin (`POST /Playlists/{id}/Items`) implement an append call.
+/// Only these implement an append call: the Subsonic family (`updatePlaylist`
+/// with `songIdToAdd`), Emby/Jellyfin (`POST /Playlists/{id}/Items`), Plex
+/// (`PUT /playlists/{id}/items`), Songloft (`POST /playlists/{id}/songs`) and
+/// Synology Audio Station (`updatesongs` at offset -1).
 /// The rest of a mirror stays read-only: removals and reorders
 /// would be overwritten by the next sync. Song IDs are only meaningful on the
 /// server they came from, so a song can go into a mirror of its own source only.
@@ -1764,7 +1766,7 @@ public enum ServerPlaylistWritebackPolicy {
 
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin:
+        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation:
             return true
         default:
             return false
@@ -1790,12 +1792,14 @@ public enum ServerPlaylistWritebackPolicy {
     ) -> String? {
         guard supports(sourceType) else { return nil }
         switch sourceType {
-        case .emby, .jellyfin:
-            // MediaServerSource's `/items/<id>.<ext>` paths.
+        case .emby, .jellyfin, .plex, .songloft:
+            // MediaServerSource's `/items/<id>.<ext>` paths and Songloft's own track paths.
             return ServerFavoriteWritebackPolicy.songID(
                 fromConnectorPath: filePath,
                 sourceType: sourceType
             )
+        case .synologyAudioStation:
+            return SynologyAudioStationAPI.songID(fromTrackPath: filePath)
         default:
             // The Subsonic family shares SubsonicSource and its `/songs/<id>.<suffix>` paths.
             return ServerFavoriteWritebackPolicy.songID(

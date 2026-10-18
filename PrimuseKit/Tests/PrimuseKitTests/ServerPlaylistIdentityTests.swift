@@ -244,12 +244,15 @@ struct MirrorPlaylistIdentityTests {
 
 @Suite("Server playlist writeback")
 struct ServerPlaylistWritebackPolicyTests {
-    @Test("Only the Subsonic family, Emby and Jellyfin can append to server playlists")
+    @Test("Only sources with an append call can add to server playlists")
     func supportsAppendingSources() {
-        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin] {
+        let appending: [MusicSourceType] = [
+            .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation,
+        ]
+        for type in appending {
             #expect(ServerPlaylistWritebackPolicy.supports(type))
         }
-        for type in [MusicSourceType.plex, .fnMusic, .smb, .webdav] {
+        for type in [MusicSourceType.fnMusic, .daoliyu, .tingReader, .smb, .webdav] {
             #expect(!ServerPlaylistWritebackPolicy.supports(type))
         }
     }
@@ -282,14 +285,28 @@ struct ServerPlaylistWritebackPolicyTests {
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .emby) == nil)
     }
 
-    @Test("Song IDs come from media-server item paths for Emby and Jellyfin, never Plex")
+    @Test("Song IDs come from media-server item paths for Emby, Jellyfin and Plex")
     func extractsMediaServerSongIDs() {
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/48213.flac", sourceType: .emby) == "48213")
         #expect(ServerPlaylistWritebackPolicy.songID(
             fromConnectorPath: "/items/0f8e2c1d9a7b4c3e8d6f5a4b3c2d1e0f.m4a",
             sourceType: .jellyfin
         ) == "0f8e2c1d9a7b4c3e8d6f5a4b3c2d1e0f")
-        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/48213.flac", sourceType: .plex) == nil)
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/48213.flac", sourceType: .plex) == "48213")
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/a/b.flac", sourceType: .emby) == nil)
+    }
+
+    @Test("Song IDs come from each source's own track paths for Songloft and Audio Station")
+    func extractsSongloftAndAudioStationSongIDs() {
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songloft/songs/42.flac", sourceType: .songloft) == "42")
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/42.flac", sourceType: .songloft) == nil)
+        #expect(ServerPlaylistWritebackPolicy.songID(
+            fromConnectorPath: "/songs/music_6908.flac",
+            sourceType: .synologyAudioStation
+        ) == "music_6908")
+        #expect(ServerPlaylistWritebackPolicy.songID(
+            fromConnectorPath: "/songs/abc123.flac",
+            sourceType: .synologyAudioStation
+        ) == nil)
     }
 }

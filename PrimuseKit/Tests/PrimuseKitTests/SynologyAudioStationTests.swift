@@ -684,6 +684,8 @@ struct SynologyAudioStationTests {
         #expect(snapshot.failedPlaylistIDs.isEmpty)
         #expect(snapshot.isIndexComplete)
         #expect(snapshot.playlists.map(\.name) == ["开车", "放松", "欢快周杰伦", "粤语", "热门", "ぐされ"])
+        // 智能歌单照样镜像，但标出来，不当成加歌目标。
+        #expect(snapshot.playlists.map(\.isSmart) == [false, false, false, false, false, true])
         let drive = try #require(snapshot.playlists.first)
         #expect(drive.id == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
         #expect(drive.trackIDs == ["music_6906", "music_6906"])

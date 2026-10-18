@@ -887,6 +887,8 @@ public struct SynologyAudioStationPlaylistMirror: Equatable, Sendable {
     public let name: String
     /// 服务端顺序;尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,已经去掉。
     public let trackIDs: [String]
+    /// 智能歌单按规则生成,不能手动加歌。
+    public var isSmart: Bool = false
 }
 
 public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
@@ -943,7 +945,12 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
             let mirror: SynologyAudioStationPlaylistMirror
             do {
                 let ids = try await trackIDs(playlist.id).filter(SynologyAudioStationAPI.isCatalogSongID)
-                mirror = SynologyAudioStationPlaylistMirror(id: mirrorID, name: playlist.name, trackIDs: ids)
+                mirror = SynologyAudioStationPlaylistMirror(
+                    id: mirrorID,
+                    name: playlist.name,
+                    trackIDs: ids,
+                    isSmart: SynologyAudioStationAPI.isSmartPlaylistID(playlist.id)
+                )
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 throw CancellationError()
             } catch {

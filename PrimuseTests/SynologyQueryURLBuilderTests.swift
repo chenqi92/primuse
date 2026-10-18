@@ -246,3 +246,103 @@ private actor AudioStationTagHTTPFixture {
         return try json(result)
     }
 }
+
+/// 群晖歌单加歌:镜像 id 是服务端 id 的摘要,要先从歌单列表里找回服务端 id。
+final class AudioStationPlaylistAppendTests: XCTestCase {
+    func testAppendFindsServerPlaylistByMirrorIDAndConfirmsByReadBack() async throws {
+        let fixture = AudioStationPlaylistHTTPFixture()
+        let mirrorID = SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: AudioStationPlaylistHTTPFixture.normalID)
+
+        let playlist = try await source(fixture).appendToServerPlaylist(
+            id: mirrorID,
+            itemIDs: ["music_2", "music_3", "music_2", "music_/volume1/music/a.flac"]
+        )
+        let updates = await fixture.updates
+        XCTAssertEqual(updates.count, 1)
+        XCTAssertEqual(updates.first?["id"], AudioStationPlaylistHTTPFixture.normalID)
+        XCTAssertEqual(updates.first?["songs"], "music_2,music_3")
+        XCTAssertEqual(updates.first?["offset"], "-1")
+        XCTAssertEqual(updates.first?["limit"], "0")
+        XCTAssertEqual(playlist.id, mirrorID)
+        XCTAssertEqual(playlist.name, "开车")
+        XCTAssertEqual(playlist.trackIDs, ["music_1", "music_2", "music_3"])
+    }
+
+    func testSmartPlaylistIsRejectedWithoutWriting() async throws {
+        let fixture = AudioStationPlaylistHTTPFixture()
+        let mirrorID = SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: AudioStationPlaylistHTTPFixture.smartID)
+
+        do {
+            _ = try await source(fixture).appendToServerPlaylist(id: mirrorID, itemIDs: ["music_2"])
+            XCTFail("Expected read-only rejection")
+        } catch {
+            XCTAssertEqual(error as? ServerPlaylistAppendError, .readOnly)
+        }
+        let updates = await fixture.updates
+        XCTAssertTrue(updates.isEmpty)
+    }
+
+    private func source(_ fixture: AudioStationPlaylistHTTPFixture) -> SynologyAudioStationSource {
+        SynologyAudioStationSource(source: MusicSource(id: "as-playlist", name: "NAS", type: .synologyAudioStation,
+            host: "nas.example", port: 5001, useSsl: true, username: "listener", basePath: nil),
+            password: "password", deviceName: nil, transport: SynologyAudioStationRequestTransport(
+                data: { try await fixture.reply($0) }, download: { _ in throw URLError(.unsupportedURL) }))
+    }
+}
+
+private actor AudioStationPlaylistHTTPFixture {
+    static let normalID = "playlist_personal_normal/开车"
+    static let smartID = "playlist_personal_smart/智能"
+    private(set) var updates: [[String: String]] = []
+    private var songs = ["music_1"]
+
+    func reply(_ request: URLRequest) throws -> (Data, URLResponse) {
+        let url = try XCTUnwrap(request.url)
+        let encoded = request.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? url.query ?? ""
+        let params = Dictionary(encoded.split(separator: "&").compactMap { pair -> (String, String)? in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, let key = String(parts[0]).removingPercentEncoding,
+                  let value = String(parts[1]).removingPercentEncoding else { return nil }
+            return (key, value)
+        }, uniquingKeysWith: { _, last in last })
+        func json(_ object: [String: Any]) throws -> (Data, URLResponse) {
+            (try JSONSerialization.data(withJSONObject: object), HTTPURLResponse(url: url, statusCode: 200,
+                httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
+        }
+        if url.path.hasSuffix("query.cgi") {
+            return try json(["success": true, "data": [
+                "SYNO.API.Auth": ["path": "auth.cgi", "minVersion": 1, "maxVersion": 7],
+                "SYNO.AudioStation.Info": ["path": "AudioStation/info.cgi", "minVersion": 1, "maxVersion": 6],
+                "SYNO.AudioStation.Playlist": ["path": "AudioStation/playlist.cgi", "minVersion": 1, "maxVersion": 3],
+            ]])
+        }
+        switch params["api"] {
+        case "SYNO.API.Auth": return try json(["success": true, "data": ["sid": "sid-1"]])
+        case "SYNO.AudioStation.Info": return try json(["success": true, "data": ["privilege": [String: Bool]()]])
+        case "SYNO.AudioStation.Playlist": break
+        default: throw URLError(.unsupportedURL)
+        }
+        switch params["method"] {
+        case "list":
+            return try json(["success": true, "data": ["offset": 0, "total": 2, "playlists": [
+                ["id": Self.normalID, "library": "personal", "name": "开车", "type": "normal"],
+                ["id": Self.smartID, "library": "personal", "name": "智能", "type": "smart"],
+            ]]])
+        case "getinfo":
+            let id = params["id"] ?? ""
+            let entries = songs.map { ["id": $0, "path": "/music/\($0).flac", "title": $0] }
+            return try json(["success": true, "data": ["playlists": [[
+                "id": id, "library": "personal", "name": "n", "type": "normal",
+                "additional": ["songs": entries, "songs_offset": 0, "songs_total": entries.count],
+            ]]]])
+        case "updatesongs":
+            updates.append(params)
+            for song in (params["songs"] ?? "").split(separator: ",").map(String.init) where !songs.contains(song) {
+                songs.append(song)
+            }
+            return try json(["success": true])
+        default:
+            throw URLError(.unsupportedURL)
+        }
+    }
+}

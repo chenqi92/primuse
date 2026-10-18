@@ -2560,13 +2560,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         )
     }
 
-    /// 往 Emby / Jellyfin 歌单里追加(`POST /Playlists/{id}/Items`)。服务端不保证去重,
-    /// 所以先读一次明细只追加还不在里面的; 追加完再读一次, 每首都在才算成功。
+    /// 往 Emby / Jellyfin 歌单里追加(`POST /Playlists/{id}/Items`), Plex 见 `appendToPlexPlaylist`。
+    /// 服务端不保证去重, 所以先读一次明细只追加还不在里面的; 追加完再读一次, 每首都在才算成功。
     func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
-        guard kind != .plex else { throw ServerPlaylistAppendError.readOnly }
         try await connect()
-        guard let userID else { throw SourceError.authenticationFailed }
         guard !id.isEmpty, !id.contains("/") else { throw ServerPlaylistAppendError.readOnly }
+        if kind == .plex {
+            return try await appendToPlexPlaylist(id: id, itemIDs: itemIDs)
+        }
+        guard let userID else { throw SourceError.authenticationFailed }
         let current = try await jellyfinOrEmbyPlaylistDetail(id: id, userID: userID)
         var seen = Set(current.trackIDs)
         let missing = itemIDs.filter { seen.insert($0).inserted }
@@ -2619,6 +2621,62 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             coverArtReference: playlistCoverArtReference(for: summary, id: id),
             trackIDs: response.items.compactMap(\.id),
             reportedTrackCount: response.totalCount
+        )
+    }
+
+    /// Plex 加歌是 `PUT /playlists/{id}/items?uri=server://<机器 id>/com.plexapp.plugins.library/library/metadata/<ratingKey,…>`;
+    /// 智能歌单不能加。
+    private func appendToPlexPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        guard let machineIdentifier = plexMachineIdentifier, !machineIdentifier.isEmpty else {
+            throw SourceError.connectionFailed("Plex server identity unavailable")
+        }
+        let current = try await plexPlaylistDetail(id: id)
+        guard !current.isSmartPlaylist else { throw ServerPlaylistAppendError.readOnly }
+        var seen = Set(current.trackIDs)
+        let missing = itemIDs.filter { !$0.contains(",") && seen.insert($0).inserted }
+        guard !missing.isEmpty else { return current }
+
+        var offset = 0
+        while offset < missing.count {
+            try Task.checkCancellation()
+            let chunk = missing[offset..<min(offset + 100, missing.count)]
+            let uri = "server://\(machineIdentifier)/com.plexapp.plugins.library/library/metadata/"
+                + chunk.joined(separator: ",")
+            do {
+                _ = try await performRequest(
+                    path: "/playlists/\(id)/items",
+                    method: "PUT",
+                    queryItems: [URLQueryItem(name: "uri", value: uri)]
+                )
+            } catch SourceError.authenticationFailed {
+                throw ServerPlaylistAppendError.readOnly
+            }
+            offset += chunk.count
+        }
+
+        let refreshed = try await plexPlaylistDetail(id: id)
+        let refreshedIDs = Set(refreshed.trackIDs)
+        guard missing.allSatisfy(refreshedIDs.contains) else {
+            throw ServerPlaylistAppendError.notConfirmed
+        }
+        return refreshed
+    }
+
+    private func plexPlaylistDetail(id: String) async throws -> ServerPlaylist {
+        let summaryData = try await performRequest(path: "/playlists/\(id)")
+        guard let summary = try decoder.decode(PlexPlaylistResponse.self, from: summaryData)
+            .mediaContainer.playlists.first else {
+            throw SourceError.connectionFailed("Plex playlist not found")
+        }
+        let items = try await fetchAllPlexPlaylistItems(playlistID: id)
+        return ServerPlaylist(
+            id: id,
+            name: summary.displayTitle ?? "",
+            coverArtReference: playlistCoverArtReference(for: summary),
+            trackIDs: items.items.compactMap(\.ratingKey),
+            reportedTrackCount: items.totalCount,
+            isReadOnly: summary.isSmart,
+            isSmartPlaylist: summary.isSmart
         )
     }
 
@@ -2774,7 +2832,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     name: name,
                     coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: trackIDs,
-                    reportedTrackCount: itemsResponse.totalCount
+                    reportedTrackCount: itemsResponse.totalCount,
+                    isReadOnly: summary.isSmart,
+                    isSmartPlaylist: summary.isSmart
                 )
                 result.append(playlist)
                 await progress(playlist)
@@ -5381,12 +5441,15 @@ private struct PlexPlaylistSummary: Decodable {
     let title: String?
     let playlistType: String?
     let thumb: String?
+    /// 智能歌单按规则生成,不能手动加歌。JSON 里是布尔值,老版本也见过写成 0/1。
+    let isSmart: Bool
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case title
         case playlistType
         case thumb
+        case smart
     }
 
     init(from decoder: Decoder) throws {
@@ -5395,6 +5458,13 @@ private struct PlexPlaylistSummary: Decodable {
         title = (try? container?.decodeIfPresent(String.self, forKey: .title)) ?? nil
         playlistType = (try? container?.decodeIfPresent(String.self, forKey: .playlistType)) ?? nil
         thumb = (try? container?.decodeIfPresent(String.self, forKey: .thumb)) ?? nil
+        if let flag = (try? container?.decodeIfPresent(Bool.self, forKey: .smart)) ?? nil {
+            isSmart = flag
+        } else if let number = (try? container?.decodeIfPresent(Int.self, forKey: .smart)) ?? nil {
+            isSmart = number != 0
+        } else {
+            isSmart = ((try? container?.decodeIfPresent(String.self, forKey: .smart)) ?? nil) == "1"
+        }
     }
 
     var displayTitle: String? {

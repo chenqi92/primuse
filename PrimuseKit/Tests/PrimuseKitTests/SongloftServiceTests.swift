@@ -281,6 +281,19 @@ struct SongloftServiceTests {
         #expect(try JSONDecoder().decode([String: [Int64]].self, from: mutations[0].httpBody!) == ["song_ids": [1]])
     }
 
+    @Test func addingToPlaylistPostsSongIDsToThatPlaylist() async throws {
+        let fixture = SongloftFixture()
+        let client = fixture.client()
+        #expect(try await client.playlist(id: 3).name == "Ordered")
+        try await client.addSongs([8, 9], toPlaylist: 3)
+        let posts = await fixture.requests.filter { $0.httpMethod == "POST" && $0.url?.path.contains("/playlists/") == true }
+        #expect(posts.map { $0.url!.path } == ["/prefix/api/v1/playlists/3/songs"])
+        #expect(try JSONDecoder().decode([String: [Int64]].self, from: posts[0].httpBody!) == ["song_ids": [8, 9]])
+        await #expect(throws: SongloftServiceError.invalidResponse) {
+            try await client.addSongs([], toPlaylist: 3)
+        }
+    }
+
     @Test func playlistsKeepServerOrder() async throws {
         let client = SongloftFixture().client()
         let playlists = try await client.playlists()
@@ -395,6 +408,8 @@ private actor SongloftFixture {
             return response(url, json: favorite ? #"{"ids":[1],"total":1}"# : #"{"ids":[],"total":0}"#)
         case "/playlists/1/songs": favorite = true; return response(url, json: "{}")
         case "/playlists/1/songs/1": favorite = false; return response(url, json: "{}")
+        case "/playlists/3": return response(url, json: #"{"id":3,"name":"Ordered","type":"normal","song_count":2}"#)
+        case "/playlists/3/songs": return response(url, json: "{}")
         case "/playlists":
             if mode == .irregularPlaylists {
                 return response(url, json: #"{"playlists":[{"id":3,"name":"Ordered","type":"normal","song_count":2},{"id":"4","song_count":"9"},{"name":"broken"}],"total":3,"offset":0,"limit":500}"#)

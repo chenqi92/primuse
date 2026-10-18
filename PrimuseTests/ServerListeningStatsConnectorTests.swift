@@ -141,6 +141,54 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         }
     }
 
+    /// Plex 加歌的 uri 带服务器机器 id, 只加还没在歌单里的; 智能歌单直接拒绝, 不发写请求。
+    func testPlexAppendToPlaylistUsesServerURIAndRejectsSmartPlaylists() async throws {
+        for smart in [false, true] {
+            let tracks = LockedValues<String>()
+            tracks.append("track-1")
+            let uris = LockedValues<String>()
+            let source = makeMediaSource(kind: .plex) { request in
+                let url = try XCTUnwrap(request.url)
+                let query = Dictionary(uniqueKeysWithValues:
+                    (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                        .map { ($0.name, $0.value ?? "") }
+                )
+                switch (request.httpMethod ?? "GET", url.path) {
+                case ("GET", ""), ("GET", "/"):
+                    return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
+                case ("GET", "/playlists/pl-1"):
+                    return try Self.response(request, json: #"{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"pl-1","title":"Mix","playlistType":"audio","smart":\#(smart)}]}}"#)
+                case ("GET", "/playlists/pl-1/items"):
+                    let items = tracks.values.map { ["ratingKey": $0] }
+                    let data = try JSONSerialization.data(withJSONObject: [
+                        "MediaContainer": ["size": items.count, "totalSize": items.count, "Metadata": items]
+                    ])
+                    return try Self.response(request, json: String(decoding: data, as: UTF8.self))
+                case ("PUT", "/playlists/pl-1/items"):
+                    let uri = try XCTUnwrap(query["uri"])
+                    uris.append(uri)
+                    uri.split(separator: "/").last?.split(separator: ",").forEach { tracks.append(String($0)) }
+                    return try Self.response(request, json: #"{"MediaContainer":{"size":0}}"#)
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            do {
+                let playlist = try await source.appendToServerPlaylist(id: "pl-1", itemIDs: ["track-1", "track-2", "track-3"])
+                XCTAssertFalse(smart)
+                XCTAssertEqual(uris.values, ["server://machine-1/com.plexapp.plugins.library/library/metadata/track-2,track-3"])
+                XCTAssertEqual(playlist.trackIDs, ["track-1", "track-2", "track-3"])
+                XCTAssertEqual(playlist.name, "Mix")
+            } catch {
+                XCTAssertTrue(smart, "Unexpected error: \(error)")
+                XCTAssertEqual(error as? ServerPlaylistAppendError, .readOnly)
+                XCTAssertTrue(uris.values.isEmpty)
+            }
+            await source.disconnect()
+        }
+    }
+
     /// 服务器拒绝(别人的歌单)报只读; 请求成功但回读里没有刚加的歌报未确认。
     func testAppendToPlaylistReportsRejectionAndUnconfirmedWrites() async throws {
         let cases: [(statusCode: Int, expected: ServerPlaylistAppendError)] = [(403, .readOnly), (204, .notConfirmed)]

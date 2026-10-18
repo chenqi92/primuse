@@ -70,8 +70,8 @@ enum ServerPlaylistSyncService {
 }
 
 /// 「添加到歌单」里能选的服务端歌单(#162)。镜像歌单本身仍是只读快照, 只是
-/// 支持追加的源(Subsonic 系、Emby、Jellyfin)允许把自己源里的歌加进去: 先写服务端, 再用服务端
-/// 回读的明细刷新镜像, 不做乐观更新 —— 服务端拒绝时本地什么都没变。
+/// 支持追加的源(Subsonic 系、Emby、Jellyfin、Plex、Songloft、群晖 Audio Station)允许把自己源里的歌
+/// 加进去: 先写服务端, 再用服务端回读的明细刷新镜像, 不做乐观更新 —— 服务端拒绝时本地什么都没变。
 @MainActor
 enum ServerPlaylistAppendService {
     /// 这批歌可以加进去的服务端镜像歌单。歌必须全部来自同一个支持追加的源。
