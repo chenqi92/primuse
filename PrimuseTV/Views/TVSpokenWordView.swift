@@ -164,18 +164,45 @@ extension View {
 
 // MARK: - 「有声」页
 
+/// 「有声」页的返回位置。按书卡片就开播,有声页随之移出视图树;从播放页按 Menu 回来时靠它
+/// 把焦点放回那张卡片,从章节页开播的先重开章节页、焦点落在开播的那一章。
+/// 普通引用类型而非 @Observable,同 `TVHomeBrowseMemory`。
+@MainActor
+final class TVSpokenWordReturnMemory {
+    /// 开播 / 打开章节页的那张卡片(带所在那一节前缀的焦点 id)。
+    var cardID: String?
+    /// 从章节页开播的:那本书与开播的那一章。
+    var detailBookID: String?
+    var detailItemID: String?
+    /// 「已听完」「已归档」两节展开着没有:卡片在那两节里时,回来先展开才放得回焦点。
+    var showsFinished = false
+    var showsArchived = false
+    /// 由 `TVRoot.leavePlayer` 打上,有声页出现时用掉;经顶栏换页回来不恢复。
+    var restoresAfterPlayer = false
+
+    var hasReturnTarget: Bool { cardID != nil || detailBookID != nil }
+}
+
 /// tvOS「有声」一级页:「在听」一排大卡 + 书架封面网格 + 收起的「已听完」。
 /// 选一本书就按章节顺序把整本书放进队列,从上次听到的那一章、那一秒接着播。
 struct TVSpokenWordView: View {
     @Environment(TVStore.self) private var store
     var openPlayer: () -> Void = {}
     /// 书的详情页(章节列表)弹层在不在:TVRoot 据此停掉播放快捷键、压住焦点换页。
+    /// 关掉以后焦点由这一页自己放回打开它的那张卡片。
     var onModalActivityChanged: (Bool) -> Void = { _ in }
+    /// 返回位置,由 TVRoot 持有。
+    var memory = TVSpokenWordReturnMemory()
 
     @State private var selectedBook: SpokenWordBook?
     @State private var showsFinished = false
     @State private var showsArchived = false
     @State private var opensPlayerAfterDetailDismissal = false
+    /// 重开的章节页里焦点要落到的那一章。
+    @State private var reopenedItemID: String?
+    /// 要把焦点放回的那张卡片,放完清空。
+    @State private var pendingCardFocus: String?
+    @FocusState private var focusedCard: String?
 
     // 书封是方的:一行五本,与电台墙同一把尺子(见 `TVBrowseGridMetrics`)。
     private let gridMetrics = TVBrowseGridMetrics.spokenWord
@@ -194,76 +221,95 @@ struct TVSpokenWordView: View {
 
         GeometryReader { geo in
             let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 34) {
-                    HStack(alignment: .firstTextBaseline, spacing: 18) {
-                        Text(String(localized: "listening_space_spoken_word"))
-                            .tvFont(.pageTitle)
-                            .foregroundStyle(TVColor.text)
-                        if !books.isEmpty {
-                            Text(String(format: String(localized: "tv_spoken_word_book_count"), books.count))
-                                .tvFont(.caption)
-                                .foregroundStyle(TVColor.textFaint)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-
-                    if !shelfModel.isPrepared {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 520)
-                    } else if books.isEmpty {
-                        TVEmptyState(
-                            icon: "books.vertical",
-                            title: String(localized: "tab_spoken_word"),
-                            subtitle: String(localized: "spoken_word_empty_hint")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 520)
-                    } else {
-                        if !listening.isEmpty {
-                            TVRow(label: String(localized: "tv_spoken_word_listening")) {
-                                ForEach(listening) { book in
-                                    TVSpokenWordListeningCard(book: book) { play(book) }
-                                        .contextMenu { bookMenu(book) }
-                                }
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 34) {
+                        HStack(alignment: .firstTextBaseline, spacing: 18) {
+                            Text(String(localized: "listening_space_spoken_word"))
+                                .tvFont(.pageTitle)
+                                .foregroundStyle(TVColor.text)
+                            if !books.isEmpty {
+                                Text(String(format: String(localized: "tv_spoken_word_book_count"), books.count))
+                                    .tvFont(.caption)
+                                    .foregroundStyle(TVColor.textFaint)
                             }
                         }
-                        if !shelf.isEmpty {
-                            section(
-                                title: String(localized: "tv_spoken_word_bookshelf"),
-                                books: shelf,
-                                cell: cell
+                        .padding(.horizontal, 14)
+
+                        if !shelfModel.isPrepared {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, minHeight: 520)
+                        } else if books.isEmpty {
+                            TVEmptyState(
+                                icon: "books.vertical",
+                                title: String(localized: "tab_spoken_word"),
+                                subtitle: String(localized: "spoken_word_empty_hint")
                             )
-                        }
-                        if !finished.isEmpty {
-                            collapsibleSection(
-                                title: String(localized: "spoken_word_finished"),
-                                books: finished,
-                                isExpanded: $showsFinished,
-                                cell: cell
-                            )
-                        }
-                        if !archived.isEmpty {
-                            collapsibleSection(
-                                title: String(localized: "spoken_word_archived_section"),
-                                books: archived,
-                                isExpanded: $showsArchived,
-                                cell: cell
-                            )
+                            .frame(maxWidth: .infinity, minHeight: 520)
+                        } else {
+                            if !listening.isEmpty {
+                                TVRow(label: String(localized: "tv_spoken_word_listening")) {
+                                    ForEach(listening) { book in
+                                        let cardID = Self.cardID(book, section: "listening")
+                                        TVSpokenWordListeningCard(
+                                            book: book, focusBinding: $focusedCard, focusID: cardID
+                                        ) { play(book, cardID: cardID) }
+                                            .contextMenu { bookMenu(book, cardID: cardID) }
+                                            .id(cardID)
+                                    }
+                                }
+                            }
+                            if !shelf.isEmpty {
+                                section(
+                                    title: String(localized: "tv_spoken_word_bookshelf"),
+                                    books: shelf,
+                                    cell: cell,
+                                    id: "shelf"
+                                )
+                            }
+                            if !finished.isEmpty {
+                                collapsibleSection(
+                                    title: String(localized: "spoken_word_finished"),
+                                    books: finished,
+                                    isExpanded: $showsFinished,
+                                    cell: cell,
+                                    id: "finished"
+                                )
+                            }
+                            if !archived.isEmpty {
+                                collapsibleSection(
+                                    title: String(localized: "spoken_word_archived_section"),
+                                    books: archived,
+                                    isExpanded: $showsArchived,
+                                    cell: cell,
+                                    id: "archived"
+                                )
+                            }
                         }
                     }
+                    .padding(.horizontal, TVSpace.pageH - 14)
+                    .padding(.top, TVSpace.pageTop + 8)
+                    .padding(.bottom, TVSpace.pageBottom)
                 }
-                .padding(.horizontal, TVSpace.pageH - 14)
-                .padding(.top, TVSpace.pageTop + 8)
-                .padding(.bottom, TVSpace.pageBottom)
+                .focusSection()
+                .tvRestoresFocus(
+                    to: pendingCardFocus, in: $focusedCard,
+                    reveal: { if let pendingCardFocus { proxy.scrollTo(pendingCardFocus, anchor: .center) } },
+                    onSettled: { pendingCardFocus = nil }
+                )
             }
-            .focusSection()
         }
         .background(TVColor.bg)
         .fullScreenCover(item: $selectedBook, onDismiss: finishDetailDismissal) { book in
             TVSpokenWordBookDetailView(
                 bookID: book.id,
                 fallback: book,
-                openPlayer: { opensPlayerAfterDetailDismissal = true }
+                initialFocusItemID: reopenedItemID,
+                openPlayer: {
+                    memory.detailBookID = book.id
+                    memory.detailItemID = store.currentSongID
+                    opensPlayerAfterDetailDismissal = true
+                }
             )
             .environment(store)
         }
@@ -271,15 +317,18 @@ struct TVSpokenWordView: View {
         .onDisappear {
             if selectedBook != nil { onModalActivityChanged(false) }
         }
+        .onChange(of: showsFinished) { _, value in memory.showsFinished = value }
+        .onChange(of: showsArchived) { _, value in memory.showsArchived = value }
+        .onAppear(perform: restoreAfterPlayer)
         .tvSpokenWordShelfRefresh(.books)
         .accessibilityIdentifier("tv.spokenWord.page")
     }
 
-    private func section(title: String, books: [SpokenWordBook], cell: CGFloat) -> some View {
+    private func section(title: String, books: [SpokenWordBook], cell: CGFloat, id: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
                 .padding(.horizontal, 14)
-            grid(books, cell: cell)
+            grid(books, cell: cell, section: id)
         }
     }
 
@@ -287,7 +336,8 @@ struct TVSpokenWordView: View {
         title: String,
         books: [SpokenWordBook],
         isExpanded: Binding<Bool>,
-        cell: CGFloat
+        cell: CGFloat,
+        id: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             TVPillButton(
@@ -299,25 +349,34 @@ struct TVSpokenWordView: View {
             }
             .padding(.horizontal, 14)
             if isExpanded.wrappedValue {
-                grid(books, cell: cell)
+                grid(books, cell: cell, section: id)
             }
         }
     }
 
-    private func grid(_ books: [SpokenWordBook], cell: CGFloat) -> some View {
+    private func grid(_ books: [SpokenWordBook], cell: CGFloat, section: String) -> some View {
         LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
             ForEach(books) { book in
-                TVSpokenWordBookCard(book: book, width: cell) { play(book) }
-                    .contextMenu { bookMenu(book) }
+                let cardID = Self.cardID(book, section: section)
+                TVSpokenWordBookCard(
+                    book: book, width: cell, focusBinding: $focusedCard, focusID: cardID
+                ) { play(book, cardID: cardID) }
+                    .contextMenu { bookMenu(book, cardID: cardID) }
+                    .id(cardID)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 20)
     }
 
+    /// 同一本书可能同时在「在听」和书架里:焦点 id 带上所在那一节。
+    private static func cardID(_ book: SpokenWordBook, section: String) -> String {
+        section + ":" + book.id
+    }
+
     @ViewBuilder
-    private func bookMenu(_ book: SpokenWordBook) -> some View {
-        Button { play(book) } label: {
+    private func bookMenu(_ book: SpokenWordBook, cardID: String) -> some View {
+        Button { play(book, cardID: cardID) } label: {
             Label(
                 book.canContinue
                     ? String(localized: "spoken_word_continue")
@@ -325,7 +384,10 @@ struct TVSpokenWordView: View {
                 systemImage: "play.fill"
             )
         }
-        Button { selectedBook = book } label: {
+        Button {
+            memory.cardID = cardID
+            selectedBook = book
+        } label: {
             Label(String(localized: "tv_spoken_word_chapters"), systemImage: "list.bullet")
         }
         let isArchived = SpokenWordStore.shared.isArchived(bookID: book.id)
@@ -339,17 +401,56 @@ struct TVSpokenWordView: View {
         }
     }
 
-    private func play(_ book: SpokenWordBook) {
+    private func play(_ book: SpokenWordBook, cardID: String) {
         if store.playSpokenWordBook(songIDs: book.items.map(\.id), startingAt: book.resumeItemID) {
+            memory.cardID = cardID
+            memory.detailBookID = nil
+            memory.detailItemID = nil
             openPlayer()
         }
     }
 
     private func finishDetailDismissal() {
         onModalActivityChanged(false)
+        reopenedItemID = nil
         if opensPlayerAfterDetailDismissal {
             opensPlayerAfterDetailDismissal = false
             TVModalHandoff.afterFocusSettles(openPlayer)
+        } else {
+            // 用户在章节页按 Menu 关掉:焦点回到打开它的那张卡片。
+            memory.detailBookID = nil
+            memory.detailItemID = nil
+            pendingCardFocus = memory.cardID
+        }
+    }
+
+    /// 有声页出现:展开上次展开着的那两节;从播放页按 Menu 回来的那一次,先重开起播的章节页,
+    /// 否则把焦点放回起播的那张卡片。书架要等分好组才有那本书,最多等两秒。
+    private func restoreAfterPlayer() {
+        if memory.showsFinished { showsFinished = true }
+        if memory.showsArchived { showsArchived = true }
+        let restores = memory.restoresAfterPlayer
+        memory.restoresAfterPlayer = false
+        guard restores else {
+            memory.detailBookID = nil
+            memory.detailItemID = nil
+            return
+        }
+        Task { @MainActor in
+            for _ in 0..<10 where !store.spokenWordShelf(.books).isPrepared {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if let bookID = memory.detailBookID,
+               let book = store.spokenWordShelf(.books).booksByID[bookID] {
+                reopenedItemID = memory.detailItemID
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { selectedBook = book }
+                return
+            }
+            memory.detailBookID = nil
+            memory.detailItemID = nil
+            pendingCardFocus = memory.cardID
         }
     }
 }
@@ -415,10 +516,13 @@ struct TVSpokenWordProgressBar: View {
 struct TVSpokenWordBookCard: View {
     let book: SpokenWordBook
     let width: CGFloat
+    /// 父视图的焦点绑定(见 `TVFocusButton`):从播放页回来时把焦点放回这张卡片。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void
 
     var body: some View {
-        TVFocusButton(ring: false, action: action) { focused in
+        TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVSpokenWordCover(book: book, size: width)
                     .tvCardFocus(focused, radius: TVRadius.cover)
@@ -445,10 +549,15 @@ struct TVSpokenWordBookCard: View {
 /// 「在听」里的大卡:封面 + 书名、当前章节、剩余时长、进度和「继续」。
 struct TVSpokenWordListeningCard: View {
     let book: SpokenWordBook
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void
 
     var body: some View {
-        TVFocusButton(radius: TVRadius.card, scale: 1.04, lift: 8, action: action) { focused in
+        TVFocusButton(
+            radius: TVRadius.card, scale: 1.04, lift: 8, action: action,
+            focusBinding: focusBinding, focusID: focusID
+        ) { focused in
             HStack(alignment: .center, spacing: 28) {
                 TVSpokenWordCover(book: book, size: SpokenWordCoverLayout.width(forHeight: 220))
                 VStack(alignment: .leading, spacing: 10) {
@@ -503,7 +612,12 @@ struct TVSpokenWordBookDetailView: View {
     let bookID: String
     /// 打开时的那份;章节播放、位置变化后按 id 从曲库重新整理。
     let fallback: SpokenWordBook
+    /// 打开时焦点落到的那一章 / 那一集(从播放页回来时是开播的那一条)。
+    var initialFocusItemID: String? = nil
+    /// 开始播放时调用,这时 `store.currentSongID` 就是开播的那一条。
     var openPlayer: () -> Void = {}
+
+    @FocusState private var focusedItemID: String?
 
     private var isLocalPodcast: Bool {
         store.library.localPodcastBookIDs.values.contains(bookID)
@@ -573,36 +687,44 @@ struct TVSpokenWordBookDetailView: View {
                 }
                 .frame(width: 440, alignment: .leading)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        TVEyebrow(text: isPodcast
-                            ? String(format: String(localized: "podcast_episode_count %lld"), listed.count)
-                            : String(localized: "tv_spoken_word_chapters"))
-                            .padding(.bottom, 6)
-                        if isPodcast, listed.isEmpty {
-                            Text(String(localized: "podcast_no_matching_episodes"))
-                                .tvFont(.body)
-                                .foregroundStyle(TVColor.textMuted)
-                                .padding(.vertical, 30)
-                        }
-                        // 一本书可能拆成上千个文件:分页渲染,焦点走到末尾附近再续。
-                        TVPagedList(listed, id: \.id, alignment: .leading, spacing: 10) { index, item, focusChanged in
-                            chapterRow(
-                                item, index: index, isResume: item.id == book.resumeItemID,
-                                podcastEpisodes: isPodcast ? ordered : nil,
-                                order: settings.order,
-                                onFocusChanged: focusChanged
-                            ) {
-                                play(book, from: item.id)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            TVEyebrow(text: isPodcast
+                                ? String(format: String(localized: "podcast_episode_count %lld"), listed.count)
+                                : String(localized: "tv_spoken_word_chapters"))
+                                .padding(.bottom, 6)
+                            if isPodcast, listed.isEmpty {
+                                Text(String(localized: "podcast_no_matching_episodes"))
+                                    .tvFont(.body)
+                                    .foregroundStyle(TVColor.textMuted)
+                                    .padding(.vertical, 30)
+                            }
+                            // 一本书可能拆成上千个文件:分页渲染,焦点走到末尾附近再续。
+                            TVPagedList(
+                                listed, id: \.id, alignment: .leading, spacing: 10,
+                                revealing: initialFocusItemID.flatMap { id in listed.firstIndex { $0.id == id } }
+                            ) { index, item, focusChanged in
+                                chapterRow(
+                                    item, index: index, isResume: item.id == book.resumeItemID,
+                                    podcastEpisodes: isPodcast ? ordered : nil,
+                                    order: settings.order,
+                                    onFocusChanged: focusChanged
+                                ) {
+                                    play(book, from: item.id)
+                                }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                        .padding(.bottom, TVScrollEdgeFade.bottom)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 20)
-                    .padding(.bottom, TVScrollEdgeFade.bottom)
+                    .tvScrollEdgeFade()
+                    .focusSection()
+                    .tvRestoresFocus(to: initialFocusItemID, in: $focusedItemID, reveal: {
+                        if let initialFocusItemID { proxy.scrollTo(initialFocusItemID, anchor: .center) }
+                    })
                 }
-                .tvScrollEdgeFade()
-                .focusSection()
             }
             .padding(.horizontal, 100)
             .padding(.vertical, 72)
@@ -625,7 +747,8 @@ struct TVSpokenWordBookDetailView: View {
         let isPodcast = podcastEpisodes != nil
         let row = TVFocusButton(
             radius: 16, scale: 1.02, lift: 0, ring: false,
-            action: action, onFocusChanged: onFocusChanged
+            action: action, onFocusChanged: onFocusChanged,
+            focusBinding: $focusedItemID, focusID: item.id
         ) { focused in
             HStack(spacing: 22) {
                 if isPodcast {

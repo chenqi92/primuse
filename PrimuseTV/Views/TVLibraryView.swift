@@ -19,8 +19,30 @@ final class TVLibraryBrowseMemory {
     /// 焦点落在那一首,再按一次才回海报墙;在专辑页里按 Menu 关掉就清空。
     var albumDetailID: String?
     var albumDetailSongID: String?
-    /// 只有从播放页按 Menu 回来的那一次才重开专辑页;经顶栏换页再回来不弹。
-    var restoresAlbumDetail = false
+    /// 同上,从艺人页开始播放的:回来先重开这位艺人的页。
+    var artistDetail: TVArtist?
+    var artistDetailSongID: String?
+    /// 同上,从流派 / 排行点开的那一组歌(`TVSongCollectionView`)里开始播放的。
+    var collectionDetail: TVBrowseDestination?
+    var collectionDetailSongID: String?
+    /// 流派墙上点开过的那一格:关掉流派页、从播放页回来时焦点回到它。
+    var genreID: String?
+    /// 文件夹页停在哪一层(经顶栏换页再回来也还在这一层),和在这里开播的那首。
+    var folderPath: [LibraryFolderNodeID] = []
+    var folderSongID: String?
+    /// 只有从播放页按 Menu 回来的那一次才重开详情页;经顶栏换页再回来不弹。
+    var restoresAfterPlayer = false
+
+    /// 开播时记下新的那一页之前,先忘掉上一次从别的详情页开播的记录。
+    func forgetDetails() {
+        albumDetailID = nil
+        albumDetailSongID = nil
+        artistDetail = nil
+        artistDetailSongID = nil
+        collectionDetail = nil
+        collectionDetailSongID = nil
+        folderSongID = nil
+    }
 }
 
 /// 首页的返回位置。首页各排卡片按下就播放(或先进专辑页),首页随之移出视图树;
@@ -166,6 +188,14 @@ struct TVLibraryView: View {
     @State private var selectedAlbum: TVAlbum?
     /// 从播放页回来重开专辑页时,焦点要落到的那一首。
     @State private var reopenedAlbumSongID: String?
+    /// 同上,重开的艺人页 / 那一组歌里焦点要落到的那一首。
+    @State private var reopenedArtistSongID: String?
+    @State private var reopenedCollectionSongID: String?
+    /// 流派 / 排行点开的那一组歌。
+    @State private var selectedCollection: TVBrowseDestination?
+    @State private var opensPlayerAfterCollectionDismissal = false
+    /// 从播放页回来、文件夹页要把焦点放回的那首(只这一次)。
+    @State private var folderReturnSongID: String?
 
     #if DEBUG
     /// 截图用的 `albumDetail` 只在首次进资料库时打开一次。
@@ -286,7 +316,13 @@ struct TVLibraryView: View {
         .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
             TVArtistDetailView(
                 artist: artist,
-                openPlayer: { opensPlayerAfterArtistDismissal = true }
+                openPlayer: {
+                    browseMemory.forgetDetails()
+                    browseMemory.artistDetail = artist
+                    browseMemory.artistDetailSongID = store.currentSongID
+                    opensPlayerAfterArtistDismissal = true
+                },
+                initialFocusSongID: reopenedArtistSongID
             )
                 .environment(store)
         }
@@ -298,12 +334,34 @@ struct TVLibraryView: View {
                 onModalActivityChanged(false)
             }
         }
+        .fullScreenCover(item: $selectedCollection, onDismiss: finishCollectionDismissal) { destination in
+            TVSongCollectionView(
+                destination: destination,
+                openPlayer: {
+                    browseMemory.forgetDetails()
+                    browseMemory.collectionDetail = destination
+                    browseMemory.collectionDetailSongID = store.currentSongID
+                    opensPlayerAfterCollectionDismissal = true
+                },
+                initialFocusSongID: reopenedCollectionSongID
+            )
+                .environment(store)
+        }
+        .onChange(of: selectedCollection != nil) { _, active in
+            onModalActivityChanged(active)
+        }
+        .onDisappear {
+            if selectedCollection != nil {
+                onModalActivityChanged(false)
+            }
+        }
         .modifier(TVAlbumDetailPresenter(
             album: $selectedAlbum,
             openPlayer: openPlayer,
             onPresentationChanged: onModalActivityChanged,
             initialFocusSongID: reopenedAlbumSongID,
             onPlaybackStarted: { albumID, songID in
+                browseMemory.forgetDetails()
                 browseMemory.albumDetailID = albumID
                 browseMemory.albumDetailSongID = songID
             },
@@ -314,7 +372,7 @@ struct TVLibraryView: View {
                 restoreContentFocus()
             }
         ))
-        .onAppear(perform: reopenAlbumDetailAfterPlayer)
+        .onAppear(perform: reopenDetailAfterPlayer)
         #if DEBUG
         .task {
             guard TVDebugLaunch.screen == "albumDetail", !Self.didOpenDebugAlbumDetail else { return }
@@ -456,19 +514,31 @@ struct TVLibraryView: View {
         }
     }
 
-    /// 从播放页按 Menu 回来:起播的那张专辑页不带动画地重新挂上,焦点落回刚播的那首。
-    private func reopenAlbumDetailAfterPlayer() {
-        let restores = browseMemory.restoresAlbumDetail
-        browseMemory.restoresAlbumDetail = false
-        guard restores, let albumID = browseMemory.albumDetailID, let album = store.album(albumID) else {
-            browseMemory.albumDetailID = nil
-            browseMemory.albumDetailSongID = nil
+    /// 从播放页按 Menu 回来:起播的那张专辑页 / 艺人页 / 那一组歌不带动画地重新挂上,
+    /// 焦点落回刚播的那首;在文件夹里开播的,文件夹页自己把焦点放回那首。
+    private func reopenDetailAfterPlayer() {
+        let restores = browseMemory.restoresAfterPlayer
+        browseMemory.restoresAfterPlayer = false
+        guard restores else {
+            browseMemory.forgetDetails()
             return
         }
-        reopenedAlbumSongID = browseMemory.albumDetailSongID
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { selectedAlbum = album }
+        if let albumID = browseMemory.albumDetailID, let album = store.album(albumID) {
+            reopenedAlbumSongID = browseMemory.albumDetailSongID
+            withTransaction(transaction) { selectedAlbum = album }
+        } else if let artist = browseMemory.artistDetail, !store.songs(forArtistID: artist.id).isEmpty {
+            reopenedArtistSongID = browseMemory.artistDetailSongID
+            withTransaction(transaction) { selectedArtist = artist }
+        } else if let destination = browseMemory.collectionDetail {
+            reopenedCollectionSongID = browseMemory.collectionDetailSongID
+            withTransaction(transaction) { selectedCollection = destination }
+        } else if filter == .folders, let songID = browseMemory.folderSongID {
+            folderReturnSongID = songID
+        } else {
+            browseMemory.forgetDetails()
+        }
     }
 
     private func jumpToIndexBucket(_ bucket: String) {
@@ -520,6 +590,10 @@ struct TVLibraryView: View {
         case .songs:
             guard let id = browseMemory.songID, store.song(id) != nil else { return nil }
             return Self.songFocusID(id)
+        case .genres:
+            guard let id = browseMemory.genreID,
+                  store.library.visibleGenres.contains(where: { $0.id == id }) else { return nil }
+            return TVGenreBrowser.focusID(id)
         default:
             return nil
         }
@@ -533,6 +607,7 @@ struct TVLibraryView: View {
         case .albums, .years: anchor = browseMemory.albumID
         case .artists: anchor = browseMemory.artistID
         case .songs: anchor = browseMemory.songID
+        case .genres: anchor = browseMemory.genreID
         default: anchor = nil
         }
         guard let anchor, browseAnchorFocusID != nil else { return }
@@ -953,11 +1028,29 @@ struct TVLibraryView: View {
                 browseLayoutPlaceholder
             }
         case .genres:
-            TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
+            TVGenreBrowser(
+                revealingGenreID: browseMemory.genreID,
+                focusBinding: $focusedGridItem,
+                onOpen: { destination in
+                    browseMemory.genreID = destination.id
+                    selectedCollection = destination
+                }
+            )
         case .folders:
-            TVFolderBrowser(openPlayer: openPlayer, onNavigation: onFolderNavigation)
+            TVFolderBrowser(
+                openPlayer: {
+                    browseMemory.forgetDetails()
+                    browseMemory.folderSongID = store.currentSongID
+                    openPlayer()
+                },
+                onNavigation: onFolderNavigation,
+                revealRow: { proxy.scrollTo($0, anchor: .center) },
+                browseMemory: browseMemory,
+                focusBinding: $focusedGridItem,
+                returnSongID: $folderReturnSongID
+            )
         case .ranking:
-            TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
+            TVRankingBrowser(onOpen: { selectedCollection = $0 })
         }
     }
 
@@ -1140,8 +1233,24 @@ struct TVLibraryView: View {
     }
 
     private func finishArtistDismissal() {
-        guard opensPlayerAfterArtistDismissal else { return }
+        reopenedArtistSongID = nil
+        guard opensPlayerAfterArtistDismissal else {
+            browseMemory.artistDetail = nil
+            browseMemory.artistDetailSongID = nil
+            return
+        }
         opensPlayerAfterArtistDismissal = false
+        TVModalHandoff.afterFocusSettles(openPlayer)
+    }
+
+    private func finishCollectionDismissal() {
+        reopenedCollectionSongID = nil
+        guard opensPlayerAfterCollectionDismissal else {
+            browseMemory.collectionDetail = nil
+            browseMemory.collectionDetailSongID = nil
+            return
+        }
+        opensPlayerAfterCollectionDismissal = false
         TVModalHandoff.afterFocusSettles(openPlayer)
     }
 }
@@ -1153,7 +1262,12 @@ struct TVArtistDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     let artist: TVArtist
+    /// 开始播放时调用,这时 `store.currentSongID` 就是开播的那一首。
     var openPlayer: () -> Void = {}
+    /// 打开时焦点落到的歌(从播放页回来时是刚播的那首);nil 照系统默认落在「全部播放」。
+    var initialFocusSongID: String? = nil
+
+    @FocusState private var focusedSongID: String?
 
     private var songs: [TVSong] { store.songs(forArtistID: artist.id) }
 
@@ -1196,27 +1310,38 @@ struct TVArtistDetailView: View {
                 }
                 .frame(width: 440, alignment: .leading)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        TVLibraryInsightBlock(subject: insightIdentity, details: insightDetails)
-                        TVEyebrow(text: PMString("ext.tv.search.songs"))
-                            .padding(.bottom, 6)
-                        if artistSongIDs.isEmpty {
-                            TVEmptyState(
-                                icon: "music.note",
-                                title: PMString("ext.tv.search.noMatch")
-                            )
-                            .frame(minHeight: 360)
-                        } else {
-                            TVPagedSongIDList(songIDs: artistSongIDs, alignment: .leading, action: finishPlayback)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            TVLibraryInsightBlock(subject: insightIdentity, details: insightDetails)
+                            TVEyebrow(text: PMString("ext.tv.search.songs"))
+                                .padding(.bottom, 6)
+                            if artistSongIDs.isEmpty {
+                                TVEmptyState(
+                                    icon: "music.note",
+                                    title: PMString("ext.tv.search.noMatch")
+                                )
+                                .frame(minHeight: 360)
+                            } else {
+                                TVPagedSongIDList(
+                                    songIDs: artistSongIDs,
+                                    alignment: .leading,
+                                    action: finishPlayback,
+                                    focusBinding: $focusedSongID,
+                                    revealingSongID: initialFocusSongID
+                                )
+                            }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                        .padding(.bottom, TVScrollEdgeFade.bottom)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 20)
-                    .padding(.bottom, TVScrollEdgeFade.bottom)
+                    .tvScrollEdgeFade()
+                    .focusSection()
+                    .tvRestoresFocus(to: initialFocusSongID, in: $focusedSongID, reveal: {
+                        if let initialFocusSongID { proxy.scrollTo(initialFocusSongID, anchor: .center) }
+                    })
                 }
-                .tvScrollEdgeFade()
-                .focusSection()
             }
             .padding(.horizontal, 100)
             .padding(.vertical, 72)
@@ -1271,7 +1396,7 @@ struct TVAlbumDetailPresenter: ViewModifier {
     var onPresentationChanged: (Bool) -> Void = { _ in }
     /// 打开时焦点落到的曲目(从播放页回来时是刚播的那首);nil 落在「全部播放」。
     var initialFocusSongID: String? = nil
-    /// 在专辑页里开始播放:专辑 id 与点的那首(全部 / 随机播放时为 nil)。
+    /// 在专辑页里开始播放:专辑 id 与开播的那首(点的那首,或全部 / 随机 / 串烧开播的第一首)。
     var onPlaybackStarted: (String, String?) -> Void = { _, _ in }
     /// 用户在专辑页按 Menu 关掉(不是因为开始播放而收起)。
     var onClosed: () -> Void = {}
@@ -1361,7 +1486,7 @@ struct TVAlbumDetailView: View {
     let fallback: TVAlbum
     /// 打开时焦点落到的曲目;nil 落在「全部播放」。
     var initialFocusSongID: String?
-    /// 开始播放:专辑 id 与点的那首(全部 / 随机 / 串烧时为 nil)。
+    /// 开始播放:专辑 id 与开播的那首(全部 / 随机 / 串烧是开播的第一首;不是本专辑的歌时为 nil)。
     var openPlayer: (String, String?) -> Void = { _, _ in }
     /// 当前显示的专辑。补全专辑信息改了专辑名时专辑会换 id,跟着它的歌走过去。
     @State private var albumID: String
@@ -1454,44 +1579,67 @@ struct TVAlbumDetailView: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                     .focusSection()
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        TVEyebrow(text: PMString("ext.tv.search.songs"))
-                            .padding(.bottom, 6)
-                        if tracks.isEmpty {
-                            TVEmptyState(
-                                icon: "music.note",
-                                title: PMString("ext.tv.search.noMatch")
-                            )
-                            .frame(minHeight: 360)
-                        } else {
-                            // 「未知专辑」这类大专辑可能上千首,照样分页渲染。
-                            TVPagedList(tracks, alignment: .leading, spacing: 10) { _, track, onFocusChanged in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    if let disc = track.discHeader {
-                                        Text(verbatim: "\(String(localized: "disc_label")) \(disc)")
-                                            .tvFont(.eyebrow, weight: .semibold)
-                                            .foregroundStyle(TVColor.textMuted)
-                                            .padding(.top, track.id == tracks.first?.id ? 0 : 18)
-                                            .padding(.leading, 22)
-                                    }
-                                    trackRow(track, albumArtist: album.artist, onFocusChanged: onFocusChanged) {
-                                        guard store.play(track.song, in: songIDs) else { return }
-                                        finishPlayback(songID: track.id)
+                ScrollViewReader { trackListProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TVEyebrow(text: PMString("ext.tv.search.songs"))
+                                .padding(.bottom, 6)
+                            if tracks.isEmpty {
+                                TVEmptyState(
+                                    icon: "music.note",
+                                    title: PMString("ext.tv.search.noMatch")
+                                )
+                                .frame(minHeight: 360)
+                            } else {
+                                // 「未知专辑」这类大专辑可能上千首,照样分页渲染。
+                                TVPagedList(
+                                    tracks, alignment: .leading, spacing: 10,
+                                    revealing: initialFocusSongID.flatMap { id in tracks.firstIndex { $0.id == id } }
+                                ) { _, track, onFocusChanged in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        if let disc = track.discHeader {
+                                            Text(verbatim: "\(String(localized: "disc_label")) \(disc)")
+                                                .tvFont(.eyebrow, weight: .semibold)
+                                                .foregroundStyle(TVColor.textMuted)
+                                                .padding(.top, track.id == tracks.first?.id ? 0 : 18)
+                                                .padding(.leading, 22)
+                                        }
+                                        trackRow(track, albumArtist: album.artist, onFocusChanged: onFocusChanged) {
+                                            guard store.play(track.song, in: songIDs) else { return }
+                                            finishPlayback(songID: track.id)
+                                        }
                                     }
                                 }
                             }
+                            if let remainder = appleMusicRemainder {
+                                appleMusicRemainderSection(remainder, albumArtist: album.artist)
+                            }
                         }
-                        if let remainder = appleMusicRemainder {
-                            appleMusicRemainderSection(remainder, albumArtist: album.artist)
-                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                        .padding(.bottom, TVScrollEdgeFade.bottom)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 20)
-                    .padding(.bottom, TVScrollEdgeFade.bottom)
+                    .tvScrollEdgeFade()
+                    .focusSection()
+                    .task {
+                        // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉,
+                        // 没落上就隔一会儿再设(机器忙、刚换了语言时呈现会慢),最多等三秒多;长专辑里那一首在
+                        // 屏幕外时懒加载的列表还没建它那一行,先滚过去。
+                        guard let initialFocusSongID else { return }
+                        for attempt in 0..<8 {
+                            try? await Task.sleep(nanoseconds: attempt == 0 ? 350_000_000 : 300_000_000)
+                            guard !Task.isCancelled else { return }
+                            trackListProxy.scrollTo(initialFocusSongID, anchor: .center)
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            focusedTrackID = initialFocusSongID
+                            try? await Task.sleep(nanoseconds: 150_000_000)
+                            if focusedTrackID == initialFocusSongID { break }
+                        }
+                        #if DEBUG
+                        plog("TV album detail reopened focus=\(focusedTrackID == initialFocusSongID ? "track" : "other")")
+                        #endif
+                    }
                 }
-                .tvScrollEdgeFade()
-                .focusSection()
             }
             .padding(.horizontal, 100)
             // 系统已经在上下各留了安全边距,这里只再让一点:简介要用左栏剩下的高度。
@@ -1511,28 +1659,13 @@ struct TVAlbumDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: showsRestoreConfirmation)
         .focusScope(detailFocus)
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
-        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs) { finishPlayback(songID: nil) })
+        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs) { finishPlayback(songID: store.currentSongID) })
         .onExitCommand {
             if showsRestoreConfirmation {
                 closeRestoreConfirmation()
             } else {
                 dismiss()
             }
-        }
-        .task {
-            // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉,
-            // 没落上就隔一会儿再设(机器忙的时候呈现会慢),最多等一秒多。
-            guard let initialFocusSongID else { return }
-            for attempt in 0..<4 {
-                try? await Task.sleep(nanoseconds: attempt == 0 ? 350_000_000 : 300_000_000)
-                guard !Task.isCancelled else { return }
-                focusedTrackID = initialFocusSongID
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                if focusedTrackID == initialFocusSongID { break }
-            }
-            #if DEBUG
-            plog("TV album detail reopened focus=\(focusedTrackID == initialFocusSongID ? "track" : "other")")
-            #endif
         }
         #if DEBUG
         .task {
@@ -1981,7 +2114,8 @@ struct TVAlbumDetailView: View {
 
     private func play(_ songIDs: [String], shuffled: Bool) {
         guard store.playResolvedQueue(songIDs: songIDs, shuffled: shuffled) else { return }
-        finishPlayback(songID: nil)
+        // 全部 / 随机播放也记下开播的那一首:从播放页回来焦点落在它那一行,不是「全部播放」。
+        finishPlayback(songID: store.currentSongID)
     }
 
     private func finishPlayback(songID: String?) {
@@ -2129,17 +2263,27 @@ struct TVPagedSongIDList: View {
     var alignment: HorizontalAlignment = .center
     var spacing: CGFloat = 10
     var action: () -> Void = {}
+    /// 父视图的焦点绑定,每一行的焦点 id 是 `focusIDPrefix` + 歌曲 id(从播放页回来时放回刚播的那首)。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusIDPrefix = ""
+    /// 首次渲染就要覆盖到的那一首,免得它排在第一页之后、焦点放不上去。
+    var revealingSongID: String? = nil
 
     @Environment(TVStore.self) private var store
 
     var body: some View {
-        TVPagedList(songIDs, id: \.self, alignment: alignment, spacing: spacing) { _, songID, onFocusChanged in
+        TVPagedList(
+            songIDs, id: \.self, alignment: alignment, spacing: spacing,
+            revealing: revealingSongID.flatMap { songIDs.firstIndex(of: $0) }
+        ) { _, songID, onFocusChanged in
             if let song = store.song(songID) {
                 TVSongRow(
                     song: song,
                     queueSongIDs: songIDs,
                     action: action,
-                    onFocusChanged: onFocusChanged
+                    onFocusChanged: onFocusChanged,
+                    focusBinding: focusBinding,
+                    focusID: focusBinding == nil ? nil : focusIDPrefix + songID
                 )
             }
         }

@@ -34,12 +34,22 @@ final class TVSearchMemory {
     /// 从搜索结果里的专辑页开始播放:专辑 id 与点的那首。
     var albumDetailID: String?
     var albumDetailSongID: String?
+    /// 从搜索结果里的艺人页开始播放:那位艺人与开播的那首。
+    var artistDetail: TVArtist?
+    var artistDetailSongID: String?
     /// 由 `TVRoot.leavePlayer` 打上,搜索页出现时用掉;经顶栏换页回来只保留查询与结果。
     var restoresAfterPlayer = false
 
     var hasReturnTarget: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
-            && (lastFocusedResultID != nil || albumDetailID != nil)
+            && (lastFocusedResultID != nil || albumDetailID != nil || artistDetail != nil)
+    }
+
+    fileprivate func forgetDetails() {
+        albumDetailID = nil
+        albumDetailSongID = nil
+        artistDetail = nil
+        artistDetailSongID = nil
     }
 
     fileprivate func storeCompleted(
@@ -79,6 +89,8 @@ struct TVSearchView: View {
     @State private var selectedAlbum: TVAlbum?
     /// 从播放页回来重开专辑页时,焦点要落到的那一首。
     @State private var reopenedAlbumSongID: String?
+    /// 同上,重开的艺人页里焦点要落到的那一首。
+    @State private var reopenedArtistSongID: String?
     @State private var isSearching = false
     @State private var isSemanticSearching = false
     @State private var semanticFeedback: TVSemanticSearchFeedback
@@ -225,7 +237,13 @@ struct TVSearchView: View {
         .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
             TVArtistDetailView(
                 artist: artist,
-                openPlayer: { opensPlayerAfterArtistDismissal = true }
+                openPlayer: {
+                    memory.forgetDetails()
+                    memory.artistDetail = artist
+                    memory.artistDetailSongID = store.currentSongID
+                    opensPlayerAfterArtistDismissal = true
+                },
+                initialFocusSongID: reopenedArtistSongID
             )
                 .environment(store)
         }
@@ -243,6 +261,7 @@ struct TVSearchView: View {
             onPresentationChanged: onModalActivityChanged,
             initialFocusSongID: reopenedAlbumSongID,
             onPlaybackStarted: { albumID, songID in
+                memory.forgetDetails()
                 memory.albumDetailID = albumID
                 memory.albumDetailSongID = songID
             },
@@ -715,19 +734,22 @@ struct TVSearchView: View {
         let restores = memory.restoresAfterPlayer
         memory.restoresAfterPlayer = false
         guard restores else {
-            memory.albumDetailID = nil
-            memory.albumDetailSongID = nil
+            memory.forgetDetails()
             return
         }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
         if let albumID = memory.albumDetailID, let album = store.album(albumID) {
             reopenedAlbumSongID = memory.albumDetailSongID
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
             withTransaction(transaction) { selectedAlbum = album }
             return
         }
-        memory.albumDetailID = nil
-        memory.albumDetailSongID = nil
+        if let artist = memory.artistDetail, !store.songs(forArtistID: artist.id).isEmpty {
+            reopenedArtistSongID = memory.artistDetailSongID
+            withTransaction(transaction) { selectedArtist = artist }
+            return
+        }
+        memory.forgetDetails()
         focusRememberedResult()
     }
 
@@ -762,7 +784,14 @@ struct TVSearchView: View {
     }
 
     private func finishArtistDismissal() {
-        guard opensPlayerAfterArtistDismissal else { return }
+        reopenedArtistSongID = nil
+        guard opensPlayerAfterArtistDismissal else {
+            // 用户在艺人页按 Menu 关掉:焦点回到打开它的那张艺人卡片。
+            memory.artistDetail = nil
+            memory.artistDetailSongID = nil
+            focusRememberedResult()
+            return
+        }
         opensPlayerAfterArtistDismissal = false
         TVModalHandoff.afterFocusSettles(openPlayer)
     }

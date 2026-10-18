@@ -1159,6 +1159,51 @@ final class TVRemoteTransportCoordinator: NSObject, UIGestureRecognizerDelegate 
     }
 }
 
+/// 从播放页回来重开的详情页、或刚重建的页面:把焦点放到记住的那一项。覆盖层呈现完、
+/// 那一行建出来之前设的焦点会被丢掉,没落上就隔一会儿再设(机器忙、刚换了语言时呈现会慢,
+/// 模拟器上实测过一秒半还没呈现完),最多等三秒多;落上一次就停,不再跟用户抢焦点。
+private struct TVFocusRestore: ViewModifier {
+    let target: String?
+    let binding: FocusState<String?>.Binding
+    let reveal: () -> Void
+    let onSettled: () -> Void
+
+    func body(content: Content) -> some View {
+        content.task(id: target) {
+            guard let target else { return }
+            for attempt in 0..<8 {
+                try? await Task.sleep(nanoseconds: attempt == 0 ? 350_000_000 : 300_000_000)
+                guard !Task.isCancelled else { return }
+                // 懒加载的列表只为看得见的那一段建视图:那一行在屏幕外时先滚过去,它才存在、焦点才放得上。
+                reveal()
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                binding.wrappedValue = target
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                if binding.wrappedValue == target { break }
+            }
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            plog("TV focus restore target=\(target) result=\(binding.wrappedValue == target ? "ok" : "missed")")
+            #endif
+            onSettled()
+        }
+    }
+}
+
+extension View {
+    /// 见 `TVFocusRestore`。`target` 为 nil 时什么也不做;放完(或等不到那一行)调 `onSettled`,
+    /// 一次性的落点在这里清掉,免得那一行以后重建时又把焦点拽回去。
+    /// `reveal`:把那一行滚进可见范围(滚动容器的 `ScrollViewProxy.scrollTo`),每次设焦点前调。
+    func tvRestoresFocus(
+        to target: String?,
+        in binding: FocusState<String?>.Binding,
+        reveal: @escaping () -> Void = {},
+        onSettled: @escaping () -> Void = {}
+    ) -> some View {
+        modifier(TVFocusRestore(target: target, binding: binding, reveal: reveal, onSettled: onSettled))
+    }
+}
+
 /// Apple TV 长列表的分页容器。
 ///
 /// 遥控器只能一行一行挪焦点,所以一次把整份列表交给 `ForEach` 没有任何收益:
@@ -1251,13 +1296,15 @@ struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
     private let spacing: CGFloat?
     private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
 
-    @State private var renderedCount = TVLongListPagingPolicy.pageSize
+    @State private var renderedCount: Int
 
+    /// `revealing`:首次渲染就要覆盖到的那一格 (从播放页回来要放回焦点的那张卡片)。
     init(
         _ items: [Item],
         columns: [GridItem],
         alignment: HorizontalAlignment = .center,
         spacing: CGFloat? = nil,
+        revealing: Int? = nil,
         @ViewBuilder cell: @escaping (Int, Item, @escaping (Bool) -> Void) -> Cell
     ) {
         self.items = items
@@ -1265,6 +1312,9 @@ struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
         self.alignment = alignment
         self.spacing = spacing
         self.cell = cell
+        _renderedCount = State(initialValue: TVLongListPagingPolicy.initialLimit(
+            revealing: revealing, totalCount: items.count
+        ))
     }
 
     var body: some View {

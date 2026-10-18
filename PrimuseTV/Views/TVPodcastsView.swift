@@ -29,6 +29,22 @@ enum TVPodcastPresentation: Identifiable, Hashable {
     }
 }
 
+/// 「播客」页的返回位置。单集卡片按下就开播,播客页随之移出视图树;从播放页按 Menu 回来时
+/// 靠它把焦点放回那张卡片,从节目页开播的先重开那一页、焦点落在开播的那一集。
+/// 普通引用类型而非 @Observable,同 `TVHomeBrowseMemory`。
+@MainActor
+final class TVPodcastReturnMemory {
+    /// 开播 / 打开节目页的那张卡片(带所在那一排前缀的焦点 id)。
+    var cardID: String?
+    /// 从节目页开播的:那一页(从发现页里点进去的也直接回到节目页)与开播的那一集。
+    var presentation: TVPodcastPresentation?
+    var episodeID: String?
+    /// 由 `TVRoot.leavePlayer` 打上,播客页出现时用掉;经顶栏换页回来不恢复。
+    var restoresAfterPlayer = false
+
+    var hasReturnTarget: Bool { cardID != nil || presentation != nil }
+}
+
 /// tvOS「播客」一级页。和手机同一套订阅(iCloud 同步过来)与收听进度:
 /// 「我的节目」封面网格 →「继续收听」大卡 →「最新单集」一排。一档都没订时整页换成发现:
 /// 搜索入口和热门榜。电视上只在线听,不下载。
@@ -36,10 +52,20 @@ struct TVPodcastsView: View {
     @Environment(TVStore.self) private var store
     var openPlayer: () -> Void = {}
     /// 节目页、发现页这些整页弹层在不在:TVRoot 据此停掉播放快捷键、压住焦点换页。
+    /// 关掉以后焦点由这一页自己放回打开它的那张卡片。
     var onModalActivityChanged: (Bool) -> Void = { _ in }
+    /// 返回位置,由 TVRoot 持有。
+    var memory = TVPodcastReturnMemory()
 
     @State private var presented: TVPodcastPresentation?
     @State private var opensPlayerAfterDismissal = false
+    /// 重开的节目页里焦点要落到的那一集。
+    @State private var reopenedEpisodeID: String?
+    /// 要把焦点放回的那张卡片,放完清空。
+    @State private var pendingCardFocus: String?
+    @FocusState private var focusedCard: String?
+
+    private static let discoverFocusID = "podcast.discover"
 
     private var podcasts: PodcastStore { PodcastStore.shared }
     // 播客封面是方的:一行五张,和电台台标同一把尺子。
@@ -48,42 +74,53 @@ struct TVPodcastsView: View {
     var body: some View {
         GeometryReader { geo in
             let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 34) {
-                    header
-                    if !podcasts.isLoaded {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 420)
-                    } else if podcasts.shows.isEmpty {
-                        localShowsSection(cell: cell)
-                        welcome(cell: cell)
-                        regionHiddenNote
-                    } else {
-                        showsSection(cell: cell)
-                        continueListening
-                        latestEpisodes
-                        likedEpisodes
-                        localShowsSection(cell: cell)
-                        regionHiddenNote
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 34) {
+                        header
+                        if !podcasts.isLoaded {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, minHeight: 420)
+                        } else if podcasts.shows.isEmpty {
+                            localShowsSection(cell: cell)
+                            welcome(cell: cell)
+                            regionHiddenNote
+                        } else {
+                            showsSection(cell: cell)
+                            continueListening
+                            latestEpisodes
+                            likedEpisodes
+                            localShowsSection(cell: cell)
+                            regionHiddenNote
+                        }
                     }
+                    .padding(.horizontal, TVSpace.pageH - 14)
+                    .padding(.top, TVSpace.pageTop + 8)
+                    .padding(.bottom, TVSpace.pageBottom)
                 }
-                .padding(.horizontal, TVSpace.pageH - 14)
-                .padding(.top, TVSpace.pageTop + 8)
-                .padding(.bottom, TVSpace.pageBottom)
+                .focusSection()
+                .tvRestoresFocus(
+                    to: pendingCardFocus, in: $focusedCard,
+                    reveal: { if let pendingCardFocus { proxy.scrollTo(pendingCardFocus, anchor: .center) } },
+                    onSettled: { pendingCardFocus = nil }
+                )
             }
-            .focusSection()
         }
         .background(TVColor.bg)
         .fullScreenCover(item: $presented, onDismiss: finishDismissal) { presentation in
             Group {
                 switch presentation {
                 case .show(let source):
-                    TVPodcastShowDetailView(source: source) { opensPlayerAfterDismissal = true }
+                    TVPodcastShowDetailView(source: source, initialFocusEpisodeID: reopenedEpisodeID) {
+                        startedPlayback(from: presentation, episodeID: store.currentPodcastEpisodeID)
+                    }
                 case .discover:
-                    TVPodcastDiscoverView { opensPlayerAfterDismissal = true }
+                    TVPodcastDiscoverView { source in
+                        startedPlayback(from: source.map { TVPodcastPresentation.show($0) }, episodeID: store.currentPodcastEpisodeID)
+                    }
                 case .localShow(let book):
-                    TVSpokenWordBookDetailView(bookID: book.id, fallback: book) {
-                        opensPlayerAfterDismissal = true
+                    TVSpokenWordBookDetailView(bookID: book.id, fallback: book, initialFocusItemID: reopenedEpisodeID) {
+                        startedPlayback(from: presentation, episodeID: store.currentSongID)
                     }
                 }
             }
@@ -93,6 +130,7 @@ struct TVPodcastsView: View {
         .onDisappear {
             if presented != nil { onModalActivityChanged(false) }
         }
+        .onAppear(perform: restoreAfterPlayer)
         .tvSpokenWordShelfRefresh(.localPodcasts)
         .task {
             podcasts.loadIfNeeded()
@@ -101,7 +139,7 @@ struct TVPodcastsView: View {
             await TVPodcastDebug.prepare(
                 podcasts,
                 present: { presented = $0 },
-                play: { play($0, continuing: $1) }
+                play: { play($0, continuing: $1, cardID: "latest:" + $0.id) }
             )
             #endif
         }
@@ -142,7 +180,11 @@ struct TVPodcastsView: View {
                 }
                 .disabled(!podcasts.refreshingShowIDs.isEmpty)
             }
-            TVPillButton(title: String(localized: "podcast_discover"), systemImage: "magnifyingglass", style: .solid) {
+            TVPillButton(
+                title: String(localized: "podcast_discover"), systemImage: "magnifyingglass", style: .solid,
+                focusBinding: $focusedCard, focusID: Self.discoverFocusID
+            ) {
+                memory.cardID = Self.discoverFocusID
                 presented = .discover
             }
         }
@@ -177,10 +219,14 @@ struct TVPodcastsView: View {
         if !items.isEmpty {
             TVRow(label: String(localized: "podcast_continue_listening")) {
                 ForEach(items, id: \.episode.id) { item in
-                    TVPodcastContinueCard(episode: item.episode, show: item.show) {
-                        play(item.episode, continuing: [])
+                    let cardID = "continue:" + item.episode.id
+                    TVPodcastContinueCard(
+                        episode: item.episode, show: item.show, focusBinding: $focusedCard, focusID: cardID
+                    ) {
+                        play(item.episode, continuing: [], cardID: cardID)
                     }
-                    .contextMenu { episodeMenu(item.episode, continuing: []) }
+                    .contextMenu { episodeMenu(item.episode, continuing: [], cardID: cardID) }
+                    .id(cardID)
                 }
             }
         }
@@ -198,10 +244,15 @@ struct TVPodcastsView: View {
             TVRow(label: String(localized: "podcast_latest_episodes"), loadsLazily: true) {
                 ForEach(Array(latest.enumerated()), id: \.element.id) { index, episode in
                     let continuing = Array(latest.dropFirst(index + 1))
-                    TVPodcastEpisodeCard(episode: episode, show: podcasts.show(id: episode.showID)) {
-                        play(episode, continuing: continuing)
+                    let cardID = "latest:" + episode.id
+                    TVPodcastEpisodeCard(
+                        episode: episode, show: podcasts.show(id: episode.showID),
+                        focusBinding: $focusedCard, focusID: cardID
+                    ) {
+                        play(episode, continuing: continuing, cardID: cardID)
                     }
-                    .contextMenu { episodeMenu(episode, continuing: continuing) }
+                    .contextMenu { episodeMenu(episode, continuing: continuing, cardID: cardID) }
+                    .id(cardID)
                 }
             }
         }
@@ -216,10 +267,14 @@ struct TVPodcastsView: View {
             TVRow(label: String(localized: "podcast_liked_episodes"), loadsLazily: true) {
                 ForEach(Array(liked.enumerated()), id: \.element.id) { index, item in
                     let continuing = Array(episodes.dropFirst(index + 1))
-                    TVPodcastEpisodeCard(episode: item.episode, show: item.show) {
-                        play(item.episode, continuing: continuing)
+                    let cardID = "liked:" + item.episode.id
+                    TVPodcastEpisodeCard(
+                        episode: item.episode, show: item.show, focusBinding: $focusedCard, focusID: cardID
+                    ) {
+                        play(item.episode, continuing: continuing, cardID: cardID)
                     }
-                    .contextMenu { episodeMenu(item.episode, continuing: continuing) }
+                    .contextMenu { episodeMenu(item.episode, continuing: continuing, cardID: cardID) }
+                    .id(cardID)
                 }
             }
         }
@@ -238,10 +293,14 @@ struct TVPodcastsView: View {
                 LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
                     ForEach(shows) { @Sendable book in
                         LazyItemCell {
-                            TVSpokenWordBookCard(book: book, width: cell) {
+                            TVSpokenWordBookCard(
+                                book: book, width: cell, focusBinding: $focusedCard, focusID: "local:" + book.id
+                            ) {
+                                memory.cardID = "local:" + book.id
                                 presented = .localShow(book)
                             }
                         }
+                        .id("local:" + book.id)
                     }
                 }
                 .padding(.horizontal, 14)
@@ -263,11 +322,15 @@ struct TVPodcastsView: View {
             LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
                 ForEach(shows) { @Sendable show in
                     LazyItemCell {
-                        TVPodcastShowCard(show: show, width: cell) {
+                        TVPodcastShowCard(
+                            show: show, width: cell, focusBinding: $focusedCard, focusID: "show:" + show.id
+                        ) {
+                            memory.cardID = "show:" + show.id
                             presented = .show(.show(show.id))
                         }
                         .contextMenu { showMenu(show) }
                     }
+                    .id("show:" + show.id)
                 }
             }
             .padding(.horizontal, 14)
@@ -278,8 +341,8 @@ struct TVPodcastsView: View {
     // MARK: 菜单与动作
 
     @ViewBuilder
-    private func episodeMenu(_ episode: PodcastEpisode, continuing: [PodcastEpisode]) -> some View {
-        Button { play(episode, continuing: continuing) } label: {
+    private func episodeMenu(_ episode: PodcastEpisode, continuing: [PodcastEpisode], cardID: String) -> some View {
+        Button { play(episode, continuing: continuing, cardID: cardID) } label: {
             Label(String(localized: "podcast_play"), systemImage: "play.fill")
         }
         let isLiked = podcasts.isLiked(episodeID: episode.id)
@@ -296,7 +359,10 @@ struct TVPodcastsView: View {
                 systemImage: finished ? "circle" : "checkmark.circle"
             )
         }
-        Button { presented = .show(.show(episode.showID)) } label: {
+        Button {
+            memory.cardID = cardID
+            presented = .show(.show(episode.showID))
+        } label: {
             Label(String(localized: "podcast_go_to_show"), systemImage: "antenna.radiowaves.left.and.right")
         }
     }
@@ -314,17 +380,53 @@ struct TVPodcastsView: View {
         }
     }
 
-    private func play(_ episode: PodcastEpisode, continuing: [PodcastEpisode]) {
+    private func play(_ episode: PodcastEpisode, continuing: [PodcastEpisode], cardID: String) {
         store.playPodcast(episode, continuing: continuing)
+        memory.cardID = cardID
+        memory.presentation = nil
+        memory.episodeID = nil
         openPlayer()
+    }
+
+    /// 在节目页 / 发现页 / 本地节目页里开播:记下回来要重开的那一页和开播的那一集,
+    /// 等弹层收起再去播放页。
+    private func startedPlayback(from presentation: TVPodcastPresentation?, episodeID: String?) {
+        memory.presentation = presentation
+        memory.episodeID = episodeID
+        opensPlayerAfterDismissal = true
     }
 
     private func finishDismissal() {
         onModalActivityChanged(false)
+        reopenedEpisodeID = nil
         if opensPlayerAfterDismissal {
             opensPlayerAfterDismissal = false
             TVModalHandoff.afterFocusSettles(openPlayer)
+        } else {
+            // 用户按 Menu 关掉:焦点回到打开它的那张卡片(或「发现」)。
+            memory.presentation = nil
+            memory.episodeID = nil
+            pendingCardFocus = memory.cardID
         }
+    }
+
+    /// 播客页出现:从播放页按 Menu 回来的那一次,先重开起播的节目页,否则把焦点放回起播的那张卡片。
+    private func restoreAfterPlayer() {
+        let restores = memory.restoresAfterPlayer
+        memory.restoresAfterPlayer = false
+        guard restores else {
+            memory.presentation = nil
+            memory.episodeID = nil
+            return
+        }
+        if let presentation = memory.presentation {
+            reopenedEpisodeID = memory.episodeID
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { presented = presentation }
+            return
+        }
+        pendingCardFocus = memory.cardID
     }
 }
 
@@ -602,11 +704,17 @@ private enum TVPodcastText {
 struct TVPodcastContinueCard: View {
     let episode: PodcastEpisode
     let show: PodcastShow
+    /// 父视图的焦点绑定(见 `TVFocusButton`):从播放页回来时把焦点放回这张卡片。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void
 
     var body: some View {
         let state = PodcastStore.shared.state(for: episode)
-        TVFocusButton(radius: TVRadius.card, scale: 1.04, lift: 8, action: action) { focused in
+        TVFocusButton(
+            radius: TVRadius.card, scale: 1.04, lift: 8, action: action,
+            focusBinding: focusBinding, focusID: focusID
+        ) { focused in
             HStack(alignment: .center, spacing: 28) {
                 TVPodcastArtwork(url: episode.artworkURL ?? show.artworkURL, side: 220)
                 VStack(alignment: .leading, spacing: 10) {
@@ -650,11 +758,13 @@ struct TVPodcastEpisodeCard: View {
     let episode: PodcastEpisode
     let show: PodcastShow?
     var width: CGFloat = 280
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void
 
     var body: some View {
         let state = PodcastStore.shared.state(for: episode)
-        TVFocusButton(ring: false, action: action) { focused in
+        TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVPodcastArtwork(url: episode.artworkURL ?? show?.artworkURL, side: width)
                     .tvCardFocus(focused, radius: TVRadius.cover)
@@ -688,11 +798,13 @@ struct TVPodcastEpisodeCard: View {
 struct TVPodcastShowCard: View {
     let show: PodcastShow
     let width: CGFloat
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void
 
     var body: some View {
         let newCount = PodcastStore.shared.newEpisodeCount(showID: show.id)
-        TVFocusButton(ring: false, action: action) { focused in
+        TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVPodcastArtwork(url: show.artworkURL, side: width)
                     .tvCardFocus(focused, radius: TVRadius.cover)
@@ -848,7 +960,8 @@ struct TVPodcastSubscribeMenu: View {
 struct TVPodcastDiscoverView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    var openPlayer: () -> Void = {}
+    /// 在点进去的节目页里开始播放:带上那档节目,播放页回来时直接重开它。
+    var openPlayer: (TVPodcastShowSource?) -> Void = { _ in }
 
     @State private var query = ""
     @State private var submittedQuery = ""
@@ -857,7 +970,8 @@ struct TVPodcastDiscoverView: View {
     @State private var searchFailed = false
     @State private var genreID: Int?
     @State private var presentedShow: PodcastDirectoryShow?
-    @State private var opensPlayerAfterDismissal = false
+    /// 在点进去的节目页里开了播的那一档,等它收起再交给外面。
+    @State private var playedShow: PodcastDirectoryShow?
     @FocusState private var fieldFocused: Bool
 
     private let gridMetrics = TVBrowseGridMetrics.radio
@@ -898,7 +1012,7 @@ struct TVPodcastDiscoverView: View {
             }
         }
         .fullScreenCover(item: $presentedShow, onDismiss: finishDismissal) { show in
-            TVPodcastShowDetailView(source: .directory(show)) { opensPlayerAfterDismissal = true }
+            TVPodcastShowDetailView(source: .directory(show)) { playedShow = show }
                 .environment(store)
         }
         .onExitCommand {
@@ -1016,9 +1130,9 @@ struct TVPodcastDiscoverView: View {
     }
 
     private func finishDismissal() {
-        guard opensPlayerAfterDismissal else { return }
-        opensPlayerAfterDismissal = false
-        openPlayer()
+        guard let show = playedShow else { return }
+        playedShow = nil
+        openPlayer(.directory(show))
         dismiss()
     }
 }
@@ -1031,9 +1145,13 @@ struct TVPodcastShowDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let source: TVPodcastShowSource
+    /// 打开时焦点落到的那一集(从播放页回来时是开播的那一集)。
+    var initialFocusEpisodeID: String? = nil
+    /// 开始播放时调用,这时 `store.currentPodcastEpisodeID` 就是开播的那一集。
     var openPlayer: () -> Void = {}
 
     @State private var showID: String?
+    @FocusState private var focusedEpisodeID: String?
     @State private var loadError: String?
     @State private var confirmsUnsubscribe = false
     @State private var isSubscribing = false
@@ -1123,26 +1241,34 @@ struct TVPodcastShowDetailView: View {
             header(show, episodes: all)
                 .frame(width: 520, alignment: .leading)
                 .focusSection()
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    TVEyebrow(text: String(format: String(localized: "podcast_episode_count %lld"), all.count))
-                        .padding(.bottom, 6)
-                    if ordered.isEmpty {
-                        Text(String(localized: "podcast_no_episodes"))
-                            .tvFont(.body)
-                            .foregroundStyle(TVColor.textFaint)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        TVEyebrow(text: String(format: String(localized: "podcast_episode_count %lld"), all.count))
+                            .padding(.bottom, 6)
+                        if ordered.isEmpty {
+                            Text(String(localized: "podcast_no_episodes"))
+                                .tvFont(.body)
+                                .foregroundStyle(TVColor.textFaint)
+                        }
+                        // 一档节目可能有上千集:分页渲染,焦点走到末尾附近再续。
+                        TVPagedList(
+                            ordered, alignment: .leading, spacing: 10,
+                            revealing: initialFocusEpisodeID.flatMap { id in ordered.firstIndex { $0.id == id } }
+                        ) { _, episode, focusChanged in
+                            episodeRow(episode, show: show, all: all, onFocusChanged: focusChanged)
+                        }
                     }
-                    // 一档节目可能有上千集:分页渲染,焦点走到末尾附近再续。
-                    TVPagedList(ordered, alignment: .leading, spacing: 10) { _, episode, focusChanged in
-                        episodeRow(episode, show: show, all: all, onFocusChanged: focusChanged)
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 20)
+                    .padding(.bottom, TVScrollEdgeFade.bottom)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 20)
-                .padding(.bottom, TVScrollEdgeFade.bottom)
+                .tvScrollEdgeFade()
+                .focusSection()
+                .tvRestoresFocus(to: initialFocusEpisodeID, in: $focusedEpisodeID, reveal: {
+                    if let initialFocusEpisodeID { proxy.scrollTo(initialFocusEpisodeID, anchor: .center) }
+                })
             }
-            .tvScrollEdgeFade()
-            .focusSection()
         }
         .padding(.horizontal, 100)
         .padding(.vertical, 72)
@@ -1220,7 +1346,8 @@ struct TVPodcastShowDetailView: View {
         let isCurrent = store.currentPodcastEpisodeID == episode.id
         return TVFocusButton(
             radius: 16, scale: 1.02, lift: 0, ring: false,
-            action: { play(episode, all: all) }, onFocusChanged: onFocusChanged
+            action: { play(episode, all: all) }, onFocusChanged: onFocusChanged,
+            focusBinding: $focusedEpisodeID, focusID: episode.id
         ) { focused in
             HStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 8) {

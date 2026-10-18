@@ -194,6 +194,9 @@ struct TVRoot: View {
     @State private var homeBrowseMemory = TVHomeBrowseMemory()
     /// 搜索页的查询词、结果与焦点;播放后回来不丢。
     @State private var searchMemory = TVSearchMemory()
+    /// 有声页、播客页从哪张卡片 / 哪个章节页、节目页开始播放;播放页按 Menu 回来时由它恢复。
+    @State private var spokenWordMemory = TVSpokenWordReturnMemory()
+    @State private var podcastMemory = TVPodcastReturnMemory()
     #if DEBUG
     /// 截图路由指定的是电台 / 有声页,但曲库和电台还在载入:等内容出现后再切过去,
     /// 否则会因为「这一页暂时不该显示」被送回首页。
@@ -233,7 +236,12 @@ struct TVRoot: View {
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
-        case "library", "albumDetail", "libraryIndex", "albumReturn": initialTab = .library
+        case "library", "albumDetail", "libraryIndex", "albumReturn", "albumShuffleReturn",
+             "artistReturn", "genreReturn":
+            initialTab = .library
+        case "folderReturn":
+            initialTab = .library
+            _libraryFilter = State(initialValue: .folders)
         case "homeReturn", "homeAlbumReturn": initialTab = .home
         case "folderRescan":
             initialTab = .library
@@ -526,6 +534,105 @@ struct TVRoot: View {
                 tab = .nowPlaying
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
+            case "albumShuffleReturn":
+                // 模拟「专辑页里按随机播放 → 播放页按 Menu」:应回到专辑页、焦点落在开播的那一首
+                // (日志 `TV album detail reopened focus=track`),不是「全部播放」。
+                await waitForDemoContent(requireAlbum: true)
+                guard let album = store.albums.first(where: { store.songIDs(forAlbum: $0.id).count >= 3 }) else { break }
+                guard store.playResolvedQueue(songIDs: store.songIDs(forAlbum: album.id), shuffled: true) else { break }
+                libraryBrowseMemory.albumID = album.id
+                libraryBrowseMemory.albumDetailID = album.id
+                libraryBrowseMemory.albumDetailSongID = store.currentSongID
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
+            case "artistReturn", "genreReturn":
+                // 模拟「艺人页 / 流派里点开的那一组歌里点最后一首 → 播放页按 Menu」:应重开那一页、
+                // 焦点在那一首(日志 `TV focus restore … result=ok`)。
+                await waitForDemoContent(requireAlbum: true)
+                if TVDebugLaunch.screen == "artistReturn" {
+                    guard let artist = store.artists.first(where: { store.songs(forArtistID: $0.id).count >= 3 }),
+                          let song = store.songs(forArtistID: artist.id).last,
+                          store.play(song, in: store.songs(forArtistID: artist.id).map(\.id)) else { break }
+                    libraryFilter = .artists
+                    libraryBrowseMemory.artistID = artist.id
+                    libraryBrowseMemory.artistDetail = artist
+                    libraryBrowseMemory.artistDetailSongID = song.id
+                } else {
+                    guard let genre = store.library.visibleGenres.first(where: {
+                              store.library.songs(forGenre: $0.id).count >= 3
+                          }) else { break }
+                    let ids = store.library.songs(forGenre: genre.id).map(\.id)
+                    guard let songID = ids.last, let song = store.song(songID), store.play(song, in: ids) else { break }
+                    libraryFilter = .genres
+                    libraryBrowseMemory.genreID = genre.id
+                    libraryBrowseMemory.collectionDetail = TVBrowseDestination(id: genre.id, title: genre.name, songIDs: ids)
+                    libraryBrowseMemory.collectionDetailSongID = songID
+                }
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
+            case "folderReturn":
+                // 模拟「文件夹页里点一个有歌的文件夹的最后一首 → 播放页按 Menu」:应回到那一层、
+                // 焦点在那一首(日志 `TV focus restore target=folderSong:… result=ok`)。
+                await waitForDemoContent()
+                let index = await store.makeFolderIndex()
+                let visible = store.songIDSet
+                var trail: [LibraryFolderNodeID] = []
+                var songIDs: [String] = []
+                var level = index.sourceNodes
+                while songIDs.isEmpty, let node = level.first {
+                    trail.append(node.id)
+                    songIDs = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
+                        in: node.id, scope: .direct, index: index, isVisible: visible.contains
+                    )
+                    level = index.children(of: node.id)
+                }
+                guard let songID = songIDs.last, let song = store.song(songID),
+                      store.play(song, in: songIDs) else { break }
+                libraryBrowseMemory.folderPath = trail
+                libraryBrowseMemory.folderSongID = songID
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
+            case "spokenWordReturn":
+                // 模拟「有声页书架上按一本书 → 播放页按 Menu」:焦点应回到那张书封(日志
+                // `TV focus restore target=shelf:… result=ok`),不是顶栏的「有声」。
+                // TV_SPOKEN_WORD_DETAIL=1 改走章节页里点第二章,回来应先重开章节页、焦点在那一章。
+                await waitForDemoContent(requireAlbum: true)
+                // 演示曲库里没有有声书:TV_DEBUG_MAKE_BOOK=1 把一张专辑标成有声,当一本书用。
+                if ProcessInfo.processInfo.environment["TV_DEBUG_MAKE_BOOK"] == "1",
+                   store.library.spokenWordSongs.isEmpty,
+                   let album = store.albums.last(where: { store.songIDs(forAlbum: $0.id).count >= 3 }) {
+                    SpokenWordStore.shared.setKind(.spokenWord, forSongIDs: store.songIDs(forAlbum: album.id))
+                }
+                var tries = 0
+                while !visibleTabs.contains(.spokenWord) && tries < 25 {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    tries += 1
+                }
+                guard visibleTabs.contains(.spokenWord) else { break }
+                // 先停在有声页(书架在这一页上分组),进播放页时记下的「之前那一页」才是它。
+                tab = .spokenWord
+                tries = 0
+                while store.spokenWordShelf(.books).books.isEmpty && tries < 25 {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    tries += 1
+                }
+                guard let book = store.spokenWordShelf(.books).books.first(where: { !$0.isFinished }) else { break }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let itemIDs = book.items.map(\.id)
+                if ProcessInfo.processInfo.environment["TV_SPOKEN_WORD_DETAIL"] == "1", itemIDs.count > 1 {
+                    guard store.playSpokenWordBook(songIDs: itemIDs, startingAt: itemIDs[1]) else { break }
+                    spokenWordMemory.detailBookID = book.id
+                    spokenWordMemory.detailItemID = itemIDs[1]
+                } else {
+                    guard store.playSpokenWordBook(songIDs: itemIDs, startingAt: book.resumeItemID) else { break }
+                }
+                spokenWordMemory.cardID = "shelf:" + book.id
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
             case "libraryAnchor":
                 // 模拟「播放专辑 → 回到资料库 → 按下键」:资料库在记住第 42 张专辑之后才建出来。
                 await waitForDemoContent(requireAlbum: true)
@@ -588,12 +695,14 @@ struct TVRoot: View {
         case .spokenWord:
             TVSpokenWordView(
                 openPlayer: { tab = .nowPlaying },
-                onModalActivityChanged: childModalActivityChanged
+                onModalActivityChanged: childModalPresentationChanged,
+                memory: spokenWordMemory
             )
         case .podcasts:
             TVPodcastsView(
                 openPlayer: { tab = .nowPlaying },
-                onModalActivityChanged: childModalActivityChanged
+                onModalActivityChanged: childModalPresentationChanged,
+                memory: podcastMemory
             )
         case .nowPlaying:
             TVNowPlayingView(
@@ -666,8 +775,9 @@ struct TVRoot: View {
         }
     }
 
-    /// 播放页上的 Menu:回到进来之前那一页。资料库、首页、搜索把焦点放回起播的那张卡片 /
-    /// 那条结果(从专辑页起播的先回专辑页),其余页面落在顶栏的当前项上(和在那一页按 Menu 的落点一致)。
+    /// 播放页上的 Menu:回到进来之前那一页。资料库、首页、搜索、有声、播客把焦点放回起播的那张卡片 /
+    /// 那条结果(从专辑页、艺人页、章节页、节目页起播的先回那一页),其余页面落在顶栏的当前项上
+    /// (和在那一页按 Menu 的落点一致)。
     private func leavePlayer() {
         guard hidesTabBar else {
             returnFocusToTabs()
@@ -681,13 +791,16 @@ struct TVRoot: View {
         nowPlayingFocusRequest = nil
         // 顶栏重新可用的那一刻焦点可能先落在它的某一项上,别让这一下把页面切走。
         suppressesFocusDrivenTabSelection = true
-        // 从资料库的专辑页起播的:回到资料库时先回那张专辑页(见 TVLibraryBrowseMemory)。
-        libraryBrowseMemory.restoresAlbumDetail = destination == .library
-        // 首页、搜索页出现时自己把焦点放回去(见 TVHomeBrowseMemory / TVSearchMemory),
+        // 从资料库的专辑页 / 艺人页起播的:回到资料库时先回那一页(见 TVLibraryBrowseMemory)。
+        libraryBrowseMemory.restoresAfterPlayer = destination == .library
+        // 首页、搜索、有声、播客页出现时自己把焦点放回去(见各页的返回记忆),
         // 这里就不再把焦点送回顶栏;记不住的时候照旧回顶栏。
         homeBrowseMemory.restoresAfterPlayer = destination == .home && homeBrowseMemory.hasReturnTarget
         searchMemory.restoresAfterPlayer = destination == .search && searchMemory.hasReturnTarget
+        spokenWordMemory.restoresAfterPlayer = destination == .spokenWord && spokenWordMemory.hasReturnTarget
+        podcastMemory.restoresAfterPlayer = destination == .podcasts && podcastMemory.hasReturnTarget
         let pageRestoresFocus = homeBrowseMemory.restoresAfterPlayer || searchMemory.restoresAfterPlayer
+            || spokenWordMemory.restoresAfterPlayer || podcastMemory.restoresAfterPlayer
         // 进播放页之前那次「从顶栏下到输入框」的请求还挂着,搜索页一出现就会把焦点抢到输入框。
         searchFocusRequest = nil
         tab = destination
