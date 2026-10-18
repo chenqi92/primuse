@@ -283,3 +283,35 @@ struct HomeFilterBarConfigurationTests {
         #expect(fit(150, selection: .spokenWord, spaces: spaces) == [.iconOnly, .iconAndTitle])
     }
 }
+
+@Suite("Home face swipe")
+struct HomeFaceSwipePolicyTests {
+    @Test("横着起手才接,竖着走留给滚动")
+    func beginsOnlyOnHorizontalIntent() {
+        #expect(HomeFaceSwipePolicy.shouldBegin(translationX: 14, translationY: 3, velocityX: 0, velocityY: 0, heldBeforeMove: 0.05))
+        #expect(HomeFaceSwipePolicy.shouldBegin(translationX: -4, translationY: 1, velocityX: -420, velocityY: 60, heldBeforeMove: 0.05))
+        #expect(!HomeFaceSwipePolicy.shouldBegin(translationX: 6, translationY: 14, velocityX: 0, velocityY: 0, heldBeforeMove: 0.05))
+        #expect(!HomeFaceSwipePolicy.shouldBegin(translationX: 3, translationY: 2, velocityX: 20, velocityY: 10, heldBeforeMove: 0.05))
+    }
+
+    @Test("按住一会儿再拖的是长按菜单或拖动排序")
+    func ignoresLongPressDrags() {
+        #expect(!HomeFaceSwipePolicy.shouldBegin(translationX: 30, translationY: 0, velocityX: 500, velocityY: 0, heldBeforeMove: 0.6))
+        #expect(HomeFaceSwipePolicy.shouldBegin(translationX: 30, translationY: 0, velocityX: 500, velocityY: 0, heldBeforeMove: 0.2))
+    }
+
+    @Test("划得够远或够快就退出,两个方向一样")
+    func exitsOnFarOrFastSwipes() {
+        #expect(HomeFaceSwipePolicy.exits(translationX: 120, velocityX: 50))
+        #expect(HomeFaceSwipePolicy.exits(translationX: -120, velocityX: -50))
+        #expect(HomeFaceSwipePolicy.exits(translationX: -48, velocityX: -900))
+        #expect(!HomeFaceSwipePolicy.exits(translationX: 30, velocityX: 900))
+        #expect(!HomeFaceSwipePolicy.exits(translationX: 70, velocityX: 200))
+    }
+
+    @Test("松手前往回拉算反悔")
+    func reversalCancels() {
+        #expect(!HomeFaceSwipePolicy.exits(translationX: 140, velocityX: -300))
+        #expect(HomeFaceSwipePolicy.exits(translationX: 140, velocityX: -60))
+    }
+}

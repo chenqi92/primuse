@@ -90,45 +90,54 @@ struct LocalPodcastShowDetailView: View {
 
     // MARK: - Header
 
+    /// 和订阅节目页同一套头部:封面顶边对齐名字、底边对齐按钮,按钮在封面右边(#320)。
     private func header(ordered: [SpokenWordBookItem], settings: LocalPodcastShowSettings) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 16) {
+        SpokenWordHeaderRowLayout(preferredSide: PodcastHeaderMetrics.preferredSide, maximumSide: PodcastHeaderMetrics.maximumSide) {
+            SpokenWordHeaderArtworkSlot { side in
                 let cover = entry.songs.first
                 CachedArtworkView(
                     coverRef: cover?.coverArtFileName,
                     songID: cover?.id,
-                    size: 128,
+                    size: side,
                     cornerRadius: 14,
                     sourceID: cover?.sourceID,
                     filePath: cover?.filePath,
                     fileFormat: cover?.fileFormat,
                     placeholderIcon: "antenna.radiowaves.left.and.right"
                 )
-                .frame(width: 128, height: 128)
-                .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(book.title)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(3)
-                    if let author = book.author {
-                        Text(author)
-                            .font(.subheadline)
-                            .foregroundStyle(tint)
-                            .lineLimit(2)
-                    }
-                    Text(metaLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    if book.isInProgress {
-                        SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
-                            .frame(maxWidth: 220)
-                            .padding(.top, 2)
-                    }
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // 和订阅节目的封面(`PodcastArtwork`)一样描一圈细边。
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
                 }
-                Spacer(minLength: 0)
+                .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
             }
-            actionRow(ordered: ordered, settings: settings)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(book.title)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(3)
+                if let author = book.author {
+                    Text(author)
+                        .font(.subheadline)
+                        .foregroundStyle(tint)
+                        .lineLimit(2)
+                }
+                Text(metaLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                if book.isInProgress {
+                    SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
+                        .frame(maxWidth: 220)
+                        .padding(.top, 2)
+                }
+                Spacer(minLength: 10)
+                actionRow(ordered: ordered, settings: settings)
+                    .frame(maxWidth: PodcastHeaderMetrics.actionRowMaxWidth, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -165,11 +174,11 @@ struct LocalPodcastShowDetailView: View {
                 .tint(tint)
                 .accessibilityIdentifier("podcast.localShow.play")
             }
-            SpokenWordBookSpeedMenu(bookID: book.id)
-                #if os(iOS)
-                .controlSize(.large)
-                #endif
-                .tint(tint)
+            // 封面右边那一栏窄:放不下带图标的语速键就只写倍数。
+            ViewThatFits(in: .horizontal) {
+                speedMenu(showsIcon: true)
+                speedMenu(showsIcon: false)
+            }
             Menu {
                 moreMenu(ordered: ordered)
             } label: {
@@ -181,6 +190,14 @@ struct LocalPodcastShowDetailView: View {
             .accessibilityLabel(Text("more"))
             .accessibilityIdentifier("podcast.localShow.more")
         }
+    }
+
+    private func speedMenu(showsIcon: Bool) -> some View {
+        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: showsIcon)
+            #if os(iOS)
+            .controlSize(.large)
+            #endif
+            .tint(tint)
     }
 
     @ViewBuilder
@@ -262,16 +279,7 @@ struct LocalPodcastShowDetailView: View {
                 }
                 .disabled(book.items.count < 2)
             } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(orderTitle(settings.order))
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(tint)
-                .frame(height: 32)
-                .contentShape(Rectangle())
+                PodcastOrderMenuLabel(title: orderTitle(settings.order))
             }
             .menuStyle(.button)
             .buttonStyle(.plain)

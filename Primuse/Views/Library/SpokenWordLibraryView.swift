@@ -1385,14 +1385,13 @@ struct SpokenWordBookDetailView: View {
                         .frame(maxWidth: 320)
                 }
                 HStack(spacing: 8) {
+                    let isPlayingBook = isPlaying(songs)
                     Button {
-                        SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                        continueOrPause(book, songs: songs)
                     } label: {
                         Label(
-                            book.canContinue
-                                ? String(localized: "spoken_word_continue")
-                                : String(localized: "spoken_word_start"),
-                            systemImage: "play.fill"
+                            continueTitle(book, isPlayingBook: isPlayingBook),
+                            systemImage: isPlayingBook ? "pause.fill" : "play.fill"
                         )
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(.white)
@@ -1422,6 +1421,31 @@ struct SpokenWordBookDetailView: View {
     }
     #endif
 
+    /// 正在放的是不是这本书里的一章。
+    private func isCurrentBook(_ songs: [Song]) -> Bool {
+        guard let currentID = player.currentSong?.id else { return false }
+        return songs.contains { $0.id == currentID }
+    }
+
+    private func isPlaying(_ songs: [Song]) -> Bool {
+        player.isPlaying && isCurrentBook(songs)
+    }
+
+    /// 「继续」键:正在放这本书时是「暂停」,再点一次原地接着放;
+    /// 别的时候「继续」/「开始」从上次停下的地方起播(#320)。
+    private func continueOrPause(_ book: SpokenWordBook, songs: [Song]) {
+        if isCurrentBook(songs) {
+            player.togglePlayPause()
+        } else {
+            SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+        }
+    }
+
+    private func continueTitle(_ book: SpokenWordBook, isPlayingBook: Bool) -> String {
+        if isPlayingBook { return String(localized: "pause") }
+        return String(localized: book.canContinue ? "spoken_word_continue" : "spoken_word_start")
+    }
+
     private func phoneHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             phoneHeaderTop(book, songs: songs)
@@ -1434,8 +1458,12 @@ struct SpokenWordBookDetailView: View {
     }
 
     private func phoneHeaderTop(_ book: SpokenWordBook, songs: [Song]) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            SpokenWordBookCover(song: songs.first, width: 96, cornerRadius: 10)
+        // 封面顶边对齐书名、底边对齐「继续」和语速两颗键(#320);书名折成几行、右栏变高时封面跟着长。
+        SpokenWordHeaderRowLayout(preferredSide: 120, maximumSide: 170) {
+            SpokenWordHeaderArtworkSlot { side in
+                // 解码尺寸按最大边长取一档,边长随书名行数变时不重新解码。
+                SpokenWordBookCover(song: songs.first, width: side, cornerRadius: 10, decodeSize: 170)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text(book.title)
                     .font(.title3.weight(.semibold))
@@ -1450,10 +1478,13 @@ struct SpokenWordBookDetailView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if book.lastListenedAt != nil {
+                    // 撑满右栏:右缘和下面章节的时长对齐。
                     ProgressView(value: book.fractionComplete)
                         .progressViewStyle(.linear)
                         .tint(ListeningSpace.spokenWord.tint)
+                        .frame(maxWidth: .infinity)
                 }
+                Spacer(minLength: 4)
                 // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先把语速收成
                 // 只剩倍数,再不行把语速挪到下一行,「继续」始终是一行字。
                 ViewThatFits(in: .horizontal) {
@@ -1470,23 +1501,24 @@ struct SpokenWordBookDetailView: View {
                         SpokenWordBookSpeedMenu(bookID: book.id)
                     }
                 }
-                .padding(.top, 4)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
     private func phoneContinueButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
-        Button {
-            SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+        let isPlayingBook = isPlaying(songs)
+        return Button {
+            continueOrPause(book, songs: songs)
         } label: {
             Label(
-                String(localized: book.canContinue ? "spoken_word_continue" : "spoken_word_start"),
-                systemImage: "play.fill"
+                continueTitle(book, isPlayingBook: isPlayingBook),
+                systemImage: isPlayingBook ? "pause.fill" : "play.fill"
             )
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
+            .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.borderedProminent)
         .tint(ListeningSpace.spokenWord.tint)
@@ -2029,7 +2061,8 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                 header()
                     .padding(.horizontal, inset)
                     .padding(.vertical, 16)
-                    .padding(.trailing, showsScrubber ? 28 : 0)
+                    // 有快速拖动条时右缘和章节行一样让开它:进度条、「始终保持离线」框与章节时长右缘对齐。
+                    .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth - inset : 0)
                     // 铺到 iPhone Duo 竖栏底下时，带着「继续」与语速的头部照旧让开竖栏。
                     .pmClearOfVerticalBar()
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -2271,7 +2304,8 @@ struct SpokenWordChapterItemRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: 28, alignment: .trailing)
+            // 序号、对勾、波形三种记号在这一栏里居中,上下对成一条线。
+            .frame(minWidth: 28, alignment: .center)
 
             VStack(alignment: .leading, spacing: 4) {
                 let titleLayout = dynamicTypeSize.isAccessibilitySize
@@ -2375,7 +2409,12 @@ struct SpokenWordBookSpeedMenu: View {
             #else
             Group {
                 if showsIcon {
-                    Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
+                    // 不用 `Label`:放在 List 行里(本机节目页)时它的图标会被染成行的强调色,
+                    // 也就是 App 主题色,不跟按钮上设的播客颜色(#320)。
+                    HStack(spacing: 6) {
+                        Image(systemName: "gauge.with.dots.needle.67percent")
+                        Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
+                    }
                 } else {
                     Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
                 }

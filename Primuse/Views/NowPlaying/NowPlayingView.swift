@@ -1597,6 +1597,7 @@ struct NowPlayingView: View {
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
         .presentationCornerRadius(28)
+        .playerPresentationColorScheme()
 
         if let sourceID = albumPresentationSourceID, !reduceMotion {
             detail.navigationTransition(
@@ -3229,10 +3230,12 @@ struct NowPlayingView: View {
             NotificationCenter.default.publisher(for: .primuseLyricsDidChange),
             perform: lyricsDidChange
         )
+        // 这里弹出的页面都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+                .playerPresentationColorScheme()
         }
         .modifier(NowPlayingSpokenWordTextPresentations(
             showChapterList: $showChapterList,
@@ -3259,12 +3262,14 @@ struct NowPlayingView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
+            .playerPresentationColorScheme()
         }
         .sheet(item: $presentedPodcastSheet) { target in
             NowPlayingPodcastSheet(target: target)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
+                .playerPresentationColorScheme()
         }
         #endif
         .sheet(item: $scrapeTargetSong) { song in
@@ -3278,12 +3283,14 @@ struct NowPlayingView: View {
                 Task { await loadLyrics() }
             }
             .presentationDetents([.large])
+            .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showAddToPlaylist) {
             if let song = player.currentSong {
                 AddToPlaylistSheet(song: song)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+                    .playerPresentationColorScheme()
             }
         }
         .sheet(item: $shareSong, onDismiss: { presentLyricPosterRequestedFromShare() }) { song in
@@ -3293,15 +3300,18 @@ struct NowPlayingView: View {
                     ? { presentsLyricPosterAfterShare = true }
                     : nil
             )
+            .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
                     .songInfoPresentationStyle()
+                    .playerPresentationColorScheme()
             }
         }
         .sheet(item: $playbackRangeEditorSong) { song in
             SongPlaybackRangeEditor(song: song)
+                .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showTagEditor) {
             if let song = player.currentSong {
@@ -3313,6 +3323,7 @@ struct NowPlayingView: View {
                     _ = updated
                 }
                 .presentationDetents([.large])
+                .playerPresentationColorScheme()
             }
         }
         #if os(iOS)
@@ -3334,6 +3345,7 @@ struct NowPlayingView: View {
                 guard player.currentSong?.id == updated.id else { return }
                 Task { await loadLyrics() }
             }
+            .playerPresentationColorScheme()
         }
         #else
         .sheet(item: $lyricsEditorTargetSong) { song in
@@ -3350,6 +3362,7 @@ struct NowPlayingView: View {
         #endif
         .sheet(item: $lyricPosterComposer) { composer in
             LyricPosterShareSheet(composer: composer)
+                .playerPresentationColorScheme()
                 #if os(macOS)
                 .presentationDetents([.large])
                 #endif
@@ -3359,6 +3372,7 @@ struct NowPlayingView: View {
             CastDevicePickerSheet()
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+                .playerPresentationColorScheme()
         }
         #if os(iOS)
         .sheet(isPresented: $showEqualizer) {
@@ -3373,6 +3387,7 @@ struct NowPlayingView: View {
             .environment(player.equalizerService)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+            .playerPresentationColorScheme()
         }
         .fullScreenCover(
             isPresented: $showMusicVideoFullScreen,
@@ -3382,6 +3397,7 @@ struct NowPlayingView: View {
                 MusicVideoFullScreenView(player: videoPlayer) {
                     dismissMusicVideoFullScreen()
                 }
+                .playerPresentationColorScheme()
             } else {
                 Color.black
                     .ignoresSafeArea()
@@ -3416,6 +3432,7 @@ struct NowPlayingView: View {
             set: { radioDetailStationID = $0?.id }
         )) { item in
             RadioStationDetailView(stationID: item.id)
+                .playerPresentationColorScheme()
         }
         .equalizerHighFidelityNotice(
             isPresented: $showEqualizerBypassNotice,
@@ -10533,9 +10550,11 @@ struct SongInfoSheet: View {
                 }
             }
             .sheet(isPresented: $showSimilarSongs) {
+                // 从播放页打开的歌曲信息里再弹出的,同样跟「播放页始终用深色」。
                 SimilarSongsSheet(seed: song)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+                    .playerPresentationColorScheme()
             }
         }
     }
@@ -11256,6 +11275,7 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                     #endif
+                    .playerPresentationColorScheme()
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseTranscriptOffsetDidChange)) { _ in
                 onTranscriptOffsetChange()
@@ -11264,10 +11284,14 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
                 SpokenWordContentsView(requestedTab: $contentsRequestedTab)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+                    .playerPresentationColorScheme()
             }
             #if os(iOS)
             .fullScreenCover(isPresented: $showsTranscriptReader) {
+                // 全屏文稿自己定深浅,不套 `playerPresentationColorScheme`。左右扫、顶栏下拉时整页跟着手指走开,
+                // 露出底下的播放页。
                 transcriptReader
+                    .modifier(SpokenWordTranscriptInteractiveDismiss(isPresented: $showsTranscriptReader))
             }
             #else
             .sheet(isPresented: $showsTranscriptReader) {

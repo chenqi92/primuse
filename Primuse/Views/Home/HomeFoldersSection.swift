@@ -59,8 +59,12 @@ struct HomeFoldersSection: View {
                         Text("see_all")
                         Image(systemName: "chevron.right").font(.caption)
                     }
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .contentShape(Rectangle())
                 }
+                // plain:不让默认按钮样式把字染成主题色,和首页别的区块一样留灰。
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("home.allFolders")
             }
 

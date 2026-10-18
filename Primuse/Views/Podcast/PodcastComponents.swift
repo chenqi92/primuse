@@ -269,14 +269,29 @@ struct PodcastEpisodeRow: View {
     var showsArtwork = false
     var showsSummary = true
     var continuing: [PodcastEpisode] = []
+    /// 行底下画一条分隔线,从文字左缘画起(封面多大就让开多少)。
+    var showsDivider = false
     var onOpen: (() -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
+    /// 封面跟文字一样高时实际量出来的边长,下面那一排键和分隔线按它让开。
+    @State private var matchedArtworkSide: CGFloat?
 
     private var store: PodcastStore { PodcastStore.shared }
     private var tint: Color { ListeningSpace.podcast.tint }
     private static let artworkSize: CGFloat = 60
+    private static let artworkSpacing: CGFloat = 12
     private static let controlsHeight: CGFloat = 32
+
+    /// 跨节目、不带简介的列表(首页与播客页的「最新单集」「喜欢的单集」):封面放大到和右边一栏一样高,
+    /// 顶边对齐第一行字、底边对齐播放键(#320)。标题始终占两行,每一行封面一样大。
+    private var matchesArtworkToText: Bool { showsArtwork && !showsSummary }
+
+    private var textLeading: CGFloat {
+        guard showsArtwork else { return 0 }
+        let side = matchesArtworkToText ? (matchedArtworkSide ?? Self.artworkSize) : Self.artworkSize
+        return side + Self.artworkSpacing
+    }
 
     var body: some View {
         let state = store.state(for: episode)
@@ -284,30 +299,33 @@ struct PodcastEpisodeRow: View {
         Button {
             onOpen?()
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                if showsArtwork {
-                    PodcastArtwork(episode: episode, show: show, size: Self.artworkSize, cornerRadius: 8)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    metaLine(state: state)
-                    Text(episode.title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(state.isFinished && !isCurrent ? .secondary : .primary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    if showsSummary, let summary = PodcastEpisodeSummaryCache.shared.summary(for: episode) {
-                        Text(summary)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+            Group {
+                if matchesArtworkToText {
+                    SpokenWordHeaderRowLayout(
+                        spacing: Self.artworkSpacing,
+                        preferredSide: Self.artworkSize,
+                        maximumSide: 124,
+                        maximumWidthFraction: 0.32
+                    ) {
+                        SpokenWordHeaderArtworkSlot { side in
+                            PodcastArtwork(episode: episode, show: show, size: side, cornerRadius: 10)
+                        }
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.width
+                        } action: { side in
+                            matchedArtworkSide = side
+                        }
+                        textColumn(state: state, isCurrent: isCurrent, reservesTitleLines: true)
                     }
-                    // 下面那一排键盖在这里(见 overlay),这里只占位置。
-                    Color.clear
-                        .frame(height: Self.controlsHeight)
-                        .padding(.top, 2)
+                } else {
+                    HStack(alignment: .top, spacing: Self.artworkSpacing) {
+                        if showsArtwork {
+                            PodcastArtwork(episode: episode, show: show, size: Self.artworkSize, cornerRadius: 8)
+                        }
+                        textColumn(state: state, isCurrent: isCurrent, reservesTitleLines: false)
+                        Spacer(minLength: 0)
+                    }
                 }
-                Spacer(minLength: 0)
             }
             .padding(.vertical, 10)
             .contentShape(Rectangle())
@@ -321,9 +339,37 @@ struct PodcastEpisodeRow: View {
                 PodcastDownloadButton(episode: episode, compact: true)
             }
             .frame(height: Self.controlsHeight)
-            .padding(.leading, showsArtwork ? Self.artworkSize + 12 : 0)
+            .padding(.leading, textLeading)
             .padding(.bottom, 10)
         }
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Divider().padding(.leading, textLeading)
+            }
+        }
+    }
+
+    private func textColumn(state: PodcastEpisodeState, isCurrent: Bool, reservesTitleLines: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            metaLine(state: state)
+            Text(episode.title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(state.isFinished && !isCurrent ? .secondary : .primary)
+                .lineLimit(2, reservesSpace: reservesTitleLines)
+                .multilineTextAlignment(.leading)
+            if showsSummary, let summary = PodcastEpisodeSummaryCache.shared.summary(for: episode) {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            // 下面那一排键盖在这里(见 overlay),这里只占位置。
+            Color.clear
+                .frame(height: Self.controlsHeight)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func metaLine(state: PodcastEpisodeState) -> some View {
@@ -571,12 +617,10 @@ struct PodcastLikedEpisodeRows: View {
                 showsArtwork: true,
                 showsSummary: false,
                 continuing: continuing,
+                showsDivider: index < shown.count - 1,
                 onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
             )
             .podcastEpisodeContextMenu(item.episode, continuing: continuing, openShow: openShow)
-            if index < shown.count - 1 {
-                Divider().padding(.leading, 72)
-            }
         }
     }
 }
@@ -727,21 +771,127 @@ struct PodcastCircleKey: View {
 
 /// 页面顶上的主键:实心、撑满剩下的宽度,字不折行。
 /// 不用 `Label`:放在 List 行里时它的图标会被染成行的强调色,和白字对不上。
+/// 节目页的键挤在封面右边那一栏,窄屏、大字号下放不下整句时先去掉图标,再不行只留图标。
 struct PodcastPrimaryKeyLabel: View {
     let titleKey: LocalizedStringKey
     let systemImage: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                Text(titleKey)
+                    .lineLimit(1)
+            }
             Text(titleKey)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+            Image(systemName: systemImage)
+                .accessibilityLabel(Text(titleKey))
         }
         .font(.headline)
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Header row
+
+/// 详情页顶上「封面 + 右边一栏」那一行(书籍详情、播客节目页、本地节目页、单集行):
+/// 封面是正方形,顶边对齐右栏第一行字、底边对齐右栏最后一样东西(通常是按钮)。
+///
+/// 只放两个子视图:先封面、后右栏。封面边长先取 `preferredSide`;右栏在剩下的宽度里排出来
+/// 比它高时,封面跟着长到右栏那么高(不超过 `maximumSide`,也不超过整行宽度的
+/// `maximumWidthFraction`),右栏变窄可能又多折一行,所以多量几次。右栏比封面矮时,
+/// 把右栏撑到封面那么高 —— 右栏里在按钮上面垫一个 `Spacer`,按钮就落到封面底边。
+struct SpokenWordHeaderRowLayout: Layout {
+    var spacing: CGFloat = 16
+    var preferredSide: CGFloat
+    var maximumSide: CGFloat
+    var maximumWidthFraction: CGFloat = 0.42
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? (preferredSide + spacing + 260)
+        let metrics = metrics(width: width, column: subviews[1])
+        return CGSize(width: width, height: max(metrics.side, metrics.columnHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let metrics = metrics(width: bounds.width, column: subviews[1])
+        let rowHeight = max(metrics.side, metrics.columnHeight)
+        subviews[0].place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: metrics.side, height: metrics.side)
+        )
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + metrics.side + spacing, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: columnWidth(bounds.width, side: metrics.side), height: rowHeight)
+        )
+    }
+
+    private func columnWidth(_ width: CGFloat, side: CGFloat) -> CGFloat {
+        max(width - side - spacing, 0)
+    }
+
+    private func metrics(width: CGFloat, column: LayoutSubview) -> (side: CGFloat, columnHeight: CGFloat) {
+        let cap = max(min(maximumSide, width * maximumWidthFraction), min(preferredSide, width * 0.5))
+        var side = min(preferredSide, cap)
+        var height = column.sizeThatFits(ProposedViewSize(width: columnWidth(width, side: side), height: nil)).height
+        // 封面只会变大:每长一次右栏就窄一点、可能更高,最多追三次。
+        for _ in 0..<3 where height > side + 0.5 && side < cap {
+            side = min(height.rounded(.up), cap)
+            height = column.sizeThatFits(ProposedViewSize(width: columnWidth(width, side: side), height: nil)).height
+        }
+        return (side, height)
+    }
+}
+
+/// `SpokenWordHeaderRowLayout` 里的封面格:封面视图都只收固定边长,这里按版面实际给的边长画。
+struct SpokenWordHeaderArtworkSlot<Artwork: View>: View {
+    @ViewBuilder var artwork: (CGFloat) -> Artwork
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                GeometryReader { proxy in
+                    let side = min(proxy.size.width, proxy.size.height)
+                    if side > 1 {
+                        artwork(side)
+                            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    }
+                }
+            }
+    }
+}
+
+/// 订阅节目页与本地节目页头部共用的尺寸。
+enum PodcastHeaderMetrics {
+    static let preferredSide: CGFloat = 128
+    static let maximumSide: CGFloat = 176
+    /// 宽屏(iPad、Mac)上按钮不跟着右栏拉成一长条。
+    static let actionRowMaxWidth: CGFloat = 420
+}
+
+/// 节目页单集列表上方的排序键:图标后面写着现在按什么排,订阅节目与本地节目一样。
+struct PodcastOrderMenuLabel: View {
+    let title: LocalizedStringKey
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 13, weight: .semibold))
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(ListeningSpace.podcast.tint)
+        .frame(height: 32)
+        .contentShape(Rectangle())
     }
 }
 
@@ -832,41 +982,3 @@ struct PodcastActionsMenuItems: View {
     }
 }
 
-/// 发现键 + 「…」菜单。首页「播客」那一面用;iOS 播客页这些在导航栏上,Mac 播客页在页头。
-struct PodcastInlineActionsBar: View {
-    let navigation: PodcastNavigationModel
-
-    private var store: PodcastStore { PodcastStore.shared }
-    private var tint: Color { ListeningSpace.podcast.tint }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Button {
-                navigation.showsDiscover = true
-            } label: {
-                Label("podcast_discover", systemImage: "magnifyingglass")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .buttonStyle(.bordered)
-            .tint(tint)
-            .accessibilityIdentifier("podcast.inline.discover")
-            if store.isRefreshingAll {
-                ProgressView().controlSize(.small)
-            }
-            Spacer(minLength: 0)
-            Menu {
-                PodcastActionsMenuItems(navigation: navigation)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.bordered)
-            .tint(tint)
-            .accessibilityLabel(Text("more"))
-            .accessibilityIdentifier("podcast.inline.more")
-        }
-    }
-}

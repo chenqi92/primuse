@@ -1857,6 +1857,8 @@ extension View {
                 SimilarSongsSheet(seed: seed)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+                    // 从播放页「更多」里打开时跟「播放页始终用深色」。
+                    .playerPresentationColorScheme()
             }
         }
         #endif

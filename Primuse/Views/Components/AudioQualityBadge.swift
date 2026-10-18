@@ -110,6 +110,8 @@ struct NowPlayingAudioTagRow: View {
                 .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
                     detailsCard
                         .presentationCompactAdaptation(.popover)
+                        // 「播放页始终用深色」时气泡连同底一起深色。
+                        .playerPresentationColorScheme()
                 }
                 .transition(.opacity)
             }

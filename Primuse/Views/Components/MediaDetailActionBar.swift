@@ -1018,6 +1018,8 @@ struct LibraryReviewSection: View {
                 Color.clear
                     .sheet(isPresented: $showsCommentEditor) {
                         LibraryReviewCommentEditor(subject: subject)
+                            // 从播放页里的评分区打开时跟「播放页始终用深色」。
+                            .playerPresentationColorScheme()
                     }
                     .libraryDetailPresentationReset()
             }

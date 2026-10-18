@@ -774,6 +774,165 @@ private extension HomeFilterBarLabelStyle {
 /// 显示方式是自动时先在一层不显示的背景里量出每颗胶囊各种写法的宽度,再按这一排实际有多宽
 /// 挑写法(`HomeFilterBarFitPolicy`):放得下就全部图标加文字;放不下时选中的那颗仍图标加文字,
 /// 其余先只留文字、再只留图标。写法只随选中与宽度变,切换时跟着筛选的弹簧动画一起过渡。
+/// 首页那几面上不该触发「划回全部」的地方(电台大卡左右是切台),量出来的位置记在这里。
+/// 是个普通的引用:位置随滚动每帧都在变,记下来不该引起重画,手势起手时才读。
+@MainActor
+final class HomeFaceSwipeExclusion {
+    var frame: CGRect?
+}
+
+extension EnvironmentValues {
+    @Entry var homeFaceSwipeExclusion: HomeFaceSwipeExclusion? = nil
+}
+
+#if os(iOS)
+/// 首页筛到电台、有声、播客那一面时,左右划一下回到「全部」(#320):这一面跟着手指走,
+/// 松手过了门槛(`HomeFaceSwipePolicy`)就退出,不够就弹回去。筛选条留在原处不动。
+private struct HomeFaceSwipeContainer<Content: View>: View {
+    let onExit: () -> Void
+    @ViewBuilder let content: Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var offset: CGFloat = 0
+    @State private var width: CGFloat = 0
+    @State private var exclusion = HomeFaceSwipeExclusion()
+
+    var body: some View {
+        content
+            .environment(\.homeFaceSwipeExclusion, exclusion)
+            .offset(x: offset)
+            .opacity(width > 0 ? 1 - min(abs(offset) / width, 1) * 0.6 : 1)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { newWidth in
+                width = newWidth
+            }
+            .gesture(HomeFaceSwipeGesture(exclusion: exclusion, onEvent: handle))
+    }
+
+    private func handle(_ event: HomeFaceSwipeGesture.Event) {
+        switch event {
+        case .changed(let translation):
+            guard !reduceMotion else { return }
+            offset = translation
+        case .ended(let translation, let velocity):
+            if HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) {
+                // 顺着划的方向滑出去、一边淡掉,「全部」在原处淡入。
+                if !reduceMotion {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        offset = (translation < 0 ? -1 : 1) * max(width, 320)
+                    }
+                }
+                onExit()
+            } else {
+                settle()
+            }
+        case .cancelled:
+            settle()
+        }
+    }
+
+    private func settle() {
+        guard offset != 0 else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { offset = 0 }
+    }
+}
+
+/// UIKit 的横向拖动手势:只在横着起手时接手,和页面的上下滚动同时识别;
+/// 在横滑的一排里(播客「继续收听」、放不下时的筛选条)和电台大卡上起手的不接,让它们自己左右滑。
+private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
+    enum Event {
+        case changed(CGFloat)
+        case ended(CGFloat, velocity: CGFloat)
+        case cancelled
+    }
+
+    let exclusion: HomeFaceSwipeExclusion
+    let onEvent: (Event) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(exclusion: exclusion)
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.minimumNumberOfTouches = 1
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.cancelsTouchesInView = true
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.exclusion = exclusion
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard let view = recognizer.view else { return }
+        let translation = recognizer.translation(in: view).x
+        switch recognizer.state {
+        case .began, .changed:
+            onEvent(.changed(translation))
+        case .ended:
+            onEvent(.ended(translation, velocity: recognizer.velocity(in: view).x))
+        case .cancelled, .failed:
+            onEvent(.cancelled)
+        default:
+            break
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var exclusion: HomeFaceSwipeExclusion
+        /// 这一次按下的时刻:按住一会儿才动的是长按菜单或拖动排序。
+        private var touchDownTime: TimeInterval = 0
+
+        init(exclusion: HomeFaceSwipeExclusion) {
+            self.exclusion = exclusion
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            touchDownTime = touch.timestamp
+            if let frame = exclusion.frame, frame.contains(touch.location(in: nil)) { return false }
+            var view = touch.view
+            while let current = view {
+                if let scrollView = current as? UIScrollView,
+                   scrollView.contentSize.width > scrollView.bounds.width + 1 {
+                    return false
+                }
+                view = current.superview
+            }
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let recognizer = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = recognizer.view else { return false }
+            let translation = recognizer.translation(in: view)
+            let velocity = recognizer.velocity(in: view)
+            return HomeFaceSwipePolicy.shouldBegin(
+                translationX: Double(translation.x),
+                translationY: Double(translation.y),
+                velocityX: Double(velocity.x),
+                velocityY: Double(velocity.y),
+                heldBeforeMove: ProcessInfo.processInfo.systemUptime - touchDownTime
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard let scrollView = otherGestureRecognizer.view as? UIScrollView else { return false }
+            return otherGestureRecognizer === scrollView.panGestureRecognizer
+        }
+    }
+}
+#endif
+
 private struct HomeSpaceFilterBar: View {
     let spaces: [ListeningSpace]
     let selection: ListeningSpace?
@@ -939,6 +1098,182 @@ private struct HomeRadioStationsPage: View {
     }
 }
 
+/// 首页电台面顶上那张大卡。单独成视图:左右切台只重画这张卡,不让整个首页跟着重算;
+/// 播放状态也只在这里观察。台名只排一行、下面那行说明始终占一行,
+/// 有的台带格式码率、有的台名长,卡片高度都不变,切台时下面的电台墙不跟着上下跳。
+private struct HomeRadioSpotlightCard: View {
+    @Binding var selectedStationID: String?
+    let usesPadMetrics: Bool
+    let onToggle: (RadioStation) -> Void
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(RadioStationsStore.self) private var radioStationsStore
+    @Environment(\.pmHeightClass) private var heightClass
+    @AppStorage(HomeRadioWallPreferences.showsStreamInfoKey) private var showsStreamInfo = true
+    @Environment(\.homeFaceSwipeExclusion) private var swipeExclusion
+
+    private var selectedStation: RadioStation? {
+        let stations = radioStationsStore.stations
+        if let selectedStationID,
+           let selected = stations.first(where: { $0.id == selectedStationID }) {
+            return selected
+        }
+        if let current = player.currentRadioStation,
+           stations.contains(where: { $0.id == current.id }) {
+            return current
+        }
+        return stations.first
+    }
+
+    var body: some View {
+        if let station = selectedStation {
+            card(station)
+        }
+    }
+
+    private func select(relativeTo station: RadioStation, offset: Int) {
+        let stations = radioStationsStore.stations
+        guard stations.count > 1,
+              let index = stations.firstIndex(where: { $0.id == station.id }) else { return }
+        selectedStationID = stations[(index + offset + stations.count) % stations.count].id
+    }
+
+    private func card(_ station: RadioStation) -> some View {
+        let stations = radioStationsStore.stations
+        let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        let streamInfo = showsStreamInfo ? station.streamInfoSummary : nil
+        let subtitle = isCurrent ? (player.radioMetadataTitle ?? streamInfo) : streamInfo
+
+        return VStack(alignment: .leading, spacing: heightClass.value(14, compact: 10)) {
+            HStack(spacing: 16) {
+                RadioStationArtworkView(
+                    station: station,
+                    size: usesPadMetrics ? 126 : heightClass.value(106, compact: 76),
+                    cornerRadius: 20
+                )
+                .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        // 只有真在播才亮红点 LIVE。无条件亮着的话，没播放时
+                        // 卡片也在说"正在直播"，跟底部播放条自相矛盾。
+                        if isPlaying {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 7, height: 7)
+                            Text("live_badge")
+                                .font(.caption2.weight(.bold))
+                                .tracking(0.8)
+                        } else {
+                            Image(systemName: "radio")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("radio_title")
+                                .font(.caption2.weight(.bold))
+                                .tracking(0.8)
+                        }
+                        Spacer()
+                        Text("\(currentIndex + 1) / \(stations.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+
+                    Text(station.name)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+
+                    // 没有说明时也留出这一行(空白),卡片不因台而变高。
+                    Text(subtitle ?? " ")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineLimit(1)
+                        .accessibilityHidden(subtitle == nil)
+
+                    Spacer(minLength: 2)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            select(relativeTo: station, offset: -1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.white.opacity(0.14), in: Circle())
+                        .disabled(stations.count < 2)
+                        .accessibilityLabel("radio_previous_station")
+
+                        Button {
+                            onToggle(station)
+                        } label: {
+                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(width: 38, height: 38)
+                                .contentTransition(.symbolEffect(.replace))
+                                .pmAnimation(.control, value: isPlaying)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(ListeningSpace.radio.backdropTint)
+                        .background(.white, in: Circle())
+                        .accessibilityLabel(isPlaying ? "radio_stop" : "play")
+
+                        Button {
+                            select(relativeTo: station, offset: 1)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.white.opacity(0.14), in: Circle())
+                        .disabled(stations.count < 2)
+                        .accessibilityLabel("radio_next_station")
+                    }
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(heightClass.value(18, compact: 14))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: heightClass.value(142, compact: 110),
+            alignment: .leading
+        )
+        .background {
+            backdrop
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                select(relativeTo: station, offset: value.translation.width < 0 ? 1 : -1)
+            }
+        )
+        // 在这张卡上左右划是切台,不是划回「全部」。
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            swipeExclusion?.frame = frame
+        }
+        .pmAnimation(.contentAppear, value: station.id)
+    }
+
+    /// 电台这一面跟电台的颜色(颜色和图标里电台那一项),不跟 App 主题色:
+    /// 主题跟随封面时,这张卡不该随正在放的歌变色(#313)。
+    private var backdrop: some View {
+        ZStack {
+            ListeningSpace.radio.backdropTint
+            LinearGradient(
+                colors: [ListeningSpace.radio.glyphTileTint.opacity(0.76), .clear],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Color.black.opacity(0.08)
+        }
+    }
+}
+
 enum HomeRadioWallPreferences {
     /// 电台卡片名字下面那行格式与码率要不要显示(首页电台墙与上面那张大卡)。
     /// 正在播的那张照旧显示节目标题。
@@ -1001,6 +1336,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                 Text("home_radio_wall_title")
                     .font(.title3.weight(.bold))
                 Spacer()
+                // 跟电台自己的颜色走:不设时继承 App 主题色,主题跟随封面时会变成此刻在播的歌的颜色。
                 NavigationLink {
                     HomeRadioStationsPage()
                 } label: {
@@ -1010,18 +1346,21 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                     ))
                     .font(.subheadline.weight(.medium))
                 }
-                Menu {
-                    Toggle(isOn: $showsStreamInfo) {
-                        Label("home_radio_wall_stream_info", systemImage: "waveform")
-                    }
+                .tint(RadioSpacePalette.accent)
+                // 格式与码率一点就切(和书架的版式键一样),不再套一层只有一项的菜单。
+                Button {
+                    pmWithAnimation(.control) { showsStreamInfo.toggle() }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.body)
-                        .frame(width: 30, height: 30)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(showsStreamInfo ? RadioSpacePalette.accent : Color.secondary)
+                        .frame(width: 36, height: 36)
                         .contentShape(.rect)
                 }
-                .accessibilityLabel(Text("a11y_more_actions"))
-                .accessibilityIdentifier("home.radioWall.more")
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("home_radio_wall_stream_info"))
+                .accessibilityAddTraits(showsStreamInfo ? .isSelected : [])
+                .accessibilityIdentifier("home.radioWall.streamInfo")
             }
             .padding(.horizontal, 20)
 
@@ -1251,7 +1590,6 @@ struct HomeView: View {
         nonmutating set { storedHomeFilter = newValue?.rawValue ?? "" }
     }
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
-    @AppStorage(HomeRadioWallPreferences.showsStreamInfoKey) private var radioShowsStreamInfo = true
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
     /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
@@ -1367,15 +1705,19 @@ struct HomeView: View {
                     }
 
                     if activeHomeFilter == .radio {
-                        radioModeContent
+                        homeFace { radioModeContent }
                             .transition(homeFaceTransition)
                     } else if activeHomeFilter == .spokenWord {
-                        SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
-                            .padding(.horizontal, 16)
-                            .transition(homeFaceTransition)
+                        homeFace {
+                            SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
+                                .padding(.horizontal, 16)
+                        }
+                        .transition(homeFaceTransition)
                     } else if activeHomeFilter == .podcast {
-                        PodcastHomeFace(navigation: podcastNavigation)
-                            .transition(homeFaceTransition)
+                        homeFace {
+                            PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
+                        }
+                        .transition(homeFaceTransition)
                     } else if !model.isPrepared {
                         initialLoadingView
                             .transition(homeFaceTransition)
@@ -2365,147 +2707,6 @@ struct HomeView: View {
         }
     }
 
-    private var selectedHomeRadio: RadioStation? {
-        let stations = radioStationsStore.stations
-        if let selectedHomeRadioID,
-           let selected = stations.first(where: { $0.id == selectedHomeRadioID }) {
-            return selected
-        }
-        if let current = player.currentRadioStation,
-           stations.contains(where: { $0.id == current.id }) {
-            return current
-        }
-        return stations.first
-    }
-
-    private func radioSpotlightCard(_ station: RadioStation) -> some View {
-        let stations = radioStationsStore.stations
-        let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-
-        return VStack(alignment: .leading, spacing: heightClass.value(14, compact: 10)) {
-            HStack(spacing: 16) {
-                RadioStationArtworkView(
-                    station: station,
-                    size: usesPadMetrics ? 126 : heightClass.value(106, compact: 76),
-                    cornerRadius: 20
-                )
-                .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        // 只有真在播才亮红点 LIVE。无条件亮着的话，没播放时
-                        // 卡片也在说"正在直播"，跟底部播放条自相矛盾。
-                        if isPlaying {
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 7, height: 7)
-                            Text("live_badge")
-                                .font(.caption2.weight(.bold))
-                                .tracking(0.8)
-                        } else {
-                            Image(systemName: "radio")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("radio_title")
-                                .font(.caption2.weight(.bold))
-                                .tracking(0.8)
-                        }
-                        Spacer()
-                        Text("\(currentIndex + 1) / \(stations.count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.72))
-                    }
-
-                    Text(station.name)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(heightClass.pick(2, compact: 1))
-
-                    let streamInfo = radioShowsStreamInfo ? station.streamInfoSummary : nil
-                    if let subtitle = isCurrent ? (player.radioMetadataTitle ?? streamInfo) : streamInfo {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.76))
-                            .lineLimit(heightClass.pick(2, compact: 1))
-                    }
-
-                    Spacer(minLength: 2)
-
-                    HStack(spacing: 10) {
-                        Button {
-                            selectHomeRadio(relativeTo: station, offset: -1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white.opacity(0.14), in: Circle())
-                        .disabled(stations.count < 2)
-                        .accessibilityLabel("radio_previous_station")
-
-                        Button {
-                            toggleHomeRadio(station)
-                        } label: {
-                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .frame(width: 38, height: 38)
-                                .contentTransition(.symbolEffect(.replace))
-                                .pmAnimation(.control, value: isPlaying)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(ListeningSpace.radio.backdropTint)
-                        .background(.white, in: Circle())
-                        .accessibilityLabel(isPlaying ? "radio_stop" : "play")
-
-                        Button {
-                            selectHomeRadio(relativeTo: station, offset: 1)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white.opacity(0.14), in: Circle())
-                        .disabled(stations.count < 2)
-                        .accessibilityLabel("radio_next_station")
-                    }
-                }
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(heightClass.value(18, compact: 14))
-        .frame(
-            maxWidth: .infinity,
-            minHeight: heightClass.value(142, compact: 110),
-            alignment: .leading
-        )
-        .background {
-            radioSpotlightBackdrop
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 22))
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24).onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
-                selectHomeRadio(relativeTo: station, offset: value.translation.width < 0 ? 1 : -1)
-            }
-        )
-        .pmAnimation(.contentAppear, value: station.id)
-    }
-
-    /// 电台这一面跟电台的颜色(颜色和图标里电台那一项),不跟 App 主题色:
-    /// 主题跟随封面时,这张卡不该随正在放的歌变色(#313)。
-    private var radioSpotlightBackdrop: some View {
-        ZStack {
-            ListeningSpace.radio.backdropTint
-            LinearGradient(
-                colors: [ListeningSpace.radio.glyphTileTint.opacity(0.76), .clear],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Color.black.opacity(0.08)
-        }
-    }
-
     // MARK: - 筛选音乐 / 电台 / 有声
 
     private static let homeTopAnchor = "home.top"
@@ -2516,6 +2717,16 @@ struct HomeView: View {
             insertion: .opacity.combined(with: .offset(y: 10)),
             removal: .opacity
         )
+    }
+
+    /// 筛出来的电台、有声、播客那一面:手机上左右划一下回到「全部」。
+    @ViewBuilder
+    private func homeFace<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        #if os(iOS)
+        HomeFaceSwipeContainer(onExit: { setHomeFilter(nil) }, content: content)
+        #else
+        content()
+        #endif
     }
 
     private func setHomeFilter(_ space: ListeningSpace?) {
@@ -2548,10 +2759,12 @@ struct HomeView: View {
             if stations.isEmpty {
                 radioModeEmptyState
             } else {
-                if let station = selectedHomeRadio {
-                    radioSpotlightCard(station)
-                        .padding(.horizontal, 16)
-                }
+                HomeRadioSpotlightCard(
+                    selectedStationID: $selectedHomeRadioID,
+                    usesPadMetrics: usesPadMetrics,
+                    onToggle: toggleHomeRadio
+                )
+                .padding(.horizontal, 16)
 
                 HomeRadioWall(
                     stations: stations,
@@ -2607,13 +2820,6 @@ struct HomeView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func selectHomeRadio(relativeTo station: RadioStation, offset: Int) {
-        let stations = radioStationsStore.stations
-        guard stations.count > 1,
-              let index = stations.firstIndex(where: { $0.id == station.id }) else { return }
-        selectedHomeRadioID = stations[(index + offset + stations.count) % stations.count].id
     }
 
     private func toggleHomeRadio(_ station: RadioStation) {
@@ -3906,13 +4112,18 @@ struct HomeView: View {
                     .font(.title3.weight(.bold))
                 Spacer()
                 // value 式:页里的卡片要压在这一页上面,见 `HomeSeeAllPage`。
+                // plain:默认按钮样式会把字染成 App 主题色(主题跟随封面时就是封面色),
+                // 和首页别的区块一样留灰。
                 NavigationLink(value: HomeSeeAllPage.quickAccess) {
                     HStack(spacing: 5) {
                         Text("see_all")
                         Image(systemName: "chevron.right").font(.caption)
                     }
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("home.allFavorites")
             }
             .padding(.horizontal, 20)
@@ -4340,9 +4551,15 @@ struct HomeView: View {
                 Spacer()
                 // value 式:页里的专辑卡要压在这一页上面,见 `HomeSeeAllPage`。
                 NavigationLink(value: HomeSeeAllPage.recentlyAddedAlbums) {
-                    Text("home_section_view_all")
-                        .font(.subheadline)
+                    HStack(spacing: 5) {
+                        Text("home_section_view_all")
+                        Image(systemName: "chevron.right").font(.caption)
+                    }
+                    .font(.subheadline)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("home.recentAlbums.viewAll")
             }
             .padding(.horizontal, 20)

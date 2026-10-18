@@ -166,20 +166,13 @@ struct PodcastInviteCard: View {
     }
 }
 
-/// 首页筛到「播客」那一面:顶上一排发现与菜单,下面是播客主页的正文。
+/// 首页筛到「播客」那一面:只有播客主页的正文,和有声书、电台那两面一样不摆发现键与「…」(#320)。
+/// 发现、刷新、调整区块、播客设置在完整的播客页里,从「我的节目」右上角的「管理」进去(电台那一面同样如此)。
 struct PodcastHomeFace: View {
     let navigation: PodcastNavigationModel
-
-    private var store: PodcastStore { PodcastStore.shared }
+    let onManage: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if !store.shows.isEmpty {
-                PodcastInlineActionsBar(navigation: navigation)
-                    .padding(.horizontal, 16)
-                    .pmClearOfVerticalBar()
-            }
-            PodcastLibraryContent(navigation: navigation)
-        }
+        PodcastLibraryContent(navigation: navigation, onManageShows: onManage)
     }
 }

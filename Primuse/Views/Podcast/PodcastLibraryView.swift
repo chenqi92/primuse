@@ -242,6 +242,8 @@ struct PodcastLibraryContent: View {
     let navigation: PodcastNavigationModel
     /// 播客页「在本页里找」的输入; 首页那一面不传。在找节目时只摆命中的节目。
     var findText = ""
+    /// 首页那一面给:「我的节目」右上角的「管理」进完整的播客页。
+    var onManageShows: (() -> Void)?
 
     @Environment(MusicLibrary.self) private var library
     @AppStorage(PodcastLibrarySectionLayout.storageKey) private var sectionLayoutRawValue = ""
@@ -266,13 +268,16 @@ struct PodcastLibraryContent: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 28) {
                         PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
                         PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
                     }
                 }
             } else {
-                LazyVStack(alignment: .leading, spacing: 28) {
+                // 普通 VStack:惰性栈给 ForEach 的每一项都留间距,当下没内容的区块(没有听到一半的、
+                // 没有喜欢的)画不出东西也照样占一份 28,挪到中间的区块下面就空出两倍。
+                // 区块只有几块,里面的节目网格自己是惰性的。
+                VStack(alignment: .leading, spacing: 28) {
                     // 先后与显隐由「…›调整区块」定。
                     ForEach(PodcastLibrarySectionLayout.decode(sectionLayoutRawValue).visibleSections, id: \.self) { section in
                         sectionContent(section)
@@ -293,7 +298,7 @@ struct PodcastLibraryContent: View {
     @ViewBuilder
     private func sectionContent(_ section: PodcastLibrarySection) -> some View {
         switch section {
-        case .myShows: PodcastShowsGrid(navigation: navigation)
+        case .myShows: PodcastShowsGrid(navigation: navigation, onManage: onManageShows)
         case .continueListening: PodcastContinueListeningRow(navigation: navigation)
         case .latestEpisodes: PodcastLatestEpisodesSection(navigation: navigation)
         case .likedEpisodes: PodcastLikedEpisodesSection(navigation: navigation)
@@ -655,6 +660,7 @@ private struct PodcastLatestEpisodesSection: View {
                         showsArtwork: true,
                         showsSummary: false,
                         continuing: Array(latest.dropFirst(index + 1)),
+                        showsDivider: index < latest.count - 1,
                         onOpen: { navigation.open(episodeID: episode.id) }
                     )
                     .podcastEpisodeContextMenu(
@@ -662,9 +668,6 @@ private struct PodcastLatestEpisodesSection: View {
                         continuing: Array(latest.dropFirst(index + 1)),
                         openShow: navigation.open(showID:)
                     )
-                    if index < latest.count - 1 {
-                        Divider().padding(.leading, 72)
-                    }
                 }
             }
         }
@@ -777,6 +780,8 @@ enum PodcastShowSort: String, CaseIterable {
 struct PodcastShowsGrid: View {
     let navigation: PodcastNavigationModel
     var findQuery: LibraryFindPolicy.Query?
+    /// 首页那一面给:标题右边多一个「管理 · N」,进完整的播客页。
+    var onManage: (() -> Void)?
 
     @AppStorage("primuse.podcast.library.sort") private var sort = PodcastShowSort.recentlyUpdated
     private var store: PodcastStore { PodcastStore.shared }
@@ -793,6 +798,20 @@ struct PodcastShowsGrid: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             PodcastSectionHeader(titleKey: "podcast_my_shows") {
+                if let onManage {
+                    Button(action: onManage) {
+                        Text(String(
+                            format: String(localized: "home_radio_wall_manage %lld"),
+                            store.shows.count
+                        ))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(tint)
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("podcast.home.manage")
+                }
                 Menu {
                     Picker(selection: $sort) {
                         ForEach(PodcastShowSort.allCases, id: \.self) { option in

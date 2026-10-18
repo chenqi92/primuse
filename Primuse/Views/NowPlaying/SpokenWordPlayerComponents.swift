@@ -1024,6 +1024,44 @@ extension EnvironmentValues {
     }
 }
 
+/// 「播放页始终用深色」开着时由播放页外层放进环境,只有从播放页里弹出的页面看得到(#320)。
+private struct PlayerForcesDarkAppearanceKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var playerForcesDarkAppearance: Bool {
+        get { self[PlayerForcesDarkAppearanceKey.self] }
+        set { self[PlayerForcesDarkAppearanceKey.self] = newValue }
+    }
+}
+
+/// 从播放页弹出的页面(目录、队列、歌曲信息……)套上它。播放页强制深色时,弹出页跟着拿到白字,
+/// 弹出页的底和列表却跟着窗口还是浅色,字几乎看不见;这里把弹出页整页(底、列表、状态栏连同字)
+/// 都换成深色。没开「始终用深色」时什么也不加,照旧跟着 App 的外观。
+private struct PlayerPresentationColorScheme: ViewModifier {
+    @Environment(\.playerForcesDarkAppearance) private var forcesDark
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if forcesDark {
+            content
+                // 全屏效果页可能把环境换成了浅色,弹出页的字要和底一致。
+                .environment(\.colorScheme, .dark)
+                .preferredColorScheme(.dark)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// 见 `PlayerPresentationColorScheme`。
+    func playerPresentationColorScheme() -> some View {
+        modifier(PlayerPresentationColorScheme())
+    }
+}
+
 /// 文稿页自己的浅色 / 深色,与系统设置无关;「跟随系统」时随系统。
 enum SpokenWordTranscriptAppearance: String, CaseIterable, Identifiable {
     case system, light, dark
@@ -1186,7 +1224,7 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
 /// 点一段从那里播(暂停着也开始播)。顶上只有关闭与章节名,底下是进度与一排键:跟随播放 · 快退 · 播放 ·
 /// 快进 · 菜单;3 秒不碰就收起(暂停着也收),点空白处、暂停、拖进度时再出来,上下滑动默认不叫出来(可在设置里改)。
 /// 顶栏往下拖一段退出全屏。iPhone、iPad 上点屏幕左右两边只叫出或收起控件、不跳播,控件在时左右扫一下
-/// 退出全屏;控件收起时状态栏一起藏起来(同 Apple 图书)。
+/// 退出全屏(这两种拖法整页都跟着手指走,见 `SpokenWordTranscriptDismissDrag`);控件收起时状态栏一起藏起来(同 Apple 图书)。
 /// 菜单里是目录、搜索、主题与设置、语速,以及书签与字号。字幕可以并成段落读,也可以每一行一段(设置里选)。
 struct SpokenWordTranscriptReader: View {
     let lines: [LyricLine]
@@ -1197,6 +1235,8 @@ struct SpokenWordTranscriptReader: View {
 
     private typealias Policy = SpokenWordTranscriptReadingPolicy
     private typealias Row = SpokenWordTranscriptParagraphRow
+    /// 文稿那一屏自己的坐标空间:点段落的位置和 `viewportFrame` 都按它算。
+    private static let viewportSpace = "SpokenWordTranscriptViewport"
 
     private enum MenuAction { case contents, search, settings }
     private enum BookmarkNotice: Equatable { case added, exists }
@@ -1221,6 +1261,8 @@ struct SpokenWordTranscriptReader: View {
     @Environment(\.colorScheme) private var environmentColorScheme
     @Environment(\.appColorScheme) private var appColorScheme
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    /// 播放页全屏打开时外面那层给的跟手退出;没有时(Mac 的弹出页)照旧直接关。
+    @Environment(\.spokenWordTranscriptDismissDrag) private var dismissDrag
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontKey)
     private var fontRawValue = SpokenWordTranscriptFont.system.rawValue
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontWeightKey)
@@ -1270,6 +1312,9 @@ struct SpokenWordTranscriptReader: View {
     @State private var chromeActivity = 0
     @State private var isScrolling = false
     @State private var isScrubbing = false
+    /// 左右扫、顶栏下拉退出的途中。只在开始和松手时各写一次;这时控件不自己收起
+    /// (收起会停掉横扫手势,拖到一半的整页就弹回去了)。
+    @State private var isDraggingToClose = false
     @State private var isSearching = false
     @State private var searchText = ""
     /// 当前结果对应的搜索词;还在算新词的结果时不显示旧的命中数。
@@ -1282,7 +1327,8 @@ struct SpokenWordTranscriptReader: View {
     @State private var bookmarkNotice: BookmarkNotice?
     @State private var bookmarkFeedbackToken = 0
     @State private var hoverThrottle = SpokenWordTranscriptHoverThrottle()
-    /// 文稿那一屏在窗口里的位置,判断点在不在左右两边的点按区(`SpokenWordTranscriptEdgeTapPolicy`)。
+    /// 文稿那一屏的大小与位置,判断点在不在左右两边的点按区(`SpokenWordTranscriptEdgeTapPolicy`)。
+    /// 按文稿自己的坐标量:整页跟手横移、下拉时它不变,拖动时不会每帧写一次、整页重算。
     @State private var viewportFrame: CGRect = .zero
     #if os(iOS)
     /// 文稿顶上让出的高度:状态栏藏起来时安全区会变矮(没有刘海的 iPhone、iPad),正文不跟着往上跳,
@@ -1342,7 +1388,7 @@ struct SpokenWordTranscriptReader: View {
     /// 旁白开着、文稿是空的时候一直显示。
     private var chromeMayHide: Bool {
         !paragraphs.isEmpty && !voiceOverEnabled && !isSearching && !showsMenu && !showsSettings
-            && !showsContents && !isScrolling && !isScrubbing && bookmarkNotice == nil
+            && !showsContents && !isScrolling && !isScrubbing && !isDraggingToClose && bookmarkNotice == nil
     }
 
     var body: some View {
@@ -1526,7 +1572,7 @@ struct SpokenWordTranscriptReader: View {
                     .equatable()
                     .id(paragraph.id)
                     .contentShape(Rectangle())
-                    .onTapGesture(coordinateSpace: .global) { location in
+                    .onTapGesture(coordinateSpace: .named(Self.viewportSpace)) { location in
                         tapParagraph(paragraph, at: location)
                     }
                 }
@@ -1545,15 +1591,18 @@ struct SpokenWordTranscriptReader: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        // 点按位置按这一屏自己的坐标量(原来按窗口):整页跟手横移、下拉时窗口坐标每帧都在变。
+        .coordinateSpace(.named(Self.viewportSpace))
         .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .global)
+            // 就是上面那个坐标空间。
+            proxy.frame(in: .local)
         } action: { frame in
             viewportFrame = frame
         }
         #if os(iOS)
         // 左右扫只在控件出来时用来退出全屏;控件收着时不接手,叫出控件交给点左右两边。
-        .gesture(SpokenWordTranscriptSwipeGesture(isEnabled: !isSearching && chromeVisible) { translation, velocityX in
-            handleSwipe(translation: translation, velocityX: velocityX)
+        .gesture(SpokenWordTranscriptSwipeGesture(isEnabled: !isSearching && chromeVisible) { phase in
+            handleSwipe(phase)
         })
         #endif
         .onScrollPhaseChange { _, phase in
@@ -1710,24 +1759,46 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
-    /// 控件在时左右扫:扫得够远或够快退出全屏,轻扫只让控件多留一会儿,见 `SpokenWordTranscriptSwipePolicy`。
-    private func handleSwipe(translation: CGSize, velocityX: CGFloat) {
-        switch SpokenWordTranscriptSwipePolicy.outcome(
-            translationX: Double(translation.width),
-            translationY: Double(translation.height),
-            velocityX: Double(velocityX),
-            chromeVisible: chromeVisible
-        ) {
-        case .none:
-            break
-        case .revealChrome:
-            revealChrome()
-        case .dismiss:
-            dismiss()
+    #if os(iOS)
+    /// 控件在时左右扫:整页跟着手指横着走,露出底下的播放页;松手时扫得够远或够快就顺着那个方向滑出去、
+    /// 退出全屏,不够就弹回原处,轻扫只让控件多留一会儿,见 `SpokenWordTranscriptSwipePolicy`。
+    /// 跟手的位移只写进 `dismissDrag`,这一页不跟着每帧重算。
+    private func handleSwipe(_ phase: SpokenWordTranscriptSwipeGesture.Phase) {
+        switch phase {
+        case .began(let translation):
+            isDraggingToClose = true
+            dismissDrag?.follow(CGSize(width: translation.width, height: 0))
+        case .changed(let translation):
+            dismissDrag?.follow(CGSize(width: translation.width, height: 0))
+        case .cancelled:
+            isDraggingToClose = false
+            dismissDrag?.settle()
+        case .ended(let translation, velocityX: let velocityX):
+            isDraggingToClose = false
+            switch SpokenWordTranscriptSwipePolicy.outcome(
+                translationX: Double(translation.width),
+                translationY: Double(translation.height),
+                velocityX: Double(velocityX),
+                chromeVisible: chromeVisible
+            ) {
+            case .none:
+                dismissDrag?.settle()
+            case .revealChrome:
+                dismissDrag?.settle()
+                revealChrome()
+            case .dismiss:
+                if let dismissDrag {
+                    dismissDrag.close(translation.width < 0 ? .left : .right, velocity: velocityX)
+                } else {
+                    dismiss()
+                }
+            }
         }
     }
+    #endif
 
-    /// 顶上只有关闭键与章节名(菜单在底下那一排)。整条往下拖一段就退出全屏,和拉下一张卡片一样。
+    /// 顶上只有关闭键与章节名(菜单在底下那一排)。整条往下拖一段就退出全屏,和拉下一张卡片一样
+    /// (见 `SpokenWordTranscriptPullDown`)。
     @ViewBuilder
     private func topBar(palette: SpokenWordTranscriptPalette) -> some View {
         let showsBar = chromeVisible || isSearching
@@ -1751,15 +1822,14 @@ struct SpokenWordTranscriptReader: View {
                         .accessibilityHidden(true)
                 }
                 .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 12)
-                        .onChanged { _ in revealChrome() }
-                        .onEnded { value in
-                            let translation = value.translation
-                            guard translation.height > 60, abs(translation.width) < translation.height else { return }
-                            dismiss()
-                        }
-                )
+                .modifier(SpokenWordTranscriptPullDown(
+                    drag: dismissDrag,
+                    onPullingChange: { pulling in
+                        isDraggingToClose = pulling
+                        if pulling { revealChrome() }
+                    },
+                    onDismiss: { dismiss() }
+                ))
             }
         }
         .padding(.horizontal, 16)
@@ -2214,9 +2284,20 @@ struct SpokenWordTranscriptReader: View {
 #if os(iOS)
 /// 文稿上的左右扫,控件出来时用来退出全屏(见 `SpokenWordTranscriptSwipePolicy`)。UIKit 的拖动手势挂在文稿上:
 /// 只在横着走时接手,和文稿自己的上下滚动同时识别、互不抢;点段落、点空白处照旧。
+/// 认定是横扫之后每一步都报出来,整页跟着手指走;被打断(控件收起停掉了手势、来电)也报,好把整页放回原处。
 private struct SpokenWordTranscriptSwipeGesture: UIGestureRecognizerRepresentable {
+    enum Phase {
+        /// 认定是横扫,开始跟手。
+        case began(CGSize)
+        case changed(CGSize)
+        /// 松手:位移与横向速度(点/秒)。
+        case ended(CGSize, velocityX: CGFloat)
+        /// 被打断或没认成。
+        case cancelled
+    }
+
     let isEnabled: Bool
-    let onEnded: (_ translation: CGSize, _ velocityX: CGFloat) -> Void
+    let onPhase: (Phase) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
         Coordinator()
@@ -2238,9 +2319,21 @@ private struct SpokenWordTranscriptSwipeGesture: UIGestureRecognizerRepresentabl
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        guard recognizer.state == .ended, let view = recognizer.view else { return }
-        let translation = recognizer.translation(in: view)
-        onEnded(CGSize(width: translation.x, height: translation.y), recognizer.velocity(in: view).x)
+        // 整页跟着这个手势走,按窗口坐标量,不受整页自己的位移影响。
+        let point = recognizer.translation(in: nil)
+        let translation = CGSize(width: point.x, height: point.y)
+        switch recognizer.state {
+        case .began:
+            onPhase(.began(translation))
+        case .changed:
+            onPhase(.changed(translation))
+        case .ended:
+            onPhase(.ended(translation, velocityX: recognizer.velocity(in: nil).x))
+        case .cancelled, .failed:
+            onPhase(.cancelled)
+        default:
+            break
+        }
     }
 
     @MainActor
@@ -2265,6 +2358,204 @@ private struct SpokenWordTranscriptSwipeGesture: UIGestureRecognizerRepresentabl
             guard let scrollView = otherGestureRecognizer.view as? UIScrollView else { return false }
             return otherGestureRecognizer === scrollView.panGestureRecognizer
         }
+    }
+}
+#endif
+
+/// 全屏文稿跟手退出(#320)。左右扫、顶栏往下拉时整页跟着手指走,露出底下的播放页;松手够远就顺着那个方向
+/// 滑出屏幕,再不带动画地关掉全屏(不再走系统往下滑的那一下),不够就弹回原处。减弱动态效果时不跟手,
+/// 够远时原地淡出再关。
+///
+/// 每帧变的位移只有 `SpokenWordTranscriptDismissOffset` 读:文稿可能上千段,文稿页不能跟着每帧重算。
+/// 文稿页从环境里拿到的一直是同一个对象,只往里写,不读位移。
+@MainActor
+@Observable
+final class SpokenWordTranscriptDismissDrag {
+    enum Exit {
+        case left, right, down
+    }
+
+    private enum Phase {
+        case idle, following, closing
+    }
+
+    /// 整页此刻的位移与不透明度。
+    private(set) var offset: CGSize = .zero
+    private(set) var opacity: Double = 1
+    /// 滑出去(或淡出)走完了,外面那层据此关掉全屏。
+    private(set) var isClosed = false
+    @ObservationIgnored private var phase = Phase.idle
+    /// 整页连同安全区的大小,滑出去要走多远。
+    @ObservationIgnored var containerSize: CGSize = .zero
+    /// 减弱动态效果时为假:不跟手,关的时候淡出。
+    @ObservationIgnored var followsFinger = true
+
+    /// 拖动中:左右扫只给横向,顶栏下拉只给往下。
+    func follow(_ translation: CGSize) {
+        guard followsFinger, phase != .closing else { return }
+        phase = .following
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            offset = translation
+        }
+    }
+
+    /// 松手不关,或手势被打断:弹回原处。
+    func settle() {
+        guard phase == .following else { return }
+        phase = .idle
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            offset = .zero
+        }
+    }
+
+    /// 顺着 `exit` 那个方向滑出屏幕再关;`velocity` 是松手时那个轴上的速度(点/秒,带正负)。
+    func close(_ exit: Exit, velocity: CGFloat) {
+        guard phase != .closing else { return }
+        phase = .closing
+        guard followsFinger else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                opacity = 0
+            } completion: {
+                self.isClosed = true
+            }
+            return
+        }
+        let measured = max(containerSize.width, containerSize.height)
+        // 还没量到时也一定滑得出去。
+        let travel = (measured > 0 ? measured : 2000) + 1
+        let target: CGSize
+        let remaining: CGFloat
+        let speed: CGFloat
+        switch exit {
+        case .left:
+            target = CGSize(width: -travel, height: 0)
+            remaining = travel + offset.width
+            speed = -velocity
+        case .right:
+            target = CGSize(width: travel, height: 0)
+            remaining = travel - offset.width
+            speed = velocity
+        case .down:
+            target = CGSize(width: 0, height: travel)
+            remaining = travel - offset.height
+            speed = velocity
+        }
+        withAnimation(.easeOut(duration: Self.exitDuration(remaining: remaining, speed: speed))) {
+            offset = target
+        } completion: {
+            self.isClosed = true
+        }
+    }
+
+    /// 接着松手时的速度走:ease-out 起步约是平均速度的 1.7 倍。慢慢拖过去松手的、甩得飞快的,
+    /// 都落在 0.25–0.3 秒里。
+    private static func exitDuration(remaining: CGFloat, speed: CGFloat) -> Double {
+        guard remaining > 0, speed > 0 else { return 0.3 }
+        return min(max(Double(remaining / speed) * 1.7, 0.25), 0.3)
+    }
+}
+
+private struct SpokenWordTranscriptDismissDragKey: EnvironmentKey {
+    static let defaultValue: SpokenWordTranscriptDismissDrag? = nil
+}
+
+extension EnvironmentValues {
+    var spokenWordTranscriptDismissDrag: SpokenWordTranscriptDismissDrag? {
+        get { self[SpokenWordTranscriptDismissDragKey.self] }
+        set { self[SpokenWordTranscriptDismissDragKey.self] = newValue }
+    }
+}
+
+/// 全屏文稿顶栏往下拉退出:整页跟着往下走,拉过原来那段距离松手就接着滑下去再关,不够就弹回。
+/// 没有 `drag`(Mac 的弹出页)时不跟手,拉够了直接关,和原来一样。
+/// 被系统打断(来电、拉下通知中心)时拖动走不到 onEnded,靠 `isPulling` 复位把整页放回原处。
+private struct SpokenWordTranscriptPullDown: ViewModifier {
+    let drag: SpokenWordTranscriptDismissDrag?
+    /// 开始拉、拉完(或被打断)各报一次。
+    let onPullingChange: (Bool) -> Void
+    let onDismiss: () -> Void
+    @GestureState private var isPulling = false
+
+    func body(content: Content) -> some View {
+        content
+            .gesture(
+                // 整页跟着这个手势走,本地坐标会跟着手指一起动,改用全局坐标。
+                DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                    .updating($isPulling) { _, pulling, _ in
+                        pulling = true
+                    }
+                    .onChanged { value in
+                        drag?.follow(CGSize(width: 0, height: max(0, value.translation.height)))
+                    }
+                    .onEnded { value in
+                        let translation = value.translation
+                        guard translation.height > 60, abs(translation.width) < translation.height else {
+                            drag?.settle()
+                            return
+                        }
+                        if let drag {
+                            drag.close(.down, velocity: value.velocity.height)
+                        } else {
+                            onDismiss()
+                        }
+                    }
+            )
+            .onChange(of: isPulling) { _, pulling in
+                onPullingChange(pulling)
+                if !pulling { drag?.settle() }
+            }
+    }
+}
+
+#if os(iOS)
+/// 套在播放页全屏打开的文稿外面:给文稿页一个跟手退出用的 `SpokenWordTranscriptDismissDrag`,把全屏的底换成透明
+/// (整页挪开时露出下面的播放页;文稿页自己铺满了底色),滑出去之后不带动画地关掉全屏。
+struct SpokenWordTranscriptInteractiveDismiss: ViewModifier {
+    @Binding var isPresented: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drag = SpokenWordTranscriptDismissDrag()
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(SpokenWordTranscriptDismissOffset(drag: drag))
+            .environment(\.spokenWordTranscriptDismissDrag, drag)
+            .onGeometryChange(for: CGSize.self) { proxy in
+                CGSize(
+                    width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                    height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+                )
+            } action: { size in
+                drag.containerSize = size
+            }
+            .onChange(of: reduceMotion, initial: true) { _, reduce in
+                drag.followsFinger = !reduce
+            }
+            .onChange(of: drag.isClosed) { _, closed in
+                guard closed else { return }
+                // 整页已经滑出屏幕(或淡掉了),关全屏时不再走系统往下滑的那一下。改写弹出它的那个开关
+                // (不用环境里的 dismiss),事务里关掉动画。
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    isPresented = false
+                }
+            }
+            .presentationBackground(.clear)
+    }
+}
+
+/// 每帧只重算这一层:把跟手的位移和淡出套到整页上,文稿页本身不重建。
+private struct SpokenWordTranscriptDismissOffset: ViewModifier {
+    let drag: SpokenWordTranscriptDismissDrag
+
+    func body(content: Content) -> some View {
+        content
+            // 整页当一块挪,里面自己带动画的零件不各走各的。
+            .geometryGroup()
+            .offset(drag.offset)
+            .opacity(drag.opacity)
     }
 }
 #endif

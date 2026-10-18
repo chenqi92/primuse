@@ -131,10 +131,14 @@ struct StartListeningShelf: View {
         .foregroundStyle(PMColor.brand)
         .contentShape(Rectangle())
         #else
-        Text("home_section_view_all")
-            .font(.subheadline)
-            .foregroundStyle(.tint)
-            .contentShape(Rectangle())
+        // 和首页别的区块一样留灰,不跟主题色(主题跟随封面时会变成封面色)。
+        HStack(spacing: 5) {
+            Text("home_section_view_all")
+            Image(systemName: "chevron.right").font(.caption)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .contentShape(Rectangle())
         #endif
     }
 

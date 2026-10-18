@@ -690,3 +690,48 @@ public enum HomeFilterBarFitPolicy {
         return lastStep
     }
 }
+
+/// 首页筛到电台、有声、播客那一面时,左右划一下回到「全部」(#320)。
+///
+/// 只认明显横着起手的一划,竖着走留给页面滚动;按住停了一会儿才动的(长按菜单、书架拖动排序)不接。
+/// 往左往右一样:划得够远,或者够快又不是太短,就退出;松手前往回拉得快算反悔。
+public enum HomeFaceSwipePolicy {
+    /// 横向至少是纵向的这么多倍才算横划。
+    public static let horizontalDominanceRatio = 1.6
+    /// 手指刚动时,动了这么远或这么快才判断方向。
+    public static let minimumIntentDistance = 10.0
+    public static let minimumIntentVelocity = 60.0
+    /// 按下后过了这么久才开始动,是长按或拖动排序,不算划。
+    public static let maximumHoldBeforeMove: Double = 0.35
+    /// 退出:划过这么远,或者划得这么快且至少划过 `flickMinimumDistance`。
+    public static let exitDistance = 96.0
+    public static let exitVelocity = 700.0
+    public static let flickMinimumDistance = 40.0
+    /// 松手前往回拉得这么快,算是反悔了。
+    public static let reversalVelocity = 120.0
+
+    /// 手指刚动时:横着走、而且不是按住一会儿才动,才接手。
+    public static func shouldBegin(
+        translationX: Double,
+        translationY: Double,
+        velocityX: Double,
+        velocityY: Double,
+        heldBeforeMove: Double
+    ) -> Bool {
+        guard heldBeforeMove < maximumHoldBeforeMove else { return false }
+        let distance = hypot(translationX, translationY)
+        let speed = hypot(velocityX, velocityY)
+        guard distance >= minimumIntentDistance || speed >= minimumIntentVelocity else { return false }
+        let usesVelocity = speed >= minimumIntentVelocity
+        let horizontal = abs(usesVelocity ? velocityX : translationX)
+        let vertical = abs(usesVelocity ? velocityY : translationY)
+        return horizontal >= max(1, vertical * horizontalDominanceRatio)
+    }
+
+    /// 松手时退不退出这一面。
+    public static func exits(translationX: Double, velocityX: Double) -> Bool {
+        let distance = abs(translationX)
+        if translationX * velocityX < 0, abs(velocityX) >= reversalVelocity { return false }
+        return distance >= exitDistance || (abs(velocityX) >= exitVelocity && distance >= flickMinimumDistance)
+    }
+}

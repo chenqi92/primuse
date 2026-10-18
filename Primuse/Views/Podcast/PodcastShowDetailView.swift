@@ -211,11 +211,15 @@ struct PodcastShowDetailView: View {
 
     // MARK: - Header
 
+    /// 封面右边一栏:名字、主播、一行信息,底下是播放/订阅与两颗圆键;
+    /// 封面顶边对齐名字、底边对齐按钮(#320)。本地节目页同一套排法。
     private func header(_ show: PodcastShow, episodes: [PodcastEpisode]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 16) {
-                PodcastArtwork(show: show, size: 128, cornerRadius: 14)
-                    .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
+            SpokenWordHeaderRowLayout(preferredSide: PodcastHeaderMetrics.preferredSide, maximumSide: PodcastHeaderMetrics.maximumSide) {
+                SpokenWordHeaderArtworkSlot { side in
+                    PodcastArtwork(show: show, size: side, cornerRadius: 14)
+                        .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
+                }
                 VStack(alignment: .leading, spacing: 5) {
                     Text(show.title)
                         .font(.title3.weight(.bold))
@@ -232,11 +236,12 @@ struct PodcastShowDetailView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
+                    Spacer(minLength: 10)
+                    actionRow(show, episodes: episodes)
+                        .frame(maxWidth: PodcastHeaderMetrics.actionRowMaxWidth, alignment: .leading)
                 }
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-
-            actionRow(show, episodes: episodes)
 
             if let summary = PodcastShowNotes.plainSummary(show.summary, limit: 2_000) {
                 PodcastShowSummary(text: summary, isExpanded: $expandsSummary)
@@ -404,15 +409,15 @@ struct PodcastShowDetailView: View {
                     }
                     .pickerStyle(.inline)
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(ListeningSpace.podcast.tint)
-                        .frame(width: 36, height: 32)
-                        .contentShape(Rectangle())
+                    // 和本地节目页同一种排序键:图标后面写着现在按什么排。
+                    PodcastOrderMenuLabel(title: show.effectiveEpisodeOrder == .oldestFirst
+                        ? "podcast_order_oldest"
+                        : "podcast_order_newest")
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
+                .fixedSize()
                 .accessibilityLabel(Text("podcast_episode_order"))
             }
         }

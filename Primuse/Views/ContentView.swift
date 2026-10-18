@@ -2162,6 +2162,8 @@ struct PlayerOverlay: View {
                 .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
                 // 全屏文稿等页面「跟随系统」时看这个:播放页上面那行可能已把 colorScheme 换成深色。
                 .environment(\.appColorScheme, systemColorScheme)
+                // 播放页里弹出的页面据此整页换成深色(`playerPresentationColorScheme`),不然白字压在浅色底上。
+                .environment(\.playerForcesDarkAppearance, playerAlwaysDark)
                 .statusBarHidden(playerAlwaysDark && systemColorScheme == .light)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same

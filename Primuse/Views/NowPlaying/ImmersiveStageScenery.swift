@@ -134,6 +134,8 @@ struct ImmersiveStageNotice: View {
         .popover(isPresented: $showsDetail) {
             detailBubble
                 .presentationCompactAdaptation(.popover)
+                // 「播放页始终用深色」时气泡连同底一起深色,字不会白在浅底上。
+                .playerPresentationColorScheme()
         }
         #endif
     }
