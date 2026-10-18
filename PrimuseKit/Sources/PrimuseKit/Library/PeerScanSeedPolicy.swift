@@ -217,6 +217,18 @@ public enum PeerScanSeedPolicy {
         }
         return !wanted.isSubset(of: legacyKeptSourceIDs)
     }
+
+    /// 本机后来删掉(或认出用不上)的源,存着的那份不必等那台设备传新快照才清。清掉的
+    /// 要并进 `excludedAtInstall`,删掉又恢复时 `needsReinstall` 才知道要重下;旧版本的
+    /// 存法没有这份记录可记,不清。
+    public static func sourcesToDrop(
+        storedSourceIDs: [String],
+        excludedAtInstall: Set<String>?,
+        scope: PeerScanSeedScope
+    ) -> Set<String> {
+        guard excludedAtInstall != nil else { return [] }
+        return Set(storedSourceIDs).intersection(scope.excluded)
+    }
 }
 
 /// 一次整理别的设备结果的范围。

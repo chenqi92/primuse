@@ -151,15 +151,20 @@ actor PeerScanSeedStore {
             removeDevice(deviceID)
             state.devices[deviceID] = nil
         }
-        // 本机后来删掉的源,存着的结果不必等那台设备传新快照才清。
         for (deviceID, device) in state.devices {
-            let dropped = device.sourceIDs.filter { scope.excluded.contains($0) }
-            guard !dropped.isEmpty else { continue }
+            let excludedAtInstall = device.excludedSourceIDs.map(Set.init)
+            let dropped = PeerScanSeedPolicy.sourcesToDrop(
+                storedSourceIDs: device.sourceIDs,
+                excludedAtInstall: excludedAtInstall,
+                scope: scope
+            )
+            guard !dropped.isEmpty, let excludedAtInstall else { continue }
             let deviceDirectory = Self.deviceDirectory(deviceID, in: directory)
             for sourceID in dropped {
                 try? FileManager.default.removeItem(at: Self.sourceFileURL(sourceID, in: deviceDirectory))
             }
-            state.devices[deviceID]?.sourceIDs.removeAll { scope.excluded.contains($0) }
+            state.devices[deviceID]?.sourceIDs.removeAll { dropped.contains($0) }
+            state.devices[deviceID]?.excludedSourceIDs = excludedAtInstall.union(dropped).sorted()
         }
 
         let legacyKeptSourceIDs = Set(state.eligibleSourceIDs)

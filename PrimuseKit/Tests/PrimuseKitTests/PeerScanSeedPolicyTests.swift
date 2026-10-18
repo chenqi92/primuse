@@ -270,6 +270,29 @@ struct PeerScanSeedPolicyTests {
         ))
     }
 
+    @Test("A source deleted here is dropped from stored rows and fetched again once restored")
+    func dropThenRestore() {
+        let deleted = PeerScanSeedScope(wanted: ["nas"], excluded: ["emby", "smb"])
+        let dropped = PeerScanSeedPolicy.sourcesToDrop(
+            storedSourceIDs: ["nas", "smb"], excludedAtInstall: ["emby"], scope: deleted
+        )
+        #expect(dropped == ["smb"])
+        // 旧版本的存法没地方记,不清。
+        #expect(PeerScanSeedPolicy.sourcesToDrop(
+            storedSourceIDs: ["nas", "smb"], excludedAtInstall: nil, scope: deleted
+        ).isEmpty)
+        // 清掉时记下了,恢复后要用就重下。
+        let recorded = Set(["emby"]).union(dropped)
+        #expect(PeerScanSeedPolicy.needsReinstall(
+            storedModifiedAt: modified, uploadedModifiedAt: modified,
+            excludedAtInstall: recorded, legacyKeptSourceIDs: [], wanted: ["nas", "smb"]
+        ))
+        #expect(!PeerScanSeedPolicy.needsReinstall(
+            storedModifiedAt: modified, uploadedModifiedAt: modified,
+            excludedAtInstall: recorded, legacyKeptSourceIDs: [], wanted: ["nas"]
+        ))
+    }
+
     @Test("The scope keeps every source except ones known to be unusable here")
     func seedScope() {
         let sources = [
