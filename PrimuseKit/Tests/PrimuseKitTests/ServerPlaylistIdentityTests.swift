@@ -247,12 +247,12 @@ struct ServerPlaylistWritebackPolicyTests {
     @Test("Only sources with an append call can add to server playlists")
     func supportsAppendingSources() {
         let appending: [MusicSourceType] = [
-            .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation,
+            .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation, .fnMusic,
         ]
         for type in appending {
             #expect(ServerPlaylistWritebackPolicy.supports(type))
         }
-        for type in [MusicSourceType.fnMusic, .daoliyu, .tingReader, .smb, .webdav] {
+        for type in [MusicSourceType.daoliyu, .tingReader, .audiobookshelf, .smb, .webdav] {
             #expect(!ServerPlaylistWritebackPolicy.supports(type))
         }
     }
@@ -296,8 +296,12 @@ struct ServerPlaylistWritebackPolicyTests {
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/a/b.flac", sourceType: .emby) == nil)
     }
 
-    @Test("Song IDs come from each source's own track paths for Songloft and Audio Station")
+    @Test("Song IDs come from each source's own track paths for Songloft, Audio Station and fnMusic")
     func extractsSongloftAndAudioStationSongIDs() {
+        #expect(ServerPlaylistWritebackPolicy.songID(
+            fromConnectorPath: "/fnmusic/tracks/track_ab12.flac",
+            sourceType: .fnMusic
+        ) == "track_ab12")
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songloft/songs/42.flac", sourceType: .songloft) == "42")
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/42.flac", sourceType: .songloft) == nil)
         #expect(ServerPlaylistWritebackPolicy.songID(

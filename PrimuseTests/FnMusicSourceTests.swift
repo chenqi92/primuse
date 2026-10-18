@@ -692,6 +692,27 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertTrue(removed.itemIDs.isEmpty)
     }
 
+    /// 加歌只发还没在歌单里的,歌单与曲目 GUID 原样放进正文,加完按回读的明细确认。
+    func testAppendToPlaylistPostsOnlyMissingTracksAndConfirmsByReadBack() async throws {
+        let source = makeSource()
+        let playlist = try await source.appendToServerPlaylist(
+            id: "playlist",
+            itemIDs: ["song", "song-2", "song-3", "song-2"]
+        )
+        XCTAssertEqual(playlist.trackIDs, ["song", "song-2", "song-3"])
+        XCTAssertEqual(playlist.name, "Playlist")
+        let sourceID = await source.sourceID
+        let bodies = FnMusicSourceURLProtocol.addTrackBodies(host: sourceID)
+        XCTAssertEqual(bodies.count, 1)
+        let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(bodies.first)) as? [String: Any])
+        XCTAssertEqual(payload["guid"] as? String, "playlist")
+        XCTAssertEqual(payload["trackGUIDs"] as? [String], ["song-2", "song-3"])
+
+        // 全都已在歌单里就不再写。
+        _ = try await source.appendToServerPlaylist(id: "playlist", itemIDs: ["song-3"])
+        XCTAssertEqual(FnMusicSourceURLProtocol.addTrackBodies(host: sourceID).count, 1)
+    }
+
     func testMirrorPreservesFailedDetailsAndPrunesOnlyDeletedPlaylistsFromTheSameSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("FnMusicMirror-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1028,6 +1049,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var playlists: [[String: Any]] = [["guid": "playlist", "name": "Playlist", "trackCount": 1]]
         var deletedPlaylistIDs: Set<String> = []
         var playlistRequests = 0
+        var playlistTracks: [String: [String]] = [:]
+        var addTrackBodies: [Data] = []
     }
     nonisolated(unsafe) private static var states: [String: State] = [:]
     private let responseLock = NSLock()
@@ -1044,6 +1067,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     static func loginCount(host: String) -> Int { lock.withLock { states[host]?.logins ?? 0 } }
     static func logoutCount(host: String) -> Int { lock.withLock { states[host]?.logouts ?? 0 } }
     static func playlistRequestCount(host: String) -> Int { lock.withLock { states[host]?.playlistRequests ?? 0 } }
+    static func addTrackBodies(host: String) -> [Data] { lock.withLock { states[host]?.addTrackBodies ?? [] } }
     static func setPlaylists(_ playlists: [[String: Any]], deletedIDs: Set<String> = [], host: String) {
         lock.withLock {
             states[host]?.playlists = playlists
@@ -1054,22 +1078,22 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url else { return }
+        let body: Data
+        if let data = request.httpBody {
+            body = data
+        } else if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var result = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                result.append(buffer, count: count)
+            }
+            body = result
+        } else { body = Data() }
         if url.path == "/api/v1/fn/con" {
-            let body: Data
-            if let data = request.httpBody {
-                body = data
-            } else if let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var result = Data()
-                var buffer = [UInt8](repeating: 0, count: 1024)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    guard count > 0 else { break }
-                    result.append(buffer, count: count)
-                }
-                body = result
-            } else { body = Data() }
             let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: String]
             guard let fnID = payload?["fnId"] else { return }
             let delay = Self.lock.withLock { Self.states[fnID]?.discoveryDelay ?? 0 }
@@ -1119,7 +1143,19 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 if state.deletedPlaylistIDs.contains(playlistID) {
                     return (404, jsonHeaders, json(["code": 404, "msg": "Playlist deleted"]))
                 }
-                return (200, jsonHeaders, page([["guid": "song"]]))
+                return (200, jsonHeaders, page((state.playlistTracks[playlistID] ?? ["song"]).map { ["guid": $0] }))
+            case "add-track":
+                state.addTrackBodies.append(body)
+                let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+                let playlistID = payload?["guid"] as? String ?? ""
+                let added = payload?["trackGUIDs"] as? [String] ?? []
+                state.playlistTracks[playlistID, default: ["song"]].append(contentsOf: added)
+                let count = state.playlistTracks[playlistID]?.count ?? 0
+                state.playlists = state.playlists.map { entry in
+                    guard entry["guid"] as? String == playlistID else { return entry }
+                    return entry.merging(["trackCount": count]) { _, new in new }
+                }
+                return (200, jsonHeaders, json(["code": 0, "data": NSNull()]))
             case "list" where url.path.contains("/favorite-track/"):
                 return (200, jsonHeaders, page(state.favorite ? [["guid": "song"]] : []))
             case "create", "delete":

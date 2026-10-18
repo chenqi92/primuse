@@ -2362,7 +2362,7 @@ extension ServerPlaylistConnector {
 
 /// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`、Emby / Jellyfin
 /// `POST /Playlists/{id}/Items`、Plex `PUT /playlists/{id}/items`、Songloft
-/// `POST /playlists/{id}/songs`、Audio Station `updatesongs`)。只追加, 不删不排序 ——
+/// `POST /playlists/{id}/songs`、Audio Station `updatesongs`、飞牛 `/playlist/add-track`)。只追加, 不删不排序 ——
 /// 镜像歌单其余的编辑仍以服务端为准。返回追加后服务端的完整明细, 调用方用它
 /// 直接刷新本地镜像。
 protocol ServerPlaylistAppendingConnector: MusicSourceConnector {

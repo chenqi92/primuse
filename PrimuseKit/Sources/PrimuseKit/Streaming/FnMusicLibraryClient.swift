@@ -110,6 +110,16 @@ public struct FnMusicLibraryClient: Sendable {
         }
     }
 
+    /// 按 GUID 读一个歌单(名字、封面与曲目),往歌单里加歌前后各读一次。歌单清单不分页,
+    /// 一次请求就能找到它;不在清单里就是被删了。
+    public func playlist(id: String) async throws -> FnMusicPlaylist {
+        let index = try await playlistIndex(diagnosticLogger: nil)
+        guard let summary = index.summaries.first(where: { $0.id == id }) else {
+            throw Self.invalidResponse("/playlist/list does not contain playlist \(id)")
+        }
+        return FnMusicPlaylist(summary: summary, tracks: try await playlistTracks(summary))
+    }
+
     fileprivate struct PlaylistTracks {
         var ids: [String]
         var listed: Int

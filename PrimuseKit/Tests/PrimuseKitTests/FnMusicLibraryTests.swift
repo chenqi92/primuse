@@ -36,6 +36,24 @@ struct FnMusicLibraryTests {
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
     }
 
+    /// 加歌前后按 GUID 读单个歌单：只读它自己的明细，歌单清单里没有就报错，不当成空歌单。
+    @Test func singlePlaylistIsReadByGUIDWithoutTouchingOthers() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "One"], ["guid": "p2", "name": "Two"]], total: 2)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1, list: [["guid": "s1"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p2", page: 1, list: [["guid": "s2"], ["guid": "s3"]], total: 2)
+        let (client, _, _) = fixture.clients()
+
+        let playlist = try await client.library.playlist(id: "p2")
+        #expect(playlist.name == "Two")
+        #expect(playlist.trackIDs == ["s2", "s3"])
+        let details = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
+        #expect(details.count == 1)
+        await #expect(throws: (any Error).self) {
+            try await client.library.playlist(id: "gone")
+        }
+    }
+
     @Test(arguments: [0, 401])
     func reconciliationStillRecoversTransportAndAuthenticationFailures(status: Int) async throws {
         let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": status == 0 ? 1 : 2], detailFailureStatus: status)

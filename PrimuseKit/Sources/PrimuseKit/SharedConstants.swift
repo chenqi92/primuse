@@ -1754,8 +1754,8 @@ public enum ServerPlaylistIdentity {
 ///
 /// Only these implement an append call: the Subsonic family (`updatePlaylist`
 /// with `songIdToAdd`), Emby/Jellyfin (`POST /Playlists/{id}/Items`), Plex
-/// (`PUT /playlists/{id}/items`), Songloft (`POST /playlists/{id}/songs`) and
-/// Synology Audio Station (`updatesongs` at offset -1).
+/// (`PUT /playlists/{id}/items`), Songloft (`POST /playlists/{id}/songs`),
+/// Synology Audio Station (`updatesongs` at offset -1) and fnMusic (`/playlist/add-track`).
 /// The rest of a mirror stays read-only: removals and reorders
 /// would be overwritten by the next sync. Song IDs are only meaningful on the
 /// server they came from, so a song can go into a mirror of its own source only.
@@ -1766,7 +1766,7 @@ public enum ServerPlaylistWritebackPolicy {
 
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation:
+        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation, .fnMusic:
             return true
         default:
             return false
@@ -1792,8 +1792,8 @@ public enum ServerPlaylistWritebackPolicy {
     ) -> String? {
         guard supports(sourceType) else { return nil }
         switch sourceType {
-        case .emby, .jellyfin, .plex, .songloft:
-            // MediaServerSource's `/items/<id>.<ext>` paths and Songloft's own track paths.
+        case .emby, .jellyfin, .plex, .songloft, .fnMusic:
+            // MediaServerSource's `/items/<id>.<ext>` paths, Songloft's and fnMusic's own track paths.
             return ServerFavoriteWritebackPolicy.songID(
                 fromConnectorPath: filePath,
                 sourceType: sourceType

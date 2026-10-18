@@ -5,7 +5,7 @@ import PrimuseKit
 /// The legacy `.fnos` NAS placeholder remains separate so old source records
 /// are never reinterpreted as a server-side music library.
 actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, ServerScrobblingConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector, MediaServerWritebackConnector {
+    ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerFavoriteConnector, MediaServerWritebackConnector {
     let sourceID: String
 
     private let api: FnMusicAPI
@@ -503,6 +503,32 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             failedPlaylistIDs: snapshot.failedPlaylistIDs,
             isIndexComplete: snapshot.isIndexComplete
         )
+    }
+
+    /// 网页端加歌之前不查歌单里有没有,服务端去不去重也没证实:先读一次明细只加还不在里面的,
+    /// 加完再读一次,每首都在才算成功。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        let current = try await libraryClient.playlist(id: id)
+        var seen = Set(current.trackIDs)
+        let missing = itemIDs.filter { seen.insert($0).inserted }
+        guard !missing.isEmpty else { return Self.serverPlaylist(current) }
+        try await connect()
+        var offset = 0
+        while offset < missing.count {
+            try Task.checkCancellation()
+            let chunk = Array(missing[offset..<min(offset + 100, missing.count)])
+            do {
+                try await api.addTracks(chunk, toPlaylist: id)
+            } catch SourceError.authenticationFailed {
+                // 会话失效时服务端没有执行这次写入,重新登录后再发一次。
+                try await connect()
+                try await api.addTracks(chunk, toPlaylist: id)
+            }
+            offset += chunk.count
+        }
+        let refreshed = try await libraryClient.playlist(id: id)
+        guard Set(refreshed.trackIDs).isSuperset(of: missing) else { throw ServerPlaylistAppendError.notConfirmed }
+        return Self.serverPlaylist(refreshed)
     }
 
     private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {

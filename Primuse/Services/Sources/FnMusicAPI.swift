@@ -278,6 +278,13 @@ actor FnMusicAPI {
         return FnMusicLyricSelection.select(payload: payload)?.text
     }
 
+    /// 往歌单里加歌(网页端 `/playlist/add-track`,歌单与曲目 GUID 都原样传)。加歌不是幂等的:
+    /// 回复丢了不能换一条 FN Connect 线路再发一次。
+    func addTracks(_ trackGUIDs: [String], toPlaylist playlistGUID: String) async throws {
+        _ = try await requestJSONOnce(method: "POST", path: "/playlist/add-track", queryItems: [],
+            body: ["guid": playlistGUID, "trackGUIDs": trackGUIDs], includeCookie: true, cookieToken: nil)
+    }
+
     func libraryPayload(_ request: FnMusicLibraryRequest) async throws -> Data {
         let payload = try await requestJSON(
             method: request.method, path: request.path, queryItems: request.queryItems,
