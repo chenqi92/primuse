@@ -14205,8 +14205,16 @@ final class MusicLibrary {
     /// 在前: 歌曲按 id 取并集, 同一首以前面的设备为准; 封面按键取并集, 合计不超过
     /// 一份快照的封面预算; 歌单、智能歌单、最近播放、墓碑这些用户状态沿用
     /// `mergingSnapshotUserState` 的版本规则, 不看是哪台设备传的。
-    nonisolated static func mergingDeviceSnapshots(_ payloads: [Data]) throws -> Data {
+    ///
+    /// 每台设备上传的快照各自不超过 `byteLimit`, 合起来却可能超过 (几台设备的曲库各不相同)。
+    /// 加进某台较早的设备后超了上限, 就跳过这台、接着看更早的, 电视至少拿到最新那台的曲库,
+    /// 而不是整份同步失败、什么都没有。
+    nonisolated static func mergingDeviceSnapshots(
+        _ payloads: [Data],
+        byteLimit: Int = .max
+    ) throws -> (data: Data, skippedDeviceCount: Int) {
         guard var mergedData = payloads.first else { throw CocoaError(.fileReadCorruptFile) }
+        var skippedDeviceCount = 0
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let encoder = JSONEncoder()
@@ -14247,14 +14255,18 @@ final class MusicLibrary {
                     + overrides.filter { known.insert($0.owner.storageKey).inserted }
             }
 
-            mergedData = try encoder.encode(merged)
-            mergedData = try mergingSnapshotUserState(
+            let candidate = try mergingSnapshotUserState(
                 localData: olderData,
-                incomingData: mergedData,
+                incomingData: try encoder.encode(merged),
                 locallyRetainedSongIDs: []
             )
+            guard candidate.count <= byteLimit else {
+                skippedDeviceCount += 1
+                continue
+            }
+            mergedData = candidate
         }
-        return mergedData
+        return (mergedData, skippedDeviceCount)
     }
 
     nonisolated static func mergingSnapshotUserState(

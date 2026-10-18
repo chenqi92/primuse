@@ -2483,9 +2483,17 @@ final class LibrarySnapshotSync: Sendable {
                         return nil
                     }
                 }
-                let rawLibrary = libraries.count == 1
-                    ? libraries[0].library
-                    : try MusicLibrary.mergingDeviceSnapshots(libraries.map(\.library))
+                var rawLibrary = libraries[0].library
+                if libraries.count > 1 {
+                    let merged = try MusicLibrary.mergingDeviceSnapshots(
+                        libraries.map(\.library),
+                        byteLimit: Self.maxLibraryRawBytes
+                    )
+                    rawLibrary = merged.data
+                    if merged.skippedDeviceCount > 0 {
+                        plog("TV snapshot download: merged library over limit, skippedDevices=\(merged.skippedDeviceCount) limit=\(Self.maxLibraryRawBytes) bytes=\(rawLibrary.count) devices=\(libraries.count)")
+                    }
+                }
                 // 「未找到曲库快照」以前可能是下面任何一条静默返回;逐条说清是哪一条。
                 guard rawLibrary.count <= Self.maxLibraryRawBytes else {
                     plog("TV snapshot download: merged library too large bytes=\(rawLibrary.count) limit=\(Self.maxLibraryRawBytes) devices=\(libraries.count)")

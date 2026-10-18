@@ -205,6 +205,37 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
 
     /// 远超传输上限的曲库: 快照不再带歌, 歌由增量库保存; 重开照样读回全部歌曲,
     /// 而传给其它设备的入口拒绝这种快照。
+    /// 几台设备的快照各自没超上限、合起来超了：跳过放不下的那台较早的设备，接着合更早的，
+    /// 不让整份同步失败（电视上显示成「未找到曲库快照」）。
+    func testDeviceSnapshotMergeSkipsOlderDevicesThatWouldExceedTheLimit() throws {
+        func snapshot(_ ids: [String]) throws -> Data {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let songs = try JSONSerialization.jsonObject(with: encoder.encode(ids.map { Self.makeSong(id: $0) }))
+            return try JSONSerialization.data(withJSONObject: ["songs": songs, "playlists": [Any]()])
+        }
+        func songIDs(_ data: Data) throws -> Set<String> {
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let songs = try XCTUnwrap(object["songs"] as? [[String: Any]])
+            return Set(songs.compactMap { $0["id"] as? String })
+        }
+        let newest = try snapshot((0..<40).map { "new-\($0)" })
+        let large = try snapshot((0..<400).map { "large-\($0)" })
+        let small = try snapshot((0..<10).map { "small-\($0)" })
+
+        let bounded = try MusicLibrary.mergingDeviceSnapshots([newest, large, small], byteLimit: newest.count * 2)
+        XCTAssertEqual(bounded.skippedDeviceCount, 1)
+        XCTAssertLessThanOrEqual(bounded.data.count, newest.count * 2)
+        let boundedIDs = try songIDs(bounded.data)
+        XCTAssertEqual(boundedIDs.filter { $0.hasPrefix("new-") }.count, 40)
+        XCTAssertEqual(boundedIDs.filter { $0.hasPrefix("small-") }.count, 10)
+        XCTAssertTrue(boundedIDs.allSatisfy { !$0.hasPrefix("large-") })
+
+        let unbounded = try MusicLibrary.mergingDeviceSnapshots([newest, large, small])
+        XCTAssertEqual(unbounded.skippedDeviceCount, 0)
+        XCTAssertEqual(try songIDs(unbounded.data).count, 450)
+    }
+
     func testVeryLargeLibrariesKeepSongsOutOfThePortableSnapshot() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
