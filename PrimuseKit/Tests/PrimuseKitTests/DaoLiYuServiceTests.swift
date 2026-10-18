@@ -387,7 +387,8 @@ import Testing
     let report = try #require(reports.first)
     #expect(report.method == "POST")
     #expect(report.contentType == "application/json")
-    let json = try #require(try JSONSerialization.jsonObject(with: try #require(report.body)) as? [String: [String]])
+    let body = try #require(report.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: [String]])
     #expect(json == ["trackIds": ["trk_1", "trk_2"]])
     await #expect(throws: (any Error).self) {
         try await client.addTracks([], toPlaylist: "pl_1")
