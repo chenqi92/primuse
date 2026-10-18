@@ -61,6 +61,12 @@ final class WatchSessionBridge: NSObject {
     private var lastQueueSnapshotRevision: Int?
     private var queueDeliveryRetryNotBefore: Date?
     private var queueDeliveryFailureCount = 0
+    /// 排队投递的队列快照编号。新快照排进去时撤掉还没送出的旧快照,
+    /// 撤掉那条的回调不算投递失败。
+    private var queueTransferSequence = 0
+    /// watch 一次启动会连发好几次 requestState (激活、可达性变化、页面出现),
+    /// 合并成一次回应, 不然每次都把整份队列和封面重发一遍。
+    private var stateRequestResponseTask: Task<Void, Never>?
     /// 当前歌曲的歌词缓存 (换歌时异步刷新, tick 从这里 sync 查找)。
     /// MetadataAssetStore.lyrics(named:) 是 actor-isolated 不能 sync 调,
     /// 所以预读到 bridge 自己的内存里。
@@ -400,6 +406,14 @@ final class WatchSessionBridge: NSObject {
         ]
         plog("⌚️ pushQueueDigest sent=\(snapshot.songIDs.count)/\(snapshot.totalCount) bytes~\(snapshot.estimatedPayloadBytes) truncated=\(snapshot.isTruncated) reachable=\(session.isReachable)")
 
+        // 排队投递条条都会送到, 不像 applicationContext 只留最新: 还没送出的旧快照
+        // 已经过时, 留着会晚于这次的新快照到达, 把 watch 上的列表盖回旧的。
+        for transfer in session.outstandingUserInfoTransfers
+        where transfer.userInfo["libraryKind"] as? String == "queue" {
+            transfer.cancel()
+        }
+        queueTransferSequence &+= 1
+
         // 投递确认前不更新 lastLibraryHash ── sendMessage 失败时回滚 (置 0,
         // 下个 tick 重发), 否则失败的这版队列永远不会重发。
         if session.isReachable {
@@ -409,7 +423,9 @@ final class WatchSessionBridge: NSObject {
         } else {
             // 不可达: 排队投递。watch 端 didReceiveUserInfo 同样能消化。
             // transferUserInfo 失败由 session(_:didFinish:error:) 统一回滚重试。
-            _ = session.transferUserInfo(payload)
+            var queued = payload
+            queued["queueSequence"] = queueTransferSequence
+            _ = session.transferUserInfo(queued)
         }
         lastLibraryHash = snapshot.digest
         lastQueueSnapshotRevision = queueRevision
@@ -597,8 +613,11 @@ extension WatchSessionBridge: WCSessionDelegate {
                              didFinish userInfoTransfer: WCSessionUserInfoTransfer,
                              error: Error?) {
         let isQueue = userInfoTransfer.userInfo["libraryKind"] as? String == "queue"
+        let sequence = userInfoTransfer.userInfo["queueSequence"] as? Int
         Task { @MainActor in
             guard isQueue else { return }
+            // 被新快照撤掉的旧快照, 成败都不影响新的那条。
+            guard sequence == nil || sequence == Self.shared.queueTransferSequence else { return }
             if let error {
                 plog("⌚️ transferUserInfo didFinish error: \(error.localizedDescription) isQueue=true")
                 Self.shared.recordQueueDeliveryFailure()
@@ -687,10 +706,17 @@ extension WatchSessionBridge: WCSessionDelegate {
             // watch 主动拉状态 (冷启动 / 重新可达 / 前台) ── 视为 watch 端
             // 缓存全失效: 清空封面去重戳强制补发封面, 清空 library hash 强制
             // 重发队列。否则正在播歌时打开 watch 只能看到占位渐变。
-            lastSentCoverSongID = nil
-            lastLibraryHash = 0
-            pushIfMeaningfulChange(force: true)
-            pushLibraryDigest()
+            // 0.3 秒内接连到的几次合成一次回应。
+            guard stateRequestResponseTask == nil else { return }
+            stateRequestResponseTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self else { return }
+                self.stateRequestResponseTask = nil
+                self.lastSentCoverSongID = nil
+                self.lastLibraryHash = 0
+                self.pushIfMeaningfulChange(force: true)
+                self.pushLibraryDigest()
+            }
             return
         case "playSong":
             guard let id = cmd.songID, let library else { return }
