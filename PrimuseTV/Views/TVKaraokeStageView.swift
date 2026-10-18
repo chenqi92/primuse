@@ -282,13 +282,11 @@ struct TVKaraokeStageContent: View {
                 if session.localAIEnabled {
                     localAIStatus
                 } else {
-                    // 打开前先说清楚：电视自己分离，第一次要准备模型，不顺利就会很慢，
-                    // 想快可以交给手机。
+                    // 打开前先说清楚：电视自己分离只能走 CPU，很慢，想快可以交给手机。
                     Text(String(localized: "karaoke_tv_ai_local_hint"))
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                    cpuFallbackNote
                     if session.separation.modelState == .notDownloaded {
                         Text(String(format: String(localized: "karaoke_ai_download_on_enable_format"), modelSize))
                             .tvFont(.caption)
@@ -320,7 +318,6 @@ struct TVKaraokeStageContent: View {
                 switch session.separation.state(for: song) {
                 case .separating(let fraction):
                     aiProgress(separatingTitle(songID: song.id), fraction: fraction)
-                    cpuFallbackNote
                 case .failed:
                     aiRetry
                     if let reason = session.separation.songFailureReasons[song.id] {
@@ -333,7 +330,6 @@ struct TVKaraokeStageContent: View {
                         .tvFont(.caption)
                 case .idle:
                     Text(String(localized: "karaoke_ai_preparing")).tvFont(.caption)
-                    cpuFallbackNote
                 }
             }
         case .notDownloaded, .unsupportedSystem:
@@ -346,17 +342,6 @@ struct TVKaraokeStageContent: View {
         return session.separation.runsModelOnCPU
             ? String(localized: "karaoke_ai_separating_slow")
             : String(localized: "karaoke_ai_separating")
-    }
-
-    /// 上次准备模型时出了错、这个系统版本上改走慢的那条路时，说明为什么慢、什么时候会再试。
-    @ViewBuilder
-    private var cpuFallbackNote: some View {
-        if session.separation.runsModelOnCPU {
-            Text(String(localized: "karaoke_ai_cpu_fallback"))
-                .tvFont(.caption)
-                .foregroundStyle(TVColor.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 
     private func aiProgress(_ title: String, fraction: Double) -> some View {

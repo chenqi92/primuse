@@ -5136,7 +5136,7 @@
 "karaoke_remote_failed" = "连不上 Apple TV，请确认两台设备在同一个网络。";
 "karaoke_remote_hint" = "把 iPhone 拿在嘴边。歌声照常唱给房间里的人听，手机只负责打分。";
 "karaoke_tv_ai_local" = "Apple TV 本机 AI 分离";
-"karaoke_tv_ai_local_hint" = "由这台 Apple TV 自己分离人声。第一次要先为它准备模型，准备不成功会改用较慢的方式，一首歌可能要分离很久。想快一点，可以扫码用 iPhone 当麦克风，让 iPhone 来分离。";
+"karaoke_tv_ai_local_hint" = "由这台 Apple TV 自己分离人声。Apple TV 上只能用较慢的方式分离，一首歌可能要分离很久。想快一点，可以扫码用 iPhone 当麦克风，让 iPhone 来分离。";
 "karaoke_tv_ai_active" = "已使用 iPhone 提供的 AI 人声分离。";
 "karaoke_tv_ai_preparing_format" = "iPhone 正在分离人声… %d%%";
 "karaoke_remote_ai_preparing" = "正在为电视准备 AI 人声";

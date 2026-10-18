@@ -125,6 +125,10 @@ enum KaraokeVocalModel {
 /// A load still marked as running when an earlier process ended is taken
 /// to be that abort: from then on, until the system is updated, the model
 /// runs on the CPU only, which never builds the GPU part.
+///
+/// Apple TV skips the GPU altogether. Every GPU load seen there aborted
+/// (1.11.3 (101) and 1.11.5 (106), tvOS 27.0), and none ever returned, so
+/// the mark above only meant one crash per Apple TV and system version.
 enum KaraokeModelLoadGuard {
     private static let pendingKey = "karaokeModelLoadPending"
     private static let cpuOnlySystemKey = "karaokeModelCPUOnlySystem"
@@ -136,6 +140,9 @@ enum KaraokeModelLoadGuard {
     /// process left first, so the answer is right from launch, before the
     /// next load.
     static func runsOnCPUOnly() -> Bool {
+        #if os(tvOS)
+        return true
+        #else
         let defaults = UserDefaults.standard
         let system = ProcessInfo.processInfo.operatingSystemVersionString
         if let pending = defaults.dictionary(forKey: pendingKey) as? [String: String],
@@ -146,16 +153,21 @@ enum KaraokeModelLoadGuard {
             plog("⚠️ Karaoke: the vocal model load on \(system) never returned last time; loading it on the CPU only until the system is updated")
         }
         return defaults.string(forKey: cpuOnlySystemKey) == system
+        #endif
     }
 
     /// Marks a load as running and returns the compute units it may use.
     static func beginLoad() -> MLComputeUnits {
+        #if os(tvOS)
+        return .cpuOnly
+        #else
         let cpuOnly = runsOnCPUOnly()
         UserDefaults.standard.set(
             ["system": ProcessInfo.processInfo.operatingSystemVersionString, "process": processToken],
             forKey: pendingKey
         )
         return cpuOnly ? .cpuOnly : .cpuAndGPU
+        #endif
     }
 
     /// The load returned, with the model or with an error.

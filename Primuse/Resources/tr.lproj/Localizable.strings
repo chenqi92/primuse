@@ -4949,7 +4949,7 @@
 "karaoke_remote_failed" = "Apple TV’ye ulaşılamadı. İki cihazın da aynı ağda olduğundan emin olun.";
 "karaoke_remote_hint" = "iPhone’u ağzınıza yakın tutun. Sesiniz odada her zamanki gibi duyulur; iPhone yalnızca puanlar.";
 "karaoke_tv_ai_local" = "Apple TV’de yapay zekâ ile ayrıştırma";
-"karaoke_tv_ai_local_hint" = "Bu Apple TV vokali kendisi ayırır. İlk seferde modeli hazırlaması gerekir; bu başarısız olursa daha yavaş bir yönteme geçer ve bir şarkı uzun sürebilir. Daha hızlı olması için kodu tarayıp iPhone’u mikrofon olarak kullanın ve ayırma işini iPhone yapsın.";
+"karaoke_tv_ai_local_hint" = "Bu Apple TV vokali kendisi ayırır. Apple TV’de yalnızca daha yavaş bir yöntem kullanılabildiği için bir şarkı uzun sürebilir. Daha hızlı olması için kodu tarayıp iPhone’u mikrofon olarak kullanın ve ayırma işini iPhone yapsın.";
 "karaoke_tv_ai_active" = "iPhone’dan gelen yapay zekâ vokal ayırma açık.";
 "karaoke_tv_ai_preparing_format" = "iPhone vokali ayırıyor… %%%d";
 "karaoke_remote_ai_preparing" = "TV için yapay zekâ vokali";
