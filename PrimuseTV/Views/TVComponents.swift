@@ -370,6 +370,10 @@ struct TVLibraryRemovalConfirmation: ViewModifier {
 struct TVAlbumCard: View {
     @State private var pendingMedleyIDs: [String]?
     @State private var pendingRemoval: TVLibraryRemovalRequest?
+    /// 按下打开专辑页时那一下「掀开 CD 盒」(见 `TVJewelCaseMotion`)。
+    @State private var casePhase = CasePhase.closed
+    @State private var openingTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let album: TVAlbum
     var width: CGFloat = 240
     var titleOverride: String? = nil
@@ -385,11 +389,14 @@ struct TVAlbumCard: View {
     var focusID: String? = nil
     @Environment(TVStore.self) private var store
 
+    /// closed:平时;ready:盒子里面刚建好、盖子还合着;open:盖子掀开、盘滑出来。
+    private enum CasePhase { case closed, ready, open }
+
     var body: some View {
         TVFocusButton(ring: false,
                       action: {
                           if let onOpen {
-                              onOpen()
+                              openCase(then: onOpen)
                           } else {
                               store.play(album: album)
                               action()
@@ -400,7 +407,23 @@ struct TVAlbumCard: View {
                       focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVArtworkView(album: album, size: width)
+                    .overlay {
+                        Color.black.opacity(casePhase == .open ? TVJewelCaseMotion.lidShade : 0)
+                    }
                     .tvCardFocus(focused, radius: TVRadius.cover)
+                    // 封面就是盒盖:铰链在左边,掀开时右沿朝人转过来,露出底下的盒子和盘。
+                    .rotation3DEffect(
+                        .degrees(casePhase == .open ? TVJewelCaseMotion.lidAngle : 0),
+                        axis: (x: 0, y: 1, z: 0),
+                        anchor: .leading,
+                        perspective: TVJewelCaseMotion.lidPerspective
+                    )
+                    .animation(TVJewelCaseMotion.lid, value: casePhase)
+                    .background {
+                        if casePhase != .closed {
+                            TVJewelCaseInterior(album: album, size: width, discOut: casePhase == .open)
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(titleOverride ?? album.title)
                         .tvFont(.cardTitle)
@@ -447,6 +470,42 @@ struct TVAlbumCard: View {
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
         .accessibilityLabel(Text(titleOverride ?? album.title))
         .accessibilityValue(Text(subtitleOverride ?? album.artist))
+        // 掀开的盖子会伸到左边那张卡片上面。
+        .zIndex(casePhase == .closed ? 0 : 2)
+        .onDisappear {
+            openingTask?.cancel()
+            openingTask = nil
+            casePhase = .closed
+        }
+    }
+
+    /// 先掀开盒子再打开专辑页;专辑页盖住以后悄悄合上,回来时卡片还是原样。
+    /// 「减弱动态效果」打开时直接打开。掀开的那一下再按不会重复打开。
+    private func openCase(then onOpen: @escaping () -> Void) {
+        guard openingTask == nil else { return }
+        guard !reduceMotion else {
+            onOpen()
+            return
+        }
+        openingTask = Task { @MainActor in
+            defer { openingTask = nil }
+            // 先在合着的盖子底下建好盒子和盘,下一帧再掀,盘才有滑出来的过程。
+            casePhase = .ready
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled else { return }
+            casePhase = .open
+            try? await Task.sleep(for: TVJewelCaseMotion.handoff)
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            // 截图用:TV_DEBUG_CASE_OPEN=1 让盒子停在掀开的样子,不进专辑页。
+            if ProcessInfo.processInfo.environment["TV_DEBUG_CASE_OPEN"] == "1" { return }
+            #endif
+            onOpen()
+            try? await Task.sleep(for: .milliseconds(900))
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { casePhase = .closed }
+        }
     }
 }
 
