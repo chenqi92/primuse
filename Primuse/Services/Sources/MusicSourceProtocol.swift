@@ -2359,7 +2359,8 @@ extension ServerPlaylistConnector {
     }
 }
 
-/// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`)。只追加, 不删不排序 ——
+/// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`、Emby / Jellyfin
+/// `POST /Playlists/{id}/Items`)。只追加, 不删不排序 ——
 /// 镜像歌单其余的编辑仍以服务端为准。返回追加后服务端的完整明细, 调用方用它
 /// 直接刷新本地镜像。
 protocol ServerPlaylistAppendingConnector: MusicSourceConnector {

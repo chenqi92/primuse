@@ -1752,8 +1752,9 @@ public enum ServerPlaylistIdentity {
 
 /// Which mirrored server playlists accept songs added from Primuse.
 ///
-/// Only the Subsonic family implements an append call (`updatePlaylist` with
-/// `songIdToAdd`). The rest of a mirror stays read-only: removals and reorders
+/// Only the Subsonic family (`updatePlaylist` with `songIdToAdd`) and
+/// Emby/Jellyfin (`POST /Playlists/{id}/Items`) implement an append call.
+/// The rest of a mirror stays read-only: removals and reorders
 /// would be overwritten by the next sync. Song IDs are only meaningful on the
 /// server they came from, so a song can go into a mirror of its own source only.
 public enum ServerPlaylistWritebackPolicy {
@@ -1763,7 +1764,7 @@ public enum ServerPlaylistWritebackPolicy {
 
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin:
             return true
         default:
             return false
@@ -1788,11 +1789,20 @@ public enum ServerPlaylistWritebackPolicy {
         sourceType: MusicSourceType
     ) -> String? {
         guard supports(sourceType) else { return nil }
-        // All four share SubsonicSource and its `/songs/<id>.<suffix>` paths.
-        return ServerFavoriteWritebackPolicy.songID(
-            fromConnectorPath: filePath,
-            sourceType: .subsonic
-        )
+        switch sourceType {
+        case .emby, .jellyfin:
+            // MediaServerSource's `/items/<id>.<ext>` paths.
+            return ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: filePath,
+                sourceType: sourceType
+            )
+        default:
+            // The Subsonic family shares SubsonicSource and its `/songs/<id>.<suffix>` paths.
+            return ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: filePath,
+                sourceType: .subsonic
+            )
+        }
     }
 }
 

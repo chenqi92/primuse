@@ -3,8 +3,8 @@ import Foundation
 import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerCollectionFavoriteConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerFavoriteConnector, ServerRadioConnector, ServerCollectionFavoriteConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     NetworkAdaptiveTranscodingConnector,
     IncrementalSongCatalogConnector, ServerLibraryListingConnector {
@@ -2557,6 +2557,68 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             playlists: result,
             failedPlaylistIDs: failedPlaylistIDs,
             isIndexComplete: unreadableSummaryCount == 0
+        )
+    }
+
+    /// 往 Emby / Jellyfin 歌单里追加(`POST /Playlists/{id}/Items`)。服务端不保证去重,
+    /// 所以先读一次明细只追加还不在里面的; 追加完再读一次, 每首都在才算成功。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        guard kind != .plex else { throw ServerPlaylistAppendError.readOnly }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        guard !id.isEmpty, !id.contains("/") else { throw ServerPlaylistAppendError.readOnly }
+        let current = try await jellyfinOrEmbyPlaylistDetail(id: id, userID: userID)
+        var seen = Set(current.trackIDs)
+        let missing = itemIDs.filter { seen.insert($0).inserted }
+        guard !missing.isEmpty else { return current }
+
+        // Ids 逗号分隔放在查询串里, 一次一百首, 免得 URL 超出服务器 / 反代的长度上限。
+        var offset = 0
+        while offset < missing.count {
+            try Task.checkCancellation()
+            let chunk = missing[offset..<min(offset + 100, missing.count)]
+            do {
+                _ = try await performRequest(
+                    path: "/Playlists/\(id)/Items",
+                    method: "POST",
+                    queryItems: [
+                        URLQueryItem(name: "Ids", value: chunk.joined(separator: ",")),
+                        URLQueryItem(name: "UserId", value: userID)
+                    ]
+                )
+            } catch SourceError.authenticationFailed {
+                // 同一个会话刚读过这张歌单, 这时的 401/403 是当前账户不能改它(别人的歌单)。
+                throw ServerPlaylistAppendError.readOnly
+            }
+            offset += chunk.count
+        }
+
+        let refreshed = try await jellyfinOrEmbyPlaylistDetail(id: id, userID: userID)
+        let refreshedIDs = Set(refreshed.trackIDs)
+        guard missing.allSatisfy(refreshedIDs.contains) else {
+            throw ServerPlaylistAppendError.notConfirmed
+        }
+        return refreshed
+    }
+
+    /// 一张 Emby / Jellyfin 歌单的名字、封面与曲目, 加歌前后各读一次; 刷新镜像时名字和封面
+    /// 跟着一起写回, 不能留空。
+    private func jellyfinOrEmbyPlaylistDetail(id: String, userID: String) async throws -> ServerPlaylist {
+        let summaryData = try await performRequest(path: "/Users/\(userID)/Items/\(id)")
+        let summary = try decoder.decode(MediaServerPlaylistEntry.self, from: summaryData)
+        let response = try await fetchAllJellyfinOrEmbyPages(
+            path: "/Playlists/\(id)/Items",
+            baseQueryItems: [URLQueryItem(name: "UserId", value: userID)],
+            maximumCount: Self.maximumCatalogTracks,
+            deduplicatesItems: false,
+            as: MediaServerPlaylistEntry.self
+        )
+        return ServerPlaylist(
+            id: id,
+            name: summary.displayName ?? "",
+            coverArtReference: playlistCoverArtReference(for: summary, id: id),
+            trackIDs: response.items.compactMap(\.id),
+            reportedTrackCount: response.totalCount
         )
     }
 

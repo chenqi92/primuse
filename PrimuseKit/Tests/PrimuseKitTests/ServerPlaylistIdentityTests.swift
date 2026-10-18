@@ -244,12 +244,12 @@ struct MirrorPlaylistIdentityTests {
 
 @Suite("Server playlist writeback")
 struct ServerPlaylistWritebackPolicyTests {
-    @Test("Only the Subsonic family can append to server playlists")
-    func supportsSubsonicFamilyOnly() {
-        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
+    @Test("Only the Subsonic family, Emby and Jellyfin can append to server playlists")
+    func supportsAppendingSources() {
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin] {
             #expect(ServerPlaylistWritebackPolicy.supports(type))
         }
-        for type in [MusicSourceType.jellyfin, .emby, .plex, .fnMusic, .smb, .webdav] {
+        for type in [MusicSourceType.plex, .fnMusic, .smb, .webdav] {
             #expect(!ServerPlaylistWritebackPolicy.supports(type))
         }
     }
@@ -280,5 +280,16 @@ struct ServerPlaylistWritebackPolicyTests {
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .navidrome) == "abc123")
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/abc123.flac", sourceType: .navidrome) == nil)
         #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .emby) == nil)
+    }
+
+    @Test("Song IDs come from media-server item paths for Emby and Jellyfin, never Plex")
+    func extractsMediaServerSongIDs() {
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/48213.flac", sourceType: .emby) == "48213")
+        #expect(ServerPlaylistWritebackPolicy.songID(
+            fromConnectorPath: "/items/0f8e2c1d9a7b4c3e8d6f5a4b3c2d1e0f.m4a",
+            sourceType: .jellyfin
+        ) == "0f8e2c1d9a7b4c3e8d6f5a4b3c2d1e0f")
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/48213.flac", sourceType: .plex) == nil)
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/a/b.flac", sourceType: .emby) == nil)
     }
 }

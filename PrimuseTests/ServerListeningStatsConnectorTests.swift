@@ -93,6 +93,84 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         }
     }
 
+    /// 只追加歌单里还没有的歌, 加完按回读的明细确认, 名字和封面一起带回。
+    func testAppendToPlaylistAddsOnlyMissingTracksAndConfirmsByReadBack() async throws {
+        for kind in [MediaServerSource.Kind.emby, .jellyfin] {
+            let tracks = LockedValues<String>()
+            tracks.append("track-1")
+            let posted = LockedValues<String>()
+            let source = makeMediaSource(kind: kind) { request in
+                let url = try XCTUnwrap(request.url)
+                let query = Dictionary(uniqueKeysWithValues:
+                    (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                        .map { ($0.name, $0.value ?? "") }
+                )
+                switch (request.httpMethod ?? "GET", url.path) {
+                case ("GET", "/Users/Me"):
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case ("GET", "/Users/user-1/Items/playlist-1"):
+                    return try Self.response(request, json: #"{"Id":"playlist-1","Name":"Liked","ImageTags":{"Primary":"cover-tag"}}"#)
+                case ("GET", "/Playlists/playlist-1/Items"):
+                    let items = tracks.values.map { ["Id": $0] }
+                    let data = try JSONSerialization.data(withJSONObject: [
+                        "Items": items,
+                        "TotalRecordCount": items.count
+                    ])
+                    return try Self.response(request, json: String(decoding: data, as: UTF8.self))
+                case ("POST", "/Playlists/playlist-1/Items"):
+                    guard query["UserId"] == "user-1", let ids = query["Ids"] else {
+                        throw FixtureError.invalidRequest
+                    }
+                    posted.append(ids)
+                    ids.split(separator: ",").forEach { tracks.append(String($0)) }
+                    return try Self.response(request, statusCode: 204, json: "")
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            let playlist = try await source.appendToServerPlaylist(
+                id: "playlist-1",
+                itemIDs: ["track-1", "track-2", "track-3", "track-2"]
+            )
+            XCTAssertEqual(posted.values, ["track-2,track-3"])
+            XCTAssertEqual(playlist.trackIDs, ["track-1", "track-2", "track-3"])
+            XCTAssertEqual(playlist.name, "Liked")
+            XCTAssertTrue(playlist.coverArtReference?.contains("cover-tag") == true)
+            await source.disconnect()
+        }
+    }
+
+    /// 服务器拒绝(别人的歌单)报只读; 请求成功但回读里没有刚加的歌报未确认。
+    func testAppendToPlaylistReportsRejectionAndUnconfirmedWrites() async throws {
+        let cases: [(statusCode: Int, expected: ServerPlaylistAppendError)] = [(403, .readOnly), (204, .notConfirmed)]
+        for (statusCode, expected) in cases {
+            let source = makeMediaSource(kind: .emby) { request in
+                let url = try XCTUnwrap(request.url)
+                switch (request.httpMethod ?? "GET", url.path) {
+                case ("GET", "/Users/Me"):
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case ("GET", "/Users/user-1/Items/playlist-1"):
+                    return try Self.response(request, json: #"{"Id":"playlist-1","Name":"Shared"}"#)
+                case ("GET", "/Playlists/playlist-1/Items"):
+                    return try Self.response(request, json: #"{"Items":[{"Id":"track-1"}],"TotalRecordCount":1}"#)
+                case ("POST", "/Playlists/playlist-1/Items"):
+                    return try Self.response(request, statusCode: statusCode, json: "")
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            do {
+                _ = try await source.appendToServerPlaylist(id: "playlist-1", itemIDs: ["track-2"])
+                XCTFail("Expected \(expected)")
+            } catch {
+                XCTAssertEqual(error as? ServerPlaylistAppendError, expected)
+            }
+            await source.disconnect()
+        }
+    }
+
     func testCredentialFailureIsNotMisreportedAsUnsupportedCapability() async {
         let connector = CredentialUnavailableSourceConnector(
             sourceID: "stats-credential-failure",
