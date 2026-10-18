@@ -764,7 +764,7 @@ struct TVSearchView: View {
     private func finishArtistDismissal() {
         guard opensPlayerAfterArtistDismissal else { return }
         opensPlayerAfterArtistDismissal = false
-        openPlayer()
+        TVModalHandoff.afterFocusSettles(openPlayer)
     }
 }
 

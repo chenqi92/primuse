@@ -3,6 +3,63 @@ import SwiftUI
 import PrimuseKit
 import UIKit
 
+// MARK: - 弹层收起后换页
+
+/// 全屏弹层(专辑页、艺人页、文件夹、有声书、播客节目)里开始播放,弹层收起后才切到播放页。
+///
+/// 弹层收起时 UIKit 要把焦点送回下面那一页里打开它的卡片,这次焦点更新排在下一次 CA 提交
+/// 之后才做。要是同一拍里就把整页换成播放页,焦点系统量那张卡片的位置时 SwiftUI 会先把
+/// 没提交的换页做掉,卡片在焦点更新进行到一半时被拆掉,UIKit 断言
+/// `_focusEnvironmentWillDisappear` 直接闪退(91、101 两份闪退样本都是这条栈)。
+/// 所以等焦点落定 —— 收到一次焦点更新完成的通知 —— 再换页;通知一直不来就按时限换。
+@MainActor
+enum TVModalHandoff {
+    static func afterFocusSettles(
+        timeout: Duration = .milliseconds(300),
+        _ action: @escaping () -> Void
+    ) {
+        let pending = Pending(action)
+        pending.observer = NotificationCenter.default.addObserver(
+            forName: UIFocusSystem.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { pending.finish(via: "focus") }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: timeout)
+            pending.finish(via: "timeout")
+        }
+    }
+
+    @MainActor
+    private final class Pending {
+        var observer: NSObjectProtocol?
+        private var action: (() -> Void)?
+        #if DEBUG
+        private let startedAt = Date()
+        #endif
+
+        init(_ action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        func finish(via reason: String) {
+            guard let action else { return }
+            self.action = nil
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+                self.observer = nil
+            }
+            #if DEBUG
+            plog("TV modal handoff via=\(reason) ms=\(Int(Date().timeIntervalSince(startedAt) * 1000))")
+            #endif
+            // 通知是那次焦点更新收尾时发的,还在它的调用栈里;换页再让一拍。
+            Task { @MainActor in action() }
+        }
+    }
+}
+
 /// 单层输入框。tvOS 的 `TextField` / `SecureField` 自带一层胶囊底框,且**无法去掉**
 /// (`.textFieldStyle(.plain)` 在 tvOS 上不生效),外面再画一层就成了「大框套小框」。
 /// 所以这里不画底框,只统一三件事:宽度撑满、字号固定、行高有下限。

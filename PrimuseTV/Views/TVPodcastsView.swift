@@ -323,7 +323,7 @@ struct TVPodcastsView: View {
         onModalActivityChanged(false)
         if opensPlayerAfterDismissal {
             opensPlayerAfterDismissal = false
-            openPlayer()
+            TVModalHandoff.afterFocusSettles(openPlayer)
         }
     }
 }

@@ -1054,7 +1054,7 @@ struct TVLibraryView: View {
     private func finishArtistDismissal() {
         guard opensPlayerAfterArtistDismissal else { return }
         opensPlayerAfterArtistDismissal = false
-        openPlayer()
+        TVModalHandoff.afterFocusSettles(openPlayer)
     }
 }
 
@@ -1218,7 +1218,7 @@ struct TVAlbumDetailPresenter: ViewModifier {
             return
         }
         opensPlayerAfterDismissal = false
-        openPlayer()
+        TVModalHandoff.afterFocusSettles(openPlayer)
     }
 }
 

@@ -349,7 +349,7 @@ struct TVSpokenWordView: View {
         onModalActivityChanged(false)
         if opensPlayerAfterDetailDismissal {
             opensPlayerAfterDetailDismissal = false
-            openPlayer()
+            TVModalHandoff.afterFocusSettles(openPlayer)
         }
     }
 }

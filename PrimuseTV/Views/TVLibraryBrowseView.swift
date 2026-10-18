@@ -109,7 +109,7 @@ struct TVGenreBrowser: View {
         onModalActivityChanged(false)
         if opensPlayerAfterDismissal {
             opensPlayerAfterDismissal = false
-            openPlayer()
+            TVModalHandoff.afterFocusSettles(openPlayer)
         }
     }
 
@@ -417,7 +417,7 @@ struct TVRankingBrowser: View {
         onModalActivityChanged(false)
         if opensPlayerAfterDismissal {
             opensPlayerAfterDismissal = false
-            openPlayer()
+            TVModalHandoff.afterFocusSettles(openPlayer)
         }
     }
 
