@@ -1529,7 +1529,9 @@ struct TVAlbumDetailView: View {
 
             if showsRestoreConfirmation {
                 restoreConfirmation(songIDs)
-                    .transition(.opacity)
+                    // 收起时立刻拿掉,不淡出:焦点还在面板的按钮上,淡出放完那一下若碰上
+                    // 送回「恢复」键的那次焦点更新,UIKit 会断言闪退(见 `closeRestoreConfirmation`)。
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
                     .zIndex(5)
             }
         }

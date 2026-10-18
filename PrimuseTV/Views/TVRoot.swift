@@ -357,7 +357,10 @@ struct TVRoot: View {
                     .zIndex(1)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity)
+                        // 进出全屏播放页(随顶栏收放的那次动画)时旧页面立刻拿掉、新页面淡入。
+                        // 旧页面上停着焦点:要是跟着淡出,淡出放完才真正拿掉,那一下正好碰上
+                        // 新页面请求焦点(电视主线程忙时常有),UIKit 会断言闪退。
+                        .transition(.asymmetric(insertion: .opacity, removal: .identity))
                 }
                 .animation(.easeInOut(duration: 0.25), value: hidesTabBar)
             }

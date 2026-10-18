@@ -64,6 +64,8 @@ struct TVNowPlayingView: View {
     /// 按歌手名打开的艺人页(多位艺人时先选一位)。
     @State private var artistLink: TVArtistLinkPresentation?
     @State private var showShelf = tvDebugShelfLaunch.show
+    /// 货架正在收起:先不接焦点,等焦点回到播放页再滑下去(见 `closeShelf`)。
+    @State private var shelfReleasesFocus = false
     @State private var shelfTab = tvDebugShelfLaunch.tab
     /// 「更多」里点了前往专辑 / 艺术家:等选项层收起后再升起货架。
     @State private var pendingShelfTab: TVPlayerShelfTab?
@@ -141,7 +143,7 @@ struct TVNowPlayingView: View {
         }
         .onExitCommand {
             if showShelf {
-                closeShelf(startedPlayback: false)
+                if !shelfReleasesFocus { closeShelf(startedPlayback: false) }
             } else if isTabContent {
                 onReturnToTabs()
             } else {
@@ -206,6 +208,9 @@ struct TVNowPlayingView: View {
         .onChange(of: scrubberFocused) { _, focused in
             if focused { onProgressFocused() }
         }
+        .onChange(of: playerHoldsFocus) { _, holds in
+            if holds { finishClosingShelf() }
+        }
         .onChange(of: interactionRequest) { _, _ in
             registerInteraction()
         }
@@ -262,10 +267,11 @@ struct TVNowPlayingView: View {
             TVPlayerBackdrop(tint: colors.primary, tint2: colors.secondary)
             playerContent
                 // 货架升起时后面的控件不参与焦点,上键不会把焦点带回传输键。
-                .disabled(showShelf)
+                .disabled(showShelf && !shelfReleasesFocus)
             if showShelf, supportsShelf {
                 TVPlayerShelf(initialTab: shelfTab, onClose: closeShelf, onInteraction: registerInteraction)
                     .equatable()
+                    .disabled(shelfReleasesFocus)
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(2)
@@ -285,12 +291,13 @@ struct TVNowPlayingView: View {
         // 往下走到把手升起时焦点已经在把手上,记的是把手之前的那颗键。
         shelfFocusMemory.returnAnchor = shelfFocusMemory.lastFocused
         shelfTab = tab
+        shelfReleasesFocus = false
         showShelf = true
     }
 
     private func closeShelf(startedPlayback: Bool) {
         registerInteraction()
-        showShelf = false
+        releaseShelfFocus()
         // 换了歌回到封面:刚换的歌就在眼前,再按一下又能打开货架接着挑。
         // Menu 收起(没换歌)回到升起货架前的那颗键。MV 画面上 `.songPrimary` 是播放键。
         let anchor: TVPlayerShelfFocusAnchor = startedPlayback
@@ -307,8 +314,37 @@ struct TVNowPlayingView: View {
             guard anchor != .transport(.songPrimary) else { return }
             // 那颗键这会儿不在了(这首没有 MV、已经没有下一首)焦点就落空,退回封面。
             try? await Task.sleep(for: .milliseconds(150))
-            guard !showShelf, focusedTransport == nil, focusedRowControl == nil, !scrubberFocused else { return }
+            let reopened = showShelf && !shelfReleasesFocus
+            guard !reopened, focusedTransport == nil, focusedRowControl == nil, !scrubberFocused else { return }
             focusedTransport = .songPrimary
+        }
+    }
+
+    private var playerHoldsFocus: Bool {
+        focusedTransport != nil || focusedRowControl != nil || scrubberFocused
+    }
+
+    /// 收起货架的第一步:货架不再接焦点、播放页恢复可用,焦点回到播放页后(`playerHoldsFocus`)
+    /// 再由 `finishClosingShelf` 让它滑下去。弹簧滑出将近一秒才放完,放完那一下货架才真正
+    /// 拿掉;焦点要是还停在货架的卡片上、又正好碰上一次焦点更新(电视主线程忙时常有),
+    /// UIKit 会判定「焦点项所在的视图在焦点切换途中被移除」而断言闪退。
+    /// 一直等不到焦点回来也不把货架晾在屏幕上:稍后不带动画直接拿掉。
+    private func releaseShelfFocus() {
+        shelfReleasesFocus = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(750))
+            finishClosingShelf(animated: false)
+        }
+    }
+
+    private func finishClosingShelf(animated: Bool = true) {
+        guard showShelf, shelfReleasesFocus else { return }
+        if animated {
+            showShelf = false
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { showShelf = false }
         }
     }
 
@@ -484,9 +520,9 @@ struct TVNowPlayingView: View {
         guard let request, case let .nowPlaying(target) = request.target else { return }
         // 货架开着时焦点归货架:弹层收起后的焦点恢复不能把它关掉;只有长按播放键
         // 跳进度才收起货架(它挡在进度条前面)。
-        if showShelf {
+        if showShelf, !shelfReleasesFocus {
             guard target == .scrubber else { return }
-            showShelf = false
+            releaseShelfFocus()
         }
         if target == .scrubber, focusMode == .song, store.duration > 0 {
             registerInteraction()

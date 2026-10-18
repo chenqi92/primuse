@@ -189,6 +189,9 @@ struct TVImmersivePlayerView: View {
     @State private var directionalCommandState = TVImmersiveDirectionalCommandState()
     @State private var presentationActivity = TVImmersivePresentationActivity()
     @State private var showsModePicker = false
+    /// 控件排 / 风格选择器正在收起:先不接焦点,焦点落到别处以后才开始淡出(见 `yieldChromeFocus`)。
+    @State private var chromeYieldsFocus = false
+    @State private var modePickerYieldsFocus = false
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
@@ -323,7 +326,7 @@ struct TVImmersivePlayerView: View {
                 .buttonStyle(TVBareButtonStyle())
                 .focused($wakesChrome)
                 .focusEffectDisabled()
-                .disabled(showsChrome || showsModePicker)
+                .disabled((showsChrome && !chromeYieldsFocus) || (showsModePicker && !modePickerYieldsFocus))
                 .accessibilityHidden(showsChrome || showsModePicker)
 
                 if showsChrome {
@@ -331,7 +334,7 @@ struct TVImmersivePlayerView: View {
                     // 「沉浸风格」键上,遥控器只有朝网格那一侧按才进得去。
                     controls(metrics: metrics)
                         .transition(.opacity)
-                        .disabled(showsModePicker)
+                        .disabled((showsModePicker && !modePickerYieldsFocus) || chromeYieldsFocus)
                         .accessibilityHidden(showsModePicker)
                 }
 
@@ -348,6 +351,7 @@ struct TVImmersivePlayerView: View {
 
                 if showsModePicker {
                     modePicker
+                        .disabled(modePickerYieldsFocus)
                         .transition(.opacity)
                         .zIndex(10)
                 }
@@ -374,10 +378,11 @@ struct TVImmersivePlayerView: View {
                 exitLowPower()
                 scheduleLowPower()
             } else if showsModePicker {
+                guard !modePickerYieldsFocus else { return }
                 if effect == .native {
                     dismissImmersivePlayer()
                 } else {
-                    showsModePicker = false
+                    yieldModePickerFocus()
                     revealChrome()
                 }
             } else {
@@ -433,12 +438,16 @@ struct TVImmersivePlayerView: View {
         .onDisappear {
             suspendPresentation(for: .disappeared)
         }
-        .onChange(of: focusedControl) { _, _ in
+        .onChange(of: focusedControl) { _, control in
+            if control != nil { closeModePickerAfterFocusYielded() }
             // 遥控在传输键之间移动焦点即视为有操作,重置淡出计时。
-            if showsChrome {
+            if showsChrome, !chromeYieldsFocus {
                 scheduleChromeHide()
                 scheduleLowPower()
             }
+        }
+        .onChange(of: wakesChrome) { _, focused in
+            if focused { hideChromeAfterFocusYielded() }
         }
         .onChange(of: scrubberFocused) { _, _ in
             scheduleChromeHide()
@@ -848,11 +857,38 @@ struct TVImmersivePlayerView: View {
     }
 
     private func finishModePicker() {
-        showsModePicker = false
         // 选到「原生」时由 effectRawValue 的 onChange 负责退出沉浸模式,这里不重复处理。
-        guard effect != .native else { return }
+        guard effect != .native else {
+            showsModePicker = false
+            return
+        }
+        yieldModePickerFocus()
         if lyricObservationTask == nil { resumePresentationWork() }
         revealChrome()
+    }
+
+    /// 收起风格选择器的第一步:选择器不再接焦点、控件排接回来;焦点落到控件排上以后
+    /// (`closeModePickerAfterFocusYielded`)再淡出,理由同 `scheduleChromeHide`。
+    /// 一直等不到焦点也不把选择器晾在屏幕上:稍后不带动画直接拿掉。
+    private func yieldModePickerFocus() {
+        modePickerYieldsFocus = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(750))
+            closeModePickerAfterFocusYielded(animated: false)
+        }
+    }
+
+    private func closeModePickerAfterFocusYielded(animated: Bool = true) {
+        guard showsModePicker, modePickerYieldsFocus else { return }
+        if animated {
+            showsModePicker = false
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { showsModePicker = false }
+        }
+        // 选择器开着时淡出计时不走(`scheduleChromeHide` 的守卫),这会儿才重新开始。
+        scheduleChromeHide()
     }
 
     // MARK: - 数据
@@ -1222,6 +1258,8 @@ struct TVImmersivePlayerView: View {
     private func presentModePicker() {
         guard presentationActivity.isRenderingActive else { return }
         chromeTask?.cancel()
+        chromeYieldsFocus = false
+        modePickerYieldsFocus = false
         showsChrome = true
         showsModePicker = true
     }
@@ -1269,6 +1307,7 @@ struct TVImmersivePlayerView: View {
         exitLowPower()
         scheduleLowPower()
         wakesChrome = false
+        chromeYieldsFocus = false
         withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
             0.24,
             reduceMotion: reduceMotion
@@ -1321,17 +1360,36 @@ struct TVImmersivePlayerView: View {
                   presentationActivity.isRenderingActive,
                   !showsModePicker, !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
-            focusedControl = nil
-            withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
-                0.4,
-                reduceMotion: reduceMotion
-            ))) {
-                showsChrome = false
-                showsSeekControls = false
-            }
+            yieldChromeFocus()
+        }
+    }
+
+    /// 控件排淡出的第一步:控件排不再接焦点,焦点交给唤醒层;焦点到了(`wakesChrome`)
+    /// 再由 `hideChromeAfterFocusYielded` 淡出。淡出放完那一下控件排才真正拿掉,焦点要是
+    /// 还停在里面、又正好碰上一次焦点更新(电视主线程忙时常有),UIKit 会判定「焦点项所在的
+    /// 视图在焦点切换途中被移除」而断言闪退。一直等不到焦点也不把控件排留着:稍后不带动画直接拿掉。
+    private func yieldChromeFocus() {
+        guard showsChrome else { return }
+        chromeYieldsFocus = true
+        Task { @MainActor in
             await Task.yield()
-            guard presentationActivity.isRenderingActive else { return }
+            guard presentationActivity.isRenderingActive, chromeYieldsFocus else { return }
             wakesChrome = true
+            try? await Task.sleep(for: .milliseconds(750))
+            hideChromeAfterFocusYielded(animated: false)
+        }
+    }
+
+    private func hideChromeAfterFocusYielded(animated: Bool = true) {
+        guard showsChrome, chromeYieldsFocus else { return }
+        var transaction = Transaction(animation: animated ? .easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
+            0.4,
+            reduceMotion: reduceMotion
+        )) : nil)
+        transaction.disablesAnimations = !animated
+        withTransaction(transaction) {
+            showsChrome = false
+            showsSeekControls = false
         }
     }
 }
