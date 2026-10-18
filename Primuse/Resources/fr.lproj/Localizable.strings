@@ -6510,3 +6510,8 @@
 "tv_local_removals_restore_album" = "Restaurer l’album";
 "tv_local_removals_removed_at_format" = "Retiré le %@";
 "tv_local_removals_row_hint_format" = "%d retirés de cet Apple TV · maintenez appuyé pour restaurer";
+"tv_library_grid_columns" = "Vignettes par ligne";
+"tv_library_grid_columns_format" = "%lld par ligne";
+"tv_library_sort_by_artist" = "Par artiste";
+"tv_library_sort_by_title" = "Par titre";
+"tv_library_sort_by_year" = "Par année";

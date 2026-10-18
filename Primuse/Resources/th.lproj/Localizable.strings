@@ -6416,3 +6416,8 @@
 "tv_local_removals_restore_album" = "กู้คืนอัลบั้มนี้";
 "tv_local_removals_removed_at_format" = "นำออกเมื่อ %@";
 "tv_local_removals_row_hint_format" = "นำออกจาก Apple TV เครื่องนี้แล้ว %d เพลง · กดค้างเพื่อกู้คืน";
+"tv_library_grid_columns" = "จำนวนต่อแถว";
+"tv_library_grid_columns_format" = "แถวละ %lld";
+"tv_library_sort_by_artist" = "ตามศิลปิน";
+"tv_library_sort_by_title" = "ตามชื่อ";
+"tv_library_sort_by_year" = "ตามปี";

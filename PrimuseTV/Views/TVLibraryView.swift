@@ -147,10 +147,13 @@ struct TVLibraryView: View {
     private var albumOrderRawValue = LibraryAlbumBrowseOrder.tvDefault.rawValue
     @AppStorage(TVLibraryFilterConfiguration.storageKey)
     private var filterConfigurationRawValue = ""
-    @FocusState private var focusedAlbumOrder: LibraryAlbumBrowseOrder?
     @AppStorage(ArtistBrowseMode.storageKey)
     private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
-    @FocusState private var focusedArtistBrowseMode: ArtistBrowseMode?
+    /// 专辑墙(含年份墙)与艺人墙每行几张,见 `TVBrowseGridMetrics.music(columns:)`。
+    @AppStorage(TVBrowseGridMetrics.musicColumnsStorageKey)
+    private var wallColumnsSetting = TVBrowseGridMetrics.music.columns
+    /// 筛选行右端的几个菜单按钮(排序 / 列法 / 每行张数)。
+    @FocusState private var focusedStripMenu: StripMenu?
     /// 右侧字母栏上的焦点;有值时网格中央浮出这个字母。
     @FocusState private var focusedIndexBucket: String?
     /// 网格里当前聚焦的卡片属于哪个字母,字母栏据此点亮。
@@ -159,7 +162,6 @@ struct TVLibraryView: View {
     @State private var selectedArtist: TVArtist?
     /// 艺人墙「只看喜欢」。
     @State private var showsLikedArtistsOnly = false
-    @FocusState private var focusesLikedArtistsChip: Bool
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var selectedAlbum: TVAlbum?
     /// 从播放页回来重开专辑页时,焦点要落到的那一首。
@@ -170,7 +172,6 @@ struct TVLibraryView: View {
     @MainActor private static var didOpenDebugAlbumDetail = false
     #endif
 
-    private let gridMetrics = TVBrowseGridMetrics.music
     var focusRequest = 0
     var browseMemory = TVLibraryBrowseMemory()
 
@@ -180,7 +181,7 @@ struct TVLibraryView: View {
             let indexBarSpace = indexSections.isEmpty ? 0 : TVLetterIndexBar.width + Self.indexBarGap
             let cell = gridMetrics.cellWidth(pageWidth: geo.size.width - indexBarSpace)
             VStack(alignment: .leading, spacing: 24) {
-                filterStrip
+                filterStrip(trailingInset: indexBarSpace)
                 ScrollViewReader { proxy in
                     HStack(alignment: .top, spacing: Self.indexBarGap) {
                         ScrollView(.vertical, showsIndicators: false) {
@@ -217,9 +218,9 @@ struct TVLibraryView: View {
         }
         .background(TVColor.bg)
         // 焦点停在网格深处时,第一次 Menu 先回到筛选条(网格位置不动),再按一次才回顶栏。
+        // 排序 / 列法 / 每行张数这几个菜单就在筛选条右端,从它们按 Menu 直接回顶栏。
         .onExitCommand {
-            if focusedGridItem != nil || focusedIndexBucket != nil || focusedAlbumOrder != nil
-                || focusedArtistBrowseMode != nil {
+            if focusedGridItem != nil || focusedIndexBucket != nil {
                 focusedFilter = filter
             } else {
                 onReturnToTabs()
@@ -244,13 +245,13 @@ struct TVLibraryView: View {
         .onAppear(perform: leaveHiddenFilter)
         .onChange(of: filterConfigurationRawValue) { _, _ in leaveHiddenFilter() }
         .onChange(of: artistBrowseModeRaw) { _, _ in
-            // 换了列法,上次停的那位可能已经不在墙上;网格从头开始,焦点留在切换按钮上。
+            // 换了列法,上次停的那位可能已经不在墙上;网格从头开始,焦点留在列法菜单上。
             browseMemory.artistID = nil
             resetLetterIndex()
         }
         .onChange(of: albumOrderRawValue) { _, _ in
             // 换了排序方式,上次停的那张卡片在新顺序里的位置没有意义;网格从头开始,
-            // 焦点留在排序按钮上。
+            // 焦点留在排序菜单上。
             browseMemory.albumID = nil
             resetLetterIndex()
         }
@@ -359,6 +360,10 @@ struct TVLibraryView: View {
             if let mode = environment["TV_ARTIST_MODE"].flatMap(ArtistBrowseMode.init(rawValue:)) {
                 artistBrowseModeRaw = mode.rawValue
             }
+            // TV_GRID_COLUMNS=4…7:专辑 / 艺人墙每行几张。
+            if let columns = environment["TV_GRID_COLUMNS"].flatMap({ Int($0) }) {
+                wallColumnsSetting = columns
+            }
             let bucket = environment["TV_INDEX_JUMP"] ?? "M"
             guard bucket != "-" else { return }
             var tries = 0
@@ -384,6 +389,20 @@ struct TVLibraryView: View {
 
     /// 专辑墙实际用的排序:「年份」筛选就是按年份排、按年代分段的专辑墙。
     private var wallOrder: LibraryAlbumBrowseOrder { filter == .years ? .year : albumOrder }
+
+    /// 专辑墙(含年份墙)与艺人墙:筛选行右端多一个「每行几张」菜单,网格按它排。
+    private var showsWallControls: Bool {
+        filter == .albums || filter == .years || filter == .artists
+    }
+
+    /// 网格的尺子。只有专辑 / 艺人墙跟「每行几张」走;其余筛选不用它排卡片,照旧一行四张。
+    private var gridMetrics: TVBrowseGridMetrics {
+        showsWallControls ? .music(columns: wallColumnsSetting) : .music
+    }
+
+    private enum StripMenu: Hashable {
+        case albumOrder, artistBrowse, gridColumns
+    }
 
     private var filterConfiguration: TVLibraryFilterConfiguration {
         .decode(filterConfigurationRawValue)
@@ -532,109 +551,164 @@ struct TVLibraryView: View {
         }
     }
 
-    /// 页标题;专辑墙右侧是排序方式。
+    /// 页标题与字母栏提示;排序、列法、每行几张在筛选行右端(`stripMenus`)。
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+                .lineLimit(1)
+            // 右边有字母栏时提示一句:几千位艺人、几万首歌不用一行行往下翻。
+            if !letterIndexSections.isEmpty {
+                Label(PMString("ext.tv.library.indexHint"), systemImage: "arrow.right.to.line")
+                    .tvFont(.meta)
+                    .foregroundStyle(TVColor.textFaint)
                     .lineLimit(1)
-                // 右边有字母栏时提示一句:几千位艺人、几万首歌不用一行行往下翻。
-                if !letterIndexSections.isEmpty {
-                    Label(PMString("ext.tv.library.indexHint"), systemImage: "arrow.right.to.line")
-                        .tvFont(.meta)
-                        .foregroundStyle(TVColor.textFaint)
-                        .lineLimit(1)
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 筛选行右端:专辑墙的排序、艺人墙的列法(连同「只看收藏的」),以及两面墙的每行几张。
+    /// 都收成菜单按钮,按钮上只写当前那一项:标题旁不再摆一排和筛选长得一样的胶囊,
+    /// 「艺术家」「年份」也不会上下两行各出现一次。图标用排序 / 筛选 / 网格,和左边的筛选分得开。
+    private var stripMenus: some View {
+        HStack(spacing: 14) {
             if filter == .albums {
-                albumOrderPicker
+                albumOrderMenu
             }
             if filter == .artists {
-                artistBrowseModePicker
+                artistBrowseMenu
             }
-            if filter == .artists,
-               showsLikedArtistsOnly || LibraryFavoritesStore.shared.hasLikedArtists {
-                likedArtistsChip
-            }
+            gridColumnsMenu
         }
     }
 
-    private var likedArtistsChip: some View {
-        Button {
-            showsLikedArtistsOnly.toggle()
-            resetLetterIndex()
+    /// 筛选行右端的一颗菜单按钮:外观同筛选胶囊(不画选中色,聚焦时反白),按下弹出系统菜单。
+    /// 菜单里的选项用 `Toggle`,当前那一项带勾(同播放页长按菜单里的睡眠定时)。
+    /// 选完菜单收起,焦点回到这颗按钮上。
+    private func stripMenu<Content: View>(
+        _ menu: StripMenu,
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let items = content()
+        return Menu {
+            items
         } label: {
             TVFilterChipLabel(
-                title: String(localized: "library_favorite_filter_short"),
-                systemImage: showsLikedArtistsOnly ? "heart.fill" : "heart",
-                isSelected: showsLikedArtistsOnly,
-                isFocused: focusesLikedArtistsChip
+                title: title,
+                systemImage: systemImage,
+                isFocused: focusedStripMenu == menu
             )
         }
+        .menuStyle(.button)
         .buttonStyle(TVBareButtonStyle())
-        .focused($focusesLikedArtistsChip)
+        .focused($focusedStripMenu, equals: menu)
         .focusEffectDisabled()
-        .padding(.vertical, 6)
-        .accessibilityLabel(Text("library_favorite_filter"))
-        .accessibilityAddTraits(showsLikedArtistsOnly ? [.isButton, .isSelected] : .isButton)
-        .accessibilityIdentifier("tv.library.likedArtists")
     }
 
-    /// 艺人墙列全部艺人还是只列专辑艺人。
-    private var artistBrowseModePicker: some View {
-        HStack(spacing: 12) {
-            ForEach(ArtistBrowseMode.allCases, id: \.self) { mode in
-                Button {
-                    artistBrowseModeRaw = mode.rawValue
-                } label: {
-                    TVFilterChipLabel(
-                        title: mode.title,
-                        systemImage: mode.systemImage,
-                        isSelected: mode == artistBrowseMode,
-                        isFocused: focusedArtistBrowseMode == mode
-                    )
+    /// 专辑墙的排序方式。选了别的排序,网格从头排(见 `onChange(of: albumOrderRawValue)`)。
+    private var albumOrderMenu: some View {
+        stripMenu(.albumOrder, title: Self.sortChipTitle(albumOrder), systemImage: "arrow.up.arrow.down") {
+            Section(String(localized: "sort_by")) {
+                // 「喜欢」只在有喜欢的专辑（或正选着它）时出现。
+                ForEach(LibraryAlbumBrowseOrder.allCases.filter {
+                    $0 != .liked || albumOrder == .liked || LibraryFavoritesStore.shared.hasLikedAlbums
+                }, id: \.self) { order in
+                    Toggle(isOn: Binding(
+                        get: { order == albumOrder },
+                        set: { _ in albumOrderRawValue = order.rawValue }
+                    )) {
+                        Label(order.title, systemImage: order.systemImage)
+                    }
                 }
-                .buttonStyle(TVBareButtonStyle())
-                .focused($focusedArtistBrowseMode, equals: mode)
-                .focusEffectDisabled()
-                .accessibilityIdentifier("tv.library.artistMode." + mode.rawValue)
-                .accessibilityAddTraits(mode == artistBrowseMode ? [.isButton, .isSelected] : .isButton)
             }
         }
-        .padding(.vertical, 6)
-        .focusSection()
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("artist_browse_mode"))
-    }
-
-    private var albumOrderPicker: some View {
-        HStack(spacing: 12) {
-            // 「喜欢」只在有喜欢的专辑（或正选着它）时出现。
-            ForEach(LibraryAlbumBrowseOrder.allCases.filter {
-                $0 != .liked || albumOrder == .liked || LibraryFavoritesStore.shared.hasLikedAlbums
-            }, id: \.self) { order in
-                Button {
-                    albumOrderRawValue = order.rawValue
-                } label: {
-                    TVFilterChipLabel(
-                        title: order.title,
-                        systemImage: order.systemImage,
-                        isSelected: order == albumOrder,
-                        isFocused: focusedAlbumOrder == order
-                    )
-                }
-                .buttonStyle(TVBareButtonStyle())
-                .focused($focusedAlbumOrder, equals: order)
-                .focusEffectDisabled()
-                .accessibilityIdentifier("tv.library.albumOrder." + order.rawValue)
-                .accessibilityAddTraits(order == albumOrder ? [.isButton, .isSelected] : .isButton)
-            }
-        }
-        .padding(.vertical, 6)
-        .focusSection()
-        .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("sort_by"))
+        .accessibilityValue(Text(albumOrder.title))
+        .accessibilityIdentifier("tv.library.albumOrder")
+    }
+
+    /// 排序按钮上的字:「按艺术家」而不是「艺术家」,不和同一行的筛选「艺术家」「年份」撞名。
+    /// 菜单里有「排序方式」标题,选项照旧用短名。
+    private static func sortChipTitle(_ order: LibraryAlbumBrowseOrder) -> String {
+        switch order {
+        case .artist: return String(localized: "tv_library_sort_by_artist")
+        case .title: return String(localized: "tv_library_sort_by_title")
+        case .year: return String(localized: "tv_library_sort_by_year")
+        case .recentlyAdded, .liked: return order.title
+        }
+    }
+
+    /// 艺人墙列全部艺人还是只列专辑艺人;「只看收藏的」也收在这个菜单里,
+    /// 有喜欢的艺人(或正开着)才出现。开着时按钮换成实心心形,标题后缀「收藏」。
+    private var artistBrowseMenu: some View {
+        var chipTitle = artistBrowseMode.title
+        if showsLikedArtistsOnly {
+            chipTitle += " · " + String(localized: "library_favorite_filter_short")
+        }
+        return stripMenu(
+            .artistBrowse,
+            title: chipTitle,
+            systemImage: showsLikedArtistsOnly ? "heart.fill" : "line.3.horizontal.decrease"
+        ) {
+            Section(String(localized: "artist_browse_mode")) {
+                ForEach(ArtistBrowseMode.allCases, id: \.self) { mode in
+                    Toggle(isOn: Binding(
+                        get: { mode == artistBrowseMode },
+                        set: { _ in artistBrowseModeRaw = mode.rawValue }
+                    )) {
+                        Label(mode.title, systemImage: mode.systemImage)
+                    }
+                }
+            }
+            if showsLikedArtistsOnly || LibraryFavoritesStore.shared.hasLikedArtists {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { showsLikedArtistsOnly },
+                        set: { isOn in
+                            showsLikedArtistsOnly = isOn
+                            resetLetterIndex()
+                        }
+                    )) {
+                        Label(String(localized: "library_favorite_filter"), systemImage: "heart")
+                    }
+                }
+            }
+        }
+        .accessibilityLabel(Text("artist_browse_mode"))
+        .accessibilityValue(Text(chipTitle))
+        .accessibilityIdentifier("tv.library.artistMode")
+    }
+
+    /// 专辑墙(含年份墙)、艺人墙每行几张:张数越多海报越小,一屏看得越多。
+    /// 换了之后网格按新列数整面重建(见 `grid` 里的 `.id`),记住的那张卡片照旧放回,
+    /// 窗口起点按新列数整行对齐。
+    private var gridColumnsMenu: some View {
+        let current = gridMetrics.columns
+        return stripMenu(
+            .gridColumns,
+            title: Self.gridColumnsTitle(current),
+            systemImage: "square.grid.3x3"
+        ) {
+            Section(String(localized: "tv_library_grid_columns")) {
+                ForEach(TVBrowseGridMetrics.musicColumnOptions, id: \.self) { count in
+                    Toggle(isOn: Binding(
+                        get: { count == current },
+                        set: { _ in wallColumnsSetting = count }
+                    )) {
+                        Text(Self.gridColumnsTitle(count))
+                    }
+                }
+            }
+        }
+        .accessibilityLabel(Text("tv_library_grid_columns"))
+        .accessibilityValue(Text(Self.gridColumnsTitle(current)))
+        .accessibilityIdentifier("tv.library.gridColumns")
+    }
+
+    private static func gridColumnsTitle(_ count: Int) -> String {
+        String(format: String(localized: "tv_library_grid_columns_format"), count)
     }
 
     private var title: String {
@@ -656,30 +730,40 @@ struct TVLibraryView: View {
         }
     }
 
-    private var filterStrip: some View {
+    /// 第一行:左边是横向滚动的筛选胶囊,右端是当前这面墙的菜单(`stripMenus`,不随胶囊滚走)。
+    /// 整行一个焦点区:从最后一颗筛选往右就到菜单。菜单右沿让出 `trailingInset`(字母栏那一列),
+    /// 与网格右沿对齐、不压在字母栏上方,从菜单往下落到网格第一行而不是字母栏。
+    private func filterStrip(trailingInset: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(PMString("ext.tv.library.eyebrow")).tvFont(.eyebrow)
                 .foregroundStyle(TVColor.textMuted)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(filterConfiguration.visibleFilters) { item in
-                        Button { filter = item } label: {
-                            TVFilterChipLabel(
-                                title: item.display,
-                                systemImage: item.icon,
-                                isSelected: item == filter,
-                                isFocused: focusedFilter == item
-                            )
+            HStack(spacing: 14) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(filterConfiguration.visibleFilters) { item in
+                            Button { filter = item } label: {
+                                TVFilterChipLabel(
+                                    title: item.display,
+                                    systemImage: item.icon,
+                                    isSelected: item == filter,
+                                    isFocused: focusedFilter == item
+                                )
+                            }
+                            .buttonStyle(TVBareButtonStyle())
+                            .focused($focusedFilter, equals: item)
+                            .focusEffectDisabled()
+                            .accessibilityIdentifier("tv.library.category." + item.rawValue)
+                            .accessibilityAddTraits(item == filter ? [.isButton, .isSelected] : .isButton)
                         }
-                        .buttonStyle(TVBareButtonStyle())
-                        .focused($focusedFilter, equals: item)
-                        .focusEffectDisabled()
-                        .accessibilityIdentifier("tv.library.category." + item.rawValue)
-                        .accessibilityAddTraits(item == filter ? [.isButton, .isSelected] : .isButton)
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                if showsWallControls {
+                    stripMenus
+                        .padding(.trailing, TVBrowseGridMetrics.edgeInset + trailingInset)
+                }
             }
             .frame(height: 80)
         }
@@ -719,7 +803,9 @@ struct TVLibraryView: View {
                                 focusID: Self.albumFocusID(album.id))
                         .accessibilityIdentifier("tv.library.album.\(index)")
                 }
-                .id(wallOrder)
+                // 换排序或每行张数都整面重建:窗口起点、已渲染张数是按旧排序 / 旧列数攒下的。
+                // 重建时记住的那张卡片由 `revealingIndex` 放回,窗口按新列数整行对齐。
+                .id("\(wallOrder.rawValue)#\(columns.count)")
                 .onAppear { revealBrowseAnchor(with: proxy) }
             } else {
                 browseLayoutPlaceholder
@@ -826,6 +912,8 @@ struct TVLibraryView: View {
                         .frame(width: cell)
                         .accessibilityIdentifier("tv.library.artist.\(index)")
                 }
+                // 同专辑墙:每行张数变了整面重建,窗口按新列数整行对齐。
+                .id(columns.count)
                 .onAppear { revealBrowseAnchor(with: proxy) }
             } else {
                 browseLayoutPlaceholder

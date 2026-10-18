@@ -6603,3 +6603,8 @@
 "tv_local_removals_restore_album" = "恢复这张专辑";
 "tv_local_removals_removed_at_format" = "移除于 %@";
 "tv_local_removals_row_hint_format" = "这台 Apple TV 上移除了 %d 首，长按可恢复";
+"tv_library_grid_columns" = "每行张数";
+"tv_library_grid_columns_format" = "每行 %lld 张";
+"tv_library_sort_by_artist" = "按艺术家";
+"tv_library_sort_by_title" = "按标题";
+"tv_library_sort_by_year" = "按年份";

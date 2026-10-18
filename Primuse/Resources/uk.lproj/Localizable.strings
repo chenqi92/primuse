@@ -6416,3 +6416,8 @@
 "tv_local_removals_restore_album" = "Відновити альбом";
 "tv_local_removals_removed_at_format" = "Прибрано %@";
 "tv_local_removals_row_hint_format" = "%d прибрано з цього Apple TV · утримуйте, щоб відновити";
+"tv_library_grid_columns" = "Плиток у рядку";
+"tv_library_grid_columns_format" = "%lld у рядку";
+"tv_library_sort_by_artist" = "За виконавцем";
+"tv_library_sort_by_title" = "За назвою";
+"tv_library_sort_by_year" = "За роком";

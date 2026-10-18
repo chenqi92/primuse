@@ -6270,3 +6270,8 @@
 "tv_local_removals_restore_album" = "Restore Album";
 "tv_local_removals_removed_at_format" = "Removed %@";
 "tv_local_removals_row_hint_format" = "%d removed on this Apple TV · press and hold to restore";
+"tv_library_grid_columns" = "Posters per Row";
+"tv_library_grid_columns_format" = "%lld per Row";
+"tv_library_sort_by_artist" = "By Artist";
+"tv_library_sort_by_title" = "By Title";
+"tv_library_sort_by_year" = "By Year";

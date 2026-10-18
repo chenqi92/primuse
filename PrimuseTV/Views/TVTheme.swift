@@ -223,7 +223,8 @@ enum TVSpace {
 /// 三页共用同一套算法:页面左右各让出 `TVSpace.pageH`,网格两侧再各留 `edgeInset`
 /// 给首尾卡片的焦点描边和放大。列数与间距各页一份,但要按同一把尺子定:
 /// 有声书封面和电台台标都是方形,同一行高、同一间距(一行五张),
-/// 不与专辑墙一样一行四张大卡。
+/// 不与专辑墙一样默认一行四张大卡。专辑墙(含年份墙)与艺人墙的每行张数可在资料库
+/// 筛选行右侧改(`music(columns:)`),其余网格不跟这个设置。
 struct TVBrowseGridMetrics {
     let columns: Int
     let gap: CGFloat
@@ -231,8 +232,23 @@ struct TVBrowseGridMetrics {
 
     static let edgeInset: CGFloat = 14
 
-    /// 音乐:专辑 / 艺人墙,一行四张。
+    /// 音乐:专辑 / 艺人墙,默认一行四张。
     static let music = TVBrowseGridMetrics(columns: 4, gap: 28, minimumCell: 140)
+    /// 专辑 / 艺人墙可选的每行张数,存在 `musicColumnsStorageKey`(只存在这台电视上)。
+    static let musicColumnOptions = [4, 5, 6, 7]
+    static let musicColumnsStorageKey = "primuse.tv.libraryGridColumns.v1"
+
+    /// 专辑 / 艺人墙按设置的每行张数排。六、七张时一格只剩两百出头,缝跟着收到 24:
+    /// 仍放得下焦点放大(`TVFocusEmphasis.cardScale`)向两边各多出的那点,缝也不比卡片抢眼。
+    /// 存的值不在可选范围里(手改、以后删了某一档)就按默认的四张。
+    static func music(columns: Int) -> TVBrowseGridMetrics {
+        let resolved = musicColumnOptions.contains(columns) ? columns : music.columns
+        return TVBrowseGridMetrics(
+            columns: resolved,
+            gap: resolved >= 6 ? 24 : music.gap,
+            minimumCell: music.minimumCell
+        )
+    }
     /// 电台:方形台标,一行五张,间距同有声书架。
     static let radio = TVBrowseGridMetrics(columns: 5, gap: 36, minimumCell: 140)
     /// 有声:方形书封,一行五本,同电台。

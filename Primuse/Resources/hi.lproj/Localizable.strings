@@ -6416,3 +6416,8 @@
 "tv_local_removals_restore_album" = "एल्बम बहाल करें";
 "tv_local_removals_removed_at_format" = "%@ को हटाया गया";
 "tv_local_removals_row_hint_format" = "इस Apple TV से %d हटाए गए · बहाल करने के लिए दबाकर रखें";
+"tv_library_grid_columns" = "हर पंक्ति में आइटम";
+"tv_library_grid_columns_format" = "हर पंक्ति में %lld";
+"tv_library_sort_by_artist" = "कलाकार के अनुसार";
+"tv_library_sort_by_title" = "शीर्षक के अनुसार";
+"tv_library_sort_by_year" = "वर्ष के अनुसार";

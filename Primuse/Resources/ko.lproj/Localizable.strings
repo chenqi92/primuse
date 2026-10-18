@@ -6510,3 +6510,8 @@
 "tv_local_removals_restore_album" = "이 앨범 복원";
 "tv_local_removals_removed_at_format" = "%@에 제거됨";
 "tv_local_removals_row_hint_format" = "이 Apple TV에서 %d곡 제거됨 · 길게 눌러 복원";
+"tv_library_grid_columns" = "행당 개수";
+"tv_library_grid_columns_format" = "한 행에 %lld개";
+"tv_library_sort_by_artist" = "아티스트순";
+"tv_library_sort_by_title" = "제목순";
+"tv_library_sort_by_year" = "연도순";

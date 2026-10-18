@@ -6416,3 +6416,8 @@
 "tv_local_removals_restore_album" = "Albümü Geri Yükle";
 "tv_local_removals_removed_at_format" = "Kaldırılma: %@";
 "tv_local_removals_row_hint_format" = "Bu Apple TV'den %d kaldırıldı · geri yüklemek için basılı tutun";
+"tv_library_grid_columns" = "Satır başına öğe";
+"tv_library_grid_columns_format" = "Satır başına %lld";
+"tv_library_sort_by_artist" = "Sanatçıya göre";
+"tv_library_sort_by_title" = "Başlığa göre";
+"tv_library_sort_by_year" = "Yıla göre";

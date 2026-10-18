@@ -6511,3 +6511,8 @@
 "tv_local_removals_restore_album" = "このアルバムを復元";
 "tv_local_removals_removed_at_format" = "%@ に削除";
 "tv_local_removals_row_hint_format" = "この Apple TV で %d 曲を削除済み・長押しで復元";
+"tv_library_grid_columns" = "1行の枚数";
+"tv_library_grid_columns_format" = "1行に%lld枚";
+"tv_library_sort_by_artist" = "アーティスト順";
+"tv_library_sort_by_title" = "タイトル順";
+"tv_library_sort_by_year" = "年代順";
