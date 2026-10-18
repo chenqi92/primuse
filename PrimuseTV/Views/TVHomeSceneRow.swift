@@ -34,7 +34,7 @@ struct TVHomeSceneRow: View {
     var body: some View {
         let entries = ListeningScene.shelf(availability: service.availability)
         if !entries.isEmpty {
-            TVRow(label: String(localized: "listening_scene_row_title")) {
+            TVRow(label: String(localized: "listening_scene_row_title"), rule: true) {
                 ForEach(entries) { entry in
                     sceneCard(entry)
                 }

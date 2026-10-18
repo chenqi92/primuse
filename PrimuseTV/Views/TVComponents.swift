@@ -307,10 +307,19 @@ struct TVRow<Content: View>: View {
     /// 卡片要各自联网取图的行(播客单集)打开:只建出看得见的卡片,不然整排一起开始下载,
     /// 慢网络上屏幕里那几张反而排在后面。
     var loadsLazily = false
+    /// 标题上面压一道细线(首页排成杂志版面时,一排一个栏目)。
+    var rule = false
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if rule {
+                Rectangle()
+                    .fill(TVColor.text.opacity(0.18))
+                    .frame(height: 1)
+                    .padding(.bottom, 6)
+                    .accessibilityHidden(true)
+            }
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Text(label).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
                 if let sub { Text(sub).tvFont(.caption).foregroundStyle(TVColor.textFaint) }

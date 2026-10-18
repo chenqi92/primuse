@@ -43,6 +43,8 @@ struct TVHomeView: View {
     /// 首页电台那一排最多放几个台。台多的时候(音乐源镜像动辄上千个)整排一次性构造
     /// 会很卡,其余的去「电台」页看,那里是懒加载的网格。
     static let homeRadioLimit = 20
+    /// 封面故事的大封面:比原来大一号,圆角收小一点,像杂志上印的照片。
+    static let heroArtworkSize: CGFloat = 420
 
     #if DEBUG
     /// 截图用的 `radioAdd` 只在首次进首页时打开一次。
@@ -119,9 +121,6 @@ struct TVHomeView: View {
             candidateAlbumSongCount: candidateAlbumSongIDs.count
         )
     }
-    private var heroHeading: String {
-        hero.artist.isEmpty ? hero.title : "\(hero.artist) · \(hero.title)"
-    }
     /// 推荐理由;只有主视觉是推荐的专辑时才有。
     private var heroReason: String? {
         guard heroContent == .album, let pick = albumPick, pick.albumID == candidateAlbum?.id else { return nil }
@@ -134,13 +133,21 @@ struct TVHomeView: View {
         }
         return moment.title
     }
-    private var heroSubtitle: String {
-        var parts = [PMString("ext.tv.songsCount", heroSongCount)]
+    /// 封面故事下面那一行数据:年份、首数、时长,中间用细竖线隔开。
+    private var heroFacts: [String] {
+        var facts: [String] = []
+        if hero.year > 0 { facts.append("\(hero.year)") }
+        facts.append(PMString("ext.tv.songsCount", heroSongCount))
         let mins = (heroTotalDuration / 60).finiteInt()
-        if mins > 0 { parts.append(PMString("ext.tv.minCount", mins)) }
-        if hero.year > 0 { parts.append("\(hero.year)") }
-        if !hero.artist.isEmpty { parts.append(hero.artist) }
-        return parts.joined(separator: " · ")
+        if mins > 0 { facts.append(PMString("ext.tv.minCount", mins)) }
+        return facts
+    }
+
+    /// 刊头上的日期,跟系统语言(「10月18日 星期六」「Saturday, October 18」)。
+    private var issueDate: String {
+        // 每 15 分钟的时钟刷新也让刊头过了零点换日期。
+        _ = recommendationClockRevision
+        return Date.now.formatted(.dateTime.month(.wide).day().weekday(.wide))
     }
 
     var body: some View {
@@ -269,7 +276,7 @@ struct TVHomeView: View {
                !recommendationCandidates.isEmpty {
                 intelligentRecommendationSection
             } else if !store.recommended.isEmpty {
-                TVRow(label: PMString("ext.tv.home.madeForYou")) {
+                TVRow(label: PMString("ext.tv.home.madeForYou"), rule: true) {
                     ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
                         albumCard(album, row: "made")
                     }
@@ -278,14 +285,14 @@ struct TVHomeView: View {
         case .recentlyPlayed:
             if store.hasRealLibrary {
                 if !store.recentlyPlayed.isEmpty {
-                    TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
+                    TVRow(label: PMString("ext.tv.home.recentlyPlayed"), rule: true) {
                         ForEach(store.recentlyPlayed) { song in
                             TVSongCard(song: song, action: playerOpener(cardID("recent", song.id)))
                                 .focused($focusedCardID, equals: cardID("recent", song.id))
                         }
                     }
                 } else if heroAlbum == nil {
-                    TVRow(label: PMString("ext.tv.nav.library")) {
+                    TVRow(label: PMString("ext.tv.nav.library"), rule: true) {
                         ForEach(Array(store.songs.prefix(15))) { song in
                             TVSongCard(song: song, action: playerOpener(cardID("songs", song.id)))
                                 .focused($focusedCardID, equals: cardID("songs", song.id))
@@ -297,7 +304,7 @@ struct TVHomeView: View {
             if store.hasRealLibrary {
                 let likedAlbums = store.likedAlbums
                 if !likedAlbums.isEmpty {
-                    TVRow(label: String(localized: "library_liked_albums_title")) {
+                    TVRow(label: String(localized: "library_liked_albums_title"), rule: true) {
                         ForEach(likedAlbums) { album in
                             albumCard(album, row: "liked")
                         }
@@ -306,7 +313,7 @@ struct TVHomeView: View {
             }
         case .recentlyAdded:
             if !store.recentlyAddedAlbums.isEmpty {
-                TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
+                TVRow(label: PMString("ext.tv.home.recentlyAdded"), rule: true) {
                     ForEach(store.recentlyAddedAlbums) { album in
                         albumCard(album, row: "added")
                     }
@@ -323,7 +330,8 @@ struct TVHomeView: View {
             label: PMString("ext.tv.radio.title"),
             sub: store.radioStations.isEmpty
                 ? nil
-                : TVRadioText.stationCount(store.radioStations.count)
+                : TVRadioText.stationCount(store.radioStations.count),
+            rule: true
         ) {
             let homeStations = homeRadioStations
             // 长按挪动只在这一排里算,台不会被挪出首页。
@@ -527,6 +535,12 @@ struct TVHomeView: View {
 
     private var intelligentRecommendationSection: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // 和其它排一样一个栏目一道细线,线压在情景按钮上面。
+            Rectangle()
+                .fill(TVColor.text.opacity(0.18))
+                .frame(height: 1)
+                .padding(.bottom, 6)
+                .accessibilityHidden(true)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
@@ -611,70 +625,149 @@ struct TVHomeView: View {
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
+    /// 首页主视觉排成一页音乐杂志的封面故事:刊头(Primuse 与今天的日期)压一道细线;左边是栏目
+    /// (此刻的情景)、大字专辑名、艺人、推荐语做成引文、一行数据,右边是大封面。按钮与原来一样。
     private var heroZone: some View {
-        HStack(alignment: .center, spacing: 64) {
-            VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: heroEyebrow)
-                Text(heroHeading)
-                    .tvFont(.heroTitle)
-                    .tracking(-0.8)
-                    .foregroundStyle(TVColor.text).lineLimit(2)
-                    .padding(.top, 16)
-                Text(heroSubtitle)
-                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                    .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
-                    .padding(.top, 14)
-                if let heroReason {
-                    Label(heroReason, systemImage: "sparkles")
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.text.opacity(0.86))
-                        .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
-                        .padding(.top, 10)
-                }
-                HStack(spacing: 16) {
-                    if let heroAlbum, albumPick != nil {
-                        // 推荐的专辑:整张按原曲序播放,换一张在这个情景的备选之间轮换。
-                        TVPillButton(title: String(localized: "album_pick_play"), systemImage: "play.fill", style: .solid,
-                                     action: { playHeroAlbum(heroAlbum) })
-                        TVPillButton(title: String(localized: "album_pick_another"), systemImage: "arrow.triangle.2.circlepath",
-                                     action: { AlbumRecommendationService.shared.showAnother() })
-                            .disabled(!AlbumRecommendationService.shared.canShowAnother)
-                        // 「不再推荐」:不用长按菜单(首页随推荐、焦点频繁重算,遥控器长按出来的菜单会跟着闪),
-                        // 只放一个图标,一排按钮才放得下。
-                        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: {
-                            guard let pick = albumPick else { return }
-                            AlbumRecommendationService.shared.dismiss(albumID: pick.albumID)
-                        }) { focused in
-                            Image(systemName: "hand.thumbsdown")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(focused ? TVColor.onFocusFill : TVColor.text)
-                                .frame(width: 36, height: 36)
-                                .padding(18)
-                                .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
-                        }
-                        .accessibilityLabel(Text("album_pick_dismiss"))
-                    } else {
-                        TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
-                                     action: { playHero(shuffle: false) })
+        VStack(alignment: .leading, spacing: 0) {
+            masthead
+            HStack(alignment: .center, spacing: 64) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 14) {
+                        Capsule()
+                            .fill(heroAmbientTint)
+                            .frame(width: 36, height: 5)
+                        Text(heroEyebrow.uppercased())
+                            .tvFont(.eyebrow, weight: .bold)
+                            .tracking(3)
+                            .foregroundStyle(TVColor.text.opacity(0.86))
+                            .lineLimit(1)
                     }
-                    TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle",
-                                 action: { playHero(shuffle: true) })
-                    TVMedleyButton(songIDs: store.songIDs, onStarted: openPlayer)
+                    Text(hero.title)
+                        .tvFont(size: 76, weight: .bold, design: .serif, relativeTo: .largeTitle)
+                        .tracking(-1)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .padding(.top, 18)
+                    if !hero.artist.isEmpty {
+                        Text(hero.artist)
+                            .tvFont(size: 34, weight: .medium, relativeTo: .title3)
+                            .foregroundStyle(TVColor.textMuted)
+                            .lineLimit(1)
+                            .padding(.top, 10)
+                    }
+                    if let heroReason {
+                        pullQuote(heroReason)
+                            .padding(.top, 26)
+                    }
+                    factStrip
+                        .padding(.top, heroReason == nil ? 22 : 24)
+                    heroButtons
+                        .padding(.top, 30)
                 }
-                .padding(.top, 32)
+                Spacer(minLength: 0)
+                heroArtwork
+                    .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
             }
-            Spacer(minLength: 0)
-            heroArtwork
-                .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
+            .padding(.top, 34)
         }
         .frame(minHeight: 420)
         .padding(.bottom, 10)
     }
 
+    /// 刊头:左边 Primuse,右边今天的日期,中间一道细线拉满。
+    private var masthead: some View {
+        HStack(alignment: .center, spacing: 24) {
+            Text(verbatim: "PRIMUSE")
+                .tvFont(size: 28, weight: .black, design: .serif, relativeTo: .title3)
+                .tracking(7)
+                .foregroundStyle(TVColor.text)
+            Rectangle()
+                .fill(TVColor.text.opacity(0.28))
+                .frame(height: 1)
+            Text(verbatim: issueDate)
+                .tvFont(.meta, weight: .semibold)
+                .tracking(1.4)
+                .foregroundStyle(TVColor.textMuted)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// 推荐语排成引文:封面色的大引号挂在第一行前面(引号本来就画在字高的上沿),正文用衬线字。
+    private func pullQuote(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(verbatim: "\u{201C}")
+                .tvFont(size: 72, weight: .bold, design: .serif, relativeTo: .largeTitle)
+                .foregroundStyle(heroAmbientTint)
+                .accessibilityHidden(true)
+            Text(verbatim: text)
+                .tvFont(size: 30, design: .serif, relativeTo: .body)
+                .foregroundStyle(TVColor.text.opacity(0.9))
+                .lineSpacing(4)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 820, alignment: .leading)
+    }
+
+    private var factStrip: some View {
+        HStack(spacing: 20) {
+            ForEach(Array(heroFacts.enumerated()), id: \.offset) { index, fact in
+                if index > 0 {
+                    Rectangle()
+                        .fill(TVColor.text.opacity(0.26))
+                        .frame(width: 1, height: 24)
+                }
+                Text(verbatim: fact)
+                    .tvFont(.caption, weight: .semibold)
+                    .tracking(0.6)
+                    .monospacedDigit()
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var heroButtons: some View {
+        HStack(spacing: 16) {
+            if let heroAlbum, albumPick != nil {
+                // 推荐的专辑:整张按原曲序播放,换一张在这个情景的备选之间轮换。
+                TVPillButton(title: String(localized: "album_pick_play"), systemImage: "play.fill", style: .solid,
+                             action: { playHeroAlbum(heroAlbum) })
+                TVPillButton(title: String(localized: "album_pick_another"), systemImage: "arrow.triangle.2.circlepath",
+                             action: { AlbumRecommendationService.shared.showAnother() })
+                    .disabled(!AlbumRecommendationService.shared.canShowAnother)
+                // 「不再推荐」:不用长按菜单(首页随推荐、焦点频繁重算,遥控器长按出来的菜单会跟着闪),
+                // 只放一个图标,一排按钮才放得下。
+                TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: {
+                    guard let pick = albumPick else { return }
+                    AlbumRecommendationService.shared.dismiss(albumID: pick.albumID)
+                }) { focused in
+                    Image(systemName: "hand.thumbsdown")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(focused ? TVColor.onFocusFill : TVColor.text)
+                        .frame(width: 36, height: 36)
+                        .padding(18)
+                        .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
+                }
+                .accessibilityLabel(Text("album_pick_dismiss"))
+            } else {
+                TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
+                             action: { playHero(shuffle: false) })
+            }
+            TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle",
+                         action: { playHero(shuffle: true) })
+            TVMedleyButton(songIDs: store.songIDs, onStarted: openPlayer)
+        }
+    }
+
     @ViewBuilder
     private var heroArtwork: some View {
         if let heroAlbum {
-            TVArtworkView(album: heroAlbum, size: 380, radius: 18)
+            TVArtworkView(album: heroAlbum, size: Self.heroArtworkSize, radius: 10)
         } else if let heroSong {
             TVArtworkView(
                 coverKey: "",
@@ -685,15 +778,15 @@ struct TVHomeView: View {
                 tint: hero.tint,
                 tint2: hero.tint2,
                 glyph: hero.glyph,
-                size: 380,
-                radius: 18
+                size: Self.heroArtworkSize,
+                radius: 10
             )
         } else {
             TVMusicPlaceholder(
                 tint: hero.tint,
                 tint2: hero.tint2,
-                size: 380,
-                radius: 18
+                size: Self.heroArtworkSize,
+                radius: 10
             )
         }
     }
