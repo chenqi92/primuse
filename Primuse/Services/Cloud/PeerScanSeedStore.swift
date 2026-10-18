@@ -21,11 +21,14 @@ actor PeerScanSeedStore {
         var modifiedAt: Date
         var deviceName: String
         var sourceIDs: [String]
+        /// 存盘时扔掉的源(`PeerScanSeedScope.excluded`)。旧版本存的没有这一项。
+        var excludedSourceIDs: [String]?
     }
 
     private struct State: Codable, Sendable {
         var devices: [String: DeviceState] = [:]
-        /// 处理这些设备时本机认的文件型源。本机多了新源就得重新过一遍。
+        /// 旧版本只留本机当时认的文件型源,这是那份名单;没有 `excludedSourceIDs` 的设备
+        /// 靠它判断本机后来有的源在不在里面。新版本不再改它。
         var eligibleSourceIDs: [String] = []
         /// 上次看清单时账号里别的上传过曲库的设备数(不论有没有用得上的行)。
         var peerDeviceCount: Int = 0
@@ -71,12 +74,13 @@ actor PeerScanSeedStore {
 
     /// 看一眼 iCloud 上别的设备的清单,有更新的设备就把它的快照拉下来重新整理。
     /// `force` 跳过十分钟的节流(本机第一次扫一个源时用)。同时只跑一次:正在跑的
-    /// 那次覆盖了这次要的源就等它的结果,没覆盖(刚加了新源)就等它跑完再跑一次。
-    func refresh(eligibleSourceIDs: Set<String>, force: Bool = false) async -> RefreshResult? {
-        guard Self.isEnabled, !eligibleSourceIDs.isEmpty else { return nil }
+    /// 那次覆盖了这次要的源就等它的结果,没覆盖(刚加了新源)就等它跑完再跑一次
+    /// (快照没变时只多读一次清单)。
+    func refresh(scope: PeerScanSeedScope, force: Bool = false) async -> RefreshResult? {
+        guard Self.isEnabled, !scope.wanted.isEmpty else { return nil }
         var waitedForNarrowerRefresh = false
         while let running = inFlight {
-            if eligibleSourceIDs.isSubset(of: inFlightSourceIDs) {
+            if scope.wanted.isSubset(of: inFlightSourceIDs) {
                 return await running.value
             }
             _ = await running.value
@@ -89,7 +93,7 @@ actor PeerScanSeedStore {
         lastAttemptAt = Date()
         let token = UUID()
         let task = Task { () -> RefreshResult? in
-            let result = await self.performRefresh(eligibleSourceIDs: eligibleSourceIDs)
+            let result = await self.performRefresh(scope: scope)
             // 在任务里清掉,等它的调用方醒来时看到的已经是空的。
             if self.inFlightToken == token {
                 self.inFlight = nil
@@ -99,11 +103,11 @@ actor PeerScanSeedStore {
         }
         inFlight = task
         inFlightToken = token
-        inFlightSourceIDs = eligibleSourceIDs
+        inFlightSourceIDs = scope.wanted
         return await task.value
     }
 
-    private func performRefresh(eligibleSourceIDs: Set<String>) async -> RefreshResult? {
+    private func performRefresh(scope: PeerScanSeedScope) async -> RefreshResult? {
         guard let database = CloudKitRuntime.makeContainer()?.privateCloudDatabase else { return nil }
         let localDeviceID = LibrarySnapshotSync.shared.localDeviceID
         let manifestRecordID = CKRecord.ID(recordName: "library-snapshot")
@@ -140,8 +144,6 @@ actor PeerScanSeedStore {
 
         var state = loadState()
         var updatedSourceIDs = Set<String>()
-        let eligibleSignature = eligibleSourceIDs.sorted()
-        let eligibilityChanged = state.eligibleSourceIDs != eligibleSignature
 
         // 清单里没了的设备(换了账号、删了 App、曲库清空)连同它的结果一起删掉。
         let peerIDs = Set(manifest.map(\.deviceID))
@@ -149,10 +151,27 @@ actor PeerScanSeedStore {
             removeDevice(deviceID)
             state.devices[deviceID] = nil
         }
+        // 本机后来删掉的源,存着的结果不必等那台设备传新快照才清。
+        for (deviceID, device) in state.devices {
+            let dropped = device.sourceIDs.filter { scope.excluded.contains($0) }
+            guard !dropped.isEmpty else { continue }
+            let deviceDirectory = Self.deviceDirectory(deviceID, in: directory)
+            for sourceID in dropped {
+                try? FileManager.default.removeItem(at: Self.sourceFileURL(sourceID, in: deviceDirectory))
+            }
+            state.devices[deviceID]?.sourceIDs.removeAll { scope.excluded.contains($0) }
+        }
 
+        let legacyKeptSourceIDs = Set(state.eligibleSourceIDs)
         let stale = manifest.filter { entry in
-            guard !eligibilityChanged, let known = state.devices[entry.deviceID] else { return true }
-            return abs(known.modifiedAt.timeIntervalSince(entry.modifiedAt)) >= 1
+            let known = state.devices[entry.deviceID]
+            return PeerScanSeedPolicy.needsReinstall(
+                storedModifiedAt: known?.modifiedAt,
+                uploadedModifiedAt: entry.modifiedAt,
+                excludedAtInstall: known?.excludedSourceIDs.map(Set.init),
+                legacyKeptSourceIDs: legacyKeptSourceIDs,
+                wanted: scope.wanted
+            )
         }
         for entry in LibrarySnapshotDeviceManifestPolicy.mergeOrder(stale) {
             guard !Task.isCancelled else { break }
@@ -178,14 +197,13 @@ actor PeerScanSeedStore {
             let written = installDevice(
                 entry,
                 libraryData: data,
-                eligibleSourceIDs: eligibleSourceIDs,
+                scope: scope,
                 previous: state.devices[entry.deviceID]
             )
             guard let written else { continue }
             updatedSourceIDs.formUnion(written.sourceIDs)
             state.devices[entry.deviceID] = written
         }
-        state.eligibleSourceIDs = eligibleSignature
         state.peerDeviceCount = manifest.count
         saveState(state)
         plog("🧩 peer seeds: refreshed devices=\(manifest.count) updated=\(stale.count) sources=\(updatedSourceIDs.count)")
@@ -196,7 +214,7 @@ actor PeerScanSeedStore {
     private func installDevice(
         _ entry: LibrarySnapshotDeviceEntry,
         libraryData: Data,
-        eligibleSourceIDs: Set<String>,
+        scope: PeerScanSeedScope,
         previous: DeviceState?
     ) -> DeviceState? {
         let decoder = JSONDecoder()
@@ -208,7 +226,7 @@ actor PeerScanSeedStore {
         let coverKeys = PeerScanSeedPolicy.coverContentKeys(bySongIDFrom: payload.coverContentSongIDs)
         var bySource: [String: [PeerScanSeed]] = [:]
         var usable = 0
-        for song in payload.songs ?? [] where eligibleSourceIDs.contains(song.sourceID) {
+        for song in payload.songs ?? [] where !scope.excluded.contains(song.sourceID) {
             guard PeerScanSeedPolicy.isUsableSeed(song) else { continue }
             bySource[song.sourceID, default: []].append(
                 PeerScanSeed(song: song, coverContentKey: coverKeys[song.id])
@@ -234,7 +252,8 @@ actor PeerScanSeedStore {
         return DeviceState(
             modifiedAt: entry.modifiedAt,
             deviceName: entry.deviceName,
-            sourceIDs: written.sorted()
+            sourceIDs: written.sorted(),
+            excludedSourceIDs: scope.excluded.sorted()
         )
     }
 
@@ -358,6 +377,8 @@ final class PeerScanSeedCoordinator {
     private var uploadTask: Task<Void, Never>?
     /// 这次运行里已经拿现有结果补过的源。结果没更新就不再整库比一遍。
     private var filledSourceIDs: Set<String> = []
+    /// 首扫没等别的设备、扫完要再去看一眼的源(见 `lookup`)。
+    private var postScanCheckSourceIDs: Set<String> = []
 
     init(sourcesStore: SourcesStore, library: MusicLibrary, backfill: MetadataBackfillService) {
         self.sourcesStore = sourcesStore
@@ -365,20 +386,29 @@ final class PeerScanSeedCoordinator {
         self.backfill = backfill
     }
 
-    private var eligibleSourceIDs: Set<String> {
-        Set(sourcesStore.sources.filter { $0.isEnabled && PeerScanSeedStore.isEligible($0) }.map(\.id))
+    private var seedScope: PeerScanSeedScope {
+        PeerScanSeedScope.make(
+            sources: sourcesStore.allSources,
+            deletedSourceIDs: Set(sourcesStore.sourceDeletionRecords.map(\.id)),
+            isEligible: PeerScanSeedStore.isEligible
+        )
     }
 
     /// 扫描开始前调用。本机还没扫过这个源时先去 iCloud 取一次最新的结果,最多等 15 秒。
-    /// 这段时间扫描还没开始列文件,所以只给可能等得到结果的源等:本机这次刚建的源
-    /// id 是新生成的,别的设备不可能扫过,等了也是空等,只会让新源十几秒一首都不出来。
+    /// 这段时间扫描还没开始列文件,所以本机建的源不等:id 是本机生成的,这次运行才建的
+    /// 别的设备不可能扫过;之前建的、还没扫过就被关掉的,别的设备也只是可能扫过,
+    /// 扫完再去看一眼,有结果就交给补读接过来。
     func lookup(for source: MusicSource) async -> PeerScanSeedLookup? {
         guard PeerScanSeedStore.isEnabled, PeerScanSeedStore.isEligible(source) else { return nil }
         let hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
-        if !hasLocalRows, !sourcesStore.sourceIDsCreatedThisRun.contains(source.id) {
-            let eligible = eligibleSourceIDs.union([source.id])
+        if !hasLocalRows, sourcesStore.sourceIDsCreatedOnThisDevice.contains(source.id) {
+            if !sourcesStore.sourceIDsCreatedThisRun.contains(source.id) {
+                postScanCheckSourceIDs.insert(source.id)
+            }
+        } else if !hasLocalRows {
+            let scope = seedScope.including(source.id)
             let refresh = Task.detached(priority: .userInitiated) {
-                _ = await PeerScanSeedStore.shared.refresh(eligibleSourceIDs: eligible, force: true)
+                _ = await PeerScanSeedStore.shared.refresh(scope: scope, force: true)
             }
             let startedAt = Date()
             await Self.wait(for: refresh, upTo: 15)
@@ -398,10 +428,10 @@ final class PeerScanSeedCoordinator {
 
     func refreshAndFill() async {
         guard PeerScanSeedStore.isEnabled, let backfill else { return }
-        let eligible = eligibleSourceIDs
-        let needing = eligible.filter { backfill.statusCount(forSource: $0) > 0 }
+        let scope = seedScope
+        let needing = scope.wanted.filter { backfill.statusCount(forSource: $0) > 0 }
         guard !needing.isEmpty else { return }
-        let result = await PeerScanSeedStore.shared.refresh(eligibleSourceIDs: eligible)
+        let result = await PeerScanSeedStore.shared.refresh(scope: scope)
         let targets = needing.filter {
             result?.updatedSourceIDs.contains($0) == true || !filledSourceIDs.contains($0)
         }
@@ -420,13 +450,20 @@ final class PeerScanSeedCoordinator {
     }
 
     /// 一次扫描刚结束。群晖 File Station 由它自己的扫描器生成行,扫描时没接这条路,
-    /// 在这里补一遍;然后让别的设备早点拿到本机的结果。
+    /// 在这里补一遍;首扫没等别的设备的源再去看一眼;然后让别的设备早点拿到本机的结果。
     func sourceScanSucceeded(sourceID: String) {
         guard let source = sourcesStore.source(id: sourceID),
               PeerScanSeedStore.isEligible(source) else { return }
         if PeerScanSeedStore.isEnabled {
             if source.type == .synology {
                 Task { [weak self] in await self?.fill(sourceIDs: [sourceID]) }
+            }
+            if postScanCheckSourceIDs.remove(sourceID) != nil {
+                let scope = seedScope.including(sourceID)
+                Task { [weak self] in
+                    _ = await PeerScanSeedStore.shared.refresh(scope: scope, force: true)
+                    await self?.fill(sourceIDs: [sourceID])
+                }
             }
             // 扫描交来的行这时都已提交:同一张封面已经有着落的,把后进库的歌指过去。
             backfill?.schedulePeerCoverSweep()

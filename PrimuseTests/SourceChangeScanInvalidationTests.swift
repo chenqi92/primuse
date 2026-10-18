@@ -136,8 +136,8 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         XCTAssertEqual(store.source(id: "source")?.name, "NAS on the Mac")
     }
 
-    /// 只有本机新建的源记为「这次运行里建的」:首扫靠它决定要不要先等别的设备的结果。
-    func testOnlySourcesAddedOnThisDeviceCountAsCreatedThisRun() throws {
+    /// 只有本机新建的源记为「本机建的」:首扫靠它决定要不要先等别的设备的结果。
+    func testOnlySourcesAddedOnThisDeviceCountAsCreatedHere() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SourceCreated-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -147,12 +147,19 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         try store.addDurably(MusicSource(id: "durable", name: "SMB", type: .smb))
         store.upsertFromRemote(MusicSource(id: "remote", name: "From the Mac", type: .webdav))
         XCTAssertEqual(store.sourceIDsCreatedThisRun, ["added", "durable"])
+        XCTAssertEqual(store.sourceIDsCreatedOnThisDevice, ["added", "durable"])
 
         // 别的设备先同步过来的源,本机再走 add 保存也不算新建。
         var edited = try XCTUnwrap(store.source(id: "remote"))
         edited.name = "Renamed"
         store.add(edited)
-        XCTAssertEqual(store.sourceIDsCreatedThisRun, ["added", "durable"])
+        XCTAssertEqual(store.sourceIDsCreatedOnThisDevice, ["added", "durable"])
+
+        // 首扫前被关掉的下次启动还认得,但不算那次运行建的;扫完过一次的不再记。
+        store.updateLocal("added") { $0.lastScannedAt = Date() }
+        let relaunched = SourcesStore(storageDirectoryURL: root)
+        XCTAssertEqual(relaunched.sourceIDsCreatedOnThisDevice, ["durable"])
+        XCTAssertTrue(relaunched.sourceIDsCreatedThisRun.isEmpty)
     }
 
     // MARK: - Helpers

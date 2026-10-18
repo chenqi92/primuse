@@ -96,6 +96,7 @@ final class SourcesStore {
     private let storeURL: URL
     private let accountsURL: URL
     private let sourceDeletionsURL: URL
+    private let createdOnThisDeviceURL: URL
     private let sourceDataWriter: (Data, URL) throws -> Void
     private let credentialPurger: CredentialPurger
     private let encoder = JSONEncoder()
@@ -108,8 +109,11 @@ final class SourcesStore {
     @ObservationIgnored private var lastCoalescedPersistAt = Date.distantPast
     /// True once the scene left the foreground; see `setSceneBackgrounded`.
     @ObservationIgnored private var isSceneBackgrounded = false
-    /// 这次运行里在本机新建的源(经 `add` / `addDurably` 进来的新 id)。id 是本机刚生成的,
-    /// 别的设备不可能扫过它,首扫时不必等别的设备的结果(见 `PeerScanSeedCoordinator.lookup`)。
+    /// 在本机新建(经 `add` / `addDurably` 进来的新 id)、还没扫完过一次的源。id 是本机
+    /// 生成的,别的设备只有在它同步过去之后扫过才会有它的行,首扫时不必先等别的设备的
+    /// 结果(见 `PeerScanSeedCoordinator.lookup`)。存盘,首扫前被关掉的下次启动也认得。
+    @ObservationIgnored private(set) var sourceIDsCreatedOnThisDevice: Set<String> = []
+    /// 其中这次运行里才建的:别的设备不可能扫过。
     @ObservationIgnored private(set) var sourceIDsCreatedThisRun: Set<String> = []
 
     init(
@@ -137,6 +141,7 @@ final class SourcesStore {
         self.storeURL = directory.appendingPathComponent("sources.json")
         self.accountsURL = directory.appendingPathComponent("cloudAccounts.json")
         self.sourceDeletionsURL = directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
+        self.createdOnThisDeviceURL = directory.appendingPathComponent("sourcesCreatedOnThisDevice.json")
         self.sourceDataWriter = sourceDataWriter
         self.credentialPurger = credentialPurger ?? { source in
             await SourceCredentialPurgeExecutor.shared.purge(source)
@@ -155,6 +160,7 @@ final class SourcesStore {
         reconcileSourcesWithDeletionLedger()
         pruneForeignDeviceLocalSources()
         loadAccounts()
+        loadSourcesCreatedOnThisDevice()
     }
 
     func source(id: String) -> MusicSource? {
@@ -179,6 +185,7 @@ final class SourcesStore {
         reconcileSourcesWithDeletionLedger()
         pruneForeignDeviceLocalSources()
         loadAccounts()
+        loadSourcesCreatedOnThisDevice()
     }
 
     func sourceDeletionRecord(id: String) -> MusicSourceDeletionRecord? {
@@ -200,7 +207,7 @@ final class SourcesStore {
 
     func add(_ source: MusicSource) {
         if self.source(id: source.id) == nil {
-            sourceIDsCreatedThisRun.insert(source.id)
+            noteCreatedOnThisDevice(source.id)
         }
         upsert(source)
     }
@@ -221,7 +228,7 @@ final class SourcesStore {
             _ = persistSourceDeletions()
             throw error
         }
-        if isNew { sourceIDsCreatedThisRun.insert(source.id) }
+        if isNew { noteCreatedOnThisDevice(source.id) }
         notifyChanged([source.id])
     }
 
@@ -956,6 +963,36 @@ final class SourcesStore {
     }
 
     @discardableResult
+    private func noteCreatedOnThisDevice(_ sourceID: String) {
+        sourceIDsCreatedThisRun.insert(sourceID)
+        sourceIDsCreatedOnThisDevice.insert(sourceID)
+        persistSourcesCreatedOnThisDevice()
+    }
+
+    /// 扫完过一次、已删掉的不再记。
+    private func loadSourcesCreatedOnThisDevice() {
+        guard let data = try? Data(contentsOf: createdOnThisDeviceURL),
+              let stored = try? decoder.decode([String].self, from: data) else {
+            sourceIDsCreatedOnThisDevice = []
+            return
+        }
+        let kept = Set(stored).filter { id in
+            guard let source = self.source(id: id) else { return false }
+            return !source.isDeleted && source.lastScannedAt == nil
+        }
+        sourceIDsCreatedOnThisDevice = kept
+        if kept.count != stored.count { persistSourcesCreatedOnThisDevice() }
+    }
+
+    private func persistSourcesCreatedOnThisDevice() {
+        if sourceIDsCreatedOnThisDevice.isEmpty {
+            try? FileManager.default.removeItem(at: createdOnThisDeviceURL)
+            return
+        }
+        guard let data = try? encoder.encode(sourceIDsCreatedOnThisDevice.sorted()) else { return }
+        try? data.write(to: createdOnThisDeviceURL, options: .atomic)
+    }
+
     private func persistSourceDeletions() -> Bool {
         do {
             let data = try encoder.encode(sourceDeletionRecords)

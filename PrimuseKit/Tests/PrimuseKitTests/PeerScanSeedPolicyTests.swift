@@ -235,4 +235,59 @@ struct PeerScanSeedPolicyTests {
         #expect(decoded.song.title == seed.song.title)
         #expect(PeerScanSeedPolicy.fingerprintMatches(readSong(), seed: decoded.song))
     }
+
+    @Test("Stored peer rows are fetched again only when the snapshot changed or a dropped source is now wanted")
+    func reinstallDecision() {
+        let stored = modified
+        func needs(
+            uploaded: Date? = nil,
+            excluded: Set<String>? = ["emby"],
+            legacy: Set<String> = [],
+            wanted: Set<String>
+        ) -> Bool {
+            PeerScanSeedPolicy.needsReinstall(
+                storedModifiedAt: stored,
+                uploadedModifiedAt: uploaded ?? stored,
+                excludedAtInstall: excluded,
+                legacyKeptSourceIDs: legacy,
+                wanted: wanted
+            )
+        }
+        // 加源、停用源都不用重下。
+        #expect(!needs(wanted: ["nas"]))
+        #expect(!needs(wanted: ["nas", "new"]))
+        #expect(!needs(wanted: []))
+        // 那台设备传了新快照;存的时候扔掉的源又要用了(删掉后恢复)。
+        #expect(needs(uploaded: stored.addingTimeInterval(1), wanted: ["nas"]))
+        #expect(!needs(uploaded: stored.addingTimeInterval(0.5), wanted: ["nas"]))
+        #expect(needs(excluded: ["emby", "restored"], wanted: ["nas", "restored"]))
+        // 旧版本只留了当时认的源:后来才有的源要重下一次。
+        #expect(!needs(excluded: nil, legacy: ["nas", "smb"], wanted: ["nas"]))
+        #expect(needs(excluded: nil, legacy: ["nas"], wanted: ["nas", "new"]))
+        #expect(PeerScanSeedPolicy.needsReinstall(
+            storedModifiedAt: nil, uploadedModifiedAt: stored,
+            excludedAtInstall: [], legacyKeptSourceIDs: [], wanted: ["nas"]
+        ))
+    }
+
+    @Test("The scope keeps every source except ones known to be unusable here")
+    func seedScope() {
+        let sources = [
+            MusicSource(id: "nas", name: "NAS", type: .webdav),
+            MusicSource(id: "off", name: "Off", type: .smb, isEnabled: false),
+            MusicSource(id: "emby", name: "Emby", type: .emby),
+            MusicSource(id: "gone", name: "Gone", type: .smb, isDeleted: true),
+            MusicSource(id: "restored", name: "Back", type: .smb),
+        ]
+        let scope = PeerScanSeedScope.make(
+            sources: sources,
+            deletedSourceIDs: ["restored", "pruned"],
+            isEligible: { $0.type != .emby }
+        )
+        #expect(scope.wanted == ["nas", "restored"])
+        #expect(scope.excluded == ["emby", "gone", "pruned"])
+        let scanning = scope.including("off")
+        #expect(scanning.wanted == ["nas", "restored", "off"])
+        #expect(!scanning.excluded.contains("off"))
+    }
 }

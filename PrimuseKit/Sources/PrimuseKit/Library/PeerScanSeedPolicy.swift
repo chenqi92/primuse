@@ -197,4 +197,67 @@ public enum PeerScanSeedPolicy {
         key.utf8.count == 64
             && key.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
+
+    /// 本机存着的一台设备的结果要不要重下:那台设备传了新快照,或者存盘时扔掉的源里
+    /// 有本机现在要用的(删掉又恢复的源)。`excludedAtInstall` 为 nil 是旧版本的存法:
+    /// 只留了 `legacyKeptSourceIDs` 里的源,本机后来才有的源不在里面。
+    public static func needsReinstall(
+        storedModifiedAt: Date?,
+        uploadedModifiedAt: Date,
+        excludedAtInstall: Set<String>?,
+        legacyKeptSourceIDs: Set<String>,
+        wanted: Set<String>
+    ) -> Bool {
+        guard let storedModifiedAt else { return true }
+        if abs(storedModifiedAt.timeIntervalSince(uploadedModifiedAt)) >= modificationTimeTolerance {
+            return true
+        }
+        if let excludedAtInstall {
+            return !wanted.isDisjoint(with: excludedAtInstall)
+        }
+        return !wanted.isSubset(of: legacyKeptSourceIDs)
+    }
+}
+
+/// 一次整理别的设备结果的范围。
+public struct PeerScanSeedScope: Sendable, Equatable {
+    /// 本机现在要借用的源。
+    public var wanted: Set<String>
+    /// 本机认得、确定用不上的源:标签不靠读文件的、只在本机的、删掉的。其余的源(包括
+    /// 本机还没收到同步的)存盘时都留着,加源、启用源时不用为它把整份快照重下一遍。
+    public var excluded: Set<String>
+
+    public init(wanted: Set<String>, excluded: Set<String>) {
+        self.wanted = wanted
+        self.excluded = excluded
+    }
+
+    /// `isEligible` 判断一个源能不能借用别的设备的结果(停用的也照样判断)。
+    public static func make(
+        sources: [MusicSource],
+        deletedSourceIDs: Set<String>,
+        isEligible: (MusicSource) -> Bool
+    ) -> PeerScanSeedScope {
+        var wanted = Set<String>()
+        var usable = Set<String>()
+        var excluded = deletedSourceIDs
+        for source in sources {
+            if !source.isDeleted, isEligible(source) {
+                usable.insert(source.id)
+                if source.isEnabled { wanted.insert(source.id) }
+            } else {
+                excluded.insert(source.id)
+            }
+        }
+        // 删掉又恢复的源还留着删除记录。
+        excluded.subtract(usable)
+        return PeerScanSeedScope(wanted: wanted, excluded: excluded)
+    }
+
+    public func including(_ sourceID: String) -> PeerScanSeedScope {
+        var scope = self
+        scope.wanted.insert(sourceID)
+        scope.excluded.remove(sourceID)
+        return scope
+    }
 }
