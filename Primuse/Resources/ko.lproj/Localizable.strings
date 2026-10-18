@@ -6058,7 +6058,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "고음질 다이렉트는 오디오를 그대로 출력 기기로 보내므로 속도를 바꿀 수 없습니다. 속도를 조절하려면 효과 출력으로 전환하세요.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 곡은 네트워크의 기기로 캐스트할 수 없습니다.";
 "player_controls_tiles_header" = "기능 타일";
-"player_controls_tiles_footer" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 끈 타일도 '더 보기' 메뉴에 있습니다. AirPlay를 켜면 오른쪽 위에서 이 줄로 옮겨집니다.";
+"player_controls_tiles_footer" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 켠 타일은 고르게 배치되고, 끈 타일은 빈자리를 남기지 않으며 '더 보기' 메뉴에 있습니다. AirPlay, 좋아요, 더 보기, 스크립트 버튼을 켜면 원래 자리에서 이 줄로 옮겨지고, 끄면 돌아갑니다.";
 "player_controls_spoken_buttons_header" = "기타 버튼";
 "player_controls_spoken_transcript" = "스크립트 버튼";
 "player_controls_spoken_chapters" = "이전 / 다음 챕터";
@@ -6327,7 +6327,7 @@
 "player_controls_spoken_slot_automatic" = "자동";
 "player_controls_spoken_slot_automatic_sides" = "스크립트가 있으면 왼쪽에 스크립트, 오른쪽에 목차(또는 쇼 노트)를 둡니다. 없으면 비워 두고 이전 / 다음 챕터는 원래 자리에 있습니다.";
 "player_controls_spoken_slot_automatic_part_row" = "이전 / 다음 챕터. 아래 '이전 / 다음 챕터' 스위치를 따릅니다.";
-"player_controls_spoken_slot_footer" = "행을 탭해 버튼을 바꾸거나, 비워 두거나, '자동'을 고를 수 있습니다. 여기에 둔 버튼은 타일이나 오른쪽 위에 다시 나오지 않습니다. 가로 방향 iPhone과 iPad는 각자의 레이아웃에 맞게 배치합니다. iCloud로 동기화됩니다.";
+"player_controls_spoken_slot_footer" = "행을 탭해 버튼을 바꾸거나, 비워 두거나, '자동'을 고를 수 있습니다. 비운 칸은 자리를 차지하지 않고 나머지 버튼이 고르게 배치되며 재생 버튼은 가운데에 있습니다. 여기에 둔 버튼은 타일이나 오른쪽 위에 다시 나오지 않습니다. 가로 방향 iPhone과 iPad는 각자의 레이아웃에 맞게 배치합니다. iCloud로 동기화됩니다.";
 "player_controls_spoken_slot_picker_footer" = "다른 자리에 이미 있는 버튼을 고르면 두 자리가 바뀝니다. '자동'은 원래 배치를 유지합니다.";
 "player_controls_spoken_source" = "음악 소스 표시";
 "player_controls_spoken_source_footer" = "음악 소스가 둘 이상이면 플레이어 맨 아래 줄에 이 책이 어느 소스에서 왔는지 표시합니다.";
@@ -6515,3 +6515,6 @@
 "tv_library_sort_by_artist" = "아티스트순";
 "tv_library_sort_by_title" = "제목순";
 "tv_library_sort_by_year" = "연도순";
+
+"player_controls_tile_home_header" = "끄면 오른쪽 위";
+"player_controls_tile_home_transport" = "끄면 재생 버튼 옆";

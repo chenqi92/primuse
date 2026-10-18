@@ -5964,7 +5964,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que la velocidad no puede cambiar. Cambia a la salida con efectos para ajustar la velocidad.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
 "player_controls_tiles_header" = "Mosaicos de funciones";
-"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos que desactives siguen en Más. Al activar AirPlay, pasa aquí desde la esquina superior derecha.";
+"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco; siguen en Más. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven.";
 "player_controls_spoken_buttons_header" = "Otros botones";
 "player_controls_spoken_transcript" = "Botón de transcripción";
 "player_controls_spoken_chapters" = "Capítulo anterior / siguiente";
@@ -6233,7 +6233,7 @@
 "player_controls_spoken_slot_automatic" = "Automático";
 "player_controls_spoken_slot_automatic_sides" = "Con transcripción: la transcripción a la izquierda y el contenido o las notas a la derecha. Sin ella, vacío; capítulo anterior y siguiente siguen en su lugar.";
 "player_controls_spoken_slot_automatic_part_row" = "Capítulo anterior / siguiente, según el interruptor Capítulo anterior / siguiente de abajo.";
-"player_controls_spoken_slot_footer" = "Toca una fila para cambiar su botón, dejarlo vacío o elegir Automático. Los botones colocados aquí no se repiten en los mosaicos ni arriba a la derecha; el iPhone y el iPad en horizontal los acomodan según su propio diseño. Se sincroniza con iCloud.";
+"player_controls_spoken_slot_footer" = "Toca una fila para cambiar su botón, dejarlo vacío o elegir Automático. Los lugares vacíos no ocupan espacio; los demás botones se reparten y Reproducir queda al centro. Los botones colocados aquí no se repiten en los mosaicos ni arriba a la derecha; el iPhone y el iPad en horizontal los acomodan según su propio diseño. Se sincroniza con iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Si eliges un botón que ya está en otro lugar, los dos se intercambian. Automático conserva la disposición original.";
 "player_controls_spoken_source" = "Mostrar fuente de música";
 "player_controls_spoken_source_footer" = "Con más de una fuente de música, la última línea del reproductor indica de qué fuente viene el libro.";
@@ -6421,3 +6421,6 @@
 "tv_library_sort_by_artist" = "Por artista";
 "tv_library_sort_by_title" = "Por título";
 "tv_library_sort_by_year" = "Por año";
+
+"player_controls_tile_home_header" = "Desactivado: arriba a la derecha";
+"player_controls_tile_home_transport" = "Desactivado: junto a Reproducir";

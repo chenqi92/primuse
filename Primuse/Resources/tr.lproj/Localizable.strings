@@ -5964,7 +5964,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Yüksek doğruluklu doğrudan oynatma sesi olduğu gibi çıkış aygıtına gönderir, bu yüzden hız değiştirilemez. Hızı ayarlamak için efektli çıkışa geçin.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";
 "player_controls_tiles_header" = "İşlev Kutucukları";
-"player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Kapattığınız kutucuklar Diğer menüsünde yine bulunur. AirPlay’i açtığınızda sağ üstten bu sıraya taşınır.";
+"player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz ve Diğer menüsünde yine bulunur. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner.";
 "player_controls_spoken_buttons_header" = "Diğer Düğmeler";
 "player_controls_spoken_transcript" = "Döküm Düğmesi";
 "player_controls_spoken_chapters" = "Önceki / Sonraki Bölüm";
@@ -6233,7 +6233,7 @@
 "player_controls_spoken_slot_automatic" = "Otomatik";
 "player_controls_spoken_slot_automatic_sides" = "Döküm varsa solda döküm, sağda içindekiler ya da bölüm notları. Yoksa boş kalır; önceki ve sonraki bölüm kendi yerinde durur.";
 "player_controls_spoken_slot_automatic_part_row" = "Önceki / sonraki bölüm, aşağıdaki Önceki / Sonraki Bölüm anahtarına göre.";
-"player_controls_spoken_slot_footer" = "Düğmesini değiştirmek, boş bırakmak ya da Otomatik seçmek için bir satıra dokunun. Buraya konan düğmeler kutucuklarda ya da sağ üstte tekrarlanmaz; yatay iPhone ve iPad bunları kendi düzenine göre yerleştirir. iCloud ile eşzamanlanır.";
+"player_controls_spoken_slot_footer" = "Düğmesini değiştirmek, boş bırakmak ya da Otomatik seçmek için bir satıra dokunun. Boş yerler yer kaplamaz; diğer düğmeler yayılır, Oynat ortada kalır. Buraya konan düğmeler kutucuklarda ya da sağ üstte tekrarlanmaz; yatay iPhone ve iPad bunları kendi düzenine göre yerleştirir. iCloud ile eşzamanlanır.";
 "player_controls_spoken_slot_picker_footer" = "Başka bir yerde zaten olan bir düğmeyi seçmek ikisinin yerini değiştirir. Otomatik, özgün düzeni korur.";
 "player_controls_spoken_source" = "Müzik Kaynağını Göster";
 "player_controls_spoken_source_footer" = "Birden fazla müzik kaynağı varsa oynatıcının en alt satırı kitabın hangi kaynaktan geldiğini gösterir.";
@@ -6421,3 +6421,6 @@
 "tv_library_sort_by_artist" = "Sanatçıya göre";
 "tv_library_sort_by_title" = "Başlığa göre";
 "tv_library_sort_by_year" = "Yıla göre";
+
+"player_controls_tile_home_header" = "Kapalıyken: sağ üstte";
+"player_controls_tile_home_transport" = "Kapalıyken: Oynat düğmesinin yanında";

@@ -5964,7 +5964,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "โหมดความเที่ยงตรงสูงโดยตรงส่งเสียงไปยังอุปกรณ์เอาต์พุตตามต้นฉบับ จึงเปลี่ยนความเร็วไม่ได้ เปลี่ยนเป็นเอาต์พุตแบบมีเอฟเฟกต์เพื่อปรับความเร็ว";
 "player_controls_unavailable_cast_apple_music" = "ส่งเพลงจาก Apple Music ไปยังอุปกรณ์ในเครือข่ายไม่ได้";
 "player_controls_tiles_header" = "ช่องฟังก์ชัน";
-"player_controls_tiles_footer" = "แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ช่องที่ปิดไว้ยังหาได้ในเมนูเพิ่มเติม เปิด AirPlay แล้วจะย้ายจากมุมขวาบนมาอยู่ในแถวนี้";
+"player_controls_tiles_footer" = "แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ช่องที่เปิดจะเรียงห่างเท่ากัน ช่องที่ปิดไม่เว้นที่ว่างและยังหาได้ในเมนูเพิ่มเติม เปิด AirPlay ชอบ เพิ่มเติม หรือปุ่มบทถอดความ แล้วจะย้ายจากที่เดิมมาอยู่ในแถวนี้ ปิดแล้วกลับที่เดิม";
 "player_controls_spoken_buttons_header" = "ปุ่มอื่น";
 "player_controls_spoken_transcript" = "ปุ่มบทถอดความ";
 "player_controls_spoken_chapters" = "บทก่อนหน้า / บทถัดไป";
@@ -6233,7 +6233,7 @@
 "player_controls_spoken_slot_automatic" = "อัตโนมัติ";
 "player_controls_spoken_slot_automatic_sides" = "เมื่อมีบทถอดความ ด้านซ้ายเป็นบทถอดความ ด้านขวาเป็นสารบัญหรือรายละเอียดตอน ถ้าไม่มีจะเว้นว่าง บทก่อนหน้า / บทถัดไปยังอยู่ที่เดิม";
 "player_controls_spoken_slot_automatic_part_row" = "บทก่อนหน้า / บทถัดไป ตามสวิตช์บทก่อนหน้า / บทถัดไปด้านล่าง";
-"player_controls_spoken_slot_footer" = "แตะแถวเพื่อเปลี่ยนปุ่ม เว้นว่าง หรือเลือกอัตโนมัติ ปุ่มที่วางไว้ตรงนี้จะไม่ซ้ำในแถวช่องหรือมุมขวาบน iPhone และ iPad แนวนอนจัดวางตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud";
+"player_controls_spoken_slot_footer" = "แตะแถวเพื่อเปลี่ยนปุ่ม เว้นว่าง หรือเลือกอัตโนมัติ ช่องที่เว้นว่างไม่กินที่ ปุ่มที่เหลือเรียงกระจายเท่ากัน และปุ่มเล่นยังอยู่ตรงกลาง ปุ่มที่วางไว้ตรงนี้จะไม่ซ้ำในแถวช่องหรือมุมขวาบน iPhone และ iPad แนวนอนจัดวางตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud";
 "player_controls_spoken_slot_picker_footer" = "เลือกปุ่มที่อยู่อีกตำแหน่งแล้ว สองตำแหน่งจะสลับกัน อัตโนมัติคงการจัดวางเดิมไว้";
 "player_controls_spoken_source" = "แสดงแหล่งเพลง";
 "player_controls_spoken_source_footer" = "เมื่อมีแหล่งเพลงมากกว่าหนึ่งแห่ง บรรทัดล่างสุดของเครื่องเล่นจะบอกว่าหนังสือมาจากแหล่งใด";
@@ -6421,3 +6421,6 @@
 "tv_library_sort_by_artist" = "ตามศิลปิน";
 "tv_library_sort_by_title" = "ตามชื่อ";
 "tv_library_sort_by_year" = "ตามปี";
+
+"player_controls_tile_home_header" = "เมื่อปิด: มุมขวาบน";
+"player_controls_tile_home_transport" = "เมื่อปิด: ข้างปุ่มเล่น";

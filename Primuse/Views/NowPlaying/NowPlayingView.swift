@@ -108,6 +108,17 @@ private struct NowPlayingMoreMenuPlainLabel: Equatable {
     let font: Font
     let tint: Color
     let height: CGFloat
+    /// 挪进有声书、播客最下面那一排时画成那一排的一块(图标加「更多」两个字)。
+    var tile: NowPlayingMoreMenuTileStyle? = nil
+}
+
+/// 「更多」作为最下面那一排的一块时的样子,跟同一排别的块一样(`SpokenWordTileFace`)。
+private struct NowPlayingMoreMenuTileStyle: Equatable {
+    let layout: SpokenWordActionTiles.Layout
+    let tileHeight: CGFloat
+    let labelStyle: SpokenWordTileLabelStyle
+    let secondary: Color
+    let tileFill: Color
 }
 
 /// 播放页浮动圆钮的玻璃底样式。
@@ -4944,78 +4955,36 @@ struct NowPlayingView: View {
             let spokenControls = usesSpokenWordTransport
                 ? spokenWordControlLayout.resolved(in: spokenWordWideLandscapeControlContext)
                 : nil
-            let showsSpokenSides = spokenControls?.sidesNeedPlaceholders ?? false
-            HStack(spacing: 0) {
-                if let spokenControls, showsSpokenSides {
-                    Spacer()
-                    spokenWordSlotKey(
-                        spokenControls.leadingSide,
-                        slot: .leadingSide,
-                        font: .body,
-                        tint: appearance.secondary,
-                        selectedTint: themedControlAccent,
-                        menuSurface: .wideLandscape,
-                        onContents: { flipResidentContents() },
-                        onUpNext: { contentsRequestedTab = .upNext }
-                    )
-                    .pmFadeTransition(motion: .control)
-                }
-                if spokenControls?.showsInnerChapters != false || !showsSpokenSides {
-                    Spacer()
-                    transportEdgeControl(forward: false, spokenControls: spokenControls)
-                }
-                Spacer()
-                Button { transportBackward() } label: {
-                    Image(systemName: transportBackwardSymbol)
-                        .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .frame(width: 56, height: 56)
-                .accessibilityLabel(transportBackwardLabel)
-                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
-                .modifier(transportHoldScrubGesture(forward: false))
-                Spacer()
-                Button {
-                    guard !player.isLoading else { return }
-                    player.togglePlayPause()
-                } label: {
-                    transportPlayPauseFace(diameter: 60)
-                }
-                .disabled(player.showsLoadingIndicator)
-                .accessibilityLabel(player.isPlaying || player.isLoading
-                    ? String(localized: "a11y_pause")
-                    : String(localized: "a11y_play"))
-                Spacer()
-                Button { transportForward() } label: {
-                    Image(systemName: transportForwardSymbol)
-                        .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .frame(width: 56, height: 56)
-                .accessibilityLabel(transportForwardLabel)
-                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
-                .modifier(transportHoldScrubGesture(forward: true))
-                Spacer()
-                if spokenControls?.showsInnerChapters != false || !showsSpokenSides {
-                    transportEdgeControl(forward: true, spokenControls: spokenControls)
-                    Spacer()
-                }
-                if let spokenControls, showsSpokenSides {
-                    spokenWordSlotKey(
-                        spokenControls.trailingSide,
-                        slot: .trailingSide,
-                        font: .body,
-                        tint: appearance.secondary,
-                        selectedTint: themedControlAccent,
-                        menuSurface: .wideLandscape,
-                        onContents: { flipResidentContents() },
-                        onUpNext: { contentsRequestedTab = .upNext }
-                    )
-                    .pmFadeTransition(motion: .control)
-                    Spacer()
+            Group {
+                if let spokenControls {
+                    spokenWordTransportRow(spokenControls, playDiameter: 60, minimumGap: nil) { slot, action in
+                        spokenWordSlotKey(
+                            action,
+                            slot: slot,
+                            font: .body,
+                            tint: appearance.secondary,
+                            selectedTint: themedControlAccent,
+                            menuSurface: .wideLandscape,
+                            onContents: { flipResidentContents() },
+                            onUpNext: { contentsRequestedTab = .upNext }
+                        )
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        Spacer()
+                        controlSlot(.leadingEdge, style: .edge)
+                        Spacer()
+                        transportSkipButton(forward: false)
+                        Spacer()
+                        transportPlayButton(diameter: 60)
+                        Spacer()
+                        transportSkipButton(forward: true)
+                        Spacer()
+                        controlSlot(.trailingEdge, style: .edge)
+                        Spacer()
+                    }
                 }
             }
-            .pmAnimation(.control, value: showsSpokenSides)
             .padding(.top, 14)
 
             if showsPlayerVolumeBar {
@@ -5037,7 +5006,13 @@ struct NowPlayingView: View {
                     onSleep: { showSleepTimer = true },
                     onContents: {},
                     // 右栏常驻:「接下来」只是把它翻到那一页。
-                    onUpNext: { contentsRequestedTab = .upNext }
+                    onUpNext: { contentsRequestedTab = .upNext },
+                    customTile: spokenWordCustomTile(
+                        layout: .stacked,
+                        tileHeight: 54,
+                        palette: spokenWordPalette,
+                        menuSurface: .wideLandscape
+                    )
                 )
                 .padding(.horizontal, 36).padding(.top, 16)
             } else {
@@ -6042,22 +6017,25 @@ struct NowPlayingView: View {
         let diameter: CGFloat = isShort ? 64 : 72
         let showsPause = player.isPlaying || player.isLoading
         let sideKeyFont = Font.system(size: 22, weight: .light)
-        let showsSides = controls.sidesNeedPlaceholders
+        // 播放键左右两半各自排开:两侧的键贴着两头,空着的那一边不留空位,播放键仍在正中(#320)。
         return HStack(spacing: 0) {
-            if showsSides {
-                spokenWordSlotKey(
-                    controls.leadingSide,
-                    slot: .leadingSide,
-                    font: sideKeyFont,
-                    tint: style.control(paper: style.secondary),
-                    selectedTint: style.accent,
-                    height: 56
-                )
-                .pmFadeTransition(motion: .control)
+            HStack(spacing: 0) {
+                if let action = controls.leadingSide {
+                    spokenWordSlotKey(
+                        action,
+                        slot: .leadingSide,
+                        font: sideKeyFont,
+                        tint: style.control(paper: style.secondary),
+                        selectedTint: style.accent,
+                        height: 56
+                    )
+                    .pmFadeTransition(motion: .control)
+                }
+                Spacer(minLength: 0)
+                audiobookSkipButton(forward: false, style: style)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            audiobookSkipButton(forward: false, style: style)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity)
             Button {
                 guard !player.isLoading else { return }
                 player.togglePlayPause()
@@ -6087,22 +6065,26 @@ struct NowPlayingView: View {
             .accessibilityLabel(showsPause
                 ? String(localized: "a11y_pause")
                 : String(localized: "a11y_play"))
-            Spacer(minLength: 0)
-            audiobookSkipButton(forward: true, style: style)
-            Spacer(minLength: 0)
-            if showsSides {
-                spokenWordSlotKey(
-                    controls.trailingSide,
-                    slot: .trailingSide,
-                    font: sideKeyFont,
-                    tint: style.control(paper: style.secondary),
-                    selectedTint: style.accent,
-                    height: 56
-                )
-                .pmFadeTransition(motion: .control)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                audiobookSkipButton(forward: true, style: style)
+                Spacer(minLength: 0)
+                if let action = controls.trailingSide {
+                    spokenWordSlotKey(
+                        action,
+                        slot: .trailingSide,
+                        font: sideKeyFont,
+                        tint: style.control(paper: style.secondary),
+                        selectedTint: style.accent,
+                        height: 56
+                    )
+                    .pmFadeTransition(motion: .control)
+                }
             }
+            .frame(maxWidth: .infinity)
         }
-        .pmAnimation(.control, value: showsSides)
+        .pmAnimation(.control, value: controls.leadingSide)
+        .pmAnimation(.control, value: controls.trailingSide)
     }
 
     /// 快退 15 / 快进 30 秒(秒数随设置);长按跳章、跳集。
@@ -6129,109 +6111,142 @@ struct NowPlayingView: View {
         layout: SpokenWordActionTiles.Layout,
         tiles: [SpokenWordControlTile]
     ) -> some View {
-        SpokenWordActionTiles(
+        let tileHeight: CGFloat = layout == .stacked ? 54 : 40
+        return SpokenWordActionTiles(
             palette: style.palette,
             layout: layout,
-            tileHeight: layout == .stacked ? 54 : 40,
+            tileHeight: tileHeight,
             tiles: tiles,
             labelStyle: spokenWordControlLayout.tileLabelStyle,
             onSleep: { showSleepTimer = true },
-            onContents: { openContentsPanel() }
+            onContents: { openContentsPanel() },
+            customTile: spokenWordCustomTile(layout: layout, tileHeight: tileHeight, palette: style.palette)
         )
     }
 
     /// 竖版的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环)。桌面半折的下半屏也用这一行。
     /// 有声内容(`spokenControls`)两端是上一章 / 下一章,外面再各一格按「播放页按钮」摆
-    /// (默认有文字稿时最左边文字稿、最右边目录);关了上一章 / 下一章时那两格紧挨快退快进。
+    /// (默认有文字稿时最左边文字稿、最右边目录),见 `spokenWordTransportRow`。
+    @ViewBuilder
     private func portraitTransportRow(spokenControls: SpokenWordResolvedControls?) -> some View {
-        let showsSides = spokenControls?.sidesNeedPlaceholders ?? false
-        // 七颗键在 375 宽的手机上要挤一挤:间隙最小可以是 0(键本身的 44/56 宽已经留出了图标间距)。
-        // 两头外侧也各留一道间隙,宽屏上两侧的键不贴着屏幕边。
-        let gap: CGFloat? = showsSides && spokenControls?.showsInnerChapters == true ? 0 : nil
+        if let spokenControls {
+            // 七颗键在 375 宽的手机上要挤一挤:间隙最小可以是 0(键本身的 44/56 宽已经留出了图标间距)。
+            spokenWordTransportRow(
+                spokenControls,
+                playDiameter: 56,
+                minimumGap: spokenControls.hasSideKeys && spokenControls.showsInnerChapters ? 0 : nil
+            ) { slot, action in
+                spokenWordSlotKey(
+                    action,
+                    slot: slot,
+                    font: .body,
+                    tint: appearance.secondary,
+                    selectedTint: themedControlAccent
+                )
+            }
+        } else {
+            // 两头外侧也各留一道间隙,宽屏上两侧的键不贴着屏幕边。
+            HStack(spacing: 0) {
+                Spacer()
+                controlSlot(.leadingEdge, style: .edge)
+                Spacer()
+                transportSkipButton(forward: false)
+                Spacer()
+                transportPlayButton(diameter: 56)
+                Spacer()
+                transportSkipButton(forward: true)
+                Spacer()
+                controlSlot(.trailingEdge, style: .edge)
+                Spacer()
+            }
+        }
+    }
+
+    /// 有声内容的传输键一行:播放键左右两半各自把键平均排开 —— 空着的格不占位、不在一头留个空洞,
+    /// 播放键始终在正中(#320)。两侧都空、也没有紧挨快退快进的上一章 / 下一章时,两头各留一个键位的空白,
+    /// 三颗键不散到屏幕两边。
+    private func spokenWordTransportRow<SideKey: View>(
+        _ controls: SpokenWordResolvedControls,
+        playDiameter: CGFloat,
+        minimumGap: CGFloat?,
+        @ViewBuilder sideKey: @escaping (SpokenWordControlSlot, SpokenWordSlotAction) -> SideKey
+    ) -> some View {
+        let keepsCompact = !controls.hasSideKeys && !controls.showsInnerChapters
         return HStack(spacing: 0) {
-        if let spokenControls, showsSides {
-            Spacer(minLength: 0)
-            spokenWordSlotKey(
-                spokenControls.leadingSide,
-                slot: .leadingSide,
-                font: .body,
-                tint: appearance.secondary,
-                selectedTint: themedControlAccent
-            )
-            .pmFadeTransition(motion: .control)
+            HStack(spacing: 0) {
+                if let action = controls.leadingSide {
+                    Spacer(minLength: 0)
+                    sideKey(.leadingSide, action)
+                        .pmFadeTransition(motion: .control)
+                }
+                if controls.showsInnerChapters {
+                    Spacer(minLength: minimumGap)
+                    SpokenWordPartButton(forward: false, color: appearance.secondary)
+                } else if keepsCompact {
+                    Spacer(minLength: minimumGap)
+                    transportKeySpace
+                }
+                Spacer(minLength: minimumGap)
+                transportSkipButton(forward: false)
+                Spacer(minLength: minimumGap)
+            }
+            .frame(maxWidth: .infinity)
+            transportPlayButton(diameter: playDiameter)
+            HStack(spacing: 0) {
+                Spacer(minLength: minimumGap)
+                transportSkipButton(forward: true)
+                Spacer(minLength: minimumGap)
+                if controls.showsInnerChapters {
+                    SpokenWordPartButton(forward: true, color: appearance.secondary)
+                    Spacer(minLength: minimumGap)
+                } else if keepsCompact {
+                    transportKeySpace
+                    Spacer(minLength: minimumGap)
+                }
+                if let action = controls.trailingSide {
+                    sideKey(.trailingSide, action)
+                        .pmFadeTransition(motion: .control)
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
-        if spokenControls?.showsInnerChapters != false || !showsSides {
-            Spacer(minLength: gap)
-            transportEdgeControl(forward: false, spokenControls: spokenControls)
-        }
-        Spacer(minLength: gap)
-        Button { transportBackward() } label: {
-            Image(systemName: transportBackwardSymbol)
+        .pmAnimation(.control, value: controls.leadingSide)
+        .pmAnimation(.control, value: controls.trailingSide)
+        .pmAnimation(.control, value: controls.showsInnerChapters)
+    }
+
+    /// 一个键位大小的空白(只在三颗键时用来收拢,见 `spokenWordTransportRow`)。
+    private var transportKeySpace: some View {
+        Color.clear
+            .frame(width: 44, height: 44)
+            .accessibilityHidden(true)
+    }
+
+    /// 快退 / 快进(有声内容)或上一首 / 下一首。长按有声内容跳章,音乐按住快进快退。
+    private func transportSkipButton(forward: Bool) -> some View {
+        Button { if forward { transportForward() } else { transportBackward() } } label: {
+            Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
                 .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
                 .contentTransition(.symbolEffect(.replace))
         }
         .frame(width: 56, height: 56)
-        .accessibilityLabel(transportBackwardLabel)
-        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
-        .modifier(transportHoldScrubGesture(forward: false))
-        Spacer(minLength: gap)
+        .accessibilityLabel(forward ? transportForwardLabel : transportBackwardLabel)
+        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: forward) }
+        .modifier(transportHoldScrubGesture(forward: forward))
+    }
+
+    private func transportPlayButton(diameter: CGFloat) -> some View {
         Button {
             guard !player.isLoading else { return }
             player.togglePlayPause()
         } label: {
-            transportPlayPauseFace(diameter: 56)
+            transportPlayPauseFace(diameter: diameter)
         }
         .disabled(player.showsLoadingIndicator)
         .accessibilityLabel(player.isPlaying || player.isLoading
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play"))
-        Spacer(minLength: gap)
-        Button { transportForward() } label: {
-            Image(systemName: transportForwardSymbol)
-                .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .frame(width: 56, height: 56)
-        .accessibilityLabel(transportForwardLabel)
-        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
-        .modifier(transportHoldScrubGesture(forward: true))
-        Spacer(minLength: gap)
-        if spokenControls?.showsInnerChapters != false || !showsSides {
-            transportEdgeControl(forward: true, spokenControls: spokenControls)
-            Spacer(minLength: gap)
-        }
-        if let spokenControls, showsSides {
-            spokenWordSlotKey(
-                spokenControls.trailingSide,
-                slot: .trailingSide,
-                font: .body,
-                tint: appearance.secondary,
-                selectedTint: themedControlAccent
-            )
-            .pmFadeTransition(motion: .control)
-            Spacer(minLength: 0)
-        }
-        }
-        .pmAnimation(.control, value: showsSides)
-        .pmAnimation(.control, value: spokenControls?.showsInnerChapters)
-    }
-
-    /// 传输键两端:音乐按「播放页按钮」的配置(默认随机与循环),有声内容换成上一章 / 下一章
-    /// (有章节标记先按标记走,到头再换到书里相邻的那个文件)。一本书不会随机播,也不会单曲循环。
-    /// 有声内容关掉上一章 / 下一章时留出同样大的空位,传输键不挪。
-    @ViewBuilder
-    private func transportEdgeControl(forward: Bool, spokenControls: SpokenWordResolvedControls?) -> some View {
-        if let spokenControls {
-            if spokenControls.showsInnerChapters {
-                SpokenWordPartButton(forward: forward, color: appearance.secondary)
-            } else {
-                Color.clear
-                    .frame(width: 44, height: 44)
-                    .accessibilityHidden(true)
-            }
-        } else {
-            controlSlot(forward ? .trailingEdge : .leadingEdge, style: .edge)
-        }
     }
 
     /// 竖版最下面那一排(默认歌词 · 投放 · 队列)。三个槽位都是 44×44(空着的格也占位),
@@ -6250,7 +6265,8 @@ struct NowPlayingView: View {
                 labelStyle: spokenWordControlLayout.tileLabelStyle,
                 onSleep: { showSleepTimer = true },
                 onContents: { openContentsPanel() },
-                onUpNext: { openContentsPanel(tab: .upNext) }
+                onUpNext: { openContentsPanel(tab: .upNext) },
+                customTile: spokenWordCustomTile(layout: .stacked, tileHeight: 54, palette: spokenWordPalette)
             )
             .padding(.horizontal, 22)
             .padding(.top, 12)
@@ -7768,6 +7784,70 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 挪进最下面那一排的文字稿、喜欢、「更多」(`SpokenWordActionTiles.customTile`),和同一排别的块一样大。
+    /// 这一条没有文字稿时那一块不出现,其余的照样平均排开。
+    private func spokenWordCustomTile(
+        layout: SpokenWordActionTiles.Layout,
+        tileHeight: CGFloat,
+        palette: SpokenWordPlayerPalette,
+        menuSurface: NowPlayingControlSurface = .portrait
+    ) -> (SpokenWordControlTile) -> AnyView? {
+        let labelStyle = spokenWordControlLayout.tileLabelStyle
+        let iconFont = SpokenWordActionTiles.iconFont(for: layout)
+        return { tile in
+            switch tile {
+            case .transcript:
+                guard hasSpokenWordTranscript else { return nil }
+                return AnyView(transcriptToggleButton {
+                    SpokenWordTileFace(layout: layout, tileHeight: tileHeight, labelStyle: labelStyle, palette: palette) {
+                        Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                            .font(iconFont)
+                            .foregroundStyle(showLyrics ? palette.accent : palette.primary)
+                            .contentTransition(.symbolEffect(.replace))
+                    } caption: {
+                        Text("spoken_word_text_tab")
+                    }
+                })
+            case .like:
+                guard offersLikeAction else { return nil }
+                return AnyView(
+                    Button { toggleLikedCurrent() } label: {
+                        SpokenWordTileFace(layout: layout, tileHeight: tileHeight, labelStyle: labelStyle, palette: palette) {
+                            Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                                .font(iconFont)
+                                .foregroundStyle(isCurrentLiked ? likedHeartTint : palette.primary)
+                                .contentTransition(.symbolEffect(.replace))
+                        } caption: {
+                            Text("player_controls_action_like")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(player.currentSong == nil)
+                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                    .accessibilityAddTraits(isCurrentLiked ? .isSelected : [])
+                )
+            case .more:
+                return AnyView(makeMoreMenu(
+                    controlSurface: menuSurface,
+                    plainLabel: NowPlayingMoreMenuPlainLabel(
+                        font: iconFont,
+                        tint: palette.primary,
+                        height: tileHeight,
+                        tile: NowPlayingMoreMenuTileStyle(
+                            layout: layout,
+                            tileHeight: tileHeight,
+                            labelStyle: labelStyle,
+                            secondary: palette.secondary,
+                            tileFill: palette.tileFill
+                        )
+                    )
+                ))
+            case .speed, .sleepTimer, .bookmark, .contents, .upNext, .airPlay:
+                return nil
+            }
+        }
+    }
+
     private func spokenWordSlotIcon(_ symbol: String, font: Font, tint: Color, height: CGFloat) -> some View {
         Image(systemName: symbol)
             .font(font)
@@ -7802,6 +7882,18 @@ struct NowPlayingView: View {
         selectedTint: Color,
         height: CGFloat = 44
     ) -> some View {
+        transcriptToggleButton {
+            Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                .font(font)
+                .foregroundStyle(showLyrics ? selectedTint : tint)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: height)
+                .contentShape(Rectangle())
+        }
+    }
+
+    /// 文字稿键的点按与按住(两侧那一格、最下面那一排共用):点一下在封面与文字稿之间切换,按住全屏读文稿。
+    private func transcriptToggleButton<Label: View>(@ViewBuilder label: () -> Label) -> some View {
         Button {
             if transcriptKeyHeld {
                 transcriptKeyHeld = false
@@ -7809,12 +7901,7 @@ struct NowPlayingView: View {
             }
             toggleLyricsForLayout()
         } label: {
-            Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
-                .font(font)
-                .foregroundStyle(showLyrics ? selectedTint : tint)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: 44, height: height)
-                .contentShape(Rectangle())
+            label()
         }
         .buttonStyle(.plain)
         .simultaneousGesture(
@@ -12107,6 +12194,25 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     private var menuLabel: some View {
         if immersiveChrome {
             chromeMenuLabel
+        } else if let plainLabel, let tile = plainLabel.tile {
+            SpokenWordTileFace(
+                layout: tile.layout,
+                tileHeight: tile.tileHeight,
+                labelStyle: tile.labelStyle,
+                palette: SpokenWordPlayerPalette(
+                    primary: plainLabel.tint,
+                    secondary: tile.secondary,
+                    tertiary: tile.secondary,
+                    accent: plainLabel.tint,
+                    tileFill: tile.tileFill
+                )
+            ) {
+                Image(systemName: "ellipsis")
+                    .font(plainLabel.font)
+                    .foregroundStyle(plainLabel.tint)
+            } caption: {
+                Text("more")
+            }
         } else if let plainLabel {
             Image(systemName: "ellipsis")
                 .font(plainLabel.font)

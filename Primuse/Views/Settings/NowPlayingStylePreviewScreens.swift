@@ -759,16 +759,20 @@ struct AudiobookPreviewScreen: View {
         }
     }
 
+    /// 和播放页一样左右两半各自排开,空着的那一边不留空位;编辑时两格都画出虚线框好点。
     private func transportRow(controls: SpokenWordResolvedControls, isShort: Bool) -> some View {
         let diameter: CGFloat = isShort ? 64 : 72
-        let showsSides = controls.sidesNeedPlaceholders || context.slotMode == .editable
+        let editable = context.slotMode == .editable
         return HStack(spacing: 0) {
-            if showsSides {
-                sideKey(.leadingSide, action: controls.leadingSide)
+            HStack(spacing: 0) {
+                if editable || controls.leadingSide != nil {
+                    sideKey(.leadingSide, action: controls.leadingSide)
+                }
+                Spacer(minLength: 0)
+                skipGlyph(player.spokenWordSkipBackwardSymbol)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            skipGlyph(player.spokenWordSkipBackwardSymbol)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity)
             ZStack {
                 Circle().fill(style.accent)
                 Image(systemName: "pause.fill")
@@ -777,12 +781,15 @@ struct AudiobookPreviewScreen: View {
             }
             .frame(width: diameter, height: diameter)
             .accessibilityHidden(true)
-            Spacer(minLength: 0)
-            skipGlyph(player.spokenWordSkipForwardSymbol)
-            Spacer(minLength: 0)
-            if showsSides {
-                sideKey(.trailingSide, action: controls.trailingSide)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                skipGlyph(player.spokenWordSkipForwardSymbol)
+                Spacer(minLength: 0)
+                if editable || controls.trailingSide != nil {
+                    sideKey(.trailingSide, action: controls.trailingSide)
+                }
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -1000,37 +1007,57 @@ struct PodcastPreviewScreen: View {
             .frame(width: width, height: 44)
     }
 
-    /// 快退快进两边各一颗上一章 / 下一章(关掉时留出同样的空位),外面两格按「播放页按钮」摆。
+    /// 快退快进两边各一颗上一章 / 下一章,外面两格按「播放页按钮」摆。和播放页一样左右两半各自排开,
+    /// 空着的格不留空位;三颗键时两头各留一个键位的空白。编辑时两格都画出虚线框好点。
     private func transportRow(controls: SpokenWordResolvedControls) -> some View {
-        let showsSides = controls.sidesNeedPlaceholders || context.slotMode == .editable
+        let editable = context.slotMode == .editable
+        let showsLeading = editable || controls.leadingSide != nil
+        let showsTrailing = editable || controls.trailingSide != nil
+        let keepsCompact = !showsLeading && !showsTrailing && !controls.showsInnerChapters
         return HStack(spacing: 0) {
-            if showsSides {
+            HStack(spacing: 0) {
+                if showsLeading {
+                    Spacer(minLength: 0)
+                    sideKey(.leadingSide, action: controls.leadingSide)
+                }
+                if controls.showsInnerChapters {
+                    Spacer(minLength: 0)
+                    chapterButton("backward.end.fill")
+                } else if keepsCompact {
+                    Spacer(minLength: 0)
+                    Color.clear.frame(width: 44, height: 44)
+                }
                 Spacer(minLength: 0)
-                sideKey(.leadingSide, action: controls.leadingSide)
+                PreviewSkipGlyph(forward: false, tint: appearance.primary, fixedSymbol: player.spokenWordSkipBackwardSymbol)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            chapterButton("backward.end.fill", shown: controls.showsInnerChapters)
-            Spacer(minLength: 0)
-            PreviewSkipGlyph(forward: false, tint: appearance.primary, fixedSymbol: player.spokenWordSkipBackwardSymbol)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity)
             PreviewPlayGlyph(tint: appearance.primary)
-            Spacer(minLength: 0)
-            PreviewSkipGlyph(forward: true, tint: appearance.primary, fixedSymbol: player.spokenWordSkipForwardSymbol)
-            Spacer(minLength: 0)
-            chapterButton("forward.end.fill", shown: controls.showsInnerChapters)
-            Spacer(minLength: 0)
-            if showsSides {
-                sideKey(.trailingSide, action: controls.trailingSide)
+            HStack(spacing: 0) {
                 Spacer(minLength: 0)
+                PreviewSkipGlyph(forward: true, tint: appearance.primary, fixedSymbol: player.spokenWordSkipForwardSymbol)
+                Spacer(minLength: 0)
+                if controls.showsInnerChapters {
+                    chapterButton("forward.end.fill")
+                    Spacer(minLength: 0)
+                } else if keepsCompact {
+                    Color.clear.frame(width: 44, height: 44)
+                    Spacer(minLength: 0)
+                }
+                if showsTrailing {
+                    sideKey(.trailingSide, action: controls.trailingSide)
+                    Spacer(minLength: 0)
+                }
             }
+            .frame(maxWidth: .infinity)
         }
+        .accessibilityHidden(true)
     }
 
-    private func chapterButton(_ symbol: String, shown: Bool) -> some View {
+    private func chapterButton(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.body)
             .foregroundStyle(appearance.secondary)
-            .opacity(shown ? 1 : 0)
             .frame(width: 44, height: 44)
             .accessibilityHidden(true)
     }

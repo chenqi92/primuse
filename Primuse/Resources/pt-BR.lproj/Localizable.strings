@@ -5964,7 +5964,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "A Alta fidelidade direta envia o áudio sem alterações para o dispositivo de saída, então a velocidade não pode mudar. Mude para a saída com efeitos para ajustar a velocidade.";
 "player_controls_unavailable_cast_apple_music" = "Músicas do Apple Music não podem ser transmitidas para dispositivos da sua rede.";
 "player_controls_tiles_header" = "Blocos de funções";
-"player_controls_tiles_footer" = "Toque e segure para arrastar e mudar a ordem. Os blocos desativados continuam em Mais. Ao ativar o AirPlay, ele vem do canto superior direito para cá.";
+"player_controls_tiles_footer" = "Toque e segure para arrastar e mudar a ordem. Os blocos ativados se distribuem por igual e os desativados não deixam espaço vazio; continuam em Mais. Ao ativar AirPlay, Curtir, Mais ou o botão de transcrição, eles vêm do lugar de origem para cá; ao desativar, voltam.";
 "player_controls_spoken_buttons_header" = "Outros botões";
 "player_controls_spoken_transcript" = "Botão de transcrição";
 "player_controls_spoken_chapters" = "Capítulo anterior / seguinte";
@@ -6233,7 +6233,7 @@
 "player_controls_spoken_slot_automatic" = "Automático";
 "player_controls_spoken_slot_automatic_sides" = "Com transcrição: a transcrição à esquerda e o sumário ou as notas à direita. Sem ela, vazio; capítulo anterior e seguinte continuam no lugar deles.";
 "player_controls_spoken_slot_automatic_part_row" = "Capítulo anterior / seguinte, conforme a chave Capítulo anterior / seguinte abaixo.";
-"player_controls_spoken_slot_footer" = "Toque em uma linha para trocar o botão, deixá-lo vazio ou escolher Automático. Botões colocados aqui não se repetem nos blocos nem no canto superior direito; iPhone e iPad na horizontal os organizam conforme o próprio layout. Sincroniza com o iCloud.";
+"player_controls_spoken_slot_footer" = "Toque em uma linha para trocar o botão, deixá-lo vazio ou escolher Automático. Espaços vazios não ocupam lugar; os outros botões se distribuem e Reproduzir fica no centro. Botões colocados aqui não se repetem nos blocos nem no canto superior direito; iPhone e iPad na horizontal os organizam conforme o próprio layout. Sincroniza com o iCloud.";
 "player_controls_spoken_slot_picker_footer" = "Escolher um botão que já está em outro lugar troca os dois de posição. Automático mantém o arranjo original.";
 "player_controls_spoken_source" = "Mostrar fonte de música";
 "player_controls_spoken_source_footer" = "Com mais de uma fonte de música, a última linha do player mostra de qual fonte o livro vem.";
@@ -6421,3 +6421,6 @@
 "tv_library_sort_by_artist" = "Por artista";
 "tv_library_sort_by_title" = "Por título";
 "tv_library_sort_by_year" = "Por ano";
+
+"player_controls_tile_home_header" = "Desativado: canto superior direito";
+"player_controls_tile_home_transport" = "Desativado: ao lado de Reproduzir";

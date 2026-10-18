@@ -6151,7 +6151,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "高保真直通把音频原样送到输出设备，不能变速。切换到音效输出后就能调速。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";
 "player_controls_tiles_header" = "功能块";
-"player_controls_tiles_footer" = "按住拖动可以换顺序。关掉的功能块在「更多」里仍然找得到。打开 AirPlay 后它从右上角挪到这一排。";
+"player_controls_tiles_footer" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位，在「更多」里仍然找得到。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。";
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
@@ -6420,7 +6420,7 @@
 "player_controls_spoken_slot_automatic" = "自动";
 "player_controls_spoken_slot_automatic_sides" = "有文字稿时左边放文字稿、右边放目录（播客是节目说明）；没有时空着，上一章 / 下一章照旧在它们自己的位置。";
 "player_controls_spoken_slot_automatic_part_row" = "上一章 / 下一章，跟下面「上一章 / 下一章」开关走。";
-"player_controls_spoken_slot_footer" = "点一行换按钮，也可以留空或选「自动」。摆进这几格的按钮不再在功能块或右上角重复出现；手机横屏、iPad 横屏按各自的版面摆放。设置经 iCloud 同步。";
+"player_controls_spoken_slot_footer" = "点一行换按钮，也可以留空或选「自动」。留空的格不占位置，其余的键自动排开，播放键仍在正中。摆进这几格的按钮不再在功能块或右上角重复出现；手机横屏、iPad 横屏按各自的版面摆放。设置经 iCloud 同步。";
 "player_controls_spoken_slot_picker_footer" = "选已经在另一格的按钮，两格会对调。「自动」和原来的摆法一样。";
 "player_controls_spoken_source" = "显示音乐源";
 "player_controls_spoken_source_footer" = "有不止一个音乐源时，播放页最下面那行写出这本书来自哪个源。";
@@ -6608,3 +6608,6 @@
 "tv_library_sort_by_artist" = "按艺术家";
 "tv_library_sort_by_title" = "按标题";
 "tv_library_sort_by_year" = "按年份";
+
+"player_controls_tile_home_header" = "关着时在右上角";
+"player_controls_tile_home_transport" = "关着时在播放键旁";

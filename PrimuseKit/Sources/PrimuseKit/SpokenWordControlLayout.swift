@@ -8,7 +8,8 @@ public enum SpokenWordPlayerKind: String, CaseIterable, Codable, Hashable, Ident
     public var id: String { rawValue }
 }
 
-/// 有声书、播客播放页上那一排功能块。rawValue 会写进配置并经 iCloud 同步,发布后不能改名。
+/// 有声书、播客播放页最下面那一排功能块。哪颗键都能摆进来,开着的按顺序平均排开,关掉的不留空位。
+/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名;新加的只能往后加。
 public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case speed
     case sleepTimer
@@ -19,11 +20,25 @@ public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Iden
     case upNext
     /// 隔空播放。默认不在这一排(在右上角);打开后右上角那颗不再出现。
     case airPlay
+    /// 文字稿键。默认在播放键旁边(两侧那两格选「自动」时);打开后挪到这一排,这一条没有文字稿时不出现。
+    case transcript
+    /// 喜欢。默认在右上角;打开后挪到这一排。
+    case like
+    /// 「更多」菜单。默认在右上角;打开后挪到这一排。
+    case more
 
     public var id: String { rawValue }
 
     public func isAvailable(for kind: SpokenWordPlayerKind) -> Bool {
         self != .upNext || kind == .podcast
+    }
+
+    /// 默认在别处(右上角、播放键旁)的几样:打开就从原处挪进这一排,关掉回原处。
+    public var movesFromElsewhere: Bool {
+        switch self {
+        case .airPlay, .transcript, .like, .more: true
+        case .speed, .sleepTimer, .bookmark, .contents, .upNext: false
+        }
     }
 }
 
@@ -72,7 +87,10 @@ public enum SpokenWordSlotAction: String, CaseIterable, Codable, Hashable, Ident
         case .speed: .speed
         case .sleepTimer: .sleepTimer
         case .upNext: .upNext
-        case .transcript, .chapters, .like, .more: nil
+        case .transcript: .transcript
+        case .like: .like
+        case .more: .more
+        case .chapters: nil
         }
     }
 }
@@ -141,8 +159,9 @@ public struct SpokenWordResolvedControls: Equatable, Sendable {
     public var headerShowsLike: Bool
     public var headerShowsMore: Bool
 
-    /// 两侧有一边有按钮时,另一边留同样大的空位,播放键不偏;两边都空就都不占位。
-    public var sidesNeedPlaceholders: Bool {
+    /// 两侧至少一边有按钮。竖版按这个排出两侧:空着的那一边不留空位,两半各自把键平均排开,
+    /// 播放键仍在正中;两边都空就都不占位。
+    public var hasSideKeys: Bool {
         leadingSide != nil || trailingSide != nil
     }
 
@@ -201,9 +220,10 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         SpokenWordControlTile.allCases.filter { $0.isAvailable(for: kind) }
     }
 
-    /// 隔空播放默认在右上角,不在这一排。
+    /// 隔空播放、喜欢、「更多」默认在右上角,文字稿默认在播放键旁边,都不在这一排。
     public static func defaultHidden(for kind: SpokenWordPlayerKind) -> Set<SpokenWordControlTile> {
-        kind == .podcast ? [.bookmark, .airPlay] : [.airPlay]
+        let elsewhere = Set(SpokenWordControlTile.allCases.filter { $0.movesFromElsewhere && $0.isAvailable(for: kind) })
+        return kind == .podcast ? elsewhere.union([.bookmark]) : elsewhere
     }
 
     public static func `default`(for kind: SpokenWordPlayerKind) -> SpokenWordControlLayout {
@@ -331,17 +351,11 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         Set(NowPlayingMenuItem.allCases.filter { !showsMenuItem($0) })
     }
 
-    /// 页面上那一排按顺序摆哪几块。目录常驻在旁边一栏时(iPad 横屏)不摆目录块;没动过配置时
-    /// 那一格照旧让给书签(书签本来就摆着就直接去掉)。
+    /// 页面上那一排按顺序摆哪几块:开着的都在、关掉的都不在。目录常驻在旁边一栏(iPad 横屏)
+    /// 或摆进了格子时不摆目录块,空出来的位置由其余几块平均分掉,不拿书签去补 ——
+    /// 原来没动过配置时会把那一格让给书签,书签开关和页面对不上,关掉语速书签也跟着没了(#320)。
     public func visibleTiles(contentsResident: Bool = false) -> [SpokenWordControlTile] {
-        var tiles = order.filter { isShown($0) }
-        guard contentsResident, let index = tiles.firstIndex(of: .contents) else { return tiles }
-        if tilesAreDefault, !tiles.contains(.bookmark) {
-            tiles[index] = .bookmark
-        } else {
-            tiles.remove(at: index)
-        }
-        return tiles
+        order.filter { isShown($0) && !(contentsResident && $0 == .contents) }
     }
 
     /// 这一格选的是什么。没存过是「自动」;存的按钮这一种播放页没有(或认不出)时当作空着。
@@ -355,12 +369,13 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
 
     /// 「自动」此刻放什么,和这个功能出现之前一样:有文字稿(且没关文字稿键)时左边文字稿、右边目录
     /// (目录块关了就空着);没有时是上一章 / 下一章,版面另有放章节的地方(章节那一行、紧挨快退快进
-    /// 的那一对)就空着。章节那一行自动是上一章 / 下一章。
+    /// 的那一对)就空着。章节那一行自动是上一章 / 下一章。文字稿键挪进了下面那一排时,按没有文字稿摆。
     public func automaticAction(
         in slot: SpokenWordControlSlot,
         context: SpokenWordControlContext
     ) -> SpokenWordSlotAction? {
-        let transcriptOnPage = context.hasTranscript && showsTranscriptToggle
+        let transcriptInTiles = context.hasTiles && isShown(.transcript)
+        let transcriptOnPage = context.hasTranscript && showsTranscriptToggle && !transcriptInTiles
         switch slot {
         case .partRow:
             return showsChapterButtons ? .chapters : nil
@@ -405,12 +420,15 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
 
         var tiles: [SpokenWordControlTile] = []
         if context.hasTiles, !context.controlsCollapsed {
-            // 目录在旁边一栏常驻,或者摆进了格子:和原来一样,没动过功能块时那一格让给书签。
+            // 目录在旁边一栏常驻,或者摆进了格子:这一排不再摆目录块。
             let contentsElsewhere = context.contentsResident || placed.contains(.contents)
             let inSlots = Set(placed.compactMap(\.tile))
-            tiles = visibleTiles(contentsResident: contentsElsewhere).filter { !inSlots.contains($0) }
+            tiles = visibleTiles(contentsResident: contentsElsewhere).filter {
+                !inSlots.contains($0) && ($0 != .transcript || context.hasTranscript)
+            }
         }
 
+        // 挪进下面那一排的投放、喜欢、「更多」,右上角不再放;这个版面没有那一排时还在右上角。
         return SpokenWordResolvedControls(
             leadingSide: leading,
             trailingSide: trailing,
@@ -418,8 +436,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             showsInnerChapters: showsInnerChapters,
             tiles: tiles,
             headerShowsAirPlay: !tiles.contains(.airPlay),
-            headerShowsLike: showsLike && !placed.contains(.like),
-            headerShowsMore: !placed.contains(.more)
+            headerShowsLike: showsLike && !placed.contains(.like) && !tiles.contains(.like),
+            headerShowsMore: !placed.contains(.more) && !tiles.contains(.more)
         )
     }
 
@@ -431,9 +449,13 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         context: SpokenWordControlContext
     ) -> [SpokenWordMenuFallback] {
         var result: [SpokenWordMenuFallback] = []
-        if !resolved.headerShowsLike, !resolved.placedActions.contains(.like) { result.append(.like) }
+        if !resolved.headerShowsLike, !resolved.placedActions.contains(.like), !resolved.tiles.contains(.like) {
+            result.append(.like)
+        }
         guard context.hasTiles else { return result }
-        if context.hasTranscript, !resolved.placedActions.contains(.transcript) { result.append(.transcript) }
+        if context.hasTranscript, !resolved.placedActions.contains(.transcript), !resolved.tiles.contains(.transcript) {
+            result.append(.transcript)
+        }
         let defaults = SpokenWordControlLayout.default(for: kind).resolved(in: context)
         func reachable(_ controls: SpokenWordResolvedControls) -> Set<SpokenWordControlTile> {
             Set(controls.tiles).union(controls.placedActions.compactMap(\.tile))

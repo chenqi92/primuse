@@ -14,8 +14,8 @@ import Testing
 
         let podcast = Layout.default(for: .podcast)
         #expect(podcast.visibleTiles() == [.speed, .sleepTimer, .contents, .upNext])
-        // 目录常驻时那一格让给书签,和原来一样。
-        #expect(podcast.visibleTiles(contentsResident: true) == [.speed, .sleepTimer, .bookmark, .upNext])
+        // 目录常驻时只去掉目录块,书签开关关着就不出来(#320)。
+        #expect(podcast.visibleTiles(contentsResident: true) == [.speed, .sleepTimer, .upNext])
 
         for kind in SpokenWordPlayerKind.allCases {
             let layout = Layout.default(for: kind)
@@ -35,7 +35,7 @@ import Testing
         #expect(!layout.showsLike)
         let decoded = Layout.decode(layout.encoded(), kind: .audiobook)
         #expect(decoded == layout)
-        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark, .airPlay])
+        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark, .airPlay, .transcript, .like, .more])
     }
 
     @Test func userHiddenEntriesFallBackIntoTheMenu() {
@@ -57,8 +57,8 @@ import Testing
         #expect(book.menuFallback(for: book.resolved(in: landscape), context: landscape) == [.like])
     }
 
-    @Test func customizedTilesDoNotGetTheBookmarkSwap() {
-        // 用户自己藏了书签:目录常驻时只去掉目录块,不把书签换回来。
+    @Test func tilesFollowTheTogglesWhenContentsMovesAway() {
+        // 目录常驻时只去掉目录块,不拿书签补位。
         let book = Layout.default(for: .audiobook).settingTile(.bookmark, shown: false)
         #expect(book.visibleTiles(contentsResident: true) == [.speed, .sleepTimer])
         let podcast = Layout.default(for: .podcast).movingTiles(fromOffsets: IndexSet(integer: 4), toOffset: 0)
@@ -163,14 +163,15 @@ import Testing
         // 没有文字稿:两侧空着、不占位,目录回到功能块。
         let plain = book.resolved(in: Self.bookPortrait(transcript: false))
         #expect(plain.leadingSide == nil && plain.trailingSide == nil)
-        #expect(!plain.sidesNeedPlaceholders)
+        #expect(!plain.hasSideKeys)
         #expect(plain.tiles == [.speed, .sleepTimer, .bookmark, .contents])
 
-        // 播客竖版有文字稿:外侧文字稿与说明,里面那一对上一章 / 下一章照旧,说明那一格让给书签。
+        // 播客竖版有文字稿:外侧文字稿与说明,里面那一对上一章 / 下一章照旧;说明挪走后剩下的平均排开,
+        // 不拿默认关着的书签补位(#320)。
         let podcast = Layout.default(for: .podcast).resolved(in: Self.genericPortrait(transcript: true))
         #expect(podcast.leadingSide == .transcript && podcast.trailingSide == .contents)
         #expect(podcast.showsInnerChapters)
-        #expect(podcast.tiles == [.speed, .sleepTimer, .bookmark, .upNext])
+        #expect(podcast.tiles == [.speed, .sleepTimer, .upNext])
         // 手机横屏:两侧在没有文字稿时放上一章 / 下一章。
         let landscape = Layout.default(for: .podcast).resolved(in: Context(hasTranscript: false, hasTiles: false))
         #expect(landscape.leadingSide == .chapters && landscape.trailingSide == .chapters)
@@ -192,7 +193,7 @@ import Testing
         let resolved = book.resolved(in: Self.bookPortrait(transcript: true))
         #expect(resolved.leadingSide == .transcript)
         #expect(resolved.trailingSide == nil)
-        #expect(resolved.sidesNeedPlaceholders)
+        #expect(resolved.hasSideKeys)
         #expect(!resolved.tiles.contains(.contents))
     }
 
@@ -287,6 +288,59 @@ import Testing
         let future = Layout.decode(#"{"slots":{"leadingSide":"hologram","futureSlot":"more"}}"#, kind: .audiobook)
         #expect(future.choice(in: .leadingSide) == .empty)
         #expect(future.settingShowsLike(false).encoded().contains("futureSlot"))
+    }
+
+    @Test func podcastTogglesMatchThePage() {
+        // #320:有文字稿的播客关掉语速,书签不跟着消失;书签开关开、关看得出区别。
+        let context = Self.genericPortrait(transcript: true)
+        let noSpeed = Layout.default(for: .podcast).settingTile(.speed, shown: false)
+        #expect(noSpeed.resolved(in: context).tiles == [.sleepTimer, .upNext])
+        let withBookmark = Layout.default(for: .podcast).settingTile(.bookmark, shown: true)
+        #expect(withBookmark.resolved(in: context).tiles == [.speed, .sleepTimer, .bookmark, .upNext])
+        #expect(withBookmark.settingTile(.speed, shown: false).resolved(in: context).tiles
+            == [.sleepTimer, .bookmark, .upNext])
+    }
+
+    @Test func headerAndSideKeysMoveIntoTheTiles() {
+        let book = Layout.default(for: .audiobook)
+        for tile in [SpokenWordControlTile.transcript, .like, .more] {
+            #expect(!book.isShown(tile))
+        }
+        // 播客也有这几块,默认同样关着。
+        let podcast = Layout.default(for: .podcast)
+        #expect(podcast.order.contains(.like) && !podcast.isShown(.like) && !podcast.isShown(.more))
+
+        let moved = book
+            .settingTile(.like, shown: true)
+            .settingTile(.more, shown: true)
+            .settingTile(.transcript, shown: true)
+        let resolved = moved.resolved(in: Self.bookPortrait(transcript: true))
+        #expect(resolved.tiles == [.speed, .sleepTimer, .bookmark, .contents, .transcript, .like, .more])
+        #expect(!resolved.headerShowsLike && !resolved.headerShowsMore)
+        // 文字稿键挪到下面了,左边那一格按没有文字稿摆,目录也回到下面那一排。
+        #expect(resolved.leadingSide == nil && resolved.trailingSide == nil)
+        #expect(moved.menuFallback(for: resolved, context: Self.bookPortrait(transcript: true)).isEmpty)
+        #expect(Layout.decode(moved.encoded(), kind: .audiobook) == moved)
+
+        // 这一条没有文字稿:文字稿那一块不出现。
+        #expect(!moved.resolved(in: Self.bookPortrait(transcript: false)).tiles.contains(.transcript))
+        // 没有那一排的版面(手机横屏),喜欢、更多回到右上角,文字稿回到两侧。
+        let landscape = moved.resolved(in: Context(hasTranscript: true, hasTiles: false))
+        #expect(landscape.headerShowsLike && landscape.headerShowsMore)
+        #expect(landscape.leadingSide == .transcript)
+        // 明确摆进格子的优先,下面那一排不再重复。
+        let slotted = moved.placing(.action(.like), in: .leadingSide)
+        let slottedResolved = slotted.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(slottedResolved.leadingSide == .like)
+        #expect(!slottedResolved.tiles.contains(.like))
+    }
+
+    @Test func oldConfigsKeepTheNewTilesWhereTheyWere() {
+        // 老版本存的配置里没有文字稿、喜欢、更多这几块:照默认留在原处。
+        let old = Layout.decode(#"{"order":["contents","speed","sleepTimer","bookmark","airPlay"],"hidden":["bookmark"]}"#, kind: .audiobook)
+        #expect(old.order.suffix(3) == [.transcript, .like, .more])
+        #expect(!old.isShown(.transcript) && !old.isShown(.like) && !old.isShown(.more))
+        #expect(old.visibleTiles() == [.contents, .speed, .sleepTimer, .airPlay])
     }
 
     @Test func sourceLineToggleRoundTrips() {

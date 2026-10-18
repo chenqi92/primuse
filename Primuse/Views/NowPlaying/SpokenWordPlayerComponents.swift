@@ -351,6 +351,9 @@ struct SpokenWordActionTiles: View {
     let onContents: () -> Void
     /// 播客的「接下来」。给了才有这一块(书没有队列可看)。
     var onUpNext: (() -> Void)? = nil
+    /// 从右上角、播放键旁挪进这一排的文字稿、喜欢、「更多」由播放页自己画(用 `SpokenWordTileFace`),
+    /// 返回 nil 时这一块不出现(没有文字稿、播客单集不能喜欢),其余几块照样平均排开。
+    var customTile: ((SpokenWordControlTile) -> AnyView?)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @State private var bookmarkFeedbackToken = 0
@@ -386,6 +389,8 @@ struct SpokenWordActionTiles: View {
             if isPodcast, let onUpNext { upNextTile(onUpNext) }
         case .airPlay:
             airPlayTile
+        case .transcript, .like, .more:
+            if let view = customTile?(tile) { view }
         }
     }
 
@@ -400,7 +405,10 @@ struct SpokenWordActionTiles: View {
         }
     }
 
-    private var iconFont: Font {
+    private var iconFont: Font { Self.iconFont(for: layout) }
+
+    /// 一块里图标的字号;播放页自己画的几块用同一档。
+    static func iconFont(for layout: Layout) -> Font {
         switch layout {
         case .tiles: .body.weight(.semibold)
         case .stacked: .title3.weight(.light)
@@ -519,19 +527,40 @@ struct SpokenWordActionTiles: View {
         .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
-    private var showsCaptions: Bool { labelStyle == .iconAndText }
-
-    @ViewBuilder
     private func tile<Icon: View, Caption: View>(
         @ViewBuilder icon: () -> Icon,
         @ViewBuilder caption: () -> Caption
     ) -> some View {
+        SpokenWordTileFace(
+            layout: layout,
+            tileHeight: tileHeight,
+            labelStyle: labelStyle,
+            palette: palette,
+            icon: icon,
+            caption: caption
+        )
+    }
+}
+
+/// 功能块一块的样子:图标加一行说明(只放图标时不写)。`SpokenWordActionTiles` 与播放页自己画的
+/// 几块(挪进这一排的文字稿、喜欢、「更多」)共用,同一排里大小、字号一样。
+struct SpokenWordTileFace<Icon: View, Caption: View>: View {
+    let layout: SpokenWordActionTiles.Layout
+    let tileHeight: CGFloat
+    let labelStyle: SpokenWordTileLabelStyle
+    let palette: SpokenWordPlayerPalette
+    @ViewBuilder let icon: Icon
+    @ViewBuilder let caption: Caption
+
+    private var showsCaptions: Bool { labelStyle == .iconAndText }
+
+    var body: some View {
         switch layout {
         case .tiles:
             VStack(spacing: 3) {
-                icon()
+                icon
                 if showsCaptions {
-                    caption()
+                    caption
                         .font(.caption2)
                         .foregroundStyle(palette.secondary)
                         .lineLimit(1)
@@ -544,10 +573,10 @@ struct SpokenWordActionTiles: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         case .stacked:
             VStack(spacing: 6) {
-                icon()
+                icon
                     .frame(height: 24)
                 if showsCaptions {
-                    caption()
+                    caption
                         .font(.caption)
                         .foregroundStyle(palette.secondary)
                         .lineLimit(1)
@@ -559,9 +588,9 @@ struct SpokenWordActionTiles: View {
             .contentShape(Rectangle())
         case .inline:
             HStack(spacing: 6) {
-                icon()
+                icon
                 if showsCaptions {
-                    caption()
+                    caption
                         .font(.caption)
                         .foregroundStyle(palette.secondary)
                         .lineLimit(1)

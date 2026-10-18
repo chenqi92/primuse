@@ -1244,6 +1244,10 @@ private struct SpokenWordControlsSections: View {
                 )) {
                     Label {
                         Text(tile.editorTitleKey(for: kind))
+                        // 投放、喜欢、「更多」、文字稿默认在别处,打开才挪进这一排。
+                        if let home = tile.editorHomeKey {
+                            Text(home)
+                        }
                     } icon: {
                         Image(systemName: tile.editorSymbol(for: kind))
                     }
@@ -1961,6 +1965,9 @@ extension SpokenWordControlTile {
         case .contents: kind == .podcast ? "text.alignleft" : "list.bullet"
         case .upNext: "list.bullet"
         case .airPlay: "airplayaudio"
+        case .transcript: "text.bubble"
+        case .like: "heart"
+        case .more: "ellipsis"
         }
     }
 
@@ -1972,6 +1979,18 @@ extension SpokenWordControlTile {
         case .contents: kind == .podcast ? "podcast_show_notes" : "spoken_word_contents_title"
         case .upNext: "up_next"
         case .airPlay: "player_controls_action_airplay"
+        case .transcript: "spoken_word_text_tab"
+        case .like: "player_controls_action_like"
+        case .more: "more"
+        }
+    }
+
+    /// 默认在别处的几块,关着时在哪儿(编辑页那一行下面的小字)。
+    var editorHomeKey: LocalizedStringKey? {
+        switch self {
+        case .airPlay, .like, .more: "player_controls_tile_home_header"
+        case .transcript: "player_controls_tile_home_transport"
+        case .speed, .sleepTimer, .bookmark, .contents, .upNext: nil
         }
     }
 }
