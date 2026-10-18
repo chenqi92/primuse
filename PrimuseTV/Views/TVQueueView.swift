@@ -5,7 +5,11 @@ import PrimuseKit
 /// tvOS 播放队列覆层 — 左侧大封面,右侧「接下来」列表(对应 TVQueueArtboard)。
 struct TVQueueView: View {
     private struct UpNextRow: Identifiable {
-        let id: QueueRowIdentity
+        /// 这首歌在「接下来」里第几次出现。不用位置当标识:换歌后整排往前挪一格,
+        /// 每一行都会被拆掉重建,焦点所在的那一行一拆,焦点就整个没了。
+        let id: String
+        /// 按下去跳到队列的哪一格。
+        let slot: QueueRowIdentity
         let song: TVSong
         /// 第一首自动续播的相似歌曲:在它上面加分隔。
         var startsAutoplay = false
@@ -14,6 +18,9 @@ struct TVQueueView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
+    @FocusState private var focusedRowID: String?
+    /// 焦点最近停在第几行:那一行换歌后没了(它刚开始播),焦点就接到这个位置上现在的那一行。
+    @State private var focusedRowIndex: Int?
 
     /// 只取要渲染的那几行。整条队列每次都过一遍的话,光这一步在七千首上就要
     /// 十几毫秒,而播放进度每跳一次整个 body 都要重算一遍。
@@ -23,9 +30,16 @@ struct TVQueueView: View {
         rows.reserveCapacity(limit)
         let autoplayIDs = store.autoContinuationSongIDs
         var markedAutoplay = autoplayIDs.isEmpty
+        var occurrences: [String: Int] = [:]
         for (position, songID) in store.queueUpNextIDs.enumerated() {
+            let occurrence = occurrences[songID, default: 0]
+            occurrences[songID] = occurrence + 1
             guard let song = store.song(songID) else { continue }
-            var row = UpNextRow(id: QueueRowIdentity(position: position, songID: songID), song: song)
+            var row = UpNextRow(
+                id: "\(occurrence)#\(songID)",
+                slot: QueueRowIdentity(position: position, songID: songID),
+                song: song
+            )
             if !markedAutoplay, autoplayIDs.contains(songID) {
                 row.startsAutoplay = true
                 markedAutoplay = true
@@ -76,10 +90,12 @@ struct TVQueueView: View {
                                 }
                                 queueRow(
                                     displayIndex: displayIndex,
-                                    queueOffset: row.id.position,
+                                    queueOffset: row.slot.position,
                                     song: row.song,
+                                    rowID: row.id,
                                     onFocusChanged: { focused in
                                         guard focused else { return }
+                                        focusedRowIndex = displayIndex
                                         renderedRowCount = TVLongListPagingPolicy.limit(
                                             after: shown, focusedRow: displayIndex, totalCount: total
                                         )
@@ -96,18 +112,42 @@ struct TVQueueView: View {
             .padding(.horizontal, 120).padding(.vertical, 80)
         }
         .onExitCommand { dismiss() }
+        .task(id: store.currentSongID ?? store.nowPlaying.songID) {
+            guard focusedRowIndex != nil else { return }
+            await catchFocusAfterSongChange()
+        }
+    }
+
+    /// 换歌后「接下来」少了刚开始播的那首:焦点停在它上面的话就整个落空,看不到高亮。
+    /// 别的行挪了位置还是同一行,焦点不受影响,只记下它现在排第几。
+    /// 新的那一行刚建出来时设的焦点可能被吞掉,没落上就再设一次。
+    private func catchFocusAfterSongChange() async {
+        for attempt in 0..<3 {
+            try? await Task.sleep(for: .milliseconds(attempt == 0 ? 100 : 300))
+            guard !Task.isCancelled else { return }
+            let total = store.queueUpNextIDs.count
+            let rows = upNextRows(limit: TVLongListPagingPolicy.clamped(limit: renderedRowCount, totalCount: total))
+            if let focusedRowID {
+                if let index = rows.firstIndex(where: { $0.id == focusedRowID }) { focusedRowIndex = index }
+                return
+            }
+            guard let index = focusedRowIndex, !rows.isEmpty else { return }
+            focusedRowID = rows[min(index, rows.count - 1)].id
+        }
     }
 
     private func queueRow(
         displayIndex: Int,
         queueOffset: Int,
         song: TVSong,
+        rowID: String,
         onFocusChanged: @escaping (Bool) -> Void
     ) -> some View {
         let album = store.albumOf(song)
         return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0,
                              action: { store.playQueueItem(at: queueOffset); dismiss() },
-                             onFocusChanged: onFocusChanged) { focused in
+                             onFocusChanged: onFocusChanged,
+                             focusBinding: $focusedRowID, focusID: rowID) { focused in
             HStack(spacing: 18) {
                 Text("\(displayIndex + 1)").tvFont(.meta, design: .monospaced)
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)

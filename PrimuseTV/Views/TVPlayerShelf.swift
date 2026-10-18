@@ -49,9 +49,10 @@ enum TVPlayerShelfTab: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 货架上的一张卡片。`queueSong` 带着它在「接下来」里的位置:同一首歌可能在队列里
-/// 出现不止一次,点哪一张就跳到哪一格。
+/// 出现不止一次,点哪一张就跳到哪一格。它的标识不用位置,用这首歌在「接下来」里第几次
+/// 出现:换歌后整排往前挪一格,标识不变,正看着的那张就不会被拆掉重建、把焦点弄丢。
 enum TVPlayerShelfItem: Identifiable {
-    case queueSong(offset: Int, song: TVSong)
+    case queueSong(offset: Int, occurrence: Int, song: TVSong)
     case song(TVSong)
     case album(TVAlbum)
     case artist(TVArtist)
@@ -59,7 +60,7 @@ enum TVPlayerShelfItem: Identifiable {
 
     var id: String {
         switch self {
-        case let .queueSong(offset, song): return "q\(offset)#\(song.id)"
+        case let .queueSong(_, occurrence, song): return "q\(occurrence)#\(song.id)"
         case let .song(song): return "s#\(song.id)"
         case let .album(album): return "a#\(album.id)"
         case let .artist(artist): return "r#\(artist.id)"
@@ -113,8 +114,13 @@ struct TVPlayerShelfContext: Equatable {
     func items(for tab: TVPlayerShelfTab, store: TVStore) -> [TVPlayerShelfItem] {
         switch tab {
         case .upNext:
+            var occurrences: [String: Int] = [:]
             return store.queueUpNextIDs.enumerated().compactMap { offset, id in
-                store.song(id).map { TVPlayerShelfItem.queueSong(offset: offset, song: $0) }
+                let occurrence = occurrences[id, default: 0]
+                occurrences[id] = occurrence + 1
+                return store.song(id).map {
+                    TVPlayerShelfItem.queueSong(offset: offset, occurrence: occurrence, song: $0)
+                }
             }
         case .thisAlbum:
             return albumID.isEmpty ? [] : store.songs(forAlbum: albumID).map(TVPlayerShelfItem.song)
@@ -184,6 +190,10 @@ struct TVPlayerShelf: View, @MainActor Equatable {
     @State private var renderedCount = TVLongListPagingPolicy.pageSize
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedTabID: String?
+    @Environment(\.isEnabled) private var isEnabled
+    /// 货架正在收起(播放页把它禁用了)时不再往里放焦点。任务里读环境值只读得到任务开始
+    /// 那一拍的,所以另存一份跟着变的。
+    @State private var acceptsFocus = true
 
     private let cardWidth: CGFloat = 220
     /// 横向 ScrollView 竖直方向会吃满剩余高度,得给定行高,货架才贴在屏幕底部。
@@ -231,12 +241,23 @@ struct TVPlayerShelf: View, @MainActor Equatable {
         .onExitCommand { onClose(false) }
         // 换歌(自然播完或在货架里点了别的)后内容跟着换;焦点不动,免得正在挑的时候被拽走。
         .task(id: store.currentSongID ?? store.nowPlaying.songID) {
+            let previousTab = tab
+            let previousItem = focusedItemID
+            let previousIndex = previousItem.flatMap { id in itemsByTab[tab]?.firstIndex { $0.id == id } }
+            let heldFocus = previousItem != nil || focusedTabID != nil
             context = TVPlayerShelfContext.current(store: store)
             availableTabs = context.availableTabs(store: store)
             itemsByTab = [:]
             if !availableTabs.contains(tab), let first = availableTabs.first { tab = first }
             loadItems(for: tab)
-            guard !hasLoaded else { return }
+            guard !hasLoaded else {
+                guard heldFocus else { return }
+                await catchFocusAfterSongChange(
+                    previousItem: previousItem,
+                    previousIndex: tab == previousTab ? previousIndex : nil
+                )
+                return
+            }
             hasLoaded = true
             await Task.yield()
             focusedItemID = itemsByTab[tab]?.first?.id
@@ -246,6 +267,7 @@ struct TVPlayerShelf: View, @MainActor Equatable {
             loadItems(for: newTab)
         }
         .onChange(of: focusedItemID) { _, _ in onInteraction() }
+        .onChange(of: isEnabled, initial: true) { _, enabled in acceptsFocus = enabled }
         .onChange(of: focusedTabID) { previous, focused in
             guard let focused, let item = TVPlayerShelfTab(rawValue: focused) else { return }
             onInteraction()
@@ -255,6 +277,25 @@ struct TVPlayerShelf: View, @MainActor Equatable {
                 focusedTabID = tab.rawValue
             } else if item != tab {
                 tab = item
+            }
+        }
+    }
+
+    /// 换歌后这一排跟着变(「接下来」里刚开始播的那首没了、换了一张专辑……),正看着的那张卡片
+    /// 要是被拿掉,焦点就整个落空:看不到高亮,再按 Menu 会直接退出 App。那张还在就留在它上面;
+    /// 没了就停在原来那个位置上现在的那张,这一栏空了交给分栏。新卡片刚建出来时设的焦点可能
+    /// 被吞掉,没落上就再设一次。
+    private func catchFocusAfterSongChange(previousItem: String?, previousIndex: Int?) async {
+        for attempt in 0..<3 {
+            try? await Task.sleep(for: .milliseconds(attempt == 0 ? 100 : 300))
+            guard !Task.isCancelled, acceptsFocus, focusedItemID == nil, focusedTabID == nil else { return }
+            let items = itemsByTab[tab] ?? []
+            if previousItem == nil || items.isEmpty {
+                focusedTabID = tab.rawValue
+            } else if let previousItem, items.contains(where: { $0.id == previousItem }) {
+                focusedItemID = previousItem
+            } else {
+                focusedItemID = items[min(previousIndex ?? 0, items.count - 1)].id
             }
         }
     }
@@ -305,15 +346,16 @@ struct TVPlayerShelf: View, @MainActor Equatable {
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 34) {
-                    ForEach(0..<shown, id: \.self) { index in
-                        card(items[index]) { focused in
+                    // 按卡片的标识建视图,不按位置:换歌后这一排挪了位置,正看着的那张还是
+                    // 同一个视图,焦点留在它上面。
+                    ForEach(Array(items.prefix(shown).enumerated()), id: \.element.id) { index, item in
+                        card(item) { focused in
                             guard focused else { return }
                             let next = TVLongListPagingPolicy.limit(
                                 after: shown, focusedRow: index, totalCount: items.count
                             )
                             if next != renderedCount { renderedCount = next }
                         }
-                        .id(items[index].id)
                     }
                 }
                 // 焦点放大和描边要有地方画,不然会被横向 ScrollView 裁掉。
@@ -332,7 +374,7 @@ struct TVPlayerShelf: View, @MainActor Equatable {
     @ViewBuilder
     private func card(_ item: TVPlayerShelfItem, onFocusChanged: @escaping (Bool) -> Void) -> some View {
         switch item {
-        case let .queueSong(offset, song):
+        case let .queueSong(offset, _, song):
             songCard(song, id: item.id, isCurrent: false, onFocusChanged: onFocusChanged) {
                 store.playQueueItem(at: offset)
                 onClose(true)
