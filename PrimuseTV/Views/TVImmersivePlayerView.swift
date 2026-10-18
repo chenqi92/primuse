@@ -304,11 +304,10 @@ struct TVImmersivePlayerView: View {
                     .accessibilityHidden(showsModePicker)
 
                 if isLowPower {
-                    ImmersiveAmbientRestOverlay(
+                    TVImmersiveAwayClock(
                         metrics: metrics,
-                        lyric: restLyric,
                         title: stageTrack.title,
-                        subtitle: stageTrack.subtitle
+                        artist: stageTrack.artist
                     )
                     .transition(.opacity)
                 }
@@ -1340,13 +1339,14 @@ struct TVImmersivePlayerView: View {
 extension TVImmersivePlayerView {
     // MARK: - 省电
 
-    /// 15 分钟没碰遥控器：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。按任意键就回来。
+    /// 15 分钟没碰遥控器：压暗、停下装饰动画与频谱，叠上慢慢漂动的暗时钟（只带歌名和艺人）。按任意键就回来。
     fileprivate func scheduleLowPower() {
         idleTask?.cancel()
         idleTask = nil
         guard presentationActivity.isRenderingActive,
               !assistiveNavigationEnabled,
-              let delay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+              let idleDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+        let delay = Self.debugIdleDelay ?? idleDelay
         idleTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: .seconds(delay))
@@ -1360,6 +1360,15 @@ extension TVImmersivePlayerView {
                   !assistiveNavigationEnabled else { return }
             enterLowPower()
         }
+    }
+
+    /// 截图用:TV_IMMERSIVE_IDLE_SECONDS=8 几秒后就进暗屏,看时钟漂动。
+    private static var debugIdleDelay: TimeInterval? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["TV_IMMERSIVE_IDLE_SECONDS"].flatMap(Double.init)
+        #else
+        nil
+        #endif
     }
 
     private func enterLowPower() {
@@ -1412,12 +1421,151 @@ extension TVImmersivePlayerView {
         let step = ImmersiveIdlePowerPolicy.driftOffset(step: restDriftStep)
         return CGSize(width: metrics.s(8) * CGFloat(step.x), height: metrics.s(6) * CGFloat(step.y))
     }
+}
 
-    /// 省电层上的歌词行：只认正在唱的那一句，没有时让歌名顶上。
-    fileprivate var restLyric: String? {
-        guard let index = activeLyricIndex, store.lyrics.indices.contains(index) else { return nil }
-        let value = store.lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
+/// 15 分钟没碰遥控器以后的暗屏层：一只很暗的时钟，下面只留歌名和艺人。人多半已经离开屏幕，
+/// 歌词不再跟着唱；整块在屏幕上慢慢漂、碰到边就折回，不在一处久留（防烧屏，也不晃眼）。
+/// 「减弱动态效果」打开时不漂，隔一阵淡出、换个位置再淡入。
+private struct TVImmersiveAwayClock: View {
+    var metrics: ImmersiveStageMetrics
+    var title: String
+    var artist: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var blockSize: CGSize = .zero
+    @State private var position: CGPoint?
+    @State private var isShown = true
+
+    /// 每秒漂多少点（1920 宽的画布上横穿一趟一分半左右）。
+    private static let speed: CGFloat = 14
+    /// 「减弱动态效果」时多久换一次位置。
+    private static let hopInterval: Duration = .seconds(90)
+
+    private struct DriftKey: Equatable {
+        var bounds: CGSize
+        var block: CGSize
+        var reduceMotion: Bool
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let area = movableArea(in: geometry.size)
+            block
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { blockSize = $0 }
+                .opacity(position == nil || !isShown ? 0 : 1)
+                .offset(x: (position ?? .zero).x, y: (position ?? .zero).y)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .task(id: DriftKey(bounds: area.size, block: roundedBlockSize, reduceMotion: reduceMotion)) {
+                    guard blockSize != .zero else { return }
+                    if reduceMotion {
+                        await hop(in: area)
+                    } else {
+                        await drift(in: area)
+                    }
+                }
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var block: some View {
+        VStack(alignment: .leading, spacing: metrics.s(10)) {
+            TimelineView(.everyMinute) { context in
+                Text(context.date.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: metrics.s(50), weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(ImmersiveStagePalette.ink.opacity(0.46))
+            }
+            VStack(alignment: .leading, spacing: metrics.s(4)) {
+                Text(title)
+                    .font(.system(size: metrics.s(20), weight: .medium))
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.36))
+                Text(artist)
+                    .font(.system(size: metrics.s(16)))
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.26))
+            }
+            .lineLimit(1)
+        }
+        .frame(maxWidth: metrics.s(560), alignment: .leading)
+        .fixedSize()
+    }
+
+    /// 分钟数变宽变窄时差几个点，不必为此重算漂移路线。
+    private var roundedBlockSize: CGSize {
+        CGSize(width: (blockSize.width / 40).rounded(.up) * 40, height: (blockSize.height / 20).rounded(.up) * 20)
+    }
+
+    /// 时钟块左上角能走到的范围：四边留出页边，再扣掉块自己的大小。
+    private func movableArea(in size: CGSize) -> CGRect {
+        let margin = max(metrics.s(48), 40)
+        let block = roundedBlockSize
+        return CGRect(
+            x: margin,
+            y: margin,
+            width: max(0, size.width - margin * 2 - block.width),
+            height: max(0, size.height - margin * 2 - block.height)
+        )
+    }
+
+    /// 匀速直线漂，碰到哪条边就把那个方向折回来，一段一段地交给动画。
+    private func drift(in area: CGRect) async {
+        var point = position.map { clamped($0, to: area) }
+            ?? CGPoint(x: area.minX + area.width * 0.08, y: area.maxY - area.height * 0.08)
+        let angle = Double.random(in: 0.35...0.75) * .pi / 2
+        var direction = CGVector(dx: cos(angle), dy: -sin(angle))
+        if position == nil {
+            position = point
+        }
+        while !Task.isCancelled {
+            let timeX = direction.dx > 0
+                ? (area.maxX - point.x) / (direction.dx * Self.speed)
+                : (point.x - area.minX) / (-direction.dx * Self.speed)
+            let timeY = direction.dy > 0
+                ? (area.maxY - point.y) / (direction.dy * Self.speed)
+                : (point.y - area.minY) / (-direction.dy * Self.speed)
+            let seconds = max(1, min(timeX, timeY))
+            let next = clamped(CGPoint(
+                x: point.x + direction.dx * Self.speed * seconds,
+                y: point.y + direction.dy * Self.speed * seconds
+            ), to: area)
+            withAnimation(.linear(duration: Double(seconds))) { position = next }
+            do {
+                try await Task.sleep(for: .seconds(Double(seconds)))
+            } catch {
+                return
+            }
+            point = next
+            if timeX <= timeY { direction.dx = -direction.dx }
+            if timeY <= timeX { direction.dy = -direction.dy }
+        }
+    }
+
+    /// 不漂的时候：隔一阵淡出，换到随机的一处再淡入。
+    private func hop(in area: CGRect) async {
+        if position == nil {
+            position = CGPoint(x: area.minX, y: area.maxY)
+        }
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: Self.hopInterval)
+                withAnimation(.easeInOut(duration: 1.2)) { isShown = false }
+                try await Task.sleep(for: .seconds(1.3))
+            } catch {
+                return
+            }
+            position = CGPoint(
+                x: CGFloat.random(in: area.minX...max(area.minX, area.maxX)),
+                y: CGFloat.random(in: area.minY...max(area.minY, area.maxY))
+            )
+            withAnimation(.easeInOut(duration: 1.2)) { isShown = true }
+        }
+    }
+
+    private func clamped(_ point: CGPoint, to area: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, area.minX), area.maxX),
+            y: min(max(point.y, area.minY), area.maxY)
+        )
     }
 }
 
