@@ -153,6 +153,13 @@ struct PrimuseTVApp: App {
 
     private var store: TVStore { appDelegate.store }
 
+    init() {
+        // libsmb2 往套接字写用的是 writev,没设 SO_NOSIGPIPE。电视睡过一阵醒来,
+        // 睡前那条 SMB 连接已经失效,切歌时给上一首的会话登出就会写进去,默认的
+        // SIGPIPE 会直接结束进程。忽略它之后写入只返回 EPIPE,按断线处理。
+        signal(SIGPIPE, SIG_IGN)
+    }
+
     private var appearance: TVAppearancePreference {
         appearanceState.preference
     }

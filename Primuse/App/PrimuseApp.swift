@@ -1507,6 +1507,10 @@ struct PrimuseApp: App {
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
 
     init() {
+        // libsmb2 往套接字写用的是 writev,没设 SO_NOSIGPIPE。NAS 断开空闲连接、
+        // 或者设备睡眠后连接失效,再往上面写(读文件、登出)默认的 SIGPIPE 会直接
+        // 结束进程。忽略它之后写入只返回 EPIPE,按断线处理。
+        signal(SIGPIPE, SIG_IGN)
         // 资料库分类有了默认收起的几类:升级前的显隐存档先在这里写实,界面读到的就是对的。
         LibraryDisplayConfiguration.migrateDefaultHiddenSectionsIfNeeded()
         // 把 scan-checkpoints.json / source-sync-states.json 的解码提前丢到
