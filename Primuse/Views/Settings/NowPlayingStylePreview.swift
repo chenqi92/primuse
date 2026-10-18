@@ -688,39 +688,14 @@ private struct MusicPortraitPreviewScreen: View {
 
     /// 铺满:整宽、从屏幕顶端画到这一块的下沿,直角,下沿渐隐;顶上垫一道淡底,把手画在封面上。
     private func fullBleedArtwork(width: CGFloat, height: CGFloat) -> some View {
-        let fade = FullBleedArtworkExtension.fadeFraction
-        return ZStack(alignment: .top) {
+        PreviewFullBleedArtwork(
+            width: width,
+            height: height,
+            topSafeArea: context.canvas.topSafeArea,
+            appearance: appearance
+        ) {
             artwork(side: max(width, height), cornerRadius: 0)
-                .frame(width: width, height: height)
-                .clipped()
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 1 - fade),
-                            .init(color: .black.opacity(0.844), location: 1 - fade * 0.75),
-                            .init(color: .black.opacity(0.5), location: 1 - fade * 0.5),
-                            .init(color: .black.opacity(0.156), location: 1 - fade * 0.25),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-
-            LinearGradient(
-                colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: context.canvas.topSafeArea + 44)
-
-            Capsule()
-                .fill(appearance.primary.opacity(0.5))
-                .frame(width: 48, height: 5)
-                .padding(.top, context.canvas.topSafeArea + 6)
         }
-        .frame(width: width, height: height)
     }
 
     // MARK: 歌名
@@ -920,6 +895,38 @@ struct PreviewLyricLines: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// 铺满的封面(台标)在预览里的画法:整宽、从屏幕顶端画到 `height`,直角,下沿渐隐;顶上垫一道淡底,
+/// 把手画在封面上。音乐、播客、电台三屏共用,和播放页的铺满一个样子。
+struct PreviewFullBleedArtwork<Artwork: View>: View {
+    let width: CGFloat
+    let height: CGFloat
+    let topSafeArea: CGFloat
+    let appearance: NowPlayingAppearance
+    @ViewBuilder let artwork: () -> Artwork
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            artwork()
+                .frame(width: width, height: height)
+                .clipped()
+                .mask { FullBleedArtworkFadeMask() }
+
+            LinearGradient(
+                colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: min(height, topSafeArea + 44))
+
+            Capsule()
+                .fill(appearance.primary.opacity(0.5))
+                .frame(width: 48, height: 5)
+                .padding(.top, topSafeArea + 6)
+        }
+        .frame(width: width, height: height, alignment: .top)
     }
 }
 

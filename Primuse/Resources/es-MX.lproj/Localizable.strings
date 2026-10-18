@@ -6199,7 +6199,10 @@
 "player_artwork_style_title" = "Estilo de portada";
 "player_artwork_style_card" = "Tarjeta";
 "player_artwork_style_full_bleed" = "De borde a borde";
-"player_artwork_style_footer" = "De borde a borde llena la parte superior del reproductor con la portada, que se desvanece hacia el fondo, y la reduce a la portada pequeña al cambiar a la letra. Se aplica al reproductor del iPhone en vertical; los videos musicales, la radio, los podcasts y los audiolibros conservan la tarjeta.";
+"player_artwork_style_footer" = "De borde a borde llena la parte superior del reproductor con la portada, que se desvanece hacia el fondo, y la reduce a la portada pequeña al cambiar a la letra. Se aplica al reproductor del iPhone en vertical; los videos musicales y los audiolibros conservan la tarjeta. Los podcasts y la radio tienen su propio ajuste: cámbialos en el menú de arriba a la derecha.";
+"player_artwork_style_podcast_footer" = "De borde a borde llena la parte superior del reproductor con la portada del episodio, que se desvanece hacia el fondo, y la reduce a la portada pequeña al abrir la transcripción. Se aplica al reproductor del iPhone en vertical.";
+"player_radio_artwork_style_title" = "Estilo del logotipo";
+"player_artwork_style_radio_footer" = "De borde a borde llena la parte superior del reproductor con el logotipo de la emisora, que se desvanece hacia el fondo. Se aplica al reproductor del iPhone en vertical.";
 "player_always_dark_title" = "Reproductor siempre oscuro";
 "player_always_dark_footer" = "El reproductor usa el aspecto oscuro aunque el sistema esté en claro, como Apple Music, también con audiolibros. En ese caso, la barra de estado se oculta en el reproductor.";
 "player_progress_style_standard" = "Predeterminada";

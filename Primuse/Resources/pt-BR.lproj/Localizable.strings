@@ -6199,7 +6199,10 @@
 "player_artwork_style_title" = "Estilo da capa";
 "player_artwork_style_card" = "Cartão";
 "player_artwork_style_full_bleed" = "De ponta a ponta";
-"player_artwork_style_footer" = "De ponta a ponta preenche o topo do player com a capa, que se dissolve no fundo, e a reduz à capa pequena ao mudar para a letra. Vale para o player do iPhone na vertical; videoclipes, rádio, podcasts e audiolivros mantêm o cartão.";
+"player_artwork_style_footer" = "De ponta a ponta preenche o topo do player com a capa, que se dissolve no fundo, e a reduz à capa pequena ao mudar para a letra. Vale para o player do iPhone na vertical; videoclipes e audiolivros mantêm o cartão. Podcasts e rádio têm ajuste próprio: troque no menu do canto superior direito.";
+"player_artwork_style_podcast_footer" = "De ponta a ponta preenche o topo do player com a capa do episódio, que se dissolve no fundo, e a reduz à capa pequena ao abrir a transcrição. Vale para o player do iPhone na vertical.";
+"player_radio_artwork_style_title" = "Estilo do logotipo";
+"player_artwork_style_radio_footer" = "De ponta a ponta preenche o topo do player com o logotipo da rádio, que se dissolve no fundo. Vale para o player do iPhone na vertical.";
 "player_always_dark_title" = "Player sempre escuro";
 "player_always_dark_footer" = "O player fica escuro mesmo com o sistema claro, como no Apple Music, inclusive com audiolivros. Nesse caso, a barra de status fica oculta no player.";
 "player_progress_style_standard" = "Padrão";

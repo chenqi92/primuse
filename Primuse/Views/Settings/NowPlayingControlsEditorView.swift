@@ -1211,6 +1211,15 @@ private struct SpokenWordControlsSections: View {
     }
 
     var body: some View {
+        // 播客的单集封面可以像音乐一样铺满;有声书的书封是竖版,照旧是卡片。
+        if kind == .podcast {
+            PlayerArtworkStyleSection(
+                key: PlayerAppearancePreferences.podcastArtworkStyleKey,
+                title: "player_artwork_style_title",
+                footer: "player_artwork_style_podcast_footer"
+            )
+        }
+
         Section {
             ForEach(slots) { slot in
                 let choice = layout.choice(in: slot)
@@ -1426,6 +1435,12 @@ private struct RadioControlsSections: View {
     private var layout: NowPlayingRadioControlLayout { .decode(storage) }
 
     var body: some View {
+        PlayerArtworkStyleSection(
+            key: PlayerAppearancePreferences.radioArtworkStyleKey,
+            title: "player_radio_artwork_style_title",
+            footer: "player_artwork_style_radio_footer"
+        )
+
         Section {
             ForEach(layout.order) { item in
                 if item.isRequired {
@@ -1490,6 +1505,40 @@ private struct RadioControlsSections: View {
             Button("done", role: .cancel) {}
         } message: {
             Text("player_controls_radio_airplay_required")
+        }
+    }
+}
+
+/// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `PlayerLookSettingsSections`。
+private struct PlayerArtworkStyleSection: View {
+    @AppStorage private var rawValue: String
+    let title: LocalizedStringKey
+    let footer: LocalizedStringKey
+
+    init(key: String, title: LocalizedStringKey, footer: LocalizedStringKey) {
+        _rawValue = AppStorage(wrappedValue: NowPlayingArtworkStyle.card.rawValue, key)
+        self.title = title
+        self.footer = footer
+    }
+
+    var body: some View {
+        Section {
+            Picker(selection: Binding(
+                get: { PlayerAppearancePreferences.artworkStyle(rawValue: rawValue) },
+                set: { rawValue = $0.rawValue }
+            )) {
+                ForEach(NowPlayingArtworkStyle.allCases, id: \.self) { style in
+                    Text(LocalizedStringKey(style.titleKey)).tag(style)
+                }
+            } label: {
+                Text(title)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        } header: {
+            SettingsInfoHeader(title) {
+                Text(footer)
+            }
         }
     }
 }

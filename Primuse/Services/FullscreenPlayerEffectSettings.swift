@@ -184,7 +184,10 @@ enum PlayerAppearancePreferences {
     }
 
     /// iPhone 竖屏播放页的大封面:卡片(圆角方图)或铺满(从屏幕顶端铺满整宽、下沿渐隐进背景)。
+    /// 音乐、播客、电台各选各的(「播放页样式与按钮」右上角切到那一页);有声书的书封照旧是卡片。
     static let artworkStyleKey = "primuse.player.artworkStyle"
+    static let podcastArtworkStyleKey = "primuse.player.artworkStyle.podcast"
+    static let radioArtworkStyleKey = "primuse.player.artworkStyle.radio"
 
     static func artworkStyle(rawValue: String) -> NowPlayingArtworkStyle {
         NowPlayingArtworkStyle(rawValue: rawValue) ?? .card

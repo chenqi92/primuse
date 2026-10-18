@@ -126,6 +126,26 @@ struct PlayerBackdropImageHost: View {
 /// 一块别的底（暖色封面常常压成一片棕）；换成封面自己的像素，渐隐就是封面慢慢化开。
 /// 遮罩和背景图共用一套规则，跟着「背景浓淡」走。
 ///
+/// 铺满封面下沿那一截渐隐的蒙版：smoothstep 取五个点，起止两头都是平的。电台铺满的台标与设置里的预览用它；
+/// 播放页的音乐、播客封面在 `LyricsArtworkFlight` 里按同样的点画（那边还要随飞行收到 0）。
+struct FullBleedArtworkFadeMask: View {
+    var body: some View {
+        let fade = FullBleedArtworkExtension.fadeFraction
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 1 - fade),
+                .init(color: .black.opacity(0.844), location: 1 - fade * 0.75),
+                .init(color: .black.opacity(0.5), location: 1 - fade * 0.5),
+                .init(color: .black.opacity(0.156), location: 1 - fade * 0.25),
+                .init(color: .clear, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
 /// 只在背景选的是封面取色时铺：流动色彩、声音律动和背景图是用户特意选的，封面下面照旧露出它们。
 struct FullBleedArtworkExtension: View {
     /// 封面下沿渐隐那一截占封面高度的比例，播放页的铺满封面位用同一个值。
@@ -327,6 +347,8 @@ struct PlayerBackdropPrewarmer: View {
     @State private var resolver = PlayerBackdropResolver.shared
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
+    private var podcastArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
 
     private struct PrewarmKey: Equatable {
         let request: PlayerBackdropResolver.Request
@@ -383,10 +405,14 @@ struct PlayerBackdropPrewarmer: View {
         .accessibilityHidden(true)
     }
 
-    /// 只有 iPhone 选了铺满封面、背景是封面取色时才用得上；电台和 MV 不铺，也不备。
+    /// 只有 iPhone 选了铺满封面、背景是封面取色时才用得上；电台的台标和 MV 不铺这一截，也不备。
+    /// 播客单集看播客那一页选的样式。
     private func extensionKey(song: Song?, source: PlayerBackdropSource) -> ExtensionKey {
+        let isPodcast = song.map { PodcastPlaybackSong.isEpisode($0) || SpokenWordStore.shared.isPodcast($0) } ?? false
         let applies = UIDevice.current.userInterfaceIdiom == .phone
-            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
+            && PlayerAppearancePreferences.artworkStyle(
+                rawValue: isPodcast ? podcastArtworkStyleRawValue : artworkStyleRawValue
+            ) == .fullBleed
             && source == .coverAmbient
             && !player.isMusicVideoPlaybackActive
         return ExtensionKey(

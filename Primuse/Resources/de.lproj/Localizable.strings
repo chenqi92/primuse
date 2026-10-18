@@ -6293,7 +6293,10 @@
 "player_artwork_style_title" = "Cover-Stil";
 "player_artwork_style_card" = "Karte";
 "player_artwork_style_full_bleed" = "Randlos";
-"player_artwork_style_footer" = "Randlos füllt den oberen Teil des Players mit dem Cover, das nach unten in den Hintergrund ausblendet, und lässt es beim Wechsel zum Songtext zum kleinen Cover schrumpfen. Gilt für den iPhone-Player im Hochformat; Musikvideos, Radio, Podcasts und Hörbücher behalten die Karte.";
+"player_artwork_style_footer" = "Randlos füllt den oberen Teil des Players mit dem Cover, das nach unten in den Hintergrund ausblendet, und lässt es beim Wechsel zum Songtext zum kleinen Cover schrumpfen. Gilt für den iPhone-Player im Hochformat; Musikvideos und Hörbücher behalten die Karte. Podcasts und Radio haben eine eigene Einstellung – oben rechts umschalten.";
+"player_artwork_style_podcast_footer" = "Randlos füllt den oberen Teil des Players mit dem Folgencover, das nach unten in den Hintergrund ausblendet, und lässt es beim Öffnen des Transkripts zum kleinen Cover schrumpfen. Gilt für den iPhone-Player im Hochformat.";
+"player_radio_artwork_style_title" = "Logo-Stil";
+"player_artwork_style_radio_footer" = "Randlos füllt den oberen Teil des Players mit dem Senderlogo, das nach unten in den Hintergrund ausblendet. Gilt für den iPhone-Player im Hochformat.";
 "player_always_dark_title" = "Player immer dunkel";
 "player_always_dark_footer" = "Der Player bleibt auch bei hellem System dunkel, wie bei Apple Music, auch bei Hörbüchern. Die Statusleiste wird im Player dann ausgeblendet.";
 "player_progress_style_standard" = "Standard";

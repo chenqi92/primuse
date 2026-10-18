@@ -6053,7 +6053,10 @@
 "player_artwork_style_title" = "Artwork Style";
 "player_artwork_style_card" = "Card";
 "player_artwork_style_full_bleed" = "Edge to Edge";
-"player_artwork_style_footer" = "Edge to Edge fills the top of the player with the artwork, fading into the background below, and shrinks it into the small artwork when you switch to lyrics. Applies to the iPhone player in portrait; music videos, radio, podcasts and audiobooks keep the card.";
+"player_artwork_style_footer" = "Edge to Edge fills the top of the player with the artwork, fading into the background below, and shrinks it into the small artwork when you switch to lyrics. Applies to the iPhone player in portrait; music videos and audiobooks keep the card. Podcasts and radio have their own setting — switch to them in the top-right menu.";
+"player_artwork_style_podcast_footer" = "Edge to Edge fills the top of the player with the episode artwork, fading into the background below, and shrinks it into the small artwork when you open the transcript. Applies to the iPhone player in portrait.";
+"player_radio_artwork_style_title" = "Logo Style";
+"player_artwork_style_radio_footer" = "Edge to Edge fills the top of the player with the station logo, fading into the background below. Applies to the iPhone player in portrait.";
 "player_always_dark_title" = "Always Dark Player";
 "player_always_dark_footer" = "Uses the dark look for the player even when the system is light, like Apple Music, audiobooks included. The status bar is hidden in the player then.";
 "player_progress_style_standard" = "Default";

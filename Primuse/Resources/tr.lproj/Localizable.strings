@@ -6199,7 +6199,10 @@
 "player_artwork_style_title" = "Kapak Stili";
 "player_artwork_style_card" = "Kart";
 "player_artwork_style_full_bleed" = "Kenardan Kenara";
-"player_artwork_style_footer" = "Kenardan Kenara, kapağı oynatıcının üst kısmında tüm genişliğe yayar, alt kenarını arka plana karıştırır ve şarkı sözlerine geçince küçük kapağa dönüştürür. Yalnızca dikey iPhone oynatıcısında geçerlidir; müzik videoları, radyo, podcast’ler ve sesli kitaplar kart olarak kalır.";
+"player_artwork_style_footer" = "Kenardan Kenara, kapağı oynatıcının üst kısmında tüm genişliğe yayar, alt kenarını arka plana karıştırır ve şarkı sözlerine geçince küçük kapağa dönüştürür. Yalnızca dikey iPhone oynatıcısında geçerlidir; müzik videoları ve sesli kitaplar kart olarak kalır. Podcast’ler ve radyo için ayrı ayar vardır; sağ üstteki menüden geçin.";
+"player_artwork_style_podcast_footer" = "Kenardan Kenara, bölüm kapağını oynatıcının üst kısmında tüm genişliğe yayar, alt kenarını arka plana karıştırır ve metin açılınca küçük kapağa dönüştürür. Yalnızca dikey iPhone oynatıcısında geçerlidir.";
+"player_radio_artwork_style_title" = "Logo stili";
+"player_artwork_style_radio_footer" = "Kenardan Kenara, istasyon logosunu oynatıcının üst kısmında tüm genişliğe yayar ve alt kenarını arka plana karıştırır. Yalnızca dikey iPhone oynatıcısında geçerlidir.";
 "player_always_dark_title" = "Oynatıcı Hep Koyu";
 "player_always_dark_footer" = "Sistem açık renkteyken de oynatıcı Apple Music'teki gibi koyu görünür, sesli kitaplar dahil. Bu durumda oynatıcıda durum çubuğu gizlenir.";
 "player_progress_style_standard" = "Varsayılan";

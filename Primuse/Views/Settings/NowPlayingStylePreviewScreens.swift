@@ -842,12 +842,20 @@ struct PodcastPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
     private var layout: SpokenWordControlLayout { .decode(storage, kind: .podcast) }
+
+    /// 和播放页一样只在 iPhone 上铺满。
+    private var usesFullBleedArtwork: Bool {
+        context.canvas.isPhone
+            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
+    }
 
     private var controls: SpokenWordResolvedControls {
         layout.resolved(in: SpokenWordControlContext(hasTranscript: true, hasInnerChapterPair: true))
@@ -865,6 +873,7 @@ struct PodcastPreviewScreen: View {
             theme: theme,
             controlTintRawValue: controlTintRawValue
         )
+        let grabberBand = canvas.topSafeArea + 21
 
         ZStack {
             PreviewPlayerBackdrop(song: nil)
@@ -876,17 +885,35 @@ struct PodcastPreviewScreen: View {
                     .padding(.top, canvas.topSafeArea + 6)
                     .padding(.bottom, 10)
 
-                Spacer(minLength: 0)
-                    .frame(maxHeight: 16 + volumeSlack * 0.4)
-                GeometryReader { region in
-                    let side = min(artSize, max(1, region.size.height - 24))
-                    PreviewSpokenCover(symbol: "mic", cornerRadius: 12)
-                        .frame(width: side, height: side)
-                        .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if usesFullBleedArtwork {
+                    // 铺满:这一块只占把手以下的高度,封面往上伸到屏幕顶端(照 `NowPlayingView.fullBleedArtworkRegion`)。
+                    GeometryReader { region in
+                        PreviewFullBleedArtwork(
+                            width: size.width,
+                            height: region.size.height + grabberBand,
+                            topSafeArea: canvas.topSafeArea,
+                            appearance: appearance
+                        ) {
+                            PreviewSpokenCover(symbol: "mic", cornerRadius: 0)
+                        }
+                        .frame(width: region.size.width, height: region.size.height, alignment: .bottom)
+                    }
+                    .frame(maxHeight: max(0, size.width - grabberBand))
+                    .layoutPriority(1)
+                    .zIndex(1)
+                } else {
+                    Spacer(minLength: 0)
+                        .frame(maxHeight: 16 + volumeSlack * 0.4)
+                    GeometryReader { region in
+                        let side = min(artSize, max(1, region.size.height - 24))
+                        PreviewSpokenCover(symbol: "mic", cornerRadius: 12)
+                            .frame(width: side, height: side)
+                            .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(maxHeight: artSize + 24)
+                    .layoutPriority(1)
                 }
-                .frame(maxHeight: artSize + 24)
-                .layoutPriority(1)
 
                 Spacer(minLength: 0)
                     .frame(maxHeight: 16)
@@ -1033,6 +1060,8 @@ struct RadioPreviewScreen: View {
     @AppStorage(NowPlayingRadioControlLayout.storageKey) private var storage = ""
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
+    private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -1045,23 +1074,43 @@ struct RadioPreviewScreen: View {
         let layout = NowPlayingRadioControlLayout.decode(storage)
         let showsVolume = showsVolumeBar && layout.showsVolumeBar
         let logoSide = min(size.width * 0.8, 430)
+        // 和播放页一样只在 iPhone 竖屏上铺满。
+        let fullBleedLogo = canvas.isPhone
+            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
 
         ZStack {
             PreviewPlayerBackdrop(song: nil)
 
             VStack(spacing: 0) {
-                Capsule()
-                    .fill(appearance.tertiary)
-                    .frame(width: 48, height: 5)
-                    .padding(.top, canvas.topSafeArea + 6)
-
-                Spacer(minLength: 12)
-
-                RadioStationPlaceholderArtwork()
-                    .frame(width: logoSide, height: logoSide)
-                    .clipShape(RoundedRectangle(cornerRadius: max(18, logoSide * 0.06), style: .continuous))
-                    .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                if fullBleedLogo {
+                    // 台标从屏幕顶端铺满整宽,最多画成正方形(照 `NowPlayingView.liveRadioFullBleedLogo`)。
+                    GeometryReader { region in
+                        PreviewFullBleedArtwork(
+                            width: region.size.width,
+                            height: region.size.height,
+                            topSafeArea: canvas.topSafeArea,
+                            appearance: appearance
+                        ) {
+                            RadioStationPlaceholderArtwork()
+                        }
+                    }
+                    .frame(maxHeight: size.width)
+                    .layoutPriority(1)
                     .accessibilityHidden(true)
+                } else {
+                    Capsule()
+                        .fill(appearance.tertiary)
+                        .frame(width: 48, height: 5)
+                        .padding(.top, canvas.topSafeArea + 6)
+
+                    Spacer(minLength: 12)
+
+                    RadioStationPlaceholderArtwork()
+                        .frame(width: logoSide, height: logoSide)
+                        .clipShape(RoundedRectangle(cornerRadius: max(18, logoSide * 0.06), style: .continuous))
+                        .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                        .accessibilityHidden(true)
+                }
 
                 Spacer(minLength: 22)
 

@@ -6199,7 +6199,10 @@
 "player_artwork_style_title" = "Styl okładki";
 "player_artwork_style_card" = "Karta";
 "player_artwork_style_full_bleed" = "Od krawędzi do krawędzi";
-"player_artwork_style_footer" = "Od krawędzi do krawędzi wypełnia górę odtwarzacza okładką, która płynnie przechodzi w tło, a po przejściu do tekstu zmniejsza się do małej okładki. Dotyczy odtwarzacza iPhone’a w pionie; teledyski, radio, podcasty i audiobooki zachowują kartę.";
+"player_artwork_style_footer" = "Od krawędzi do krawędzi wypełnia górę odtwarzacza okładką, która płynnie przechodzi w tło, a po przejściu do tekstu zmniejsza się do małej okładki. Dotyczy odtwarzacza iPhone’a w pionie; teledyski i audiobooki zachowują kartę. Podcasty i radio mają własne ustawienie – przełącz je w menu w prawym górnym rogu.";
+"player_artwork_style_podcast_footer" = "Od krawędzi do krawędzi wypełnia górę odtwarzacza okładką odcinka, która płynnie przechodzi w tło, a po otwarciu transkrypcji zmniejsza się do małej okładki. Dotyczy odtwarzacza iPhone’a w pionie.";
+"player_radio_artwork_style_title" = "Styl logo";
+"player_artwork_style_radio_footer" = "Od krawędzi do krawędzi wypełnia górę odtwarzacza logo stacji, które płynnie przechodzi w tło. Dotyczy odtwarzacza iPhone’a w pionie.";
 "player_always_dark_title" = "Odtwarzacz zawsze ciemny";
 "player_always_dark_footer" = "Odtwarzacz pozostaje ciemny nawet przy jasnym systemie, jak w Apple Music, także dla audiobooków. Pasek stanu jest wtedy w odtwarzaczu ukryty.";
 "player_progress_style_standard" = "Domyślny";

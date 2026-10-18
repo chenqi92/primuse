@@ -723,6 +723,8 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.progressGlowKey,
         PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey,
         PlayerAppearancePreferences.artworkStyleKey,
+        PlayerAppearancePreferences.podcastArtworkStyleKey,
+        PlayerAppearancePreferences.radioArtworkStyleKey,
         PlayerAppearancePreferences.playButtonStyleKey,
         PlayerAppearancePreferences.skipButtonStyleKey,
         PlayerAppearancePreferences.alwaysDarkKey,

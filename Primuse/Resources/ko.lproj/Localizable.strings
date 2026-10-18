@@ -6293,7 +6293,10 @@
 "player_artwork_style_title" = "앨범 아트 스타일";
 "player_artwork_style_card" = "카드";
 "player_artwork_style_full_bleed" = "가득 채우기";
-"player_artwork_style_footer" = "가득 채우기를 선택하면 앨범 아트가 화면 맨 위부터 가로 전체를 채우고 아래쪽은 배경으로 자연스럽게 사라집니다. 가사로 전환하면 상단의 작은 앨범 아트로 줄어듭니다. iPhone 세로 화면의 플레이어에만 적용되며, 뮤직비디오, 라디오, 팟캐스트와 오디오북은 카드로 표시됩니다.";
+"player_artwork_style_footer" = "가득 채우기를 선택하면 앨범 아트가 화면 맨 위부터 가로 전체를 채우고 아래쪽은 배경으로 자연스럽게 사라집니다. 가사로 전환하면 상단의 작은 앨범 아트로 줄어듭니다. iPhone 세로 화면의 플레이어에만 적용되며, 뮤직비디오와 오디오북은 카드로 표시됩니다. 팟캐스트와 라디오는 오른쪽 위 메뉴에서 전환해 따로 선택할 수 있습니다.";
+"player_artwork_style_podcast_footer" = "가득 채우기를 선택하면 에피소드 아트워크가 화면 맨 위부터 가로 전체를 채우고 아래쪽은 배경으로 자연스럽게 사라집니다. 텍스트를 열면 상단의 작은 아트워크로 줄어듭니다. iPhone 세로 화면의 플레이어에만 적용됩니다.";
+"player_radio_artwork_style_title" = "로고 스타일";
+"player_artwork_style_radio_footer" = "가득 채우기를 선택하면 방송국 로고가 화면 맨 위부터 가로 전체를 채우고 아래쪽은 배경으로 자연스럽게 사라집니다. iPhone 세로 화면의 플레이어에만 적용됩니다.";
 "player_always_dark_title" = "플레이어 항상 다크";
 "player_always_dark_footer" = "시스템이 라이트여도 Apple Music처럼 플레이어를 다크로 표시하며, 오디오북도 마찬가지입니다. 이때 플레이어에서는 상태 막대를 숨깁니다.";
 "player_progress_style_standard" = "기본";

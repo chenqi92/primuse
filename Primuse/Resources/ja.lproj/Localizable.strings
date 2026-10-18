@@ -6294,7 +6294,10 @@
 "player_artwork_style_title" = "アートワークのスタイル";
 "player_artwork_style_card" = "カード";
 "player_artwork_style_full_bleed" = "全面表示";
-"player_artwork_style_footer" = "全面表示では、アートワークが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。歌詞に切り替えると上部の小さなアートワークに縮みます。iPhoneの縦向きのプレーヤーのみ。ミュージックビデオ、ラジオ、ポッドキャスト、オーディオブックはカードのままです。";
+"player_artwork_style_footer" = "全面表示では、アートワークが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。歌詞に切り替えると上部の小さなアートワークに縮みます。iPhoneの縦向きのプレーヤーのみ。ミュージックビデオとオーディオブックはカードのままです。ポッドキャストとラジオは右上のメニューで切り替えて個別に選べます。";
+"player_artwork_style_podcast_footer" = "全面表示では、エピソードのアートワークが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。テキストを開くと上部の小さなアートワークに縮みます。iPhoneの縦向きのプレーヤーのみ。";
+"player_radio_artwork_style_title" = "ロゴのスタイル";
+"player_artwork_style_radio_footer" = "全面表示では、局のロゴが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。iPhoneの縦向きのプレーヤーのみ。";
 "player_always_dark_title" = "プレーヤーを常にダークにする";
 "player_always_dark_footer" = "システムがライトでも、Apple Music のようにプレーヤーをダークで表示します（オーディオブックも同様）。このときプレーヤーではステータスバーを表示しません。";
 "player_progress_style_standard" = "デフォルト";

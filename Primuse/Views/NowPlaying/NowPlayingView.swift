@@ -1091,6 +1091,10 @@ struct NowPlayingView: View {
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
+    private var podcastArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
+    private var radioArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
@@ -3538,12 +3542,20 @@ struct NowPlayingView: View {
             width: Double(geo.size.width),
             gap: 16
         )))
+        let fullBleedLogo = liveRadioUsesFullBleedLogo(in: geo.size)
 
         VStack(spacing: 0) {
-            Capsule()
-                .fill(appearance.tertiary)
-                .frame(width: 48, height: 5)
-                .padding(.top, topSafeArea + 6)
+            if fullBleedLogo {
+                // 台标从屏幕顶端铺满整宽,最多画成正方形;下面几行照旧,空出来的高度留在台标与台名之间。
+                liveRadioFullBleedLogo
+                    .frame(maxHeight: geo.size.width)
+                    .layoutPriority(1)
+            } else {
+                Capsule()
+                    .fill(appearance.tertiary)
+                    .frame(width: 48, height: 5)
+                    .padding(.top, topSafeArea + 6)
+            }
 
             if let error = player.lastPlaybackError {
                 Text(error)
@@ -3556,30 +3568,32 @@ struct NowPlayingView: View {
                     .pmSlideTransition(edge: .top, motion: .list)
             }
 
-            // 台名、播放键和底排像音乐页一样收在下面；空出来的高度一份垫在台标上面、
-            // 一份留在台标与台名之间，不再在播放键和底排之间空出一大块(#313)。
-            Spacer(minLength: 12)
+            if !fullBleedLogo {
+                // 台名、播放键和底排像音乐页一样收在下面；空出来的高度一份垫在台标上面、
+                // 一份留在台标与台名之间，不再在播放键和底排之间空出一大块(#313)。
+                Spacer(minLength: 12)
 
-            // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
-            // 内屏分屏半幅这类宽而矮的窗口会把底部控件顶出屏幕。
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: artworkSize, maxHeight: artworkSize)
-                .overlay {
-                    GeometryReader { artworkGeometry in
-                        let fittedSize = min(artworkGeometry.size.width, artworkGeometry.size.height)
-                        if let station = player.currentRadioStation, fittedSize >= 48 {
-                            RadioStationArtworkView(
-                                station: station,
-                                size: fittedSize,
-                                cornerRadius: max(18, fittedSize * 0.06)
-                            )
-                            .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
+                // 内屏分屏半幅这类宽而矮的窗口会把底部控件顶出屏幕。
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: artworkSize, maxHeight: artworkSize)
+                    .overlay {
+                        GeometryReader { artworkGeometry in
+                            let fittedSize = min(artworkGeometry.size.width, artworkGeometry.size.height)
+                            if let station = player.currentRadioStation, fittedSize >= 48 {
+                                RadioStationArtworkView(
+                                    station: station,
+                                    size: fittedSize,
+                                    cornerRadius: max(18, fittedSize * 0.06)
+                                )
+                                .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
                     }
-                }
-                .layoutPriority(1)
+                    .layoutPriority(1)
+            }
 
             Spacer(minLength: 22)
 
@@ -3674,6 +3688,37 @@ struct NowPlayingView: View {
         .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
         .padding(.trailing, centersOnFullScreen ? 0 : safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 铺满的台标：从屏幕顶端画到这一块的下沿，整宽、直角，下沿和音乐铺满封面一样渐隐进背景；
+    /// 顶上垫一道背景色的淡底让状态栏看得清，下拉把手画在台标上面。
+    private var liveRadioFullBleedLogo: some View {
+        GeometryReader { region in
+            let width = region.size.width
+            let height = region.size.height
+            ZStack(alignment: .top) {
+                if let station = player.currentRadioStation, height >= 48 {
+                    RadioStationArtworkContent(station: station, decodeSize: max(width, height))
+                        .frame(width: width, height: height)
+                        .clipped()
+                        .mask { FullBleedArtworkFadeMask() }
+                }
+
+                LinearGradient(
+                    colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: min(height, topSafeArea + 44))
+
+                Capsule()
+                    .fill(appearance.primary.opacity(0.5))
+                    .frame(width: 48, height: 5)
+                    .padding(.top, topSafeArea + 6)
+            }
+            .frame(width: width, height: height, alignment: .top)
+        }
+        .accessibilityHidden(true)
     }
 
     /// 底排真画得出来的那几项：分享要有电台地址、听过的歌要有电台，缺了就不占一格。
@@ -5256,7 +5301,14 @@ struct NowPlayingView: View {
                             // the artwork itself is now a discoverable way back.
                             Button { returnToArtworkFromLyricsHeader() } label: {
                                 HStack(spacing: 10) {
-                                    lyricsThumbnailArtwork(size: 44, cornerRadius: 6)
+                                    lyricsThumbnailArtwork(
+                                        size: 44,
+                                        cornerRadius: 6,
+                                        receivesFullBleedArtwork: usesFullBleedArtwork(
+                                            lyricsInline: lyricsInline,
+                                            usesToolColumn: usesToolColumn
+                                        )
+                                    )
                                     .lyricsHeaderReveal(isArtwork: true)
 
                                     VStack(alignment: .leading, spacing: 2) {
@@ -6521,26 +6573,39 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
     }
 
-    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满）。只在 iPhone 的整屏竖版上：
+    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 的整屏竖版上：
     /// iPad 竖屏太宽，铺满会把下面几行挤没；Duo 分栏、竖栏那一列的版面窄而高，照旧用卡片。
-    /// MV 有自己的画面，有声内容的书封是竖版，都不铺。
+    /// MV 有自己的画面，有声书的书封是竖版，都不铺。电台另见 `liveRadioUsesFullBleedLogo`。
     private func usesFullBleedArtwork(lyricsInline: Bool?, usesToolColumn: Bool) -> Bool {
-        isPhoneCanvas
-            && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
+        let styleRawValue = usesSpokenWordTransport
+            ? (currentItemIsPodcast ? podcastArtworkStyleRawValue : NowPlayingArtworkStyle.card.rawValue)
+            : artworkStyleRawValue
+        return isPhoneCanvas
+            && PlayerAppearancePreferences.artworkStyle(rawValue: styleRawValue) == .fullBleed
             && lyricsInline == nil
             && !usesToolColumn
             && !player.isMusicVideoPlaybackActive
-            && !usesSpokenWordTransport
             && !player.isLiveRadio
     }
 
+    /// 电台台标铺满（「播放页样式与按钮 › 电台」里选）：同样只在 iPhone 整屏竖版上，横屏与 Duo 整屏居中照旧是卡片。
+    private func liveRadioUsesFullBleedLogo(in size: CGSize) -> Bool {
+        isPhoneCanvas
+            && !centersOnFullScreen
+            && size.height > size.width
+            && PlayerAppearancePreferences.artworkStyle(rawValue: radioArtworkStyleRawValue) == .fullBleed
+    }
+
+    /// `receivesFullBleedArtwork`:封面那一面是铺满的(播客也可以选),小封面和音乐一样用槽位,
+    /// 让铺满的封面缩进来;否则有声内容沿用书封那套匹配几何。
     @ViewBuilder
     private func lyricsThumbnailArtwork(
         size: CGFloat,
         cornerRadius: CGFloat,
-        shadow: LyricsArtworkShadow = .init()
+        shadow: LyricsArtworkShadow = .init(),
+        receivesFullBleedArtwork: Bool = false
     ) -> some View {
-        if usesSpokenWordTransport || player.isMusicVideoPlaybackActive {
+        if (usesSpokenWordTransport && !receivesFullBleedArtwork) || player.isMusicVideoPlaybackActive {
             CachedArtworkView(
                 coverRef: player.currentSong?.coverArtFileName,
                 songID: player.currentSong?.id ?? "",
@@ -6582,6 +6647,7 @@ struct NowPlayingView: View {
                 let rect = geometry[anchor.bounds]
                 // 封面按固定尺寸画一次，外框、圆角、图片和占位音符都在同一层里一起缩放。
                 let renderSize = Self.artworkRenderSize
+                // 播客铺满时也画在这一层:占位换成播客的图标,不去找动态封面。
                 CachedArtworkView(
                     coverRef: player.currentSong?.coverArtFileName,
                     songID: player.currentSong?.id ?? "",
@@ -6589,7 +6655,10 @@ struct NowPlayingView: View {
                     sourceID: player.currentSong?.sourceID,
                     filePath: player.currentSong?.filePath,
                     fileFormat: player.currentSong?.fileFormat,
-                    presentationRole: .animatedHero,
+                    placeholderIcon: PodcastPlaybackSong.isEpisode(player.currentSong)
+                        ? "antenna.radiowaves.left.and.right"
+                        : "music.note",
+                    presentationRole: usesSpokenWordTransport ? .staticFirstFrame : .animatedHero,
                     animationRequiresPlayback: true,
                     isPlaying: player.isPlaying,
                     isAnimationVisible: isNowPlayingSurfaceExposed && !surfaceMotion.isHeld,

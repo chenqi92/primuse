@@ -6270,7 +6270,10 @@
 "player_artwork_style_title" = "封面樣式";
 "player_artwork_style_card" = "卡片";
 "player_artwork_style_full_bleed" = "鋪滿";
-"player_artwork_style_footer" = "鋪滿：封面從螢幕頂端鋪滿整個寬度，下緣漸隱進背景，切到歌詞時縮成頂列的小封面。只用於 iPhone 直向的播放頁；MV、電台、Podcast 和有聲書仍顯示卡片。";
+"player_artwork_style_footer" = "鋪滿：封面從螢幕頂端鋪滿整個寬度，下緣漸隱進背景，切到歌詞時縮成頂列的小封面。只用於 iPhone 直向的播放頁；MV 和有聲書仍顯示卡片，Podcast 和電台在右上角切到各自那一頁單獨選。";
+"player_artwork_style_podcast_footer" = "鋪滿：單集封面從螢幕頂端鋪滿整個寬度，下緣漸隱進背景，打開文字稿時縮成頂列的小封面。只用於 iPhone 直向的播放頁。";
+"player_radio_artwork_style_title" = "台標樣式";
+"player_artwork_style_radio_footer" = "鋪滿：台標從螢幕頂端鋪滿整個寬度，下緣漸隱進背景。只用於 iPhone 直向的播放頁。";
 "player_always_dark_title" = "播放頁始終用深色";
 "player_always_dark_footer" = "系統是淺色時播放頁也用深色，像 Apple Music 那樣，有聲書也一樣。這時播放頁裡不顯示狀態列。";
 "player_progress_style_standard" = "預設";
