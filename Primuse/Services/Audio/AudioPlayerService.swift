@@ -8219,6 +8219,12 @@ final class AudioPlayerService {
     var lastWidgetCoverKey: String?
     /// Coalesces repeated WidgetKit reload requests with identical content.
     var lastWidgetTimelineSignature: String?
+    #if os(iOS)
+    /// 小组件给当前这首 Apple Music 资料库歌取到的官方封面, 只留一首。
+    @ObservationIgnored var widgetAppleMusicArtwork: (songID: String, data: Data)?
+    /// 已经为它取过官方封面的那首, 取不到也不在这首上反复重试。
+    @ObservationIgnored var widgetAppleMusicArtworkRequestSongID: String?
+    #endif
 }
 
 /// 跳过整个来源之前的倒计时(见 `AudioPlayerService.handleUnavailableSourceFailure`)。

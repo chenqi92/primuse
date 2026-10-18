@@ -53,6 +53,9 @@ final class WatchSessionBridge: NSObject {
     /// 推送会把含 cover 的快照覆盖掉, watch 下次唤醒只剩占位渐变。
     private var lastCoverJPEG: Data?
     private var lastCoverJPEGSongID: String?
+    /// 正在取封面的 songID。Apple Music 的封面要联网取, 期间每换一行歌词都会再
+    /// 要一次封面, 同一首在取的时候不再另起一份。
+    private var coverLoadingSongID: String?
     /// 最近播放列表 hash, 不变就不重发。
     private var lastLibraryHash: Int = 0
     private var lastQueueSnapshotRevision: Int?
@@ -248,12 +251,15 @@ final class WatchSessionBridge: NSObject {
         // actor 用当时的 player 状态重新组装一条完整状态 (含封面) 再投递 ──
         // 复用现成 applyContext 路径, watch 不需要单独处理 "只含封面" 的消息。
         let songID = song.id
+        guard coverLoadingSongID != songID else { return }
+        coverLoadingSongID = songID
         let songTitle = song.title
         let coverRef = song.coverArtFileName
         Task.detached(priority: .utility) {
-            let cover = Self.coverJPEG(for: song)
+            let cover = await Self.coverJPEG(for: song)
             await MainActor.run {
                 let bridge = Self.shared
+                if bridge.coverLoadingSongID == songID { bridge.coverLoadingSongID = nil }
                 // 期间用户切歌就丢弃这张封面, 避免把旧封面盖到新歌上。
                 guard bridge.player?.currentSong?.id == songID else { return }
                 guard let cover else {
@@ -510,10 +516,12 @@ final class WatchSessionBridge: NSObject {
     /// 查找顺序:
     /// 1. songID-hashed 名 (新架构 cache 都存在这里, 命中率高)
     /// 2. song.coverArtFileName (旧 sidecar / 已知 ref)
+    /// 3. Apple Music 的歌: 资料库歌的引用是 `musicKit://`, 上面两步都读不到,
+    ///    走 CarPlay 同一条官方封面查找
     ///
     /// 输出大小目标 < 45KB 留余地给状态字段 ── sendMessage 总 payload 上限
     /// ~64KB, 之前 200×200 0.7 的封面单张就 50-60KB 直接超了。
-    nonisolated private static func coverJPEG(for song: Song) -> Data? {
+    nonisolated private static func coverJPEG(for song: Song) async -> Data? {
         let store = MetadataAssetStore.shared
         var raw: Data?
         let hashedName = store.expectedCoverFileName(for: song.id)
@@ -521,7 +529,13 @@ final class WatchSessionBridge: NSObject {
         if raw == nil, let ref = song.coverArtFileName {
             raw = store.readCoverData(named: ref)
         }
-        guard let data = raw, let img = UIImage(data: data) else { return nil }
+        var image = raw.flatMap { UIImage(data: $0) }
+        if image == nil, song.sourceID == AppleMusicLibraryIdentity.sourceID {
+            image = await CarPlayHomeContent.appleMusicSongArtwork(
+                song, pixelSize: 300, mirrorsIntoSongCache: false
+            )
+        }
+        guard let img = image else { return nil }
 
         let target = CGSize(width: 160, height: 160)
         let renderer = UIGraphicsImageRenderer(size: target)

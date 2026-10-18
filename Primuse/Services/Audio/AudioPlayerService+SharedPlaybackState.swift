@@ -442,6 +442,9 @@ extension AudioPlayerService {
                     // lastWidgetCoverKey nil so the next event retries.
                     removeSharedWidgetCover(named: sharedCoverName)
                     lastWidgetCoverKey = nil
+                    #if os(iOS)
+                    requestAppleMusicWidgetArtwork(for: song, pixelSize: Int(coverPixelSize))
+                    #endif
                 }
 
                 if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
@@ -507,6 +510,30 @@ extension AudioPlayerService {
         updatePlaybackState()
     }
 
+    #if os(iOS)
+    /// Apple Music 资料库歌的封面引用是 MusicKit 专用的 `musicKit://`, 本地封面库里没有,
+    /// 小组件写不出封面。装了小组件时取一次官方封面, 取到时还是这首就重新发布。
+    private func requestAppleMusicWidgetArtwork(for song: Song, pixelSize: Int) {
+        guard song.sourceID == AppleMusicLibraryIdentity.sourceID,
+              widgetAppleMusicArtworkRequestSongID != song.id else { return }
+        widgetAppleMusicArtworkRequestSongID = song.id
+        let songID = song.id
+        Task.detached(priority: .utility) { [weak self] in
+            guard let configurations = try? await WidgetCenter.shared.currentConfigurations(),
+                  !configurations.isEmpty,
+                  let image = await CarPlayHomeContent.appleMusicSongArtwork(
+                      song, pixelSize: pixelSize, mirrorsIntoSongCache: false
+                  ),
+                  let data = image.jpegData(compressionQuality: 0.9) else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.currentSong?.id == songID else { return }
+                self.widgetAppleMusicArtwork = (songID, data)
+                self.updatePlaybackState()
+            }
+        }
+    }
+    #endif
+
     /// Writes a cover image to the App Group shared container for Widget rendering.
     /// Returns the filename if successful.
     ///
@@ -541,6 +568,12 @@ extension AudioPlayerService {
            !ref.contains("/"), !ref.contains("://") {
             coverData = store.readCoverData(named: ref)
         }
+
+        #if os(iOS)
+        if coverData == nil, let held = widgetAppleMusicArtwork, held.songID == song.id {
+            coverData = held.data
+        }
+        #endif
 
         guard let data = coverData else { return nil }
 

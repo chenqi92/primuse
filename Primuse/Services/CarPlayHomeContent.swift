@@ -420,15 +420,24 @@ enum CarPlayHomeContent {
         if let image = await CarPlayArtworkDecoder.shared.thumbnail(forSongID: song.id,
             coverRef: song.coverArtFileName, maximumPixelSize: pixelSize) { return image }
         if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-            let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
-                .url(width: pixelSize, height: pixelSize)?.absoluteString
-            if let image = await appleMusicBitmap(references: [reference, song.coverArtFileName], pixelSize: pixelSize, songID: song.id) { return image }
-            let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .songs, id: song.filePath, pixelSize: pixelSize)
-            return await appleMusicBitmap(references: [libraryReference], pixelSize: pixelSize, songID: song.id)
+            return await appleMusicSongArtwork(song, pixelSize: pixelSize)
         }
         return await CachedArtworkView.resolveImage(coverRef: song.coverArtFileName, songID: song.id,
             size: CGFloat(pixelSize), sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
             sourceManager: sourceManager)
+    }
+
+    /// Apple Music 歌的官方封面。资料库歌的引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它:
+    /// 先用 MusicKit 缓存给的地址或歌曲自带的公网地址, 都没有再查资料库接口换成公网地址。
+    /// 手表和小组件也走这里, 它们传 `mirrorsIntoSongCache: false`: 按 songID 存进封面库的图
+    /// 会被播放页取色和系统「正在播放」拿去用, 它们只要这一张图。
+    static func appleMusicSongArtwork(_ song: Song, pixelSize: Int, mirrorsIntoSongCache: Bool = true) async -> UIImage? {
+        let songID = mirrorsIntoSongCache ? song.id : nil
+        let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
+            .url(width: pixelSize, height: pixelSize)?.absoluteString
+        if let image = await appleMusicBitmap(references: [reference, song.coverArtFileName], pixelSize: pixelSize, songID: songID) { return image }
+        let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .songs, id: song.filePath, pixelSize: pixelSize)
+        return await appleMusicBitmap(references: [libraryReference], pixelSize: pixelSize, songID: songID)
     }
 
     static func artworkSongIDs(_ artwork: CarPlayContentArtwork) -> Set<String> {
