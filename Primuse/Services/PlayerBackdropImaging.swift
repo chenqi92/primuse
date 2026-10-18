@@ -52,6 +52,26 @@ enum PlayerBackdropImaging {
         return ciContext.createCGImage(blurred, from: extent)
     }
 
+    /// 专辑页背景用的封底:缩小后轻轻模糊一次。封底上的曲目单、字都化开成色块和线条,
+    /// 版式还认得出来,但不会和页面上的字抢。结果是普通位图,显示时没有实时滤镜。
+    nonisolated static func softenedBackdrop(from image: CGImage) -> CGImage? {
+        let longSide = CGFloat(max(image.width, image.height))
+        guard longSide > 0 else { return nil }
+        let target: CGFloat = 640
+        var input = CIImage(cgImage: image)
+        if longSide > target {
+            let scale = target / longSide
+            input = input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+        let extent = input.extent.integral
+        let radius = max(extent.width, extent.height) * 0.01
+        let softened = input
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(radius))
+            .cropped(to: extent)
+        return ciContext.createCGImage(softened, from: extent)
+    }
+
     /// 铺满封面下面那一截的底图：封面下沿占高度 `fraction` 的那条，下面接上它的上下镜像，
     /// 缩成小图一起模糊一次。上半垫在封面渐隐那段底下，下半往下铺到屏幕底；接缝两边是封面
     /// 最下面同一行像素，所以渐隐处看到的就是封面自己的颜色。

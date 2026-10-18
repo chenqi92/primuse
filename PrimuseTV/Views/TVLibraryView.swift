@@ -1310,8 +1310,6 @@ struct TVAlbumDetailPresenter: ViewModifier {
     }
 }
 
-/// 专辑页:按下专辑封面先看到整张专辑的曲目,从哪一首点下去就从哪一首播,
-/// 整张专辑仍是队列。「全部播放 / 随机播放 / 串烧」与艺人页同一排布。
 /// 专辑页大封面的缓慢浮动:六七秒一个来回地上浮几点、略微放大,投影跟着变远变淡,像离开了
 /// 页面;左右再按另一个节奏挪一点,两个节奏错开就不显得机械。只动封面这一层(动画限定在
 /// 修饰器里,页面推入的位移不会被带着循环),「减弱动态效果」打开时静止。
@@ -1351,6 +1349,10 @@ private struct TVArtworkGentleFloat: ViewModifier {
     }
 }
 
+/// 专辑页:按下专辑封面先看到整张专辑的曲目,从哪一首点下去就从哪一首播,整张专辑仍是队列。
+/// 像打开的 CD 盒:左栏是封面(后面探出半张盘)、艺人、全部播放 / 随机播放和专辑简介
+/// (长了自己慢慢滚,按下看全文);右栏是曲目;专辑文件夹里有封底图时铺成整页背景。
+/// 串烧、补全专辑信息、恢复文件标签收在「更多」里。
 struct TVAlbumDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -1373,15 +1375,28 @@ struct TVAlbumDetailView: View {
     @State private var hasLocallyScrapedSongs = false
     /// 资料库里只收了几首的 Apple Music 专辑:目录里其余的曲目(见 `TVAppleMusicPlayer.albumRemainder`)。
     @State private var appleMusicRemainder: TVAppleMusicPlayer.AlbumRemainder?
-    /// 恢复按钮与确认面板里的两颗按钮,值见 `RestoreFocus`。
+    /// 专辑文件夹里的封底(见 `TVAlbumBackArtwork`),没有就是 nil、背景照旧是封面取色。
+    @State private var backCover: BackCover?
+    /// 「更多」里选了串烧,等流量确认(见 `TVMedleyConfirmation`)。
+    @State private var pendingMedleyIDs: [String]?
+    /// 「更多」按钮与确认面板里的「取消」,值见 `RestoreFocus`。
     @FocusState private var focusedRestoreControl: String?
     @FocusState private var focusedTrackID: String?
     @Namespace private var detailFocus
 
     private enum RestoreFocus {
-        static let button = "restore.button"
+        static let more = "album.more"
         static let cancel = "restore.cancel"
     }
+
+    private struct BackCover {
+        let id: String
+        let image: CGImage
+    }
+
+    /// 左栏宽:封面加探出来的半张盘,下面一排按钮放得下四颗(长语言的「全部播放」也不截断)。
+    private static let leftColumnWidth: CGFloat = 660
+    private static let coverSize: CGFloat = 260
 
     init(
         albumID: String,
@@ -1426,65 +1441,20 @@ struct TVAlbumDetailView: View {
         let hasEditedSongs = hasLocallyScrapedSongs
             || songIDs.contains { store.library.song(id: $0)?.userMetadataEditedAt != nil }
         ZStack {
-            TVAmbientBackdrop(tint: album.tint, tint2: album.tint2, strength: 0.55)
-            TVColor.bg.opacity(0.34).ignoresSafeArea()
-            HStack(alignment: .top, spacing: 72) {
-                VStack(alignment: .leading, spacing: 22) {
-                    TVArtworkView(album: album, size: 300, radius: 18)
-                        .modifier(TVArtworkGentleFloat())
-                    Text(album.title)
-                        .tvFont(.pageTitle)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(album.artist)
-                        .tvFont(.body)
-                        .foregroundStyle(TVColor.textMuted)
-                        .lineLimit(2)
-                    Text(verbatim: Self.summary(album: album, songs: songs))
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textFaint)
-                    HStack(spacing: 14) {
-                        TVPillButton(
-                            title: String(localized: "play_all"),
-                            systemImage: "play.fill",
-                            style: .solid,
-                            action: { play(songIDs, shuffled: false) }
-                        )
-                        .prefersDefaultFocus(initialFocusSongID == nil, in: detailFocus)
-                        TVPillButton(
-                            title: String(localized: "shuffle"),
-                            systemImage: "shuffle",
-                            action: { play(songIDs, shuffled: true) }
-                        )
-                        if let libraryAlbum = store.library.visibleAlbum(id: albumID) {
-                            TVFavoriteIconButton(
-                                isLiked: LibraryFavoritesStore.shared.isLiked(libraryAlbum),
-                                action: { LibraryFavoritesStore.shared.toggle(libraryAlbum) }
-                            )
-                        }
-                    }
-                    .disabled(songIDs.isEmpty)
-                    // 串烧与补全并成第二排(所以这一栏比艺人页宽),放不下(长语言)才各占一行。
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 14) { secondaryActions(songIDs) }
-                        VStack(alignment: .leading, spacing: 22) { secondaryActions(songIDs) }
-                    }
-                    // 恢复完按钮仍留着(不再有改过的歌时按下去什么也不做),免得焦点所在的按钮消失。
-                    if hasEditedSongs || restoreProgress != nil {
-                        restoreSection(songIDs, hasEditedSongs: hasEditedSongs)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .frame(width: 540, alignment: .leading)
-                .focusSection()
+            TVAmbientBackdrop(
+                tint: album.tint, tint2: album.tint2, strength: 0.55,
+                image: backCover?.image, imageID: backCover?.id
+            )
+            // 封底上多是密密的字:压得比封面取色底再暗一些,左栏的字和右边的曲目才看得清。
+            TVColor.bg.opacity(backCover == nil ? 0.34 : 0.46).ignoresSafeArea()
+            HStack(alignment: .top, spacing: 64) {
+                leftColumn(album: album, songs: songs, songIDs: songIDs, hasEditedSongs: hasEditedSongs)
+                    .frame(width: Self.leftColumnWidth, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .focusSection()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
-                        TVLibraryInsightBlock(
-                            subject: Self.insightSubject(album: album, songs: []),
-                            details: { Self.insightSubject(album: album, songs: songs, library: store.library) }
-                        )
                         TVEyebrow(text: PMString("ext.tv.search.songs"))
                             .padding(.bottom, 6)
                         if tracks.isEmpty {
@@ -1523,14 +1493,16 @@ struct TVAlbumDetailView: View {
                 .focusSection()
             }
             .padding(.horizontal, 100)
-            .padding(.vertical, 72)
+            // 系统已经在上下各留了安全边距,这里只再让一点:简介要用左栏剩下的高度。
+            .padding(.top, 20)
+            .padding(.bottom, 28)
             // 确认面板盖在上面时底下不接焦点,方向键出不了面板。
             .disabled(showsRestoreConfirmation)
 
             if showsRestoreConfirmation {
                 restoreConfirmation(songIDs)
                     // 收起时立刻拿掉,不淡出:焦点还在面板的按钮上,淡出放完那一下若碰上
-                    // 送回「恢复」键的那次焦点更新,UIKit 会断言闪退(见 `closeRestoreConfirmation`)。
+                    // 送回「更多」键的那次焦点更新,UIKit 会断言闪退(见 `closeRestoreConfirmation`)。
                     .transition(.asymmetric(insertion: .opacity, removal: .identity))
                     .zIndex(5)
             }
@@ -1538,6 +1510,7 @@ struct TVAlbumDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: showsRestoreConfirmation)
         .focusScope(detailFocus)
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
+        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs) { finishPlayback(songID: nil) })
         .onExitCommand {
             if showsRestoreConfirmation {
                 closeRestoreConfirmation()
@@ -1600,7 +1573,138 @@ struct TVAlbumDetailView: View {
         }
         .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }
         .task(id: songIDs) { await loadAppleMusicRemainder(album: album, songIDs: songIDs) }
+        .task(id: albumID) { await loadBackCover() }
         .accessibilityIdentifier("tv.album.detail")
+    }
+
+    /// 左栏:封面(后面探出半张盘)、专辑名、艺人、年份 · 首数 · 时长、一排按钮,剩下的高度都给简介。
+    private func leftColumn(album: TVAlbum, songs: [TVSong], songIDs: [String], hasEditedSongs: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TVAlbumCaseArtwork(album: album, size: Self.coverSize, spinning: isPlayingThisAlbum) {
+                TVArtworkView(album: album, size: Self.coverSize, radius: 14)
+                    .modifier(TVArtworkGentleFloat())
+            }
+            Text(album.title)
+                .tvFont(.pageTitle)
+                .foregroundStyle(TVColor.text)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 30)
+            Text(album.artist)
+                .tvFont(.body)
+                .foregroundStyle(TVColor.textMuted)
+                .lineLimit(1)
+                .padding(.top, 8)
+            Text(verbatim: Self.summary(album: album, songs: songs))
+                .tvFont(.caption)
+                .foregroundStyle(TVColor.textFaint)
+                .padding(.top, 6)
+            HStack(spacing: 14) {
+                TVPillButton(
+                    title: String(localized: "play_all"),
+                    systemImage: "play.fill",
+                    style: .solid,
+                    action: { play(songIDs, shuffled: false) }
+                )
+                .prefersDefaultFocus(initialFocusSongID == nil, in: detailFocus)
+                TVPillButton(
+                    title: String(localized: "shuffle"),
+                    systemImage: "shuffle",
+                    action: { play(songIDs, shuffled: true) }
+                )
+                if let libraryAlbum = store.library.visibleAlbum(id: albumID) {
+                    TVFavoriteIconButton(
+                        isLiked: LibraryFavoritesStore.shared.isLiked(libraryAlbum),
+                        action: { LibraryFavoritesStore.shared.toggle(libraryAlbum) }
+                    )
+                }
+                moreMenu(songIDs, hasEditedSongs: hasEditedSongs)
+            }
+            .disabled(songIDs.isEmpty)
+            .padding(.top, 26)
+            if let restoreProgress {
+                Text(verbatim: Self.restoreStatus(restoreProgress))
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+                    .monospacedDigit()
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 14)
+            }
+            // 简介拿剩下的高度:放不下的部分自己慢慢往上滚,按下看全文。
+            TVLibraryInsightBlock(
+                subject: Self.insightSubject(album: album, songs: []),
+                details: { Self.insightSubject(album: album, songs: songs, library: store.library) },
+                fillsHeight: true
+            )
+            .padding(.top, 28)
+            .layoutPriority(-1)
+        }
+    }
+
+    /// 这张专辑里的歌正在放(暂停时盘停下)。
+    private var isPlayingThisAlbum: Bool {
+        guard store.hasNowPlaying, store.isPlaying, let current = store.currentSongID else { return false }
+        return store.song(current)?.albumID == albumID
+    }
+
+    /// 「更多」:串烧、补全专辑信息、恢复文件标签。外观同旁边的「喜欢」。选完菜单先收起、
+    /// 焦点回到这颗按钮上,再弹确认框或打开补全页(见 `TVModalHandoff`)。
+    private func moreMenu(_ songIDs: [String], hasEditedSongs: Bool) -> some View {
+        let focused = focusedRestoreControl == RestoreFocus.more
+        return Menu {
+            Button(String(localized: "medley_play_selection"), systemImage: "rectangle.stack.badge.play") {
+                TVModalHandoff.afterFocusSettles { pendingMedleyIDs = songIDs }
+            }
+            .disabled(!store.canPlayMedley(songIDs: songIDs))
+            Button(String(localized: "tv_scrape_album_title"), systemImage: "wand.and.stars") {
+                TVModalHandoff.afterFocusSettles {
+                    songIDsBeforeScrape = songIDs
+                    showsAlbumScrape = true
+                }
+            }
+            // 有手动编辑或刮削改过、不再跟随文件标签的歌时才有。
+            if hasEditedSongs {
+                Button(String(localized: "restore_file_tags"), systemImage: "arrow.uturn.backward") {
+                    TVModalHandoff.afterFocusSettles {
+                        showsRestoreConfirmation = true
+                        Task { @MainActor in
+                            await Task.yield()
+                            focusedRestoreControl = RestoreFocus.cancel
+                        }
+                    }
+                }
+                .disabled(restoreProgress?.isFinished == false)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(focused ? TVColor.onFocusFill : TVColor.text)
+                .frame(width: 36, height: 36)
+                .padding(18)
+                .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
+                .tvFocusRing(focused, radius: 14, scale: 1.04, lift: 6)
+        }
+        .menuStyle(.button)
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedRestoreControl, equals: RestoreFocus.more)
+        .focusEffectDisabled()
+        .accessibilityLabel(Text("more"))
+        .accessibilityIdentifier("tv.album.more")
+    }
+
+    /// 专辑文件夹里有封底就铺成背景;专辑换了 id(补全改了专辑名)跟着重找。
+    private func loadBackCover() async {
+        guard let firstSongID = store.songIDs(forAlbum: albumID).first else {
+            backCover = nil
+            return
+        }
+        let found = await TVAlbumBackArtwork.softenedFirstImage(forAlbumSongID: firstSongID, store: store)
+        guard !Task.isCancelled else { return }
+        #if DEBUG
+        plog("TV album back cover album=\(albumID.prefix(12)) found=\(found != nil)")
+        #endif
+        backCover = found.map { BackCover(id: $0.id, image: $0.image) }
     }
 
     private func albumScrapeDismissed() {
@@ -1700,49 +1804,7 @@ struct TVAlbumDetailView: View {
         hasLocallyScrapedSongs = await store.metadataScraper.hasLocalTagChanges(songIDs: songIDs)
     }
 
-    @ViewBuilder
-    private func secondaryActions(_ songIDs: [String]) -> some View {
-        TVMedleyButton(songIDs: songIDs) { finishPlayback(songID: nil) }
-        TVPillButton(
-            title: String(localized: "tv_scrape_album_title"),
-            systemImage: "wand.and.stars",
-            action: {
-                songIDsBeforeScrape = songIDs
-                showsAlbumScrape = true
-            }
-        )
-        .disabled(songIDs.isEmpty)
-    }
-
     // MARK: 恢复文件标签
-
-    private func restoreSection(_ songIDs: [String], hasEditedSongs: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            TVPillButton(
-                title: String(localized: "restore_file_tags"),
-                systemImage: "arrow.uturn.backward",
-                focusBinding: $focusedRestoreControl,
-                focusID: RestoreFocus.button,
-                action: {
-                    guard hasEditedSongs, restoreProgress?.isFinished != false else { return }
-                    showsRestoreConfirmation = true
-                    Task { @MainActor in
-                        await Task.yield()
-                        focusedRestoreControl = RestoreFocus.cancel
-                    }
-                }
-            )
-            .accessibilityIdentifier("tv.album.restoreFileTags")
-            if let restoreProgress {
-                Text(verbatim: Self.restoreStatus(restoreProgress))
-                    .tvFont(.caption)
-                    .foregroundStyle(TVColor.textFaint)
-                    .monospacedDigit()
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
 
     private static func restoreStatus(_ progress: TVRestoreFileTagsProgress) -> String {
         if progress.isFinished {
@@ -1799,7 +1861,7 @@ struct TVAlbumDetailView: View {
         showsRestoreConfirmation = false
         Task { @MainActor in
             await Task.yield()
-            focusedRestoreControl = RestoreFocus.button
+            focusedRestoreControl = RestoreFocus.more
         }
     }
 

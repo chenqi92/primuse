@@ -2,7 +2,8 @@
 import SwiftUI
 import PrimuseKit
 
-/// 专辑的 CD 盒:海报墙上按下一张专辑,先像打开 CD 盒那样掀开盒盖、露出盘片,再进专辑页。
+/// 专辑的 CD 盒:海报墙上按下一张专辑,先像打开 CD 盒那样掀开盒盖、露出盘片,再进专辑页;
+/// 专辑页的封面后面探出半张盘,这张专辑正在放时盘慢慢转。
 ///
 /// 动画只用变换(3D 旋转、位移、转动)和透明度,不动模糊、不改布局:
 /// 老款 Apple TV 上也只是多几层合成。「减弱动态效果」打开时不掀盖、盘不转。
@@ -170,6 +171,42 @@ struct TVJewelCaseInterior: View {
                 .animation(TVJewelCaseMotion.disc, value: discOut)
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// 专辑页左上角的封面:后面探出半张盘。进页时盘从封面后面滑出来;
+/// 这张专辑正在放时盘慢慢转,暂停就停。
+struct TVAlbumCaseArtwork<Cover: View>: View {
+    let album: TVAlbum
+    let size: CGFloat
+    var spinning = false
+    @ViewBuilder var cover: () -> Cover
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var discOut = false
+
+    /// 盘露在封面右边的那一截占封面宽的比例。
+    static var peekRatio: CGFloat { 0.34 }
+
+    var body: some View {
+        let disc = size * 0.92
+        ZStack(alignment: .leading) {
+            TVCompactDisc(album: album, size: disc, spinning: spinning && discOut)
+                .offset(x: (size - disc) / 2 + (discOut ? size * Self.peekRatio : 0))
+            cover()
+        }
+        .frame(width: size * (1 + Self.peekRatio), height: size, alignment: .leading)
+        .task {
+            guard !discOut else { return }
+            guard !reduceMotion else {
+                discOut = true
+                return
+            }
+            // 等专辑页呈现完再滑出来,和海报墙上掀开的盒子接上。
+            try? await Task.sleep(for: .milliseconds(260))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.82)) { discOut = true }
+        }
     }
 }
 #endif

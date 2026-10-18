@@ -1,9 +1,9 @@
 import SwiftUI
 import PrimuseKit
 
-/// 电视专辑页 / 艺人页右栏顶上的「关于这张专辑」「关于这位艺人」。
+/// 电视专辑页左栏下面的「关于这张专辑」、艺人页右栏顶上的「关于这位艺人」。
 /// 有简介时像影片介绍页那样是风格、几行摘录和来源,垫一层半透明底;摘录放不下时自己慢慢
-/// 往上滚,按下打开全文。还没有时是一张「生成简介」卡片。长按可以重新生成或删除。
+/// 往上滚,按下打开全文(全文也能上下翻)。还没有时是一张「生成简介」卡片。长按可以重新生成或删除。
 /// 编辑在 iPhone、iPad 或 Mac 上做,随曲库同步过来。
 struct TVLibraryInsightBlock: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -12,6 +12,8 @@ struct TVLibraryInsightBlock: View {
     /// 只用名字认出是哪张专辑/哪位艺人;曲目、风格在按下生成时才由 `details` 收集。
     let subject: LibraryInsightSubject
     let details: () -> LibraryInsightSubject
+    /// 摘录用掉所在栏剩下的高度(专辑页左栏);否则固定四行。
+    var fillsHeight = false
 
     @State private var showsReader = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
@@ -73,7 +75,7 @@ struct TVLibraryInsightBlock: View {
                     }
                 }
             }
-            .padding(.bottom, 18)
+            .padding(.bottom, fillsHeight ? 0 : 18)
             #if DEBUG
             .task { await debugSeedIfRequested() }
             #endif
@@ -102,6 +104,16 @@ struct TVLibraryInsightBlock: View {
                     the closing track stretches past nine minutes.
 
                     Critics at the time were divided, but it has since become the record most fans start with.
+
+                    The sessions took place in a converted warehouse by the harbour. The band set up in a single \
+                    room with the tape machine running for whole evenings, and several of the final takes are first \
+                    attempts that were never meant to be kept. You can still hear the radiator ticking under the \
+                    quietest passages of the second side.
+
+                    A remastered edition added two outtakes and a live recording from the tour that followed. The \
+                    live version of the closing track runs almost twelve minutes and ends with the audience singing \
+                    the last chorus back to the stage, which the band later said was the moment they knew the record \
+                    had found its people.
                     """,
                 tags: ["Synth-pop", "New wave", "1980s"],
                 aiDraft: nil,
@@ -172,7 +184,11 @@ struct TVLibraryInsightBlock: View {
                     .lineLimit(1)
             }
             if !insight.summary.isEmpty {
-                TVInsightScrollingExcerpt(text: insight.summary, overflows: $summaryOverflows)
+                TVInsightScrollingExcerpt(
+                    text: insight.summary,
+                    maxLines: fillsHeight ? nil : 4,
+                    overflows: $summaryOverflows
+                )
             }
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Group {
@@ -231,11 +247,13 @@ struct TVLibraryInsightBlock: View {
     }
 }
 
-/// 简介摘录:四行高的窗口。放得下就静止;放不下时先停 5 秒,再由下往上慢慢滚到末尾,末尾停
-/// 5 秒后淡出、回到开头重来。上下边缘只在有字滚出去 / 还有字没滚上来时才渐隐。
-/// 「减弱动态效果」打开时只显示前四行(按下仍可看全文)。
+/// 简介摘录:四行高(或所在栏剩下那么高)的窗口。放得下就静止;放不下时先停 5 秒,再由下往上
+/// 慢慢滚到末尾,末尾停 5 秒后淡出、回到开头重来。上下边缘只在有字滚出去 / 还有字没滚上来时才渐隐。
+/// 「减弱动态效果」打开时只显示放得下的那几行(按下仍可看全文)。
 private struct TVInsightScrollingExcerpt: View {
     let text: String
+    /// nil:窗口有多高显示多少行。
+    let maxLines: Int?
     @Binding var overflows: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -246,7 +264,6 @@ private struct TVInsightScrollingExcerpt: View {
     @State private var topFade: Double = 0
     @State private var bottomFade: Double = 1
 
-    private static let visibleLines = 4
     private static let holdSeconds: Double = 5
     /// 大约两秒多一行,隔着几米也来得及读。
     private static let pointsPerSecond: Double = 18
@@ -267,7 +284,7 @@ private struct TVInsightScrollingExcerpt: View {
         Text(verbatim: text)
             .tvFont(.body)
             .foregroundStyle(TVColor.text)
-            .lineLimit(Self.visibleLines)
+            .lineLimit(maxLines)
             .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(scrolls ? 0 : 1)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
@@ -356,7 +373,8 @@ private struct TVInsightScrollingExcerpt: View {
     }
 }
 
-/// 简介全文:居中面板,跟点评编辑同一种弹框。Menu 或「完成」关掉。
+/// 简介全文:居中面板,跟点评编辑同一种弹框。正文一段一段可以选中,方向键往下就往下翻;
+/// Menu 或「完成」关掉。
 private struct TVLibraryInsightReader: View {
     @Environment(TVStore.self) private var tvStore
     @Environment(\.dismiss) private var dismiss
@@ -410,13 +428,7 @@ private struct TVLibraryInsightReader: View {
                 .padding(.top, 26).padding(.bottom, 28)
 
             if let insight, !insight.summary.isEmpty {
-                // 自己写的简介可能比 AI 的长,面板放不下时字缩小一些,不出滚动。
-                Text(verbatim: insight.summary)
-                    .tvFont(.body)
-                    .lineSpacing(6)
-                    .foregroundStyle(TVColor.text)
-                    .minimumScaleFactor(0.7)
-                    .frame(maxWidth: .infinity, maxHeight: 560, alignment: .topLeading)
+                TVInsightReaderText(text: insight.summary)
             }
             if let insight {
                 Text(verbatim: LibraryInsightStore.footer(for: insight))
@@ -442,5 +454,118 @@ private struct TVLibraryInsightReader: View {
         .padding(.horizontal, 64).padding(.vertical, 52)
         .frame(maxWidth: 1400, alignment: .leading)
         .tvPanel(radius: 26)
+    }
+}
+
+/// 全文正文:按段(太长的段再按句子)拆成几块,每块能获得焦点,滚动视图跟着焦点走,
+/// 遥控器按下或往下划就一块一块往下读。自己写的简介可能很长,原来缩小字号也放不下。
+/// 同一段里切开的几块挨得近,段与段之间空得多一些,看得出原来的分段。
+private struct TVInsightReaderText: View {
+    let text: String
+
+    @FocusState private var focusedChunk: Int?
+
+    struct Chunk: Equatable {
+        let text: String
+        /// 这一块是一段的开头。
+        let startsParagraph: Bool
+    }
+
+    /// 一块大约这么多字,全文面板上三四行。
+    private static let chunkLength = 320
+
+    var body: some View {
+        let chunks = Self.chunks(of: text)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(chunks.indices, id: \.self) { index in
+                    let focused = focusedChunk == index
+                    Text(verbatim: chunks[index].text)
+                        .tvFont(.body)
+                        .lineSpacing(6)
+                        .foregroundStyle(TVColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            focused ? TVColor.surface : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
+                        .focusable()
+                        .focused($focusedChunk, equals: index)
+                        .focusEffectDisabled()
+                        .animation(.easeOut(duration: 0.18), value: focused)
+                        .padding(.top, index > 0 && chunks[index].startsParagraph ? 18 : 0)
+                }
+            }
+            .padding(.vertical, 20)
+        }
+        .tvScrollEdgeFade()
+        .frame(maxHeight: 560)
+        .padding(.horizontal, -18)
+    }
+
+    /// 按换行分段;一段太长时按句末标点再切,每块不超过 `chunkLength` 太多。
+    static func chunks(of text: String) -> [Chunk] {
+        let paragraphs = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var result: [Chunk] = []
+        for paragraph in paragraphs {
+            guard paragraph.count > chunkLength else {
+                result.append(Chunk(text: paragraph, startsParagraph: true))
+                continue
+            }
+            var pieces: [String] = []
+            var current = ""
+            for sentence in sentences(of: paragraph) {
+                if !current.isEmpty, current.count + sentence.count > chunkLength {
+                    pieces.append(current.trimmingCharacters(in: .whitespaces))
+                    current = ""
+                }
+                current += sentence
+            }
+            if !current.trimmingCharacters(in: .whitespaces).isEmpty {
+                pieces.append(current.trimmingCharacters(in: .whitespaces))
+            }
+            for (index, piece) in pieces.enumerated() {
+                result.append(Chunk(text: piece, startsParagraph: index == 0))
+            }
+        }
+        return result.isEmpty ? [Chunk(text: text, startsParagraph: true)] : result
+    }
+
+    /// 句子连同句末标点和后面的空格一起留着,拼回去和原文一样。全角句号后面直接断;
+    /// 半角句号后面要跟着空白才算句末(「3.5」「v1.2」不断开)。
+    private static func sentences(of paragraph: String) -> [String] {
+        let wideEnders: Set<Character> = ["\u{3002}", "\u{FF01}", "\u{FF1F}", "\u{FF1B}", "\u{2026}"]
+        let narrowEnders: Set<Character> = [".", "!", "?", ";"]
+        let closers: Set<Character> = ["\u{201D}", "\u{2019}", "\u{300D}", "\u{300F}", ")", "\u{FF09}", "\""]
+        var sentences: [String] = []
+        var current = ""
+        var ended = false
+        var narrowPending = false
+        for character in paragraph {
+            if ended, !character.isWhitespace, !closers.contains(character),
+               !wideEnders.contains(character), !narrowEnders.contains(character) {
+                sentences.append(current)
+                current = ""
+                ended = false
+            }
+            if narrowPending {
+                narrowPending = false
+                if character.isWhitespace { ended = true }
+            }
+            current.append(character)
+            if wideEnders.contains(character) {
+                ended = true
+            } else if narrowEnders.contains(character) {
+                narrowPending = true
+            }
+        }
+        if !current.isEmpty { sentences.append(current) }
+        return sentences
     }
 }
