@@ -282,6 +282,20 @@ final class AudioStationPlaylistAppendTests: XCTestCase {
         XCTAssertTrue(updates.isEmpty)
     }
 
+    /// 新建个人歌单, 返回的 id 是摘要, 和同步、加歌时用的同一套。
+    func testCreateMakesAPersonalPlaylistAndReturnsItsMirrorID() async throws {
+        let fixture = AudioStationPlaylistHTTPFixture()
+
+        let playlist = try await source(fixture).createServerPlaylist(named: " 健身 ")
+        let creates = await fixture.creates
+        XCTAssertEqual(creates.count, 1)
+        XCTAssertEqual(creates.first?["library"], "personal")
+        XCTAssertEqual(creates.first?["name"], "健身")
+        XCTAssertEqual(playlist.id, SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/健身"))
+        XCTAssertEqual(playlist.name, "健身")
+        XCTAssertTrue(playlist.trackIDs.isEmpty)
+    }
+
     private func source(_ fixture: AudioStationPlaylistHTTPFixture) -> SynologyAudioStationSource {
         SynologyAudioStationSource(source: MusicSource(id: "as-playlist", name: "NAS", type: .synologyAudioStation,
             host: "nas.example", port: 5001, useSsl: true, username: "listener", basePath: nil),
@@ -294,6 +308,7 @@ private actor AudioStationPlaylistHTTPFixture {
     static let normalID = "playlist_personal_normal/开车"
     static let smartID = "playlist_personal_smart/智能"
     private(set) var updates: [[String: String]] = []
+    private(set) var creates: [[String: String]] = []
     private var songs = ["music_1"]
 
     func reply(_ request: URLRequest) throws -> (Data, URLResponse) {
@@ -338,6 +353,9 @@ private actor AudioStationPlaylistHTTPFixture {
                 "id": id, "library": "personal", "name": "n", "type": "normal",
                 "additional": ["songs": entries, "songs_offset": 0, "songs_total": entries.count],
             ]]]])
+        case "create":
+            creates.append(params)
+            return try json(["success": true, "data": ["id": "playlist_personal_normal/\(params["name"] ?? "")"]])
         case "updatesongs":
             updates.append(params)
             for song in (params["songs"] ?? "").split(separator: ",").map(String.init) where !songs.contains(song) {

@@ -242,6 +242,20 @@ enum ServerPlaylistMirror {
         )
     }
 
+    /// 刚在服务端建好的歌单先落一个空镜像: 接下来加歌要是失败了, 再复制一次会认出这个同名
+    /// 歌单往里加, 不会在服务器上再建一个。
+    static func applyCreated(
+        _ serverPlaylist: ServerPlaylist,
+        source: MusicSource,
+        library: MusicLibrary
+    ) {
+        let localID = ServerPlaylistIdentity.playlistID(
+            sourceID: source.id,
+            serverPlaylistID: serverPlaylist.id
+        )
+        library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
+    }
+
     /// 自报数量与实际给出的条目, 任一说有就算有: 自报数量缺省、写成 0 或比实际少时,
     /// 不能因此把"一首都没对上"当成"歌单空了"去清空现有镜像。
     fileprivate static func serverHasTracks(_ serverPlaylist: ServerPlaylist) -> Bool {

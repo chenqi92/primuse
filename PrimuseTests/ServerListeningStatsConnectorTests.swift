@@ -219,6 +219,59 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         }
     }
 
+    /// Emby / Jellyfin 新建空歌单: 查询串带名字、用户、媒体类型, 回来的 Id 再读一次明细。
+    func testCreatePlaylistPostsNameAndReadsTheNewPlaylistBack() async throws {
+        for kind in [MediaServerSource.Kind.emby, .jellyfin] {
+            let posted = LockedValues<String>()
+            let source = makeMediaSource(kind: kind) { request in
+                let url = try XCTUnwrap(request.url)
+                let query = Dictionary(uniqueKeysWithValues:
+                    (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                        .map { ($0.name, $0.value ?? "") }
+                )
+                switch (request.httpMethod ?? "GET", url.path) {
+                case ("GET", "/Users/Me"):
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case ("POST", "/Playlists"):
+                    guard query["UserId"] == "user-1", query["MediaType"] == "Audio", let name = query["Name"] else {
+                        throw FixtureError.invalidRequest
+                    }
+                    posted.append(name)
+                    return try Self.response(request, json: #"{"Id":"playlist-9"}"#)
+                case ("GET", "/Users/user-1/Items/playlist-9"):
+                    return try Self.response(request, json: #"{"Id":"playlist-9","Name":"Road Trip"}"#)
+                case ("GET", "/Playlists/playlist-9/Items"):
+                    return try Self.response(request, json: #"{"Items":[],"TotalRecordCount":0}"#)
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            let playlist = try await source.createServerPlaylist(named: " Road Trip ")
+            XCTAssertEqual(posted.values, ["Road Trip"])
+            XCTAssertEqual(playlist.id, "playlist-9")
+            XCTAssertEqual(playlist.name, "Road Trip")
+            XCTAssertTrue(playlist.trackIDs.isEmpty)
+            await source.disconnect()
+        }
+    }
+
+    /// Plex 新建必须带上至少一首歌, 这里不建, 也不发任何请求。
+    func testPlexDoesNotCreateEmptyPlaylists() async {
+        let requests = LockedValues<String>()
+        let source = makeMediaSource(kind: .plex) { request in
+            requests.append("\(request.httpMethod ?? "GET") \(request.url?.path ?? "")")
+            throw FixtureError.invalidRequest
+        }
+        do {
+            _ = try await source.createServerPlaylist(named: "Road Trip")
+            XCTFail("Plex should not create an empty playlist")
+        } catch {
+            XCTAssertEqual(error as? ServerPlaylistAppendError, .creationUnsupported)
+        }
+        XCTAssertTrue(requests.values.isEmpty)
+    }
+
     func testCredentialFailureIsNotMisreportedAsUnsupportedCapability() async {
         let connector = CredentialUnavailableSourceConnector(
             sourceID: "stats-credential-failure",
@@ -1275,13 +1328,197 @@ final class RoutedServerPlaylistForwardingTests: XCTestCase {
             XCTAssertEqual(appended.trackIDs, ["a", "b"], "\(type)")
             let calls = await stub.appendedItemIDs
             XCTAssertEqual(calls, [["a", "b"]], "\(type)")
+
+            // 能新建的几家, 新建同样要穿过代理; 其余的明确报「不支持」, 不发请求。
+            if ServerPlaylistWritebackPolicy.supportsCreating(type) {
+                let created = try await manager.createServerPlaylist(named: "Road Trip", source: source)
+                XCTAssertEqual(created.name, "Road Trip", "\(type)")
+                let names = await stub.createdNames
+                XCTAssertEqual(names, ["Road Trip"], "\(type)")
+            } else {
+                do {
+                    _ = try await manager.createServerPlaylist(named: "Road Trip", source: source)
+                    XCTFail("\(type) should not create playlists")
+                } catch {
+                    XCTAssertEqual(error as? ServerPlaylistAppendError, .creationUnsupported, "\(type)")
+                }
+                let names = await stub.createdNames
+                XCTAssertTrue(names.isEmpty, "\(type)")
+            }
         }
     }
 }
 
-private actor PlaylistWritingStubConnector: ServerPlaylistConnector, ServerPlaylistAppendingConnector {
+/// 把歌单复制到服务器: 先换成服务器上的同一首, 新建同名歌单, 再加歌; 再复制一次认出这个歌单。
+@MainActor
+final class ServerPlaylistCopyServiceTests: XCTestCase {
+    func testPlaylistFromAnotherSourceIsMatchedCreatedAndThenRecognised() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ServerPlaylistCopy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let server = MusicSource(id: "copy-server-\(UUID().uuidString)", name: "Navidrome", type: .navidrome)
+        library.addSongs([
+            Song(id: "am-1", title: "Yellow (Remastered 2011)", artistName: "Coldplay", duration: 269,
+                 fileFormat: .m4a, filePath: "am/1", sourceID: "apple-music"),
+            Song(id: "am-2", title: "Fix You", artistName: "Coldplay", duration: 295,
+                 fileFormat: .m4a, filePath: "am/2", sourceID: "apple-music"),
+            Song(id: "am-3", title: "Nowhere To Be Found", artistName: "Nobody", duration: 200,
+                 fileFormat: .m4a, filePath: "am/3", sourceID: "apple-music"),
+            Song(id: "srv-1", title: "Yellow", artistName: "Coldplay", duration: 268,
+                 fileFormat: .flac, filePath: "/songs/n1.flac", sourceID: server.id),
+            Song(id: "srv-2", title: "Fix You", artistName: "Coldplay", duration: 296,
+                 fileFormat: .flac, filePath: "/songs/n2.flac", sourceID: server.id),
+        ])
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Road Trip", songIDs: ["am-1", "am-2", "am-3"])
+        let stub = PlaylistWritingStubConnector(sourceID: server.id)
+        let manager = SourceManager(sourcesProvider: { [server] }, connectorFactory: { _ in stub })
+
+        let plans = await ServerPlaylistCopyService.plans(for: [playlist.id], target: server, library: library)
+        let plan = try XCTUnwrap(plans.first)
+        XCTAssertEqual(plan.matchedCount, 2)
+        XCTAssertEqual(plan.missingCount, 1)
+        XCTAssertEqual(plan.songs(includingProbable: false).map(\.id), ["srv-1", "srv-2"])
+        XCTAssertEqual(ServerPlaylistCopyService.destination(forName: plan.name, target: server, library: library), .create)
+
+        let result = try await ServerPlaylistCopyService.copy(
+            plan,
+            named: plan.name,
+            to: .create,
+            includingProbable: false,
+            target: server,
+            library: library,
+            sourceManager: manager
+        )
+        XCTAssertEqual(result?.created, true)
+        XCTAssertEqual(result?.trackCount, 2)
+        let created = await stub.createdNames
+        XCTAssertEqual(created, ["Road Trip"])
+        let appended = await stub.appendedItemIDs
+        XCTAssertEqual(appended, [["n1", "n2"]])
+
+        let mirrorID = ServerPlaylistIdentity.playlistID(sourceID: server.id, serverPlaylistID: "created-1")
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: mirrorID), ["srv-1", "srv-2"])
+        XCTAssertEqual(
+            ServerPlaylistCopyService.destination(forName: "Road Trip", target: server, library: library),
+            .append(playlistID: mirrorID)
+        )
+        // 服务器自己的歌单不再作为来源。
+        XCTAssertFalse(ServerPlaylistCopyService.canCopy(playlistID: mirrorID, to: server))
+        XCTAssertTrue(ServerPlaylistCopyService.canCopy(playlistID: playlist.id, to: server))
+    }
+}
+
+/// Subsonic `createPlaylist`: 新式响应直接带新歌单, 老式只回 ok 时到列表里认出新出现的那个。
+final class SubsonicPlaylistCreateTests: XCTestCase {
+    func testCreateUsesThePlaylistInTheResponse() async throws {
+        try await assertCreate(returnsPlaylist: true)
+    }
+
+    func testCreateFindsTheNewPlaylistWhenTheResponseIsBare() async throws {
+        try await assertCreate(returnsPlaylist: false)
+    }
+
+    private func assertCreate(returnsPlaylist: Bool) async throws {
+        let host = "create-\(UUID().uuidString.lowercased()).invalid"
+        SubsonicPlaylistCreateURLProtocol.configure(host: host, returnsPlaylist: returnsPlaylist)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SubsonicPlaylistCreateURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let source = SubsonicSource(
+            sourceID: host,
+            sourceType: .navidrome,
+            host: host,
+            port: nil,
+            useSsl: true,
+            basePath: nil,
+            username: "qa-user",
+            password: "qa-password",
+            session: session
+        )
+
+        let playlist = try await source.createServerPlaylist(named: " Road Trip ")
+        XCTAssertEqual(playlist.id, "7")
+        XCTAssertEqual(playlist.name, "Road Trip")
+        XCTAssertTrue(playlist.trackIDs.isEmpty)
+        XCTAssertEqual(SubsonicPlaylistCreateURLProtocol.createdNames(host: host), ["Road Trip"])
+    }
+}
+
+private final class SubsonicPlaylistCreateURLProtocol: URLProtocol, @unchecked Sendable {
+    private struct State {
+        let returnsPlaylist: Bool
+        var createdNames: [String] = []
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var states: [String: State] = [:]
+
+    static func configure(host: String, returnsPlaylist: Bool) {
+        lock.withLock { states[host] = State(returnsPlaylist: returnsPlaylist) }
+    }
+
+    static func createdNames(host: String) -> [String] {
+        lock.withLock { states[host]?.createdNames ?? [] }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let host = url.host,
+              let state = Self.lock.withLock({ Self.states[host] }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
+            return
+        }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let created = !state.createdNames.isEmpty
+        let newPlaylist = #"{"id":"7","name":"Road Trip","songCount":0}"#
+        switch url.path {
+        case "/rest/ping.view":
+            respond(#"{"status":"ok","type":"navidrome","openSubsonic":true}"#)
+        case "/rest/getPlaylists.view":
+            let old = #"{"id":"1","name":"Old Favourites","songCount":3}"#
+            respond(#"{"status":"ok","playlists":{"playlist":[\#(old)\#(created ? "," + newPlaylist : "")]}}"#)
+        case "/rest/createPlaylist.view":
+            let name = query.first(where: { $0.name == "name" })?.value ?? ""
+            Self.lock.withLock { Self.states[host]?.createdNames.append(name) }
+            respond(state.returnsPlaylist ? #"{"status":"ok","playlist":\#(newPlaylist)}"# : #"{"status":"ok"}"#)
+        case "/rest/getPlaylist.view" where query.first(where: { $0.name == "id" })?.value == "7":
+            respond(#"{"status":"ok","playlist":{"id":"7","name":"Road Trip","songCount":0,"entry":[]}}"#)
+        case "/auth/login":
+            respond("{}", statusCode: 404)
+        default:
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+        }
+    }
+
+    override func stopLoading() {}
+
+    private func respond(_ body: String, statusCode: Int = 200) {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+              ) else { return }
+        let json = statusCode == 200 && body.hasPrefix(#"{"status""#) ? #"{"subsonic-response":\#(body)}"# : body
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(json.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+private actor PlaylistWritingStubConnector: ServerPlaylistConnector, ServerPlaylistCreatingConnector {
     nonisolated let sourceID: String
     private(set) var appendedItemIDs: [[String]] = []
+    private(set) var createdNames: [String] = []
+    private var names = ["pl-1": "Road"]
+    private var tracks: [String: [String]] = [:]
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -1299,11 +1536,23 @@ private actor PlaylistWritingStubConnector: ServerPlaylistConnector, ServerPlayl
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
-        ServerPlaylistSnapshot(playlists: [ServerPlaylist(id: "pl-1", name: "Road", trackIDs: [])])
+        ServerPlaylistSnapshot(playlists: names.keys.sorted().map {
+            ServerPlaylist(id: $0, name: names[$0] ?? "", trackIDs: tracks[$0] ?? [])
+        })
     }
 
     func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
         appendedItemIDs.append(itemIDs)
-        return ServerPlaylist(id: id, name: "Road", trackIDs: itemIDs)
+        var current = tracks[id] ?? []
+        current.append(contentsOf: itemIDs.filter { !current.contains($0) })
+        tracks[id] = current
+        return ServerPlaylist(id: id, name: names[id] ?? "", trackIDs: current)
+    }
+
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
+        createdNames.append(name)
+        let id = "created-\(createdNames.count)"
+        names[id] = name
+        return ServerPlaylist(id: id, name: name, trackIDs: [])
     }
 }

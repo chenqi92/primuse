@@ -1775,6 +1775,20 @@ public enum ServerPlaylistWritebackPolicy {
         }
     }
 
+    /// Sources that can also create an empty playlist: the Subsonic family
+    /// (`createPlaylist`), Emby/Jellyfin (`POST /Playlists`) and Audio Station
+    /// (`create`). Plex needs at least one item to create one, and Songloft,
+    /// fnMusic and DaoLiYu have no confirmed create call; those only take songs
+    /// into a playlist that already exists on the server.
+    public static func supportsCreating(_ sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .synologyAudioStation:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Server playlist ID behind a local mirror of `sourceID`, or nil when the
     /// mirror belongs to another source or is the starred pseudo playlist.
     public static func serverPlaylistID(

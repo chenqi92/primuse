@@ -12,7 +12,7 @@ import PrimuseKit
 /// (回 200),改成整曲下载一次再切片,之后同一个连接器都走本地文件。整轨切出来的
 /// 虚拟音轨(`music_v_`)没有独立文件,只能拿服务端现转的 mp3。
 actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerRatingConnector, ServerRadioConnector,
+    ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerRatingConnector, ServerRadioConnector,
     MediaServerWritebackConnector {
     /// 诊断里「连接」这一步的上限。QuickConnect 要先解析中转,比直连地址慢。
     static let connectionTimeout: TimeInterval = 30
@@ -530,6 +530,24 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
             .filter(SynologyAudioStationAPI.isCatalogSongID)
         guard Set(trackIDs).isSuperset(of: songIDs) else { throw ServerPlaylistAppendError.notConfirmed }
         return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs, reportedTrackCount: trackIDs.count)
+    }
+
+    /// 新建个人歌单(`create`)。返回的 id 和同步时一样是服务端 id 的摘要, 加歌时照样能找回来。
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
+        try await connect()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverID: String
+        do {
+            serverID = try await perform { try await $0.createPlaylist(name: trimmed) }
+        } catch SynologyAudioStationError.operationNotPermitted {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        return ServerPlaylist(
+            id: SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: serverID),
+            name: trimmed,
+            trackIDs: [],
+            reportedTrackCount: 0
+        )
     }
 
     // MARK: - 电台

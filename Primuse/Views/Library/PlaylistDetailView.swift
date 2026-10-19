@@ -56,6 +56,7 @@ struct PlaylistDetailView: View {
     /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    @State private var showCopyToServer = false
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放、加入队列、导出照旧按整张歌单。
     @State private var findText = ""
     #if os(iOS)
@@ -214,6 +215,11 @@ struct PlaylistDetailView: View {
             return String(localized: "playlist_order_title")
         }
         return order.criterion.label
+    }
+
+    /// 有一台能写歌单的音乐服务器, 而且这个歌单不是那台服务器自己的歌单。
+    private var canCopyToServer: Bool {
+        ServerPlaylistCopyService.hasTarget(for: playlist.id, sourcesStore: sourcesStore)
     }
 
     private var playlistServerMediaShareTarget: ServerMediaShareTarget? {
@@ -377,6 +383,9 @@ struct PlaylistDetailView: View {
         }
         .sheet(item: $serverMediaShareTarget) { target in
             ServerMediaShareSheet(target: target)
+        }
+        .sheet(isPresented: $showCopyToServer) {
+            PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
         .onChange(of: scraperService.completionRevision) { _, _ in
             showScrapeCompletion()
@@ -673,6 +682,14 @@ struct PlaylistDetailView: View {
                 } label: {
                     Label("server_share_action", systemImage: "link.badge.plus")
                 }
+            }
+            if canCopyToServer {
+                Button {
+                    showCopyToServer = true
+                } label: {
+                    Label("server_playlist_copy_action", systemImage: "server.rack")
+                }
+                .disabled(songs.isEmpty)
             }
             Button {
                 showExportFormats = true
@@ -1509,6 +1526,15 @@ struct PlaylistDetailView: View {
                 title: String(localized: "server_share_action")
             ) {
                 serverMediaShareTarget = target
+            })
+        }
+        if canCopyToServer {
+            middle.append(.init(
+                icon: "server.rack",
+                title: String(localized: "server_playlist_copy_action"),
+                enabled: !songs.isEmpty
+            ) {
+                showCopyToServer = true
             })
         }
 

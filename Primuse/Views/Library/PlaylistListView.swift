@@ -29,6 +29,7 @@ struct PlaylistListView: View {
     @State private var isManagingPlaylists = false
     @State private var showPlaylistOrder = false
     @State private var playlistSelection: Set<String> = []
+    @State private var showCopyToServer = false
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
@@ -117,11 +118,20 @@ struct PlaylistListView: View {
         .sheet(item: $serverMediaShareTarget) { target in
             ServerMediaShareSheet(target: target)
         }
+        .sheet(isPresented: $showCopyToServer) {
+            // 不预选: 面板里先勾要传的歌单, Apple Music 和别的服务器上的歌单也能选。
+            PlaylistCopyToServerSheet(playlistIDs: [])
+        }
         .sheet(isPresented: $showPlaylistOrder) {
             PlaylistOrderSheet(playlists: playlists) { ordered in
                 library.reorderPlaylists(ordered.map(\.id))
             }
         }
+    }
+
+    /// 有能写歌单的音乐服务器时才给「传到音乐服务器」的入口。
+    private var canCopyToServer: Bool {
+        !ServerPlaylistCopyService.targetSources(sourcesStore: sourcesStore).isEmpty
     }
 
     /// 顺序只在有得排的时候才给入口。
@@ -391,6 +401,13 @@ struct PlaylistListView: View {
                 isManagingPlaylists = true
             } label: {
                 Label("batch_select", systemImage: "checkmark.circle")
+            }
+            if canCopyToServer {
+                Button {
+                    showCopyToServer = true
+                } label: {
+                    Label("server_playlist_copy_action", systemImage: "server.rack")
+                }
             }
         } label: {
             PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: titled)
@@ -712,6 +729,24 @@ struct PlaylistListView: View {
                 }
                 .buttonStyle(.plain)
                 .help(Text("playlist_import_title"))
+            }
+
+            if canCopyToServer {
+                Button {
+                    showCopyToServer = true
+                } label: {
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 32, height: 32)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(Text("server_playlist_copy_action"))
             }
 
             if canReorderPlaylists {

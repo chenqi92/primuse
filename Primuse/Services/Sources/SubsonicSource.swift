@@ -20,7 +20,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
-    ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerPlaylistConnector, ServerPlaylistCreatingConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
     ServerLibraryListingConnector {
@@ -1329,6 +1329,30 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return refreshed
     }
 
+    /// `createPlaylist` 只带名字, 建一个空歌单。OpenSubsonic 与 API 1.14 起响应里带着新歌单;
+    /// 更老的实现只回 ok, 这时到歌单列表里找刚才还没有、名字对得上的那一个。
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
+        try await connect()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw SourceError.connectionFailed("Playlist name is empty") }
+        let before: PlaylistsContainer = try await requestJSON("getPlaylists")
+        let existingIDs = Set((before.playlists?.playlist?.elements ?? []).compactMap { $0?.id })
+        let created: PlaylistContainer = try await requestJSON(
+            "createPlaylist",
+            query: [URLQueryItem(name: "name", value: trimmed)]
+        )
+        if let id = created.playlist?.id, !id.isEmpty {
+            return try await serverPlaylistDetail(id: id, summary: nil)
+        }
+        let after: PlaylistsContainer = try await requestJSON("getPlaylists")
+        let summary = (after.playlists?.playlist?.elements ?? []).compactMap { $0 }.last { summary in
+            guard let id = summary.id, !existingIDs.contains(id) else { return false }
+            return summary.name?.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+        }
+        guard let summary, let id = summary.id else { throw ServerPlaylistAppendError.notConfirmed }
+        return try await serverPlaylistDetail(id: id, summary: summary)
+    }
+
     private func serverPlaylistDetail(id: String, summary: PlaylistSummary?) async throws -> ServerPlaylist {
         let detail: PlaylistContainer = try await requestJSON(
             "getPlaylist",
@@ -2549,6 +2573,8 @@ private struct Starred2: Decodable {
 /// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。
 /// 镜像只读得到的几个字段, 写法不规整也照收。
 private struct PlaylistWithEntries: Decodable {
+    /// 只有 `createPlaylist` 的响应要靠它找回新歌单; `getPlaylist` 调用方本来就知道 id。
+    let id: String?
     let name: String?
     let songCount: Int?
     let coverArt: String?
@@ -2556,10 +2582,11 @@ private struct PlaylistWithEntries: Decodable {
     let readonly: Bool?
     let entry: SubsonicLenientList<PlaylistEntryRef>?
 
-    enum CodingKeys: String, CodingKey { case name, songCount, coverArt, owner, readonly, entry }
+    enum CodingKeys: String, CodingKey { case id, name, songCount, coverArt, owner, readonly, entry }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = SubsonicLenientValue.string(container, .id)
         name = SubsonicLenientValue.string(container, .name)
         songCount = SubsonicLenientValue.int(container, .songCount)
         coverArt = SubsonicLenientValue.string(container, .coverArt)

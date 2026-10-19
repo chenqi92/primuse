@@ -2386,16 +2386,26 @@ protocol ServerPlaylistAppendingConnector: MusicSourceConnector {
     func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist
 }
 
+/// 在服务端新建一个空歌单(Subsonic `createPlaylist`、Emby / Jellyfin `POST /Playlists`、
+/// Audio Station `create`)。加歌仍走 `appendToServerPlaylist`, 去重、分批与回读确认都在那一步;
+/// 返回的歌单 id 与 `fetchServerPlaylists` 里的同一套, 能直接派生本地镜像。
+protocol ServerPlaylistCreatingConnector: ServerPlaylistAppendingConnector {
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist
+}
+
 enum ServerPlaylistAppendError: LocalizedError, Equatable {
     /// 智能歌单或别人的歌单, 服务端不让当前账户改。
     case readOnly
     /// 请求成功了, 但回读的歌单里没有刚加的歌。
     case notConfirmed
+    /// 这类服务器不能从 Primuse 新建歌单(Plex、Songloft、飞牛、道理鱼)。
+    case creationUnsupported
 
     var errorDescription: String? {
         switch self {
         case .readOnly: String(localized: "server_playlist_append_read_only")
         case .notConfirmed: String(localized: "server_playlist_append_not_confirmed")
+        case .creationUnsupported: String(localized: "server_playlist_create_unsupported")
         }
     }
 }

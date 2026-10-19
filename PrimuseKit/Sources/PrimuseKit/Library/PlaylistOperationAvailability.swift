@@ -67,6 +67,33 @@ public enum PlaylistImportDestinationPolicy {
     }
 }
 
+/// 把一个歌单复制到一台音乐服务器上（例如 Apple Music 的歌单放进 Navidrome）时写到哪里。
+///
+/// 服务端歌单只能放服务器自己曲库里的歌，所以每首都先换成那台服务器上的同一首，换不到的不写。
+/// 写入只往里加：服务器上已经有同名、能写的歌单就加进它（同一个歌单再复制一次只补新歌），
+/// 没有才新建；服务器不支持新建时，需要先在服务器上建一个同名歌单。
+public enum ServerPlaylistCopyPolicy {
+    public enum Destination: Sendable, Hashable {
+        /// 加进这个已有的服务端歌单（本地镜像的 id）。
+        case append(playlistID: String)
+        case create
+        /// 没有同名的，这台服务器又不能从这里新建。
+        case needsServerPlaylist
+    }
+
+    /// `writablePlaylists` 是这台服务器上当前账户能加歌的歌单（镜像），同名的里最近改过的优先。
+    public static func destination(
+        playlistName: String,
+        writablePlaylists: [PlaylistImportMergePolicy.Target],
+        canCreate: Bool
+    ) -> Destination {
+        if let sameName = PlaylistImportMergePolicy.sameNameTargets(writablePlaylists, importedName: playlistName).first {
+            return .append(playlistID: sameName.id)
+        }
+        return canCreate ? .create : .needsServerPlaylist
+    }
+}
+
 /// 一次导入好几份歌单（多选文件、一次贴多个链接）。每份各自有去向，确认时一起写入；
 /// 每份能不能写的规则和单个导入的确认按钮是同一套。
 public enum PlaylistBatchImportPolicy {

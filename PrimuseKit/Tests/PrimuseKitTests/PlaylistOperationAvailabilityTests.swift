@@ -263,3 +263,26 @@ struct PlaylistOperationAvailabilityTests {
         #expect(withoutPending.importableCount == 1)
     }
 }
+
+@Suite struct ServerPlaylistCopyPolicyTests {
+    private typealias Policy = ServerPlaylistCopyPolicy
+    private typealias Target = PlaylistImportMergePolicy.Target
+
+    @Test func aPlaylistCopiedBeforeGoesBackIntoTheSameServerPlaylist() {
+        let older = Target(id: "mirror-old", name: "Road Trip", updatedAt: Date(timeIntervalSince1970: 100))
+        let newer = Target(id: "mirror-new", name: " road trip ", updatedAt: Date(timeIntervalSince1970: 200))
+        let other = Target(id: "mirror-other", name: "Focus", updatedAt: Date(timeIntervalSince1970: 300))
+        #expect(Policy.destination(playlistName: "Road Trip", writablePlaylists: [older, other, newer], canCreate: true)
+            == .append(playlistID: "mirror-new"))
+        // 能不能新建不影响往同名歌单里加。
+        #expect(Policy.destination(playlistName: "Road Trip", writablePlaylists: [older], canCreate: false)
+            == .append(playlistID: "mirror-old"))
+    }
+
+    @Test func withoutASameNamePlaylistItIsCreatedOrTheServerNeedsOneFirst() {
+        let other = Target(id: "mirror-other", name: "Focus", updatedAt: Date())
+        #expect(Policy.destination(playlistName: "Road Trip", writablePlaylists: [other], canCreate: true) == .create)
+        #expect(Policy.destination(playlistName: "Road Trip", writablePlaylists: [], canCreate: false) == .needsServerPlaylist)
+        #expect(Policy.destination(playlistName: "", writablePlaylists: [other], canCreate: true) == .create)
+    }
+}

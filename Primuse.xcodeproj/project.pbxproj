@@ -944,6 +944,7 @@
 		6E4EDD3796879951FDF3A5EF /* RadioLogoURLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEC93D45D5A129ED4E3A0D3 /* RadioLogoURLPolicy.swift */; };
 		6E53C03FF0B15B39510AE06F /* TVPlaylistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2505E223E326D2B217B3F45C /* TVPlaylistsView.swift */; };
 		6E870A3160971D796543F417 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
+		5A574E7C5596B99D2CE78AB8 /* PlaylistCopyToServerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF9B15AF1FF2F0DAC27B22F /* PlaylistCopyToServerSheet.swift */; };
 		6E942D8D50A2637053E77DB0 /* EQPresetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA13225ACFB141A6E34EB815 /* EQPresetLibrary.swift */; };
 		6EC4339A183DD6A4339FA5F2 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
 		6EC9F7E5AB947C4F5DCFAEAD /* RadioLiveMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC8835E64B7801131883F2D /* RadioLiveMetadata.swift */; };
@@ -991,6 +992,7 @@
 		72F059AB959F4A3ADFF0DCC7 /* MacRadioStationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */; };
 		731960A337291B311A1CB746 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		731F196C5E41C34D8A22835D /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
+		F4A1373A2978AAB72435F964 /* PlaylistCopyToServerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF9B15AF1FF2F0DAC27B22F /* PlaylistCopyToServerSheet.swift */; };
 		735F07C4006F3BCF37D55A84 /* WordTimedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91AEEF06A98409B623ED637 /* WordTimedLyricsParser.swift */; };
 		736B88C0482339485F824541 /* ScraperResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9694CD231B4175BED85BEA /* ScraperResult.swift */; };
 		73781129E01F216F9F430BC7 /* KaraokeDemucsFrontEnd.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FB59AA7EB57BAB50F0F3A9 /* KaraokeDemucsFrontEnd.swift */; };
@@ -2895,6 +2897,7 @@
 		558E77D4B4999FD2EF4BD75C /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		55C3EE54E111277DC3491406 /* TVKaraokeProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeProcessor.swift; sourceTree = "<group>"; };
 		564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
+		6BF9B15AF1FF2F0DAC27B22F /* PlaylistCopyToServerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistCopyToServerSheet.swift; sourceTree = "<group>"; };
 		567220C185786318966C5C79 /* MusicSourceSecurityScopeFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSourceSecurityScopeFingerprint.swift; sourceTree = "<group>"; };
 		5673EE19A59EAB3BD3B87AF3 /* RadioLogoBackdropPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLogoBackdropPolicy.swift; sourceTree = "<group>"; };
 		56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMHeightClass.swift; sourceTree = "<group>"; };
@@ -5127,6 +5130,7 @@
 				FEFBF61EBCA02E9282931D3B /* LyricsEditorView.swift */,
 				680128FAA23C0C69BCD30977 /* LyricsSourcesView.swift */,
 				564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */,
+				6BF9B15AF1FF2F0DAC27B22F /* PlaylistCopyToServerSheet.swift */,
 				FDA720A839678F244BF3C85A /* PlaylistListView.swift */,
 				F6E66686E2D510DC7D6E6DD0 /* PlaylistPendingEntryRow.swift */,
 				9AD43CE7FEC4CBBA59ED3317 /* ReleaseDateLibraryView.swift */,
@@ -7506,6 +7510,7 @@
 				C6A1D751FF7FAC20FA35A361 /* PlayerBackdropSettingsViews.swift in Sources */,
 				541C2DAFF2509005F4CABC11 /* PlayerMoreMenu.swift in Sources */,
 				731F196C5E41C34D8A22835D /* PlaylistDetailView.swift in Sources */,
+				F4A1373A2978AAB72435F964 /* PlaylistCopyToServerSheet.swift in Sources */,
 				818F94F1655EE2B22FBDE04C /* PlaylistEntryMatcher.swift in Sources */,
 				FC03BF45CFF795C29718C5BC /* PlaylistExporter.swift in Sources */,
 				3F00AFB0A4245384B5E09A51 /* PlaylistImportView.swift in Sources */,
@@ -8275,6 +8280,7 @@
 				1E0E1A2021CBC312C1129932 /* PlayerBackdropSettingsViews.swift in Sources */,
 				4B2098C9DD74C22E28E0B3F4 /* PlayerMoreMenu.swift in Sources */,
 				6E870A3160971D796543F417 /* PlaylistDetailView.swift in Sources */,
+				5A574E7C5596B99D2CE78AB8 /* PlaylistCopyToServerSheet.swift in Sources */,
 				1DD195AF351901DC7CE12C36 /* PlaylistEntryMatcher.swift in Sources */,
 				77F52F217A57328E7FC3E19B /* PlaylistExporter.swift in Sources */,
 				3F5B02704DF01DF4192B038C /* PlaylistImportView.swift in Sources */,

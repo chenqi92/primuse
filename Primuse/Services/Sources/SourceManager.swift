@@ -1989,6 +1989,15 @@ private extension RoutedConnectorProxy {
         }
     }
 
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistCreatingConnector else {
+                throw ServerPlaylistAppendError.creationUnsupported
+            }
+            return try await provider.createServerPlaylist(named: name)
+        }
+    }
+
     func takeObservedServerRatings() async -> [String: Int] {
         await routing.takeObservedServerRatings()
     }
@@ -2265,7 +2274,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
-    ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
+    ServerPlaylistCreatingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
     ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector {
     let sourceID: String
@@ -2911,7 +2920,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerRatingConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerRatingConnector,
     ServerRadioConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector {
     let sourceID: String
@@ -2987,7 +2996,7 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
@@ -14486,6 +14495,26 @@ final class SourceManager {
             throw CancellationError()
         }
         return (playlist, songs.count - itemIDs.count)
+    }
+
+    /// 在服务端新建一个空歌单, 歌随后用 `appendSongs` 加。和加歌一样, 源在请求途中被停用、
+    /// 删除或换了账户时按取消处理; 这类服务器不能新建时明确报出来, 不当成取消。
+    func createServerPlaylist(named name: String, source: MusicSource) async throws -> ServerPlaylist {
+        guard ServerPlaylistWritebackPolicy.supportsCreating(source.type) else {
+            throw ServerPlaylistAppendError.creationUnsupported
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        guard let conn = connector(for: source) as? any ServerPlaylistCreatingConnector else {
+            throw ServerPlaylistAppendError.creationUnsupported
+        }
+        let playlist = try await conn.createServerPlaylist(named: name)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return playlist
     }
 
     func serverMediaSharingAvailability(

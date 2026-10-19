@@ -81,10 +81,15 @@ enum ServerPlaylistAppendService {
         sourcesStore: SourcesStore
     ) -> [Playlist] {
         guard let source = source(for: songs, sourcesStore: sourcesStore) else { return [] }
-        return library.playlists.filter {
+        return writablePlaylists(sourceID: source.id, library: library)
+    }
+
+    /// 这个源上当前账户能加歌的服务端歌单(镜像)。
+    static func writablePlaylists(sourceID: String, library: MusicLibrary) -> [Playlist] {
+        library.playlists.filter {
             ServerPlaylistWritebackPolicy.serverPlaylistID(
                 fromMirrorPlaylistID: $0.id,
-                sourceID: source.id
+                sourceID: sourceID
             ) != nil && !ServerPlaylistMirror.readOnlyPlaylistIDs.contains($0.id)
         }
     }
@@ -120,6 +125,196 @@ enum ServerPlaylistAppendService {
         ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
         plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=append result=complete tracks=\(songs.count - skippedCount) skipped=\(skippedCount)")
         return skippedCount
+    }
+}
+
+/// 歌单里的一首, 换到目标服务器上之后的样子。
+struct ServerPlaylistCopyEntry: Identifiable, Sendable {
+    let id: Int
+    let title: String
+    let artist: String?
+    /// 服务器上的同一首(原本就是这台服务器的歌时是它自己)。
+    let match: Song?
+    /// 只够得上「可能是」的那一首, 默认不写。
+    let probable: Song?
+}
+
+/// 一个歌单要复制过去的样子。
+struct ServerPlaylistCopyPlan: Identifiable, Sendable {
+    let playlistID: String
+    let name: String
+    let entries: [ServerPlaylistCopyEntry]
+
+    var id: String { playlistID }
+    var matchedCount: Int { entries.filter { $0.match != nil }.count }
+    var probableCount: Int { entries.filter { $0.match == nil && $0.probable != nil }.count }
+    var missingCount: Int { entries.filter { $0.match == nil && $0.probable == nil }.count }
+
+    /// 要写进去的歌, 按歌单顺序去重。
+    func songs(includingProbable: Bool) -> [Song] {
+        var seen = Set<String>()
+        return entries
+            .compactMap { $0.match ?? (includingProbable ? $0.probable : nil) }
+            .filter { seen.insert($0.id).inserted }
+    }
+}
+
+struct ServerPlaylistCopyResult: Sendable {
+    let serverPlaylistName: String
+    /// 写完后服务端歌单里一共多少首。
+    let trackCount: Int
+    /// 对不上服务端曲目 id、没加进去的首数。
+    let skippedCount: Int
+    let created: Bool
+}
+
+/// 把歌单复制到一台音乐服务器上(Apple Music 的歌单放进 Navidrome 之类)。服务端歌单只能放
+/// 服务器自己曲库里的歌, 所以每首先换成那台服务器上的同一首(和「导入歌单」同一套规则),
+/// 换不到的只列出来。写到同名的服务端歌单里, 没有就新建; 只往里加, 重复复制只补新歌。
+@MainActor
+enum ServerPlaylistCopyService {
+    /// 能写歌单的服务器源。
+    static func targetSources(sourcesStore: SourcesStore) -> [MusicSource] {
+        sourcesStore.sources.filter {
+            $0.isEnabled && !$0.isDeleted && ServerPlaylistWritebackPolicy.supports($0.type)
+        }
+    }
+
+    /// 歌单本身就是这台服务器上的歌单时, 复制回去没有意义。
+    static func canCopy(playlistID: String, to source: MusicSource) -> Bool {
+        !playlistID.hasPrefix(ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id))
+    }
+
+    static func hasTarget(for playlistID: String, sourcesStore: SourcesStore) -> Bool {
+        targetSources(sourcesStore: sourcesStore).contains { canCopy(playlistID: playlistID, to: $0) }
+    }
+
+    /// 这个名字的歌单默认写到哪里: 同名、能写的服务端歌单优先, 没有就新建。
+    static func destination(
+        forName name: String,
+        target: MusicSource,
+        library: MusicLibrary
+    ) -> ServerPlaylistCopyPolicy.Destination {
+        ServerPlaylistCopyPolicy.destination(
+            playlistName: name,
+            writablePlaylists: ServerPlaylistAppendService.writablePlaylists(sourceID: target.id, library: library)
+                .map { PlaylistImportMergePolicy.Target(id: $0.id, name: $0.name, updatedAt: $0.updatedAt) },
+            canCreate: ServerPlaylistWritebackPolicy.supportsCreating(target.type)
+        )
+    }
+
+    private enum Row: Sendable {
+        case song(Song)
+        case pending(PlaylistPendingEntry)
+    }
+
+    private struct Input: Sendable {
+        let playlistID: String
+        let name: String
+        let rows: [Row]
+    }
+
+    /// 每个歌单的每一首对到目标服务器的曲库上。建索引要把服务器那边整份归一化, 在后台做。
+    static func plans(
+        for playlistIDs: [String],
+        target: MusicSource,
+        library: MusicLibrary
+    ) async -> [ServerPlaylistCopyPlan] {
+        let inputs = playlistIDs.compactMap { id -> Input? in
+            guard let playlist = library.playlist(id: id), canCopy(playlistID: id, to: target) else { return nil }
+            let rows = library.entries(forPlaylist: id).map { entry -> Row in
+                switch entry {
+                case .song(let song): .song(song)
+                case .pending(let pending): .pending(pending)
+                }
+            }
+            return Input(playlistID: id, name: playlist.name, rows: rows)
+        }
+        let targetID = target.id
+        let targetSongs = library.visibleSongs.filter { $0.sourceID == targetID }
+        let keyCache = library.playlistEntryMatchKeyCache
+        return await Task.detached(priority: .userInitiated) {
+            Self.makePlans(inputs, targetID: targetID, targetSongs: targetSongs, keyCache: keyCache)
+        }.value
+    }
+
+    nonisolated private static func makePlans(
+        _ inputs: [Input],
+        targetID: String,
+        targetSongs: [Song],
+        keyCache: PlaylistEntryMatchKeyCache
+    ) -> [ServerPlaylistCopyPlan] {
+        let matcher = PlaylistEntryMatcher(songs: targetSongs, keyCache: keyCache)
+        return inputs.map { input in
+            let entries = input.rows.enumerated().map { offset, row -> ServerPlaylistCopyEntry in
+                switch row {
+                case .song(let song):
+                    if song.sourceID == targetID {
+                        return ServerPlaylistCopyEntry(
+                            id: offset, title: song.title, artist: song.artistName, match: song, probable: nil
+                        )
+                    }
+                    let result = matcher.match(PlaylistEntryMatcher.subject(of: song))
+                    return ServerPlaylistCopyEntry(
+                        id: offset, title: song.title, artist: song.artistName,
+                        match: result.best, probable: result.best == nil ? result.probable.first : nil
+                    )
+                case .pending(let pending):
+                    let result = matcher.match(pending.matchSubject)
+                    return ServerPlaylistCopyEntry(
+                        id: offset, title: pending.title,
+                        artist: pending.artists.isEmpty ? nil : pending.artistLine,
+                        match: result.best, probable: result.best == nil ? result.probable.first : nil
+                    )
+                }
+            }
+            return ServerPlaylistCopyPlan(playlistID: input.playlistID, name: input.name, entries: entries)
+        }
+    }
+
+    /// 先写服务端, 再用服务端回读的明细刷新镜像。没有能写的歌时返回 nil, 什么都不做。
+    static func copy(
+        _ plan: ServerPlaylistCopyPlan,
+        named name: String,
+        to destination: ServerPlaylistCopyPolicy.Destination,
+        includingProbable: Bool,
+        target: MusicSource,
+        library: MusicLibrary,
+        sourceManager: SourceManager
+    ) async throws -> ServerPlaylistCopyResult? {
+        let songs = plan.songs(includingProbable: includingProbable)
+        guard !songs.isEmpty else { return nil }
+        let serverPlaylistID: String
+        let created: Bool
+        switch destination {
+        case .append(let mirrorPlaylistID):
+            guard let id = ServerPlaylistWritebackPolicy.serverPlaylistID(
+                fromMirrorPlaylistID: mirrorPlaylistID,
+                sourceID: target.id
+            ) else { throw CancellationError() }
+            serverPlaylistID = id
+            created = false
+        case .create:
+            let playlist = try await sourceManager.createServerPlaylist(named: name, source: target)
+            ServerPlaylistMirror.applyCreated(playlist, source: target, library: library)
+            serverPlaylistID = playlist.id
+            created = true
+        case .needsServerPlaylist:
+            throw ServerPlaylistAppendError.creationUnsupported
+        }
+        let (refreshed, skippedCount) = try await sourceManager.appendSongs(
+            songs,
+            toServerPlaylist: serverPlaylistID,
+            source: target
+        )
+        ServerPlaylistMirror.applyAppended(refreshed, source: target, library: library)
+        plog("Server playlists source=\(LogRedactionPolicy.digest(target.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=copy result=complete created=\(created) tracks=\(songs.count - skippedCount) skipped=\(skippedCount) missing=\(plan.missingCount)")
+        return ServerPlaylistCopyResult(
+            serverPlaylistName: refreshed.name.isEmpty ? name : refreshed.name,
+            trackCount: refreshed.trackIDs.count,
+            skippedCount: skippedCount,
+            created: created
+        )
     }
 }
 

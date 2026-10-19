@@ -3,7 +3,7 @@ import Foundation
 import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector,
     ServerFavoriteConnector, ServerRadioConnector, ServerCollectionFavoriteConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     NetworkAdaptiveTranscodingConnector,
@@ -2601,6 +2601,37 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             throw ServerPlaylistAppendError.notConfirmed
         }
         return refreshed
+    }
+
+    /// Emby / Jellyfin 新建空歌单: `POST /Playlists?Name=&UserId=&MediaType=Audio`, 回 `{"Id": …}`。
+    /// Jellyfin 10.9 起更推荐 JSON 请求体, 但查询串仍然收; Emby 只认查询串。Plex 新建必须
+    /// 带上至少一首歌的 uri, 不走这里。
+    func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
+        guard kind != .plex else { throw ServerPlaylistAppendError.creationUnsupported }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw SourceError.connectionFailed("Playlist name is empty") }
+        let data: Data
+        do {
+            data = try await performRequest(
+                path: "/Playlists",
+                method: "POST",
+                queryItems: [
+                    URLQueryItem(name: "Name", value: trimmed),
+                    URLQueryItem(name: "UserId", value: userID),
+                    URLQueryItem(name: "MediaType", value: "Audio")
+                ]
+            )
+        } catch SourceError.authenticationFailed {
+            // 刚连上的会话被拒, 是当前账户没有建歌单的权限。
+            throw ServerPlaylistAppendError.readOnly
+        }
+        let created = try decoder.decode(MediaServerPlaylistEntry.self, from: data)
+        guard let id = created.id, !id.isEmpty, !id.contains("/") else {
+            throw ServerPlaylistAppendError.notConfirmed
+        }
+        return try await jellyfinOrEmbyPlaylistDetail(id: id, userID: userID)
     }
 
     /// 一张 Emby / Jellyfin 歌单的名字、封面与曲目, 加歌前后各读一次; 刷新镜像时名字和封面

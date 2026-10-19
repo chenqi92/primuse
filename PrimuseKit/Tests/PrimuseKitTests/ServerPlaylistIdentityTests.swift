@@ -258,6 +258,18 @@ struct ServerPlaylistWritebackPolicyTests {
         }
     }
 
+    @Test("Only sources with a confirmed create call can make a new server playlist")
+    func supportsCreatingSources() {
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .synologyAudioStation] {
+            #expect(ServerPlaylistWritebackPolicy.supportsCreating(type))
+            #expect(ServerPlaylistWritebackPolicy.supports(type))
+        }
+        // 这几家只能往已有的歌单里加。
+        for type in [MusicSourceType.plex, .songloft, .fnMusic, .daoliyu, .tingReader, .smb] {
+            #expect(!ServerPlaylistWritebackPolicy.supportsCreating(type))
+        }
+    }
+
     @Test("Server playlist ID is recovered only from the song's own source")
     func recoversServerPlaylistIDForOwnSource() {
         let mine = ServerPlaylistIdentity.playlistID(sourceID: "src-a", serverPlaylistID: "pl.7")
