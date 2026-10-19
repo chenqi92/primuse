@@ -75,6 +75,9 @@ struct KaraokeLineView: View {
     /// 这一行自己的书写方向。body 里十几处要用;每次现算都要从头扫一遍字符属性,
     /// 文字稿上千行一起重画时就成了热点,建视图时算一次。
     private let resolvedWritingDirection: LyricWritingDirection
+    /// 排版用的逐字块:整句或词组只打一个时间时拆到能折行的粒度,不然比歌词栏宽的
+    /// 那一块会整句伸出右边(见 `LyricSyllableLayoutPolicy`)。同样建视图时算一次。
+    private let layoutSyllables: [LyricSyllable]?
 
     init(
         line: LyricLine,
@@ -112,6 +115,7 @@ struct KaraokeLineView: View {
             for: line,
             documentFallback: writingDirection
         )
+        self.layoutSyllables = line.syllables.map(LyricSyllableLayoutPolicy.layoutSyllables)
     }
 
     init(
@@ -242,7 +246,7 @@ struct KaraokeLineView: View {
         )
 
         if plan.rendersSyllableProgress,
-           let syllables = line.syllables,
+           let syllables = layoutSyllables,
            !syllables.isEmpty {
             layoutIsolatedSyllableLine(syllables, plan: plan)
         } else {
@@ -261,7 +265,7 @@ struct KaraokeLineView: View {
 
     @ViewBuilder
     private func renderLine(at now: TimeInterval) -> some View {
-        if let syllables = line.syllables, !syllables.isEmpty {
+        if let syllables = layoutSyllables, !syllables.isEmpty {
             let hold = showsSyllableLift
                 ? LyricSyllableEmphasisPolicy.lineHold(
                     syllables: syllables,
@@ -290,7 +294,7 @@ struct KaraokeLineView: View {
 
     @ViewBuilder
     private func renderInactiveLine() -> some View {
-        if let syllables = line.syllables, !syllables.isEmpty {
+        if let syllables = layoutSyllables, !syllables.isEmpty {
             LyricsFlowLayout(
                 measurementKey: flowMeasurementKey,
                 layoutDirection: lyricLayoutDirection,

@@ -515,10 +515,12 @@ struct DesktopLyricsView: View {
                                     weight: Font.Weight,
                                     activeColor: Color,
                                     inactiveColor: Color) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
+        // 整句或词组只打一个时间时先拆成单字，不然一整块横着塞进这一列。
+        let syllables = LyricSyllableLayoutPolicy.layoutSyllables(line.syllables ?? [])
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
             let now = player.interpolatedTime(at: context.date)
             VStack(spacing: 0) {
-                ForEach(Array((line.syllables ?? []).enumerated()), id: \.offset) { _, syllable in
+                ForEach(Array(syllables.enumerated()), id: \.offset) { _, syllable in
                     Text(syllable.text)
                         .font(.system(size: fontSize, weight: weight))
                         .foregroundStyle(verticalSyllableColor(syllable, now: now,

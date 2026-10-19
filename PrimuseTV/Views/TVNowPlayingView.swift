@@ -1530,9 +1530,13 @@ struct TVKaraokeLine: View {
     }
 
     var body: some View {
-        let state = TVSyllableHighlightPolicy.state(in: syllables, at: currentTime)
+        // 整句或词组只打一个时间时拆到能折行的粒度，不然比屏幕宽的那一块整句伸出去。
+        let lyricSyllables = LyricSyllableLayoutPolicy.layoutSyllables(syllables.map(\.lyricSyllable))
+        let units = lyricSyllables.count == syllables.count
+            ? syllables
+            : lyricSyllables.map { TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming) }
+        let state = TVSyllableHighlightPolicy.state(in: units, at: currentTime)
         // 唱到的字浮起后停在那里，整句唱完再一起落回（与 iPhone 同一套强调曲线）。
-        let lyricSyllables = syllables.map(\.lyricSyllable)
         let hold = reduceMotion
             ? 0
             : LyricSyllableEmphasisPolicy.lineHold(
@@ -1541,7 +1545,7 @@ struct TVKaraokeLine: View {
                 at: currentTime
             )
         TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection, alignment: alignment) {
-            ForEach(Array(syllables.enumerated()), id: \.offset) { i, s in
+            ForEach(Array(units.enumerated()), id: \.offset) { i, s in
                 let active = i < state.index
                 let inFlight = i == state.index
                 let fillT: Double = active ? 1 : (inFlight ? state.progress : 0)

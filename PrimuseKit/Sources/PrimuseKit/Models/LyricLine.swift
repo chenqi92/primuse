@@ -693,6 +693,132 @@ public enum LyricFlowPlacementPolicy {
     }
 }
 
+/// 逐字歌词排版用的小块。流式排版只在两个时间块之间换行；有的歌词整句或半句只打
+/// 一个时间（行尾补结束时间的 ELRC、按词组打轴的 QRC 等），这一块比歌词栏宽时
+/// 没法折行，整句从左边伸出右边被裁掉，同一首里句句如此，别的歌却换行正常。
+///
+/// 这里把这样的块拆到正文换行的粒度：汉字、假名逐字，别的文字按空格分词（韩文也
+/// 按词，和系统排正文一样）；句读、小写假名、长音不放到行首，开括号、开引号不留在
+/// 行尾。时间按字数分这一块原来的有效时长，扫光与上浮仍按原来的节奏走完整块。
+/// 只用于显示：歌词数据、编辑与写回都保持原样。
+public enum LyricSyllableLayoutPolicy {
+    /// 没有需要拆的块时原样返回。
+    public static func layoutSyllables(_ syllables: [LyricSyllable]) -> [LyricSyllable] {
+        var result: [LyricSyllable]?
+        for index in syllables.indices {
+            let syllable = syllables[index]
+            let pieces = units(of: syllable.text)
+            guard pieces.count > 1 else {
+                result?.append(syllable)
+                continue
+            }
+            if result == nil {
+                result = Array(syllables[..<index])
+            }
+            let nextStart = syllables.indices.contains(index + 1) ? syllables[index + 1].start : nil
+            result?.append(contentsOf: split(syllable, into: pieces, nextSyllableStart: nextStart))
+        }
+        return result ?? syllables
+    }
+
+    /// 能单独折行的小块，空格跟着前一块（开头的空格跟着第一块）。
+    static func units(of text: String) -> [String] {
+        var units: [String] = []
+        var current = ""
+        var currentHasText = false
+        var previous: Character?
+        for character in text {
+            if let previous, currentHasText, allowsBreak(between: previous, and: character) {
+                units.append(current)
+                current = ""
+                currentHasText = false
+            }
+            current.append(character)
+            currentHasText = currentHasText || !character.isWhitespace
+            previous = character
+        }
+        if !current.isEmpty {
+            units.append(current)
+        }
+        return units
+    }
+
+    private static func split(
+        _ syllable: LyricSyllable,
+        into pieces: [String],
+        nextSyllableStart: TimeInterval?
+    ) -> [LyricSyllable] {
+        // 先按原来那一块算出有效结束时刻（推断出来的时长有上限），拆出来的小块都是
+        // 这段时间里的明确区间，不再各自套一遍上限。
+        let end = LyricSyllablePlaybackTimingPolicy.effectiveEnd(
+            for: syllable,
+            nextSyllableStart: nextSyllableStart
+        )
+        let span = max(0, end - syllable.start)
+        // 标点不唱，不分时间。
+        let weights = pieces.map { piece in
+            Double(max(1, piece.filter { $0.isLetter || $0.isNumber }.count))
+        }
+        let totalWeight = weights.reduce(0, +)
+        var result: [LyricSyllable] = []
+        result.reserveCapacity(pieces.count)
+        var start = syllable.start
+        var consumedWeight = 0.0
+        for index in pieces.indices {
+            consumedWeight += weights[index]
+            let pieceEnd = index == pieces.count - 1
+                ? end
+                : syllable.start + span * consumedWeight / totalWeight
+            result.append(LyricSyllable(
+                text: pieces[index],
+                start: start,
+                end: pieceEnd,
+                endTiming: .explicit,
+                languageCode: syllable.languageCode
+            ))
+            start = pieceEnd
+        }
+        return result
+    }
+
+    private static func allowsBreak(between previous: Character, and next: Character) -> Bool {
+        if next.isWhitespace { return false }
+        if lineStartProhibited.contains(next) || lineEndProhibited.contains(previous) {
+            return false
+        }
+        if previous.isWhitespace { return true }
+        return breaksPerCharacter(previous) || breaksPerCharacter(next)
+    }
+
+    /// 汉字、假名、注音和全角符号逐字可断；韩文按词断，不在这里。
+    private static func breaksPerCharacter(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first else { return false }
+        switch scalar.value {
+        case 0x3000...0x303F, // CJK symbols and punctuation
+             0x3040...0x30FF, // Hiragana, Katakana
+             0x3100...0x312F, // Bopomofo
+             0x31F0...0x31FF, // Katakana phonetic extensions
+             0x3400...0x4DBF, // CJK Extension A
+             0x4E00...0x9FFF, // CJK Unified
+             0xF900...0xFAFF, // CJK Compatibility
+             0xFF01...0xFF60, // Fullwidth forms
+             0xFF66...0xFF9D, // Halfwidth Katakana
+             0x20000...0x3134F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    // 々〻写成转义:本地化检查会把字面上的汉字当成界面文案。
+    private static let lineStartProhibited: Set<Character> = Set(
+        "、。，．,.！!？?：:；;）)］]｝}〕〉》」』】〙〗〟’”｠»…‥・ー〜～ゝゞヽヾ\u{3005}\u{303B}゛゜%％"
+            + "ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ"
+    )
+
+    private static let lineEndProhibited: Set<Character> = Set("（(［[｛{〔〈《「『【〘〖〝‘“｟«")
+}
+
 /// 行所属声部。LRC/A2 没有该信息，预留给 TTML（Apple Music 对唱）等格式。
 public enum LyricVoice: String, Codable, Sendable, CaseIterable {
     case primary    // 主声部 / 默认演唱者，左对齐
