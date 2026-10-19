@@ -232,14 +232,19 @@ enum SpokenWordShelfLayout: String, CaseIterable {
 
     var isGrid: Bool { self != .list }
 
-    /// 版式键的图标。只放封面那一种最简单,就是几个方块;带书名的是图下有字(#320)。
+    /// 版式键的图标。只放封面那一种是几个方块;带书名的是一个框下面一道横线,像封面下写着书名(#320、#329)。
     /// 两种网格的列数一样,不用格子的疏密来分。
     var symbol: String {
         switch self {
-        case .bookshelf: "text.below.photo"
+        case .bookshelf: "dock.rectangle"
         case .covers: "square.grid.2x2"
         case .list: "list.bullet"
         }
+    }
+
+    /// 三颗键的图标画成一样高(#329):前两颗在 16 点时高 15.8,列表那颗只有 12.8,按比例放大一些。
+    var symbolScale: CGFloat {
+        self == .list ? 19.0 / 16.0 : 1
     }
 }
 
@@ -585,6 +590,7 @@ struct SpokenWordShelfContent: View {
                     HStack {
                         Text("spoken_word_shelf_section")
                             .font(sectionTitleFont)
+                            .lineLimit(1)
                             .accessibilityAddTraits(.isHeader)
                             .accessibilityIdentifier("spokenWord.shelf.heading")
                         Spacer(minLength: 12)
@@ -704,7 +710,7 @@ struct SpokenWordShelfContent: View {
             layout = mode
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 11.5 * mode.symbolScale, weight: .medium))
                 .foregroundStyle(layout == mode ? PMColor.text : PMColor.textMuted)
                 .frame(width: 30, height: 26)
                 .background(
@@ -726,9 +732,12 @@ struct SpokenWordShelfContent: View {
         Button {
             pmWithAnimation(.control) { isArranging.toggle() }
         } label: {
+            // 窄屏(iPhone mini)上这一行挤不下时也不折成竖排(#329),让左边的「书架」先缩。
             Text(LocalizedStringKey(isArranging ? "done" : "reorder"))
                 .font(.subheadline.weight(isArranging ? .semibold : .regular))
                 .foregroundStyle(isArranging ? tint : .secondary)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 8)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -742,7 +751,7 @@ struct SpokenWordShelfContent: View {
             layout = mode
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 16 * mode.symbolScale, weight: .medium))
                 .foregroundStyle(layout == mode ? tint : .secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())

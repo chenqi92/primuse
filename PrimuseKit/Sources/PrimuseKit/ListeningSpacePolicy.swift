@@ -162,6 +162,10 @@ public enum ListeningSpaceArtworkTintStore {
         }
     }
 
+    /// 黑白(或几乎没有颜色)的封面取不出主色时记下的颜色:深灰。浅色外观下就是它,
+    /// 深色外观按对比度提亮成中灰(`ListeningSpaceTint.legible`),不会退回这一类自带的颜色(#329)。
+    public static let monochromeArtworkHex = "48484A"
+
     /// 0...1 的 sRGB 三个通道写成 RRGGBB。
     public static func hex(red: Double, green: Double, blue: Double) -> String {
         func channel(_ value: Double) -> Int {

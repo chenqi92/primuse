@@ -6636,7 +6636,8 @@
 "player_style_preview_actual_size" = "实际大小";
 "player_style_section_colors" = "颜色";
 "player_transport_style_title" = "播放键样式";
-"player_transport_style_footer" = "上面一排换播放 / 暂停键，下面一排换上一首、下一首。手机横屏、iPad 和全屏歌词底部那一排也跟着换；播客的快退、快进不变，有声书和电台保留自己的样子。";
+"player_transport_style_footer" = "上面一排换播放 / 暂停键，下面一排换上一首、下一首（电台是上一台、下一台）。音乐、有声书、播客、电台共用这一套，在哪一页改都一样；手机横屏、iPad 和全屏歌词底部那一排也跟着换。有声书和播客的快退、快进不变。";
+"player_transport_style_spoken_footer" = "播放 / 暂停键和音乐、电台共用同一种样子，在哪一页改都一样；快退、快进不跟着换。";
 "player_play_style_filled_circle" = "实心圆";
 "player_play_style_plain" = "无框";
 "player_play_style_outlined_circle" = "圆圈";

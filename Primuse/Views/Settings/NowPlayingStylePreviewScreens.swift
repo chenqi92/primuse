@@ -448,6 +448,8 @@ struct AudiobookPreviewScreen: View {
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
     private var followsProgressStyle = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
 
     private var style: AudiobookPlayerStyle {
         AudiobookPlayerStyle(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -519,7 +521,6 @@ struct AudiobookPreviewScreen: View {
                 VStack(spacing: 0) {
                     if style.isNocturne {
                         Spacer(minLength: isShort ? 8 : 16)
-                            .frame(maxHeight: usesGrabber(controls) ? (isShort ? 8 : 20) : .infinity)
                         titleBlock
                         // 封面顶边和左边「CHAPTER」对齐。
                         heroRow(columnLeading: true, columnWidth: columnWidth, spacing: 24)
@@ -773,11 +774,17 @@ struct AudiobookPreviewScreen: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
+            // 和播放页一样:实心圆是这一版自己的那颗,别的样式照音乐页画(#329)。
+            let playStyle = PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
             ZStack {
-                Circle().fill(style.accent)
-                Image(systemName: "pause.fill")
-                    .font(.system(size: diameter * 0.36, weight: .semibold))
-                    .foregroundStyle(style.onAccent)
+                if playStyle == .filledCircle {
+                    Circle().fill(style.accent)
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: diameter * 0.36, weight: .semibold))
+                        .foregroundStyle(style.onAccent)
+                } else {
+                    NowPlayingPlayPauseFace(style: playStyle, showsPause: true, diameter: diameter * 0.86, tint: style.accent)
+                }
             }
             .frame(width: diameter, height: diameter)
             .accessibilityHidden(true)
@@ -796,7 +803,7 @@ struct AudiobookPreviewScreen: View {
     private func skipGlyph(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 28, weight: .light))
-            .foregroundStyle(style.control(paper: style.primary))
+            .foregroundStyle(style.primary)
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)
     }
@@ -905,7 +912,11 @@ struct PodcastPreviewScreen: View {
                         }
                         .frame(width: region.size.width, height: region.size.height, alignment: .bottom)
                     }
-                    .frame(maxHeight: max(0, size.width - grabberBand))
+                    .frame(maxHeight: NowPlayingView.fullBleedArtworkRegionLimit(
+                        width: size.width,
+                        topSafeArea: canvas.topSafeArea,
+                        extendsBelowSquare: true
+                    ))
                     .layoutPriority(1)
                     .zIndex(1)
                 } else {
@@ -922,14 +933,24 @@ struct PodcastPreviewScreen: View {
                     .layoutPriority(1)
                 }
 
-                Spacer(minLength: 0)
-                    .frame(maxHeight: 16)
+                // 铺满时单集标题贴着进度条,空白在封面与标题之间(照 `NowPlayingView.portraitLayout`)。
+                if usesFullBleedArtwork {
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+                        .frame(maxHeight: 16)
+                }
 
                 heading(controls: controls)
                     .padding(.horizontal, 26)
                     .padding(.top, 12)
 
-                Spacer(minLength: 0)
+                if usesFullBleedArtwork {
+                    Color.clear
+                        .frame(height: NowPlayingView.fullBleedHeadingProgressGap)
+                } else {
+                    Spacer(minLength: 0)
+                }
 
                 PreviewProgressBar(fillTint: accent, timeTint: appearance.tertiary)
                     .padding(.horizontal, 26)
@@ -1089,6 +1110,10 @@ struct RadioPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
+    private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -1096,6 +1121,7 @@ struct RadioPreviewScreen: View {
 
     var body: some View {
         let canvas = context.canvas
+        let skipStyle = PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
         let size = canvas.size
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let layout = NowPlayingRadioControlLayout.decode(storage)
@@ -1170,13 +1196,23 @@ struct RadioPreviewScreen: View {
                 .accessibilityHidden(true)
 
                 HStack(spacing: 38) {
-                    Image(systemName: "backward.fill")
-                        .font(.title3)
+                    Image(systemName: skipStyle.symbol(forward: false))
+                        .font(skipStyle.compactFont)
                         .frame(width: 44, height: 44)
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 68))
-                    Image(systemName: "forward.fill")
-                        .font(.title3)
+                    ZStack {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 68))
+                            .opacity(0)
+                        NowPlayingPlayPauseFace(
+                            style: PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue),
+                            showsPause: true,
+                            diameter: 68,
+                            tint: appearance.primary,
+                            stops: true
+                        )
+                    }
+                    Image(systemName: skipStyle.symbol(forward: true))
+                        .font(skipStyle.compactFont)
                         .frame(width: 44, height: 44)
                 }
                 .foregroundStyle(appearance.primary)

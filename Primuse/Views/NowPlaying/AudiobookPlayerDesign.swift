@@ -65,8 +65,8 @@ struct AudiobookPlayerStyle: Equatable {
     /// 播放键里的三角,取底色,像在实心圆上挖出来的。
     var onAccent: Color { background }
 
-    /// 播放键以外的按钮(收起、喜欢、更多、上一章 / 下一章、快退快进、两侧的键、语速定时那一排)
-    /// 和进度条。墨黑里统一压到和系统投放键一样暗,只有书名、章节名和播放键是亮白(#320);
+    /// 传输键以外的按钮(收起、喜欢、更多、上一章 / 下一章、两侧的键、语速定时那一排)
+    /// 和进度条。墨黑里统一压到和系统投放键一样暗,书名、章节名、播放键与快退快进是亮白(#320、#329);
     /// 暖白照设计稿,用 `paper`——那一处原来的颜色。
     func control(paper: Color) -> Color {
         isNocturne ? .white.opacity(usesIncreasedContrast ? 0.72 : 0.52) : paper

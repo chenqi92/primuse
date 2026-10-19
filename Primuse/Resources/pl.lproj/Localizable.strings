@@ -6449,7 +6449,8 @@
 "player_style_preview_actual_size" = "Rzeczywisty rozmiar";
 "player_style_section_colors" = "Kolory";
 "player_transport_style_title" = "Styl przycisków odtwarzania";
-"player_transport_style_footer" = "Górny rząd zmienia przycisk odtwarzania/pauzy, dolny – przyciski poprzedni i następny. Dotyczy to też iPhone’a w poziomie, iPada i paska pod tekstem na pełnym ekranie. Przyciski przewijania w podcastach się nie zmieniają; audiobooki i radio zachowują własny wygląd.";
+"player_transport_style_footer" = "Górny rząd zmienia przycisk odtwarzania/pauzy, dolny – przyciski poprzedni i następny (w radiu poprzednia i następna stacja). Muzyka, audiobooki, podcasty i radio mają wspólne ustawienie, więc zmiana na jednej stronie działa wszędzie; dotyczy to też iPhone’a w poziomie, iPada i paska pod tekstem na pełnym ekranie. Przyciski przewijania w audiobookach i podcastach się nie zmieniają.";
+"player_transport_style_spoken_footer" = "Przycisk odtwarzania/pauzy wygląda tak samo jak w muzyce i radiu; zmiana na jednej stronie działa wszędzie. Przyciski przewijania się nie zmieniają.";
 "player_play_style_filled_circle" = "Wypełniony";
 "player_play_style_plain" = "Bez ramki";
 "player_play_style_outlined_circle" = "Kontur";

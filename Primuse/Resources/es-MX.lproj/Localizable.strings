@@ -6449,7 +6449,8 @@
 "player_style_preview_actual_size" = "Tamaño real";
 "player_style_section_colors" = "Colores";
 "player_transport_style_title" = "Estilo de los botones de reproducción";
-"player_transport_style_footer" = "La fila de arriba cambia el botón de reproducir/pausa y la de abajo los de anterior y siguiente. También se aplica en horizontal en iPhone, en iPad y en la barra bajo la letra en pantalla completa. Los botones para saltar en podcasts no cambian; los audiolibros y la radio conservan su propio aspecto.";
+"player_transport_style_footer" = "La fila de arriba cambia el botón de reproducir/pausa y la de abajo los de anterior y siguiente (estación anterior y siguiente en la radio). Música, audiolibros, podcasts y radio comparten este ajuste, así que cambiarlo en una página lo cambia en todas; también se aplica en horizontal en iPhone, en iPad y en la barra bajo la letra en pantalla completa. Los botones para saltar en audiolibros y podcasts no cambian.";
+"player_transport_style_spoken_footer" = "El botón de reproducir/pausa comparte su aspecto con la música y la radio; cambiarlo en una página lo cambia en todas. Los botones para saltar no cambian.";
 "player_play_style_filled_circle" = "Relleno";
 "player_play_style_plain" = "Sin marco";
 "player_play_style_outlined_circle" = "Contorno";

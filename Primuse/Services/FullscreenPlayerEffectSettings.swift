@@ -382,8 +382,8 @@ enum NowPlayingArtworkLyricsLines: String, CaseIterable, Sendable {
     }
 }
 
-/// 播放页播放 / 暂停键的样子。iPhone / iPad 的音乐与播客播放页(竖屏、手机横屏、iPad 横屏、
-/// 原生全屏底部那一排)用它;有声书的竖版、电台各有自己的样子。
+/// 播放页播放 / 暂停键的样子。iPhone / iPad 的音乐、有声书、播客、电台播放页(竖屏、手机横屏、iPad 横屏、
+/// 原生全屏底部那一排)共用这一个选择(#329);有声书墨黑 / 暖白里选实心圆时仍是设计稿那颗圆。
 enum NowPlayingPlayButtonStyle: String, CaseIterable, Sendable {
     /// 一直以来的实心圆,三角在圆里挖空。
     case filledCircle
@@ -404,7 +404,7 @@ enum NowPlayingPlayButtonStyle: String, CaseIterable, Sendable {
     }
 }
 
-/// 播放页上一首 / 下一首的样子。只换音乐的这两颗;有声内容那两颗是快退 / 快进秒数,不跟着换。
+/// 播放页上一首 / 下一首的样子。音乐的这两颗和电台的上一台 / 下一台跟着换;有声内容那两颗是快退 / 快进秒数,不跟着换。
 enum NowPlayingSkipButtonStyle: String, CaseIterable, Sendable {
     /// 一直以来的双三角。
     case standard

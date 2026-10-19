@@ -86,6 +86,13 @@ final class ListeningSpaceAppearanceTests: XCTestCase {
         }
         // A colour that already reads is kept as picked.
         XCTAssertEqual(ListeningSpaceTint.legible(hex: "147D8A")?.light, 0x147D8A)
+        // The grey a black-and-white cover gets stays grey on both appearances.
+        let grey = try XCTUnwrap(ListeningSpaceTint.legible(hex: ListeningSpaceArtworkTintStore.monochromeArtworkHex))
+        XCTAssertEqual(grey.light, 0x48484A)
+        let darkGrey = ListeningSpaceTint.components(grey.dark)
+        XCTAssertEqual(darkGrey.red, darkGrey.green, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(ThemeAccentContrastPolicy.contrastRatio(rgb(grey.dark), .black), 4.5)
+        XCTAssertLessThan(darkGrey.red, 0.6)
         // White is near-black in light appearance, white in dark.
         XCTAssertEqual(ListeningSpaceTint.legible(hex: "FFFFFF"), ListeningSpaceTint(light: 0x1C1C1C, dark: 0xFFFFFF))
         XCTAssertNil(ListeningSpaceTint.legible(hex: "XYZ123"))
@@ -123,6 +130,11 @@ final class ListeningSpaceAppearanceTests: XCTestCase {
         // Music follows the theme and keeps nothing.
         ListeningSpaceArtworkTintStore.store("3A7BD5", for: .music, in: defaults)
         XCTAssertNil(defaults.object(forKey: ListeningSpaceArtworkTintStore.key(for: .music)))
+
+        // A black-and-white cover is remembered as a neutral dark grey, not as "no colour".
+        ListeningSpaceArtworkTintStore.store(ListeningSpaceArtworkTintStore.monochromeArtworkHex, for: .spokenWord, in: defaults)
+        XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(for: .spokenWord, in: defaults), "48484A")
+        XCTAssertEqual(ListeningSpaceTintChoice.artwork.resolvingArtwork("48484A"), .fixed("48484A"))
 
         XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(red: 1, green: 0.5, blue: 0), "FF8000")
         XCTAssertEqual(ListeningSpaceArtworkTintStore.hex(red: -0.2, green: 1.4, blue: 0.2), "00FF33")

@@ -272,32 +272,7 @@ struct NowPlayingControlsEditorView: View {
                 Text("player_style_preview_pip_hint")
             }
 
-            Section {
-                NowPlayingStyleChoiceRow(
-                    choices: NowPlayingPlayButtonStyle.allCases,
-                    selection: playButtonStyleBinding,
-                    title: { LocalizedStringKey($0.titleKey) }
-                ) { style in
-                    NowPlayingPlayPauseFace(style: style, showsPause: false, diameter: 34, tint: .primary)
-                }
-                .settingsAnchor("appearance.playerTransportIcons")
-                NowPlayingStyleChoiceRow(
-                    choices: NowPlayingSkipButtonStyle.allCases,
-                    selection: skipButtonStyleBinding,
-                    title: { LocalizedStringKey($0.titleKey) }
-                ) { style in
-                    HStack(spacing: 4) {
-                        Image(systemName: style.symbol(forward: false))
-                        Image(systemName: style.symbol(forward: true))
-                    }
-                    .font(style.font(scale: 0.5))
-                    .foregroundStyle(.primary)
-                }
-            } header: {
-                SettingsInfoHeader("player_transport_style_title") {
-                    Text("player_transport_style_footer")
-                }
-            }
+            NowPlayingTransportStyleSection(anchorID: "appearance.playerTransportIcons")
 
             PlayerLookSettingsSections()
 
@@ -673,6 +648,66 @@ private struct PlayerLookSettingsSections: View {
             }
             .padding(.vertical, 4)
             .settingsAnchor("appearance.ambientStrength")
+        }
+    }
+}
+
+/// 「播放键样式」:播放 / 暂停键与上一首 / 下一首的样子。音乐、有声书、播客、电台共用这一份(#329),
+/// 每一页都放这一节,在哪一页改都一样。有声书和播客的快退、快进是秒数键,那两页不放下面那一排。
+private struct NowPlayingTransportStyleSection: View {
+    var showsSkipRow = true
+    var info: LocalizedStringKey = "player_transport_style_footer"
+    /// 设置搜索落到这一节(只有音乐那一页登记了)。
+    var anchorID: String?
+
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
+    private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+
+    var body: some View {
+        Section {
+            playRow
+            if showsSkipRow {
+                NowPlayingStyleChoiceRow(
+                    choices: NowPlayingSkipButtonStyle.allCases,
+                    selection: Binding(
+                        get: { PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue) },
+                        set: { skipButtonStyleRawValue = $0.rawValue }
+                    ),
+                    title: { LocalizedStringKey($0.titleKey) }
+                ) { style in
+                    HStack(spacing: 4) {
+                        Image(systemName: style.symbol(forward: false))
+                        Image(systemName: style.symbol(forward: true))
+                    }
+                    .font(style.font(scale: 0.5))
+                    .foregroundStyle(.primary)
+                }
+            }
+        } header: {
+            SettingsInfoHeader("player_transport_style_title") {
+                Text(info)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var playRow: some View {
+        let row = NowPlayingStyleChoiceRow(
+            choices: NowPlayingPlayButtonStyle.allCases,
+            selection: Binding(
+                get: { PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue) },
+                set: { playButtonStyleRawValue = $0.rawValue }
+            ),
+            title: { LocalizedStringKey($0.titleKey) }
+        ) { style in
+            NowPlayingPlayPauseFace(style: style, showsPause: false, diameter: 34, tint: .primary)
+        }
+        if let anchorID {
+            row.settingsAnchor(anchorID)
+        } else {
+            row
         }
     }
 }
@@ -1259,6 +1294,8 @@ private struct SpokenWordControlsSections: View {
             )
         }
 
+        NowPlayingTransportStyleSection(showsSkipRow: false, info: "player_transport_style_spoken_footer")
+
         Section {
             ForEach(slots) { slot in
                 let choice = layout.choice(in: slot)
@@ -1483,6 +1520,8 @@ private struct RadioControlsSections: View {
             title: "player_radio_artwork_style_title",
             footer: "player_artwork_style_radio_footer"
         )
+
+        NowPlayingTransportStyleSection()
 
         Section {
             ForEach(layout.order) { item in

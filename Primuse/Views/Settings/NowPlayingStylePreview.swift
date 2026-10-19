@@ -617,7 +617,11 @@ private struct MusicPortraitPreviewScreen: View {
                             fullBleedArtwork(width: size.width, height: region.size.height + grabberBand)
                                 .frame(width: region.size.width, height: region.size.height, alignment: .bottom)
                         }
-                        .frame(maxHeight: max(0, size.width - grabberBand))
+                        .frame(maxHeight: NowPlayingView.fullBleedArtworkRegionLimit(
+                            width: size.width,
+                            topSafeArea: canvas.topSafeArea,
+                            extendsBelowSquare: !artworkLyricsFill
+                        ))
                         .anchorPreference(key: PreviewFullBleedRegionKey.self, value: .bounds) { $0 }
                         .layoutPriority(1)
                         .zIndex(1)
@@ -634,8 +638,14 @@ private struct MusicPortraitPreviewScreen: View {
                         .layoutPriority(1)
                     }
 
-                    Spacer(minLength: 0)
-                        .frame(maxHeight: 16)
+                    // 铺满时歌名贴着进度条,空白在封面与歌名之间(照 `NowPlayingView.portraitLayout`)。
+                    let headingHugsProgress = usesFullBleedArtwork && !artworkLyricsFill
+                    if headingHugsProgress {
+                        Spacer(minLength: 0)
+                    } else {
+                        Spacer(minLength: 0)
+                            .frame(maxHeight: 16)
+                    }
 
                     songHeader
                         .padding(.horizontal, 26)
@@ -651,12 +661,18 @@ private struct MusicPortraitPreviewScreen: View {
                             .padding(.top, NowPlayingView.artworkLyricHeadingGap)
                             .padding(.bottom, 4)
                     } else {
-                        Spacer(minLength: 0)
+                        if !headingHugsProgress {
+                            Spacer(minLength: 0)
+                        }
                         if artworkLyrics {
                             PreviewArtworkLyricRows(lines: artworkLyricsLines, appearance: appearance)
                                 .padding(.horizontal, 26)
                                 .padding(.top, NowPlayingView.artworkLyricHeadingGap)
                                 .padding(.bottom, 4)
+                        }
+                        if headingHugsProgress {
+                            Color.clear
+                                .frame(height: NowPlayingView.fullBleedHeadingProgressGap)
                         }
                     }
                 }

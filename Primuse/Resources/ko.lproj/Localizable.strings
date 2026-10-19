@@ -6543,7 +6543,8 @@
 "player_style_preview_actual_size" = "실제 크기";
 "player_style_section_colors" = "색상";
 "player_transport_style_title" = "재생 버튼 스타일";
-"player_transport_style_footer" = "위 줄은 재생/일시정지 버튼, 아래 줄은 이전·다음 버튼을 바꿉니다. iPhone 가로 화면, iPad, 전체 화면 가사 아래 막대에도 적용됩니다. 팟캐스트의 뒤로·앞으로 건너뛰기는 그대로이며, 오디오북과 라디오는 고유한 모양을 유지합니다.";
+"player_transport_style_footer" = "위 줄은 재생/일시정지 버튼, 아래 줄은 이전·다음 버튼(라디오는 이전·다음 방송국)을 바꿉니다. 음악, 오디오북, 팟캐스트, 라디오가 같은 설정을 쓰므로 어느 페이지에서 바꿔도 모두 바뀝니다. iPhone 가로 화면, iPad, 전체 화면 가사 아래 막대에도 적용됩니다. 오디오북과 팟캐스트의 뒤로·앞으로 건너뛰기는 그대로입니다.";
+"player_transport_style_spoken_footer" = "재생/일시정지 버튼은 음악·라디오와 같은 모양을 쓰며, 어느 페이지에서 바꿔도 모두 바뀝니다. 뒤로·앞으로 건너뛰기는 그대로입니다.";
 "player_play_style_filled_circle" = "채움";
 "player_play_style_plain" = "테두리 없음";
 "player_play_style_outlined_circle" = "윤곽선";

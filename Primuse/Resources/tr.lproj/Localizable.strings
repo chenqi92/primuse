@@ -6449,7 +6449,8 @@
 "player_style_preview_actual_size" = "Gerçek Boyut";
 "player_style_section_colors" = "Renkler";
 "player_transport_style_title" = "Oynatma Düğmesi Stili";
-"player_transport_style_footer" = "Üst sıra oynat/duraklat düğmesini, alt sıra önceki ve sonraki düğmelerini değiştirir. iPhone yatay görünümü, iPad ve tam ekran şarkı sözlerinin altındaki çubuk da buna uyar. Podcast atlama düğmeleri değişmez; sesli kitaplar ve radyo kendi görünümünü korur.";
+"player_transport_style_footer" = "Üst sıra oynat/duraklat düğmesini, alt sıra önceki ve sonraki düğmelerini (radyoda önceki ve sonraki istasyon) değiştirir. Müzik, sesli kitaplar, podcast'ler ve radyo bu ayarı paylaşır; hangi sayfada değiştirirseniz her yerde değişir. iPhone yatay görünümü, iPad ve tam ekran şarkı sözlerinin altındaki çubuk da buna uyar. Sesli kitap ve podcast atlama düğmeleri değişmez.";
+"player_transport_style_spoken_footer" = "Oynat/duraklat düğmesi müzik ve radyoyla aynı görünümü paylaşır; hangi sayfada değiştirirseniz her yerde değişir. Atlama düğmeleri değişmez.";
 "player_play_style_filled_circle" = "Dolu";
 "player_play_style_plain" = "Çerçevesiz";
 "player_play_style_outlined_circle" = "Dış Çizgi";

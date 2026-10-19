@@ -6303,7 +6303,8 @@
 "player_style_preview_actual_size" = "Actual Size";
 "player_style_section_colors" = "Colors";
 "player_transport_style_title" = "Playback Button Style";
-"player_transport_style_footer" = "The top row changes the play/pause button, the bottom row changes previous and next. Landscape on iPhone, iPad and the bar under full-screen lyrics follow too. Podcast skip-back and skip-forward stay the same; audiobooks and radio keep their own look.";
+"player_transport_style_footer" = "The top row changes the play/pause button, the bottom row changes previous and next (previous and next station on radio). Music, audiobooks, podcasts and radio share one setting, so changing it on any page changes it everywhere; landscape on iPhone, iPad and the bar under full-screen lyrics follow too. Skip-back and skip-forward for audiobooks and podcasts stay the same.";
+"player_transport_style_spoken_footer" = "The play/pause button shares one style with music and radio, so changing it on any page changes it everywhere. Skip-back and skip-forward stay the same.";
 "player_play_style_filled_circle" = "Filled";
 "player_play_style_plain" = "No Frame";
 "player_play_style_outlined_circle" = "Outline";

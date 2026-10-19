@@ -175,7 +175,9 @@ final class ThemeService {
 
             var pixelResult: ColorResult?
             var liquidPalette: [LiquidBackdropColor] = []
+            var decodedArtwork = false
             if let data, let image = PlatformImage(data: data) {
+                decodedArtwork = true
                 // A valid image is useful to artwork views even when it is
                 // intentionally grayscale and therefore has no theme color.
                 if fetchedRemoteData, let capturedSongID, !capturedSongID.isEmpty {
@@ -194,11 +196,17 @@ final class ThemeService {
             }
             guard !Task.isCancelled else { return }
             let result = pixelResult ?? musicKitResult
+            let isMonochromeCover = decodedArtwork && result == nil
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 guard self.updateGeneration == generation else { return }
                 guard let result else {
-                    ListeningSpaceTintSettings.shared.recordArtwork(nil, for: space)
+                    // 封面读出来了却取不出主色(黑白封面):「跟随封面」的那一类画成深灰,
+                    // 不退回它自带的颜色(#329)。真没有封面时才回自带色。
+                    ListeningSpaceTintSettings.shared.recordArtwork(
+                        isMonochromeCover ? ListeningSpaceArtworkTintStore.monochromeArtworkHex : nil,
+                        for: space
+                    )
                     self.applyFallbackTheme()
                     // 黑白封面没有主题色,流动色彩照样用它自己的灰阶。
                     self.artworkLiquidPalette = liquidPalette

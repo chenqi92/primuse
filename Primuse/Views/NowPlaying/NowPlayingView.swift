@@ -1630,7 +1630,7 @@ struct NowPlayingView: View {
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
         .presentationCornerRadius(28)
-        .playerPresentationColorScheme()
+        .playerLibraryPagePresentation()
 
         if let sourceID = albumPresentationSourceID, !reduceMotion {
             detail.navigationTransition(
@@ -3266,7 +3266,8 @@ struct NowPlayingView: View {
             NotificationCenter.default.publisher(for: .primuseLyricsDidChange),
             perform: lyricsDidChange
         )
-        // 这里弹出的页面都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
+        // 这里弹出的面板都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
+        // 专辑、书、播客节目、电台这几张资料库页面套 `playerLibraryPagePresentation`,照 App 的外观画。
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .presentationDetents([.medium, .large])
@@ -3298,14 +3299,14 @@ struct NowPlayingView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
-            .playerPresentationColorScheme()
+            .playerLibraryPagePresentation()
         }
         .sheet(item: $presentedPodcastSheet) { target in
             NowPlayingPodcastSheet(target: target)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
-                .playerPresentationColorScheme()
+                .playerLibraryPagePresentation()
         }
         #endif
         .sheet(item: $scrapeTargetSong) { song in
@@ -3468,7 +3469,7 @@ struct NowPlayingView: View {
             set: { radioDetailStationID = $0?.id }
         )) { item in
             RadioStationDetailView(stationID: item.id)
-                .playerPresentationColorScheme()
+                .playerLibraryPagePresentation()
         }
         .equalizerHighFidelityNotice(
             isPresented: $showEqualizerBypassNotice,
@@ -3690,29 +3691,40 @@ struct NowPlayingView: View {
             // 台标先分高度，文字按自己的完整高度留位，不被挤成一行。
             .fixedSize(horizontal: false, vertical: true)
 
+            // 播放键与上一台 / 下一台跟「播放页样式与按钮」里的样式走,和音乐页同一套(#329)。
             HStack(spacing: 38) {
                 Button {
                     Task { await player.previous() }
                 } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.title3)
+                    Image(systemName: skipButtonStyle.symbol(forward: false))
+                        .font(skipButtonStyle.compactFont)
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!player.canSwitchRadioStation)
                 .accessibilityLabel(Text("radio_previous_station"))
 
                 Button { player.togglePlayPause() } label: {
-                    Image(systemName: (player.isPlaying || player.isLoading) ? "stop.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 68))
-                        .contentTransition(.symbolEffect(.replace))
+                    ZStack {
+                        // 换样式时这颗键的大小不变,两边的键不挪位置。
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 68))
+                            .opacity(0)
+                        NowPlayingPlayPauseFace(
+                            style: playButtonStyle,
+                            showsPause: player.isPlaying || player.isLoading,
+                            diameter: 68,
+                            tint: appearance.primary,
+                            stops: true
+                        )
+                    }
                 }
                 .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
 
                 Button {
                     Task { await player.next() }
                 } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.title3)
+                    Image(systemName: skipButtonStyle.symbol(forward: true))
+                        .font(skipButtonStyle.compactFont)
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!player.canSwitchRadioStation)
@@ -5465,9 +5477,13 @@ struct NowPlayingView: View {
                         }
                     } else if fullBleedArtwork {
                         // 铺满封面(见 `fullBleedArtworkRegion`):这一块只占把手以下的高度,封面往上伸到屏幕顶端。
-                        // 矮屏照样按剩下的高度压扁,封面居中裁掉上下。
+                        // 矮屏照样按剩下的高度压扁,封面居中裁掉上下;高屏往下多伸一截,左右裁掉一点(#329)。
                         fullBleedArtworkRegion(width: geo.size.width)
-                            .frame(maxHeight: max(0, geo.size.width - Self.portraitGrabberBand(topSafeArea: topSafeArea)))
+                            .frame(maxHeight: Self.fullBleedArtworkRegionLimit(
+                                width: geo.size.width,
+                                topSafeArea: topSafeArea,
+                                extendsBelowSquare: !artworkLyricsFill
+                            ))
                             .layoutPriority(1)
                             .transition(lyricsHandoffArtworkTransition)
                             .zIndex(1)
@@ -5518,9 +5534,16 @@ struct NowPlayingView: View {
 
                     // Song info (player mode only — in lyrics mode it's in the top bar)
                     if !showLyrics {
-                        // 高画布上封面会把可压的空白都吃掉,这一截要定住。
-                        Spacer(minLength: fillsTallCanvas ? 16 : 0)
-                            .frame(maxHeight: 16)
+                        // 铺满封面时歌名贴着进度条,剩下的高度落在封面与歌名之间,和封面下沿那截延伸连成一片(#329)。
+                        // 封面下的歌词选了「自动」时这段高度归歌词,照旧排。
+                        let headingHugsProgress = fullBleedArtwork && !artworkLyricsFill
+                        if headingHugsProgress {
+                            Spacer(minLength: 0)
+                        } else {
+                            // 高画布上封面会把可压的空白都吃掉,这一截要定住。
+                            Spacer(minLength: fillsTallCanvas ? 16 : 0)
+                                .frame(maxHeight: 16)
+                        }
 
                         nowPlayingSongHeader(titleFont: .title3, metadataFont: .body, inlineActions: !usesToolColumn)
                             .matchedLayoutElement(.songHeading, in: layoutNamespace)
@@ -5551,7 +5574,7 @@ struct NowPlayingView: View {
                                 .padding(.horizontal, insets.rows)
                                 .layoutPriority(0.5)
                                 .pmLayoutSwitchFade()
-                        } else {
+                        } else if !headingHugsProgress {
                             Spacer(minLength: 0)
                         }
 
@@ -5567,6 +5590,10 @@ struct NowPlayingView: View {
                                 .padding(.top, Self.artworkLyricHeadingGap)
                                 .padding(.bottom, 4)
                                 .pmLayoutSwitchFade()
+                        }
+                        if headingHugsProgress {
+                            Color.clear
+                                .frame(height: Self.fullBleedHeadingProgressGap)
                         }
                     }
 
@@ -5706,7 +5733,6 @@ struct NowPlayingView: View {
         )
         // 功能块全藏了、或都排进 Duo 竖栏时,下面那一排连同它的间距都不出现(#313)。
         let showsActionRow = !usesToolColumn && !controls.tiles.isEmpty
-        let usesGrabber = audiobookTopBarUsesGrabber(usesToolColumn: usesToolColumn, controls: controls)
         // 最底下那行信息离上面多远:直接跟在传输键下面时留开一些;跟在暖白功能块下面时不再另加,
         // 那一排自己上下已留着空,再加就显得和来源隔得太开(#313)。
         let footerGap: CGFloat
@@ -5749,9 +5775,9 @@ struct NowPlayingView: View {
                         .transition(lyricsPanelTransition)
                         .onDisappear { isLyricsChromeCollapsed = false }
                 } else if style.isNocturne {
-                    // 顶上只剩把手时书名和作者再往上靠一些(#320),多出来的高度落到封面下面。
+                    // 书名到封面这一块上下的空白平分:书名离顶上、封面离当前章节一样远(#329)。
+                    // 只剩把手时也一样,不再把多出来的高度都堆到封面下面。
                     Spacer(minLength: isShort ? 8 : 16)
-                        .frame(maxHeight: usesGrabber ? (isShort ? 8 : 20) : .infinity)
                     AudiobookTitleBlock(style: style) { presentCurrentBook() }
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     AudiobookHeroRowLayout(
@@ -6080,14 +6106,19 @@ struct NowPlayingView: View {
                 guard !player.isLoading else { return }
                 player.togglePlayPause()
             } label: {
+                // 默认的实心圆是设计稿那颗(三角挖出底色);「播放页样式与按钮」里换了样式时和音乐页
+                // 同一种画法,颜色仍用这一版的强调色(#329)。
+                let buttonStyle = playButtonStyle
                 ZStack {
-                    Circle()
-                        .fill(style.accent)
+                    if buttonStyle == .filledCircle {
+                        Circle()
+                            .fill(style.accent)
+                    }
                     if player.showsLoadingIndicator {
                         ProgressView()
-                            .tint(style.onAccent)
+                            .tint(buttonStyle == .filledCircle ? style.onAccent : style.accent)
                             .pmFadeTransition(motion: .control)
-                    } else {
+                    } else if buttonStyle == .filledCircle {
                         Image(systemName: showsPause ? "pause.fill" : "play.fill")
                             .font(.system(size: diameter * 0.36, weight: .semibold))
                             .foregroundStyle(style.onAccent)
@@ -6095,6 +6126,14 @@ struct NowPlayingView: View {
                             .offset(x: showsPause ? 0 : diameter * 0.03)
                             .contentTransition(.symbolEffect(.replace))
                             .pmFadeTransition(motion: .control)
+                    } else {
+                        NowPlayingPlayPauseFace(
+                            style: buttonStyle,
+                            showsPause: showsPause,
+                            diameter: diameter * 0.86,
+                            tint: style.accent
+                        )
+                        .pmFadeTransition(motion: .control)
                     }
                 }
                 .frame(width: diameter, height: diameter)
@@ -6132,9 +6171,10 @@ struct NowPlayingView: View {
         Button {
             if forward { transportForward() } else { transportBackward() }
         } label: {
+            // 和播放键、书名一样亮,跟音乐页的上一首 / 下一首、播客的快退快进同一层级(#329)。
             Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
                 .font(.system(size: 28, weight: .light))
-                .foregroundStyle(style.control(paper: style.primary))
+                .foregroundStyle(style.primary)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 56, height: 56)
                 .contentShape(Rectangle())
@@ -6655,6 +6695,24 @@ struct NowPlayingView: View {
     private static func portraitGrabberBand(topSafeArea: CGFloat) -> CGFloat {
         topSafeArea + 21
     }
+
+    /// 铺满封面从屏幕顶端最多画到屏宽的这么多倍高。高屏上歌名挪去贴着进度条后,封面往下多伸这一截、
+    /// 左右各裁掉约一成(#329);再高的屏多出来的高度留在封面与歌名之间。
+    static let fullBleedArtworkMaxAspect: CGFloat = 1.25
+
+    /// 铺满封面那一块(把手以下)最高多少。`extendsBelowSquare` 为假时(封面下的歌词选了「自动」)
+    /// 照旧最多画成正方形,空白留给歌词。设置里的预览按同一个算法排。
+    static func fullBleedArtworkRegionLimit(
+        width: CGFloat,
+        topSafeArea: CGFloat,
+        extendsBelowSquare: Bool
+    ) -> CGFloat {
+        let aspect = extendsBelowSquare ? fullBleedArtworkMaxAspect : 1
+        return max(0, width * aspect - portraitGrabberBand(topSafeArea: topSafeArea))
+    }
+
+    /// 铺满封面时歌名(或下面那几句歌词)与进度条之间的空白;进度条自己另有 8 的上边距。
+    static let fullBleedHeadingProgressGap: CGFloat = 8
 
     /// 铺满封面在竖版里占的那一块：版面里只占把手以下的高度，封面槽位按底边对齐往上伸出把手那一行，
     /// 从屏幕顶端画起。点封面和卡片封面一样进歌词。
