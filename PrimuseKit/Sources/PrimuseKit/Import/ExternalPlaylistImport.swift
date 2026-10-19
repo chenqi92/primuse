@@ -334,6 +334,34 @@ public struct ExternalPlaylistLink: Hashable, Sendable {
         return .none
     }
 
+    /// 一段文字里贴了好几个歌单（批量导入）：按出现顺序给出每个认得出的链接，同一个歌单只留
+    /// 第一次出现的那条。认不出的网址不算；短链接原样留着，读取时再跟随跳转；已经关站的平台
+    /// 也留着，让那一份在结果里说明原因。每一条都能原样交给单个链接的读取。
+    public static func playlistLinks(in text: String) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for url in urls(in: text) {
+            let key: String
+            switch detect(url: url) {
+            case .playlist(let link):
+                // 酷狗分享页每次分享签名都不同，同一个歌单不能按签名区分。
+                let parameters = link.parameters
+                    .filter { $0.key != "shareQuery" }
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key)=\($0.value)" }
+                key = ([link.platform.rawValue, link.playlistID] + parameters).joined(separator: "|")
+            case .needsRedirect(let shortURL, _):
+                key = shortURL.absoluteString
+            case .discontinued:
+                key = url.absoluteString
+            case .none:
+                continue
+            }
+            if seen.insert(key).inserted { result.append(url.absoluteString) }
+        }
+        return result
+    }
+
     static func urls(in text: String) -> [URL] {
         var result: [URL] = []
         var searchStart = text.startIndex

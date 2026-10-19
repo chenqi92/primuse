@@ -189,3 +189,77 @@ struct PlaylistOperationAvailabilityTests {
         #expect(plan.alreadyPresentCount == 2)
     }
 }
+
+@Suite struct PlaylistBatchImportPolicyTests {
+    private typealias Policy = PlaylistBatchImportPolicy
+
+    private func candidate(
+        _ destination: PlaylistImportDestination,
+        name: String = "Road Trip",
+        target: Bool = true,
+        matched: Int = 10,
+        missing: Int = 2,
+        mergeHasChanges: Bool? = nil
+    ) -> Policy.Candidate {
+        Policy.Candidate(
+            destination: destination,
+            name: name,
+            hasMergeTarget: target,
+            matchedCount: matched,
+            missingCount: missing,
+            mergeHasChanges: mergeHasChanges
+        )
+    }
+
+    @Test func aNewPlaylistNeedsANameAndSomethingToPutInIt() {
+        #expect(Policy.isImportable(candidate(.newPlaylist), keepingMissing: false))
+        #expect(!Policy.isImportable(candidate(.newPlaylist, name: "  \n"), keepingMissing: true))
+        // 一首都没对上: 只有保留置灰时才建得出来。
+        #expect(Policy.isImportable(candidate(.newPlaylist, matched: 0, missing: 3), keepingMissing: true))
+        #expect(!Policy.isImportable(candidate(.newPlaylist, matched: 0, missing: 3), keepingMissing: false))
+        #expect(!Policy.isImportable(candidate(.newPlaylist, matched: 0, missing: 0), keepingMissing: true))
+    }
+
+    @Test func theLikedListOnlyTakesMatchedSongs() {
+        #expect(Policy.isImportable(candidate(.likedSongs, name: ""), keepingMissing: true))
+        #expect(!Policy.isImportable(candidate(.likedSongs, matched: 0, missing: 5), keepingMissing: true))
+    }
+
+    @Test func aMergeNeedsATargetAndSomethingNew() {
+        #expect(Policy.isImportable(candidate(.existingPlaylist), keepingMissing: true))
+        #expect(Policy.isImportable(candidate(.existingPlaylist, mergeHasChanges: true), keepingMissing: true))
+        #expect(!Policy.isImportable(candidate(.existingPlaylist, mergeHasChanges: false), keepingMissing: true))
+        #expect(!Policy.isImportable(candidate(.existingPlaylist, target: false), keepingMissing: true))
+    }
+
+    @Test func eachSkippedCopySaysWhy() {
+        #expect(Policy.skipReason(candidate(.newPlaylist, name: ""), keepingMissing: true) == .missingName)
+        #expect(Policy.skipReason(candidate(.newPlaylist, matched: 0, missing: 4), keepingMissing: false) == .nothingToWrite)
+        #expect(Policy.skipReason(candidate(.likedSongs, matched: 0, missing: 4), keepingMissing: true) == .nothingToWrite)
+        #expect(Policy.skipReason(candidate(.existingPlaylist, target: false), keepingMissing: true) == .missingTarget)
+        #expect(Policy.skipReason(candidate(.existingPlaylist, mergeHasChanges: false), keepingMissing: true) == .nothingNew)
+        #expect(Policy.skipReason(candidate(.existingPlaylist, mergeHasChanges: true), keepingMissing: true) == nil)
+    }
+
+    @Test func theSummaryCountsWhatWillBeWrittenAndWhatIsSkipped() {
+        let summary = Policy.summary([
+            candidate(.newPlaylist, matched: 10, missing: 2),
+            candidate(.newPlaylist, name: "", matched: 4, missing: 1),
+            candidate(.existingPlaylist, matched: 6, missing: 3),
+            candidate(.existingPlaylist, matched: 6, missing: 0, mergeHasChanges: false),
+            candidate(.likedSongs, matched: 5, missing: 7),
+        ], keepingMissing: true)
+        #expect(summary.newPlaylistCount == 1)
+        #expect(summary.mergedPlaylistCount == 1)
+        #expect(summary.likedCount == 1)
+        #expect(summary.importableCount == 3)
+        #expect(summary.skippedCount == 2)
+        #expect(summary.songCount == 21)
+        // 「我喜欢」不留置灰。
+        #expect(summary.pendingCount == 5)
+
+        let withoutPending = Policy.summary([candidate(.newPlaylist, matched: 1, missing: 9)], keepingMissing: false)
+        #expect(withoutPending.pendingCount == 0)
+        #expect(withoutPending.importableCount == 1)
+    }
+}

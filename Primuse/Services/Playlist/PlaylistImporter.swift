@@ -390,6 +390,29 @@ enum PlaylistImporter {
         }
     }
 
+    /// 批量导入里的一份: 按去向转成曲库的写入。名字、目标或内容不满足条件时返回 nil。
+    static func write(
+        from preview: ImportPreview,
+        destination: PlaylistImportDestination,
+        named playlistName: String,
+        mergeTargetID: String?,
+        keepingMissing: Bool
+    ) -> MusicLibrary.PlaylistImportWrite? {
+        switch destination {
+        case .likedSongs:
+            let songIDs = preview.entries.compactMap { $0.matchedSong?.id }
+            return songIDs.isEmpty ? nil : .likedSongs(songIDs: songIDs)
+        case .existingPlaylist:
+            guard let mergeTargetID else { return nil }
+            return .merge(members: members(of: preview, keepingMissing: keepingMissing), playlistID: mergeTargetID)
+        case .newPlaylist:
+            let name = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let members = members(of: preview, keepingMissing: keepingMissing)
+            guard !name.isEmpty, !members.isEmpty else { return nil }
+            return .newPlaylist(name: name, members: members)
+        }
+    }
+
     /// 把 preview 里匹配到的歌曲加入「我喜欢」。已经喜欢的不会重复, 未匹配的
     /// 条目会被丢弃。
     static func addToLikedSongs(from preview: ImportPreview, library: MusicLibrary) {

@@ -76,6 +76,11 @@ struct PlaylistImportView: View {
     @State private var keepMissing = true
     @State private var loadTask: Task<Void, Never>?
     @State private var partialImportNotice: PlaylistPartialImportNotice?
+    /// 批量导入(一次选了几个文件、贴了几个链接): 每份一行, 读完一份显示一份。
+    @State private var batchItems: [BatchImportItem] = []
+    /// 正在单独查看、调整的那一份; 预览区显示的就是它, 回到列表时把改动记回去。
+    @State private var reviewingBatchItemID: UUID?
+    @State private var batchTask: Task<Void, Never>?
 
     enum ImportSourceMode: String, CaseIterable, Identifiable {
         case file
@@ -114,9 +119,10 @@ struct PlaylistImportView: View {
         }
         .fileImporter(
             isPresented: $showFileImporter,
-            allowedContentTypes: importableTypes()
+            allowedContentTypes: importableTypes(),
+            allowsMultipleSelection: true
         ) { result in
-            Task { await handleFile(result) }
+            handleFiles(result)
         }
         .fileExporter(
             isPresented: $showCSVExporter,
@@ -128,8 +134,12 @@ struct PlaylistImportView: View {
                 importError = error.localizedDescription
             }
         }
-        .onDisappear { loadTask?.cancel() }
+        .onDisappear {
+            loadTask?.cancel()
+            batchTask?.cancel()
+        }
         .task(id: mergePlanTrigger) { refreshMergePlan() }
+        .onChange(of: keepMissing) { _, _ in refreshBatchMergePlans() }
         .alert(String(localized: "playlist_import_err_title"),
                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("ok", role: .cancel) {}
@@ -140,7 +150,12 @@ struct PlaylistImportView: View {
         Form {
             // 成对分支: 引导那一侧直接消失、预览这一侧淡入。交叉淡入会让两段
             // 同时排在 Form 里, 把内容顶开再弹回。
-            if preview == nil {
+            if preview == nil, !batchItems.isEmpty {
+                batchSummarySection
+                    .pmAppearFade(.pageSwitch)
+                batchItemsSection
+                    .pmAppearFade(.pageSwitch)
+            } else if preview == nil {
                 sourceModeSection
                     .pmAppearFade(.pageSwitch)
                 switch sourceMode {
@@ -169,9 +184,21 @@ struct PlaylistImportView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("cancel") { dismiss() }
+                if isReviewingBatchItem {
+                    Button { finishReviewingBatchItem() } label: {
+                        Label("back", systemImage: "chevron.backward")
+                    }
+                } else {
+                    Button("cancel") { dismiss() }
+                }
             }
-            if preview == nil, sourceMode == .file {
+            if preview == nil, !batchItems.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { confirmBatch() } label: { Text(verbatim: batchConfirmTitle) }
+                        .fontWeight(.semibold)
+                        .disabled(!canConfirmBatch)
+                }
+            } else if preview == nil, sourceMode == .file {
                 // 没选文件时, 顶部一个明显的「选择文件」入口 —— Form 内的
                 // .borderedProminent 按钮在 iOS 26 偶尔渲染成跟背景同色看
                 // 不见, 工具栏入口更稳。
@@ -181,6 +208,11 @@ struct PlaylistImportView: View {
                     } label: {
                         Label("playlist_import_pick_file", systemImage: "folder")
                     }
+                }
+            } else if isReviewingBatchItem {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("done") { finishReviewingBatchItem() }
+                        .fontWeight(.semibold)
                 }
             } else if preview != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -194,18 +226,21 @@ struct PlaylistImportView: View {
 
     /// 加入「我喜欢」不需要名字, 至少要匹配到一首; 新建歌单需要名字, 保留置灰条目时
     /// 一首都没对上也可以建 —— 以后曲库里有了会自己亮。
+    /// 和批量导入的每一份是同一套规则(`PlaylistBatchImportPolicy`)。
     private var canConfirmImport: Bool {
         guard !isParsing, let preview else { return false }
-        switch destination {
-        case .likedSongs:
-            return preview.matchedCount > 0
-        case .existingPlaylist:
-            // 全都已经在歌单里时没什么可合并的。
-            return mergeTargetID != nil && mergePlan?.hasChanges == true
-        case .newPlaylist:
-            guard !playlistName.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-            return preview.matchedCount > 0 || (keepsMissingEntries && !preview.entries.isEmpty)
-        }
+        return PlaylistBatchImportPolicy.isImportable(
+            .init(
+                destination: destination,
+                name: playlistName,
+                hasMergeTarget: mergeTargetID != nil,
+                matchedCount: preview.matchedCount,
+                missingCount: preview.missingCount,
+                // 全都已经在歌单里时没什么可合并的; 预估还没算出来时也先不让点。
+                mergeHasChanges: mergePlan?.hasChanges ?? false
+            ),
+            keepingMissing: keepMissing
+        )
     }
 
     private var keepsMissingEntries: Bool {
@@ -238,13 +273,13 @@ struct PlaylistImportView: View {
         PlaylistImportMergePolicy.Target(id: playlist.id, name: playlist.name, updatedAt: playlist.updatedAt)
     }
 
-    /// 新预览出来时选好默认的合并目标。返回有没有同名的歌单, 用来预选去向。
-    private func prepareMergeTarget(importedName: String) -> Bool {
+    /// 新预览默认合并进哪个歌单, 以及有没有和它同名的(用来预选去向)。
+    private func defaultMergeTarget(importedName: String) -> (id: String?, hasSameName: Bool) {
         let targets = library.playlistImportMergeTargets.map(Self.mergeTarget)
         let sameName = PlaylistImportMergePolicy.sameNameTargets(targets, importedName: importedName)
-        mergeTargetID = sameName.first?.id
+        let id = sameName.first?.id
             ?? PlaylistImportMergePolicy.orderedTargets(targets, importedName: importedName).first?.id
-        return !sameName.isEmpty
+        return (id, !sameName.isEmpty)
     }
 
     /// 选择器里的一行。重复导入过几次的人会有好几个同名歌单, 带上首数才分得清。
@@ -361,6 +396,9 @@ struct PlaylistImportView: View {
                 if let preview {
                     macPreview(preview)
                         .pmAppearFade(.pageSwitch)
+                } else if !batchItems.isEmpty {
+                    macBatchList
+                        .pmAppearFade(.pageSwitch)
                 } else {
                     macIntro
                         .pmAppearFade(.pageSwitch)
@@ -390,7 +428,7 @@ struct PlaylistImportView: View {
                 Text("playlist_import_title")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text(verbatim: preview == nil ? String(localized: "playlist_import_mac_subtitle") : importedFromName)
+                Text(verbatim: macHeaderSubtitle)
                     .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -416,6 +454,14 @@ struct PlaylistImportView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 18)
+    }
+
+    private var macHeaderSubtitle: String {
+        if preview != nil { return importedFromName }
+        if !batchItems.isEmpty {
+            return String(format: String(localized: "playlist_import_batch_count_format"), batchItems.count)
+        }
+        return String(localized: "playlist_import_mac_subtitle")
     }
 
     private var macIntro: some View {
@@ -448,6 +494,10 @@ struct PlaylistImportView: View {
             Text("playlist_import_link_desc")
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("playlist_import_link_batch_hint")
+                .font(.system(size: 12.5))
+                .foregroundStyle(PMColor.textFaint)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("playlist_import_link_placeholder", text: $linkText, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -565,6 +615,10 @@ struct PlaylistImportView: View {
             Text("playlist_import_mac_intro_desc")
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
+                .multilineTextAlignment(.center)
+            Text("playlist_import_file_batch_hint")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textFaint)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 8) {
@@ -800,7 +854,7 @@ struct PlaylistImportView: View {
                 .frame(height: 28)
                 .padding(.horizontal, 12)
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-            } else if preview != nil, sourceMode == .file {
+            } else if preview != nil, sourceMode == .file, !isReviewingBatchItem {
                 Button {
                     showFileImporter = true
                 } label: {
@@ -816,17 +870,37 @@ struct PlaylistImportView: View {
 
             Spacer()
 
-            Button("cancel") { dismiss() }
-                .font(.system(size: 12, weight: .medium))
-                .buttonStyle(.plain)
-                .foregroundStyle(PMColor.text)
-                .frame(height: 28)
-                .padding(.horizontal, 14)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            if isReviewingBatchItem {
+                Button("back") { finishReviewingBatchItem() }
+                    .font(.system(size: 12, weight: .medium))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(PMColor.text)
+                    .frame(height: 28)
+                    .padding(.horizontal, 14)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                    .keyboardShortcut(.cancelAction)
+            } else {
+                Button("cancel") { dismiss() }
+                    .font(.system(size: 12, weight: .medium))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(PMColor.text)
+                    .frame(height: 28)
+                    .padding(.horizontal, 14)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            }
 
             // 引导态的「选择文件」主按钮在内容区里, 这里底栏不再重复; 只有
             // 解析出预览后才在底栏放「仅创建已匹配」主操作。
-            if let preview {
+            if isReviewingBatchItem {
+                macFooterPrimaryButton(title: String(localized: "done"), enabled: true) {
+                    finishReviewingBatchItem()
+                }
+                .keyboardShortcut(.defaultAction)
+            } else if preview == nil, !batchItems.isEmpty {
+                macFooterPrimaryButton(title: batchConfirmTitle, enabled: canConfirmBatch) {
+                    confirmBatch()
+                }
+            } else if let preview {
                 Button {
                     confirm()
                 } label: {
@@ -843,6 +917,23 @@ struct PlaylistImportView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    private func macFooterPrimaryButton(
+        title: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(verbatim: title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(height: 28)
+                .padding(.horizontal, 14)
+                .background(enabled ? PMColor.brand : PMColor.textFaint.opacity(0.45), in: .rect(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private func macConfirmTitle(matchedCount: Int) -> String {
@@ -986,6 +1077,10 @@ struct PlaylistImportView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                Text("playlist_import_file_batch_hint")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
                 if isParsing {
                     ProgressView { Text("scanning") }
                         .padding(.top, 8)
@@ -1050,7 +1145,10 @@ struct PlaylistImportView: View {
                 }
             }
         } footer: {
-            Text("playlist_import_link_desc")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("playlist_import_link_desc")
+                Text("playlist_import_link_batch_hint")
+            }
         }
     }
 
@@ -1266,80 +1364,132 @@ struct PlaylistImportView: View {
 
     // MARK: - Actions
 
-    private func handleFile(_ result: Result<URL, Error>) async {
+    private func handleFiles(_ result: Result<[URL], Error>) {
         switch result {
-        case .success(let url):
-            guard !isParsing else { return }
-            let fileExtension = url.pathExtension.lowercased()
-            if ExternalPlaylistFileParser.supportedExtensions.contains(fileExtension) {
-                // 其他播放器导出的文件：和分享链接、文本清单走同一条匹配与预览。
-                do {
-                    let data = try readImportData(url)
-                    let fileName = url.deletingPathExtension().lastPathComponent
-                    let fallbackText = Self.legacyChineseText(data)
-                    startExternalImport {
-                        do {
-                            return try ExternalPlaylistFileParser.parse(
-                                data: data, fileExtension: fileExtension, fileName: fileName, fallbackText: fallbackText
-                            )
-                        } catch ExternalPlaylistError.empty {
-                            throw OffMainImportError.empty
-                        } catch {
-                            throw OffMainImportError.unsupportedFormat
-                        }
-                    }
-                } catch {
-                    importError = error.localizedDescription
-                }
+        case .success(let urls):
+            guard !isParsing, !urls.isEmpty else { return }
+            guard urls.count > 1 else {
+                importFile(urls[0])
                 return
             }
-            // 主线程只负责拍 songs 快照 + 读文件字节 (security-scoped 访问要
-            // 在主线程短暂持有), 解析 + 库匹配 (O(条目数×库) 带 folding)
-            // 全部丢到后台跑, 否则 1000 条对 5 万首库会冻结 UI 数秒。
-            // 匹配池用 visibleSongs(排除停用源), 与歌单展示 / 手动匹配口径一致 ——
-            // 命中停用源的歌写进歌单后 songs(forPlaylist:) 也看不到。
-            let snapshot = library.visibleSongs
-            let keyCache = library.playlistEntryMatchKeyCache
-            isParsing = true
-            defer { isParsing = false }
-            do {
-                let data = try readImportData(url)
-                let ext = url.pathExtension.lowercased()
-                let fileName = url.deletingPathExtension().lastPathComponent
-                let raw = try await Task.detached(priority: .userInitiated) {
-                    let parsed = try Self.parseAndMatchOffMain(data: data, ext: ext, fileName: fileName, songs: snapshot)
-                    return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
-                }.value
-                // @MainActor 隔离的 ImportEntry/ImportPreview 只能在主线程构造,
-                // 但这一步是 O(条目数) 纯映射 (无 folding/全库扫描), 不卡 UI。
-                let p = PlaylistImporter.ImportPreview(
-                    suggestedName: raw.suggestedName,
-                    entries: raw.matches.map { m in
-                        PlaylistImporter.ImportEntry(
-                            displayTitle: m.displayTitle,
-                            displayArtist: m.displayArtist,
-                            matchedSong: m.matchedSong,
-                            matchKind: m.matchKindRaw.flatMap { PlaylistImporter.ImportEntry.MatchKind(rawValue: $0) },
-                            suggestedSong: m.suggestedSong
-                        )
-                    }
-                )
-                preview = p
-                playlistName = p.suggestedName
-                destination = PlaylistImportDestinationPolicy.suggestedDestination(
-                    kindMarker: raw.kindMarker,
-                    playlistName: raw.suggestedName,
-                    likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage(),
-                    hasSameNamePlaylist: prepareMergeTarget(importedName: p.suggestedName)
-                )
-                importedFromName = fileName
-                partialImportNotice = nil
-            } catch {
-                importError = error.localizedDescription
-            }
+            // 字节趁现在读出来: 选择器给的访问权限只在这一刻稳妥。
+            startBatch(urls.map(batchSource(forFile:)))
         case .failure(let error):
             importError = error.localizedDescription
         }
+    }
+
+    private func importFile(_ url: URL) {
+        let name = url.deletingPathExtension().lastPathComponent
+        let fileExtension = url.pathExtension.lowercased()
+        let data: Data
+        do {
+            data = try readImportData(url)
+        } catch {
+            importError = error.localizedDescription
+            return
+        }
+        runSingleImport { try await prepareFile(name: name, fileExtension: fileExtension, data: data) }
+    }
+
+    /// 一份读好、对过曲库的歌单, 连同预选的去向。单个导入的预览和批量导入的每一行都从它来。
+    private struct PreparedImport {
+        var preview: PlaylistImporter.ImportPreview
+        let destination: PlaylistImportDestination
+        let mergeTargetID: String?
+        /// 头部副标题: 文件名或平台名。
+        let originName: String
+        let partialNotice: PlaylistPartialImportNotice?
+    }
+
+    /// 单个导入: 读完直接进预览。
+    private func runSingleImport(_ prepare: @escaping @MainActor () async throws -> PreparedImport) {
+        guard !isParsing else { return }
+        loadTask?.cancel()
+        preview = nil
+        partialImportNotice = nil
+        isParsing = true
+        loadTask = Task {
+            defer {
+                isParsing = false
+                loadTask = nil
+            }
+            do {
+                let prepared = try await prepare()
+                guard !Task.isCancelled else { return }
+                present(prepared)
+            } catch is CancellationError {
+                return
+            } catch {
+                importError = error.localizedDescription
+            }
+        }
+    }
+
+    private func present(_ prepared: PreparedImport) {
+        preview = prepared.preview
+        playlistName = prepared.preview.suggestedName
+        mergeTargetID = prepared.mergeTargetID
+        destination = prepared.destination
+        importedFromName = prepared.originName
+        partialImportNotice = prepared.partialNotice
+    }
+
+    /// 读一个歌单文件并和曲库匹配。不碰界面状态。
+    private func prepareFile(name: String, fileExtension: String, data: Data) async throws -> PreparedImport {
+        if ExternalPlaylistFileParser.supportedExtensions.contains(fileExtension) {
+            // 其他播放器导出的文件：和分享链接、文本清单走同一条匹配与预览。
+            let fallbackText = Self.legacyChineseText(data)
+            return try await prepareExternal(allowsSameNameMerge: true) {
+                do {
+                    return try ExternalPlaylistFileParser.parse(
+                        data: data, fileExtension: fileExtension, fileName: name, fallbackText: fallbackText
+                    )
+                } catch ExternalPlaylistError.empty {
+                    throw OffMainImportError.empty
+                } catch {
+                    throw OffMainImportError.unsupportedFormat
+                }
+            }
+        }
+        // 主线程只负责拍 songs 快照, 解析 + 库匹配 (O(条目数×库) 带 folding)
+        // 全部丢到后台跑, 否则 1000 条对 5 万首库会冻结 UI 数秒。
+        // 匹配池用 visibleSongs(排除停用源), 与歌单展示 / 手动匹配口径一致 ——
+        // 命中停用源的歌写进歌单后 songs(forPlaylist:) 也看不到。
+        let snapshot = library.visibleSongs
+        let keyCache = library.playlistEntryMatchKeyCache
+        let raw = try await Task.detached(priority: .userInitiated) {
+            let parsed = try Self.parseAndMatchOffMain(data: data, ext: fileExtension, fileName: name, songs: snapshot)
+            return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
+        }.value
+        try Task.checkCancellation()
+        // @MainActor 隔离的 ImportEntry/ImportPreview 只能在主线程构造,
+        // 但这一步是 O(条目数) 纯映射 (无 folding/全库扫描), 不卡 UI。
+        let preview = PlaylistImporter.ImportPreview(
+            suggestedName: raw.suggestedName,
+            entries: raw.matches.map { m in
+                PlaylistImporter.ImportEntry(
+                    displayTitle: m.displayTitle,
+                    displayArtist: m.displayArtist,
+                    matchedSong: m.matchedSong,
+                    matchKind: m.matchKindRaw.flatMap { PlaylistImporter.ImportEntry.MatchKind(rawValue: $0) },
+                    suggestedSong: m.suggestedSong
+                )
+            }
+        )
+        let mergeTarget = defaultMergeTarget(importedName: preview.suggestedName)
+        return PreparedImport(
+            preview: preview,
+            destination: PlaylistImportDestinationPolicy.suggestedDestination(
+                kindMarker: raw.kindMarker,
+                playlistName: raw.suggestedName,
+                likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage(),
+                hasSameNamePlaylist: mergeTarget.hasSameName
+            ),
+            mergeTargetID: mergeTarget.id,
+            originName: name,
+            partialNotice: nil
+        )
     }
 
     /// Excel 等在中文系统上存的 CSV 常是 GB18030，不是 UTF-8。
@@ -1685,15 +1835,24 @@ struct PlaylistImportView: View {
                     .foregroundStyle(.orange)
             }
             if sourceMode == .link, notice.reason != .publicPreview {
-                Button("playlist_import_retry_link") { importFromLink() }
+                Button("playlist_import_retry_link") { retryPartialImport() }
                     .disabled(isParsing || !notice.reason.canRetry(at: now))
             }
         }
     }
 
     private func importFromLink() {
+        let links = ExternalPlaylistLink.playlistLinks(in: linkText)
+        guard links.count <= 1 else {
+            startBatch(links.map { .link($0) })
+            return
+        }
         let text = linkText
-        startExternalImport { try await ExternalPlaylistFetcher.fetch(sharedText: text) }
+        runSingleImport {
+            try await prepareExternal(allowsSameNameMerge: true) {
+                try await ExternalPlaylistFetcher.fetch(sharedText: text)
+            }
+        }
     }
 
     private func importFromText() {
@@ -1707,65 +1866,54 @@ struct PlaylistImportView: View {
             platform: nil,
             tracks: tracks
         )
-        startExternalImport { playlist }
+        // 文本清单用的是统一的默认名, 同名不说明是同一份歌单。
+        runSingleImport { try await prepareExternal(allowsSameNameMerge: false) { playlist } }
     }
 
-    /// 读取(可能要联网)→ 后台和曲库匹配 → 出预览。和文件导入共用预览与确认。
-    private func startExternalImport(_ load: @escaping @Sendable () async throws -> ExternalPlaylist) {
-        guard !isParsing else { return }
+    /// 读取(可能要联网)→ 后台和曲库匹配。和文件导入共用预览与确认。
+    private func prepareExternal(
+        allowsSameNameMerge: Bool,
+        _ load: @Sendable () async throws -> ExternalPlaylist
+    ) async throws -> PreparedImport {
         let snapshot = library.visibleSongs
         let keyCache = library.playlistEntryMatchKeyCache
-        preview = nil
-        partialImportNotice = nil
-        isParsing = true
-        loadTask = Task {
-            defer {
-                isParsing = false
-                loadTask = nil
-            }
-            do {
-                let playlist = try await load()
-                let rows = await Task.detached(priority: .userInitiated) {
-                    Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
-                }.value
-                guard !Task.isCancelled else { return }
-                let origin = playlist.platform?.rawValue ?? "text"
-                let p = PlaylistImporter.ImportPreview(
-                    suggestedName: playlist.name.isEmpty
-                        ? String(localized: "playlist_import_text_default_name")
-                        : playlist.name,
-                    entries: rows.map { row in
-                        PlaylistImporter.ImportEntry(
-                            displayTitle: row.track.title,
-                            displayArtist: row.track.artists.isEmpty ? nil : row.track.artistLine,
-                            matchedSong: row.matched,
-                            matchKind: row.matched == nil ? nil : .fuzzy,
-                            suggestedSong: row.suggested,
-                            pendingTemplate: PlaylistPendingEntry(
-                                title: row.track.title,
-                                artists: row.track.artists,
-                                album: row.track.album,
-                                duration: row.track.duration,
-                                origin: origin,
-                                externalID: row.track.externalID
-                            )
-                        )
-                    }
+        let playlist = try await load()
+        let rows = await Task.detached(priority: .userInitiated) {
+            Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
+        }.value
+        try Task.checkCancellation()
+        let origin = playlist.platform?.rawValue ?? "text"
+        let preview = PlaylistImporter.ImportPreview(
+            suggestedName: playlist.name.isEmpty
+                ? String(localized: "playlist_import_text_default_name")
+                : playlist.name,
+            entries: rows.map { row in
+                PlaylistImporter.ImportEntry(
+                    displayTitle: row.track.title,
+                    displayArtist: row.track.artists.isEmpty ? nil : row.track.artistLine,
+                    matchedSong: row.matched,
+                    matchKind: row.matched == nil ? nil : .fuzzy,
+                    suggestedSong: row.suggested,
+                    pendingTemplate: PlaylistPendingEntry(
+                        title: row.track.title,
+                        artists: row.track.artists,
+                        album: row.track.album,
+                        duration: row.track.duration,
+                        origin: origin,
+                        externalID: row.track.externalID
+                    )
                 )
-                preview = p
-                playlistName = p.suggestedName
-                let hasSameName = prepareMergeTarget(importedName: p.suggestedName)
-                // 文本清单用的是统一的默认名, 同名不说明是同一份歌单。
-                destination = hasSameName && sourceMode != .text ? .existingPlaylist : .newPlaylist
-                importedFromName = playlist.platform.map(platformName) ?? p.suggestedName
-                partialImportNotice = PlaylistPartialImportNotice(playlist: playlist,
-                    platformName: playlist.platform.map(platformName) ?? "")
-            } catch is CancellationError {
-                return
-            } catch {
-                importError = error.localizedDescription
             }
-        }
+        )
+        let mergeTarget = defaultMergeTarget(importedName: preview.suggestedName)
+        let platformLabel = playlist.platform.map(platformName)
+        return PreparedImport(
+            preview: preview,
+            destination: mergeTarget.hasSameName && allowsSameNameMerge ? .existingPlaylist : .newPlaylist,
+            mergeTargetID: mergeTarget.id,
+            originName: platformLabel ?? preview.suggestedName,
+            partialNotice: PlaylistPartialImportNotice(playlist: playlist, platformName: platformLabel ?? "")
+        )
     }
 
     private func platformName(_ platform: ExternalPlaylistPlatform) -> String {
@@ -1939,6 +2087,676 @@ struct PlaylistImportView: View {
     private func applyManualMatch(entry: PlaylistImporter.ImportEntry, song: Song) {
         applyMatch(entry: entry, song: song)
         manualMatchEntry = nil
+    }
+    #endif
+
+    // MARK: - Batch import
+
+    /// 批量导入的一个来源: 读好的文件字节、读不了的文件, 或者一条链接。
+    private enum BatchImportSource {
+        case file(name: String, fileExtension: String, data: Data)
+        case unreadableFile(name: String, message: String)
+        case link(String)
+    }
+
+    private struct BatchImportItem: Identifiable {
+        let id = UUID()
+        let source: BatchImportSource
+        var phase: Phase
+        var isIncluded = true
+        var name = ""
+        var destination: PlaylistImportDestination = .newPlaylist
+        var mergeTargetID: String?
+        /// 去向是合并时的预估, 和单个导入一样按「保留未匹配」算; 目标歌单不在了时为 nil。
+        var mergePlan: PlaylistImportMergePolicy.Plan?
+
+        enum Phase {
+            case waiting
+            case loading
+            case ready(PreparedImport)
+            case failed(String)
+        }
+
+        init(source: BatchImportSource) {
+            self.source = source
+            if case .unreadableFile(_, let message) = source {
+                phase = .failed(message)
+            } else {
+                phase = .waiting
+            }
+        }
+
+        var prepared: PreparedImport? {
+            if case .ready(let prepared) = phase { return prepared }
+            return nil
+        }
+
+        var isWaiting: Bool {
+            if case .waiting = phase { return true }
+            return false
+        }
+
+        var isFailed: Bool {
+            if case .failed = phase { return true }
+            return false
+        }
+
+        var isSettled: Bool { prepared != nil || isFailed }
+
+        /// 读出来之前显示文件名或链接, 读出来之后显示(可能改过的)歌单名。
+        var title: String {
+            if prepared != nil, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return name }
+            switch source {
+            case .file(let name, _, _), .unreadableFile(let name, _): return name
+            case .link(let link): return link
+            }
+        }
+
+        /// 链接读失败、或只读到一部分时可以再读一次; 文件内容不会变, 读不了就是读不了。
+        var canRetry: Bool {
+            guard case .link = source else { return false }
+            switch phase {
+            case .failed:
+                return true
+            case .ready(let prepared):
+                guard let notice = prepared.partialNotice else { return false }
+                return notice.reason != .publicPreview
+            case .waiting, .loading:
+                return false
+            }
+        }
+    }
+
+    private struct BatchImportFailure: LocalizedError {
+        let errorDescription: String?
+    }
+
+    private var isReviewingBatchItem: Bool { reviewingBatchItemID != nil }
+
+    private func batchSource(forFile url: URL) -> BatchImportSource {
+        let name = url.deletingPathExtension().lastPathComponent
+        do {
+            return .file(name: name, fileExtension: url.pathExtension.lowercased(), data: try readImportData(url))
+        } catch {
+            return .unreadableFile(name: name, message: error.localizedDescription)
+        }
+    }
+
+    private func startBatch(_ sources: [BatchImportSource]) {
+        guard !isParsing, !sources.isEmpty else { return }
+        loadTask?.cancel()
+        preview = nil
+        reviewingBatchItemID = nil
+        partialImportNotice = nil
+        mergePlan = nil
+        batchItems = sources.map(BatchImportItem.init(source:))
+        loadWaitingBatchItems()
+    }
+
+    /// 一份一份地读: 链接要联网, 同一个平台连着请求太密会被对方断开; 文件对曲库也是重活。
+    /// 读的过程中有行重新排进来(重试)也会接着读到。
+    private func loadWaitingBatchItems() {
+        guard batchTask == nil else { return }
+        isParsing = true
+        batchTask = Task {
+            defer {
+                isParsing = false
+                batchTask = nil
+            }
+            while !Task.isCancelled, let item = batchItems.first(where: \.isWaiting) {
+                let id = item.id
+                updateBatchItem(id) { $0.phase = .loading }
+                do {
+                    let prepared = try await prepareBatchSource(item.source)
+                    updateBatchItem(id) { item in
+                        item.phase = .ready(prepared)
+                        item.name = prepared.preview.suggestedName
+                        item.destination = prepared.destination
+                        item.mergeTargetID = prepared.mergeTargetID
+                    }
+                    refreshBatchMergePlan(id)
+                } catch is CancellationError {
+                    updateBatchItem(id) { $0.phase = .waiting }
+                    return
+                } catch {
+                    updateBatchItem(id) { $0.phase = .failed(error.localizedDescription) }
+                }
+            }
+        }
+    }
+
+    private func prepareBatchSource(_ source: BatchImportSource) async throws -> PreparedImport {
+        switch source {
+        case .file(let name, let fileExtension, let data):
+            return try await prepareFile(name: name, fileExtension: fileExtension, data: data)
+        case .unreadableFile(_, let message):
+            throw BatchImportFailure(errorDescription: message)
+        case .link(let link):
+            return try await prepareExternal(allowsSameNameMerge: true) {
+                try await ExternalPlaylistFetcher.fetch(sharedText: link)
+            }
+        }
+    }
+
+    private func updateBatchItem(_ id: UUID, _ change: (inout BatchImportItem) -> Void) {
+        guard let index = batchItems.firstIndex(where: { $0.id == id }) else { return }
+        change(&batchItems[index])
+    }
+
+    private func retryBatchItem(_ id: UUID) {
+        guard batchItems.first(where: { $0.id == id })?.canRetry == true else { return }
+        updateBatchItem(id) { item in
+            item.phase = .waiting
+            item.mergePlan = nil
+        }
+        loadWaitingBatchItems()
+    }
+
+    /// 只读到一部分时再读一次。批量里正在查看的那一份只重读它自己。
+    private func retryPartialImport() {
+        guard let id = reviewingBatchItemID else {
+            importFromLink()
+            return
+        }
+        finishReviewingBatchItem()
+        retryBatchItem(id)
+    }
+
+    private func refreshBatchMergePlan(_ id: UUID) {
+        updateBatchItem(id) { item in
+            guard item.destination == .existingPlaylist,
+                  let prepared = item.prepared,
+                  let targetID = item.mergeTargetID else {
+                item.mergePlan = nil
+                return
+            }
+            item.mergePlan = library.playlistImportMergePlan(
+                PlaylistImporter.members(of: prepared.preview, keepingMissing: keepMissing),
+                intoPlaylist: targetID
+            )
+        }
+    }
+
+    private func refreshBatchMergePlans() {
+        for item in batchItems where item.destination == .existingPlaylist {
+            refreshBatchMergePlan(item.id)
+        }
+    }
+
+    /// 打开某一份的预览, 用单个导入那一页调整匹配、名字和去向。
+    private func reviewBatchItem(_ id: UUID) {
+        guard let item = batchItems.first(where: { $0.id == id }), let prepared = item.prepared else { return }
+        reviewingBatchItemID = id
+        preview = prepared.preview
+        playlistName = item.name
+        mergeTargetID = item.mergeTargetID
+        destination = item.destination
+        importedFromName = prepared.originName
+        partialImportNotice = prepared.partialNotice
+    }
+
+    /// 回到列表: 改过的匹配、名字和去向记回这一份。
+    private func finishReviewingBatchItem() {
+        guard let id = reviewingBatchItemID else { return }
+        updateBatchItem(id) { item in
+            if var prepared = item.prepared, let preview {
+                prepared.preview = preview
+                item.phase = .ready(prepared)
+            }
+            item.name = playlistName
+            item.destination = destination
+            item.mergeTargetID = mergeTargetID
+        }
+        refreshBatchMergePlan(id)
+        reviewingBatchItemID = nil
+        preview = nil
+        partialImportNotice = nil
+        mergePlan = nil
+    }
+
+    private func batchCandidate(_ item: BatchImportItem) -> PlaylistBatchImportPolicy.Candidate? {
+        guard let prepared = item.prepared else { return nil }
+        return PlaylistBatchImportPolicy.Candidate(
+            destination: item.destination,
+            name: item.name,
+            hasMergeTarget: item.mergeTargetID != nil && item.mergePlan != nil,
+            matchedCount: prepared.preview.matchedCount,
+            missingCount: prepared.preview.missingCount,
+            mergeHasChanges: item.mergePlan?.hasChanges
+        )
+    }
+
+    private var batchSummary: PlaylistBatchImportPolicy.Summary {
+        PlaylistBatchImportPolicy.summary(
+            batchItems.filter(\.isIncluded).compactMap(batchCandidate),
+            keepingMissing: keepMissing
+        )
+    }
+
+    /// 还在读的时候不能确认: 写入是一次性的, 读到一半的那几份会被丢下。
+    private var canConfirmBatch: Bool {
+        !isParsing && batchSummary.importableCount > 0
+    }
+
+    private var batchConfirmTitle: String {
+        String(format: String(localized: "playlist_import_batch_confirm_format"), batchSummary.importableCount)
+    }
+
+    private func confirmBatch() {
+        guard canConfirmBatch else { return }
+        let writes = batchItems.compactMap { item -> MusicLibrary.PlaylistImportWrite? in
+            guard item.isIncluded,
+                  let prepared = item.prepared,
+                  let candidate = batchCandidate(item),
+                  PlaylistBatchImportPolicy.isImportable(candidate, keepingMissing: keepMissing)
+            else { return nil }
+            return PlaylistImporter.write(
+                from: prepared.preview,
+                destination: item.destination,
+                named: item.name,
+                mergeTargetID: item.mergeTargetID,
+                keepingMissing: keepMissing
+            )
+        }
+        guard !writes.isEmpty else { return }
+        library.importPlaylists(writes)
+        dismiss()
+    }
+
+    private var batchProgressText: String {
+        String(
+            format: String(localized: "playlist_import_batch_progress_format"),
+            batchItems.filter(\.isSettled).count,
+            batchItems.count
+        )
+    }
+
+    /// 底部说明: 去向、歌曲数、失败与跳过, 各占一行。
+    private var batchSummaryLines: [String] {
+        let summary = batchSummary
+        func formatted(_ key: String.LocalizationValue, _ count: Int) -> String {
+            String(format: String(localized: key), count)
+        }
+        var destinations: [String] = []
+        if summary.newPlaylistCount > 0 {
+            destinations.append(formatted("playlist_import_batch_new_format", summary.newPlaylistCount))
+        }
+        if summary.mergedPlaylistCount > 0 {
+            destinations.append(formatted("playlist_import_batch_merge_format", summary.mergedPlaylistCount))
+        }
+        if summary.likedCount > 0 {
+            destinations.append(String(
+                format: String(localized: "playlist_import_batch_liked_format"),
+                summary.likedCount,
+                String(localized: "playlist_liked_name")
+            ))
+        }
+        var songs: [String] = []
+        if summary.songCount > 0 { songs.append(formatted("playlist_import_batch_songs_format", summary.songCount)) }
+        if summary.pendingCount > 0 { songs.append(formatted("playlist_import_batch_pending_format", summary.pendingCount)) }
+        var problems: [String] = []
+        let failedCount = batchItems.filter(\.isFailed).count
+        if failedCount > 0 { problems.append(formatted("playlist_import_batch_failed_format", failedCount)) }
+        if summary.skippedCount > 0 { problems.append(formatted("playlist_import_batch_skipped_format", summary.skippedCount)) }
+        return [destinations, songs, problems]
+            .filter { !$0.isEmpty }
+            .map { $0.joined(separator: " · ") }
+    }
+
+    /// 只有某一份真有没对上的歌、又不是去「我喜欢」时才需要这个开关。
+    private var batchHasMissingEntries: Bool {
+        batchItems.contains { item in
+            item.destination != .likedSongs && (item.prepared?.preview.missingCount ?? 0) > 0
+        }
+    }
+
+    private var allReadyBatchItemsIncluded: Bool {
+        batchItems.allSatisfy { $0.prepared == nil || $0.isIncluded }
+    }
+
+    private var batchSelectAllKey: LocalizedStringKey {
+        allReadyBatchItemsIncluded ? "batch_deselect_all" : "batch_select_all"
+    }
+
+    private func toggleAllBatchItems() {
+        let included = !allReadyBatchItemsIncluded
+        for index in batchItems.indices { batchItems[index].isIncluded = included }
+    }
+
+    private func batchInclusionBinding(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { batchItems.first { $0.id == id }?.isIncluded ?? false },
+            set: { included in updateBatchItem(id) { $0.isIncluded = included } }
+        )
+    }
+
+    private func batchDestinationText(_ item: BatchImportItem) -> String {
+        switch item.destination {
+        case .newPlaylist:
+            return String(localized: "new_playlist")
+        case .existingPlaylist:
+            let target = item.mergeTargetID.flatMap { id in library.playlists.first { $0.id == id }?.name } ?? ""
+            return String(format: String(localized: "playlist_import_batch_merge_into_format"), target)
+        case .likedSongs:
+            return String(
+                format: String(localized: "playlist_import_batch_into_liked_format"),
+                String(localized: "playlist_liked_name")
+            )
+        }
+    }
+
+    /// 勾选了却不会写进去的那一份, 说明原因。
+    private func batchSkipText(_ item: BatchImportItem) -> String? {
+        guard item.isIncluded,
+              let candidate = batchCandidate(item),
+              let reason = PlaylistBatchImportPolicy.skipReason(candidate, keepingMissing: keepMissing)
+        else { return nil }
+        switch reason {
+        case .missingName: return String(localized: "playlist_import_batch_skip_name")
+        case .nothingToWrite: return String(localized: "playlist_import_batch_skip_empty")
+        case .nothingNew: return String(localized: "playlist_import_batch_skip_nothing_new")
+        case .missingTarget: return String(localized: "playlist_import_batch_skip_target")
+        }
+    }
+
+    private var batchDetailFont: Font {
+        #if os(macOS)
+        .system(size: 11)
+        #else
+        .caption
+        #endif
+    }
+
+    private var batchDetailColor: Color {
+        #if os(macOS)
+        PMColor.textFaint
+        #else
+        .secondary
+        #endif
+    }
+
+    private var batchErrorColor: Color {
+        #if os(macOS)
+        PMColor.bad
+        #else
+        .red
+        #endif
+    }
+
+    private var batchWarningColor: Color {
+        #if os(macOS)
+        PMColor.warn
+        #else
+        .orange
+        #endif
+    }
+
+    @ViewBuilder
+    private func batchRowDetail(_ item: BatchImportItem) -> some View {
+        switch item.phase {
+        case .waiting:
+            Text("playlist_import_batch_waiting")
+                .font(batchDetailFont)
+                .foregroundStyle(batchDetailColor)
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("scanning")
+            }
+            .font(batchDetailFont)
+            .foregroundStyle(batchDetailColor)
+        case .failed(let message):
+            Text(verbatim: message)
+                .font(batchDetailFont)
+                .foregroundStyle(batchErrorColor)
+                .lineLimit(3)
+        case .ready(let prepared):
+            Text(verbatim: [
+                String(
+                    format: String(localized: "playlist_import_batch_row_counts_format"),
+                    prepared.preview.matchedCount,
+                    prepared.preview.entries.count
+                ),
+                batchDestinationText(item),
+            ].joined(separator: " · "))
+                .font(batchDetailFont)
+                .foregroundStyle(batchDetailColor)
+                .lineLimit(1)
+            if let skip = batchSkipText(item) {
+                Text(verbatim: skip)
+                    .font(batchDetailFont)
+                    .foregroundStyle(batchWarningColor)
+            }
+            if let notice = prepared.partialNotice {
+                batchNoticeText(notice)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func batchNoticeText(_ notice: PlaylistPartialImportNotice) -> some View {
+        if case .rateLimited = notice.reason {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                batchNoticeLabel(notice.message(at: context.date))
+            }
+        } else {
+            batchNoticeLabel(notice.message())
+        }
+    }
+
+    private func batchNoticeLabel(_ message: String) -> some View {
+        Label {
+            Text(verbatim: message)
+                .lineLimit(2)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(batchWarningColor)
+        }
+        .font(batchDetailFont)
+        .foregroundStyle(batchDetailColor)
+    }
+
+    private var batchSummarySection: some View {
+        Section {
+            HStack {
+                Label {
+                    Text(verbatim: batchProgressText)
+                } icon: {
+                    Image(systemName: "music.note.list")
+                }
+                Spacer()
+                if isParsing {
+                    ProgressView()
+                }
+            }
+            if batchHasMissingEntries {
+                Toggle("playlist_import_keep_missing", isOn: $keepMissing)
+            }
+        } footer: {
+            let lines = batchSummaryLines
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(lines, id: \.self) { Text(verbatim: $0) }
+                }
+            }
+        }
+    }
+
+    private var batchItemsSection: some View {
+        Section {
+            ForEach(batchItems) { item in
+                batchRow(item)
+            }
+        } header: {
+            HStack {
+                Text("playlist_import_batch_header")
+                Spacer()
+                if batchItems.contains(where: { $0.prepared != nil }) {
+                    Button(batchSelectAllKey) { toggleAllBatchItems() }
+                        .font(.footnote.weight(.semibold))
+                        .textCase(nil)
+                }
+            }
+        }
+    }
+
+    private func batchRow(_ item: BatchImportItem) -> some View {
+        let isReady = item.prepared != nil
+        let isChecked = isReady && item.isIncluded
+        return HStack(spacing: 12) {
+            Button {
+                updateBatchItem(item.id) { $0.isIncluded.toggle() }
+            } label: {
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
+                    .frame(minWidth: 30, minHeight: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isReady)
+            .accessibilityLabel(Text("playlist_import_batch_include"))
+            .accessibilityAddTraits(isChecked ? .isSelected : [])
+
+            if isReady {
+                Button {
+                    reviewBatchItem(item.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        batchRowText(item)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                batchRowText(item)
+                Spacer(minLength: 0)
+            }
+
+            if item.canRetry {
+                Button("retry") { retryBatchItem(item.id) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func batchRowText(_ item: BatchImportItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: item.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(item.prepared != nil && !item.isIncluded ? Color.secondary : Color.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            batchRowDetail(item)
+        }
+    }
+
+    #if os(macOS)
+    private var macBatchList: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
+                MacImportStatusPill(text: batchProgressText, color: isParsing ? PMColor.brand : PMColor.ok)
+                if isParsing {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+                if batchItems.contains(where: { $0.prepared != nil }) {
+                    Button(batchSelectAllKey) { toggleAllBatchItems() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+
+            if batchHasMissingEntries {
+                Toggle("playlist_import_keep_missing", isOn: $keepMissing)
+                    .font(.system(size: 12))
+                    .toggleStyle(.checkbox)
+            }
+
+            ForEach(batchSummaryLines, id: \.self) { line in
+                Text(verbatim: line)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    ForEach(batchItems) { item in
+                        macBatchRow(item)
+                        if item.id != batchItems.last?.id {
+                            Divider().overlay(PMColor.divider).padding(.leading, 38)
+                        }
+                    }
+                }
+                .background(PMColor.card.opacity(0.62), in: .rect(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(1)
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func macBatchRow(_ item: BatchImportItem) -> some View {
+        let isReady = item.prepared != nil
+        return HStack(spacing: 10) {
+            Toggle("playlist_import_batch_include", isOn: batchInclusionBinding(item.id))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .disabled(!isReady)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: item.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(isReady && !item.isIncluded ? PMColor.textFaint : PMColor.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                batchRowDetail(item)
+            }
+
+            Spacer(minLength: 8)
+
+            if item.canRetry {
+                Button {
+                    retryBatchItem(item.id)
+                } label: {
+                    Text("retry")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 9)
+                .frame(height: 23)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            }
+
+            if isReady {
+                Button {
+                    reviewBatchItem(item.id)
+                } label: {
+                    Text("playlist_import_batch_review")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(PMColor.brand)
+                .padding(.horizontal, 9)
+                .frame(height: 23)
+                .background(PMColor.brand.opacity(0.12), in: .rect(cornerRadius: 6))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
     }
     #endif
 

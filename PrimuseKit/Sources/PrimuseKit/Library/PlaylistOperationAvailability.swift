@@ -67,6 +67,108 @@ public enum PlaylistImportDestinationPolicy {
     }
 }
 
+/// 一次导入好几份歌单（多选文件、一次贴多个链接）。每份各自有去向，确认时一起写入；
+/// 每份能不能写的规则和单个导入的确认按钮是同一套。
+public enum PlaylistBatchImportPolicy {
+    /// 一份读好、对过曲库的歌单，在确认那一刻的样子。
+    public struct Candidate: Sendable, Equatable {
+        public var destination: PlaylistImportDestination
+        public var name: String
+        public var hasMergeTarget: Bool
+        public var matchedCount: Int
+        public var missingCount: Int
+        /// 合并会不会改动目标歌单。还没算出来时为 nil，按会改动算。
+        public var mergeHasChanges: Bool?
+
+        public init(
+            destination: PlaylistImportDestination,
+            name: String,
+            hasMergeTarget: Bool,
+            matchedCount: Int,
+            missingCount: Int,
+            mergeHasChanges: Bool? = nil
+        ) {
+            self.destination = destination
+            self.name = name
+            self.hasMergeTarget = hasMergeTarget
+            self.matchedCount = matchedCount
+            self.missingCount = missingCount
+            self.mergeHasChanges = mergeHasChanges
+        }
+
+        var keepsMissing: Bool { destination != .likedSongs }
+    }
+
+    /// 确认时这一份为什么会被跳过。
+    public enum SkipReason: Sendable, Equatable {
+        /// 新建歌单没有名字。
+        case missingName
+        /// 没有能写进去的歌：一首都没对上，又不保留置灰（「我喜欢」从不保留置灰）。
+        case nothingToWrite
+        /// 要合并的歌单里已经都有了。
+        case nothingNew
+        /// 要合并的歌单不在了。
+        case missingTarget
+    }
+
+    /// - 「我喜欢」只收对上的歌，至少要有一首；
+    /// - 合并要有目标，而且不是每首都已经在里面；
+    /// - 新建要有名字，至少一首对上的歌，或者保留置灰时至少有一条。
+    public static func skipReason(_ candidate: Candidate, keepingMissing: Bool) -> SkipReason? {
+        switch candidate.destination {
+        case .likedSongs:
+            return candidate.matchedCount > 0 ? nil : .nothingToWrite
+        case .existingPlaylist:
+            guard candidate.hasMergeTarget else { return .missingTarget }
+            return candidate.mergeHasChanges == false ? .nothingNew : nil
+        case .newPlaylist:
+            guard !candidate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .missingName }
+            let hasContent = candidate.matchedCount > 0 || (keepingMissing && candidate.missingCount > 0)
+            return hasContent ? nil : .nothingToWrite
+        }
+    }
+
+    public static func isImportable(_ candidate: Candidate, keepingMissing: Bool) -> Bool {
+        skipReason(candidate, keepingMissing: keepingMissing) == nil
+    }
+
+    public struct Summary: Sendable, Equatable {
+        public var newPlaylistCount = 0
+        public var mergedPlaylistCount = 0
+        /// 去向是「我喜欢」的份数。
+        public var likedCount = 0
+        /// 写进去的对上的歌（合并时已经在歌单里的也算在内）。
+        public var songCount = 0
+        /// 置灰保留的条数。
+        public var pendingCount = 0
+        /// 不满足写入条件、确认时会跳过的份数。
+        public var skippedCount = 0
+
+        public init() {}
+
+        public var importableCount: Int { newPlaylistCount + mergedPlaylistCount + likedCount }
+    }
+
+    /// 只数用户勾选了的那些；没勾选的由调用方先滤掉。
+    public static func summary(_ candidates: [Candidate], keepingMissing: Bool) -> Summary {
+        var summary = Summary()
+        for candidate in candidates {
+            guard isImportable(candidate, keepingMissing: keepingMissing) else {
+                summary.skippedCount += 1
+                continue
+            }
+            switch candidate.destination {
+            case .newPlaylist: summary.newPlaylistCount += 1
+            case .existingPlaylist: summary.mergedPlaylistCount += 1
+            case .likedSongs: summary.likedCount += 1
+            }
+            summary.songCount += candidate.matchedCount
+            if keepingMissing, candidate.keepsMissing { summary.pendingCount += candidate.missingCount }
+        }
+        return summary
+    }
+}
+
 /// 更新过的歌单文件再导入一次时，合并进上次导入的那个歌单，而不是再建一个同名的（#174）。
 ///
 /// 合并只往里加：原有的歌和顺序都不动，文件里删掉的歌也不会从歌单里拿走。

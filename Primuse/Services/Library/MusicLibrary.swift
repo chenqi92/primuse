@@ -8793,14 +8793,28 @@ final class MusicLibrary {
         songIDs: [String],
         pendingEntries: [PlaylistPendingEntry] = []
     ) {
+        stageCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
+        commitPlaylistEdits([playlist.id])
+    }
+
+    /// 只改内存里的歌单集合, 排序、落盘与通知由 `commitPlaylistEdits` 统一做 ——
+    /// 批量导入几十个歌单时也只做一次。
+    private func stageCreatedPlaylist(
+        _ playlist: Playlist,
+        songIDs: [String],
+        pendingEntries: [PlaylistPendingEntry]
+    ) {
         for entry in pendingEntries { playlistPendingEntries[entry.id] = entry }
         let entries = validUniqueSongIDs(songIDs)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
+    }
+
+    private func commitPlaylistEdits(_ ids: [String], trigger: StaticString = #function) {
         sortPlaylists()
         persistPlaylistDurabilityLedger()
-        persistSnapshot()
-        notifyPlaylistsChanged([playlist.id])
+        persistSnapshot(trigger: trigger)
+        notifyPlaylistsChanged(ids)
     }
 
     @discardableResult
@@ -9784,18 +9798,7 @@ final class MusicLibrary {
     /// 导入别处的歌单: 对上的歌和置灰占位按原顺序一起写进新歌单。
     @discardableResult
     func createPlaylist(name: String, members: [PlaylistImportMember]) -> Playlist {
-        var songIDs: [String] = []
-        var pendingEntries: [PlaylistPendingEntry] = []
-        songIDs.reserveCapacity(members.count)
-        for member in members {
-            switch member {
-            case .song(let id):
-                songIDs.append(id)
-            case .pending(let entry):
-                songIDs.append(entry.id)
-                pendingEntries.append(entry)
-            }
-        }
+        let (songIDs, pendingEntries) = Self.flattened(members)
         let playlist = stampedPlaylist(Playlist(name: name))
         if deferringUntilReady({ [weak self] in
             self?.insertCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
@@ -9847,10 +9850,22 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.mergeImportedPlaylist(members, intoPlaylist: playlistID)
         }) { return }
+        guard let plan = stageImportMerge(members, intoPlaylist: playlistID) else { return }
+        if plan.resolvedPendingCount > 0 {
+            playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        }
+        commitPlaylistEdits([playlistID])
+    }
+
+    /// 合并的内存部分。没有改动时返回 nil, 什么都不写。
+    private func stageImportMerge(
+        _ members: [PlaylistImportMember],
+        intoPlaylist playlistID: String
+    ) -> PlaylistImportMergePolicy.Plan? {
         guard let index = allPlaylists.firstIndex(where: { $0.id == playlistID }),
               let plan = playlistImportMergePlan(members, intoPlaylist: playlistID),
               plan.hasChanges
-        else { return }
+        else { return nil }
         if !plan.appendedPendingIDs.isEmpty {
             var pendingByID: [String: PlaylistPendingEntry] = [:]
             for case .pending(let entry) in members { pendingByID[entry.id] = entry }
@@ -9859,15 +9874,66 @@ final class MusicLibrary {
             }
         }
         playlistSongIDs[playlistID] = plan.memberIDs
-        if plan.resolvedPendingCount > 0 {
+        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
+        plog("🎵 Merged import into playlist: +\(plan.appendedSongCount) song(s), +\(plan.appendedPendingIDs.count) pending, \(plan.resolvedPendingCount) lit up, \(plan.alreadyPresentCount) already present")
+        return plan
+    }
+
+    /// 批量导入里的一份歌单要写到哪里。
+    enum PlaylistImportWrite: Sendable {
+        case newPlaylist(name: String, members: [PlaylistImportMember])
+        case merge(members: [PlaylistImportMember], playlistID: String)
+        case likedSongs(songIDs: [String])
+    }
+
+    /// 一次导入好几份歌单: 按顺序写(后一份合并时看得到前一份刚加的歌), 整批只排序、
+    /// 落盘、通知一次。去「我喜欢」的几份并成一次, 照样回写服务端的收藏。
+    func importPlaylists(_ writes: [PlaylistImportWrite]) {
+        // S2: 目标歌单与歌曲行都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in self?.importPlaylists(writes) }) { return }
+        var changedIDs: [String] = []
+        var likedSongIDs: [String] = []
+        var resolvedPending = false
+        for write in writes {
+            switch write {
+            case .newPlaylist(let name, let members):
+                let (songIDs, pendingEntries) = Self.flattened(members)
+                let playlist = stampedPlaylist(Playlist(name: name))
+                stageCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
+                changedIDs.append(playlist.id)
+            case .merge(let members, let playlistID):
+                guard let plan = stageImportMerge(members, intoPlaylist: playlistID) else { continue }
+                if plan.resolvedPendingCount > 0 { resolvedPending = true }
+                if !changedIDs.contains(playlistID) { changedIDs.append(playlistID) }
+            case .likedSongs(let songIDs):
+                likedSongIDs.append(contentsOf: songIDs)
+            }
+        }
+        if resolvedPending {
             playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
         }
-        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
-        sortPlaylists()
-        persistPlaylistDurabilityLedger()
-        persistSnapshot()
-        notifyPlaylistsChanged([playlistID])
-        plog("🎵 Merged import into playlist: +\(plan.appendedSongCount) song(s), +\(plan.appendedPendingIDs.count) pending, \(plan.resolvedPendingCount) lit up, \(plan.alreadyPresentCount) already present")
+        if !changedIDs.isEmpty { commitPlaylistEdits(changedIDs) }
+        if !likedSongIDs.isEmpty { likeSongs(likedSongIDs) }
+        plog("🎵 Batch playlist import: \(writes.count) playlist(s), \(changedIDs.count) written, \(likedSongIDs.count) liked song(s)")
+    }
+
+    /// 导入成员拆成歌单里的 id 序列(占位用自己的 id 占位)和要登记的占位元数据。
+    private static func flattened(
+        _ members: [PlaylistImportMember]
+    ) -> (songIDs: [String], pendingEntries: [PlaylistPendingEntry]) {
+        var songIDs: [String] = []
+        var pendingEntries: [PlaylistPendingEntry] = []
+        songIDs.reserveCapacity(members.count)
+        for member in members {
+            switch member {
+            case .song(let id):
+                songIDs.append(id)
+            case .pending(let entry):
+                songIDs.append(entry.id)
+                pendingEntries.append(entry)
+            }
+        }
+        return (songIDs, pendingEntries)
     }
 
     /// 用户确认「就是这首」: 占位原位换成这首歌; 歌单里已经有这首时只摘掉占位。

@@ -91,6 +91,48 @@ import Testing
         #expect(ExternalPlaylistLink.detect(in: "http://h.xiami.com/collect_detail.html?id=1") == .discontinued)
     }
 
+    @Test func severalLinksInOnePasteAreSplitInOrderAndDeduplicated() {
+        let text = """
+        分享Crabbit创建的歌单「深夜」: https://music.163.com/playlist?id=42 (来自@网易云音乐)
+        https://y.qq.com/n/ryqq/playlist/8416213779
+        https://music.163.com/#/playlist?id=42
+        晴天 - 周杰伦 https://example.com/not-a-playlist
+        http://163cn.tv/zoIxm3
+        http://163cn.tv/zoIxm3
+        https://www.xiami.com/collect/1234567
+        https://music.apple.com/cn/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb
+        """
+        #expect(ExternalPlaylistLink.playlistLinks(in: text) == [
+            "https://music.163.com/playlist?id=42",
+            "https://y.qq.com/n/ryqq/playlist/8416213779",
+            "http://163cn.tv/zoIxm3",
+            "https://www.xiami.com/collect/1234567",
+            "https://music.apple.com/cn/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb",
+        ])
+        // 每一条单独交给读取时认出的仍是同一个歌单。
+        for link in ExternalPlaylistLink.playlistLinks(in: text) {
+            #expect(ExternalPlaylistLink.detect(in: link) != .none, "\(link)")
+        }
+    }
+
+    @Test func linkSplittingKeepsDifferentNamespacesApart() {
+        let text = """
+        https://h5app.kuwo.cn/m/bodian/collection.html?playlistId=2867496601&source=4
+        https://h5app.kuwo.cn/m/bodian/collection.html?playlistId=2867496601&source=5
+        https://h5app.kuwo.cn/m/bodian/collection.html?playlistId=2867496601&source=4&from=share
+        """
+        #expect(ExternalPlaylistLink.playlistLinks(in: text).count == 2)
+        // 同一个酷狗歌单分享两次，签名不同也只读一次。
+        let kugou = """
+        https://m.kugou.com/share/zlist.html?listid=4&type=0&uid=44232344&global_collection_id=collection_3_44232344_4_0&sign=0883e935&chain=1ulezd0CTV2
+        https://m.kugou.com/share/zlist.html?listid=4&type=0&uid=44232344&global_collection_id=collection_3_44232344_4_0&sign=77aa0c11&chain=9xyzd0CTV2
+        """
+        #expect(ExternalPlaylistLink.playlistLinks(in: kugou).count == 1)
+        #expect(ExternalPlaylistLink.playlistLinks(in: "晴天 - 周杰伦\n七里香 - 周杰伦").isEmpty)
+        #expect(ExternalPlaylistLink.playlistLinks(in: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc")
+            == ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc"])
+    }
+
     @Test func unrelatedTextIsNotALink() {
         #expect(ExternalPlaylistLink.detect(in: "晴天 - 周杰伦") == .none)
         #expect(ExternalPlaylistLink.detect(in: "https://example.com/playlist?id=1") == .none)

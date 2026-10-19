@@ -507,6 +507,52 @@ final class SourcePlaylistVisibilityTests: XCTestCase {
 }
 
 @MainActor
+final class PlaylistBatchImportWriteTests: XCTestCase {
+    func testBatchCreatesMergesAndLikesAndSurvivesReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlaylistBatchImport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            Song(id: "a", title: "Alpha", fileFormat: .mp3, filePath: "/songs/a.mp3", sourceID: "local"),
+            Song(id: "b", title: "Bravo", fileFormat: .mp3, filePath: "/songs/b.mp3", sourceID: "local"),
+            Song(id: "c", title: "Charlie", fileFormat: .mp3, filePath: "/songs/c.mp3", sourceID: "local"),
+        ])
+        await library.waitForPendingIndex()
+        let existing = library.createPlaylist(name: "Road Trip", songIDs: ["a"])
+        let pending = PlaylistPendingEntry(title: "Missing", artists: ["Nobody"], origin: "file")
+
+        library.importPlaylists([
+            .newPlaylist(name: "Fresh", members: [.song("b"), .pending(pending)]),
+            .merge(members: [.song("a"), .song("c")], playlistID: existing.id),
+            // 歌单里已经都有了: 不改动, 也不报错。
+            .merge(members: [.song("a")], playlistID: existing.id),
+            .likedSongs(songIDs: ["c"]),
+            .likedSongs(songIDs: ["b", "c"]),
+        ])
+
+        let fresh = try XCTUnwrap(library.playlists.first { $0.name == "Fresh" })
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: fresh.id), ["b", pending.id])
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: fresh.id), 1)
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: existing.id), ["a", "c"])
+        XCTAssertTrue(library.isLiked(songID: "b"))
+        XCTAssertTrue(library.isLiked(songID: "c"))
+        XCTAssertFalse(library.isLiked(songID: "a"))
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID), ["c", "b"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Batch import did not persist")
+        }
+        let reloaded = MusicLibrary(storageDirectory: directory)
+        let reloadedFresh = try XCTUnwrap(reloaded.playlists.first { $0.id == fresh.id })
+        XCTAssertEqual(reloaded.rawSongIDs(forPlaylist: reloadedFresh.id), ["b", pending.id])
+        XCTAssertEqual(reloaded.pendingEntry(id: pending.id)?.title, "Missing")
+        XCTAssertEqual(reloaded.rawSongIDs(forPlaylist: existing.id), ["a", "c"])
+    }
+}
+
+@MainActor
 final class LibraryPreviewSessionTests: XCTestCase {
     func testSuccessfulSourceSyncAdvancesPreviewInvalidationRevision() throws {
         let storageDirectory = FileManager.default.temporaryDirectory
