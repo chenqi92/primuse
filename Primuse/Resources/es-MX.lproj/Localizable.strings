@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "No se reproduce nada";
 "desktop_lyrics_unlocked" = "Letras del escritorio desbloqueadas";
 "desktop_widget_sync_continue" = "Continuar";
+"widget_color_style_section" = "Widgets de la pantalla de inicio";
+"widget_color_style_title" = "Colores de los widgets";
+"widget_color_style_artwork" = "De la portada";
+"widget_color_style_monochrome" = "Monocromo";
+"widget_color_style_footer" = "«De la portada» tiñe las barras de progreso y los fondos de los widgets con el color del tema y los de la radio, los audiolibros y los podcasts. «Monocromo» los deja neutros para que solo las portadas tengan color. Los botones de reproducción siempre tienen un aspecto neutro de vidrio esmerilado.";
 "desktop_widget_sync_enabled" = "Habilitar sincronización de widgets de escritorio";
 "desktop_widget_sync_explanation_message" = "Primuse escribirá la información de reproducción actual (título, artista, portada, progreso) en el widget de escritorio macOS para que pueda ver lo que se está reproduciendo directamente desde su escritorio. Se almacena solo localmente: no se carga nada.";
 "desktop_widget_sync_explanation_title" = "Habilitar sincronización de widgets de escritorio";

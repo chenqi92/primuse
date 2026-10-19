@@ -697,6 +697,8 @@ final class InterfaceLayoutSync {
         // 资料库分类图标彩色 / 简洁(`LibraryIconStyle`,同样只有 iPhone / iPad 画)。
         "primuse.library.iconStyle.v1",
         ListeningStatsStyle.storageKey,
+        // 「颜色和图标 › 屏幕小组件」的配色(取自封面 / 单色); 小组件读的是 App 抄进 App Group 的那一份。
+        WidgetColorStyle.storageKey,
         // 播客页区块的先后与显隐(「…›调整区块」)
         PodcastLibrarySectionLayout.storageKey,
         // iPhone / iPad 播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)

@@ -1758,6 +1758,11 @@
 "desktop_widget_sync_explanation_title" = "데스크탑 위젯 동기화 사용";
 "desktop_widget_sync_explanation_message" = "Primuse가 현재 재생 정보(제목, 아티스트, 커버, 진행 상황)를 macOS 데스크탑 위젯에 기록하여 데스크탑에서 바로 재생 중인 항목을 확인할 수 있습니다. 로컬에만 저장되며 아무것도 업로드되지 않습니다.";
 "desktop_widget_sync_continue" = "계속";
+"widget_color_style_section" = "홈 화면 위젯";
+"widget_color_style_title" = "위젯 색상";
+"widget_color_style_artwork" = "커버에서 가져오기";
+"widget_color_style_monochrome" = "단색";
+"widget_color_style_footer" = "'커버에서 가져오기'는 위젯의 진행 막대와 배경에 테마 색상과 라디오, 오디오북, 팟캐스트 색상을 사용합니다. '단색'은 이를 무채색으로 바꿔 커버만 색을 띠게 합니다. 재생 버튼은 항상 무채색의 반투명 유리 스타일입니다.";
 "password_required_title" = "암호 필요";
 "password_wrong_hint" = "암호가 올바르지 않습니다. 다시 시도해 주세요.";
 "scrobble_lastfm_signin_browser_prompt" = "Last.fm 인증을 완료하기 위해 브라우저를 엽니다. 완료한 후 Primuse로 돌아와 “인증을 완료했습니다”를 탭하세요.";

@@ -40,6 +40,7 @@ struct AppearanceSettingsView: View {
     #if os(iOS)
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
     #endif
+    @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
 
     private var selection: IOSAppearancePreference {
         IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
@@ -110,6 +111,26 @@ struct AppearanceSettingsView: View {
 
             // 音乐(就是 App 的主题色)和电台、有声书、播客一样，一类一行，点进去再挑。
             ListeningSpaceColorSections(includesMusic: true)
+
+            // 几个台、几本书并排的小组件取一张封面的颜色会和别的封面撞色(#320),这里可以换成单色。
+            Section {
+                Picker(selection: $widgetColorStyle) {
+                    ForEach(WidgetColorStyle.allCases, id: \.self) { style in
+                        Text(verbatim: style.title).tag(style)
+                    }
+                } label: {
+                    SettingsInfoLabel("widget_color_style_title") {
+                        Text("widget_color_style_footer")
+                    }
+                }
+                .pickerStyle(.menu)
+                .settingsAnchor("appearance.widgetColorStyle")
+            } header: {
+                Text("widget_color_style_section")
+            }
+            .onChange(of: widgetColorStyle) { _, _ in
+                WidgetColorStyleMirror.publish()
+            }
 
             // App 图标直接平铺：要靠眼睛挑，多一次跳转就得来回对比。
 

@@ -109,6 +109,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.hex", titleKey: "theme_color_hex", iosPage: .themeColor, macPage: nil),
         SettingDefinition(id: "appearance.colorPicker", titleKey: "theme_color_picker", iosPage: .themeColor, macPage: nil, keywords: ["取色器", "吸管", "调色盘", "十六进制", "color picker", "eyedropper", "hex"]),
         SettingDefinition(id: "appearance.listeningSpaceColors", titleKey: "listening_space_colors_title", iosPage: .themeColor, macPage: .appearance, keywords: ["电台颜色", "有声书颜色", "播客颜色", "radio color", "audiobook color", "podcast color"]),
+        SettingDefinition(id: "appearance.widgetColorStyle", titleKey: "widget_color_style_title", iosPage: .appearance, macPage: .appearance, keywords: ["widget", "widgets", "home screen", "monochrome", "artwork color", "小组件", "桌面小组件", "屏幕小组件", "单色", "黑白", "取自封面", "封面颜色", "颜色"]),
         SettingDefinition(id: "appearance.coverAmbient", titleKey: "ext.tv.settings.coverColor", iosPage: .themeColor, macPage: .appearance, usesKitLocalization: true),
         SettingDefinition(id: "appearance.ambientStrength", titleKey: "ext.tv.settings.ambientIntensity", iosPage: .playerStyle, macPage: .appearance, keywords: ["背景", "浓度", "颜色", "封面色", "background", "intensity", "color"], usesKitLocalization: true),
         SettingDefinition(id: "appearance.playerBackdrop", titleKey: "player_backdrop_title", iosPage: .playerStyle, macPage: .appearance, keywords: ["background", "wallpaper", "背景", "封底", "back cover", "壁纸", "照片"]),

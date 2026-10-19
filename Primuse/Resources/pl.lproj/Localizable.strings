@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "Nic nie jest odtwarzane";
 "desktop_lyrics_unlocked" = "Tekst na biurku odblokowany";
 "desktop_widget_sync_continue" = "Kontynuuj";
+"widget_color_style_section" = "Widżety na ekranie początkowym";
+"widget_color_style_title" = "Kolory widżetów";
+"widget_color_style_artwork" = "Z okładki";
+"widget_color_style_monochrome" = "Monochromatyczny";
+"widget_color_style_footer" = "„Z okładki” barwi paski postępu i tła widżetów kolorem motywu oraz kolorami radia, audiobooków i podcastów. „Monochromatyczny” pozostawia je neutralne, więc kolor mają tylko okładki. Przyciski odtwarzania zawsze mają neutralny wygląd matowego szkła.";
 "desktop_widget_sync_enabled" = "Włącz synchronizację widgetów pulpitu";
 "desktop_widget_sync_explanation_message" = "Primuse zapisze informacje o bieżącym odtwarzaniu (tytuł, wykonawca, okładka, postęp) do widżetu na pulpicie macOS, dzięki czemu będziesz mógł zobaczyć, co jest odtwarzane bezpośrednio z twojego pulpitu. Przechowywane wyłącznie lokalnie — nic nie jest przesyłane.";
 "desktop_widget_sync_explanation_title" = "Włącz synchronizację widgetów pulpitu";

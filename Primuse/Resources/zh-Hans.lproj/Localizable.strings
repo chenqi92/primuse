@@ -1797,6 +1797,11 @@
 "desktop_widget_sync_explanation_title" = "启用桌面小组件同步";
 "desktop_widget_sync_explanation_message" = "Primuse 会把当前播放的歌曲信息（标题、艺术家、封面、进度）写入 macOS 桌面小组件，方便你在桌面上看到正在播放。仅本机存储，不会上传任何服务器。";
 "desktop_widget_sync_continue" = "继续";
+"widget_color_style_section" = "屏幕小组件";
+"widget_color_style_title" = "小组件颜色";
+"widget_color_style_artwork" = "取自封面";
+"widget_color_style_monochrome" = "单色";
+"widget_color_style_footer" = "「取自封面」时，小组件里的进度条、底色等跟着主题色和电台、有声书、播客各自的颜色；「单色」时这些都换成黑白灰，只有封面带颜色。播放键一律是中性的毛玻璃样子。";
 
 // MARK: - Auth / connection
 "password_required_title" = "需要密码";

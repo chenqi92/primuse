@@ -1706,6 +1706,11 @@
 "desktop_widget_sync_explanation_title" = "啟用桌面小工具同步";
 "desktop_widget_sync_explanation_message" = "Primuse 會把目前播放的歌曲資訊（標題、演出者、封面、進度）寫入 macOS 桌面小工具，方便你在桌面上看到正在播放。僅本機儲存，不會上傳任何伺服器。";
 "desktop_widget_sync_continue" = "繼續";
+"widget_color_style_section" = "螢幕小工具";
+"widget_color_style_title" = "小工具顏色";
+"widget_color_style_artwork" = "取自封面";
+"widget_color_style_monochrome" = "單色";
+"widget_color_style_footer" = "「取自封面」時，小工具裡的進度條、底色等跟著主題色和電台、有聲書、播客各自的顏色；「單色」時這些都換成黑白灰，只有封面帶顏色。播放鍵一律是中性的毛玻璃樣式。";
 "password_required_title" = "需要密碼";
 "password_wrong_hint" = "密碼不正確，請重新輸入。";
 "scrobble_lastfm_signin_browser_prompt" = "正在開啟瀏覽器完成 Last.fm 授權，授權後回到 Primuse 點「我已完成授權」。";

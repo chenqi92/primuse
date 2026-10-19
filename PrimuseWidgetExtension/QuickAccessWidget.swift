@@ -79,25 +79,33 @@ private struct SmallQuickAccessView: View {
     let albums: [RecentAlbumEntry]
     var body: some View {
         WidgetCanvas {
-            VStack(alignment: .leading, spacing: 7) {
-                ZStack {
-                    ForEach(Array(albums.prefix(3).enumerated()).reversed(), id: \.element.id) { index, album in
-                        RecentAlbumCoverView(entry: album, cornerRadius: 7, placeholderIndex: index)
-                            .frame(width: 65, height: 65)
-                            .rotationEffect(.degrees(Double(index) * 9 - 6))
-                            .offset(x: CGFloat(index) * 16 - 14, y: CGFloat(index) * -3)
+            GeometryReader { geometry in
+                // 叠着的三张封面原来固定占 76pt 高, 连下面两行字共约 124pt; iPad mini 小号内容只有 109pt 高
+                // (4.7 寸 iPhone 116), 封面连错开的距离按剩下的高度等比缩。转过的封面角本来就伸进边距里,
+                // 这里不裁。
+                let stackHeight: CGFloat = min(76, max(44, geometry.size.height - 48))
+                let side: CGFloat = stackHeight * 65 / 76
+                VStack(alignment: .leading, spacing: 7) {
+                    ZStack {
+                        ForEach(Array(albums.prefix(3).enumerated()).reversed(), id: \.element.id) { index, album in
+                            RecentAlbumCoverView(entry: album, cornerRadius: 7, placeholderIndex: index)
+                                .frame(width: side, height: side)
+                                .rotationEffect(.degrees(Double(index) * 9 - 6))
+                                .offset(x: (CGFloat(index) * 16 - 14) * side / 65, y: CGFloat(index) * -3)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: stackHeight)
+                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(albums.first?.title ?? "")
+                            .font(.system(size: 15, weight: .semibold)).foregroundStyle(WidgetDesign.strongText)
+                        Text(PMString("ext.widget.recent.eyebrow"))
+                            .font(.system(size: 11)).foregroundStyle(WidgetDesign.secondaryText)
+                    }
+                    .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 76)
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(albums.first?.title ?? "")
-                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(WidgetDesign.strongText)
-                    Text(PMString("ext.widget.recent.eyebrow"))
-                        .font(.system(size: 11)).foregroundStyle(WidgetDesign.secondaryText)
-                }
-                .lineLimit(1)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             }
         }
     }

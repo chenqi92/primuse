@@ -679,6 +679,11 @@
 "edit_connection_info" = "Bağlantıyı Düzenle";
 "icloud_sync_footer" = "Aynı iCloud hesabında oturum açmış cihazlar arasında çalma listelerini, beğenilen şarkıları, müzik kaynaklarını, çalma geçmişini ve ayarları senkronize edin. iCloud Anahtar Zinciri aracılığıyla kaynak şifreleri ve bulut sürücüsü oturum açma durumu senkronizasyonu.";
 "desktop_widget_sync_continue" = "Devam et";
+"widget_color_style_section" = "Ana Ekran Widget'ları";
+"widget_color_style_title" = "Widget Renkleri";
+"widget_color_style_artwork" = "Kapaktan";
+"widget_color_style_monochrome" = "Tek Renk";
+"widget_color_style_footer" = "“Kapaktan”, widget'lardaki ilerleme çubuklarını ve arka planları tema rengiyle ve radyo, sesli kitap ve podcast renkleriyle boyar. “Tek Renk” bunları nötr tutar; yalnızca kapaklar renkli kalır. Oynatma düğmeleri her zaman nötr, buzlu cam görünümündedir.";
 "weekday_sunday_short" = "Paz";
 "more" = "Daha Fazla";
 "keyboard_shortcuts_changes_apply_immediately" = "Değişiklikler anında uygulanır.";

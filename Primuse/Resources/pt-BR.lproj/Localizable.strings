@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "Nada tocando";
 "desktop_lyrics_unlocked" = "Letras na mesa desbloqueadas";
 "desktop_widget_sync_continue" = "Continuar";
+"widget_color_style_section" = "Widgets da Tela de Início";
+"widget_color_style_title" = "Cores dos widgets";
+"widget_color_style_artwork" = "Da capa";
+"widget_color_style_monochrome" = "Monocromático";
+"widget_color_style_footer" = "“Da capa” colore as barras de progresso e os fundos dos widgets com a cor do tema e as cores de rádio, audiolivros e podcasts. “Monocromático” os deixa neutros, e só as capas têm cor. Os botões de reprodução sempre têm um visual neutro de vidro fosco.";
 "desktop_widget_sync_enabled" = "Ativar sincronização de widgets de desktop";
 "desktop_widget_sync_explanation_message" = "O Primuse gravará as informações de reprodução atuais (título, artista, capa, progresso) no widget da área de trabalho do macOS para que você possa ver o que está tocando diretamente na sua área de trabalho. Armazenado apenas localmente – nada é carregado.";
 "desktop_widget_sync_explanation_title" = "Ativar sincronização de widgets de desktop";

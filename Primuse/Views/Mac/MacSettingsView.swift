@@ -7070,6 +7070,7 @@ private struct MacSTThemeView: View {
     private var ratingsAndCommentsEnabled = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
+    @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
     @State private var preferences = MacUIPreferences.shared
     @State private var iconForFinderSetup: MacAppIcon?
     @Environment(ThemeService.self) private var themeService
@@ -7584,6 +7585,23 @@ private struct MacSTThemeView: View {
             }
         }
         .settingsAnchor("appearance.listeningSpaceColors")
+
+        // 桌面小组件的配色(#320): 取自封面, 或单色(只有封面带颜色)。
+        MacSTSection(String(localized: "Widgets"),
+                     hint: String(localized: "widget_color_style_footer")) {
+            MacSTGroup {
+                MacSTRow(String(localized: "widget_color_style_title"), divider: false) {
+                    MacSTPicker(
+                        selection: $widgetColorStyle,
+                        options: WidgetColorStyle.allCases.map { ($0, $0.title) }
+                    )
+                }
+                .settingsAnchor("appearance.widgetColorStyle")
+            }
+        }
+        .onChange(of: widgetColorStyle) { _, _ in
+            WidgetColorStyleMirror.publish()
+        }
 
         MacSTSection(PMString("ext.tv.settings.coverColor")) {
             MacSTGroup {

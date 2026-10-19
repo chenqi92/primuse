@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "कुछ नहीं चल रहा";
 "desktop_lyrics_unlocked" = "डेस्कटॉप गीत के बोल अनलॉक";
 "desktop_widget_sync_continue" = "जारी रखें";
+"widget_color_style_section" = "होम स्क्रीन विजेट";
+"widget_color_style_title" = "विजेट के रंग";
+"widget_color_style_artwork" = "कवर से";
+"widget_color_style_monochrome" = "एकरंगी";
+"widget_color_style_footer" = "“कवर से” चुनने पर विजेट की प्रगति पट्टियाँ और पृष्ठभूमि थीम रंग और रेडियो, ऑडियोबुक व पॉडकास्ट के रंगों में दिखती हैं। “एकरंगी” में ये तटस्थ रहती हैं, ताकि रंग सिर्फ़ कवर में दिखे। प्ले बटन हमेशा तटस्थ, धुंधले काँच जैसे दिखते हैं।";
 "desktop_widget_sync_enabled" = "डेस्कटॉप विजेट सिंक सक्षम करें";
 "desktop_widget_sync_explanation_message" = "Primuse वर्तमान प्लेबैक जानकारी (शीर्षक, कलाकार, कवर, प्रगति) को macOS डेस्कटॉप विजेट पर लिखेगा ताकि आप देख सकें कि आपके डेस्कटॉप से सीधे क्या चल रहा है। केवल स्थानीय रूप से संग्रहीत - कुछ भी अपलोड नहीं किया गया है।";
 "desktop_widget_sync_explanation_title" = "डेस्कटॉप विजेट सिंक सक्षम करें";

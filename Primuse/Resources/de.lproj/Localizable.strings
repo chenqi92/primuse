@@ -1758,6 +1758,11 @@
 "desktop_widget_sync_explanation_title" = "Desktop-Widget-Synchronisierung aktivieren";
 "desktop_widget_sync_explanation_message" = "Primuse schreibt die aktuellen Wiedergabeinformationen (Titel, Künstler, Cover, Fortschritt) in das macOS-Desktop-Widget, damit du direkt vom Schreibtisch aus siehst, was läuft. Wird nur lokal gespeichert – es wird nichts hochgeladen.";
 "desktop_widget_sync_continue" = "Weiter";
+"widget_color_style_section" = "Home-Bildschirm-Widgets";
+"widget_color_style_title" = "Widget-Farben";
+"widget_color_style_artwork" = "Aus dem Cover";
+"widget_color_style_monochrome" = "Einfarbig";
+"widget_color_style_footer" = "„Aus dem Cover“ färbt Fortschrittsbalken und Hintergründe in Widgets mit der Designfarbe und den Farben für Radio, Hörbücher und Podcasts. „Einfarbig“ hält sie neutral, sodass nur die Cover Farbe tragen. Wiedergabetasten sind immer neutral und milchglasartig.";
 "password_required_title" = "Passwort erforderlich";
 "password_wrong_hint" = "Falsches Passwort. Bitte versuche es erneut.";
 "scrobble_lastfm_signin_browser_prompt" = "Der Browser wird geöffnet, um die Last.fm-Autorisierung abzuschließen. Kehre danach zu Primuse zurück und tippe auf „Ich habe autorisiert“.";

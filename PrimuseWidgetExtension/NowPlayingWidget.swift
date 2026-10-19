@@ -289,26 +289,35 @@ private struct SmallNowPlayingView: View {
 
     var body: some View {
         WidgetCanvas {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top) {
-                    WidgetPlaybackArtwork(state: state)
-                        .frame(width: 62, height: 52)
-                    Spacer(minLength: 8)
-                    WidgetPlaybackButton(state: state, size: 36)
+            GeometryReader { geometry in
+                // 封面一排 52、歌名两行约 36、歌手约 14、进度条, 加上间距共约 126pt; iPad mini 与 4.7 寸 iPhone
+                // 小号的内容只有 109 / 116pt 高: 歌名先收成一行(约 108pt), 还不够(直播那一行更高)再把封面压矮。
+                let footer: CGFloat = state.isLiveStream ? 12 : 2.5
+                let titleLines = geometry.size.height >= 123.5 + footer ? 2 : 1
+                let textHeight: CGFloat = titleLines == 2 ? 71.5 : 53.5
+                let artworkHeight: CGFloat = min(52, max(34, geometry.size.height - footer - textHeight))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        WidgetPlaybackArtwork(state: state)
+                            .frame(width: artworkHeight * 62 / 52, height: artworkHeight)
+                        Spacer(minLength: 8)
+                        WidgetPlaybackButton(state: state, size: min(36, artworkHeight))
+                    }
+                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(WidgetDesign.strongText)
+                            .lineLimit(titleLines)
+                        Text(nowPlayingSubtitle(state))
+                            .font(.system(size: 12))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(1)
+                    }
+                    if state.isLiveStream { LiveIndicatorLine() }
+                    else { ProgressLine(progress: progress) }
                 }
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                        .lineLimit(2)
-                    Text(nowPlayingSubtitle(state))
-                        .font(.system(size: 12))
-                        .foregroundStyle(WidgetDesign.secondaryText)
-                        .lineLimit(1)
-                }
-                if state.isLiveStream { LiveIndicatorLine() }
-                else { ProgressLine(progress: progress) }
+                .widgetBounds(geometry.size)
             }
         }
     }
@@ -322,6 +331,10 @@ private struct MediumNowPlayingView: View {
         WidgetCanvas {
             GeometryReader { geometry in
                 let side = min(112, geometry.size.height)
+                // 右栏: 歌名两行约 43、歌手、进度、一排 32 高的键, 加上间距共约 117pt; iPad mini 与 4.7 寸
+                // iPhone 中号的内容只有 109 / 116pt 高, 歌名收成一行, 不再把底下的键裁掉。
+                let footer: CGFloat = state.isLiveStream ? 12 : 2.5
+                let titleLines = geometry.size.height >= 114.5 + footer ? 2 : 1
                 HStack(spacing: 16) {
                     WidgetPlaybackArtwork(state: state)
                         .frame(width: side, height: side)
@@ -329,7 +342,7 @@ private struct MediumNowPlayingView: View {
                         Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(2).minimumScaleFactor(0.88)
+                            .lineLimit(titleLines).minimumScaleFactor(0.88)
                         Text(nowPlayingSubtitle(state))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
@@ -351,14 +364,17 @@ private struct LargeNowPlayingView: View {
     let lyricsSnapshot: LyricsSnapshot?
 
     var body: some View {
-        GeometryReader { geometry in
-            let coverSide = min(138, max(118, geometry.size.width * 0.42))
-
-            WidgetCanvas(padding: 18) {
+        WidgetCanvas(padding: 18) {
+            GeometryReader { geometry in
+                // 宽度上照旧按整块宽(含两边 18 的边距)的 42% 取。封面以下: 三段间距 39、进度和时长 21、
+                // 一排 40 高的键, 再给歌词 / 读书进度至少留 48(读书进度最紧的一档), 共 148pt。iPad mini 大号
+                // 内容只有 269.5pt 高, 封面从 128 收到约 121, 4.7 寸 iPhone 约 135, 再大的 iPhone 照旧 138。
+                let widthSide: CGFloat = max(118, (geometry.size.width + 36) * 0.42)
+                let coverSide: CGFloat = max(80, min(138, widthSide, geometry.size.height - 148))
                 VStack(alignment: .leading, spacing: 13) {
                     HStack(alignment: .top, spacing: 14) {
                         WidgetPlaybackArtwork(state: state)
-                        .frame(width: coverSide, height: coverSide)
+                            .frame(width: coverSide, height: coverSide)
 
                         VStack(alignment: .leading, spacing: 6) {
                             NowPlayingEyebrow(state: state)
@@ -366,7 +382,7 @@ private struct LargeNowPlayingView: View {
                                 .font(.system(size: 21, weight: .bold))
                                 .foregroundStyle(WidgetDesign.strongText)
                                 .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .minimumScaleFactor(0.82)
                             Text(nowPlayingSubtitle(state))
                                 .font(.system(size: 14, weight: .medium))
@@ -406,11 +422,10 @@ private struct LargeNowPlayingView: View {
                         }
                     }
 
-                    NowPlayingControls(state: state, compact: false)
+                    NowPlayingControls(state: state, compact: false, availableWidth: geometry.size.width)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .widgetBounds(geometry.size, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -518,6 +533,8 @@ private struct NowPlayingControls: View {
     var compact: Bool
     /// 「正在播放(经典)」那套: 按钮小一号, 次要按钮垫浅底、带一圈细线。
     var classic = false
+    /// 这一排能占的宽度; 给了就在放不下时把大号的间距收窄。
+    var availableWidth: CGFloat? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -555,7 +572,7 @@ private struct NowPlayingControls: View {
     }
 
     private var musicControls: some View {
-        HStack(spacing: compact ? 10 : 14) {
+        HStack(spacing: compact ? 10 : fullSpacing) {
             if !state.isLiveStream, !compact {
                 Button(intent: PrimuseShuffleAllIntent()) {
                     controlIcon(symbol: "shuffle")
@@ -629,12 +646,28 @@ private struct NowPlayingControls: View {
         }
     }
 
+    /// 大号六个键(普通款 40 + 32×5、经典款 34 + 28×5)按 14 的间距排; iPad mini 大号内容只有 269.5pt 宽,
+    /// 普通款要 270, 放不下时把间距平均收窄。
+    private var fullSpacing: CGFloat {
+        guard let availableWidth else { return 14 }
+        let keys: CGFloat = classic ? 34 + 28 * 5 : 40 + 32 * 5
+        return max(8, min(14, (availableWidth - keys) / 5))
+    }
+
+    /// 播放 / 暂停是中性的毛玻璃键(#320), 不跟主题色; 打开的循环、喜欢仍按「屏幕小组件颜色」染色。
     private func controlIcon(symbol: String, prominent: Bool = false, active: Bool = false) -> some View {
         Image(systemName: symbol)
             .font(.system(size: controlSize(symbol: symbol), weight: .semibold))
             .foregroundStyle(active ? WidgetDesign.brandTint : WidgetDesign.strongText)
+            .widgetAccentable(prominent || active)
             .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
-            .background(controlBackground(prominent: prominent, active: active), in: .circle)
+            .background {
+                if prominent {
+                    WidgetGlassKeyBackground()
+                } else {
+                    Circle().fill(controlBackground(active: active))
+                }
+            }
             .overlay {
                 if classic, !prominent {
                     Circle().strokeBorder(WidgetDesign.hairline, lineWidth: 1)
@@ -655,8 +688,8 @@ private struct NowPlayingControls: View {
         return compact ? 26 : 32
     }
 
-    private func controlBackground(prominent: Bool, active: Bool) -> Color {
-        if prominent || active {
+    private func controlBackground(active: Bool) -> Color {
+        if active {
             return WidgetDesign.brandTint.opacity(0.22)
         }
         return classic ? Color.primary.opacity(0.06) : .clear
@@ -668,14 +701,28 @@ private struct SpokenWordBookProgressPanel: View {
     let info: SpokenWordPlaybackInfo
 
     var body: some View {
+        // 封面以下留给这块的高度从 iPad mini 的约 48 到大 iPhone 的 100 多不等: 排得下才带上标题和第几章
+        // (第几章在封面旁那一栏也写着), 最紧时只留百分比和进度条, 不再把底下的键挤出去。
+        ViewThatFits(in: .vertical) {
+            panel(showsLabel: true, showsPart: true)
+            panel(showsLabel: true, showsPart: false)
+            panel(showsLabel: false, showsPart: false)
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func panel(showsLabel: Bool, showsPart: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label {
-                Text(verbatim: PMString("ext.widget.spokenWord.bookProgress"))
-            } icon: {
-                Image(systemName: "book.closed.fill")
+            if showsLabel {
+                Label {
+                    Text(verbatim: PMString("ext.widget.spokenWord.bookProgress"))
+                } icon: {
+                    Image(systemName: "book.closed.fill")
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(WidgetDesign.tertiaryText)
             }
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(WidgetDesign.tertiaryText)
 
             if let fraction = info.bookFraction {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -695,17 +742,14 @@ private struct SpokenWordBookProgressPanel: View {
                     .tint(WidgetDesign.brandTint)
                     .frame(height: 2.5)
             }
-            if let part = spokenWordPartText(info) {
+            if showsPart, let part = spokenWordPartText(info) {
                 Text(verbatim: part)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(WidgetDesign.secondaryText)
                     .lineLimit(1)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
@@ -1134,8 +1178,14 @@ private struct CoverPlayerBackdrop: View {
                             sharpBleed(coverImageName, in: size)
                         }
                     } else {
+                        // 单色时中性色在这块深底上是白的, 压到 0.16 才不把白字衬没。
                         LinearGradient(
-                            colors: [WidgetDesign.brandTint.opacity(0.55), WidgetDesign.canvasBase],
+                            colors: [
+                                WidgetDesign.prefersMonochrome
+                                    ? Color.white.opacity(0.16)
+                                    : WidgetDesign.brandTint.opacity(0.55),
+                                WidgetDesign.canvasBase,
+                            ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -1237,7 +1287,6 @@ private struct CoverPlayerTitle: View {
 private struct CoverPlayerControls: View {
     let state: PlaybackState
     var symbolSize: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1260,15 +1309,16 @@ private struct CoverPlayerControls: View {
 
     // The icon shows the last snapshot; ask for the state it shows, so a stale
     // snapshot can never turn "play" into a pause.
+    // 圆片的直径就是这一排原来的高(符号字号的两倍), 换成毛玻璃键也不把排版撑高。
     private var playPause: some View {
         Button(intent: PrimuseSetPlayingIntent(value: !state.isPlaying)) {
-            Image(systemName: state.isPlaying ? (state.isLiveStream ? "stop.fill" : "pause.fill") : "play.fill")
-                .font(.system(size: symbolSize * 1.3, weight: .semibold))
-                .foregroundStyle(.primary)
-                .widgetAccentable()
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-                .frame(maxWidth: .infinity, minHeight: symbolSize * 2)
-                .contentShape(Rectangle())
+            WidgetGlassKeyLabel(
+                symbol: state.isPlaying ? (state.isLiveStream ? "stop.fill" : "pause.fill") : "play.fill",
+                diameter: symbolSize * 2,
+                symbolScale: 0.46
+            )
+            .frame(maxWidth: .infinity, minHeight: symbolSize * 2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .invalidatableContent()
@@ -1481,15 +1531,17 @@ private struct ClassicWidgetBackdrop: View {
         if renderingMode == .fullColor {
             let tint = WidgetDesign.brandTint
             let isDark = colorScheme == .dark
+            // 单色时海青、琥珀、陶土这几层色相也收掉, 只留墨黑 / 米白底和高光(#320)。
+            let hue: (Color) -> Color = WidgetDesign.prefersMonochrome ? { _ in .clear } : { $0 }
             ZStack {
                 isDark ? ClassicWidgetPalette.ink : ClassicWidgetPalette.paper
                 if isDark {
                     LinearGradient(
                         colors: [
                             ClassicWidgetPalette.graphite.opacity(0.94),
-                            WidgetDesign.sea.opacity(0.20),
+                            hue(WidgetDesign.sea.opacity(0.20)),
                             tint.opacity(0.05),
-                            WidgetDesign.amber.opacity(0.14),
+                            hue(WidgetDesign.amber.opacity(0.14)),
                             Color.black.opacity(0.30),
                         ],
                         startPoint: .topLeading,
@@ -1500,7 +1552,7 @@ private struct ClassicWidgetBackdrop: View {
                         colors: [
                             Color.white.opacity(0.78),
                             tint.opacity(0.10),
-                            WidgetDesign.amber.opacity(0.12),
+                            hue(WidgetDesign.amber.opacity(0.12)),
                             Color.black.opacity(0.035),
                         ],
                         startPoint: .topLeading,
@@ -1511,7 +1563,7 @@ private struct ClassicWidgetBackdrop: View {
                     colors: [
                         tint.opacity(isDark ? 0.06 : 0.12),
                         .clear,
-                        ClassicWidgetPalette.clay.opacity(isDark ? 0.12 : 0.08),
+                        hue(ClassicWidgetPalette.clay.opacity(isDark ? 0.12 : 0.08)),
                     ],
                     startPoint: .topTrailing,
                     endPoint: .bottomLeading
@@ -1593,29 +1645,36 @@ private struct ClassicSmallNowPlayingView: View {
 
     var body: some View {
         CoverPlayerCanvas(state: state, padding: 14, bleed: .whole) {
-            VStack(alignment: .leading, spacing: 6) {
-                if renderingMode != .fullColor {
-                    ClassicArtwork(state: state, cornerRadius: 8)
-                        .frame(width: 46, height: 46)
+            GeometryReader { geometry in
+                // 色调、透明外观下左上角那张小封面: 底下歌名两行、歌手和进度连间距约 77pt, iPad mini 小号内容
+                // 只有 113pt 高, 封面按剩下的取, 不再把进度条挤出底边。
+                let footer: CGFloat = state.isLiveStream ? 14 : 4.5
+                let artworkSide: CGFloat = min(46, max(28, geometry.size.height - 73 - footer))
+                VStack(alignment: .leading, spacing: 6) {
+                    if renderingMode != .fullColor {
+                        ClassicArtwork(state: state, cornerRadius: 8)
+                            .frame(width: artworkSide, height: artworkSide)
+                    }
+                    Spacer(minLength: 0)
+                    Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text(nowPlayingSubtitle(state))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if state.isLiveStream {
+                        LiveIndicatorLine(lightText: renderingMode == .fullColor)
+                            .padding(.top, 2)
+                    } else {
+                        ProgressLine(progress: progress)
+                            .padding(.top, 2)
+                    }
                 }
-                Spacer(minLength: 0)
-                Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(nowPlayingSubtitle(state))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if state.isLiveStream {
-                    LiveIndicatorLine(lightText: renderingMode == .fullColor)
-                        .padding(.top, 2)
-                } else {
-                    ProgressLine(progress: progress)
-                        .padding(.top, 2)
-                }
+                .widgetBounds(geometry.size)
+                .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.30 : 0), radius: 3, x: 0, y: 1)
             }
-            .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.30 : 0), radius: 3, x: 0, y: 1)
         }
     }
 }
@@ -1640,55 +1699,67 @@ private struct ClassicMediumNowPlayingView: View {
                     ClassicArtwork(state: state, cornerRadius: 12)
                         .frame(width: coverSide, height: coverSide)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        if showsEyebrow {
-                            NowPlayingEyebrow(state: state)
-                                .padding(.bottom, 4)
-                        }
-                        Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(lyric == nil ? 2 : 1)
-                            .minimumScaleFactor(0.86)
-                        Text(nowPlayingSubtitle(state))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(WidgetDesign.secondaryText)
-                            .lineLimit(1)
-                            .padding(.top, 1)
-                        if let lyric {
-                            Text(verbatim: lyric)
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundStyle(WidgetDesign.brandTint)
-                                .widgetAccentable()
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                                .padding(.top, 4)
-                        } else {
-                            Text(secondaryMetadata(state))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(WidgetDesign.tertiaryText)
-                                .lineLimit(1)
-                                .padding(.top, 3)
-                        }
-
-                        Spacer(minLength: 3)
-
-                        if state.isLiveStream {
-                            LiveIndicatorLine()
-                        } else if showsTimes {
-                            ClassicProgressBlock(state: state, progress: progress, spacing: 4, fontSize: 9.5)
-                        } else {
-                            ProgressLine(progress: progress)
-                        }
-
-                        NowPlayingControls(state: state, compact: true, classic: true)
-                            .padding(.top, 5)
+                    // 没有歌词时歌名可以写两行, 但两行要多约 20pt: 长歌名在 6.1 寸 iPhone 的中号(内容约 130pt 高)
+                    // 上也会把底下的键挤出去。排不下就收成一行, 再不行才省掉时长。
+                    ViewThatFits(in: .vertical) {
+                        column(lyric: lyric, titleLines: lyric == nil ? 2 : 1,
+                               showsEyebrow: showsEyebrow, showsTimes: showsTimes)
+                        column(lyric: lyric, titleLines: 1, showsEyebrow: showsEyebrow, showsTimes: showsTimes)
+                        column(lyric: lyric, titleLines: 1, showsEyebrow: showsEyebrow, showsTimes: false)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 }
                 .widgetBounds(geometry.size, alignment: .leading)
             }
         }
+    }
+
+    private func column(lyric: String?, titleLines: Int, showsEyebrow: Bool, showsTimes: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsEyebrow {
+                NowPlayingEyebrow(state: state)
+                    .padding(.bottom, 4)
+            }
+            Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(WidgetDesign.strongText)
+                .lineLimit(titleLines)
+                .minimumScaleFactor(0.86)
+            Text(nowPlayingSubtitle(state))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(WidgetDesign.secondaryText)
+                .lineLimit(1)
+                .padding(.top, 1)
+            if let lyric {
+                Text(verbatim: lyric)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(WidgetDesign.brandTint)
+                    .widgetAccentable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .padding(.top, 4)
+            } else {
+                Text(secondaryMetadata(state))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(WidgetDesign.tertiaryText)
+                    .lineLimit(1)
+                    .padding(.top, 3)
+            }
+
+            Spacer(minLength: 3)
+
+            if state.isLiveStream {
+                LiveIndicatorLine()
+            } else if showsTimes {
+                ClassicProgressBlock(state: state, progress: progress, spacing: 4, fontSize: 9.5)
+            } else {
+                ProgressLine(progress: progress)
+            }
+
+            NowPlayingControls(state: state, compact: true, classic: true)
+                .padding(.top, 5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1719,8 +1790,11 @@ private struct ClassicLargeNowPlayingView: View {
     var body: some View {
         ClassicWidgetCanvas(padding: 18) {
             GeometryReader { geometry in
-                // 旧版按整块宽度(含两边 18 的边距)取 42%。
-                let coverSide = min(138, max(118, (geometry.size.width + 36) * 0.42))
+                // 旧版按整块宽度(含两边 18 的边距)取 42%。封面以下: 三段间距 39、进度和时长 21、一排 34 高的键,
+                // 面板连自己的内边距至少要 56 才放得下读书进度最紧的一档, 共 150pt。iPad mini 大号内容只有
+                // 269.5pt 高, 封面从 128 收到约 120, 底下的键不再被裁掉; 4.7 寸以上的 iPhone 不变。
+                let widthSide: CGFloat = max(118, (geometry.size.width + 36) * 0.42)
+                let coverSide: CGFloat = max(80, min(138, widthSide, geometry.size.height - 150))
                 VStack(alignment: .leading, spacing: 13) {
                     HStack(alignment: .top, spacing: 14) {
                         ClassicArtwork(state: state, cornerRadius: 14)

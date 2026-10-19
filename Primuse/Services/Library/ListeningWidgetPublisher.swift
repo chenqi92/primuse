@@ -240,3 +240,38 @@ final class ListeningWidgetPublisher {
         }
     }
 }
+
+// MARK: - 屏幕小组件颜色
+
+/// 「颜色和图标 › 屏幕小组件」的选择存在本机设置里, 随 iCloud 走; 小组件读 App Group 里那一份。
+/// 设置页改了、App 启动时、别的设备改了它传过来时各抄一遍, 变了才刷新小组件。
+@MainActor
+enum WidgetColorStyleMirror {
+    private static var observer: NSObjectProtocol?
+
+    static func start() {
+        publish()
+        guard observer == nil else { return }
+        observer = NotificationCenter.default.addObserver(
+            forName: CloudKVSSync.externalChangeNotification, object: nil, queue: .main
+        ) { note in
+            guard note.userInfo?["key"] as? String == WidgetColorStyle.storageKey else { return }
+            MainActor.assumeIsolated { publish() }
+        }
+    }
+
+    static func publish() {
+        let style = WidgetColorStyle(storedValue: UserDefaults.standard.string(forKey: WidgetColorStyle.storageKey))
+        guard WidgetColorStyleStore.publish(style) else { return }
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+}
+
+extension WidgetColorStyle {
+    var title: String {
+        switch self {
+        case .artwork: String(localized: "widget_color_style_artwork")
+        case .monochrome: String(localized: "widget_color_style_monochrome")
+        }
+    }
+}

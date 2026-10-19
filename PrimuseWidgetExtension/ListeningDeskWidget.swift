@@ -161,8 +161,8 @@ extension PrimuseListeningDeskTileContent {
     /// music follows the brand accent.
     var tint: Color { WidgetDesign.tint(for: space) }
 
-    /// A playing station stops (red, as on the app's radio page); an episode
-    /// or a book pauses.
+    /// A playing station stops; an episode or a book pauses. The key is the
+    /// neutral glass one (#320); only the playing dot keeps the radio red.
     var playingSymbol: String { self == .radio ? "stop.fill" : "pause.fill" }
     var playingAccessibilityKey: String { self == .radio ? "widget_desk_stop" : "ext.control.pause" }
 }
@@ -175,65 +175,130 @@ struct ListeningDeskView: View {
 
     var body: some View {
         WidgetCanvas(padding: 16) {
-            VStack(alignment: .leading, spacing: large ? 14 : 10) {
-                if large {
-                    HStack {
-                        Text(PMString("ext.widget.desk.title"))
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                        Spacer()
-                        Image(systemName: "hifispeaker.2").foregroundStyle(WidgetDesign.brandTint).widgetAccentable()
+            GeometryReader { geometry in
+                let spacing: CGFloat = large ? 14 : 10
+                // 两格目的地: 大号 62 + 上下 10 的内边距, 中号 22 + 20; 大号底下再有一排最近专辑(38 + 3)。
+                // 余下的才是上面那块(主角)的高度: iPad mini 中号只剩 57pt、4.7 寸 iPhone 64, 封面原来固定 74,
+                // 现在按这块的高度取。
+                let tilesHeight: CGFloat = large ? 82 : 42
+                let albumsHeight: CGFloat = large && !entry.albums.isEmpty ? 41 + spacing : 0
+                let heroWithoutHeader: CGFloat = geometry.size.height - tilesHeight - albumsHeight - spacing
+                // 大号的标题一行约 22pt: 带上它主角那块就放不下 118 的封面时(iPad mini 大号只剩约 86、
+                // 4.7 寸 iPhone 约 105), 先省掉标题。
+                let showsHeader = large && heroWithoutHeader - 22 - spacing >= 118
+                let headerHeight: CGFloat = showsHeader ? 22 + spacing : 0
+                let heroHeight: CGFloat = max(1, heroWithoutHeader - headerHeight)
+                VStack(alignment: .leading, spacing: spacing) {
+                    if showsHeader { header }
+                    hero(height: heroHeight)
+                        .frame(height: heroHeight)
+                    HStack(spacing: 10) {
+                        destination(entry.leading)
+                        destination(entry.trailing)
                     }
+                    if large, !entry.albums.isEmpty { recentAlbums }
                 }
-                hero.frame(maxHeight: .infinity)
-                HStack(spacing: 10) {
-                    destination(entry.leading)
-                    destination(entry.trailing)
-                }
-                if large, !entry.albums.isEmpty { recentAlbums }
+                .widgetBounds(geometry.size)
             }
         }
         .widgetURL(URL(string: "primuse://"))
     }
 
-    private var hero: some View {
-        HStack(spacing: large ? 18 : 12) {
+    private var header: some View {
+        HStack {
+            Text(PMString("ext.widget.desk.title"))
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+            Spacer()
+            Image(systemName: "hifispeaker.2").foregroundStyle(WidgetDesign.brandTint).widgetAccentable()
+        }
+    }
+
+    /// 正在放的那一条; 没有时主角那块写「尚未播放」。
+    private var playingState: PlaybackState? {
+        guard let state = entry.state, state.currentSongID != nil else { return nil }
+        return state
+    }
+
+    /// 有声书和播客的进度挪到封面右边那一栏(#320): 在封面底下横一长条看着别扭, 音乐照旧横在整排底下。
+    private func showsProgressBesideCover(_ state: PlaybackState) -> Bool {
+        state.listeningSpace == .spokenWord || state.listeningSpace == .podcast
+    }
+
+    private func playbackProgress(_ state: PlaybackState) -> PlaybackProgress {
+        .init(state: state, elapsed: state.currentTime, referenceDate: state.updatedAt ?? entry.date)
+    }
+
+    private func hero(height: CGFloat) -> some View {
+        let largestSide: CGFloat = large ? 118 : 74
+        let side: CGFloat = min(largestSide, height)
+        return HStack(spacing: large ? 18 : 12) {
             Group {
-                if let state = entry.state, state.currentSongID != nil {
+                if let state = playingState {
                     WidgetPlaybackArtwork(state: state)
                 } else {
                     WidgetRecordSleeve(coverImageName: nil)
                 }
             }
-            .frame(width: large ? 118 : 74, height: large ? 118 : 74)
-            VStack(alignment: .leading, spacing: large ? 7 : 4) {
-                if let state = entry.state, state.currentSongID != nil {
-                    Text(PMString(state.isPlaying ? "ext.widget.nowPlaying.playing" : "ext.widget.nowPlaying.paused"))
-                        .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                    Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                        .font(.system(size: large ? 20 : 16, weight: .bold))
-                        .lineLimit(2).minimumScaleFactor(0.88)
-                        .contentTransition(.opacity)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: state.currentSongID)
-                    Text(state.spokenWord?.bookTitle ?? state.artistName ?? PMString("ext.widget.unknownArtist"))
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                    if large { transport(state) }
-                } else {
-                    Text(PMString("ext.widget.nowPlaying.empty.title"))
-                        .font(.system(size: large ? 20 : 16, weight: .bold)).lineLimit(2)
-                    Text(PMString("ext.widget.nowPlaying.empty.openShort"))
-                        .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if !large, let state = entry.state, state.currentSongID != nil {
+            .frame(width: side, height: side)
+            heroText
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !large, let state = playingState {
                 WidgetPlaybackButton(state: state)
             }
         }
         .overlay(alignment: .bottom) {
-            if large, let state = entry.state, state.duration > 0 {
-                ProgressLine(progress: .init(state: state, elapsed: state.currentTime, referenceDate: state.updatedAt ?? entry.date))
+            if large, let state = playingState, state.duration > 0, !showsProgressBesideCover(state) {
+                ProgressLine(progress: playbackProgress(state))
                     .offset(y: 7)
             }
+        }
+    }
+
+    /// 封面右边那一栏。大号歌名两行连眉题、歌手、播放键约 130pt(有声书和播客多一条进度约 140), 中号约 71;
+    /// 主角那块矮的时候(iPad mini、4.7 寸 iPhone)歌名先收成一行, 还不够再省掉「正在播放」那行眉题。
+    @ViewBuilder private var heroText: some View {
+        if let state = playingState {
+            ViewThatFits(in: .vertical) {
+                nowPlayingText(state, titleLines: 2, showsStatus: true)
+                nowPlayingText(state, titleLines: 1, showsStatus: true)
+                nowPlayingText(state, titleLines: 1, showsStatus: false)
+            }
+        } else {
+            ViewThatFits(in: .vertical) {
+                emptyText(titleLines: 2)
+                emptyText(titleLines: 1)
+            }
+        }
+    }
+
+    private func nowPlayingText(_ state: PlaybackState, titleLines: Int, showsStatus: Bool) -> some View {
+        VStack(alignment: .leading, spacing: large ? 7 : 4) {
+            if showsStatus {
+                Text(PMString(state.isPlaying ? "ext.widget.nowPlaying.playing" : "ext.widget.nowPlaying.paused"))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+            }
+            Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                .font(.system(size: large ? 20 : 16, weight: .bold))
+                .lineLimit(titleLines).minimumScaleFactor(0.88)
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: state.currentSongID)
+            Text(state.spokenWord?.bookTitle ?? state.artistName ?? PMString("ext.widget.unknownArtist"))
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+            if large {
+                if showsProgressBesideCover(state), state.duration > 0 {
+                    ProgressLine(progress: playbackProgress(state))
+                }
+                transport(state)
+            }
+        }
+    }
+
+    private func emptyText(titleLines: Int) -> some View {
+        VStack(alignment: .leading, spacing: large ? 7 : 4) {
+            Text(PMString("ext.widget.nowPlaying.empty.title"))
+                .font(.system(size: large ? 20 : 16, weight: .bold)).lineLimit(titleLines)
+            Text(PMString("ext.widget.nowPlaying.empty.openShort"))
+                .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 
@@ -296,6 +361,7 @@ struct ListeningDeskView: View {
 
     private func destinationLabel(_ tile: ListeningDeskTile) -> some View {
         let tint = tile.content.tint
+        // 在播的台前面那颗状态点照旧是红的, 跟 App 电台页一样; 右边的键是中性的毛玻璃。
         let playingAccent = tile.content == .radio ? Color.red : tint
         return HStack(spacing: 8) {
             if large, tile.title != nil {
@@ -320,8 +386,8 @@ struct ListeningDeskView: View {
             }
             Spacer(minLength: 0)
             if tile.title != nil, !large {
-                Image(systemName: tile.isPlaying ? tile.content.playingSymbol : "play.fill").font(.system(size: 9))
-                    .foregroundStyle(tile.isPlaying ? playingAccent : tint).widgetAccentable()
+                WidgetGlassKeyLabel(symbol: tile.isPlaying ? tile.content.playingSymbol : "play.fill",
+                                    diameter: 22, symbolScale: 0.42)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

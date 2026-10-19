@@ -136,31 +136,34 @@ private struct SmallSpokenWordBook: View {
 
     var body: some View {
         WidgetCanvas {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top) {
-                    WidgetBookCover(coverImageName: book.coverImageName, width: 33)
-                    Spacer()
-                    SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(SpokenWordShelfText.tint)
-                            .frame(width: 34, height: 34)
-                            .background(SpokenWordShelfText.tint.opacity(0.10), in: .circle)
+            GeometryReader { geometry in
+                // 书封和键一排 34、书名两行约 36、作者约 14、进度条, 加上间距约 111pt; iPad mini 小号内容
+                // 只有 109pt 高, 书名收成一行。
+                let titleLines = geometry.size.height >= 111 ? 2 : 1
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        WidgetBookCover(coverImageName: book.coverImageName, width: 33)
+                        Spacer()
+                        SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
+                            WidgetGlassKeyLabel(symbol: isPlaying ? "pause.fill" : "play.fill",
+                                                diameter: 34, symbolScale: 0.41)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text(book.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(WidgetDesign.strongText)
+                        .lineLimit(titleLines)
+                    if let author = book.author, !author.isEmpty {
+                        Text(author).font(.system(size: 12))
+                            .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
+                    }
+                    if includesProgress {
+                        ProgressView(value: min(1, max(0, book.fractionComplete)))
+                            .progressViewStyle(WidgetHairlineBar())
                     }
                 }
-                Spacer(minLength: 0)
-                Text(book.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(WidgetDesign.strongText)
-                    .lineLimit(2)
-                if let author = book.author, !author.isEmpty {
-                    Text(author).font(.system(size: 12))
-                        .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
-                }
-                if includesProgress {
-                    ProgressView(value: min(1, max(0, book.fractionComplete)))
-                        .progressViewStyle(WidgetHairlineBar())
-                }
+                .widgetBounds(geometry.size)
             }
         }
         .accessibilityElement(children: .contain)
@@ -176,6 +179,9 @@ private struct MediumSpokenWordBook: View {
         WidgetCanvas(padding: 16) {
             GeometryReader { geometry in
                 let coverHeight = max(80, geometry.size.height)
+                // 右栏: 眉题、书名两行约 38、作者、底下 30 高的键, 加上间距约 111pt; iPad mini 中号内容只有
+                // 109pt 高, 书名收成一行。
+                let titleLines = geometry.size.height >= 112 ? 2 : 1
                 HStack(alignment: .top, spacing: 14) {
                     WidgetBookCover(
                         coverImageName: book.coverImageName,
@@ -187,7 +193,7 @@ private struct MediumSpokenWordBook: View {
                         Text(book.title)
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(2)
+                            .lineLimit(titleLines)
                             .minimumScaleFactor(0.86)
                         if let author = book.author {
                             Text(author)
@@ -199,11 +205,8 @@ private struct MediumSpokenWordBook: View {
                         HStack(alignment: .bottom, spacing: 10) {
                             SpokenWordBookProgressFooter(book: book, includesProgress: includesProgress, compact: false)
                             SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(WidgetDesign.strongText)
-                                    .frame(width: 30, height: 30)
-                                    .background(SpokenWordShelfText.tint.opacity(0.22), in: .circle)
+                                WidgetGlassKeyLabel(symbol: isPlaying ? "pause.fill" : "play.fill",
+                                                    diameter: 30, symbolScale: 0.43)
                             }
                         }
                     }
@@ -216,16 +219,14 @@ private struct MediumSpokenWordBook: View {
     }
 }
 
-/// 中号、在听的不止一本: 最多三本并排, 每本书封角上一个播放键。
+/// 中号、在听的不止一本: 最多三本并排, 播放键居中压在书封上, 像「图书」App 的有声书小组件(#320)。
 ///
-/// 书封由高度定宽(方形), 比平分出来的一列窄; 以前每本靠列的左边放, 最后一本右边空出
-/// 一大块。现在从小组件的边缘量起, 书封之间、书封和两边留一样宽的空, 进度条和书封一样宽、
-/// 对齐在书封下面, 书名在下面居中, 可以比书封宽(占到两本之间的空), 最多两行。
+/// 书封由高度定宽(方形), 比平分出来的一列窄; 从小组件的边缘量起, 书封之间、书封和两边留一样宽的空,
+/// 进度条和书封一样宽、对齐在书封下面。书封下面不再写书名: 长书名折成两行很乱, 省下的高度给书封。
 private struct MediumSpokenWordShelf: View {
     let books: [SpokenWordShelfSnapshot.Book]
     let includesProgress: Bool
     let playingBookID: String?
-    @Environment(\.widgetRenderingMode) private var renderingMode
     /// The canvas padding; the even gaps are measured from the widget's edges.
     private let inset: CGFloat = 14
 
@@ -235,26 +236,29 @@ private struct MediumSpokenWordShelf: View {
                 let shown = Array(books.prefix(SpokenWordWidgetPolicy.shelfLimit))
                 let columns = CGFloat(max(1, shown.count))
                 let eyebrowHeight: CGFloat = 16
-                // Progress bar, two lines of title (CJK fonts run taller) and the spacing between them.
-                let textHeight: CGFloat = 42
+                // 书封下面只有一条进度条和它上面 4 的空。
+                let barHeight: CGFloat = includesProgress ? 6.5 : 0
                 let evenColumnWidth: CGFloat = (geometry.size.width - 12 * (columns - 1)) / columns
-                // 标题下面至少留 8,再和底下平分余下的高度(#283:书封整块往下挪,上下匀称)。
+                // 眉题下面至少留 8,再和底下平分余下的高度(#283:书封整块往下挪,上下匀称)。
                 let titleGap: CGFloat = 8
-                let heightLeft: CGFloat = geometry.size.height - eyebrowHeight - textHeight - titleGap
+                let heightLeft: CGFloat = geometry.size.height - eyebrowHeight - barHeight - titleGap
+                // 宽度上书封最多占平分一列的八成, 三本时书封之间留出约三分之一书封宽的空。三本的书封:
+                // iPad mini 中号(内容 277.5×113)约 68pt, 4.7 寸 iPhone 约 72, 6.1 寸约 76, 6.7 寸约 83;
+                // 原来要给书名让出两行, 只有 47–65。
                 let coverHeight: CGFloat = max(40, min(
-                    SpokenWordCoverLayout.height(forWidth: evenColumnWidth * 0.62), heightLeft
+                    SpokenWordCoverLayout.height(forWidth: evenColumnWidth * 0.8), heightLeft
                 ))
                 let coverWidth: CGFloat = SpokenWordCoverLayout.width(forHeight: coverHeight)
                 // The same gap before, between and after the covers, counted from the widget's edges.
                 let widgetWidth: CGFloat = geometry.size.width + inset * 2
                 let gap: CGFloat = max(8, (widgetWidth - coverWidth * columns) / (columns + 1))
-                // A title may spread into the gaps beside its cover, short of touching the next title.
-                let titleExtra: CGFloat = max(0, min(gap - 8, 2 * (gap - inset)))
+                // 键约占书封宽的四成, 原来角上那颗只有 24。
+                let keyDiameter: CGFloat = min(44, max(28, coverWidth * 0.42))
                 VStack(alignment: .leading, spacing: 0) {
                     SpokenWordShelfEyebrow()
                         .frame(height: eyebrowHeight)
                     Spacer(minLength: titleGap)
-                    HStack(alignment: .top, spacing: gap - titleExtra) {
+                    HStack(alignment: .top, spacing: gap) {
                         ForEach(shown) { book in
                             let isPlaying = playingBookID == book.id
                             VStack(spacing: 4) {
@@ -263,30 +267,22 @@ private struct MediumSpokenWordShelf: View {
                                     width: coverWidth,
                                     cornerRadius: 6
                                 )
-                                .overlay(alignment: .bottomTrailing) {
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(book.title)
+                                .overlay {
                                     SpokenWordPlayKey(book: book, isPlaying: isPlaying) {
-                                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundStyle(SpokenWordShelfText.tint)
-                                            .frame(width: 24, height: 24)
-                                            .background(playKeyBackdrop, in: .circle)
-                                            .overlay { Circle().strokeBorder(SpokenWordShelfText.tint.opacity(0.18), lineWidth: 1) }
+                                        WidgetGlassKeyLabel(symbol: isPlaying ? "pause.fill" : "play.fill",
+                                                            diameter: keyDiameter, overArtwork: true,
+                                                            symbolScale: 0.40)
                                     }
-                                    .padding(4)
                                 }
                                 if includesProgress {
                                     ProgressView(value: min(1, max(0, book.fractionComplete)))
                                         .progressViewStyle(WidgetHairlineBar())
                                         .frame(width: coverWidth)
                                 }
-                                Text(book.title)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(WidgetDesign.strongText)
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .frame(width: coverWidth + titleExtra)
                             }
-                            .frame(width: coverWidth + titleExtra)
+                            .frame(width: coverWidth)
                             .accessibilityElement(children: .contain)
                         }
                     }
@@ -296,11 +292,6 @@ private struct MediumSpokenWordShelf: View {
                 .widgetBounds(geometry.size)
             }
         }
-    }
-
-    /// 书封角上播放键垫的底色。色调、透明外观下它会被渲染成一块实心白片(#190),只在全彩时画。
-    private var playKeyBackdrop: AnyShapeStyle {
-        renderingMode == .fullColor ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear)
     }
 }
 

@@ -1759,6 +1759,11 @@
 "desktop_widget_sync_explanation_title" = "デスクトップウィジェットの同期を有効にする";
 "desktop_widget_sync_explanation_message" = "Primuse は現在の再生情報（タイトル、アーティスト、カバー、進行状況）を macOS のデスクトップウィジェットに書き込み、デスクトップから再生中の曲を確認できるようにします。ローカルにのみ保存され、アップロードは一切行われません。";
 "desktop_widget_sync_continue" = "続ける";
+"widget_color_style_section" = "ホーム画面ウィジェット";
+"widget_color_style_title" = "ウィジェットの色";
+"widget_color_style_artwork" = "カバーから";
+"widget_color_style_monochrome" = "モノクロ";
+"widget_color_style_footer" = "「カバーから」では、ウィジェットの進行状況バーや背景にテーマカラーとラジオ・オーディオブック・ポッドキャストの色を使います。「モノクロ」ではこれらを無彩色にし、色が付くのはカバーだけになります。再生ボタンは常に無彩色のすりガラス風です。";
 "password_required_title" = "パスワードが必要です";
 "password_wrong_hint" = "パスワードが正しくありません。もう一度お試しください。";
 "scrobble_lastfm_signin_browser_prompt" = "ブラウザを開いて Last.fm の認証を完了します。完了したら Primuse に戻り、「認証しました」をタップしてください。";

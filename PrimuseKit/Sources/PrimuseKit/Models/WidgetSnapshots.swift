@@ -172,6 +172,51 @@ public enum WidgetPlayerArtworkStyleStore {
     }
 }
 
+/// 屏幕小组件的配色(「颜色和图标 › 屏幕小组件」, #320)。取自封面时进度条、底色、轮廓环和各类的颜色
+/// 照主题色与各类自己的颜色画; 单色时这些点缀一律换成中性色, 只有封面带颜色。播放键两种都是中性的
+/// 毛玻璃样子, 不跟这个设置。
+public enum WidgetColorStyle: String, CaseIterable, Sendable {
+    case artwork
+    case monochrome
+
+    /// 用户的选择存在 App 自己的 `UserDefaults.standard` 里(随 iCloud 走); 小组件读
+    /// `WidgetColorStyleStore` 抄进 App Group 的那一份。
+    public static let storageKey = "primuse.widget.colorStyle"
+    public static let defaultValue = WidgetColorStyle.artwork
+
+    /// 没设过、或是认不出的值(更新的版本写的)都按默认。
+    public init(storedValue: String?) {
+        self = storedValue.flatMap(Self.init(rawValue:)) ?? .defaultValue
+    }
+}
+
+/// `WidgetColorStyle` 在 App Group 里的副本, 照 `WidgetPlayerArtworkStyleStore` 的样子: App 改设置、
+/// 启动时、别的设备改了它传过来时各抄一遍。
+public enum WidgetColorStyleStore {
+    static let key = "primuse.widget.colorStyle"
+
+    public static func load() -> WidgetColorStyle {
+        load(from: WidgetSharedStore.defaults)
+    }
+
+    /// 值变了才写, 返回 true 时调用方要刷新小组件。
+    @discardableResult
+    public static func publish(_ style: WidgetColorStyle) -> Bool {
+        publish(style, to: WidgetSharedStore.defaults)
+    }
+
+    static func load(from defaults: UserDefaults?) -> WidgetColorStyle {
+        WidgetColorStyle(storedValue: defaults?.string(forKey: key))
+    }
+
+    /// 没写过时小组件按默认画, 默认值就不必写, 也不必为它刷新一次。
+    static func publish(_ style: WidgetColorStyle, to defaults: UserDefaults?) -> Bool {
+        guard let defaults, load(from: defaults) != style else { return false }
+        defaults.set(style.rawValue, forKey: key)
+        return true
+    }
+}
+
 // MARK: - Lyrics
 
 /// Trimmed lyric line for the widget — drops syllable/voice detail (the widget

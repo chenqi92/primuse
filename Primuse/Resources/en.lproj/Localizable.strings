@@ -1781,6 +1781,11 @@
 "desktop_widget_sync_explanation_title" = "Enable desktop widget sync";
 "desktop_widget_sync_explanation_message" = "Primuse will write the current playback info (title, artist, cover, progress) to the macOS desktop widget so you can see what's playing right from your desktop. Stored locally only — nothing is uploaded.";
 "desktop_widget_sync_continue" = "Continue";
+"widget_color_style_section" = "Home Screen Widgets";
+"widget_color_style_title" = "Widget Colors";
+"widget_color_style_artwork" = "From Artwork";
+"widget_color_style_monochrome" = "Monochrome";
+"widget_color_style_footer" = "From Artwork tints progress bars and backgrounds in widgets with the theme color and the radio, audiobook and podcast colors. Monochrome keeps them neutral so only the artwork carries color. Play buttons always use a neutral frosted look.";
 
 // MARK: - Auth / connection
 "password_required_title" = "Password required";

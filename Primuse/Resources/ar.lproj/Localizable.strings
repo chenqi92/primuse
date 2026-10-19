@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "لا توجد موسيقى قيد التشغيل";
 "desktop_lyrics_unlocked" = "تم فتح كلمات سطح المكتب";
 "desktop_widget_sync_continue" = "متابعة";
+"widget_color_style_section" = "أدوات الشاشة الرئيسية";
+"widget_color_style_title" = "ألوان الأدوات";
+"widget_color_style_artwork" = "من الغلاف";
+"widget_color_style_monochrome" = "أحادي اللون";
+"widget_color_style_footer" = "يلوّن خيار «من الغلاف» أشرطة التقدم والخلفيات في الأدوات بلون السمة وألوان الراديو والكتب الصوتية والبودكاست. أما «أحادي اللون» فيجعلها محايدة فلا يحمل اللون سوى الأغلفة. تظهر أزرار التشغيل دائمًا بمظهر زجاجي محايد.";
 "desktop_widget_sync_enabled" = "تمكين مزامنة أدوات سطح المكتب";
 "desktop_widget_sync_explanation_message" = "Primuse سيكتب معلومات التشغيل الحالية (العنوان، الفنان، الغلاف، التقدم) إلى أداة سطح المكتب macOS حتى تتمكن من رؤية ما يتم تشغيله مباشرة من سطح المكتب. يتم تخزينه محليًا فقط - ولا يتم تحميل أي شيء.";
 "desktop_widget_sync_explanation_title" = "تمكين مزامنة أدوات سطح المكتب";

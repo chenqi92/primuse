@@ -1758,6 +1758,11 @@
 "desktop_widget_sync_explanation_title" = "Activer la synchronisation du widget de bureau";
 "desktop_widget_sync_explanation_message" = "Primuse écrira les informations de lecture actuelles (titre, artiste, pochette, progression) dans le widget de bureau macOS afin que vous puissiez voir ce qui est en cours directement depuis votre bureau. Stocké localement uniquement, rien n'est envoyé.";
 "desktop_widget_sync_continue" = "Continuer";
+"widget_color_style_section" = "Widgets de l’écran d’accueil";
+"widget_color_style_title" = "Couleurs des widgets";
+"widget_color_style_artwork" = "D’après la pochette";
+"widget_color_style_monochrome" = "Monochrome";
+"widget_color_style_footer" = "« D’après la pochette » colore les barres de progression et les fonds des widgets avec la couleur du thème et celles de la radio, des livres audio et des podcasts. « Monochrome » les garde neutres : seules les pochettes apportent de la couleur. Les boutons de lecture ont toujours un aspect de verre dépoli neutre.";
 "password_required_title" = "Mot de passe requis";
 "password_wrong_hint" = "Mot de passe incorrect. Veuillez réessayer.";
 "scrobble_lastfm_signin_browser_prompt" = "Ouverture de votre navigateur pour terminer l'autorisation Last.fm. Revenez à Primuse et touchez « J'ai autorisé » une fois terminé.";

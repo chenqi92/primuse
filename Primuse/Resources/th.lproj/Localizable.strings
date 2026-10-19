@@ -1158,6 +1158,11 @@
 "desktop_lyrics_no_song" = "ยังไม่ได้เล่นเพลง";
 "desktop_lyrics_unlocked" = "ปลดล็อคเนื้อเพลงบนเดสก์ท็อปแล้ว";
 "desktop_widget_sync_continue" = "ดำเนินการต่อ";
+"widget_color_style_section" = "วิดเจ็ตบนหน้าจอโฮม";
+"widget_color_style_title" = "สีของวิดเจ็ต";
+"widget_color_style_artwork" = "จากปก";
+"widget_color_style_monochrome" = "สีเดียว";
+"widget_color_style_footer" = "“จากปก” จะใช้สีของธีมและสีของวิทยุ หนังสือเสียง และพอดแคสต์กับแถบความคืบหน้าและพื้นหลังในวิดเจ็ต ส่วน “สีเดียว” จะใช้สีกลางแทน ให้มีสีเฉพาะที่ปก ปุ่มเล่นเป็นแบบกระจกฝ้าสีกลางเสมอ";
 "desktop_widget_sync_enabled" = "เปิดใช้งานการซิงค์วิดเจ็ตเดสก์ท็อป";
 "desktop_widget_sync_explanation_message" = "Primuse จะเขียนข้อมูลการเล่นปัจจุบัน (ชื่อ ศิลปิน ปก ความคืบหน้า) ลงในวิดเจ็ตเดสก์ท็อป macOS เพื่อให้คุณสามารถดูเพลงที่กำลังเล่นได้จากเดสก์ท็อปของคุณ จัดเก็บในเครื่องเท่านั้น — ไม่มีการอัปโหลดใดๆ";
 "desktop_widget_sync_explanation_title" = "เปิดใช้งานการซิงค์วิดเจ็ตเดสก์ท็อป";
