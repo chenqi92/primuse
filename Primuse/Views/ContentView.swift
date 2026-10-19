@@ -214,12 +214,6 @@ private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
     static let defaultValue = AppNavigationMode.standard
 }
 
-/// 叠加式 mini player 是否正在占住底部。只有这种情况下列表才需要自己让位；
-/// 系统 accessory / safeAreaInset 面板 / safeAreaBar 都已经计入安全区。
-private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
 private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
     static let defaultValue: MinimalNavigationDetailScope? = nil
 }
@@ -266,11 +260,6 @@ extension EnvironmentValues {
     var appNavigationMode: AppNavigationMode {
         get { self[AppNavigationModeEnvironmentKey.self] }
         set { self[AppNavigationModeEnvironmentKey.self] = newValue }
-    }
-
-    var legacyBottomChromeOverlayActive: Bool {
-        get { self[LegacyBottomChromeOverlayActiveEnvironmentKey.self] }
-        set { self[LegacyBottomChromeOverlayActiveEnvironmentKey.self] = newValue }
     }
 
     var minimalNavigationDetailScope: MinimalNavigationDetailScope? {
@@ -403,6 +392,13 @@ extension View {
         }
     }
 
+    /// iOS 26.1 之前的迷你条叠在标签栏上方、不进安全区（见 `BottomChromeClearancePolicy`）。
+    /// 挂在标签页内容上，整个标签页（推进去的详情页、设置里的表单）都滚到迷你条上面为止，
+    /// 不必每个页面各留一段底部空白。
+    fileprivate func legacyMiniPlayerClearance(_ height: CGFloat) -> some View {
+        modifier(LegacyMiniPlayerClearance(height: height))
+    }
+
     /// 极简模式的根页：头上是顶栏，底下是停靠条，系统导航栏藏起来。
     /// `showsTopChrome` 为 false 的根页（设置）保留系统导航栏，只在底下挂停靠条。
     func minimalNavigationRoot(showsTopChrome: Bool = true) -> some View {
@@ -411,6 +407,81 @@ extension View {
 
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
         modifier(MinimalNavigationDetailModifier(isDetail: isDetail))
+    }
+}
+
+private struct LegacyMiniPlayerClearance: ViewModifier {
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content
+        } else {
+            content.background(TabBottomSafeAreaReserve(height: height))
+        }
+    }
+}
+
+/// 给所在标签页的子控制器加一段 `additionalSafeAreaInsets.bottom`。SwiftUI 的 `safeAreaInset`
+/// 挂在标签页内容上传不进里面的 NavigationStack（10-19 模拟器实测：根页、推进去的详情页、
+/// 表单的最后一行照样压在浮条下面）；UIKit 的安全区沿控制器树往下传，整个标签页一起让位。
+private struct TabBottomSafeAreaReserve: UIViewControllerRepresentable {
+    let height: CGFloat
+
+    func makeUIViewController(context: Context) -> ReserveController {
+        ReserveController()
+    }
+
+    func updateUIViewController(_ controller: ReserveController, context: Context) {
+        controller.height = height
+        controller.apply()
+    }
+
+    static func dismantleUIViewController(_ controller: ReserveController, coordinator: ()) {
+        controller.height = 0
+        controller.apply()
+    }
+
+    final class ReserveController: UIViewController {
+        var height: CGFloat = 0
+        /// 已经加到标签子控制器上的那一份。只增减自己这份，不动别处设的值。
+        private var applied: CGFloat = 0
+        private weak var tabChild: UIViewController?
+
+        override func loadView() {
+            let view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            self.view = view
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        func apply() {
+            guard let target = tabChild ?? Self.tabChild(of: self) else { return }
+            tabChild = target
+            let delta = height - applied
+            guard delta != 0 else { return }
+            target.additionalSafeAreaInsets.bottom += delta
+            applied = height
+        }
+
+        private static func tabChild(of controller: UIViewController) -> UIViewController? {
+            var current = controller
+            while let parent = current.parent {
+                if parent is UITabBarController { return current }
+                current = parent
+            }
+            return nil
+        }
     }
 }
 
@@ -921,6 +992,8 @@ struct ContentView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
+    /// 叠加式迷你条的实测高度（随字号变），标签页外层照它垫出底部空白。
+    @State private var legacyAccessoryHeight: CGFloat = 0
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
@@ -932,6 +1005,13 @@ struct ContentView: View {
             rootLayoutIsStandardTabs: rootLayout == .standardTabs,
             miniPlayerVisible: miniPlayerVisible,
             systemAccessoryAvailable: systemAccessoryAvailable
+        )
+    }
+
+    private var legacyMiniPlayerInset: CGFloat {
+        BottomChromeClearancePolicy.overlayInset(
+            legacyOverlayActive: legacyBottomChromeOverlayActive,
+            accessoryHeight: legacyAccessoryHeight
         )
     }
 
@@ -1052,6 +1132,7 @@ struct ContentView: View {
                     .environment(\.minimalNavigationDetailScope, .home)
                     .environment(\.librarySearchTab, 0)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
+                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
@@ -1066,6 +1147,7 @@ struct ContentView: View {
                 .environment(\.minimalNavigationDetailScope, .library)
                 .environment(\.librarySearchTab, 1)
                 .toolbar(systemTabBarVisibility, for: .tabBar)
+                .legacyMiniPlayerClearance(legacyMiniPlayerInset)
             }
 
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
@@ -1077,6 +1159,7 @@ struct ContentView: View {
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
+                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
             }
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
@@ -1084,6 +1167,7 @@ struct ContentView: View {
                     .environment(\.minimalNavigationDetailScope, .settings)
                     .environment(\.minimalSettingsReturn, minimalSettingsReturn)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
+                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
             }
         }
         .softNavigationScrollEdges()
@@ -1461,6 +1545,11 @@ struct ContentView: View {
                     EmptyView()
                 } else {
                     LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { height in
+                            legacyAccessoryHeight = height
+                        }
                         .padding(.bottom, legacyTabBarClearance)
                         .pmSlideTransition(edge: .bottom, motion: .panel)
                         .zIndex(1)
@@ -1491,7 +1580,6 @@ struct ContentView: View {
         .pmScreenChangeTransition()
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
-        .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .songBatchRemovalFeedback()
         .serverCatalogRefreshFeedback()
         .smartNudges()

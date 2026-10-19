@@ -494,25 +494,6 @@ private struct HomeRankedSongsView: View {
     let songIDs: [String]
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
-    #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
-    #endif
-
-    private var legacyBottomClearance: CGFloat {
-        #if os(iOS)
-        appNavigationMode == .minimal
-            ? 0
-            : BottomChromeClearancePolicy.clearance(
-                legacyOverlayActive: legacyBottomChromeOverlayActive,
-                legacy: 90,
-                baseline: 0
-            )
-        #else
-        90
-        #endif
-    }
 
     var body: some View {
         List {
@@ -529,10 +510,11 @@ private struct HomeRankedSongsView: View {
         .navigationTitle(title)
         #if os(iOS)
         .minimalNavigationDetail()
-        #endif
-        .safeAreaInset(edge: .bottom, spacing: legacyBottomClearance == 0 ? 0 : nil) {
-            Color.clear.frame(height: legacyBottomClearance)
+        #else
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 90)
         }
+        #endif
     }
 }
 

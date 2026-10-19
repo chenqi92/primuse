@@ -17,23 +17,14 @@ struct RadioBatchAddView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
-    #if os(iOS)
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
-    #endif
 
-    /// 只有 iOS 的叠加式 mini player 需要列表自己让位；macOS 不走这条路径，沿用原值。
+    /// iOS 上这一页是弹出页，迷你条盖不到，只留基线间距；macOS 沿用原值。
     private var bottomChromeClearance: CGFloat {
         #if os(iOS)
-        let overlayActive = legacyBottomChromeOverlayActive
+        16
         #else
-        let overlayActive = true
+        120
         #endif
-        return BottomChromeClearancePolicy.clearance(
-            legacyOverlayActive: overlayActive,
-            legacy: 120,
-            baseline: 16
-        )
     }
 
     private enum Entry: String, CaseIterable, Identifiable {

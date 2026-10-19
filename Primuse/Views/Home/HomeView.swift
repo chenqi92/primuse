@@ -1533,22 +1533,15 @@ struct HomeView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
     #endif
 
-    /// 只有 iOS 的叠加式 mini player 需要列表自己让位；macOS 不走这条路径，沿用原值。
+    /// iOS 的迷你条由标签页外层统一让位（`legacyMiniPlayerClearance`），这里只留基线间距；macOS 沿用原值。
     private var bottomChromeClearance: CGFloat {
         #if os(iOS)
-        let overlayActive = legacyBottomChromeOverlayActive
+        16
         #else
-        let overlayActive = true
+        100
         #endif
-        return BottomChromeClearancePolicy.clearance(
-            legacyOverlayActive: overlayActive,
-            legacy: 100,
-            baseline: 16
-        )
     }
 
     /// 音乐态是否有内容可展示。电台不再计入 —— 它有独立模式，光有电台

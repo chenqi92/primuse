@@ -2174,8 +2174,6 @@ struct DebugGenreDetailEvidencePage: View {
 
 private struct GenreDetailView: View {
     #if os(iOS)
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(CoverTintProvider.self) private var coverTints
@@ -2239,11 +2237,7 @@ private struct GenreDetailView: View {
                     if !songIDs.isEmpty { songSection }
                 }
                 .padding(.top, 28)
-                .padding(.bottom, BottomChromeClearancePolicy.clearance(
-                    legacyOverlayActive: legacyBottomChromeOverlayActive,
-                    legacy: 64,
-                    baseline: 16
-                ))
+                .padding(.bottom, 16)
             }
             .navigationTitle("")
             #else

@@ -417,10 +417,7 @@ struct HomeFolderBrowser: View {
     var usesInlineControls = false
     var showsInlineBack = false
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.editMode) private var editMode
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
     #endif
     #if os(macOS)
     @Environment(\.dismiss) private var dismiss
@@ -519,20 +516,6 @@ struct HomeFolderBrowser: View {
                 ?? HomeFolderPinStorage.defaultDisplayCount
         )
         FavoriteCollectionStore.shared.didEditCollectedFolders(pinsRawValue)
-    }
-
-    private var legacyBottomClearance: CGFloat {
-        #if os(iOS)
-        appNavigationMode == .minimal
-            ? 0
-            : BottomChromeClearancePolicy.clearance(
-                legacyOverlayActive: legacyBottomChromeOverlayActive,
-                legacy: 90,
-                baseline: 0
-            )
-        #else
-        0
-        #endif
     }
 
     var body: some View {
@@ -701,9 +684,6 @@ struct HomeFolderBrowser: View {
         }
         // iPhone Duo 竖栏：文件夹与歌曲行铺到屏幕右缘，系统的玻璃胶囊浮在上面。
         .pmExtendsUnderVerticalBar()
-        .safeAreaInset(edge: .bottom, spacing: legacyBottomClearance == 0 ? 0 : nil) {
-            Color.clear.frame(height: legacyBottomClearance)
-        }
         .overlay {
             if model.index == nil {
                 ProgressView()

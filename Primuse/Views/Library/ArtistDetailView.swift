@@ -75,8 +75,6 @@ struct ArtistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
-    @Environment(\.legacyBottomChromeOverlayActive)
-    private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -410,11 +408,7 @@ struct ArtistDetailView: View {
                 }
             }
             .padding(.top, 26)
-            .padding(.bottom, BottomChromeClearancePolicy.clearance(
-                legacyOverlayActive: legacyBottomChromeOverlayActive,
-                legacy: 64,
-                baseline: 16
-            ))
+            .padding(.bottom, 16)
         }
     }
 

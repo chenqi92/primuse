@@ -37,31 +37,27 @@ struct BottomChromeClearancePolicyTests {
         ))
     }
 
-    @Test("Clearance switches between the legacy reserve and the baseline")
-    func picksClearance() {
-        #expect(BottomChromeClearancePolicy.clearance(
+    @Test("The tab pages reserve the measured overlay height only while it is up")
+    func reservesMeasuredOverlayHeight() {
+        #expect(BottomChromeClearancePolicy.overlayInset(
             legacyOverlayActive: true,
-            legacy: 112,
-            baseline: 16
-        ) == 112)
-        #expect(BottomChromeClearancePolicy.clearance(
+            accessoryHeight: 56
+        ) == 56)
+        #expect(BottomChromeClearancePolicy.overlayInset(
             legacyOverlayActive: false,
-            legacy: 112,
-            baseline: 16
-        ) == 16)
+            accessoryHeight: 56
+        ) == 0)
     }
 
-    @Test("A zero baseline collapses the reserve entirely")
-    func supportsZeroBaseline() {
-        #expect(BottomChromeClearancePolicy.clearance(
-            legacyOverlayActive: false,
-            legacy: 90,
-            baseline: 0
-        ) == 0)
-        #expect(BottomChromeClearancePolicy.clearance(
+    @Test("An unmeasured or bogus height never reserves space")
+    func ignoresUnmeasuredHeight() {
+        #expect(BottomChromeClearancePolicy.overlayInset(
             legacyOverlayActive: true,
-            legacy: 90,
-            baseline: 0
-        ) == 90)
+            accessoryHeight: 0
+        ) == 0)
+        #expect(BottomChromeClearancePolicy.overlayInset(
+            legacyOverlayActive: true,
+            accessoryHeight: -8
+        ) == 0)
     }
 }
