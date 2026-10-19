@@ -673,13 +673,13 @@ struct TVRoot: View {
             TVHomeView(
                 browseMemory: homeBrowseMemory,
                 onReturnToTabs: returnFocusToTabs,
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 openRadioLibrary: { tab = .radio },
                 onModalPresentationChanged: childModalPresentationChanged
             )
         case .library:
             TVLibraryView(
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged,
                 filter: $libraryFilter,
@@ -688,19 +688,19 @@ struct TVRoot: View {
             )
         case .radio:
             TVRadioPageView(
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 onModalActivityChanged: childModalActivityChanged,
                 onModalPresentationChanged: childModalPresentationChanged
             )
         case .spokenWord:
             TVSpokenWordView(
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 onModalActivityChanged: childModalPresentationChanged,
                 memory: spokenWordMemory
             )
         case .podcasts:
             TVPodcastsView(
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 onModalActivityChanged: childModalPresentationChanged,
                 memory: podcastMemory
             )
@@ -715,7 +715,7 @@ struct TVRoot: View {
                 onReturnToTabs: leavePlayer,
                 onModalActivityChanged: childModalActivityChanged
             )
-        case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
+        case .playlists: TVPlaylistsView(openPlayer: { openPlayerFromPage() })
         case .sources:
             TVSourcesView(
                 focusRequest: sourcesFocusRequest,
@@ -723,7 +723,7 @@ struct TVRoot: View {
             )
         case .search:
             TVSearchView(
-                openPlayer: { tab = .nowPlaying },
+                openPlayer: { openPlayerFromPage() },
                 focusRequest: searchFocusRequest,
                 onModalActivityChanged: childModalActivityChanged,
                 memory: searchMemory,
@@ -773,6 +773,14 @@ struct TVRoot: View {
             await Task.yield()
             requestContentFocus(from: .nowPlaying)
         }
+    }
+
+    /// 在页面里开播、进播放页:和在顶栏上选「正在播放」一样把焦点明确送进去。不能指望原来那张
+    /// 卡片消失时 UIKit 自己把焦点挪进播放页 —— 从播放页回来时重开过的播客节目页、有声章节页,
+    /// 弹出那一刻焦点在顶栏上,在里面再开播、页面关掉后焦点被还给顶栏;顶栏一收起,焦点就悬在
+    /// 藏起来的顶栏上,Menu 没有人接,直接退回系统主屏。
+    private func openPlayerFromPage() {
+        selectTab(.nowPlaying)
     }
 
     /// 播放页上的 Menu:回到进来之前那一页。资料库、首页、搜索、有声、播客把焦点放回起播的那张卡片 /

@@ -63,6 +63,8 @@ struct TVPodcastsView: View {
     @State private var reopenedEpisodeID: String?
     /// 要把焦点放回的那张卡片,放完清空。
     @State private var pendingCardFocus: String?
+    /// 从播放页回来要重开的那一页:等焦点先回到打开它的那张卡片再弹出。
+    @State private var pendingReopen: TVPodcastPresentation?
     /// 「我的节目」筛到哪个文件夹。文件夹只能在 iPhone / Mac 上整理,这里只读(同电台)。
     @State private var folderScope: PodcastShowFilter.FolderScope = .all
     @FocusState private var focusedCard: String?
@@ -104,7 +106,13 @@ struct TVPodcastsView: View {
                 .tvRestoresFocus(
                     to: pendingCardFocus, in: $focusedCard,
                     reveal: { if let pendingCardFocus { proxy.scrollTo(pendingCardFocus, anchor: .center) } },
-                    onSettled: { pendingCardFocus = nil }
+                    onSettled: {
+                        pendingCardFocus = nil
+                        if let pendingReopen {
+                            self.pendingReopen = nil
+                            reopen(pendingReopen)
+                        }
+                    }
                 )
             }
         }
@@ -140,7 +148,11 @@ struct TVPodcastsView: View {
             #if DEBUG
             await TVPodcastDebug.prepare(
                 podcasts,
-                present: { presented = $0 },
+                present: { presentation in
+                    // 和在「我的节目」里按下那档节目一样记下卡片,回来时焦点有处可落。
+                    if case .show(.show(let showID)) = presentation { memory.cardID = "show:" + showID }
+                    presented = presentation
+                },
                 play: { play($0, continuing: $1, cardID: "latest:" + $0.id) }
             )
             #endif
@@ -503,12 +515,24 @@ struct TVPodcastsView: View {
         }
         if let presentation = memory.presentation {
             reopenedEpisodeID = memory.episodeID
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { presented = presentation }
+            // 先把焦点放回当初打开这一页的那张卡片,落定了再重开,和自己按下卡片打开时一样。
+            // 一出现就弹的话焦点还停在刚恢复的顶栏上:在里面再开播、页面关掉后焦点被还给顶栏,
+            // 顶栏「焦点落到哪页就切到哪页」会把刚切过去的播放页切回来,Menu 随即退回系统主屏。
+            if let cardID = memory.cardID {
+                pendingReopen = presentation
+                pendingCardFocus = cardID
+            } else {
+                reopen(presentation)
+            }
             return
         }
         pendingCardFocus = memory.cardID
+    }
+
+    private func reopen(_ presentation: TVPodcastPresentation) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { presented = presentation }
     }
 }
 

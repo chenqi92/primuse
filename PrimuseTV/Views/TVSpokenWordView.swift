@@ -202,6 +202,8 @@ struct TVSpokenWordView: View {
     @State private var reopenedItemID: String?
     /// 要把焦点放回的那张卡片,放完清空。
     @State private var pendingCardFocus: String?
+    /// 从播放页回来要重开的章节页:等焦点先回到打开它的那张卡片再弹出(理由见播客页 `restoreAfterPlayer`)。
+    @State private var pendingReopenBook: SpokenWordBook?
     @FocusState private var focusedCard: String?
 
     // 书封是方的:一行五本,与电台墙同一把尺子(见 `TVBrowseGridMetrics`)。
@@ -295,7 +297,13 @@ struct TVSpokenWordView: View {
                 .tvRestoresFocus(
                     to: pendingCardFocus, in: $focusedCard,
                     reveal: { if let pendingCardFocus { proxy.scrollTo(pendingCardFocus, anchor: .center) } },
-                    onSettled: { pendingCardFocus = nil }
+                    onSettled: {
+                        pendingCardFocus = nil
+                        if let pendingReopenBook {
+                            self.pendingReopenBook = nil
+                            reopen(pendingReopenBook)
+                        }
+                    }
                 )
             }
         }
@@ -424,6 +432,12 @@ struct TVSpokenWordView: View {
         }
     }
 
+    private func reopen(_ book: SpokenWordBook) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { selectedBook = book }
+    }
+
     /// 有声页出现:展开上次展开着的那两节;从播放页按 Menu 回来的那一次,先重开起播的章节页,
     /// 否则把焦点放回起播的那张卡片。书架要等分好组才有那本书,最多等两秒。
     private func restoreAfterPlayer() {
@@ -443,9 +457,12 @@ struct TVSpokenWordView: View {
             if let bookID = memory.detailBookID,
                let book = store.spokenWordShelf(.books).booksByID[bookID] {
                 reopenedItemID = memory.detailItemID
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { selectedBook = book }
+                if let cardID = memory.cardID {
+                    pendingReopenBook = book
+                    pendingCardFocus = cardID
+                } else {
+                    reopen(book)
+                }
                 return
             }
             memory.detailBookID = nil
