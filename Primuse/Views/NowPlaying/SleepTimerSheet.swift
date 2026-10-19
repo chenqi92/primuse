@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 /// 睡眠定时现在的状态写成一句话:「将在 23:41 停止」「将在明天 07:00 停止」「当前曲目结束后停止」;
 /// 没开时为 nil。播放页「更多」、迷你条菜单、定时面板共用。
@@ -464,13 +467,8 @@ struct SleepTimerSheet: View {
     @ViewBuilder
     private var clockPicker: some View {
         #if os(iOS)
-        DatePicker(selection: clockTime, displayedComponents: .hourAndMinute) {
-            Text("sleep_timer_custom_mode_clock")
-        }
-        .datePickerStyle(.wheel)
-        .labelsHidden()
-        .frame(height: 140)
-        .clipped()
+        ClockWheelPicker(minuteOfDay: $clockMinuteOfDay)
+            .frame(height: 140)
         #else
         DatePicker(selection: clockTime, displayedComponents: .hourAndMinute) {
             Text("sleep_timer_custom_mode_clock")
@@ -508,3 +506,72 @@ struct SleepTimerSheet: View {
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
+
+#if os(iOS)
+/// 「到点停止」的时刻滚轮。SwiftUI 的滚轮 DatePicker 缩不到系统的 216pt 以下，
+/// `.frame(height:).clipped()` 只裁掉画面，上下多出来的那截照样接点按，正好压住上面
+/// 「倒计时 / 到点停止」的分段控件：切到到点停止就切不回倒计时，点上去反倒拨动了小时。
+/// 放进裁边的容器里，点按只落在看得见的那一截。
+private struct ClockWheelPicker: UIViewRepresentable {
+    @Binding var minuteOfDay: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(minuteOfDay: $minuteOfDay)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.clipsToBounds = true
+        let picker = UIDatePicker()
+        picker.datePickerMode = .time
+        picker.preferredDatePickerStyle = .wheels
+        picker.translatesAutoresizingMaskIntoConstraints = false
+        picker.date = Self.date(minuteOfDay: minuteOfDay)
+        picker.addTarget(context.coordinator, action: #selector(Coordinator.valueChanged(_:)), for: .valueChanged)
+        container.addSubview(picker)
+        NSLayoutConstraint.activate([
+            picker.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            picker.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            picker.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        context.coordinator.picker = picker
+        return container
+    }
+
+    func updateUIView(_ container: UIView, context: Context) {
+        context.coordinator.minuteOfDay = $minuteOfDay
+        guard let picker = context.coordinator.picker,
+              Self.minuteOfDay(of: picker.date) != minuteOfDay else { return }
+        picker.setDate(Self.date(minuteOfDay: minuteOfDay), animated: false)
+    }
+
+    private static func date(minuteOfDay: Int) -> Date {
+        let now = Date()
+        return Calendar.current.date(
+            bySettingHour: minuteOfDay / 60,
+            minute: minuteOfDay % 60,
+            second: 0,
+            of: now
+        ) ?? now
+    }
+
+    fileprivate static func minuteOfDay(of date: Date) -> Int {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var minuteOfDay: Binding<Int>
+        weak var picker: UIDatePicker?
+
+        init(minuteOfDay: Binding<Int>) {
+            self.minuteOfDay = minuteOfDay
+        }
+
+        @objc func valueChanged(_ picker: UIDatePicker) {
+            minuteOfDay.wrappedValue = ClockWheelPicker.minuteOfDay(of: picker.date)
+        }
+    }
+}
+#endif
