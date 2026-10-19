@@ -5115,15 +5115,17 @@ final class AudioPlayerService {
             }
 
             let stream: AudioBufferStream
-            /// Where in the file the decoder starts; nonzero only for a
-            /// medley slice, whose stream is then trimmed relative to it.
+            /// Where in the file the decoder starts; nonzero for a CUE track,
+            /// a medley slice or a range, whose stream is then trimmed
+            /// relative to it.
             var decoderSourceStartTime: TimeInterval = 0
-            // A medley slice starts mid-file. Let the decoder seek there, as a
-            // seek does, instead of decoding and discarding everything before
-            // the slice — over a Range stream that is tens of MiB fetched first.
+            // A CUE track or medley slice starts mid-file. Let the decoder
+            // seek there, as a seek does, instead of decoding and discarding
+            // everything before it — over a Range stream that is every track
+            // before it fetched first.
             // 有声书、播客续播:解码器直接从记忆的位置开始,不先念出开头再跳过去。
             let spokenWordOpening = spokenWordOpeningPosition(for: song)
-            let medleySliceStart = spokenWordOpening ?? medleyDecoderStartTime(for: song)
+            let sliceStart = spokenWordOpening ?? decoderStartTime(for: song)
             if let prepared = pendingPreparedStart {
                 pendingPreparedStart = nil
                 plog("▶️ Decoder: prepared start (opened \(Int(prepared.age))s ago, kind=\(prepared.decoderKind)) outputFormat: sr\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
@@ -5186,11 +5188,11 @@ final class AudioPlayerService {
                     logPlayStage("input-source-ready", playID: id)
                     plog("▶️ Decoder: HTTPRangePlaybackSource (reason: scheme=\(url.scheme ?? "?"), range-based HTTP streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     activeDecoderKind = .httpStream
-                    decoderSourceStartTime = medleySliceStart
+                    decoderSourceStartTime = sliceStart
                     stream = nativeDecoder.decode(
                         from: inputSource,
                         outputFormat: outputFormat,
-                        startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
+                        startingAt: sliceStart > 0 ? sliceStart : nil,
                         onResolveSourceLength: makeResolveLengthCallback(for: song),
                         onDecoderOpened: offMainPlayStageLogger("decoder-opened", playID: id),
                         lengthCanWait: song.duration > 0
@@ -5244,12 +5246,14 @@ final class AudioPlayerService {
                         url: completeRemoteWAVLocalURL
                     )
                 }
+                decoderSourceStartTime = sliceStart
                 if shouldUseFFmpeg {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: complete remote WAV safety path)")
                     stream = ffmpegDecoder.decode(
                         from: completeRemoteWAVLocalURL,
                         outputFormat: outputFormat,
+                        startingAt: sliceStart > 0 ? sliceStart : nil,
                         onResolveSourceLength: makeResolveLengthCallback(for: song)
                     )
                 } else {
@@ -5257,6 +5261,7 @@ final class AudioPlayerService {
                     stream = nativeDecoder.decode(
                         from: completeRemoteWAVLocalURL,
                         outputFormat: outputFormat,
+                        startingAt: sliceStart > 0 ? sliceStart : nil,
                         onResolveSourceLength: makeResolveLengthCallback(for: song)
                     )
                 }
@@ -5312,18 +5317,18 @@ final class AudioPlayerService {
                 logPlayStage("input-source-ready", playID: id)
                 plog("▶️ Decoder: CloudPlaybackSource (reason: scheme=primuse-stream, range-based streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                 activeDecoderKind = .cloudStream
-                decoderSourceStartTime = medleySliceStart
+                decoderSourceStartTime = sliceStart
                 stream = nativeDecoder.decode(
                     from: inputSource,
                     outputFormat: outputFormat,
-                    startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
+                    startingAt: sliceStart > 0 ? sliceStart : nil,
                     onResolveSourceLength: makeResolveLengthCallback(for: song),
                     onDecoderOpened: offMainPlayStageLogger("decoder-opened", playID: id),
                     lengthCanWait: song.duration > 0
                 )
             } else {
                 let reason = "local file path (file:// scheme)"
-                decoderSourceStartTime = medleySliceStart
+                decoderSourceStartTime = sliceStart
                 if await usesFFmpegDecoder(for: song, url: url) {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: \(reason)) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
@@ -6409,8 +6414,8 @@ final class AudioPlayerService {
             ) else { return nil }
         }
         let onResolveLength = makeResolveLengthCallback(for: song)
-        // The next medley slice opens at its slice start, not the file top.
-        let sliceStart = medleyDecoderStartTime(for: song)
+        // The next CUE track or medley slice opens at its start, not the file top.
+        let sliceStart = decoderStartTime(for: song)
         let startingAt: TimeInterval? = sliceStart > 0 ? sliceStart : nil
 
         let rawStream: AudioBufferStream?
@@ -6677,17 +6682,16 @@ final class AudioPlayerService {
         #endif
     }
 
-    /// Where the decoder should open `song`: the slice start for a medley
-    /// slice or the range start for a song playing its playback range,
-    /// otherwise the top of the file (CUE tracks keep decoding from the image
-    /// start and trimming, as before).
-    func medleyDecoderStartTime(for song: Song) -> TimeInterval {
+    /// Where the decoder should open `song`: the range start for a song
+    /// playing its playback range, otherwise the CUE INDEX 01 or medley slice
+    /// start (both live in `cueStartTime`), otherwise the top of the file.
+    /// Decoding a CUE track from the image start meant reading every track
+    /// before it first — seconds per track over a NAS Range stream.
+    func decoderStartTime(for song: Song) -> TimeInterval {
         if song.appliedPlaybackRange != nil {
             return max(0, song.playbackMediaWindow.start ?? 0)
         }
-        guard let start = song.cueStartTime, start > 0,
-              medleySongIDs.contains(song.id) else { return 0 }
-        return start
+        return max(0, song.cueStartTime ?? 0)
     }
 
     func segmented(
@@ -6972,11 +6976,20 @@ final class AudioPlayerService {
         let fallbackName = useFFmpeg ? "FFmpeg" : "AVAssetReader"
         plog("↳ \(fallbackName) fallback for '\(song.title)' url=\(url.scheme ?? "")://... ext=\(url.pathExtension)")
 
+        // FFmpeg opens a local CUE track at its start; AVAssetReader decodes
+        // from the top and the trim drops what comes before.
+        let ffmpegStart = useFFmpeg ? decoderStartTime(for: song) : 0
         let fallbackStream = segmented(
             useFFmpeg
-                ? ffmpegDecoder.decode(from: url, outputFormat: outputFormat)
+                ? ffmpegDecoder.decode(
+                    from: url,
+                    outputFormat: outputFormat,
+                    startingAt: ffmpegStart > 0 ? ffmpegStart : nil,
+                    onResolveSourceLength: nil
+                )
                 : assetReaderDecoder.decode(from: url, outputFormat: outputFormat),
-            for: song
+            for: song,
+            sourceStartTime: ffmpegStart
         )
         let iteratorBox = BufferIteratorBox(fallbackStream.makeAsyncIterator())
 

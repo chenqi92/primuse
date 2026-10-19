@@ -88,6 +88,26 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(slices[1].cueEndTime, 50)
     }
 
+    func testDecoderOpensCueTracksSlicesAndRangesAtTheirStart() throws {
+        let player = try makePlayer()
+        XCTAssertEqual(player.decoderStartTime(for: song("plain")), 0)
+
+        // A late track of a CUE image opens at its INDEX 01, not the image top.
+        var cue = song("cue", duration: 265.5, path: "/music/image.wav")
+        cue.cueSheetPath = "/music/image.cue"
+        cue.cueStartTime = 1234.5
+        cue.cueEndTime = 1500
+        XCTAssertEqual(player.decoderStartTime(for: cue), 1234.5)
+
+        var ranged = cue
+        ranged.appliedPlaybackRange = AppliedSongPlaybackRange(start: 10, end: 60, songDuration: 265.5)
+        XCTAssertEqual(player.decoderStartTime(for: ranged), 1244.5)
+
+        player.playbackSettings.medleySegmentChoice = 45
+        let slice = try XCTUnwrap(player.medleySlices(for: [song("a")]).first)
+        XCTAssertEqual(player.decoderStartTime(for: slice), 79)
+    }
+
     func testMedleyForcesCrossfadeSuspendsHistoryAndEndsWithTheNextQueue() throws {
         let player = try makePlayer()
         player.playbackSettings.outputMode = .effects

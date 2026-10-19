@@ -201,7 +201,7 @@ extension AudioPlayerService {
         let startsMidFile = song.appliedPlaybackRange != nil
             || song.cueStartTime != nil
             || spokenWordOpeningPosition(for: song) != nil
-            || medleyDecoderStartTime(for: song) > 0
+            || decoderStartTime(for: song) > 0
         guard castingController == nil,
               !isLiveRadio,
               !isAppleMusicMode,
