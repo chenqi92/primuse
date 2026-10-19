@@ -6573,3 +6573,27 @@
 "sleep_timer_finish_track_footer" = "Bleiben beim Ablauf des Timers weniger als 20 Minuten vom Titel, wird er zu Ende gespielt statt ausgeblendet.";
 "sleep_timer_finish_track_note" = "Spielt zuerst den aktuellen Titel zu Ende";
 "sleep_timer_fade_footer" = "In den letzten 30 Sekunden wird die Lautstärke langsam leiser.";
+
+"clip_export_menu" = "Klingelton erstellen oder Ausschnitt exportieren";
+"clip_export_menu_mac" = "Ausschnitt exportieren";
+"clip_export_tab" = "Klingelton & Export";
+"clip_export_tab_mac" = "Ausschnitt exportieren";
+"clip_export_selection" = "Ausgewählter Ausschnitt";
+"clip_export_fades" = "Ein- und ausblenden";
+"clip_export_ringtone" = "Klingelton erstellen";
+"clip_export_audio" = "Diesen Ausschnitt exportieren";
+"clip_export_audio_mac" = "Diesen Ausschnitt sichern …";
+"clip_export_ringtone_too_long" = "Klingeltöne dürfen höchstens 30 Sekunden lang sein. Es werden nur die ersten 30 Sekunden verwendet.";
+"clip_export_trim_to_ringtone" = "Auf 30 s kürzen";
+"clip_export_ringtone_hint" = "Wähle nach „Klingelton erstellen“ im Teilen-Menü „Als Klingelton verwenden“, um ihn als Klingelton festzulegen. Fehlt die Option, wähle „In Dateien sichern“, halte die Datei dann in der App „Dateien“ gedrückt und wähle „Teilen“ › „Als Klingelton verwenden“. Exportiert wird dieser Ausschnitt als M4A; Originaldatei und Wiedergabebereich bleiben unverändert.";
+"clip_export_ringtone_hint_legacy" = "Audio direkt aus dem Teilen-Menü als Klingelton festzulegen, erfordert iOS 26. Sichere den Ausschnitt auf diesem Gerät in „Dateien“, öffne ihn in GarageBand und teile ihn als Klingelton, oder synchronisiere ihn am Computer über den Finder. Exportiert wird dieser Ausschnitt als M4A; Originaldatei und Wiedergabebereich bleiben unverändert.";
+"clip_export_footer_mac" = "Der Ausschnitt wird als M4A (AAC) exportiert; Originaldatei und Wiedergabebereich bleiben unverändert. Um ihn als iPhone-Klingelton zu nutzen, lege ihn auf dem iPhone in „Dateien“ ab und wähle im Teilen-Menü „Als Klingelton verwenden“ (ab iOS 26).";
+"clip_export_phase_fetching" = "Titel wird geladen …";
+"clip_export_phase_writing" = "Wird geschrieben …";
+"clip_export_saved %@" = "Gesichert als „%@“";
+"clip_export_error_unavailable" = "Das Audio dieses Titels ist nicht verfügbar. Prüfe, ob die Musikquelle erreichbar ist.";
+"clip_export_error_unreadable" = "Das Audio dieses Titels konnte nicht gelesen werden und wurde nicht exportiert.";
+"clip_export_error_too_short" = "Der Ausschnitt ist zu kurz. Er muss mindestens 2 Sekunden lang sein.";
+"playback_range_highlight" = "Höhepunkt finden";
+"playback_range_highlight_running" = "Höhepunkt wird gesucht …";
+"playback_range_highlight_none" = "Kein deutlicher Höhepunkt gefunden. Ziehe die Griffe, um selbst einen Bereich zu wählen.";

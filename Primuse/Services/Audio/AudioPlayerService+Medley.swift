@@ -454,3 +454,75 @@ extension AudioPlayerService {
         }
     }
 }
+
+// MARK: - Finding a highlight for the range editors
+
+extension AudioPlayerService {
+    /// 「播放时间段」与「铃声与导出」里点「高潮」:先用记过的,有整首文件就连同歌词一起分析音频,
+    /// 只有歌词时先按歌词定;歌词也没有才去取一份整首来分析(这一下是听的人自己点的)。
+    /// 找到的和串烧共用 `MedleyHighlightStore`。CUE 分轨的文件是整张映像,只看歌词。
+    func locateHighlight(for song: Song) async throws -> MedleyHighlight? {
+        let whole = song.withoutAppliedPlaybackRange
+        guard whole.duration.isFinite, whole.duration > 0 else { return nil }
+        let store = MedleyHighlightStore.shared
+        let lyrics = await MedleyHighlightAnalysis.cachedLyricLines(songID: whole.id)
+        let analysesAudio = !whole.isCueTrack
+            && whole.duration <= MedleyAudioFeatureExtractor.maximumDuration
+        let record = store.record(for: whole.id)
+        guard MedleyHighlightRecordPolicy.needsAnalysis(
+            record,
+            songDuration: whole.duration,
+            audioAvailable: analysesAudio,
+            lyricsAvailable: !lyrics.isEmpty
+        ) else { return store.highlight(for: whole) }
+
+        let sections = medleySectionStarts(for: whole.id)
+        var file: AudioClipExporter.WholeFile?
+        if analysesAudio, let manager = sourceManager {
+            if let onDevice = await AudioClipExporter.onDeviceFile(for: whole, sourceManager: manager) {
+                file = .init(url: onDevice, isTemporary: false)
+            } else {
+                let lyricsOnly = lyrics.isEmpty ? nil : MedleyHighlightAnalysis.record(
+                    songDuration: whole.duration, lyrics: lyrics, features: nil, sectionStarts: sections
+                )
+                if let found = lyricsOnly?.highlight {
+                    if record?.highlight == nil, let lyricsOnly { store.store(lyricsOnly, for: whole.id) }
+                    return store.highlight(for: whole) ?? found
+                }
+                file = try await AudioClipExporter.wholeFile(for: whole, sourceManager: manager)
+            }
+        }
+        defer { file?.discard() }
+        try Task.checkCancellation()
+
+        var features: MedleyAudioFeatures?
+        if let file {
+            do {
+                features = try await medleyAudioFeatures(of: whole, at: file.url)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                plog("🎛️ Highlight for the editor: could not read '\(whole.title)': \(error.localizedDescription)")
+            }
+        }
+        try Task.checkCancellation()
+        let analysed = features
+        let found = await Task.detached(priority: .userInitiated) {
+            MedleyHighlightAnalysis.record(
+                songDuration: whole.duration,
+                lyrics: lyrics,
+                features: analysed,
+                sectionStarts: sections
+            )
+        }.value
+        // 一次什么都没找到的只看歌词的分析,不盖掉以前带音频找到的。
+        if found.highlight != nil || record?.highlight == nil {
+            store.store(found, for: whole.id)
+        }
+        if let highlight = found.highlight {
+            plog(String(format: "🎛️ Highlight for the editor '%@': %.1f–%.1fs via %@",
+                        whole.title, highlight.start, highlight.end, highlight.basis.rawValue))
+        }
+        return found.highlight ?? store.highlight(for: whole)
+    }
+}

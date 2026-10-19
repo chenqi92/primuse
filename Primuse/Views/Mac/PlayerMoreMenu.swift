@@ -35,6 +35,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showSongInfo = false
     /// 播放时间段编辑面板的目标(整首);打开时冻结,自然切歌后仍改这一首。
     @State private var playbackRangeEditorSong: Song?
+    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
     @State private var shareSong: Song?
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
@@ -109,7 +110,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
         }
         .sheet(item: $playbackRangeEditorSong) { song in
-            SongPlaybackRangeEditor(song: song)
+            SongPlaybackRangeEditor(song: song, purpose: playbackRangeEditorPurpose)
         }
         .sheet(isPresented: $showChapterList) {
             SpokenWordContentsView()
@@ -320,12 +321,18 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 if let range = SongPlaybackRangeStore.shared.range(for: rangeSong) {
                     playbackRangeToggleRow(song: rangeSong, range: range)
                     menuRow(title: "playback_range_edit", symbol: "slider.horizontal.3") {
+                        playbackRangeEditorPurpose = .playbackRange
                         playbackRangeEditorSong = rangeSong
                     }
                 } else {
                     menuRow(title: "playback_range_set", symbol: "selection.pin.in.out") {
+                        playbackRangeEditorPurpose = .playbackRange
                         playbackRangeEditorSong = rangeSong
                     }
+                }
+                menuRow(title: "clip_export_menu_mac", symbol: SongPlaybackRangeEditor.clipSymbol) {
+                    playbackRangeEditorPurpose = .clip
+                    playbackRangeEditorSong = rangeSong
                 }
             }
             if isPodcastEpisode {

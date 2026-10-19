@@ -6574,3 +6574,27 @@
 "sleep_timer_finish_track_footer" = "タイマー終了時に曲の残りが20分未満なら、フェードアウトせずに最後まで再生してから停止します。";
 "sleep_timer_finish_track_note" = "再生中の曲を最後まで再生してから停止";
 "sleep_timer_fade_footer" = "終了前の30秒間で音量が徐々に下がります。";
+
+"clip_export_menu" = "着信音を作成／クリップを書き出す";
+"clip_export_menu_mac" = "クリップを書き出す";
+"clip_export_tab" = "着信音と書き出し";
+"clip_export_tab_mac" = "クリップを書き出す";
+"clip_export_selection" = "選択したクリップ";
+"clip_export_fades" = "最初と最後をフェード";
+"clip_export_ringtone" = "着信音を作成";
+"clip_export_audio" = "このクリップを書き出す";
+"clip_export_audio_mac" = "このクリップを保存…";
+"clip_export_ringtone_too_long" = "着信音は最長 30 秒です。着信音にするときは最初の 30 秒だけを使います。";
+"clip_export_trim_to_ringtone" = "30 秒に切る";
+"clip_export_ringtone_hint" = "「着信音を作成」をタップしたあと、共有メニューで「着信音として使用」を選ぶと着信音に設定できます。見当たらない場合は「“ファイル”に保存」を選び、ファイル App でそのファイルを長押しして「共有」›「着信音として使用」を選んでください。書き出されるのはこの部分の M4A で、元のファイルと再生範囲は変わりません。";
+"clip_export_ringtone_hint_legacy" = "共有メニューから直接着信音に設定できるのは iOS 26 以降です。このデバイスでは、まず「ファイル」に保存して GarageBand で開き、着信音として共有するか、コンピュータの Finder で同期してください。書き出されるのはこの部分の M4A で、元のファイルと再生範囲は変わりません。";
+"clip_export_footer_mac" = "この部分を M4A（AAC）で書き出します。元のファイルと再生範囲は変わりません。iPhone の着信音にするには、iPhone の「ファイル」に移して共有メニューで「着信音として使用」を選びます（iOS 26 以降）。";
+"clip_export_phase_fetching" = "曲を取得中…";
+"clip_export_phase_writing" = "書き込み中…";
+"clip_export_saved %@" = "「%@」として保存しました";
+"clip_export_error_unavailable" = "この曲のオーディオを取得できません。ミュージックソースに接続できるか確認してください。";
+"clip_export_error_unreadable" = "この曲のオーディオを読み込めず、書き出せませんでした。";
+"clip_export_error_too_short" = "クリップが短すぎます。2 秒以上にしてください。";
+"playback_range_highlight" = "サビを探す";
+"playback_range_highlight_running" = "サビを探しています…";
+"playback_range_highlight_none" = "はっきりしたサビが見つかりませんでした。ハンドルをドラッグして自分で選んでください。";

@@ -6333,3 +6333,27 @@
 "sleep_timer_finish_track_footer" = "When the timer runs out with less than 20 minutes of the song left, the song plays to the end instead of fading out.";
 "sleep_timer_finish_track_note" = "Will finish the current song first";
 "sleep_timer_fade_footer" = "The volume fades out over the last 30 seconds.";
+
+"clip_export_menu" = "Make Ringtone or Export Clip";
+"clip_export_menu_mac" = "Export Clip";
+"clip_export_tab" = "Ringtone & Export";
+"clip_export_tab_mac" = "Export Clip";
+"clip_export_selection" = "Selected Clip";
+"clip_export_fades" = "Fade In and Out";
+"clip_export_ringtone" = "Make Ringtone";
+"clip_export_audio" = "Export This Clip";
+"clip_export_audio_mac" = "Save This Clip…";
+"clip_export_ringtone_too_long" = "Ringtones can be up to 30 seconds. Only the first 30 seconds will be used.";
+"clip_export_trim_to_ringtone" = "Trim to 30 s";
+"clip_export_ringtone_hint" = "After tapping Make Ringtone, choose “Use as Ringtone” in the share sheet to set it as your ringtone. If it isn’t there, choose “Save to Files”, then touch and hold the file in the Files app and choose Share › Use as Ringtone. The clip is exported as M4A; the original file and the play range stay unchanged.";
+"clip_export_ringtone_hint_legacy" = "Setting audio as a ringtone straight from the share sheet requires iOS 26. On this device, save the clip to Files, then open it in GarageBand and share it as a ringtone, or sync it from a computer with Finder. The clip is exported as M4A; the original file and the play range stay unchanged.";
+"clip_export_footer_mac" = "The clip is exported as M4A (AAC); the original file and the play range stay unchanged. To use it as an iPhone ringtone, move it into Files on the iPhone and choose “Use as Ringtone” in the share sheet (iOS 26 or later).";
+"clip_export_phase_fetching" = "Getting the song…";
+"clip_export_phase_writing" = "Writing…";
+"clip_export_saved %@" = "Saved as “%@”";
+"clip_export_error_unavailable" = "Couldn’t get this song’s audio. Check that the music source is reachable.";
+"clip_export_error_unreadable" = "This song’s audio couldn’t be read, so it wasn’t exported.";
+"clip_export_error_too_short" = "This clip is too short. It needs to be at least 2 seconds.";
+"playback_range_highlight" = "Find the Highlight";
+"playback_range_highlight_running" = "Finding the highlight…";
+"playback_range_highlight_none" = "No clear highlight found. Drag the handles to choose one yourself.";

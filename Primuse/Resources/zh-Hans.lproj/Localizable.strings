@@ -6666,3 +6666,27 @@
 "sleep_timer_finish_track_footer" = "到点时这首歌还剩不到 20 分钟，就播完再停，不再渐弱。";
 "sleep_timer_finish_track_note" = "到点后会先播完当前这首";
 "sleep_timer_fade_footer" = "到点前最后 30 秒音量会慢慢降低。";
+
+"clip_export_menu" = "制作铃声或导出片段";
+"clip_export_menu_mac" = "导出片段";
+"clip_export_tab" = "铃声与导出";
+"clip_export_tab_mac" = "导出片段";
+"clip_export_selection" = "选中的片段";
+"clip_export_fades" = "开头和结尾淡入淡出";
+"clip_export_ringtone" = "制作铃声";
+"clip_export_audio" = "导出这段音频";
+"clip_export_audio_mac" = "存储这段音频…";
+"clip_export_ringtone_too_long" = "铃声最长 30 秒，制作铃声时只取开头 30 秒。";
+"clip_export_trim_to_ringtone" = "截成 30 秒";
+"clip_export_ringtone_hint" = "点「制作铃声」后，在分享菜单里选「用作铃声」，就能设成来电铃声。没看到这一项时选「存储到“文件”」，再到「文件」App 里长按这个文件，选「共享」›「用作铃声」。导出的是这一段的 M4A，原文件和播放时间段都不受影响。";
+"clip_export_ringtone_hint_legacy" = "iOS 26 起才能在分享菜单里直接把音频设为铃声。在这台设备上可以先存到「文件」，再用库乐队打开并共享为电话铃声，或者在电脑上用访达同步。导出的是这一段的 M4A，原文件和播放时间段都不受影响。";
+"clip_export_footer_mac" = "导出的是这一段的 M4A（AAC），原文件和播放时间段都不受影响。要做成 iPhone 铃声，把它传到 iPhone 的「文件」里，在分享菜单里选「用作铃声」（iOS 26 及以上）。";
+"clip_export_phase_fetching" = "正在取得这首歌…";
+"clip_export_phase_writing" = "正在写入…";
+"clip_export_saved %@" = "已存储为「%@」";
+"clip_export_error_unavailable" = "取不到这首歌的音频，看看音乐源是否连得上。";
+"clip_export_error_unreadable" = "这首歌的音频读不出来，没能导出。";
+"clip_export_error_too_short" = "这一段太短了，至少要 2 秒。";
+"playback_range_highlight" = "定位到高潮";
+"playback_range_highlight_running" = "正在找高潮…";
+"playback_range_highlight_none" = "没找到明显的高潮，可以拖动把手自己选。";

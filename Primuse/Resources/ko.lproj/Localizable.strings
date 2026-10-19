@@ -6573,3 +6573,27 @@
 "sleep_timer_finish_track_footer" = "타이머가 끝날 때 곡이 20분 미만 남았으면 페이드아웃 없이 끝까지 재생한 후 정지합니다.";
 "sleep_timer_finish_track_note" = "현재 곡을 끝까지 재생한 후 정지";
 "sleep_timer_fade_footer" = "마지막 30초 동안 음량이 서서히 줄어듭니다.";
+
+"clip_export_menu" = "벨소리 만들기 또는 클립 내보내기";
+"clip_export_menu_mac" = "클립 내보내기";
+"clip_export_tab" = "벨소리 및 내보내기";
+"clip_export_tab_mac" = "클립 내보내기";
+"clip_export_selection" = "선택한 클립";
+"clip_export_fades" = "시작과 끝 페이드";
+"clip_export_ringtone" = "벨소리 만들기";
+"clip_export_audio" = "이 클립 내보내기";
+"clip_export_audio_mac" = "이 클립 저장…";
+"clip_export_ringtone_too_long" = "벨소리는 최대 30초입니다. 벨소리를 만들 때는 처음 30초만 사용합니다.";
+"clip_export_trim_to_ringtone" = "30초로 자르기";
+"clip_export_ringtone_hint" = "벨소리 만들기를 누른 뒤 공유 메뉴에서 ‘벨소리로 사용’을 선택하면 벨소리로 설정됩니다. 항목이 보이지 않으면 ‘파일에 저장’을 선택하고, 파일 앱에서 해당 파일을 길게 눌러 공유 › 벨소리로 사용을 선택하세요. 이 구간을 M4A로 내보내며 원본 파일과 재생 구간은 바뀌지 않습니다.";
+"clip_export_ringtone_hint_legacy" = "공유 메뉴에서 바로 벨소리로 설정하려면 iOS 26 이상이 필요합니다. 이 기기에서는 먼저 파일 앱에 저장한 뒤 GarageBand에서 열어 벨소리로 공유하거나, 컴퓨터의 Finder로 동기화하세요. 이 구간을 M4A로 내보내며 원본 파일과 재생 구간은 바뀌지 않습니다.";
+"clip_export_footer_mac" = "이 구간을 M4A(AAC)로 내보냅니다. 원본 파일과 재생 구간은 바뀌지 않습니다. iPhone 벨소리로 쓰려면 iPhone의 파일 앱으로 옮긴 뒤 공유 메뉴에서 ‘벨소리로 사용’을 선택하세요(iOS 26 이상).";
+"clip_export_phase_fetching" = "노래를 가져오는 중…";
+"clip_export_phase_writing" = "쓰는 중…";
+"clip_export_saved %@" = "‘%@’(으)로 저장됨";
+"clip_export_error_unavailable" = "이 노래의 오디오를 가져올 수 없습니다. 음악 소스에 연결되는지 확인하세요.";
+"clip_export_error_unreadable" = "이 노래의 오디오를 읽을 수 없어 내보내지 못했습니다.";
+"clip_export_error_too_short" = "클립이 너무 짧습니다. 2초 이상이어야 합니다.";
+"playback_range_highlight" = "하이라이트 찾기";
+"playback_range_highlight_running" = "하이라이트를 찾는 중…";
+"playback_range_highlight_none" = "뚜렷한 하이라이트를 찾지 못했습니다. 핸들을 드래그해 직접 선택하세요.";

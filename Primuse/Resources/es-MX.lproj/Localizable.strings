@@ -6479,3 +6479,27 @@
 "sleep_timer_finish_track_footer" = "Si al terminar el temporizador quedan menos de 20 minutos de la canción, se reproduce hasta el final en lugar de bajar el volumen.";
 "sleep_timer_finish_track_note" = "Terminará primero la canción actual";
 "sleep_timer_fade_footer" = "El volumen baja poco a poco durante los últimos 30 segundos.";
+
+"clip_export_menu" = "Crear tono o exportar fragmento";
+"clip_export_menu_mac" = "Exportar fragmento";
+"clip_export_tab" = "Tono y exportación";
+"clip_export_tab_mac" = "Exportar fragmento";
+"clip_export_selection" = "Fragmento seleccionado";
+"clip_export_fades" = "Desvanecer al inicio y al final";
+"clip_export_ringtone" = "Crear tono";
+"clip_export_audio" = "Exportar este fragmento";
+"clip_export_audio_mac" = "Guardar este fragmento…";
+"clip_export_ringtone_too_long" = "Los tonos duran como máximo 30 segundos. Solo se usarán los primeros 30 segundos.";
+"clip_export_trim_to_ringtone" = "Recortar a 30 s";
+"clip_export_ringtone_hint" = "Después de tocar Crear tono, elige “Usar como tono” en el menú para compartir para ponerlo como tono de llamada. Si no aparece, elige “Guardar en Archivos”, luego mantén presionado el archivo en la app Archivos y elige Compartir › Usar como tono. El fragmento se exporta en M4A; el archivo original y el rango de reproducción no cambian.";
+"clip_export_ringtone_hint_legacy" = "Para usar un audio como tono directamente desde el menú para compartir se necesita iOS 26. En este dispositivo, guarda el fragmento en Archivos, ábrelo en GarageBand y compártelo como tono, o sincronízalo desde una computadora con Finder. El fragmento se exporta en M4A; el archivo original y el rango de reproducción no cambian.";
+"clip_export_footer_mac" = "El fragmento se exporta en M4A (AAC); el archivo original y el rango de reproducción no cambian. Para usarlo como tono del iPhone, pásalo a Archivos en el iPhone y elige “Usar como tono” en el menú para compartir (iOS 26 o posterior).";
+"clip_export_phase_fetching" = "Obteniendo la canción…";
+"clip_export_phase_writing" = "Escribiendo…";
+"clip_export_saved %@" = "Guardado como “%@”";
+"clip_export_error_unavailable" = "No se pudo obtener el audio de esta canción. Revisa que la fuente de música esté disponible.";
+"clip_export_error_unreadable" = "No se pudo leer el audio de esta canción, así que no se exportó.";
+"clip_export_error_too_short" = "Este fragmento es demasiado corto. Debe durar al menos 2 segundos.";
+"playback_range_highlight" = "Buscar el coro";
+"playback_range_highlight_running" = "Buscando el coro…";
+"playback_range_highlight_none" = "No se encontró un coro claro. Arrastra los controles para elegirlo tú.";

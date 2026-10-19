@@ -8185,6 +8185,40 @@ extension TVStore {
         }
     }
 
+    /// 「播放时间段」里点「定位到高潮」:记过的先用,有歌词先按歌词定,都没有才把整首取来分析音频
+    /// (听的人自己点的,按流量计费的网络也照取)。和串烧共用 `MedleyHighlightStore`;CUE 分轨只看歌词。
+    func locatePlaybackRangeHighlight(for whole: Song) async -> MedleyHighlight? {
+        let store = MedleyHighlightStore.shared
+        let duration = whole.duration
+        guard duration.isFinite, duration > 0 else { return nil }
+        let lyrics = await MedleyHighlightAnalysis.cachedLyricLines(songID: whole.id)
+        let record = store.record(for: whole.id)
+        let analysesAudio = !whole.isCueTrack && duration <= MedleyAudioFeatureExtractor.maximumDuration
+        guard MedleyHighlightRecordPolicy.needsAnalysis(
+            record, songDuration: duration, audioAvailable: analysesAudio, lyricsAvailable: !lyrics.isEmpty
+        ) else { return store.highlight(for: whole) }
+        if !lyrics.isEmpty {
+            let found = MedleyHighlightAnalysis.record(
+                songDuration: duration, lyrics: lyrics, features: nil, sectionStarts: []
+            )
+            if let highlight = found.highlight {
+                if record?.highlight == nil { store.store(found, for: whole.id) }
+                return store.highlight(for: whole) ?? highlight
+            }
+        }
+        guard analysesAudio, !Task.isCancelled,
+              let features = await coordinator.readingMedleyAnalysisFile(for: whole, { url in
+                  try MedleyHighlightAnalysis.audioFeatures(readingFileAt: url, expectedDuration: duration)
+              }) else { return store.highlight(for: whole) }
+        let found = await Task.detached(priority: .userInitiated) {
+            MedleyHighlightAnalysis.record(songDuration: duration, lyrics: lyrics, features: features, sectionStarts: [])
+        }.value
+        if found.highlight != nil || record?.highlight == nil {
+            store.store(found, for: whole.id)
+        }
+        return found.highlight ?? store.highlight(for: whole)
+    }
+
     /// 把还没开播的那段改切到高潮。已经备好的下一段按新窗口重开,离淡入不到 8 秒就不动了。
     private func applyMedleyHighlight(_ highlight: MedleyHighlight, to whole: Song) {
         guard isMedleyActive, currentSongID != whole.id,

@@ -6573,3 +6573,27 @@
 "sleep_timer_finish_track_footer" = "Si, à la fin du minuteur, il reste moins de 20 minutes au morceau, il est joué jusqu’au bout au lieu d’être atténué.";
 "sleep_timer_finish_track_note" = "Terminera d’abord le morceau en cours";
 "sleep_timer_fade_footer" = "Le volume baisse progressivement pendant les 30 dernières secondes.";
+
+"clip_export_menu" = "Créer une sonnerie ou exporter un extrait";
+"clip_export_menu_mac" = "Exporter un extrait";
+"clip_export_tab" = "Sonnerie et export";
+"clip_export_tab_mac" = "Exporter un extrait";
+"clip_export_selection" = "Extrait sélectionné";
+"clip_export_fades" = "Fondu en entrée et en sortie";
+"clip_export_ringtone" = "Créer une sonnerie";
+"clip_export_audio" = "Exporter cet extrait";
+"clip_export_audio_mac" = "Enregistrer cet extrait…";
+"clip_export_ringtone_too_long" = "Une sonnerie dure au maximum 30 secondes. Seules les 30 premières secondes seront utilisées.";
+"clip_export_trim_to_ringtone" = "Couper à 30 s";
+"clip_export_ringtone_hint" = "Après avoir touché Créer une sonnerie, choisissez « Utiliser comme sonnerie » dans le menu de partage. Si l’option n’apparaît pas, choisissez « Enregistrer dans Fichiers », puis maintenez le doigt sur le fichier dans l’app Fichiers et choisissez Partager › Utiliser comme sonnerie. L’extrait est exporté en M4A ; le fichier d’origine et la plage de lecture ne changent pas.";
+"clip_export_ringtone_hint_legacy" = "Définir un son comme sonnerie directement depuis le menu de partage nécessite iOS 26. Sur cet appareil, enregistrez l’extrait dans Fichiers, ouvrez-le dans GarageBand et partagez-le comme sonnerie, ou synchronisez-le depuis un ordinateur avec le Finder. L’extrait est exporté en M4A ; le fichier d’origine et la plage de lecture ne changent pas.";
+"clip_export_footer_mac" = "L’extrait est exporté en M4A (AAC) ; le fichier d’origine et la plage de lecture ne changent pas. Pour en faire une sonnerie d’iPhone, placez-le dans Fichiers sur l’iPhone et choisissez « Utiliser comme sonnerie » dans le menu de partage (iOS 26 ou ultérieur).";
+"clip_export_phase_fetching" = "Récupération du morceau…";
+"clip_export_phase_writing" = "Écriture…";
+"clip_export_saved %@" = "Enregistré sous « %@ »";
+"clip_export_error_unavailable" = "Impossible d’obtenir l’audio de ce morceau. Vérifiez que la source musicale est accessible.";
+"clip_export_error_unreadable" = "L’audio de ce morceau n’a pas pu être lu ; il n’a pas été exporté.";
+"clip_export_error_too_short" = "Cet extrait est trop court. Il doit durer au moins 2 secondes.";
+"playback_range_highlight" = "Trouver le refrain";
+"playback_range_highlight_running" = "Recherche du refrain…";
+"playback_range_highlight_none" = "Aucun refrain net trouvé. Faites glisser les poignées pour choisir vous-même.";

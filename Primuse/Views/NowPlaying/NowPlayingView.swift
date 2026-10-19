@@ -1257,6 +1257,7 @@ struct NowPlayingView: View {
     @State private var showSongInfo = false
     /// 「更多」› 播放时间段 打开的编辑面板；打开时冻结目标，自然切歌后仍改这一首。
     @State private var playbackRangeEditorSong: Song?
+    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
     @State private var showSleepTimer = false
     /// 音乐的上一首 / 下一首按住不放时快退 / 快进的预览位置。
     @State private var transportHoldScrub = TransportHoldScrub()
@@ -3345,7 +3346,7 @@ struct NowPlayingView: View {
             }
         }
         .sheet(item: $playbackRangeEditorSong) { song in
-            SongPlaybackRangeEditor(song: song)
+            SongPlaybackRangeEditor(song: song, purpose: playbackRangeEditorPurpose)
                 .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showTagEditor) {
@@ -7446,7 +7447,8 @@ struct NowPlayingView: View {
             onAddBookmark: { _ = player.addSpokenWordBookmark() },
             onOpenUpNext: { openContentsPanel(tab: .upNext) },
             onToggleDislike: { player.toggleDislikeForCurrentSong() },
-            onEditPlaybackRange: {
+            onEditPlaybackRange: { purpose in
+                playbackRangeEditorPurpose = purpose
                 playbackRangeEditorSong = player.currentSong?.withoutAppliedPlaybackRange
             },
             onShowEffectPicker: {
@@ -11662,7 +11664,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onAddBookmark: () -> Void
     let onOpenUpNext: () -> Void
     let onToggleDislike: () -> Void
-    let onEditPlaybackRange: () -> Void
+    let onEditPlaybackRange: (SongPlaybackRangeEditor.Purpose) -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。

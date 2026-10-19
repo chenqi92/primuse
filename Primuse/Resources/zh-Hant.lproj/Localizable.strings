@@ -6550,3 +6550,27 @@
 "sleep_timer_finish_track_footer" = "到點時這首歌還剩不到 20 分鐘，就播完再停，不再漸弱。";
 "sleep_timer_finish_track_note" = "到點後會先播完目前這首";
 "sleep_timer_fade_footer" = "到點前最後 30 秒音量會慢慢降低。";
+
+"clip_export_menu" = "製作鈴聲或匯出片段";
+"clip_export_menu_mac" = "匯出片段";
+"clip_export_tab" = "鈴聲與匯出";
+"clip_export_tab_mac" = "匯出片段";
+"clip_export_selection" = "選取的片段";
+"clip_export_fades" = "開頭和結尾淡入淡出";
+"clip_export_ringtone" = "製作鈴聲";
+"clip_export_audio" = "匯出這段音訊";
+"clip_export_audio_mac" = "儲存這段音訊…";
+"clip_export_ringtone_too_long" = "鈴聲最長 30 秒，製作鈴聲時只取開頭 30 秒。";
+"clip_export_trim_to_ringtone" = "截成 30 秒";
+"clip_export_ringtone_hint" = "點「製作鈴聲」後，在分享選單裡選「用作鈴聲」，就能設成來電鈴聲。沒看到這一項時選「儲存到檔案」，再到「檔案」App 裡長按這個檔案，選「分享」›「用作鈴聲」。匯出的是這一段的 M4A，原檔案和播放時段都不受影響。";
+"clip_export_ringtone_hint_legacy" = "iOS 26 起才能在分享選單裡直接把音訊設為鈴聲。在這台裝置上可以先存到「檔案」，再用 GarageBand 打開並分享為電話鈴聲，或在電腦上用 Finder 同步。匯出的是這一段的 M4A，原檔案和播放時段都不受影響。";
+"clip_export_footer_mac" = "匯出的是這一段的 M4A（AAC），原檔案和播放時段都不受影響。要做成 iPhone 鈴聲，把它傳到 iPhone 的「檔案」裡，在分享選單裡選「用作鈴聲」（iOS 26 以上）。";
+"clip_export_phase_fetching" = "正在取得這首歌…";
+"clip_export_phase_writing" = "正在寫入…";
+"clip_export_saved %@" = "已儲存為「%@」";
+"clip_export_error_unavailable" = "取不到這首歌的音訊，看看音樂來源是否連得上。";
+"clip_export_error_unreadable" = "這首歌的音訊讀不出來，沒能匯出。";
+"clip_export_error_too_short" = "這一段太短了，至少要 2 秒。";
+"playback_range_highlight" = "定位到高潮";
+"playback_range_highlight_running" = "正在找高潮…";
+"playback_range_highlight_none" = "沒找到明顯的高潮，可以拖動把手自己選。";

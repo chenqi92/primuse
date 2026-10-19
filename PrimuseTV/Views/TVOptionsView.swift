@@ -261,6 +261,8 @@ struct TVPlaybackRangeEditorView: View {
     let songID: String
     @State private var draft = SongPlaybackRange(start: 0, end: 0, isEnabled: false)
     @State private var hasStoredRange = false
+    @State private var highlightTask: Task<Void, Never>?
+    @State private var highlightNotice: String?
 
     private var song: Song? { store.library.song(id: songID) }
     private var songDuration: Double { max(0, song?.duration ?? 0) }
@@ -291,6 +293,7 @@ struct TVPlaybackRangeEditorView: View {
                     timeline
                     edgeRow(.start)
                     edgeRow(.end)
+                    highlightRow
                     HStack(spacing: 22) {
                         if isCurrentSong {
                             TVPillButton(title: String(localized: "playback_range_preview_start"), systemImage: "play.fill") {
@@ -329,7 +332,53 @@ struct TVPlaybackRangeEditorView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .onAppear(perform: load)
+        .onDisappear { highlightTask?.cancel() }
         .onExitCommand { dismiss() }
+    }
+
+    /// 「定位到高潮」:找的时候按钮写着「正在找」,再按一下不重来;没找到在旁边说一句。
+    private var highlightRow: some View {
+        HStack(spacing: 22) {
+            TVPillButton(
+                title: highlightTask == nil
+                    ? String(localized: "playback_range_highlight")
+                    : String(localized: "playback_range_highlight_running"),
+                systemImage: "waveform.badge.magnifyingglass"
+            ) {
+                locateHighlight()
+            }
+            if let highlightNotice, highlightTask == nil {
+                Text(verbatim: highlightNotice)
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(2)
+            }
+        }
+        .focusSection()
+    }
+
+    private func locateHighlight() {
+        guard highlightTask == nil, let song else { return }
+        highlightNotice = nil
+        var whole = song
+        if whole.duration <= 0 { whole.duration = songDuration }
+        let target = whole
+        let duration = songDuration
+        highlightTask = Task {
+            let highlight = await store.locatePlaybackRangeHighlight(for: target)
+            highlightTask = nil
+            guard !Task.isCancelled else { return }
+            guard let highlight, let range = AudioClipExportPolicy.range(
+                highlightStart: highlight.start,
+                highlightEnd: highlight.end,
+                songDuration: duration
+            ) else {
+                highlightNotice = String(localized: "playback_range_highlight_none")
+                return
+            }
+            draft = range
+            commit()
+        }
     }
 
     private var summary: String {

@@ -66,6 +66,7 @@ struct SongRowView: View {
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var showPlaybackRangeEditor = false
+    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
     @State private var showTagEditor = false
@@ -265,7 +266,7 @@ struct SongRowView: View {
                 .songInfoPresentationStyle()
         }
         .sheet(isPresented: $showPlaybackRangeEditor) {
-            SongPlaybackRangeEditor(song: library.song(id: song.id) ?? song)
+            SongPlaybackRangeEditor(song: library.song(id: song.id) ?? song, purpose: playbackRangeEditorPurpose)
         }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
@@ -784,7 +785,8 @@ struct SongRowView: View {
                 Label(String(localized: "similar_songs"), systemImage: "sparkles")
             }
 
-            SongPlaybackRangeMenuItems(song: song) {
+            SongPlaybackRangeMenuItems(song: song) { purpose in
+                playbackRangeEditorPurpose = purpose
                 showPlaybackRangeEditor = true
             }
 

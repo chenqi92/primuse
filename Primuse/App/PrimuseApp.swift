@@ -2591,7 +2591,9 @@ private struct DebugLaunchAutomation: ViewModifier {
 ///   给定向采样「反复点开 / 收起」用；`PRIMUSE_DEBUG_PLAYER_CYCLE_INTERVAL` 改间隔秒数。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
+///   （clip 是正在播的歌的「铃声与导出」，配合 `PRIMUSE_DEBUG_CLIP_ACTION=highlight,ringtone` 依次定位高潮、制作铃声；
+///   sleep 是睡眠定时面板，`PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 先开一个倒计时）
 ///   （播客页配合 `PRIMUSE_DEBUG_PODCAST_SEED=<feed 地址>` 先订阅，见 `PodcastDebugScreen`）
 ///   （plexSignIn 是添加 Plex 源的表单，配合 `PRIMUSE_DEBUG_PLEX=servers` 直接显示演示服务器清单）
 ///   （karaoke 等有歌在播后再弹；配合 `PRIMUSE_KARAOKE_MODEL` 可在不下载资源包的情况下走 AI 分离）。
@@ -2740,8 +2742,11 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         guard services.playerService.hasChapters || services.playerService.currentItemIsSpokenWord else { continue }
                         try? await Task.sleep(for: .seconds(3))
                     }
-                    if page == "karaoke" || page == "queue" {
+                    if page == "karaoke" || page == "queue" || page == "clip" || page == "sleep" {
                         guard services.playerService.currentSong != nil else { continue }
+                        if page == "sleep", let minutes = env["PRIMUSE_DEBUG_SLEEP_MINUTES"].flatMap(Int.init) {
+                            services.playerService.scheduleSleep(minutes: minutes)
+                        }
                         presented = Presented(page: page, songs: [], proposals: [])
                         return
                     }
@@ -2839,6 +2844,14 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                 .environment(services.themeService)
         case "queue":
             NavigationStack { QueueView(player: services.playerService) }
+        case "sleep":
+            SleepTimerSheet()
+                .environment(services.playerService)
+        case "clip":
+            if let song = services.playerService.currentSong {
+                SongPlaybackRangeEditor(song: song, purpose: .clip)
+                    .environment(services.playerService)
+            }
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":
