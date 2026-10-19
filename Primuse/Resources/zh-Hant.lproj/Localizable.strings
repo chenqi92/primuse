@@ -6521,8 +6521,9 @@
 "player_style_preview_actual_size" = "實際大小";
 "player_style_section_colors" = "顏色";
 "player_transport_style_title" = "播放鍵樣式";
-"player_transport_style_footer" = "上面一排換播放 / 暫停鍵，下面一排換上一首、下一首（電台是上一台、下一台）。音樂、有聲書、Podcast、電台共用這一套，在哪一頁改都一樣；手機橫向、iPad 和全螢幕歌詞底部那一排也跟著換。有聲書和 Podcast 的倒退、快轉不變。";
-"player_transport_style_spoken_footer" = "播放 / 暫停鍵和音樂、電台共用同一種樣子，在哪一頁改都一樣；倒退、快轉不跟著換。";
+"player_transport_style_footer" = "上面一排換播放 / 暫停鍵，下面一排換上一首、下一首。只管音樂播放頁，有聲書、Podcast、電台在各自那一頁單獨選；手機橫向、iPad 和全螢幕歌詞底部那一排也跟著換。";
+"player_transport_style_spoken_footer" = "只管這一頁的播放 / 暫停鍵，音樂和其他播放頁各選各的；倒退、快轉不跟著換。";
+"player_transport_style_radio_footer" = "上面一排換播放 / 停止鍵，下面一排換上一台、下一台。只管電台播放頁，音樂和其他播放頁各選各的。";
 "player_play_style_filled_circle" = "實心圓";
 "player_play_style_plain" = "無框";
 "player_play_style_outlined_circle" = "圓圈";

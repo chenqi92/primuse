@@ -6544,8 +6544,9 @@
 "player_style_preview_actual_size" = "Originalgröße";
 "player_style_section_colors" = "Farben";
 "player_transport_style_title" = "Stil der Wiedergabetasten";
-"player_transport_style_footer" = "Die obere Reihe ändert die Wiedergabe-/Pause-Taste, die untere „Zurück“ und „Weiter“ (beim Radio den vorherigen und nächsten Sender). Musik, Hörbücher, Podcasts und Radio teilen sich diese Einstellung, eine Änderung auf einer Seite gilt überall; Querformat auf dem iPhone, iPad und die Leiste unter den Vollbild-Liedtexten übernehmen sie ebenfalls. Die Sprungtasten bei Hörbüchern und Podcasts bleiben gleich.";
-"player_transport_style_spoken_footer" = "Die Wiedergabe-/Pause-Taste teilt sich ihr Aussehen mit Musik und Radio; eine Änderung auf einer Seite gilt überall. Die Sprungtasten bleiben gleich.";
+"player_transport_style_footer" = "Die obere Reihe ändert die Wiedergabe-/Pause-Taste, die untere „Zurück“ und „Weiter“. Das gilt nur für den Musik-Player; Hörbücher, Podcasts und Radio wählen das jeweils auf ihrer eigenen Seite. Querformat auf dem iPhone, iPad und die Leiste unter den Vollbild-Liedtexten übernehmen es ebenfalls.";
+"player_transport_style_spoken_footer" = "Gilt nur für die Wiedergabe-/Pause-Taste auf dieser Seite; Musik und die anderen Player haben jeweils ihre eigene Einstellung. Die Sprungtasten bleiben gleich.";
+"player_transport_style_radio_footer" = "Die obere Reihe ändert die Wiedergabe-/Stopp-Taste, die untere den vorherigen und nächsten Sender. Das gilt nur für den Radio-Player; Musik und die anderen Player haben jeweils ihre eigene Einstellung.";
 "player_play_style_filled_circle" = "Gefüllt";
 "player_play_style_plain" = "Ohne Rahmen";
 "player_play_style_outlined_circle" = "Umriss";

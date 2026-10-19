@@ -412,13 +412,26 @@ struct PreviewSkipGlyph: View {
     }
 }
 
-/// 播放页的播放 / 暂停键(按设置里的样式,显示暂停,和正在播放一样)。
+/// 播放页的播放 / 暂停键(按设置里的样式,显示暂停,和正在播放一样)。`styleKey` 是哪一页的那份样式,
+/// 默认音乐。
 struct PreviewPlayGlyph: View {
     let tint: Color
-    var diameter: CGFloat = 56
+    let diameter: CGFloat
 
-    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
-    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage private var playButtonStyleRawValue: String
+
+    init(
+        tint: Color,
+        diameter: CGFloat = 56,
+        styleKey: String = PlayerAppearancePreferences.playButtonStyleKey
+    ) {
+        self.tint = tint
+        self.diameter = diameter
+        _playButtonStyleRawValue = AppStorage(
+            wrappedValue: NowPlayingPlayButtonStyle.filledCircle.rawValue,
+            styleKey
+        )
+    }
 
     var body: some View {
         ZStack {

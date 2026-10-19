@@ -6545,8 +6545,9 @@
 "player_style_preview_actual_size" = "実際のサイズ";
 "player_style_section_colors" = "色";
 "player_transport_style_title" = "再生ボタンのスタイル";
-"player_transport_style_footer" = "上の列で再生/一時停止ボタン、下の列で前へ・次へボタン（ラジオでは前の局・次の局）を変更します。ミュージック、オーディオブック、ポッドキャスト、ラジオで共通の設定なので、どのページで変えても同じになります。iPhone の横向き、iPad、全画面歌詞の下部バーにも反映されます。オーディオブックとポッドキャストの早戻し・早送りは変わりません。";
-"player_transport_style_spoken_footer" = "再生/一時停止ボタンはミュージック・ラジオと共通の見た目で、どのページで変えても同じになります。早戻し・早送りは変わりません。";
+"player_transport_style_footer" = "上の列で再生/一時停止ボタン、下の列で前へ・次へボタンを変更します。ミュージックの再生画面だけに適用され、オーディオブック、ポッドキャスト、ラジオはそれぞれのページで個別に選べます。iPhone の横向き、iPad、全画面歌詞の下部バーにも反映されます。";
+"player_transport_style_spoken_footer" = "このページの再生/一時停止ボタンだけに適用され、ミュージックやほかの再生画面はそれぞれ個別に選べます。早戻し・早送りは変わりません。";
+"player_transport_style_radio_footer" = "上の列で再生/停止ボタン、下の列で前の局・次の局ボタンを変更します。ラジオの再生画面だけに適用され、ミュージックやほかの再生画面はそれぞれ個別に選べます。";
 "player_play_style_filled_circle" = "塗りつぶし";
 "player_play_style_plain" = "枠なし";
 "player_play_style_outlined_circle" = "輪郭";

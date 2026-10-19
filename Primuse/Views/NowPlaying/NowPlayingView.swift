@@ -1133,6 +1133,14 @@ struct NowPlayingView: View {
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.audiobookPlayButtonStyleKey)
+    private var audiobookPlayButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.podcastPlayButtonStyleKey)
+    private var podcastPlayButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.radioPlayButtonStyleKey)
+    private var radioPlayButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
+    @AppStorage(PlayerAppearancePreferences.radioSkipButtonStyleKey)
+    private var radioSkipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -4569,15 +4577,26 @@ struct NowPlayingView: View {
         player.currentItemIsSpokenWord || playbackSettings.outputMode == .effects
     }
 
+    /// 音乐、有声书、播客、电台各用各的(「播放页样式与按钮」右上角切到那一页挑)。
     private var playButtonStyle: NowPlayingPlayButtonStyle {
-        PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
+        let rawValue = if player.isLiveRadio {
+            radioPlayButtonStyleRawValue
+        } else if usesSpokenWordTransport {
+            currentItemIsPodcast ? podcastPlayButtonStyleRawValue : audiobookPlayButtonStyleRawValue
+        } else {
+            playButtonStyleRawValue
+        }
+        return PlayerAppearancePreferences.playButtonStyle(rawValue: rawValue)
     }
 
-    /// 上一首 / 下一首按「播放页样式与按钮」里选的画;有声内容那两颗是快退 / 快进,不跟着换。
+    /// 上一首 / 下一首按「播放页样式与按钮」里选的画,电台的上一台 / 下一台单独一份;
+    /// 有声内容那两颗是快退 / 快进,不跟着换。
     private var skipButtonStyle: NowPlayingSkipButtonStyle {
         usesSpokenWordTransport
             ? .standard
-            : PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
+            : PlayerAppearancePreferences.skipButtonStyle(
+                rawValue: player.isLiveRadio ? radioSkipButtonStyleRawValue : skipButtonStyleRawValue
+            )
     }
 
     private var transportBackwardSymbol: String {

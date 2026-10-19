@@ -448,7 +448,7 @@ struct AudiobookPreviewScreen: View {
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
     private var followsProgressStyle = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
-    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    @AppStorage(PlayerAppearancePreferences.audiobookPlayButtonStyleKey)
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
 
     private var style: AudiobookPlayerStyle {
@@ -1050,7 +1050,10 @@ struct PodcastPreviewScreen: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            PreviewPlayGlyph(tint: appearance.primary)
+            PreviewPlayGlyph(
+                tint: appearance.primary,
+                styleKey: PlayerAppearancePreferences.podcastPlayButtonStyleKey
+            )
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 PreviewSkipGlyph(forward: true, tint: appearance.primary, fixedSymbol: player.spokenWordSkipForwardSymbol)
@@ -1107,9 +1110,9 @@ struct RadioPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
-    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
+    @AppStorage(PlayerAppearancePreferences.radioPlayButtonStyleKey)
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
-    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
+    @AppStorage(PlayerAppearancePreferences.radioSkipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
 
     private var appearance: NowPlayingAppearance {

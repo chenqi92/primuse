@@ -6544,8 +6544,9 @@
 "player_style_preview_actual_size" = "Taille réelle";
 "player_style_section_colors" = "Couleurs";
 "player_transport_style_title" = "Style des boutons de lecture";
-"player_transport_style_footer" = "La rangée du haut change le bouton lecture/pause, celle du bas les boutons précédent et suivant (station précédente et suivante pour la radio). Musique, livres audio, podcasts et radio partagent ce réglage : le modifier sur une page le change partout ; le mode paysage sur iPhone, l’iPad et la barre sous les paroles plein écran suivent aussi. Les boutons de saut des livres audio et des podcasts ne changent pas.";
-"player_transport_style_spoken_footer" = "Le bouton lecture/pause partage son apparence avec la musique et la radio : le modifier sur une page le change partout. Les boutons de saut ne changent pas.";
+"player_transport_style_footer" = "La rangée du haut change le bouton lecture/pause, celle du bas les boutons précédent et suivant. Ce réglage ne concerne que le lecteur de musique ; livres audio, podcasts et radio ont chacun le leur sur leur page. Le mode paysage sur iPhone, l’iPad et la barre sous les paroles plein écran suivent aussi.";
+"player_transport_style_spoken_footer" = "S’applique uniquement au bouton lecture/pause de cette page ; la musique et les autres lecteurs ont chacun le leur. Les boutons de saut ne changent pas.";
+"player_transport_style_radio_footer" = "La rangée du haut change le bouton lecture/arrêt, celle du bas les boutons station précédente et suivante. Ce réglage ne concerne que le lecteur radio ; la musique et les autres lecteurs ont chacun le leur.";
 "player_play_style_filled_circle" = "Plein";
 "player_play_style_plain" = "Sans cadre";
 "player_play_style_outlined_circle" = "Contour";

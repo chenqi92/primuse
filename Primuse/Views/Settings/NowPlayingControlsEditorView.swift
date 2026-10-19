@@ -272,7 +272,12 @@ struct NowPlayingControlsEditorView: View {
                 Text("player_style_preview_pip_hint")
             }
 
-            NowPlayingTransportStyleSection(anchorID: "appearance.playerTransportIcons")
+            NowPlayingTransportStyleSection(
+                playKey: PlayerAppearancePreferences.playButtonStyleKey,
+                skipKey: PlayerAppearancePreferences.skipButtonStyleKey,
+                info: "player_transport_style_footer",
+                anchorID: "appearance.playerTransportIcons"
+            )
 
             PlayerLookSettingsSections()
 
@@ -652,18 +657,36 @@ private struct PlayerLookSettingsSections: View {
     }
 }
 
-/// 「播放键样式」:播放 / 暂停键与上一首 / 下一首的样子。音乐、有声书、播客、电台共用这一份(#329),
-/// 每一页都放这一节,在哪一页改都一样。有声书和播客的快退、快进是秒数键,那两页不放下面那一排。
+/// 「播放键样式」:播放 / 暂停键与上一首 / 下一首的样子。音乐、有声书、播客、电台各存一份,
+/// 只改正在编辑的这一页。有声书和播客的快退、快进是秒数键,那两页不放下面那一排。
 private struct NowPlayingTransportStyleSection: View {
-    var showsSkipRow = true
-    var info: LocalizedStringKey = "player_transport_style_footer"
+    let showsSkipRow: Bool
+    let info: LocalizedStringKey
     /// 设置搜索落到这一节(只有音乐那一页登记了)。
-    var anchorID: String?
+    let anchorID: String?
 
-    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
-    private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
-    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
-    private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage private var playButtonStyleRawValue: String
+    @AppStorage private var skipButtonStyleRawValue: String
+
+    /// `skipKey` 为 nil 时不放上一首 / 下一首那一排。
+    init(
+        playKey: String,
+        skipKey: String?,
+        info: LocalizedStringKey,
+        anchorID: String? = nil
+    ) {
+        _playButtonStyleRawValue = AppStorage(
+            wrappedValue: NowPlayingPlayButtonStyle.filledCircle.rawValue,
+            playKey
+        )
+        _skipButtonStyleRawValue = AppStorage(
+            wrappedValue: NowPlayingSkipButtonStyle.standard.rawValue,
+            skipKey ?? PlayerAppearancePreferences.skipButtonStyleKey
+        )
+        showsSkipRow = skipKey != nil
+        self.info = info
+        self.anchorID = anchorID
+    }
 
     var body: some View {
         Section {
@@ -1294,7 +1317,13 @@ private struct SpokenWordControlsSections: View {
             )
         }
 
-        NowPlayingTransportStyleSection(showsSkipRow: false, info: "player_transport_style_spoken_footer")
+        NowPlayingTransportStyleSection(
+            playKey: kind == .podcast
+                ? PlayerAppearancePreferences.podcastPlayButtonStyleKey
+                : PlayerAppearancePreferences.audiobookPlayButtonStyleKey,
+            skipKey: nil,
+            info: "player_transport_style_spoken_footer"
+        )
 
         Section {
             ForEach(slots) { slot in
@@ -1521,7 +1550,11 @@ private struct RadioControlsSections: View {
             footer: "player_artwork_style_radio_footer"
         )
 
-        NowPlayingTransportStyleSection()
+        NowPlayingTransportStyleSection(
+            playKey: PlayerAppearancePreferences.radioPlayButtonStyleKey,
+            skipKey: PlayerAppearancePreferences.radioSkipButtonStyleKey,
+            info: "player_transport_style_radio_footer"
+        )
 
         Section {
             ForEach(layout.order) { item in
