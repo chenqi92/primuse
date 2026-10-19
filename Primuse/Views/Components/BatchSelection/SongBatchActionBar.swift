@@ -121,65 +121,132 @@ private struct IOSBatchActionToolbarContent<MoreActions: View>: View {
     @ViewBuilder
     private var content: some View {
         if selection.isActive {
-            HStack(spacing: 0) {
-                Button(action: onAddToPlaylist) {
-                    actionLabel(
-                        Text("add_to_playlist"),
-                        systemImage: "text.badge.plus"
-                    )
-                }
-                .disabled(selection.isEmpty)
-                .accessibilityIdentifier("batchAction.addToPlaylist")
-
-                Divider()
-                    .frame(height: 24)
-
-                Button(action: onAddToQueue) {
-                    actionLabel(
-                        queueFeedback.map { Text(verbatim: $0) }
-                            ?? Text("add_to_queue"),
-                        systemImage: queueFeedback == nil
-                            ? "text.line.last.and.arrowtriangle.forward"
-                            : "checkmark"
-                    )
-                }
-                .disabled(selection.isEmpty)
-                .accessibilityIdentifier("batchAction.addToQueue")
-
-                Divider()
-                    .frame(height: 24)
-
-                Menu {
-                    moreActions()
-                } label: {
-                    actionLabel(Text("more"), systemImage: "ellipsis")
-                }
-                .disabled(selection.isEmpty)
-                .accessibilityLabel(Text("a11y_more_actions"))
-                .accessibilityIdentifier("batchAction.more")
+            // 整排一起决定带不带图标：逐颗判断时窄屏上会一颗有图标、一颗没有。
+            ViewThatFits(in: .horizontal) {
+                actionRow(showsIcons: true)
+                actionRow(showsIcons: false)
             }
-            .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 44)
             .pmFadeTransition()
         }
     }
 
-    private func actionLabel(_ title: Text, systemImage: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            Label {
-                title
-            } icon: {
-                Image(systemName: systemImage)
+    private func actionRow(showsIcons: Bool) -> some View {
+        BatchActionEqualWidthRow {
+            Button(action: onAddToPlaylist) {
+                actionLabel(
+                    Text("add_to_playlist"),
+                    systemImage: "text.badge.plus",
+                    showsIcon: showsIcons
+                )
             }
-            .labelStyle(.titleAndIcon)
+            .disabled(selection.isEmpty)
+            .accessibilityIdentifier("batchAction.addToPlaylist")
 
-            title
+            Button(action: onAddToQueue) {
+                // 宽度按原来的字量，「已加入」反馈闪一下时整排不跟着换带不带图标。
+                actionLabel(
+                    Text("add_to_queue"),
+                    systemImage: "text.line.last.and.arrowtriangle.forward",
+                    showsIcon: showsIcons
+                )
+                .opacity(queueFeedback == nil ? 1 : 0)
+                .accessibilityHidden(queueFeedback != nil)
+                .overlay {
+                    if let queueFeedback {
+                        actionLabel(
+                            Text(verbatim: queueFeedback),
+                            systemImage: "checkmark",
+                            showsIcon: showsIcons
+                        )
+                    }
+                }
+            }
+            .disabled(selection.isEmpty)
+            .accessibilityIdentifier("batchAction.addToQueue")
+
+            Menu {
+                moreActions()
+            } label: {
+                actionLabel(Text("more"), systemImage: "ellipsis", showsIcon: showsIcons)
+            }
+            // 菜单的标签默认取主题色，和左边两颗不是一个颜色。
+            .tint(Color.primary)
+            .disabled(selection.isEmpty)
+            .accessibilityLabel(Text("a11y_more_actions"))
+            .accessibilityIdentifier("batchAction.more")
+        }
+        .buttonStyle(.plain)
+        .overlay { columnDividers }
+    }
+
+    /// 三格之间的两条竖线。放进 HStack 里 Divider 才是竖的,单独叠在格子上会画成横线。
+    private var columnDividers: some View {
+        HStack(spacing: 0) {
+            Color.clear
+            Divider().frame(height: 24)
+            Color.clear
+            Divider().frame(height: 24)
+            Color.clear
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func actionLabel(_ title: Text, systemImage: String, showsIcon: Bool) -> some View {
+        Group {
+            if showsIcon {
+                Label {
+                    title
+                } icon: {
+                    Image(systemName: systemImage)
+                }
+                .labelStyle(.titleAndIcon)
+            } else {
+                title
+            }
         }
         .font(.callout.weight(.semibold))
         .lineLimit(1)
         .minimumScaleFactor(0.72)
+        .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, minHeight: 44)
         .contentShape(Rectangle())
+    }
+}
+
+/// 批量操作栏的几颗键等宽排开。理想宽度按最宽那颗乘以颗数算，外面的 `ViewThatFits`
+/// 才是按「每一格都放得下」来挑带不带图标的那一排。
+private struct BatchActionEqualWidthRow: Layout {
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let widest = sizes.map(\.width).max() ?? 0
+        let tallest = sizes.map(\.height).max() ?? 0
+        let idealWidth = widest * CGFloat(subviews.count)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? idealWidth
+        return CGSize(width: width, height: tallest)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard !subviews.isEmpty else { return }
+        let width = bounds.width / CGFloat(subviews.count)
+        // 按格子中线放:菜单不一定把给它的宽度占满,靠左放会偏到格子左边。
+        for (index, subview) in subviews.enumerated() {
+            subview.place(
+                at: CGPoint(x: bounds.minX + width * (CGFloat(index) + 0.5), y: bounds.midY),
+                anchor: .center,
+                proposal: ProposedViewSize(width: width, height: bounds.height)
+            )
+        }
     }
 }
 #endif
@@ -291,13 +358,17 @@ private struct SongBatchActionsModifier: ViewModifier {
     @ViewBuilder
     private func actionPresentation(_ content: Content) -> some View {
         #if os(iOS)
+        // 在 body 里读，选择态翻转时这层才会重算、把新值交给下面的闭包。
+        let isSelecting = selection.isActive
         content
             // The page reports ownership upward; ContentView is the only
             // layer that decides whether the app's system Tab Bar is visible.
-            .preference(
-                key: SongBatchSelectionActivePreferenceKey.self,
-                value: selection.isActive
-            )
+            // 与里层的上报取「或」，不能用 `.preference` 覆盖：搜索页把这层挂在自己的
+            // 导航栈外面，覆盖会把栈里专辑、艺人页的「正在多选」盖成搜索页自己的 false，
+            // 标签栏和迷你条就压在批量操作栏上（#304）。
+            .transformPreference(SongBatchSelectionActivePreferenceKey.self) { value in
+                value = value || isSelecting
+            }
             .toolbar {
                 ToolbarItem(placement: .bottomBar) {
                     IOSBatchActionToolbarContent(
