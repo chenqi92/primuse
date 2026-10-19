@@ -436,7 +436,7 @@ enum NowPlayingSkipButtonStyle: String, CaseIterable, Sendable {
         }
     }
 
-    /// 压在自己的玻璃胶囊里时(手机横屏那一排)用的字形:胶囊已经是框,圆底、圆圈两种换成不带圆的。
+    /// 压在自己的玻璃胶囊里时(浮起来的原生全屏底排)用的字形:胶囊已经是框,圆底、圆圈两种换成不带圆的。
     func glyphSymbol(forward: Bool) -> String {
         switch self {
         case .standard, .bold, .filledCircle, .outlinedCircle: forward ? "forward.fill" : "backward.fill"

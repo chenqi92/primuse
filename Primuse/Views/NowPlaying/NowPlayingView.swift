@@ -806,6 +806,9 @@ private enum LyricsArtworkPlacement: Hashable {
     case cover
     case compactLyrics
     case immersiveLyrics
+    /// 不是封面位:手机横屏铺满封面时顶上那排圆钮在版面里的占位。封面层画在整个版面上面,
+    /// 圆钮排得跟着画在封面层里才盖得住封面(见 `compactLandscapeLiftedChrome`)。
+    case landscapeChrome
 }
 
 private struct LyricsArtworkShadow {
@@ -821,6 +824,8 @@ private struct LyricsArtworkAnchor {
     let showsVideoPreparation: Bool
     /// 下沿渐隐进背景的那一截占高度的比例；0 是不渐隐（卡片封面、歌词小封面）。
     var bottomFade: CGFloat = 0
+    /// 尾侧渐隐进背景的那一截占宽度的比例：手机横屏的铺满封面靠右栏那一边；0 是不渐隐。
+    var trailingFade: CGFloat = 0
     /// 铺满封面从屏幕顶端画起，把手和状态栏压在封面上，这一层要替它们垫一道淡淡的底色。
     var coversTopChrome = false
 }
@@ -842,29 +847,34 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 /// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
 /// 移动途中只变换不重新排版。
 ///
-/// 槽位不是正方形时（铺满封面在矮屏上被压扁）按长边铺满、居中裁掉多出来的那截，
-/// 下沿渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
+/// 槽位不是正方形时（铺满封面在矮屏上被压扁、手机横屏的铺满封面）按长边铺满、居中裁掉多出来的那截，
+/// 下沿与尾侧渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
 private struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
     var cornerRadius: CGFloat
     var shadow: LyricsArtworkShadow
     var bottomFade: CGFloat
+    var trailingFade: CGFloat
     let renderSize: CGFloat
 
     nonisolated var animatableData: AnimatablePair<
-        AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, CGFloat>>,
+        AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>,
         AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>>
     > {
         get {
             AnimatablePair(
-                AnimatablePair(rect.animatableData, AnimatablePair(cornerRadius, bottomFade)),
+                AnimatablePair(
+                    rect.animatableData,
+                    AnimatablePair(cornerRadius, AnimatablePair(bottomFade, trailingFade))
+                ),
                 AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, shadow.y))
             )
         }
         set {
             rect.animatableData = newValue.first.first
             cornerRadius = newValue.first.second.first
-            bottomFade = newValue.first.second.second
+            bottomFade = newValue.first.second.second.first
+            trailingFade = newValue.first.second.second.second
             shadow.opacity = newValue.second.first
             shadow.radius = newValue.second.second.first
             shadow.y = newValue.second.second.second
@@ -874,31 +884,42 @@ private struct LyricsArtworkFlight: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         let scale = max(rect.width, rect.height, 1) / renderSize
         let visible = CGSize(width: max(rect.width, 0) / scale, height: max(rect.height, 0) / scale)
-        let fade = min(max(bottomFade, 0), 1)
-        // 不渐隐时整张都是实色：只改色值不改结构，飞行途中渐隐收到 0 时这一层不会被重建。
-        let fades = fade > 0.001
         content
             .frame(width: renderSize, height: renderSize)
             .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
             .mask {
-                // 渐隐那一截按 smoothstep 取五个点，起止两头都是平的，看不出从哪一行开始变淡。
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 1 - fade),
-                        .init(color: .black.opacity(fades ? 0.844 : 1), location: 1 - fade * 0.75),
-                        .init(color: .black.opacity(fades ? 0.5 : 1), location: 1 - fade * 0.5),
-                        .init(color: .black.opacity(fades ? 0.156 : 1), location: 1 - fade * 0.25),
-                        .init(color: fades ? .clear : .black, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: visible.width, height: visible.height)
+                // 下沿那道渐隐再被尾侧那道遮一次。不渐隐时两道都是实色：只改色值不改结构，
+                // 飞行途中渐隐收到 0 时这一层不会被重建。
+                Self.fadeGradient(bottomFade, startPoint: .top, endPoint: .bottom)
+                    .mask { Self.fadeGradient(trailingFade, startPoint: .leading, endPoint: .trailing) }
+                    .frame(width: visible.width, height: visible.height)
             }
             .scaleEffect(scale)
             .shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
             .position(x: rect.midX, y: rect.midY)
+    }
+
+    /// 从 `startPoint` 一侧的实色到 `endPoint` 那头 `fraction` 那么长的一截渐隐。
+    /// 渐隐那一截按 smoothstep 取五个点，起止两头都是平的，看不出从哪一行开始变淡。
+    private static func fadeGradient(
+        _ fraction: CGFloat,
+        startPoint: UnitPoint,
+        endPoint: UnitPoint
+    ) -> LinearGradient {
+        let fade = min(max(fraction, 0), 1)
+        let fades = fade > 0.001
+        return LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 1 - fade),
+                .init(color: .black.opacity(fades ? 0.844 : 1), location: 1 - fade * 0.75),
+                .init(color: .black.opacity(fades ? 0.5 : 1), location: 1 - fade * 0.5),
+                .init(color: .black.opacity(fades ? 0.156 : 1), location: 1 - fade * 0.25),
+                .init(color: fades ? .clear : .black, location: 1),
+            ],
+            startPoint: startPoint,
+            endPoint: endPoint
+        )
     }
 }
 
@@ -3032,7 +3053,10 @@ struct NowPlayingView: View {
                         #endif
                     }
                     .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
-                        lyricsArtworkOverlay(anchors: anchors)
+                        ZStack {
+                            lyricsArtworkOverlay(anchors: anchors)
+                            compactLandscapeLiftedChrome(anchors: anchors)
+                        }
                     }
                     .onChange(of: canSplit, initial: true) { _, split in
                         isPlayerSplit = split
@@ -3912,6 +3936,9 @@ struct NowPlayingView: View {
     /// 歌词模式是同一副骨架：左栏的大封面换成歌词、缩成右栏顶上的小封面，圆钮排、
     /// 进度条和传输键原地不动。原先歌词模式另起一套顶栏，再用一块悬浮面板放进度条
     /// 和传输键 —— 面板压在歌词上，圆钮排里的锁定 / 队列 / 投放 / 全屏也都没了。
+    ///
+    /// 「封面样式」选了铺满时和竖屏一样铺满：封面从屏幕首侧边缘和上下边缘画到右栏起点、尾侧渐隐，
+    /// 两栏的位置与卡片样式相同，只是封面画法不同。
     private func compactLandscapePlayerLayout(
         geo: GeometryProxy,
         safeInsets windowInsets: EdgeInsets,
@@ -3952,6 +3979,7 @@ struct NowPlayingView: View {
         let showsEdgeToggles = showLyrics
             ? lyricsMetrics.showsEdgeToggles
             : metrics.showsEdgeToggles
+        let fullBleedArtwork = compactLandscapeUsesFullBleedArtwork(usesToolColumn: usesToolColumn)
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -3964,23 +3992,40 @@ struct NowPlayingView: View {
                     metrics: metrics,
                     lyricsMetrics: lyricsMetrics,
                     lyricsPaneTopClearance: lyricsPaneTop,
-                    usesToolColumn: usesToolColumn
+                    usesToolColumn: usesToolColumn,
+                    fullBleedArtwork: fullBleedArtwork
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
 
             if !usesToolColumn {
-                compactLandscapeChromeLayer
-                    .pmLayoutSwitchFade()
-                    .padding(.leading, chromeLeading)
-                    .padding(.trailing, chromeTrailing)
+                if fullBleedArtwork {
+                    compactLandscapeChromePlaceholder
+                        .padding(.leading, chromeLeading)
+                        .padding(.trailing, chromeTrailing)
+                } else {
+                    compactLandscapeChromeLayer
+                        .pmLayoutSwitchFade()
+                        .padding(.leading, chromeLeading)
+                        .padding(.trailing, chromeTrailing)
+                }
             }
         }
         .padding(.leading, CGFloat(metrics.leadingInset))
         .padding(.trailing, CGFloat(metrics.trailingInset))
         .padding(.top, CGFloat(metrics.topInset))
         .padding(.bottom, CGFloat(metrics.bottomInset))
+        // 铺满封面的封面位垫在整个版面底下：从屏幕首侧边缘、上下边缘起，宽到右栏起点。
+        .background(alignment: .topLeading) {
+            if fullBleedArtwork && !showLyrics {
+                compactLandscapeFullBleedArtworkSlot(
+                    width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
+                    height: geo.size.height
+                )
+                .transition(lyricsHandoffArtworkTransition)
+            }
+        }
         .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
@@ -3995,6 +4040,66 @@ struct NowPlayingView: View {
             // 转回竖屏、进沉浸歌词、进全屏效果、播放页收起都会走到这里。
             isCompactLandscapeLocked = false
             compactLandscapeHidesModeToggles = false
+        }
+    }
+
+    /// 手机横屏骨架的封面也按「封面样式」铺满(判定同竖屏,见 `usesFullBleedArtwork`)。iPhone Duo 外屏整屏居中、
+    /// 竖栏那一列与内屏横握照旧是卡片。
+    private func compactLandscapeUsesFullBleedArtwork(usesToolColumn: Bool) -> Bool {
+        !centersOnFullScreen && !usesExpandedLandscapeCanvas
+            && usesFullBleedArtwork(lyricsInline: nil, usesToolColumn: usesToolColumn)
+    }
+
+    /// 手机横屏铺满封面的封面位：直角、无阴影，靠右栏那一侧渐隐。点封面和卡片封面一样进歌词，锁上之后不响应。
+    private func compactLandscapeFullBleedArtworkSlot(width: CGFloat, height: CGFloat) -> some View {
+        Color.clear
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
+                [.cover: LyricsArtworkAnchor(
+                    bounds: $0,
+                    cornerRadius: 0,
+                    shadow: .init(),
+                    showsVideoPreparation: true,
+                    trailingFade: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedTrailingFadeFraction)
+                )]
+            }
+            .onTapGesture { openTextFromArtwork() }
+            .allowsHitTesting(!isCompactLandscapeLocked)
+    }
+
+    /// 铺满封面时版面里给顶上那排圆钮留的位置：大小和圆钮排一样，只报出位置。
+    private var compactLandscapeChromePlaceholder: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter))
+            .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
+                [.landscapeChrome: LyricsArtworkAnchor(
+                    bounds: $0,
+                    cornerRadius: 0,
+                    shadow: .init(),
+                    showsVideoPreparation: false
+                )]
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// 手机横屏铺满封面时顶上那排圆钮。铺满的封面由整页的封面层画在版面之上，圆钮排留在版面里会被盖住，
+    /// 所以挪进封面层、画在封面上面，位置照版面里的占位(`compactLandscapeChromePlaceholder`)。
+    /// 封面 ⇄ 歌词换场时它一直在这一层，和卡片样式一样原地不动。
+    @ViewBuilder
+    private func compactLandscapeLiftedChrome(
+        anchors: [LyricsArtworkPlacement: LyricsArtworkAnchor]
+    ) -> some View {
+        if let anchor = anchors[.landscapeChrome] {
+            GeometryReader { geometry in
+                let rect = geometry[anchor.bounds]
+                compactLandscapeChromeLayer
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+            }
+            .pmLayoutSwitchFade()
         }
     }
 
@@ -4089,7 +4194,8 @@ struct NowPlayingView: View {
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
         lyricsPaneTopClearance: CGFloat = 0,
-        usesToolColumn: Bool = false
+        usesToolColumn: Bool = false,
+        fullBleedArtwork: Bool = false
     ) -> some View {
         let leftColumnWidth = CGFloat(
             showLyrics ? lyricsMetrics.detailColumnWidth : metrics.artworkColumnWidth
@@ -4107,7 +4213,8 @@ struct NowPlayingView: View {
                         usesToolColumn: usesToolColumn
                     )
                         .transition(.opacity)
-                } else {
+                } else if !fullBleedArtwork {
+                    // 铺满的封面位垫在整个版面底下(`compactLandscapeFullBleedArtworkSlot`),这一栏只占宽度。
                     compactLandscapeArtwork(metrics: metrics)
                         .transition(lyricsHandoffArtworkTransition)
                 }
@@ -4183,7 +4290,10 @@ struct NowPlayingView: View {
             // 不会因为过渡期间多出一块而被顶下去。
             ZStack(alignment: .topLeading) {
                 if showLyrics {
-                    compactLandscapeLyricsHeader(metrics: lyricsMetrics)
+                    compactLandscapeLyricsHeader(
+                        metrics: lyricsMetrics,
+                        receivesFullBleedArtwork: compactLandscapeUsesFullBleedArtwork(usesToolColumn: usesToolColumn)
+                    )
                         .transition(lyricsHeaderHandoffTransition)
                 } else {
                     compactLandscapeCoverHeading(metrics: metrics)
@@ -4268,7 +4378,8 @@ struct NowPlayingView: View {
     /// 歌词模式左栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
     /// 音乐缩略图只提供位置，常驻封面层负责缩放和位移。
     private func compactLandscapeLyricsHeader(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
+        receivesFullBleedArtwork: Bool = false
     ) -> some View {
         let thumbnail = CGFloat(metrics.thumbnailSize)
         return Button { returnToArtworkFromLyricsHeader() } label: {
@@ -4276,7 +4387,12 @@ struct NowPlayingView: View {
                 alignment: .center,
                 spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
             ) {
-                lyricsThumbnailArtwork(size: thumbnail, cornerRadius: 12, shadow: .init(opacity: 0.22, radius: 10, y: 5))
+                lyricsThumbnailArtwork(
+                    size: thumbnail,
+                    cornerRadius: 12,
+                    shadow: .init(opacity: 0.22, radius: 10, y: 5),
+                    receivesFullBleedArtwork: receivesFullBleedArtwork
+                )
                 .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
                 .lyricsHeaderReveal(isArtwork: true)
 
@@ -4364,77 +4480,43 @@ struct NowPlayingView: View {
         .accessibilityHint(Text("a11y_open_lyrics"))
     }
 
-    /// 两端放得下时:音乐是随机 / 循环;有声内容按「播放页按钮」两侧那两格摆,默认是上一章 / 下一章,
-    /// 这一条有文字稿时换成文字稿与目录(右栏放不下四颗),上一章 / 下一章仍在快退、快进的长按菜单里,
-    /// 和竖屏一样。
+    /// 和竖屏普通播放页同一套传输键(上一首 / 下一首按「播放页样式与按钮」里选的画、无底,播放键跟播放键样式),
+    /// 播放键左右两半各自把键平均排开。两端放得下时:音乐是随机 / 循环(跟「播放页按钮」两端那两格走);
+    /// 有声内容按「播放页按钮」两侧那两格摆,默认是上一章 / 下一章,这一条有文字稿时换成文字稿与目录
+    /// (右栏放不下四颗),上一章 / 下一章仍在快退、快进的长按菜单里,和竖屏一样。
+    /// 右栏太窄、两端让出来时(随机 / 循环进「更多」)不留空位,三颗键在这一行里平均排开。
     @ViewBuilder
     private func compactLandscapeTransportRow(
         showsEdgeToggles: Bool,
         spokenControls: SpokenWordResolvedControls?
     ) -> some View {
-        let sideKeyFont = Font.system(size: 17, weight: .semibold)
         let menuSurface = NowPlayingControlSurface.compactLandscape(showsTransportEdges: !compactLandscapeHidesModeToggles)
-        HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
-            if showsEdgeToggles {
-                if let spokenControls {
+        Group {
+            if let spokenControls {
+                spokenWordTransportRow(
+                    spokenControls,
+                    playDiameter: Self.compactLandscapePlayDiameter,
+                    minimumGap: nil,
+                    reservesEmptySides: showsEdgeToggles
+                ) { slot, action in
                     spokenWordSlotKey(
-                        spokenControls.leadingSide,
-                        slot: .leadingSide,
-                        font: sideKeyFont,
+                        action,
+                        slot: slot,
+                        font: .body,
                         tint: appearance.secondary,
                         selectedTint: themedControlAccent,
                         menuSurface: menuSurface
                     )
-                    .pmFadeTransition(motion: .control)
-                } else {
-                    controlSlot(.leadingEdge, style: .edge)
                 }
-            }
-
-            Spacer(minLength: 0)
-
-            playerSkipButton(
-                symbol: transportGlyphSymbol(forward: false),
-                label: transportBackwardLabel
-            ) {
-                transportBackward()
-            }
-            .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
-            .modifier(transportHoldScrubGesture(forward: false))
-
-            playerPlayButton
-
-            playerSkipButton(
-                symbol: transportGlyphSymbol(forward: true),
-                label: transportForwardLabel
-            ) {
-                transportForward()
-            }
-            .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
-            .modifier(transportHoldScrubGesture(forward: true))
-
-            Spacer(minLength: 0)
-
-            if showsEdgeToggles {
-                if let spokenControls {
-                    spokenWordSlotKey(
-                        spokenControls.trailingSide,
-                        slot: .trailingSide,
-                        font: sideKeyFont,
-                        tint: appearance.secondary,
-                        selectedTint: themedControlAccent,
-                        menuSurface: menuSurface
-                    )
-                    .pmFadeTransition(motion: .control)
-                } else {
-                    controlSlot(.trailingEdge, style: .edge)
-                }
+            } else {
+                musicTransportRow(playDiameter: Self.compactLandscapePlayDiameter, showsEdges: showsEdgeToggles)
             }
         }
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
-        .pmAnimation(.control, value: spokenControls?.leadingSide)
-        .pmAnimation(.control, value: spokenControls?.trailingSide)
     }
+
+    /// 手机横屏传输键一行的播放键,和竖屏普通播放页一样大。
+    private static let compactLandscapePlayDiameter: CGFloat = 56
 
     // MARK: - Transport: music vs spoken word
 
@@ -4524,7 +4606,7 @@ struct NowPlayingView: View {
         usesSpokenWordTransport ? player.spokenWordSkipForwardSymbol : skipButtonStyle.symbol(forward: true)
     }
 
-    /// 压在玻璃胶囊里的那两颗(手机横屏、浮起来的原生全屏底排):胶囊已经是框,不再套圆。
+    /// 压在玻璃胶囊里的那两颗(浮起来的原生全屏底排):胶囊已经是框,不再套圆。
     private func transportGlyphSymbol(forward: Bool) -> String {
         if usesSpokenWordTransport {
             return forward ? player.spokenWordSkipForwardSymbol : player.spokenWordSkipBackwardSymbol
@@ -6140,10 +6222,11 @@ struct NowPlayingView: View {
     /// 音乐的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环),两端按「播放页按钮」摆。
     /// 和有声内容一样左右两半各自排开:空着的那一端不占位,播放键仍在正中(#320);两端都空时
     /// 各留一个键位的空白,三颗键不散到屏幕两边。两头外侧也各留一道间隙,宽屏上两端的键不贴着屏幕边。
-    private func musicTransportRow(playDiameter: CGFloat) -> some View {
-        let hasLeading = musicControlLayout.action(in: .leadingEdge) != nil
-        let hasTrailing = musicControlLayout.action(in: .trailingEdge) != nil
-        let keepsCompact = !hasLeading && !hasTrailing
+    /// `showsEdges` 为假(手机横屏右栏放不下两端)时两端不摆、也不留空位。
+    private func musicTransportRow(playDiameter: CGFloat, showsEdges: Bool = true) -> some View {
+        let hasLeading = showsEdges && musicControlLayout.action(in: .leadingEdge) != nil
+        let hasTrailing = showsEdges && musicControlLayout.action(in: .trailingEdge) != nil
+        let keepsCompact = showsEdges && !hasLeading && !hasTrailing
         return HStack(spacing: 0) {
             HStack(spacing: 0) {
                 Spacer()
@@ -6177,14 +6260,15 @@ struct NowPlayingView: View {
 
     /// 有声内容的传输键一行:播放键左右两半各自把键平均排开 —— 空着的格不占位、不在一头留个空洞,
     /// 播放键始终在正中(#320)。两侧都空、也没有紧挨快退快进的上一章 / 下一章时,两头各留一个键位的空白,
-    /// 三颗键不散到屏幕两边。
+    /// 三颗键不散到屏幕两边;`reservesEmptySides` 为假(手机横屏右栏太窄、两侧让了出来)时不留。
     private func spokenWordTransportRow<SideKey: View>(
         _ controls: SpokenWordResolvedControls,
         playDiameter: CGFloat,
         minimumGap: CGFloat?,
+        reservesEmptySides: Bool = true,
         @ViewBuilder sideKey: @escaping (SpokenWordControlSlot, SpokenWordSlotAction) -> SideKey
     ) -> some View {
-        let keepsCompact = !controls.hasSideKeys && !controls.showsInnerChapters
+        let keepsCompact = reservesEmptySides && !controls.hasSideKeys && !controls.showsInnerChapters
         return HStack(spacing: 0) {
             HStack(spacing: 0) {
                 if let action = controls.leadingSide {
@@ -6653,7 +6737,8 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
     }
 
-    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 的整屏竖版上：
+    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 的整屏竖版
+    /// 与手机横屏骨架上（后者见 `compactLandscapeUsesFullBleedArtwork`）：
     /// iPad 竖屏太宽，铺满会把下面几行挤没；Duo 分栏、竖栏那一列的版面窄而高，照旧用卡片。
     /// MV 有自己的画面，有声书的书封是竖版，都不铺。电台另见 `liveRadioUsesFullBleedLogo`。
     private func usesFullBleedArtwork(lyricsInline: Bool?, usesToolColumn: Bool) -> Bool {
@@ -6751,6 +6836,7 @@ struct NowPlayingView: View {
                     cornerRadius: anchor.cornerRadius,
                     shadow: anchor.shadow,
                     bottomFade: anchor.bottomFade,
+                    trailingFade: anchor.trailingFade,
                     renderSize: renderSize
                 ))
                 .animation(standardLyricsAnimation, value: placement)

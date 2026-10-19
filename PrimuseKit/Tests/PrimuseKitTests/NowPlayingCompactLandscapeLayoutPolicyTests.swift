@@ -538,4 +538,34 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
         #expect(phone.artworkSize == min(phone.contentWidth * Policy.artworkWidthFraction, phone.availableContentHeight))
     }
 
+    // MARK: - 铺满封面
+
+    @Test("铺满封面画到右栏起点：右栏、尾侧内边距接上去正好是整屏宽")
+    func fullBleedArtworkEndsWhereTheDetailColumnStarts() {
+        for (metrics, viewportWidth) in [(iPhoneSE, 667.0), (iPhone15, 852.0), (iPhone16ProMax, 956.0)] {
+            let width = Policy.fullBleedArtworkWidth(metrics: metrics)
+            #expect(abs(width + metrics.detailColumnWidth + metrics.trailingInset - viewportWidth) < 0.001)
+        }
+    }
+
+    @Test("铺满封面的宽度：SE 282、15/16 367、Pro Max 407（含首侧安全区）")
+    func fullBleedArtworkWidthOnTargetPhones() {
+        #expect(abs(Policy.fullBleedArtworkWidth(metrics: iPhoneSE) - 282.26) < 0.01)
+        #expect(abs(Policy.fullBleedArtworkWidth(metrics: iPhone15) - 366.72) < 0.01)
+        #expect(abs(Policy.fullBleedArtworkWidth(metrics: iPhone16ProMax) - 406.96) < 0.01)
+    }
+
+    @Test("铺满封面按长边铺满后两侧裁掉的不超过整张的四分之一，渐隐只占靠右栏那一小截")
+    func fullBleedArtworkKeepsMostOfTheCover() {
+        for (metrics, viewportHeight) in [(iPhoneSE, 375.0), (iPhone15, 393.0), (iPhone16ProMax, 440.0)] {
+            let width = Policy.fullBleedArtworkWidth(metrics: metrics)
+            // 比卡片封面宽,也没有宽过整屏高度太多(那样上下会被裁)。
+            #expect(width > metrics.artworkSize)
+            #expect(width / viewportHeight >= 0.75)
+            #expect(width / viewportHeight <= 1.05)
+        }
+        #expect(Policy.fullBleedTrailingFadeFraction > 0)
+        #expect(Policy.fullBleedTrailingFadeFraction < 0.5)
+    }
+
 }

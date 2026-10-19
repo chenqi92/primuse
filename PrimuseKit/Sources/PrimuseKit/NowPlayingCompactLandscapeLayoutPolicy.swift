@@ -34,9 +34,10 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     /// 封面边长的下限。高度实在不够时以高度为准，不再强撑这个值。
     public static let minimumArtworkSize: Double = 180
 
-    /// 播放 / 暂停实心圆的直径，同时也是传输键这一行的高度。
+    /// 传输键这一行的高度。这一行的键和竖屏普通播放页同一套画法(播放键 56,上一首 / 下一首 56 宽),
+    /// 宽高都按原来的玻璃胶囊留，比键本身宽松；浮起来的原生全屏底排仍按这个直径画实心圆。
     public static let primaryTransportDiameter: Double = 68
-    /// 上一首 / 下一首玻璃胶囊的尺寸。
+    /// 给上一首 / 下一首留的宽度(浮起来的原生全屏底排的玻璃胶囊就是这么大)。
     public static let secondaryTransportWidth: Double = 64
     public static let secondaryTransportHeight: Double = 44
     /// 两端随机 / 循环小图标的命中尺寸。
@@ -247,6 +248,19 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             showsEdgeToggles: showsEdgeToggles,
             showsVolumeBar: showsVolumeBar
         )
+    }
+
+    // MARK: - 铺满封面
+
+    /// 「封面样式」选了铺满时，封面从屏幕首侧边缘（含刘海 / 灵动岛那一侧的安全区）和上下边缘画起，
+    /// 一直画到右栏开始的地方；靠右栏那一截按这个比例（占这一块的宽度）渐隐进背景，渐隐的尾巴
+    /// 正好收在右栏起点，不压歌名和进度条。
+    public static let fullBleedTrailingFadeFraction: Double = 0.36
+
+    /// 铺满封面那一块的宽度：首侧内边距（含安全区）+ 封面列 + 栏间距，也就是右栏离屏幕首侧边缘的距离。
+    /// 高度是整屏。两栏的位置与卡片样式完全一样，换封面样式时歌名、进度条和按钮都不动。
+    public static func fullBleedArtworkWidth(metrics: Metrics) -> Double {
+        metrics.leadingInset + metrics.artworkColumnWidth + metrics.columnSpacing
     }
 
     // MARK: - 整屏居中(系统竖栏的设备)
