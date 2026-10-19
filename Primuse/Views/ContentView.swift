@@ -399,6 +399,12 @@ extension View {
         modifier(LegacyMiniPlayerClearance(height: height))
     }
 
+    /// 给所在的导航栈（根页和推进去的每一页）在底部让出 `height`。iPad 侧栏布局的详情栏用它
+    /// 给浮在外层的迷你条让位。
+    fileprivate func navigationStackBottomReserve(_ height: CGFloat) -> some View {
+        background(BottomSafeAreaReserve(height: height, container: .navigationStack))
+    }
+
     /// 极简模式的根页：头上是顶栏，底下是停靠条，系统导航栏藏起来。
     /// `showsTopChrome` 为 false 的根页（设置）保留系统导航栏，只在底下挂停靠条。
     func minimalNavigationRoot(showsTopChrome: Bool = true) -> some View {
@@ -417,19 +423,29 @@ private struct LegacyMiniPlayerClearance: ViewModifier {
         if #available(iOS 26.1, *) {
             content
         } else {
-            content.background(TabBottomSafeAreaReserve(height: height))
+            content.background(BottomSafeAreaReserve(height: height, container: .tabChild))
         }
     }
 }
 
-/// 给所在标签页的子控制器加一段 `additionalSafeAreaInsets.bottom`。SwiftUI 的 `safeAreaInset`
-/// 挂在标签页内容上传不进里面的 NavigationStack（10-19 模拟器实测：根页、推进去的详情页、
-/// 表单的最后一行照样压在浮条下面）；UIKit 的安全区沿控制器树往下传，整个标签页一起让位。
-private struct TabBottomSafeAreaReserve: UIViewControllerRepresentable {
+/// 给所在的容器控制器加一段 `additionalSafeAreaInsets.bottom`。SwiftUI 的 `safeAreaInset`
+/// 挂在 NavigationStack 外面传不进它的页面（10-19 模拟器实测：标签页里根页、推进去的详情页、
+/// 表单的最后一行照样压在浮条下面；iPad 详情栏的 NavigationStack 并进分栏自己的导航控制器，
+/// 外层 inset 只落在根页上，推一页就连迷你条一起被盖住）；UIKit 的安全区沿控制器树往下传，
+/// 容器里每一页都一起让位。
+private struct BottomSafeAreaReserve: UIViewControllerRepresentable {
+    enum Container {
+        /// 挂在 UITabBarController 下的那个标签子控制器。
+        case tabChild
+        /// 最近的导航控制器（iPad 分栏的详情栏）。
+        case navigationStack
+    }
+
     let height: CGFloat
+    let container: Container
 
     func makeUIViewController(context: Context) -> ReserveController {
-        ReserveController()
+        ReserveController(container: container)
     }
 
     func updateUIViewController(_ controller: ReserveController, context: Context) {
@@ -443,10 +459,21 @@ private struct TabBottomSafeAreaReserve: UIViewControllerRepresentable {
     }
 
     final class ReserveController: UIViewController {
+        let container: Container
         var height: CGFloat = 0
-        /// 已经加到标签子控制器上的那一份。只增减自己这份，不动别处设的值。
+        /// 已经加到容器上的那一份。只增减自己这份，不动别处设的值。
         private var applied: CGFloat = 0
-        private weak var tabChild: UIViewController?
+        private weak var target: UIViewController?
+
+        init(container: Container) {
+            self.container = container
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
 
         override func loadView() {
             let view = UIView(frame: .zero)
@@ -466,18 +493,32 @@ private struct TabBottomSafeAreaReserve: UIViewControllerRepresentable {
         }
 
         func apply() {
-            guard let target = tabChild ?? Self.tabChild(of: self) else { return }
-            tabChild = target
+            let current = Self.container(of: self, kind: container)
+            if let previous = target, previous !== current {
+                // 换了容器（侧栏切到另一页、页面树重建）：先把加在旧容器上的那份收回。
+                previous.additionalSafeAreaInsets.bottom -= applied
+                applied = 0
+            }
+            target = current
+            guard let current else {
+                applied = 0
+                return
+            }
             let delta = height - applied
             guard delta != 0 else { return }
-            target.additionalSafeAreaInsets.bottom += delta
+            current.additionalSafeAreaInsets.bottom += delta
             applied = height
         }
 
-        private static func tabChild(of controller: UIViewController) -> UIViewController? {
+        private static func container(of controller: UIViewController, kind: Container) -> UIViewController? {
             var current = controller
             while let parent = current.parent {
-                if parent is UITabBarController { return current }
+                switch kind {
+                case .tabChild:
+                    if parent is UITabBarController { return current }
+                case .navigationStack:
+                    if parent is UINavigationController { return parent }
+                }
                 current = parent
             }
             return nil
@@ -994,6 +1035,13 @@ struct ContentView: View {
     private let legacyTabBarClearance: CGFloat = 49
     /// 叠加式迷你条的实测高度（随字号变），标签页外层照它垫出底部空白。
     @State private var legacyAccessoryHeight: CGFloat = 0
+    /// iPad 侧栏布局：侧栏在窗口里的位置（从左量；收起时为空）与分栏的宽度，
+    /// 迷你条摆在侧栏以外的那一段底下，见 `padAccessoryLane`。
+    @State private var padSidebarFrame: CGRect = .zero
+    @State private var padRootWidth: CGFloat = 0
+    /// iPad 侧栏布局迷你条的实测高度，详情栏的导航栈照它让位。
+    @State private var padAccessoryHeight: CGFloat = 0
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
@@ -1354,19 +1402,64 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+            // 侧栏只要显示着就一直在排版；详情栏的根页被推入页盖住时不一定排版，量不准。
+            // 挂在列宽之前：挂在它外面，分栏就读不到列宽，侧栏退回系统默认宽度。
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { frame in
+                padSidebarFrame = frame
+            }
+            .onDisappear { padSidebarFrame = .zero }
             .navigationTitle("Primuse")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             padDetail(for: sidebarSelection)
                 .environment(\.librarySearchTab, sidebarSelection.rawValueTab)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .navigationStackBottomReserve(miniPlayerVisible ? padAccessoryHeight : 0)
+        }
+        .softNavigationScrollEdges()
+        .overlay {
+            // 迷你条不放进详情栏：那里的 NavigationStack 并进分栏自己的导航控制器，挂在外层的
+            // 东西只落在根页上，推进专辑、艺人页就被盖住了。浮在分栏外面、摆在侧栏以外的那段。
+            Color.clear
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { width in
+                    padRootWidth = width
+                }
+                .overlay(alignment: .bottomLeading) {
                     if miniPlayerVisible {
+                        let lane = padAccessoryLane
                         PadNowPlayingAccessory(onTap: presentNowPlaying)
+                            .environment(\.layoutDirection, layoutDirection)
+                            .frame(width: lane?.width)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.height
+                            } action: { height in
+                                padAccessoryHeight = height
+                            }
+                            .offset(x: lane?.minX ?? 0)
                             .pmSlideTransition(edge: .bottom, motion: .panel)
                     }
                 }
+                .environment(\.layoutDirection, .leftToRight)
         }
-        .softNavigationScrollEdges()
+    }
+
+    /// 侧栏以外的那一段（从左量）：侧栏在左（从右往左的语言在右）就取它另一边到窗口边。
+    /// 侧栏收起、还没量到时为 nil，迷你条按整宽居中。
+    private var padAccessoryLane: (minX: CGFloat, width: CGFloat)? {
+        let width = padRootWidth
+        let sidebar = padSidebarFrame
+        guard width > 0, sidebar.width > 0, sidebar.width < width * 0.6 else { return nil }
+        let lane: (minX: CGFloat, width: CGFloat)
+        if sidebar.midX < width / 2 {
+            let minX = min(max(0, sidebar.maxX), width)
+            lane = (minX, width - minX)
+        } else {
+            lane = (0, max(0, min(width, sidebar.minX)))
+        }
+        return lane.width > 240 ? lane : nil
     }
 
     /// 把 sidebar 选项映射到具体 detail 视图。Library 的子项 (Songs / Albums
