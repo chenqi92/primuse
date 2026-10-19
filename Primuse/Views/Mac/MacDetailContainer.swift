@@ -24,7 +24,6 @@ struct MacDetailContainer: View {
                 #if DEBUG
                 .onAppear {
                     MacRouteTiming.mark("appear")
-                    MacRouteTiming.markNextTurn("first frame")
                 }
                 #endif
                 .navigationBarBackButtonHidden(true)

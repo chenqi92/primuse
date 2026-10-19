@@ -11,7 +11,13 @@ public enum ImmersiveFrameRateMode: String, CaseIterable, Identifiable, Sendable
     case display
 
     public static let storageKey = "primuse.immersiveFrameRate"
+    /// Mac 默认每秒 60 帧:屏幕多是 120Hz、多半插着电,按 Apple TV 填充率调的 12–24 帧在上面
+    /// 一顿一顿的;低电量、发热时 `ImmersiveRenderBudget` 照样压回 30 帧。iPhone、iPad、电视仍是省电档。
+    #if os(macOS)
+    public static let defaultValue = ImmersiveFrameRateMode.fps60
+    #else
     public static let defaultValue = ImmersiveFrameRateMode.balanced
+    #endif
 
     public var id: String { rawValue }
 

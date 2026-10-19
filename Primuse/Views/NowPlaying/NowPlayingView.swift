@@ -10286,8 +10286,17 @@ private struct ProgressWaveFill: View {
         isFlowing && isVisible && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
+    /// Mac 的屏幕多是 120Hz,每秒 30 帧的波峰看得出一格一格地挪。
+    private static var frameInterval: TimeInterval {
+        #if os(macOS)
+        1.0 / 60
+        #else
+        1.0 / 30
+        #endif
+    }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animatesPhase)) { context in
+        TimelineView(.animation(minimumInterval: Self.frameInterval, paused: !animatesPhase)) { context in
             ProgressWaveShape(
                 phase: animatesPhase ? ProgressWaveShape.phase(at: context.date) : 0,
                 amplitude: isFlowing ? ProgressWaveShape.amplitude : 0

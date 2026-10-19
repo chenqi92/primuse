@@ -693,17 +693,32 @@ struct ListeningIntentShelfGridLayout: Layout {
     /// 第一个子视图是首卡时它怎么摆;nil 表示没有首卡,全是色块。
     var lead: ListeningIntentLeadPlacement?
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    /// 上一次按哪个宽度排的。一次布局里外面的栈会按同一宽度问好几次尺寸、再摆一次,
+    /// 每次都把每一格量一遍的话,进首页那一帧光量这几格就要几十毫秒。格子内容一变
+    /// SwiftUI 会先调 `updateCache`,这里随之清空重排。
+    struct Cache {
+        var width: CGFloat?
+        var frames: [ListeningIntentGridFrame] = []
+        var height: Double = 0
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = Cache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         // 只问理想尺寸时按每列最窄的宽度排。
         let width = proposal.width ?? CGFloat(
             Double(max(1, columns)) * ListeningIntentShelfPolicy.gridMinimumTileWidth
                 + Double(max(0, columns - 1)) * Double(spacing)
         )
-        return CGSize(width: width, height: CGFloat(arrangement(width: width, subviews: subviews).height))
+        return CGSize(width: width, height: CGFloat(arrangement(width: width, subviews: subviews, cache: &cache).height))
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let frames = arrangement(width: bounds.width, subviews: subviews).frames
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let frames = arrangement(width: bounds.width, subviews: subviews, cache: &cache).frames
         for (subview, frame) in zip(subviews, frames) {
             subview.place(
                 at: CGPoint(x: bounds.minX + CGFloat(frame.x), y: bounds.minY + CGFloat(frame.y)),
@@ -711,6 +726,19 @@ struct ListeningIntentShelfGridLayout: Layout {
                 proposal: ProposedViewSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
             )
         }
+    }
+
+    private func arrangement(
+        width: CGFloat,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> (frames: [ListeningIntentGridFrame], height: Double) {
+        if cache.width == width, cache.frames.count == subviews.count {
+            return (cache.frames, cache.height)
+        }
+        let result = arrangement(width: width, subviews: subviews)
+        cache = Cache(width: width, frames: result.frames, height: result.height)
+        return result
     }
 
     private func arrangement(width: CGFloat, subviews: Subviews) -> (frames: [ListeningIntentGridFrame], height: Double) {

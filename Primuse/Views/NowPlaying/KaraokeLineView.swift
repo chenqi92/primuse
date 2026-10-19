@@ -368,8 +368,8 @@ struct KaraokeLineView: View {
                 .environment(\.layoutDirection, .leftToRight)
             }
             .mask {
-                if plan.runsTimeline, let minimumInterval = plan.minimumInterval {
-                    TimelineView(.animation(minimumInterval: minimumInterval)) { context in
+                if plan.runsTimeline {
+                    TimelineView(.animation(minimumInterval: plan.minimumInterval)) { context in
                         isolatedProgressMask(
                             syllables,
                             at: timeAt(context.date)

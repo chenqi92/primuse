@@ -8,7 +8,9 @@ import PrimuseKit
 struct PMTitleBar: View {
     @Binding var searchText: String
     @Binding var sidebarCollapsed: Bool
-    @Binding var selection: MacRoute
+    /// 当前页。标题栏的 body 不读它(见 `MacTitleBarRouteObserver`), 只在点击、搜索时看一眼。
+    let routeSwitch: MacRouteSwitch
+    let onSelectRoute: (MacRoute) -> Void
     var isRecommendationsShown = false
     var onToggleRecommendations: () -> Void = {}
     var onOpenListeningStats: () -> Void = {}
@@ -84,7 +86,7 @@ struct PMTitleBar: View {
                 MacFavoritesPopover(
                     onNavigate: { route in
                         favoritesShown = false
-                        selection = route
+                        onSelectRoute(route)
                     },
                     onDismiss: { favoritesShown = false }
                 )
@@ -196,8 +198,8 @@ struct PMTitleBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseDismissSearchFocus)) { _ in
             releaseSearchFocus()
         }
-        .onChange(of: selection.stableID) { _, _ in
-            releaseSearchFocusIfNeeded()
+        .background {
+            MacTitleBarRouteObserver(routeSwitch: routeSwitch, onChange: releaseSearchFocusIfNeeded)
         }
         .onAppear {
             releaseSearchFocusIfNeeded()
@@ -208,7 +210,7 @@ struct PMTitleBar: View {
     }
 
     private var isOnSearch: Bool {
-        if case .search = selection { return true }
+        if case .search = routeSwitch.requested { return true }
         return false
     }
 
@@ -243,11 +245,7 @@ struct PMTitleBar: View {
     }
 
     private func selectSearchRoute() {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            selection = .search
-        }
+        onSelectRoute(.search)
     }
 
     private func releaseSearchFocusIfNeeded() {
@@ -537,6 +535,19 @@ extension Notification.Name {
     static let primuseFocusSearch     = Notification.Name("primuse.titlebar.focusSearch")
     static let primuseDismissSearchFocus = Notification.Name("primuse.titlebar.dismissSearchFocus")
     static let primuseRevealSearchResults = Notification.Name("primuse.titlebar.revealSearchResults")
+}
+
+/// 换页时收起搜索框的焦点。单独一个零尺寸视图读当前页: 写在标题栏自己身上的话,
+/// 每换一页整条标题栏(搜索框、右侧几个按钮、工具菜单)都要跟着重算。
+private struct MacTitleBarRouteObserver: View {
+    let routeSwitch: MacRouteSwitch
+    let onChange: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: routeSwitch.requested.stableID) { _, _ in onChange() }
+    }
 }
 
 #endif

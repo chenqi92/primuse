@@ -7,9 +7,10 @@ import PrimuseKit
 /// - 频谱来自 `AudioVisualizerService`。这一层自己持有一份租约:页面看得见、App 在前台、正在播放时才挂 tap,
 ///   别的时候放掉(最后一个持有者离开时服务才卸 tap)。全屏效果盖上来时播放页不算看得见,这里先放掉,
 ///   全屏页再按自己的帧率设置取。
-/// - 发布节奏固定每秒 30 次,不跟全屏效果的「画面帧率」:Mac 上默认档一秒只有 10 个画面,柱子会一跳一跳。
+/// - 发布节奏固定每秒 30 次(Mac 上 60 次),不跟全屏效果的「画面帧率」:Mac 上省电档一秒只有 10 个画面,柱子会一跳一跳。
 /// - Apple Music、电台和 MV 不经过 App 的音频引擎,没有声音数据,这时整层不画,只剩色场。
-/// - 暂停时原地停住;减弱动态效果、低电量模式、机身过热时不挂 tap、不动。最多每秒 30 帧(偏热时 15 帧)。
+/// - 暂停时原地停住;减弱动态效果、低电量模式、机身过热时不挂 tap、不动。最多每秒 30 帧(偏热时 15 帧),
+///   Mac 上 60 帧(偏热时 30 帧)。
 struct PlayerVisualizerBackdrop: View {
     let style: PlayerVisualizerStyle
     /// 封面主色与次色。深色外观拿它们当光,浅色外观拿 `deep` 当墨。
@@ -34,7 +35,11 @@ struct PlayerVisualizerBackdrop: View {
     @State private var activeElapsed: TimeInterval = 0
     @State private var startedAt: Date?
 
+    #if os(macOS)
+    private static let pacing = ImmersiveFrameRateMode.fps60
+    #else
     private static let pacing = ImmersiveFrameRateMode.fps30
+    #endif
 
     var body: some View {
         let _ = runtimeRevision
@@ -98,7 +103,12 @@ struct PlayerVisualizerBackdrop: View {
     }
 
     private var frameInterval: TimeInterval {
+        #if os(macOS)
+        // Mac 的屏幕多是 120Hz、多半插着电,波形与星尘按每秒 30 帧走看得出一格一格的。
+        ProcessInfo.processInfo.thermalState == .fair ? 1.0 / 30 : 1.0 / 60
+        #else
         ProcessInfo.processInfo.thermalState == .fair ? 1.0 / 15 : 1.0 / 30
+        #endif
     }
 
     private func synchronizeLease(allowRetry: Bool = true) {

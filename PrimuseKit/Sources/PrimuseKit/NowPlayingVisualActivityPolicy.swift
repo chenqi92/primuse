@@ -284,6 +284,7 @@ public struct KaraokeTimelineUpdatePlan: Equatable, Sendable {
     public let rendersSyllableProgress: Bool
     public let runsTimeline: Bool
     public let invalidationScope: KaraokeTimelineInvalidationScope
+    /// 时间表的最短重画间隔; 走时间表时 nil 表示跟着屏幕刷新逐帧画。
     public let minimumInterval: TimeInterval?
 
     public init(
@@ -302,6 +303,9 @@ public struct KaraokeTimelineUpdatePlan: Equatable, Sendable {
 /// Keeps the playback clock out of lyric measurement and row placement.
 /// A live line may invalidate its progress mask, while inactive and frozen
 /// lines remain static snapshots.
+///
+/// 走时钟的只剩那一层进度遮罩, 所以活动行跟着屏幕刷新逐帧画: 压在每秒 30 帧时
+/// 120Hz 的 Mac 上扫光一顿一顿地往前跳。
 public enum KaraokeTimelineUpdatePolicy {
     public static func plan(
         isLineActive: Bool,
@@ -331,7 +335,7 @@ public enum KaraokeTimelineUpdatePolicy {
             rendersSyllableProgress: true,
             runsTimeline: true,
             invalidationScope: .progressMask,
-            minimumInterval: reduceMotion ? 0.10 : 1.0 / 30.0
+            minimumInterval: reduceMotion ? 0.10 : nil
         )
     }
 }

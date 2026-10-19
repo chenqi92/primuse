@@ -86,19 +86,25 @@ struct MacHomeView: View {
     /// `scenePhase` 是任务创建那一刻的值, 首页若在窗口进入前台之前出现, 首次加载会被跳过。
     @State private var isSceneActive = false
     @State private var activeSection: HomeSectionDestination?
+    /// 进首页那一帧只建一屏左右的区块(和骨架同一套估高, 见 `firstScreenSections`), 其余等入场
+    /// 淡入过去、或者一开始往下滚再建: 外层不是惰性栈, 十来块一次建完, 换页那一帧要多等几十毫秒。
+    @State private var revealsAllSections = false
     // 合并 searchRevision 风暴 —— MusicLibrary 在扫描的每个 upsert 批次都 bump
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
     // 一次 revision 落定后重算。
     @State private var refreshCoordinator = MacHomeRefreshCoordinator()
     /// 主卡「接着听」和「在听的书」共用的有声书分组,在后台分好(与 iPhone 首页同一份做法)。
     /// 原先这两块各自在 body 里整库分组,播放状态、进度一变就在主线程上重分。
-    @State private var spokenWordBooks = SpokenWordBooksModel()
+    /// 放在 `model` 里由主窗口持有:每换一页首页整个重建,挂在这里的 @State 上的话每回首页都
+    /// 重分一遍,分好写回时再把整页同步刷一遍,正压在入场那几帧上。
+    private var spokenWordBooks: SpokenWordBooksModel { model.spokenWordBooks }
 
     @MainActor
     @Observable
     final class Model {
         fileprivate var snapshot = DerivedSnapshot()
         var isPrepared = false
+        @ObservationIgnored let spokenWordBooks = SpokenWordBooksModel()
         @ObservationIgnored var signature: DerivedSignature?
         @ObservationIgnored var recommendationSignature: DerivedSignature?
 
@@ -247,6 +253,21 @@ struct MacHomeView: View {
             .padding(.top, PMSpace.l24)
             .padding(.bottom, 104)
         }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y > 1
+        } action: { _, scrolled in
+            if scrolled { revealsAllSections = true }
+        }
+        .task {
+            // 和 `pmPageEnter` 的入场一样长: 补建的几块落在淡入之后, 不和它抢同一帧。
+            try? await Task.sleep(for: .milliseconds(300))
+            revealsAllSections = true
+        }
+    }
+
+    /// 首屏要画的区块。补齐之后为 nil, 全部都画。
+    private var firstScreenSections: Set<MacHomeSection>? {
+        revealsAllSections ? nil : Set(skeletonSections)
     }
 
     /// Mac 首页宽:网格按宽度分列、张数凑满整行;横排只铺一行。
@@ -274,8 +295,11 @@ struct MacHomeView: View {
             emptyState
                 .pmAppearFade(.contentAppear)
         }
+        let firstScreen = firstScreenSections
         ForEach(MacHomeSectionLayout.decodeOrder(sectionOrderRawValue)) { section in
-            dashboardSection(section, hasContent: hasContent)
+            if firstScreen?.contains(section) ?? true {
+                dashboardSection(section, hasContent: hasContent)
+            }
         }
     }
 

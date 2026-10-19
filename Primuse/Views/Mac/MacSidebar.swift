@@ -8,7 +8,9 @@ import PrimuseKit
 /// 侧栏只放「去哪儿」: 首页、资料库、歌单、音乐源。搜索在标题栏正中; 收藏、智能推荐、
 /// 听歌统计、工具在标题栏右侧 —— 它们是临时看一眼或用完就关的, 不占导航。
 struct MacSidebar: View {
-    @Binding var selection: MacRoute
+    /// 当前高亮哪一行由各行自己读(`MacSidebarRow`), 侧栏的 body 不读它。
+    let routeSwitch: MacRouteSwitch
+    let onSelectRoute: (MacRoute) -> Void
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -307,33 +309,28 @@ struct MacSidebar: View {
             sectionHeader("sources_title")
 
             ForEach(sourcesStore.sources.prefix(6), id: \.id) { source in
-                Button {
-                    select(.source(source.id))
-                } label: {
+                let dotColor = sourceDotColor(for: source)
+                // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
+                let count = library.visibleSongCount(forSourceID: source.id)
+                let route = MacRoute.source(source.id)
+                MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(sourceDotColor(for: source))
+                            .fill(dotColor)
                             .frame(width: 7, height: 7)
                         Text(verbatim: source.name)
-                            .font(isSelected(.source(source.id)) ? .system(size: 13, weight: .medium) : .system(size: 13))
-                            .foregroundStyle(isSelected(.source(source.id)) ? PMColor.text : PMColor.text.opacity(0.85))
+                            .font(selected ? .system(size: 13, weight: .medium) : .system(size: 13))
+                            .foregroundStyle(selected ? PMColor.text : PMColor.text.opacity(0.85))
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 4)
-                        // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
-                        let count = library.visibleSongCount(forSourceID: source.id)
                         if count > 0 {
                             Text("\(count)")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(PMColor.textFaint)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .pmRowBackground(selected: isSelected(.source(source.id)))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
 
             if sourcesStore.sources.isEmpty {
@@ -376,13 +373,9 @@ struct MacSidebar: View {
             .padding(.bottom, 4)
     }
 
-    @ViewBuilder
     private func item(route: MacRoute, icon: String, title: LocalizedStringKey,
                       trailing: AnyView? = nil) -> some View {
-        let selected = isSelected(route)
-        Button {
-            select(route)
-        } label: {
+        MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
             HStack(spacing: 9) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
@@ -399,20 +392,13 @@ struct MacSidebar: View {
 
                 if let trailing { trailing }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .pmRowBackground(selected: selected)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     private func playlistItem(_ playlist: Playlist) -> some View {
+        let trailing = countLabel(library.songCount(forPlaylist: playlist.id))
         let route = MacRoute.playlist(playlist)
-        let selected = isSelected(route)
-        return Button {
-            select(route)
-        } label: {
+        return MacSidebarRow(route: route, highlight: routeSwitch.rowHighlight(for: route), onSelectRoute: onSelectRoute) { selected in
             HStack(spacing: 9) {
                 PlaylistArtworkView(
                     playlist: playlist,
@@ -428,16 +414,9 @@ struct MacSidebar: View {
 
                 Spacer(minLength: 4)
 
-                if let trailing = countLabel(library.songCount(forPlaylist: playlist.id)) {
-                    trailing
-                }
+                if let trailing { trailing }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .pmRowBackground(selected: selected)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     private func countLabel(_ n: Int) -> AnyView? {
@@ -570,30 +549,8 @@ struct MacSidebar: View {
         }
     }
 
-    private func isSelected(_ route: MacRoute) -> Bool {
-        switch (selection, route) {
-        case (.home, .home), (.stats, .stats), (.search, .search),
-             (.sources, .sources), (.liked, .liked):
-            return true
-        case (.section(let a), .section(let b)):
-            return a == b
-        case (.playlist(let a), .playlist(let b)):
-            return a.id == b.id
-        case (.smartPlaylist(let a), .smartPlaylist(let b)):
-            return a.id == b.id
-        case (.source(let a), .source(let b)):
-            return a == b
-        default:
-            return false
-        }
-    }
-
     private func select(_ route: MacRoute) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            selection = route
-        }
+        onSelectRoute(route)
     }
 
     private func playPlaylist(_ playlist: Playlist, shuffled: Bool = false) {
@@ -629,7 +586,7 @@ struct MacSidebar: View {
     private func deletePlaylist(_ playlist: Playlist) {
         guard canDeletePlaylist(playlist.id) else { return }
         library.deletePlaylist(id: playlist.id)
-        if case .playlist(let selectedPlaylist) = selection, selectedPlaylist.id == playlist.id {
+        if case .playlist(let selectedPlaylist) = routeSwitch.requested, selectedPlaylist.id == playlist.id {
             select(.home)
         }
     }
@@ -637,7 +594,7 @@ struct MacSidebar: View {
     private func hidePlaylist(_ playlist: Playlist) {
         guard MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) else { return }
         library.hideMirrorPlaylist(id: playlist.id)
-        if case .playlist(let selectedPlaylist) = selection, selectedPlaylist.id == playlist.id {
+        if case .playlist(let selectedPlaylist) = routeSwitch.requested, selectedPlaylist.id == playlist.id {
             select(.home)
         }
     }
@@ -653,7 +610,7 @@ struct MacSidebar: View {
 
     private func deleteSmart(_ smart: SmartPlaylist) {
         library.deleteSmartPlaylist(id: smart.id)
-        if case .smartPlaylist(let selectedSmart) = selection, selectedSmart.id == smart.id {
+        if case .smartPlaylist(let selectedSmart) = routeSwitch.requested, selectedSmart.id == smart.id {
             select(.home)
         }
     }
@@ -714,6 +671,29 @@ extension Notification.Name {
     static let primuseSidebarRequestNewPlaylist = Notification.Name("primuse.sidebar.newPlaylist")
     static let primuseSidebarRequestNewSmartPlaylist = Notification.Name("primuse.sidebar.newSmartPlaylist")
     static let primuseSidebarRequestNewAIPlaylist = Notification.Name("primuse.sidebar.newAIPlaylist")
+}
+
+/// 侧栏里能点进某一页的一行。选没选中在这一行自己的 body 里读(`MacRouteRowHighlight`): 换页时
+/// 重画的只有新旧两行, 侧栏其余部分 —— 各行的计数、歌单列表、每行的右键菜单 —— 不跟着再求一遍。
+private struct MacSidebarRow<Label: View>: View {
+    let route: MacRoute
+    let highlight: MacRouteRowHighlight
+    let onSelectRoute: (MacRoute) -> Void
+    @ViewBuilder let label: (_ selected: Bool) -> Label
+
+    var body: some View {
+        let selected = highlight.isSelected
+        Button {
+            onSelectRoute(route)
+        } label: {
+            label(selected)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .pmRowBackground(selected: selected)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 #endif

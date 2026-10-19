@@ -16,7 +16,7 @@ struct KaraokeTimelineUpdatePolicyTests {
         #expect(plan.rendersSyllableProgress)
         #expect(plan.runsTimeline)
         #expect(plan.invalidationScope == .progressMask)
-        #expect(plan.minimumInterval == 1.0 / 30.0)
+        #expect(plan.minimumInterval == nil)
     }
 
     @Test("Neighboring rows never acquire a playback clock")

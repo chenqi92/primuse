@@ -4,12 +4,22 @@ import Testing
 
 @Suite("Immersive frame rate policy")
 struct ImmersiveFrameRatePolicyTests {
-    @Test("Unknown or missing stored values fall back to the balanced default")
+    @Test("Unknown or missing stored values fall back to the platform default")
     func storedValueFallback() {
-        #expect(ImmersiveFrameRateMode(storedValue: nil) == .balanced)
-        #expect(ImmersiveFrameRateMode(storedValue: "120hz") == .balanced)
+        #expect(ImmersiveFrameRateMode(storedValue: nil) == .defaultValue)
+        #expect(ImmersiveFrameRateMode(storedValue: "120hz") == .defaultValue)
+        #expect(ImmersiveFrameRateMode(storedValue: "balanced") == .balanced)
         #expect(ImmersiveFrameRateMode(storedValue: "display") == .display)
         #expect(ImmersiveFrameRateMode(storedValue: "fps60") == .fps60)
+    }
+
+    @Test("Mac defaults to 60 fps; the other platforms keep the power-saving tier")
+    func platformDefault() {
+        #if os(macOS)
+        #expect(ImmersiveFrameRateMode.defaultValue == .fps60)
+        #else
+        #expect(ImmersiveFrameRateMode.defaultValue == .balanced)
+        #endif
     }
 
     @Test("Balanced keeps every layer's tuned interval; fixed modes only speed layers up")

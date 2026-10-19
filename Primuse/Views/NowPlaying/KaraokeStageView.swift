@@ -94,7 +94,7 @@ private struct KaraokeStageContent: View {
         } else if session.windows.isEmpty {
             KaraokeNotice(systemImage: "text.quote", message: String(localized: "karaoke_no_lyrics"))
         } else {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !player.isPlaying)) { context in
+            TimelineView(.animation(minimumInterval: Self.stageFrameInterval, paused: !player.isPlaying)) { context in
                 KaraokeLyricsStage(
                     snapshot: session.stageLyrics,
                     part: session.part,
@@ -104,6 +104,15 @@ private struct KaraokeStageContent: View {
             }
             .padding(.vertical, 12)
         }
+    }
+
+    /// 舞台上整行扫光。Mac 的屏幕多是 120Hz,每秒 30 帧时看得出一顿一顿的。
+    private static var stageFrameInterval: TimeInterval {
+        #if os(macOS)
+        1.0 / 60.0
+        #else
+        1.0 / 30.0
+        #endif
     }
 
     private var blockingMessage: String? {

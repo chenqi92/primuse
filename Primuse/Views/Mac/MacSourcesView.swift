@@ -1279,15 +1279,29 @@ private struct MacSourceWaterfallLayout: Layout {
     let minimumColumnWidth: CGFloat
     let spacing: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    /// 上一次按哪个宽度排的。一次布局里外面的栈会按同一宽度问好几次尺寸、再摆一次,
+    /// 每次都把每张卡量一遍的话,进音乐源页那一帧光量卡片就要几十毫秒。卡片内容一变
+    /// (扫描进度、开关)SwiftUI 会先调 `updateCache`,这里随之清空重排。
+    struct Cache {
+        var width: CGFloat?
+        var frames: [CGRect] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = Cache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let proposedWidth = proposal.width ?? minimumColumnWidth
         let width = proposedWidth.isFinite ? max(proposedWidth, 1) : minimumColumnWidth
-        let frames = cardFrames(width: width, subviews: subviews)
+        let frames = cardFrames(width: width, subviews: subviews, cache: &cache)
         return CGSize(width: width, height: frames.map(\.maxY).max() ?? 0)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let frames = cardFrames(width: bounds.width, subviews: subviews)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let frames = cardFrames(width: bounds.width, subviews: subviews, cache: &cache)
         for (index, subview) in subviews.enumerated() {
             let frame = frames[index]
             subview.place(
@@ -1296,6 +1310,13 @@ private struct MacSourceWaterfallLayout: Layout {
                 proposal: ProposedViewSize(width: frame.width, height: frame.height)
             )
         }
+    }
+
+    private func cardFrames(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [CGRect] {
+        if cache.width == width, cache.frames.count == subviews.count { return cache.frames }
+        let frames = cardFrames(width: width, subviews: subviews)
+        cache = Cache(width: width, frames: frames)
+        return frames
     }
 
     private func cardFrames(width: CGFloat, subviews: Subviews) -> [CGRect] {

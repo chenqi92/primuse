@@ -962,7 +962,8 @@ private struct IslandVoiceLine: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !isPlaying || reduceMotion)) { context in
+        // 每秒 60 帧: 24 帧时起伏是一格一格挪的,120Hz 的屏上尤其看得出。
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying || reduceMotion)) { context in
             let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
             Canvas { canvas, size in
                 canvas.stroke(

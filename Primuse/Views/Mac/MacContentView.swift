@@ -69,8 +69,7 @@ private struct MacServerSyncErrorAlerts: ViewModifier {
 struct MacContentView: View {
     @State private var homeModel = MacHomeView.Model()
     @State private var listeningStatsModel = ListeningStatsScreen.Model()
-    @State private var selection: MacRoute = .home
-    @State private var detailNavigationID = UUID()
+    @State private var routeSwitch = MacRouteSwitch()
     @State private var sidebarCollapsed: Bool = false
     @State private var savedSidebarCollapsed: Bool = false
     @State private var pendingPlaybackRemovalIDs = Set<String>()
@@ -118,7 +117,8 @@ struct MacContentView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(ThemeService.self) private var theme
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
-    @AppStorage("primuse.navigation.macRoute.v1") private var persistedRouteID = "home"
+    /// 上次停在哪一页。直接读写偏好, 不挂 `@AppStorage`: 那样每换一页写一次, 整个主窗口就跟着重算一遍。
+    private static let persistedRouteKey = "primuse.navigation.macRoute.v1"
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
@@ -168,7 +168,8 @@ struct MacContentView: View {
                 PMTitleBar(
                     searchText: $searchText,
                     sidebarCollapsed: $sidebarCollapsed,
-                    selection: navigationSelection,
+                    routeSwitch: routeSwitch,
+                    onSelectRoute: requestRoute,
                     isRecommendationsShown: showsRecommendationsPanel,
                     onToggleRecommendations: toggleRecommendationsPanel,
                     onOpenListeningStats: openListeningStats,
@@ -178,14 +179,14 @@ struct MacContentView: View {
 
             HStack(spacing: 0) {
                 if !sidebarCollapsed {
-                    MacSidebar(selection: navigationSelection)
+                    MacSidebar(routeSwitch: routeSwitch, onSelectRoute: requestRoute)
                         .frame(width: preferences.sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
                 ZStack {
-                    MacDetailContainer(
-                        route: selection,
+                    MacDetailHost(
+                        routeSwitch: routeSwitch,
                         homeModel: homeModel,
                         listeningStatsModel: listeningStatsModel,
                         searchText: $searchText,
@@ -194,10 +195,6 @@ struct MacContentView: View {
                         onShowSongInLibrary: showSongInLibrary,
                         onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
-                        // 入场要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
-                        // 写在后面的话 @State 留在 id 之上, 换页时不会重新入场。
-                        .pmPageEnter()
-                        .id(detailNavigationID)
                         .background(PMColor.bg.ignoresSafeArea())
                         // 挂在这里而不是 body 那条长修饰链上: 那条链再加一个
                         // onReceive 就超出类型检查的时间上限。
@@ -217,7 +214,8 @@ struct MacContentView: View {
                         #if DEBUG
                         // 调试脚本的 `route:<页面>`: 锁屏的编译机上按不了侧栏, 由这里换页。
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDebugSelectRoute)) { note in
-                            selectRoute((note.object as? String).flatMap(route(for:)) ?? .home)
+                            // 和在侧栏点一下走同一条路, 量出来的就是点侧栏的耗时。
+                            requestRoute((note.object as? String).flatMap(route(for:)) ?? .home)
                         }
                         #endif
 
@@ -435,9 +433,6 @@ struct MacContentView: View {
                 showInitialOnboarding = true
             }
         }
-        .onChange(of: selection) { _, route in
-            persistedRouteID = persistenceID(for: route)
-        }
         .background {
             MacAuthoritativeSongRemovalObserver(onSongsRemoved: enqueuePlaybackReconciliation)
         }
@@ -636,15 +631,11 @@ struct MacContentView: View {
         lyricsTranscriptionEditorTargetSong = song
     }
 
-    private var navigationSelection: Binding<MacRoute> {
-        Binding(get: { selection }, set: { selectRoute($0) })
-    }
-
-    /// 播放页「转到这本书」。换栏会重建详情容器(`detailNavigationID`), 书不能
+    /// 播放页「转到这本书」。换栏会重建详情容器(`routeSwitch.navigationID`), 书不能
     /// 直接压栈, 交给新容器出现时取走。
     private func openSpokenWordBook(_ bookID: String?) {
         guard let bookID else { return }
-        if case .section(.spokenWord) = selection {
+        if case .section(.spokenWord) = routeSwitch.shown {
             // 已经在「有声」这一栏: 不重建容器, 由它自己把栈换成这本书。重建的话请求会被
             // 将要拆掉的旧容器先取走, 新容器里什么也没有, 停在书架上。
             var transaction = Transaction()
@@ -659,18 +650,56 @@ struct MacContentView: View {
         selectRoute(.section(.spokenWord))
     }
 
-    private func selectRoute(_ route: MacRoute) {
+    /// 侧栏、标题栏上点了换页。分两步: 这一轮只换高亮、把旧页藏起来, 马上出一帧 ——
+    /// 点下去立刻有反应; 新页要建几十到几百毫秒(曲库大时首页更久), 等这一帧交给屏幕
+    /// 以后再建, 建好了淡入。一步做完的话, 建新页这段时间整个窗口定在旧页上, 侧栏高亮也
+    /// 不动, 看着像先把新页加载完才切过去。
+    private func requestRoute(_ route: MacRoute) {
         #if DEBUG
         MacRouteTiming.begin(route)
         #endif
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            nowPlayingPresented = false
-            selection = route
-            // 直接目标 NavigationLink 的展示状态不在 path 内，侧栏导航需重建整栈。
-            detailNavigationID = UUID()
+            if nowPlayingPresented { nowPlayingPresented = false }
+            routeSwitch.requested = route
+            routeSwitch.isSwitching = true
         }
+        // 第二步还没轮到时又点了一项: 只建最后点的那页。
+        let isScheduled = routeSwitch.pending != nil
+        routeSwitch.pending = route
+        guard !isScheduled else { return }
+        MacFrameCommit.afterCurrentCommit {
+            guard let route = routeSwitch.pending else { return }
+            applyRoute(route)
+        }
+    }
+
+    /// 代码里换页(通知、「在资料库中显示」、恢复上次的页)。一步换完: 有的调用方在换页前
+    /// 放了要交给新页的请求(定位到某首歌), 旧页多活一轮会先把它取走。
+    private func selectRoute(_ route: MacRoute) {
+        #if DEBUG
+        MacRouteTiming.begin(route)
+        #endif
+        applyRoute(route)
+    }
+
+    private func applyRoute(_ route: MacRoute) {
+        #if DEBUG
+        MacRouteTiming.markAfterCommit("page committed")
+        #endif
+        routeSwitch.pending = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            nowPlayingPresented = false
+            routeSwitch.requested = route
+            routeSwitch.isSwitching = false
+            routeSwitch.shown = route
+            // 直接目标 NavigationLink 的展示状态不在 path 内，侧栏导航需重建整栈。
+            routeSwitch.navigationID = UUID()
+        }
+        UserDefaults.standard.set(persistenceID(for: route), forKey: Self.persistedRouteKey)
     }
 
     /// 在搜索栏里接着搜时, 盖在结果上的播放页先收起来, 和从别的栏开始搜一样。
@@ -706,7 +735,7 @@ struct MacContentView: View {
         guard !didRestorePersistedRoute else { return }
         didRestorePersistedRoute = true
         // 听歌统计、智能推荐挪到了标题栏, 上次停在那两页的从首页开始。
-        let restored = route(for: persistedRouteID) ?? .home
+        let restored = UserDefaults.standard.string(forKey: Self.persistedRouteKey).flatMap(route(for:)) ?? .home
         switch restored {
         case .stats, .section(.statistics), .section(.recommendations):
             selectRoute(.home)
@@ -766,6 +795,56 @@ struct MacContentView: View {
     private func identifier(in value: String, after prefix: String) -> String? {
         guard value.hasPrefix(prefix) else { return nil }
         return String(value.dropFirst(prefix.count))
+    }
+}
+
+/// 详情区。单独一层读 `MacRouteSwitch`, 换页时重建的只有这一块。
+private struct MacDetailHost: View {
+    let routeSwitch: MacRouteSwitch
+    let homeModel: MacHomeView.Model
+    let listeningStatsModel: ListeningStatsScreen.Model
+    @Binding var searchText: String
+    @Binding var songLocationRequest: SongLibraryLocationRequest?
+    @Binding var spokenWordBookRequest: String?
+    let onShowSongInLibrary: (Song) -> Void
+    let onOpenLibrarySongs: () -> Void
+
+    var body: some View {
+        MacDetailContainer(
+            route: routeSwitch.shown,
+            homeModel: homeModel,
+            listeningStatsModel: listeningStatsModel,
+            searchText: $searchText,
+            songLocationRequest: $songLocationRequest,
+            spokenWordBookRequest: $spokenWordBookRequest,
+            onShowSongInLibrary: onShowSongInLibrary,
+            onOpenLibrarySongs: onOpenLibrarySongs
+        )
+            // 入场要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
+            // 写在后面的话 @State 留在 id 之上, 换页时不会重新入场。
+            .pmPageEnter()
+            .id(routeSwitch.navigationID)
+            .modifier(MacRouteSwitchVeil(routeSwitch: routeSwitch))
+    }
+}
+
+/// 换页第一步拿详情区底色把旧页盖住, 第二步新页从透明淡入(`pmPageEnter`)。中间这一两帧
+/// 看到的是底色, 点下去马上看得出已经换走了; 盖着的这层也挡住了对旧页的点击。
+///
+/// 盖一层而不是改旧页的透明度或 `allowsHitTesting`: 那两样改的是整棵旧页子树, 专辑墙这种
+/// 大页面光这一帧就要几十毫秒。
+private struct MacRouteSwitchVeil: ViewModifier {
+    let routeSwitch: MacRouteSwitch
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if routeSwitch.isSwitching {
+                    PMColor.bg
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                }
+            }
     }
 }
 
