@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "العثور على الذروة";
 "playback_range_highlight_running" = "جارٍ البحث عن الذروة…";
 "playback_range_highlight_none" = "لم يُعثر على ذروة واضحة. اسحب المقبضين لتختار بنفسك.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "الشاشة الخارجية";
+"external_display_mode_footer" = "ما يظهر على التلفاز أو الشاشة أو جهاز العرض المتصل بكابل أو عبر AirPlay. اختر «مطابقة هذا الجهاز» لعرض الصورة نفسها التي تظهر على هذا الجهاز.";
+"external_display_mode_now_playing" = "الغلاف وكلمات الأغنية";
+"external_display_mode_immersive" = "تأثير ملء الشاشة";
+"external_display_mode_mirror" = "مطابقة هذا الجهاز";
+"external_display_effect_title" = "التأثير على الشاشة الخارجية";

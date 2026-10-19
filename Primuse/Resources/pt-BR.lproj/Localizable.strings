@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "Encontrar o refrão";
 "playback_range_highlight_running" = "Procurando o refrão…";
 "playback_range_highlight_none" = "Nenhum refrão claro encontrado. Arraste as alças para escolher você mesmo.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Tela externa";
+"external_display_mode_footer" = "O que aparece em uma TV, monitor ou projetor conectado por cabo ou AirPlay. Escolha Espelhar este dispositivo para mostrar a mesma imagem deste dispositivo.";
+"external_display_mode_now_playing" = "Capa e letra";
+"external_display_mode_immersive" = "Efeito de tela cheia";
+"external_display_mode_mirror" = "Espelhar este dispositivo";
+"external_display_effect_title" = "Efeito na tela externa";

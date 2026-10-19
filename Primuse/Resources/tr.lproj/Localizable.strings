@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "Nakaratı Bul";
 "playback_range_highlight_running" = "Nakarat aranıyor…";
 "playback_range_highlight_none" = "Belirgin bir nakarat bulunamadı. Kendin seçmek için tutamaçları sürükle.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Harici Ekran";
+"external_display_mode_footer" = "Kabloyla veya AirPlay ile bağlanan TV, monitör ya da projeksiyonda ne görüneceği. Bu cihazla aynı görüntüyü göstermek için Bu Cihazı Yansıt’ı seçin.";
+"external_display_mode_now_playing" = "Kapak ve Şarkı Sözleri";
+"external_display_mode_immersive" = "Tam ekran efekti";
+"external_display_mode_mirror" = "Bu Cihazı Yansıt";
+"external_display_effect_title" = "Harici ekrandaki efekt";

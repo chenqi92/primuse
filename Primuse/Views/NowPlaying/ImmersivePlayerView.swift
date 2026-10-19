@@ -30,6 +30,9 @@ struct ImmersivePlayerView: View {
     var chromeControls: NowPlayingEffectPlayerControls = .default
     /// 队列以外的按钮由播放页画、走播放页同一套动作(弹出的面板也挂在播放页上)。nil 时那几格空着。
     var chromeControl: ((NowPlayingControlAction, ImmersiveChromeControlPlacement, Color) -> AnyView)? = nil
+    /// 画在外接屏上(设置 › 播放器 › 外接显示器选「全屏效果」)。外接屏不接受触摸:不出控件和顶部说明,
+    /// 也不进休憩变暗 —— 那块屏上没人能点一下把它叫醒;构图按大屏排,不照手机。
+    var presentsOnExternalDisplay = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -82,7 +85,8 @@ struct ImmersivePlayerView: View {
     /// iPhone(含 iPhone Duo 内屏)上的全屏页。内屏的画布有五六百点高,舞台照手机的构图放大,
     /// 不走 iPad / Mac 的大画布那一套。
     private var isPhoneIdiom: Bool {
-        isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone
+        !presentsOnExternalDisplay
+            && (isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone)
     }
 
     private var frameRate: ImmersiveFrameRateMode {
@@ -228,7 +232,7 @@ struct ImmersivePlayerView: View {
                     .transition(.opacity)
                 }
 
-                if showsChrome && !isAmbientRest {
+                if showsChrome && !isAmbientRest && !presentsOnExternalDisplay {
                     chrome(metrics: chromeMetrics)
                         .offset(y: showsChrome ? 0 : 8)
                         .transition(.opacity.combined(with: .offset(y: 8)))
@@ -239,6 +243,7 @@ struct ImmersivePlayerView: View {
                     items: stageNoticeItems,
                     isChromeVisible: showsChrome,
                     isSuppressed: isAmbientRest || showsEffectPicker || player.lastPlaybackError != nil
+                        || presentsOnExternalDisplay
                 )
                 .padding(.top, topChromeInset(chromeMetrics) + 56)
                 .padding(.horizontal, max(chromeMetrics.safeArea.leading, chromeMetrics.safeArea.trailing) + 20)
@@ -467,7 +472,7 @@ struct ImmersivePlayerView: View {
             controlsInset: controlsInset(metrics),
             isResting: isAmbientRest,
             isLowPower: isLowPower,
-            showsPlaybackProgress: showsChrome && !isAmbientRest
+            showsPlaybackProgress: showsChrome && !isAmbientRest && !presentsOnExternalDisplay
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -1490,6 +1495,7 @@ struct ImmersivePlayerView: View {
     private func scheduleAmbientRest() {
         ambientTask?.cancel()
         guard isSceneActive,
+              !presentsOnExternalDisplay,
               !voiceOverEnabled,
               !showsEffectPicker else { return }
         ambientTask = Task { @MainActor in

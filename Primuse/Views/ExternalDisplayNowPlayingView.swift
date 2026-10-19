@@ -55,6 +55,9 @@ struct ExternalDisplayNowPlayingView: View {
             }
         }
         .task(id: player.currentSong?.id) { await loadLyrics() }
+        .modifier(ExternalDisplayLyricsReload(songID: player.currentSong?.id) {
+            Task { await loadLyrics() }
+        })
         .background {
             ExternalDisplayLyricTimeObserver { time in
                 updateLyricIndex(for: time)
@@ -259,6 +262,90 @@ struct ExternalDisplayNowPlayingView: View {
         updateLyricIndex(for: player.currentTime)
     }
 }
+
+/// 外接屏只读主屏取回来写进缓存的歌词。切歌那一刻主屏多半还在取，缓存好了(或在主屏上
+/// 换了一份歌词)再读一次，不然新放的歌在外接屏上一直没有歌词。
+private struct ExternalDisplayLyricsReload: ViewModifier {
+    let songID: String?
+    let reload: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidCache).receive(on: DispatchQueue.main)) { note in
+                guard let songID, note.userInfo?["songID"] as? String == songID else { return }
+                reload()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange).receive(on: DispatchQueue.main)) { note in
+                guard let songID, note.object as? String == songID else { return }
+                reload()
+            }
+    }
+}
+
+#if os(iOS)
+/// 外接屏选了「全屏效果」：和播放页全屏同一套舞台，不出控件、不进休憩
+/// (见 `ImmersivePlayerView.presentsOnExternalDisplay`)。效果在设置里单独选，没选过跟着播放页。
+struct ExternalDisplayImmersiveView: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(ExternalDisplayContentMode.effectStorageKey) private var effectRawValue = ""
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var playerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+
+    @State private var lyrics: [LyricLine] = []
+    @State private var isResolvingLyrics = true
+
+    private var effect: Binding<FullscreenPlayerEffect> {
+        Binding(
+            get: {
+                FullscreenPlayerEffect.externalDisplayEffect(
+                    storedValue: effectRawValue,
+                    playerEffectValue: playerEffectRawValue
+                )
+            },
+            set: { effectRawValue = $0.rawValue }
+        )
+    }
+
+    var body: some View {
+        ImmersivePlayerView(
+            effect: effect,
+            lyrics: lyrics,
+            lyricCompanions: {
+                LyricsScrollView.companionTexts(for: $0, translatedTextByLineID: [:])
+            },
+            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: lyrics),
+            isResolvingLyrics: isResolvingLyrics,
+            // 外接屏不接受触摸，系统可能一直把它当成「在前台但不活跃」；退到后台才停下来。
+            isSceneActive: scenePhase != .background,
+            onDismiss: {},
+            onMinimize: {},
+            onShowQueue: {},
+            presentsOnExternalDisplay: true
+        )
+        .task(id: player.currentSong?.id) { await loadLyrics() }
+        .modifier(ExternalDisplayLyricsReload(songID: player.currentSong?.id) {
+            Task { await loadLyrics() }
+        })
+        .playerScreenWakeLease(
+            isVisible: player.currentSong != nil,
+            sceneIsActive: scenePhase == .active
+        )
+    }
+
+    private func loadLyrics() async {
+        guard let songID = player.currentSong?.id else {
+            lyrics = []
+            isResolvingLyrics = false
+            return
+        }
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
+        guard player.currentSong?.id == songID else { return }
+        lyrics = cached ?? []
+        isResolvingLyrics = false
+    }
+}
+#endif
 
 /// 仅这个零尺寸观察器跟随播放时间；外接屏主体只在歌词行真正变化时刷新。
 private struct ExternalDisplayLyricTimeObserver: View {

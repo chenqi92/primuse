@@ -6392,3 +6392,11 @@
 "playback_range_highlight" = "Find the Highlight";
 "playback_range_highlight_running" = "Finding the highlight…";
 "playback_range_highlight_none" = "No clear highlight found. Drag the handles to choose one yourself.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "External Display";
+"external_display_mode_footer" = "What appears on a TV, monitor or projector connected by cable or AirPlay. Choose Mirror This Device to show the same picture as this device.";
+"external_display_mode_now_playing" = "Artwork & Lyrics";
+"external_display_mode_immersive" = "Full-screen Effect";
+"external_display_mode_mirror" = "Mirror This Device";
+"external_display_effect_title" = "Effect on External Display";

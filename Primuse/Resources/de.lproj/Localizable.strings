@@ -6632,3 +6632,11 @@
 "playback_range_highlight" = "Höhepunkt finden";
 "playback_range_highlight_running" = "Höhepunkt wird gesucht …";
 "playback_range_highlight_none" = "Kein deutlicher Höhepunkt gefunden. Ziehe die Griffe, um selbst einen Bereich zu wählen.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Externes Display";
+"external_display_mode_footer" = "Was auf einem per Kabel oder AirPlay verbundenen Fernseher, Monitor oder Projektor zu sehen ist. Mit „Dieses Gerät spiegeln“ zeigt er dasselbe Bild wie dieses Gerät.";
+"external_display_mode_now_playing" = "Cover & Songtext";
+"external_display_mode_immersive" = "Vollbildeffekt";
+"external_display_mode_mirror" = "Dieses Gerät spiegeln";
+"external_display_effect_title" = "Effekt auf dem externen Display";

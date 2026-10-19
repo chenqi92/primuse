@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "Знайти кульмінацію";
 "playback_range_highlight_running" = "Пошук кульмінації…";
 "playback_range_highlight_none" = "Явної кульмінації не знайдено. Перетягніть повзунки, щоб вибрати самостійно.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Зовнішній дисплей";
+"external_display_mode_footer" = "Що показувати на телевізорі, моніторі чи проєкторі, під’єднаному кабелем або через AirPlay. Виберіть «Дублювати цей пристрій», щоб показувати те саме зображення, що й на цьому пристрої.";
+"external_display_mode_now_playing" = "Обкладинка й текст";
+"external_display_mode_immersive" = "Повноекранний ефект";
+"external_display_mode_mirror" = "Дублювати цей пристрій";
+"external_display_effect_title" = "Ефект на зовнішньому дисплеї";

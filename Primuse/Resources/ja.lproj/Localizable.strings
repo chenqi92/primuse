@@ -6633,3 +6633,11 @@
 "playback_range_highlight" = "サビを探す";
 "playback_range_highlight_running" = "サビを探しています…";
 "playback_range_highlight_none" = "はっきりしたサビが見つかりませんでした。ハンドルをドラッグして自分で選んでください。";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "外部ディスプレイ";
+"external_display_mode_footer" = "ケーブルや AirPlay で接続したテレビ、モニタ、プロジェクタに表示する内容です。「このデバイスをミラーリング」を選ぶと、このデバイスと同じ画面を表示します。";
+"external_display_mode_now_playing" = "アートワークと歌詞";
+"external_display_mode_immersive" = "フルスクリーンエフェクト";
+"external_display_mode_mirror" = "このデバイスをミラーリング";
+"external_display_effect_title" = "外部ディスプレイのエフェクト";

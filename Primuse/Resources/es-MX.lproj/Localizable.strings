@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "Buscar el coro";
 "playback_range_highlight_running" = "Buscando el coro…";
 "playback_range_highlight_none" = "No se encontró un coro claro. Arrastra los controles para elegirlo tú.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Pantalla externa";
+"external_display_mode_footer" = "Lo que aparece en una TV, monitor o proyector conectado por cable o AirPlay. Elige Duplicar este dispositivo para mostrar la misma imagen que este dispositivo.";
+"external_display_mode_now_playing" = "Portada y letra";
+"external_display_mode_immersive" = "Efecto de pantalla completa";
+"external_display_mode_mirror" = "Duplicar este dispositivo";
+"external_display_effect_title" = "Efecto en la pantalla externa";

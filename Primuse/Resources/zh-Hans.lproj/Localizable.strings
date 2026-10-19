@@ -6725,3 +6725,11 @@
 "playback_range_highlight" = "定位到高潮";
 "playback_range_highlight_running" = "正在找高潮…";
 "playback_range_highlight_none" = "没找到明显的高潮，可以拖动把手自己选。";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "外接显示器";
+"external_display_mode_footer" = "用线缆或隔空播放接上电视、显示器、投影时，外接屏上显示什么。选「镜像本机画面」时外接屏和本机显示同一个画面。";
+"external_display_mode_now_playing" = "封面与歌词";
+"external_display_mode_immersive" = "全屏效果";
+"external_display_mode_mirror" = "镜像本机画面";
+"external_display_effect_title" = "外接屏上的效果";

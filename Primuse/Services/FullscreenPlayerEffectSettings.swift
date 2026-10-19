@@ -1152,3 +1152,20 @@ final class FullscreenPlayerEffectSync {
         }
     }
 }
+
+extension FullscreenPlayerEffect {
+    /// 外接屏选「全屏效果」时用哪一种:单独选过就用选的;没选过跟着播放页的全屏效果,
+    /// 那边是「原生」时(外接屏上没有原生全屏那一页)用流动封面墙。
+    static func externalDisplayEffect(
+        storedValue: String,
+        playerEffectValue: String
+    ) -> FullscreenPlayerEffect {
+        if let chosen = FullscreenPlayerEffect(rawValue: storedValue), !chosen.isNative {
+            return chosen
+        }
+        if let following = FullscreenPlayerEffect(rawValue: playerEffectValue), !following.isNative {
+            return following
+        }
+        return .coverGallery
+    }
+}

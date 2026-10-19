@@ -595,6 +595,12 @@ private struct PlayerAppearanceSettingsView: View {
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
     private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
+    @AppStorage(ExternalDisplayContentMode.storageKey)
+    private var externalDisplayModeRawValue = ExternalDisplayContentMode.defaultValue.rawValue
+    @AppStorage(ExternalDisplayContentMode.effectStorageKey)
+    private var externalDisplayEffectRawValue = ""
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     #if DEBUG
     @State private var debugShowsControlsEditor = NowPlayingControlsEditorView.debugPage != nil
     #endif
@@ -684,6 +690,27 @@ private struct PlayerAppearanceSettingsView: View {
                     .accessibilityIdentifier("playerKeepScreenAwakeChargingOnlyToggle")
                 }
             }
+            // 线缆或隔空播放接上电视、显示器时外接屏上显示什么;原来固定是封面与歌词那一页。
+            Section {
+                Picker(selection: externalDisplayModeBinding) {
+                    ForEach(ExternalDisplayContentMode.allCases, id: \.self) { mode in
+                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                    }
+                } label: {
+                    SettingsInfoLabel("external_display_mode_title") {
+                        Text("external_display_mode_footer")
+                    }
+                }
+                .settingsAnchor("player.externalDisplay")
+                if externalDisplayModeBinding.wrappedValue == .immersive {
+                    Picker("external_display_effect_title", selection: externalDisplayEffectBinding) {
+                        ForEach(FullscreenPlayerEffect.immersiveCases) { effect in
+                            Text(verbatim: effect.localizedTitle).tag(effect)
+                        }
+                    }
+                    .settingsAnchor("player.externalDisplayEffect")
+                }
+            }
             Section {
                 NavigationLink {
                     FullscreenPlayerEffectSettingsView()
@@ -707,6 +734,25 @@ private struct PlayerAppearanceSettingsView: View {
         Binding(
             get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
             set: { audioInfoModeRawValue = $0.rawValue }
+        )
+    }
+
+    private var externalDisplayModeBinding: Binding<ExternalDisplayContentMode> {
+        Binding(
+            get: { ExternalDisplayContentMode(storedValue: externalDisplayModeRawValue) },
+            set: { externalDisplayModeRawValue = $0.rawValue }
+        )
+    }
+
+    private var externalDisplayEffectBinding: Binding<FullscreenPlayerEffect> {
+        Binding(
+            get: {
+                FullscreenPlayerEffect.externalDisplayEffect(
+                    storedValue: externalDisplayEffectRawValue,
+                    playerEffectValue: fullscreenEffectRawValue
+                )
+            },
+            set: { externalDisplayEffectRawValue = $0.rawValue }
         )
     }
 

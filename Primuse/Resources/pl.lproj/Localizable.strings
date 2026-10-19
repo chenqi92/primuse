@@ -6538,3 +6538,11 @@
 "playback_range_highlight" = "Znajdź refren";
 "playback_range_highlight_running" = "Szukanie refrenu…";
 "playback_range_highlight_none" = "Nie znaleziono wyraźnego refrenu. Przeciągnij uchwyty, aby wybrać samodzielnie.";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "Wyświetlacz zewnętrzny";
+"external_display_mode_footer" = "Co widać na telewizorze, monitorze lub projektorze podłączonym kablem albo przez AirPlay. Wybierz Powielaj to urządzenie, aby pokazać ten sam obraz co na tym urządzeniu.";
+"external_display_mode_now_playing" = "Okładka i tekst";
+"external_display_mode_immersive" = "Efekt pełnoekranowy";
+"external_display_mode_mirror" = "Powielaj to urządzenie";
+"external_display_effect_title" = "Efekt na wyświetlaczu zewnętrznym";

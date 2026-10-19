@@ -6609,3 +6609,11 @@
 "playback_range_highlight" = "定位到高潮";
 "playback_range_highlight_running" = "正在找高潮…";
 "playback_range_highlight_none" = "沒找到明顯的高潮，可以拖動把手自己選。";
+
+/* 外接显示器显示方式 */
+"external_display_mode_title" = "外接顯示器";
+"external_display_mode_footer" = "用線材或 AirPlay 接上電視、顯示器、投影機時，外接螢幕上顯示什麼。選「鏡像本機畫面」時外接螢幕和本機顯示同一個畫面。";
+"external_display_mode_now_playing" = "封面與歌詞";
+"external_display_mode_immersive" = "全螢幕效果";
+"external_display_mode_mirror" = "鏡像本機畫面";
+"external_display_effect_title" = "外接螢幕上的效果";
