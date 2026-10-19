@@ -183,8 +183,11 @@ public struct FnMusicLibraryClient: Sendable {
         return value
     }
 
-    public func setFavorite(trackID: String, isFavorite: Bool) async throws -> FnMusicFavoriteSnapshot {
-        guard Self.validID(trackID) else { throw Self.invalidResponse("favorite id \(trackID) is not a track id") }
+    /// 曲目 id 只放进请求正文、不拼路径，认法和曲库扫描、收藏清单一样：去首尾空白、非空就收。
+    /// 原先另套文件名规则，清单里认得出的歌到写收藏时反被本地拦下，点收藏只报「不是曲目 id」（#330）。
+    public func setFavorite(trackID rawTrackID: String, isFavorite: Bool) async throws -> FnMusicFavoriteSnapshot {
+        let trackID = rawTrackID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trackID.isEmpty else { throw Self.invalidResponse("favorite id is empty") }
         let existing = try await favorites()
         if existing.contains(trackID) != isFavorite {
             try Task.checkCancellation()
@@ -196,7 +199,7 @@ public struct FnMusicLibraryClient: Sendable {
         }
         let confirmed = try await favoriteSnapshot()
         guard confirmed.trackIDs.contains(trackID) == isFavorite else {
-            throw Self.invalidResponse("favorite-track/list does not reflect the write to \(trackID)")
+            throw Self.invalidResponse("favorite-track/list does not reflect the write to \(trackID) id_shape=\(Self.identifierShape(trackID))")
         }
         return confirmed
     }

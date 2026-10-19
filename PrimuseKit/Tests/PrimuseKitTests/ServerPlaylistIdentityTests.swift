@@ -178,6 +178,23 @@ struct ServerFavoriteWritebackPolicyTests {
             ) == nil)
         }
     }
+
+    /// 飞牛的 id 要和收藏、歌单清单读出来的那份一样(去首尾空白),写回后的回读确认才对得上(#330)。
+    @Test("fnMusic song IDs take the catalog form")
+    func fnMusicSongIDsTakeTheCatalogForm() {
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/fnmusic/tracks/\u{3000}c7895dec.flac", sourceType: .fnMusic
+        ) == "c7895dec")
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/fnmusic/tracks/c7895dec\u{00A0}.flac", sourceType: .fnMusic
+        ) == "c7895dec")
+        #expect(ServerPlaylistWritebackPolicy.songID(
+            fromConnectorPath: "/fnmusic/tracks/ c7895dec.flac", sourceType: .fnMusic
+        ) == "c7895dec")
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/fnmusic/tracks/\u{3000}.flac", sourceType: .fnMusic
+        ) == nil)
+    }
 }
 
 @Suite("Source-owned artwork identity")

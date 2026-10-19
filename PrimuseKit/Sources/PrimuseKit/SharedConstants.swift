@@ -1874,7 +1874,12 @@ public enum ServerFavoriteWritebackPolicy {
               !fileName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
         else { return nil }
 
-        let itemID = (fileName as NSString).deletingPathExtension
+        var itemID = (fileName as NSString).deletingPathExtension
+        // 飞牛的曲目 id 和曲库扫描、收藏/歌单清单用同一套认法(去首尾空白):写回后回读确认、
+        // 对账比的都是清单里那份,这边多带一个空白就永远对不上(#330)。
+        if sourceType == .fnMusic {
+            itemID = itemID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !itemID.isEmpty, itemID != ".", itemID != ".." else { return nil }
         return itemID
     }

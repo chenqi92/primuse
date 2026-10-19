@@ -539,9 +539,26 @@ struct FnMusicLibraryTests {
         }
         let before = rejected.requests.count
         await #expect(throws: FnMusicServiceError.self) {
-            try await writer.library.setFavorite(trackID: "nested/song", isFavorite: true)
+            try await writer.library.setFavorite(trackID: " \u{3000}", isFavorite: true)
         }
         #expect(rejected.requests.count == before)
+    }
+
+    /// 收藏清单认得出的 id，写收藏时也要认（#330）：原先写入另套文件名规则，清单里显示已收藏的歌
+    /// 点收藏反被本地拦下，只报「favorite id … is not a track id」，请求根本没发出去。
+    @Test func favoriteWritesAcceptEveryIdentifierTheFavoriteListAccepts() async throws {
+        let fixture = FnMusicLibraryFixture()
+        let (client, _, _) = fixture.clients()
+        let raws = ["private-test/1", "s\u{200B}2", "s3\u{3000}"]
+        for raw in raws {
+            let listed = try #require(FnMusicCatalogTrack(json: ["guid": raw])).guid
+            #expect(try await client.library.setFavorite(trackID: raw, isFavorite: true).trackIDs.contains(listed))
+        }
+        #expect(try await client.library.favorites() == ["private-test/1", "s\u{200B}2", "s3"])
+        let bodies = try fixture.requests
+            .filter { $0.url?.path.hasSuffix("/favorite-track/create") == true }
+            .map { try JSONSerialization.jsonObject(with: FnMusicLibraryFixture.body($0)) as? [String: String] }
+        #expect(bodies == [["trackGUID": "private-test/1"], ["trackGUID": "s\u{200B}2"], ["trackGUID": "s3"]])
     }
 
     /// 飞牛把空集合序列化成 null（`{"list":null,"total":0}`），命令类接口甚至整个 data 为 null。
