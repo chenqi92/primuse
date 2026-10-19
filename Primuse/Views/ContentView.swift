@@ -889,6 +889,8 @@ struct ContentView: View {
     @State private var searchLayoutEditorRequested = false
     @State private var settingsSearch = SettingsSearchState()
     @State private var showNowPlaying = false
+    /// 迷你条长按菜单「自定义…」打开的睡眠定时面板(播放页收着时从这一层弹)。
+    @State private var showSleepTimerSheet = false
     @State private var nowPlayingPresentationID = UUID()
     @State private var batchSelectionActive = false
     @State private var carPlayEditorActive = false
@@ -1375,6 +1377,11 @@ struct ContentView: View {
             } else if library.isReady {
                 mainContent
                     .environment(\.openLibraryDestination, { link in openLibraryDeepLink(link) })
+                    .environment(\.presentSleepTimer, { showSleepTimerSheet = true })
+                    .sheet(isPresented: $showSleepTimerSheet) {
+                        SleepTimerSheet()
+                            .environment(player)
+                    }
                     .onAppear { LaunchDiagnostics.mark(.homeFirstFrame) }
             } else {
                 LibraryPreparingView()

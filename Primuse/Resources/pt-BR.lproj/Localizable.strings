@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "Desativado: ao lado de Reproduzir";
 
 "carplay_preview_move_hint" = "Toque e segure esta barra para mover a prévia; faça o gesto de pinça para redimensionar.";
+
+"sleep_timer_stops_at_format" = "Para às %@";
+"sleep_timer_stops_tomorrow_format" = "Para amanhã às %@";
+"sleep_timer_extend_format" = "+%lld min";
+"sleep_timer_custom_menu" = "Personalizado…";
+"sleep_timer_section_duration" = "Duração";
+"sleep_timer_section_end" = "Parar ao terminar";
+"sleep_timer_section_custom" = "Personalizado";
+"sleep_timer_custom_mode_duration" = "Contagem regressiva";
+"sleep_timer_custom_mode_clock" = "Em um horário";
+"sleep_timer_hours_unit" = "h";
+"sleep_timer_length_format" = "em %@";
+"sleep_timer_start" = "Iniciar timer";
+"sleep_timer_finish_track" = "Terminar a música atual";
+"sleep_timer_finish_track_footer" = "Se faltarem menos de 20 minutos da música quando o timer acabar, ela toca até o fim em vez de diminuir o volume.";
+"sleep_timer_finish_track_note" = "Vai terminar a música atual primeiro";
+"sleep_timer_fade_footer" = "O volume diminui aos poucos nos últimos 30 segundos.";

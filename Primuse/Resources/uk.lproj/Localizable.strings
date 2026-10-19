@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "Якщо вимкнено — поруч із кнопкою відтворення";
 
 "carplay_preview_move_hint" = "Утримуйте цю смужку, щоб перемістити попередній перегляд; зведіть чи розведіть пальці, щоб змінити розмір.";
+
+"sleep_timer_stops_at_format" = "Зупинка о %@";
+"sleep_timer_stops_tomorrow_format" = "Зупинка завтра о %@";
+"sleep_timer_extend_format" = "+%lld хв";
+"sleep_timer_custom_menu" = "Свій час…";
+"sleep_timer_section_duration" = "Тривалість";
+"sleep_timer_section_end" = "Зупинити після";
+"sleep_timer_section_custom" = "Свій час";
+"sleep_timer_custom_mode_duration" = "Зворотний відлік";
+"sleep_timer_custom_mode_clock" = "У визначений час";
+"sleep_timer_hours_unit" = "год";
+"sleep_timer_length_format" = "через %@";
+"sleep_timer_start" = "Запустити таймер";
+"sleep_timer_finish_track" = "Дограти поточний трек";
+"sleep_timer_finish_track_footer" = "Якщо після завершення таймера до кінця треку лишилося менше 20 хвилин, він дограє до кінця без згасання.";
+"sleep_timer_finish_track_note" = "Спершу дограє поточний трек";
+"sleep_timer_fade_footer" = "Протягом останніх 30 секунд гучність плавно зменшується.";

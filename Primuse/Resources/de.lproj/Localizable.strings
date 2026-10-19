@@ -6533,3 +6533,20 @@
 "player_controls_tile_home_transport" = "Ausgeschaltet: neben der Wiedergabetaste";
 
 "carplay_preview_move_hint" = "Halte diese Leiste gedrückt, um die Vorschau zu verschieben; mit zwei Fingern die Größe ändern.";
+
+"sleep_timer_stops_at_format" = "Stoppt um %@";
+"sleep_timer_stops_tomorrow_format" = "Stoppt morgen um %@";
+"sleep_timer_extend_format" = "+%lld Min.";
+"sleep_timer_custom_menu" = "Eigene …";
+"sleep_timer_section_duration" = "Dauer";
+"sleep_timer_section_end" = "Stoppen nach";
+"sleep_timer_section_custom" = "Eigene Zeit";
+"sleep_timer_custom_mode_duration" = "Countdown";
+"sleep_timer_custom_mode_clock" = "Zur Uhrzeit";
+"sleep_timer_hours_unit" = "Std.";
+"sleep_timer_length_format" = "in %@";
+"sleep_timer_start" = "Timer starten";
+"sleep_timer_finish_track" = "Aktuellen Titel zu Ende spielen";
+"sleep_timer_finish_track_footer" = "Bleiben beim Ablauf des Timers weniger als 20 Minuten vom Titel, wird er zu Ende gespielt statt ausgeblendet.";
+"sleep_timer_finish_track_note" = "Spielt zuerst den aktuellen Titel zu Ende";
+"sleep_timer_fade_footer" = "In den letzten 30 Sekunden wird die Lautstärke langsam leiser.";

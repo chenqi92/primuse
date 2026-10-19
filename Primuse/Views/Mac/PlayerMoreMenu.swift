@@ -64,7 +64,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
     var body: some View {
-        #if os(macOS)
         baseBody
             .popover(isPresented: $showSleepTimer, arrowEdge: .top) {
                 MacSleepTimerPopover {
@@ -72,19 +71,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
                 .focusEffectDisabled()
             }
-        #else
-        baseBody
-            .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
-                Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
-                Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
-                Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
-                Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
-                if player.isSleepTimerActive {
-                    Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
-                }
-                Button(String(localized: "cancel"), role: .cancel) {}
-            }
-        #endif
     }
 
     private var baseBody: some View {
@@ -1284,6 +1270,9 @@ struct MacSleepTimerPopover: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var customMinutes: Double = 30
     @State private var now = Date()
+    @AppStorage(SleepTimerSchedulePolicy.finishesTrackPreferenceKey) private var finishesTrack = false
+    /// 和 iPhone / iPad 的定时面板同一个键:上次选的「到几点停」。
+    @AppStorage("primuse.sleepTimer.clockMinuteOfDay") private var clockMinuteOfDay = 23 * 60
 
     private var space: ListeningSpace {
         MacListeningSpaceStyle.playingSpace(of: player) ?? .music
@@ -1343,6 +1332,24 @@ struct MacSleepTimerPopover: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                clockRow
+
+                if space == .music, !player.isLiveRadio {
+                    Toggle(isOn: $finishesTrack) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("sleep_timer_finish_track")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                            Text("sleep_timer_finish_track_footer")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textFaint)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
@@ -1352,6 +1359,57 @@ struct MacSleepTimerPopover: View {
         .frame(width: 280)
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { value in
             now = value
+        }
+    }
+
+    private var clockTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.startOfDay(for: now).addingTimeInterval(TimeInterval(clockMinuteOfDay * 60))
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                clockMinuteOfDay = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            }
+        )
+    }
+
+    private var clockEndDate: Date {
+        SleepTimerSchedulePolicy.nextOccurrence(hour: clockMinuteOfDay / 60, minute: clockMinuteOfDay % 60, after: now)
+    }
+
+    /// 「到几点停」:比现在早的时刻算明天,旁边写清是今天还是明天。
+    private var clockRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("sleep_timer_custom_mode_clock")
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textFaint)
+            HStack(spacing: 8) {
+                DatePicker(selection: clockTime, displayedComponents: .hourAndMinute) {
+                    Text("sleep_timer_custom_mode_clock")
+                }
+                .datePickerStyle(.field)
+                .labelsHidden()
+                .fixedSize()
+                Text(verbatim: SleepTimerStatusText.stopTime(clockEndDate, now: now))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button {
+                    player.scheduleSleep(until: clockEndDate)
+                    onClose()
+                } label: {
+                    Text("sleep_timer_start")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .frame(height: 24)
+                        .background(PMColor.brand, in: .rect(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -1460,29 +1518,53 @@ struct MacSleepTimerPopover: View {
     }
 
     private var footer: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 8) {
             Text(statusText)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(player.isSleepTimerActive ? PMColor.brand : PMColor.textFaint)
                 .lineLimit(1)
-            Spacer()
+                .minimumScaleFactor(0.85)
             if player.isSleepTimerActive {
-                Button {
-                    player.cancelSleep()
-                    onClose()
-                } label: {
-                    Text("cancel_timer")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(PMColor.bad)
-                        .frame(height: 24)
-                }
-                .buttonStyle(.plain)
+                footerActions
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .overlay(alignment: .top) {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private var footerActions: some View {
+        HStack(spacing: 6) {
+            if player.sleepTimerEndDate != nil {
+                // 倒数中:往后推几分钟,不用重新选。
+                ForEach(SleepTimerSchedulePolicy.extensionMinutes, id: \.self) { minutes in
+                    Button {
+                        player.extendSleep(minutes: minutes)
+                    } label: {
+                        Text(verbatim: String(format: String(localized: "sleep_timer_extend_format"), minutes))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .padding(.horizontal, 7)
+                            .frame(height: 22)
+                            .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Spacer(minLength: 4)
+            Button {
+                player.cancelSleep()
+                onClose()
+            } label: {
+                Text("cancel_timer")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.bad)
+                    .frame(height: 24)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1496,7 +1578,8 @@ struct MacSleepTimerPopover: View {
     private var statusText: String {
         if let end = player.sleepTimerEndDate {
             let remaining = max(0, end.timeIntervalSince(now).finiteInt())
-            return "\(Lz("Remaining")) \(TimeInterval(remaining).formattedDuration)"
+            return "\(Lz("Remaining")) \(TimeInterval(remaining).formattedDuration) · "
+                + SleepTimerStatusText.stopTime(end, now: now)
         }
         if player.sleepStopAfterSongID != nil {
             return Lz("Stop After Current Song")

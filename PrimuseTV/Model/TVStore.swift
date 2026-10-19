@@ -6313,6 +6313,15 @@ final class TVStore {
                 return
             }
         }
+        // 音乐的曲终停止(也是「计时结束时播完当前这首」到点后转成的那把锁)。
+        if !currentItemIsSpokenWord, hasNowPlaying, let itemID = sleepStopAfterItemID {
+            sleepStopAfterItemID = nil
+            if itemID == nowPlaying.songID {
+                plog("🎧 TV sleep: stopped at the end of '\(nowPlaying.title)'")
+                pausePlayback()
+                return
+            }
+        }
         if currentPodcastEpisodeID != nil {
             advancePodcastQueue()
             return
@@ -6505,9 +6514,23 @@ final class TVStore {
         // 走 pausePlayback 而不是 engine.pause():电台要先断掉重连任务和
         // 解析任务,并在 .loading 阶段用 stop(),否则到点后又被拉起来接着播。
         let work = DispatchWorkItem { [weak self] in
-            self?.pausePlayback()
-            self?.sleepTimerMinutes = 0
-            self?.sleepTimerEndDate = nil
+            guard let self else { return }
+            self.sleepTimerMinutes = 0
+            self.sleepTimerEndDate = nil
+            // 开了「计时结束时播完当前这首」:这首还剩不多就改成曲终停止。
+            if self.hasNowPlaying, self.isPlaying,
+               SleepTimerSchedulePolicy.shouldFinishTrack(
+                   isEnabled: UserDefaults.standard.bool(forKey: SleepTimerSchedulePolicy.finishesTrackPreferenceKey),
+                   isMusic: !self.currentItemIsSpokenWord,
+                   isLiveRadio: self.isLiveRadio,
+                   trackDuration: self.duration,
+                   position: self.engine.currentTime
+               ) {
+                plog("🎧 TV sleep: timer ran out, letting '\(self.nowPlaying.title)' finish")
+                self.sleepStopAfterItemID = self.nowPlaying.songID
+                return
+            }
+            self.pausePlayback()
         }
         sleepWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(sleepTimerMinutes) * 60, execute: work)
@@ -6515,6 +6538,13 @@ final class TVStore {
 
     func cancelSleepTimer() {
         setSleepTimer(minutes: 0)
+    }
+
+    /// 音乐:当前这首播完就停(和有声内容的「本集结束」用同一把锁)。
+    func scheduleSleepAtTrackEnd() {
+        guard !currentItemIsSpokenWord, !isLiveRadio, hasNowPlaying else { return }
+        setSleepTimer(minutes: 0)
+        sleepStopAfterItemID = nowPlaying.songID
     }
 
     /// 有声内容:这一条播完就停。

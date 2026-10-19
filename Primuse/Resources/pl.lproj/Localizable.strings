@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "Po wyłączeniu: obok przycisku odtwarzania";
 
 "carplay_preview_move_hint" = "Przytrzymaj ten pasek, aby przesunąć podgląd; zsuń lub rozsuń palce, aby zmienić rozmiar.";
+
+"sleep_timer_stops_at_format" = "Zatrzyma się o %@";
+"sleep_timer_stops_tomorrow_format" = "Zatrzyma się jutro o %@";
+"sleep_timer_extend_format" = "+%lld min";
+"sleep_timer_custom_menu" = "Własny…";
+"sleep_timer_section_duration" = "Czas trwania";
+"sleep_timer_section_end" = "Zatrzymaj po";
+"sleep_timer_section_custom" = "Własny";
+"sleep_timer_custom_mode_duration" = "Odliczanie";
+"sleep_timer_custom_mode_clock" = "O godzinie";
+"sleep_timer_hours_unit" = "godz.";
+"sleep_timer_length_format" = "za %@";
+"sleep_timer_start" = "Uruchom minutnik";
+"sleep_timer_finish_track" = "Dokończ bieżący utwór";
+"sleep_timer_finish_track_footer" = "Jeśli po upływie czasu do końca utworu zostało mniej niż 20 minut, zagra on do końca zamiast wyciszenia.";
+"sleep_timer_finish_track_note" = "Najpierw dokończy bieżący utwór";
+"sleep_timer_fade_footer" = "Przez ostatnie 30 sekund głośność stopniowo maleje.";

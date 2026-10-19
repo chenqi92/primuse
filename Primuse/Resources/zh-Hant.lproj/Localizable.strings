@@ -6510,3 +6510,20 @@
 "player_controls_tile_home_transport" = "關著時在播放鍵旁";
 
 "carplay_preview_move_hint" = "按住這一條拖移預覽，雙指捏合調大小";
+
+"sleep_timer_stops_at_format" = "將在 %@ 停止";
+"sleep_timer_stops_tomorrow_format" = "將在明天 %@ 停止";
+"sleep_timer_extend_format" = "+%lld 分鐘";
+"sleep_timer_custom_menu" = "自訂…";
+"sleep_timer_section_duration" = "定時長度";
+"sleep_timer_section_end" = "播完再停";
+"sleep_timer_section_custom" = "自訂";
+"sleep_timer_custom_mode_duration" = "倒數計時";
+"sleep_timer_custom_mode_clock" = "到點停止";
+"sleep_timer_hours_unit" = "小時";
+"sleep_timer_length_format" = "%@後";
+"sleep_timer_start" = "開始定時";
+"sleep_timer_finish_track" = "計時結束時播完目前這首";
+"sleep_timer_finish_track_footer" = "到點時這首歌還剩不到 20 分鐘，就播完再停，不再漸弱。";
+"sleep_timer_finish_track_note" = "到點後會先播完目前這首";
+"sleep_timer_fade_footer" = "到點前最後 30 秒音量會慢慢降低。";

@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "बंद होने पर: चलाएँ बटन के पास";
 
 "carplay_preview_move_hint" = "प्रीव्यू खिसकाने के लिए इस पट्टी को दबाकर रखें; आकार बदलने के लिए पिंच करें।";
+
+"sleep_timer_stops_at_format" = "%@ पर रुकेगा";
+"sleep_timer_stops_tomorrow_format" = "कल %@ पर रुकेगा";
+"sleep_timer_extend_format" = "+%lld मिनट";
+"sleep_timer_custom_menu" = "कस्टम…";
+"sleep_timer_section_duration" = "अवधि";
+"sleep_timer_section_end" = "खत्म होने पर रोकें";
+"sleep_timer_section_custom" = "कस्टम";
+"sleep_timer_custom_mode_duration" = "काउंटडाउन";
+"sleep_timer_custom_mode_clock" = "तय समय पर";
+"sleep_timer_hours_unit" = "घंटे";
+"sleep_timer_length_format" = "%@ में";
+"sleep_timer_start" = "टाइमर शुरू करें";
+"sleep_timer_finish_track" = "मौजूदा गाना पूरा बजाएँ";
+"sleep_timer_finish_track_footer" = "टाइमर खत्म होने पर अगर गाने में 20 मिनट से कम बाकी हो, तो आवाज़ धीमी करने के बजाय गाना पूरा बजेगा।";
+"sleep_timer_finish_track_note" = "पहले मौजूदा गाना पूरा बजेगा";
+"sleep_timer_fade_footer" = "आखिरी 30 सेकंड में आवाज़ धीरे-धीरे कम होती है।";

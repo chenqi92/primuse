@@ -6534,3 +6534,20 @@
 "player_controls_tile_home_transport" = "オフのときは再生ボタンの横";
 
 "carplay_preview_move_hint" = "このバーを長押ししてプレビューを移動、ピンチで大きさを変えられます。";
+
+"sleep_timer_stops_at_format" = "%@に停止";
+"sleep_timer_stops_tomorrow_format" = "明日の%@に停止";
+"sleep_timer_extend_format" = "+%lld分";
+"sleep_timer_custom_menu" = "カスタム…";
+"sleep_timer_section_duration" = "タイマーの長さ";
+"sleep_timer_section_end" = "終わったら停止";
+"sleep_timer_section_custom" = "カスタム";
+"sleep_timer_custom_mode_duration" = "カウントダウン";
+"sleep_timer_custom_mode_clock" = "時刻で停止";
+"sleep_timer_hours_unit" = "時間";
+"sleep_timer_length_format" = "%@後";
+"sleep_timer_start" = "タイマーを開始";
+"sleep_timer_finish_track" = "終了時に再生中の曲を最後まで再生";
+"sleep_timer_finish_track_footer" = "タイマー終了時に曲の残りが20分未満なら、フェードアウトせずに最後まで再生してから停止します。";
+"sleep_timer_finish_track_note" = "再生中の曲を最後まで再生してから停止";
+"sleep_timer_fade_footer" = "終了前の30秒間で音量が徐々に下がります。";

@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "เมื่อปิด: ข้างปุ่มเล่น";
 
 "carplay_preview_move_hint" = "แตะแถบนี้ค้างไว้เพื่อย้ายตัวอย่าง จีบนิ้วเพื่อปรับขนาด";
+
+"sleep_timer_stops_at_format" = "หยุดเวลา %@";
+"sleep_timer_stops_tomorrow_format" = "หยุดพรุ่งนี้เวลา %@";
+"sleep_timer_extend_format" = "+%lld นาที";
+"sleep_timer_custom_menu" = "กำหนดเอง…";
+"sleep_timer_section_duration" = "ระยะเวลา";
+"sleep_timer_section_end" = "หยุดเมื่อจบ";
+"sleep_timer_section_custom" = "กำหนดเอง";
+"sleep_timer_custom_mode_duration" = "นับถอยหลัง";
+"sleep_timer_custom_mode_clock" = "ตามเวลาที่ตั้ง";
+"sleep_timer_hours_unit" = "ชม.";
+"sleep_timer_length_format" = "อีก %@";
+"sleep_timer_start" = "เริ่มตัวจับเวลา";
+"sleep_timer_finish_track" = "เล่นเพลงปัจจุบันให้จบ";
+"sleep_timer_finish_track_footer" = "เมื่อหมดเวลาแล้วเพลงเหลือไม่ถึง 20 นาที จะเล่นจนจบแทนการค่อยๆ ลดเสียง";
+"sleep_timer_finish_track_note" = "จะเล่นเพลงปัจจุบันให้จบก่อน";
+"sleep_timer_fade_footer" = "เสียงจะค่อยๆ เบาลงในช่วง 30 วินาทีสุดท้าย";

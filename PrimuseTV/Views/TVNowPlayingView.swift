@@ -1924,6 +1924,7 @@ struct TVRoundBtn: View {
 /// 的四个去处和两个分段标题平铺出来,十行超出封面旁的可用高度,系统菜单只能滚动显示。
 private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
     @Environment(TVStore.self) private var store
+    @AppStorage(SleepTimerSchedulePolicy.finishesTrackPreferenceKey) private var sleepFinishesTrack = false
     let np: TVNowPlaying
     let isPlaying: Bool
     let isAnimationVisible: Bool
@@ -2005,7 +2006,7 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
             Label(PMString("shuffle"), systemImage: "shuffle")
         }
         Menu {
-            ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+            ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
                 Toggle(isOn: Binding(
                     get: { store.sleepTimerMinutes == minutes },
                     set: { _ in store.setSleepTimer(minutes: minutes) }
@@ -2013,7 +2014,19 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
                     Text(verbatim: "\(minutes) " + String(localized: "minutes"))
                 }
             }
-            if store.sleepTimerMinutes > 0 {
+            // 音乐:曲终停止,以及到点时让这首播完(电台没有结尾,有声内容在自己的定时面板里)。
+            if !store.currentItemIsSpokenWord, !store.isLiveRadio {
+                Toggle(isOn: Binding(
+                    get: { store.sleepStopAfterItemID != nil },
+                    set: { _ in store.scheduleSleepAtTrackEnd() }
+                )) {
+                    Text("sleep_at_track_end")
+                }
+                Toggle(isOn: $sleepFinishesTrack) {
+                    Text("sleep_timer_finish_track")
+                }
+            }
+            if store.isSleepTimerActive {
                 Button(String(localized: "cancel_timer"), systemImage: "moon.zzz") {
                     store.cancelSleepTimer()
                 }
@@ -2022,8 +2035,10 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
             Label(
                 store.sleepTimerMinutes > 0
                     ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)
-                    : PMString("ext.tv.options.sleepTimer"),
-                systemImage: store.sleepTimerMinutes > 0 ? "moon.zzz.fill" : "moon.zzz"
+                    : store.sleepStopAfterItemID != nil
+                        ? String(localized: "sleep_at_track_end")
+                        : PMString("ext.tv.options.sleepTimer"),
+                systemImage: store.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
             )
         }
         Button(PMString("more"), systemImage: "ellipsis.circle", action: onShowMore)

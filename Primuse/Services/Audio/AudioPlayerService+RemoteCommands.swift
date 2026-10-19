@@ -240,20 +240,68 @@ extension AudioPlayerService {
     // MARK: - Sleep Timer
 
     func scheduleSleep(minutes: Int) {
+        scheduleSleep(until: Date().addingTimeInterval(TimeInterval(max(1, minutes) * 60)))
+    }
+
+    /// 按停止时刻定时:自定义时长与「到几点停」都落到这里。
+    func scheduleSleep(until endDate: Date) {
         cancelSleep()
-        let total = TimeInterval(minutes * 60)
-        let endDate = Date().addingTimeInterval(total)
+        let now = Date()
+        sleepTimerStartDate = now
+        startSleepCountdown(until: max(endDate, now.addingTimeInterval(1)))
+    }
+
+    /// 正在倒数的定时往后推几分钟;没在倒数(只锁了曲终 / 章节)时从现在起算一个新的。
+    func extendSleep(minutes: Int) {
+        guard let current = sleepTimerEndDate else {
+            scheduleSleep(minutes: minutes)
+            return
+        }
+        let endDate = SleepTimerSchedulePolicy.extendedEndDate(current, byMinutes: minutes, now: Date())
+        // 换掉等待中的任务;正在渐弱时取消会先把音量还回去。
+        sleepTimerTask?.cancel()
+        startSleepCountdown(until: endDate)
+    }
+
+    /// 「计时结束时播完当前这首」(本机偏好,睡眠定时面板里的开关)。
+    var sleepTimerFinishesTrack: Bool {
+        get { UserDefaults.standard.bool(forKey: SleepTimerSchedulePolicy.finishesTrackPreferenceKey) }
+        set { UserDefaults.standard.set(newValue, forKey: SleepTimerSchedulePolicy.finishesTrackPreferenceKey) }
+    }
+
+    private func startSleepCountdown(until endDate: Date) {
         sleepTimerEndDate = endDate
         sleepTimerTask = Task {
             // Wait until the fade begins, then bring the level down over the
             // last half minute so falling asleep does not end on a hard cut.
-            let fadeStart = max(0, total - SleepFadePolicy.fadeDuration)
+            let fadeStart = max(0, endDate.timeIntervalSinceNow - SleepFadePolicy.fadeDuration)
             do {
                 try await Task.sleep(for: .seconds(fadeStart))
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
+            // 要等这首播完的,到点前不渐弱:到点时这首还剩多久按到点那一刻算。
+            if self.sleepTimerWillFinishTrack(after: endDate.timeIntervalSinceNow) {
+                do {
+                    try await Task.sleep(for: .seconds(max(0, endDate.timeIntervalSinceNow)))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                if self.sleepTimerWillFinishTrack(after: 0), let songID = self.currentSong?.id {
+                    plog("🌙 Sleep timer ran out; letting '\(self.currentSong?.title ?? "")' finish")
+                    self.sleepTimerTask = nil
+                    self.sleepTimerEndDate = nil
+                    self.sleepTimerStartDate = nil
+                    self.sleepStopAfterSongID = songID
+                    return
+                }
+                self.pause()
+                self.sleepTimerEndDate = nil
+                self.sleepTimerStartDate = nil
+                return
+            }
             let restoreVolume = self.audioEngine.userVolume
             while true {
                 let remaining = endDate.timeIntervalSinceNow
@@ -273,7 +321,20 @@ extension AudioPlayerService {
             self.pause()
             self.setPlaybackVolume(restoreVolume, persist: false)
             self.sleepTimerEndDate = nil
+            self.sleepTimerStartDate = nil
         }
+    }
+
+    /// 定时再过 `delay` 秒到点时,当前这首要不要播完再停。
+    private func sleepTimerWillFinishTrack(after delay: TimeInterval) -> Bool {
+        guard currentSong != nil, isPlaying else { return false }
+        return SleepTimerSchedulePolicy.shouldFinishTrack(
+            isEnabled: sleepTimerFinishesTrack,
+            isMusic: currentListeningSpace == .music,
+            isLiveRadio: isLiveRadio,
+            trackDuration: duration,
+            position: currentTime + max(0, delay)
+        )
     }
 
     /// 曲终停止 ── 锁定当前曲目, 等它自然播完时自动暂停。如果用户手动
@@ -287,6 +348,7 @@ extension AudioPlayerService {
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndDate = nil
+        sleepTimerStartDate = nil
         sleepStopAfterSongID = nil
         sleepStopAfterChapter = nil
         sleepStopAfterBook = nil

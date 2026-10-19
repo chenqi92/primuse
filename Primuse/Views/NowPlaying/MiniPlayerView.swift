@@ -366,6 +366,7 @@ private struct MiniPlayerMenuItems: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(\.openLibraryDestination) private var openLibraryDestination
+    @Environment(\.presentSleepTimer) private var presentSleepTimer
 
     var body: some View {
         if let song = player.currentSong {
@@ -419,14 +420,24 @@ private struct MiniPlayerMenuItems: View {
                             }
                         }
                     }
+                    // 自定义时长、到几点停、计时结束播完这首,都在定时面板里。
+                    if let presentSleepTimer {
+                        Button { presentSleepTimer() } label: {
+                            Label(String(localized: "sleep_timer_custom_menu"), systemImage: "slider.horizontal.3")
+                        }
+                    }
                     if player.isSleepTimerActive {
                         Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
                     }
                 } label: {
-                    Label(
-                        String(localized: "sleep_timer"),
-                        systemImage: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
-                    )
+                    Label {
+                        Text("sleep_timer")
+                        if let summary = SleepTimerStatusText.summary(player) {
+                            Text(verbatim: summary)
+                        }
+                    } icon: {
+                        Image(systemName: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                    }
                 }
             }
         }

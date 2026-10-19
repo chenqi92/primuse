@@ -6533,3 +6533,20 @@
 "player_controls_tile_home_transport" = "끄면 재생 버튼 옆";
 
 "carplay_preview_move_hint" = "이 막대를 길게 눌러 미리 보기를 옮기고, 두 손가락으로 크기를 조절합니다.";
+
+"sleep_timer_stops_at_format" = "%@에 정지";
+"sleep_timer_stops_tomorrow_format" = "내일 %@에 정지";
+"sleep_timer_extend_format" = "+%lld분";
+"sleep_timer_custom_menu" = "사용자 지정…";
+"sleep_timer_section_duration" = "타이머 길이";
+"sleep_timer_section_end" = "재생이 끝나면 정지";
+"sleep_timer_section_custom" = "사용자 지정";
+"sleep_timer_custom_mode_duration" = "카운트다운";
+"sleep_timer_custom_mode_clock" = "시각에 정지";
+"sleep_timer_hours_unit" = "시간";
+"sleep_timer_length_format" = "%@ 후";
+"sleep_timer_start" = "타이머 시작";
+"sleep_timer_finish_track" = "타이머 종료 시 현재 곡 끝까지 재생";
+"sleep_timer_finish_track_footer" = "타이머가 끝날 때 곡이 20분 미만 남았으면 페이드아웃 없이 끝까지 재생한 후 정지합니다.";
+"sleep_timer_finish_track_note" = "현재 곡을 끝까지 재생한 후 정지";
+"sleep_timer_fade_footer" = "마지막 30초 동안 음량이 서서히 줄어듭니다.";

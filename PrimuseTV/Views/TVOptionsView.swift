@@ -36,7 +36,7 @@ struct TVOptionsView: View {
     // 仅保留已真实接通的动作(其余如「加入歌单/相似歌曲/AirPlay 输出」需额外基建,
     // 暂不放占位假按钮)。
     private var sections: [OptionSection] {
-        let sleepOn = store.sleepTimerMinutes > 0
+        let sleepOn = store.isSleepTimerActive
         // 有声内容不给卡拉OK、歌词字号与串烧这些音乐的玩法。有声书的每个文件也能加进「我喜欢」,
         // 播客单集不在曲库里,喜欢的记在播客自己那份(和手机同一份,经 iCloud 同步)。
         let isSpokenWord = store.currentItemIsSpokenWord
@@ -117,7 +117,12 @@ struct TVOptionsView: View {
             }
         }
         playback.append(.init(id: "sleep", icon: "moon.zzz.fill",
-                              label: sleepOn ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes) : PMString("ext.tv.options.sleepTimer"), on: sleepOn,
+                              label: store.sleepTimerMinutes > 0
+                                  ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)
+                                  : store.sleepStopAfterItemID != nil && !isSpokenWord
+                                      ? String(localized: "sleep_at_track_end")
+                                      : PMString("ext.tv.options.sleepTimer"),
+                              on: sleepOn,
                               run: { store.cycleSleepTimer() }))
 
         var goTo: [Action] = []

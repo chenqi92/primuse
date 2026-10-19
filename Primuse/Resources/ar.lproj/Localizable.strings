@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "عند الإيقاف: بجانب زر التشغيل";
 
 "carplay_preview_move_hint" = "المس هذا الشريط مطولًا لتحريك المعاينة، واقرص لتغيير حجمها.";
+
+"sleep_timer_stops_at_format" = "يتوقف في %@";
+"sleep_timer_stops_tomorrow_format" = "يتوقف غدًا في %@";
+"sleep_timer_extend_format" = "+%lld دقيقة";
+"sleep_timer_custom_menu" = "مخصص…";
+"sleep_timer_section_duration" = "المدة";
+"sleep_timer_section_end" = "الإيقاف بعد";
+"sleep_timer_section_custom" = "مخصص";
+"sleep_timer_custom_mode_duration" = "عد تنازلي";
+"sleep_timer_custom_mode_clock" = "في وقت محدد";
+"sleep_timer_hours_unit" = "ساعة";
+"sleep_timer_length_format" = "بعد %@";
+"sleep_timer_start" = "بدء المؤقت";
+"sleep_timer_finish_track" = "إكمال الأغنية الحالية";
+"sleep_timer_finish_track_footer" = "إذا انتهى المؤقت وبقي من الأغنية أقل من 20 دقيقة، فستُشغَّل حتى نهايتها بدلًا من خفوت الصوت.";
+"sleep_timer_finish_track_note" = "سيُكمل الأغنية الحالية أولًا";
+"sleep_timer_fade_footer" = "ينخفض الصوت تدريجيًا خلال آخر 30 ثانية.";

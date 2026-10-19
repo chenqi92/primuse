@@ -1112,6 +1112,8 @@ final class AudioPlayerService {
 
     // MARK: - Sleep Timer
     var sleepTimerEndDate: Date?
+    /// 这一次定时从什么时候开始算(延长不改它),倒计时环按它画剩下的比例。
+    var sleepTimerStartDate: Date?
     var sleepTimerTask: Task<Void, Never>?
     /// "曲终停止" 模式: 持有当前歌曲的 id, 一旦切到下一首 (或 currentSong
     /// 变 nil) 立即 pause。比固定分钟数更智能 ── 不会在曲子中间硬切。

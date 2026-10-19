@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "Если выключено — рядом с кнопкой воспроизведения";
 
 "carplay_preview_move_hint" = "Удерживайте эту полоску, чтобы переместить предпросмотр; сведите или разведите пальцы, чтобы изменить размер.";
+
+"sleep_timer_stops_at_format" = "Остановка в %@";
+"sleep_timer_stops_tomorrow_format" = "Остановка завтра в %@";
+"sleep_timer_extend_format" = "+%lld мин";
+"sleep_timer_custom_menu" = "Своё время…";
+"sleep_timer_section_duration" = "Длительность";
+"sleep_timer_section_end" = "Остановить после";
+"sleep_timer_section_custom" = "Своё время";
+"sleep_timer_custom_mode_duration" = "Обратный отсчёт";
+"sleep_timer_custom_mode_clock" = "В заданное время";
+"sleep_timer_hours_unit" = "ч";
+"sleep_timer_length_format" = "через %@";
+"sleep_timer_start" = "Запустить таймер";
+"sleep_timer_finish_track" = "Доиграть текущий трек";
+"sleep_timer_finish_track_footer" = "Если по окончании таймера до конца трека осталось меньше 20 минут, он доиграет до конца без затухания.";
+"sleep_timer_finish_track_note" = "Сначала доиграет текущий трек";
+"sleep_timer_fade_footer" = "За последние 30 секунд громкость плавно снижается.";

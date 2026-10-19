@@ -3473,17 +3473,11 @@ struct NowPlayingView: View {
             isPresented: $showEqualizerBypassNotice,
             playbackSettings: playbackSettings
         )
-        // 发起处散在电台底栏、有声的「定时」块和各个版式的更多菜单里，挂在整页上会贴着页边弹，
-        // 用居中的 alert。
-        .alert(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
-            // 三种收听各有各的「到哪儿停」:电台只有分钟数,有声多出本章、本集、整本。
-            ForEach(sleepTimerOptions, id: \.self) { option in
-                sleepTimerOptionButton(option)
-            }
-            if player.isSleepTimerActive {
-                Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
-            }
-            Button(String(localized: "cancel"), role: .cancel) {}
+        // 发起处散在电台底栏、有声的「定时」块和各个版式的更多菜单里，都打开同一个底部面板。
+        // 三种收听各有各的「到哪儿停」:电台只有时长,有声多出本章、本集、整本(见 `SleepTimerSheet`)。
+        .sheet(isPresented: $showSleepTimer) {
+            SleepTimerSheet()
+                .playerPresentationColorScheme()
         }
         .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
             Task { await player.playMedley(songs) }
@@ -3828,31 +3822,6 @@ struct NowPlayingView: View {
             }
         case .sleepTimer:
             radioSleepTimerButton
-        }
-    }
-
-    private var sleepTimerOptions: [SleepTimerOption] {
-        let space = player.currentListeningSpace ?? .music
-        return SleepTimerOptionPolicy.options(for: space, hasChapters: player.hasChapters)
-    }
-
-    @ViewBuilder
-    private func sleepTimerOptionButton(_ option: SleepTimerOption) -> some View {
-        switch option {
-        case .minutes(let minutes):
-            Button("\(minutes) " + String(localized: "minutes")) { player.scheduleSleep(minutes: minutes) }
-        case .endOfTrack:
-            if player.currentListeningSpace?.playbackFamily == .spokenWord {
-                Button(String(localized: "sleep_at_item_end")) { player.scheduleSleepAtTrackEnd() }
-            } else {
-                Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
-                    .disabled(player.currentSong == nil)
-            }
-        case .endOfChapter:
-            Button(String(localized: "sleep_at_chapter_end")) { player.scheduleSleepAtChapterEnd() }
-                .disabled(player.currentChapterIndex == nil)
-        case .endOfBook:
-            Button(String(localized: "sleep_at_book_end")) { player.scheduleSleepAtBookEnd() }
         }
     }
 
@@ -7365,6 +7334,7 @@ struct NowPlayingView: View {
             showsPlaybackRate: !menuSuppressed.contains(.playbackSpeed) && shows(.playbackSpeed),
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
+            sleepTimerSummary: SleepTimerStatusText.summary(player),
             lyricsFontScale: lyricsFontScale,
             lyricsTranslationFontScale: lyricsTranslationFontScale,
             showsCompanionFontSize: LyricsTranslationSettingsStore.shared.isEnabled || lyricsHaveBundledTranslations,
@@ -11391,6 +11361,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsPlaybackRate: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
+    /// 定时开着时写停在哪儿(「将在 23:41 停止」「当前曲目结束后停止」),菜单项的第二行。
+    let sleepTimerSummary: String?
     let lyricsFontScale: Double
     /// 译文行自己的字号;0 = 跟原文(#320)。
     let lyricsTranslationFontScale: Double
@@ -12253,12 +12225,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
                 if snapshot.showsSleepTimer {
                     Button(action: onShowSleepTimer) {
-                        Label(
-                            snapshot.isSleepTimerActive
-                                ? String(localized: "sleep_timer_active")
-                                : String(localized: "sleep_timer"),
-                            systemImage: snapshot.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
-                        )
+                        Label {
+                            Text(snapshot.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer")
+                            if let summary = snapshot.sleepTimerSummary {
+                                Text(verbatim: summary)
+                            }
+                        } icon: {
+                            Image(systemName: snapshot.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                        }
                     }
                 }
 

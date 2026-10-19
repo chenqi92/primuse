@@ -6439,3 +6439,20 @@
 "player_controls_tile_home_transport" = "Kapalıyken: Oynat düğmesinin yanında";
 
 "carplay_preview_move_hint" = "Önizlemeyi taşımak için bu çubuğu basılı tutun; boyutunu değiştirmek için kıstırın.";
+
+"sleep_timer_stops_at_format" = "%@ saatinde durur";
+"sleep_timer_stops_tomorrow_format" = "Yarın %@ saatinde durur";
+"sleep_timer_extend_format" = "+%lld dk";
+"sleep_timer_custom_menu" = "Özel…";
+"sleep_timer_section_duration" = "Süre";
+"sleep_timer_section_end" = "Bitince durdur";
+"sleep_timer_section_custom" = "Özel";
+"sleep_timer_custom_mode_duration" = "Geri sayım";
+"sleep_timer_custom_mode_clock" = "Belirli saatte";
+"sleep_timer_hours_unit" = "sa";
+"sleep_timer_length_format" = "%@ sonra";
+"sleep_timer_start" = "Zamanlayıcıyı başlat";
+"sleep_timer_finish_track" = "Çalan şarkıyı bitir";
+"sleep_timer_finish_track_footer" = "Zamanlayıcı bittiğinde şarkının bitmesine 20 dakikadan az kaldıysa, ses kısılmadan sonuna kadar çalar.";
+"sleep_timer_finish_track_note" = "Önce çalan şarkıyı bitirecek";
+"sleep_timer_fade_footer" = "Son 30 saniyede ses yavaşça azalır.";
