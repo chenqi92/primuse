@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "إلغاء المتابعة";
 "podcast_unsubscribe_confirm_message" = "تُزال الحلقات المنزّلة من هذا الجهاز، ويُحتفظ بتقدّم الاستماع.";
 "podcast_unsubscribe_confirm_title" = "إلغاء متابعة هذا البرنامج؟";
+"podcast_manage_selected %lld" = "تم اختيار %lld";
+"podcast_unsubscribe_selected_title %lld" = "إلغاء متابعة البرامج المختارة (%lld)؟";
+"podcast_unsubscribe_selected_message" = "تُزال الحلقات المنزّلة لهذه البرامج من هذا الجهاز، ويُحتفظ بتقدّم الاستماع.";
+"podcast_folder_delete_message" = "تعود البرامج إلى «غير مصنّفة» وتبقى متابعتك لها.";
+"podcast_tag_delete_message" = "سيُزال هذا الوسم من كل البرامج.";
+"podcast_filter_empty" = "لا يوجد برنامج يطابق المجلد والوسوم المختارة.";
 "podcast_updated_format" = "تحديث: %@";
 "podcast_video_episode" = "فيديو";
 "podcast_welcome_message" = "ابحث عن برنامج أو اختر بعضًا من القوائم أدناه. تظهر الحلقات الجديدة هنا، وتتذكر كل حلقة أين توقفت.";

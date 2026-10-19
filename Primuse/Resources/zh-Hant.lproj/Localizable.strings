@@ -5664,6 +5664,12 @@
 "podcast_unsubscribe" = "取消訂閱";
 "podcast_unsubscribe_confirm_message" = "這個節目已下載的單集會從這台裝置上刪除，收聽進度會保留。";
 "podcast_unsubscribe_confirm_title" = "取消訂閱這個節目？";
+"podcast_manage_selected %lld" = "已選 %lld 個節目";
+"podcast_unsubscribe_selected_title %lld" = "取消訂閱這 %lld 個節目？";
+"podcast_unsubscribe_selected_message" = "這些節目已下載的單集會從這台裝置上刪除，收聽進度會保留。";
+"podcast_folder_delete_message" = "資料夾裡的節目會退回未分類，不會取消訂閱。";
+"podcast_tag_delete_message" = "這個標籤會從所有節目上移除。";
+"podcast_filter_empty" = "目前的資料夾和標籤下沒有節目。";
 "podcast_updated_format" = "%@ 更新";
 "podcast_video_episode" = "影片";
 "podcast_welcome_message" = "搜尋想聽的節目，或者從下面的熱門榜挑幾個訂閱。訂閱之後新單集會出現在這裡，每一集都記得聽到哪。";

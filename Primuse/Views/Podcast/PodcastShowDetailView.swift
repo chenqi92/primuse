@@ -26,6 +26,8 @@ struct PodcastShowDetailView: View {
     @State private var unsubscribeOrigin: UnsubscribeOrigin?
     @State private var pushedEpisodeID: String?
     @State private var isSubscribing = false
+    /// 对勾菜单里「移到文件夹」「标签」要弹的命名框。
+    @State private var organizer = PodcastShowOrganizer()
 
     private var store: PodcastStore { PodcastStore.shared }
     private var tint: Color { ListeningSpace.podcast.tint }
@@ -57,6 +59,7 @@ struct PodcastShowDetailView: View {
             if let showID { store.markNewEpisodesSeen(showID: showID) }
         }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost) { Task { await load() } }
+        .podcastShowOrganizerAlerts(organizer)
         .navigationDestination(item: $pushedEpisodeID) { id in
             PodcastEpisodeDetailView(episodeID: id, opensShow: false)
         }
@@ -243,6 +246,10 @@ struct PodcastShowDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
+            // 归进的文件夹与贴的标签;在对勾菜单里改。
+            if store.isSubscribed(show.id) {
+                RadioStationOrganizeLabels(folderName: show.assignedFolderName, tagNames: show.assignedTagNames, maximumTags: 4)
+            }
             if let summary = PodcastShowNotes.plainSummary(show.summary, limit: 2_000) {
                 PodcastShowSummary(text: summary, isExpanded: $expandsSummary)
             }
@@ -266,7 +273,7 @@ struct PodcastShowDetailView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// 订了:主键是播放(最新一集/继续/从第一集),旁边一个对勾(节目设置、退订)和「…」。
+    /// 订了:主键是播放(最新一集/继续/从第一集),旁边一个对勾(节目设置、文件夹与标签、退订)和「…」。
     /// 没订:主键是订阅,播放退成旁边的圆键。和单集页同一套尺寸。
     private func actionRow(_ show: PodcastShow, episodes: [PodcastEpisode]) -> some View {
         let subscribed = store.isSubscribed(show.id)
@@ -290,6 +297,8 @@ struct PodcastShowDetailView: View {
                     } label: {
                         Label("podcast_show_settings", systemImage: "slider.horizontal.3")
                     }
+                    PodcastShowOrganizeMenus(organizer: organizer, shows: [show], folders: store.folders, tags: store.tags)
+                    Divider()
                     Button(role: .destructive) {
                         unsubscribeOrigin = .subscribedMenu
                     } label: {

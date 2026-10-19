@@ -1,7 +1,7 @@
 import Foundation
 
 /// 经 iCloud 键值存储同步的那一份订阅定义。只有用户的决定(订了哪些、每档的设置、
-/// 已播水位线),不含刷新状态 —— 别的设备的 ETag 同步过来会让这台拿到 304 却一集都没有。
+/// 已播水位线、文件夹与标签),不含刷新状态 —— 别的设备的 ETag 同步过来会让这台拿到 304 却一集都没有。
 public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
     public var id: String
     public var feedURL: URL
@@ -15,6 +15,11 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
     public var reopenedEpisodeIDs: [String]
     /// 上次打开节目页的时间:一台设备上看过的新单集,另一台的角标也跟着清。
     public var newEpisodesSeenAt: Date?
+    /// 文件夹与标签。新版本总是写上这两个键:没有文件夹写空串、没有标签写空数组,
+    /// 这样「清掉了」也能传到别的设备。解出来是 nil 说明记录出自不认识它们的旧版本
+    /// (旧版本重新推送时会把键丢掉),这时 `apply(to:)` 不动本机的文件夹和标签。
+    public var folderName: String?
+    public var tagNames: [String]?
     public var modifiedAt: Date
 
     public init(show: PodcastShow) {
@@ -29,12 +34,14 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         playedThrough = show.playedThrough
         reopenedEpisodeIDs = show.reopenedEpisodeIDs.sorted()
         newEpisodesSeenAt = show.newEpisodesSeenAt
+        folderName = show.assignedFolderName ?? ""
+        tagNames = show.assignedTagNames
         modifiedAt = show.definitionModifiedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, feedURL, title, author, artworkURL, directoryID, subscribedAt, settings
-        case playedThrough, reopenedEpisodeIDs, newEpisodesSeenAt, modifiedAt
+        case playedThrough, reopenedEpisodeIDs, newEpisodesSeenAt, folderName, tagNames, modifiedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +57,8 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         playedThrough = try c.decodeIfPresent(Date.self, forKey: .playedThrough)
         reopenedEpisodeIDs = try c.decodeIfPresent([String].self, forKey: .reopenedEpisodeIDs) ?? []
         newEpisodesSeenAt = try c.decodeIfPresent(Date.self, forKey: .newEpisodesSeenAt)
+        folderName = try c.decodeIfPresent(String.self, forKey: .folderName)
+        tagNames = try c.decodeIfPresent([String].self, forKey: .tagNames)
         modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? subscribedAt
     }
 
@@ -67,7 +76,9 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
             playedThrough: playedThrough,
             reopenedEpisodeIDs: Set(reopenedEpisodeIDs),
             newEpisodesSeenAt: newEpisodesSeenAt,
-            definitionModifiedAt: modifiedAt
+            definitionModifiedAt: modifiedAt,
+            folderName: RadioStationOrganization.normalizedFolderName(folderName),
+            tagNames: RadioStationOrganization.normalizedTagNames(tagNames)
         )
     }
 
@@ -80,8 +91,23 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         if let newEpisodesSeenAt, newEpisodesSeenAt > (show.newEpisodesSeenAt ?? .distantPast) {
             show.newEpisodesSeenAt = newEpisodesSeenAt
         }
+        if let folderName { show.folderName = RadioStationOrganization.normalizedFolderName(folderName) }
+        if let tagNames { show.tagNames = RadioStationOrganization.normalizedTagNames(tagNames) }
         show.definitionModifiedAt = modifiedAt
         if show.directoryID == nil { show.directoryID = directoryID }
+    }
+
+    /// 两边是同一版定义(修改时间相同)时,文件夹与标签只会是在旧版本手里丢的:本机升级前就收到过
+    /// 这一版,或者云端这份被旧版本重新推过一遍。本机这边丢了就照记录补上(不算一次改动);
+    /// 云端那份丢了、本机还有,返回 true,让本机把完整的推回去。
+    func restoreOrganization(into show: inout PodcastShow) -> Bool {
+        let localIsEmpty = show.assignedFolderName == nil && show.assignedTagNames.isEmpty
+        guard folderName != nil || tagNames != nil else { return !localIsEmpty }
+        if localIsEmpty {
+            if let folderName { show.folderName = RadioStationOrganization.normalizedFolderName(folderName) }
+            if let tagNames { show.tagNames = RadioStationOrganization.normalizedTagNames(tagNames) }
+        }
+        return false
     }
 }
 
@@ -179,6 +205,8 @@ public enum PodcastSubscriptionSync {
                 if record.modifiedAt > show.definitionModifiedAt {
                     record.apply(to: &show)
                 } else if record.modifiedAt < show.definitionModifiedAt {
+                    needsPush = true
+                } else if record.restoreOrganization(into: &show) {
                     needsPush = true
                 }
                 // 时间相同时不比节目名和封面:那是各自刷新 feed 得来的,两台设备一时不一致很正常,

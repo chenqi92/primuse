@@ -5687,6 +5687,12 @@
 "podcast_unsubscribe" = "Ne plus suivre";
 "podcast_unsubscribe_confirm_message" = "Les épisodes téléchargés sont supprimés de cet appareil. Votre progression est conservée.";
 "podcast_unsubscribe_confirm_title" = "Ne plus suivre cette émission ?";
+"podcast_manage_selected %lld" = "%lld sélectionnées";
+"podcast_unsubscribe_selected_title %lld" = "Ne plus suivre les émissions sélectionnées (%lld) ?";
+"podcast_unsubscribe_selected_message" = "Les épisodes téléchargés de ces émissions sont supprimés de cet appareil. Votre progression est conservée.";
+"podcast_folder_delete_message" = "Les émissions retournent dans « Sans dossier ». Vous continuez à les suivre.";
+"podcast_tag_delete_message" = "Cette étiquette est retirée de toutes les émissions.";
+"podcast_filter_empty" = "Aucune émission ne correspond au dossier et aux étiquettes choisis.";
 "podcast_updated_format" = "Mis à jour : %@";
 "podcast_video_episode" = "Vidéo";
 "podcast_welcome_message" = "Recherchez une émission ou choisissez-en quelques-unes dans le classement ci-dessous. Les nouveaux épisodes apparaissent ici et chacun reprend là où vous vous êtes arrêté.";

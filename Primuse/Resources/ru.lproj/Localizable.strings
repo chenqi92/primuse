@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "Отписаться";
 "podcast_unsubscribe_confirm_message" = "Загруженные выпуски будут удалены с этого устройства. Прогресс прослушивания сохранится.";
 "podcast_unsubscribe_confirm_title" = "Отписаться от этого подкаста?";
+"podcast_manage_selected %lld" = "Выбрано: %lld";
+"podcast_unsubscribe_selected_title %lld" = "Отписаться от выбранных подкастов (%lld)?";
+"podcast_unsubscribe_selected_message" = "Загруженные выпуски этих подкастов будут удалены с этого устройства. Прогресс прослушивания сохранится.";
+"podcast_folder_delete_message" = "Подкасты вернутся в «Без папки». Подписка сохранится.";
+"podcast_tag_delete_message" = "Этот тег будет снят со всех подкастов.";
+"podcast_filter_empty" = "Нет подкастов, подходящих под выбранную папку и теги.";
 "podcast_updated_format" = "Обновлено: %@";
 "podcast_video_episode" = "Видео";
 "podcast_welcome_message" = "Найдите подкаст или выберите несколько в чартах ниже. Новые выпуски появятся здесь, и каждый запомнит, где вы остановились.";

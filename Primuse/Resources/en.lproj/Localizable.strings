@@ -5450,6 +5450,12 @@
 "podcast_unsubscribe" = "Unfollow";
 "podcast_unsubscribe_confirm_message" = "Its downloaded episodes are removed from this device. Your listening progress is kept.";
 "podcast_unsubscribe_confirm_title" = "Unfollow This Show?";
+"podcast_manage_selected %lld" = "%lld Selected";
+"podcast_unsubscribe_selected_title %lld" = "Unfollow Selected Shows (%lld)?";
+"podcast_unsubscribe_selected_message" = "Their downloaded episodes are removed from this device. Your listening progress is kept.";
+"podcast_folder_delete_message" = "The shows move back to Ungrouped. You keep following them.";
+"podcast_tag_delete_message" = "This tag is removed from every show.";
+"podcast_filter_empty" = "No show matches the selected folder and tags.";
 "podcast_updated_format" = "Updated %@";
 "podcast_video_episode" = "Video";
 "podcast_welcome_message" = "Search for a show, or pick a few from the charts below. New episodes from the shows you follow appear here, and each episode remembers where you left off.";

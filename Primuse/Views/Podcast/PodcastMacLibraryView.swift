@@ -216,7 +216,7 @@ struct MacPodcastLibraryView: View {
                     PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
                         .padding(.horizontal, -16)
                     if !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
-                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery, organizes: true)
                             .padding(.horizontal, -16)
                     }
                 }

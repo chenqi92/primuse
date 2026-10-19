@@ -766,6 +766,135 @@ struct PodcastSubscriptionSyncTests {
             .contains("newEpisodesSeenAt"))
     }
 
+    private func organized(_ name: String, at date: Date, folder: String?, tags: [String]?) -> PodcastShow {
+        var s = show(name, at: t0)
+        s.folderName = folder
+        s.tagNames = tags
+        s.definitionModifiedAt = date
+        return s
+    }
+
+    /// 经过一次编码再解码,和真的从键值存储里读回来一样。
+    private func roundTripped(_ records: [PodcastSubscriptionRecord]) throws -> PodcastSubscriptionDocument {
+        try #require(PodcastSubscriptionDocument.decode(PodcastSubscriptionDocument(subscriptions: records).encoded()))
+    }
+
+    @Test func folderAndTagsTravelWithNewerRecord() throws {
+        let local = show("a", at: t0)
+        let remote = organized("a", at: t0.addingTimeInterval(60), folder: "Tech", tags: ["daily", "news"])
+        let outcome = PodcastSubscriptionSync.merge(
+            local: [local], localRemoved: [:], remote: try roundTripped([PodcastSubscriptionRecord(show: remote)]),
+            now: t0.addingTimeInterval(100)
+        )
+        #expect(outcome.shows.first?.assignedFolderName == "Tech")
+        #expect(outcome.shows.first?.assignedTagNames == ["daily", "news"])
+        #expect(!outcome.needsPush)
+
+        // 别的设备新订的节目带着文件夹和标签过来。
+        let added = PodcastSubscriptionSync.merge(
+            local: [], localRemoved: [:], remote: try roundTripped([PodcastSubscriptionRecord(show: remote)]),
+            now: t0.addingTimeInterval(100)
+        )
+        #expect(added.shows.first?.assignedFolderName == "Tech")
+        #expect(added.shows.first?.assignedTagNames == ["daily", "news"])
+    }
+
+    /// 新版本移出文件夹、撕掉全部标签,也写着这两个键(空串、空数组),别的设备照样清掉。
+    @Test func clearedFolderAndTagsTravel() throws {
+        let local = organized("a", at: t0, folder: "Tech", tags: ["daily"])
+        let cleared = organized("a", at: t0.addingTimeInterval(60), folder: nil, tags: nil)
+        let record = PodcastSubscriptionRecord(show: cleared)
+        #expect(record.folderName == "")
+        #expect(record.tagNames == [])
+        let encoded = PodcastSubscriptionDocument(subscriptions: [record]).encoded()
+        #expect(encoded.contains("\"folderName\":\"\""))
+        #expect(encoded.contains("\"tagNames\":[]"))
+
+        let outcome = PodcastSubscriptionSync.merge(
+            local: [local], localRemoved: [:], remote: try roundTripped([record]), now: t0.addingTimeInterval(100)
+        )
+        #expect(outcome.shows.first?.folderName == nil)
+        #expect(outcome.shows.first?.tagNames == nil)
+        #expect(outcome.shows.first?.definitionModifiedAt == t0.addingTimeInterval(60))
+    }
+
+    /// 旧版本不认识这两个键,重新推送时会丢掉:它推上来的较新记录照常带来设置,本机的文件夹和标签不动。
+    @Test func olderClientRecordKeepsFolderAndTags() throws {
+        let local = organized("a", at: t0, folder: "Tech", tags: ["daily"])
+        let olderClient = """
+        {"removed":{},"subscriptions":[{"feedURL":"\(local.feedURL.absoluteString)","id":"\(local.id)",\
+        "modifiedAt":\(t0.addingTimeInterval(60).timeIntervalSince1970),"playedThrough":\(t0.timeIntervalSince1970),\
+        "reopenedEpisodeIDs":[],"subscribedAt":\(t0.timeIntervalSince1970),"title":"a"}]}
+        """
+        let remote = try #require(PodcastSubscriptionDocument.decode(olderClient))
+        #expect(remote.subscriptions.first?.folderName == nil)
+        #expect(remote.subscriptions.first?.tagNames == nil)
+
+        let outcome = PodcastSubscriptionSync.merge(local: [local], localRemoved: [:], remote: remote, now: t0.addingTimeInterval(100))
+        let merged = try #require(outcome.shows.first)
+        #expect(merged.playedThrough == t0)
+        #expect(merged.definitionModifiedAt == t0.addingTimeInterval(60))
+        #expect(merged.assignedFolderName == "Tech")
+        #expect(merged.assignedTagNames == ["daily"])
+        #expect(!outcome.needsPush)
+
+        // 旧版本记录来的新节目:没有文件夹、没有标签。
+        let fresh = PodcastSubscriptionSync.merge(local: [], localRemoved: [:], remote: remote, now: t0.addingTimeInterval(100))
+        #expect(fresh.shows.first?.folderName == nil)
+        #expect(fresh.shows.first?.tagNames == nil)
+    }
+
+    /// 同一版定义(修改时间相同)两边对不上时,只可能是旧版本经手时丢了,补回丢的那一边。
+    @Test func sameVersionRestoresWhatAnOlderClientDropped() throws {
+        // 本机升级前就收到过这一版:按云端那份补上,不算改动。
+        let lost = organized("a", at: t0.addingTimeInterval(60), folder: nil, tags: nil)
+        let full = organized("a", at: t0.addingTimeInterval(60), folder: "Tech", tags: ["daily"])
+        let restored = PodcastSubscriptionSync.merge(
+            local: [lost], localRemoved: [:], remote: try roundTripped([PodcastSubscriptionRecord(show: full)]),
+            now: t0.addingTimeInterval(100)
+        )
+        #expect(restored.shows.first?.assignedFolderName == "Tech")
+        #expect(restored.shows.first?.assignedTagNames == ["daily"])
+        #expect(restored.shows.first?.definitionModifiedAt == t0.addingTimeInterval(60))
+        #expect(!restored.needsPush)
+
+        // 云端那份被旧版本重新推过、丢了这两个键:本机留着自己的,并推回完整的一份。
+        var stripped = PodcastSubscriptionRecord(show: full)
+        stripped.folderName = nil
+        stripped.tagNames = nil
+        let strippedDocument = try roundTripped([stripped])
+        #expect(!strippedDocument.encoded().contains("folderName"))
+        let repushed = PodcastSubscriptionSync.merge(local: [full], localRemoved: [:], remote: strippedDocument, now: t0.addingTimeInterval(100))
+        #expect(repushed.shows.first?.assignedFolderName == "Tech")
+        #expect(repushed.needsPush)
+
+        // 两边本来就都没整理过:什么都不用做。
+        let plain = organized("a", at: t0.addingTimeInterval(60), folder: nil, tags: nil)
+        let quiet = PodcastSubscriptionSync.merge(local: [plain], localRemoved: [:], remote: strippedDocument, now: t0.addingTimeInterval(100))
+        #expect(quiet.shows == [plain])
+        #expect(!quiet.needsPush)
+
+        // 两个新版本、同一版、一致的内容:不来回推。
+        let settled = PodcastSubscriptionSync.merge(
+            local: [full], localRemoved: [:], remote: try roundTripped([PodcastSubscriptionRecord(show: full)]),
+            now: t0.addingTimeInterval(100)
+        )
+        #expect(settled.shows == [full])
+        #expect(!settled.needsPush)
+    }
+
+    @Test func folderAndTagsRoundTripThroughTheDocument() throws {
+        let a = organized("a", at: t0, folder: "  Tech  ", tags: ["daily", "Daily", "news"])
+        let document = try roundTripped([PodcastSubscriptionRecord(show: a)])
+        let record = try #require(document.subscriptions.first)
+        #expect(record.folderName == "Tech")
+        #expect(record.tagNames == ["daily", "news"])
+        let made = record.makeShow()
+        #expect(made.folderName == "Tech")
+        #expect(made.tagNames == ["daily", "news"])
+        #expect(document.encoded() == PodcastSubscriptionDocument(subscriptions: [PodcastSubscriptionRecord(show: a)]).encoded())
+    }
+
     @Test func playedWatermark() {
         var s = show("a", at: t0)
         let old = PodcastEpisode(id: "podcast:1", showID: s.id, guid: "1", title: "", publishedAt: t0.addingTimeInterval(-10),

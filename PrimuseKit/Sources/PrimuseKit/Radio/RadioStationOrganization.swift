@@ -1,5 +1,18 @@
 import Foundation
 
+/// 能按「文件夹 + 标签」整理的东西。电台和播客节目都把文件夹名、标签写在自己身上，
+/// 归纳、筛选、分组走 `RadioStationOrganization` 里同一套规则。
+public protocol FolderTagOrganizable {
+    var folderName: String? { get }
+    var tagNames: [String]? { get }
+    /// 搜索时除了文件夹名和标签，还要比对的字段。
+    var organizationSearchFields: [String] { get }
+}
+
+extension RadioStation: FolderTagOrganizable {
+    public var organizationSearchFields: [String] { [name, displayEndpoint, streamURL] }
+}
+
 /// 文件夹分组的一段。`name` 为 nil 表示「未分组」。
 public struct RadioStationFolderGroup: Identifiable, Hashable, Sendable {
     public let name: String?
@@ -154,10 +167,29 @@ public enum RadioStationOrganization {
         in stations: [RadioStation],
         additionalNames: [String] = []
     ) -> [RadioStationFolderSummary] {
+        organizedFolderCounts(in: stations, additionalNames: additionalNames)
+            .map { RadioStationFolderSummary(name: $0.name, stationCount: $0.count) }
+    }
+
+    /// 没有归入任何文件夹的电台数量。
+    public static func ungroupedCount(in stations: [RadioStation]) -> Int {
+        organizedUngroupedCount(in: stations)
+    }
+
+    /// 全部电台里出现过的标签，按名称排序。
+    public static func tags(in stations: [RadioStation]) -> [RadioStationTagSummary] {
+        organizedTagCounts(in: stations)
+            .map { RadioStationTagSummary(name: $0.name, stationCount: $0.count) }
+    }
+
+    static func organizedFolderCounts<Item: FolderTagOrganizable>(
+        in items: [Item],
+        additionalNames: [String]
+    ) -> [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
         var display: [String: String] = [:]
-        for station in stations {
-            guard let name = normalizedFolderName(station.folderName) else { continue }
+        for item in items {
+            guard let name = normalizedFolderName(item.folderName) else { continue }
             let key = comparisonKey(name)
             counts[key, default: 0] += 1
             if display[key] == nil { display[key] = name }
@@ -171,30 +203,28 @@ public enum RadioStationOrganization {
             }
         }
         return display
-            .map { RadioStationFolderSummary(name: $0.value, stationCount: counts[$0.key] ?? 0) }
+            .map { (name: $0.value, count: counts[$0.key] ?? 0) }
             .sorted { orderedAscending($0.name, $1.name) }
     }
 
-    /// 没有归入任何文件夹的电台数量。
-    public static func ungroupedCount(in stations: [RadioStation]) -> Int {
-        stations.reduce(into: 0) { total, station in
-            if normalizedFolderName(station.folderName) == nil { total += 1 }
+    static func organizedUngroupedCount<Item: FolderTagOrganizable>(in items: [Item]) -> Int {
+        items.reduce(into: 0) { total, item in
+            if normalizedFolderName(item.folderName) == nil { total += 1 }
         }
     }
 
-    /// 全部电台里出现过的标签，按名称排序。
-    public static func tags(in stations: [RadioStation]) -> [RadioStationTagSummary] {
+    static func organizedTagCounts<Item: FolderTagOrganizable>(in items: [Item]) -> [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
         var display: [String: String] = [:]
-        for station in stations {
-            for name in station.assignedTagNames {
+        for item in items {
+            for name in normalizedTagNames(item.tagNames) ?? [] {
                 let key = comparisonKey(name)
                 counts[key, default: 0] += 1
                 if display[key] == nil { display[key] = name }
             }
         }
         return display
-            .map { RadioStationTagSummary(name: $0.value, stationCount: counts[$0.key] ?? 0) }
+            .map { (name: $0.value, count: counts[$0.key] ?? 0) }
             .sorted { orderedAscending($0.name, $1.name) }
     }
 
@@ -211,25 +241,36 @@ public enum RadioStationOrganization {
         _ stations: [RadioStation],
         with filter: RadioStationFilter
     ) -> [RadioStation] {
-        let tagKeys = Set(filter.tagNames.map(comparisonKey))
-        let queryTokens = searchTokens(filter.searchText)
-        return stations.filter { station in
-            matchesFolder(station, scope: filter.folder)
-                && matchesTags(station, tagKeys: tagKeys)
-                && matchesQuery(station, tokens: queryTokens)
-        }
+        organizedFiltered(stations, with: filter)
     }
 
     /// 按文件夹切成几段，未分组的永远排在最后。段内顺序保持传入顺序。
     public static func grouped(_ stations: [RadioStation]) -> [RadioStationFolderGroup] {
+        organizedGroups(stations).map { RadioStationFolderGroup(name: $0.name, stations: $0.items) }
+    }
+
+    static func organizedFiltered<Item: FolderTagOrganizable>(
+        _ items: [Item],
+        with filter: RadioStationFilter
+    ) -> [Item] {
+        let tagKeys = Set(filter.tagNames.map(comparisonKey))
+        let queryTokens = searchTokens(filter.searchText)
+        return items.filter { item in
+            matchesFolder(item, scope: filter.folder)
+                && matchesTags(item, tagKeys: tagKeys)
+                && organizedMatchesQuery(item, tokens: queryTokens)
+        }
+    }
+
+    static func organizedGroups<Item: FolderTagOrganizable>(_ items: [Item]) -> [(name: String?, items: [Item])] {
         var order: [String] = []
         var display: [String: String] = [:]
-        var buckets: [String: [RadioStation]] = [:]
-        var ungrouped: [RadioStation] = []
+        var buckets: [String: [Item]] = [:]
+        var ungrouped: [Item] = []
 
-        for station in stations {
-            guard let name = normalizedFolderName(station.folderName) else {
-                ungrouped.append(station)
+        for item in items {
+            guard let name = normalizedFolderName(item.folderName) else {
+                ungrouped.append(item)
                 continue
             }
             let key = comparisonKey(name)
@@ -237,36 +278,36 @@ public enum RadioStationOrganization {
                 display[key] = name
                 order.append(key)
             }
-            buckets[key, default: []].append(station)
+            buckets[key, default: []].append(item)
         }
 
-        var groups = order
-            .map { RadioStationFolderGroup(name: display[$0], stations: buckets[$0] ?? []) }
+        var groups: [(name: String?, items: [Item])] = order
+            .map { (name: display[$0], items: buckets[$0] ?? []) }
             .sorted { orderedAscending($0.name ?? "", $1.name ?? "") }
         if !ungrouped.isEmpty {
-            groups.append(RadioStationFolderGroup(name: nil, stations: ungrouped))
+            groups.append((name: nil, items: ungrouped))
         }
         return groups
     }
 
-    private static func matchesFolder(
-        _ station: RadioStation,
+    private static func matchesFolder<Item: FolderTagOrganizable>(
+        _ item: Item,
         scope: RadioStationFilter.FolderScope
     ) -> Bool {
         switch scope {
         case .all:
             return true
         case .ungrouped:
-            return normalizedFolderName(station.folderName) == nil
+            return normalizedFolderName(item.folderName) == nil
         case .folder(let name):
-            guard let current = normalizedFolderName(station.folderName) else { return false }
+            guard let current = normalizedFolderName(item.folderName) else { return false }
             return isSameName(current, name)
         }
     }
 
-    private static func matchesTags(_ station: RadioStation, tagKeys: Set<String>) -> Bool {
+    private static func matchesTags<Item: FolderTagOrganizable>(_ item: Item, tagKeys: Set<String>) -> Bool {
         guard !tagKeys.isEmpty else { return true }
-        let own = Set(station.assignedTagNames.map(comparisonKey))
+        let own = Set((normalizedTagNames(item.tagNames) ?? []).map(comparisonKey))
         return tagKeys.isSubset(of: own)
     }
 
@@ -279,10 +320,14 @@ public enum RadioStationOrganization {
     }
 
     public static func matchesQuery(_ station: RadioStation, tokens: [String]) -> Bool {
+        organizedMatchesQuery(station, tokens: tokens)
+    }
+
+    static func organizedMatchesQuery<Item: FolderTagOrganizable>(_ item: Item, tokens: [String]) -> Bool {
         guard !tokens.isEmpty else { return true }
-        var haystack = [station.name, station.displayEndpoint, station.streamURL]
-        if let folder = normalizedFolderName(station.folderName) { haystack.append(folder) }
-        haystack.append(contentsOf: station.assignedTagNames)
+        var haystack = item.organizationSearchFields
+        if let folder = normalizedFolderName(item.folderName) { haystack.append(folder) }
+        haystack.append(contentsOf: normalizedTagNames(item.tagNames) ?? [])
         let folded = haystack.map(comparisonKey)
         return tokens.allSatisfy { token in
             folded.contains { $0.contains(token) }

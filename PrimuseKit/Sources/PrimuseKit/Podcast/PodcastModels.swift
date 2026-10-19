@@ -32,8 +32,13 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
     public var reopenedEpisodeIDs: Set<String>
     /// 上次打开这档节目页的时间。之前出现的单集都看过了,不再算进封面上的「新单集」角标。
     public var newEpisodesSeenAt: Date?
-    /// 订阅定义(设置、水位线)最后一次被用户改动的时间,多设备合并时按它取新。
+    /// 订阅定义(设置、水位线、文件夹与标签)最后一次被用户改动的时间,多设备合并时按它取新。
     public var definitionModifiedAt: Date
+    /// 用户把这档节目归进的文件夹。一档最多进一个,没有就是「未分组」。
+    /// 和电台一样存名字:文件夹没有自己的记录,见 `PodcastShowOrganization`。
+    public var folderName: String?
+    /// 用户贴在这档节目上的标签。
+    public var tagNames: [String]?
 
     public init(
         id: String,
@@ -57,7 +62,9 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         playedThrough: Date? = nil,
         reopenedEpisodeIDs: Set<String> = [],
         newEpisodesSeenAt: Date? = nil,
-        definitionModifiedAt: Date? = nil
+        definitionModifiedAt: Date? = nil,
+        folderName: String? = nil,
+        tagNames: [String]? = nil
     ) {
         self.id = id
         self.feedURL = feedURL
@@ -81,13 +88,15 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         self.reopenedEpisodeIDs = reopenedEpisodeIDs
         self.newEpisodesSeenAt = newEpisodesSeenAt
         self.definitionModifiedAt = definitionModifiedAt ?? subscribedAt
+        self.folderName = folderName
+        self.tagNames = tagNames
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, feedURL, title, author, summary, artworkURL, websiteURL, language, categories
         case isSerial, isExplicit, directoryID, subscribedAt, lastRefreshedAt, latestEpisodeAt
         case httpETag, httpLastModified, settings, playedThrough, reopenedEpisodeIDs, newEpisodesSeenAt
-        case definitionModifiedAt
+        case definitionModifiedAt, folderName, tagNames
     }
 
     // 存盘格式以后会加字段:缺的一律取默认值,别让一个新字段把整份订阅读丢。
@@ -115,6 +124,18 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         reopenedEpisodeIDs = try c.decodeIfPresent(Set<String>.self, forKey: .reopenedEpisodeIDs) ?? []
         newEpisodesSeenAt = try c.decodeIfPresent(Date.self, forKey: .newEpisodesSeenAt)
         definitionModifiedAt = try c.decodeIfPresent(Date.self, forKey: .definitionModifiedAt) ?? subscribedAt
+        folderName = try c.decodeIfPresent(String.self, forKey: .folderName)
+        tagNames = try c.decodeIfPresent([String].self, forKey: .tagNames)
+    }
+
+    /// 归一化之后的文件夹名,空白串一律当作没有文件夹。
+    public var assignedFolderName: String? {
+        RadioStationOrganization.normalizedFolderName(folderName)
+    }
+
+    /// 归一化之后的标签。界面和筛选一律走这里。
+    public var assignedTagNames: [String] {
+        RadioStationOrganization.normalizedTagNames(tagNames) ?? []
     }
 
     /// 这一集是不是被「标为已播」的水位线盖住了(单集自己的听完记录另算)。
@@ -126,6 +147,94 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
     /// 单集列表实际用的顺序:用户选过就用选的,否则连载从旧到新、其余从新到旧。
     public var effectiveEpisodeOrder: PodcastEpisodeOrder {
         settings.episodeOrder ?? (isSerial ? .oldestFirst : .newestFirst)
+    }
+}
+
+// MARK: - 文件夹与标签
+
+extension PodcastShow: FolderTagOrganizable {
+    public var organizationSearchFields: [String] { [title, author ?? ""] }
+}
+
+/// 节目按文件夹分出的一段。`name` 为 nil 表示「未分组」。
+public struct PodcastShowFolderGroup: Identifiable, Hashable, Sendable {
+    public let name: String?
+    public let shows: [PodcastShow]
+
+    public init(name: String?, shows: [PodcastShow]) {
+        self.name = name
+        self.shows = shows
+    }
+
+    public var id: String { name ?? "" }
+    public var isUngrouped: Bool { name == nil }
+}
+
+/// 一个文件夹,连同里面有几档节目。
+public struct PodcastShowFolderSummary: Identifiable, Hashable, Sendable {
+    public let name: String
+    public let showCount: Int
+
+    public init(name: String, showCount: Int) {
+        self.name = name
+        self.showCount = showCount
+    }
+
+    public var id: String { name }
+}
+
+/// 一个标签,连同贴在几档节目上。
+public struct PodcastShowTagSummary: Identifiable, Hashable, Sendable {
+    public let name: String
+    public let showCount: Int
+
+    public init(name: String, showCount: Int) {
+        self.name = name
+        self.showCount = showCount
+    }
+
+    public var id: String { name }
+}
+
+/// 节目的筛选条件和电台是同一种:一个文件夹范围 + 若干标签(取交集) + 一段搜索词。
+public typealias PodcastShowFilter = RadioStationFilter
+
+/// 订阅节目的「文件夹 + 标签」。名字的归一化、比较、标签增删和配色都用电台那一套
+/// (`RadioStationOrganization`),两边的文件夹与标签行为一模一样。
+///
+/// 文件夹名和标签写在节目自己身上,跟着订阅定义经 iCloud 同步;现有的文件夹与标签由全部节目归纳得出。
+/// 不留空文件夹:新建文件夹总是在给节目归类时顺手建的,建出来就装着节目。
+public enum PodcastShowOrganization {
+    /// 全部节目里出现过的文件夹,按名称排序。
+    public static func folders(in shows: [PodcastShow]) -> [PodcastShowFolderSummary] {
+        RadioStationOrganization.organizedFolderCounts(in: shows, additionalNames: [])
+            .map { PodcastShowFolderSummary(name: $0.name, showCount: $0.count) }
+    }
+
+    /// 没归进任何文件夹的节目数。
+    public static func ungroupedCount(in shows: [PodcastShow]) -> Int {
+        RadioStationOrganization.organizedUngroupedCount(in: shows)
+    }
+
+    /// 全部节目里出现过的标签,按名称排序。
+    public static func tags(in shows: [PodcastShow]) -> [PodcastShowTagSummary] {
+        RadioStationOrganization.organizedTagCounts(in: shows)
+            .map { PodcastShowTagSummary(name: $0.name, showCount: $0.count) }
+    }
+
+    /// 按筛选条件过滤,保持传入顺序(排序由列表自己定)。
+    /// 搜索词比对节目名、主播、文件夹名和标签。
+    public static func filtered(_ shows: [PodcastShow], with filter: PodcastShowFilter) -> [PodcastShow] {
+        RadioStationOrganization.organizedFiltered(shows, with: filter)
+    }
+
+    /// 按文件夹切成几段,文件夹按名称排,未分组的排在最后。段内保持传入顺序。
+    public static func grouped(_ shows: [PodcastShow]) -> [PodcastShowFolderGroup] {
+        RadioStationOrganization.organizedGroups(shows).map { PodcastShowFolderGroup(name: $0.name, shows: $0.items) }
+    }
+
+    public static func matchesQuery(_ show: PodcastShow, tokens: [String]) -> Bool {
+        RadioStationOrganization.organizedMatchesQuery(show, tokens: tokens)
     }
 }
 

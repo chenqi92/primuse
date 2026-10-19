@@ -14,7 +14,7 @@ struct PodcastLibraryView: View {
     }
     #else
     @State private var navigation = PodcastNavigationModel()
-    /// 「在本页里找」: 按节目名与作者筛已订阅的节目。
+    /// 「在本页里找」: 按节目名、作者、文件夹与标签筛已订阅的节目。
     @State private var findText = ""
 
     var body: some View {
@@ -24,28 +24,58 @@ struct PodcastLibraryView: View {
         }
         .pmExtendsUnderVerticalBar()
         .libraryPageFind(text: $findText, prompt: "filter_podcasts_placeholder")
-        .navigationTitle("listening_space_podcast")
+        .navigationTitle(navigation.organizer.isSelecting ? Text(verbatim: selectingTitle) : Text("listening_space_podcast"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { PodcastLibraryToolbar(navigation: navigation) }
         // 极简模式根页没有导航栏：大标题「播客」与「+」「⋯」排成页头，下面是有声书 / 播客切换。
+        // 多选时换成「完成」、已选几档与批量菜单。
         .minimalPageHeader {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    MinimalPageTitle("listening_space_podcast")
-                    Spacer(minLength: 8)
+            if navigation.organizer.isSelecting {
+                HStack(spacing: 8) {
+                    Button {
+                        navigation.organizer.endSelecting()
+                    } label: {
+                        Text("done")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(ListeningSpace.podcast.tint)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Text(verbatim: selectingTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
                     MinimalHeaderActions {
-                        MinimalPageFindButton()
-                        PodcastAddMenu(navigation: navigation)
-                        PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
+                        PodcastShowSelectionMenu(organizer: navigation.organizer, systemImage: "ellipsis")
                     }
                 }
-                MinimalSpokenSwitcher(current: .podcasts)
-                    .padding(.trailing, 8)
-                    .padding(.bottom, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        MinimalPageTitle("listening_space_podcast")
+                        Spacer(minLength: 8)
+                        MinimalHeaderActions {
+                            MinimalPageFindButton()
+                            PodcastAddMenu(navigation: navigation)
+                            PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
+                        }
+                    }
+                    MinimalSpokenSwitcher(current: .podcasts)
+                        .padding(.trailing, 8)
+                        .padding(.bottom, 4)
+                }
             }
         }
         .refreshable { await PodcastStore.shared.refreshAll() }
         .podcastNavigationDestinations(navigation)
+    }
+
+    /// 多选时的标题:还没选就仍叫「播客」。
+    private var selectingTitle: String {
+        let count = navigation.organizer.selectedShows.count
+        guard count > 0 else { return String(localized: "listening_space_podcast") }
+        return String(format: String(localized: "podcast_manage_selected %lld"), count)
     }
     #endif
 }
@@ -68,6 +98,8 @@ final class PodcastNavigationModel {
     var pushedLocalShowID: String?
     /// 从热门榜点进去、还没订的节目。
     var pushedDirectoryShow: PodcastDirectoryShow?
+    /// 「我的节目」的文件夹、标签筛选与多选。
+    let organizer = PodcastShowOrganizer()
 
     func open(showID: String) { pushedShowID = showID }
     func open(episodeID: String) { pushedEpisodeID = episodeID }
@@ -125,6 +157,7 @@ private struct PodcastNavigationDestinations: ViewModifier {
             .sheet(isPresented: $navigation.showsSectionEditor) {
                 PodcastSectionsEditor()
             }
+            .podcastShowOrganizerAlerts(navigation.organizer)
             .fileImporter(
                 isPresented: $navigation.showsOPMLImporter,
                 allowedContentTypes: PodcastOPMLFile.contentTypes
@@ -160,13 +193,25 @@ struct PodcastLibraryToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         // 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟播客自己的颜色。
-        ToolbarItem(placement: .primaryAction) {
-            PodcastAddMenu(navigation: navigation)
-                .tint(ListeningSpace.podcast.tint)
-        }
-        ToolbarItem(placement: .primaryAction) {
-            PodcastMoreMenu(navigation: navigation)
-                .tint(ListeningSpace.podcast.tint)
+        if navigation.organizer.isSelecting {
+            ToolbarItem(placement: .primaryAction) {
+                PodcastShowSelectionMenu(organizer: navigation.organizer)
+                    .tint(ListeningSpace.podcast.tint)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("done") { navigation.organizer.endSelecting() }
+                    .fontWeight(.semibold)
+                    .tint(ListeningSpace.podcast.tint)
+            }
+        } else {
+            ToolbarItem(placement: .primaryAction) {
+                PodcastAddMenu(navigation: navigation)
+                    .tint(ListeningSpace.podcast.tint)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                PodcastMoreMenu(navigation: navigation)
+                    .tint(ListeningSpace.podcast.tint)
+            }
         }
     }
 }
@@ -203,7 +248,7 @@ struct PodcastAddMenu: View {
     }
 }
 
-/// 「…」:刷新、导出、调整区块、设置。工具栏与极简页头共用。
+/// 「…」:刷新、选择、导出、调整区块、设置。工具栏与极简页头共用。
 struct PodcastMoreMenu: View {
     let navigation: PodcastNavigationModel
     var systemImage = "ellipsis.circle"
@@ -219,6 +264,13 @@ struct PodcastMoreMenu: View {
             }
             .disabled(store.shows.isEmpty || store.isRefreshingAll)
             if !store.shows.isEmpty {
+                // 选几档一起归进文件夹、贴标签或退订。
+                Button {
+                    navigation.organizer.beginSelecting()
+                } label: {
+                    Label("batch_select", systemImage: "checkmark.circle")
+                }
+                .accessibilityIdentifier("podcast.select")
                 ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
                     Label("podcast_export_opml", systemImage: "square.and.arrow.up")
                 }
@@ -270,7 +322,7 @@ struct PodcastLibraryContent: View {
                 } else {
                     VStack(alignment: .leading, spacing: 28) {
                         PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
-                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery, organizes: onManageShows == nil)
                     }
                 }
             } else {
@@ -298,7 +350,8 @@ struct PodcastLibraryContent: View {
     @ViewBuilder
     private func sectionContent(_ section: PodcastLibrarySection) -> some View {
         switch section {
-        case .myShows: PodcastShowsGrid(navigation: navigation, onManage: onManageShows)
+        // 文件夹与标签只在播客页上整理;首页那一面和电台那一面一样,只摆节目。
+        case .myShows: PodcastShowsGrid(navigation: navigation, onManage: onManageShows, organizes: onManageShows == nil)
         case .continueListening: PodcastContinueListeningRow(navigation: navigation)
         case .latestEpisodes: PodcastLatestEpisodesSection(navigation: navigation)
         case .likedEpisodes: PodcastLikedEpisodesSection(navigation: navigation)
@@ -782,6 +835,9 @@ struct PodcastShowsGrid: View {
     var findQuery: LibraryFindPolicy.Query?
     /// 首页那一面给:标题右边多一个「管理 · N」,进完整的播客页。
     var onManage: (() -> Void)?
+    /// 播客页给:节目能归进文件夹、贴标签(长按菜单与多选),没在找节目时标题下面摆文件夹与标签两排胶囊,
+    /// 没筛选时按文件夹分段。首页那一面不给,和电台那一面一样。
+    var organizes = false
 
     @AppStorage("primuse.podcast.library.sort") private var sort = PodcastShowSort.recentlyUpdated
     private var store: PodcastStore { PodcastStore.shared }
@@ -796,6 +852,16 @@ struct PodcastShowsGrid: View {
     }
 
     var body: some View {
+        let organizer = navigation.organizer
+        let folders = organizes ? store.folders : []
+        let tags = organizes ? store.tags : []
+        let ungroupedCount = organizes ? store.ungroupedShowCount : 0
+        let showsBar = organizes && findQuery == nil && (!folders.isEmpty || !tags.isEmpty)
+        let filter = showsBar
+            ? organizer.effectiveFilter(folders: folders, tags: tags, ungroupedCount: ungroupedCount)
+            : PodcastShowFilter.unfiltered
+        let found = findQuery.map { Self.shows(matching: $0, in: store.shows) } ?? store.shows
+        let visible = sort.sorted(filter.isNarrowed ? PodcastShowOrganization.filtered(found, with: filter) : found)
         VStack(alignment: .leading, spacing: 12) {
             PodcastSectionHeader(titleKey: "podcast_my_shows") {
                 if let onManage {
@@ -833,30 +899,121 @@ struct PodcastShowsGrid: View {
                 .menuIndicator(.hidden)
                 .accessibilityLabel(Text("podcast_sort"))
             }
+            .padding(.horizontal, 16)
             .pmClearOfVerticalBar()
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                ForEach(sort.sorted(findQuery.map { Self.shows(matching: $0, in: store.shows) } ?? store.shows)) { @Sendable show in
-                    LazyItemCell {
-                        Button {
-                            navigation.open(showID: show.id)
-                        } label: {
-                            PodcastShowTile(show: show, newCount: store.newEpisodeCount(showID: show.id),
-                                            hasError: store.refreshFailures[show.id] != nil)
+
+            if showsBar {
+                PodcastShowOrganizeBar(
+                    organizer: organizer,
+                    folders: folders,
+                    tags: tags,
+                    ungroupedCount: ungroupedCount,
+                    totalCount: store.shows.count,
+                    filter: filter
+                )
+            }
+
+            if visible.isEmpty, filter.isNarrowed {
+                // 筛空了:几个标签凑不到同一档节目上。
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("podcast_filter_empty")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button("radio_filter_clear") { organizer.clearFilter() }
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(tint)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            } else if showsBar, !filter.isNarrowed, !folders.isEmpty {
+                // 没筛选时按文件夹分段,未分组的在最后。分段只有文件夹那么几段,每段自己的网格是惰性的。
+                VStack(alignment: .leading, spacing: 22) {
+                    ForEach(PodcastShowOrganization.grouped(visible)) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            folderHeader(group)
+                            grid(group.shows, folders: folders, tags: tags)
                         }
-                        .buttonStyle(.pmPressable)
-                        .contextMenu { PodcastShowMenu(show: show) }
-                        .accessibilityIdentifier("podcast.show." + show.id)
                     }
                 }
+                .padding(.horizontal, 16)
+            } else {
+                grid(visible, folders: folders, tags: tags)
+                    .padding(.horizontal, 16)
             }
         }
-        .padding(.horizontal, 16)
+    }
+
+    private func grid(_ shows: [PodcastShow], folders: [PodcastShowFolderSummary], tags: [PodcastShowTagSummary]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+            ForEach(shows) { @Sendable show in
+                LazyItemCell { tile(show, folders: folders, tags: tags) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tile(_ show: PodcastShow, folders: [PodcastShowFolderSummary], tags: [PodcastShowTagSummary]) -> some View {
+        let organizer = navigation.organizer
+        let label = PodcastShowTile(show: show, newCount: store.newEpisodeCount(showID: show.id),
+                                    hasError: store.refreshFailures[show.id] != nil)
+        if organizes, organizer.isSelecting {
+            let isSelected = organizer.selection.contains(show.id)
+            Button {
+                organizer.toggleSelection(show.id)
+            } label: {
+                label.overlay(alignment: .topLeading) {
+                    SongSelectionCheckmark(isSelected: isSelected)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(6)
+                }
+            }
+            .buttonStyle(.pmPressable)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier("podcast.show." + show.id)
+        } else {
+            Button {
+                navigation.open(showID: show.id)
+            } label: {
+                label
+            }
+            .buttonStyle(.pmPressable)
+            .contextMenu {
+                PodcastShowMenu(show: show, organizer: organizes ? organizer : nil, folders: folders, tags: tags)
+            }
+            .accessibilityIdentifier("podcast.show." + show.id)
+        }
+    }
+
+    private func folderHeader(_ group: PodcastShowFolderGroup) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: group.isUngrouped ? "tray" : "folder.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(group.name ?? String(localized: "radio_folder_ungrouped"))
+                .font(.subheadline.weight(.semibold))
+            Text(verbatim: "\(group.shows.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            if let name = group.name {
+                PodcastFolderActions(organizer: navigation.organizer, name: name)
+            }
+        }
+        .pmClearOfVerticalBar()
     }
 }
 
 extension PodcastShowsGrid {
+    /// 「在本页里找」:节目名、主播、文件夹名与标签都算。
     static func shows(matching query: LibraryFindPolicy.Query, in shows: [PodcastShow]) -> [PodcastShow] {
-        shows.filter { LibraryFindPolicy.matches(query, fields: [$0.title, $0.author]) }
+        shows.filter { show in
+            let fields: [String?] = [show.title, show.author, show.assignedFolderName]
+            return LibraryFindPolicy.matches(query, fields: fields + show.assignedTagNames.map(Optional.some))
+        }
     }
 }
 
@@ -1007,9 +1164,13 @@ struct PodcastShowTile: View {
     }
 }
 
-/// 节目的长按菜单。
+/// 节目的长按菜单。播客页上多两个子菜单:移到文件夹、标签。
 struct PodcastShowMenu: View {
     let show: PodcastShow
+    /// 播客页给;首页那一面不给,不出归类的两项。
+    var organizer: PodcastShowOrganizer?
+    var folders: [PodcastShowFolderSummary] = []
+    var tags: [PodcastShowTagSummary] = []
     @State private var confirmsUnsubscribe = false
 
     private var store: PodcastStore { PodcastStore.shared }
@@ -1030,12 +1191,428 @@ struct PodcastShowMenu: View {
                 Label("share", systemImage: "square.and.arrow.up")
             }
         }
+        if let organizer {
+            Divider()
+            PodcastShowOrganizeMenus(organizer: organizer, shows: [show], folders: folders, tags: tags)
+        }
         Divider()
         Button(role: .destructive) {
             store.unsubscribe(show.id)
         } label: {
             Label("podcast_unsubscribe", systemImage: "minus.circle")
         }
+    }
+}
+
+// MARK: - Folders and tags
+
+/// 「我的节目」的文件夹与标签:筛到哪个文件夹、哪几个标签,多选,还有新建、改名时弹的那个框。
+/// 播客页(iPhone、iPad、Mac)各一份,挂在 `PodcastNavigationModel` 上;节目页另建一份,只用来弹框。
+@MainActor
+@Observable
+final class PodcastShowOrganizer {
+    var folderScope: PodcastShowFilter.FolderScope = .all
+    var activeTags: Set<String> = []
+    /// iPhone、iPad 上的多选(「…›选择」)。Mac 上右键就能归类,和电台一样不做多选。
+    private(set) var isSelecting = false
+    var selection: Set<String> = []
+    var namePrompt: RadioNamePrompt?
+    var namePromptText = ""
+    var folderToDelete: String?
+    var tagToDelete: String?
+    var confirmsUnsubscribingSelection = false
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    /// 实际生效的筛选。选中的文件夹或标签被别的设备删了、改了名,就当没选,不留一页空白。
+    func effectiveFilter(
+        folders: [PodcastShowFolderSummary],
+        tags: [PodcastShowTagSummary],
+        ungroupedCount: Int
+    ) -> PodcastShowFilter {
+        let scope: PodcastShowFilter.FolderScope
+        switch folderScope {
+        case .all:
+            scope = .all
+        case .ungrouped:
+            scope = !folders.isEmpty && ungroupedCount > 0 ? .ungrouped : .all
+        case .folder(let name):
+            scope = folders.contains { RadioStationOrganization.isSameName($0.name, name) } ? folderScope : .all
+        }
+        let liveTags = activeTags.filter { name in
+            tags.contains { RadioStationOrganization.isSameName($0.name, name) }
+        }
+        return PodcastShowFilter(folder: scope, tagNames: liveTags)
+    }
+
+    func clearFilter() {
+        folderScope = .all
+        activeTags = []
+    }
+
+    func toggleTag(_ name: String) {
+        if activeTags.contains(where: { RadioStationOrganization.isSameName($0, name) }) {
+            activeTags = activeTags.filter { !RadioStationOrganization.isSameName($0, name) }
+        } else {
+            activeTags.insert(name)
+        }
+    }
+
+    // MARK: 多选
+
+    func beginSelecting() {
+        selection = []
+        isSelecting = true
+    }
+
+    func endSelecting() {
+        isSelecting = false
+        selection = []
+    }
+
+    func toggleSelection(_ showID: String) {
+        if selection.remove(showID) == nil { selection.insert(showID) }
+    }
+
+    /// 选中的、眼下还订着的节目。别的设备退订掉的不算。
+    var selectedShows: [PodcastShow] {
+        store.shows.filter { selection.contains($0.id) }
+    }
+
+    /// 当前文件夹与标签筛选下看得到的节目:「全选」选的就是它们。
+    var visibleShows: [PodcastShow] {
+        let filter = effectiveFilter(folders: store.folders, tags: store.tags, ungroupedCount: store.ungroupedShowCount)
+        return PodcastShowOrganization.filtered(store.shows, with: filter)
+    }
+
+    func unsubscribeSelection() {
+        store.unsubscribe(showIDs: selectedShows.map(\.id))
+        endSelecting()
+    }
+
+    // MARK: 命名与删除
+
+    func begin(_ prompt: RadioNamePrompt) {
+        namePromptText = prompt.initialText
+        namePrompt = prompt
+    }
+
+    func commitNamePrompt() {
+        defer { namePrompt = nil }
+        guard let prompt = namePrompt else { return }
+        let text = namePromptText
+        switch prompt {
+        case .createFolder(let ids):
+            // 节目的文件夹没有空的:新建就是把这几档放进去。
+            guard let name = RadioStationOrganization.normalizedFolderName(text) else { return }
+            store.setFolder(name, forShowIDs: ids)
+        case .renameFolder(let old):
+            guard let name = RadioStationOrganization.normalizedFolderName(text) else { return }
+            store.renameFolder(old, to: name)
+            if case .folder(let current) = folderScope, RadioStationOrganization.isSameName(current, old) {
+                folderScope = .folder(name)
+            }
+        case .createTag(let ids):
+            store.addTag(text, toShowIDs: ids)
+        case .renameTag(let old):
+            guard let name = RadioStationOrganization.normalizedTagName(text) else { return }
+            store.renameTag(old, to: name)
+            if activeTags.contains(where: { RadioStationOrganization.isSameName($0, old) }) {
+                activeTags = activeTags.filter { !RadioStationOrganization.isSameName($0, old) }
+                activeTags.insert(name)
+            }
+        }
+    }
+
+    func deleteFolderConfirmed() {
+        guard let name = folderToDelete else { return }
+        if case .folder(let current) = folderScope, RadioStationOrganization.isSameName(current, name) {
+            folderScope = .all
+        }
+        store.deleteFolder(name)
+        folderToDelete = nil
+    }
+
+    func deleteTagConfirmed() {
+        guard let name = tagToDelete else { return }
+        activeTags = activeTags.filter { !RadioStationOrganization.isSameName($0, name) }
+        store.deleteTag(name)
+        tagToDelete = nil
+    }
+}
+
+extension View {
+    /// 新建、改名文件夹与标签的输入框,删除与批量退订前的确认。发起它们的菜单在哪一页,就由那一页挂一次。
+    func podcastShowOrganizerAlerts(_ organizer: PodcastShowOrganizer) -> some View {
+        modifier(PodcastShowOrganizerAlerts(organizer: organizer))
+    }
+}
+
+/// 长按菜单、胶囊和分段标题都能发起,没有唯一的锚点,一律用居中的 alert(同电台页)。
+private struct PodcastShowOrganizerAlerts: ViewModifier {
+    @Bindable var organizer: PodcastShowOrganizer
+
+    func body(content: Content) -> some View {
+        content
+            .alert(organizer.namePrompt?.title ?? "", isPresented: Binding(
+                get: { organizer.namePrompt != nil },
+                set: { if !$0 { organizer.namePrompt = nil } }
+            )) {
+                TextField(organizer.namePrompt?.fieldTitle ?? "", text: $organizer.namePromptText)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.words)
+                    #endif
+                Button("cancel", role: .cancel) { organizer.namePrompt = nil }
+                Button("save") { organizer.commitNamePrompt() }
+            }
+            .alert(String(localized: "radio_folder_delete"), isPresented: Binding(
+                get: { organizer.folderToDelete != nil },
+                set: { if !$0 { organizer.folderToDelete = nil } }
+            )) {
+                Button("delete", role: .destructive) { organizer.deleteFolderConfirmed() }
+                Button("cancel", role: .cancel) { organizer.folderToDelete = nil }
+            } message: {
+                Text("podcast_folder_delete_message")
+            }
+            .alert(String(localized: "radio_tag_delete"), isPresented: Binding(
+                get: { organizer.tagToDelete != nil },
+                set: { if !$0 { organizer.tagToDelete = nil } }
+            )) {
+                Button("delete", role: .destructive) { organizer.deleteTagConfirmed() }
+                Button("cancel", role: .cancel) { organizer.tagToDelete = nil }
+            } message: {
+                Text("podcast_tag_delete_message")
+            }
+            .alert(
+                String(format: String(localized: "podcast_unsubscribe_selected_title %lld"), organizer.selectedShows.count),
+                isPresented: $organizer.confirmsUnsubscribingSelection
+            ) {
+                Button("podcast_unsubscribe", role: .destructive) { organizer.unsubscribeSelection() }
+                Button("cancel", role: .cancel) {}
+            } message: {
+                Text("podcast_unsubscribe_selected_message")
+            }
+    }
+}
+
+/// 「移到文件夹」「标签」两个子菜单,写法同电台的归类菜单。节目的长按菜单、多选的批量菜单、
+/// 节目页的对勾菜单共用。`folders` 与 `tags` 由调用方算好传进来:网格里每张封面一份菜单,
+/// 不必各自把全部节目再归纳一遍。
+struct PodcastShowOrganizeMenus: View {
+    let organizer: PodcastShowOrganizer
+    let shows: [PodcastShow]
+    let folders: [PodcastShowFolderSummary]
+    let tags: [PodcastShowTagSummary]
+
+    private var store: PodcastStore { PodcastStore.shared }
+    private var ids: [String] { shows.map(\.id) }
+
+    var body: some View {
+        Menu {
+            Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                organizer.begin(.createFolder(assigning: ids))
+            }
+            if !folders.isEmpty {
+                Divider()
+                ForEach(folders) { folder in
+                    // 选中的都已经在这个文件夹里时打勾。
+                    let isCurrent = !shows.isEmpty && shows.allSatisfy { show in
+                        show.assignedFolderName.map { RadioStationOrganization.isSameName($0, folder.name) } ?? false
+                    }
+                    Button {
+                        store.setFolder(folder.name, forShowIDs: ids)
+                    } label: {
+                        Label(folder.name, systemImage: isCurrent ? "checkmark" : "folder")
+                    }
+                }
+            }
+            if shows.contains(where: { $0.assignedFolderName != nil }) {
+                Divider()
+                Button("radio_folder_remove_from", systemImage: "tray") {
+                    store.setFolder(nil, forShowIDs: ids)
+                }
+            }
+        } label: {
+            Label("radio_folder_move", systemImage: "folder")
+        }
+        .disabled(shows.isEmpty)
+
+        Menu {
+            Button("radio_tag_new", systemImage: "tag.fill") {
+                organizer.begin(.createTag(assigning: ids))
+            }
+            if !tags.isEmpty {
+                Divider()
+                ForEach(tags) { tag in
+                    // 贴在选中的每一档上才打勾,再点一次是撕掉;否则给没贴的补上。
+                    let applied = !shows.isEmpty && shows.allSatisfy { show in
+                        show.assignedTagNames.contains { RadioStationOrganization.isSameName($0, tag.name) }
+                    }
+                    Button {
+                        if applied {
+                            store.removeTag(tag.name, fromShowIDs: ids)
+                        } else {
+                            store.addTag(tag.name, toShowIDs: ids)
+                        }
+                    } label: {
+                        Label(tag.name, systemImage: applied ? "checkmark.circle.fill" : "tag")
+                    }
+                }
+            }
+        } label: {
+            Label("radio_tags", systemImage: "tag")
+        }
+        .disabled(shows.isEmpty)
+    }
+}
+
+/// 文件夹胶囊与分段标题的长按菜单:改名、删除。
+private struct PodcastFolderActions: View {
+    let organizer: PodcastShowOrganizer
+    let name: String
+
+    var body: some View {
+        Button("radio_folder_rename", systemImage: "pencil") {
+            organizer.begin(.renameFolder(name))
+        }
+        Button("radio_folder_delete", systemImage: "trash", role: .destructive) {
+            organizer.folderToDelete = name
+        }
+    }
+}
+
+/// 「我的节目」标题下面的两排胶囊:一排文件夹、一排标签,点一下筛,再点一下取消。
+/// 长按(Mac 上右键)胶囊改名或删除。
+private struct PodcastShowOrganizeBar: View {
+    let organizer: PodcastShowOrganizer
+    let folders: [PodcastShowFolderSummary]
+    let tags: [PodcastShowTagSummary]
+    let ungroupedCount: Int
+    let totalCount: Int
+    /// 实际生效的筛选(见 `PodcastShowOrganizer.effectiveFilter`),胶囊的选中态照它画。
+    let filter: PodcastShowFilter
+
+    private var tint: Color { ListeningSpace.podcast.tint }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !folders.isEmpty {
+                chipRow {
+                    RadioFilterChip(
+                        title: String(localized: "radio_folder_all"),
+                        systemImage: "square.grid.2x2",
+                        count: totalCount,
+                        isSelected: isSelected(.all),
+                        tint: tint
+                    ) { organizer.folderScope = .all }
+
+                    if ungroupedCount > 0 {
+                        RadioFilterChip(
+                            title: String(localized: "radio_folder_ungrouped"),
+                            systemImage: "tray",
+                            count: ungroupedCount,
+                            isSelected: isSelected(.ungrouped),
+                            tint: tint
+                        ) { organizer.folderScope = .ungrouped }
+                    }
+
+                    ForEach(folders) { folder in
+                        RadioFilterChip(
+                            title: folder.name,
+                            systemImage: "folder",
+                            count: folder.showCount,
+                            isSelected: isSelected(.folder(folder.name)),
+                            tint: tint
+                        ) {
+                            organizer.folderScope = isSelected(.folder(folder.name)) ? .all : .folder(folder.name)
+                        }
+                        .contextMenu { PodcastFolderActions(organizer: organizer, name: folder.name) }
+                    }
+                }
+            }
+
+            if !tags.isEmpty {
+                chipRow {
+                    ForEach(tags) { tag in
+                        RadioFilterChip(
+                            title: tag.name,
+                            systemImage: "tag",
+                            count: tag.showCount,
+                            isSelected: filter.tagNames.contains { RadioStationOrganization.isSameName($0, tag.name) },
+                            tint: RadioTagPalette.color(for: tag.name)
+                        ) { organizer.toggleTag(tag.name) }
+                        .contextMenu {
+                            Button("radio_tag_rename", systemImage: "pencil") {
+                                organizer.begin(.renameTag(tag.name))
+                            }
+                            Button("radio_tag_delete", systemImage: "trash", role: .destructive) {
+                                organizer.tagToDelete = tag.name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 2)
+    }
+
+    private func chipRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                content()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 1)
+        }
+        .pmStopsAtVerticalBar()
+    }
+
+    private func isSelected(_ scope: PodcastShowFilter.FolderScope) -> Bool {
+        switch (filter.folder, scope) {
+        case (.all, .all), (.ungrouped, .ungrouped):
+            return true
+        case (.folder(let lhs), .folder(let rhs)):
+            return RadioStationOrganization.isSameName(lhs, rhs)
+        default:
+            return false
+        }
+    }
+}
+
+/// 多选时右上角的批量菜单:全选、移到文件夹、标签、取消订阅。
+struct PodcastShowSelectionMenu: View {
+    let organizer: PodcastShowOrganizer
+    var systemImage = "ellipsis.circle"
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        Menu {
+            let selected = organizer.selectedShows
+            let visibleIDs = Set(organizer.visibleShows.map(\.id))
+            let allSelected = !visibleIDs.isEmpty && visibleIDs.isSubset(of: organizer.selection)
+            Button(
+                LocalizedStringKey(allSelected ? "batch_deselect_all" : "batch_select_all"),
+                systemImage: allSelected ? "circle" : "checkmark.circle"
+            ) {
+                organizer.selection = allSelected ? [] : visibleIDs
+            }
+            .disabled(visibleIDs.isEmpty)
+
+            Section {
+                PodcastShowOrganizeMenus(organizer: organizer, shows: selected, folders: store.folders, tags: store.tags)
+            }
+
+            Section {
+                Button("podcast_unsubscribe", systemImage: "minus.circle", role: .destructive) {
+                    organizer.confirmsUnsubscribingSelection = true
+                }
+                .disabled(selected.isEmpty)
+            }
+        } label: {
+            Label("more", systemImage: systemImage)
+        }
+        .accessibilityIdentifier("podcast.selection.menu")
     }
 }
 

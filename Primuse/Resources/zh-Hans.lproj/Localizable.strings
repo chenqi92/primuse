@@ -5780,6 +5780,12 @@
 "podcast_unsubscribe" = "取消订阅";
 "podcast_unsubscribe_confirm_message" = "这档节目已下载的单集会从这台设备上删除，收听进度会保留。";
 "podcast_unsubscribe_confirm_title" = "取消订阅这档节目？";
+"podcast_manage_selected %lld" = "已选 %lld 档节目";
+"podcast_unsubscribe_selected_title %lld" = "取消订阅这 %lld 档节目？";
+"podcast_unsubscribe_selected_message" = "这些节目已下载的单集会从这台设备上删除，收听进度会保留。";
+"podcast_folder_delete_message" = "文件夹里的节目会退回未分组，不会取消订阅。";
+"podcast_tag_delete_message" = "这个标签会从所有节目上移除。";
+"podcast_filter_empty" = "当前文件夹和标签下没有节目。";
 "podcast_updated_format" = "%@ 更新";
 "podcast_video_episode" = "视频";
 "podcast_welcome_message" = "搜索想听的节目，或者从下面的热门榜挑几档订阅。订阅之后新单集会出现在这里，每一集都记得听到哪。";

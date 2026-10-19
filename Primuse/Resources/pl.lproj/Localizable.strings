@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "Przestań obserwować";
 "podcast_unsubscribe_confirm_message" = "Pobrane odcinki zostaną usunięte z tego urządzenia. Postęp słuchania zostanie zachowany.";
 "podcast_unsubscribe_confirm_title" = "Przestać obserwować ten podcast?";
+"podcast_manage_selected %lld" = "Wybrano %lld";
+"podcast_unsubscribe_selected_title %lld" = "Przestać obserwować wybrane podcasty (%lld)?";
+"podcast_unsubscribe_selected_message" = "Pobrane odcinki tych podcastów zostaną usunięte z tego urządzenia. Postęp słuchania zostanie zachowany.";
+"podcast_folder_delete_message" = "Podcasty wrócą do „Bez folderu”. Nadal będziesz je obserwować.";
+"podcast_tag_delete_message" = "Ten tag zostanie usunięty ze wszystkich podcastów.";
+"podcast_filter_empty" = "Żaden podcast nie pasuje do wybranego folderu i tagów.";
 "podcast_updated_format" = "Aktualizacja: %@";
 "podcast_video_episode" = "Wideo";
 "podcast_welcome_message" = "Wyszukaj podcast lub wybierz kilka z list poniżej. Nowe odcinki pojawią się tutaj, a każdy zapamięta, gdzie skończyłeś.";

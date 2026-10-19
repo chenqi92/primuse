@@ -125,13 +125,21 @@ struct RadioFilterChip: View {
     }
 }
 
-/// 电台行/卡片上那一行「文件夹 + 标签」。都没有就整行不占位。
+/// 电台行/卡片上那一行「文件夹 + 标签」。都没有就整行不占位。播客节目页也用这一行。
 struct RadioStationOrganizeLabels: View {
-    let station: RadioStation
-    var maximumTags = 2
+    private let folderName: String?
+    private let tagNames: [String]
+    private let maximumTags: Int
 
-    private var folderName: String? { station.assignedFolderName }
-    private var tagNames: [String] { station.assignedTagNames }
+    init(station: RadioStation, maximumTags: Int = 2) {
+        self.init(folderName: station.assignedFolderName, tagNames: station.assignedTagNames, maximumTags: maximumTags)
+    }
+
+    init(folderName: String?, tagNames: [String], maximumTags: Int = 2) {
+        self.folderName = folderName
+        self.tagNames = tagNames
+        self.maximumTags = maximumTags
+    }
 
     var body: some View {
         if folderName != nil || !tagNames.isEmpty {

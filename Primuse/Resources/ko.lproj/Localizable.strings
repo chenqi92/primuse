@@ -5687,6 +5687,12 @@
 "podcast_unsubscribe" = "팔로우 취소";
 "podcast_unsubscribe_confirm_message" = "이 프로그램의 다운로드한 에피소드는 이 기기에서 삭제됩니다. 청취 기록은 유지됩니다.";
 "podcast_unsubscribe_confirm_title" = "이 프로그램 팔로우를 취소할까요?";
+"podcast_manage_selected %lld" = "프로그램 %lld개 선택됨";
+"podcast_unsubscribe_selected_title %lld" = "선택한 프로그램 %lld개의 팔로우를 취소할까요?";
+"podcast_unsubscribe_selected_message" = "이 프로그램들의 다운로드한 에피소드는 이 기기에서 삭제됩니다. 청취 기록은 유지됩니다.";
+"podcast_folder_delete_message" = "폴더 안의 프로그램은 미분류로 돌아가며 팔로우는 유지됩니다.";
+"podcast_tag_delete_message" = "이 태그가 모든 프로그램에서 제거됩니다.";
+"podcast_filter_empty" = "선택한 폴더와 태그에 맞는 프로그램이 없습니다.";
 "podcast_updated_format" = "%@ 업데이트";
 "podcast_video_episode" = "비디오";
 "podcast_welcome_message" = "듣고 싶은 프로그램을 검색하거나 아래 인기 프로그램에서 골라 팔로우하세요. 새 에피소드가 여기에 표시되고, 에피소드마다 들은 위치를 기억합니다.";

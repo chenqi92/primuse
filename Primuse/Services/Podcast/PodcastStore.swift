@@ -384,20 +384,32 @@ final class PodcastStore {
     }
 
     func unsubscribe(_ showID: String) {
-        guard let index = subscribedShows.firstIndex(where: { $0.id == showID }) else { return }
-        let show = subscribedShows.remove(at: index)
-        // 退订后这档还能当预览看:节目页不会停在转圈上,正在放的这一集也还找得到说明和章节。
-        previews[showID] = (show, episodesByShow.removeValue(forKey: showID) ?? [])
-        refreshFailures.removeValue(forKey: showID)
-        removed[showID] = Date()
+        unsubscribe(showIDs: [showID])
+    }
+
+    /// 一次退订几档(播客页多选)。整批只推一次 iCloud、只发一次变更。
+    func unsubscribe(showIDs: [String]) {
+        let targets = Set(showIDs)
+        let gone = subscribedShows.filter { targets.contains($0.id) }
+        guard !gone.isEmpty else { return }
+        subscribedShows.removeAll { targets.contains($0.id) }
+        let now = Date()
+        for show in gone {
+            // 退订后这档还能当预览看:节目页不会停在转圈上,正在放的这一集也还找得到说明和章节。
+            previews[show.id] = (show, episodesByShow.removeValue(forKey: show.id) ?? [])
+            refreshFailures.removeValue(forKey: show.id)
+            removed[show.id] = now
+        }
         rebuildIndex()
-        PodcastDownloadStore.shared.deleteAll(showID: showID, keeping: nowPlayingEpisodeIDs)
-        try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: showID)))
+        for show in gone {
+            PodcastDownloadStore.shared.deleteAll(showID: show.id, keeping: nowPlayingEpisodeIDs)
+            try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: show.id)))
+        }
         showsDirty = true
         scheduleSave()
         pushSubscriptions()
         postChange()
-        plog("🎙️ Unsubscribed '\(show.title)'")
+        plog("🎙️ Unsubscribed \(gone.map { "'\($0.title)'" }.joined(separator: ", "))")
     }
 
     /// 改一档节目的设置或水位线。算用户的决定:推 iCloud。
@@ -407,6 +419,114 @@ final class PodcastStore {
         mutate(&show)
         show.definitionModifiedAt = Date()
         subscribedShows[index] = show
+        markDirty(showID: nil, showsChanged: true)
+        pushSubscriptions()
+        postChange()
+    }
+
+    // MARK: - Folders and tags
+
+    /// 现有文件夹(按名称排)和各装了几档。只算当前店面显示的节目。
+    var folders: [PodcastShowFolderSummary] {
+        PodcastShowOrganization.folders(in: shows)
+    }
+
+    var ungroupedShowCount: Int {
+        PodcastShowOrganization.ungroupedCount(in: shows)
+    }
+
+    var tags: [PodcastShowTagSummary] {
+        PodcastShowOrganization.tags(in: shows)
+    }
+
+    /// 把几档节目归进一个文件夹;`nil` 是移出文件夹。没有这个文件夹就等于新建 ——
+    /// 节目的文件夹不另建记录,见 `PodcastShowOrganization`。
+    func setFolder(_ rawName: String?, forShowIDs ids: [String]) {
+        let name = RadioStationOrganization.normalizedFolderName(rawName)
+        organize(ids: ids) { show in
+            guard show.assignedFolderName != name else { return false }
+            show.folderName = name
+            return true
+        }
+    }
+
+    /// 改名和删除对全部订阅生效,含当前店面不显示的:换回能显示的店面时,它们不该还待在旧名字的文件夹里。
+    func renameFolder(_ rawOldName: String, to rawNewName: String) {
+        guard let oldName = RadioStationOrganization.normalizedFolderName(rawOldName),
+              let newName = RadioStationOrganization.normalizedFolderName(rawNewName),
+              oldName != newName else { return }
+        organize(ids: showIDs(inFolder: oldName)) { show in
+            show.folderName = newName
+            return true
+        }
+    }
+
+    /// 删掉文件夹,里面的节目退回未分组 —— 不退订。
+    func deleteFolder(_ rawName: String) {
+        guard let name = RadioStationOrganization.normalizedFolderName(rawName) else { return }
+        organize(ids: showIDs(inFolder: name)) { show in
+            show.folderName = nil
+            return true
+        }
+    }
+
+    func addTag(_ rawName: String, toShowIDs ids: [String]) {
+        guard let name = RadioStationOrganization.normalizedTagName(rawName) else { return }
+        organize(ids: ids) { show in
+            guard case .updated(let updated) = RadioStationOrganization.adding(tag: name, to: show.tagNames) else { return false }
+            show.tagNames = updated
+            return true
+        }
+    }
+
+    func removeTag(_ rawName: String, fromShowIDs ids: [String]) {
+        guard let name = RadioStationOrganization.normalizedTagName(rawName) else { return }
+        organize(ids: ids) { show in
+            guard case .updated(let updated) = RadioStationOrganization.removing(tag: name, from: show.tagNames) else { return false }
+            show.tagNames = updated
+            return true
+        }
+    }
+
+    func renameTag(_ rawOldName: String, to rawNewName: String) {
+        guard let oldName = RadioStationOrganization.normalizedTagName(rawOldName),
+              let newName = RadioStationOrganization.normalizedTagName(rawNewName) else { return }
+        organize(ids: subscribedShows.map(\.id)) { show in
+            guard case .updated(let updated) = RadioStationOrganization.renaming(
+                tag: oldName,
+                to: newName,
+                in: show.tagNames
+            ) else { return false }
+            show.tagNames = updated
+            return true
+        }
+    }
+
+    func deleteTag(_ rawName: String) {
+        removeTag(rawName, fromShowIDs: subscribedShows.map(\.id))
+    }
+
+    private func showIDs(inFolder name: String) -> [String] {
+        subscribedShows
+            .filter { $0.assignedFolderName.map { RadioStationOrganization.isSameName($0, name) } == true }
+            .map(\.id)
+    }
+
+    /// 批量改文件夹与标签。改到的每档节目各记一次修改时间(多设备按它取新),
+    /// 整批只写一次盘、只推一次 iCloud、只发一次变更 —— 逐档 `updateDefinition` 会推同样多次。
+    private func organize(ids: [String], mutate: (inout PodcastShow) -> Bool) {
+        guard !ids.isEmpty else { return }
+        let targets = Set(ids)
+        let now = Date()
+        var changed = false
+        for index in subscribedShows.indices where targets.contains(subscribedShows[index].id) {
+            var show = subscribedShows[index]
+            guard mutate(&show) else { continue }
+            show.definitionModifiedAt = now
+            subscribedShows[index] = show
+            changed = true
+        }
+        guard changed else { return }
         markDirty(showID: nil, showsChanged: true)
         pushSubscriptions()
         postChange()
@@ -545,13 +665,15 @@ final class PodcastStore {
 
     private func apply(_ merged: PodcastFeedMerge.Result, etag: String?, lastModified: String?, upgradedURL: URL) {
         guard let index = subscribedShows.firstIndex(where: { $0.id == merged.show.id }) else { return }
-        // 刷新期间用户改了设置或退订后又订:定义部分以本机此刻为准。
+        // 刷新期间用户改了设置、文件夹与标签,或退订后又订:定义部分以本机此刻为准。
         var show = merged.show
         let current = subscribedShows[index]
         show.settings = current.settings
         show.playedThrough = current.playedThrough
         show.reopenedEpisodeIDs = current.reopenedEpisodeIDs
         show.newEpisodesSeenAt = current.newEpisodesSeenAt
+        show.folderName = current.folderName
+        show.tagNames = current.tagNames
         show.definitionModifiedAt = current.definitionModifiedAt
         show.subscribedAt = current.subscribedAt
         show.httpETag = etag

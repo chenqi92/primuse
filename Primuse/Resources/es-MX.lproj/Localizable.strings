@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "Dejar de seguir";
 "podcast_unsubscribe_confirm_message" = "Los episodios descargados se eliminan de este dispositivo. Se conserva tu progreso.";
 "podcast_unsubscribe_confirm_title" = "¿Dejar de seguir este programa?";
+"podcast_manage_selected %lld" = "%lld seleccionados";
+"podcast_unsubscribe_selected_title %lld" = "¿Dejar de seguir los programas seleccionados (%lld)?";
+"podcast_unsubscribe_selected_message" = "Los episodios descargados de estos programas se eliminan de este dispositivo. Se conserva tu progreso.";
+"podcast_folder_delete_message" = "Los programas vuelven a “Sin carpeta”. No dejas de seguirlos.";
+"podcast_tag_delete_message" = "Esta etiqueta se quita de todos los programas.";
+"podcast_filter_empty" = "Ningún programa coincide con la carpeta y las etiquetas elegidas.";
 "podcast_updated_format" = "Actualizado: %@";
 "podcast_video_episode" = "Video";
 "podcast_welcome_message" = "Busca un programa o elige algunos de los éxitos de abajo. Los episodios nuevos aparecen aquí y cada uno recuerda dónde te quedaste.";

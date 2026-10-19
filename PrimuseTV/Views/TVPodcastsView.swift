@@ -63,6 +63,8 @@ struct TVPodcastsView: View {
     @State private var reopenedEpisodeID: String?
     /// 要把焦点放回的那张卡片,放完清空。
     @State private var pendingCardFocus: String?
+    /// 「我的节目」筛到哪个文件夹。文件夹只能在 iPhone / Mac 上整理,这里只读(同电台)。
+    @State private var folderScope: PodcastShowFilter.FolderScope = .all
     @FocusState private var focusedCard: String?
 
     private static let discoverFocusID = "podcast.discover"
@@ -310,8 +312,12 @@ struct TVPodcastsView: View {
     }
 
     private func showsSection(cell: CGFloat) -> some View {
+        let all = podcasts.shows
+        let folders = PodcastShowOrganization.folders(in: all)
+        let ungroupedCount = PodcastShowOrganization.ungroupedCount(in: all)
+        let scope = effectiveFolderScope(folders: folders, ungroupedCount: ungroupedCount)
         // 最近出了新单集的排前面。
-        let shows = podcasts.shows.sorted {
+        let shows = PodcastShowOrganization.filtered(all, with: PodcastShowFilter(folder: scope)).sorted {
             ($0.latestEpisodeAt ?? .distantPast) > ($1.latestEpisodeAt ?? .distantPast)
         }
         return VStack(alignment: .leading, spacing: 12) {
@@ -319,6 +325,9 @@ struct TVPodcastsView: View {
                 .tvFont(.sectionTitle)
                 .foregroundStyle(TVColor.text)
                 .padding(.horizontal, 14)
+            if !folders.isEmpty {
+                folderChips(folders: folders, total: all.count, ungroupedCount: ungroupedCount, current: scope)
+            }
             LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
                 ForEach(shows) { @Sendable show in
                     LazyItemCell {
@@ -335,6 +344,79 @@ struct TVPodcastsView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 20)
+        }
+    }
+
+    /// 选中的文件夹被别的设备删掉或改名时回到「全部」。
+    private func effectiveFolderScope(
+        folders: [PodcastShowFolderSummary],
+        ungroupedCount: Int
+    ) -> PodcastShowFilter.FolderScope {
+        switch folderScope {
+        case .all:
+            return .all
+        case .ungrouped:
+            return ungroupedCount > 0 ? .ungrouped : .all
+        case .folder(let name):
+            return folders.contains { RadioStationOrganization.isSameName($0.name, name) } ? folderScope : .all
+        }
+    }
+
+    /// 全部 · N / 各文件夹 · N / 未分组 · N,和资料库「电台」的文件夹筛选同一种胶囊。
+    private func folderChips(
+        folders: [PodcastShowFolderSummary],
+        total: Int,
+        ungroupedCount: Int,
+        current: PodcastShowFilter.FolderScope
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                folderChip(
+                    PMString("ext.tv.library.filter.all") + " · \(total)",
+                    icon: "antenna.radiowaves.left.and.right",
+                    target: .all,
+                    current: current
+                )
+                ForEach(folders) { folder in
+                    folderChip("\(folder.name) · \(folder.showCount)", icon: "folder", target: .folder(folder.name), current: current)
+                }
+                if ungroupedCount > 0 {
+                    folderChip(
+                        PMString("ext.tv.radio.ungrouped") + " · \(ungroupedCount)",
+                        icon: "tray",
+                        target: .ungrouped,
+                        current: current
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .frame(height: 80)
+        .focusSection()
+    }
+
+    private func folderChip(
+        _ title: String,
+        icon: String,
+        target: PodcastShowFilter.FolderScope,
+        current: PodcastShowFilter.FolderScope
+    ) -> some View {
+        let isSelected = isSameScope(current, target)
+        return TVFocusButton(ring: false, action: { folderScope = target }) { focused in
+            TVFilterChipLabel(title: title, systemImage: icon, isSelected: isSelected, isFocused: focused)
+        }
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func isSameScope(_ lhs: PodcastShowFilter.FolderScope, _ rhs: PodcastShowFilter.FolderScope) -> Bool {
+        switch (lhs, rhs) {
+        case (.all, .all), (.ungrouped, .ungrouped):
+            return true
+        case (.folder(let a), .folder(let b)):
+            return RadioStationOrganization.isSameName(a, b)
+        default:
+            return false
         }
     }
 

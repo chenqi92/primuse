@@ -5688,6 +5688,12 @@
 "podcast_unsubscribe" = "フォローをやめる";
 "podcast_unsubscribe_confirm_message" = "この番組のダウンロード済みエピソードはこのデバイスから削除されます。再生位置は残ります。";
 "podcast_unsubscribe_confirm_title" = "この番組のフォローをやめますか？";
+"podcast_manage_selected %lld" = "%lld 番組を選択";
+"podcast_unsubscribe_selected_title %lld" = "選択した %lld 番組のフォローをやめますか？";
+"podcast_unsubscribe_selected_message" = "これらの番組のダウンロード済みエピソードはこのデバイスから削除されます。再生位置は残ります。";
+"podcast_folder_delete_message" = "中の番組は未分類に戻ります。フォローは解除されません。";
+"podcast_tag_delete_message" = "このタグはすべての番組から外れます。";
+"podcast_filter_empty" = "選んだフォルダとタグに合う番組がありません。";
 "podcast_updated_format" = "%@更新";
 "podcast_video_episode" = "ビデオ";
 "podcast_welcome_message" = "聴きたい番組を検索するか、下の人気番組から選んでフォローしてください。新しいエピソードがここに表示され、どのエピソードも途中から再開できます。";

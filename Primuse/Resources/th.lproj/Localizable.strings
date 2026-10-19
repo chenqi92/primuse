@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "เลิกติดตาม";
 "podcast_unsubscribe_confirm_message" = "ตอนที่ดาวน์โหลดไว้จะถูกลบออกจากอุปกรณ์นี้ ความคืบหน้าในการฟังยังคงอยู่";
 "podcast_unsubscribe_confirm_title" = "เลิกติดตามรายการนี้ไหม";
+"podcast_manage_selected %lld" = "เลือกแล้ว %lld รายการ";
+"podcast_unsubscribe_selected_title %lld" = "เลิกติดตามรายการที่เลือก (%lld) ไหม";
+"podcast_unsubscribe_selected_message" = "ตอนที่ดาวน์โหลดไว้ของรายการเหล่านี้จะถูกลบออกจากอุปกรณ์นี้ ความคืบหน้าในการฟังยังคงอยู่";
+"podcast_folder_delete_message" = "รายการจะกลับไปอยู่ใน “ไม่ได้จัดกลุ่ม” และยังติดตามอยู่เหมือนเดิม";
+"podcast_tag_delete_message" = "แท็กนี้จะถูกนำออกจากทุกรายการ";
+"podcast_filter_empty" = "ไม่มีรายการที่ตรงกับโฟลเดอร์และแท็กที่เลือก";
 "podcast_updated_format" = "อัปเดต %@";
 "podcast_video_episode" = "วิดีโอ";
 "podcast_welcome_message" = "ค้นหารายการ หรือเลือกจากอันดับยอดนิยมด้านล่าง ตอนใหม่จะแสดงที่นี่ และทุกตอนจำตำแหน่งที่คุณฟังค้างไว้";

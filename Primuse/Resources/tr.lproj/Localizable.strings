@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "Takibi bırak";
 "podcast_unsubscribe_confirm_message" = "İndirilen bölümler bu cihazdan kaldırılır. Dinleme ilerlemeniz korunur.";
 "podcast_unsubscribe_confirm_title" = "Bu programın takibi bırakılsın mı?";
+"podcast_manage_selected %lld" = "%lld seçildi";
+"podcast_unsubscribe_selected_title %lld" = "Seçilen programların (%lld) takibi bırakılsın mı?";
+"podcast_unsubscribe_selected_message" = "Bu programların indirilen bölümleri bu cihazdan kaldırılır. Dinleme ilerlemeniz korunur.";
+"podcast_folder_delete_message" = "Programlar “Klasörsüz” bölümüne döner, takip edilmeye devam eder.";
+"podcast_tag_delete_message" = "Bu etiket tüm programlardan kaldırılır.";
+"podcast_filter_empty" = "Seçilen klasör ve etiketlerle eşleşen program yok.";
 "podcast_updated_format" = "Güncelleme: %@";
 "podcast_video_episode" = "Video";
 "podcast_welcome_message" = "Bir program arayın ya da aşağıdaki listelerden birkaç tane seçin. Yeni bölümler burada görünür ve her bölüm kaldığınız yeri hatırlar.";

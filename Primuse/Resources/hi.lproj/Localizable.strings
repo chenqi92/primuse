@@ -5593,6 +5593,12 @@
 "podcast_unsubscribe" = "अनफ़ॉलो करें";
 "podcast_unsubscribe_confirm_message" = "डाउनलोड किए एपिसोड इस डिवाइस से हटा दिए जाएँगे। सुनने की प्रगति बनी रहेगी।";
 "podcast_unsubscribe_confirm_title" = "इस शो को अनफ़ॉलो करें?";
+"podcast_manage_selected %lld" = "%lld चयनित";
+"podcast_unsubscribe_selected_title %lld" = "चुने गए शो (%lld) को अनफ़ॉलो करें?";
+"podcast_unsubscribe_selected_message" = "इन शो के डाउनलोड किए एपिसोड इस डिवाइस से हटा दिए जाएँगे। सुनने की प्रगति बनी रहेगी।";
+"podcast_folder_delete_message" = "शो “बिना फ़ोल्डर” में लौट आते हैं, अनफ़ॉलो नहीं होते।";
+"podcast_tag_delete_message" = "यह टैग हर शो से हट जाएगा।";
+"podcast_filter_empty" = "चुने गए फ़ोल्डर और टैग से कोई शो मेल नहीं खाता।";
 "podcast_updated_format" = "अपडेट: %@";
 "podcast_video_episode" = "वीडियो";
 "podcast_welcome_message" = "कोई शो खोजें या नीचे के चार्ट से कुछ चुनें। नए एपिसोड यहाँ दिखेंगे, और हर एपिसोड याद रखेगा कि आप कहाँ रुके थे।";
