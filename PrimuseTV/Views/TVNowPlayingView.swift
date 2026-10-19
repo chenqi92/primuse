@@ -818,11 +818,12 @@ struct TVNowPlayingView: View {
                         Text(part).tvFont(.body).foregroundStyle(TVColor.text.opacity(0.86)).lineLimit(2)
                     }
                     HStack(spacing: 14) {
-                        if let author = TVSpokenWordText.author(store) {
+                        let author = TVSpokenWordText.author(store)
+                        if let author {
                             Text(author).lineLimit(1)
                         }
                         if let position = TVSpokenWordText.partPosition(store) {
-                            Text(verbatim: "·")
+                            if author != nil { Text(verbatim: "·") }
                             // 章节位置前那一圈是全书进度;百分比与全书还剩多久在右栏目录顶上。
                             HStack(spacing: 10) {
                                 if store.currentPodcastEpisodeID == nil,

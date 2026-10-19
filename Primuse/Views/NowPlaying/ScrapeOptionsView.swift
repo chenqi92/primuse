@@ -1340,11 +1340,13 @@ struct ScrapeOptionsView: View {
                                         Text(artist).font(.caption).foregroundStyle(Color.primuseScrapeGray)
                                     }
                                     if let album = item.album {
-                                        Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
+                                        if item.artist != nil {
+                                            Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
+                                        }
                                         Text(album).font(.caption).foregroundStyle(Color.primuseScrapeGray2)
                                     }
                                     if let lyricsLines = item.lyricsLines {
-                                        if item.artist != nil {
+                                        if item.artist != nil || item.album != nil {
                                             Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
                                         }
                                         Text(String(format: String(localized: "lyrics_server_test_ok_format"), lyricsLines.count))

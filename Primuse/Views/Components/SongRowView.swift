@@ -504,22 +504,30 @@ struct SongRowView: View {
                                 .font(.caption2)
                                 .accessibilityLabel(Text("music_video_badge"))
                         }
-                        if let artist = library.artistDisplayName(for: song) {
-                            if song.isStandaloneMusicVideo || unreachable { Text("·") }
+                        // 分隔点只加在前面已经有东西的时候：不带艺人标签的歌（NAS 上常见）
+                        // 不该以「· 3:49」开头。音质徽章自成一块，后面本来就不加点。
+                        let artist = library.artistDisplayName(for: song)
+                        let album = showAlbum && !showsAlbumColumn ? song.albumTitle : nil
+                        // 独立 MV 时长可能尚未回填, 不显示 0:00
+                        let showsDuration = !showsDurationColumn && song.duration > 0
+                        let leadsWithStatus = song.isStandaloneMusicVideo || unreachable
+                        if let artist {
+                            if leadsWithStatus { Text("·") }
                             Text(artist)
                         }
-                        if showAlbum, !showsAlbumColumn, let album = song.albumTitle {
-                            Text("·")
+                        if let album {
+                            if leadsWithStatus || artist != nil { Text("·") }
                             Text(album)
                         }
-                        // 独立 MV 时长可能尚未回填, 不显示 0:00
-                        if !showsDurationColumn, song.duration > 0 {
-                            Text("·")
+                        if showsDuration {
+                            if leadsWithStatus || artist != nil || album != nil { Text("·") }
                             Text(formatDuration(song.duration))
                                 .monospacedDigit()
                         }
                         if let sourceName {
-                            Text("·")
+                            if leadsWithStatus || artist != nil || album != nil || showsDuration {
+                                Text("·")
+                            }
                             if let sourceIconName {
                                 Image(systemName: sourceIconName)
                             }
@@ -1814,11 +1822,12 @@ private struct SimilarSongResultRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    if let artist = library.artistDisplayName(for: song) {
+                    let artist = library.artistDisplayName(for: song)
+                    if let artist {
                         Text(artist)
                     }
                     if let album = song.albumTitle {
-                        Text("·")
+                        if artist != nil { Text("·") }
                         Text(album)
                     }
                 }
