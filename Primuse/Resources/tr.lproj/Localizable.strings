@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "Çalma ve Sözler";
 "player_menu_item_medley" = "Potpuri";
 "player_menu_item_lyrics_display" = "Söz Boyutu ve Çevirisi";
+"player_menu_item_immersive_face" = "Tam ekran: kapak/sözler";
 "player_lyrics_interlude_dots" = "Ara Bölüm Noktaları";
 "player_lyrics_interlude_dots_description" = "İlk satırdan önceki girişte ve uzun enstrümantal aralarda üç nokta belirir, sırayla yanar, sonraki satırdan hemen önce iki kez hafifçe atar ve sözlerle aynı tarafa hizalanır. Kelime kelime senkronize sözlerde daha kısa aralar da sayılır.";
 "home_filter_bar_title" = "Üst filtreler";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "Önce çalan şarkıyı bitirecek";
 "sleep_timer_fade_footer" = "Son 30 saniyede ses yavaşça azalır.";
 
-"clip_export_menu" = "Zil Sesi Oluştur veya Klip Dışa Aktar";
 "clip_export_menu_mac" = "Klip Dışa Aktar";
 "clip_export_tab" = "Zil Sesi ve Dışa Aktarma";
 "clip_export_tab_mac" = "Klip Dışa Aktar";

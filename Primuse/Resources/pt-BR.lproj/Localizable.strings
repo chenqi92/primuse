@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "Reprodução e letra";
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Tamanho e tradução da letra";
+"player_menu_item_immersive_face" = "Tela cheia: capa/letra";
 "player_lyrics_interlude_dots" = "Pontos de interlúdio";
 "player_lyrics_interlude_dots_description" = "Na introdução antes da primeira linha e em interlúdios longos aparecem três pontos que acendem um após o outro, pulsam de leve duas vezes logo antes da próxima linha e seguem o alinhamento da letra. Com letras sincronizadas por palavra, pausas mais curtas também contam.";
 "home_filter_bar_title" = "Filtros no topo";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "Vai terminar a música atual primeiro";
 "sleep_timer_fade_footer" = "O volume diminui aos poucos nos últimos 30 segundos.";
 
-"clip_export_menu" = "Criar toque ou exportar trecho";
 "clip_export_menu_mac" = "Exportar trecho";
 "clip_export_tab" = "Toque e exportação";
 "clip_export_tab_mac" = "Exportar trecho";

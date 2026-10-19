@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "प्लेबैक और बोल";
 "player_menu_item_medley" = "मेडली";
 "player_menu_item_lyrics_display" = "बोल का आकार और अनुवाद";
+"player_menu_item_immersive_face" = "पूर्ण स्क्रीन: कवर/बोल";
 "player_lyrics_interlude_dots" = "इंटरल्यूड बिंदु";
 "player_lyrics_interlude_dots_description" = "पहली पंक्ति से पहले के इंट्रो और लंबे इंस्ट्रुमेंटल अंतराल में तीन बिंदु दिखते हैं, जो बारी-बारी से जलते हैं, अगली पंक्ति से ठीक पहले दो बार हल्के से धड़कते हैं और बोल की तरह ही संरेखित रहते हैं। शब्द-दर-शब्द सिंक बोल में छोटे अंतराल भी गिने जाते हैं।";
 "home_filter_bar_title" = "ऊपर के फ़िल्टर";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "पहले मौजूदा गाना पूरा बजेगा";
 "sleep_timer_fade_footer" = "आखिरी 30 सेकंड में आवाज़ धीरे-धीरे कम होती है।";
 
-"clip_export_menu" = "रिंगटोन बनाएँ या क्लिप एक्सपोर्ट करें";
 "clip_export_menu_mac" = "क्लिप एक्सपोर्ट करें";
 "clip_export_tab" = "रिंगटोन और एक्सपोर्ट";
 "clip_export_tab_mac" = "क्लिप एक्सपोर्ट करें";

@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "Odtwarzanie i tekst";
 "player_menu_item_medley" = "Składanka";
 "player_menu_item_lyrics_display" = "Rozmiar i tłumaczenie tekstu";
+"player_menu_item_immersive_face" = "Pełny ekran: okładka/tekst";
 "player_lyrics_interlude_dots" = "Kropki przerwy";
 "player_lyrics_interlude_dots_description" = "W intro przed pierwszym wersem i podczas długich przerw instrumentalnych pojawiają się trzy kropki, które zapalają się po kolei, tuż przed następnym wersem dwa razy delikatnie pulsują i są wyrównane tak jak tekst. Przy tekście synchronizowanym słowo po słowie liczą się też krótsze przerwy.";
 "home_filter_bar_title" = "Filtry u góry";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "Najpierw dokończy bieżący utwór";
 "sleep_timer_fade_footer" = "Przez ostatnie 30 sekund głośność stopniowo maleje.";
 
-"clip_export_menu" = "Utwórz dzwonek lub eksportuj fragment";
 "clip_export_menu_mac" = "Eksportuj fragment";
 "clip_export_tab" = "Dzwonek i eksport";
 "clip_export_tab_mac" = "Eksportuj fragment";

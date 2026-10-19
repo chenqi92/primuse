@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "Reproducción y letra";
 "player_menu_item_medley" = "Popurrí";
 "player_menu_item_lyrics_display" = "Tamaño y traducción de la letra";
+"player_menu_item_immersive_face" = "Pantalla completa: portada/letra";
 "player_lyrics_interlude_dots" = "Puntos de interludio";
 "player_lyrics_interlude_dots_description" = "En la introducción antes de la primera línea y en los interludios largos aparecen tres puntos que se iluminan uno tras otro, laten suavemente dos veces justo antes de la siguiente línea y se alinean como la letra. Con letras sincronizadas por palabra también cuentan pausas más cortas.";
 "home_filter_bar_title" = "Filtros superiores";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "Terminará primero la canción actual";
 "sleep_timer_fade_footer" = "El volumen baja poco a poco durante los últimos 30 segundos.";
 
-"clip_export_menu" = "Crear tono o exportar fragmento";
 "clip_export_menu_mac" = "Exportar fragmento";
 "clip_export_tab" = "Tono y exportación";
 "clip_export_tab_mac" = "Exportar fragmento";

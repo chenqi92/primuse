@@ -6182,6 +6182,7 @@
 "player_menu_group_playback" = "Wiedergabe & Liedtext";
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Textgröße & Übersetzung";
+"player_menu_item_immersive_face" = "Vollbild: Cover/Liedtext wechseln";
 "player_lyrics_interlude_dots" = "Zwischenspiel-Punkte";
 "player_lyrics_interlude_dots_description" = "Im Intro vor der ersten Zeile und bei langen Zwischenspielen erscheinen drei Punkte, die nacheinander aufleuchten, kurz vor der nächsten Zeile zweimal sanft pulsieren und sich an der Ausrichtung des Liedtexts orientieren. Bei wortgenauen Liedtexten zählen auch kürzere Pausen.";
 "home_filter_bar_title" = "Filter oben";
@@ -6609,7 +6610,6 @@
 "sleep_timer_finish_track_note" = "Spielt zuerst den aktuellen Titel zu Ende";
 "sleep_timer_fade_footer" = "In den letzten 30 Sekunden wird die Lautstärke langsam leiser.";
 
-"clip_export_menu" = "Klingelton erstellen oder Ausschnitt exportieren";
 "clip_export_menu_mac" = "Ausschnitt exportieren";
 "clip_export_tab" = "Klingelton & Export";
 "clip_export_tab_mac" = "Ausschnitt exportieren";

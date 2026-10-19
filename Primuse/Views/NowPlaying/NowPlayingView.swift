@@ -4514,7 +4514,8 @@ struct NowPlayingView: View {
         if let job = generator.activeJob, job.song.id == song.id {
             return SpokenTranscriptGenerationMenuItem(
                 titleKey: "transcript_generation_menu_running",
-                detail: SpokenTranscriptGenerationSheet.phaseText(job.phase)
+                detail: SpokenTranscriptGenerationSheet.phaseText(job.phase),
+                isRunning: true
             )
         }
         if generator.records[song.id] != nil, !lyrics.isEmpty {
@@ -7355,7 +7356,10 @@ struct NowPlayingView: View {
                 && shows(.podcastGoToShow),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
-            transcriptGeneration: transcriptGenerationMenuItem,
+            // 关掉的是入口;正在生成时那一行是进度,照样显示。
+            transcriptGeneration: transcriptGenerationMenuItem.flatMap {
+                shows(.generateTranscript) || $0.isRunning ? $0 : nil
+            },
             podcastShareURL: podcastShareURL,
             canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil && shows(.goToBook),
             hasChapterList: (player.hasChapters || isSpokenWord) && shows(.chaptersAndBookmarks),
@@ -7430,9 +7434,12 @@ struct NowPlayingView: View {
             isCurrentLiked: isCurrentLiked,
             canDislike: player.canDislikeCurrentSong && !menuSuppressed.contains(.dislike) && shows(.dislike),
             isCurrentDisliked: isCurrentDisliked,
-            playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio || !shows(.playbackRange)
+            playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio
+                || (!shows(.playbackRange) && !shows(.clipExport))
                 ? nil
                 : player.currentSong?.withoutAppliedPlaybackRange,
+            showsPlaybackRange: shows(.playbackRange),
+            showsClipExport: shows(.clipExport),
             showsScrape: shows(.scrape),
             showsSimilarSongs: shows(.similarSongs),
             showsTagEditor: shows(.editTags),
@@ -7441,6 +7448,7 @@ struct NowPlayingView: View {
             showsLyricsMotion: shows(.lyricsMotion),
             fullscreenEffectIsNative: fullscreenPlayerEffect.isNative,
             immersiveShowsArtwork: offersImmersiveArtworkToggle && isLyricsImmersive
+                && shows(.immersiveFaceToggle)
                 ? immersiveShowsArtwork : nil
         )
 
@@ -11460,6 +11468,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isCurrentDisliked: Bool
     /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台为 nil。
     let playbackRangeSong: Song?
+    /// 播放时间段与「铃声与导出」在菜单设置里各有一个开关。
+    let showsPlaybackRange: Bool
+    let showsClipExport: Bool
     /// 下面几项在「播放页按钮 › 『更多』菜单」里可以关掉(#198)。
     let showsScrape: Bool
     let showsSimilarSongs: Bool
@@ -12089,7 +12100,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
                 // 播放时间段:设过时是开关加「编辑」,没设过时是「设置播放时间段…」。
                 if let rangeSong = snapshot.playbackRangeSong {
-                    SongPlaybackRangeMenuItems(song: rangeSong, onEdit: onEditPlaybackRange)
+                    SongPlaybackRangeMenuItems(
+                        song: rangeSong,
+                        showsPlaybackRange: snapshot.showsPlaybackRange,
+                        showsClipExport: snapshot.showsClipExport,
+                        onEdit: onEditPlaybackRange
+                    )
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {

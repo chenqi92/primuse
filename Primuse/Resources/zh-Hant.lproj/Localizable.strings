@@ -6159,6 +6159,7 @@
 "player_menu_group_playback" = "播放與歌詞";
 "player_menu_item_medley" = "串燒播放";
 "player_menu_item_lyrics_display" = "歌詞字級與翻譯";
+"player_menu_item_immersive_face" = "全螢幕裡的封面與歌詞切換";
 "player_lyrics_interlude_dots" = "間奏提示點";
 "player_lyrics_interlude_dots_description" = "第一句之前的前奏和兩句之間較長的間奏裡顯示三個點，跟著時間依序亮起，下一句開唱前輕輕跳兩下，並和歌詞同一側對齊。逐字歌詞的間奏短一些也會顯示。";
 "home_filter_bar_title" = "頂部切換";
@@ -6586,7 +6587,6 @@
 "sleep_timer_finish_track_note" = "到點後會先播完目前這首";
 "sleep_timer_fade_footer" = "到點前最後 30 秒音量會慢慢降低。";
 
-"clip_export_menu" = "製作鈴聲或匯出片段";
 "clip_export_menu_mac" = "匯出片段";
 "clip_export_tab" = "鈴聲與匯出";
 "clip_export_tab_mac" = "匯出片段";

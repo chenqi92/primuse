@@ -5942,6 +5942,7 @@
 "player_menu_group_playback" = "Playback & Lyrics";
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Lyrics Size & Translation";
+"player_menu_item_immersive_face" = "Full-Screen Artwork/Lyrics Switch";
 "player_lyrics_interlude_dots" = "Interlude Dots";
 "player_lyrics_interlude_dots_description" = "Before the first line and during long instrumental breaks, three dots appear, light up in turn as the break plays, give a gentle double beat just before the next line, and line up with your lyrics alignment. With word-synced lyrics, shorter breaks count too.";
 "home_filter_bar_title" = "Top Filters";
@@ -6369,7 +6370,6 @@
 "sleep_timer_finish_track_note" = "Will finish the current song first";
 "sleep_timer_fade_footer" = "The volume fades out over the last 30 seconds.";
 
-"clip_export_menu" = "Make Ringtone or Export Clip";
 "clip_export_menu_mac" = "Export Clip";
 "clip_export_tab" = "Ringtone & Export";
 "clip_export_tab_mac" = "Export Clip";

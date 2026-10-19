@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "التشغيل وكلمات الأغنية";
 "player_menu_item_medley" = "ميدلي";
 "player_menu_item_lyrics_display" = "حجم الكلمات وترجمتها";
+"player_menu_item_immersive_face" = "شاشة كاملة: الغلاف/الكلمات";
 "player_lyrics_interlude_dots" = "نقاط الفاصل";
 "player_lyrics_interlude_dots_description" = "في المقدمة قبل السطر الأول وأثناء الفواصل الموسيقية الطويلة تظهر ثلاث نقاط تضيء تباعًا، وتنبض نبضتين خفيفتين قبل السطر التالي مباشرة، وتصطف في جهة الكلمات نفسها. مع الكلمات المتزامنة كلمةً بكلمة تُحتسب الفواصل الأقصر أيضًا.";
 "home_filter_bar_title" = "عوامل التصفية في الأعلى";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "سيُكمل الأغنية الحالية أولًا";
 "sleep_timer_fade_footer" = "ينخفض الصوت تدريجيًا خلال آخر 30 ثانية.";
 
-"clip_export_menu" = "إنشاء نغمة رنين أو تصدير مقطع";
 "clip_export_menu_mac" = "تصدير مقطع";
 "clip_export_tab" = "نغمة الرنين والتصدير";
 "clip_export_tab_mac" = "تصدير مقطع";

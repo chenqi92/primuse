@@ -6182,6 +6182,7 @@
 "player_menu_group_playback" = "Lecture et paroles";
 "player_menu_item_medley" = "Medley";
 "player_menu_item_lyrics_display" = "Taille et traduction des paroles";
+"player_menu_item_immersive_face" = "Plein écran : pochette/paroles";
 "player_lyrics_interlude_dots" = "Points d’interlude";
 "player_lyrics_interlude_dots_description" = "Pendant l’intro avant la première ligne et les longs interludes, trois points apparaissent, s’allument l’un après l’autre, battent doucement deux fois juste avant la ligne suivante et s’alignent comme les paroles. Avec des paroles synchronisées mot à mot, des pauses plus courtes comptent aussi.";
 "home_filter_bar_title" = "Filtres en haut";
@@ -6609,7 +6610,6 @@
 "sleep_timer_finish_track_note" = "Terminera d’abord le morceau en cours";
 "sleep_timer_fade_footer" = "Le volume baisse progressivement pendant les 30 dernières secondes.";
 
-"clip_export_menu" = "Créer une sonnerie ou exporter un extrait";
 "clip_export_menu_mac" = "Exporter un extrait";
 "clip_export_tab" = "Sonnerie et export";
 "clip_export_tab_mac" = "Exporter un extrait";

@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "การเล่นและเนื้อเพลง";
 "player_menu_item_medley" = "เมดเลย์";
 "player_menu_item_lyrics_display" = "ขนาดและคำแปลเนื้อเพลง";
+"player_menu_item_immersive_face" = "เต็มหน้าจอ: สลับปก/เนื้อเพลง";
 "player_lyrics_interlude_dots" = "จุดช่วงดนตรี";
 "player_lyrics_interlude_dots_description" = "ในอินโทรก่อนบรรทัดแรกและช่วงดนตรีคั่นยาว จะมีจุดสามจุดค่อย ๆ สว่างทีละจุด เต้นเบา ๆ สองครั้งก่อนบรรทัดถัดไป และจัดแนวเดียวกับเนื้อเพลง สำหรับเนื้อเพลงที่ซิงก์ทีละคำ ช่วงที่สั้นกว่านั้นก็นับด้วย";
 "home_filter_bar_title" = "ตัวกรองด้านบน";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "จะเล่นเพลงปัจจุบันให้จบก่อน";
 "sleep_timer_fade_footer" = "เสียงจะค่อยๆ เบาลงในช่วง 30 วินาทีสุดท้าย";
 
-"clip_export_menu" = "สร้างเสียงเรียกเข้าหรือส่งออกคลิป";
 "clip_export_menu_mac" = "ส่งออกคลิป";
 "clip_export_tab" = "เสียงเรียกเข้าและการส่งออก";
 "clip_export_tab_mac" = "ส่งออกคลิป";

@@ -6088,6 +6088,7 @@
 "player_menu_group_playback" = "Відтворення й текст";
 "player_menu_item_medley" = "Попурі";
 "player_menu_item_lyrics_display" = "Розмір і переклад тексту";
+"player_menu_item_immersive_face" = "На весь екран: обкладинка/текст";
 "player_lyrics_interlude_dots" = "Крапки програшу";
 "player_lyrics_interlude_dots_description" = "У вступі перед першим рядком і під час довгих програшів з’являються три крапки: вони по черзі засвічуються, перед наступним рядком двічі м’яко пульсують і вирівнюються так само, як текст. Для тексту з синхронізацією за словами враховуються й коротші паузи.";
 "home_filter_bar_title" = "Фільтри вгорі";
@@ -6515,7 +6516,6 @@
 "sleep_timer_finish_track_note" = "Спершу дограє поточний трек";
 "sleep_timer_fade_footer" = "Протягом останніх 30 секунд гучність плавно зменшується.";
 
-"clip_export_menu" = "Створити рингтон або експортувати фрагмент";
 "clip_export_menu_mac" = "Експортувати фрагмент";
 "clip_export_tab" = "Рингтон і експорт";
 "clip_export_tab_mac" = "Експортувати фрагмент";

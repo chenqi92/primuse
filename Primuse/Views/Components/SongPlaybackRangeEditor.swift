@@ -7,16 +7,20 @@ import UniformTypeIdentifiers
 
 /// 「播放时间段」在菜单里的样子:设过时间段时是一个开关(标题下面写着时间段)
 /// 加一项「编辑」,一点就能开关;没设过时只有「设置播放时间段…」。最后一项是
-/// 「制作铃声或导出片段」,打开同一个面板的另一页。
+/// 「铃声与导出」,打开同一个面板的另一页。播放页「更多」里两部分可以分别关掉。
 /// 读写都走 `SongPlaybackRangeStore`,不依赖环境,菜单放在单独的宿主里也能用。
 struct SongPlaybackRangeMenuItems: View {
     let song: Song
+    var showsPlaybackRange = true
+    var showsClipExport = true
     let onEdit: (SongPlaybackRangeEditor.Purpose) -> Void
 
     var body: some View {
         let store = SongPlaybackRangeStore.shared
         if SongPlaybackRangeAvailability.supports(song) {
-            if let range = store.range(for: song) {
+            if !showsPlaybackRange {
+                EmptyView()
+            } else if let range = store.range(for: song) {
                 Toggle(isOn: Binding(
                     get: { range.isEnabled },
                     set: { store.setEnabled($0, for: song) }
@@ -36,8 +40,10 @@ struct SongPlaybackRangeMenuItems: View {
                     Label(String(localized: "playback_range_set"), systemImage: "selection.pin.in.out")
                 }
             }
-            Button { onEdit(.clip) } label: {
-                Label(SongPlaybackRangeEditor.clipMenuTitle, systemImage: SongPlaybackRangeEditor.clipSymbol)
+            if showsClipExport {
+                Button { onEdit(.clip) } label: {
+                    Label(SongPlaybackRangeEditor.clipMenuTitle, systemImage: SongPlaybackRangeEditor.clipSymbol)
+                }
             }
         }
     }
@@ -99,7 +105,8 @@ struct SongPlaybackRangeEditor: View {
         #if os(macOS)
         String(localized: "clip_export_menu_mac")
         #else
-        String(localized: "clip_export_menu")
+        // 和面板上那一页同名:原来的「制作铃声或导出片段」在菜单里放不下一行。
+        String(localized: "clip_export_tab")
         #endif
     }
 

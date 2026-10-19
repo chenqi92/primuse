@@ -843,4 +843,5 @@ struct SpokenTranscriptEmptyState: View {
 struct SpokenTranscriptGenerationMenuItem: Equatable {
     var titleKey: LocalizedStringKey
     var detail: String?
+    var isRunning = false
 }

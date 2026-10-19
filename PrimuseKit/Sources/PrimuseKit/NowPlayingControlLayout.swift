@@ -104,6 +104,12 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case podcastGoToShow
     case podcastMarkPlayed
     case podcastDownload
+    /// 「铃声与导出」,原来跟着播放时间段一起开关。
+    case clipExport
+    /// 有声书、播客的「生成文字稿」。正在生成时那一行是进度,关掉也照样显示。
+    case generateTranscript
+    /// 竖屏原生全屏里顶替「全屏」那一格的封面 / 歌词切换。
+    case immersiveFaceToggle
 
     public var id: String { rawValue }
 }

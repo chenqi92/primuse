@@ -6275,6 +6275,7 @@
 "player_menu_group_playback" = "播放与歌词";
 "player_menu_item_medley" = "串烧播放";
 "player_menu_item_lyrics_display" = "歌词字号与翻译";
+"player_menu_item_immersive_face" = "全屏里的封面与歌词切换";
 "player_lyrics_interlude_dots" = "间奏提示点";
 "player_lyrics_interlude_dots_description" = "第一句之前的前奏和两句之间较长的间奏里显示三个点，跟着时间依次点亮，下一句开唱前轻轻跳两下，并和歌词同一侧对齐。逐字歌词的间奏短一些也会显示。";
 "home_filter_bar_title" = "顶部切换";
@@ -6702,7 +6703,6 @@
 "sleep_timer_finish_track_note" = "到点后会先播完当前这首";
 "sleep_timer_fade_footer" = "到点前最后 30 秒音量会慢慢降低。";
 
-"clip_export_menu" = "制作铃声或导出片段";
 "clip_export_menu_mac" = "导出片段";
 "clip_export_tab" = "铃声与导出";
 "clip_export_tab_mac" = "导出片段";

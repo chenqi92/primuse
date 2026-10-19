@@ -1635,9 +1635,11 @@ private struct NowPlayingMenuItemsEditor: View {
     private var layout: NowPlayingControlLayout { .decode(storage) }
 
     private static let groups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
-        ("player_menu_group_quick", [.fullScreen, .share, .addToPlaylist, .delete]),
+        ("player_menu_group_quick", [.fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
         ("player_menu_group_modes", [.karaoke, .medley]),
-        ("player_menu_group_song", [.scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .editTags, .editLyrics]),
+        ("player_menu_group_song", [
+            .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .editTags, .editLyrics,
+        ]),
         ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
         ("player_menu_group_playback", [.cast, .lyricsDisplay, .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
@@ -1666,7 +1668,9 @@ private struct SpokenWordMenuItemsEditor: View {
     /// 改标签这些曲库项,所以播客这边把它们也列出来。
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
-        ("player_menu_group_book", [.chaptersAndBookmarks, .goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics]),
+        ("player_menu_group_book", [
+            .chaptersAndBookmarks, .goToBook, .generateTranscript, .songInfo, .editTags, .editLyrics, .reloadLyrics,
+        ]),
         ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
 
@@ -1674,7 +1678,7 @@ private struct SpokenWordMenuItemsEditor: View {
         ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
         ("player_menu_group_episode", [
             .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow,
-            .chaptersAndBookmarks, .goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics,
+            .chaptersAndBookmarks, .goToBook, .generateTranscript, .songInfo, .editTags, .editLyrics, .reloadLyrics,
         ]),
         ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
@@ -1766,6 +1770,9 @@ extension NowPlayingMenuItem {
         case .podcastGoToShow: "rectangle.stack"
         case .podcastMarkPlayed: "checkmark.circle"
         case .podcastDownload: "arrow.down.circle"
+        case .clipExport: SongPlaybackRangeEditor.clipSymbol
+        case .generateTranscript: "waveform.and.mic"
+        case .immersiveFaceToggle: "photo"
         }
     }
 
@@ -1800,6 +1807,9 @@ extension NowPlayingMenuItem {
         case .podcastGoToShow: "podcast_go_to_show"
         case .podcastMarkPlayed: "podcast_mark_played"
         case .podcastDownload: "podcast_download"
+        case .clipExport: "clip_export_tab"
+        case .generateTranscript: "transcript_generation_title"
+        case .immersiveFaceToggle: "player_menu_item_immersive_face"
         }
     }
 }
