@@ -1256,8 +1256,7 @@ struct NowPlayingView: View {
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     /// 「更多」› 播放时间段 打开的编辑面板；打开时冻结目标，自然切歌后仍改这一首。
-    @State private var playbackRangeEditorSong: Song?
-    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
+    @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
     @State private var showSleepTimer = false
     /// 音乐的上一首 / 下一首按住不放时快退 / 快进的预览位置。
     @State private var transportHoldScrub = TransportHoldScrub()
@@ -1315,7 +1314,7 @@ struct NowPlayingView: View {
             || showAddToPlaylist
             || shareSong != nil
             || showSongInfo
-            || playbackRangeEditorSong != nil
+            || playbackRangeEditorRequest != nil
             || showTagEditor
             || lyricsEditorTargetSong != nil
             || lyricPosterComposer != nil
@@ -3346,8 +3345,8 @@ struct NowPlayingView: View {
                     .playerPresentationColorScheme()
             }
         }
-        .sheet(item: $playbackRangeEditorSong) { song in
-            SongPlaybackRangeEditor(song: song, purpose: playbackRangeEditorPurpose)
+        .sheet(item: $playbackRangeEditorRequest) { request in
+            SongPlaybackRangeEditor(song: request.song, purpose: request.purpose)
                 .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showTagEditor) {
@@ -7506,8 +7505,8 @@ struct NowPlayingView: View {
             onOpenUpNext: { openContentsPanel(tab: .upNext) },
             onToggleDislike: { player.toggleDislikeForCurrentSong() },
             onEditPlaybackRange: { purpose in
-                playbackRangeEditorPurpose = purpose
-                playbackRangeEditorSong = player.currentSong?.withoutAppliedPlaybackRange
+                guard let song = player.currentSong?.withoutAppliedPlaybackRange else { return }
+                playbackRangeEditorRequest = .init(song: song, purpose: purpose)
             },
             onShowEffectPicker: {
                 immersiveControlsAutoHideTask?.cancel()

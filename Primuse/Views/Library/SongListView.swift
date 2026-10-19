@@ -889,8 +889,7 @@ struct SongListView: View {
     @State private var contextSongInfoSong: Song?
     @State private var contextTagEditorSong: Song?
     @State private var contextShareSong: Song?
-    @State private var contextPlaybackRangeSong: Song?
-    @State private var contextPlaybackRangePurpose = SongPlaybackRangeEditor.Purpose.playbackRange
+    @State private var contextPlaybackRangeRequest: SongPlaybackRangeEditor.Request?
     @State private var exportError: String?
     /// songID → 播放次数, 由 PlayHistory 一次性折叠而来。重建只发生在
     /// onAppear 和 PlayHistory 变更通知时, 而不是每行重算 (否则 LazyVStack
@@ -1256,8 +1255,11 @@ struct SongListView: View {
             .sheet(item: $contextShareSong) { song in
                 SongShareSheet(song: library.song(id: song.id) ?? song)
             }
-            .sheet(item: $contextPlaybackRangeSong) { song in
-                SongPlaybackRangeEditor(song: library.song(id: song.id) ?? song, purpose: contextPlaybackRangePurpose)
+            .sheet(item: $contextPlaybackRangeRequest) { request in
+                SongPlaybackRangeEditor(
+                    song: library.song(id: request.song.id) ?? request.song,
+                    purpose: request.purpose
+                )
             }
             .alert("songs_export_failed",
                    isPresented: exportErrorPresentation) {
@@ -2506,8 +2508,7 @@ struct SongListView: View {
             macSpokenWordClassificationButton(for: song)
 
             SongPlaybackRangeMenuItems(song: latestSong(song)) { purpose in
-                contextPlaybackRangePurpose = purpose
-                contextPlaybackRangeSong = latestSong(song)
+                contextPlaybackRangeRequest = .init(song: latestSong(song), purpose: purpose)
             }
         }
 

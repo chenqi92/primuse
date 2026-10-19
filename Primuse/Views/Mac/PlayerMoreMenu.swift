@@ -33,9 +33,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
     @State private var showSongInfo = false
-    /// 播放时间段编辑面板的目标(整首);打开时冻结,自然切歌后仍改这一首。
-    @State private var playbackRangeEditorSong: Song?
-    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
+    /// 播放时间段编辑面板的目标(整首)与页签;打开时冻结,自然切歌后仍改这一首。
+    @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
     @State private var shareSong: Song?
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
@@ -109,8 +108,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 SongInfoSheet(song: song)
             }
         }
-        .sheet(item: $playbackRangeEditorSong) { song in
-            SongPlaybackRangeEditor(song: song, purpose: playbackRangeEditorPurpose)
+        .sheet(item: $playbackRangeEditorRequest) { request in
+            SongPlaybackRangeEditor(song: request.song, purpose: request.purpose)
         }
         .sheet(isPresented: $showChapterList) {
             SpokenWordContentsView()
@@ -321,18 +320,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 if let range = SongPlaybackRangeStore.shared.range(for: rangeSong) {
                     playbackRangeToggleRow(song: rangeSong, range: range)
                     menuRow(title: "playback_range_edit", symbol: "slider.horizontal.3") {
-                        playbackRangeEditorPurpose = .playbackRange
-                        playbackRangeEditorSong = rangeSong
+                        playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
                     }
                 } else {
                     menuRow(title: "playback_range_set", symbol: "selection.pin.in.out") {
-                        playbackRangeEditorPurpose = .playbackRange
-                        playbackRangeEditorSong = rangeSong
+                        playbackRangeEditorRequest = .init(song: rangeSong, purpose: .playbackRange)
                     }
                 }
                 menuRow(title: "clip_export_menu_mac", symbol: SongPlaybackRangeEditor.clipSymbol) {
-                    playbackRangeEditorPurpose = .clip
-                    playbackRangeEditorSong = rangeSong
+                    playbackRangeEditorRequest = .init(song: rangeSong, purpose: .clip)
                 }
             }
             if isPodcastEpisode {

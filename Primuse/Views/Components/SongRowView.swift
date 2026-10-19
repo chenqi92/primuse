@@ -65,8 +65,7 @@ struct SongRowView: View {
     @State private var showNoScraperSourceAlert = false
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
-    @State private var showPlaybackRangeEditor = false
-    @State private var playbackRangeEditorPurpose = SongPlaybackRangeEditor.Purpose.playbackRange
+    @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
     @State private var showTagEditor = false
@@ -197,7 +196,7 @@ struct SongRowView: View {
 
     private var hasPresentationRequest: Bool {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
-            || showSongInfo || showPlaybackRangeEditor || showDeleteConfirm || showBareAlert || showTagEditor
+            || showSongInfo || playbackRangeEditorRequest != nil || showDeleteConfirm || showBareAlert || showTagEditor
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
@@ -265,8 +264,8 @@ struct SongRowView: View {
             SongInfoSheet(song: song)
                 .songInfoPresentationStyle()
         }
-        .sheet(isPresented: $showPlaybackRangeEditor) {
-            SongPlaybackRangeEditor(song: library.song(id: song.id) ?? song, purpose: playbackRangeEditorPurpose)
+        .sheet(item: $playbackRangeEditorRequest) { request in
+            SongPlaybackRangeEditor(song: library.song(id: request.song.id) ?? request.song, purpose: request.purpose)
         }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
@@ -786,8 +785,7 @@ struct SongRowView: View {
             }
 
             SongPlaybackRangeMenuItems(song: song) { purpose in
-                playbackRangeEditorPurpose = purpose
-                showPlaybackRangeEditor = true
+                playbackRangeEditorRequest = .init(song: song, purpose: purpose)
             }
 
             if supportsOfflineAudioCache {

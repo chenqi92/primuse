@@ -696,6 +696,18 @@ struct SongPlaybackRangeEditor: View {
     #endif
 }
 
+extension SongPlaybackRangeEditor {
+    /// 打开哪一首、停在哪一页。两样要作为同一个弹出请求交给 `.sheet(item:)`:页签单独放一个
+    /// @State、在弹出内容里再读时,第一次弹出读到的是上一次渲染时的默认值 —— Mac 冷启动后
+    /// 第一次点「导出片段」打开的是播放时间段那页。
+    struct Request: Identifiable {
+        let song: Song
+        let purpose: Purpose
+
+        var id: String { song.id }
+    }
+}
+
 #if DEBUG
 extension SongPlaybackRangeEditor {
     /// 取证用:`PRIMUSE_DEBUG_PRESENT=clip` 弹出这一页后,`PRIMUSE_DEBUG_CLIP_ACTION=highlight,ringtone`
