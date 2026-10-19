@@ -1245,3 +1245,65 @@ final class ServerLibraryFolderHierarchyTests: XCTestCase {
         return items
     }
 }
+
+/// 内网、外网两个地址的服务器源会套一层线路代理。代理漏声明的能力, 在双地址下就等于
+/// 没有: 往服务端歌单加歌会被当成「不支持」, 道理鱼连歌单都不同步。
+@MainActor
+final class RoutedServerPlaylistForwardingTests: XCTestCase {
+    func testDualAddressServerSourcesForwardPlaylistReadsAndAppends() async throws {
+        let types: [MusicSourceType] = [
+            .navidrome, .jellyfin, .emby, .plex, .songloft, .synologyAudioStation, .fnMusic, .daoliyu,
+        ]
+        for type in types {
+            var source = MusicSource(id: "routed-playlists-\(UUID().uuidString)", name: "Dual", type: type)
+            source.connectionConfiguration = SourceConnectionConfiguration(
+                localEndpoint: SourceConnectionEndpoint(host: "lan.invalid", port: 4533, useSsl: false),
+                publicEndpoint: SourceConnectionEndpoint(host: "public.invalid", port: 443, useSsl: true)
+            )
+            let fixture = source
+            let stub = PlaylistWritingStubConnector(sourceID: source.id)
+            let manager = SourceManager(sourcesProvider: { [fixture] }, connectorFactory: { _ in stub })
+            let routed = manager.connector(for: source)
+            XCTAssertFalse(routed is PlaylistWritingStubConnector, "\(type) should sit behind a route proxy")
+
+            let reader = try XCTUnwrap(routed as? any ServerPlaylistConnector, "\(type) playlist reads")
+            let snapshot = try await reader.fetchServerPlaylists()
+            XCTAssertEqual(snapshot.playlists.map(\.id), ["pl-1"], "\(type)")
+
+            let appender = try XCTUnwrap(routed as? any ServerPlaylistAppendingConnector, "\(type) playlist appends")
+            let appended = try await appender.appendToServerPlaylist(id: "pl-1", itemIDs: ["a", "b"])
+            XCTAssertEqual(appended.trackIDs, ["a", "b"], "\(type)")
+            let calls = await stub.appendedItemIDs
+            XCTAssertEqual(calls, [["a", "b"]], "\(type)")
+        }
+    }
+}
+
+private actor PlaylistWritingStubConnector: ServerPlaylistConnector, ServerPlaylistAppendingConnector {
+    nonisolated let sourceID: String
+    private(set) var appendedItemIDs: [[String]] = []
+
+    init(sourceID: String) {
+        self.sourceID = sourceID
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        throw URLError(.unsupportedURL)
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        ServerPlaylistSnapshot(playlists: [ServerPlaylist(id: "pl-1", name: "Road", trackIDs: [])])
+    }
+
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        appendedItemIDs.append(itemIDs)
+        return ServerPlaylist(id: id, name: "Road", trackIDs: itemIDs)
+    }
+}

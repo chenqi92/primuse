@@ -1978,6 +1978,17 @@ private extension RoutedConnectorProxy {
         await routing.takeCatalogDriftObservation()
     }
 
+    /// 支持往服务端歌单加歌的源, 它们的代理都靠这一份转发; 代理只需要声明
+    /// `ServerPlaylistAppendingConnector`。漏声明时双地址的源加歌会被当成「不支持」。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistAppendingConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.appendToServerPlaylist(id: id, itemIDs: itemIDs)
+        }
+    }
+
     func takeObservedServerRatings() async -> [String: Int] {
         await routing.takeObservedServerRatings()
     }
@@ -2380,15 +2391,6 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
         }
     }
 
-    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
-        try await routing.withMutation { connector in
-            guard let provider = connector as? any ServerPlaylistAppendingConnector else {
-                throw SourceError.connectionFailed("Server playlist connector unavailable")
-            }
-            return try await provider.appendToServerPlaylist(id: id, itemIDs: itemIDs)
-        }
-    }
-
     func serverMediaSharingAvailability() async throws -> ServerMediaSharingAvailability {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerMediaSharingConnector else {
@@ -2502,7 +2504,8 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
 }
 
 private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerFavoriteConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -2578,8 +2581,8 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerScrobblingConnector, ServerCatalogChangeDetectingConnector,
-    CatalogDriftReportingConnector {
+    ServerLyricsConnector, ServerScrobblingConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2615,6 +2618,21 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
         _ = try? await routing.withMutation { connector in
             guard let reporter = connector as? any ServerScrobblingConnector else { return }
             await reporter.scrobble(songPath: songPath, submission: submission)
+        }
+    }
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 }
@@ -2805,7 +2823,7 @@ private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetada
 }
 
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerFavoriteConnector,
     ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
@@ -2893,7 +2911,8 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector, ServerRatingConnector,
+    ServerRadioConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -2968,7 +2987,7 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
