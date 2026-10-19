@@ -670,10 +670,6 @@ private struct MusicPortraitPreviewScreen: View {
                                 .padding(.top, NowPlayingView.artworkLyricHeadingGap)
                                 .padding(.bottom, 4)
                         }
-                        if headingHugsProgress {
-                            Color.clear
-                                .frame(height: NowPlayingView.fullBleedHeadingProgressGap)
-                        }
                     }
                 }
 

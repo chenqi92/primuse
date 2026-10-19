@@ -5533,7 +5533,8 @@ struct NowPlayingView: View {
 
                     // Song info (player mode only — in lyrics mode it's in the top bar)
                     if !showLyrics {
-                        // 铺满封面时歌名贴着进度条,剩下的高度落在封面与歌名之间,和封面下沿那截延伸连成一片(#329)。
+                        // 铺满封面时歌名贴着进度条(中间只剩进度条上边距和它命中区的上半截),剩下的高度落在
+                        // 封面与歌名之间,和封面下沿那截延伸连成一片(#329)。
                         // 封面下的歌词选了「自动」时这段高度归歌词,照旧排。
                         let headingHugsProgress = fullBleedArtwork && !artworkLyricsFill
                         if headingHugsProgress {
@@ -5589,10 +5590,6 @@ struct NowPlayingView: View {
                                 .padding(.top, Self.artworkLyricHeadingGap)
                                 .padding(.bottom, 4)
                                 .pmLayoutSwitchFade()
-                        }
-                        if headingHugsProgress {
-                            Color.clear
-                                .frame(height: Self.fullBleedHeadingProgressGap)
                         }
                     }
 
@@ -6709,9 +6706,6 @@ struct NowPlayingView: View {
         let aspect = extendsBelowSquare ? fullBleedArtworkMaxAspect : 1
         return max(0, width * aspect - portraitGrabberBand(topSafeArea: topSafeArea))
     }
-
-    /// 铺满封面时歌名(或下面那几句歌词)与进度条之间的空白;进度条自己另有 8 的上边距。
-    static let fullBleedHeadingProgressGap: CGFloat = 8
 
     /// 铺满封面在竖版里占的那一块：版面里只占把手以下的高度，封面槽位按底边对齐往上伸出把手那一行，
     /// 从屏幕顶端画起。点封面和卡片封面一样进歌词。

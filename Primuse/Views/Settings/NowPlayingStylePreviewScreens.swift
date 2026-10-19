@@ -945,10 +945,7 @@ struct PodcastPreviewScreen: View {
                     .padding(.horizontal, 26)
                     .padding(.top, 12)
 
-                if usesFullBleedArtwork {
-                    Color.clear
-                        .frame(height: NowPlayingView.fullBleedHeadingProgressGap)
-                } else {
+                if !usesFullBleedArtwork {
                     Spacer(minLength: 0)
                 }
 
