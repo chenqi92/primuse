@@ -90,6 +90,8 @@ public enum RadioStreamFormat: String, Codable, CaseIterable, Sendable, Hashable
 
 public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     public static let playbackSourceID = "primuse.live-radio"
+    /// 播放器里代表电台的那首虚拟歌曲的 ID 前缀。
+    public static let playbackSongIDPrefix = "radio:"
 
     public var id: String
     public var name: String
@@ -244,7 +246,7 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
 
     public var playbackSong: Song {
         Song(
-            id: "radio:\(id)",
+            id: Self.playbackSongIDPrefix + id,
             title: name,
             artistName: playbackSubtitle,
             duration: 0,

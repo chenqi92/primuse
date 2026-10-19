@@ -37,6 +37,21 @@ public enum ListeningSpaceVisibilityPolicy {
     }
 }
 
+/// 一条播放记录属于哪一类收听。订阅的播客单集和电台靠记录自己带的歌曲 ID、来源 ID 就能认出来；
+/// 曲库里的有声书、本地播客文件要靠曲库的分类，由调用方以 `spokenWordSongIDs` 给出。
+/// 听歌统计、排行和推荐种子只认 `.music`(#326)。
+public enum ListeningHistorySpacePolicy {
+    public static func space(songID: String, sourceID: String, spokenWordSongIDs: Set<String>) -> ListeningSpace {
+        if songID.hasPrefix(RadioStation.playbackSongIDPrefix) || sourceID == RadioStation.playbackSourceID {
+            return .radio
+        }
+        if PodcastIdentity.isEpisodeID(songID) || sourceID == PodcastPlaybackSong.sourceID {
+            return .podcast
+        }
+        return spokenWordSongIDs.contains(songID) ? .spokenWord : .music
+    }
+}
+
 /// A space's fixed colour as 0xRRGGBB, one value for light appearance and one
 /// for dark. The app's chips, tabs and library, Apple TV and the widgets all
 /// draw a space from here, so it reads the same colour on every screen.

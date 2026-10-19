@@ -38,6 +38,10 @@ final class PlayHistoryStore {
                 songTitle: songTitle, artistName: artistName, albumTitle: albumTitle
             )
         }
+
+        func listeningSpace(spokenWordSongIDs: Set<String>) -> ListeningSpace {
+            ListeningHistorySpacePolicy.space(songID: songID, sourceID: sourceID, spokenWordSongIDs: spokenWordSongIDs)
+        }
     }
 
     static let shared = PlayHistoryStore()
@@ -87,8 +91,9 @@ final class PlayHistoryStore {
         Self.musicEntries(entries, excluding: spokenWordSongIDs)
     }
 
+    /// 订阅播客的单集和电台不在曲库里，靠记录自己的 ID 认出来，同样不算音乐。
     nonisolated static func musicEntries(_ entries: [Entry], excluding spokenWordSongIDs: Set<String>) -> [Entry] {
-        spokenWordSongIDs.isEmpty ? entries : entries.filter { !spokenWordSongIDs.contains($0.songID) }
+        entries.filter { $0.listeningSpace(spokenWordSongIDs: spokenWordSongIDs) == .music }
     }
 
     /// Seconds spent on spoken word in `range` (calendar windows, like the
@@ -380,7 +385,7 @@ final class PlayHistoryStore {
     func dailyPlayCounts(in range: Range, now: Date = Date()) -> [(date: Date, count: Int)] {
         let cal = ListeningCalendar.current
         let end = cal.startOfDay(for: now)
-        let scoped = entries(in: range, now: now)
+        let scoped = musicEntries(in: range, now: now)
         // `.all` 没有固定起点 —— 从最早一条记录那天开始; 同时兜底最多回看 ~2 年,
         // 避免极端长的历史把热力图撑出成千上万列。
         let rawStart: Date

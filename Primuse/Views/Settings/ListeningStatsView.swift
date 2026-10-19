@@ -430,10 +430,10 @@ extension ListeningStatsView {
                 var music: [PlayHistoryStore.Entry] = []
                 var spokenWord: [PlayHistoryStore.Entry] = []
                 for entry in all {
-                    if corpusKey.spokenWordSongIDs.contains(entry.songID) {
-                        spokenWord.append(entry)
-                    } else {
-                        music.append(entry)
+                    switch entry.listeningSpace(spokenWordSongIDs: corpusKey.spokenWordSongIDs) {
+                    case .music: music.append(entry)
+                    case .spokenWord: spokenWord.append(entry)
+                    case .podcast, .radio: break
                     }
                 }
                 return (archived, Corpus(key: corpusKey, music: music, spokenWord: spokenWord))

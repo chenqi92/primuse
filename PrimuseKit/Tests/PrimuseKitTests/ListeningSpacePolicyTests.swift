@@ -12,6 +12,21 @@ struct ListeningSpacePolicyTests {
         #expect(ListeningSpaceVisibilityPolicy.visibleSpaces(hasRadioStations: false, hasSpokenWord: true) == [.music, .spokenWord])
     }
 
+    @Test("Play history: podcast episodes and stations are not music, library books need the library")
+    func historySpace() {
+        let books: Set<String> = ["book-1"]
+        #expect(ListeningHistorySpacePolicy.space(songID: "song-1", sourceID: "nas", spokenWordSongIDs: books) == .music)
+        #expect(ListeningHistorySpacePolicy.space(songID: "book-1", sourceID: "nas", spokenWordSongIDs: books) == .spokenWord)
+        #expect(ListeningHistorySpacePolicy.space(songID: "podcast:abc", sourceID: PodcastPlaybackSong.sourceID, spokenWordSongIDs: []) == .podcast)
+        // 只认得出其中一个也算:老记录、换了来源 ID 的单集照样不进音乐。
+        #expect(ListeningHistorySpacePolicy.space(songID: "podcast:abc", sourceID: "", spokenWordSongIDs: []) == .podcast)
+        #expect(ListeningHistorySpacePolicy.space(songID: "x", sourceID: PodcastPlaybackSong.sourceID, spokenWordSongIDs: []) == .podcast)
+        #expect(ListeningHistorySpacePolicy.space(songID: "radio:42", sourceID: RadioStation.playbackSourceID, spokenWordSongIDs: []) == .radio)
+        // 服务端镜像的电台带的是音乐源的 ID。
+        #expect(ListeningHistorySpacePolicy.space(songID: "radio:42", sourceID: "audio-station", spokenWordSongIDs: []) == .radio)
+        #expect(ListeningHistorySpacePolicy.space(songID: "podcast:abc", sourceID: "", spokenWordSongIDs: ["podcast:abc"]) == .podcast)
+    }
+
     @Test("Sleep options follow what can end")
     func sleepOptions() {
         #expect(SleepTimerOptionPolicy.options(for: .radio, hasChapters: false)

@@ -118,7 +118,7 @@ extension AudioPlayerService {
 
     /// Radio plays a synthetic song standing in for the station.
     func isRadioPlaybackSong(_ song: Song) -> Bool {
-        song.id.hasPrefix("radio:")
+        song.id.hasPrefix(RadioStation.playbackSongIDPrefix)
     }
 
     /// Called just before the current music item gives way to a book or a
