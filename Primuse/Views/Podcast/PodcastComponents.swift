@@ -597,17 +597,22 @@ private struct PodcastEpisodeContextMenu: ViewModifier {
 
 /// 喜欢的单集,最近喜欢的在前。播客页一段、整页列表、「我喜欢」页底下都用它。
 /// 放完一集接着放列表里的下一集;feed 里已经没有的那几集点了不进单集页,播放键照样能放。
+/// 喜欢的本地节目单集(自己的文件标成播客)接在订阅单集后面:它们只记着点心先后,没有喜欢的时间。
 struct PodcastLikedEpisodeRows: View {
     let items: [PodcastLikedEpisodeItem]
+    var localSongs: [Song] = []
     var limit: Int?
     var onOpen: ((String) -> Void)?
     var openShow: ((String) -> Void)?
+    var openLocalShow: ((String) -> Void)?
 
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
         let episodes = items.map(\.episode)
-        let shown = Array(items.prefix(limit ?? items.count))
+        let shownCount = limit ?? (items.count + localSongs.count)
+        let shown = Array(items.prefix(shownCount))
+        let shownLocal = Array(localSongs.prefix(max(0, shownCount - shown.count)))
         ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
             let continuing = Array(episodes.dropFirst(index + 1).prefix(30))
             let canOpen = onOpen != nil && store.episode(id: item.episode.id) != nil
@@ -617,32 +622,49 @@ struct PodcastLikedEpisodeRows: View {
                 showsArtwork: true,
                 showsSummary: false,
                 continuing: continuing,
-                showsDivider: index < shown.count - 1,
+                showsDivider: index < shown.count - 1 || !shownLocal.isEmpty,
                 onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
             )
             .podcastEpisodeContextMenu(item.episode, continuing: continuing, openShow: openShow)
         }
+        ForEach(Array(shownLocal.enumerated()), id: \.element.id) { index, song in
+            LikedLocalPodcastEpisodeRow(
+                song: song,
+                continuing: Array(localSongs.dropFirst(index + 1).prefix(30)),
+                showsDivider: index < shownLocal.count - 1,
+                openShow: openLocalShow
+            )
+        }
     }
 }
 
-/// 「我喜欢」页底下那一段:喜欢的播客单集不进歌单本身,在这里列出来。
+/// 「我喜欢」页底下那一段:喜欢的播客单集不进歌单本身,在这里列出来;喜欢的本地节目单集
+/// 照旧记在「我喜欢」里,但不混进上面的歌曲,也排在这里。
 /// Mac 的详情区不是导航栈,点一行不进单集页(行里的播放键照样能放)。
 struct PodcastLikedEpisodesFooter: View {
     var opensEpisodes = true
 
+    @Environment(MusicLibrary.self) private var library
     @State private var pushedEpisodeID: String?
+    @State private var pushedLocalShowID: String?
 
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
         let items = store.likedEpisodes()
-        if !items.isEmpty {
+        let localSongs = library.likedLocalPodcastSongs()
+        if !items.isEmpty || !localSongs.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 PodcastSectionHeader(titleKey: "podcast_liked_episodes")
                 if opensEpisodes {
-                    PodcastLikedEpisodeRows(items: items, onOpen: { pushedEpisodeID = $0 })
+                    PodcastLikedEpisodeRows(
+                        items: items,
+                        localSongs: localSongs,
+                        onOpen: { pushedEpisodeID = $0 },
+                        openLocalShow: { pushedLocalShowID = $0 }
+                    )
                 } else {
-                    PodcastLikedEpisodeRows(items: items)
+                    PodcastLikedEpisodeRows(items: items, localSongs: localSongs)
                 }
             }
             .padding(.horizontal, 16)
@@ -650,7 +672,165 @@ struct PodcastLikedEpisodesFooter: View {
             .navigationDestination(item: $pushedEpisodeID) { episodeID in
                 PodcastEpisodeDetailView(episodeID: episodeID)
             }
+            .navigationDestination(item: $pushedLocalShowID) { showID in
+                SpokenWordBookDetailView(bookID: showID, collection: .localPodcasts)
+            }
         }
+    }
+}
+
+/// 「喜欢的单集」里的一集本地节目(自己的文件标成播客)。排法同订阅单集行:封面跟文字一样高、
+/// 节目名在日期前。没有单集详情页,整行点一下就放(正在放的这一集是暂停),放完接着放列表里后面几集。
+struct LikedLocalPodcastEpisodeRow: View {
+    let song: Song
+    var continuing: [Song] = []
+    var showsDivider = false
+    var openShow: ((String) -> Void)?
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    /// 封面跟文字一样高时实际量出来的边长,下面那一排键和分隔线按它让开。
+    @State private var matchedArtworkSide: CGFloat?
+
+    private static let artworkSize: CGFloat = 60
+    private static let artworkSpacing: CGFloat = 12
+    private static let controlsHeight: CGFloat = 32
+
+    private var textLeading: CGFloat {
+        (matchedArtworkSide ?? Self.artworkSize) + Self.artworkSpacing
+    }
+
+    /// 本地节目按专辑(节目名)成组;没写专辑的退回艺人。
+    private var showTitle: String? {
+        let album = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !album.isEmpty { return album }
+        let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return artist.isEmpty ? nil : artist
+    }
+
+    var body: some View {
+        let item = SpokenWordBookSupport.item(for: song, store: SpokenWordStore.shared)
+        let isCurrent = player.currentSong?.id == song.id
+        Button {
+            play()
+        } label: {
+            SpokenWordHeaderRowLayout(
+                spacing: Self.artworkSpacing,
+                preferredSide: Self.artworkSize,
+                maximumSide: 124,
+                maximumWidthFraction: 0.32
+            ) {
+                SpokenWordHeaderArtworkSlot { side in
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: side,
+                        cornerRadius: 10,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                    .frame(width: side, height: side)
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { side in
+                    matchedArtworkSide = side
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    metaLine(item: item)
+                    Text(library.displayTitle(for: song))
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(item.isFinished && !isCurrent ? .secondary : .primary)
+                        .lineLimit(2, reservesSpace: true)
+                        .multilineTextAlignment(.leading)
+                    // 下面那一排键盖在这里(见 overlay),这里只占位置。
+                    Color.clear
+                        .frame(height: Self.controlsHeight)
+                        .padding(.top, 2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottomLeading) {
+            LocalPodcastEpisodeControls(item: item)
+                .frame(height: Self.controlsHeight)
+                .padding(.leading, textLeading)
+                .padding(.bottom, 10)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Divider().padding(.leading, textLeading)
+            }
+        }
+        .contextMenu { menu(item: item) }
+        .accessibilityIdentifier("podcast.liked.localEpisode")
+    }
+
+    private func metaLine(item: SpokenWordBookItem) -> some View {
+        HStack(spacing: 6) {
+            if let showTitle {
+                Text(showTitle)
+                    .lineLimit(1)
+                Text(verbatim: "·")
+            }
+            if let date = PodcastFormat.date(item.addedAt) {
+                Text(date)
+            }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private func menu(item: SpokenWordBookItem) -> some View {
+        Button {
+            play()
+        } label: {
+            Label(item.position != nil && !item.isFinished ? "podcast_continue" : "podcast_play", systemImage: "play.fill")
+        }
+        Button {
+            _ = player.insertNextInQueue([song])
+        } label: {
+            Label("insert_next_short", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        Divider()
+        Button {
+            PMHaptics.likeToggled(isLiked: false)
+            library.toggleLiked(songID: song.id)
+        } label: {
+            Label("a11y_unlike", systemImage: "heart.slash")
+        }
+        Button {
+            SpokenWordStore.shared.markFinished(!item.isFinished, songIDs: [song.id])
+        } label: {
+            if item.isFinished {
+                Label("podcast_mark_unplayed", systemImage: "circle")
+            } else {
+                Label("podcast_mark_played", systemImage: "checkmark.circle")
+            }
+        }
+        if let openShow, let showID = library.localPodcastShowID(forSongID: song.id) {
+            Button {
+                openShow(showID)
+            } label: {
+                Label("podcast_go_to_show", systemImage: "rectangle.stack")
+            }
+        }
+    }
+
+    private func play() {
+        if player.currentSong?.id == song.id {
+            player.togglePlayPause()
+            return
+        }
+        let queue = [song] + continuing
+        Task { await player.play(queue: queue, startingAt: 0) }
     }
 }
 

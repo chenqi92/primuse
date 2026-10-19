@@ -427,12 +427,8 @@ private struct LocalPodcastEpisodeRow: View {
                 .foregroundStyle(isCurrent ? tint : (item.isFinished ? .secondary : .primary))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-            HStack(spacing: 10) {
-                playKey(isCurrent: isCurrent)
-                statusText(isCurrent: isCurrent)
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 2)
+            LocalPodcastEpisodeControls(item: item)
+                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
@@ -456,6 +452,25 @@ private struct LocalPodcastEpisodeRow: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
         .lineLimit(1)
+    }
+}
+
+/// 本地节目单集行底下那一排:播放键(外圈是这一集听到哪,正在放时变暂停)与时长、剩余或「已播放」。
+/// 只是显示,点按交给整行。节目页的单集行和「喜欢的单集」里的本地单集共用。
+struct LocalPodcastEpisodeControls: View {
+    let item: SpokenWordBookItem
+
+    @Environment(AudioPlayerService.self) private var player
+
+    private var tint: Color { ListeningSpace.podcast.tint }
+
+    var body: some View {
+        let isCurrent = player.currentSong?.id == item.id
+        HStack(spacing: 10) {
+            playKey(isCurrent: isCurrent)
+            statusText(isCurrent: isCurrent)
+            Spacer(minLength: 0)
+        }
     }
 
     private func playKey(isCurrent: Bool) -> some View {

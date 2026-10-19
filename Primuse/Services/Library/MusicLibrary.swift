@@ -8518,7 +8518,7 @@ final class MusicLibrary {
 
     func songs(forPlaylist playlistID: String) -> [Song] {
         _ = visibleSongsReference
-        let ids = playlistSongIDs[playlistID] ?? []
+        let ids = playlistMemberIDs(playlistID)
         let key = playlistMaterializationKey
         if let cached = materializedPlaylistSongs[playlistID], cached.key == key { return cached.songs }
         let songs = ids.compactMap { lookupVisibleSong($0) }
@@ -8537,6 +8537,8 @@ final class MusicLibrary {
         let lookupGeneration: UInt64
         let membershipRevision: UInt64
         let pendingRevision: UInt64
+        /// 本地播客的归类变了,「我喜欢」当歌单用的成员跟着变。
+        let localPodcastRevision: UInt64
     }
 
     private var playlistMaterializationKey: PlaylistMaterializationKey {
@@ -8544,8 +8546,39 @@ final class MusicLibrary {
             cacheGeneration: visibleCacheGeneration,
             lookupGeneration: visibleLookupGeneration,
             membershipRevision: playlistMembershipRevision,
-            pendingRevision: playlistPendingRevision
+            pendingRevision: playlistPendingRevision,
+            localPodcastRevision: localPodcastContentRevision
         )
+    }
+
+    /// 当歌单用(列表、首数、播放、封面)的成员 id。「我喜欢」不算本地播客单集:
+    /// 点心照旧记在这里(同步、服务端星标不变),界面上和订阅播客喜欢的单集一起列在
+    /// 「喜欢的单集」(`likedLocalPodcastSongs()`),也不跟着「播放我喜欢」播。
+    private func playlistMemberIDs(_ playlistID: String) -> [String] {
+        let ids = playlistSongIDs[playlistID] ?? []
+        guard playlistID == Self.likedSongsPlaylistID else { return ids }
+        _ = localPodcastContentRevision
+        guard !localPodcastBookIDs.isEmpty else { return ids }
+        let podcastShowIDs = localPodcastBookIDs
+        return LikedSongsPodcastSplitPolicy.music(ids) { podcastShowIDs[$0] != nil }
+    }
+
+    /// 喜欢的本地播客单集(自己的文件标成播客),最近喜欢的在前。
+    func likedLocalPodcastSongs() -> [Song] {
+        _ = visibleSongsReference
+        _ = playlistSongIDs
+        _ = localPodcastContentRevision
+        guard !localPodcastBookIDs.isEmpty else { return [] }
+        let podcastShowIDs = localPodcastBookIDs
+        return LikedSongsPodcastSplitPolicy.podcastsNewestFirst(
+            playlistSongIDs[Self.likedSongsPlaylistID] ?? []
+        ) { podcastShowIDs[$0] != nil }
+        .compactMap { lookupVisibleSong($0) }
+    }
+
+    /// 本地播客单集所在节目的 id(本地节目页按它打开);不是本地播客时为 nil。
+    func localPodcastShowID(forSongID songID: String) -> String? {
+        localPodcastBookIDs[songID]
     }
 
     /// `SmartPlaylistEngine` 按输入版本记下的匹配结果, 跟着这个库实例走。
@@ -8574,7 +8607,7 @@ final class MusicLibrary {
     /// right now; resolve them with `visibleSong(id:)`.
     func songIDs(forPlaylist playlistID: String) -> [String] {
         _ = visibleSongsReference
-        return playlistSongIDs[playlistID] ?? []
+        return playlistMemberIDs(playlistID)
     }
 
     /// Count and first visible entry without materializing the full playlist.
@@ -8592,6 +8625,7 @@ final class MusicLibrary {
     private struct PlaylistVisibleSummary {
         let membershipRevision: UInt64
         let visibleIndexGeneration: UInt64
+        let localPodcastRevision: UInt64
         let count: Int
         let firstSongID: String?
     }
@@ -8601,12 +8635,13 @@ final class MusicLibrary {
     private func playlistVisibleSummary(_ playlistID: String) -> PlaylistVisibleSummary {
         if let cached = playlistVisibleSummaries[playlistID],
            cached.membershipRevision == playlistMembershipRevision,
-           cached.visibleIndexGeneration == visibleSongIndexGeneration {
+           cached.visibleIndexGeneration == visibleSongIndexGeneration,
+           cached.localPodcastRevision == localPodcastContentRevision {
             return cached
         }
         var count = 0
         var firstSongID: String?
-        for songID in playlistSongIDs[playlistID] ?? []
+        for songID in playlistMemberIDs(playlistID)
         where visibleSongIndexByID[songID] != nil {
             if firstSongID == nil { firstSongID = songID }
             count += 1
@@ -8614,6 +8649,7 @@ final class MusicLibrary {
         let summary = PlaylistVisibleSummary(
             membershipRevision: playlistMembershipRevision,
             visibleIndexGeneration: visibleSongIndexGeneration,
+            localPodcastRevision: localPodcastContentRevision,
             count: count,
             firstSongID: firstSongID
         )
@@ -8633,7 +8669,7 @@ final class MusicLibrary {
             playlistID: playlistID,
             limit: artworkCandidateLimit
         )
-        for songID in playlistSongIDs[playlistID] ?? [] {
+        for songID in playlistMemberIDs(playlistID) {
             guard let song = lookupVisibleSong(songID) else { continue }
             accumulator.consider(song)
         }
@@ -8953,6 +8989,15 @@ final class MusicLibrary {
               let playlist = allPlaylists.first(where: { $0.id == playlistID }),
               !playlist.isDeleted, playlist.allowsManualSongMembership
         else { return }
+        var songIDs = songIDs
+        if playlistID == Self.likedSongsPlaylistID, !localPodcastBookIDs.isEmpty {
+            // 「我喜欢」页上不列本地播客单集,重排时它们不算被删掉。
+            let podcastShowIDs = localPodcastBookIDs
+            songIDs = LikedSongsPodcastSplitPolicy.replacement(
+                songIDs,
+                keeping: playlistSongIDs[playlistID] ?? []
+            ) { podcastShowIDs[$0] != nil }
+        }
         replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
     }
 
@@ -9768,7 +9813,7 @@ final class MusicLibrary {
     /// `songs(forPlaylist:)` 一样不出现。
     func entries(forPlaylist playlistID: String) -> [PlaylistEntry] {
         _ = visibleSongsReference
-        let ids = playlistSongIDs[playlistID] ?? []
+        let ids = playlistMemberIDs(playlistID)
         let pending = playlistPendingEntries
         let key = playlistMaterializationKey
         if let cached = materializedPlaylistEntries[playlistID], cached.key == key { return cached.entries }

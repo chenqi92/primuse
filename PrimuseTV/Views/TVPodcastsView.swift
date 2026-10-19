@@ -272,12 +272,15 @@ struct TVPodcastsView: View {
         }
     }
 
-    /// 喜欢的单集(和手机同一份,经 iCloud 同步),最近喜欢的在前。
+    /// 喜欢的单集(和手机同一份,经 iCloud 同步),最近喜欢的在前;喜欢的本地节目单集
+    /// (自己的文件标成播客,记在「我喜欢」里)接在后面。
     @ViewBuilder
     private var likedEpisodes: some View {
         let liked = podcasts.likedEpisodes()
-        if !liked.isEmpty {
+        let localSongs = store.library.likedLocalPodcastSongs()
+        if !liked.isEmpty || !localSongs.isEmpty {
             let episodes = liked.map(\.episode)
+            let localIDs = localSongs.map(\.id)
             TVRow(label: String(localized: "podcast_liked_episodes"), loadsLazily: true) {
                 ForEach(Array(liked.enumerated()), id: \.element.id) { index, item in
                     let continuing = Array(episodes.dropFirst(index + 1))
@@ -288,6 +291,17 @@ struct TVPodcastsView: View {
                         play(item.episode, continuing: continuing, cardID: cardID)
                     }
                     .contextMenu { episodeMenu(item.episode, continuing: continuing, cardID: cardID) }
+                    .id(cardID)
+                }
+                ForEach(localSongs, id: \.id) { song in
+                    let cardID = "liked-local:" + song.id
+                    TVLocalPodcastEpisodeCard(
+                        song: song, title: store.library.displayTitle(for: song),
+                        focusBinding: $focusedCard, focusID: cardID
+                    ) {
+                        playLocal(song.id, in: localIDs, cardID: cardID)
+                    }
+                    .contextMenu { localEpisodeMenu(song, in: localIDs, cardID: cardID) }
                     .id(cardID)
                 }
             }
@@ -462,6 +476,32 @@ struct TVPodcastsView: View {
     }
 
     @ViewBuilder
+    private func localEpisodeMenu(_ song: Song, in songIDs: [String], cardID: String) -> some View {
+        Button { playLocal(song.id, in: songIDs, cardID: cardID) } label: {
+            Label(String(localized: "podcast_play"), systemImage: "play.fill")
+        }
+        Button { store.toggleLiked(song.id) } label: {
+            Label(String(localized: "a11y_unlike"), systemImage: "heart.slash")
+        }
+        let finished = SpokenWordStore.shared.finishedDate(forSongID: song.id) != nil
+        Button { SpokenWordStore.shared.markFinished(!finished, songIDs: [song.id]) } label: {
+            Label(
+                String(localized: finished ? "podcast_mark_unplayed" : "podcast_mark_played"),
+                systemImage: finished ? "circle" : "checkmark.circle"
+            )
+        }
+        if let showID = store.library.localPodcastShowID(forSongID: song.id),
+           let book = store.spokenWordShelf(.localPodcasts).booksByID[showID] {
+            Button {
+                memory.cardID = cardID
+                presented = .localShow(book)
+            } label: {
+                Label(String(localized: "podcast_go_to_show"), systemImage: "antenna.radiowaves.left.and.right")
+            }
+        }
+    }
+
+    @ViewBuilder
     private func showMenu(_ show: PodcastShow) -> some View {
         Button { Task { await podcasts.refresh(showID: show.id) } } label: {
             Label(String(localized: "refresh"), systemImage: "arrow.clockwise")
@@ -476,6 +516,16 @@ struct TVPodcastsView: View {
 
     private func play(_ episode: PodcastEpisode, continuing: [PodcastEpisode], cardID: String) {
         store.playPodcast(episode, continuing: continuing)
+        memory.cardID = cardID
+        memory.presentation = nil
+        memory.episodeID = nil
+        openPlayer()
+    }
+
+    /// 喜欢的本地单集:从这一集起,按列表往后接着放。
+    private func playLocal(_ songID: String, in songIDs: [String], cardID: String) {
+        guard let index = songIDs.firstIndex(of: songID),
+              store.playSpokenWordBook(songIDs: Array(songIDs[index...]), startingAt: songID) else { return }
         memory.cardID = cardID
         memory.presentation = nil
         memory.episodeID = nil
@@ -897,6 +947,75 @@ struct TVPodcastEpisodeCard: View {
             .frame(width: width, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// 喜欢的本地节目单集(自己的文件标成播客):排法同订阅单集卡,封面用这一集文件自己的。
+struct TVLocalPodcastEpisodeCard: View {
+    let song: Song
+    let title: String
+    var width: CGFloat = 280
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
+    var action: () -> Void
+
+    private var showTitle: String? {
+        let album = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !album.isEmpty { return album }
+        let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return artist.isEmpty ? nil : artist
+    }
+
+    var body: some View {
+        let stored = SpokenWordStore.shared.position(forSongID: song.id)
+        let finished = SpokenWordStore.shared.finishedDate(forSongID: song.id) != nil
+        let total = (stored?.duration ?? 0) > 0 ? (stored?.duration ?? 0) : song.duration
+        let position = stored?.position ?? 0
+        TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
+            VStack(alignment: .leading, spacing: 0) {
+                TVArtworkView(
+                    coverKey: song.albumID ?? song.id,
+                    artist: song.artistName ?? "",
+                    album: song.albumTitle ?? "",
+                    songID: song.id,
+                    coverRef: song.coverArtFileName,
+                    tint: TVColor.podcastSpace,
+                    tint2: .black,
+                    glyph: TVLibraryTint.glyph(showTitle ?? title),
+                    placeholderKind: .book,
+                    size: width
+                )
+                .tvCardFocus(focused, radius: TVRadius.cover)
+                VStack(alignment: .leading, spacing: 6) {
+                    if !finished, position > 0, total > position {
+                        TVPodcastProgressBar(fraction: position / total)
+                            .padding(.bottom, 4)
+                    }
+                    if let showTitle {
+                        Text(showTitle).tvFont(.meta, weight: .semibold)
+                            .foregroundStyle(TVColor.podcastSpace)
+                            .lineLimit(1)
+                    }
+                    Text(title).tvFont(.rowTitle, weight: .semibold)
+                        .foregroundStyle(finished ? TVColor.textFaint : TVColor.text)
+                        .lineLimit(2, reservesSpace: true)
+                    Text(meta(finished: finished, position: position, total: total)).tvFont(.meta)
+                        .foregroundStyle(TVColor.textFaint)
+                        .lineLimit(1)
+                }
+                .padding(.top, 14).padding(.horizontal, 2)
+                .frame(width: width, alignment: .leading)
+            }
+            .frame(width: width, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// 「48 分钟」;听到一半的换成剩余时间,听完的说已播放。
+    private func meta(finished: Bool, position: Double, total: Double) -> String {
+        if finished { return String(localized: "podcast_played") }
+        if position > 0, total > position { return PodcastFormat.remaining(total - position) }
+        return PodcastFormat.duration(total) ?? ""
     }
 }
 

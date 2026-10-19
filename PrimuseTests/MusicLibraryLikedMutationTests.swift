@@ -184,6 +184,68 @@ final class MusicLibraryLikedMutationTests: XCTestCase {
     }
 }
 
+/// 喜欢的本地节目单集(自己的文件标成播客)照旧记在「我喜欢」里, 但当歌单用时(列表、首数、
+/// 播放、Siri、CarPlay)不算它们, 改和订阅播客喜欢的单集一起列在「喜欢的单集」;
+/// 重排「我喜欢」不会把看不见的单集挤掉。
+@MainActor
+final class MusicLibraryLikedLocalPodcastTests: XCTestCase {
+    func testLikedLocalPodcastEpisodesStayLikedButLeaveThePlaylist() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseLikedPodcastTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            makeSong("music-1"),
+            makeSong("episode-1", genre: "Podcast"),
+            makeSong("music-2"),
+            makeSong("episode-2", genre: "Podcast"),
+        ], affectedSourceIDs: ["source-1"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.localPodcastSongs.map(\.id)), ["episode-1", "episode-2"])
+
+        let liked = MusicLibrary.likedSongsPlaylistID
+        library.ensurePlaylist(id: liked, name: "Liked")
+        library.add(songIDs: ["music-1", "episode-1", "music-2", "episode-2"], toPlaylist: liked)
+
+        XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-1", "music-2"])
+        XCTAssertEqual(library.songIDs(forPlaylist: liked), ["music-1", "music-2"])
+        XCTAssertEqual(library.songCount(forPlaylist: liked), 2)
+        XCTAssertEqual(library.entries(forPlaylist: liked).map(\.id), ["music-1", "music-2"])
+        XCTAssertEqual(library.likedLocalPodcastSongs().map(\.id), ["episode-2", "episode-1"])
+        XCTAssertTrue(library.isLiked(songID: "episode-1"))
+        XCTAssertNotNil(library.localPodcastShowID(forSongID: "episode-1"))
+        XCTAssertNil(library.localPodcastShowID(forSongID: "music-1"))
+
+        library.replacePlaylistSongs(playlistID: liked, songIDs: ["music-2", "music-1"])
+        XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-2", "music-1"])
+        XCTAssertEqual(library.likedLocalPodcastSongs().map(\.id), ["episode-2", "episode-1"])
+        XCTAssertTrue(library.isLiked(songID: "episode-2"), "Reordering the songs must not unlike the hidden episodes")
+
+        library.toggleLiked(songID: "episode-1")
+        XCTAssertEqual(library.likedLocalPodcastSongs().map(\.id), ["episode-2"])
+        XCTAssertEqual(library.songCount(forPlaylist: liked), 2)
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library should persist")
+        }
+    }
+
+    private func makeSong(_ id: String, genre: String? = nil) -> Song {
+        Song(
+            id: id,
+            title: id,
+            albumTitle: genre == nil ? "Album" : "Local show",
+            artistName: "Artist",
+            fileFormat: .mp3,
+            filePath: "/\(genre == nil ? "music" : "podcast")/\(id).mp3",
+            sourceID: "source-1",
+            genre: genre
+        )
+    }
+}
+
 /// 「不喜欢」(#193): 和喜欢互斥, 只是一份记录(不进歌单列表), 替人挑歌时跳过。
 @MainActor
 final class MusicLibraryDislikedSongsTests: XCTestCase {

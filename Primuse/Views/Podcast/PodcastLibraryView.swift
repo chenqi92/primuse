@@ -733,15 +733,18 @@ private struct PodcastLatestEpisodesSection: View {
 private struct PodcastLikedEpisodesSection: View {
     let navigation: PodcastNavigationModel
 
+    @Environment(MusicLibrary.self) private var library
+
     private var store: PodcastStore { PodcastStore.shared }
     private static let previewCount = 3
 
     var body: some View {
         let items = store.likedEpisodes()
-        if !items.isEmpty {
+        let localSongs = library.likedLocalPodcastSongs()
+        if !items.isEmpty || !localSongs.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 PodcastSectionHeader(titleKey: "podcast_liked_episodes") {
-                    if items.count > Self.previewCount {
+                    if items.count + localSongs.count > Self.previewCount {
                         Button {
                             navigation.pushedLikedEpisodes = true
                         } label: {
@@ -759,9 +762,11 @@ private struct PodcastLikedEpisodesSection: View {
                 .pmClearOfVerticalBar()
                 PodcastLikedEpisodeRows(
                     items: items,
+                    localSongs: localSongs,
                     limit: Self.previewCount,
                     onOpen: { navigation.open(episodeID: $0) },
-                    openShow: navigation.open(showID:)
+                    openShow: navigation.open(showID:),
+                    openLocalShow: { navigation.pushedLocalShowID = $0 }
                 )
             }
             .padding(.horizontal, 16)
@@ -773,16 +778,19 @@ private struct PodcastLikedEpisodesSection: View {
 struct PodcastLikedEpisodesView: View {
     let navigation: PodcastNavigationModel
 
+    @Environment(MusicLibrary.self) private var library
+
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
         let items = store.likedEpisodes()
+        let localSongs = library.likedLocalPodcastSongs()
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 #if os(macOS)
                 PodcastInlineBackButton()
                 #endif
-                if items.isEmpty {
+                if items.isEmpty && localSongs.isEmpty {
                     Text("podcast_no_matching_episodes")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -791,8 +799,10 @@ struct PodcastLikedEpisodesView: View {
                 } else {
                     PodcastLikedEpisodeRows(
                         items: items,
+                        localSongs: localSongs,
                         onOpen: { navigation.open(episodeID: $0) },
-                        openShow: navigation.open(showID:)
+                        openShow: navigation.open(showID:),
+                        openLocalShow: { navigation.pushedLocalShowID = $0 }
                     )
                 }
             }

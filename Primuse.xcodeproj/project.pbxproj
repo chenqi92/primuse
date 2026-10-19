@@ -64,6 +64,7 @@
 		08D30CAC5C97F4CE7FA56648 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
+		5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A00EC1465ADE3D6D059485A /* LikedSongsPodcastSplitPolicy.swift */; };
 		5F50312DB57B789285E51498 /* ImmersiveSyllableCrestText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */; };
 		0929829CC1BD736FC07E2ADB /* OfflineDownloadQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF7104496375F2054C8BC9F /* OfflineDownloadQualityPolicy.swift */; };
 		0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
@@ -2382,6 +2383,7 @@
 		0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVMultistatusParser.swift; sourceTree = "<group>"; };
 		80178CD33BCF2DDA6953A5F8 /* PeerScanSeedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerScanSeedStore.swift; sourceTree = "<group>"; };
 		888CB26BBFB2404C1F6DEA4A /* SongTagEditStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongTagEditStore.swift; sourceTree = "<group>"; };
+		9A00EC1465ADE3D6D059485A /* LikedSongsPodcastSplitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LikedSongsPodcastSplitPolicy.swift; sourceTree = "<group>"; };
 		E3F337F3AA99B7CFC6C765C6 /* LibNFSSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibNFSSession.swift; sourceTree = "<group>"; };
 		0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMediaSearchResolver.swift; sourceTree = "<group>"; };
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
@@ -5445,6 +5447,7 @@
 				CB7E4BB2916CE1370F4541DF /* FolderPlaylistMembership.swift */,
 				74839E5521EA528A1060DED5 /* LibraryBrowseIndex.swift */,
 				840AD34D48CDF5B4246D6EE2 /* LibrarySectionLayoutPolicy.swift */,
+				9A00EC1465ADE3D6D059485A /* LikedSongsPodcastSplitPolicy.swift */,
 				44A23A5A69456029D2E0E6D9 /* PeerScanSeedPolicy.swift */,
 				3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */,
 				44E113AD72F97F6A8D8165A7 /* RecentlyDeletedPurgePlan.swift */,
@@ -6624,6 +6627,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
+				5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */,
 				7DE12141AE4DDCC8C8D12968 /* LyricRomanizationAIExchange.swift in Sources */,
 				6A76F77031B6C3234437A070 /* GoogleCloudRomanization.swift in Sources */,
 				59A3EF0334C25E2609A93481 /* BaiduTranslateAPI.swift in Sources */,

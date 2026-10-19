@@ -2517,6 +2517,7 @@ private struct DebugEvidenceOrientation: ViewModifier {
 ///   `PRIMUSE_AUTOPLAY_SEEK=<秒>` 时开播后跳到这个位置（配 `PAUSE=1` 就停在这里，看前奏、间奏里歌词那一行的样子）；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）。
+/// - `PRIMUSE_DEBUG_LIKE=<标题片段>[,…]`：曲库里出现标题包含这些片段的歌后给它们点心（看「我喜欢」页与「喜欢的单集」）。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -2527,6 +2528,26 @@ private struct DebugLaunchAutomation: ViewModifier {
                 guard !Task.isCancelled else { return }
                 plog("🧪 DebugLaunchAutomation: open settings \(settingID)")
                 SettingsNavigation.shared.open(settingID)
+            }
+            .task {
+                let needles = (ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LIKE"] ?? "")
+                    .lowercased()
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                guard !needles.isEmpty else { return }
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    let library = AppServices.shared.musicLibrary
+                    let matches = library.songs.filter { song in
+                        needles.contains { song.title.lowercased().contains($0) }
+                    }
+                    guard !matches.isEmpty else { continue }
+                    library.likeSongs(matches.map(\.id))
+                    plog("🧪 DebugLaunchAutomation: liked \(matches.map(\.title))")
+                    return
+                }
             }
             .task {
                 let env = ProcessInfo.processInfo.environment
