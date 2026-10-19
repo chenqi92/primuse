@@ -1013,6 +1013,8 @@ final class AppServices {
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    private var appearanceColorSyncObserver: NSObjectProtocol?
+    private var appearanceColorSyncPending = false
     private var siriRadioCatalogSignature: [String]?
     /// 正在后台交给曲库的停用集合(见 `reconcileDisabledSourceIDs`)。落地之前曲库的
     /// `disabledSourceIDs` 还是旧值,按它比会把同一次停用再处理一遍。
@@ -1814,6 +1816,7 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
         InterfaceLayoutSync.shared.start()
+        startAppearanceColorSync()
         _ = ArtistNameSettingsStore.shared
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
@@ -2133,6 +2136,68 @@ final class AppServices {
 
     /// Apple Music 音乐源的记录。ID 固定, 所以之前移除过再加回来时, 旧的墓碑
     /// 会被这一次写入直接顶掉, 同步过的歌也还能按 sourceID 对上。
+    /// 「颜色和图标」里的颜色跟着 iCloud 走(#320)。`InterfaceLayoutSync` 只管存取,拉下来的值
+    /// 要在这里交给内存里的设置和正在用的主题色。登记时就拉下来的值不发通知,所以先对一遍;
+    /// 几个键一起变时会连着来几条通知,合成一次。
+    private func startAppearanceColorSync() {
+        applySyncedAppearanceColors()
+        guard appearanceColorSyncObserver == nil else { return }
+        appearanceColorSyncObserver = NotificationCenter.default.addObserver(
+            forName: CloudKVSSync.externalChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let key = note.userInfo?["key"] as? String,
+                  InterfaceLayoutSync.appearanceColorKeys.contains(key) else { return }
+            MainActor.assumeIsolated { self.scheduleSyncedAppearanceColors() }
+        }
+    }
+
+    private func scheduleSyncedAppearanceColors() {
+        guard !appearanceColorSyncPending else { return }
+        appearanceColorSyncPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.appearanceColorSyncPending = false
+            self.applySyncedAppearanceColors()
+        }
+    }
+
+    private func applySyncedAppearanceColors() {
+        let theme = themeService
+        #if os(iOS)
+        let settings = ThemeColorSettings.shared
+        let themeChanged = settings.reloadFromDefaults()
+        if themeChanged {
+            theme.setBaseAccent(settings.baseAccent)
+            theme.setColorMode(settings.mode)
+            theme.setCoverDrivenAmbient(settings.coverDrivenAmbient)
+            ThemeColorSettings.publishBaseAccentToWidget(settings.fixedColor)
+        }
+        let themeFollowsCover = settings.mode == .automatic || settings.coverDrivenAmbient
+        #else
+        let preferences = MacUIPreferences.shared
+        let themeChanged = preferences.reloadThemeFromDefaults()
+        if themeChanged {
+            theme.setBaseAccent(preferences.fixedBrandColor)
+            theme.setColorMode(preferences.themeColorMode)
+            theme.setCoverDrivenAmbient(preferences.coverDrivenAmbient)
+        }
+        let themeFollowsCover = preferences.themeColorMode == .automatic || preferences.coverDrivenAmbient
+        #endif
+        let spaceTints = ListeningSpaceTintSettings.shared
+        let tintsChanged = spaceTints.reloadFromDefaults()
+        guard themeChanged || tintsChanged else { return }
+        // 和在设置页里换色一样:要取封面色的对正在播的那首现取一次,不取的回到固定色。
+        if let song = playerService.currentSong, themeFollowsCover || spaceTints.followsArtwork {
+            theme.updateFromCoverArt(
+                fileName: song.coverArtFileName,
+                songID: song.id,
+                appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID ? song.filePath : nil
+            )
+        } else if themeChanged {
+            theme.resetToDefault()
+        }
+    }
+
     var appleMusicSourceRecord: MusicSource {
         MusicSource(
             id: AppleMusicSourcePolicy.sourceID,

@@ -142,6 +142,26 @@ final class CloudKVSSyncTests: XCTestCase {
         }
     }
 
+    /// 颜色跟着走; 应用图标和每一类记下的封面色留在本机。
+    func testAppearanceColorsSyncButIconAndRecordedCoverColorsStayLocal() {
+        let keys = Set(InterfaceLayoutSync.keys)
+        for synced in [
+            AppThemePreferences.colorModeKey,
+            AppThemePreferences.accentHexKey,
+            AppThemePreferences.coverDrivenAmbientKey,
+            AppThemePreferences.ambientStrengthKey,
+            ListeningSpaceTintPreferences.key(for: .radio),
+            ListeningSpaceTintPreferences.key(for: .spokenWord),
+            ListeningSpaceTintPreferences.key(for: .podcast),
+        ] {
+            XCTAssertTrue(keys.contains(synced), synced)
+        }
+        for local in ListeningSpaceTintPreferences.customizableSpaces.map(ListeningSpaceArtworkTintStore.key(for:))
+            + ["primuse.appIconChoice", "pm.mac.appIcon"] {
+            XCTAssertFalse(keys.contains(local), local)
+        }
+    }
+
     func testFreshInstallPullsCloudCopyAndNeverPushesDefaults() {
         defaults.set("local-default", forKey: key)
         var reloads = 0

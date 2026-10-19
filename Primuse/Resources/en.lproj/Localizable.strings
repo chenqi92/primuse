@@ -5933,7 +5933,7 @@
 "catalog_prune_mode_confirm" = "Remove After Confirming";
 "catalog_prune_mode_immediate" = "Remove Immediately";
 "catalog_prune_mode_description" = "Remove After Confirming: songs missing from a scan are kept and removed only if later full scans still don’t find them, so a server that briefly returns fewer songs or a temporarily unmounted library costs you nothing. Remove Immediately: songs missing from one full scan are removed, even if the library on the server is only temporarily unmounted. A scan that didn’t finish, or during which the server’s content changed, never removes songs.";
-"icloud_sync_settings_channel_footer" = "Player and layout preferences, plus favorites (playlists, audiobooks, folders and their order), sync with settings; folders and books on this device’s local sources stay here. Favorite albums and artists, ratings and comments sync with playlists.";
+"icloud_sync_settings_channel_footer" = "Player, layout and color preferences, plus favorites (playlists, audiobooks, folders and their order), sync with settings; folders and books on this device’s local sources stay here. Favorite albums and artists, ratings and comments sync with playlists.";
 "icloud_sync_scan_results_footer" = "While music sources sync, your iPhone, iPad and Mac share the song tags they have already read: once one device has read a source, the others only read files that are new or changed. Tags you edit and covers you change sync too, and Restore File Tags on one device restores them on the others.";
 "transcript_reader_menu" = "Menu";
 "transcript_reader_search" = "Search Transcript";

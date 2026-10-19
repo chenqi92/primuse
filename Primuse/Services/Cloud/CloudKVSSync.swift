@@ -657,7 +657,9 @@ enum CloudKVSKey {
 final class InterfaceLayoutSync {
     static let shared = InterfaceLayoutSync()
 
-    static let keys: [String] = [
+    static let keys: [String] = layoutKeys + appearanceColorKeys
+
+    private static let layoutKeys: [String] = [
         // iPhone / iPad 首页
         HomeSectionConfiguration.orderKey,
         HomeSectionLayoutConfiguration.storageKey,
@@ -743,6 +745,17 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.showsLyricsBrowseTimelineKey,
         PlayerAppearancePreferences.showsLyricsInterludeKey,
     ]
+
+    /// 「颜色和图标」里的颜色(#320):主题色跟随封面还是固定、固定的那个颜色、播放背景取不取封面色
+    /// 与浓度,电台、有声书、播客各自的颜色。拉下来的值由 `AppServices` 交给内存里的设置和主题色。
+    /// 应用图标各台设备各选(iPhone 与 Mac 的图标表也不一样),「跟随封面」记下的封面色是这台设备
+    /// 最后放过什么,都不收。
+    static let appearanceColorKeys: [String] = [
+        AppThemePreferences.colorModeKey,
+        AppThemePreferences.accentHexKey,
+        AppThemePreferences.coverDrivenAmbientKey,
+        AppThemePreferences.ambientStrengthKey,
+    ] + ListeningSpaceTintPreferences.customizableSpaces.map(ListeningSpaceTintPreferences.key(for:))
 
     private let keys: [String]
     private let cloud: CloudKVSSync

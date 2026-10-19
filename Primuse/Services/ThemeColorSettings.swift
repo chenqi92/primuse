@@ -105,6 +105,38 @@ final class ThemeColorSettings {
         applySwitchThumbAppearance()
     }
 
+    /// 别的设备改过、经 iCloud 拉下来的值(#320)。没变的不赋,免得 didSet 再写一遍。
+    /// 返回有没有变。
+    func reloadFromDefaults() -> Bool {
+        let defaults = UserDefaults.standard
+        var changed = false
+        let storedMode = AppThemePreferences.colorMode(in: defaults)
+        if mode != storedMode {
+            mode = storedMode
+            changed = true
+        }
+        if let stored = defaults.string(forKey: AppThemePreferences.accentHexKey) {
+            let hex = AppThemePreferences.normalizedHex(stored)
+            if fixedColorHex != hex {
+                fixedColorHex = hex
+                changed = true
+            }
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool,
+           coverDrivenAmbient != stored {
+            coverDrivenAmbient = stored
+            changed = true
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double {
+            let strength = AppThemePreferences.normalizedAmbientStrength(stored)
+            if ambientStrength != strength {
+                ambientStrength = strength
+                changed = true
+            }
+        }
+        return changed
+    }
+
     /// 「白色」主题在深色外观下开关打开时轨道是白的,白圆钮压在上面看不出开没开,圆钮换成灰色。
     /// 走 UIKit 外观代理而不是 SwiftUI 的开关样式:样式进不了弹出页,外观代理对所有开关都有效。
     /// 只影响之后才出现的开关,已经在屏幕上的要换个身份重建(主题色设置页就是这么做的)。

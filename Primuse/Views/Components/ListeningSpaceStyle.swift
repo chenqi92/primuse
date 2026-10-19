@@ -164,6 +164,20 @@ final class ListeningSpaceTintSettings {
         publishToWidgets(reloading: reloadingWidgets)
     }
 
+    /// 别的设备经 iCloud 改过的选择(#320)。返回有没有变;变了照常抄给小组件。
+    func reloadFromDefaults() -> Bool {
+        var changed = false
+        for space in ListeningSpaceTintPreferences.customizableSpaces {
+            let stored = ListeningSpaceTintPreferences.choice(for: space, in: .standard)
+            if choice(for: space) != stored {
+                choices[space] = stored
+                changed = true
+            }
+        }
+        if changed { publishToWidgets(reloading: true) }
+        return changed
+    }
+
     private func publishToWidgets(reloading: Bool) {
         guard let shared = ListeningSpaceTintPreferences.sharedDefaults else { return }
         for space in ListeningSpaceTintPreferences.customizableSpaces {

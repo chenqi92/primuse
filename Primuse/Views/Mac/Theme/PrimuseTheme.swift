@@ -2062,6 +2062,44 @@ final class MacUIPreferences {
         artworkBrandColor = color
     }
 
+    /// 别的设备改过、经 iCloud 拉下来的主题色设置(#320)。没变的不赋,免得 didSet 再写一遍。
+    /// 返回有没有变。
+    func reloadThemeFromDefaults() -> Bool {
+        var changed = false
+        let mode = AppThemePreferences.colorMode(in: defaults)
+        if themeColorMode != mode {
+            themeColorMode = mode
+            changed = true
+        }
+        if let hex = Self.brandHex(fromStored: defaults.string(forKey: AppThemePreferences.accentHexKey)),
+           brandColorHex != hex {
+            brandColorHex = hex
+            changed = true
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool,
+           coverDrivenAmbient != stored {
+            coverDrivenAmbient = stored
+            changed = true
+        }
+        if let stored = defaults.object(forKey: AppThemePreferences.ambientStrengthKey) as? Double {
+            let strength = AppThemePreferences.normalizedAmbientStrength(stored)
+            if ambientStrength != strength {
+                ambientStrength = strength
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// 存着的固定色在这台 Mac 上用哪个。「白色」只在 iPhone / iPad 的色板里有,Mac 的自绘控件
+    /// 没按它验证过(白底上的白字),从那边同步来时这台 Mac 照旧用原来的颜色;存着的值不动,
+    /// 在 Mac 上再选一次色才盖掉。
+    private static func brandHex(fromStored stored: String?) -> String? {
+        guard let stored else { return nil }
+        let hex = AppThemePreferences.normalizedHex(stored, fallback: defaultBrandHex)
+        return AppThemePreferences.isMonochrome(hex) ? nil : hex
+    }
+
     private static let keyAppearance   = "pm.mac.appearance"
     private static let keyAutoDetectMaterial = "pm.mac.autoDetectMaterial"
     private static let keyLyricsScale  = "pm.mac.lyricsScale"
@@ -2117,10 +2155,8 @@ final class MacUIPreferences {
         )
         coverDrivenAmbient = d.object(forKey: AppThemePreferences.coverDrivenAmbientKey) as? Bool
             ?? AppThemePreferences.defaultCoverDrivenAmbient
-        brandColorHex = AppThemePreferences.normalizedHex(
-            d.string(forKey: AppThemePreferences.accentHexKey) ?? Self.defaultBrandHex,
-            fallback: Self.defaultBrandHex
-        )
+        brandColorHex = Self.brandHex(fromStored: d.string(forKey: AppThemePreferences.accentHexKey))
+            ?? Self.defaultBrandHex
         colorScheme = PMColorSchemeOverride(rawValue: d.string(forKey: Self.keyColorScheme) ?? "") ?? .system
         let persistedAppIconID = d.string(forKey: Self.keyAppIcon) ?? ""
         appIconID = MacAppIcon.all.contains(where: { $0.id == persistedAppIconID })
