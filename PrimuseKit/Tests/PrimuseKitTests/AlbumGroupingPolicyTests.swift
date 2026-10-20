@@ -118,4 +118,60 @@ struct AlbumGroupingPolicyTests {
             albumArtistName: "ABC", trackArtistName: nil
         ))
     }
+
+    /// #333：Navidrome 按专辑名并起来的原声带，三首都没有专辑艺术家标签。
+    @Test("服务端并成一张的专辑，曲目艺术家退回值跟服务端专辑走")
+    func serverAlbumArtistReplacesTrackFallback() {
+        let tracks = [
+            ("Tori Kelly", "Tori Kelly"),
+            ("Taron Egerton", "Taron Egerton"),
+            ("Scarlett Johansson", "Scarlett Johansson"),
+        ]
+        let resolved = tracks.map { own, track in
+            AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+                trackAlbumArtistName: own,
+                serverAlbumArtistName: "Taron Egerton",
+                trackArtistName: track
+            )
+        }
+        #expect(resolved == ["Taron Egerton", "Taron Egerton", "Taron Egerton"])
+        let identities = Set(resolved.compactMap {
+            AlbumGroupingPolicy.identity(
+                albumTitle: "Sing(欢乐好声音)",
+                albumArtistName: $0,
+                trackArtistName: nil,
+                unknownArtistName: "Unknown"
+            )
+        })
+        #expect(identities.count == 1)
+    }
+
+    @Test("真有专辑艺术家标签、服务端没给或只差大小写时不动")
+    func serverAlbumArtistKeepsExplicitAndEquivalentValues() {
+        #expect(AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+            trackAlbumArtistName: "Queen",
+            serverAlbumArtistName: "ABBA",
+            trackArtistName: "Freddie Mercury"
+        ) == "Queen")
+        #expect(AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+            trackAlbumArtistName: "Adele",
+            serverAlbumArtistName: "adele ",
+            trackArtistName: "Adele"
+        ) == "Adele")
+        #expect(AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+            trackAlbumArtistName: "Adele",
+            serverAlbumArtistName: nil,
+            trackArtistName: "Adele"
+        ) == "Adele")
+        #expect(AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+            trackAlbumArtistName: nil,
+            serverAlbumArtistName: "Various Artists",
+            trackArtistName: "Tori Kelly"
+        ) == "Various Artists")
+        #expect(AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+            trackAlbumArtistName: nil,
+            serverAlbumArtistName: "  ",
+            trackArtistName: "Tori Kelly"
+        ) == nil)
+    }
 }

@@ -628,6 +628,25 @@ public enum AlbumGroupingPolicy {
         return albumArtist.caseInsensitiveCompare(trackArtist) == .orderedSame
     }
 
+    /// 服务端曲库(Subsonic 一族)里，这首歌所属那张专辑的艺术家怎么用。服务端按专辑名把
+    /// 几首歌并成一张(Navidrome 的 `PID.Album`)时，没有专辑艺术家标签的各首只带着各自
+    /// 退回的曲目艺术家，按「专辑艺术家 + 专辑名」分组就会每首拆成一张；这种退回值让位给
+    /// 服务端专辑的艺术家。歌自己带着别的专辑艺术家(真有标签)时照旧用自己的。
+    public static func serverCatalogAlbumArtistName(
+        trackAlbumArtistName: String?,
+        serverAlbumArtistName: String?,
+        trackArtistName: String?
+    ) -> String? {
+        let own = normalized(trackAlbumArtistName)
+        if let own, !isTrackArtistFallback(albumArtistName: own, trackArtistName: trackArtistName) {
+            return own
+        }
+        guard let server = normalized(serverAlbumArtistName), !equivalent(server, own) else {
+            return own
+        }
+        return server
+    }
+
     public static func identity(
         albumTitle: String?,
         albumArtistName: String?,

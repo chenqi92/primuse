@@ -59,6 +59,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var libraryScope: LibraryScope?
     /// 上一次走查读过的库;扫描收尾时取走(`ServerLibraryListingConnector`)。
     private var observedLibraries: [ServerLibraryDescriptor]?
+    /// 服务端每张专辑的艺术家(专辑 id → 艺术家)。search3 平铺列歌, 每首只带自己的专辑
+    /// 艺术家; 服务端按专辑名并起来的专辑要靠这张表认回同一张, 见
+    /// `AlbumGroupingPolicy.serverCatalogAlbumArtistName`。
+    private var serverAlbumArtists: [String: String]?
+    private var serverAlbumArtistsFetchedAt: Date?
 
     private struct LibraryScope {
         /// nil = 不带 `musicFolderId`(读全部);空数组 = 全排除了。
@@ -179,6 +184,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
         // 每轮从第一页走起时重取库范围;断点续走的后几页沿用(新实例就补取一次)。
         try await prepareLibraryScope(refreshing: offset == 0)
+        try await prepareServerAlbumArtists(refreshing: offset == 0)
         let children: [SubsonicChild]
         do {
             children = try await search3SongPage(offset: offset, path: path)
@@ -370,6 +376,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         isOpenSubsonic: isOpenSubsonic,
                         serverType: serverType
                     ) {
+                        try await prepareServerAlbumArtists(refreshing: true)
                         let catalog: [SubsonicChild]?
                         do {
                             catalog = try await fetchStableSearch3Catalog(
@@ -893,6 +900,55 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         libraryScope = scope
         observedLibraries = libraries
+    }
+
+    /// 一次扫描里第一页会被取好几次(开头、续扫核对、收尾核对), 所以只在表超过 10 分钟
+    /// 才重取。取不到不挡扫描: 这一轮按各首自己的专辑艺术家分组, 和以前一样。
+    private func prepareServerAlbumArtists(refreshing: Bool) async throws {
+        if let fetchedAt = serverAlbumArtistsFetchedAt, serverAlbumArtists != nil,
+           !refreshing || Date().timeIntervalSince(fetchedAt) < 600 {
+            return
+        }
+        if libraryScope?.includedLibraryIDs?.isEmpty == true {
+            serverAlbumArtists = [:]
+            serverAlbumArtistsFetchedAt = Date()
+            return
+        }
+        var artists: [String: String] = [:]
+        var offset = 0
+        do {
+            while true {
+                try Task.checkCancellation()
+                let container: AlbumListContainer = try await requestJSON(
+                    "getAlbumList2",
+                    query: [
+                        URLQueryItem(name: "type", value: "alphabeticalByName"),
+                        URLQueryItem(name: "size", value: String(Self.pageSize)),
+                        URLQueryItem(name: "offset", value: String(offset))
+                    ] + (libraryScope?.includedLibraryIDs ?? []).map {
+                        URLQueryItem(name: "musicFolderId", value: $0)
+                    }
+                )
+                let albums = container.albumList2?.album ?? []
+                for album in albums {
+                    guard let artist = Self.cleaned(album.artist, unknown: "[Unknown Artist]") else { continue }
+                    artists[album.id] = artist
+                }
+                guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(offset + albums.count) else { break }
+                if albums.count < Self.pageSize { break }
+                offset += albums.count
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            plog("⚠️ Subsonic album artists unavailable; grouping by each song's own album artist source=\(sourceID.prefix(8))…: \(error.localizedDescription)")
+            // 有上一份就接着用; 记下时间, 免得后面每一页都再试一次。
+            if serverAlbumArtists == nil { serverAlbumArtists = [:] }
+            serverAlbumArtistsFetchedAt = Date()
+            return
+        }
+        serverAlbumArtists = artists
+        serverAlbumArtistsFetchedAt = Date()
     }
 
     private func albumIDs(inLibrary libraryID: String) async throws -> [String] {
@@ -1676,9 +1732,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             return Self.cleaned(names.joined(separator: ", "), unknown: "[Unknown Artist]")
         }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
-            albumArtistName: Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]")
-                ?? joinedAlbumArtists
-                ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]"),
+            albumArtistName: AlbumGroupingPolicy.serverCatalogAlbumArtistName(
+                trackAlbumArtistName: Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]")
+                    ?? joinedAlbumArtists,
+                serverAlbumArtistName: Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
+                    ?? child.albumId.flatMap { serverAlbumArtists?[$0] },
+                trackArtistName: artist
+            ),
             trackArtistName: artist
         )
 
