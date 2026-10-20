@@ -231,6 +231,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                     while true {
                         try Task.checkCancellation()
                         let result = try await self.trackPage(page: page, size: Self.pageSize)
+                        plog("source=\(LogRedactionPolicy.digest(self.sourceID)) FN catalog page=\(page) received=\(result.rawCount) parsed=\(result.tracks.count) accumulated=\(received) reported_total=\(result.total.map(String.init) ?? "unknown")")
 
                         guard let pageTotal = result.total else {
                             throw SourceError.connectionFailed(PMString("error.catalog.missingTotal"))

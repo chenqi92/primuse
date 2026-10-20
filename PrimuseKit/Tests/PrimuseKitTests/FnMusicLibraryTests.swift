@@ -17,7 +17,7 @@ struct FnMusicLibraryTests {
         fixture.setPage("/track/playlist-detail/list", playlist: "p0", page: 2,
                         list: [["guid": "s50"]], total: 51)
         fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1,
-                        list: [["guid": "unexpected"]], total: 1)
+                        list: [["guid": "unexpected"]], total: 2)
         let (client, _, _) = fixture.clients()
         let snapshot = try await client.library.playlists()
         #expect(snapshot.failedPlaylistIDs == ["p1"])
@@ -34,6 +34,66 @@ struct FnMusicLibraryTests {
         #expect((indexRequests.first?.url?.query ?? "").isEmpty, "索引请求不带 page/size")
         // p1 每次都读不全：第一轮失败后补读一次，仍失败才记进 failedPlaylistIDs。
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
+    }
+
+    @Test(arguments: [(677, 680), (860, 863), (55, 51), (20, 0), (0, 1)])
+    func playlistDetailsUseTheirOwnTotal(summaryCount: Int, detailCount: Int) async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1,
+                        list: [["guid": "p", "name": "List", "trackCount": summaryCount]], total: 1)
+        let ids = (0..<detailCount).map { "s\($0)" }
+        let pageCount = max(1, (detailCount + 49) / 50)
+        for page in 1...pageCount {
+            fixture.setPage("/track/playlist-detail/list", playlist: "p", page: page,
+                            list: ids.dropFirst((page - 1) * 50).prefix(50).map { ["guid": $0] },
+                            total: detailCount)
+        }
+        let (client, _, _) = fixture.clients()
+        let delivered = DeliveredPlaylists()
+        let snapshot = try await client.library.playlists(onPlaylist: { await delivered.append($0) })
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.map(\.trackIDs) == [ids])
+        #expect(snapshot.playlists.first?.reportedTrackCount == detailCount)
+        #expect(await delivered.ids == ["p"])
+        #expect(await delivered.trackIDs == [ids])
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == pageCount)
+
+        let playlist = try await client.library.playlist(id: "p")
+        #expect(playlist.trackIDs == ids)
+        #expect(playlist.reportedTrackCount == detailCount)
+    }
+
+    @Test func playlistWithoutDetailTotalUsesShortPageInsteadOfSummaryCount() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1,
+                        list: [["guid": "p", "name": "List", "trackCount": 49]], total: 1)
+        fixture.setRawPage("/track/playlist-detail/list", playlist: "p", page: 1,
+                           data: ["list": (0..<50).map { ["guid": "s\($0)"] }])
+        fixture.setRawPage("/track/playlist-detail/list", playlist: "p", page: 2,
+                           data: ["list": [["guid": "s50"]]])
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.first?.trackIDs == (0..<51).map { "s\($0)" })
+        #expect(snapshot.playlists.first?.reportedTrackCount == 51)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 2)
+    }
+
+    @Test func changingDetailTotalStillRejectsTheIncompletePlaylist() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1,
+                        list: [["guid": "p", "name": "List", "trackCount": 49]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1,
+                        list: (0..<50).map { ["guid": "s\($0)"] }, total: 51)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 2,
+                        list: [["guid": "s50"], ["guid": "s51"]], total: 52)
+        let (client, _, _) = fixture.clients()
+        let delivered = DeliveredPlaylists()
+        let snapshot = try await client.library.playlists(onPlaylist: { await delivered.append($0) })
+        #expect(snapshot.failedPlaylistIDs == ["p"])
+        #expect(snapshot.playlists.isEmpty)
+        #expect(await delivered.ids.isEmpty)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 4)
     }
 
     /// 加歌前后按 GUID 读单个歌单：只读它自己的明细，歌单清单里没有就报错，不当成空歌单。

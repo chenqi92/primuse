@@ -132,7 +132,6 @@ public struct FnMusicLibraryClient: Sendable {
         let rows: Rows<Track> = try await pages(
             path: "/track/playlist-detail/list",
             query: [URLQueryItem(name: "playlistGUID", value: summary.id)],
-            expectedTotal: summary.trackCount,
             allowsDuplicates: true,
             diagnosticLogger: diagnosticLogger,
             parse: Track.init
@@ -263,13 +262,13 @@ public struct FnMusicLibraryClient: Sendable {
     private func pages<Item: FnMusicLibraryItem>(
         path: String,
         query: [URLQueryItem] = [],
-        expectedTotal: Int? = nil,
         allowsDuplicates: Bool = false,
         diagnosticLogger: (@Sendable (String) -> Void)? = nil,
         parse: ([String: Any]) throws -> Item
     ) async throws -> Rows<Item> {
         var page = 1
-        var total = expectedTotal
+        // 歌单清单的 trackCount 与明细 total 可能不同；分页只以明细自身的总数为准。
+        var total: Int?
         var result: [Item] = []
         var seen: Set<String> = []
         // 翻页与 total 按服务端给出的行数算；认不出的单行只跳过它自己。那一行本来就对不上
