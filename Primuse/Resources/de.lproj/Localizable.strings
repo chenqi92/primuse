@@ -6065,7 +6065,7 @@
 "player_controls_duo_footer" = "Auf dem iPhone Duo verwenden Seitenleiste, geteilte Ansicht und Tischmodus die Tasten von Cover und Songtext – du musst nichts extra einrichten.";
 "player_controls_lyrics_own_buttons" = "Eigene Tasten für Songtext";
 "player_controls_lyrics_own_buttons_footer" = "Aus: Songtext und Cover teilen sich eine Tastengruppe. Beim Einschalten werden zuerst die Cover-Tasten übernommen.";
-"player_controls_lyrics_preview_footer_follow" = "Die sechs Plätze entsprechen der Cover-Ansicht. Schalte oben den Schalter ein, um sie getrennt zu ändern. Den zusätzlichen Platz neben dem Titel kannst du jederzeit ändern.";
+"player_controls_lyrics_preview_footer_follow" = "Die Tastenplätze und die untere Reihe entsprechen der Cover-Ansicht. Schalte oben den Schalter ein, um sie getrennt zu ändern. Den zusätzlichen Platz neben dem Titel kannst du jederzeit ändern.";
 "player_controls_lyrics_preview_footer_own" = "Tippe auf eine Zeile, um eine Taste zu ändern. Diese Gruppe gilt, solange der Songtext angezeigt wird – auch im Querformat und in der geteilten Ansicht. Statuszeile und „Mehr“-Einträge richten sich nach der Cover-Ansicht.";
 "player_controls_lyrics_collapse" = "Bedienelemente beim Scrollen ausblenden";
 "player_controls_lyrics_collapse_footer" = "Beim Ziehen des Songtexts werden Fortschrittsbalken und Tasten darunter ausgeblendet, damit der Text den Bildschirm füllt. Tippe auf eine leere Stelle im Text, um sie zurückzuholen.";
@@ -6092,9 +6092,13 @@
 "player_controls_slot_header" = "Neben dem Titel";
 "player_controls_slot_leading_edge" = "Links der Wiedergabe";
 "player_controls_slot_trailing_edge" = "Rechts der Wiedergabe";
-"player_controls_slot_bar_leading" = "Unten links";
-"player_controls_slot_bar_center" = "Unten Mitte";
-"player_controls_slot_bar_trailing" = "Unten rechts";
+"player_controls_bar_title" = "Untere Reihe";
+"player_controls_bar_header %lld %lld" = "Untere Reihe (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "Auf diesem Gerät passen bis zu %lld Tasten in eine Reihe, von links nach rechts angeordnet: eine sitzt in der Mitte, zwei an den Enden, mehr verteilen sich gleichmäßig. Halte gedrückt und ziehe, um die Reihenfolge zu ändern; streiche nach links, um eine zu entfernen. AirPlay lässt sich verschieben, aber nicht entfernen.";
+"player_controls_bar_add" = "Taste hinzufügen";
+"player_controls_bar_position %lld" = "Untere Reihe, Taste %lld";
+"player_controls_bar_remove" = "Aus der Reihe entfernen";
+"player_controls_bar_add_footer" = "Wählst du eine Taste, die schon woanders liegt, wandert sie ans Ende dieser Reihe und ihr alter Platz bleibt leer.";
 "player_controls_action_like" = "Gefällt mir";
 "player_controls_action_lyrics" = "Liedtext";
 "player_controls_action_airplay" = "AirPlay";
@@ -6109,8 +6113,8 @@
 "playback_pitch_unavailable_casting" = "Beim Übertragen gibt das andere Gerät den Ton aus, daher lässt sich die Tonart nicht ändern.";
 "playback_pitch_unavailable_apple_music" = "Bei Apple Music-Titeln lässt sich die Tonart nicht ändern.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music-Titel können nicht an Geräte in deinem Netzwerk übertragen werden.";
-"player_controls_tiles_header" = "Funktionskacheln";
-"player_controls_tiles_footer" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Eingeschaltete Kacheln verteilen sich gleichmäßig, ausgeschaltete hinterlassen keine Lücke und bleiben unter „Mehr“. AirPlay, „Gefällt mir“, „Mehr“ und die Transkripttaste wandern beim Einschalten von ihrem Platz in diese Reihe und beim Ausschalten zurück.";
+"player_controls_tiles_header %lld %lld" = "Funktionskacheln (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Eingeschaltete Kacheln verteilen sich gleichmäßig, ausgeschaltete hinterlassen keine Lücke und bleiben unter „Mehr“. AirPlay, „Gefällt mir“, „Mehr“ und die Transkripttaste wandern beim Einschalten von ihrem Platz in diese Reihe und beim Ausschalten zurück. Auf diesem Gerät passen bis zu %lld Kacheln in eine Reihe; ist sie voll, schalte zuerst eine aus.";
 "player_controls_spoken_buttons_header" = "Weitere Tasten";
 "player_controls_spoken_transcript" = "Transkripttaste";
 "player_controls_spoken_chapters" = "Vorheriges / nächstes Kapitel";

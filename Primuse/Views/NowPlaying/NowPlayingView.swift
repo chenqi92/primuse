@@ -2474,8 +2474,15 @@ struct NowPlayingView: View {
         let music = !usesSpokenWordTransport
         // 有声内容没有文字稿(或在「播放页按钮」里关了文字稿键)时不给文字键,这一组只剩目录。
         let showsTextToggle = spokenWordHasText && spokenWordControlLayout.showsTranscriptToggle
-        // 中间一组:音乐按「播放页按钮」底栏的配置(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
-        let columnGroups = musicControlLayout.toolColumnGroups()
+        let spacing = 12.0
+        let capsulePadding = 4.0
+        // 中间一组:音乐按「播放页按钮」底栏那一串(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
+        // 那一串长到整列按最小的键(34,同 `columnFit`)也排不下时只摆前几颗,其余进「更多」:
+        // 上面一组一颗,下面一组至少留投放与更多两颗。
+        let middleLimit = music
+            ? max(0, Int(((segment.length - spacing * 2 - capsulePadding * 6) / 34).rounded(.down)) - 3)
+            : Int.max
+        let columnGroups = musicControlLayout.toolColumnGroups(middleLimit: middleLimit)
         let middleCount = music ? columnGroups.middle.count : (showsTextToggle ? 2 : 1)
         // 下面一组里歌名旁那一格:音乐按配置(默认心形),有声内容跟「喜欢」开关。
         let headerAction: NowPlayingControlAction? = music
@@ -2483,8 +2490,6 @@ struct NowPlayingView: View {
             : (offersLikeAction && spokenWordControlLayout.showsLike ? .like : nil)
         // 放不下时依次收进「更多」的:锁、全屏效果、歌名旁那一格。
         let droppable = (offersLock ? 1 : 0) + (music ? 1 : 0) + (headerAction != nil ? 1 : 0)
-        let spacing = 12.0
-        let capsulePadding = 4.0
         let fit = OcclusionAvoidancePolicy.columnFit(
             length: segment.length,
             groups: [1]
@@ -2573,7 +2578,8 @@ struct NowPlayingView: View {
                         columnOverflow: overflow,
                         controlSurface: .toolColumn(
                             showsTransportEdges: !compactLandscapeHidesModeToggles,
-                            headerOverflows: headerOverflows
+                            headerOverflows: headerOverflows,
+                            middleLimit: middleLimit
                         )
                     )
                 }
@@ -3994,10 +4000,13 @@ struct NowPlayingView: View {
                         .padding(.leading, chromeLeading)
                         .padding(.trailing, chromeTrailing)
                 } else {
-                    compactLandscapeChromeLayer
-                        .pmLayoutSwitchFade()
-                        .padding(.leading, chromeLeading)
-                        .padding(.trailing, chromeTrailing)
+                    compactLandscapeChromeLayer(
+                        width: geo.size.width - CGFloat(metrics.leadingInset + metrics.trailingInset)
+                            - chromeLeading - chromeTrailing
+                    )
+                    .pmLayoutSwitchFade()
+                    .padding(.leading, chromeLeading)
+                    .padding(.trailing, chromeTrailing)
                 }
             }
         }
@@ -4084,7 +4093,7 @@ struct NowPlayingView: View {
         if let anchor = anchors[.landscapeChrome] {
             GeometryReader { geometry in
                 let rect = geometry[anchor.bounds]
-                compactLandscapeChromeLayer
+                compactLandscapeChromeLayer(width: rect.width)
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
             }
@@ -4778,14 +4787,15 @@ struct NowPlayingView: View {
             : String(localized: "a11y_play"))
     }
 
+    /// `width` 是这一排可用的宽度,底栏那一串排不下时左边一组少摆几颗(见 `compactLandscapeChromeRow`)。
     @ViewBuilder
-    private var compactLandscapeChromeLayer: some View {
+    private func compactLandscapeChromeLayer(width: CGFloat) -> some View {
         // 两支都钉在同一个 ZStack 的左上角、同框重叠，可以走过渡。
         if isCompactLandscapeLocked {
             compactLandscapeUnlockControl
                 .pmFadeTransition(motion: .control)
         } else {
-            compactLandscapeChromeRow
+            compactLandscapeChromeRow(width: width)
                 .pmFadeTransition(motion: .control)
         }
     }
@@ -4793,10 +4803,14 @@ struct NowPlayingView: View {
     /// 这一排圆钮走自适应玻璃：普通模式的背景跟着明暗外观走，不能用沉浸那套
     /// 钉死深色的底（浅色外观下深底会把深色图标吃掉）。
     /// 音乐时左边一组是「播放页按钮」里底栏的那几颗(歌词在右栏、全屏有自己那颗键,不放),
-    /// 右边心形那一格跟着歌名旁那一格走。
-    private var compactLandscapeChromeRow: some View {
+    /// 右边心形那一格跟着歌名旁那一格走。底栏那一串是从更宽的设备同步来的、这一排放不下时,
+    /// 左边一组从后往前让掉几颗(AirPlay 不让),让掉的照「播放页按钮」的兜底进「更多」。
+    private func compactLandscapeChromeRow(width: CGFloat) -> some View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
-        let chrome = musicControlLayout.compactLandscapeChrome()
+        // 一排里固定的:锁、全屏效果、歌名旁那一格(有时)、更多、收起;圆钮之间隔 10。
+        let fixedCount = 4 + (musicControlLayout.compactLandscapeChrome().trailing != nil ? 1 : 0)
+        let leadingLimit = max(1, Int(((width + 10) / (diameter + 10)).rounded(.down)) - fixedCount)
+        let chrome = musicControlLayout.compactLandscapeChrome(leadingLimit: leadingLimit)
         // 有声内容:传输键两侧已经摆着的键,这一排不再重复。
         let spokenControls = spokenWordControlLayout.resolved(in: spokenWordCompactLandscapeControlContext(
             showsSides: !compactLandscapeHidesModeToggles,
@@ -4884,7 +4898,10 @@ struct NowPlayingView: View {
                 makeMoreMenu(
                     immersiveChrome: true,
                     chromeGlass: .adaptive,
-                    controlSurface: .compactLandscape(showsTransportEdges: !compactLandscapeHidesModeToggles)
+                    controlSurface: .compactLandscape(
+                        showsTransportEdges: !compactLandscapeHidesModeToggles,
+                        leadingLimit: leadingLimit
+                    )
                 )
             }
 
@@ -5088,7 +5105,7 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 36).padding(.top, 16)
             } else {
                 wideLandscapeControlBar
-                    .font(.body).padding(.horizontal, 80).padding(.top, 14)
+                    .font(.body).padding(.top, 14)
             }
 
             // 底排停在原来那行音质小字还在时的高度。
@@ -5636,8 +5653,7 @@ struct NowPlayingView: View {
                                 .pmLayoutSwitchFade()
                         }
 
-                        // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
-                        // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等。
+                        // Bottom bar —— 每颗都是 44×44,按颗数排开(见 `musicBottomBar`)。
                         // 竖栏里排着那一列按钮时(iPhone Duo)这一排的键都在那一列里,这里不再重复。
                         if !usesToolColumn {
                             portraitBottomBar(spokenControls: spokenPortraitControls)
@@ -6397,19 +6413,16 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 空着的格不占位(#320):三颗时左中右,两颗分在两头,一颗在正中;都空时留一行的高度。
+    /// 「播放页按钮」里那一串按顺序排开(`NowPlayingBarRowLayout`):一颗在正中,两颗分在两头,三颗以上
+    /// 平均铺开,颗数多了两头留白跟着收窄;都空时留一行的高度。
     private var musicBottomBar: some View {
-        let actions = NowPlayingControlSlot.bar.compactMap { musicControlLayout.action(in: $0) }
-        return HStack(spacing: 0) {
-            if actions.count == 1 { Spacer(minLength: 0) }
-            ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                if index > 0 { Spacer(minLength: 0) }
+        NowPlayingBarRowLayout {
+            ForEach(musicControlLayout.bar, id: \.self) { action in
                 controlButton(action, style: .bar)
             }
-            if actions.count == 1 { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity, minHeight: 44)
-        .font(.body).padding(.horizontal, 46).padding(.top, 12)
+        .font(.body).padding(.top, 12)
     }
 
     @ViewBuilder
@@ -8968,31 +8981,15 @@ struct NowPlayingView: View {
         }
     }
 
-    /// iPad 横屏左栏最下面那排:歌词常驻右栏,不放歌词键。两颗时和原来一样,一颗在中间、一颗靠右。
-    @ViewBuilder
+    /// iPad 横屏左栏最下面那排:歌词常驻右栏,不放歌词键。两颗时和原来一样,一颗在中间、一颗靠右;
+    /// 三颗以上两头收进 80 平均排开,颗数多了再往里收。
     private var wideLandscapeControlBar: some View {
-        let actions = musicControlLayout.wideLandscapeBar()
-        HStack {
-            switch actions.count {
-            case 0:
-                Color.clear.frame(height: 44)
-            case 1:
-                Spacer()
-                controlButton(actions[0], style: .wideBar)
-                Spacer()
-            case 2:
-                Spacer()
-                controlButton(actions[0], style: .wideBar)
-                Spacer()
-                controlButton(actions[1], style: .wideBar)
-            default:
-                controlButton(actions[0], style: .wideBar)
-                Spacer()
-                controlButton(actions[1], style: .wideBar)
-                Spacer()
-                controlButton(actions[2], style: .wideBar)
+        NowPlayingBarRowLayout(preferredInset: 80, pair: .centerAndTrailing) {
+            ForEach(musicControlLayout.wideLandscapeBar(), id: \.self) { action in
+                controlButton(action, style: .wideBar)
             }
         }
+        .frame(maxWidth: .infinity, minHeight: 44)
     }
 
     // MARK: - Helpers
@@ -11617,6 +11614,42 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
             player: player,
             translatedTextByLineID: transcriptTranslations()
         )
+    }
+}
+
+/// 播放页最下面那一排:按 `NowPlayingBarMetrics` 把几颗键排开 —— 一颗在正中,两颗分在两头(或一中一右),
+/// 三颗以上平均铺开,两头留白随颗数收窄。音乐底栏、iPad 横屏左栏底排与编辑页的预览共用,预览和真页面排得一样。
+/// 各颗以自己的大小居中摆在算好的位置上,一排的高度取最高那颗(至少 `minimumHeight`)。
+struct NowPlayingBarRowLayout: Layout {
+    var preferredInset: CGFloat = CGFloat(NowPlayingBarMetrics.preferredInset)
+    var pair: NowPlayingBarMetrics.PairArrangement = .ends
+    var minimumHeight: CGFloat = 44
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let height = max(minimumHeight, sizes.map(\.height).max() ?? 0)
+        if let width = proposal.width, width.isFinite {
+            return CGSize(width: width, height: height)
+        }
+        let content = sizes.map(\.width).reduce(0, +)
+            + CGFloat(max(0, sizes.count - 1)) * CGFloat(NowPlayingBarMetrics.minimumGap)
+        return CGSize(width: content + preferredInset * 2, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let centers = NowPlayingBarMetrics.centers(
+            count: subviews.count,
+            width: Double(bounds.width),
+            preferredInset: Double(preferredInset),
+            pair: pair
+        )
+        for (subview, center) in zip(subviews, centers) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + CGFloat(center), y: bounds.midY),
+                anchor: .center,
+                proposal: .unspecified
+            )
+        }
     }
 }
 

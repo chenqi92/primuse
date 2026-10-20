@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "Na iPhonie Duo pasek boczny, widok dzielony i tryb stołowy używają przycisków z ekranów Okładka i Tekst, więc nie trzeba nic dodatkowo ustawiać.";
 "player_controls_lyrics_own_buttons" = "Osobne przyciski dla tekstu";
 "player_controls_lyrics_own_buttons_footer" = "Wyłączone: tekst i okładka mają wspólne przyciski. Po włączeniu zaczynasz od kopii przycisków okładki.";
-"player_controls_lyrics_preview_footer_follow" = "Sześć miejsc odpowiada ekranowi Okładka. Włącz przełącznik powyżej, aby zmieniać je osobno. Dodatkowe miejsce obok tytułu można zmienić zawsze.";
+"player_controls_lyrics_preview_footer_follow" = "Miejsca przycisków i dolny rząd odpowiadają ekranowi Okładka. Włącz przełącznik powyżej, aby zmieniać je osobno. Dodatkowe miejsce obok tytułu można zmienić zawsze.";
 "player_controls_lyrics_preview_footer_own" = "Stuknij wiersz, aby zmienić przycisk. Ten zestaw obowiązuje, gdy widać tekst, także w poziomie i w widoku dzielonym na składanym urządzeniu. Wiersz stanu i pozycje menu Więcej są takie jak na ekranie Okładka.";
 "player_controls_lyrics_collapse" = "Ukrywaj sterowanie podczas przewijania tekstu";
 "player_controls_lyrics_collapse_footer" = "Przeciągnięcie tekstu ukrywa pasek postępu i przyciski pod nim, aby tekst wypełnił ekran. Stuknij puste miejsce w tekście, aby je przywrócić.";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "Obok tytułu";
 "player_controls_slot_leading_edge" = "Na lewo od odtwarzania";
 "player_controls_slot_trailing_edge" = "Na prawo od odtwarzania";
-"player_controls_slot_bar_leading" = "Na dole po lewej";
-"player_controls_slot_bar_center" = "Na dole pośrodku";
-"player_controls_slot_bar_trailing" = "Na dole po prawej";
+"player_controls_bar_title" = "Dolny rząd";
+"player_controls_bar_header %lld %lld" = "Dolny rząd (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "Na tym urządzeniu w rzędzie mieści się do %lld przycisków, ułożonych od lewej do prawej: jeden stoi na środku, dwa na końcach, a więcej rozkłada się równomiernie. Przytrzymaj i przeciągnij, aby zmienić kolejność; przesuń w lewo, aby usunąć. AirPlay można przenieść, ale nie usunąć.";
+"player_controls_bar_add" = "Dodaj przycisk";
+"player_controls_bar_position %lld" = "Dolny rząd, przycisk %lld";
+"player_controls_bar_remove" = "Usuń z rzędu";
+"player_controls_bar_add_footer" = "Wybrany przycisk, który jest już gdzie indziej, przeniesie się na koniec tego rzędu, a jego poprzednie miejsce zostanie puste.";
 "player_controls_action_like" = "Lubię to";
 "player_controls_action_lyrics" = "Tekst";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "Podczas przesyłania dźwięk odtwarza drugie urządzenie, więc tonacji nie można zmienić.";
 "playback_pitch_unavailable_apple_music" = "W utworach z Apple Music nie można zmienić tonacji.";
 "player_controls_unavailable_cast_apple_music" = "Utworów z Apple Music nie można przesyłać do urządzeń w sieci.";
-"player_controls_tiles_header" = "Kafelki funkcji";
-"player_controls_tiles_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Włączone kafelki rozkładają się równomiernie, a wyłączone nie zostawiają luki i nadal są w menu Więcej. Po włączeniu AirPlay, Lubię to, Więcej lub przycisk transkrypcji przenosi się tu ze swojego miejsca, a po wyłączeniu wraca.";
+"player_controls_tiles_header %lld %lld" = "Kafelki funkcji (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Włączone kafelki rozkładają się równomiernie, a wyłączone nie zostawiają luki i nadal są w menu Więcej. Po włączeniu AirPlay, Lubię to, Więcej lub przycisk transkrypcji przenosi się tu ze swojego miejsca, a po wyłączeniu wraca. Na tym urządzeniu w rzędzie mieści się do %lld kafelków; gdy rząd jest pełny, najpierw wyłącz jeden.";
 "player_controls_spoken_buttons_header" = "Inne przyciski";
 "player_controls_spoken_transcript" = "Przycisk transkrypcji";
 "player_controls_spoken_chapters" = "Poprzedni / następny rozdział";

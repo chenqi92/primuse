@@ -5825,7 +5825,7 @@
 "player_controls_duo_footer" = "On iPhone Duo, the side bar, split view and tabletop layouts use the Artwork and Lyrics buttons, so there’s nothing extra to set up.";
 "player_controls_lyrics_own_buttons" = "Separate Buttons for Lyrics";
 "player_controls_lyrics_own_buttons_footer" = "When off, lyrics and artwork share one set of buttons. Turning it on starts from a copy of the Artwork buttons.";
-"player_controls_lyrics_preview_footer_follow" = "The six spots match the Artwork screen. Turn on the switch above to change them separately. The extra spot next to the title can always be changed.";
+"player_controls_lyrics_preview_footer_follow" = "The button spots and the bottom row match the Artwork screen. Turn on the switch above to change them separately. The extra spot next to the title can always be changed.";
 "player_controls_lyrics_preview_footer_own" = "Tap a row to change a button. This set is used while lyrics are showing, including in phone landscape and foldable split view. The status line and More menu items follow the Artwork screen.";
 "player_controls_lyrics_collapse" = "Hide Controls While Scrolling Lyrics";
 "player_controls_lyrics_collapse_footer" = "Scrolling up through the lyrics hides the progress bar and the buttons below so the lyrics fill the screen; pulling back down does not. Tap an empty area of the lyrics to bring them back.";
@@ -5852,9 +5852,13 @@
 "player_controls_slot_header" = "Next to Title";
 "player_controls_slot_leading_edge" = "Left of Playback";
 "player_controls_slot_trailing_edge" = "Right of Playback";
-"player_controls_slot_bar_leading" = "Bottom Left";
-"player_controls_slot_bar_center" = "Bottom Center";
-"player_controls_slot_bar_trailing" = "Bottom Right";
+"player_controls_bar_title" = "Bottom Row";
+"player_controls_bar_header %lld %lld" = "Bottom Row (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "This device fits up to %lld buttons in a row, laid out left to right: one sits in the middle, two go to the ends, and more spread out evenly. Touch and hold to drag them into a new order; swipe left to remove one. AirPlay can be moved but not removed.";
+"player_controls_bar_add" = "Add Button";
+"player_controls_bar_position %lld" = "Bottom Row, Button %lld";
+"player_controls_bar_remove" = "Remove from Row";
+"player_controls_bar_add_footer" = "Choosing a button that’s already elsewhere moves it to the end of this row and leaves its old spot empty.";
 "player_controls_action_like" = "Like";
 "player_controls_action_lyrics" = "Lyrics";
 "player_controls_action_airplay" = "AirPlay";
@@ -5869,8 +5873,8 @@
 "playback_pitch_unavailable_casting" = "While casting, the other device plays the sound, so the key can’t change.";
 "playback_pitch_unavailable_apple_music" = "The key can’t be changed for Apple Music songs.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music songs can’t be cast to devices on your network.";
-"player_controls_tiles_header" = "Action Tiles";
-"player_controls_tiles_footer" = "Touch and hold to drag them into a new order. Tiles that are on spread out evenly, and turned-off ones leave no gap; they’re still in the More menu. Turning on AirPlay, Like, More, or the transcript button moves it here from where it was; turning it off puts it back.";
+"player_controls_tiles_header %lld %lld" = "Action Tiles (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Touch and hold to drag them into a new order. Tiles that are on spread out evenly, and turned-off ones leave no gap; they’re still in the More menu. Turning on AirPlay, Like, More, or the transcript button moves it here from where it was; turning it off puts it back. This device fits up to %lld tiles in a row; once it’s full, turn one off before turning another on.";
 "player_controls_spoken_buttons_header" = "Other Buttons";
 "player_controls_spoken_transcript" = "Transcript Button";
 "player_controls_spoken_chapters" = "Previous / Next Chapter";

@@ -12,21 +12,24 @@ import Testing
         #expect(!Controls.default.usesOwnButtons)
         #expect(Controls.default.headerExtra == .karaoke)
         #expect(Controls.default.collapsesControlsOnScroll)
-        let cover = NowPlayingControlLayout.default.placing(.sleepTimer, in: .barLeading)
+        let cover = NowPlayingControlLayout.default.placing(.sleepTimer, at: .bar(0))
         #expect(Controls.default.resolvedLayout(cover: cover) == cover)
     }
 
     @Test func turningOnOwnButtonsStartsFromTheCoverButtons() {
         let cover = NowPlayingControlLayout.default
-            .placing(.sleepTimer, in: .barLeading)
+            .placing(.sleepTimer, at: .bar(0))
             .settingStatusItem(.source, visible: false)
         let controls = Controls.default.settingUsesOwnButtons(true, cover: cover)
         #expect(controls.usesOwnButtons)
         #expect(controls.ownButtons.actions == cover.actions)
-        let changed = controls.placingOwnButton(.dislike, in: .header)
+        #expect(controls.ownButtons.bar == cover.bar)
+        let changed = controls.placingOwnButton(.dislike, at: .slot(.header))
+            .placingOwnButton(.share, at: .bar(3))
+            .movingOwnBar(fromOffsets: [3], toOffset: 0)
         let resolved = changed.resolvedLayout(cover: cover)
         #expect(resolved.action(in: .header) == .dislike)
-        #expect(resolved.action(in: .barLeading) == .sleepTimer)
+        #expect(resolved.bar == [.share, .sleepTimer, .airPlay, .queue])
         // 状态行与「更多」的开关仍跟封面那份。
         #expect(!resolved.showsStatusItem(.source))
         #expect(Controls.decode(changed.encoded()) == changed)
@@ -36,12 +39,11 @@ import Testing
         let cover = NowPlayingControlLayout.default
         let arranged = Controls.default
             .settingUsesOwnButtons(true, cover: cover)
-            .placingOwnButton(.equalizer, in: .barTrailing)
+            .placingOwnButton(.equalizer, at: .bar(2))
         let off = arranged.settingUsesOwnButtons(false, cover: cover)
         #expect(off.resolvedLayout(cover: cover) == cover)
-        let backOn = off.settingUsesOwnButtons(true, cover: cover.placing(.share, in: .barLeading))
-        #expect(backOn.ownButtons.action(in: .barTrailing) == .equalizer)
-        #expect(backOn.ownButtons.action(in: .barLeading) == .lyrics)
+        let backOn = off.settingUsesOwnButtons(true, cover: cover.placing(.share, at: .bar(0)))
+        #expect(backOn.ownButtons.bar == [.lyrics, .airPlay, .equalizer])
     }
 
     @Test func headerExtraCanBeEmptiedChangedOrRestored() {
@@ -64,7 +66,7 @@ import Testing
     }
 
     @Test func lyricsSurfaceCountsTheHeaderExtraAsOnThePage() {
-        let layout = NowPlayingControlLayout.default.placing(nil, in: .header)
+        let layout = NowPlayingControlLayout.default.placing(nil, at: .slot(.header))
         #expect(layout.menuFallback(on: .portrait).contains(.like))
         #expect(!layout.menuFallback(on: .portraitLyrics(headerExtra: .like)).contains(.like))
         #expect(layout.menuSuppressed(on: .portraitLyrics(headerExtra: .karaoke)).contains(.karaoke))

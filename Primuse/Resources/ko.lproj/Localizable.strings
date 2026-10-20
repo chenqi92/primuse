@@ -6065,7 +6065,7 @@
 "player_controls_duo_footer" = "iPhone Duo의 사이드바, 분할 보기, 테이블탑 화면은 아트워크와 가사 화면의 버튼을 그대로 사용하므로 따로 설정할 필요가 없습니다.";
 "player_controls_lyrics_own_buttons" = "가사 화면 버튼 따로 설정";
 "player_controls_lyrics_own_buttons_footer" = "끄면 가사와 아트워크 화면이 같은 버튼을 사용합니다. 켜면 아트워크 버튼을 복사해 시작합니다.";
-"player_controls_lyrics_preview_footer_follow" = "여섯 자리는 아트워크 화면과 같습니다. 위의 스위치를 켜야 따로 바꿀 수 있습니다. 제목 옆에 추가된 자리는 언제든 바꿀 수 있습니다.";
+"player_controls_lyrics_preview_footer_follow" = "버튼 위치와 아래 줄은 아트워크 화면과 같습니다. 위의 스위치를 켜야 따로 바꿀 수 있습니다. 제목 옆에 추가된 자리는 언제든 바꿀 수 있습니다.";
 "player_controls_lyrics_preview_footer_own" = "행을 탭해 버튼을 바꿉니다. 가사를 볼 때(가로 화면이나 폴더블 분할 보기에서 가사를 열었을 때 포함) 이 버튼을 사용합니다. 상태 줄과 '더 보기' 항목은 아트워크 화면을 따릅니다.";
 "player_controls_lyrics_collapse" = "가사를 스크롤하면 컨트롤 숨기기";
 "player_controls_lyrics_collapse_footer" = "가사를 드래그하면 진행 막대와 아래 버튼을 숨겨 가사가 화면을 채웁니다. 가사의 빈 곳을 탭하면 다시 나타납니다.";
@@ -6092,9 +6092,13 @@
 "player_controls_slot_header" = "제목 옆";
 "player_controls_slot_leading_edge" = "재생 버튼 왼쪽";
 "player_controls_slot_trailing_edge" = "재생 버튼 오른쪽";
-"player_controls_slot_bar_leading" = "아래 왼쪽";
-"player_controls_slot_bar_center" = "아래 가운데";
-"player_controls_slot_bar_trailing" = "아래 오른쪽";
+"player_controls_bar_title" = "아래 줄";
+"player_controls_bar_header %lld %lld" = "아래 줄(%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "이 기기에서는 한 줄에 최대 %lld개까지 놓을 수 있으며 왼쪽부터 순서대로 배치됩니다. 하나면 가운데, 둘이면 양 끝, 그보다 많으면 고르게 펼쳐집니다. 길게 누른 채 드래그하면 순서를 바꾸고, 왼쪽으로 쓸어 넘기면 뺄 수 있습니다. AirPlay는 옮길 수만 있고 뺄 수는 없습니다.";
+"player_controls_bar_add" = "버튼 추가";
+"player_controls_bar_position %lld" = "아래 줄 %lld번째";
+"player_controls_bar_remove" = "이 줄에서 빼기";
+"player_controls_bar_add_footer" = "이미 다른 자리에 있는 버튼을 고르면 이 줄의 맨 끝으로 옮겨지고 원래 자리는 비워집니다.";
 "player_controls_action_like" = "좋아요";
 "player_controls_action_lyrics" = "가사";
 "player_controls_action_airplay" = "AirPlay";
@@ -6109,8 +6113,8 @@
 "playback_pitch_unavailable_casting" = "캐스트하는 동안에는 상대 기기가 소리를 내므로 키를 바꿀 수 없습니다.";
 "playback_pitch_unavailable_apple_music" = "Apple Music 곡은 키를 바꿀 수 없습니다.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 곡은 네트워크의 기기로 캐스트할 수 없습니다.";
-"player_controls_tiles_header" = "기능 타일";
-"player_controls_tiles_footer" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 켠 타일은 고르게 배치되고, 끈 타일은 빈자리를 남기지 않으며 '더 보기' 메뉴에 있습니다. AirPlay, 좋아요, 더 보기, 스크립트 버튼을 켜면 원래 자리에서 이 줄로 옮겨지고, 끄면 돌아갑니다.";
+"player_controls_tiles_header %lld %lld" = "기능 타일(%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 켠 타일은 고르게 배치되고, 끈 타일은 빈자리를 남기지 않으며 '더 보기' 메뉴에 있습니다. AirPlay, 좋아요, 더 보기, 스크립트 버튼을 켜면 원래 자리에서 이 줄로 옮겨지고, 끄면 돌아갑니다. 이 기기에서는 한 줄에 최대 %lld개까지 놓을 수 있습니다. 가득 차면 먼저 하나를 끄세요.";
 "player_controls_spoken_buttons_header" = "기타 버튼";
 "player_controls_spoken_transcript" = "스크립트 버튼";
 "player_controls_spoken_chapters" = "이전 / 다음 챕터";

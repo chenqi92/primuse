@@ -6158,7 +6158,7 @@
 "player_controls_duo_footer" = "iPhone Duo 的侧边竖栏、展开分栏和桌面半折沿用封面与歌词界面的按钮，不用另外设置。";
 "player_controls_lyrics_own_buttons" = "单独设置歌词界面的按钮";
 "player_controls_lyrics_own_buttons_footer" = "关闭时看歌词和看封面用同一组按钮。打开后先从封面那一组抄一份，再按需要改。";
-"player_controls_lyrics_preview_footer_follow" = "六个位置和封面界面一样，打开上面的开关才能单独换。顶上歌名旁多出来的那一格随时可以换。";
+"player_controls_lyrics_preview_footer_follow" = "按钮位置和最下面那一排都和封面界面一样，打开上面的开关才能单独换。顶上歌名旁多出来的那一格随时可以换。";
 "player_controls_lyrics_preview_footer_own" = "点一行换按钮。看歌词时（包括手机横屏和折叠屏分栏里开着歌词时）用这一组；状态行和「更多」里的项跟封面界面一样。";
 "player_controls_lyrics_collapse" = "上滑歌词时收起播放控件";
 "player_controls_lyrics_collapse_footer" = "往上翻歌词时把进度条和下面的按钮收起来，让歌词铺满；往回拉不会收起。点歌词空白处叫回来。";
@@ -6185,9 +6185,13 @@
 "player_controls_slot_header" = "歌名旁";
 "player_controls_slot_leading_edge" = "播放键左侧";
 "player_controls_slot_trailing_edge" = "播放键右侧";
-"player_controls_slot_bar_leading" = "底栏左";
-"player_controls_slot_bar_center" = "底栏中";
-"player_controls_slot_bar_trailing" = "底栏右";
+"player_controls_bar_title" = "最下面那一排";
+"player_controls_bar_header %lld %lld" = "最下面那一排（%1$lld/%2$lld）";
+"player_controls_bar_footer %lld" = "这台设备一排最多放 %lld 个，按顺序从左到右排开：一个居中，两个分在两头，再多就平均铺开。按住拖动换顺序，左滑拿掉；AirPlay 只能挪位置，不能拿掉。";
+"player_controls_bar_add" = "添加按钮";
+"player_controls_bar_position %lld" = "最下面那一排第 %lld 个";
+"player_controls_bar_remove" = "从这一排拿掉";
+"player_controls_bar_add_footer" = "选已经在别处的按钮，会挪到这一排最后，原处空着。";
 "player_controls_action_like" = "喜欢";
 "player_controls_action_lyrics" = "歌词";
 "player_controls_action_airplay" = "AirPlay";
@@ -6202,8 +6206,8 @@
 "playback_pitch_unavailable_casting" = "投放到其他设备时由对方设备出声，不能升降调。";
 "playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降调。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";
-"player_controls_tiles_header" = "功能块";
-"player_controls_tiles_footer" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位，在「更多」里仍然找得到。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。";
+"player_controls_tiles_header %lld %lld" = "功能块（%1$lld/%2$lld）";
+"player_controls_tiles_footer %lld" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位，在「更多」里仍然找得到。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。这台设备一排最多放 %lld 块，开满后要先关掉一块。";
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";

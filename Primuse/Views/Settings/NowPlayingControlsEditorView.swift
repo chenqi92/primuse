@@ -5,7 +5,8 @@ import SwiftUI
 /// 设置 › 播放器 › 播放页样式与按钮。右上角切换音乐、有声书、播客、电台;每一种都有一张按真机比例实时画的
 /// 播放页(`NowPlayingStylePreview`),像画中画一样浮在列表上,拖到哪儿停在哪儿、双指缩放大小。
 /// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面在浮动预览下面那一排切换,列表跟着换成这一种界面的设置。
-///   封面那一面还管封面样式、进度条、音量条、颜色、背景、播放键图标与最底下那行状态。
+///   封面那一面还管封面样式、进度条、音量条、颜色、背景、播放键图标与最底下那行状态。最下面那一排按钮
+///   颗数不固定:这台设备一排放得下几个就能加几个,按顺序平均排开。
 /// - 有声书、播客:能换按钮的几格,那一排功能块的显隐与顺序(AirPlay 也能挪进来),喜欢、文字稿键与
 ///   上一章 / 下一章,有声书最底下写不写音乐源,上滑文字稿时收不收控件。
 /// - 电台:最下面那一排的顺序与显隐,以及音量条。
@@ -246,10 +247,15 @@ struct NowPlayingControlsEditorView: View {
 
     // MARK: 封面
 
+    /// 这台设备竖屏时最下面那一排放得下几颗(有声书、播客那排功能块也按这个数)。
+    fileprivate static var barCapacity: Int {
+        NowPlayingBarMetrics.capacity(forWidth: Double(NowPlayingPreviewCanvas.current().size.width))
+    }
+
     @ViewBuilder
     private var coverSections: some View {
             Section {
-                ForEach(NowPlayingControlSlot.allCases) { slot in
+                ForEach(NowPlayingControlSlot.single) { slot in
                     slotRow(slot)
                 }
                 NavigationLink {
@@ -271,6 +277,14 @@ struct NowPlayingControlsEditorView: View {
             } footer: {
                 Text("player_style_preview_pip_hint")
             }
+
+            NowPlayingBarSection(
+                bar: layout.bar,
+                capacity: Self.barCapacity,
+                select: { editing = .cover($0) },
+                move: { storage = layout.movingBar(fromOffsets: $0, toOffset: $1).encoded() },
+                remove: { storage = layout.placing(nil, at: .bar($0)).encoded() }
+            )
 
             NowPlayingTransportStyleSection(
                 playKey: PlayerAppearancePreferences.playButtonStyleKey,
@@ -298,7 +312,7 @@ struct NowPlayingControlsEditorView: View {
                     skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
                 }
                 .disabled(
-                    layout.actions == NowPlayingControlLayout.defaultActions
+                    layout.buttonsAreDefault
                         && playButtonStyleBinding.wrappedValue == .filledCircle
                         && skipButtonStyleBinding.wrappedValue == .standard
                 )
@@ -313,7 +327,7 @@ struct NowPlayingControlsEditorView: View {
             title: slot.editorTitleKey,
             symbol: action?.editorSymbol,
             value: action?.editorTitleKey ?? "player_controls_empty"
-        ) { editing = .cover(slot) }
+        ) { editing = .cover(.slot(slot)) }
     }
 
     private var playButtonStyleBinding: Binding<NowPlayingPlayButtonStyle> {
@@ -357,14 +371,14 @@ struct NowPlayingControlsEditorView: View {
                 symbol: controls.headerExtra?.editorSymbol,
                 value: controls.headerExtra?.editorTitleKey ?? "player_controls_empty"
             ) { editing = .lyricsExtra }
-            // 没单独设置时六个位置跟封面界面一样,只列出来、不让点。
-            ForEach(NowPlayingControlSlot.allCases) { slot in
+            // 没单独设置时按钮位置与最下面那一排跟封面界面一样,只列出来、不让点。
+            ForEach(NowPlayingControlSlot.single) { slot in
                 SlotChoiceRow(
                     title: slot.editorTitleKey,
                     symbol: lyricsLayout.action(in: slot)?.editorSymbol,
                     value: lyricsLayout.action(in: slot)?.editorTitleKey ?? "player_controls_empty",
                     isEnabled: controls.usesOwnButtons
-                ) { editing = .lyrics(slot) }
+                ) { editing = .lyrics(.slot(slot)) }
             }
         } header: {
             Text("player_controls_slots_title")
@@ -373,6 +387,15 @@ struct NowPlayingControlsEditorView: View {
                 ? LocalizedStringKey("player_controls_lyrics_preview_footer_own")
                 : LocalizedStringKey("player_controls_lyrics_preview_footer_follow"))
         }
+
+        NowPlayingBarSection(
+            bar: lyricsLayout.bar,
+            capacity: Self.barCapacity,
+            isEnabled: controls.usesOwnButtons,
+            select: { editing = .lyrics($0) },
+            move: { lyricsStorage = controls.movingOwnBar(fromOffsets: $0, toOffset: $1).encoded() },
+            remove: { lyricsStorage = controls.placingOwnButton(nil, at: .bar($0)).encoded() }
+        )
 
         Section {
             Toggle("player_controls_lyrics_collapse", isOn: Binding(
@@ -799,15 +822,15 @@ private struct NowPlayingSlotPickerSheet: View {
 
     var body: some View {
         switch target {
-        case .cover(let slot):
-            NowPlayingControlPicker(slot: slot, layout: layout) { action in
-                storage = layout.placing(action, in: slot).encoded()
+        case .cover(let position):
+            NowPlayingControlPicker(position: position, layout: layout) { action in
+                storage = layout.placing(action, at: position).encoded()
                 onDone()
             }
-        case .lyrics(let slot):
+        case .lyrics(let position):
             let controls = lyricsControls
-            NowPlayingControlPicker(slot: slot, layout: controls.ownButtons) { action in
-                lyricsStorage = controls.placingOwnButton(action, in: slot).encoded()
+            NowPlayingControlPicker(position: position, layout: controls.ownButtons) { action in
+                lyricsStorage = controls.placingOwnButton(action, at: position).encoded()
                 onDone()
             }
         case .lyricsExtra:
@@ -884,7 +907,7 @@ private struct NowPlayingSlotPickerSheet: View {
 private struct SlotChoiceRow: View {
     let title: LocalizedStringKey
     let symbol: String?
-    let value: LocalizedStringKey
+    let value: LocalizedStringKey?
     var badge: String? = nil
     var isEnabled = true
     let onSelect: () -> Void
@@ -907,9 +930,11 @@ private struct SlotChoiceRow: View {
                 Text(title)
                     .foregroundStyle(isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 Spacer(minLength: 8)
-                Text(value)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let value {
+                    Text(value)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if isEnabled {
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
@@ -921,6 +946,50 @@ private struct SlotChoiceRow: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .accessibilityHint(isEnabled ? Text("player_controls_slot_hint") : Text(verbatim: ""))
+    }
+}
+
+/// 音乐播放页最下面那一排:一颗一行,点了换按钮,按住拖动换顺序,左滑拿掉;最后一行添加,加满这台设备
+/// 一排放得下的颗数就不能再加。AirPlay 只能挪、不能拿掉。封面界面与歌词界面(单独摆按钮时)共用。
+private struct NowPlayingBarSection: View {
+    let bar: [NowPlayingControlAction]
+    let capacity: Int
+    var isEnabled = true
+    let select: (NowPlayingControlPosition) -> Void
+    let move: (IndexSet, Int) -> Void
+    let remove: (Int) -> Void
+
+    var body: some View {
+        Section {
+            ForEach(Array(bar.enumerated()), id: \.element) { index, action in
+                SlotChoiceRow(
+                    title: action.editorTitleKey,
+                    symbol: action.editorSymbol,
+                    value: nil,
+                    badge: action.isRequiredOnPage ? "lock.fill" : nil,
+                    isEnabled: isEnabled
+                ) { select(.bar(index)) }
+                .deleteDisabled(!isEnabled || action.isRequiredOnPage)
+                .moveDisabled(!isEnabled)
+            }
+            .onMove { move($0, $1) }
+            .onDelete { offsets in
+                // 一次只会划掉一行;从后往前删,前面的下标不受影响。
+                for index in offsets.sorted(by: >) { remove(index) }
+            }
+            if isEnabled {
+                Button {
+                    select(.bar(bar.count))
+                } label: {
+                    Label("player_controls_bar_add", systemImage: "plus.circle.fill")
+                }
+                .disabled(bar.count >= capacity)
+            }
+        } header: {
+            Text("player_controls_bar_header \(bar.count) \(capacity)")
+        } footer: {
+            Text("player_controls_bar_footer \(capacity)")
+        }
     }
 }
 
@@ -1341,6 +1410,9 @@ private struct SpokenWordControlsSections: View {
             Text("player_controls_spoken_slot_footer")
         }
 
+        // 这台设备一排放得下几块(和音乐底栏同一个上限):开满了,关着的那几块先不能开。
+        let capacity = NowPlayingControlsEditorView.barCapacity
+        let isFull = layout.visibleTiles().count >= capacity
         Section {
             ForEach(layout.order) { tile in
                 Toggle(isOn: Binding(
@@ -1357,6 +1429,7 @@ private struct SpokenWordControlsSections: View {
                         Image(systemName: tile.editorSymbol(for: kind))
                     }
                 }
+                .disabled(isFull && !layout.isShown(tile))
             }
             .onMove { storage = layout.movingTiles(fromOffsets: $0, toOffset: $1).encoded() }
             Picker(selection: Binding(
@@ -1369,9 +1442,9 @@ private struct SpokenWordControlsSections: View {
                 Label("player_controls_tile_label_style", systemImage: "textformat.abc")
             }
         } header: {
-            Text("player_controls_tiles_header")
+            Text("player_controls_tiles_header \(layout.visibleTiles().count) \(capacity)")
         } footer: {
-            Text("player_controls_tiles_footer")
+            Text("player_controls_tiles_footer \(capacity)")
         }
 
         Section {
@@ -1849,28 +1922,44 @@ extension NowPlayingMenuItem {
 
 // MARK: - 挑按钮
 
-/// 给一个位置挑按钮。已经在别的位置上的按钮选了就两格对调;隔空播放只能挪、不能拿掉,
-/// 也不放在播放键两侧。不能选的项照样能点,点了说明原因。
+/// 给一个位置挑按钮。已经在别处的按钮选了就两处对调;给最下面那一排添一颗时,已经在别处的挪过来、原处空着。
+/// 隔空播放只能挪、不能拿掉,也不放在播放键两侧。不能选的项照样能点,点了说明原因。
 private struct NowPlayingControlPicker: View {
-    let slot: NowPlayingControlSlot
+    let position: NowPlayingControlPosition
     let layout: NowPlayingControlLayout
     let onPick: (NowPlayingControlAction?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var blockedReason: LocalizedStringKey?
 
+    /// 最下面那一排里的一颗(或者添到最后)。
+    private var isBar: Bool {
+        if case .bar = position { return true }
+        return false
+    }
+
+    /// 给最下面那一排添一颗:没有「空着」可选,选了就加到最后。
+    private var isAppending: Bool {
+        if case .bar(let index) = position { return index >= layout.bar.count }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    row(nil)
+                    if !isAppending {
+                        row(nil)
+                    }
                     ForEach(NowPlayingControlAction.allCases) { action in
                         row(action)
                     }
                 } footer: {
-                    Text("player_controls_picker_footer")
+                    Text(isAppending
+                        ? LocalizedStringKey("player_controls_bar_add_footer")
+                        : LocalizedStringKey("player_controls_picker_footer"))
                 }
             }
-            .navigationTitle(Text(slot.editorTitleKey))
+            .navigationTitle(Text(isAppending ? LocalizedStringKey("player_controls_bar_add") : position.editorTitleKey))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1892,9 +1981,9 @@ private struct NowPlayingControlPicker: View {
     }
 
     private func row(_ action: NowPlayingControlAction?) -> some View {
-        let isCurrent = layout.action(in: slot) == action
-        let isAllowed = layout.canPlace(action, in: slot)
-        let otherSlot = action.flatMap { layout.slot(of: $0) }.flatMap { $0 == slot ? nil : $0 }
+        let isCurrent = !isAppending && layout.action(at: position) == action
+        let isAllowed = layout.canPlace(action, at: position)
+        let otherPosition = action.flatMap { layout.position(of: $0) }.flatMap { $0 == position ? nil : $0 }
         return Button {
             if isAllowed {
                 onPick(action)
@@ -1903,19 +1992,19 @@ private struct NowPlayingControlPicker: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: action?.editorSymbol ?? "circle.dashed")
+                Image(systemName: action?.editorSymbol ?? (isBar ? "minus.circle" : "circle.dashed"))
                     .font(.body)
                     .foregroundStyle(isAllowed ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
                     .frame(width: 28)
-                Text(action?.editorTitleKey ?? "player_controls_empty")
+                Text(action?.editorTitleKey ?? (isBar ? "player_controls_bar_remove" : "player_controls_empty"))
                     .foregroundStyle(isAllowed ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 Spacer(minLength: 8)
-                if let otherSlot {
-                    // 选它就和那一格对调。
+                if let otherPosition {
+                    // 选它就和那一处对调(添到最后时是从那一处挪过来)。
                     Label {
-                        Text(otherSlot.editorTitleKey)
+                        Text(otherPosition.editorTitleKey)
                     } icon: {
-                        Image(systemName: "arrow.left.arrow.right")
+                        Image(systemName: isAppending ? "arrow.down.to.line" : "arrow.left.arrow.right")
                     }
                     .labelStyle(.titleAndIcon)
                     .font(.footnote)
@@ -1933,8 +2022,15 @@ private struct NowPlayingControlPicker: View {
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
+    /// 两种挡下来的情况:隔空播放会被换到播放键两侧,或者会从页面上消失。
     private func blockedReasonKey(for action: NowPlayingControlAction?) -> LocalizedStringKey {
-        if action == .airPlay, slot.isTransportEdge {
+        if action == .airPlay, case .slot(let slot) = position, slot.isTransportEdge {
+            return "player_controls_airplay_edge"
+        }
+        if layout.action(at: position) == .airPlay,
+           let action,
+           case .slot(let slot)? = layout.position(of: action),
+           slot.isTransportEdge {
             return "player_controls_airplay_edge"
         }
         return "player_controls_airplay_required"
@@ -2181,14 +2277,30 @@ extension SpokenWordControlSlot {
 }
 
 extension NowPlayingControlSlot {
+    /// 旧版底栏那三个名字不会出现在编辑页上(底栏按颗数写,见 `NowPlayingControlPosition`)。
     var editorTitleKey: LocalizedStringKey {
         switch self {
         case .header: "player_controls_slot_header"
         case .leadingEdge: "player_controls_slot_leading_edge"
         case .trailingEdge: "player_controls_slot_trailing_edge"
-        case .barLeading: "player_controls_slot_bar_leading"
-        case .barCenter: "player_controls_slot_bar_center"
-        case .barTrailing: "player_controls_slot_bar_trailing"
+        case .barLeading, .barCenter, .barTrailing: "player_controls_bar_title"
+        }
+    }
+}
+
+extension NowPlayingControlPosition {
+    var editorTitleKey: LocalizedStringKey {
+        switch self {
+        case .slot(let slot): slot.editorTitleKey
+        case .bar(let index): "player_controls_bar_position \(index + 1)"
+        }
+    }
+
+    /// 预览里这一处的标识(`NowPlayingPreviewSlot.id`)。
+    var previewID: String {
+        switch self {
+        case .slot(let slot): slot.rawValue
+        case .bar(let index): "bar.\(index)"
         }
     }
 }

@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "En iPhone Duo, la barra lateral, la vista dividida y el modo de mesa usan los botones de Portada y Letra, así que no hay que configurar nada más.";
 "player_controls_lyrics_own_buttons" = "Botones propios para la letra";
 "player_controls_lyrics_own_buttons_footer" = "Desactivado: la letra y la portada usan los mismos botones. Al activarlo se parte de una copia de los botones de la portada.";
-"player_controls_lyrics_preview_footer_follow" = "Los seis lugares siguen la pantalla Portada. Activa el interruptor de arriba para cambiarlos por separado. El lugar extra junto al título siempre se puede cambiar.";
+"player_controls_lyrics_preview_footer_follow" = "Los lugares de los botones y la fila inferior siguen la pantalla Portada. Activa el interruptor de arriba para cambiarlos por separado. El lugar extra junto al título siempre se puede cambiar.";
 "player_controls_lyrics_preview_footer_own" = "Toca una fila para cambiar un botón. Este grupo se usa mientras se muestra la letra, también en horizontal y en la vista dividida de un plegable. La línea de estado y las opciones del menú Más siguen la pantalla Portada.";
 "player_controls_lyrics_collapse" = "Ocultar controles al desplazar la letra";
 "player_controls_lyrics_collapse_footer" = "Al arrastrar la letra se ocultan la barra de progreso y los botones de abajo para que la letra llene la pantalla. Toca un espacio vacío de la letra para que vuelvan.";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "Junto al título";
 "player_controls_slot_leading_edge" = "A la izquierda de reproducción";
 "player_controls_slot_trailing_edge" = "A la derecha de reproducción";
-"player_controls_slot_bar_leading" = "Abajo a la izquierda";
-"player_controls_slot_bar_center" = "Abajo al centro";
-"player_controls_slot_bar_trailing" = "Abajo a la derecha";
+"player_controls_bar_title" = "Fila inferior";
+"player_controls_bar_header %lld %lld" = "Fila inferior (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "En este dispositivo caben hasta %lld botones en una fila, ordenados de izquierda a derecha: uno va al centro, dos a los extremos y más se reparten de forma uniforme. Mantén presionado y arrastra para cambiar el orden; desliza a la izquierda para quitar uno. AirPlay se puede mover, pero no quitar.";
+"player_controls_bar_add" = "Agregar botón";
+"player_controls_bar_position %lld" = "Fila inferior, botón %lld";
+"player_controls_bar_remove" = "Quitar de la fila";
+"player_controls_bar_add_footer" = "Si eliges un botón que ya está en otro lugar, pasa al final de esta fila y su lugar anterior queda vacío.";
 "player_controls_action_like" = "Me gusta";
 "player_controls_action_lyrics" = "Letra";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "Al transmitir, el otro dispositivo reproduce el sonido, así que el tono no puede cambiar.";
 "playback_pitch_unavailable_apple_music" = "No se puede cambiar el tono de las canciones de Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
-"player_controls_tiles_header" = "Mosaicos de funciones";
-"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco; siguen en Más. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven.";
+"player_controls_tiles_header %lld %lld" = "Mosaicos de funciones (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco; siguen en Más. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven. En este dispositivo caben hasta %lld mosaicos en una fila; cuando esté llena, desactiva uno antes de activar otro.";
 "player_controls_spoken_buttons_header" = "Otros botones";
 "player_controls_spoken_transcript" = "Botón de transcripción";
 "player_controls_spoken_chapters" = "Capítulo anterior / siguiente";

@@ -88,7 +88,7 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
         usesOwnButtons ? cover.replacingActions(with: ownButtons) : cover
     }
 
-    /// 歌词页顶上多出来那一格能放什么:隔空播放不放这里(它必须留在六个位置里),
+    /// 歌词页顶上多出来那一格能放什么:隔空播放不放这里(它必须留在单格或最下面那一排里),
     /// 歌词键在歌词页上就是「回到封面」,顶上的小封面已经管这件事。
     public static func allowsHeaderExtra(_ action: NowPlayingControlAction) -> Bool {
         action != .airPlay && action != .lyrics
@@ -106,10 +106,17 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
 
     public func placingOwnButton(
         _ action: NowPlayingControlAction?,
-        in slot: NowPlayingControlSlot
+        at position: NowPlayingControlPosition
     ) -> NowPlayingLyricsPageControls {
         var copy = self
-        copy.ownStorage = ownButtons.placing(action, in: slot).encoded()
+        copy.ownStorage = ownButtons.placing(action, at: position).encoded()
+        return copy
+    }
+
+    /// 单独摆的那组最下面那一排挪动顺序(与 `onMove` 的参数一致)。
+    public func movingOwnBar(fromOffsets source: IndexSet, toOffset destination: Int) -> NowPlayingLyricsPageControls {
+        var copy = self
+        copy.ownStorage = ownButtons.movingBar(fromOffsets: source, toOffset: destination).encoded()
         return copy
     }
 

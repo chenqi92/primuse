@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "iPhone Duo पर साइड बार, स्प्लिट व्यू और टेबलटॉप मोड, कवर और बोल स्क्रीन के बटन ही इस्तेमाल करते हैं, अलग से कुछ सेट करने की ज़रूरत नहीं।";
 "player_controls_lyrics_own_buttons" = "बोल के लिए अलग बटन";
 "player_controls_lyrics_own_buttons_footer" = "बंद होने पर बोल और कवर एक जैसे बटन इस्तेमाल करते हैं। चालू करने पर पहले कवर के बटनों की कॉपी से शुरुआत होती है।";
-"player_controls_lyrics_preview_footer_follow" = "छह जगहें कवर स्क्रीन जैसी हैं। उन्हें अलग से बदलने के लिए ऊपर का स्विच चालू करें। शीर्षक के पास वाली अतिरिक्त जगह कभी भी बदली जा सकती है।";
+"player_controls_lyrics_preview_footer_follow" = "बटनों की जगहें और नीचे की पंक्ति कवर स्क्रीन जैसी हैं। उन्हें अलग से बदलने के लिए ऊपर का स्विच चालू करें। शीर्षक के पास वाली अतिरिक्त जगह कभी भी बदली जा सकती है।";
 "player_controls_lyrics_preview_footer_own" = "बटन बदलने के लिए किसी पंक्ति पर टैप करें। बोल दिखते समय यही सेट इस्तेमाल होता है, लैंडस्केप और फ़ोल्डेबल के स्प्लिट व्यू में भी। स्टेटस लाइन और \"और\" मेन्यू के आइटम कवर स्क्रीन जैसे रहते हैं।";
 "player_controls_lyrics_collapse" = "बोल स्क्रॉल करते समय कंट्रोल छिपाएँ";
 "player_controls_lyrics_collapse_footer" = "बोल खींचने पर प्रोग्रेस बार और नीचे के बटन छिप जाते हैं ताकि बोल पूरी स्क्रीन पर दिखें। उन्हें वापस लाने के लिए बोल की खाली जगह पर टैप करें।";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "शीर्षक के पास";
 "player_controls_slot_leading_edge" = "प्लेबैक के बाएँ";
 "player_controls_slot_trailing_edge" = "प्लेबैक के दाएँ";
-"player_controls_slot_bar_leading" = "नीचे बाएँ";
-"player_controls_slot_bar_center" = "नीचे बीच में";
-"player_controls_slot_bar_trailing" = "नीचे दाएँ";
+"player_controls_bar_title" = "नीचे की पंक्ति";
+"player_controls_bar_header %lld %lld" = "नीचे की पंक्ति (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "इस डिवाइस पर एक पंक्ति में ज़्यादा से ज़्यादा %lld बटन आते हैं, बाएँ से दाएँ क्रम में: एक हो तो बीच में, दो हों तो दोनों किनारों पर, और ज़्यादा हों तो बराबर फैल जाते हैं। क्रम बदलने के लिए दबाकर रखें और खींचें; हटाने के लिए बाईं ओर स्वाइप करें। AirPlay की जगह बदली जा सकती है, पर उसे हटाया नहीं जा सकता।";
+"player_controls_bar_add" = "बटन जोड़ें";
+"player_controls_bar_position %lld" = "नीचे की पंक्ति, बटन %lld";
+"player_controls_bar_remove" = "इस पंक्ति से हटाएँ";
+"player_controls_bar_add_footer" = "जो बटन पहले से कहीं और है उसे चुनने पर वह इस पंक्ति के आख़िर में आ जाता है और उसकी पुरानी जगह खाली रह जाती है।";
 "player_controls_action_like" = "पसंद";
 "player_controls_action_lyrics" = "बोल";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "कास्ट करते समय आवाज़ दूसरा डिवाइस चलाता है, इसलिए की नहीं बदल सकती।";
 "playback_pitch_unavailable_apple_music" = "Apple Music के गानों में की नहीं बदली जा सकती।";
 "player_controls_unavailable_cast_apple_music" = "Apple Music के गाने आपके नेटवर्क के डिवाइस पर कास्ट नहीं किए जा सकते।";
-"player_controls_tiles_header" = "फ़ंक्शन टाइल";
-"player_controls_tiles_footer" = "क्रम बदलने के लिए दबाकर रखें और खींचें। चालू टाइलें बराबर दूरी पर फैलती हैं, बंद टाइलें खाली जगह नहीं छोड़तीं और \"और\" मेनू में मिलती हैं। AirPlay, पसंद, \"और\" या ट्रांसक्रिप्ट बटन चालू करने पर अपनी जगह से इस पंक्ति में आ जाता है, बंद करने पर लौट जाता है।";
+"player_controls_tiles_header %lld %lld" = "फ़ंक्शन टाइल (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "क्रम बदलने के लिए दबाकर रखें और खींचें। चालू टाइलें बराबर दूरी पर फैलती हैं, बंद टाइलें खाली जगह नहीं छोड़तीं और \"और\" मेनू में मिलती हैं। AirPlay, पसंद, \"और\" या ट्रांसक्रिप्ट बटन चालू करने पर अपनी जगह से इस पंक्ति में आ जाता है, बंद करने पर लौट जाता है। इस डिवाइस पर एक पंक्ति में ज़्यादा से ज़्यादा %lld टाइलें आती हैं; पंक्ति भर जाए तो पहले एक बंद करें।";
 "player_controls_spoken_buttons_header" = "दूसरे बटन";
 "player_controls_spoken_transcript" = "ट्रांसक्रिप्ट बटन";
 "player_controls_spoken_chapters" = "पिछला / अगला अध्याय";

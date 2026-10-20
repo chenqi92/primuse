@@ -6042,7 +6042,7 @@
 "player_controls_duo_footer" = "iPhone Duo 的側邊直欄、展開分欄和桌面半摺沿用封面與歌詞介面的按鈕，不用另外設定。";
 "player_controls_lyrics_own_buttons" = "單獨設定歌詞介面的按鈕";
 "player_controls_lyrics_own_buttons_footer" = "關閉時看歌詞和看封面用同一組按鈕。打開後先從封面那一組抄一份，再按需要改。";
-"player_controls_lyrics_preview_footer_follow" = "六個位置和封面介面一樣，打開上面的開關才能單獨換。頂上歌名旁多出來的那一格隨時可以換。";
+"player_controls_lyrics_preview_footer_follow" = "按鈕位置和最下面那一排都和封面介面一樣，打開上面的開關才能單獨換。頂上歌名旁多出來的那一格隨時可以換。";
 "player_controls_lyrics_preview_footer_own" = "點一行換按鈕。看歌詞時（包括手機橫向和摺疊機分欄裡開著歌詞時）用這一組；狀態列和「更多」裡的項目跟封面介面一樣。";
 "player_controls_lyrics_collapse" = "上滑歌詞時收起播放控制項";
 "player_controls_lyrics_collapse_footer" = "往上翻歌詞時把進度列和下面的按鈕收起來，讓歌詞鋪滿；往回拉不會收起。點歌詞空白處叫回來。";
@@ -6069,9 +6069,13 @@
 "player_controls_slot_header" = "歌名旁";
 "player_controls_slot_leading_edge" = "播放鍵左側";
 "player_controls_slot_trailing_edge" = "播放鍵右側";
-"player_controls_slot_bar_leading" = "底列左";
-"player_controls_slot_bar_center" = "底列中";
-"player_controls_slot_bar_trailing" = "底列右";
+"player_controls_bar_title" = "最下面那一排";
+"player_controls_bar_header %lld %lld" = "最下面那一排（%1$lld/%2$lld）";
+"player_controls_bar_footer %lld" = "這台裝置一排最多放 %lld 個，依順序從左到右排開：一個置中，兩個分在兩端，再多就平均鋪開。按住拖移換順序，左滑移除；AirPlay 只能挪位置，不能移除。";
+"player_controls_bar_add" = "加入按鈕";
+"player_controls_bar_position %lld" = "最下面那一排第 %lld 個";
+"player_controls_bar_remove" = "從這一排移除";
+"player_controls_bar_add_footer" = "選已經在別處的按鈕，會挪到這一排最後，原處留空。";
 "player_controls_action_like" = "喜歡";
 "player_controls_action_lyrics" = "歌詞";
 "player_controls_action_airplay" = "AirPlay";
@@ -6086,8 +6090,8 @@
 "playback_pitch_unavailable_casting" = "投放到其他裝置時由對方裝置出聲，不能升降調。";
 "playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降調。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到區域網路裝置。";
-"player_controls_tiles_header" = "功能塊";
-"player_controls_tiles_footer" = "按住拖移換順序。打開的按順序平均排開，關掉的不留空位，在「更多」裡仍然找得到。AirPlay、喜歡、「更多」與文字稿鍵打開後從原處挪到這一排，關掉回原處。";
+"player_controls_tiles_header %lld %lld" = "功能塊（%1$lld/%2$lld）";
+"player_controls_tiles_footer %lld" = "按住拖移換順序。打開的按順序平均排開，關掉的不留空位，在「更多」裡仍然找得到。AirPlay、喜歡、「更多」與文字稿鍵打開後從原處挪到這一排，關掉回原處。這台裝置一排最多放 %lld 塊，放滿後要先關掉一塊。";
 "player_controls_spoken_buttons_header" = "其他按鈕";
 "player_controls_spoken_transcript" = "文字稿鍵";
 "player_controls_spoken_chapters" = "上一章 / 下一章";

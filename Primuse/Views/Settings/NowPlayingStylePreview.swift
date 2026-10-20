@@ -79,8 +79,8 @@ enum NowPlayingPreviewSurface: String, CaseIterable, Identifiable {
 
 /// 预览里能换按钮的一格(各种播放页的位置合在一起)。
 enum NowPlayingPreviewSlot: Hashable, Identifiable {
-    case cover(NowPlayingControlSlot)
-    case lyrics(NowPlayingControlSlot)
+    case cover(NowPlayingControlPosition)
+    case lyrics(NowPlayingControlPosition)
     case lyricsExtra
     case immersive(NowPlayingImmersiveLyricsSlot)
     case effect(NowPlayingEffectPlayerSlot)
@@ -88,8 +88,8 @@ enum NowPlayingPreviewSlot: Hashable, Identifiable {
 
     var id: String {
         switch self {
-        case .cover(let slot): "cover.\(slot.rawValue)"
-        case .lyrics(let slot): "lyrics.\(slot.rawValue)"
+        case .cover(let position): "cover.\(position.previewID)"
+        case .lyrics(let position): "lyrics.\(position.previewID)"
         case .lyricsExtra: "lyrics.extra"
         case .immersive(let slot): "immersive.\(slot.rawValue)"
         case .effect(let slot): "effect.\(slot.rawValue)"
@@ -99,7 +99,7 @@ enum NowPlayingPreviewSlot: Hashable, Identifiable {
 
     var titleKey: LocalizedStringKey {
         switch self {
-        case .cover(let slot), .lyrics(let slot): slot.editorTitleKey
+        case .cover(let position), .lyrics(let position): position.editorTitleKey
         case .lyricsExtra: "player_controls_slot_lyrics_extra"
         case .immersive(let slot): slot.editorTitleKey
         case .effect(let slot): slot.editorTitleKey
@@ -515,13 +515,13 @@ private struct MusicPortraitPreviewScreen: View {
         showsLyrics ? lyricsControls.resolvedLayout(cover: coverLayout) : coverLayout
     }
 
-    private func previewTarget(_ slot: NowPlayingControlSlot) -> NowPlayingPreviewSlot {
-        showsLyrics ? .lyrics(slot) : .cover(slot)
+    private func previewTarget(_ position: NowPlayingControlPosition) -> NowPlayingPreviewSlot {
+        showsLyrics ? .lyrics(position) : .cover(position)
     }
 
     /// 这一格排不排出来:和播放页一样空着的不占位;能点的虚线框(编辑时、正在给这一格挑按钮时)照样排出来。
     private func arranges(_ slot: NowPlayingControlSlot) -> Bool {
-        layout.action(in: slot) != nil || (slotsEditable && context.showsPlaceholder(for: previewTarget(slot)))
+        layout.action(in: slot) != nil || (slotsEditable && context.showsPlaceholder(for: previewTarget(.slot(slot))))
     }
 
     /// 传输键一行,排法同 `NowPlayingView.musicTransportRow`:左右两半各自排开,播放键在正中。
@@ -533,7 +533,7 @@ private struct MusicPortraitPreviewScreen: View {
             HStack(spacing: 0) {
                 Spacer()
                 if hasLeading {
-                    slot(.leadingEdge, style: .edge)
+                    slot(.slot(.leadingEdge), style: .edge)
                     Spacer()
                 } else if keepsCompact {
                     Color.clear.frame(width: 44, height: 44)
@@ -549,7 +549,7 @@ private struct MusicPortraitPreviewScreen: View {
                 PreviewSkipGlyph(forward: true, tint: appearance.primary)
                 Spacer()
                 if hasTrailing {
-                    slot(.trailingEdge, style: .edge)
+                    slot(.slot(.trailingEdge), style: .edge)
                     Spacer()
                 } else if keepsCompact {
                     Color.clear.frame(width: 44, height: 44)
@@ -560,16 +560,16 @@ private struct MusicPortraitPreviewScreen: View {
         }
     }
 
-    /// 最下面那一排,排法同 `NowPlayingView.musicBottomBar`:空着的格不占位。
+    /// 最下面那一排,排法同 `NowPlayingView.musicBottomBar`(`NowPlayingBarRowLayout`)。还没加满这台设备一排
+    /// 放得下的颗数时,编辑(或正在挑要添的那一颗)时最后多一个加号。
     private var bottomBar: some View {
-        let slots = NowPlayingControlSlot.bar.filter(arranges)
-        return HStack(spacing: 0) {
-            if slots.count == 1 { Spacer(minLength: 0) }
-            ForEach(Array(slots.enumerated()), id: \.element) { index, item in
-                if index > 0 { Spacer(minLength: 0) }
-                slot(item, style: .bar)
+        let count = layout.bar.count
+        let capacity = NowPlayingBarMetrics.capacity(forWidth: Double(context.canvas.size.width))
+        let adds = slotsEditable && count < capacity && context.showsPlaceholder(for: previewTarget(.bar(count)))
+        return NowPlayingBarRowLayout {
+            ForEach(0..<(count + (adds ? 1 : 0)), id: \.self) { index in
+                slot(.bar(index), style: .bar)
             }
-            if slots.count == 1 { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity, minHeight: 44)
     }
@@ -701,7 +701,6 @@ private struct MusicPortraitPreviewScreen: View {
 
                 bottomBar
                 .font(.body)
-                .padding(.horizontal, 46)
                 .padding(.top, 12)
                 .padding(.top, controlGap / 2 + volumeSlack * 0.3)
 
@@ -782,7 +781,7 @@ private struct MusicPortraitPreviewScreen: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 4) {
-                    slot(.header, style: .header)
+                    slot(.slot(.header), style: .header)
                     moreButton
                 }
                 .fixedSize()
@@ -814,7 +813,7 @@ private struct MusicPortraitPreviewScreen: View {
             PreviewSlotCell(target: .lyricsExtra, context: context) {
                 actionFace(extra, style: .header, target: .lyricsExtra)
             }
-            slot(.header, style: .header)
+            slot(.slot(.header), style: .header)
             moreButton
         }
     }
@@ -864,10 +863,10 @@ private struct MusicPortraitPreviewScreen: View {
         case bar
     }
 
-    private func slot(_ slot: NowPlayingControlSlot, style: SlotStyle) -> some View {
-        let target = previewTarget(slot)
+    private func slot(_ position: NowPlayingControlPosition, style: SlotStyle) -> some View {
+        let target = previewTarget(position)
         return PreviewSlotCell(target: target, context: context, isEditable: slotsEditable) {
-            actionFace(layout.action(in: slot), style: style, target: target)
+            actionFace(layout.action(at: position), style: style, target: target)
         }
     }
 

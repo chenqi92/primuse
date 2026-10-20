@@ -6065,7 +6065,7 @@
 "player_controls_duo_footer" = "Sur iPhone Duo, la barre latérale, la vue partagée et le mode table utilisent les boutons de Pochette et Paroles : rien d’autre à régler.";
 "player_controls_lyrics_own_buttons" = "Boutons distincts pour les paroles";
 "player_controls_lyrics_own_buttons_footer" = "Désactivé : paroles et pochette partagent les mêmes boutons. Activé : on part d’une copie des boutons de la pochette.";
-"player_controls_lyrics_preview_footer_follow" = "Les six emplacements suivent l’écran Pochette. Activez l’option ci-dessus pour les modifier séparément. L’emplacement en plus à côté du titre peut toujours être changé.";
+"player_controls_lyrics_preview_footer_follow" = "Les emplacements des boutons et la rangée du bas suivent l’écran Pochette. Activez l’option ci-dessus pour les modifier séparément. L’emplacement en plus à côté du titre peut toujours être changé.";
 "player_controls_lyrics_preview_footer_own" = "Touchez une ligne pour changer un bouton. Ce jeu s’applique quand les paroles sont affichées, y compris en paysage et en vue partagée sur pliable. La ligne d’état et les éléments du menu Plus suivent l’écran Pochette.";
 "player_controls_lyrics_collapse" = "Masquer les commandes en faisant défiler les paroles";
 "player_controls_lyrics_collapse_footer" = "Faire glisser les paroles masque la barre de progression et les boutons en dessous pour que les paroles remplissent l’écran. Touchez une zone vide des paroles pour les faire revenir.";
@@ -6092,9 +6092,13 @@
 "player_controls_slot_header" = "À côté du titre";
 "player_controls_slot_leading_edge" = "À gauche de la lecture";
 "player_controls_slot_trailing_edge" = "À droite de la lecture";
-"player_controls_slot_bar_leading" = "En bas à gauche";
-"player_controls_slot_bar_center" = "En bas au centre";
-"player_controls_slot_bar_trailing" = "En bas à droite";
+"player_controls_bar_title" = "Rangée du bas";
+"player_controls_bar_header %lld %lld" = "Rangée du bas (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "Cet appareil peut afficher jusqu’à %lld boutons sur une rangée, de gauche à droite : un seul se place au centre, deux aux extrémités, davantage se répartissent régulièrement. Maintenez le doigt puis faites glisser pour changer l’ordre ; balayez vers la gauche pour en retirer un. AirPlay peut être déplacé mais pas retiré.";
+"player_controls_bar_add" = "Ajouter un bouton";
+"player_controls_bar_position %lld" = "Rangée du bas, bouton %lld";
+"player_controls_bar_remove" = "Retirer de la rangée";
+"player_controls_bar_add_footer" = "Choisir un bouton déjà placé ailleurs le déplace à la fin de cette rangée et laisse son ancien emplacement vide.";
 "player_controls_action_like" = "J’aime";
 "player_controls_action_lyrics" = "Paroles";
 "player_controls_action_airplay" = "AirPlay";
@@ -6109,8 +6113,8 @@
 "playback_pitch_unavailable_casting" = "Pendant la diffusion, c’est l’autre appareil qui produit le son : la tonalité ne peut pas changer.";
 "playback_pitch_unavailable_apple_music" = "Impossible de modifier la tonalité des morceaux Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Les morceaux Apple Music ne peuvent pas être diffusés vers les appareils de votre réseau.";
-"player_controls_tiles_header" = "Tuiles de fonctions";
-"player_controls_tiles_footer" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles activées se répartissent régulièrement et celles désactivées ne laissent pas de vide ; elles restent dans « Plus ». Activer AirPlay, J’aime, Plus ou le bouton de transcription les déplace ici depuis leur place ; les désactiver les y remet.";
+"player_controls_tiles_header %lld %lld" = "Tuiles de fonctions (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles activées se répartissent régulièrement et celles désactivées ne laissent pas de vide ; elles restent dans « Plus ». Activer AirPlay, J’aime, Plus ou le bouton de transcription les déplace ici depuis leur place ; les désactiver les y remet. Cet appareil peut afficher jusqu’à %lld tuiles sur une rangée ; quand elle est pleine, désactivez-en une avant d’en activer une autre.";
 "player_controls_spoken_buttons_header" = "Autres boutons";
 "player_controls_spoken_transcript" = "Bouton de transcription";
 "player_controls_spoken_chapters" = "Chapitre précédent / suivant";

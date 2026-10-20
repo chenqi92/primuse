@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "บน iPhone Duo แถบด้านข้าง มุมมองแบ่งจอ และโหมดตั้งโต๊ะใช้ปุ่มจากหน้าปกและหน้าเนื้อเพลง จึงไม่ต้องตั้งค่าเพิ่ม";
 "player_controls_lyrics_own_buttons" = "ตั้งปุ่มของหน้าเนื้อเพลงแยก";
 "player_controls_lyrics_own_buttons_footer" = "เมื่อปิด หน้าเนื้อเพลงและหน้าปกใช้ปุ่มชุดเดียวกัน เมื่อเปิดจะเริ่มจากสำเนาปุ่มของหน้าปก";
-"player_controls_lyrics_preview_footer_follow" = "หกตำแหน่งเหมือนหน้าปก เปิดสวิตช์ด้านบนเพื่อเปลี่ยนแยก ส่วนช่องที่เพิ่มข้างชื่อเพลงเปลี่ยนได้ตลอด";
+"player_controls_lyrics_preview_footer_follow" = "ตำแหน่งปุ่มและแถวล่างสุดเหมือนหน้าปก เปิดสวิตช์ด้านบนเพื่อเปลี่ยนแยก ส่วนช่องที่เพิ่มข้างชื่อเพลงเปลี่ยนได้ตลอด";
 "player_controls_lyrics_preview_footer_own" = "แตะแถวเพื่อเปลี่ยนปุ่ม ชุดนี้ใช้ขณะแสดงเนื้อเพลง รวมถึงแนวนอนและมุมมองแบ่งจอบนเครื่องพับได้ แถวสถานะและรายการในเมนูเพิ่มเติมเป็นไปตามหน้าปก";
 "player_controls_lyrics_collapse" = "ซ่อนตัวควบคุมเมื่อเลื่อนเนื้อเพลง";
 "player_controls_lyrics_collapse_footer" = "ลากเนื้อเพลงแล้วแถบความคืบหน้าและปุ่มด้านล่างจะซ่อน ให้เนื้อเพลงเต็มจอ แตะพื้นที่ว่างในเนื้อเพลงเพื่อให้กลับมา";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "ข้างชื่อเพลง";
 "player_controls_slot_leading_edge" = "ซ้ายของปุ่มเล่น";
 "player_controls_slot_trailing_edge" = "ขวาของปุ่มเล่น";
-"player_controls_slot_bar_leading" = "ล่างซ้าย";
-"player_controls_slot_bar_center" = "ล่างกลาง";
-"player_controls_slot_bar_trailing" = "ล่างขวา";
+"player_controls_bar_title" = "แถวล่างสุด";
+"player_controls_bar_header %lld %lld" = "แถวล่างสุด (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "อุปกรณ์นี้วางปุ่มได้สูงสุด %lld ปุ่มต่อแถว เรียงจากซ้ายไปขวา: ปุ่มเดียวอยู่ตรงกลาง สองปุ่มอยู่สองข้าง มากกว่านั้นกระจายห่างเท่ากัน แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ปัดซ้ายเพื่อเอาออก AirPlay ย้ายได้แต่เอาออกไม่ได้";
+"player_controls_bar_add" = "เพิ่มปุ่ม";
+"player_controls_bar_position %lld" = "แถวล่างสุด ปุ่มที่ %lld";
+"player_controls_bar_remove" = "เอาออกจากแถวนี้";
+"player_controls_bar_add_footer" = "ถ้าเลือกปุ่มที่อยู่ตำแหน่งอื่น ปุ่มจะย้ายมาท้ายแถวนี้ และที่เดิมจะว่าง";
 "player_controls_action_like" = "ชอบ";
 "player_controls_action_lyrics" = "เนื้อเพลง";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "ขณะส่งเสียงไปอุปกรณ์อื่น อุปกรณ์นั้นเป็นผู้เล่นเสียง จึงเปลี่ยนคีย์ไม่ได้";
 "playback_pitch_unavailable_apple_music" = "เปลี่ยนคีย์เพลงจาก Apple Music ไม่ได้";
 "player_controls_unavailable_cast_apple_music" = "ส่งเพลงจาก Apple Music ไปยังอุปกรณ์ในเครือข่ายไม่ได้";
-"player_controls_tiles_header" = "ช่องฟังก์ชัน";
-"player_controls_tiles_footer" = "แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ช่องที่เปิดจะเรียงห่างเท่ากัน ช่องที่ปิดไม่เว้นที่ว่างและยังหาได้ในเมนูเพิ่มเติม เปิด AirPlay ชอบ เพิ่มเติม หรือปุ่มบทถอดความ แล้วจะย้ายจากที่เดิมมาอยู่ในแถวนี้ ปิดแล้วกลับที่เดิม";
+"player_controls_tiles_header %lld %lld" = "ช่องฟังก์ชัน (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ช่องที่เปิดจะเรียงห่างเท่ากัน ช่องที่ปิดไม่เว้นที่ว่างและยังหาได้ในเมนูเพิ่มเติม เปิด AirPlay ชอบ เพิ่มเติม หรือปุ่มบทถอดความ แล้วจะย้ายจากที่เดิมมาอยู่ในแถวนี้ ปิดแล้วกลับที่เดิม อุปกรณ์นี้วางได้สูงสุด %lld ช่องต่อแถว ถ้าเต็มแล้วให้ปิดช่องหนึ่งก่อน";
 "player_controls_spoken_buttons_header" = "ปุ่มอื่น";
 "player_controls_spoken_transcript" = "ปุ่มบทถอดความ";
 "player_controls_spoken_chapters" = "บทก่อนหน้า / บทถัดไป";

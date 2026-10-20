@@ -6066,7 +6066,7 @@
 "player_controls_duo_footer" = "iPhone Duo のサイドバー、分割表示、テーブルトップでは、アートワークと歌詞のボタンがそのまま使われます。別に設定する必要はありません。";
 "player_controls_lyrics_own_buttons" = "歌詞画面のボタンを個別に設定";
 "player_controls_lyrics_own_buttons_footer" = "オフのときは歌詞とアートワークで同じボタンを使います。オンにすると、まずアートワークのボタンをコピーしてから変更できます。";
-"player_controls_lyrics_preview_footer_follow" = "6 つの位置はアートワーク画面と同じです。上のスイッチをオンにすると個別に変更できます。曲名の横に増える 1 枠はいつでも変更できます。";
+"player_controls_lyrics_preview_footer_follow" = "ボタンの位置と下段はアートワーク画面と同じです。上のスイッチをオンにすると個別に変更できます。曲名の横に増える 1 枠はいつでも変更できます。";
 "player_controls_lyrics_preview_footer_own" = "行をタップしてボタンを変更します。歌詞を表示している間（横向きや折りたたみの分割表示で歌詞を開いているときを含む）はこの組を使います。ステータス行と「その他」の項目はアートワーク画面に従います。";
 "player_controls_lyrics_collapse" = "歌詞をスクロールしたらコントロールを隠す";
 "player_controls_lyrics_collapse_footer" = "歌詞をドラッグすると、進行バーと下のボタンを隠して歌詞を画面いっぱいに表示します。歌詞の空白部分をタップすると戻ります。";
@@ -6093,9 +6093,13 @@
 "player_controls_slot_header" = "曲名の横";
 "player_controls_slot_leading_edge" = "再生ボタンの左";
 "player_controls_slot_trailing_edge" = "再生ボタンの右";
-"player_controls_slot_bar_leading" = "下段の左";
-"player_controls_slot_bar_center" = "下段の中央";
-"player_controls_slot_bar_trailing" = "下段の右";
+"player_controls_bar_title" = "下段";
+"player_controls_bar_header %lld %lld" = "下段（%1$lld/%2$lld）";
+"player_controls_bar_footer %lld" = "このデバイスでは 1 列に最大 %lld 個まで置けます。左から順に並び、1 個なら中央、2 個なら両端、それ以上は均等に広がります。長押ししてドラッグすると順番を変えられ、左にスワイプすると外せます。AirPlay は移動できますが、外せません。";
+"player_controls_bar_add" = "ボタンを追加";
+"player_controls_bar_position %lld" = "下段の %lld 番目";
+"player_controls_bar_remove" = "この列から外す";
+"player_controls_bar_add_footer" = "ほかの場所にあるボタンを選ぶと、この列の最後に移り、元の場所は空きます。";
 "player_controls_action_like" = "好き";
 "player_controls_action_lyrics" = "歌詞";
 "player_controls_action_airplay" = "AirPlay";
@@ -6110,8 +6114,8 @@
 "playback_pitch_unavailable_casting" = "キャスト中は相手のデバイスが音を出すため、キーを変えられません。";
 "playback_pitch_unavailable_apple_music" = "Apple Music の曲はキーを変えられません。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music の曲はネットワーク上のデバイスにキャストできません。";
-"player_controls_tiles_header" = "機能タイル";
-"player_controls_tiles_footer" = "長押ししてドラッグすると順番を変えられます。オンのタイルは均等に並び、オフにしたものは隙間を残さず「その他」メニューに残ります。AirPlay、「好き」、「その他」、文字起こしボタンはオンにすると元の場所からこの列に移り、オフにすると戻ります。";
+"player_controls_tiles_header %lld %lld" = "機能タイル（%1$lld/%2$lld）";
+"player_controls_tiles_footer %lld" = "長押ししてドラッグすると順番を変えられます。オンのタイルは均等に並び、オフにしたものは隙間を残さず「その他」メニューに残ります。AirPlay、「好き」、「その他」、文字起こしボタンはオンにすると元の場所からこの列に移り、オフにすると戻ります。このデバイスでは 1 列に最大 %lld 個まで置けます。いっぱいのときは先に 1 つオフにしてください。";
 "player_controls_spoken_buttons_header" = "そのほかのボタン";
 "player_controls_spoken_transcript" = "文字起こしボタン";
 "player_controls_spoken_chapters" = "前の章 / 次の章";

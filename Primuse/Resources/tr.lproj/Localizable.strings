@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "iPhone Duo’da yan çubuk, bölünmüş görünüm ve masa modu, Kapak ve Sözler ekranlarının düğmelerini kullanır; ayrıca ayar yapmanız gerekmez.";
 "player_controls_lyrics_own_buttons" = "Sözler İçin Ayrı Düğmeler";
 "player_controls_lyrics_own_buttons_footer" = "Kapalıyken sözler ve kapak aynı düğmeleri kullanır. Açınca önce kapak düğmelerinin bir kopyasıyla başlar.";
-"player_controls_lyrics_preview_footer_follow" = "Altı yer Kapak ekranıyla aynıdır. Ayrı ayrı değiştirmek için yukarıdaki anahtarı açın. Başlığın yanındaki ek yer her zaman değiştirilebilir.";
+"player_controls_lyrics_preview_footer_follow" = "Düğme yerleri ve alt sıra Kapak ekranıyla aynıdır. Ayrı ayrı değiştirmek için yukarıdaki anahtarı açın. Başlığın yanındaki ek yer her zaman değiştirilebilir.";
 "player_controls_lyrics_preview_footer_own" = "Bir düğmeyi değiştirmek için bir satıra dokunun. Bu set, sözler açıkken kullanılır (yatay görünüm ve katlanabilir cihazda bölünmüş görünüm dahil). Durum satırı ve Daha Fazla menüsü öğeleri Kapak ekranını izler.";
 "player_controls_lyrics_collapse" = "Sözleri Kaydırırken Denetimleri Gizle";
 "player_controls_lyrics_collapse_footer" = "Sözleri sürüklediğinizde ilerleme çubuğu ve alttaki düğmeler gizlenir, sözler ekranı doldurur. Geri getirmek için sözlerde boş bir yere dokunun.";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "Başlığın Yanında";
 "player_controls_slot_leading_edge" = "Oynatmanın Solunda";
 "player_controls_slot_trailing_edge" = "Oynatmanın Sağında";
-"player_controls_slot_bar_leading" = "Alt Sol";
-"player_controls_slot_bar_center" = "Alt Orta";
-"player_controls_slot_bar_trailing" = "Alt Sağ";
+"player_controls_bar_title" = "Alt Sıra";
+"player_controls_bar_header %lld %lld" = "Alt Sıra (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "Bu aygıtta bir sıraya en fazla %lld düğme sığar ve soldan sağa dizilir: bir tane ortada, iki tane uçlarda durur, daha fazlası eşit aralıkla yayılır. Sırayı değiştirmek için basılı tutup sürükleyin; birini kaldırmak için sola kaydırın. AirPlay taşınabilir ama kaldırılamaz.";
+"player_controls_bar_add" = "Düğme Ekle";
+"player_controls_bar_position %lld" = "Alt Sıra, %lld. düğme";
+"player_controls_bar_remove" = "Sıradan Kaldır";
+"player_controls_bar_add_footer" = "Başka bir yerde olan bir düğmeyi seçerseniz bu sıranın sonuna taşınır ve eski yeri boş kalır.";
 "player_controls_action_like" = "Beğen";
 "player_controls_action_lyrics" = "Sözler";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "Yayın sırasında sesi diğer aygıt çalar, bu yüzden ton değiştirilemez.";
 "playback_pitch_unavailable_apple_music" = "Apple Music şarkılarında ton değiştirilemez.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";
-"player_controls_tiles_header" = "İşlev Kutucukları";
-"player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz ve Diğer menüsünde yine bulunur. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner.";
+"player_controls_tiles_header %lld %lld" = "İşlev Kutucukları (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz ve Diğer menüsünde yine bulunur. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner. Bu aygıtta bir sıraya en fazla %lld kutucuk sığar; sıra dolduğunda önce birini kapatın.";
 "player_controls_spoken_buttons_header" = "Diğer Düğmeler";
 "player_controls_spoken_transcript" = "Döküm Düğmesi";
 "player_controls_spoken_chapters" = "Önceki / Sonraki Bölüm";

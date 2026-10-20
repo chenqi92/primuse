@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "على iPhone Duo، يستخدم الشريط الجانبي والعرض المقسّم ووضع الطاولة أزرار شاشتي الغلاف والكلمات، فلا حاجة إلى إعداد إضافي.";
 "player_controls_lyrics_own_buttons" = "أزرار خاصة بالكلمات";
 "player_controls_lyrics_own_buttons_footer" = "عند الإيقاف، تستخدم الكلمات والغلاف الأزرار نفسها. عند التشغيل تبدأ بنسخة من أزرار الغلاف.";
-"player_controls_lyrics_preview_footer_follow" = "الأماكن الستة مطابقة لشاشة الغلاف. شغّل المفتاح أعلاه لتغييرها بشكل مستقل. يمكن تغيير المكان الإضافي بجانب العنوان في أي وقت.";
+"player_controls_lyrics_preview_footer_follow" = "مواضع الأزرار والصف السفلي مطابقة لشاشة الغلاف. شغّل المفتاح أعلاه لتغييرها بشكل مستقل. يمكن تغيير المكان الإضافي بجانب العنوان في أي وقت.";
 "player_controls_lyrics_preview_footer_own" = "اضغط على صف لتغيير زر. تُستخدم هذه المجموعة أثناء عرض الكلمات، بما في ذلك الوضع الأفقي والعرض المقسّم على الأجهزة القابلة للطي. يتبع سطر الحالة وعناصر قائمة «المزيد» شاشة الغلاف.";
 "player_controls_lyrics_collapse" = "إخفاء عناصر التحكم عند تمرير الكلمات";
 "player_controls_lyrics_collapse_footer" = "يؤدي سحب الكلمات إلى إخفاء شريط التقدم والأزرار أسفله لتملأ الكلمات الشاشة. اضغط على مساحة فارغة في الكلمات لإعادتها.";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "بجانب العنوان";
 "player_controls_slot_leading_edge" = "يسار التشغيل";
 "player_controls_slot_trailing_edge" = "يمين التشغيل";
-"player_controls_slot_bar_leading" = "أسفل اليسار";
-"player_controls_slot_bar_center" = "أسفل الوسط";
-"player_controls_slot_bar_trailing" = "أسفل اليمين";
+"player_controls_bar_title" = "الصف السفلي";
+"player_controls_bar_header %lld %lld" = "الصف السفلي (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "يتسع الصف على هذا الجهاز لما يصل إلى %lld أزرار تُرتَّب بالتسلسل: الزر الواحد في المنتصف، والزران على الطرفين، وما زاد يتوزع بالتساوي. المس مطولًا واسحب لتغيير الترتيب، واسحب الصف جانبًا لإزالة زر. يمكن نقل AirPlay لكن لا يمكن إزالته.";
+"player_controls_bar_add" = "إضافة زر";
+"player_controls_bar_position %lld" = "الصف السفلي، الزر %lld";
+"player_controls_bar_remove" = "إزالة من الصف";
+"player_controls_bar_add_footer" = "اختيار زر موجود في مكان آخر ينقله إلى نهاية هذا الصف ويترك مكانه السابق فارغًا.";
 "player_controls_action_like" = "إعجاب";
 "player_controls_action_lyrics" = "كلمات الأغنية";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "أثناء البث يشغّل الجهاز الآخر الصوت، لذا لا يمكن تغيير المقام.";
 "playback_pitch_unavailable_apple_music" = "لا يمكن تغيير مقام أغاني Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "لا يمكن بث أغاني Apple Music إلى أجهزة شبكتك.";
-"player_controls_tiles_header" = "مربعات الوظائف";
-"player_controls_tiles_footer" = "المس مطولًا واسحب لتغيير الترتيب. تتوزع المربعات المفعّلة بالتساوي، ولا تترك المربعات الموقفة فراغًا وتبقى في قائمة «المزيد». عند تشغيل AirPlay أو «إعجاب» أو «المزيد» أو زر النص المكتوب ينتقل إلى هنا من مكانه، وعند إيقافه يعود.";
+"player_controls_tiles_header %lld %lld" = "مربعات الوظائف (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "المس مطولًا واسحب لتغيير الترتيب. تتوزع المربعات المفعّلة بالتساوي، ولا تترك المربعات الموقفة فراغًا وتبقى في قائمة «المزيد». عند تشغيل AirPlay أو «إعجاب» أو «المزيد» أو زر النص المكتوب ينتقل إلى هنا من مكانه، وعند إيقافه يعود. يتسع الصف على هذا الجهاز لما يصل إلى %lld مربعات؛ عند امتلائه أوقف أحدها أولًا.";
 "player_controls_spoken_buttons_header" = "أزرار أخرى";
 "player_controls_spoken_transcript" = "زر النص المكتوب";
 "player_controls_spoken_chapters" = "الفصل السابق / التالي";

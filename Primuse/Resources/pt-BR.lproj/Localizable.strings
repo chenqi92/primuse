@@ -5971,7 +5971,7 @@
 "player_controls_duo_footer" = "No iPhone Duo, a barra lateral, a tela dividida e o modo mesa usam os botões de Capa e Letra, então não há nada extra para configurar.";
 "player_controls_lyrics_own_buttons" = "Botões próprios para a letra";
 "player_controls_lyrics_own_buttons_footer" = "Desativado: letra e capa usam os mesmos botões. Ao ativar, começa com uma cópia dos botões da capa.";
-"player_controls_lyrics_preview_footer_follow" = "Os seis lugares seguem a tela Capa. Ative a chave acima para mudá-los separadamente. O lugar extra ao lado do título pode ser trocado a qualquer momento.";
+"player_controls_lyrics_preview_footer_follow" = "Os lugares dos botões e a fileira de baixo seguem a tela Capa. Ative a chave acima para mudá-los separadamente. O lugar extra ao lado do título pode ser trocado a qualquer momento.";
 "player_controls_lyrics_preview_footer_own" = "Toque em uma linha para trocar um botão. Este conjunto é usado enquanto a letra aparece, inclusive na horizontal e na tela dividida de dobráveis. A linha de status e os itens do menu Mais seguem a tela Capa.";
 "player_controls_lyrics_collapse" = "Ocultar controles ao rolar a letra";
 "player_controls_lyrics_collapse_footer" = "Arrastar a letra oculta a barra de progresso e os botões abaixo para a letra ocupar a tela. Toque em uma área vazia da letra para trazê-los de volta.";
@@ -5998,9 +5998,13 @@
 "player_controls_slot_header" = "Ao lado do título";
 "player_controls_slot_leading_edge" = "À esquerda da reprodução";
 "player_controls_slot_trailing_edge" = "À direita da reprodução";
-"player_controls_slot_bar_leading" = "Embaixo à esquerda";
-"player_controls_slot_bar_center" = "Embaixo no centro";
-"player_controls_slot_bar_trailing" = "Embaixo à direita";
+"player_controls_bar_title" = "Fileira de baixo";
+"player_controls_bar_header %lld %lld" = "Fileira de baixo (%1$lld/%2$lld)";
+"player_controls_bar_footer %lld" = "Neste dispositivo cabem até %lld botões em uma fileira, da esquerda para a direita: um fica no centro, dois nas pontas e mais se distribuem por igual. Toque e segure para arrastar e mudar a ordem; deslize para a esquerda para remover um. O AirPlay pode ser movido, mas não removido.";
+"player_controls_bar_add" = "Adicionar botão";
+"player_controls_bar_position %lld" = "Fileira de baixo, botão %lld";
+"player_controls_bar_remove" = "Remover da fileira";
+"player_controls_bar_add_footer" = "Escolher um botão que já está em outro lugar o leva para o fim desta fileira e deixa o lugar anterior vazio.";
 "player_controls_action_like" = "Curtir";
 "player_controls_action_lyrics" = "Letra";
 "player_controls_action_airplay" = "AirPlay";
@@ -6015,8 +6019,8 @@
 "playback_pitch_unavailable_casting" = "Durante a transmissão, o outro dispositivo reproduz o som, então o tom não pode mudar.";
 "playback_pitch_unavailable_apple_music" = "Não é possível mudar o tom de músicas do Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Músicas do Apple Music não podem ser transmitidas para dispositivos da sua rede.";
-"player_controls_tiles_header" = "Blocos de funções";
-"player_controls_tiles_footer" = "Toque e segure para arrastar e mudar a ordem. Os blocos ativados se distribuem por igual e os desativados não deixam espaço vazio; continuam em Mais. Ao ativar AirPlay, Curtir, Mais ou o botão de transcrição, eles vêm do lugar de origem para cá; ao desativar, voltam.";
+"player_controls_tiles_header %lld %lld" = "Blocos de funções (%1$lld/%2$lld)";
+"player_controls_tiles_footer %lld" = "Toque e segure para arrastar e mudar a ordem. Os blocos ativados se distribuem por igual e os desativados não deixam espaço vazio; continuam em Mais. Ao ativar AirPlay, Curtir, Mais ou o botão de transcrição, eles vêm do lugar de origem para cá; ao desativar, voltam. Neste dispositivo cabem até %lld blocos em uma fileira; quando estiver cheia, desative um antes de ativar outro.";
 "player_controls_spoken_buttons_header" = "Outros botões";
 "player_controls_spoken_transcript" = "Botão de transcrição";
 "player_controls_spoken_chapters" = "Capítulo anterior / seguinte";
