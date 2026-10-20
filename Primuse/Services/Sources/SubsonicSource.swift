@@ -1712,7 +1712,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             replayGainTrackPeak: child.replayGain?.trackPeak,
             replayGainAlbumGain: child.replayGain?.albumGain,
             replayGainAlbumPeak: child.replayGain?.albumPeak,
-            serverLibraryID: libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id)
+            serverLibraryID: libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id),
+            // 接口不给编码;码率高过任何有损编码的才在这里认作无损,其余留给读文件头。
+            audioCodec: ContainerAudioCodecPolicy.codec(
+                catalogBitRateKbps: child.bitRate,
+                sampleRate: child.samplingRate,
+                channelCount: child.channelCount,
+                container: format
+            )
         )
     }
 
@@ -2392,6 +2399,7 @@ private struct SubsonicChild: Decodable, Sendable {
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?
+    let channelCount: Int?
     let replayGain: SubsonicReplayGain?
 }
 

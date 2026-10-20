@@ -353,6 +353,36 @@ public enum ContainerAudioCodecPolicy {
         format.holdsVariousCodecs && audioCodec == nil
     }
 
+    /// 曲库接口(Subsonic 一族)只给码率、采样率和声道数,不给编码。MP4 容器的码率超过
+    /// AAC-LC 的上限(每声道每帧最多 6144 bit,即每声道每个采样 6 bit),也超过 AC-3 的
+    /// 640 kbps 时,里面装的只能是无损编码,按 ALAC 记(FLAC、PCM 装进 MP4 极少见,档位
+    /// 一样)。多声道不下结论:E-AC-3、DTS 的码率比这高。
+    public static func codec(
+        catalogBitRateKbps bitRate: Int?,
+        sampleRate: Int?,
+        channelCount: Int?,
+        container: AudioFormat
+    ) -> AudioFormat? {
+        guard container == .m4a || container == .mp4,
+              let bitRate, bitRate > 0,
+              let sampleRate, sampleRate > 0,
+              let channelCount, (1...2).contains(channelCount) else { return nil }
+        let aacCeilingKbps = 6 * sampleRate * channelCount / 1_000
+        return bitRate > max(aacCeilingKbps, 640) ? .alac : nil
+    }
+
+    /// 服务端曲库源要不要为认编码在后台读文件头。码率在 AAC 的常用区间(320 kbps 及以下)
+    /// 的 M4A 读出来几乎都是 AAC,只是把「M4A」换成「AAC」,档位不变,几十万首的曲库却要
+    /// 为此读上好几天;这些留到开播时顺手认。没有码率、或码率高到说不准的照旧读。
+    public static func catalogBitRateWarrantsHeaderRead(
+        bitRateKbps bitRate: Int?,
+        container: AudioFormat
+    ) -> Bool {
+        guard container == .m4a || container == .mp4,
+              let bitRate, bitRate > 0 else { return true }
+        return bitRate > 320
+    }
+
     static func fourCC(_ code: String) -> UInt32 {
         code.utf8.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
     }

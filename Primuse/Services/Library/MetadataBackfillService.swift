@@ -3003,7 +3003,10 @@ final class MetadataBackfillService {
                 albumArtistUnconfirmed: input.albumArtistUnconfirmedIDs.contains(song.id),
                 hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id),
-                audioCodecUnread: Self.audioCodecUnread(song),
+                audioCodecUnread: Self.audioCodecUnread(
+                    song,
+                    containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
+                ),
                 effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
                 containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
             )
@@ -6265,7 +6268,10 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
-            audioCodecUnread: Self.audioCodecUnread(song),
+            audioCodecUnread: Self.audioCodecUnread(
+                song,
+                containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
+            ),
             effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
             containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
         )
@@ -6320,7 +6326,7 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
-            audioCodecUnread: Self.audioCodecUnread(song),
+            audioCodecUnread: Self.audioCodecUnread(song, containerCodecOnly: containerCodecOnly),
             effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
             containerCodecOnly: containerCodecOnly
         )
@@ -6365,10 +6371,15 @@ final class MetadataBackfillService {
     }
 
     /// M4A 还不知道装的是 AAC 还是 ALAC。STRM 读的是外部流、独立 MV 是视频, 都不为这个去读。
-    private nonisolated static func audioCodecUnread(_ song: Song) -> Bool {
+    /// 服务端曲库源只为认编码才读文件, 码率已经落在 AAC 区间的不排进来(开播时照样顺手认)。
+    private nonisolated static func audioCodecUnread(_ song: Song, containerCodecOnly: Bool) -> Bool {
         !song.isStreamDescriptor
             && !song.isStandaloneMusicVideo
             && ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec)
+            && (!containerCodecOnly || ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(
+                bitRateKbps: song.bitRate,
+                container: song.fileFormat
+            ))
     }
 
     /// 标着 24 bit 的 FLAC 还没查是不是 16 bit 补零。

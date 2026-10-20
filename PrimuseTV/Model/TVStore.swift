@@ -8681,9 +8681,14 @@ extension TVStore {
         guard readingMode.readsAutomatically else { return }
         for source in sourcesStore.sources where isContainerCodecPassSource(source) {
             guard !Task.isCancelled, serverCatalogSceneIsActive else { return }
+            // 码率已经落在 AAC 区间的不在后台读,开播时照样认(和 iPhone 一致)。
             let songIDs = library.songs.filter {
                 $0.sourceID == source.id
                     && Self.needsContainerCodecRead($0, sourceType: source.type)
+                    && ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(
+                        bitRateKbps: $0.bitRate,
+                        container: $0.fileFormat
+                    )
                     && !containerCodecUnreadableSongIDs.contains($0.id)
             }.map(\.id)
             guard !songIDs.isEmpty else { continue }

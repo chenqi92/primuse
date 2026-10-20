@@ -122,3 +122,53 @@ struct ContainerCodecProbeTests {
         return box("trak", box("tkhd", [UInt8](repeating: 0, count: 84)) + mdia)
     }
 }
+
+@Suite("Codec from server catalogue numbers")
+struct ContainerCodecCatalogTests {
+    @Test("A bit rate no AAC stream can reach marks the M4A lossless")
+    func aboveAACCeiling() {
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 850, sampleRate: 44_100, channelCount: 2, container: .m4a
+        ) == .alac)
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 2_400, sampleRate: 96_000, channelCount: 2, container: .m4a
+        ) == .alac)
+        // 96 kHz 立体声 AAC 的上限是 1152 kbps:1000 kbps 还说不准。
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 1_000, sampleRate: 96_000, channelCount: 2, container: .m4a
+        ) == nil)
+    }
+
+    @Test("Lossy-range, multichannel or incomplete numbers settle nothing")
+    func undecided() {
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 256, sampleRate: 44_100, channelCount: 2, container: .m4a
+        ) == nil)
+        // 44.1 kHz 立体声超过 AAC 上限 529 kbps,但没到 AC-3 的 640 kbps。
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 600, sampleRate: 44_100, channelCount: 2, container: .m4a
+        ) == nil)
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 768, sampleRate: 48_000, channelCount: 6, container: .m4a
+        ) == nil)
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 900, sampleRate: 44_100, channelCount: nil, container: .m4a
+        ) == nil)
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 900, sampleRate: nil, channelCount: 2, container: .m4a
+        ) == nil)
+        #expect(ContainerAudioCodecPolicy.codec(
+            catalogBitRateKbps: 900, sampleRate: 44_100, channelCount: 2, container: .wma
+        ) == nil)
+    }
+
+    @Test("Only M4A rows whose bit rate leaves the codec open are queued for a header read")
+    func headerReadQueue() {
+        #expect(!ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: 256, container: .m4a))
+        #expect(!ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: 320, container: .mp4))
+        #expect(ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: 480, container: .m4a))
+        #expect(ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: nil, container: .m4a))
+        #expect(ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: 0, container: .m4a))
+        #expect(ContainerAudioCodecPolicy.catalogBitRateWarrantsHeaderRead(bitRateKbps: 192, container: .wma))
+    }
+}
