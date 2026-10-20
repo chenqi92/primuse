@@ -563,7 +563,7 @@ struct SongRowView: View {
                     .accessibilityHidden(true)
             }
 
-            OfflineAudioStatusBadge(snapshot: offline)
+            OfflineAudioStatusBadge(snapshot: offline, reservesSpace: columns.isActive)
 
             #if !os(macOS)
             if showsActions {
@@ -1486,16 +1486,20 @@ private extension View {
 
 struct OfflineAudioStatusBadge: View {
     let snapshot: OfflineAudioCacheSnapshot
+    var reservesSpace = false
 
     @ViewBuilder
     var body: some View {
-        if snapshot.state == .notCached {
-            // 绝大多数歌都停在这一态。保持不产生布局元素，行里就不会多出一段间距。
-            EmptyView()
-        } else {
+        if snapshot.state != .notCached || reservesSpace {
             // 宿主是行里的 HStack，四个可见态必须在自己的 ZStack 里同框互换，
             // 否则过渡期间两态并排，会把后面的内容顶开再弹回。
             ZStack {
+                // EmptyView 不参与 HStack 布局；分列时用透明占位稳定专辑和时长位置。
+                if reservesSpace {
+                    Color.clear
+                        .frame(width: 20, height: 20)
+                        .accessibilityHidden(true)
+                }
                 switch snapshot.state {
                 case .downloading:
                     ProgressView(value: snapshot.progress)
@@ -1525,6 +1529,7 @@ struct OfflineAudioStatusBadge: View {
                     EmptyView()
                 }
             }
+            .frame(width: reservesSpace ? 20 : nil)
             // 只认状态，不认进度：下载中的进度每来一次回调都动一下就成了新的抖动源。
             .pmAnimation(.control, value: snapshot.state)
         }
