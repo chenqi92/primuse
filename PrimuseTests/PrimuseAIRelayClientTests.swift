@@ -911,6 +911,124 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertEqual(authenticationMethod, .appAttest)
     }
 
+    func testConcurrentFirstRequestsShareOneInstallation() async throws {
+        let host = "primuse-relay-concurrent-enrollment.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let attestor = TestPrimuseAppAttestor(keyGenerationDelay: .milliseconds(50))
+        let (client, session, _, credentials) = makeClient(host: host, attestor: attestor)
+        defer { session.invalidateAndCancel() }
+
+        let ids = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<12 { group.addTask { try await client.prepareInstallation() } }
+            var values: [String] = []
+            for try await value in group { values.append(value) }
+            return values
+        }
+        XCTAssertEqual(ids.count, 12)
+        XCTAssertEqual(Set(ids), ["test-installation"])
+        let snapshot = await attestor.snapshot()
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+        XCTAssertEqual(snapshot.attestationHashes.count, 1)
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host)
+            .filter { $0.url?.path == "/v1/auth/installations" }.count, 1)
+        let saved = await credentials.current()
+        XCTAssertEqual(saved?.installationID, "test-installation")
+    }
+
+    func testTemporaryAttestationFailureKeepsKeyAndChallengeForNextAttempt() async throws {
+        let host = "primuse-relay-temporary-attestation.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let attestor = TestPrimuseAppAttestor(attestationFailuresRemaining: 1)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(material: .init(
+            appTransactionJWS: "signed-app-transaction",
+            deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+        ))
+        let (client, session, _, credentials) = makeClient(
+            host: host, attestor: attestor, storeKitProvider: storeKitProvider
+        )
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await client.prepareInstallation()
+            XCTFail("Expected temporary attestation failure")
+        } catch {
+            XCTAssertEqual((error as NSError).code, DCError.serverUnavailable.rawValue)
+        }
+        let pending = await credentials.current()
+        XCTAssertEqual(pending?.keyID, "test-app-attest-key")
+        XCTAssertNil(pending?.installationID)
+        let id = try await client.prepareInstallation()
+        XCTAssertEqual(id, "test-installation")
+        let snapshot = await attestor.snapshot()
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+        XCTAssertEqual(snapshot.attestationHashes.count, 2)
+        XCTAssertEqual(snapshot.attestationHashes.first, snapshot.attestationHashes.last)
+        let clears = await credentials.clearCount()
+        XCTAssertEqual(clears, 0)
+        let requests = PrimuseRelayURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.filter { $0.url?.path == "/v1/auth/challenge" }.count, 1)
+        XCTAssertEqual(requests.filter { $0.url?.path == "/v1/auth/installations" }.count, 1)
+    }
+
+    func testTemporaryAssertionFailureDoesNotReplaceWorkingIdentity() async throws {
+        for streaming in [false, true] {
+            let host = "primuse-relay-temporary-assertion-\(streaming).invalid"
+            PrimuseRelayURLProtocol.configure(host: host)
+            let attestor = TestPrimuseAppAttestor(
+                assertionFailuresRemaining: 1,
+                assertionErrorCode: DCError.unknownSystemFailure.rawValue
+            )
+            let original = PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key", installationID: "existing-installation"
+            )
+            let credentials = TestPrimuseRelayCredentialStore(credential: original)
+            let (client, session, _, _) = makeClient(host: host, attestor: attestor, credentials: credentials)
+            defer { session.invalidateAndCancel() }
+            do {
+                if streaming {
+                    for try await _ in await client.recommendationEvents(recommendationRequest()) { }
+                } else {
+                    _ = try await client.interpretSearch(AISemanticSearchRequest(query: "rain"))
+                }
+                XCTFail("Expected temporary assertion failure")
+            } catch {
+                XCTAssertEqual((error as NSError).code, DCError.unknownSystemFailure.rawValue)
+            }
+            _ = try await client.interpretSearch(AISemanticSearchRequest(query: "rain"))
+            let saved = await credentials.current()
+            let clears = await credentials.clearCount()
+            let snapshot = await attestor.snapshot()
+            XCTAssertEqual(saved, original)
+            XCTAssertEqual(clears, 0)
+            XCTAssertEqual(snapshot.generateKeyCount, 0)
+            XCTAssertFalse(PrimuseRelayURLProtocol.requests(host: host)
+                .contains { $0.url?.path == "/v1/auth/installations" })
+        }
+    }
+
+    func testEnrollmentResponseFailureReusesAlreadyCreatedAttestation() async throws {
+        let host = "primuse-relay-enrollment-response-failure.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, expiredEnrollments: 1,
+            enrollmentFailureCode: "server_busy", enrollmentFailureStatus: 503)
+        let (client, session, attestor, credentials) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await client.prepareInstallation()
+            XCTFail("Expected enrollment response failure")
+        } catch {
+            XCTAssertEqual(error as? PrimuseAIRelayError, .requestFailed(statusCode: 503, code: "server_busy"))
+        }
+        _ = try await client.prepareInstallation()
+        let snapshot = await attestor.snapshot()
+        let clears = await credentials.clearCount()
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+        XCTAssertEqual(snapshot.attestationHashes.count, 1)
+        XCTAssertEqual(clears, 0)
+        let requests = PrimuseRelayURLProtocol.requests(host: host)
+            .filter { $0.url?.path == "/v1/auth/installations" }
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.first?.httpBody, requests.last?.httpBody)
+    }
+
     func testStoredInstallationSkipsKeyGenerationAndEnrollment() async throws {
         let host = "primuse-relay-existing-installation.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
@@ -1229,7 +1347,9 @@ final class PrimuseAIRelayClientTests: XCTestCase {
     func testAppAttestEnrollmentFailureFallsBackToStoreKitDuringExplicitTest() async throws {
         let host = "primuse-relay-app-attest-fallback.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
-        let attestor = TestPrimuseAppAttestor(attestationFailuresRemaining: 1)
+        let attestor = TestPrimuseAppAttestor(
+            attestationFailuresRemaining: 1, attestationErrorCode: DCError.invalidInput.rawValue
+        )
         let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
             material: PrimuseStoreKitEnrollmentMaterial(
                 appTransactionJWS: "signed-app-transaction",
@@ -1267,7 +1387,9 @@ final class PrimuseAIRelayClientTests: XCTestCase {
     func testFailedStoreKitFallbackKeepsAppAttestErrorAndRecordsFallbackCode() async throws {
         let host = "primuse-relay-app-attest-fallback-failed.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
-        let attestor = TestPrimuseAppAttestor(attestationFailuresRemaining: 1)
+        let attestor = TestPrimuseAppAttestor(
+            attestationFailuresRemaining: 1, attestationErrorCode: DCError.invalidInput.rawValue
+        )
         let (client, session, _, _) = makeClient(host: host, attestor: attestor)
         defer { session.invalidateAndCancel() }
 
@@ -1279,7 +1401,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
                 PrimuseAIRelayDiagnostic.classify(error),
                 PrimuseAIRelayDiagnostic(
                     category: .deviceRegistration,
-                    code: "app_attest_\(DCError.serverUnavailable.rawValue)"
+                    code: "app_attest_\(DCError.invalidInput.rawValue)"
                 )
             )
         }
@@ -1834,6 +1956,9 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
     let isSupported: Bool
     private var attestationFailuresRemaining: Int
     private var assertionFailuresRemaining: Int
+    private let attestationErrorCode: Int
+    private let assertionErrorCode: Int
+    private let keyGenerationDelay: Duration
     private var generateKeyCount = 0
     private var attestationHashes: [Data] = []
     private var assertionHashes: [Data] = []
@@ -1841,15 +1966,22 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
     init(
         isSupported: Bool = true,
         attestationFailuresRemaining: Int = 0,
-        assertionFailuresRemaining: Int = 0
+        assertionFailuresRemaining: Int = 0,
+        attestationErrorCode: Int = DCError.serverUnavailable.rawValue,
+        assertionErrorCode: Int = DCError.invalidKey.rawValue,
+        keyGenerationDelay: Duration = .zero
     ) {
         self.isSupported = isSupported
         self.attestationFailuresRemaining = attestationFailuresRemaining
         self.assertionFailuresRemaining = assertionFailuresRemaining
+        self.attestationErrorCode = attestationErrorCode
+        self.assertionErrorCode = assertionErrorCode
+        self.keyGenerationDelay = keyGenerationDelay
     }
 
     func generateKey() async throws -> String {
         generateKeyCount += 1
+        if keyGenerationDelay > .zero { try await Task.sleep(for: keyGenerationDelay) }
         return "test-app-attest-key"
     }
 
@@ -1860,7 +1992,7 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
             attestationFailuresRemaining -= 1
             throw NSError(
                 domain: DCError.errorDomain,
-                code: DCError.serverUnavailable.rawValue
+                code: attestationErrorCode
             )
         }
         return Data([0x01, 0x02])
@@ -1872,7 +2004,7 @@ private actor TestPrimuseAppAttestor: PrimuseAppAttesting {
             assertionFailuresRemaining -= 1
             throw NSError(
                 domain: DCError.errorDomain,
-                code: DCError.invalidKey.rawValue
+                code: assertionErrorCode
             )
         }
         XCTAssertEqual(keyID, "test-app-attest-key")
@@ -1929,6 +2061,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var recoveredFeatureBody: String?
         var featureDelay: TimeInterval = 0
         var enrollmentFailuresRemaining = 0
+        var enrollmentFailureCode = "expired_challenge"
+        var enrollmentFailureStatus = 401
     }
 
     private static let lock = NSLock()
@@ -1943,7 +2077,9 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         transientFeatureFailures: Int? = nil,
         recoveredFeatureBody: String? = nil,
         featureDelay: TimeInterval = 0,
-        expiredEnrollments: Int = 0
+        expiredEnrollments: Int = 0,
+        enrollmentFailureCode: String = "expired_challenge",
+        enrollmentFailureStatus: Int = 401
     ) {
         lock.lock()
         states[host] = State(
@@ -1954,7 +2090,9 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             transientFeatureFailuresRemaining: transientFeatureFailures,
             recoveredFeatureBody: recoveredFeatureBody,
             featureDelay: featureDelay,
-            enrollmentFailuresRemaining: expiredEnrollments
+            enrollmentFailuresRemaining: expiredEnrollments,
+            enrollmentFailureCode: enrollmentFailureCode,
+            enrollmentFailureStatus: enrollmentFailureStatus
         )
         lock.unlock()
     }
@@ -1995,8 +2133,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             responseDelay = 0
         case "/v1/auth/installations" where state.enrollmentFailuresRemaining > 0:
             state.enrollmentFailuresRemaining -= 1
-            statusCode = 401
-            responseBody = #"{"error":{"code":"expired_challenge","message":"private"},"request_id":"test-request"}"#
+            statusCode = state.enrollmentFailureStatus
+            responseBody = #"{"error":{"code":"\#(state.enrollmentFailureCode)","message":"private"},"request_id":"test-request"}"#
             responseDelay = 0
         case "/v1/auth/installations":
             statusCode = 201

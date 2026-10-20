@@ -351,6 +351,15 @@ actor PrimuseAIRelayClient {
     /// 连接测试把这一段一起显示,兜底为什么没成就不会被盖住。
     private(set) var lastEnrollmentFallbackCode: String?
 
+    private var enrollmentTask: Task<PrimuseAIRelayCredential, Error>?
+    private struct PendingAppAttestEnrollment {
+        var keyID: String
+        var challenge: String
+        var storeProof: PrimuseStoreKitEnrollmentMaterial?
+        var attestationObject: Data?
+    }
+    private var pendingAppAttestEnrollment: PendingAppAttestEnrollment?
+
     init(
         baseURL: URL = PrimuseAIRelayClient.productionBaseURL,
         session: URLSession = PrimuseAIRelayClient.makeSession(),
@@ -1190,7 +1199,7 @@ actor PrimuseAIRelayClient {
         } catch {
             if receivedProgress { throw error }
             if canRecoverLocalAppAttestCredential,
-               Self.isLocalAppAttestFailure(error) {
+               Self.isInvalidAppAttestKey(error) {
                 try await credentialStore.clear()
                 return try await performStreamingFeature(
                     path: path,
@@ -1486,7 +1495,7 @@ actor PrimuseAIRelayClient {
                 )
             } catch {
                 guard canRecoverLocalAppAttestCredential,
-                      Self.isLocalAppAttestFailure(error) else { throw error }
+                      Self.isInvalidAppAttestKey(error) else { throw error }
                 try await credentialStore.clear()
                 return try await performFeature(
                     path: path,
@@ -1548,6 +1557,25 @@ actor PrimuseAIRelayClient {
     }
 
     private func ensureEnrollment(
+        canReplaceInvalidKey: Bool,
+        allowsStoreKitRefresh: Bool,
+        prefersAppAttestUpgrade: Bool
+    ) async throws -> PrimuseAIRelayCredential {
+        if let enrollmentTask { return try await enrollmentTask.value }
+        // actor 在 await 时可重入;同一轮注册必须共享,否则会同时生成并保存多把钥匙。
+        let task = Task {
+            try await self.enrollInstallation(
+                canReplaceInvalidKey: canReplaceInvalidKey,
+                allowsStoreKitRefresh: allowsStoreKitRefresh,
+                prefersAppAttestUpgrade: prefersAppAttestUpgrade
+            )
+        }
+        enrollmentTask = task
+        defer { enrollmentTask = nil }
+        return try await task.value
+    }
+
+    private func enrollInstallation(
         canReplaceInvalidKey: Bool,
         allowsStoreKitRefresh: Bool,
         prefersAppAttestUpgrade: Bool
@@ -1616,23 +1644,42 @@ actor PrimuseAIRelayClient {
             ))
         }
 
-        // 先取签名交易再领挑战,App Store 查得慢也不会让挑战过期。
-        let storeProof = await optionalStoreProof()
-        let challenge = try await issueChallenge(purpose: "enroll")
-        let clientDataHash = Data(SHA256.hash(data: Data(challenge.utf8)))
+        var pending: PendingAppAttestEnrollment
+        if let previous = pendingAppAttestEnrollment, previous.keyID == keyID {
+            pending = previous
+        } else {
+            // 先取签名交易再领挑战,App Store 查得慢也不会让挑战过期。
+            let storeProof = await optionalStoreProof()
+            pending = PendingAppAttestEnrollment(
+                keyID: keyID,
+                challenge: try await issueChallenge(purpose: "enroll"),
+                storeProof: storeProof
+            )
+            pendingAppAttestEnrollment = pending
+        }
+        let challenge = pending.challenge
+        let storeProof = pending.storeProof
         let attestationObject: Data
-        do {
-            attestationObject = try await attestor.attestKey(
-                keyID,
-                clientDataHash: clientDataHash
-            )
-        } catch {
-            guard canReplaceInvalidKey, Self.isInvalidAppAttestKey(error) else { throw error }
-            try await credentialStore.clear()
-            return try await ensureAppAttestEnrollment(
-                canReplaceInvalidKey: false,
-                canRetryFreshChallenge: canRetryFreshChallenge
-            )
+        if let previous = pending.attestationObject {
+            attestationObject = previous
+        } else {
+            let clientDataHash = Data(SHA256.hash(data: Data(challenge.utf8)))
+            do {
+                attestationObject = try await attestor.attestKey(
+                    keyID,
+                    clientDataHash: clientDataHash
+                )
+                pending.attestationObject = attestationObject
+                pendingAppAttestEnrollment = pending
+            } catch {
+                guard canReplaceInvalidKey, Self.isInvalidAppAttestKey(error) else { throw error }
+                pendingAppAttestEnrollment = nil
+                try await credentialStore.clear()
+                return try await ensureAppAttestEnrollment(
+                    canReplaceInvalidKey: false,
+                    canRetryFreshChallenge: canRetryFreshChallenge
+                )
+            }
         }
 
         let body = try encoder.encode(EnrollmentInput(
@@ -1652,6 +1699,7 @@ actor PrimuseAIRelayClient {
         } catch {
             // 网络慢、证明拖得久时挑战会过期:换新挑战再证明一次(同一把钥匙被拒就换钥匙)。
             guard canRetryFreshChallenge, Self.shouldRetryWithFreshProof(after: error) else { throw error }
+            pendingAppAttestEnrollment = nil
             return try await ensureAppAttestEnrollment(
                 canReplaceInvalidKey: canReplaceInvalidKey,
                 canRetryFreshChallenge: false
@@ -1664,6 +1712,7 @@ actor PrimuseAIRelayClient {
             storeProofBuild: storeProof == nil ? nil : Self.currentBuild
         )
         try await credentialStore.save(credential)
+        pendingAppAttestEnrollment = nil
         return credential
     }
 
@@ -1864,7 +1913,12 @@ actor PrimuseAIRelayClient {
     private nonisolated static func isRecoverableAppAttestEnrollmentFailure(
         _ error: Error
     ) -> Bool {
-        if isLocalAppAttestFailure(error) { return true }
+        if isLocalAppAttestFailure(error) {
+            let code = (error as NSError).code
+            // Apple 暂时不可用或系统暂时失败不代表密钥失效,保留原钥匙和挑战供下次重试。
+            return code != DCError.serverUnavailable.rawValue
+                && code != DCError.unknownSystemFailure.rawValue
+        }
         guard let relayError = error as? PrimuseAIRelayError,
               case .requestFailed(_, let code, _) = relayError else {
             return false
