@@ -2111,25 +2111,81 @@ extension AudioPlayerService {
         else { synchronizeAppleMusicQueue() }
     }
 
-    /// Insert songs immediately after the current queue position. If there is
-    /// no queue yet, this behaves like `setQueue`.
+    /// Move existing unplayed songs to Up Next, keeping one slot per requested
+    /// song. Played/current slots and the rest of the shuffle round stay put.
+    /// If there is no queue yet, this behaves like `setQueue`.
     @discardableResult
     func insertNextInQueue(_ songs: [Song]) -> Int? {
-        let playable = songs.filteredPlayable()
+        var requestedIDs = Set<String>()
+        let playable = songs.filter { $0.isPlayable && requestedIDs.insert($0.id).inserted }
         guard !playable.isEmpty else { return nil }
         guard !queueEntries.isEmpty else {
             setQueue(playable, startAt: 0)
             return 0
         }
-        let insertionIndex = min(currentIndex + 1, queueEntries.count)
+        guard queueEntries.indices.contains(currentIndex) else { return nil }
+
+        let upcomingIndices = QueuePresentationPolicy.firstCurrentRoundUpcomingIndices(
+            queueCount: queueEntries.count,
+            currentIndex: currentIndex,
+            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition,
+            limit: queueEntries.count
+        )
+        var reusableEntries: [String: QueueEntry] = [:]
+        var movedIndices = IndexSet()
+        for index in upcomingIndices where requestedIDs.contains(queueEntries[index].song.id) {
+            let entry = queueEntries[index]
+            if reusableEntries[entry.song.id] == nil { reusableEntries[entry.song.id] = entry }
+            movedIndices.insert(index)
+        }
+        let inserted = playable.map { reusableEntries[$0.id] ?? QueueEntry(song: $0) }
+        let movedEntryIDs = Set(movedIndices.map { queueEntries[$0].id })
+        let insertionIndex = currentIndex + 1 - movedIndices.count(in: 0..<currentIndex)
+        var entries = queueEntries.indices.filter { !movedIndices.contains($0) }.map { queueEntries[$0] }
+        entries.insert(contentsOf: inserted, at: insertionIndex)
+
+        // Raw queue indices do not describe what has already played in shuffle.
+        // Rebase the existing traversal by slot identity instead of reshuffling it.
+        var traversal: [Int] = []
+        var anchor = 0
+        if shuffleEnabled {
+            let playedAndCurrent = usesManagedShuffleOrder
+                ? Array(shuffledIndices.prefix((shuffleAnchorPosition ?? shufflePosition) + 1))
+                : Array(0...currentIndex)
+            let prefixIDs = playedAndCurrent.compactMap { index in
+                queueEntries.indices.contains(index) ? queueEntries[index].id : nil
+            }
+            let remainingIDs = upcomingIndices.filter { !movedIndices.contains($0) }.map { queueEntries[$0].id }
+            let indexByID = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($0.element.id, $0.offset) })
+            traversal = (prefixIDs + inserted.map(\.id) + remainingIDs).compactMap { indexByID[$0] }
+            anchor = max(0, prefixIDs.count - 1)
+        }
+        var continuation = queueContinuation
+        continuation?.removePendingSongs(withIDs: requestedIDs)
+        if continuation?.isExhausted == true { continuation = nil }
+        if entries.map(\.id) == queueEntries.map(\.id),
+           !shuffleEnabled || (traversal == shuffledIndices && anchor == shufflePosition),
+           autoContinuationEntryIDs.isDisjoint(with: movedEntryIDs),
+           continuation == queueContinuation,
+           !isAppleMusicMode || isPrimuseManagingAppleMusicQueue {
+            return insertionIndex
+        }
+
         invalidatePreparedQueueSuccessor()
-        queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: insertionIndex)
+        queueEntries = entries
+        currentIndex = insertionIndex - 1
+        autoContinuationEntryIDs.subtract(movedEntryIDs)
+        setQueueContinuation(continuation)
         if isAppleMusicMode {
             isPrimuseManagingAppleMusicQueue = true
             AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
         }
         pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
+        if shuffleEnabled {
+            shuffledIndices = traversal
+            shufflePosition = anchor
+        }
         persistPlaybackSession()
         if isPlaybackActuallyActive { prefetchNextSong() }
         else { synchronizeAppleMusicQueue() }

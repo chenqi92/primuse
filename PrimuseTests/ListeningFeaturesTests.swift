@@ -66,6 +66,173 @@ final class ListeningFeaturesTests: XCTestCase {
         )
     }
 
+    // MARK: - Play Next
+
+    private func makeQueuedPlayer(_ songs: [Song], startAt index: Int = 0) throws -> AudioPlayerService {
+        let modes = ListeningPlayModeStore.shared.ledger
+        let player = try makePlayer()
+        cleanups.append {
+            player.persistPlaybackSession(flushImmediately: true)
+            ListeningPlayModeStore.shared.update { $0 = modes }
+        }
+        player.setQueue(songs, startAt: index)
+        player.isApplyingListeningPlayMode = true
+        player.shuffleEnabled = false
+        player.repeatMode = .off
+        player.isApplyingListeningPlayMode = false
+        player.currentSong = songs.indices.contains(index) ? songs[index] : nil
+        return player
+    }
+
+    func testPlayNextMovesExistingSongAndRepeatedRequestsKeepOneOccurrence() throws {
+        let selected = song("selected")
+        let player = try makeQueuedPlayer(
+            [song("heard"), song("current"), song("other"), selected, selected, song("tail")],
+            startAt: 1
+        )
+        let currentID = player.queueEntries[1].id
+        let selectedID = player.queueEntries[3].id
+        let playID = UUID()
+        player.playID = playID
+        player.currentTime = 42
+        _ = player.beginAutomaticAdvanceTransport(itemID: "current", reason: "test")
+        let ticket = player.playbackAdvancePolicy.activeTicket
+
+        XCTAssertEqual(player.insertNextInQueue([selected]), 2)
+        XCTAssertEqual(player.queue.map(\.id), ["heard", "current", "selected", "other", "tail"])
+        XCTAssertEqual(player.queueEntries[2].id, selectedID)
+        XCTAssertEqual(player.queueEntries[player.currentIndex].id, currentID)
+        XCTAssertEqual(player.currentSong?.id, "current")
+        XCTAssertEqual(player.playID, playID)
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertEqual(player.playbackAdvancePolicy.activeTicket, ticket)
+
+        let entries = player.queueEntries.map(\.id)
+        let generation = player.queueGeneration
+        let preparation = UUID()
+        player.crossfadeAttemptID = preparation
+        XCTAssertEqual(player.insertNextInQueue([selected, selected]), 2)
+        XCTAssertEqual(player.queueEntries.map(\.id), entries)
+        XCTAssertEqual(player.queueGeneration, generation)
+        XCTAssertEqual(player.crossfadeAttemptID, preparation)
+    }
+
+    func testPlayNextPreservesHistoryCurrentSongAndDistinctFiles() throws {
+        let heard = song("heard")
+        let current = song("current")
+        var first = song("file-a")
+        var second = song("file-b")
+        first.title = "恋人"
+        second.title = first.title
+        let player = try makeQueuedPlayer([heard, current, first, second], startAt: 1)
+        let entries = player.queueEntries
+
+        XCTAssertEqual(player.insertNextInQueue([heard, current, second]), 2)
+
+        XCTAssertEqual(player.queue.map(\.id), ["heard", "current", "heard", "current", "file-b", "file-a"])
+        XCTAssertEqual(Array(player.queueEntries.prefix(2)).map(\.id), Array(entries.prefix(2)).map(\.id))
+        XCTAssertNotEqual(player.queueEntries[2].id, entries[0].id)
+        XCTAssertNotEqual(player.queueEntries[3].id, entries[1].id)
+        XCTAssertEqual(player.queueEntries[4].id, entries[3].id)
+        XCTAssertEqual(player.queueEntries[5].id, entries[2].id)
+        XCTAssertEqual(player.currentIndex, 1)
+    }
+
+    func testPlayNextBatchKeepsRequestedOrderAndUnrelatedDuplicates() throws {
+        let player = try makeQueuedPlayer([song("current"), song("a"), song("b"), song("b"), song("c")])
+        let duplicateIDs = Array(player.queueEntries[2...3]).map(\.id)
+
+        XCTAssertEqual(player.insertNextInQueue([song("c"), song("new"), song("a"), song("c")]), 1)
+
+        XCTAssertEqual(player.queue.map(\.id), ["current", "c", "new", "a", "b", "b"])
+        XCTAssertEqual(Array(player.queueEntries.suffix(2)).map(\.id), duplicateIDs)
+        XCTAssertEqual(player.nextSongInQueue()?.id, "c")
+    }
+
+    func testPlayNextPreservesShuffleHistoryAndRemainingOrder() throws {
+        let selected = song("selected")
+        let player = try makeQueuedPlayer(
+            [selected, song("heard"), song("current"), song("middle"), selected, song("tail")],
+            startAt: 2
+        )
+        let oldEntries = player.queueEntries
+        player.isApplyingListeningPlayMode = true
+        player.shuffleEnabled = true
+        player.repeatMode = .all
+        player.isApplyingListeningPlayMode = false
+        player.shuffledIndices = [1, 2, 3, 0, 4, 5]
+        player.shufflePosition = 0 // A stale hint must not turn heard songs into Up Next.
+        player.pendingNextShuffleIndices = [5, 4, 3, 2, 1, 0]
+
+        XCTAssertEqual(player.insertNextInQueue([selected, song("new")]), 2)
+
+        XCTAssertEqual(player.currentIndex, 1)
+        XCTAssertEqual(player.queueEntries[player.currentIndex].id, oldEntries[2].id)
+        XCTAssertEqual(player.shufflePosition, 1)
+        XCTAssertEqual(player.shuffledIndices, [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(player.playedQueueEntries.map(\.entry.id), [oldEntries[1].id])
+        XCTAssertEqual(player.queueEntries[2].id, oldEntries[0].id)
+        XCTAssertNil(player.pendingNextShuffleIndices)
+        XCTAssertEqual(
+            player.upcomingQueueEntries.filter { $0.id.roundOffset == 0 }.map(\.entry.song.id),
+            ["selected", "new", "middle", "tail"]
+        )
+        XCTAssertEqual(player.nextSongInQueue()?.id, selected.id)
+        player.persistPlaybackSession(flushImmediately: true)
+        let saved = try XCTUnwrap(player.playbackSessionStore.load())
+        XCTAssertEqual(saved.queueSongIDs, player.queue.map(\.id))
+        XCTAssertEqual(saved.currentIndex, player.currentIndex)
+        XCTAssertEqual(saved.shuffledIndices, player.shuffledIndices)
+        XCTAssertEqual(saved.shufflePosition, player.shufflePosition)
+    }
+
+    func testPlayNextPromotesAutoplaySongWithoutKeepingItsDuplicate() throws {
+        let player = try makeQueuedPlayer([song("current"), song("a"), song("b"), song("a")])
+        let selectedID = player.queueEntries[1].id
+        let remainingID = player.queueEntries[2].id
+        player.autoContinuationEntryIDs = Set(player.queueEntries.dropFirst().map(\.id))
+
+        XCTAssertEqual(player.insertNextInQueue([song("a")]), 1)
+
+        XCTAssertEqual(player.queue.map(\.id), ["current", "a", "b"])
+        XCTAssertEqual(player.queueEntries[1].id, selectedID)
+        XCTAssertEqual(player.autoContinuationEntryIDs, [remainingID])
+        let upcoming = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
+            player.isAutoContinuationEntry($0.entry)
+        }
+        XCTAssertEqual(upcoming.queued.map(\.entry.song.id), ["a"])
+        XCTAssertEqual(upcoming.autoplay.map(\.entry.song.id), ["b"])
+    }
+
+    func testPlayNextFiltersRepeatedAndUnplayableInputForAnEmptyQueue() throws {
+        let player = try makeQueuedPlayer([])
+        let unavailable = song("b", duration: 0, path: "")
+        XCTAssertEqual(player.insertNextInQueue([song("a"), song("a"), unavailable, song("b")]), 0)
+        XCTAssertEqual(player.queue.map(\.id), ["a", "b"])
+
+        let entries = player.queueEntries.map(\.id)
+        XCTAssertNil(player.insertNextInQueue([unavailable]))
+        XCTAssertNil(player.insertNextInQueue([]))
+        XCTAssertEqual(player.queueEntries.map(\.id), entries)
+    }
+
+    func testPlayNextRemovesTheSelectedSongFromPendingWindowRefills() async throws {
+        let player = try makeQueuedPlayer([song("current"), song("window")])
+        player.queueContinuation = QueueContinuation(
+            requestedIDs: ["current", "window", "later", "selected", "tail", "selected"],
+            window: 0..<2
+        )
+
+        XCTAssertEqual(player.insertNextInQueue([song("selected")]), 1)
+        await player.queueContinuationWriteTask?.value
+
+        XCTAssertEqual(player.queue.map(\.id), ["current", "selected", "window"])
+        var continuation = try XCTUnwrap(player.queueContinuation)
+        XCTAssertEqual(continuation.takeNext(maxCount: 10, repeatsAll: true), ["later", "tail"])
+        XCTAssertTrue(continuation.isExhausted)
+        XCTAssertEqual(QueueContinuationStore(sessionStore: player.playbackSessionStore).load(), player.queueContinuation)
+    }
+
     // MARK: - Crossfade
 
     private func makeCrossfadedPlayer(completingTransition: Bool = true) throws -> (AudioPlayerService, UUID) {

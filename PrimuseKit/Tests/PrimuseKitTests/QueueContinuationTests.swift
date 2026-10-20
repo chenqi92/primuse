@@ -93,6 +93,51 @@ struct QueueContinuationTests {
         #expect(continuation.isExhausted)
     }
 
+    @Test("Play Next removes only pending copies, preserving the installed window")
+    func playNextRemovesPendingCopies() {
+        var continuation = QueueContinuation(
+            requestedIDs: ["selected", "before", "current", "selected", "later", "selected"],
+            window: 2..<4
+        )
+        continuation.removePendingSongs(withIDs: ["selected"])
+        #expect(continuation.requestedIDs == ["before", "current", "selected", "later"])
+        #expect(continuation.nextOffset == 3)
+        #expect(continuation.leadingEnd == 1)
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["later"])
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["before"])
+        #expect(continuation.isExhausted)
+    }
+
+    @Test("Play Next preserves consumed leading songs and is idempotent")
+    func playNextPreservesConsumedOffsets() {
+        var continuation = QueueContinuation(
+            requestedIDs: ["selected", "selected", "before", "current", "tail"],
+            window: 3..<4
+        )
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["tail"])
+        #expect(continuation.takeNext(maxCount: 1, repeatsAll: true) == ["selected"])
+        continuation.removePendingSongs(withIDs: ["selected", "current", "tail"])
+        #expect(continuation.requestedIDs == ["selected", "before", "current", "tail"])
+        #expect(continuation.leadingOffset == 1)
+        let once = continuation
+        continuation.removePendingSongs(withIDs: ["selected", "current", "tail"])
+        #expect(continuation == once)
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["before"])
+        #expect(continuation.isExhausted)
+    }
+
+    @Test("Moving every pending song to Play Next exhausts the continuation")
+    func playNextCanExhaustContinuation() {
+        var continuation = QueueContinuation(
+            requestedIDs: ["selected", "current", "selected"],
+            window: 1..<2
+        )
+        continuation.removePendingSongs(withIDs: ["selected"])
+        #expect(continuation.requestedIDs == ["current"])
+        #expect(continuation.isExhausted)
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true).isEmpty)
+    }
+
     @Test("A continuation survives the store round trip")
     func storeRoundTrip() throws {
         let directory = FileManager.default.temporaryDirectory

@@ -690,6 +690,22 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
         requestedIDs = mapped.indices.filter { !dropped.contains($0) }.map { mapped[$0] }
     }
 
+    /// Songs moved to Up Next must not be appended again when the window fills.
+    /// Keep the installed window and the already-consumed prefixes intact.
+    public mutating func removePendingSongs(withIDs songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        let leading = leadingOffset..<leadingEnd
+        let dropped = IndexSet(requestedIDs.indices.filter {
+            ($0 >= nextOffset || leading.contains($0)) && songIDs.contains(requestedIDs[$0])
+        })
+        guard !dropped.isEmpty else { return }
+        func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
+        nextOffset = shifted(nextOffset)
+        leadingOffset = shifted(leadingOffset)
+        leadingEnd = shifted(leadingEnd)
+        requestedIDs = requestedIDs.indices.filter { !dropped.contains($0) }.map { requestedIDs[$0] }
+    }
+
     /// Up to `maxCount` IDs in playback order. The leading part is only used
     /// under repeat-all, after the trailing part has run out.
     public mutating func takeNext(maxCount: Int, repeatsAll: Bool) -> [String] {
