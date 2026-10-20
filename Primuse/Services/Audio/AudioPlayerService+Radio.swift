@@ -278,6 +278,8 @@ extension AudioPlayerService {
                     directSourceFormat: nil
                 )
                 self.audioEngine.applyPlaybackRate(1)
+                // 直播流保持原声, 歌曲的升降调不带过来。
+                self.audioEngine.applyUserPitch(cents: 0)
                 self.applySpatialAudioSettings()
                 self.audioEffectsService.applySettings()
                 self.equalizerService.applySettings()

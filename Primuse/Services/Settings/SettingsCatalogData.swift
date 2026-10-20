@@ -10,6 +10,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.wifiStreamQuality", titleKey: "streaming_quality_wifi", iosPage: .playback, macPage: .playback, keywords: ["wifi", "wi-fi", "bitrate", "transcode", "音质", "码率", "转码", "省流量", "流量", "Streaming Quality"]),
         SettingDefinition(id: "playback.cellularStreamQuality", titleKey: "streaming_quality_cellular", iosPage: .playback, macPage: .playback, keywords: ["cellular", "mobile data", "bitrate", "transcode", "音质", "码率", "转码", "省流量", "流量", "蜂窝网络", "手机网络", "卡顿", "断流"]),
         SettingDefinition(id: "playback.speed", titleKey: "playback_rate", iosPage: .playback, macPage: .playback, keywords: ["speed", "倍速", "速度", "语速", "播放太快", "Playback Rate"]),
+        SettingDefinition(id: "playback.pitch", titleKey: "karaoke_key", iosPage: .playback, macPage: .playback, keywords: ["pitch", "key", "transpose", "semitone", "升降调", "变调", "移调", "升调", "降调", "调高", "调低", "半音", "原调", "Key Shift"]),
         SettingDefinition(id: "playback.spokenWordRate", titleKey: "spoken_word_playback_rate", iosPage: .playback, macPage: .playback, keywords: ["有声书", "听书", "倍速", "audiobook", "podcast", "speed"]),
         SettingDefinition(id: "playback.smartNudges", titleKey: "smart_nudge_enabled", iosPage: .playback, macPage: .playback, keywords: ["智能推荐", "提示", "弹窗", "建议", "我喜欢", "suggestion", "nudge", "recommendation"]),
         SettingDefinition(id: "playback.medley", titleKey: "medley_segment_length", iosPage: .playback, macPage: .playback, keywords: ["串烧", "混音", "medley", "mashup", "片段", "高潮", "副歌", "chorus", "播放时间段"]),

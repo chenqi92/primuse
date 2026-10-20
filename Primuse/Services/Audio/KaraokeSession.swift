@@ -145,6 +145,12 @@ final class KaraokeSession {
         }
     }
 
+    /// 实际听到的调: 播放速度旁的整体升降调(#332)加上舞台上的这一份。舞台上写的是它,
+    /// 「原调」就是歌曲本来的调;两份在引擎里各存各的,写进节点的是和。
+    var heardKeyShift: Int {
+        PlaybackPitchPolicy.combinedSemitones(user: player.requestedPitchSemitones, karaoke: keyShift)
+    }
+
     var part: KaraokePart = .all {
         didSet {
             guard part != oldValue else { return }
@@ -798,8 +804,8 @@ final class KaraokeSession {
 
     private func record(_ reading: KaraokePitchAnalyzer.Reading, at time: TimeInterval, microphoneLag: TimeInterval) {
         // The reference comes from before the key change; the singer follows
-        // the shifted key.
-        let shift = Double(availability == .available ? keyShift : 0)
+        // the shifted key — the global one next to the speed included.
+        let shift = Double(availability == .available ? heardKeyShift : 0)
         referenceTrack.append(time: time, midiNote: reading.reference.map { $0 + shift })
         // The voice heard now answers audio rendered `lag` earlier.
         let sungTime = time - microphoneLag

@@ -6009,6 +6009,11 @@
 "player_controls_unavailable_eq_casting" = "Durante a transmissão, o outro dispositivo reproduz o som, então o equalizador deste dispositivo não é usado.";
 "player_controls_unavailable_speed_apple_music" = "Não é possível mudar a velocidade de músicas do Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "A Alta fidelidade direta envia o áudio sem alterações para o dispositivo de saída, então a velocidade não pode mudar. Mude para a saída com efeitos para ajustar a velocidade.";
+"playback_pitch_desc" = "Sobe ou desce o tom das músicas em semitons sem mudar a velocidade. Audiolivros e podcasts mantêm a voz original.";
+"playback_pitch_casting_unavailable" = "Indisponível durante a transmissão";
+"playback_pitch_unavailable_high_fidelity" = "A Alta fidelidade direta envia o áudio sem alterações para o dispositivo de saída, então o tom não pode mudar. Mude para a saída com efeitos para ajustar o tom.";
+"playback_pitch_unavailable_casting" = "Durante a transmissão, o outro dispositivo reproduz o som, então o tom não pode mudar.";
+"playback_pitch_unavailable_apple_music" = "Não é possível mudar o tom de músicas do Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Músicas do Apple Music não podem ser transmitidas para dispositivos da sua rede.";
 "player_controls_tiles_header" = "Blocos de funções";
 "player_controls_tiles_footer" = "Toque e segure para arrastar e mudar a ordem. Os blocos ativados se distribuem por igual e os desativados não deixam espaço vazio; continuam em Mais. Ao ativar AirPlay, Curtir, Mais ou o botão de transcrição, eles vêm do lugar de origem para cá; ao desativar, voltam.";

@@ -309,6 +309,9 @@ final class AudioEngine {
     nonisolated let karaokeControl = KaraokeRenderControl()
     /// 卡拉OK升降调(音分)。只在卡拉OK开着时非零, 图重建后要重新套上。
     private var karaokePitchCents: Float = 0
+    /// 播放速度旁的整体升降调(音分, #332)。和卡拉OK的分开存: 舞台每拍都写它那份、关页写 0,
+    /// 节点上写的是两者之和(`PlaybackPitchPolicy.combinedCents`), 谁也不覆盖谁。
+    private var userPitchCents: Float = 0
 
     private(set) var isPlaying = false
     var isActuallyPlaying: Bool {
@@ -634,7 +637,7 @@ final class AudioEngine {
         let reverbOutput = AVAudioMixerNode()
         let timePitch = AVAudioUnitTimePitch()
         timePitch.rate = 1.0
-        timePitch.pitch = karaokePitchCents
+        timePitch.pitch = combinedPitchCents
         // overlap 默认 8.0, 提高到 16 让 0.5x / 2.0x 极端速度声音更稳;
         // 1.0x 时该节点几乎是 passthrough, 不会有副作用。
         timePitch.overlap = 16.0
@@ -2036,7 +2039,7 @@ final class AudioEngine {
     // MARK: - Playback Rate
 
     /// 设定播放速度倍率, 0.5x ~ 2.0x。AVAudioUnitTimePitch.rate 直接生效,
-    /// 不用重启 engine。1.0 是 passthrough。pitch 保持 0 (不变调)。
+    /// 不用重启 engine。1.0 是 passthrough。变速不变调; 升降调另走 `applyUserPitch`。
     func applyPlaybackRate(_ rate: Float) {
         guard outputMode == .effects else { return }
         let clamped = max(0.5, min(2.0, rate))
@@ -2053,6 +2056,21 @@ final class AudioEngine {
     /// 升降调只作用在播放图上; 麦克风走自己的引擎, 不会被一起变调。
     func applyKaraokePitch(cents: Float) {
         karaokePitchCents = cents
+        applyPitchToGraph()
+    }
+
+    /// 播放速度旁的整体升降调。有声内容、电台由调用方传 0。
+    func applyUserPitch(cents: Float) {
+        userPitchCents = cents
+        applyPitchToGraph()
+    }
+
+    private var combinedPitchCents: Float {
+        PlaybackPitchPolicy.combinedCents(userCents: userPitchCents, karaokeCents: karaokePitchCents)
+    }
+
+    private func applyPitchToGraph() {
+        let cents = combinedPitchCents
         guard outputMode == .effects, let timePitchNode, timePitchNode.pitch != cents else { return }
         timePitchNode.pitch = cents
     }

@@ -6103,6 +6103,11 @@
 "player_controls_unavailable_eq_casting" = "Pendant la diffusion, c’est l’autre appareil qui produit le son : l’égaliseur de cet appareil n’est pas utilisé.";
 "player_controls_unavailable_speed_apple_music" = "Impossible de modifier la vitesse de lecture des morceaux Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "La Haute fidélité directe envoie l’audio tel quel à l’appareil de sortie, la vitesse ne peut donc pas changer. Passez à la sortie avec effets pour régler la vitesse.";
+"playback_pitch_desc" = "Monte ou baisse la tonalité des morceaux par demi-tons sans changer la vitesse. Les livres audio et les podcasts gardent leur voix d’origine.";
+"playback_pitch_casting_unavailable" = "Indisponible pendant la diffusion";
+"playback_pitch_unavailable_high_fidelity" = "La Haute fidélité directe envoie l’audio tel quel à l’appareil de sortie, la tonalité ne peut donc pas changer. Passez à la sortie avec effets pour transposer.";
+"playback_pitch_unavailable_casting" = "Pendant la diffusion, c’est l’autre appareil qui produit le son : la tonalité ne peut pas changer.";
+"playback_pitch_unavailable_apple_music" = "Impossible de modifier la tonalité des morceaux Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Les morceaux Apple Music ne peuvent pas être diffusés vers les appareils de votre réseau.";
 "player_controls_tiles_header" = "Tuiles de fonctions";
 "player_controls_tiles_footer" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles activées se répartissent régulièrement et celles désactivées ne laissent pas de vide ; elles restent dans « Plus ». Activer AirPlay, J’aime, Plus ou le bouton de transcription les déplace ici depuis leur place ; les désactiver les y remet.";

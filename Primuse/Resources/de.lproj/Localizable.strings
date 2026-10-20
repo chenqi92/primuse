@@ -6103,6 +6103,11 @@
 "player_controls_unavailable_eq_casting" = "Beim Übertragen gibt das andere Gerät den Ton aus, daher wird der Equalizer dieses Geräts nicht verwendet.";
 "player_controls_unavailable_speed_apple_music" = "Bei Apple Music-Titeln lässt sich die Wiedergabegeschwindigkeit nicht ändern.";
 "player_controls_unavailable_speed_high_fidelity" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät, daher lässt sich die Geschwindigkeit nicht ändern. Wechsle zur Effektausgabe, um die Geschwindigkeit anzupassen.";
+"playback_pitch_desc" = "Hebt oder senkt die Tonart von Titeln in Halbtonschritten, ohne die Geschwindigkeit zu ändern. Hörbücher und Podcasts behalten ihre ursprüngliche Stimme.";
+"playback_pitch_casting_unavailable" = "Beim Übertragen nicht verfügbar";
+"playback_pitch_unavailable_high_fidelity" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät, daher lässt sich die Tonart nicht ändern. Wechsle zur Effektausgabe, um die Tonart zu verschieben.";
+"playback_pitch_unavailable_casting" = "Beim Übertragen gibt das andere Gerät den Ton aus, daher lässt sich die Tonart nicht ändern.";
+"playback_pitch_unavailable_apple_music" = "Bei Apple Music-Titeln lässt sich die Tonart nicht ändern.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music-Titel können nicht an Geräte in deinem Netzwerk übertragen werden.";
 "player_controls_tiles_header" = "Funktionskacheln";
 "player_controls_tiles_footer" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Eingeschaltete Kacheln verteilen sich gleichmäßig, ausgeschaltete hinterlassen keine Lücke und bleiben unter „Mehr“. AirPlay, „Gefällt mir“, „Mehr“ und die Transkripttaste wandern beim Einschalten von ihrem Platz in diese Reihe und beim Ausschalten zurück.";

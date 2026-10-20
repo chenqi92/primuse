@@ -6009,6 +6009,11 @@
 "player_controls_unavailable_eq_casting" = "Yayın sırasında sesi diğer aygıt çalar, bu yüzden bu aygıtın ekolayzırı kullanılmaz.";
 "player_controls_unavailable_speed_apple_music" = "Apple Music şarkılarında çalma hızı değiştirilemez.";
 "player_controls_unavailable_speed_high_fidelity" = "Yüksek doğruluklu doğrudan oynatma sesi olduğu gibi çıkış aygıtına gönderir, bu yüzden hız değiştirilemez. Hızı ayarlamak için efektli çıkışa geçin.";
+"playback_pitch_desc" = "Şarkıların tonunu hızı değiştirmeden yarım ton adımlarla yükseltir veya alçaltır. Sesli kitaplar ve podcast'ler özgün seslerini korur.";
+"playback_pitch_casting_unavailable" = "Yayın sırasında kullanılamaz";
+"playback_pitch_unavailable_high_fidelity" = "Yüksek doğruluklu doğrudan oynatma sesi olduğu gibi çıkış aygıtına gönderir, bu yüzden ton değiştirilemez. Tonu değiştirmek için efektli çıkışa geçin.";
+"playback_pitch_unavailable_casting" = "Yayın sırasında sesi diğer aygıt çalar, bu yüzden ton değiştirilemez.";
+"playback_pitch_unavailable_apple_music" = "Apple Music şarkılarında ton değiştirilemez.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";
 "player_controls_tiles_header" = "İşlev Kutucukları";
 "player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz ve Diğer menüsünde yine bulunur. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner.";

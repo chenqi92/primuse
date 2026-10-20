@@ -567,7 +567,7 @@ private struct KaraokeMixerCard: View {
     private var summary: String {
         var parts: [String] = []
         if let ai = aiSummary { parts.append(ai) }
-        if session.keyShift != 0 {
+        if session.heardKeyShift != 0 {
             parts.append("\(String(localized: "karaoke_key")) \(keyLabel)")
         }
         if session.practiceRate < 1 {
@@ -755,10 +755,11 @@ private struct KaraokeMixerCard: View {
             : String(format: "%.1f×", session.practiceRate)
     }
 
+    /// 写的是听到的调(连同播放速度旁的整体升降调), 两头的界限仍按舞台自己这一份算。
     private var keyLabel: String {
-        session.keyShift == 0
+        session.heardKeyShift == 0
             ? String(localized: "karaoke_key_original")
-            : String(format: "%+d", session.keyShift)
+            : String(format: "%+d", session.heardKeyShift)
     }
 }
 

@@ -635,6 +635,28 @@ extension AudioPlayerService {
         )
     }
 
+    /// The key shift next to the speed (#332) for `song`: music only, and
+    /// only where the graph has its time-pitch unit.
+    func requestedPitchSemitones(for song: Song?) -> Int {
+        PlaybackPitchPolicy.effectiveSemitones(
+            playbackSettings.pitchSemitones,
+            isSpokenWord: song.map { SpokenWordStore.shared.isSpokenWord($0) } ?? false,
+            isLiveRadio: isLiveRadio,
+            outputAllowsPitch: outputMode(for: song) == .effects
+        )
+    }
+
+    /// The key shift for the item that is playing now. The karaoke stage adds
+    /// its own on top in the engine.
+    var requestedPitchSemitones: Int {
+        PlaybackPitchPolicy.effectiveSemitones(
+            playbackSettings.pitchSemitones,
+            isSpokenWord: currentItemIsSpokenWord,
+            isLiveRadio: isLiveRadio,
+            outputAllowsPitch: playbackSettings.outputMode == .effects
+        )
+    }
+
     // MARK: - Books
 
     /// The book `song` belongs to — the same id the bookshelf gives it

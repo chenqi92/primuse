@@ -33,14 +33,15 @@ struct SettingsActionService {
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
-        "playback.replayGainMode", "playback.speed", "storage.audioCacheLimit", "playback.prewarmQueue",
+        "playback.replayGainMode", "playback.speed", "playback.pitch", "storage.audioCacheLimit", "playback.prewarmQueue",
         "lyrics.translationTarget", "lyrics.translationMode", "about.version", "about.build"
     ])
     private static let effectsOnly: Set<String> = [
         "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.crossfade",
         "playback.crossfadeMode", "playback.crossfadeDuration", "playback.skipLeadingSilence",
         "playback.skipTrailingSilence", "playback.replayGain", "playback.replayGainMode",
-        "playback.spatialAudio", "playback.headTracking", "playback.speed", "playback.resetSpeed"
+        "playback.spatialAudio", "playback.headTracking", "playback.speed", "playback.resetSpeed",
+        "playback.pitch"
     ]
 
     func status(for id: String) -> SettingStatus {
@@ -55,6 +56,9 @@ struct SettingsActionService {
             case "playback.crossfadeDuration": value = String(format: "%.0f s", playback.crossfadeDuration)
             case "playback.replayGainMode": value = playback.replayGainMode.displayName
             case "playback.speed": value = String(format: "%.2f×", effectivePlaybackRate)
+            case "playback.pitch":
+                value = PlaybackPitchPolicy.signedLabel(effectivePitchSemitones)
+                    ?? String(localized: "karaoke_key_original")
             case "playback.prewarmQueue": value = String(playback.prewarmQueueCount)
             case "storage.audioCacheLimit":
                 value = playback.audioCacheLimitBytes == AudioCacheLimitPolicy.unlimitedBytes
@@ -81,6 +85,7 @@ struct SettingsActionService {
     }
 
     var effectivePlaybackRate: Float { playback.outputMode == .highFidelity ? 1 : playback.playbackRate }
+    var effectivePitchSemitones: Int { playback.outputMode == .highFidelity ? 0 : playback.pitchSemitones }
 
     func unavailableReason(for id: String) -> String? {
         var needsEffects = Self.effectsOnly.contains(id) || id.hasPrefix("effects.") || id.hasPrefix("equalizer.") || ["page.effects", "page.equalizer"].contains(id)

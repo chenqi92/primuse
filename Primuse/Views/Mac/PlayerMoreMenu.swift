@@ -60,6 +60,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var fontPickerShown = false
     @State private var translationPickerShown = false
     @State private var equalizerPickerShown = false
+    @State private var playbackRatePickerShown = false
+    @State private var pitchPickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
@@ -527,6 +529,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if !player.isAppleMusicMode, player.castingRenderer == nil {
                 equalizerRow
             }
+            // 播放速度与升降调(#332),和 iPhone 播放页同一套:Apple Music 由系统播放器出声、
+            // 电台是直播流,都没有这两项;升降调只给音乐。
+            if !player.isAppleMusicMode, !player.isLiveRadio, player.currentSong != nil {
+                playbackRateRow
+                if MacPlaybackPitchPanel.availability(player) != .notOffered {
+                    pitchRow
+                }
+            }
             if !isSpokenWord {
                 menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
                     NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
@@ -806,6 +816,83 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             )
         }
+    }
+
+    /// 播放速度 —— 和均衡器一样用 popover 打开第二层,行尾带着当前值。高保真直通下音乐
+    /// 不能变速:整行画灰、第二行写原因,仍然能点,第二层先说明原因并能一键切到音效输出。
+    private var playbackRateRow: some View {
+        let isUnavailable = !MacPlaybackRatePanel.canChangeRate(player)
+        return popoverRow(
+            symbol: "speedometer",
+            title: "playback_rate",
+            unavailableReason: isUnavailable ? String(localized: "eq_menu_high_fidelity_unavailable") : nil,
+            value: MacPlaybackRatePanel.valueLabel(MacPlaybackRatePanel.currentRate(player))
+        ) {
+            playbackRatePickerShown.toggle()
+        }
+        .popover(isPresented: $playbackRatePickerShown, arrowEdge: .leading) {
+            MacPlaybackRatePanel(player: player) { playbackRatePickerShown = false }
+        }
+    }
+
+    /// 升降调:第二层是 降调 / 当前调 / 升调 三个键,点了不收起,能连着调。
+    private var pitchRow: some View {
+        let availability = MacPlaybackPitchPanel.availability(player)
+        return popoverRow(
+            symbol: PlaybackPitchText.symbol,
+            title: "karaoke_key",
+            unavailableReason: PlaybackPitchText.shortReason(availability),
+            value: PlaybackPitchText.valueLabel(player.playbackSettings.pitchSemitones)
+        ) {
+            pitchPickerShown.toggle()
+        }
+        .popover(isPresented: $pitchPickerShown, arrowEdge: .leading) {
+            MacPlaybackPitchPanel(player: player)
+        }
+    }
+
+    /// 打开第二层的行,与均衡器那一行同一画法。用不了时画灰、第二行写原因,不显示当前值。
+    private func popoverRow(
+        symbol: String,
+        title: LocalizedStringKey,
+        unavailableReason: String?,
+        value: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        let isUnavailable = unavailableReason != nil
+        return Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).frame(width: 18)
+                    .foregroundStyle(isUnavailable ? PMColor.textFaint : PMColor.textMuted)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.callout)
+                        .foregroundStyle(isUnavailable ? PMColor.textMuted : PMColor.text)
+                    if let unavailableReason {
+                        Text(verbatim: unavailableReason)
+                            .font(.caption2)
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .layoutPriority(1)
+                Spacer(minLength: 8)
+                if !isUnavailable {
+                    Text(verbatim: value)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: unavailableReason ?? value))
     }
 
     private var offersSmartLyricsTranslation: Bool {
@@ -1261,6 +1348,202 @@ struct MacEqualizerMenuPanel: View {
             .frame(height: 0.5)
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
+    }
+}
+
+/// 「更多」里播放速度的第二层:和 iPhone 播放页那颗速度键同一组档位。有声内容按书记速度,
+/// 音乐用全局那一档;高保真直通下音乐不能变速,这里先说明原因。
+struct MacPlaybackRatePanel: View {
+    let player: AudioPlayerService
+    let onPicked: () -> Void
+
+    static let presets: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+
+    /// 有声内容总走效果链,语速随时可调;音乐只有效果模式能变速。
+    static func canChangeRate(_ player: AudioPlayerService) -> Bool {
+        player.currentItemIsSpokenWord || player.playbackSettings.outputMode == .effects
+    }
+
+    static func currentRate(_ player: AudioPlayerService) -> Float {
+        guard canChangeRate(player) else { return 1 }
+        return player.currentItemIsSpokenWord
+            ? player.currentSpokenWordRate
+            : player.playbackSettings.playbackRate
+    }
+
+    static func valueLabel(_ rate: Float) -> String {
+        abs(rate - 1) < 0.001
+            ? String(localized: "playback_rate_normal")
+            : SpokenWordPlaybackRatePolicy.label(for: rate)
+    }
+
+    var body: some View {
+        Group {
+            if Self.canChangeRate(player) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Self.presets, id: \.self) { rate in
+                        rateRow(rate)
+                    }
+                }
+                .frame(width: 180)
+            } else {
+                MacPlaybackUnavailableNotice(
+                    title: String(localized: "playback_rate"),
+                    message: String(localized: "player_controls_unavailable_speed_high_fidelity"),
+                    offersEffectsOutput: true,
+                    playbackSettings: player.playbackSettings
+                )
+            }
+        }
+        .padding(.vertical, 6)
+        .focusEffectDisabled()
+    }
+
+    private func rateRow(_ rate: Float) -> some View {
+        let isSelected = abs(Self.currentRate(player) - rate) < 0.001
+        return Button {
+            if player.currentItemIsSpokenWord {
+                player.setSpokenWordRateForCurrentBook(rate)
+            } else {
+                player.playbackSettings.playbackRate = rate
+            }
+            onPicked()
+        } label: {
+            HStack {
+                Text(verbatim: Self.valueLabel(rate))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// 「更多」里升降调的第二层(#332):降调、当前调、升调,点了不收起,能连着调;移了调时下面给「原调」。
+/// 投放、高保真直通时先说明为什么听不到,高保真直通能一键切到音效输出。
+struct MacPlaybackPitchPanel: View {
+    let player: AudioPlayerService
+
+    static func availability(_ player: AudioPlayerService) -> PlaybackPitchPolicy.Availability {
+        PlaybackPitchPolicy.availability(
+            isSpokenWord: player.currentItemIsSpokenWord,
+            isLiveRadio: player.isLiveRadio,
+            isAppleMusic: player.isAppleMusicMode,
+            isCasting: player.castingRenderer != nil,
+            isHighFidelityOutput: player.outputMode(for: player.currentSong) == .highFidelity
+        )
+    }
+
+    private var semitones: Int { player.playbackSettings.pitchSemitones }
+
+    var body: some View {
+        let availability = Self.availability(player)
+        Group {
+            if let message = PlaybackPitchText.message(availability) {
+                MacPlaybackUnavailableNotice(
+                    title: String(localized: "karaoke_key"),
+                    message: message,
+                    offersEffectsOutput: availability == .highFidelity,
+                    playbackSettings: player.playbackSettings
+                )
+            } else {
+                stepper
+            }
+        }
+        .padding(.vertical, 6)
+        .focusEffectDisabled()
+    }
+
+    private var stepper: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 14) {
+                stepButton(symbol: "minus", label: "karaoke_key_down",
+                           enabled: semitones > PlaybackPitchPolicy.range.lowerBound) {
+                    player.playbackSettings.pitchSemitones = semitones - 1
+                }
+                Text(verbatim: PlaybackPitchText.valueLabel(semitones))
+                    .font(.title3.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(semitones == 0 ? PMColor.text : PMColor.brand)
+                    .frame(minWidth: 56)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel(Text("karaoke_key"))
+                stepButton(symbol: "plus", label: "karaoke_key_up",
+                           enabled: semitones < PlaybackPitchPolicy.range.upperBound) {
+                    player.playbackSettings.pitchSemitones = semitones + 1
+                }
+            }
+            Button("karaoke_key_original") {
+                player.playbackSettings.pitchSemitones = 0
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .disabled(semitones == 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(width: 200)
+    }
+
+    private func stepButton(
+        symbol: String,
+        label: LocalizedStringKey,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(enabled ? PMColor.text : PMColor.textFaint)
+                .frame(width: 30, height: 30)
+                .background(PMColor.bgElev, in: Circle())
+                .overlay(Circle().strokeBorder(PMColor.dividerStrong, lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(Text(label))
+    }
+}
+
+/// 速度、升降调在当前输出下用不了时第二层的说明,和均衡器那一层同一画法。
+private struct MacPlaybackUnavailableNotice: View {
+    let title: String
+    let message: String
+    let offersEffectsOutput: Bool
+    let playbackSettings: PlaybackSettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: title)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(PMColor.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: message)
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            if offersEffectsOutput {
+                Button("eq_use_effects_output") {
+                    playbackSettings.outputMode = .effects
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(width: 250, alignment: .leading)
     }
 }
 

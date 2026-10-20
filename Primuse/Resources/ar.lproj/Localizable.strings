@@ -6009,6 +6009,11 @@
 "player_controls_unavailable_eq_casting" = "أثناء البث يشغّل الجهاز الآخر الصوت، لذا لا يُستخدم معادل هذا الجهاز.";
 "player_controls_unavailable_speed_apple_music" = "لا يمكن تغيير سرعة تشغيل أغاني Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "يرسل وضع الدقة العالية المباشرة الصوت إلى جهاز الإخراج كما هو، لذا لا يمكن تغيير السرعة. بدّل إلى الإخراج مع المؤثرات لضبط السرعة.";
+"playback_pitch_desc" = "يرفع مقام الأغاني أو يخفضه بأنصاف النغمات دون تغيير السرعة. تحتفظ الكتب الصوتية والبودكاست بصوتها الأصلي.";
+"playback_pitch_casting_unavailable" = "غير متاح أثناء البث";
+"playback_pitch_unavailable_high_fidelity" = "يرسل وضع الدقة العالية المباشرة الصوت إلى جهاز الإخراج كما هو، لذا لا يمكن تغيير المقام. بدّل إلى الإخراج مع المؤثرات لتغيير المقام.";
+"playback_pitch_unavailable_casting" = "أثناء البث يشغّل الجهاز الآخر الصوت، لذا لا يمكن تغيير المقام.";
+"playback_pitch_unavailable_apple_music" = "لا يمكن تغيير مقام أغاني Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "لا يمكن بث أغاني Apple Music إلى أجهزة شبكتك.";
 "player_controls_tiles_header" = "مربعات الوظائف";
 "player_controls_tiles_footer" = "المس مطولًا واسحب لتغيير الترتيب. تتوزع المربعات المفعّلة بالتساوي، ولا تترك المربعات الموقفة فراغًا وتبقى في قائمة «المزيد». عند تشغيل AirPlay أو «إعجاب» أو «المزيد» أو زر النص المكتوب ينتقل إلى هنا من مكانه، وعند إيقافه يعود.";

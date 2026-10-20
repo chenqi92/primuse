@@ -6009,6 +6009,11 @@
 "player_controls_unavailable_eq_casting" = "Al transmitir, el otro dispositivo reproduce el sonido, así que no se usa el ecualizador de este dispositivo.";
 "player_controls_unavailable_speed_apple_music" = "No se puede cambiar la velocidad de las canciones de Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que la velocidad no puede cambiar. Cambia a la salida con efectos para ajustar la velocidad.";
+"playback_pitch_desc" = "Sube o baja el tono de las canciones por semitonos sin cambiar la velocidad. Los audiolibros y podcasts conservan su voz original.";
+"playback_pitch_casting_unavailable" = "No disponible al transmitir";
+"playback_pitch_unavailable_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que el tono no puede cambiar. Cambia a la salida con efectos para ajustar el tono.";
+"playback_pitch_unavailable_casting" = "Al transmitir, el otro dispositivo reproduce el sonido, así que el tono no puede cambiar.";
+"playback_pitch_unavailable_apple_music" = "No se puede cambiar el tono de las canciones de Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
 "player_controls_tiles_header" = "Mosaicos de funciones";
 "player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco; siguen en Más. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven.";

@@ -6104,6 +6104,11 @@
 "player_controls_unavailable_eq_casting" = "キャスト中は相手のデバイスが音を出すため、このデバイスのイコライザは使われません。";
 "player_controls_unavailable_speed_apple_music" = "Apple Music の曲は再生速度を変えられません。";
 "player_controls_unavailable_speed_high_fidelity" = "高音質ダイレクトでは音声をそのまま出力デバイスに送るため、速度を変えられません。速度を調整するにはエフェクト出力に切り替えてください。";
+"playback_pitch_desc" = "曲のキーを半音単位で上げ下げします。速度は変わりません。オーディオブックとポッドキャストは元の声のままです。";
+"playback_pitch_casting_unavailable" = "キャスト中は使用できません";
+"playback_pitch_unavailable_high_fidelity" = "高音質ダイレクトでは音声をそのまま出力デバイスに送るため、キーを変えられません。キーを変えるにはエフェクト出力に切り替えてください。";
+"playback_pitch_unavailable_casting" = "キャスト中は相手のデバイスが音を出すため、キーを変えられません。";
+"playback_pitch_unavailable_apple_music" = "Apple Music の曲はキーを変えられません。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music の曲はネットワーク上のデバイスにキャストできません。";
 "player_controls_tiles_header" = "機能タイル";
 "player_controls_tiles_footer" = "長押ししてドラッグすると順番を変えられます。オンのタイルは均等に並び、オフにしたものは隙間を残さず「その他」メニューに残ります。AirPlay、「好き」、「その他」、文字起こしボタンはオンにすると元の場所からこの列に移り、オフにすると戻ります。";

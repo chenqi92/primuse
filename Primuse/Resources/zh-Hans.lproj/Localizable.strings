@@ -6196,6 +6196,11 @@
 "player_controls_unavailable_eq_casting" = "投放到其他设备时由对方设备出声，不经过这台设备的均衡器。";
 "player_controls_unavailable_speed_apple_music" = "Apple Music 的歌曲不能调播放速度。";
 "player_controls_unavailable_speed_high_fidelity" = "高保真直通把音频原样送到输出设备，不能变速。切换到音效输出后就能调速。";
+"playback_pitch_desc" = "按半音升高或降低歌曲的调，速度不变。有声书和播客保持原声。";
+"playback_pitch_casting_unavailable" = "投放时不可用";
+"playback_pitch_unavailable_high_fidelity" = "高保真直通把音频原样送到输出设备，不能升降调。切换到音效输出后就能升降调。";
+"playback_pitch_unavailable_casting" = "投放到其他设备时由对方设备出声，不能升降调。";
+"playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降调。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";
 "player_controls_tiles_header" = "功能块";
 "player_controls_tiles_footer" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位，在「更多」里仍然找得到。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。";

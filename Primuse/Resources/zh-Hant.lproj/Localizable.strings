@@ -6080,6 +6080,11 @@
 "player_controls_unavailable_eq_casting" = "投放到其他裝置時由對方裝置出聲，不經過這台裝置的等化器。";
 "player_controls_unavailable_speed_apple_music" = "Apple Music 的歌曲不能調整播放速度。";
 "player_controls_unavailable_speed_high_fidelity" = "高傳真直通會把音訊原樣送到輸出裝置，不能變速。切換到音效輸出後就能調速。";
+"playback_pitch_desc" = "按半音升高或降低歌曲的調，速度不變。有聲書和 Podcast 保持原聲。";
+"playback_pitch_casting_unavailable" = "投放時無法使用";
+"playback_pitch_unavailable_high_fidelity" = "高傳真直通會把音訊原樣送到輸出裝置，不能升降調。切換到音效輸出後就能升降調。";
+"playback_pitch_unavailable_casting" = "投放到其他裝置時由對方裝置出聲，不能升降調。";
+"playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降調。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到區域網路裝置。";
 "player_controls_tiles_header" = "功能塊";
 "player_controls_tiles_footer" = "按住拖移換順序。打開的按順序平均排開，關掉的不留空位，在「更多」裡仍然找得到。AirPlay、喜歡、「更多」與文字稿鍵打開後從原處挪到這一排，關掉回原處。";

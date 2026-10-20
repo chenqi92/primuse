@@ -2797,6 +2797,18 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.speed")
                 .disabled(s.outputMode == .highFidelity)
+                // 升降调(#332):和速度同一个变调节点,高保真直通下显示原调、不能改。
+                MacSTRow(String(localized: "karaoke_key"), hint: String(localized: "playback_pitch_desc")) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { s.outputMode == .highFidelity ? 0 : s.pitchSemitones },
+                            set: { s.pitchSemitones = $0 }
+                        ),
+                        options: PlaybackPitchPolicy.choices.map { (value: $0, label: PlaybackPitchText.valueLabel($0)) }
+                    )
+                }
+                .settingsAnchor("playback.pitch")
+                .disabled(s.outputMode == .highFidelity)
                 MacSTRow(Lz("Spatial Audio")) {
                     MacSTToggle(isOn: $s.spatialAudioEnabled)
                         .accessibilityHint(Text(verbatim: Lz("Apple AirPods · Head Tracking")))

@@ -6009,6 +6009,11 @@
 "player_controls_unavailable_eq_casting" = "Podczas przesyłania dźwięk odtwarza drugie urządzenie, więc korektor tego urządzenia nie jest używany.";
 "player_controls_unavailable_speed_apple_music" = "W utworach z Apple Music nie można zmienić prędkości odtwarzania.";
 "player_controls_unavailable_speed_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi przesyła dźwięk do urządzenia wyjściowego bez zmian, więc prędkości nie można zmienić. Aby ją regulować, przełącz na wyjście z efektami.";
+"playback_pitch_desc" = "Podnosi lub obniża tonację utworów o półtony bez zmiany prędkości. Audiobooki i podcasty zachowują oryginalny głos.";
+"playback_pitch_casting_unavailable" = "Niedostępne podczas przesyłania";
+"playback_pitch_unavailable_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi przesyła dźwięk do urządzenia wyjściowego bez zmian, więc tonacji nie można zmienić. Aby ją zmienić, przełącz na wyjście z efektami.";
+"playback_pitch_unavailable_casting" = "Podczas przesyłania dźwięk odtwarza drugie urządzenie, więc tonacji nie można zmienić.";
+"playback_pitch_unavailable_apple_music" = "W utworach z Apple Music nie można zmienić tonacji.";
 "player_controls_unavailable_cast_apple_music" = "Utworów z Apple Music nie można przesyłać do urządzeń w sieci.";
 "player_controls_tiles_header" = "Kafelki funkcji";
 "player_controls_tiles_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Włączone kafelki rozkładają się równomiernie, a wyłączone nie zostawiają luki i nadal są w menu Więcej. Po włączeniu AirPlay, Lubię to, Więcej lub przycisk transkrypcji przenosi się tu ze swojego miejsca, a po wyłączeniu wraca.";

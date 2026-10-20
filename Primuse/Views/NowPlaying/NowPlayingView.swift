@@ -7429,6 +7429,8 @@ struct NowPlayingView: View {
                 : (player.currentItemIsSpokenWord
                     ? player.currentSpokenWordRate
                     : playbackSettings.playbackRate),
+            pitchSemitones: playbackSettings.pitchSemitones,
+            pitchAvailability: currentPitchAvailability,
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             lyricsTranslationMode: LyricsTranslationSettingsStore.shared.mode,
             offersSmartLyricsTranslation: intelligence.shouldExposeRemoteConfiguration,
@@ -7482,6 +7484,7 @@ struct NowPlayingView: View {
                 }
             ),
             playbackRate: currentPlaybackRateBinding,
+            pitchSemitones: currentPitchBinding,
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
             plainLabel: plainLabel,
@@ -7553,6 +7556,7 @@ struct NowPlayingView: View {
             onShowSleepTimer: { showSleepTimer = true },
             onAdjustEqualizer: { openEqualizer() },
             onShowEqualizerBypassNotice: { showEqualizerBypassNotice = true },
+            onShowPitchNotice: { showPitchNotice(currentPitchAvailability) },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
             onCycleRepeatMode: { cycleRepeatMode() },
             onStartMedley: {
@@ -7590,6 +7594,39 @@ struct NowPlayingView: View {
                     playbackSettings.playbackRate = $0
                 }
             }
+        )
+    }
+
+    /// 播放速度旁的升降调(#332)此刻能不能用;有声内容与电台不给这一项。
+    private var currentPitchAvailability: PlaybackPitchPolicy.Availability {
+        PlaybackPitchPolicy.availability(
+            isSpokenWord: player.currentItemIsSpokenWord,
+            isLiveRadio: player.isLiveRadio,
+            isAppleMusic: player.isAppleMusicMode,
+            isCasting: player.castingRenderer != nil,
+            isHighFidelityOutput: player.outputMode(for: player.currentSong) == .highFidelity
+        )
+    }
+
+    /// 「更多」里和速度键里那一项共用,改的是存下来的整体升降调(只作用在音乐上)。
+    private var currentPitchBinding: Binding<Int> {
+        Binding(
+            get: { playbackSettings.pitchSemitones },
+            set: { playbackSettings.pitchSemitones = $0 }
+        )
+    }
+
+    /// 此刻真正听得到的升降调:用不了的时候照样存着,但不算开着。
+    private var audiblePitchSemitones: Int {
+        currentPitchAvailability == .available ? playbackSettings.pitchSemitones : 0
+    }
+
+    private func showPitchNotice(_ availability: PlaybackPitchPolicy.Availability) {
+        guard let message = PlaybackPitchText.message(availability) else { return }
+        controlNotice = NowPlayingControlNotice(
+            title: String(localized: "karaoke_key"),
+            message: message,
+            offersEffectsOutput: availability == .highFidelity
         )
     }
 
@@ -8654,9 +8691,11 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 速度键直接弹出档位,和「更多」里那一项是同一个开关。
+    /// 速度键直接弹出档位,和「更多」里那一项是同一个开关。升降调(#332)在下面一节,
+    /// 移了调时这颗键和变了速一样亮着,免得忘了开着。
     private func playbackSpeedControl(style: NowPlayingControlStyle) -> some View {
         let face = controlFace(.playbackSpeed)
+        let pitchAvailability = currentPitchAvailability
         return Menu {
             Picker(selection: currentPlaybackRateBinding) {
                 Text("0.5×").tag(Float(0.5))
@@ -8669,13 +8708,28 @@ struct NowPlayingView: View {
             } label: {
                 Text(face.label)
             }
+            if pitchAvailability != .notOffered {
+                Section {
+                    NowPlayingPitchMenuItem(
+                        semitones: currentPitchBinding,
+                        availability: pitchAvailability,
+                        onShowUnavailableNotice: { showPitchNotice(pitchAvailability) }
+                    )
+                }
+            }
         } label: {
             controlLabel(face, style: style)
         }
         .frame(width: style.fixedFrame, height: style.fixedFrame)
         .disabled(player.currentSong == nil)
         .accessibilityLabel(Text(face.label))
-        .accessibilityValue(Text(verbatim: String(format: "%.2f×", Double(currentPlaybackRateBinding.wrappedValue))))
+        .accessibilityValue(Text(verbatim: playbackSpeedAccessibilityValue))
+    }
+
+    private var playbackSpeedAccessibilityValue: String {
+        let speed = String(format: "%.2f×", Double(currentPlaybackRateBinding.wrappedValue))
+        guard audiblePitchSemitones != 0 else { return speed }
+        return "\(speed), \(PlaybackPitchText.menuTitle(audiblePitchSemitones))"
     }
 
     @ViewBuilder
@@ -8800,7 +8854,7 @@ struct NowPlayingView: View {
             return NowPlayingControlFace(
                 symbol: "speedometer",
                 label: String(localized: "playback_rate"),
-                isActive: abs(rate - 1) > 0.001,
+                isActive: abs(rate - 1) > 0.001 || audiblePitchSemitones != 0,
                 requiresSong: true
             )
         case .karaoke:
@@ -11456,6 +11510,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 高保真直通的图里没有均衡器。
     let isEqualizerBypassed: Bool
     let playbackRate: Float
+    /// 播放速度旁的升降调(#332):存下的半音数与此刻能不能用。
+    let pitchSemitones: Int
+    let pitchAvailability: PlaybackPitchPolicy.Availability
     let isLyricsTranslationEnabled: Bool
     let lyricsTranslationMode: LyricsTranslationMode
     /// 这个地区有智能服务时菜单里才给「智能翻译」。
@@ -11711,6 +11768,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @Binding var lyricsFontScale: Double
     @Binding var lyricsTranslationFontScale: Double
     @Binding var playbackRate: Float
+    @Binding var pitchSemitones: Int
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
@@ -11755,6 +11813,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowSleepTimer: () -> Void
     let onAdjustEqualizer: () -> Void
     let onShowEqualizerBypassNotice: () -> Void
+    let onShowPitchNotice: () -> Void
     let onToggleShuffle: () -> Void
     let onCycleRepeatMode: () -> Void
     let onStartMedley: () -> Void
@@ -12356,6 +12415,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
                     .disabled(!snapshot.canChangePlaybackRate)
+                    NowPlayingPitchMenuItem(
+                        semitones: $pitchSemitones,
+                        availability: snapshot.pitchAvailability,
+                        onShowUnavailableNotice: onShowPitchNotice
+                    )
                 }
             }
         } label: {

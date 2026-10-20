@@ -115,6 +115,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 播放速度倍率, 0.5x ~ 2.0x。1.0 = 正常。走 AVAudioUnitTimePitch
     /// 节点，自动保持音调不变。
     var playbackRate: Float = 1.0
+    /// 升降调(半音, #332), 取值见 `PlaybackPitchPolicy.range`。只作用在音乐上, 有声内容与电台保持原声。
+    var pitchSemitones: Int = 0
     /// 有声内容单独一档速度: 听书常用 1.25×–1.5×, 不能带到下一首歌上。
     var spokenWordPlaybackRate: Float = 1.0
     /// 有声内容的后退 / 前进秒数, 取值见 `SpokenWordSkipPolicy.allowedIntervals`。
@@ -189,6 +191,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
+        pitchSemitones = try c.decodeIfPresent(Int.self, forKey: .pitchSemitones) ?? 0
         spokenWordPlaybackRate = try c.decodeIfPresent(Float.self, forKey: .spokenWordPlaybackRate) ?? 1.0
         spokenWordSkipBackwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipBackwardSeconds) ?? 15
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
@@ -236,6 +239,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
+        pitchSemitones: Int = 0,
         spokenWordPlaybackRate: Float = 1.0,
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
@@ -280,6 +284,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
         self.prewarmQueueCount = prewarmQueueCount
         self.playbackRate = playbackRate
+        self.pitchSemitones = pitchSemitones
         self.spokenWordPlaybackRate = spokenWordPlaybackRate
         self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
         self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
@@ -469,6 +474,16 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var pitchSemitones: Int {
+        didSet {
+            let clamped = PlaybackPitchPolicy.clamped(pitchSemitones)
+            if clamped != pitchSemitones {
+                pitchSemitones = clamped
+                return
+            }
+            persist()
+        }
+    }
     var spokenWordPlaybackRate: Float {
         didSet {
             let clamped = SpokenWordPlaybackRatePolicy.clamped(spokenWordPlaybackRate)
@@ -588,6 +603,7 @@ final class PlaybackSettingsStore {
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         self.playbackRate = max(0.5, min(2.0, s.playbackRate))
+        self.pitchSemitones = PlaybackPitchPolicy.clamped(s.pitchSemitones)
         self.spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
@@ -668,6 +684,7 @@ final class PlaybackSettingsStore {
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         playbackRate = max(0.5, min(2.0, s.playbackRate))
+        pitchSemitones = PlaybackPitchPolicy.clamped(s.pitchSemitones)
         spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
@@ -723,6 +740,7 @@ final class PlaybackSettingsStore {
             skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
             prewarmQueueCount: prewarmQueueCount,
             playbackRate: playbackRate,
+            pitchSemitones: pitchSemitones,
             spokenWordPlaybackRate: spokenWordPlaybackRate,
             spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
             spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,

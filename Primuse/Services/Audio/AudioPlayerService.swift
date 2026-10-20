@@ -1818,11 +1818,13 @@ final class AudioPlayerService {
         )
     }
 
-    /// 同步当前 playbackRate 到 engine. 设置变化或新歌开播都会调它。
+    /// 同步当前 playbackRate 与升降调到 engine. 设置变化或新歌开播都会调它。
+    /// 两者都写同一个 TimePitch 节点, 一起套; 系统播放器那条路两样都做不了, 退回 PCM。
     func applyPlaybackRate() {
         let requestedRate = requestedPlaybackRate
+        let requestedPitch = requestedPitchSemitones
         if isSystemAudioPlaybackActive,
-           abs(requestedRate - 1) >= 0.001,
+           abs(requestedRate - 1) >= 0.001 || requestedPitch != 0,
            let id = playID {
             Task { @MainActor [weak self] in
                 await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
@@ -1830,6 +1832,7 @@ final class AudioPlayerService {
             return
         }
         audioEngine.applyPlaybackRate(requestedRate)
+        audioEngine.applyUserPitch(cents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch))
     }
 
     /// 卡拉OK舞台打开/关闭。打开时正在走系统播放器的歌切回 PCM 引擎。
@@ -2097,13 +2100,14 @@ final class AudioPlayerService {
         }
     }
 
-    /// 单独跟踪 playbackRate, 别和 spatial observer 合并 — 不然改速度时会
+    /// 单独跟踪 playbackRate(连同升降调), 别和 spatial observer 合并 — 不然改速度时会
     /// 顺带触发 spatial node 的 sourceMode / renderingAlgorithm 重设, 在
     /// engine 运行中可能导致音频 glitch / player 卡顿。
     private func observePlaybackRate() {
         withObservationTracking {
             _ = playbackSettings.playbackRate
             _ = playbackSettings.spokenWordPlaybackRate
+            _ = playbackSettings.pitchSemitones
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -3318,6 +3322,8 @@ final class AudioPlayerService {
         // path whenever the user requests a non-default rate so the UI and
         // audible transport cannot disagree about elapsed time.
         guard abs(requestedPlaybackRate - 1) < 0.001 else { return false }
+        // 升降调同理: 系统播放器没有变调节点。
+        guard requestedPitchSemitones(for: song) == 0 else { return false }
         guard !isKaraokeSessionActive else { return false }
         guard let profile = await preferredSystemAudioProfile(for: song, url: url),
               playID == id,

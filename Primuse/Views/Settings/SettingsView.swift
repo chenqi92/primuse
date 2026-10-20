@@ -2314,8 +2314,24 @@ struct PlaybackSettingsView: View {
                     }
                     .font(.caption)
                 }
+                // 升降调(#332):和速度一样走效果链里的变调节点,高保真直通下照样显示原调。
+                let shownPitch = settings.outputMode == .highFidelity ? 0 : settings.pitchSemitones
+                Stepper(value: $settings.pitchSemitones, in: PlaybackPitchPolicy.range) {
+                    HStack {
+                        Text("karaoke_key")
+                        Spacer()
+                        Text(verbatim: PlaybackPitchText.valueLabel(shownPitch))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                .settingsAnchor("playback.pitch")
+                .accessibilityValue(Text(verbatim: PlaybackPitchText.valueLabel(shownPitch)))
+                .accessibilityHint(Text("playback_pitch_desc"))
             } header: {
                 Text("playback_rate_section")
+            } footer: {
+                Text("playback_pitch_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 
