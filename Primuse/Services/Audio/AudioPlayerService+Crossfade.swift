@@ -28,6 +28,24 @@ extension AudioPlayerService {
         )
     }
 
+    /// 淡入任务在换节点后继续喂当前曲，插播或准备下一次转场不能改变它的去向。
+    /// 已提交的淡入曲用 crossfade 节点，其余仍有播放归属的任务用 primary。
+    @discardableResult
+    func scheduleCrossfadeDecodedBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        playID id: UUID,
+        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { _ in }
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        guard pumpLease.mayContinue(id) else { return nil }
+        let role: PlayerNodeRole = committedCrossfade?.playID == id ? .crossfade : .primary
+        return audioEngine.scheduleDecodedBuffer(
+            buffer,
+            on: role,
+            completionCallbackType: .dataPlayedBack,
+            completionHandler: completionHandler
+        )
+    }
+
     /// 换出的那一首在 ramp 期间解码到自然结尾时, 手里还留着一块"最后缓冲"。
     /// 它不能走 `scheduleDecodedFinalBuffer` —— track-end / gapless 回调属于
     /// 已经轮换走的 playID; 但直接丢掉会让淡出轨在 ramp 收尾前少一块音频。
@@ -103,7 +121,6 @@ extension AudioPlayerService {
         crossfadeTimerAttemptID = nil
         crossfadeTriggered = false
         isCrossfading = false
-        crossfadeSwapDone = false
         if hadAudibleTransition {
             audioEngine.stopCrossfadeNode()
             audioEngine.restorePrimaryProgramVolume()
@@ -153,7 +170,6 @@ extension AudioPlayerService {
         crossfadeTimerAttemptID = nil
         crossfadeTriggered = false
         isCrossfading = false
-        crossfadeSwapDone = false
         if hadActiveAttempt {
             audioEngine.stopCrossfadeNode()
         }
@@ -579,8 +595,6 @@ extension AudioPlayerService {
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
-            // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
-            crossfadeSwapDone = false
             let firstBufferSeconds = Int(ceil(preparationDeadline.timeIntervalSinceNow))
             guard firstBufferSeconds > 0 else {
                 failCrossfadeAttempt(attemptID)
@@ -744,7 +758,7 @@ extension AudioPlayerService {
                 defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled else { return }
+                        guard !Task.isCancelled, self.pumpLease.mayContinue(nextPlayID) else { return }
                         if let previous = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(previous)
                             let bufferedByteCount = Self.decodedBufferByteCount(previous)
@@ -752,31 +766,17 @@ extension AudioPlayerService {
                                 duration: bufferedDuration,
                                 byteCount: bufferedByteCount
                             )
-                            guard !Task.isCancelled, self.playID == nextPlayID else { return }
-                            // swap 之后, 这个解码任务投递的物理节点已经变成
-                            // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
-                            // 喂到换出后被静音/reset 的旧节点上(歌中途静音)。
-                            if self.crossfadeSwapDone {
-                                self.audioEngine.scheduleBuffer(
-                                    previous,
-                                    completionCallbackType: .dataPlayedBack
-                                ) { _ in
-                                    gate.release(
-                                        duration: bufferedDuration,
-                                        byteCount: bufferedByteCount
-                                    )
-                                }
-                            } else {
-                                self.audioEngine.scheduleCrossfadeBuffer(
-                                    previous,
-                                    completionCallbackType: .dataPlayedBack
-                                ) { _ in
-                                    gate.release(
-                                        duration: bufferedDuration,
-                                        byteCount: bufferedByteCount
-                                    )
-                                }
+                            guard !Task.isCancelled else { return }
+                            let boundary = self.scheduleCrossfadeDecodedBuffer(
+                                previous,
+                                playID: nextPlayID
+                            ) { _ in
+                                gate.release(
+                                    duration: bufferedDuration,
+                                    byteCount: bufferedByteCount
+                                )
                             }
+                            guard boundary != nil else { return }
                         }
                         lastBuffer = buffer
                     }
@@ -787,7 +787,9 @@ extension AudioPlayerService {
                     }
                 }
                 if let finalBuffer = lastBuffer {
-                    guard !Task.isCancelled, self.playID == nextPlayID else { return }
+                    guard !Task.isCancelled else { return }
+                    if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: nextPlayID) { return }
+                    guard self.playID == nextPlayID else { return }
                     if decodeFailed {
                         self.scheduleCrossfadeFinalBufferAsFailure(finalBuffer, playID: nextPlayID)
                     } else {
@@ -908,10 +910,6 @@ extension AudioPlayerService {
         // Stop old decoding
         decodingTask?.cancel()
         decodingTask = nil
-
-        // swap 把 crossfade 节点变成 primary。先置位, 让仍在运行的 crossfade
-        // 解码任务从下一个 buffer 起改投 primary 节点, 不再喂换出的旧节点。
-        crossfadeSwapDone = true
 
         // Swap nodes. The ramp already faded the incoming song in to its
         // program volume; the swap hands that volume over unchanged.

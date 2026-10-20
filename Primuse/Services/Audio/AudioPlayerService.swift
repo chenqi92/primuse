@@ -1283,13 +1283,6 @@ final class AudioPlayerService {
     var committedCrossfade: CommittedCrossfade? {
         didSet { syncPumpLease() }
     }
-    /// swapPlayerNodes() 之后, crossfade 解码任务正在喂的那个物理节点已经
-    /// 从 crossfade 节点变成 primary 节点。该任务必须改用 scheduleBuffer
-    /// (primary) 继续投递, 否则 buffer 会落到换出后被 stop/reset/静音的旧
-    /// 节点上, 导致 swap 后剩余音频丢失(歌中途静音)。completeCrossfade 置
-    /// true, startCrossfade 每次重置为 false。两者都在 MainActor, 不会
-    /// 与解码循环的单条 schedule 语句交错。
-    var crossfadeSwapDone = false
     var crossfadeTimer: Timer?
     var crossfadeTimerAttemptID: UUID?
     var crossfadeTriggered = false
@@ -7210,12 +7203,9 @@ final class AudioPlayerService {
     /// owns the crossfaded song. The callback remains valid across node swap
     /// because the logical play ID is assigned when the fade begins.
     func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        guard playID == id else { return }
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
-            if crossfadeSwapDone {
-                audioEngine.scheduleBuffer(buffer)
-            } else {
-                audioEngine.scheduleCrossfadeBuffer(buffer)
-            }
+            scheduleCrossfadeDecodedBuffer(buffer, playID: id)
             return
         }
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
@@ -7227,31 +7217,16 @@ final class AudioPlayerService {
                 )
             }
         }
-        if crossfadeSwapDone {
-            audioEngine.scheduleBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        } else {
-            audioEngine.scheduleCrossfadeBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        }
+        scheduleCrossfadeDecodedBuffer(buffer, playID: id, completionHandler: completion)
     }
 
     func scheduleCrossfadeFinalBufferAsFailure(
         _ buffer: AVAudioPCMBuffer,
         playID id: UUID
     ) {
+        guard playID == id else { return }
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
-            if crossfadeSwapDone {
-                audioEngine.scheduleBuffer(buffer)
-            } else {
-                audioEngine.scheduleCrossfadeBuffer(buffer)
-            }
+            scheduleCrossfadeDecodedBuffer(buffer, playID: id)
             return
         }
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
@@ -7263,19 +7238,7 @@ final class AudioPlayerService {
                 )
             }
         }
-        if crossfadeSwapDone {
-            audioEngine.scheduleBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        } else {
-            audioEngine.scheduleCrossfadeBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack,
-                completionHandler: completion
-            )
-        }
+        scheduleCrossfadeDecodedBuffer(buffer, playID: id, completionHandler: completion)
     }
 
     func shouldAttemptGapless(settings: PlaybackSettings) -> Bool {

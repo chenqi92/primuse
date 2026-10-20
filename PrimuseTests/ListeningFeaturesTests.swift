@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -63,6 +64,153 @@ final class ListeningFeaturesTests: XCTestCase {
             sourceID: "local-source",
             genre: genre
         )
+    }
+
+    // MARK: - Crossfade
+
+    private func makeCrossfadedPlayer(completingTransition: Bool = true) throws -> (AudioPlayerService, UUID) {
+        let player = try makePlayer()
+        let current = song("current")
+        player.setQueue([current, song("next")], startAt: 0)
+        try player.audioEngine.setUp()
+        cleanups.append {
+            player.playID = nil
+            player.cancelCrossfadeAttempt()
+            player.stopTimeUpdater()
+            player.audioEngine.stop()
+        }
+
+        let id = UUID()
+        let attemptID = UUID()
+        player.currentSong = current
+        player.playID = id
+        player.crossfadeAttemptID = attemptID
+        player.isCrossfading = true
+        player.committedCrossfade = .init(
+            attemptID: attemptID,
+            playID: id,
+            song: current,
+            url: URL(fileURLWithPath: current.filePath),
+            decoderKind: .native,
+            outgoingPlayID: UUID(),
+            programVolume: 1
+        )
+        if completingTransition {
+            player.cancelCrossfadeAttempt(
+                finishingCommittedTransition: true,
+                completionMode: .preserveCachedProgress
+            )
+        }
+        return (player, id)
+    }
+
+    private func silentBuffer(for player: AudioPlayerService) throws -> AVAudioPCMBuffer {
+        let format = try XCTUnwrap(player.audioEngine.outputFormat)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 128))
+        buffer.frameLength = 128
+        for channel in 0..<Int(format.channelCount) {
+            buffer.floatChannelData?[channel].update(repeating: 0, count: 128)
+        }
+        return buffer
+    }
+
+    func testInsertingNextAfterCrossfadeKeepsFinalAudioOnCurrentNode() throws {
+        let (player, id) = try makeCrossfadedPlayer()
+        let buffer = try silentBuffer(for: player)
+        player.scheduleCrossfadeFinalBuffer(buffer, playID: id)
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 128)
+
+        XCTAssertEqual(player.insertNextInQueue([song("inserted")]), 1)
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: id))
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 256)
+        player.scheduleCrossfadeFinalBuffer(buffer, playID: id)
+
+        XCTAssertEqual(player.currentSong?.id, "current")
+        XCTAssertEqual(player.queue.map(\.id), ["current", "inserted", "next"])
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 384)
+    }
+
+    func testCancellingSuccessorKeepsCurrentDecodeFailureOnCurrentNode() throws {
+        let (player, id) = try makeCrossfadedPlayer()
+        let buffer = try silentBuffer(for: player)
+        _ = player.beginAutomaticAdvanceTransport(itemID: "current", reason: "test")
+        player.crossfadeAttemptID = UUID()
+        player.crossfadeTriggered = true
+
+        player.cancelCrossfadeAttempt()
+        player.scheduleCrossfadeFinalBufferAsFailure(buffer, playID: id)
+
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 128)
+    }
+
+    func testInsertingNextDuringCrossfadeKeepsIncomingBuffersTogetherAcrossSwap() throws {
+        let (player, id) = try makeCrossfadedPlayer(completingTransition: false)
+        let buffer = try silentBuffer(for: player)
+        _ = player.beginAutomaticAdvanceTransport(itemID: "current", reason: "test")
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: id))
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 0)
+
+        _ = player.insertNextInQueue([song("inserted")])
+        player.scheduleCrossfadeFinalBuffer(buffer, playID: id)
+        XCTAssertTrue(player.isCrossfading)
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 0)
+
+        player.cancelCrossfadeAttempt(
+            finishingCommittedTransition: true,
+            completionMode: .preserveCachedProgress
+        )
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 256)
+    }
+
+    func testConsecutiveCrossfadesKeepOutgoingAudioOnPrimaryUntilSwap() throws {
+        let (player, outgoingID) = try makeCrossfadedPlayer()
+        let buffer = try silentBuffer(for: player)
+        let attemptID = UUID()
+        player.crossfadeAttemptID = attemptID
+        player.crossfadeTriggered = true
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: outgoingID))
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 128)
+
+        // Even repeat-one has a fresh play ID; the song ID cannot identify its node.
+        let incomingID = UUID()
+        let current = try XCTUnwrap(player.currentSong)
+        player.isCrossfading = true
+        player.committedCrossfade = .init(
+            attemptID: attemptID,
+            playID: incomingID,
+            song: current,
+            url: URL(fileURLWithPath: current.filePath),
+            decoderKind: .native,
+            outgoingPlayID: outgoingID,
+            programVolume: 1
+        )
+        player.playID = incomingID
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: outgoingID))
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: incomingID))
+        XCTAssertTrue(player.scheduleOutgoingCrossfadeTailBuffer(buffer, playID: outgoingID))
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 384)
+
+        player.cancelCrossfadeAttempt(
+            finishingCommittedTransition: true,
+            completionMode: .preserveCachedProgress
+        )
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 128)
+        XCTAssertNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: outgoingID))
+        XCTAssertFalse(player.scheduleOutgoingCrossfadeTailBuffer(buffer, playID: outgoingID))
+        XCTAssertNotNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: incomingID))
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 256)
+    }
+
+    func testReplacedCrossfadeCannotScheduleBuffersOrFinishTheNewPlayback() throws {
+        let (player, staleID) = try makeCrossfadedPlayer()
+        let buffer = try silentBuffer(for: player)
+        player.playID = UUID()
+        _ = player.beginAutomaticAdvanceTransport(itemID: "current", reason: "test")
+
+        XCTAssertNil(player.scheduleCrossfadeDecodedBuffer(buffer, playID: staleID))
+        player.scheduleCrossfadeFinalBuffer(buffer, playID: staleID)
+        player.scheduleCrossfadeFinalBufferAsFailure(buffer, playID: staleID)
+        XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 0)
     }
 
     // MARK: - Medley
