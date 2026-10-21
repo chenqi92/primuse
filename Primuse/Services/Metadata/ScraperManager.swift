@@ -297,8 +297,11 @@ actor ScraperManager {
                         guard let directScraper = scraper as? any DirectLyricsLookup else {
                             throw ScraperError.parseError("\(config.type.displayName) scraper cache type mismatch")
                         }
+                        let lyricsIdentity = config.type == .amll
+                            ? Self.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
+                            : (title: cleanedTitle, artist: effectiveArtist)
                         let fetchedLyrics = try await directScraper.fetchLyrics(
-                            title: cleanedTitle, artist: effectiveArtist, album: album, duration: duration
+                            title: lyricsIdentity.title, artist: lyricsIdentity.artist, album: album, duration: duration
                         )
                         registerSuccess(config)
                         if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
@@ -709,49 +712,75 @@ actor ScraperManager {
             || requestedTitle.contains(candidateTitle)
     }
 
-    // MARK: - Lyrics API candidate (manual search)
+    // MARK: - Lyrics candidates (manual search)
 
-    struct LyricsServerCandidate: Sendable {
+    struct ManualLyricsCandidate: Sendable {
         let config: ScraperSourceConfig
+        let item: ScraperSearchItem
         let lyrics: [LyricLine]
     }
 
-    /// 手动搜索里的「歌词 API」候选(#211)。用户填的歌词服务器只能按歌名、歌手直接取,
-    /// 不能搜, 所以从不出现在候选列表里, 只在选中别的候选之后才被问到 —— 看上去像没生效。
-    /// 这里直接向它取一次, 取到就列成一条只带歌词的候选。没启用、正在退避或熔断、
-    /// 没取到时返回 nil。
-    func lyricsServerCandidate(
+    /// 纯歌词源的候选独立于元数据搜索，选中后只应用歌词，不改写歌曲标签。
+    func manualLyricsCandidates(
         title: String,
         artist: String?,
         album: String?,
         duration: TimeInterval?,
         settings: ScraperSettings
-    ) async -> LyricsServerCandidate? {
-        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let config = settings.enabledSources.first(where: { $0.type == .lyricsServer }) else { return nil }
-        if await isBackingOff(config) || isCircuitOpen(config) { return nil }
-        guard let scraper = getScraper(for: config) as? LyricsAPIServerScraper else { return nil }
-        do {
-            let fetched = try await scraper.fetchLyrics(
-                title: title, artist: artist, album: album, duration: duration
-            )
-            registerSuccess(config)
-            guard let fetched, fetched.hasLyrics,
-                  let lines = parseLyrics(fetched), !lines.isEmpty else { return nil }
-            return LyricsServerCandidate(config: config, lyrics: lines)
-        } catch {
-            if isCancellation(error) { return nil }
-            plog("🎤 [\(config.type.displayName)] manual lyrics candidate failed: \(error.localizedDescription)")
-            await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-            handleFailure(error, config: config)
-            return nil
+    ) async -> [ManualLyricsCandidate] {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        var candidates: [ManualLyricsCandidate] = []
+        for config in settings.enabledSources where config.type.supportsManualLyricsCandidates {
+            guard !Task.isCancelled else { return [] }
+            if await isBackingOff(config) || isCircuitOpen(config) { continue }
+            let scraper = getScraper(for: config)
+            do {
+                if config.type == .amll {
+                    let search = try await scraper.search(
+                        query: title, artist: artist, album: album,
+                        limit: AMLLLyricsLookupPolicy.maximumLyricsFetches
+                    )
+                    registerSuccess(config)
+                    for item in search.items {
+                        try Task.checkCancellation()
+                        let fetched = try await scraper.getLyrics(externalId: item.externalId)
+                        registerSuccess(config)
+                        guard let fetched, let lines = parseLyrics(fetched), !lines.isEmpty,
+                              AMLLLyricsLookupPolicy.lyricsFit(
+                                lastLyricEnd: lines.compactMap(\.endTime).max(),
+                                songDuration: duration,
+                                // 手动候选由用户确认歌手别名；仍拦截明显不合时长的版本。
+                                artistKnown: true
+                              ) else { continue }
+                        candidates.append(ManualLyricsCandidate(config: config, item: item, lyrics: lines))
+                    }
+                } else if let directScraper = scraper as? any DirectLyricsLookup {
+                    let fetched = try await directScraper.fetchLyrics(
+                        title: Self.cleanTitle(title), artist: artist, album: album, duration: duration
+                    )
+                    registerSuccess(config)
+                    guard let fetched, fetched.hasLyrics,
+                          let lines = parseLyrics(fetched), !lines.isEmpty else { continue }
+                    let item = ScraperSearchItem(
+                        externalId: [title, artist ?? ""].joined(separator: "|"),
+                        source: config.type, title: title, artist: artist
+                    )
+                    candidates.append(ManualLyricsCandidate(config: config, item: item, lyrics: lines))
+                }
+            } catch {
+                if isCancellation(error) { return [] }
+                plog("🎤 [\(config.type.displayName)] manual lyrics candidate failed: \(error.localizedDescription)")
+                await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                handleFailure(error, config: config)
+            }
         }
+        return candidates
     }
 
-    /// 歌词 API 只认「歌名 + 歌手」两段, 搜索框里是一整串。末尾还是这首歌原来的歌手
+    /// 歌词源分别接收歌名和歌手，搜索框里是一整串。末尾还是这首歌原来的歌手
     /// (刮削页给的初始关键词就是「歌名 歌手」)就把前面当歌名; 只剩歌名时沿用原来的歌手;
     /// 别的写法按「歌手 - 歌名」拆, 拆不开整串当歌名。
-    static func lyricsServerLookupIdentity(
+    static func lyricsLookupIdentity(
         query: String,
         title: String,
         artist: String?
@@ -761,14 +790,15 @@ actor ScraperManager {
         if !knownArtist.isEmpty,
            let range = trimmed.range(of: knownArtist, options: [.caseInsensitive, .anchored, .backwards]) {
             let head = cleanTitle(String(trimmed[..<range.lowerBound])
-                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))))
+                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))),
+                preservingVersionMarkers: true)
             if !head.isEmpty { return (head, knownArtist) }
         }
         if !knownArtist.isEmpty,
            normalizeComparableText(trimmed) == normalizeComparableText(title) {
-            return (cleanTitle(trimmed), knownArtist)
+            return (cleanTitle(trimmed, preservingVersionMarkers: true), knownArtist)
         }
-        return searchTitleArtist(trimmed, artist: nil)
+        return searchTitleArtist(trimmed, artist: nil, preservingVersionMarkers: true)
     }
 
     // MARK: - Helpers
@@ -830,13 +860,23 @@ actor ScraperManager {
 
     /// 从云盘无标签歌曲的结构化文件名中拆出干净标题和歌手；已有可信 artist
     /// 时只在分隔符一侧与它一致时拆分，避免把正常歌名误当成「歌手 - 标题」。
-    static func searchTitleArtist(_ title: String, artist: String?) -> (title: String, artist: String?) {
+    static func searchTitleArtist(
+        _ title: String, artist: String?, preservingVersionMarkers: Bool = false
+    ) -> (title: String, artist: String?) {
         let cleanedArtist = normalizeComparableText(artist)
-        let cleaned = cleanTitle(title)
+        let cleaned = cleanTitle(title, preservingVersionMarkers: preservingVersionMarkers)
         if let split = MediaMetadataTextRepair.fileNameIdentity(fromBaseName: cleaned) {
-            let left = cleanTitle(split.artist)
-            let right = cleanTitle(split.title)
+            let left = cleanTitle(split.artist, preservingVersionMarkers: preservingVersionMarkers)
+            let right = cleanTitle(split.title, preservingVersionMarkers: preservingVersionMarkers)
             guard !left.isEmpty, !right.isEmpty else { return (cleaned, artist) }
+            if preservingVersionMarkers {
+                let recording = ExternalTrackMatchPolicy.splitTitle(cleaned)
+                // 「歌名 - Live」是版本后缀，不能在缺失歌手时拆出一个假歌手。
+                if !recording.markers.isEmpty,
+                   recording.core == ExternalTrackMatchPolicy.splitTitle(left).core {
+                    return (cleaned, artist)
+                }
+            }
 
             if !cleanedArtist.isEmpty {
                 if normalizeComparableText(left) == cleanedArtist {
@@ -861,13 +901,18 @@ actor ScraperManager {
         return !normalizeComparableText(query).contains(cleanedArtist)
     }
 
-    /// Remove bracket content and noisy prefixes that interfere with search.
-    static func cleanTitle(_ title: String) -> String {
+    /// Remove search noise, retaining version annotations when matching lyrics by recording.
+    static func cleanTitle(_ title: String, preservingVersionMarkers: Bool = false) -> String {
         var result = title
-        result = result.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: "（[^）]*）", with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: "【[^】]*】", with: "", options: .regularExpression)
+        for pattern in ["\\([^)]*\\)", "（[^）]*）", "\\[[^\\]]*\\]", "【[^】]*】"] {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in regex.matches(in: result, range: NSRange(result.startIndex..., in: result)).reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                if preservingVersionMarkers,
+                   !ExternalTrackMatchPolicy.splitTitle(String(result[range])).markers.isEmpty { continue }
+                result.removeSubrange(range)
+            }
+        }
         result = result.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)

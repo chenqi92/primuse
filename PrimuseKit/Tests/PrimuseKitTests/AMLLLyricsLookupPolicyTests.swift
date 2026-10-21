@@ -109,6 +109,27 @@ struct AMLLLyricsLookupPolicyMatchingTests {
         #expect(ids(Query(title: "晴天 (Live)", artist: "周杰伦"), [Item(id: 3, musicNames: ["晴天"], artistNames: ["周杰伦"])]).isEmpty)
     }
 
+    @Test func manualSelectionAllowsArtistAliasesButStillRequiresTheSameTitleAndVersion() {
+        let items = [
+            Item(id: 1, musicNames: ["晴天"], artistNames: ["周杰伦"]),
+            Item(id: 2, musicNames: ["晴天 (Live)"], artistNames: ["周杰伦"]),
+            Item(id: 3, musicNames: ["雨天"], artistNames: ["Jay Chou"]),
+        ]
+        let query = Query(title: "晴天", artist: "Jay Chou")
+        #expect(ids(query, items).isEmpty)
+        #expect(AMLLLyricsLookupPolicy.rankedCandidates(for: query, in: items, allowArtistMismatch: true).map(\.id) == [1])
+    }
+
+    @Test func ambiguousArtistsAreShownOnlyForManualSelection() {
+        let items = [
+            Item(id: 1, musicNames: ["Hello"], artistNames: ["Adele"]),
+            Item(id: 2, musicNames: ["Hello"], artistNames: ["Lionel Richie"]),
+        ]
+        let query = Query(title: "Hello", artist: nil)
+        #expect(ids(query, items).isEmpty)
+        #expect(AMLLLyricsLookupPolicy.rankedCandidates(for: query, in: items, allowArtistMismatch: true).map(\.id) == [1, 2])
+    }
+
     @Test func eitherOfSeveralArtistsIsEnough() {
         let items = [Item(id: 1, musicNames: ["ME!"], artistNames: ["Brendon Urie", "Taylor Swift"])]
         #expect(ids(Query(title: "ME!", artist: "Taylor Swift / Brendon Urie"), items) == [1])

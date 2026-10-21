@@ -982,7 +982,7 @@ struct ScrapeOptionsView: View {
         macUsesMediaServerWriteback = usesMediaServerWriteback
         macSupportsSidecarWriteback = supportsSidecarWriteback
         macCoverEmbeddingMode = coverEmbeddingMode
-        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
+        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName, preservingVersionMarkers: true)
         manualMatchTitle = identity.title
         manualMatchArtist = identity.artist
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
@@ -993,7 +993,7 @@ struct ScrapeOptionsView: View {
     private func macRunSearch() async {
         await performManualSearch()
         guard !Task.isCancelled else { return }
-        // 默认选中排第一的标签候选; 只带歌词的「歌词 API」那条排在最前但不抢默认。
+        // 默认选中排第一的标签候选；只带歌词的候选不抢标签候选的默认选择。
         if let first = searchResults.first(where: { $0.lyricsLines == nil }) ?? searchResults.first {
             selectedItemID = first.id
             await selectManualResult(first)
@@ -1509,7 +1509,7 @@ struct ScrapeOptionsView: View {
         macSupportsSidecarWriteback = supportsSidecarWriteback
         macCoverEmbeddingMode = coverEmbeddingMode
         #endif
-        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
+        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName, preservingVersionMarkers: true)
         manualMatchTitle = identity.title
         manualMatchArtist = identity.artist
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
@@ -1530,18 +1530,17 @@ struct ScrapeOptionsView: View {
         let settings = ScraperSettings.load()
         plog("🔍 Manual search query='\(manualSearchQuery)' enabled sources: \(settings.enabledSources.map { $0.type.rawValue })")
 
-        // 歌词 API 不能搜, 和各源的搜索同时按搜索框推出的歌名、歌手直接取一次(#211)。
-        let lyricsLookup = ScraperManager.lyricsServerLookupIdentity(
+        let lyricsLookup = ScraperManager.lyricsLookupIdentity(
             query: manualSearchQuery,
             title: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
             artist: manualMatchArtist
         )
         let lyricsLookupIsSong = lyricsLookup.title == manualMatchTitle && lyricsLookup.artist == manualMatchArtist
         let lyricsDuration: TimeInterval? = song.duration.sanitizedDuration > 0 ? song.duration.sanitizedDuration : nil
-        let lyricsCandidateTask: Task<ScraperManager.LyricsServerCandidate?, Never>? = scrapeLyrics
-            && settings.enabledSources.contains(where: { $0.type == .lyricsServer })
+        let lyricsCandidateTask: Task<[ScraperManager.ManualLyricsCandidate], Never>? = scrapeLyrics
+            && settings.enabledSources.contains(where: { $0.type.supportsManualLyricsCandidates })
             ? Task { [scraperService, album = lyricsLookupIsSong ? song.albumTitle : nil] in
-                await scraperService.lyricsServerCandidate(
+                await scraperService.manualLyricsCandidates(
                     title: lyricsLookup.title,
                     artist: lyricsLookup.artist,
                     album: album,
@@ -1615,26 +1614,27 @@ struct ScrapeOptionsView: View {
             return lhs.searchOrder < rhs.searchOrder
         }
 
-        if let candidate = await lyricsCandidateTask?.value {
+        for candidate in (await lyricsCandidateTask?.value ?? []).reversed() {
             guard !Task.isCancelled else { return }
+            let item = candidate.item
             aggregatedResults.insert(SearchResultItem(
-                id: "\(candidate.config.type.rawValue)_\(lyricsLookup.title)|\(lyricsLookup.artist ?? "")",
-                title: lyricsLookup.title,
-                artist: lyricsLookup.artist,
-                album: nil,
+                id: "\(candidate.config.type.rawValue)_\(item.externalId)",
+                title: item.title,
+                artist: item.artist,
+                album: item.album,
                 year: nil,
                 durationMs: nil,
                 coverUrl: nil,
                 trackNumber: nil,
                 genres: nil,
-                externalId: [lyricsLookup.title, lyricsLookup.artist ?? ""].joined(separator: "|"),
+                externalId: item.externalId,
                 sourceConfig: candidate.config,
                 matchRank: ScrapeCandidateRankingPolicy.rank(
                     requestedTitle: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
                     requestedArtist: manualMatchArtist,
                     targetDurationMs: nil,
-                    candidateTitle: lyricsLookup.title,
-                    candidateArtist: lyricsLookup.artist,
+                    candidateTitle: item.title,
+                    candidateArtist: item.artist,
                     candidateDurationMs: nil,
                     candidateAlbum: nil,
                     candidateYear: nil,

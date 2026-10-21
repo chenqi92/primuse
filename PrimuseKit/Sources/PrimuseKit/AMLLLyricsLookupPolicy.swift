@@ -135,7 +135,12 @@ public enum AMLLLyricsLookupPolicy {
     /// 歌名（任一别名）的主体和版本标记（现场、伴奏、混音…）都要一致，规则与歌单导入对歌共用
     /// `ExternalTrackMatchPolicy`。知道歌手时歌手要有交集；不知道歌手时，只有对上歌名的几份
     /// 全是同一组歌手才算数 —— 同名的不同歌宁可不给，也不给错。
-    public static func rankedCandidates(for query: Query, in items: [SongItem]) -> [SongItem] {
+    /// `allowArtistMismatch` 仅用于用户明确选择的手动候选，自动匹配不得开启。
+    public static func rankedCandidates(
+        for query: Query,
+        in items: [SongItem],
+        allowArtistMismatch: Bool = false
+    ) -> [SongItem] {
         let (queryCore, queryMarkers) = ExternalTrackMatchPolicy.splitTitle(query.title)
         guard !queryCore.isEmpty else { return [] }
         let queryArtists = Set(query.artist.map(ExternalTrackMatchPolicy.artistTokens) ?? [])
@@ -158,7 +163,7 @@ public enum AMLLLyricsLookupPolicy {
             guard titleMatches else { continue }
             let artists = Set(item.artistNames.flatMap(ExternalTrackMatchPolicy.artistTokens))
             let shared = queryArtists.intersection(artists).count
-            if !queryArtists.isEmpty, shared == 0 { continue }
+            if !allowArtistMismatch, !queryArtists.isEmpty, shared == 0 { continue }
             let albumMatches = !queryAlbum.isEmpty && item.albumNames.contains {
                 ExternalTrackMatchPolicy.normalize($0) == queryAlbum
             }
@@ -168,7 +173,7 @@ public enum AMLLLyricsLookupPolicy {
             ))
         }
 
-        if queryArtists.isEmpty {
+        if !allowArtistMismatch, queryArtists.isEmpty {
             let artistGroups = Set(scored.map(\.artists))
             guard artistGroups.count == 1, artistGroups.first?.isEmpty == false else { return [] }
         }

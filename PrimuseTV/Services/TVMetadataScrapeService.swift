@@ -132,7 +132,7 @@ final class TVMetadataScrapeService {
     /// 搜索框的初始内容:「标题 艺人」,规则与 iPhone 刮削页相同
     /// (云盘无标签歌曲的「歌手 - 标题」文件名会先拆开,歌手已在标题里就不重复)。
     nonisolated static func suggestedQuery(title: String, artist: String?) -> String {
-        let identity = ScraperManager.searchTitleArtist(title, artist: artist)
+        let identity = ScraperManager.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
         var query = identity.title
         if let effectiveArtist = identity.artist,
            !effectiveArtist.isEmpty,
@@ -142,27 +142,26 @@ final class TVMetadataScrapeService {
         return query
     }
 
-    /// 按关键词搜所有启用的、支持元数据搜索的源,候选按与 iPhone 相同的规则排序。
+    /// 搜索元数据和纯歌词候选，按与 iPhone 相同的规则排序。
     func searchCandidates(for song: Song, query: String) async -> TVScrapeSearchOutcome {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let settings = ScraperSettings.load()
         let sources = settings.enabledSources.filter(Self.canSearchManually)
-        let searchesLyricsServer = settings.enabledSources.contains { $0.type == .lyricsServer }
-        let searchedSourceCount = sources.count + (searchesLyricsServer ? 1 : 0)
+        let lyricsSourceCount = settings.enabledSources.filter { $0.type.supportsManualLyricsCandidates }.count
+        let searchedSourceCount = sources.count + lyricsSourceCount
         guard !trimmed.isEmpty, searchedSourceCount > 0 else {
             return TVScrapeSearchOutcome(candidates: [], searchedSourceCount: searchedSourceCount)
         }
-        let identity = ScraperManager.searchTitleArtist(song.title, artist: song.artistName)
+        let identity = ScraperManager.searchTitleArtist(song.title, artist: song.artistName, preservingVersionMarkers: true)
         let requestedTitle = identity.title.isEmpty ? song.title : identity.title
-        // 歌词 API 不能搜,和各源的搜索同时按关键词推出的歌名、歌手直接取一次,有就排在最前。
-        let lyricsLookup = ScraperManager.lyricsServerLookupIdentity(
+        let lyricsLookup = ScraperManager.lyricsLookupIdentity(
             query: trimmed, title: requestedTitle, artist: identity.artist
         )
         let lyricsLookupIsSong = lyricsLookup.title == requestedTitle && lyricsLookup.artist == identity.artist
-        let lyricsTask: Task<ScraperManager.LyricsServerCandidate?, Never>? = searchesLyricsServer
+        let lyricsTask: Task<[ScraperManager.ManualLyricsCandidate], Never>? = lyricsSourceCount > 0
             ? Task { [scraperManager, album = lyricsLookupIsSong ? song.albumTitle : nil,
                       duration = song.duration.isFinite && song.duration > 0 ? song.duration : nil] in
-                await scraperManager.lyricsServerCandidate(
+                await scraperManager.manualLyricsCandidates(
                     title: lyricsLookup.title,
                     artist: lyricsLookup.artist,
                     album: album,
@@ -221,13 +220,9 @@ final class TVMetadataScrapeService {
             if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) { return false }
             return lhs.searchOrder < rhs.searchOrder
         }
-        if let lyricsCandidate = await lyricsTask?.value, !Task.isCancelled {
-            let item = ScraperSearchItem(
-                externalId: [lyricsLookup.title, lyricsLookup.artist ?? ""].joined(separator: "|"),
-                source: .lyricsServer,
-                title: lyricsLookup.title,
-                artist: lyricsLookup.artist
-            )
+        for lyricsCandidate in (await lyricsTask?.value ?? []).reversed() {
+            guard !Task.isCancelled else { break }
+            let item = lyricsCandidate.item
             candidates.insert(TVScrapeCandidate(
                 id: "\(lyricsCandidate.config.type.rawValue)_\(item.externalId)",
                 item: item,

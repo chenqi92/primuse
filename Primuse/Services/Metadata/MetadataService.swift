@@ -420,14 +420,13 @@ actor MetadataService {
         return scrapeResult.lyrics
     }
 
-    /// 手动搜索里的「歌词 API」候选, 见 `ScraperManager.lyricsServerCandidate`。
-    func lyricsServerCandidate(
+    func manualLyricsCandidates(
         title: String,
         artist: String?,
         album: String?,
         duration: TimeInterval?
-    ) async -> ScraperManager.LyricsServerCandidate? {
-        await scraperManager.lyricsServerCandidate(
+    ) async -> [ScraperManager.ManualLyricsCandidate] {
+        await scraperManager.manualLyricsCandidates(
             title: title,
             artist: artist,
             album: album,

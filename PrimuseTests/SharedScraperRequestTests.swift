@@ -325,34 +325,38 @@ final class SharedScraperRequestTests: XCTestCase {
             .init(id: "lyrics", type: .lyricsServer, isEnabled: true, priority: 1)
         ])
 
-        let lookup = ScraperManager.lyricsServerLookupIdentity(query: "小海 Singer", title: "小海", artist: "Singer")
-        let found = await manager.lyricsServerCandidate(
+        let lookup = ScraperManager.lyricsLookupIdentity(query: "小海 Singer", title: "小海", artist: "Singer")
+        let found = await manager.manualLyricsCandidates(
             title: lookup.title, artist: lookup.artist, album: nil, duration: 200, settings: settings
         )
-        XCTAssertEqual(found?.config.id, "lyrics")
-        XCTAssertEqual(found?.lyrics.map(\.text), ["第一句", "第二句"])
+        XCTAssertEqual(found.map(\.config.id), ["lyrics"])
+        XCTAssertEqual(found.first?.lyrics.map(\.text), ["第一句", "第二句"])
 
-        let miss = await manager.lyricsServerCandidate(
+        let miss = await manager.manualLyricsCandidates(
             title: "别的歌", artist: "Singer", album: nil, duration: 200, settings: settings
         )
-        XCTAssertNil(miss)
+        XCTAssertTrue(miss.isEmpty)
 
-        let disabled = await manager.lyricsServerCandidate(
+        let disabled = await manager.manualLyricsCandidates(
             title: "小海", artist: "Singer", album: nil, duration: 200,
             settings: ScraperSettings(sources: [.init(id: "lyrics", type: .lyricsServer, isEnabled: false, priority: 0)])
         )
-        XCTAssertNil(disabled)
+        XCTAssertTrue(disabled.isEmpty)
         XCTAssertEqual(fixture.requests.count, 2, "A disabled lyrics API is never asked")
     }
 
-    func testLyricsAPILookupSplitsTheSearchBoxIntoTitleAndArtist() {
+    func testManualLyricsLookupPreservesVersionsWhenSplittingTitleAndArtist() {
         func lookup(_ query: String, title: String = "小海", artist: String? = "Singer") -> [String?] {
-            let identity = ScraperManager.lyricsServerLookupIdentity(query: query, title: title, artist: artist)
+            let identity = ScraperManager.lyricsLookupIdentity(query: query, title: title, artist: artist)
             return [identity.title, identity.artist]
         }
         XCTAssertEqual(lookup("小海 Singer"), ["小海", "Singer"], "The suggested query is title + artist")
         XCTAssertEqual(lookup("小海"), ["小海", "Singer"], "A title-only query keeps the song's artist")
-        XCTAssertEqual(lookup("小海 (Live) singer"), ["小海", "Singer"], "Artist suffix is matched case-insensitively")
+        XCTAssertEqual(lookup("小海 (Live) singer"), ["小海 (Live)", "Singer"], "Artist suffix is matched case-insensitively")
+        XCTAssertEqual(lookup("小海 (Live)"), ["小海 (Live)", "Singer"])
+        XCTAssertEqual(lookup("周杰伦 - 稻香 (Remix摇滚版)", artist: nil), ["稻香 (Remix摇滚版)", "周杰伦"])
+        XCTAssertEqual(lookup("调查中 - Live", artist: nil), ["调查中 - Live", nil])
+        XCTAssertEqual(MusicScraperService.searchQuery(title: "01. 调查中 (Live)【无损】", artist: "周深"), "调查中 (Live) 周深")
         XCTAssertEqual(lookup("别的歌 Singer"), ["别的歌", "Singer"])
         XCTAssertEqual(lookup("Other Artist - 别的歌"), ["别的歌", "Other Artist"])
         XCTAssertEqual(lookup("完全不同", artist: nil), ["完全不同", nil])
@@ -410,6 +414,136 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertTrue(result.lyrics?.allSatisfy(\.isWordLevel) ?? false)
         XCTAssertTrue(result.errors.isEmpty)
         XCTAssertEqual(fixture.requests.map(\.url?.path), ["/v1/lyrics/search", "/v1/lyrics/search", "/v1/lyrics/get"])
+    }
+
+    func testAMLLAutomaticLookupPreservesRecordingVersionThroughManager() async {
+        for (input, expected, artist) in [
+            ("01. 调查中 (Live)【无损】", "调查中 (Live)", "周深"),
+            ("周杰伦 - 稻香 (Remix摇滚版)", "稻香 (Remix摇滚版)", "周杰伦"),
+            ("调查中（Live）", "调查中（Live）", "周深"),
+            ("调查中 [Live]", "调查中 [Live]", "周深")
+        ] {
+            let fixture = ScraperHTTPFixture { request in
+                let components = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+                if components?.path == "/v1/lyrics/get" {
+                    return .init(body: Self.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+                }
+                let title = components?.queryItems?.first { $0.name == "musicName" }?.value
+                return .init(body: Self.amllSearchBody(title == expected ? [(7, expected, artist)] : []))
+            }
+            defer { fixture.close() }
+            let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+            let manager = ScraperManager(scraperFactory: { _ in amll })
+            let result = await manager.scrapeMetadata(title: input, artist: artist, album: nil, duration: 240,
+                needs: .init(metadata: false, cover: false, lyrics: true),
+                settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: true, priority: 0)]))
+            XCTAssertEqual(result.lyrics?.count, 2, input)
+            XCTAssertTrue(result.lyrics?.allSatisfy(\.isWordLevel) ?? false, input)
+            XCTAssertEqual(fixture.requests.count, 2, input)
+        }
+    }
+
+    func testAMLLLiveQueryDoesNotAcceptStudioLyricsThroughManager() async {
+        let fixture = ScraperHTTPFixture { _ in
+            .init(body: Self.amllSearchBody([(7, "调查中", "周深")]))
+        }
+        defer { fixture.close() }
+        let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { _ in amll })
+        let result = await manager.scrapeMetadata(title: "调查中 (Live)", artist: "周深", album: nil, duration: 240,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: true, priority: 0)]))
+        XCTAssertNil(result.lyrics)
+        XCTAssertTrue(fixture.requests.allSatisfy { $0.url?.path == "/v1/lyrics/search" })
+    }
+
+    func testAMLLRetriesTitleWhenArtistSearchReturnsOnlyIncompatibleVersions() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            let components = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+            if components?.path == "/v1/lyrics/get" {
+                return .init(body: Self.amllLyricsBody(id: 8, lastLineEnd: "03:20.000"))
+            }
+            let hasArtist = components?.queryItems?.contains { $0.name == "artistName" } ?? false
+            return .init(body: Self.amllSearchBody(hasArtist
+                ? [(7, "Song (Live)", "Singer")] : [(8, "Song", "Singer")]))
+        }
+        defer { fixture.close() }
+        let scraper = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let result = try await scraper.fetchLyrics(title: "Song", artist: "Singer", album: nil, duration: 240)
+        XCTAssertTrue(result?.hasLyrics ?? false)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/v1/lyrics/search", "/v1/lyrics/search", "/v1/lyrics/get"])
+        let lastURL = try XCTUnwrap(fixture.requests.last?.url)
+        XCTAssertEqual(URLComponents(url: lastURL, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "8")
+    }
+
+    func testManualAMLLAliasCandidateUsesUpstreamIdentityAndExactLyricsID() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            let components = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+            if components?.path == "/v1/lyrics/get" {
+                return .init(body: Self.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+            }
+            let hasArtist = components?.queryItems?.contains { $0.name == "artistName" } ?? false
+            return .init(body: Self.amllSearchBody(hasArtist ? [] : [(7, "晴天", "周杰伦")]))
+        }
+        defer { fixture.close() }
+        let scraper = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let automatic = try await scraper.fetchLyrics(title: "晴天", artist: "Jay Chou", album: nil, duration: 269)
+        XCTAssertNil(automatic, "An unverified alias must not silently bypass automatic identity matching")
+        let candidates = await manager.manualLyricsCandidates(title: "晴天", artist: "Jay Chou", album: nil, duration: 269,
+            settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: true, priority: 0)]))
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertEqual(candidates.first?.item.artist, "周杰伦")
+        XCTAssertEqual(candidates.first?.item.title, "晴天")
+        XCTAssertEqual(candidates.first?.item.externalId, "amll:7")
+        XCTAssertEqual(candidates.first?.lyrics.count, 2)
+        XCTAssertTrue(candidates.first?.lyrics.allSatisfy(\.isWordLevel) ?? false)
+        XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/v1/lyrics/get" }.count, 1)
+    }
+
+    func testManualAMLLCandidatesRespectDisabledSourcesAndDuration() async {
+        let fixture = ScraperHTTPFixture { request in
+            request.url?.path == "/v1/lyrics/get"
+                ? .init(body: Self.amllLyricsBody(id: 7, lastLineEnd: "03:20.000"))
+                : .init(body: Self.amllSearchBody([(7, "Song", "Singer")]))
+        }
+        defer { fixture.close() }
+        let scraper = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let disabled = await manager.manualLyricsCandidates(title: "Song", artist: "Singer", album: nil, duration: 240,
+            settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: false, priority: 0)]))
+        XCTAssertTrue(disabled.isEmpty)
+        XCTAssertTrue(fixture.requests.isEmpty)
+        let tooLong = await manager.manualLyricsCandidates(title: "Song", artist: "Singer", album: nil, duration: 100,
+            settings: .init(sources: [.init(id: "amll", type: .amll, isEnabled: true, priority: 0)]))
+        XCTAssertTrue(tooLong.isEmpty)
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
+    func testManualAMLLFailureStillQueriesLyricsServer() async {
+        let fixture = ScraperHTTPFixture { request in
+            request.url?.host == "api.amll.dev"
+                ? .init(status: 503, headers: ["Retry-After": "60"])
+                : .init(body: Data("[00:01.00]歌词".utf8))
+        }
+        defer { fixture.close() }
+        let amll = AMLLScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let server = LyricsAPIServerScraper(servers: [.init(address: fixture.url("api"))], session: fixture.session)
+        let manager = ScraperManager(scraperFactory: { config in
+            if config.type == .amll { return amll }
+            return server
+        })
+        let settings = ScraperSettings(sources: [
+            .init(id: "amll", type: .amll, isEnabled: true, priority: 0),
+            .init(id: "server", type: .lyricsServer, isEnabled: true, priority: 1)
+        ])
+        for _ in 0..<2 {
+            let candidates = await manager.manualLyricsCandidates(title: "Song", artist: "Singer", album: nil,
+                duration: 240, settings: settings)
+            XCTAssertEqual(candidates.map(\.config.id), ["server"])
+        }
+        XCTAssertEqual(fixture.requests.filter { $0.url?.host == "api.amll.dev" }.count, 1,
+            "The manual path must share the source cooldown")
     }
 
     func testAMLLLyricsLongerThanTheSongFallThroughToLRCLIB() async {

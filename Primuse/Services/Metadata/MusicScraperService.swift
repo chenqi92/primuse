@@ -750,13 +750,13 @@ final class MusicScraperService {
         )
     }
 
-    func lyricsServerCandidate(
+    func manualLyricsCandidates(
         title: String,
         artist: String?,
         album: String?,
         duration: TimeInterval?
-    ) async -> ScraperManager.LyricsServerCandidate? {
-        await metadataService.lyricsServerCandidate(
+    ) async -> [ScraperManager.ManualLyricsCandidate] {
+        await metadataService.manualLyricsCandidates(
             title: title,
             artist: artist,
             album: album,
@@ -832,7 +832,7 @@ final class MusicScraperService {
     }
 
     nonisolated static func searchQuery(title: String, artist: String?) -> String {
-        let identity = ScraperManager.searchTitleArtist(title, artist: artist)
+        let identity = ScraperManager.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
         var query = identity.title
         if let effectiveArtist = identity.artist,
            !effectiveArtist.isEmpty,

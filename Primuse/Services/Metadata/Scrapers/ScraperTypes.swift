@@ -192,6 +192,10 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         }
     }
 
+    var supportsManualLyricsCandidates: Bool {
+        self == .amll || self == .lyricsServer
+    }
+
     /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序问，先拿到
     /// 逐字的就不再往后问；不是逐字时最多再问后面两个源（`OnlineLyricsTimingPick`）。
     static var builtInOrder: [MusicScraperType] {

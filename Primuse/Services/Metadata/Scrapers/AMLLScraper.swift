@@ -32,7 +32,19 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        .empty(.amll) // 只提供歌词
+        guard limit > 0 else { return .empty(.amll) }
+        // 手动候选显示词库中的歌手，由用户确认别名；自动取词仍要求歌手匹配。
+        let candidates = try await findCandidates(
+            for: .init(title: query, artist: artist, album: album), allowArtistMismatch: true
+        )
+        return ScraperSearchResult(items: candidates.prefix(limit).map { song in
+            ScraperSearchItem(
+                externalId: "amll:\(song.id)", source: .amll,
+                title: song.musicNames.first ?? query,
+                artist: song.artistNames.isEmpty ? nil : song.artistNames.joined(separator: " / "),
+                album: song.albumNames.first
+            )
+        }, source: .amll)
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {
@@ -44,6 +56,10 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
     }
 
     func getLyrics(externalId: String) async throws -> ScraperLyricsResult? {
+        if externalId.hasPrefix("amll:") {
+            guard let id = Int64(externalId.dropFirst(5)) else { return nil }
+            return try await lyrics(id: id)
+        }
         // externalId format: title|artist|album|duration（与 LRCLIB 相同）
         let parts = externalId.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         guard let title = parts.first, !title.isEmpty else { return nil }
@@ -53,8 +69,6 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
         return try await fetchLyrics(title: title, artist: artist, album: album, duration: duration)
     }
 
-    /// 先带第一位歌手搜；一条都没有时再只按歌名搜（繁简、别名写法不同的歌手靠本地比对认出来）。
-    /// 搜得到但对不上就不再搜第二次：接口已经按歌手筛过，只按歌名不会多出对得上的。
     func fetchLyrics(
         title: String,
         artist: String?,
@@ -67,25 +81,12 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
             album: album,
             duration: duration?.sanitizedDuration
         )
-        let searchArtist = AMLLLyricsLookupPolicy.searchArtistName(artist)
-        var items = try await search(title: title, artistName: searchArtist)
-        if items.isEmpty, searchArtist != nil {
-            items = try await search(title: title, artistName: nil)
-        }
-        let candidates = AMLLLyricsLookupPolicy.rankedCandidates(for: query, in: items)
+        let candidates = try await findCandidates(for: query)
         let artistKnown = AMLLLyricsLookupPolicy.hasComparableArtist(query)
 
         for candidate in candidates.prefix(AMLLLyricsLookupPolicy.maximumLyricsFetches) {
             try Task.checkCancellation()
-            guard let url = AMLLLyricsLookupPolicy.lyricsURL(id: candidate.id) else { continue }
-            let song: AMLLLyricsLookupPolicy.SongItem
-            do {
-                let data = try await throttledRequest(url: url)
-                song = try decoded(data, AMLLLyricsLookupPolicy.decodeSong)
-            } catch ScraperError.notFound {
-                continue
-            }
-            guard let ttml = song.lyrics, !ttml.isEmpty else { continue }
+            guard let result = try await lyrics(id: candidate.id), let ttml = result.lrcContent else { continue }
             let lines = LyricsContentParser.parseText(ttml)
             let lastEnd = lines.compactMap(\.endTime).max()
             guard AMLLLyricsLookupPolicy.lyricsFit(
@@ -96,9 +97,41 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
                 plog("[AMLL] '\(title)' #\(candidate.id) lyrics end \(lastEnd ?? -1)s does not fit duration \(query.duration ?? -1)s")
                 continue
             }
-            return ScraperLyricsResult(source: .amll, lrcContent: ttml)
+            return result
         }
         return nil
+    }
+
+    private func findCandidates(
+        for query: AMLLLyricsLookupPolicy.Query,
+        allowArtistMismatch: Bool = false
+    ) async throws -> [AMLLLyricsLookupPolicy.SongItem] {
+        let searchArtist = AMLLLyricsLookupPolicy.searchArtistName(query.artist)
+        var items = try await search(title: query.title, artistName: searchArtist)
+        var candidates = AMLLLyricsLookupPolicy.rankedCandidates(
+            for: query, in: items, allowArtistMismatch: allowArtistMismatch
+        )
+        // 接口的模糊歌手筛选可能只返回不合版本的条目；没有可用候选时再按标题查。
+        if candidates.isEmpty, searchArtist != nil {
+            items = try await search(title: query.title, artistName: nil)
+            candidates = AMLLLyricsLookupPolicy.rankedCandidates(
+                for: query, in: items, allowArtistMismatch: allowArtistMismatch
+            )
+        }
+        plog("[AMLL] '\(query.title)' search returned \(items.count), compatible candidates \(candidates.count)")
+        return candidates
+    }
+
+    private func lyrics(id: Int64) async throws -> ScraperLyricsResult? {
+        guard let url = AMLLLyricsLookupPolicy.lyricsURL(id: id) else { return nil }
+        do {
+            let data = try await throttledRequest(url: url)
+            let song = try decoded(data, AMLLLyricsLookupPolicy.decodeSong)
+            guard let ttml = song.lyrics, !ttml.isEmpty else { return nil }
+            return ScraperLyricsResult(source: .amll, lrcContent: ttml)
+        } catch ScraperError.notFound {
+            return nil
+        }
     }
 
     private func search(title: String, artistName: String?) async throws -> [AMLLLyricsLookupPolicy.SongItem] {
