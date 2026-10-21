@@ -2,6 +2,92 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testOfflineDownloadEditingOwnsBottomBarInStandardNavigation() throws {
+        try checkOfflineDownloadEditing(navigationMode: "standard")
+    }
+
+    func testOfflineDownloadEditingOwnsBottomBarInMinimalNavigation() throws {
+        try checkOfflineDownloadEditing(navigationMode: "minimal")
+    }
+
+    private func checkOfflineDownloadEditing(navigationMode: String) throws {
+        continueAfterFailure = false
+        let app = settingsApp("storage.offlineDownloads")
+        app.launchArguments += ["-primuse.navigation.mode.v1", navigationMode]
+        app.launch()
+        defer { app.terminate() }
+
+        let downloads = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '离线下载'"))
+            .firstMatch
+        XCTAssertTrue(downloads.waitForExistence(timeout: 25))
+        app.swipeUp()
+        for _ in 0..<4 where !downloads.isHittable { app.swipeUp() }
+        downloads.tap()
+        let edit = app.navigationBars.buttons["编辑"]
+        guard edit.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires at least one offline download in the test library")
+        }
+        let player = app.buttons["播放"]
+        let hadPlayer = player.waitForExistence(timeout: 3)
+        guard hadPlayer || navigationMode == "minimal" else {
+            throw XCTSkip("Requires a paused playback session to verify player overlap")
+        }
+
+        edit.tap()
+        let removeAll = app.buttons["全部移除"]
+        XCTAssertTrue(removeAll.waitForExistence(timeout: 5))
+        attach(app, "offline-enter-editing-\(navigationMode)")
+        XCTAssertTrue(player.waitForNonExistence(timeout: 5), "Editing must release the player's bottom area")
+        XCTAssertFalse(app.tabBars.firstMatch.isHittable)
+        let removeSelected = app.buttons["移除所选（0）"]
+        XCTAssertTrue(removeSelected.exists)
+        XCTAssertFalse(removeSelected.isEnabled)
+        let songRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'offline.download.'")).firstMatch
+        XCTAssertTrue(songRow.waitForExistence(timeout: 3))
+        songRow.tap()
+        let selectedAction = app.buttons["移除所选（1）"]
+        XCTAssertTrue(selectedAction.waitForExistence(timeout: 3))
+        XCTAssertTrue(selectedAction.isEnabled)
+        XCTAssertGreaterThan(removeAll.frame.width, 40)
+        XCTAssertGreaterThan(selectedAction.frame.width, 40)
+        XCTAssertTrue(app.frame.contains(removeAll.frame))
+        XCTAssertTrue(app.frame.contains(selectedAction.frame))
+        XCTAssertFalse(removeAll.frame.intersects(selectedAction.frame))
+        attach(app, "offline-editing-\(navigationMode)")
+
+        selectedAction.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let confirm = app.buttons["移除"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        attach(app, "offline-confirm-selected-\(navigationMode)")
+        dismissRemovalConfirmation(app)
+        XCTAssertTrue(confirm.waitForNonExistence(timeout: 3))
+        removeAll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        attach(app, "offline-confirm-all-\(navigationMode)")
+        dismissRemovalConfirmation(app)
+        XCTAssertTrue(confirm.waitForNonExistence(timeout: 3))
+        app.navigationBars.buttons["完成"].tap()
+        XCTAssertTrue(removeAll.waitForNonExistence(timeout: 3))
+        if hadPlayer { XCTAssertTrue(player.waitForExistence(timeout: 5)) }
+
+        edit.tap()
+        XCTAssertTrue(player.waitForNonExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(downloads.waitForExistence(timeout: 5))
+        XCTAssertTrue(player.waitForExistence(timeout: 5), "Returning to storage must restore the player")
+        attach(app, "offline-exit-editing-\(navigationMode)")
+    }
+
+    private func dismissRemovalConfirmation(_ app: XCUIApplication) {
+        let cancel = app.buttons["取消"]
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        }
+    }
+
     func testSectionHeaderInfoOpensBubble() {
         continueAfterFailure = false
         let app = settingsApp("storage.offlineDownloads")

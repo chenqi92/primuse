@@ -91,6 +91,9 @@ struct OfflineDownloadsView: View {
             }
             #endif
             #if os(iOS)
+            .transformPreference(SongBatchSelectionActivePreferenceKey.self) { value in
+                value = value || editMode.isEditing
+            }
             // 放在最外层: 工具栏里的「编辑」按钮和列表都要读到同一个编辑状态。
             .environment(\.editMode, $editMode)
             #endif
@@ -114,6 +117,7 @@ struct OfflineDownloadsView: View {
                     ForEach(items) { item in
                         row(item)
                             .tag(item.id)
+                            .accessibilityIdentifier("offline.download.\(item.id)")
                             #if os(iOS)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
