@@ -213,6 +213,7 @@
 "ext.tv.settings.intensity.low"             = "Low";
 "ext.tv.settings.intensity.medium"          = "Medium";
 "ext.tv.settings.intensity.high"            = "High";
+"theme_color_magenta" = "Magenta";
 "theme_color_teal"                          = "Teal";
 "theme_color_turquoise"                     = "Turquoise";
 "theme_color_forest"                        = "Forest";

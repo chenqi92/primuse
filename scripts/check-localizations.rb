@@ -903,6 +903,12 @@ def check_pmstring_source_localization_coverage(dictionaries, failures)
   usages = Hash.new { |hash, key| hash[key] = Set.new }
   pattern = /\bPMString\(\s*"((?:\\.|[^"\\])*)"/
 
+  # Swatch names reach PMString through swatch.localizationKey rather than a literal call.
+  palette_source = ROOT / "Primuse/Services/FullscreenPlayerEffectSettings.swift"
+  source_literal_matches(palette_source, /\blocalizationKey:\s*"(theme_color_[^"]+)"/).each do |key, line|
+    usages[key] << "#{palette_source.relative_path_from(ROOT)}:#{line}"
+  end
+
   PMSTRING_SOURCE_ROOTS.each do |relative_root|
     (ROOT / relative_root).glob("**/*.swift").sort.each do |path|
       source_literal_matches(path, pattern).each do |key, line|

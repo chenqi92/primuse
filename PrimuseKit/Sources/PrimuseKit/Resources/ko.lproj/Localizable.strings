@@ -215,6 +215,7 @@
 "ext.tv.settings.intensity.low"             = "낮음";
 "ext.tv.settings.intensity.medium"          = "중간";
 "ext.tv.settings.intensity.high"            = "높음";
+"theme_color_magenta" = "마젠타";
 "theme_color_teal"                          = "틸";
 "theme_color_turquoise"                     = "터키석";
 "theme_color_forest"                        = "포레스트";

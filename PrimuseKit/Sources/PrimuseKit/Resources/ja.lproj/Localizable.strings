@@ -215,6 +215,7 @@
 "ext.tv.settings.intensity.low"             = "弱";
 "ext.tv.settings.intensity.medium"          = "中";
 "ext.tv.settings.intensity.high"            = "強";
+"theme_color_magenta" = "マゼンタ";
 "theme_color_teal"                          = "ティール";
 "theme_color_turquoise"                     = "ターコイズ";
 "theme_color_forest"                        = "フォレスト";

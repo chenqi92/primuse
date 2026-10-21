@@ -212,6 +212,7 @@
 "ext.tv.settings.intensity.low"             = "低";
 "ext.tv.settings.intensity.medium"          = "中";
 "ext.tv.settings.intensity.high"            = "高";
+"theme_color_magenta" = "洋紅";
 "theme_color_teal"                          = "青藍";
 "theme_color_turquoise"                     = "青綠";
 "theme_color_forest"                        = "森林綠";

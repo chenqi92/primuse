@@ -32,6 +32,7 @@
 "ext.control.playPause.displayName" = "Primuse Oynat / Duraklat";
 "theme_color_blue" = "Mavi";
 "ext.tv.sources.scanBody1" = "Primuse'nin geçerli arşivini, kaynaklarını ve gerekli kimlik bilgilerini yerel ağ üzerinden bu Apple TV'ye güvenli bir şekilde göndermek için bu kodu iPhone ile tarayın.";
+"theme_color_magenta" = "Macenta";
 "theme_color_teal" = "Deniz mavisi";
 "ext.tv.sources.form.name" = "İsim";
 "ext.tv.sources.form.passwordStorage" = "Şifre yalnızca bu Apple TV'de saklanır. Hiçbir zaman iCloud'ye yüklenmez; gerekirse telefonunuza ayrı olarak girin.";

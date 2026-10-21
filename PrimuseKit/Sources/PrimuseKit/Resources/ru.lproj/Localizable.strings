@@ -32,6 +32,7 @@
 "ext.control.playPause.displayName" = "Primuse Воспроизведение/Пауза";
 "theme_color_blue" = "Синий";
 "ext.tv.sources.scanBody1" = "Отсканируйте этот код с помощью iPhone, чтобы безопасно отправить текущую медиатеку Primuse, исходные коды и необходимые учетные данные на этот Apple TV по локальной сети.";
+"theme_color_magenta" = "Пурпурный";
 "theme_color_teal" = "Бирюзовый";
 "ext.tv.sources.form.name" = "Имя";
 "ext.tv.sources.form.passwordStorage" = "Пароль хранится только на этом Apple TV. Он никогда не загружается в iCloud; при необходимости введите его отдельно на телефоне.";
