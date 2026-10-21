@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+from generate_flat_brand_assets import main as save_flat_brand_assets
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,14 @@ EXACT_ICONS = [
         "00-primuse.png",
         "00-primuse-dark.png",
         "00-primuse-tinted.png",
+    ),
+    (
+        "21-primuse-classic",
+        "AppIcon21",
+        "AppIcon21Preview",
+        "21-primuse-classic.png",
+        "21-primuse-classic-dark.png",
+        "21-primuse-classic-tinted.png",
     ),
     (
         "20-soft-note",
@@ -72,17 +81,9 @@ EXACT_ICONS = [
         "12-pikaqiu-dark.png",
         "12-pikaqiu-tinted.png",
     ),
-    (
-        "17-splash",
-        "AppIcon17",
-        "AppIcon17Preview",
-        "17-splash.png",
-        "17-splash-dark.png",
-        "17-splash-tinted.png",
-    ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon20", "AppIcon19", "AppIcon16", "AppIcon17", "AppIcon14", "AppIcon15", "AppIcon12"]
+CATALOG_ORDER = ["AppIcon", "AppIcon21", "AppIcon20", "AppIcon19", "AppIcon16", "AppIcon14", "AppIcon15", "AppIcon12"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
@@ -205,8 +206,7 @@ def main() -> None:
     light_icons = [rendered_icons[name][0] for name in CATALOG_ORDER]
     dark_icons = [rendered_icons[name][1] for name in CATALOG_ORDER]
     save_mac_and_watch(rendered_icons["AppIcon"][0], rendered_icons["AppIcon"][0])
-    # tvOS keeps its explicit parallax and Top Shelf compositions; this
-    # square-icon generator must not flatten or replace those layers.
+    save_flat_brand_assets()
     save_contact_sheet(light_icons)
     save_appearance_sheet(light_icons, dark_icons)
 

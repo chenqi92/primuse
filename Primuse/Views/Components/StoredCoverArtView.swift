@@ -483,18 +483,20 @@ struct PlaylistArtworkView: View {
     }
 
     private var symbolicPlaceholder: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.secondary.opacity(0.18), Color.secondary.opacity(0.32)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        OptionalAppIconArtwork(symbol: placeholderIcon) {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.secondary.opacity(0.18), Color.secondary.opacity(0.32)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-            Image(systemName: placeholderIcon)
-                .font(.system(size: max(size * 0.25, 10), weight: .medium))
-                .foregroundStyle(.secondary)
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: max(size * 0.25, 10), weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

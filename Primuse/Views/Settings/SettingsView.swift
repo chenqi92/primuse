@@ -581,6 +581,7 @@ struct LyricsAppearanceSections: View {
 }
 
 private struct PlayerAppearanceSettingsView: View {
+    @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -627,6 +628,12 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
+                Picker("default_artwork_title", selection: $missingArtworkStyle) {
+                    ForEach(MissingArtworkStyle.allCases, id: \.self) { style in
+                        Text(LocalizedStringKey(style.localizationKey)).tag(style.rawValue)
+                    }
+                }
+                .settingsAnchor("appearance.defaultArtwork")
                 Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
                 .settingsAnchor("appearance.animatedArtwork")
                     .accessibilityHint(Text("player_animated_artwork_description"))

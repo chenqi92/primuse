@@ -604,6 +604,9 @@
 "nfs.version.auto" = "स्वचालित";
 "password" = "पासवर्ड";
 "playback" = "प्लेबैक";
+"default_artwork_title" = "डिफ़ॉल्ट कवर";
+"default_artwork_standard" = "मूल शैली";
+"default_artwork_app_icon" = "मौजूदा ऐप आइकन";
 "player_animated_artwork" = "गतिशील कलाकृति";
 "queue_title" = "कतार";
 "radio.streamFormat.automatic" = "स्वचालित";

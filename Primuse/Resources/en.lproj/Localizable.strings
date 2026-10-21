@@ -203,6 +203,7 @@
 "app_icon_export_failed_title" = "Couldn’t Export Icon";
 "app_icon_export_failed_message" = "The icon could not be created. Please try again.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Classic";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";
 "icon_theme_12" = "pikaqiu";
@@ -3036,6 +3037,9 @@
 "now_playing_audio_transcoded" = "Transcoded by server";
 "now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Tap to see the full format details and the sample rate the output is actually using";
+"default_artwork_title" = "Default artwork";
+"default_artwork_standard" = "Standard";
+"default_artwork_app_icon" = "Current app icon";
 "player_animated_artwork" = "Dynamic Artwork";
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";

@@ -316,7 +316,7 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon17 AppIcon19 AppIcon20"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIcon21"
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -361,6 +361,7 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/MissingArtworkRenderingTests.swift
       - path: PrimuseTests/DirectoryScanCooldownTests.swift
       - path: PrimuseTests/ScrobbleRequestTests.swift
       - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
@@ -1017,6 +1018,7 @@ targets:
       - path: PrimuseTests/ScrobbleRequestTests.swift
       - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
       - path: PrimuseTVTests
+      - path: PrimuseTests/MissingArtworkRenderingTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift

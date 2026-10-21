@@ -195,6 +195,7 @@
 "app_icon_export_failed_title" = "無法輸出圖像";
 "app_icon_export_failed_message" = "無法產生圖像，請再試一次。";
 "icon_default" = "Primuse";
+"icon_theme_21" = "經典圖示";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_12" = "皮卡丘";
@@ -3252,6 +3253,9 @@
 "now_playing_audio_transcoded" = "伺服器轉碼";
 "now_playing_audio_original_file" = "原始檔案 %@";
 "now_playing_audio_info_hint" = "輕點查看完整規格和實際輸出的取樣率";
+"default_artwork_title" = "預設封面";
+"default_artwork_standard" = "原有樣式";
+"default_artwork_app_icon" = "目前的 App 圖像";
 "player_animated_artwork" = "動態專輯封面";
 "player_animated_artwork_description" = "在專輯詳細資訊和播放器主封面中播放來源提供的 GIF、APNG 與動態 WebP。列表一律顯示靜態首格，並遵循系統動態效果與電量設定。";
 "player_animated_artwork_unmetered_only" = "僅透過 Wi-Fi 下載原始封面";

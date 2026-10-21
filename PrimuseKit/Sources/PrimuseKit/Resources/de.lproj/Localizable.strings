@@ -728,6 +728,9 @@
 "library_recommendations_title" = "Empfehlungen";
 "more" = "Mehr";
 "playback" = "Wiedergabe";
+"default_artwork_title" = "Standardcover";
+"default_artwork_standard" = "Bisheriger Stil";
+"default_artwork_app_icon" = "Aktuelles App-Symbol";
 "player_animated_artwork" = "Dynamisches Cover";
 "queue_title" = "Warteschlange";
 "repeat" = "Wiederholen";

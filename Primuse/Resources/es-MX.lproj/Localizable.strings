@@ -1615,6 +1615,7 @@
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "El ícono sigue la apariencia de la pantalla de inicio. Toque y mantenga presionada la pantalla de inicio, luego elija Editar → Personalizar → Automático.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Clásico";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Nota Suave";
@@ -2576,6 +2577,9 @@
 "playback_settings" = "Configuración de reproducción";
 "playback_settings_title" = "Configuración de reproducción";
 "played" = "Reproducido";
+"default_artwork_title" = "Carátula predeterminada";
+"default_artwork_standard" = "Estilo original";
+"default_artwork_app_icon" = "Ícono actual de la app";
 "player_animated_artwork" = "Portada animada";
 "player_animated_artwork_description" = "Reproduzca portadas GIF, APNG y WebP animadas proporcionadas por el origen en los detalles del álbum y las portadas del reproductor principal. Las listas siempre utilizan un primer fotograma estático y se respetan los ajustes de energía y movimiento del sistema.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi solo para portadas originales";

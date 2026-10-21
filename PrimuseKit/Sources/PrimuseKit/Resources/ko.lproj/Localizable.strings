@@ -728,6 +728,9 @@
 "library_recommendations_title" = "맞춤 추천";
 "more" = "더 보기";
 "playback" = "재생";
+"default_artwork_title" = "기본 표지";
+"default_artwork_standard" = "기존 스타일";
+"default_artwork_app_icon" = "현재 앱 아이콘";
 "player_animated_artwork" = "움직이는 앨범 아트";
 "queue_title" = "재생 대기열";
 "repeat" = "반복";

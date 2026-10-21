@@ -604,6 +604,9 @@
 "nfs.version.auto" = "Automático";
 "password" = "Senha";
 "playback" = "Reprodução";
+"default_artwork_title" = "Capa padrão";
+"default_artwork_standard" = "Estilo original";
+"default_artwork_app_icon" = "Ícone atual do app";
 "player_animated_artwork" = "Capa animada";
 "queue_title" = "Fila de reprodução";
 "radio.streamFormat.automatic" = "Automático";

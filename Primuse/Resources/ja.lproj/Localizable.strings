@@ -454,6 +454,7 @@
 "app_icon_export_failed_title" = "アイコンを書き出せませんでした";
 "app_icon_export_failed_message" = "アイコンを作成できませんでした。もう一度お試しください。";
 "icon_default" = "Primuse";
+"icon_theme_21" = "クラシック";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
 "icon_theme_12" = "pikaqiu";
@@ -3268,6 +3269,9 @@
 "now_playing_audio_transcoded" = "サーバーで変換";
 "now_playing_audio_original_file" = "元のファイル %@";
 "now_playing_audio_info_hint" = "タップするとフォーマットの詳細と出力の実際のサンプルレートを表示します";
+"default_artwork_title" = "デフォルトのカバー";
+"default_artwork_standard" = "従来のスタイル";
+"default_artwork_app_icon" = "現在のアプリアイコン";
 "player_animated_artwork" = "ダイナミックアートワーク";
 "player_animated_artwork_description" = "ソースが提供する GIF、APNG、アニメーション WebP をアルバム詳細とプレーヤーのメインアートワークで再生します。一覧には常に静止した先頭フレームを表示し、システムのモーション設定と電源設定に従います。";
 "player_animated_artwork_unmetered_only" = "オリジナルは Wi-Fi のみ";

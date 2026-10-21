@@ -2131,6 +2131,9 @@
 "ai_recommendation_intent_prompt_label" = "Подсказка ИИ";
 "Genre" = "Жанр";
 "Medium / Large" = "Средний/Большой";
+"default_artwork_title" = "Обложка по умолчанию";
+"default_artwork_standard" = "Прежний стиль";
+"default_artwork_app_icon" = "Текущий значок приложения";
 "player_animated_artwork" = "Динамическая обложка";
 "synology_auth_error_407" = "Адрес запроса IP заблокирован. Сначала разблокируйте его в DSM.";
 "carplay_queue_empty" = "Очередь пуста";
@@ -3973,6 +3976,7 @@
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Классический";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";

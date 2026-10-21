@@ -453,6 +453,7 @@
 "app_icon_export_failed_title" = "Impossible d’exporter l’icône";
 "app_icon_export_failed_message" = "L’icône n’a pas pu être créée. Veuillez réessayer.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Classique";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
 "icon_theme_12" = "pikaqiu";
@@ -3267,6 +3268,9 @@
 "now_playing_audio_transcoded" = "Transcodé par le serveur";
 "now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Touchez pour voir tous les détails du format et la fréquence réellement utilisée par la sortie";
+"default_artwork_title" = "Pochette par défaut";
+"default_artwork_standard" = "Style habituel";
+"default_artwork_app_icon" = "Icône actuelle de l’app";
 "player_animated_artwork" = "Pochette dynamique";
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";
 "player_animated_artwork_unmetered_only" = "Pochette originale via Wi-Fi uniquement";

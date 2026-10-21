@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB0708000CBC4F108CF7DF5D /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
+		124D12FF62714B9F877C64EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
+		8A1DC1FDB35C4F5F829E91EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
 		00235609467E25B73EADB7C6 /* AISongDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BEFE2177E667F5389A650E /* AISongDiscoveryView.swift */; };
 		00253E72EDEA9E0D926D0185 /* AssetReaderDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */; };
 		0056E00036E387693AB72C27 /* LyricsInstalledSystemTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC223FE83D573153150EE746 /* LyricsInstalledSystemTranslator.swift */; };
@@ -802,6 +805,7 @@
 		592B3FEDC6DC6020AF9CCDF3 /* CarPlayEditorComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF7D33EE6AA248113308216 /* CarPlayEditorComponents.swift */; };
 		5961CDB6711D704E941D41E9 /* LRCLIBScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */; };
 		93E0EC0DD60B362B80A2EBF1 /* AMLLScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3B863B6E1D5FA38F671E2C /* AMLLScraper.swift */; };
+		28A39BD07D6F43139D8BEAFD /* MissingArtworkStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D971C47F284D6E833B7C75 /* MissingArtworkStyle.swift */; };
 		5978B69CCBB88DF15F5AAA4D /* BrandTintStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53685355484484D363F001AF /* BrandTintStore.swift */; };
 		597C9FC6DA3A3EF903307FC9 /* AudioPlayerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */; };
 		5980823594F7E539787FAED3 /* SongListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */; };
@@ -2327,6 +2331,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkRenderingTests.swift; sourceTree = "<group>"; };
 		00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
 		03CDC7AA2B5C9D908D772A43 /* AppleMusicListeningPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicListeningPolicy.swift; sourceTree = "<group>"; };
@@ -2894,6 +2899,7 @@
 		52F04429FA512B9FBE040C61 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		5331651FCE7FBFE2A8CC03EC /* AudioPlayerService+RemoteCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+RemoteCommands.swift"; sourceTree = "<group>"; };
 		535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerCollectionFavoriteSyncService.swift; sourceTree = "<group>"; };
+		36D971C47F284D6E833B7C75 /* MissingArtworkStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkStyle.swift; sourceTree = "<group>"; };
 		53685355484484D363F001AF /* BrandTintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandTintStore.swift; sourceTree = "<group>"; };
 		5391BB361A5405D454DB2B39 /* EQOutputDeviceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQOutputDeviceMonitor.swift; sourceTree = "<group>"; };
 		53BEFE2177E667F5389A650E /* AISongDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISongDiscoveryView.swift; sourceTree = "<group>"; };
@@ -4800,6 +4806,7 @@
 				175FF745488766535BAC0153 /* AudioFormat.swift */,
 				83F26AFF21D6618168FD2742 /* AudioQuality.swift */,
 				32F778D8EA0EFEED085C66B6 /* AudioVariant.swift */,
+				36D971C47F284D6E833B7C75 /* MissingArtworkStyle.swift */,
 				53685355484484D363F001AF /* BrandTintStore.swift */,
 				F8C714C150FC7495AF3988FB /* CloudAccount.swift */,
 				7B77E91ECC8568E876861750 /* EQPreset.swift */,
@@ -5736,6 +5743,7 @@
 				31F300281145AEB5C3A9BC87 /* ServerListeningStatsServiceTests.swift */,
 				AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */,
 				768DC109DF16CF8B7E056C1F /* ServerRatingSyncTests.swift */,
+				EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */,
 				366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */,
 				42F091EBFBCAC0A3BC3CC1B0 /* SiriRadioIntentRoutingTests.swift */,
 				8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */,
@@ -6501,6 +6509,7 @@
 				5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */,
 				97735B432FDE5900AEC400EB /* GeminiAudioQuotaTests.swift in Sources */,
 				D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */,
+				8A1DC1FDB35C4F5F829E91EB /* MissingArtworkRenderingTests.swift in Sources */,
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
 				56A17E620C4BD3695FA8129A /* TVKaraokeParityTests.swift in Sources */,
 				C39FB15C32FF2D71E52747E0 /* TVKaraokeSeparationTests.swift in Sources */,
@@ -6598,6 +6607,7 @@
 				75EB658DF4EA4FA781A5A776 /* ServerListeningStatsServiceTests.swift in Sources */,
 				79F0E9CB426C2AF921C0FBA3 /* ServerMediaSharingConnectorTests.swift in Sources */,
 				B6663806896F90F19D002268 /* ServerRatingSyncTests.swift in Sources */,
+				AB0708000CBC4F108CF7DF5D /* MissingArtworkRenderingTests.swift in Sources */,
 				4FABD6C4480CDBD874EC8F79 /* SettingsDiscoveryTests.swift in Sources */,
 				5565613BF615F70D0DE0FD54 /* SiriRadioIntentRoutingTests.swift in Sources */,
 				2D2452E38E6AAC8FD8248618 /* SourceChangeScanInvalidationTests.swift in Sources */,
@@ -6703,6 +6713,7 @@
 				1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */,
 				A04BFD2AC3A1546B7774DA14 /* BottomChromeClearancePolicy.swift in Sources */,
 				71C60F0F8ACFF948E692212D /* BoundedAsyncChannel.swift in Sources */,
+				28A39BD07D6F43139D8BEAFD /* MissingArtworkStyle.swift in Sources */,
 				5978B69CCBB88DF15F5AAA4D /* BrandTintStore.swift in Sources */,
 				67D45D818469B9D73A8AB157 /* BundleToken.swift in Sources */,
 				85AE39A74E4461CFCD4B08E8 /* CarPlayArtworkCacheKey.swift in Sources */,
@@ -7156,6 +7167,7 @@
 				D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */,
 				D2A78F3865EBA1FD516A73F6 /* BaiduWriteReplayTests.swift in Sources */,
 				EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */,
+				124D12FF62714B9F877C64EB /* MissingArtworkRenderingTests.swift in Sources */,
 				0C15AFF7838FC33E24127184 /* MacSongTableAndIconTests.swift in Sources */,
 				4DC0539B60873695B56A4A2E /* MacVolumeSliderTests.swift in Sources */,
 			);
@@ -8923,7 +8935,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon17 AppIcon19 AppIcon20";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIcon21";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -9384,7 +9396,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon17 AppIcon19 AppIcon20";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIcon21";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;

@@ -1615,6 +1615,7 @@
 "icon_appearance_gray" = "Szary";
 "icon_appearance_hint" = "Ikona pojawia się na ekranie głównym. Dotknij i przytrzymaj ekran główny, a następnie wybierz Edycja → Dostosuj → Automatycznie.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Klasyczna";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Miękka nuta";
@@ -2576,6 +2577,9 @@
 "playback_settings" = "Ustawienia odtwarzania";
 "playback_settings_title" = "Ustawienia odtwarzania";
 "played" = "Odtworzono";
+"default_artwork_title" = "Domyślna okładka";
+"default_artwork_standard" = "Dotychczasowy styl";
+"default_artwork_app_icon" = "Bieżąca ikona aplikacji";
 "player_animated_artwork" = "Animowana okładka";
 "player_animated_artwork_description" = "Odtwarzaj dostarczone przez źródło pliki GIF, APNG i animowane grafiki WebP na szczegółach albumu i grafice głównego odtwarzacza. Na listach zawsze używana jest statyczna pierwsza klatka, przy czym przestrzegane są systemowe ustawienia ruchu i zasilania.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Tylko dla oryginalnej grafiki";

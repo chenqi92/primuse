@@ -453,6 +453,7 @@
 "app_icon_export_failed_title" = "Symbol konnte nicht exportiert werden";
 "app_icon_export_failed_message" = "Das Symbol konnte nicht erstellt werden. Bitte versuche es erneut.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Klassisch";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
 "icon_theme_12" = "pikaqiu";
@@ -3267,6 +3268,9 @@
 "now_playing_audio_transcoded" = "Vom Server transkodiert";
 "now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Tippe, um alle Formatdetails und die tatsächliche Abtastrate der Ausgabe zu sehen";
+"default_artwork_title" = "Standardcover";
+"default_artwork_standard" = "Bisheriger Stil";
+"default_artwork_app_icon" = "Aktuelles App-Symbol";
 "player_animated_artwork" = "Dynamisches Cover";
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
 "player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";

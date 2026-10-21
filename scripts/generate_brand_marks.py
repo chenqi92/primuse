@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
+from generate_flat_brand_assets import split_plate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,12 +115,16 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
     """(light, dark) colour and coverage per icon set name; no dark layer when one serves both."""
     marks: dict[str, tuple[Layer, Layer | None]] = {}
 
-    # Primuse: the Tinted plate's ground is a flat 28 grey with the note cut out, so
+    layers = [np.asarray(split_plate(filename)[1], dtype=float)
+              for filename in ("00-primuse.png", "00-primuse-dark.png")]
+    marks["AppIcon"] = tuple((layer[..., :3], layer[..., 3] / 255) for layer in layers)
+
+    # Classic Primuse: the Tinted plate's ground is a flat 28 grey with the note cut out, so
     # a tight ramp keeps the whole shaded ribbon opaque. The Light plate fades the
     # note head into the hole through near-white highlights, so both appearances
     # take the Dark plate's saturated magenta.
-    alpha = luma_alpha(load("00-primuse-tinted"), 1, 4, 14)
-    marks["AppIcon"] = ((glyph_colour(load("00-primuse-dark"), alpha), alpha), None)
+    alpha = luma_alpha(load("21-primuse-classic-tinted"), 1, 4, 14)
+    marks["AppIcon21"] = ((glyph_colour(load("21-primuse-classic-dark"), alpha), alpha), None)
 
     # Pikaqiu: the Tinted plate's star is drawn offset, so each plate keys itself.
     light_alpha = chroma_alpha(load("12-pikaqiu"), -1, 25, 70)
@@ -135,7 +140,6 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
     for name, stem in (
         ("AppIcon14", "14-letter-p"),
         ("AppIcon16", "16-nonoend"),
-        ("AppIcon17", "17-splash"),
         ("AppIcon19", "19-chris-muse"),
     ):
         alpha = luma_alpha(load(f"{stem}-tinted"), 1, 10, 40)

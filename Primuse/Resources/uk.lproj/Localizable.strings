@@ -2131,6 +2131,9 @@
 "ai_recommendation_intent_prompt_label" = "Підказка AI";
 "Genre" = "Жанр";
 "Medium / Large" = "Середній / Великий";
+"default_artwork_title" = "Типова обкладинка";
+"default_artwork_standard" = "Попередній стиль";
+"default_artwork_app_icon" = "Поточна піктограма застосунку";
 "player_animated_artwork" = "Динамічна обкладинка";
 "synology_auth_error_407" = "Адресу запиту IP заблоковано. Спочатку розблокуйте його в DSM.";
 "carplay_queue_empty" = "Черга порожня";
@@ -3973,6 +3976,7 @@
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Класична";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";

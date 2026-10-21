@@ -14,12 +14,14 @@ struct ArtworkView: View {
                 #if os(macOS)
                 MacDefaultArtwork()
                 #else
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.ultraThinMaterial)
-                    Image(systemName: "music.note")
-                        .font(.system(size: 60))
-                        .foregroundStyle(.secondary)
+                OptionalAppIconArtwork {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(.ultraThinMaterial)
+                        Image(systemName: "music.note")
+                            .font(.system(size: 60))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 #endif
             }

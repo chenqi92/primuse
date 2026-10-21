@@ -692,9 +692,11 @@ enum TVArtworkPlaceholderKind: Equatable {
     case music
     case playlist
     case book
+    case podcast
 }
 
 struct TVMusicPlaceholder: View {
+    @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
     private let width: CGFloat
     private let height: CGFloat
     private let radius: CGFloat
@@ -709,15 +711,26 @@ struct TVMusicPlaceholder: View {
     }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(TVColor.surfaceSubtle)
-            .overlay {
-                Image(systemName: kind == .book ? "book.closed" : kind == .playlist ? "music.note.list" : "music.note")
-                    .font(.system(size: min(width, height) * 0.32, weight: .regular))
-                    .foregroundStyle(TVColor.textMuted)
+        Group {
+            if (kind == .music || kind == .playlist) && MissingArtworkStyle(storedValue: missingArtworkStyle) == .appIcon {
+                Image("DefaultArtwork")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                    .accessibilityHidden(true)
+            } else {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(TVColor.surfaceSubtle)
+                    .overlay {
+                        Image(systemName: kind == .book ? "book.closed" : kind == .playlist ? "music.note.list" : "music.note")
+                            .font(.system(size: min(width, height) * 0.32, weight: .regular))
+                            .foregroundStyle(TVColor.textMuted)
+                    }
+                    .frame(width: width, height: height)
+                    .accessibilityHidden(true)
             }
-            .frame(width: width, height: height)
-            .accessibilityHidden(true)
+        }
     }
 }
 

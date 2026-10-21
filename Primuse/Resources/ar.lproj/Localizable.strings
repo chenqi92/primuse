@@ -1615,6 +1615,7 @@
 "icon_appearance_gray" = "الرمادي";
 "icon_appearance_hint" = "الأيقونة تتبع مظهر الشاشة الرئيسية. المس الشاشة الرئيسية مع الاستمرار، ثم اختر تحرير → تخصيص → تلقائي.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "كلاسيكي";
 "icon_theme_12" = "بيكاتشيو";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "نوتة ناعمة";
@@ -2576,6 +2577,9 @@
 "playback_settings" = "إعدادات التشغيل";
 "playback_settings_title" = "إعدادات التشغيل";
 "played" = "تم التشغيل";
+"default_artwork_title" = "الغلاف الافتراضي";
+"default_artwork_standard" = "النمط المعتاد";
+"default_artwork_app_icon" = "أيقونة التطبيق الحالية";
 "player_animated_artwork" = "العمل الفني الديناميكي";
 "player_animated_artwork_description" = "تشغيل أعمال GIF وAPNG وWebP المتحركة المقدمة من المصدر على تفاصيل الألبوم والأعمال الفنية للمشغل الأساسي. تستخدم القوائم دائمًا إطارًا أوليًا ثابتًا، ويتم احترام إعدادات حركة النظام والطاقة.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi فقط للأعمال الفنية الأصلية";

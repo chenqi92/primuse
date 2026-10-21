@@ -204,6 +204,7 @@
 "app_icon_export_failed_title" = "无法导出图标";
 "app_icon_export_failed_message" = "无法生成图标，请重试。";
 "icon_default" = "Primuse";
+"icon_theme_21" = "经典图标";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
 "icon_theme_12" = "皮卡丘";
@@ -3368,6 +3369,9 @@
 "now_playing_audio_transcoded" = "服务器转码";
 "now_playing_audio_original_file" = "原文件 %@";
 "now_playing_audio_info_hint" = "轻点查看完整规格和实际输出的采样率";
+"default_artwork_title" = "默认封面";
+"default_artwork_standard" = "原有样式";
+"default_artwork_app_icon" = "当前 App 图标";
 "player_animated_artwork" = "动态专辑封面";
 "player_animated_artwork_description" = "在专辑详情和播放器主封面中播放来源自带的 GIF、APNG 与动态 WebP。列表始终显示静态首帧，并遵循系统动态效果与电量设置。";
 "player_animated_artwork_unmetered_only" = "仅通过 Wi-Fi 下载原始封面";

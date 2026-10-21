@@ -7141,6 +7141,7 @@ private struct MacSTThemeView: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -7404,6 +7405,14 @@ private struct MacSTThemeView: View {
 
         MacSTSection(String(localized: "player_appearance_title")) {
             MacSTGroup {
+                MacSTRow(String(localized: "default_artwork_title")) {
+                    MacSTPicker(
+                        selection: $missingArtworkStyle,
+                        options: MissingArtworkStyle.allCases.map { ($0.rawValue, PMString($0.localizationKey)) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("appearance.defaultArtwork")
                 MacSTRow(
                     String(localized: "player_animated_artwork")
                 ) {

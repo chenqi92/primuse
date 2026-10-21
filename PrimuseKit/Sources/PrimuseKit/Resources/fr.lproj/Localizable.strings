@@ -728,6 +728,9 @@
 "library_recommendations_title" = "Recommandations";
 "more" = "Plus";
 "playback" = "Lecture";
+"default_artwork_title" = "Pochette par défaut";
+"default_artwork_standard" = "Style habituel";
+"default_artwork_app_icon" = "Icône actuelle de l’app";
 "player_animated_artwork" = "Pochette dynamique";
 "queue_title" = "File de lecture";
 "repeat" = "Répéter";

@@ -604,6 +604,9 @@
 "nfs.version.auto" = "آلي";
 "password" = "كلمة المرور";
 "playback" = "التشغيل";
+"default_artwork_title" = "الغلاف الافتراضي";
+"default_artwork_standard" = "النمط المعتاد";
+"default_artwork_app_icon" = "أيقونة التطبيق الحالية";
 "player_animated_artwork" = "العمل الفني الديناميكي";
 "queue_title" = "قائمة الانتظار";
 "radio.streamFormat.automatic" = "آلي";

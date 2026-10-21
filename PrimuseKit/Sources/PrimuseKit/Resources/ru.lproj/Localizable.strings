@@ -641,6 +641,9 @@
 "error.catalog.pageEndedEarlyOrExceeded" = "Нумерация страниц закончилась раньше или превысила общее количество.";
 "immersive_demo_artist" = "chenqi92";
 "source_connection_local_port" = "Порт локальной сети";
+"default_artwork_title" = "Обложка по умолчанию";
+"default_artwork_standard" = "Прежний стиль";
+"default_artwork_app_icon" = "Текущий значок приложения";
 "player_animated_artwork" = "Динамическая обложка";
 "src.displayName.aliyunDrive" = "Aliyun Drive";
 "error.fnConnect.accessCodeRejected" = "Код доступа FN Connect недействителен.";

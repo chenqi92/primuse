@@ -641,6 +641,9 @@
 "error.catalog.pageEndedEarlyOrExceeded" = "Пагінація треків закінчилася раніше або перевищила загальну кількість.";
 "immersive_demo_artist" = "chenqi92";
 "source_connection_local_port" = "Порт LAN";
+"default_artwork_title" = "Типова обкладинка";
+"default_artwork_standard" = "Попередній стиль";
+"default_artwork_app_icon" = "Поточна піктограма застосунку";
 "player_animated_artwork" = "Динамічна обкладинка";
 "src.displayName.aliyunDrive" = "Aliyun Drive";
 "error.fnConnect.accessCodeRejected" = "Код доступу FN Connect недійсний.";

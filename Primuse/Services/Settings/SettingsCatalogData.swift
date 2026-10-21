@@ -114,6 +114,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.coverAmbient", titleKey: "ext.tv.settings.coverColor", iosPage: .themeColor, macPage: .appearance, usesKitLocalization: true),
         SettingDefinition(id: "appearance.ambientStrength", titleKey: "ext.tv.settings.ambientIntensity", iosPage: .playerStyle, macPage: .appearance, keywords: ["背景", "浓度", "颜色", "封面色", "background", "intensity", "color"], usesKitLocalization: true),
         SettingDefinition(id: "appearance.playerBackdrop", titleKey: "player_backdrop_title", iosPage: .playerStyle, macPage: .appearance, keywords: ["background", "wallpaper", "背景", "封底", "back cover", "壁纸", "照片"]),
+        SettingDefinition(id: "appearance.defaultArtwork", titleKey: "default_artwork_title", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.animatedArtwork", titleKey: "player_animated_artwork", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.animatedArtworkUnmeteredOnly", titleKey: "player_animated_artwork_unmetered_only", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.motionArtworkService", titleKey: "motion_artwork_service_enabled", iosPage: .player, macPage: .appearance, keywords: ["animated artwork", "动态封面", "服务端点"]),

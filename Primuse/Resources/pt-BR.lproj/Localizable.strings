@@ -1615,6 +1615,7 @@
 "icon_appearance_gray" = "Cinza";
 "icon_appearance_hint" = "O ícone segue a aparência da tela inicial. Toque e segure a tela inicial e escolha Editar → Personalizar → Automático.";
 "icon_default" = "Primuse";
+"icon_theme_21" = "Clássico";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "Nota Suave";
@@ -2576,6 +2577,9 @@
 "playback_settings" = "Configurações de reprodução";
 "playback_settings_title" = "Configurações de reprodução";
 "played" = "Jogado";
+"default_artwork_title" = "Capa padrão";
+"default_artwork_standard" = "Estilo original";
+"default_artwork_app_icon" = "Ícone atual do app";
 "player_animated_artwork" = "Capa animada";
 "player_animated_artwork_description" = "Reproduza GIF fornecido pela fonte, APNG e arte animada de WebP nos detalhes do álbum e na arte do player principal. As listas sempre usam um primeiro quadro estático e as configurações de movimento e energia do sistema são respeitadas.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi apenas para arte original";

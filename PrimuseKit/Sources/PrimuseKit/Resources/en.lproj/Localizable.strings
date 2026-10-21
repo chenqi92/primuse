@@ -726,6 +726,9 @@
 "library_recommendations_title" = "Recommendations";
 "more" = "More";
 "playback" = "Playback";
+"default_artwork_title" = "Default artwork";
+"default_artwork_standard" = "Standard";
+"default_artwork_app_icon" = "Current app icon";
 "player_animated_artwork" = "Dynamic Artwork";
 "queue_title" = "Queue";
 "repeat" = "Repeat";

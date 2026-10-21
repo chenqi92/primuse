@@ -641,6 +641,9 @@
 "error.catalog.pageEndedEarlyOrExceeded" = "Parça sayfalandırması erken bitti veya toplamı aştı.";
 "immersive_demo_artist" = "chenqi92";
 "source_connection_local_port" = "LAN Bağlantı Noktası";
+"default_artwork_title" = "Varsayılan kapak";
+"default_artwork_standard" = "Önceki stil";
+"default_artwork_app_icon" = "Geçerli uygulama simgesi";
 "player_animated_artwork" = "Dinamik kapak";
 "src.displayName.aliyunDrive" = "Aliyun Drive";
 "error.fnConnect.accessCodeRejected" = "FN Connect erişim kodu geçersiz.";

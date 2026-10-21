@@ -1615,6 +1615,7 @@
 "icon_appearance_gray" = "ग्रे";
 "icon_appearance_hint" = "आइकन होम स्क्रीन स्वरूप का अनुसरण करता है। होम स्क्रीन को स्पर्श करके रखें, फिर संपादित करें → अनुकूलित करें → स्वचालित चुनें।";
 "icon_default" = "Primuse";
+"icon_theme_21" = "क्लासिक";
 "icon_theme_12" = "पिकाकिउ";
 "icon_theme_19" = "Chris’s Muse";
 "icon_theme_20" = "सॉफ्ट नोट";
@@ -2576,6 +2577,9 @@
 "playback_settings" = "प्लेबैक सेटिंग्स";
 "playback_settings_title" = "प्लेबैक सेटिंग्स";
 "played" = "सुना गया";
+"default_artwork_title" = "डिफ़ॉल्ट कवर";
+"default_artwork_standard" = "मूल शैली";
+"default_artwork_app_icon" = "मौजूदा ऐप आइकन";
 "player_animated_artwork" = "गतिशील कलाकृति";
 "player_animated_artwork_description" = "एल्बम विवरण और प्राथमिक प्लेयर आर्टवर्क पर स्रोत-प्रदत्त जीआईएफ, एपीएनजी और एनिमेटेड वेबपी आर्टवर्क चलाएं। सूचियाँ हमेशा एक स्थिर प्रथम फ्रेम का उपयोग करती हैं, और सिस्टम गति और पावर सेटिंग्स का सम्मान किया जाता है।";
 "player_animated_artwork_unmetered_only" = "Wi-Fi केवल मूल कलाकृति के लिए";

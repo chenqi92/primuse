@@ -728,6 +728,9 @@
 "library_recommendations_title" = "スマートおすすめ";
 "more" = "もっと見る";
 "playback" = "再生";
+"default_artwork_title" = "デフォルトのカバー";
+"default_artwork_standard" = "従来のスタイル";
+"default_artwork_app_icon" = "現在のアプリアイコン";
 "player_animated_artwork" = "ダイナミックアートワーク";
 "queue_title" = "再生キュー";
 "repeat" = "リピート";

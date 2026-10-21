@@ -608,7 +608,7 @@ struct TVPodcastArtwork: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                TVMusicPlaceholder(tint: TVColor.podcastSpace, tint2: TVColor.bgDeep, size: side)
+                TVMusicPlaceholder(tint: TVColor.podcastSpace, tint2: TVColor.bgDeep, kind: .podcast, size: side)
             }
         }
         .frame(width: side, height: side)

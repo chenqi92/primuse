@@ -604,6 +604,9 @@
 "nfs.version.auto" = "อัตโนมัติ";
 "password" = "รหัสผ่าน";
 "playback" = "การเล่น";
+"default_artwork_title" = "ภาพปกเริ่มต้น";
+"default_artwork_standard" = "รูปแบบเดิม";
+"default_artwork_app_icon" = "ไอคอนแอปปัจจุบัน";
 "player_animated_artwork" = "งานศิลปะแบบไดนามิก";
 "queue_title" = "คิว";
 "radio.streamFormat.automatic" = "อัตโนมัติ";

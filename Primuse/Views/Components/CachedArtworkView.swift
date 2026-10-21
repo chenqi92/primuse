@@ -653,18 +653,20 @@ struct CachedArtworkView: View {
     }
 
     private var symbolicPlaceholder: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        OptionalAppIconArtwork(symbol: placeholderIcon) {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-            Image(systemName: placeholderIcon)
-                .font(.system(size: (size ?? 200) * 0.25))
-                .foregroundStyle(.secondary)
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: (size ?? 200) * 0.25))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -61,6 +61,8 @@ struct TVSettingsView: View {
     private var immersiveEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
+    @State private var showsDefaultArtworkPicker = false
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     /// 和 iPhone、Mac 同一个键,经 iCloud 键值同步(启动时在 App 里登记)。
@@ -206,6 +208,11 @@ struct TVSettingsView: View {
                                    immersiveEffect.localizedTitle,
                                    action: { showsEffectPicker = true })
                             settingDivider
+                            navRow("photo", PMString("default_artwork_title"),
+                                   PMString(MissingArtworkStyle(storedValue: missingArtworkStyle).localizationKey)) {
+                                showsDefaultArtworkPicker = true
+                            }
+                            settingDivider
                             toggleRow(
                                 "photo.stack.fill",
                                 PMString("player_animated_artwork"),
@@ -347,6 +354,13 @@ struct TVSettingsView: View {
             TVScraperSettingsView().environment(store)
         }
         .preferredColorScheme(appearance.colorScheme)
+        .confirmationDialog(PMString("default_artwork_title"), isPresented: $showsDefaultArtworkPicker, titleVisibility: .visible) {
+            ForEach(MissingArtworkStyle.allCases, id: \.self) { style in
+                Button(PMString(style.localizationKey)) {
+                    missingArtworkStyle = style.rawValue
+                }
+            }
+        }
         .onExitCommand {
             if showsTabBarSettings {
                 showsTabBarSettings = false
