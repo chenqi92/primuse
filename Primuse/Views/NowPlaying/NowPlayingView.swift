@@ -1256,7 +1256,7 @@ struct NowPlayingView: View {
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
     /// save the chosen lyrics under a different song on each presentation.
     @State private var scrapeTargetSong: Song?
-    @State private var showAddToPlaylist = false
+    @State private var libraryActions = NowPlayingLibraryActions()
     @State private var shareSong: Song?
     /// 分享页里点了「分享歌词」。海报是播放页自己的一层 sheet，要等分享页收完再弹，
     /// 两层同时在场后一层会被系统直接丢掉。
@@ -1319,7 +1319,8 @@ struct NowPlayingView: View {
         showQueue
             || showsImmersiveEffectPicker
             || scrapeTargetSong != nil
-            || showAddToPlaylist
+            || libraryActions.playlistSong != nil
+            || libraryActions.failureMessage != nil
             || shareSong != nil
             || showSongInfo
             || playbackRangeEditorRequest != nil
@@ -1497,7 +1498,8 @@ struct NowPlayingView: View {
     private var isCurrentLiked: Bool {
         guard let song = player.currentSong else { return false }
         if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
-        return library.isLiked(songID: song.id)
+        let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song)
+        return library.isLiked(songID: canonical.id)
     }
 
     /// 当前歌是否被标了「不喜欢」(#193) ── 只在「更多」菜单里出现, 不占播放器上的按钮位。
@@ -1708,13 +1710,25 @@ struct NowPlayingView: View {
     }
 
     private func toggleLikedCurrent() {
-        guard let song = player.currentSong else { return }
-        PMHaptics.likeToggled(isLiked: !isCurrentLiked)
+        guard let song = player.currentSong, !libraryActions.isBusy else { return }
+        let desired = !isCurrentLiked
         if PodcastPlaybackSong.isEpisode(song) {
+            PMHaptics.likeToggled(isLiked: desired)
             player.toggleLikeForCurrentPodcastEpisode()
             return
         }
-        library.toggleLiked(songID: song.id)
+        Task {
+            if await libraryActions.perform(.like(desired), song: song, library: library) {
+                PMHaptics.likeToggled(isLiked: desired)
+            }
+        }
+    }
+
+    private func addCurrentSongToPlaylist() {
+        guard let song = player.currentSong, !libraryActions.isBusy else { return }
+        Task {
+            await libraryActions.perform(.addToPlaylist, song: song, library: library)
+        }
     }
 
     private func presentImmersiveLyrics() {
@@ -3335,13 +3349,36 @@ struct NowPlayingView: View {
             .presentationDetents([.large])
             .playerPresentationColorScheme()
         }
-        .sheet(isPresented: $showAddToPlaylist) {
-            if let song = player.currentSong {
-                AddToPlaylistSheet(song: song)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
-                    .playerPresentationColorScheme()
+        .sheet(item: $libraryActions.playlistSong) { song in
+            AddToPlaylistSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .playerPresentationColorScheme()
+        }
+        .overlay(alignment: .bottom) {
+            if let pending = libraryActions.pendingSong,
+               pending.sourceID == AppleMusicLibraryService.systemSourceID {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("apple_music_saving")
+                        Text(verbatim: pending.title).font(.caption).lineLimit(1)
+                    }
+                }
+                .padding(14)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                .allowsHitTesting(false)
             }
+        }
+        .alert(libraryActions.failureTitle, isPresented: Binding(
+            get: { libraryActions.failureMessage != nil },
+            set: { if !$0 { libraryActions.failureMessage = nil } }
+        )) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(verbatim: libraryActions.failureMessage ?? "")
         }
         .sheet(item: $shareSong, onDismiss: { presentLyricPosterRequestedFromShare() }) { song in
             SongShareSheet(
@@ -7466,6 +7503,7 @@ struct NowPlayingView: View {
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
             isCurrentLiked: isCurrentLiked,
+            isSavingLibrarySong: libraryActions.isBusy,
             canDislike: player.canDislikeCurrentSong && !menuSuppressed.contains(.dislike) && shows(.dislike),
             isCurrentDisliked: isCurrentDisliked,
             playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio
@@ -7503,7 +7541,7 @@ struct NowPlayingView: View {
             plainLabel: plainLabel,
             equalizer: player.equalizerService,
             onEnterFullScreen: { presentImmersiveLyrics() },
-            onAddToPlaylist: { showAddToPlaylist = true },
+            onAddToPlaylist: { addCurrentSongToPlaylist() },
             onScrape: { openScrapeForCurrentSong() },
             onReloadLyricsFromSource: { reloadLyricsFromSource() },
             onShowSimilarSongs: { showSimilarSongs = true },
@@ -8671,6 +8709,8 @@ struct NowPlayingView: View {
     private func standardControl(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> some View {
         let face = controlFace(action)
         let notice = unavailableNotice(for: action)
+        let isDisabled = (face.requiresSong && player.currentSong == nil)
+            || (libraryActions.isBusy && (action == .like || action == .addToPlaylist))
         let button = Button {
             if let notice {
                 controlNotice = notice
@@ -8685,20 +8725,20 @@ struct NowPlayingView: View {
         case .bar, .wideBar, .edge:
             button
                 .frame(width: 44, height: 44)
-                .disabled(face.requiresSong && player.currentSong == nil)
+                .disabled(isDisabled)
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
         case .header:
             button
                 .frame(width: 44, height: 44)
                 .buttonStyle(.plain)
-                .disabled(face.requiresSong && player.currentSong == nil)
+                .disabled(isDisabled)
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
         case .glass, .column, .effectGlass, .effectPill:
             button
                 .buttonStyle(.plain)
-                .disabled(face.requiresSong && player.currentSong == nil)
+                .disabled(isDisabled)
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
         }
@@ -8974,7 +9014,7 @@ struct NowPlayingView: View {
         case .equalizer: openEqualizer()
         case .karaoke: showKaraoke = true
         case .fullScreen: presentImmersiveLyrics()
-        case .addToPlaylist: showAddToPlaylist = true
+        case .addToPlaylist: addCurrentSongToPlaylist()
         case .share: shareSong = player.currentSong
         case .cast: showCastPicker = true
         case .airPlay, .playbackSpeed: break
@@ -11536,6 +11576,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// iPhone Duo 竖栏那一列放不下时收进这里的按钮。
     let columnOverflow: NowPlayingBarColumnOverflow
     let isCurrentLiked: Bool
+    let isSavingLibrarySong: Bool
     /// 曲库里的音乐才能标「不喜欢」(#193)。
     let canDislike: Bool
     let isCurrentDisliked: Bool
@@ -11938,7 +11979,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             .count
     }
 
-    private var promotesAddToPlaylist: Bool { quickActionCount < 3 }
+    private var promotesAddToPlaylist: Bool { quickActionCount < 3 && !snapshot.isAppleMusicMode }
 
     /// 留在列表里时用完整说法，提到横排里时用短的那条。
     @ViewBuilder
@@ -11950,12 +11991,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 systemImage: "text.badge.plus",
                 action: onAddToPlaylist
             )
-            .disabled(!snapshot.hasSong)
+            .disabled(!snapshot.hasSong || snapshot.isSavingLibrarySong)
         } else {
             Button(action: onAddToPlaylist) {
                 Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
             }
-            .disabled(!snapshot.hasSong)
+            .disabled(!snapshot.hasSong || snapshot.isSavingLibrarySong)
         }
     }
 
@@ -11970,7 +12011,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     Label(String(localized: "a11y_like"), systemImage: "heart")
                 }
             }
-            .disabled(!snapshot.hasSong)
+            .disabled(!snapshot.hasSong || snapshot.isSavingLibrarySong)
         case .lyrics:
             Button(action: onToggleLyrics) {
                 if snapshot.isShowingLyrics {

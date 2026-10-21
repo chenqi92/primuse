@@ -120,6 +120,9 @@ final class AppleMusicLibraryService {
     private let library: MusicLibrary
     private let appleMusic: AppleMusicService
     private var syncTask: Task<Void, Never>?
+    #if os(iOS)
+    @ObservationIgnored private var catalogSaveTasks: [String: Task<PrimuseKit.Song, Error>] = [:]
+    #endif
     private var syncGeneration = UUID()
     /// 进度看门狗用的时间戳 ── 每收到一页 user library / 处理完一个歌单就续期。
     /// 看门狗只在「连续 stallTimeout 秒没有任何进度」时才判超时, 而不是给整个 sync
@@ -852,14 +855,37 @@ final class AppleMusicLibraryService {
         case notAuthorized
         case librarySyncUnavailable
         case notSynced
+        case unavailable
+        case syncFailed(String)
+        case requiresMusicApp
 
         var errorDescription: String? {
             switch self {
             case .notAuthorized: AppleMusicAuthorizationGuidance.notAuthorizedMessage
             case .librarySyncUnavailable: String(localized: "apple_music_save_sync_unavailable")
             case .notSynced: String(localized: "apple_music_save_not_synced")
+            case .unavailable: String(localized: "apple_music_unavailable")
+            case .syncFailed(let message): message
+            case .requiresMusicApp: String(localized: "apple_music_mac_save_message")
             }
         }
+    }
+
+    func resolveLibraryActionSong(_ song: PrimuseKit.Song) async throws -> PrimuseKit.Song {
+        try Task.checkCancellation()
+        let canonical = canonicalLibrarySong(for: song)
+        if let existing = library.song(id: canonical.id) { return existing }
+        guard song.sourceID == Self.systemSourceID else { throw CocoaError(.fileNoSuchFile) }
+        guard appleMusic.authState == .authorized else { throw CatalogSaveError.notAuthorized }
+        #if os(iOS)
+        guard let catalog = try await loadCatalogMusicKitSong(forItemID: song.filePath) else {
+            try Task.checkCancellation()
+            throw CatalogSaveError.unavailable
+        }
+        return try await addCatalogSongToLibrary(catalog)
+        #else
+        throw CatalogSaveError.requiresMusicApp
+        #endif
     }
 
     #if os(iOS)
@@ -868,7 +894,24 @@ final class AppleMusicLibraryService {
     /// 资料库刚加进去的歌偶尔要过一两秒才读得到,没对上就隔一会儿再同步,最多四轮。
     /// macOS 没有 `MusicKit.MusicLibrary.shared`,这一步只有 iOS 能做。
     func addCatalogSongToLibrary(_ song: MusicKit.Song) async throws -> PrimuseKit.Song {
+        try Task.checkCancellation()
         if let existing = librarySong(forCatalog: song) { return existing }
+        let id = song.id.rawValue
+        if let pending = catalogSaveTasks[id] {
+            let saved = try await pending.value
+            try Task.checkCancellation()
+            return saved
+        }
+        // Search and the player can request the same song while its library row is still syncing.
+        let task = Task { try await saveCatalogSongToLibrary(song) }
+        catalogSaveTasks[id] = task
+        defer { catalogSaveTasks[id] = nil }
+        let saved = try await task.value
+        try Task.checkCancellation()
+        return saved
+    }
+
+    private func saveCatalogSongToLibrary(_ song: MusicKit.Song) async throws -> PrimuseKit.Song {
         guard appleMusic.authState == .authorized else { throw CatalogSaveError.notAuthorized }
         guard AppleMusicSourcePolicy.isSyncable(
             isInstalled: library.appleMusicSourceInstalled,
@@ -880,24 +923,26 @@ final class AppleMusicLibraryService {
         try await MusicKit.MusicLibrary.shared.add(song)
         for attempt in 0..<4 {
             if attempt > 0 { try await Task.sleep(for: .seconds(2)) }
-            await syncAndWait()
+            try await syncAndWait()
             if let found = librarySong(forCatalog: song) {
                 plog("🍎 Catalog song saved to library '\(song.title)' after \(attempt + 1) sync(s)")
                 return found
             }
+            if case .failed(let message) = state { throw CatalogSaveError.syncFailed(message) }
         }
         plog("⚠️ Catalog song added to Apple Music but not found after sync '\(song.title)'")
         throw CatalogSaveError.notSynced
     }
 
     /// 发起一次同步(正在跑的就等那一次),等它结束。最多等 90 秒。
-    private func syncAndWait() async {
+    private func syncAndWait() async throws {
         sync()
         let deadline = Date().addingTimeInterval(90)
         while syncTask != nil, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(300))
-            if Task.isCancelled { return }
+            try await Task.sleep(for: .milliseconds(300))
         }
+        try Task.checkCancellation()
+        guard syncTask == nil else { throw CatalogSaveError.notSynced }
     }
     #endif
 
@@ -910,6 +955,16 @@ final class AppleMusicLibraryService {
 
     /// 同上,按 MusicKit 条目 ID(Primuse 歌曲的 `filePath`)取。
     func catalogMusicKitSong(forItemID itemID: String) async -> MusicKit.Song? {
+        do {
+            return try await loadCatalogMusicKitSong(forItemID: itemID)
+        } catch {
+            plog("⚠️Apple Music catalog lookup failed for \(itemID): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func loadCatalogMusicKitSong(forItemID itemID: String) async throws -> MusicKit.Song? {
+        try Task.checkCancellation()
         guard appleMusic.authState == .authorized else { return nil }
         let catalogID: String
         if Self.isCatalogItemID(itemID) {
@@ -923,18 +978,13 @@ final class AppleMusicLibraryService {
             }
             catalogID = found
         }
-        do {
-            var request = MusicCatalogResourceRequest<MusicKit.Song>(
-                matching: \.id, equalTo: MusicItemID(rawValue: catalogID)
-            )
-            if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
-                request.options = [.findEquivalents]
-            }
-            return try await request.response().items.first
-        } catch {
-            plog("⚠️Apple Music catalog lookup failed for \(catalogID): \(error.localizedDescription)")
-            return nil
+        var request = MusicCatalogResourceRequest<MusicKit.Song>(
+            matching: \.id, equalTo: MusicItemID(rawValue: catalogID)
+        )
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
+            request.options = [.findEquivalents]
         }
+        return try await request.response().items.first
     }
 
     /// 资料库里这几首 Apple Music 歌的身份,用来和目录曲目对上。缓存里有 MusicKit 条目就带上
