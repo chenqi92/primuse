@@ -4,6 +4,45 @@ import Testing
 
 @Suite("Apple Music queue mirror policy")
 struct AppleMusicQueueMirrorPolicyTests {
+    @Test("Resolved native entries preserve each occurrence of a repeated song")
+    func bindsResolvedEntryIDsByVerifiedOrder() {
+        let ids = (0..<4).map { _ in UUID() }
+        let nativeIDs = ["resolved-a1", "resolved-b", "resolved-a2", "resolved-c"]
+        let mapping = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: nativeIDs,
+            nativeSongIDs: ["a", "b", "a", "c"],
+            expectedSongIDs: ["a", "b", "a", "c"], queueEntryIDs: ids
+        )
+        #expect(mapping?["resolved-a1"] == ids[0])
+        #expect(mapping?["resolved-a2"] == ids[2])
+        #expect(mapping?.count == 4)
+    }
+
+    @Test("Partial, reordered, or unresolved snapshots cannot reassign queue identities")
+    func rejectsUnverifiedSongOrder() {
+        let ids = [UUID(), UUID(), UUID()]
+        let snapshots: [[String?]] = [["a", "b"], ["b", "a", "a"], ["a", nil, "a"]]
+        for snapshot in snapshots {
+            #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+                nativeEntryIDs: snapshot.indices.map { "entry-\($0)" },
+                nativeSongIDs: snapshot, expectedSongIDs: ["a", "b", "a"], queueEntryIDs: ids
+            ) == nil)
+        }
+    }
+
+    @Test("Duplicate native or Primuse entry IDs cannot collapse occurrences")
+    func rejectsNonUniqueEntryIDs() {
+        let first = UUID(), second = UUID()
+        #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["a", "a"], nativeSongIDs: ["song", "song"],
+            expectedSongIDs: ["song", "song"], queueEntryIDs: [first, second]
+        ) == nil)
+        #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["a", "b"], nativeSongIDs: ["song", "song"],
+            expectedSongIDs: ["song", "song"], queueEntryIDs: [first, first]
+        ) == nil)
+    }
+
     @Test("Cancelled or superseded mirrors cannot replace a newer queue")
     func rejectsStaleMirrorSessions() {
         #expect(!AppleMusicQueueMirrorPolicy.isActiveSession(

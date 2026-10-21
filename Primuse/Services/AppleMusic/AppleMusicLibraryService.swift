@@ -536,7 +536,7 @@ final class AppleMusicLibraryService {
     func updateManagedQueue(_ queue: ManagedQueue, requestID: UUID) async {
         guard let resolved = await resolveManagedQueue(queue, requestID: requestID),
               !Task.isCancelled else { return }
-        appleMusic.updateManagedQueue(
+        await appleMusic.updateManagedQueue(
             songs: resolved.songs,
             entryIDs: resolved.entryIDs,
             currentEntryID: queue.entries[queue.startIndex].id,
@@ -1113,7 +1113,7 @@ final class AppleMusicLibraryService {
         return index
     }
 
-    private nonisolated static func trackIdentity(_ song: MusicKit.Song) -> AppleMusicTrackIdentity {
+    nonisolated static func trackIdentity(_ song: MusicKit.Song) -> AppleMusicTrackIdentity {
         AppleMusicTrackIdentity(
             itemID: song.id.rawValue,
             alternateIDs: alternateMusicItemIDs(for: song),

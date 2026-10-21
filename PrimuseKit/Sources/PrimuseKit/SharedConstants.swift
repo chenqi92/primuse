@@ -2587,6 +2587,24 @@ public enum AppleMusicLibraryPreferences {
 /// Pure policy for deciding whether a MusicKit queue snapshot may replace
 /// Primuse's canonical playback queue.
 public enum AppleMusicQueueMirrorPolicy {
+    /// MusicKit resolves transient entries into new native IDs. Bind by
+    /// occurrence only after the complete, canonicalized song order matches.
+    public static func resolvedEntryIDs(
+        nativeEntryIDs: [String],
+        nativeSongIDs: [String?],
+        expectedSongIDs: [String],
+        queueEntryIDs: [UUID]
+    ) -> [String: UUID]? {
+        guard !queueEntryIDs.isEmpty,
+              nativeEntryIDs.count == queueEntryIDs.count,
+              nativeSongIDs.count == queueEntryIDs.count,
+              expectedSongIDs.count == queueEntryIDs.count,
+              Set(nativeEntryIDs).count == nativeEntryIDs.count,
+              Set(queueEntryIDs).count == queueEntryIDs.count,
+              zip(nativeSongIDs, expectedSongIDs).allSatisfy({ $0 == $1 }) else { return nil }
+        return Dictionary(uniqueKeysWithValues: zip(nativeEntryIDs, queueEntryIDs))
+    }
+
     public static func isActiveSession(
         sessionGeneration: UInt64,
         activeGeneration: UInt64,

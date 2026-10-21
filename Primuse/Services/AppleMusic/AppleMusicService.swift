@@ -177,6 +177,13 @@ final class AppleMusicService {
     private(set) var queueSongs: [PrimuseKit.Song] = []
     private(set) var nowPlayingQueueEntryID: UUID?
     @ObservationIgnored private var managedQueueEntryIDs: [String: UUID] = [:]
+    private struct ManagedQueueProjection {
+        let songIDs: [String]
+        let entryIDs: [UUID]
+        let identities: AppleMusicTrackIdentityIndex
+    }
+    @ObservationIgnored private var managedQueueProjection: ManagedQueueProjection?
+    @ObservationIgnored private var managedQueueUpdateID: UUID?
     @ObservationIgnored private var lastObservedEntryID: String?
     @ObservationIgnored private var recoveredWithSingleItem = false
     /// repeat / shuffle 状态投影 ── 映射成 PrimuseKit.RepeatMode 让 NowPlayingView
@@ -414,9 +421,7 @@ final class AppleMusicService {
         systemStartRequestID = requestID
         let index = startingIndex ?? songs.firstIndex(where: { $0.id == starting.id }) ?? 0
         let entries = songs.map { MusicPlayer.Queue.Entry($0) }
-        managedQueueEntryIDs = queueEntryIDs.map {
-            Dictionary(uniqueKeysWithValues: zip(entries.map(\.id), $0))
-        } ?? [:]
+        setManagedQueueProjection(songs: songs, entryIDs: queueEntryIDs, entries: entries)
         nowPlayingQueueEntryID = managedQueueEntryIDs[entries[index].id]
         lastObservedEntryID = entries[index].id
         ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
@@ -440,6 +445,20 @@ final class AppleMusicService {
               !wasPausedByUser,
               !Task.isCancelled else {
             throw CancellationError()
+        }
+
+        refreshManagedQueueEntryIDs()
+        if let selectedID = managedQueueProjection?.entryIDs[index],
+           let selected = ApplicationMusicPlayer.shared.queue.entries.first(where: {
+               managedQueueEntryIDs[$0.id] == selectedID
+           }) {
+            // Selecting the transient entry can choose the first copy of a
+            // repeated song. The resolved entry identifies its occurrence.
+            if ApplicationMusicPlayer.shared.queue.currentEntry?.id != selected.id {
+                ApplicationMusicPlayer.shared.queue.currentEntry = selected
+            }
+            nowPlayingQueueEntryID = selectedID
+            lastObservedEntryID = selected.id
         }
 
         do {
@@ -909,6 +928,8 @@ final class AppleMusicService {
         nowPlayingRawSongID = nil
         nowPlayingQueueEntryID = nil
         managedQueueEntryIDs = [:]
+        managedQueueProjection = nil
+        managedQueueUpdateID = nil
         lastObservedEntryID = nil
         recoveredWithSingleItem = false
         isAppleMusicPlaying = false
@@ -943,11 +964,13 @@ final class AppleMusicService {
      private func tickAppleMusicState(requestID: UUID) async {
          guard isPlaybackRequestActive(requestID),
                playbackPhase(for: requestID) == .started,
+               managedQueueUpdateID == nil,
                !Task.isCancelled else { return }
          let player = ApplicationMusicPlayer.shared
          let status = player.state.playbackStatus
          let playbackTime = player.playbackTime
          let nowPlaying = status == .playing
+         refreshManagedQueueEntryIDs()
          // 换 entry 通常是换了一首, 观测窗口要重开。但 MusicKit 收摊一条
          // 播完的 queue 时也会重建 currentEntry ── 如果在那一拍把观测清零,
          // 曲末判定就永远等不到 hasObservedActivePlayback, 整段 Apple Music
@@ -1174,6 +1197,8 @@ final class AppleMusicService {
          nowPlayingRawSongID = nil
          nowPlayingQueueEntryID = nil
          managedQueueEntryIDs = [:]
+         managedQueueProjection = nil
+         managedQueueUpdateID = nil
          lastObservedEntryID = nil
          recoveredWithSingleItem = false
          isAppleMusicPlaying = false
@@ -1253,38 +1278,137 @@ final class AppleMusicService {
          resetPublishedPlaybackState()
      }
 
-     /// Preserve the active native entry while applying edits to Primuse's queue.
+     private func setManagedQueueProjection(
+         songs: [MusicKit.Song],
+         entryIDs: [UUID]?,
+         entries: [MusicKit.MusicPlayer.Queue.Entry]
+     ) {
+         guard let entryIDs, entryIDs.count == songs.count,
+               entries.count == songs.count,
+               Set(entryIDs).count == entryIDs.count,
+               Set(entries.map(\.id)).count == entries.count else {
+             managedQueueProjection = nil
+             managedQueueEntryIDs = [:]
+             return
+         }
+         managedQueueProjection = ManagedQueueProjection(
+             songIDs: songs.map { $0.id.rawValue },
+             entryIDs: entryIDs,
+             identities: AppleMusicTrackIdentityIndex(songs.map(AppleMusicLibraryService.trackIdentity))
+         )
+         managedQueueEntryIDs = Dictionary(uniqueKeysWithValues: zip(entries.map(\.id), entryIDs))
+     }
+
+     private func refreshManagedQueueEntryIDs() {
+         guard let projection = managedQueueProjection else { return }
+         let entries = ApplicationMusicPlayer.shared.queue.entries
+         guard entries.count == projection.entryIDs.count,
+               entries.contains(where: { managedQueueEntryIDs[$0.id] == nil }) else { return }
+         let songIDs = entries.map { entry -> String? in
+             let song: MusicKit.Song?
+             if case .song(let resolved) = entry.item {
+                 song = resolved
+             } else {
+                 song = entry.transientItem as? MusicKit.Song
+             }
+             return song.flatMap {
+                 projection.identities.canonicalID(for: AppleMusicLibraryService.trackIdentity($0))
+             }
+         }
+         if let resolved = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+             nativeEntryIDs: entries.map(\.id), nativeSongIDs: songIDs,
+             expectedSongIDs: projection.songIDs, queueEntryIDs: projection.entryIDs
+         ) {
+             managedQueueEntryIDs = resolved
+         }
+     }
+
+     /// Rebuild an edited queue without confusing repeated occurrences in MusicKit.
      func updateManagedQueue(
          songs: [MusicKit.Song],
          entryIDs: [UUID],
          currentEntryID: UUID,
          repeatMode: PrimuseKit.RepeatMode,
          requestID: UUID
-     ) {
+     ) async {
          guard isPlaybackRequestActive(requestID), playbackPhase(for: requestID) == .started,
-               !recoveredWithSingleItem,
+               !Task.isCancelled, !recoveredWithSingleItem,
                songs.count == entryIDs.count,
-               entryIDs.contains(currentEntryID),
-               let current = ApplicationMusicPlayer.shared.queue.currentEntry,
-               managedQueueEntryIDs[current.id] == currentEntryID else { return }
-         let player = ApplicationMusicPlayer.shared
-         let existing = Dictionary(uniqueKeysWithValues: player.queue.entries.compactMap { entry in
-             managedQueueEntryIDs[entry.id].map { ($0, entry) }
-         })
-         let entries = zip(songs, entryIDs).map { song, id in
-             existing[id] ?? MusicPlayer.Queue.Entry(song)
+               Set(entryIDs).count == entryIDs.count,
+               let selectedIndex = entryIDs.firstIndex(of: currentEntryID),
+               nowPlayingQueueEntryID == currentEntryID else { return }
+         refreshManagedQueueEntryIDs()
+         if managedQueueUpdateID == nil,
+            ApplicationMusicPlayer.shared.queue.entries.map({ managedQueueEntryIDs[$0.id] }) == entryIDs {
+             setAppleMusicRepeat(repeatMode)
+             ApplicationMusicPlayer.shared.state.shuffleMode = .off
+             return
          }
-         managedQueueEntryIDs = Dictionary(uniqueKeysWithValues: zip(entries.map(\.id), entryIDs))
-         if player.queue.entries.map(\.id) != entries.map(\.id) {
-             player.queue.entries = .init(entries)
+         let updateID = UUID()
+         let commandGeneration = playbackCommandGeneration
+         let wasPlaying = isAppleMusicPlaying
+         let nativePosition = managedQueueUpdateID == nil
+             ? ApplicationMusicPlayer.shared.playbackTime : currentPlaybackTime
+         currentPlaybackTime = nativePosition.isFinite ? max(0, nativePosition) : 0
+         managedQueueUpdateID = updateID
+         defer {
+             if managedQueueUpdateID == updateID { managedQueueUpdateID = nil }
          }
-         setAppleMusicRepeat(repeatMode)
-         player.state.shuffleMode = .off
+         // Moving resolved entries across Current can discard the selected
+         // occurrence or hang the native transport. A fresh queue avoids that
+         // incremental mutation and restores its playback position explicitly.
+         let entries = songs.map { MusicKit.MusicPlayer.Queue.Entry($0) }
+         setManagedQueueProjection(songs: songs, entryIDs: entryIDs, entries: entries)
+         ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
+             entries, startingAt: entries[selectedIndex]
+         )
+         do {
+             try await ApplicationMusicPlayer.shared.prepareToPlay()
+             guard isPlaybackRequestActive(requestID), managedQueueUpdateID == updateID,
+                   !Task.isCancelled else { return }
+             refreshManagedQueueEntryIDs()
+             guard let selected = ApplicationMusicPlayer.shared.queue.entries.first(where: {
+                 managedQueueEntryIDs[$0.id] == currentEntryID
+             }) else { return }
+             if ApplicationMusicPlayer.shared.queue.currentEntry?.id != selected.id {
+                 ApplicationMusicPlayer.shared.queue.currentEntry = selected
+             }
+             nowPlayingQueueEntryID = currentEntryID
+             lastObservedEntryID = selected.id
+             setAppleMusicRepeat(repeatMode)
+             ApplicationMusicPlayer.shared.state.shuffleMode = .off
+             let shouldPlay = playbackCommandGeneration == commandGeneration
+                 ? wasPlaying : !wasPausedByUser && !isPlaybackInterrupted
+             if shouldPlay {
+                 try await ApplicationMusicPlayer.shared.play()
+                 guard isPlaybackRequestActive(requestID), managedQueueUpdateID == updateID,
+                       !Task.isCancelled else { return }
+                 if wasPausedByUser || isPlaybackInterrupted {
+                     ApplicationMusicPlayer.shared.pause()
+                 }
+             } else {
+                 ApplicationMusicPlayer.shared.pause()
+             }
+             // The mirror is suspended during the edit, but an explicit seek
+             // still updates this value and takes precedence over the snapshot.
+             ApplicationMusicPlayer.shared.playbackTime = currentPlaybackTime
+         } catch {
+             guard isPlaybackRequestActive(requestID), managedQueueUpdateID == updateID,
+                   !Task.isCancelled else { return }
+             logQueueStartFailure(error, context: "queue edit")
+         }
      }
 
      func retainCurrentManagedQueueEntry() {
+         refreshManagedQueueEntryIDs()
          guard let current = ApplicationMusicPlayer.shared.queue.currentEntry,
-               managedQueueEntryIDs[current.id] != nil else { return }
+               let entryID = managedQueueEntryIDs[current.id],
+               let projection = managedQueueProjection,
+               let index = projection.entryIDs.firstIndex(of: entryID) else { return }
+         managedQueueProjection = ManagedQueueProjection(
+             songIDs: [projection.songIDs[index]], entryIDs: [entryID], identities: projection.identities
+         )
+         managedQueueEntryIDs = [current.id: entryID]
          ApplicationMusicPlayer.shared.queue.entries = [current]
          prepareForPrimuseManagedQueue()
      }

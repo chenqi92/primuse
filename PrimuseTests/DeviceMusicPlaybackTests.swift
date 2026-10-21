@@ -403,6 +403,281 @@ final class DeviceMusicPlaybackTests: XCTestCase {
     }
 
     @MainActor
+    func testAppleMusicManagedQueueKeepsSelectedOccurrenceOnPhysicalDevice() async throws {
+        let root = try fixtureDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        guard MusicAuthorization.currentStatus == .authorized else {
+            throw XCTSkip("Apple Music access is not authorized on this device.")
+        }
+        guard try await MusicSubscription.current.canPlayCatalogContent else {
+            throw XCTSkip("This device has no catalog playback entitlement.")
+        }
+        var request = MusicLibraryRequest<MusicKit.Song>()
+        request.limit = 12
+        let candidates = Array(try await request.response().items.prefix(3))
+        guard candidates.count == 3 else { throw XCTSkip("Three library songs are required.") }
+        let services = AppServices.shared
+        let appleMusic = services.appleMusic
+        let songs = [candidates[0], candidates[1], candidates[0], candidates[2]]
+        let entryIDs = songs.map { _ in UUID() }
+        let idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        services.playerService.pause()
+        defer {
+            appleMusic.stopAppleMusic()
+            UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled
+        }
+        var results: [[String: Any]] = []
+        for selected in [2, 1, 3, 0] {
+            let requestID = appleMusic.beginPlaybackRequest()
+            appleMusic.prepareForPrimuseManagedQueue()
+            await appleMusic.playUserLibrary(
+                songs: songs, startAt: selected, queueEntryIDs: entryIDs,
+                source: .catalogBackedUserLibrary, expectedDuration: songs[selected].duration ?? 0,
+                requestID: requestID, requestCanContinue: { true }
+            )
+            let progressed = await waitUntil(timeout: 20) {
+                appleMusic.isAppleMusicPlaying && appleMusic.currentPlaybackTime > 1
+            }
+            let actualEntry = ApplicationMusicPlayer.shared.queue.currentEntry
+            let actualIndex = actualEntry.flatMap { current in
+                ApplicationMusicPlayer.shared.queue.entries.firstIndex { $0.id == current.id }
+            }
+            let matched = appleMusic.nowPlayingQueueEntryID == entryIDs[selected]
+            results.append([
+                "selected": selected, "actualIndex": actualIndex ?? -1,
+                "entryMapped": matched, "progressed": progressed,
+                "requestedTitle": songs[selected].title, "actualTitle": actualEntry?.title ?? "",
+                "nativeCount": ApplicationMusicPlayer.shared.queue.entries.count,
+                "nativeEntryIDs": ApplicationMusicPlayer.shared.queue.entries.map(\.id),
+                "currentNativeEntryID": actualEntry?.id ?? "",
+                "error": appleMusic.lastPlaybackError ?? ""
+            ])
+            try writeResults(results, name: "apple-music-managed-queue", root: root)
+            XCTAssertTrue(progressed, "Selected song must play: \(appleMusic.lastPlaybackError ?? "no progress")")
+            XCTAssertEqual(actualEntry?.title, songs[selected].title)
+            XCTAssertEqual(actualIndex, selected, "Repeated songs must preserve their selected occurrence.")
+            XCTAssertTrue(matched, "Resolved MusicKit entries must keep their Primuse queue identity.")
+            if selected == 2, matched {
+                try await ApplicationMusicPlayer.shared.skipToNextEntry()
+                let advanced = await waitUntil { appleMusic.nowPlayingQueueEntryID == entryIDs[3] }
+                XCTAssertTrue(advanced, "Native advance must select the next Primuse occurrence.")
+                ApplicationMusicPlayer.shared.playbackTime = 0
+                try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+                let returned = await waitUntil { appleMusic.nowPlayingQueueEntryID == entryIDs[2] }
+                XCTAssertTrue(returned, "Native previous must return to the second copy.")
+
+                let insertedID = UUID()
+                appleMusic.seekAppleMusic(to: 12)
+                let sought = await waitUntil(timeout: 5) { ApplicationMusicPlayer.shared.playbackTime >= 11.5 }
+                XCTAssertTrue(sought, "Seek must settle before verifying progress across an edit.")
+                guard sought else { return }
+                await appleMusic.updateManagedQueue(
+                    songs: [songs[3], songs[2], songs[1]],
+                    entryIDs: [entryIDs[3], entryIDs[2], insertedID],
+                    currentEntryID: entryIDs[2], repeatMode: .off, requestID: requestID
+                )
+                let edited = await waitUntil {
+                    let entries = ApplicationMusicPlayer.shared.queue.entries
+                    return entries.count == 3
+                        && !entries.contains(where: \.isTransient)
+                        && ApplicationMusicPlayer.shared.queue.currentEntry?.id == entries[1].id
+                        && appleMusic.nowPlayingQueueEntryID == entryIDs[2]
+                        && appleMusic.isAppleMusicPlaying
+                        && ApplicationMusicPlayer.shared.playbackTime >= 11.5
+                }
+                func nativeState() -> [[String: String]] {
+                    ApplicationMusicPlayer.shared.queue.entries.map { entry in
+                        let song: MusicKit.Song?
+                        if case .song(let resolved) = entry.item { song = resolved } else { song = nil }
+                        return ["entryID": entry.id, "title": entry.title,
+                                "songID": song?.id.rawValue ?? "",
+                                "transientSongID": (entry.transientItem as? MusicKit.Song)?.id.rawValue ?? ""]
+                    }
+                }
+                let afterEdit = nativeState()
+                results.append(["stage": "edit", "passed": edited, "entries": afterEdit,
+                                "current": ApplicationMusicPlayer.shared.queue.currentEntry?.description ?? "",
+                                "time": ApplicationMusicPlayer.shared.playbackTime])
+                try writeResults(results, name: "apple-music-managed-queue", root: root)
+                XCTAssertTrue(edited, "Reorder, removal, and insertion must retain the playing occurrence.")
+                guard edited else { return }
+                XCTAssertGreaterThanOrEqual(ApplicationMusicPlayer.shared.playbackTime, 11.5,
+                                            "Editing the queue must preserve playback progress.")
+                try await ApplicationMusicPlayer.shared.skipToNextEntry()
+                let inserted = await waitUntil { appleMusic.nowPlayingQueueEntryID == insertedID }
+                XCTAssertTrue(inserted, "An inserted transient entry must resolve to its new Primuse ID.")
+                let afterNext = nativeState()
+                let currentAfterNext = ApplicationMusicPlayer.shared.queue.currentEntry
+                appleMusic.retainCurrentManagedQueueEntry()
+                let retained = await waitUntil {
+                    ApplicationMusicPlayer.shared.queue.entries.count == 1
+                        && appleMusic.nowPlayingQueueEntryID == insertedID
+                        && appleMusic.isAppleMusicPlaying
+                }
+                XCTAssertTrue(retained, "A renderer boundary must retain the current entry's identity.")
+                _ = appleMusic.pauseAppleMusic()
+                let pausedPosition = ApplicationMusicPlayer.shared.playbackTime
+                await appleMusic.updateManagedQueue(
+                    songs: [songs[3], songs[1], songs[0]],
+                    entryIDs: [UUID(), insertedID, UUID()], currentEntryID: insertedID,
+                    repeatMode: .off, requestID: requestID
+                )
+                let stayedPaused = await waitUntil {
+                    let entries = ApplicationMusicPlayer.shared.queue.entries
+                    return entries.count == 3 && !entries.contains(where: \.isTransient)
+                        && ApplicationMusicPlayer.shared.queue.currentEntry?.id == entries[1].id
+                        && ApplicationMusicPlayer.shared.state.playbackStatus == .paused
+                        && appleMusic.nowPlayingQueueEntryID == insertedID
+                        && !appleMusic.isAppleMusicPlaying
+                        && abs(ApplicationMusicPlayer.shared.playbackTime - pausedPosition) < 0.5
+                }
+                XCTAssertTrue(stayedPaused, "Editing a paused queue must not resume playback.")
+                XCTAssertEqual(ApplicationMusicPlayer.shared.playbackTime, pausedPosition, accuracy: 0.5)
+                var resumeEditFinished = false
+                let resumeEdit = Task { @MainActor in
+                    await appleMusic.updateManagedQueue(
+                        songs: [songs[0], songs[1], songs[3], songs[0]],
+                        entryIDs: [UUID(), insertedID, UUID(), UUID()], currentEntryID: insertedID,
+                        repeatMode: .off, requestID: requestID
+                    )
+                    resumeEditFinished = true
+                }
+                await Task.yield()
+                let resumedDuringEdit = !resumeEditFinished
+                let resumeRequested = appleMusic.resumeAppleMusic()
+                await resumeEdit.value
+                let resumed = await waitUntil {
+                    ApplicationMusicPlayer.shared.queue.entries.count == 4
+                        && appleMusic.nowPlayingQueueEntryID == insertedID
+                        && appleMusic.isAppleMusicPlaying && appleMusic.currentPlaybackTime > 0.5
+                }
+                XCTAssertTrue(resumeRequested && resumed, "A newer Play command must survive queue preparation.")
+                var pauseEditFinished = false
+                let pauseEdit = Task { @MainActor in
+                    await appleMusic.updateManagedQueue(
+                        songs: [songs[3], songs[1], songs[0]],
+                        entryIDs: [UUID(), insertedID, UUID()], currentEntryID: insertedID,
+                        repeatMode: .off, requestID: requestID
+                    )
+                    pauseEditFinished = true
+                }
+                await Task.yield()
+                let pausedDuringEdit = !pauseEditFinished
+                _ = appleMusic.pauseAppleMusic()
+                await pauseEdit.value
+                let paused = await waitUntil {
+                    ApplicationMusicPlayer.shared.queue.entries.count == 3
+                        && appleMusic.nowPlayingQueueEntryID == insertedID
+                        && ApplicationMusicPlayer.shared.state.playbackStatus == .paused
+                        && !appleMusic.isAppleMusicPlaying
+                }
+                XCTAssertTrue(paused, "A newer Pause command must survive queue preparation.")
+                let obsoleteEdit = Task { @MainActor in
+                    await appleMusic.updateManagedQueue(
+                        songs: [songs[0], songs[1], songs[0], songs[3]],
+                        entryIDs: [UUID(), insertedID, UUID(), UUID()], currentEntryID: insertedID,
+                        repeatMode: .off, requestID: requestID
+                    )
+                }
+                await Task.yield()
+                obsoleteEdit.cancel()
+                await appleMusic.updateManagedQueue(
+                    songs: [songs[1], songs[3]], entryIDs: [insertedID, UUID()],
+                    currentEntryID: insertedID, repeatMode: .off, requestID: requestID
+                )
+                await obsoleteEdit.value
+                let newestEditWon = await waitUntil {
+                    let entries = ApplicationMusicPlayer.shared.queue.entries
+                    return entries.count == 2 && !entries.contains(where: \.isTransient)
+                        && ApplicationMusicPlayer.shared.queue.currentEntry?.id == entries.first?.id
+                        && appleMusic.nowPlayingQueueEntryID == insertedID
+                        && ApplicationMusicPlayer.shared.state.playbackStatus == .paused
+                }
+                XCTAssertTrue(newestEditWon, "A superseded edit must not overwrite the newest queue.")
+                results.append(["nativeNext": advanced, "nativePrevious": returned,
+                                "queueEdit": edited, "insertedEntry": inserted, "retainCurrent": retained,
+                                "pausedEdit": stayedPaused,
+                                "resumeCommand": resumed, "pauseCommand": paused,
+                                "resumeIssuedDuringEdit": resumedDuringEdit,
+                                "pauseIssuedDuringEdit": pausedDuringEdit,
+                                "supersededEdit": newestEditWon,
+                                "afterEdit": afterEdit, "afterNext": afterNext,
+                                "currentAfterNext": currentAfterNext?.description ?? "",
+                                "mappedAfterNext": appleMusic.nowPlayingQueueEntryID?.uuidString ?? "",
+                                "expectedAfterNext": insertedID.uuidString])
+                try writeResults(results, name: "apple-music-managed-queue", root: root)
+            }
+            _ = appleMusic.pauseAppleMusic()
+        }
+    }
+
+    @MainActor
+    func testAppleMusicDuplicateQueueMirrorsIntoPlayerOnPhysicalDevice() async throws {
+        let root = try fixtureDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let services = AppServices.shared
+        guard MusicAuthorization.currentStatus == .authorized,
+              try await MusicSubscription.current.canPlayCatalogContent,
+              services.musicLibrary.appleMusicSourceInstalled,
+              !services.musicLibrary.disabledSourceIDs.contains(AppleMusicLibraryService.systemSourceID),
+              AppleMusicFeatureSettings.syncUserLibraryEnabled else {
+            throw XCTSkip("An enabled Apple Music library and subscription are required.")
+        }
+        var request = MusicLibraryRequest<MusicKit.Song>()
+        request.limit = 12
+        let candidates = Array(try await request.response().items.prefix(3))
+        guard candidates.count == 3 else { throw XCTSkip("Three library songs are required.") }
+        let songs = [candidates[0], candidates[1], candidates[0], candidates[2]]
+            .map(AppleMusicLibraryService.toPrimuseSong)
+        services.playerService.pause()
+        let player = AudioPlayerService(
+            sourceManager: services.sourceManager, library: services.musicLibrary,
+            playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("apple-music-queue-session.json"))
+        )
+        let appleMusic = services.appleMusic
+        let savedRepeatMode = player.repeatMode
+        let savedShuffle = player.shuffleEnabled
+        let savedIdleTimer = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        player.pause()
+        player.repeatMode = .off
+        player.shuffleEnabled = false
+        defer {
+            player.stop()
+            appleMusic.stopAppleMusic()
+            player.repeatMode = savedRepeatMode
+            player.shuffleEnabled = savedShuffle
+            UIApplication.shared.isIdleTimerDisabled = savedIdleTimer
+        }
+        player.setQueue(songs, startAt: 2)
+        let entryIDs = player.queueEntries.map(\.id)
+        await player.play(song: songs[2])
+        func matches(_ index: Int) -> Bool {
+            player.currentIndex == index && player.currentSong?.id == songs[index].id
+                && appleMusic.nowPlayingQueueEntryID == entryIDs[index]
+                && player.isPlaying && player.currentTime > 0.5
+        }
+        let selected = await waitUntil(timeout: 25) { matches(2) }
+        XCTAssertTrue(selected, "Primuse must keep the selected duplicate while MusicKit resolves its queue.")
+        try await ApplicationMusicPlayer.shared.skipToNextEntry()
+        let nativeNext = await waitUntil { matches(3) }
+        XCTAssertTrue(nativeNext, "A native skip must update Primuse's index and displayed song together.")
+        let previousRequested = await player.previous(restartsCurrentFirst: false)
+        let previous = await waitUntil { matches(2) }
+        XCTAssertTrue(previousRequested && previous, "Primuse previous must return to the second occurrence.")
+        let nextRequested = await player.next()
+        let next = await waitUntil { matches(3) }
+        XCTAssertTrue(nextRequested && next, "Primuse next must follow the selected occurrence.")
+        XCTAssertEqual(player.queueEntries.map(\.id), entryIDs)
+        try writeResults([["selectedDuplicate": selected, "nativeNextMirrored": nativeNext,
+                           "primusePrevious": previousRequested && previous,
+                           "primuseNext": nextRequested && next,
+                           "queuePreserved": player.queueEntries.map(\.id) == entryIDs]],
+                         name: "apple-music-player-queue", root: root)
+    }
+
+    @MainActor
     func testAppleMusicPlaybackOnPhysicalDevice() async throws {
         let root = try fixtureDirectory()
         let idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
