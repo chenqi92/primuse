@@ -2093,6 +2093,9 @@ extension AudioPlayerService {
     func appendToQueue(_ songs: [Song]) {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return }
+        let firstNewIndex = queueEntries.count
+        let traversal = usesManagedShuffleOrder ? shuffledIndices : Array(queueEntries.indices)
+        let anchor = usesManagedShuffleOrder ? (shuffleAnchorPosition ?? shufflePosition) : currentIndex
         invalidatePreparedQueueSuccessor()
         // Songs the listener queues play before the autoplay songs.
         if let index = queueInsertionIndexBeforeAutoContinuation() {
@@ -2105,7 +2108,12 @@ extension AudioPlayerService {
             AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
         }
         pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
+        if shuffleEnabled {
+            // Appending does not move existing slots. Extend this round so
+            // played history and an explicit Play Next choice stay in place.
+            shuffledIndices = traversal + Array(firstNewIndex..<queueEntries.count)
+            shufflePosition = anchor
+        }
         persistPlaybackSession()
         if isPlaybackActuallyActive { prefetchNextSong() }
         else { synchronizeAppleMusicQueue() }

@@ -233,6 +233,65 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(QueueContinuationStore(sessionStore: player.playbackSessionStore).load(), player.queueContinuation)
     }
 
+    func testAppendPreservesShuffleHistoryAndUpcomingOrder() throws {
+        let player = try makeQueuedPlayer(
+            [song("later"), song("heard"), song("current"), song("next"), song("tail")],
+            startAt: 2
+        )
+        player.isApplyingListeningPlayMode = true
+        player.shuffleEnabled = true
+        player.repeatMode = .all
+        player.isApplyingListeningPlayMode = false
+        player.shuffledIndices = [1, 2, 3, 0, 4]
+        player.shufflePosition = 0
+        player.pendingNextShuffleIndices = [4, 3, 2, 1, 0]
+        let entries = player.queueEntries.map(\.id)
+        let playID = UUID()
+        player.playID = playID
+        player.currentTime = 42
+
+        player.appendToQueue([song("added-a"), song("added-b")])
+
+        XCTAssertEqual(Array(player.queueEntries.prefix(entries.count)).map(\.id), entries)
+        XCTAssertEqual(player.currentIndex, 2)
+        XCTAssertEqual(player.currentSong?.id, "current")
+        XCTAssertEqual(player.playID, playID)
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertEqual(player.playedQueueEntries.map(\.entry.song.id), ["heard"])
+        XCTAssertEqual(player.shufflePosition, 1)
+        XCTAssertEqual(player.shuffledIndices, [1, 2, 3, 0, 4, 5, 6])
+        XCTAssertNil(player.pendingNextShuffleIndices)
+        XCTAssertEqual(
+            player.upcomingQueueEntries.filter { $0.id.roundOffset == 0 }.map(\.entry.song.id),
+            ["next", "later", "tail", "added-a", "added-b"]
+        )
+        XCTAssertEqual(player.nextSongInQueue()?.id, "next")
+        player.persistPlaybackSession(flushImmediately: true)
+        let saved = try XCTUnwrap(player.playbackSessionStore.load())
+        XCTAssertEqual(saved.shuffledIndices, player.shuffledIndices)
+        XCTAssertEqual(saved.shufflePosition, player.shufflePosition)
+    }
+
+    func testAppendKeepsExplicitPlayNextAheadOfTheShuffledQueue() throws {
+        let selected = song("selected")
+        let player = try makeQueuedPlayer([song("current"), song("later"), selected, song("tail")])
+        player.isApplyingListeningPlayMode = true
+        player.shuffleEnabled = true
+        player.isApplyingListeningPlayMode = false
+        player.shuffledIndices = [0, 3, 1, 2]
+        player.shufflePosition = 0
+        player.insertNextInQueue([selected])
+        let scheduled = player.upcomingQueueEntries.map(\.entry.id)
+
+        player.appendToQueue([song("added")])
+
+        XCTAssertEqual(Array(player.upcomingQueueEntries.prefix(scheduled.count)).map(\.entry.id), scheduled)
+        XCTAssertEqual(player.upcomingQueueEntries.map(\.entry.song.id), ["selected", "tail", "later", "added"])
+        XCTAssertEqual(player.nextSongInQueue()?.id, selected.id)
+        XCTAssertTrue(player.advanceToNextIndex(respectsRepeatOne: false))
+        XCTAssertEqual(player.queueEntries[player.currentIndex].song.id, selected.id)
+    }
+
     // MARK: - Crossfade
 
     private func makeCrossfadedPlayer(completingTransition: Bool = true) throws -> (AudioPlayerService, UUID) {
