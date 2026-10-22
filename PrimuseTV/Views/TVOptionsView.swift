@@ -39,8 +39,9 @@ struct TVOptionsView: View {
     // 仅保留已真实接通的动作(其余如「加入歌单/相似歌曲/AirPlay 输出」需额外基建,
     // 暂不放占位假按钮)。
     /// 按选单里的先后找下一种装着的;现在这种是从手机同步来、电视上没有的,也从它的位置往后找。
+    /// 手机或 Mac 上导入的字体电视上没有、画的是系统字体,按一下换成系统字体,再往后轮。
     private static func nextLyricsFont(after current: PlayerTextFont, in installed: [PlayerTextFont]) -> PlayerTextFont {
-        let all = PlayerTextFont.allCases
+        let all = PlayerTextFont.builtins
         guard let start = all.firstIndex(of: current) else { return .system }
         for offset in 1...all.count {
             let candidate = all[(start + offset) % all.count]

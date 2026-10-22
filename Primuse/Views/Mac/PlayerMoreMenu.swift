@@ -62,6 +62,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var menuShown = false
     @State private var fontPickerShown = false
     @State private var lyricsFontPickerShown = false
+    /// 字体弹层里「导入字体…」选好或拖进来的字体文件,交给 `PlayerTextFontImportModifier` 导入。
+    @State private var pendingLyricsFontURLs: [URL] = []
     @State private var translationPickerShown = false
     @State private var equalizerPickerShown = false
     @State private var playbackRatePickerShown = false
@@ -78,6 +80,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
                 .focusEffectDisabled()
             }
+            // 字体弹层里导入的字体:导好选中第一个,有用不了的文件时说明。
+            .modifier(PlayerTextFontImportModifier(
+                isPresented: .constant(false),
+                pendingURLs: $pendingLyricsFontURLs
+            ) { font in
+                lyricsFontRawValue = font.rawValue
+            })
     }
 
     private var baseBody: some View {
@@ -1107,20 +1116,102 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
     }
 
+    /// 歌词字体:和设置里一样按组列(常用、手写与书法、日文与韩文、西文花体、我导入的),
+    /// 太长就在弹层里滚。导入的字体右键删除;可以点「导入字体…」或直接把字体文件拖进来。
     private var lyricsFontPickerPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(PlayerTextFont.allCases) { font in
-                lyricsFontRow(font)
+        let library = PlayerTextFontLibrary.shared
+        let missingName: String? = {
+            guard case let .imported(name) = selectedLyricsFont,
+                  library.state(of: selectedLyricsFont) == .unavailable else { return nil }
+            return name
+        }()
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(PlayerTextFont.Category.allCases, id: \.self) { category in
+                    lyricsFontSectionHeader(category.title, footnote: category.footnote)
+                    ForEach(category.fonts, id: \.self) { builtin in
+                        lyricsFontRow(.builtin(builtin))
+                    }
+                }
+                lyricsFontSectionHeader(String(localized: "transcript_reader_font_group_imported"), footnote: nil)
+                ForEach(library.importedFonts) { entry in
+                    lyricsFontRow(.imported(postScriptName: entry.postScriptName))
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                library.removeImportedFont(entry)
+                            } label: {
+                                Label("delete", systemImage: "trash")
+                            }
+                        }
+                }
+                if let missingName {
+                    // 别的设备上导入、这台 Mac 没有的:列出来勾上,说明与导入在设置的字体那一行。
+                    lyricsFontRow(.imported(postScriptName: missingName))
+                        .help(Text("transcript_reader_font_imported_missing_message"))
+                }
+                Button {
+                    lyricsFontPickerShown = false
+                    let urls = PlayerTextFontImportPanel.chooseFiles()
+                    if !urls.isEmpty { pendingLyricsFontURLs = urls }
+                } label: {
+                    HStack(spacing: 8) {
+                        Group {
+                            if library.isImporting {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else {
+                                Image(systemName: "plus")
+                                    .font(.callout)
+                            }
+                        }
+                        .foregroundStyle(PMColor.brand)
+                        .frame(width: 28)
+                        Text("transcript_reader_font_import")
+                            .font(.callout)
+                            .foregroundStyle(PMColor.brand)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(library.isImporting)
+                .help(Text("transcript_reader_font_imported_footer_mac"))
+            }
+            .padding(.vertical, 6)
+        }
+        .frame(width: 250, height: 460)
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard !files.isEmpty, !library.isImporting else { return false }
+            pendingLyricsFontURLs = files
+            return true
+        }
+        .focusEffectDisabled()
+    }
+
+    private func lyricsFontSectionHeader(_ title: String, footnote: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(PMColor.textMuted)
+            if let footnote {
+                Text(verbatim: footnote)
+                    .font(.caption2)
+                    .foregroundStyle(PMColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 6)
-        .frame(width: 210)
-        .focusEffectDisabled()
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 
     private func lyricsFontRow(_ font: PlayerTextFont) -> some View {
         let library = PlayerTextFontLibrary.shared
         let state = library.state(of: font)
+        let isSelected = font == library.pickerFont(for: selectedLyricsFont)
         return Button {
             lyricsFontRawValue = font.rawValue
             library.prepare(font)
@@ -1130,10 +1221,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Text(verbatim: font.sample)
                     .font(font.font(size: 15, weight: .semibold, isAvailable: state == .available))
                     .foregroundStyle(PMColor.text)
-                    .frame(width: 28)
+                    .lineLimit(1)
+                    .frame(width: 28, height: 20)
                 font.title
                     .font(.callout)
-                    .foregroundStyle(PMColor.text)
+                    .foregroundStyle(state == .unavailable ? PMColor.textFaint : PMColor.text)
+                    .lineLimit(1)
                 Spacer()
                 switch state {
                 case .available:
@@ -1149,8 +1242,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     Image(systemName: "exclamationmark.circle")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                case .unavailable:
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(PMColor.textFaint)
                 }
-                if font == selectedLyricsFont {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption)
                         .foregroundStyle(PMColor.brand)
@@ -1161,7 +1258,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(state == .failed ? Text("transcript_reader_font_download_failed") : Text(verbatim: ""))
+        .help(library.failureMessage(for: font).map { Text(verbatim: $0) } ?? Text(verbatim: ""))
         .accessibilityValue(PlayerTextFontPicker.stateAccessibilityText(state))
     }
 

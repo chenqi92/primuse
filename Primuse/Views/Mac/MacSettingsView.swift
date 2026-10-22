@@ -5470,13 +5470,16 @@ private struct MacSTLyricsView: View {
     @State private var showTranscriptionSettings = false
     private var localTranslation: LocalLyricsTranslationService { .shared }
 
-    /// 选了要下载的字体时,字体那一行下面写它下到哪了;能用了就不写。
+    /// 选了要下载的字体时,字体那一行下面写它下到哪了;能用了就不写。导入的字体这台 Mac 上没有时
+    /// 由字体块上面那行可点的说明来讲。
     private var lyricsFontHint: String? {
-        switch PlayerTextFontLibrary.shared.state(of: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system) {
-        case .available: nil
-        case .needsDownload: String(localized: "transcript_reader_font_needs_download")
-        case .downloading: String(localized: "transcript_reader_font_downloading")
-        case .failed: String(localized: "transcript_reader_font_download_failed")
+        let font = PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
+        let library = PlayerTextFontLibrary.shared
+        switch library.state(of: font) {
+        case .available, .unavailable: return nil
+        case .needsDownload: return String(localized: "transcript_reader_font_needs_download")
+        case .downloading: return String(localized: "transcript_reader_font_downloading")
+        case .failed: return library.failureMessage(for: font)
         }
     }
 
@@ -5617,18 +5620,16 @@ private struct MacSTLyricsView: View {
             MacSTSection(String(localized: "lyrics_display_section")) {
                 MacSTGroup {
                     // 歌词字体(#332):播放页、桌面歌词、歌词岛、全屏效果都换,随 iCloud 同步。
-                    MacSTRow(String(localized: "transcript_font"), hint: lyricsFontHint, hintLineLimit: 3, divider: false) {
-                        MacSTPicker(
-                            selection: Binding(
-                                get: { lyricsFontRawValue },
-                                set: { rawValue in
-                                    lyricsFontRawValue = rawValue
-                                    // 选的是没下好的字体(或下载失败后再选一次)就去下。
-                                    PlayerTextFontLibrary.shared.prepare(PlayerTextFont(rawValue: rawValue) ?? .system)
-                                }
-                            ),
-                            options: PlayerTextFont.allCases.map { ($0.rawValue, $0.localizedTitle) }
-                        )
+                    // 和 iPhone 一样按组排字体块,选了没下好的字体就去下;最后一组是导入的字体,
+                    // 可以点「导入字体…」或把字体文件拖进来,右键删除。
+                    MacSTRow(
+                        String(localized: "transcript_font"),
+                        hint: lyricsFontHint,
+                        hintLineLimit: 3,
+                        divider: false,
+                        block: true
+                    ) {
+                        PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: .semibold)
                     }
                     .settingsAnchor("lyrics.font")
                     MacSTRow(String(localized: "lyrics_font_size")) {

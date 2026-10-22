@@ -11973,6 +11973,48 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             && lhs.plainLabel == rhs.plainLabel
     }
 
+    /// 字体菜单的选中项:导入的字体一个家族列一项,选中的是同家族另一种字重时也勾在这一项上。
+    private var lyricsFontSelection: Binding<String> {
+        Binding(
+            get: {
+                PlayerTextFontLibrary.shared
+                    .pickerFont(for: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system)
+                    .rawValue
+            },
+            set: { lyricsFontRawValue = $0 }
+        )
+    }
+
+    /// 「我导入的」一组;选中的导入字体这台设备上没有(别的设备导入、随 iCloud 同步来的)时也列出来、
+    /// 标明没有,菜单里才勾得上它(说明与导入在设置的字体那一行)。
+    @ViewBuilder
+    private var importedLyricsFontSection: some View {
+        let library = PlayerTextFontLibrary.shared
+        let missingName = missingImportedLyricsFontName
+        if !library.importedFonts.isEmpty || missingName != nil {
+            Section(String(localized: "transcript_reader_font_group_imported")) {
+                ForEach(library.importedFonts) { entry in
+                    Text(verbatim: entry.title)
+                        .tag(PlayerTextFont.imported(postScriptName: entry.postScriptName).rawValue)
+                }
+                if let missingName {
+                    Text(verbatim: String(
+                        format: String(localized: "transcript_reader_font_imported_missing_short"),
+                        missingName
+                    ))
+                    .tag(PlayerTextFont.imported(postScriptName: missingName).rawValue)
+                }
+            }
+        }
+    }
+
+    private var missingImportedLyricsFontName: String? {
+        guard case let .imported(name)? = PlayerTextFont(rawValue: lyricsFontRawValue),
+              PlayerTextFontLibrary.shared.state(of: .imported(postScriptName: name)) == .unavailable
+        else { return nil }
+        return name
+    }
+
     /// 文字稿时间:这一集 / 这本书往前、往后挪。iPhone 上点了菜单不收起,能连着点几下(#320)。
     private func transcriptOffsetMenu(key: String, delay: TimeInterval) -> some View {
         let store = SpokenWordTranscriptOffsetStore.shared
@@ -12448,10 +12490,17 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     .pickerStyle(.menu)
 
                     // 要下载的字体选了就开始下,下好之前先用系统字体(下载进度与失败在设置的字体块上)。
-                    Picker(selection: $lyricsFontRawValue) {
-                        ForEach(PlayerTextFont.allCases) { font in
-                            font.title.tag(font.rawValue)
+                    // 和设置里的字体块一样按组列,导入的字体单独一组(导入、删除在设置里)。
+                    Picker(selection: lyricsFontSelection) {
+                        ForEach(PlayerTextFont.Category.allCases, id: \.self) { category in
+                            Section(category.title) {
+                                ForEach(category.fonts, id: \.self) { builtin in
+                                    PlayerTextFont.builtin(builtin).title
+                                        .tag(PlayerTextFont.builtin(builtin).rawValue)
+                                }
+                            }
                         }
+                        importedLyricsFontSection
                     } label: {
                         Label(String(localized: "transcript_font"), systemImage: "textformat")
                     }

@@ -485,8 +485,10 @@ struct LyricsAppearanceSections: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("transcript_font")
                 PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: .semibold)
-                if PlayerTextFontLibrary.shared.state(of: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system) == .failed {
-                    Text("transcript_reader_font_download_failed")
+                if let message = PlayerTextFontLibrary.shared.failureMessage(
+                    for: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
+                ) {
+                    Text(verbatim: message)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

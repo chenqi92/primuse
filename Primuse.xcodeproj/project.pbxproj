@@ -1042,10 +1042,12 @@
 		7797CFB95ADC01F53D418110 /* LocalBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */; };
 		77A1B66E6E6D1D8635C17190 /* PrimuseListeningAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D6E69627D9C8F06B3BC8AC /* PrimuseListeningAppIntents.swift */; };
 		77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		89375DDED9AD4C331F727FA1 /* PlayerTextFontImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF285731AE02A27D75D1F281 /* PlayerTextFontImport.swift */; };
 		77F384C9E04698305740D9CB /* SpokenTranscriptGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F56B8F0833ADC7318BD0645 /* SpokenTranscriptGenerationSheet.swift */; };
 		77EB742266627332E3E8723B /* LyricsAPIServerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AD2F4190CA1F04C0D4D50F /* LyricsAPIServerSettings.swift */; };
 		77F52F217A57328E7FC3E19B /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		30ACCB0E77FF1DAC8DBE93F5 /* PlayerTextFontImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF285731AE02A27D75D1F281 /* PlayerTextFontImport.swift */; };
 		56F967AEB250F801DBE19C5D /* SpokenTranscriptGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F56B8F0833ADC7318BD0645 /* SpokenTranscriptGenerationSheet.swift */; };
 		7817038FB96764E70301F8AA /* PlayerBackdropImagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */; };
 		7838A8CFB758F37EE9CAB726 /* LibrarySongBrowseMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */; };
@@ -1127,6 +1129,7 @@
 		82670455F465B534CB7F1FC3 /* MacLazyStackAccessibilityGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8993EB01B647C223D06CA7AB /* MacLazyStackAccessibilityGuard.swift */; };
 		831C3FD7E853051CFE8BB259 /* PrimuseAIRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E5E7566A61716247785C1 /* PrimuseAIRelayClient.swift */; };
 		831D47F89D5CDFB8360C02BE /* ArtistIdentityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */; };
+		9F3C3123879B710D7C58F41B /* PlayerTextFontSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65AB5F3892DC4CE7951CE335 /* PlayerTextFontSelection.swift */; };
 		D247B27B844150D24B238540 /* ShufflePreferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326AEC8F653A6086828054D8 /* ShufflePreferencePolicy.swift */; };
 		8397D1889EFA82D7EFAB5329 /* FnMusicServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */; };
 		83BD61441C4320D03E79D2D4 /* PodcastOPML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447A893CDF10838438421587 /* PodcastOPML.swift */; };
@@ -2428,6 +2431,7 @@
 		0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibrarySource.swift; sourceTree = "<group>"; };
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
 		0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistIdentityPolicy.swift; sourceTree = "<group>"; };
+		65AB5F3892DC4CE7951CE335 /* PlayerTextFontSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerTextFontSelection.swift; sourceTree = "<group>"; };
 		326AEC8F653A6086828054D8 /* ShufflePreferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShufflePreferencePolicy.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
@@ -2634,6 +2638,7 @@
 		285C1472009479A6CC7B2177 /* PlaylistExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistExporter.swift; sourceTree = "<group>"; };
 		285DF2C9DD2043B4D2C937FC /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordPlayerComponents.swift; sourceTree = "<group>"; };
+		CF285731AE02A27D75D1F281 /* PlayerTextFontImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerTextFontImport.swift; sourceTree = "<group>"; };
 		5F56B8F0833ADC7318BD0645 /* SpokenTranscriptGenerationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenTranscriptGenerationSheet.swift; sourceTree = "<group>"; };
 		28EE6B136CE82FFC872F9E86 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
@@ -4361,6 +4366,7 @@
 				4E8684652DAFFA83849B94BE /* AppleMusicTVPlaybackPolicy.swift */,
 				F822C83F2A4B56E2D9B1CC84 /* AppReviewPromptPolicy.swift */,
 				0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */,
+				65AB5F3892DC4CE7951CE335 /* PlayerTextFontSelection.swift */,
 				326AEC8F653A6086828054D8 /* ShufflePreferencePolicy.swift */,
 				348354B891B8440B08E799A2 /* ArtworkAnimation.swift */,
 				2376120CE2C0666E66D5030E /* ArtworkAnimationDiskCache.swift */,
@@ -4794,6 +4800,7 @@
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
 				28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */,
+				CF285731AE02A27D75D1F281 /* PlayerTextFontImport.swift */,
 				5F56B8F0833ADC7318BD0645 /* SpokenTranscriptGenerationSheet.swift */,
 				FDD0AECB6D461DFB993C8CD2 /* TabletopQueueStrip.swift */,
 				1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */,
@@ -6713,6 +6720,7 @@
 				71BE9C5ACD7D4A804A7ED279 /* AppleMusicTVPlaybackPolicy.swift in Sources */,
 				05FEEECAC78C364237505773 /* Artist.swift in Sources */,
 				831D47F89D5CDFB8360C02BE /* ArtistIdentityPolicy.swift in Sources */,
+				9F3C3123879B710D7C58F41B /* PlayerTextFontSelection.swift in Sources */,
 				D247B27B844150D24B238540 /* ShufflePreferencePolicy.swift in Sources */,
 				74DE67BEEAC95A373BD53B59 /* ArtistNameConfiguration.swift in Sources */,
 				4DD1902E0149F649BD06B9B4 /* ArtworkAnimation.swift in Sources */,
@@ -7701,6 +7709,7 @@
 				7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */,
 				620C22596174B16A2958B096 /* SpokenWordLibraryView.swift in Sources */,
 				7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */,
+				30ACCB0E77FF1DAC8DBE93F5 /* PlayerTextFontImport.swift in Sources */,
 				56F967AEB250F801DBE19C5D /* SpokenTranscriptGenerationSheet.swift in Sources */,
 				4364BBE73E5E16055CBA24B9 /* SpokenWordStore.swift in Sources */,
 				1C5FCF99510AEFA23D988F3E /* SongPlaybackRangeStore.swift in Sources */,
@@ -8477,6 +8486,7 @@
 				389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */,
 				278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */,
 				77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */,
+				89375DDED9AD4C331F727FA1 /* PlayerTextFontImport.swift in Sources */,
 				77F384C9E04698305740D9CB /* SpokenTranscriptGenerationSheet.swift in Sources */,
 				325C09DC9D9271795E966AAD /* SpokenWordStore.swift in Sources */,
 				0A15801578C4FA0BD8ABC1F6 /* SongPlaybackRangeStore.swift in Sources */,

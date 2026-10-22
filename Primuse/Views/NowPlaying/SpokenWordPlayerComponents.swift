@@ -2729,8 +2729,8 @@ struct SpokenWordTranscriptTypographyPanel: View {
                 } header: {
                     Text("transcript_font")
                 } footer: {
-                    if fontLibrary.state(of: selectedFont) == .failed {
-                        Text("transcript_reader_font_download_failed")
+                    if let message = fontLibrary.failureMessage(for: selectedFont) {
+                        Text(verbatim: message)
                     }
                 }
                 Section("transcript_reader_weight") {
