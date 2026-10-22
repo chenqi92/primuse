@@ -2538,6 +2538,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     name: name,
                     coverArtReference: playlistCoverArtReference(for: summary.entry, id: summary.id),
                     trackIDs: trackIDs,
+                    tracks: itemsResponse.items.compactMap(\.playlistTrack),
                     reportedTrackCount: itemsResponse.totalCount
                 )
                 result.append(playlist)
@@ -2651,6 +2652,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             name: summary.displayName ?? "",
             coverArtReference: playlistCoverArtReference(for: summary, id: id),
             trackIDs: response.items.compactMap(\.id),
+            tracks: response.items.compactMap(\.playlistTrack),
             reportedTrackCount: response.totalCount
         )
     }
@@ -2705,6 +2707,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             name: summary.displayTitle ?? "",
             coverArtReference: playlistCoverArtReference(for: summary),
             trackIDs: items.items.compactMap(\.ratingKey),
+            tracks: items.items.compactMap(\.playlistTrack),
             reportedTrackCount: items.totalCount,
             isReadOnly: summary.isSmart,
             isSmartPlaylist: summary.isSmart
@@ -2863,6 +2866,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     name: name,
                     coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: trackIDs,
+                    tracks: itemsResponse.items.compactMap(\.playlistTrack),
                     reportedTrackCount: itemsResponse.totalCount,
                     isReadOnly: summary.isSmart,
                     isSmartPlaylist: summary.isSmart
@@ -4759,11 +4763,18 @@ private struct MediaServerPlaylistEntry: MediaServerPagedItem {
     let id: String?
     let name: String?
     let imageTags: [String: String]?
+    let artists: [String]
+    let album: String?
+    let duration: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
         case name = "Name"
         case imageTags = "ImageTags"
+        case artists = "Artists"
+        case artistItems = "ArtistItems"
+        case album = "Album"
+        case runTimeTicks = "RunTimeTicks"
     }
 
     init(from decoder: Decoder) throws {
@@ -4771,6 +4782,16 @@ private struct MediaServerPlaylistEntry: MediaServerPagedItem {
         id = container.flatMap(Self.flexibleID)
         name = (try? container?.decodeIfPresent(String.self, forKey: .name)) ?? nil
         imageTags = (try? container?.decodeIfPresent([String: String].self, forKey: .imageTags)) ?? nil
+        let names = (try? container?.decode([String].self, forKey: .artists)) ?? []
+        let items = (try? container?.decode([NameIDPair].self, forKey: .artistItems)) ?? []
+        artists = names.isEmpty ? items.map(\.name) : names
+        album = try? container?.decode(String.self, forKey: .album)
+        duration = (try? container?.decode(Double.self, forKey: .runTimeTicks)).map { $0 / 10_000_000 }
+    }
+
+    var playlistTrack: ExternalPlaylistTrack? {
+        id.map { ExternalPlaylistTrack(title: name ?? "", artists: artists, album: album,
+                                      duration: duration, externalID: $0) }
     }
 
     var pagingID: String { id ?? "" }
@@ -5584,14 +5605,28 @@ private struct PlexFavoriteTrackResponse: Decodable {
 /// 歌单明细里的一条, 只要 ratingKey; 读不出的那条记为 nil, 不作废整页。
 private struct PlexPlaylistTrack: Decodable {
     let ratingKey: String?
+    let title: String?
+    let artist: String?
+    let album: String?
+    let duration: Double?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
+        case title, grandparentTitle, parentTitle, duration, originalTitle
     }
 
     init(from decoder: Decoder) throws {
-        ratingKey = (try? decoder.container(keyedBy: CodingKeys.self))
-            .flatMap { PlexFlexibleKey.decode($0, .ratingKey) }
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        ratingKey = container.flatMap { PlexFlexibleKey.decode($0, .ratingKey) }
+        title = try? container?.decode(String.self, forKey: .title)
+        artist = container.flatMap { PlexFlexibleKey.decode($0, .originalTitle) ?? PlexFlexibleKey.decode($0, .grandparentTitle) }
+        album = try? container?.decode(String.self, forKey: .parentTitle)
+        duration = (try? container?.decode(Double.self, forKey: .duration)).map { $0 / 1_000 }
+    }
+
+    var playlistTrack: ExternalPlaylistTrack? {
+        ratingKey.map { ExternalPlaylistTrack(title: title ?? "", artists: artist.map { [$0] } ?? [],
+                                             album: album, duration: duration, externalID: $0) }
     }
 }
 

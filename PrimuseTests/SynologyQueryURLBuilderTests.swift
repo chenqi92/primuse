@@ -249,6 +249,18 @@ private actor AudioStationTagHTTPFixture {
 
 /// 群晖歌单加歌:镜像 id 是服务端 id 的摘要,要先从歌单列表里找回服务端 id。
 final class AudioStationPlaylistAppendTests: XCTestCase {
+    func testMirrorRetainsUnindexedTracksAndMetadata() async throws {
+        let fixture = AudioStationPlaylistHTTPFixture(includeUnindexed: true)
+        let connector = source(fixture)
+        let snapshot = try await connector.fetchServerPlaylists()
+        let playlist = try XCTUnwrap(snapshot.playlists.first)
+        XCTAssertEqual(playlist.trackIDs, ["music_1", "music_/volume1/music/missing.flac"])
+        XCTAssertEqual(playlist.tracks.last?.title, "未索引歌曲")
+        XCTAssertEqual(playlist.tracks.last?.artists, ["原唱"])
+        XCTAssertEqual(playlist.tracks.last?.duration, 180)
+        await connector.disconnect()
+    }
+
     func testAppendFindsServerPlaylistByMirrorIDAndConfirmsByReadBack() async throws {
         let fixture = AudioStationPlaylistHTTPFixture()
         let mirrorID = SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: AudioStationPlaylistHTTPFixture.normalID)
@@ -310,6 +322,8 @@ private actor AudioStationPlaylistHTTPFixture {
     private(set) var updates: [[String: String]] = []
     private(set) var creates: [[String: String]] = []
     private var songs = ["music_1"]
+    private let includeUnindexed: Bool
+    init(includeUnindexed: Bool = false) { self.includeUnindexed = includeUnindexed }
 
     func reply(_ request: URLRequest) throws -> (Data, URLResponse) {
         let url = try XCTUnwrap(request.url)
@@ -348,7 +362,11 @@ private actor AudioStationPlaylistHTTPFixture {
             ]]])
         case "getinfo":
             let id = params["id"] ?? ""
-            let entries = songs.map { ["id": $0, "path": "/music/\($0).flac", "title": $0] }
+            var entries: [[String: Any]] = songs.map { ["id": $0, "path": "/music/\($0).flac", "title": $0] }
+            if includeUnindexed {
+                entries.append(["id": "music_/volume1/music/missing.flac", "title": "未索引歌曲",
+                    "additional": ["song_tag": ["artist": "原唱"], "song_audio": ["duration": 180]]])
+            }
             return try json(["success": true, "data": ["playlists": [[
                 "id": id, "library": "personal", "name": "n", "type": "normal",
                 "additional": ["songs": entries, "songs_offset": 0, "songs_total": entries.count],

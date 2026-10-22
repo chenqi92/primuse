@@ -1325,6 +1325,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         name: String(localized: "playlist_liked_name"),
                         coverArtReference: starred.starred2?.song.first?.coverArt.flatMap { coverArtURLString(for: $0) },
                         trackIDs: songIDs,
+                        tracks: starred.starred2?.tracks ?? [],
                         reportedTrackCount: listedCount
                     )
                     result.append(starredPlaylist)
@@ -1435,6 +1436,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             coverArtReference: (playlist.coverArt ?? summary?.coverArt)
                 .flatMap { coverArtURLString(for: $0) },
             trackIDs: trackIDs,
+            tracks: entries.compactMap { $0?.playlistTrack },
             reportedTrackCount: playlist.songCount ?? summary?.songCount,
             isReadOnly: isSmart || ownedByOther,
             isSmartPlaylist: isSmart
@@ -2544,14 +2546,31 @@ private struct PlaylistSummary: Decodable {
     }
 }
 
-/// 歌单明细里的一首, 镜像只要它的 id; 别的字段写得怪也不影响整份歌单。
+/// 曲目身份与展示资料分别容错，坏标签不会丢掉歌单成员。
 private struct PlaylistEntryRef: Decodable {
     let id: String?
+    let title: String?
+    let artists: [String]
+    let album: String?
+    let duration: Double?
 
-    enum CodingKeys: String, CodingKey { case id }
+    enum CodingKeys: String, CodingKey { case id, title, artist, artists, album, duration }
+    private struct Artist: Decodable { let name: String? }
 
     init(from decoder: Decoder) throws {
-        id = (try? decoder.container(keyedBy: CodingKeys.self)).flatMap { SubsonicLenientValue.string($0, .id) }
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        id = container.flatMap { SubsonicLenientValue.string($0, .id) }
+        title = container.flatMap { SubsonicLenientValue.string($0, .title) }
+        album = container.flatMap { SubsonicLenientValue.string($0, .album) }
+        let names = (try? container?.decode([Artist].self, forKey: .artists))?.compactMap(\.name) ?? []
+        artists = names.isEmpty ? container.flatMap { SubsonicLenientValue.string($0, .artist) }.map { [$0] } ?? [] : names
+        duration = (try? container?.decode(Double.self, forKey: .duration))
+            ?? container.flatMap { SubsonicLenientValue.string($0, .duration) }.flatMap(Double.init)
+    }
+
+    var playlistTrack: ExternalPlaylistTrack? {
+        id.map { ExternalPlaylistTrack(title: title ?? "", artists: artists, album: album,
+                                      duration: duration, externalID: $0) }
     }
 }
 
@@ -2615,6 +2634,7 @@ private struct Starred2Container: SubsonicResponseContainer {
 /// 专辑/艺人收藏一起解码失败。读不出的条数留着，调用方据此判断清单是否完整。
 private struct Starred2: Decodable {
     let songIDs: [String]
+    let tracks: [ExternalPlaylistTrack]
     /// 完整读出的曲目，只用来取封面。
     let song: [SubsonicChild]
     let album: [AlbumSummary]
@@ -2628,6 +2648,7 @@ private struct Starred2: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let songRefs = (try? container.decodeIfPresent(SubsonicLenientList<PlaylistEntryRef>.self, forKey: .song))?.elements ?? []
         songIDs = songRefs.compactMap { $0?.id }
+        tracks = songRefs.compactMap { $0?.playlistTrack }
         unreadableSongCount = songRefs.count - songIDs.count
         song = (try? container.decodeIfPresent(SubsonicLenientList<SubsonicChild>.self, forKey: .song))?.elements.compactMap { $0 } ?? []
         let albums = (try? container.decodeIfPresent(SubsonicLenientList<AlbumSummary>.self, forKey: .album))?.elements ?? []

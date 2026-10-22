@@ -15,6 +15,7 @@ public struct FnMusicPlaylist: Sendable {
     public let name: String
     public let coverReference: String?
     public let trackIDs: [String]
+    public let tracks: [ExternalPlaylistTrack]
     /// 服务端列出的条数，读不出而跳过的也算在内：只要它大于 0，一首都没认出来也不能当成歌单被清空。
     public let reportedTrackCount: Int
 }
@@ -22,7 +23,7 @@ public struct FnMusicPlaylist: Sendable {
 extension FnMusicPlaylist {
     fileprivate init(summary: FnMusicLibraryClient.Summary, tracks: FnMusicLibraryClient.PlaylistTracks) {
         self.init(id: summary.id, name: summary.name, coverReference: summary.coverReference,
-                  trackIDs: tracks.ids, reportedTrackCount: tracks.listed)
+                  trackIDs: tracks.ids, tracks: tracks.metadata, reportedTrackCount: tracks.listed)
     }
 }
 
@@ -122,6 +123,7 @@ public struct FnMusicLibraryClient: Sendable {
 
     fileprivate struct PlaylistTracks {
         var ids: [String]
+        var metadata: [ExternalPlaylistTrack]
         var listed: Int
     }
 
@@ -136,7 +138,7 @@ public struct FnMusicLibraryClient: Sendable {
             diagnosticLogger: diagnosticLogger,
             parse: Track.init
         )
-        return PlaylistTracks(ids: rows.items.map(\.id), listed: rows.listed)
+        return PlaylistTracks(ids: rows.items.map(\.id), metadata: rows.items.map(\.metadata), listed: rows.listed)
     }
 
     public func favorites(diagnosticLogger: (@Sendable (String) -> Void)? = nil) async throws -> [String] {
@@ -430,11 +432,20 @@ public struct FnMusicLibraryClient: Sendable {
     /// 收藏里被判无效，一首不过整份歌单作废，歌单和收藏一个都同步不下来。
     private struct Track: FnMusicLibraryItem {
         let id: String
+        let metadata: ExternalPlaylistTrack
         init(_ json: [String: Any]) throws {
             guard let id = fnMusicFirstNonemptyString(json, keys: ["guid", "trackGUID", "id"]) else {
                 throw FnMusicLibraryClient.invalidResponse("track without a usable guid")
             }
             self.id = id
+            let track = FnMusicCatalogTrack(json: json)
+            metadata = ExternalPlaylistTrack(
+                title: fnMusicFirstNonemptyString(json, keys: ["title", "trackTitle", "name", "filename"]) ?? "",
+                artists: track?.artistNames ?? [],
+                album: track?.albumName,
+                duration: track?.durationMilliseconds.flatMap { $0 > 0 ? Double($0) / 1_000 : nil },
+                externalID: id
+            )
         }
     }
 

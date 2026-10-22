@@ -534,7 +534,8 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
-                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.reportedTrackCount)
+                       trackIDs: playlist.trackIDs, tracks: playlist.tracks,
+                       reportedTrackCount: playlist.reportedTrackCount)
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {

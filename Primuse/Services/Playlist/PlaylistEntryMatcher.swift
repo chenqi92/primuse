@@ -20,19 +20,76 @@ struct PlaylistEntryMatcher: Sendable {
 
     private let songs: [Song]
     private let index: ExternalTrackMatchIndex<Int>
+    private let serverItems: [String: [String: Int]]
 
     init(songs: [Song], keyCache: PlaylistEntryMatchKeyCache? = nil) {
         self.songs = songs
         var keyed: [(id: Int, key: ExternalTrackMatchPolicy.Key)] = []
+        var serverItems: [String: [String: Int]] = [:]
         keyed.reserveCapacity(songs.count)
         for (offset, song) in songs.enumerated() {
             let key = keyCache?.key(for: song) ?? ExternalTrackMatchPolicy.Key(Self.subject(of: song))
             keyed.append((offset, key))
+            if let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+               serverItems[song.sourceID]?[itemID] == nil {
+                serverItems[song.sourceID, default: [:]][itemID] = offset
+            }
         }
         index = ExternalTrackMatchIndex(keyed: keyed)
+        self.serverItems = serverItems
     }
 
     var isEmpty: Bool { songs.isEmpty }
+
+    static func fileMetadataMatches(_ song: Song, title: String, artist: String?) -> Bool {
+        let expected = ExternalTrackMatchPolicy.Key(.init(title: title, artists: artist.map { [$0] } ?? [], duration: nil))
+        let actual = ExternalTrackMatchPolicy.Key(subject(of: song))
+        return expected.isMatchable && !expected.artistTokens.isEmpty
+            && expected.artistTokens == actual.artistTokens
+            && ExternalTrackMatchPolicy.normalize(title) == ExternalTrackMatchPolicy.normalize(song.title)
+    }
+
+    func matchImportedTrack(_ track: ExternalPlaylistTrack) -> Match {
+        var suggestions: [Song] = []
+        var confirmed: [String: Song] = [:]
+        for subject in track.matchSubjects {
+            let entry = PlaylistPendingEntry(title: subject.title, artists: subject.artists,
+                                             album: track.album, duration: subject.duration)
+            if let song = matchServerEntry(entry) { confirmed[song.id] = song }
+            let candidates = match(subject)
+            suggestions += candidates.confident + candidates.probable
+        }
+        if confirmed.count == 1, let song = confirmed.values.first { return Match(confident: [song]) }
+        var seen = Set<String>()
+        return Match(probable: suggestions.filter { seen.insert($0.id).inserted })
+    }
+
+    /// 镜像不能让用户手动纠正成员，所以跨源替代要求唯一且资料完整的候选。
+    func matchServerEntry(_ entry: PlaylistPendingEntry) -> Song? {
+        if let sourceID = entry.serverSourceID, let itemID = entry.externalID,
+           let offset = serverItems[sourceID]?[itemID] {
+            return songs[offset]
+        }
+        // 章节标题经常重复，书单只按同源章节身份补齐。
+        guard entry.origin != MusicSourceType.tingReader.rawValue else { return nil }
+        let key = ExternalTrackMatchPolicy.Key(entry.matchSubject)
+        guard ServerCatalogMetadataInspectionPolicy.hasUsableTitle(entry.title),
+              key.isMatchable, !key.artistTokens.isEmpty, key.duration != nil else { return nil }
+        let title = ExternalTrackMatchPolicy.normalize(entry.title)
+        let album = entry.album.map(ExternalTrackMatchPolicy.normalize).flatMap { $0.isEmpty ? nil : $0 }
+        let candidates = match(entry.matchSubject).confident.filter { song in
+            let candidate = ExternalTrackMatchPolicy.Key(Self.subject(of: song))
+            guard song.sourceID != entry.serverSourceID,
+                  candidate.duration != nil,
+                  candidate.artistTokens == key.artistTokens,
+                  ExternalTrackMatchPolicy.normalize(song.title) == title else { return false }
+            if let album {
+                return song.albumTitle.map(ExternalTrackMatchPolicy.normalize) == album
+            }
+            return true
+        }
+        return candidates.count == 1 ? candidates.first : nil
+    }
 
     func match(_ subject: ExternalTrackMatchPolicy.Subject) -> Match {
         var result = Match()

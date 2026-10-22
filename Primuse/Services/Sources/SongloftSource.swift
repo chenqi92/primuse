@@ -200,6 +200,7 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
                 let mirrored = ServerPlaylist(id: String(playlist.id),
                     name: playlist.name.isEmpty ? String(playlist.id) : playlist.name,
                     coverArtReference: playlist.coverReference, trackIDs: ids.map(String.init),
+                    tracks: try await client.playlistTracks(ids: ids),
                     reportedTrackCount: playlist.songCount)
                 playlists.append(mirrored)
                 await progress(mirrored)
@@ -241,6 +242,7 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
         return ServerPlaylist(id: id,
             name: playlist.name.isEmpty ? id : playlist.name,
             coverArtReference: playlist.coverReference, trackIDs: trackIDs.map(String.init),
+            tracks: try await client.playlistTracks(ids: trackIDs),
             reportedTrackCount: trackIDs.count)
     }
 

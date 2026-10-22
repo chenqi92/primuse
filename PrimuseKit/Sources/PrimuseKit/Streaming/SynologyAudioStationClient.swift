@@ -479,9 +479,13 @@ public actor SynologyAudioStationClient {
     /// 歌单曲目按服务端顺序排列,长度等于 `songs_total`。尚未入库的条目也在其中
     /// (`isCatalogSongID` 为 false):`updatesongs` 按下标剪接,位置必须与服务端一致。
     public func playlistTrackIDs(id: String, pageSize: Int = SynologyAudioStationAPI.pageSize) async throws -> [String] {
+        try await playlistTracks(id: id, pageSize: pageSize).map { $0.externalID ?? "" }
+    }
+
+    public func playlistTracks(id: String, pageSize: Int = SynologyAudioStationAPI.pageSize) async throws -> [ExternalPlaylistTrack] {
         guard SynologyAudioStationAPI.isPlaylistID(id), pageSize > 0 else { throw SynologyAudioStationError.invalidResponse }
         var pagination = SynologyAudioStationPlaylistPagination()
-        var ids: [String] = []
+        var tracks: [ExternalPlaylistTrack] = []
         while true {
             try Task.checkCancellation()
             let page: SynologyAudioStationPlaylistSongsPage = try await perform(
@@ -489,8 +493,13 @@ public actor SynologyAudioStationClient {
             )
             guard page.playlist.id == id else { throw SynologyAudioStationError.invalidResponse }
             let finished = try pagination.accept(page, requestedLimit: pageSize)
-            ids.append(contentsOf: page.songIDs)
-            if finished { return ids }
+            let songs = Dictionary(page.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            tracks += page.songIDs.map { id in
+                let song = songs[id]
+                return ExternalPlaylistTrack(title: song?.displayTitle ?? "", artists: song?.artist.map { [$0] } ?? [],
+                                             album: song?.album, duration: song?.duration, externalID: id)
+            }
+            if finished { return tracks }
         }
     }
 
@@ -885,8 +894,9 @@ extension SynologyAudioStationSong {
 public struct SynologyAudioStationPlaylistMirror: Equatable, Sendable {
     public let id: String
     public let name: String
-    /// 服务端顺序;尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,已经去掉。
+    /// 服务端顺序，保留尚未入库、以 NAS 路径作为身份的条目。
     public let trackIDs: [String]
+    public var tracks: [ExternalPlaylistTrack] = []
     /// 智能歌单按规则生成,不能手动加歌。
     public var isSmart: Bool = false
 }
@@ -936,6 +946,16 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
         trackIDs: @Sendable (String) async throws -> [String],
         onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        try await collect(index: index, tracks: { id in
+            try await trackIDs(id).map { ExternalPlaylistTrack(title: "", artists: [], externalID: $0) }
+        }, onPlaylist: onPlaylist)
+    }
+
+    public static func collect(
+        index: @Sendable () async throws -> SynologyAudioStationPlaylistIndex,
+        tracks: @Sendable (String) async throws -> [ExternalPlaylistTrack],
+        onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         var mirrors: [SynologyAudioStationPlaylistMirror] = []
         var failed: Set<String> = []
         let listed = try await index()
@@ -944,11 +964,12 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
             let mirrorID = mirrorID(for: playlist.id)
             let mirror: SynologyAudioStationPlaylistMirror
             do {
-                let ids = try await trackIDs(playlist.id).filter(SynologyAudioStationAPI.isCatalogSongID)
+                let entries = try await tracks(playlist.id).filter { $0.externalID?.isEmpty == false }
                 mirror = SynologyAudioStationPlaylistMirror(
                     id: mirrorID,
                     name: playlist.name,
-                    trackIDs: ids,
+                    trackIDs: entries.compactMap(\.externalID),
+                    tracks: entries,
                     isSmart: SynologyAudioStationAPI.isSmartPlaylistID(playlist.id)
                 )
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
@@ -986,7 +1007,7 @@ extension SynologyAudioStationClient {
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
             index: { try await self.playlistIndex() },
-            trackIDs: { try await self.playlistTrackIDs(id: $0) },
+            tracks: { try await self.playlistTracks(id: $0) },
             onPlaylist: onPlaylist
         )
     }

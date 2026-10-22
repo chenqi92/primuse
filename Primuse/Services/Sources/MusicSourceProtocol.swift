@@ -2260,6 +2260,8 @@ struct ServerPlaylist: Sendable {
     let coverArtReference: String?
     /// 服务端返回的曲目顺序, 保持原样。
     let trackIDs: [String]
+    /// 未扫描入库的曲目仍可用这些元数据显示占位；顺序以 trackIDs 为准。
+    let tracks: [ExternalPlaylistTrack]
     /// 服务端自报的曲目数(Subsonic `songCount`)。与 `trackIDs.count` 不一致
     /// 说明响应被截断; 用来区分"服务端歌单真的空了"和"这次没取到曲目",
     /// 后者不能清空已有镜像。
@@ -2274,6 +2276,7 @@ struct ServerPlaylist: Sendable {
         name: String,
         coverArtReference: String? = nil,
         trackIDs: [String],
+        tracks: [ExternalPlaylistTrack] = [],
         reportedTrackCount: Int? = nil,
         isReadOnly: Bool = false,
         isSmartPlaylist: Bool = false
@@ -2282,6 +2285,7 @@ struct ServerPlaylist: Sendable {
         self.name = name
         self.coverArtReference = coverArtReference
         self.trackIDs = trackIDs
+        self.tracks = tracks
         self.reportedTrackCount = reportedTrackCount
         self.isReadOnly = isReadOnly || isSmartPlaylist
         self.isSmartPlaylist = isSmartPlaylist
@@ -2293,6 +2297,7 @@ struct ServerPlaylist: Sendable {
             name: name,
             coverArtReference: coverArtReference,
             trackIDs: trackIDs,
+            tracks: tracks,
             reportedTrackCount: reportedTrackCount,
             isReadOnly: isReadOnly,
             isSmartPlaylist: isSmartPlaylist
@@ -2316,7 +2321,7 @@ struct ServerPlaylistSnapshot: Sendable {
         self.isIndexComplete = isIndexComplete
     }
 
-    /// 群晖 Audio Station 的镜像已经去掉了未入库的条目,自报数量按剩下的曲目计,
+    /// 群晖 Audio Station 保留未入库条目，自报数量按读取到的成员计，
     /// 不会让镜像被当成「被截断」而一直不更新。
     init(_ audioStation: SynologyAudioStationPlaylistMirrorSnapshot) {
         self.init(
@@ -2340,7 +2345,7 @@ extension ServerPlaylist {
     init(_ audioStation: SynologyAudioStationPlaylistMirror) {
         self.init(
             id: audioStation.id, name: audioStation.name,
-            trackIDs: audioStation.trackIDs, reportedTrackCount: audioStation.trackIDs.count,
+            trackIDs: audioStation.trackIDs, tracks: audioStation.tracks, reportedTrackCount: audioStation.trackIDs.count,
             isReadOnly: audioStation.isSmart, isSmartPlaylist: audioStation.isSmart
         )
     }
@@ -2348,7 +2353,7 @@ extension ServerPlaylist {
     init(_ daoLiYu: DaoLiYuPlaylist) {
         self.init(
             id: daoLiYu.id, name: daoLiYu.name,
-            trackIDs: daoLiYu.trackIDs, reportedTrackCount: daoLiYu.trackIDs.count
+            trackIDs: daoLiYu.trackIDs, tracks: daoLiYu.tracks, reportedTrackCount: daoLiYu.trackIDs.count
         )
     }
 }

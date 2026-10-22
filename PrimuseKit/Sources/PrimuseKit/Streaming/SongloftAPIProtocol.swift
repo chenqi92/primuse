@@ -92,6 +92,10 @@ public enum SongloftAPIProtocol {
 }
 
 public struct SongloftTrack: Decodable, Sendable {
+    var playlistTrack: ExternalPlaylistTrack {
+        ExternalPlaylistTrack(title: title ?? "", artists: artist.map { [$0] } ?? [],
+                              album: album, duration: duration, externalID: String(id))
+    }
     public let id: Int64
     public let type: String
     public let title: String?

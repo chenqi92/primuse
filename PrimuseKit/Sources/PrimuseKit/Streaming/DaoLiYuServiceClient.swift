@@ -41,6 +41,10 @@ public struct DaoLiYuCatalogPage: Sendable {
 }
 
 public struct DaoLiYuCatalogTrack: Sendable {
+    var playlistTrack: ExternalPlaylistTrack {
+        ExternalPlaylistTrack(title: hasUsableCatalogTitle ? title : "", artists: artistName.map { [$0] } ?? [],
+                              album: albumTitle, duration: durationSeconds, externalID: id)
+    }
     public let id: String
     public let title: String
     public let hasUsableCatalogTitle: Bool
@@ -210,6 +214,7 @@ public struct DaoLiYuPlaylist: Sendable, Equatable {
     public let id: String
     public let name: String
     public let trackIDs: [String]
+    public var tracks: [ExternalPlaylistTrack] = []
 }
 
 public struct DaoLiYuPlaylistSnapshot: Sendable, Equatable {
@@ -359,6 +364,8 @@ public actor DaoLiYuServiceClient {
         guard tracks.count == rawTracks.count else {
             throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.unrecognizedItem"))
         }
+        if skip == 0 { playlistTrackCache.removeAll(keepingCapacity: true) }
+        for track in tracks { playlistTrackCache[track.id] = track.playlistTrack }
         return DaoLiYuCatalogPage(
             tracks: tracks,
             total: total,
@@ -374,9 +381,10 @@ public actor DaoLiYuServiceClient {
         )
         let raw = (payload as? [String: Any])?["track"] as? [String: Any]
             ?? payload as? [String: Any]
-        guard let raw, let track = DaoLiYuCatalogTrack(json: raw) else {
+        guard let raw, let track = DaoLiYuCatalogTrack(json: raw), track.id == id else {
             throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.unrecognizedTrackDetails"))
         }
+        playlistTrackCache[id] = track.playlistTrack
         return track
     }
 
@@ -524,6 +532,24 @@ public actor DaoLiYuServiceClient {
         return items.compactMap { daoLiYuNonemptyString($0) ?? daoLiYuInt64($0).map(String.init) }
     }
 
+    private var playlistTrackCache: [String: ExternalPlaylistTrack] = [:]
+
+    public func playlistTracks(ids: [String]) async throws -> [ExternalPlaylistTrack] {
+        var tracks: [ExternalPlaylistTrack] = []
+        for id in ids {
+            try Task.checkCancellation()
+            if let cached = playlistTrackCache[id] { tracks.append(cached); continue }
+            do {
+                tracks.append(try await track(id: id).playlistTrack)
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                throw CancellationError()
+            } catch {
+                tracks.append(ExternalPlaylistTrack(title: "", artists: [], externalID: id))
+            }
+        }
+        return tracks
+    }
+
     /// 自己的歌单逐个读曲目,读全一个就交出一个。某一份读不到只记进 `failedPlaylistIDs`。
     /// iPhone、Mac 的连接器与电视端共用这一份。
     public func playlistSnapshot(
@@ -536,7 +562,9 @@ public actor DaoLiYuServiceClient {
             try Task.checkCancellation()
             let playlist: DaoLiYuPlaylist
             do {
-                playlist = DaoLiYuPlaylist(id: summary.id, name: summary.name, trackIDs: try await playlistTrackIDs(id: summary.id))
+                let ids = try await playlistTrackIDs(id: summary.id)
+                playlist = DaoLiYuPlaylist(id: summary.id, name: summary.name, trackIDs: ids,
+                                          tracks: try await playlistTracks(ids: ids))
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 throw CancellationError()
             } catch {

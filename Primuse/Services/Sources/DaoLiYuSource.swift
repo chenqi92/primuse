@@ -23,7 +23,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         basePath: String?,
         username: String,
         password: String,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        transport: DaoLiYuRequestTransport? = nil
     ) {
         self.sourceID = sourceID
         self.serverBaseURL = DaoLiYuAPIProtocol.serverBaseURL(
@@ -62,7 +63,7 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             basePath: basePath,
             username: username,
             password: password,
-            transport: DaoLiYuRequestTransport(
+            transport: transport ?? DaoLiYuRequestTransport(
                 data: { try await TrustedHTTPTransport.data(for: $0, session: session) },
                 download: { try await TrustedHTTPTransport.download(for: $0, session: session) }
             )
@@ -148,7 +149,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             trackIDs = try await client.playlistTrackIDs(id: id)
             guard Set(trackIDs).isSuperset(of: missing) else { throw ServerPlaylistAppendError.notConfirmed }
         }
-        return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs, reportedTrackCount: trackIDs.count)
+        return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs,
+                              tracks: try await client.playlistTracks(ids: trackIDs), reportedTrackCount: trackIDs.count)
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {

@@ -9006,33 +9006,65 @@ final class MusicLibrary {
     func replaceMirrorPlaylistSongs(
         playlistID: String,
         songIDs: [String],
-        coverArtPath: String?
+        coverArtPath: String?,
+        pendingEntries: [PlaylistPendingEntry] = [],
+        preservingExistingSongs: Bool = false
     ) {
         // S2: 同上, 镜像歌单与它的歌曲都要等发布之后才在库里。
         if deferringUntilReady({ [weak self] in
             self?.replaceMirrorPlaylistSongs(
                 playlistID: playlistID,
                 songIDs: songIDs,
-                coverArtPath: coverArtPath
+                coverArtPath: coverArtPath,
+                pendingEntries: pendingEntries,
+                preservingExistingSongs: preservingExistingSongs
             )
         }) { return }
-        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              allPlaylists.contains(where: { $0.id == playlistID && !$0.isDeleted }) else { return }
+        let previousPending = playlistPendingEntries
+        for var entry in pendingEntries {
+            if let previous = previousPending[entry.id] {
+                entry.createdAt = previous.createdAt
+                if entry.title.isEmpty { entry.title = previous.title }
+                if entry.artists.isEmpty { entry.artists = previous.artists }
+                if entry.album == nil { entry.album = previous.album }
+                if entry.duration == nil { entry.duration = previous.duration }
+            }
+            playlistPendingEntries[entry.id] = entry
+        }
+        var members = songIDs
+        if preservingExistingSongs {
+            var seen = Set(members)
+            for id in playlistSongIDs[playlistID] ?? [] where songIndexByID[id] != nil {
+                if seen.insert(id).inserted { members.append(id) }
+            }
+        }
         replacePlaylistSongsUnchecked(
             playlistID: playlistID,
-            songIDs: songIDs,
+            songIDs: members,
             mirrorCoverArtPath: coverArtPath,
-            replacesCoverArtPath: true
+            replacesCoverArtPath: true,
+            allowsPendingEntries: true
         )
+        playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        if playlistPendingEntries != previousPending {
+            persistSnapshot(after: Self.snapshotDelay(forPlaylistID: playlistID))
+        }
+        if !pendingEntries.isEmpty { schedulePlaylistPendingResolution() }
     }
 
     private func replacePlaylistSongsUnchecked(
         playlistID: String,
         songIDs: [String],
         mirrorCoverArtPath: String? = nil,
-        replacesCoverArtPath: Bool = false
+        replacesCoverArtPath: Bool = false,
+        allowsPendingEntries: Bool = false
     ) {
         guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
-        let kept = songIDs.filter { songIndexByID[$0] != nil }
+        let kept = songIDs.filter {
+            songIndexByID[$0] != nil || (allowsPendingEntries && playlistPendingEntries[$0] != nil)
+        }
         let normalizedCoverArtPath = replacesCoverArtPath
             ? normalizedArtworkReference(mirrorCoverArtPath)
             : allPlaylists[idx].coverArtPath
@@ -10057,8 +10089,15 @@ final class MusicLibrary {
         var outcome = PendingEntryMatchOutcome()
         guard !entries.isEmpty, !songs.isEmpty else { return outcome }
         let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
-        for (id, entry) in entries where entry.hasPlayableMetadata {
-            let match = matcher.match(entry.matchSubject)
+        for (id, entry) in entries {
+            if entry.serverSourceID != nil {
+                if let song = matcher.matchServerEntry(entry) { outcome.resolved[id] = song.id }
+                continue
+            }
+            guard entry.hasPlayableMetadata else { continue }
+            let match = matcher.matchImportedTrack(ExternalPlaylistTrack(
+                title: entry.title, artists: entry.artists, album: entry.album, duration: entry.duration
+            ))
             if let best = match.best {
                 outcome.resolved[id] = best.id
             } else {

@@ -876,7 +876,8 @@ final class FnMusicSourceTests: XCTestCase {
                 XCTAssertEqual(playlist.name, names[index])
                 XCTAssertEqual(playlist.coverArtPath, FnMusicAPIProtocol.coverReference(coverID: "cover-\(index)", revision: nil))
                 XCTAssertTrue(playlist.hasDedicatedCoverArt)
-                XCTAssertTrue(library.rawSongIDs(forPlaylist: ids[index]).isEmpty)
+                XCTAssertEqual(library.pendingEntryCount(forPlaylist: ids[index]), 1)
+                XCTAssertTrue(library.songs(forPlaylist: ids[index]).isEmpty)
             }
             guard case .success = await library.persistNowAndWait() else {
                 return XCTFail("Unresolved playlist metadata failed to persist")
@@ -886,7 +887,7 @@ final class FnMusicSourceTests: XCTestCase {
             for index in names.indices {
                 XCTAssertEqual(library.playlist(id: ids[index])?.name, names[index])
                 XCTAssertEqual(library.playlist(id: ids[index])?.coverArtPath, FnMusicAPIProtocol.coverReference(coverID: "cover-\(index)", revision: nil))
-                XCTAssertTrue(library.rawSongIDs(forPlaylist: ids[index]).isEmpty)
+                XCTAssertEqual(library.pendingEntryCount(forPlaylist: ids[index]), 1)
             }
 
             library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
@@ -900,6 +901,125 @@ final class FnMusicSourceTests: XCTestCase {
             for id in ids {
                 XCTAssertEqual(library.rawSongIDs(forPlaylist: id), ["song"])
             }
+        }
+    }
+
+    func testFeiniuMissingTracksKeepTheirOrderAndResolveAfterImportWithoutResync() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            let rows: [[String: Any]] = [
+                ["guid": "missing", "title": "晴天", "artists": [["name": "原唱"]],
+                 "album": ["name": "专辑"], "duration": 180000],
+                ["guid": "song", "title": "Song"],
+                ["guid": "live", "title": "晴天 (Live)", "artists": ["原唱"], "duration": 210000],
+            ]
+            FnMusicSourceURLProtocol.setPlaylistTracks(rows, playlistID: "playlist", host: host)
+            let fetched = try await manager.fetchServerPlaylists(for: source)
+            let snapshot = try XCTUnwrap(fetched)
+            let serverPlaylist = try XCTUnwrap(snapshot.playlists.first)
+            let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            ServerPlaylistMirror.ProgressiveApplier(source: source, library: library).apply(serverPlaylist)
+            let originalIDs = library.rawSongIDs(forPlaylist: id)
+            XCTAssertEqual(originalIDs.count, 3)
+            XCTAssertEqual(originalIDs[1], "song")
+            XCTAssertEqual(library.entries(forPlaylist: id).map(\.id), originalIDs)
+            XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["song"], "灰色条目不进入播放列表")
+            let pending = try XCTUnwrap(library.pendingEntry(id: originalIDs[0]))
+            XCTAssertEqual(pending.title, "晴天")
+            XCTAssertEqual(pending.artists, ["原唱"])
+            XCTAssertEqual(pending.album, "专辑")
+            XCTAssertEqual(pending.duration, 180)
+            XCTAssertEqual(pending.serverSourceID, source.id)
+            XCTAssertEqual(pending.externalID, "missing")
+
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), originalIDs, "渐进和最终同步使用稳定占位 ID")
+            guard case .success = await library.persistNowAndWait() else { return XCTFail("Persist failed") }
+            library.reloadFromDisk(preferExternalSnapshot: false)
+            let restored = try XCTUnwrap(library.pendingEntry(id: originalIDs[0]))
+            XCTAssertEqual(restored.title, pending.title)
+            XCTAssertEqual(restored.artists, pending.artists)
+            XCTAssertEqual(restored.album, pending.album)
+            XCTAssertEqual(restored.duration, pending.duration)
+            XCTAssertEqual(restored.serverSourceID, pending.serverSourceID)
+            XCTAssertEqual(restored.externalID, pending.externalID)
+            XCTAssertEqual(library.entries(forPlaylist: id).map(\.id), originalIDs)
+
+            library.addSongs([
+                Song(id: "imported", title: "Retagged", artistName: "原唱", fileFormat: .flac,
+                     filePath: "/fnmusic/tracks/missing.flac", sourceID: source.id),
+                Song(id: "live-imported", title: "Live", fileFormat: .flac,
+                     filePath: "/fnmusic/tracks/live.flac", sourceID: source.id),
+            ], affectedSourceIDs: [source.id], notifyRemovals: false, pruneMissingSongs: false)
+            await library.waitForPendingIndex()
+            for _ in 0..<120 {
+                if library.pendingEntryCount(forPlaylist: id) == 0 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), ["imported", "song", "live-imported"])
+            XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["imported", "song", "live-imported"])
+            XCTAssertNil(library.pendingEntry(id: originalIDs[0]))
+        }
+    }
+
+    func testServerPendingMatchingRejectsCoversVersionsMissingMetadataAndAmbiguity() {
+        let entry = PlaylistPendingEntry(title: "Song", artists: ["Singer"], album: "Album", duration: 180,
+                                         externalID: "track", serverSourceID: "fn")
+        func song(_ id: String = "candidate", title: String = "Song", artists: [String] = ["Singer"],
+                  album: String? = "Album", duration: Double = 180, source: String = "other") -> Song {
+            Song(id: id, title: title, albumTitle: album, sourceArtistNames: artists, duration: duration,
+                 fileFormat: .flac, filePath: "/fnmusic/tracks/track.flac", sourceID: source)
+        }
+        func resolved(_ songs: [Song], query: PlaylistPendingEntry? = nil) -> String? {
+            let pending = query ?? entry
+            return MusicLibrary.matchPendingEntries([pending.id: pending], against: songs, keyCache: nil).resolved[pending.id]
+        }
+        XCTAssertEqual(resolved([song(title: "Ｓｏｎｇ", duration: 182)]), "candidate")
+        XCTAssertNil(resolved([song(artists: ["Cover singer"])]))
+        XCTAssertNil(resolved([song(artists: ["Singer", "Guest"])]))
+        XCTAssertNil(resolved([song(title: "Song (Live)")]))
+        XCTAssertNil(resolved([song(title: "Song (Instrumental)")]))
+        XCTAssertNil(resolved([song(title: "Song (2026 Remaster)")]))
+        XCTAssertNil(resolved([song(album: "Another recording")]))
+        XCTAssertNil(resolved([song(album: nil)]))
+        XCTAssertNil(resolved([song(duration: 184)]))
+        XCTAssertNil(resolved([song(duration: 0)]))
+        XCTAssertNil(resolved([song(artists: [])]))
+        XCTAssertNil(resolved([song("copy1"), song("copy2")]))
+        var unknownDuration = entry
+        unknownDuration.duration = nil
+        XCTAssertNil(resolved([song()], query: unknownDuration))
+        var unknownTitle = entry
+        unknownTitle.title = "Unknown"
+        XCTAssertNil(resolved([song(title: "Unknown")], query: unknownTitle))
+        var differentID = song(source: "fn")
+        differentID.filePath = "/fnmusic/tracks/another-id.flac"
+        XCTAssertNil(resolved([differentID]))
+        // 同一个 ID 在别的服务器上没有身份意义；同源 ID 才能越过标签变更。
+        XCTAssertNil(resolved([song(title: "Different", source: "another-server")]))
+        XCTAssertEqual(resolved([song("exact", title: "Retagged", artists: [], duration: 0, source: "fn")]), "exact")
+    }
+
+    func testMirrorCrossSourceMatchUsesVisibleUniqueSongsWithoutUnhidingPlaylist() async throws {
+        try await withPlaylistSyncFixture(includeCatalogSong: false) { library, source, _, _ in
+            let other = Song(id: "copy", title: "Song", albumTitle: "Album", artistName: "Singer", duration: 180,
+                             fileFormat: .flac, filePath: "/copy.flac", sourceID: "local")
+            library.addSongs([other], affectedSourceIDs: ["local"])
+            await library.waitForPendingIndex()
+            library.updateDisabledSourceIDs(["local"])
+            let playlist = ServerPlaylist(id: "p", name: "Playlist", trackIDs: ["remote"], tracks: [
+                ExternalPlaylistTrack(title: "Song", artists: ["Singer"], album: "Album", duration: 180, externalID: "remote")
+            ])
+            let snapshot = ServerPlaylistSnapshot(playlists: [playlist])
+            let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "p")
+            _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+            XCTAssertEqual(library.pendingEntryCount(forPlaylist: id), 1)
+            library.hideMirrorPlaylist(id: id)
+            library.updateDisabledSourceIDs([])
+            let prepared = await ServerPlaylistMirror.prepareOffMain(snapshot: snapshot, source: source, library: library)
+            _ = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), [other.id])
+            XCTAssertEqual(library.pendingEntryCount(forPlaylist: id), 0)
+            XCTAssertFalse(library.playlists.contains { $0.id == id })
         }
     }
 
@@ -922,7 +1042,8 @@ final class FnMusicSourceTests: XCTestCase {
             XCTAssertEqual(result.matchedTrackCount, 0)
             XCTAssertEqual(library.playlist(id: existingID)?.name, "热门推荐")
             XCTAssertEqual(library.playlist(id: existingID)?.coverArtPath, "new-cover")
-            XCTAssertEqual(library.rawSongIDs(forPlaylist: existingID), ["song"])
+            XCTAssertEqual(library.songs(forPlaylist: existingID).map(\.id), ["song"])
+            XCTAssertEqual(library.pendingEntryCount(forPlaylist: existingID), 1)
             XCTAssertFalse(library.playlists.contains { $0.id == existingID })
             XCTAssertEqual(library.hiddenMirrorPlaylists(forSourceID: source.id).map(\.playlistID), [existingID])
             XCTAssertTrue(ServerPlaylistMirror.readOnlyPlaylistIDs.contains(existingID))
@@ -1012,7 +1133,7 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertTrue(library.playlists.contains { $0.id == id("unknown") })
         XCTAssertEqual(library.playlist(id: id("unknown"))?.name, "每日推荐 10-20")
         XCTAssertEqual(library.playlist(id: id("unknown"))?.coverArtPath, "new-cover")
-        XCTAssertTrue(library.rawSongIDs(forPlaylist: id("unknown")).isEmpty)
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: id("unknown")), 1)
         XCTAssertTrue(ServerPlaylistMirror.readOnlyPlaylistIDs.contains(id("unknown")))
         // 自报 5 首、实际给出 1 首: 照样用读到的, 不再整张跳过。
         XCTAssertEqual(library.songs(forPlaylist: id("truncated")).map(\.id), ["one"])
@@ -1156,6 +1277,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var deletedPlaylistIDs: Set<String> = []
         var playlistRequests = 0
         var playlistTracks: [String: [String]] = [:]
+        var playlistTrackRows: [String: [[String: Any]]] = [:]
         var addTrackBodies: [Data] = []
     }
     nonisolated(unsafe) private static var states: [String: State] = [:]
@@ -1179,6 +1301,9 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             states[host]?.playlists = playlists
             states[host]?.deletedPlaylistIDs = deletedIDs
         }
+    }
+    static func setPlaylistTracks(_ rows: [[String: Any]], playlistID: String, host: String) {
+        lock.withLock { states[host]?.playlistTrackRows[playlistID] = rows }
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -1249,7 +1374,9 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 if state.deletedPlaylistIDs.contains(playlistID) {
                     return (404, jsonHeaders, json(["code": 404, "msg": "Playlist deleted"]))
                 }
-                return (200, jsonHeaders, page((state.playlistTracks[playlistID] ?? ["song"]).map { ["guid": $0] }))
+                let rows = state.playlistTrackRows[playlistID]
+                    ?? (state.playlistTracks[playlistID] ?? ["song"]).map { ["guid": $0] }
+                return (200, jsonHeaders, page(rows))
             case "add-track":
                 state.addTrackBodies.append(body)
                 let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]

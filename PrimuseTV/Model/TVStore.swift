@@ -5035,7 +5035,8 @@ final class TVStore {
 
     private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
-                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.reportedTrackCount)
+                       trackIDs: playlist.trackIDs, tracks: playlist.tracks,
+                       reportedTrackCount: playlist.reportedTrackCount)
     }
 
     private func isCurrentScan(source: MusicSource, generation: UUID) -> Bool {

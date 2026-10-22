@@ -167,13 +167,17 @@ public actor SongloftServiceClient {
         ]
         if let keyword, !keyword.isEmpty { query.append(URLQueryItem(name: "keyword", value: keyword)) }
         if let type { query.append(URLQueryItem(name: "type", value: type)) }
-        return try await json(path: "/songs", query: query)
+        let page: SongloftTrackPage = try await json(path: "/songs", query: query)
+        if offset == 0, keyword == nil, type == nil { playlistTrackCache.removeAll(keepingCapacity: true) }
+        for track in page.songs ?? [] { playlistTrackCache[track.id] = track.playlistTrack }
+        return page
     }
 
     public func track(id: Int64) async throws -> SongloftTrack {
         guard id > 0 else { throw SongloftServiceError.invalidResponse }
         let result: SongloftTrack = try await json(path: "/songs/\(id)")
         guard result.id == id else { throw SongloftServiceError.invalidResponse }
+        playlistTrackCache[id] = result.playlistTrack
         return result
     }
 
@@ -273,6 +277,24 @@ public actor SongloftServiceClient {
 
     public func playlistSongIDs(id: Int64) async throws -> [Int64] {
         try await playlistSongIDList(id: id).ids
+    }
+
+    private var playlistTrackCache: [Int64: ExternalPlaylistTrack] = [:]
+
+    public func playlistTracks(ids: [Int64]) async throws -> [ExternalPlaylistTrack] {
+        var tracks: [ExternalPlaylistTrack] = []
+        for id in ids {
+            try Task.checkCancellation()
+            if let cached = playlistTrackCache[id] { tracks.append(cached); continue }
+            do {
+                tracks.append(try await track(id: id).playlistTrack)
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                throw CancellationError()
+            } catch {
+                tracks.append(ExternalPlaylistTrack(title: "", artists: [], externalID: String(id)))
+            }
+        }
+        return tracks
     }
 
     public func playlistSongIDList(id: Int64) async throws -> SongloftPlaylistSongIDs {

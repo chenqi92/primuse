@@ -491,7 +491,7 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
         try await connect()
         let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
             index: { try await self.perform { try await $0.playlistIndex() } },
-            trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } },
+            tracks: { id in try await self.perform { try await $0.playlistTracks(id: id) } },
             onPlaylist: { await progress(ServerPlaylist($0)) }
         )
         return ServerPlaylistSnapshot(snapshot)
@@ -526,10 +526,10 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
                 offset += chunk.count
             }
         }
-        let trackIDs = try await perform { try await $0.playlistTrackIDs(id: playlist.id) }
-            .filter(SynologyAudioStationAPI.isCatalogSongID)
+        let tracks = try await perform { try await $0.playlistTracks(id: playlist.id) }
+        let trackIDs = tracks.compactMap(\.externalID).filter { !$0.isEmpty }
         guard Set(trackIDs).isSuperset(of: songIDs) else { throw ServerPlaylistAppendError.notConfirmed }
-        return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs, reportedTrackCount: trackIDs.count)
+        return ServerPlaylist(id: id, name: playlist.name, trackIDs: trackIDs, tracks: tracks, reportedTrackCount: trackIDs.count)
     }
 
     /// 新建个人歌单(`create`)。返回的 id 和同步时一样是服务端 id 的摘要, 加歌时照样能找回来。

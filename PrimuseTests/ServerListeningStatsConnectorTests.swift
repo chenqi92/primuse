@@ -1556,3 +1556,258 @@ private actor PlaylistWritingStubConnector: ServerPlaylistConnector, ServerPlayl
         return ServerPlaylist(id: id, name: name, trackIDs: [])
     }
 }
+
+@MainActor
+final class AllSourcePlaylistPendingTests: XCTestCase {
+    func testNavidromePlaylistPendingLifecycle() async throws { try await subsonic(.navidrome) }
+    func testSubsonicPlaylistPendingLifecycle() async throws { try await subsonic(.subsonic) }
+    func testAirsonicPlaylistPendingLifecycle() async throws { try await subsonic(.airsonic) }
+    func testGonicPlaylistPendingLifecycle() async throws { try await subsonic(.gonic) }
+    func testJellyfinPlaylistPendingLifecycle() async throws { try await media(.jellyfin, type: .jellyfin) }
+    func testEmbyPlaylistPendingLifecycle() async throws { try await media(.emby, type: .emby) }
+    func testPlexPlaylistPendingLifecycle() async throws { try await media(.plex, type: .plex) }
+
+    private func subsonic(_ type: MusicSourceType) async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PendingSubsonicURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let connector = SubsonicSource(sourceID: type.rawValue, sourceType: type, host: "pending.invalid",
+            port: nil, useSsl: true, basePath: nil, username: "qa", password: "test", session: session)
+        let snapshot = try await connector.fetchServerPlaylists()
+        let playlist = try XCTUnwrap(snapshot.playlists.first { $0.id == "playlist" })
+        XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+        XCTAssertEqual(playlist.tracks[0].artists, ["原唱", "嘉宾"])
+        if type == .airsonic || type == .gonic {
+            XCTAssertEqual(snapshot.playlists.last?.tracks.first?.title, "晴天")
+        }
+        try await lifecycle(playlist, type: type)
+        await connector.disconnect()
+    }
+
+    private func media(_ kind: MediaServerSource.Kind, type: MusicSourceType) async throws {
+        let connector = MediaServerSource(sourceID: type.rawValue, kind: kind, host: "pending.invalid",
+            port: nil, useSsl: true, basePath: nil, username: "qa", secret: "test", authType: .apiKey,
+            requestDataLoader: { request in
+                let path = request.url!.path
+                let body: String
+                switch path {
+                case "/Users/Me": body = #"{"Id":"user"}"#
+                case "/Users/user/Items":
+                    body = #"{"Items":[{"Id":"playlist","Name":"歌单"}],"TotalRecordCount":1}"#
+                case "/Playlists/playlist/Items":
+                    body = #"{"Items":[{"Id":"missing","Name":"晴天","Artists":["原唱","嘉宾"],"Album":"专辑","RunTimeTicks":1800000000},{"Id":"known","Name":"已入库"},{"Id":"id-only"}],"TotalRecordCount":3}"#
+                case "", "/": body = #"{"MediaContainer":{"machineIdentifier":"fixture"}}"#
+                case "/playlists":
+                    body = #"{"MediaContainer":{"size":1,"totalSize":1,"Metadata":[{"ratingKey":"playlist","title":"歌单","playlistType":"audio"}]}}"#
+                case "/playlists/playlist/items":
+                    body = #"{"MediaContainer":{"size":3,"totalSize":3,"Metadata":[{"ratingKey":"missing","title":"晴天","originalTitle":"原唱 / 嘉宾","grandparentTitle":"合集歌手","parentTitle":"专辑","duration":180000},{"ratingKey":"known","title":"已入库"},{"ratingKey":"id-only"}]}}"#
+                default: throw URLError(.unsupportedURL)
+                }
+                return try Self.response(request, body)
+            })
+        let snapshot = try await connector.fetchServerPlaylists()
+        XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+        let playlist = try XCTUnwrap(snapshot.playlists.first)
+        XCTAssertEqual(playlist.tracks[0].duration, 180)
+        XCTAssertEqual(playlist.tracks[0].album, "专辑")
+        XCTAssertEqual(playlist.tracks[0].artists, type == .plex ? ["原唱 / 嘉宾"] : ["原唱", "嘉宾"])
+        try await lifecycle(playlist, type: type)
+        await connector.disconnect()
+    }
+
+    func testSongloftPlaylistPendingLifecycle() async throws {
+        let connector = SongloftSource(sourceID: "songloft", host: "pending.invalid", port: nil,
+            useSSL: true, basePath: nil, username: "qa", password: "test",
+            transport: SongloftRequestTransport(data: { request in
+                let body: String
+                switch request.url!.path {
+                case "/api/v1/auth/login": body = #"{"access_token":"test","refresh_token":"test","expires_in":3600}"#
+                case "/api/v1/playlists": body = #"{"playlists":[{"id":3,"name":"歌单","type":"normal","song_count":3}],"total":1,"offset":0,"limit":500}"#
+                case "/api/v1/playlists/3/song-ids": body = #"{"ids":[7,1,9],"total":3}"#
+                case "/api/v1/songs/7": body = #"{"id":7,"type":"remote","title":"晴天","artist":"原唱","album":"专辑","duration":180}"#
+                case "/api/v1/songs/1": body = #"{"id":1,"type":"local","title":"已入库"}"#
+                default: return try Self.response(request, "{}", status: 404)
+                }
+                return try Self.response(request, body)
+            }, download: { _ in throw URLError(.unsupportedURL) }))
+        let snapshot = try await connector.fetchServerPlaylists()
+        try await lifecycle(try XCTUnwrap(snapshot.playlists.first), type: .songloft)
+        await connector.disconnect()
+    }
+
+    func testDaoLiYuPlaylistPendingLifecycle() async throws {
+        let connector = DaoLiYuSource(sourceID: "daoliyu", host: "pending.invalid", port: nil,
+            useSSL: true, basePath: nil, username: "qa", password: "test",
+            transport: DaoLiYuRequestTransport(data: { request in
+                let body: String
+                switch request.url!.path {
+                case "/api/auth/login": body = #"{"token":"test"}"#
+                case "/api/tracks": body = #"{"items":[],"total":0}"#
+                case "/api/playlists/web/mine": body = #"[{"id":"playlist","name":"歌单"}]"#
+                case "/api/playlists/playlist/track-ids": body = #"{"items":["missing","known","id-only"]}"#
+                case "/api/tracks/missing": body = #"{"id":"missing","title":"晴天","artistName":"原唱","albumTitle":"专辑","durationSeconds":180}"#
+                case "/api/tracks/known": body = #"{"id":"known","title":"已入库"}"#
+                default: return try Self.response(request, "{}", status: 404)
+                }
+                return try Self.response(request, body)
+            }, download: { _ in throw URLError(.unsupportedURL) }))
+        let snapshot = try await connector.fetchServerPlaylists()
+        try await lifecycle(try XCTUnwrap(snapshot.playlists.first), type: .daoliyu)
+        await connector.disconnect()
+    }
+
+    func testTingReaderKeepsChaptersAndUsesOnlyChapterIdentity() async throws {
+        let connector = TingReaderSource(sourceID: "ting", host: "pending.invalid", port: nil,
+            useSSL: true, basePath: nil, username: "qa", password: "test",
+            transport: TingReaderRequestTransport(data: { request in
+                let body: String
+                switch request.url!.path {
+                case "/api/auth/login": body = #"{"token":"test"}"#
+                case "/api/libraries": body = "[]"
+                case "/api/playlists": body = #"[{"id":"playlist","title":"书单","book_ids":["book"]}]"#
+                case "/api/books/book/chapters":
+                    body = #"[{"id":"missing","book_id":"book","title":"晴天","path":"/book/one.mp3","duration":180},{"id":"known","book_id":"book","title":"已入库","path":"/book/two.mp3","duration":190},{"id":"last","book_id":"book","path":"/book/末章.mp3"}]"#
+                default: throw URLError(.unsupportedURL)
+                }
+                return try Self.response(request, body)
+            }, download: { _ in throw URLError(.unsupportedURL) }))
+        let snapshot = try await connector.fetchServerPlaylists()
+        let playlist = try XCTUnwrap(snapshot.playlists.first)
+        XCTAssertEqual(playlist.tracks.last?.title, "末章")
+        try await lifecycle(playlist, type: .tingReader)
+        let entry = PlaylistPendingEntry(title: "第一章", artists: ["作者"], duration: 180,
+                                        origin: MusicSourceType.tingReader.rawValue, externalID: "one", serverSourceID: "ting")
+        let otherBook = Song(id: "wrong", title: "第一章", artistName: "作者", duration: 180,
+                             fileFormat: .mp3, filePath: "/other/one.mp3", sourceID: "other-book")
+        XCTAssertNil(PlaylistEntryMatcher(songs: [otherBook]).matchServerEntry(entry))
+        await connector.disconnect()
+    }
+
+    func testSynologyPlaylistPendingLifecycle() async throws {
+        let summaries = try JSONDecoder().decode([SynologyAudioStationPlaylist].self,
+            from: Data(#"[{"id":"playlist_personal_normal/test","name":"歌单"}]"#.utf8))
+        let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(index: {
+            SynologyAudioStationPlaylistIndex(playlists: summaries, unreadableCount: 0)
+        }, tracks: { _ in [
+            ExternalPlaylistTrack(title: "晴天", artists: ["原唱"], album: "专辑", duration: 180, externalID: "music_missing"),
+            ExternalPlaylistTrack(title: "已入库", artists: [], externalID: "music_known"),
+            ExternalPlaylistTrack(title: "", artists: [], externalID: "music_id-only"),
+        ] })
+        try await lifecycle(ServerPlaylist(try XCTUnwrap(snapshot.playlists.first)), type: .synologyAudioStation)
+    }
+
+    func testIDOnlySnapshotsPreserveRowsAndResolveWithoutMetadata() async throws {
+        try await lifecycle(ServerPlaylist(id: "playlist", name: "ID only",
+            trackIDs: ["missing", "known", "id-only"]), type: .fnMusic, expectedTitle: "")
+    }
+
+    func testEveryExternalPlatformKeepsAmbiguousTracksPending() {
+        let original = Song(id: "original", title: "晴天", albumTitle: "专辑", artistName: "原唱", duration: 180,
+                            fileFormat: .flac, filePath: "/original.flac", sourceID: "local")
+        let cover = Song(id: "cover", title: "晴天", albumTitle: "专辑", artistName: "翻唱", duration: 180,
+                         fileFormat: .flac, filePath: "/cover.flac", sourceID: "local")
+        var live = original; live.id = "live"; live.title = "晴天 (Live)"
+        var duplicate = original; duplicate.id = "duplicate"; duplicate.sourceID = "other"
+        for platform in ExternalPlaylistPlatform.allCases {
+            let entry = PlaylistPendingEntry(title: "晴天", artists: ["原唱"], album: "专辑", duration: 180,
+                                             origin: platform.rawValue)
+            let tracks = [entry.id: entry]
+            XCTAssertTrue(MusicLibrary.matchPendingEntries(tracks, against: [cover, live], keyCache: nil).resolved.isEmpty, platform.rawValue)
+            XCTAssertTrue(MusicLibrary.matchPendingEntries(tracks, against: [original, duplicate], keyCache: nil).resolved.isEmpty, platform.rawValue)
+            XCTAssertEqual(MusicLibrary.matchPendingEntries(tracks, against: [original, cover, live], keyCache: nil).resolved[entry.id], "original", platform.rawValue)
+            var incomplete = entry; incomplete.duration = nil
+            XCTAssertTrue(MusicLibrary.matchPendingEntries([entry.id: incomplete], against: [original], keyCache: nil).resolved.isEmpty, platform.rawValue)
+        }
+    }
+
+    func testFilePlaylistKeepsMissingEntriesAndDoesNotPickAmbiguousFilenames() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PlaylistFiles-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs([
+            Song(id: "original", title: "晴天", artistName: "原唱", fileFormat: .flac, filePath: "/a/晴天.flac", sourceID: "a"),
+            Song(id: "cover", title: "晴天", artistName: "翻唱", fileFormat: .flac, filePath: "/b/晴天.flac", sourceID: "b"),
+            Song(id: "only-cover", title: "另一首", artistName: "翻唱", fileFormat: .flac, filePath: "/b/另一首.flac", sourceID: "b"),
+            Song(id: "known", title: "已入库", artistName: "原唱", fileFormat: .flac, filePath: "/known.flac", sourceID: "a"),
+        ])
+        await library.waitForPendingIndex()
+        let file = root.appendingPathComponent("list.m3u8")
+        try "#EXTM3U\n#EXTINF:180,晴天\n晴天.flac\n#EXTINF:180,原唱 - 已入库\nknown.flac\n#EXTINF:180,原唱 - 另一首\n另一首.flac\n".write(to: file, atomically: true, encoding: .utf8)
+        let preview = try PlaylistImporter.parseAndMatch(fileURL: file, library: library)
+        XCTAssertEqual(preview.entries.count, 3)
+        XCTAssertNil(preview.entries[0].matchedSong)
+        XCTAssertEqual(preview.entries[1].matchedSong?.id, "known")
+        XCTAssertNil(preview.entries[2].matchedSong)
+        let playlist = PlaylistImporter.createPlaylist(from: preview, named: "Imported", keepingMissing: true, library: library)
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlist.id), 2)
+        XCTAssertEqual(library.entries(forPlaylist: playlist.id).count, 3)
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["known"])
+        _ = await library.persistNowAndWait()
+    }
+
+    private func lifecycle(_ playlist: ServerPlaylist, type: MusicSourceType, expectedTitle: String = "晴天") async throws {
+        XCTAssertEqual(playlist.trackIDs.count, 3, type.rawValue)
+        guard playlist.trackIDs.count == 3 else { return }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PlaylistPending-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let source = MusicSource(id: "fixture-\(type.rawValue)", name: type.rawValue, type: type)
+        library.addSongs([Song(id: "known", title: "已入库", fileFormat: .flac,
+                               filePath: "/tracks/\(playlist.trackIDs[1]).flac", sourceID: source.id)])
+        await library.waitForPendingIndex()
+        let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: playlist.id)
+        ServerPlaylistMirror.ProgressiveApplier(source: source, library: library).apply(playlist)
+        let members = library.rawSongIDs(forPlaylist: id)
+        XCTAssertEqual(members.count, 3, type.rawValue)
+        XCTAssertEqual(members[1], "known")
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: id), 2)
+        XCTAssertEqual(library.pendingEntry(id: members[0])?.title, expectedTitle)
+        XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["known"])
+        _ = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [playlist]), source: source, library: library)
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: id), members)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("persist") }
+        library.reloadFromDisk(preferExternalSnapshot: false)
+        XCTAssertEqual(library.entries(forPlaylist: id).map(\.id), members)
+        library.addSongs([0, 2].map { index in
+            Song(id: "added-\(index)", title: "Changed tags", fileFormat: .flac,
+                 filePath: "/tracks/\(playlist.trackIDs[index]).flac", sourceID: source.id)
+        }, affectedSourceIDs: [source.id], notifyRemovals: false, pruneMissingSongs: false)
+        await library.waitForPendingIndex()
+        for _ in 0..<140 {
+            if library.pendingEntryCount(forPlaylist: id) == 0 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["added-0", "known", "added-2"], type.rawValue)
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: id), 0, type.rawValue)
+        _ = await library.persistNowAndWait()
+    }
+
+    nonisolated private static func response(_ request: URLRequest, _ body: String, status: Int = 200) throws -> (Data, URLResponse) {
+        (Data(body.utf8), try XCTUnwrap(HTTPURLResponse(url: request.url!, statusCode: status,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])))
+    }
+}
+
+private final class PendingSubsonicURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let body: String
+        switch request.url!.path {
+        case "/rest/ping.view": body = #"{"status":"ok"}"#
+        case "/rest/getPlaylists.view": body = #"{"status":"ok","playlists":{"playlist":[{"id":"playlist","name":"歌单","songCount":3}]}}"#
+        case "/rest/getPlaylist.view": body = #"{"status":"ok","playlist":{"id":"playlist","name":"歌单","entry":[{"id":"missing","title":"晴天","artists":[{"name":"原唱"},{"name":"嘉宾"}],"album":"专辑","duration":"180"},{"id":"known","title":"已入库"},{"id":"id-only","title":null}]}}"#
+        case "/rest/getStarred2.view": body = #"{"status":"ok","starred2":{"song":[{"id":"missing","title":"晴天","artist":"原唱","duration":180}]}}"#
+        default:
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL)); return
+        }
+        let data = Data("{\"subsonic-response\":\(body)}".utf8)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}

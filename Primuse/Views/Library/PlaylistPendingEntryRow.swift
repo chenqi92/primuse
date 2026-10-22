@@ -36,7 +36,7 @@ struct PlaylistPendingEntryRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title)
+                Text(entry.title.isEmpty ? String(localized: "unknown_title") : entry.title)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -100,6 +100,8 @@ struct PlaylistPendingEntryRow: View {
             }
         }
         .contentShape(Rectangle())
+        // 接住灰色行内的点击，避免 SwiftUI 把它派给邻近的可播放行。
+        .onTapGesture {}
         .accessibilityElement(children: .contain)
         .accessibilityHint(Text("playlist_pending_accessibility_hint"))
         .sheet(isPresented: $showMatchSheet) {

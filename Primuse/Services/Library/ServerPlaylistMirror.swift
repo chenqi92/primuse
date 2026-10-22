@@ -7,7 +7,7 @@ enum ServerPlaylistMirror {
         /// 已同步名称和封面的歌单数，包含曲目仍待匹配的歌单。
         var syncedPlaylistCount = 0
         var matchedTrackCount = 0
-        /// 服务端有曲目但本地一首都没匹配上的歌单数，只更新名称和封面，保留已有曲目。
+        /// 服务端有曲目但本地一首都没匹配上的歌单数。
         var unresolvedPlaylistCount = 0
     }
 
@@ -22,6 +22,8 @@ enum ServerPlaylistMirror {
             let serverPlaylist: ServerPlaylist
             let localID: String
             let songIDs: [String]
+            let memberIDs: [String]
+            let pendingEntries: [PlaylistPendingEntry]
             let missingCount: Int
             let logContext: String
         }
@@ -38,7 +40,8 @@ enum ServerPlaylistMirror {
             snapshot: snapshot,
             sourceID: source.id,
             sourceType: source.type,
-            songs: library.songs
+            songs: library.songs,
+            matchingSongs: library.visibleSongs
         )
         return apply(prepared, snapshot: snapshot, source: source, library: library)
     }
@@ -51,10 +54,12 @@ enum ServerPlaylistMirror {
         library: MusicLibrary
     ) async -> PreparedSnapshot {
         let songs = library.songs
+        let matchingSongs = library.visibleSongs
         let sourceID = source.id
         let sourceType = source.type
         return await Task.detached(priority: .utility) {
-            ServerPlaylistMirror.prepare(snapshot: snapshot, sourceID: sourceID, sourceType: sourceType, songs: songs)
+            ServerPlaylistMirror.prepare(snapshot: snapshot, sourceID: sourceID, sourceType: sourceType,
+                                         songs: songs, matchingSongs: matchingSongs)
         }.value
     }
 
@@ -62,35 +67,70 @@ enum ServerPlaylistMirror {
         snapshot: ServerPlaylistSnapshot,
         sourceID: String,
         sourceType: MusicSourceType,
-        songs: [Song]
+        songs: [Song],
+        matchingSongs: [Song]
     ) -> PreparedSnapshot {
         let index = serverItemIndex(sourceID: sourceID, songs: songs)
-        let context = logContext(sourceID: sourceID, sourceType: sourceType)
+        let needsMetadataMatch = snapshot.playlists.contains { playlist in
+            playlist.tracks.contains { track in track.externalID.map { index[$0] == nil } ?? false }
+        }
+        let matcher = needsMetadataMatch ? PlaylistEntryMatcher(songs: matchingSongs) : nil
         let entries = snapshot.playlists.map { serverPlaylist in
-            // 一遍走完: 保序去重, 顺带数出对不上的条目。
-            var songIDs: [String] = []
-            songIDs.reserveCapacity(serverPlaylist.trackIDs.count)
-            var seen = Set<String>()
-            var missingCount = 0
-            for trackID in serverPlaylist.trackIDs {
-                guard let songID = index[trackID] else {
-                    missingCount += 1
-                    continue
-                }
-                if seen.insert(songID).inserted { songIDs.append(songID) }
-            }
-            return PreparedSnapshot.Entry(
-                serverPlaylist: serverPlaylist,
-                localID: ServerPlaylistIdentity.playlistID(
-                    sourceID: sourceID,
-                    serverPlaylistID: serverPlaylist.id
-                ),
-                songIDs: songIDs,
-                missingCount: missingCount,
-                logContext: "\(context) playlist=\(LogRedactionPolicy.digest(serverPlaylist.id)) received=\(serverPlaylist.trackIDs.count) expected=\(serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count)"
+            preparedEntry(
+                serverPlaylist, sourceID: sourceID, sourceType: sourceType,
+                index: index, matcher: matcher
             )
         }
         return PreparedSnapshot(entries: entries, indexedTrackCount: index.count)
+    }
+
+    nonisolated private static func preparedEntry(
+        _ playlist: ServerPlaylist,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        index: [String: String],
+        matcher: PlaylistEntryMatcher? = nil
+    ) -> PreparedSnapshot.Entry {
+        let metadata = Dictionary(playlist.tracks.compactMap { track in
+            track.externalID.map { ($0, track) }
+        }, uniquingKeysWith: { first, _ in first })
+        var songIDs: [String] = []
+        var members: [String] = []
+        var pending: [PlaylistPendingEntry] = []
+        var seen = Set<String>()
+        var missingCount = 0
+        for trackID in playlist.trackIDs {
+            guard !trackID.isEmpty else { continue }
+            let track = metadata[trackID]
+            let entry = PlaylistPendingEntry(
+                    id: PlaylistPendingEntry.idPrefix + ServerPlaylistIdentity.playlistID(
+                        sourceID: sourceID, serverPlaylistID: trackID
+                    ),
+                    title: track?.title ?? "", artists: track?.artists ?? [], album: track?.album,
+                    duration: track?.duration, origin: sourceType.rawValue,
+                    externalID: trackID, serverSourceID: sourceID
+                )
+            if let songID = index[trackID] ?? matcher?.matchServerEntry(entry)?.id {
+                if seen.insert(songID).inserted {
+                    songIDs.append(songID)
+                    members.append(songID)
+                }
+            } else {
+                missingCount += 1
+                if seen.insert(entry.id).inserted {
+                    members.append(entry.id)
+                    pending.append(entry)
+                }
+            }
+        }
+        let context = logContext(sourceID: sourceID, sourceType: sourceType)
+        return PreparedSnapshot.Entry(
+            serverPlaylist: playlist,
+            localID: ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: playlist.id),
+            songIDs: songIDs, memberIDs: members, pendingEntries: pending,
+            missingCount: missingCount,
+            logContext: "\(context) playlist=\(LogRedactionPolicy.digest(playlist.id)) received=\(playlist.trackIDs.count) expected=\(playlist.reportedTrackCount ?? playlist.trackIDs.count)"
+        )
     }
 
     nonisolated private static func logContext(sourceID: String, sourceType: MusicSourceType) -> String {
@@ -134,12 +174,12 @@ enum ServerPlaylistMirror {
             // 能走到这里的明细就是服务器这次给得出的全部。以前整张跳过, 一张
             // 歌单里有一首坏掉的歌就再也同步不过来。
 
-            // 服务端说有曲目, 但本地一首都没匹配上 —— 这是"取不到 / 对不上",
-            // 不是"歌单空了"。名称和封面照常同步，歌曲等待后续扫描补齐；
-            // 直接 replace 成空会在一次不完整的扫描后把已有歌单清光。
             let serverHasTracks = Self.serverHasTracks(serverPlaylist)
             if songIDs.isEmpty, serverHasTracks {
                 result.unresolvedPlaylistCount += 1
+            }
+            // 没有明细元数据的来源仍保留旧成员；有元数据的未匹配曲目写入灰色占位。
+            if entry.memberIDs.isEmpty, serverHasTracks {
                 library.updateMirrorPlaylistArtwork(
                     playlistID: localID,
                     coverArtPath: serverPlaylist.coverArtReference
@@ -150,12 +190,14 @@ enum ServerPlaylistMirror {
 
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
-                songIDs: songIDs,
-                coverArtPath: serverPlaylist.coverArtReference
+                songIDs: entry.memberIDs,
+                coverArtPath: serverPlaylist.coverArtReference,
+                pendingEntries: entry.pendingEntries,
+                preservingExistingSongs: songIDs.isEmpty && serverHasTracks
             )
             result.matchedTrackCount += songIDs.count
 
-            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(entry.missingCount) hidden_manual=\(suppressedIDs.contains(localID))")
+            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(entry.missingCount) pending=\(entry.pendingEntries.count) hidden_manual=\(suppressedIDs.contains(localID))")
         }
 
         // 清理服务端已删除的歌单镜像。前缀带 sourceID, 只影响这一个源。
@@ -184,7 +226,7 @@ enum ServerPlaylistMirror {
 
     /// 同步途中每读全一个歌单就先落地, 不必等整轮读完。只新建/覆盖, 从不删除:
     /// 哪些镜像该删只有整轮的快照说了算, 半路中断时已显示的歌单留到下一轮核对。
-    /// 取舍与 `apply` 相同 —— 曲目未匹配时只同步名称和封面，保留已有曲目。
+    /// 曲目未匹配时先显示占位，跨源匹配在后台与收尾的 prepare 中完成。
     @MainActor
     final class ProgressiveApplier {
         private let source: MusicSource
@@ -198,7 +240,9 @@ enum ServerPlaylistMirror {
         }
 
         func apply(_ serverPlaylist: ServerPlaylist) {
-            let songIDs = ServerPlaylistMirror.uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+            let entry = ServerPlaylistMirror.preparedEntry(
+                serverPlaylist, sourceID: source.id, sourceType: source.type, index: index
+            )
             let localID = ServerPlaylistIdentity.playlistID(
                 sourceID: source.id,
                 serverPlaylistID: serverPlaylist.id
@@ -209,7 +253,7 @@ enum ServerPlaylistMirror {
                 readOnlyPlaylistIDs.remove(localID)
             }
             library.ensurePlaylist(id: localID, name: ServerPlaylistMirror.resolvedName(serverPlaylist.name, localID: localID, library: library))
-            if songIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) {
+            if entry.memberIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) {
                 library.updateMirrorPlaylistArtwork(
                     playlistID: localID,
                     coverArtPath: serverPlaylist.coverArtReference
@@ -218,8 +262,10 @@ enum ServerPlaylistMirror {
             }
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
-                songIDs: songIDs,
-                coverArtPath: serverPlaylist.coverArtReference
+                songIDs: entry.memberIDs,
+                coverArtPath: serverPlaylist.coverArtReference,
+                pendingEntries: entry.pendingEntries,
+                preservingExistingSongs: entry.songIDs.isEmpty && ServerPlaylistMirror.serverHasTracks(serverPlaylist)
             )
         }
     }
@@ -231,19 +277,7 @@ enum ServerPlaylistMirror {
         source: MusicSource,
         library: MusicLibrary
     ) {
-        let localID = ServerPlaylistIdentity.playlistID(
-            sourceID: source.id,
-            serverPlaylistID: serverPlaylist.id
-        )
-        let index = serverItemIndex(sourceID: source.id, library: library)
-        let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
-        guard !songIDs.isEmpty else { return }
-        library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
-        library.replaceMirrorPlaylistSongs(
-            playlistID: localID,
-            songIDs: songIDs,
-            coverArtPath: serverPlaylist.coverArtReference
-        )
+        ProgressiveApplier(source: source, library: library).apply(serverPlaylist)
     }
 
     /// 刚在服务端建好的歌单先落一个空镜像: 接下来加歌要是失败了, 再复制一次会认出这个同名

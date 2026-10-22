@@ -294,6 +294,19 @@ struct SongloftServiceTests {
         }
     }
 
+    @Test func playlistMetadataKeepsMissingDetailsAndReusesCatalog() async throws {
+        let fixture = SongloftFixture()
+        let client = fixture.client()
+        _ = try await client.trackPage(offset: 0)
+        let tracks = try await client.playlistTracks(ids: [7, 1, 99])
+        #expect(tracks.map(\.externalID) == ["7", "1", "99"])
+        #expect(tracks[0].title == "晴天")
+        #expect(tracks[0].artists == ["原唱"])
+        #expect(tracks[0].duration == 180)
+        #expect(tracks[2].title.isEmpty)
+        #expect(await fixture.requests.filter { $0.url?.path.hasSuffix("/songs/1") == true }.isEmpty)
+    }
+
     @Test func playlistsKeepServerOrder() async throws {
         let client = SongloftFixture().client()
         let playlists = try await client.playlists()
@@ -389,6 +402,10 @@ private actor SongloftFixture {
             return response(url, json: mode == .empty
                 ? "{\"songs\":null,\"total\":0,\"offset\":0,\"limit\":\(limit)}"
                 : "{\"songs\":[{\"id\":1,\"type\":\"local\",\"format\":\"flac\"}],\"total\":1,\"offset\":0,\"limit\":\(limit)}")
+        case "/songs/7":
+            return response(url, json: #"{"id":7,"type":"remote","title":"晴天","artist":"原唱","album":"专辑","duration":180}"#)
+        case "/songs/99":
+            return response(url, status: 404, json: "{}")
         case "/songs/ids":
             idReads += 1
             return response(url, json: mode == .empty ? #"{"ids":null,"total":0}"#

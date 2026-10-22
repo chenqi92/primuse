@@ -4,6 +4,41 @@ import Testing
 
 @Suite("Feiniu library and session recovery")
 struct FnMusicLibraryTests {
+    @Test func playlistDetailsKeepMetadataForTracksOutsideTheCatalog() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1, list: [
+            ["guid": "one", "title": "晴天", "artists": [["name": "歌手"]],
+             "album": ["name": "专辑"], "audioSpec": ["duration": 180000]],
+            ["trackGUID": "two", "name": "晴天 (Live)", "artists": ["歌手", "嘉宾"], "duration": 210000],
+            ["guid": "id-only"],
+        ], total: 3)
+        let (client, _, _) = fixture.clients()
+        let playlist = try await client.library.playlist(id: "p")
+        #expect(playlist.trackIDs == ["one", "two", "id-only"])
+        #expect(playlist.tracks.map(\.title) == ["晴天", "晴天 (Live)", ""])
+        #expect(playlist.tracks.map(\.externalID) == ["one", "two", "id-only"])
+        #expect(playlist.tracks[0].artists == ["歌手"])
+        #expect(playlist.tracks[0].album == "专辑")
+        #expect(playlist.tracks[0].duration == 180)
+        #expect(playlist.tracks[1].artists == ["歌手", "嘉宾"])
+        #expect(playlist.tracks[1].duration == 210)
+        #expect(playlist.tracks[2].duration == nil)
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.playlists.first?.tracks == playlist.tracks)
+    }
+
+    @Test func serverPendingIdentityPersistsAndOldPendingEntriesStillDecode() throws {
+        let entry = PlaylistPendingEntry(title: "Song", artists: ["Singer"], externalID: "track", serverSourceID: "source")
+        let data = try JSONEncoder().encode(entry)
+        #expect(try JSONDecoder().decode(PlaylistPendingEntry.self, from: data) == entry)
+        var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "serverSourceID")
+        let decoded = try JSONDecoder().decode(PlaylistPendingEntry.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(decoded.serverSourceID == nil)
+        #expect(decoded.title == entry.title)
+    }
+
     /// 歌单索引照网页端那样一次请求、不带分页参数；歌单内曲目仍按页翻。
     @Test func playlistIndexIsFetchedOnceAndTracksArePaged() async throws {
         let fixture = FnMusicLibraryFixture()

@@ -3,11 +3,165 @@ import Foundation
 import MediaPlayer
 import MusicKit
 import PrimuseKit
+import SwiftUI
 import UIKit
 import XCTest
 @testable import Primuse
 
+@MainActor
+private final class PlaylistInspectionWindow: UIWindow {
+    override func sendEvent(_ event: UIEvent) {
+        for touch in event.allTouches ?? [] where touch.phase == .began {
+            print("PHYSICAL_PLAYLIST touch=\(touch.location(in: self)) bounds=\(bounds)")
+        }
+        super.sendEvent(event)
+    }
+}
+
 final class DeviceMusicPlaybackTests: XCTestCase {
+    @MainActor
+    func testPhysicalFeiniuPlaylistRecovery() async throws {
+        try await physicalPlaylistRecovery(type: .fnMusic)
+    }
+
+    @MainActor
+    func testPhysicalNavidromePlaylistRecovery() async throws {
+        try await physicalPlaylistRecovery(type: .navidrome)
+    }
+
+    @MainActor
+    func testPhysicalSynologyPlaylistRecovery() async throws {
+        try await physicalPlaylistRecovery(type: .synologyAudioStation)
+    }
+
+    @MainActor
+    private func physicalPlaylistRecovery(type: MusicSourceType) async throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Requires a physical device and an existing test server account.")
+        #else
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_PLAYLIST_QA"] == "1" else {
+            throw XCTSkip("Opt-in test of the device's configured server accounts.")
+        }
+        let services = AppServices.shared
+        let loaded = await waitUntil(timeout: 30) { services.musicLibrary.isReady }
+        XCTAssertTrue(loaded)
+        guard let source = services.sourcesStore.sources.first(where: { $0.type == type && $0.isEnabled }) else {
+            throw XCTSkip("No enabled \(type.rawValue) account is configured on this device.")
+        }
+        let connector = services.sourceManager.connector(for: source)
+        let playlists = try XCTUnwrap(connector as? any ServerPlaylistConnector)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PhysicalPlaylist-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = try await playlists.fetchServerPlaylists()
+        XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+        XCTAssertFalse(snapshot.playlists.isEmpty)
+        let sourceSongs = services.musicLibrary.visibleSongs.filter { $0.sourceID == source.id }
+        let byID = Dictionary(sourceSongs.map { (ServerPlaylistIdentity.serverItemID(fromFilePath: $0.filePath), $0) },
+                              uniquingKeysWith: { first, _ in first })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs(sourceSongs)
+        await library.waitForPendingIndex()
+        _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+        for remote in snapshot.playlists {
+            let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: remote.id)
+            XCTAssertEqual(library.playlist(id: id)?.name, remote.name)
+            XCTAssertEqual(library.entries(forPlaylist: id).count, Set(remote.trackIDs.filter { !$0.isEmpty }).count)
+        }
+        let remote = try XCTUnwrap(snapshot.playlists.first { Set($0.trackIDs.filter { byID[$0] != nil }).count >= 2 })
+        var seen = Set<String>()
+        let ids = Array(remote.trackIDs.filter { byID[$0] != nil && seen.insert($0).inserted }.prefix(2))
+        let missing = try XCTUnwrap(byID[ids[0]])
+        let known = try XCTUnwrap(byID[ids[1]])
+        let isolated = MusicLibrary(storageDirectory: root.appendingPathComponent("missing-library"))
+        isolated.addSongs([known])
+        await isolated.waitForPendingIndex()
+        let fixture = ServerPlaylist(id: "device-pending-recovery", name: "实体歌单验证 · \(source.name)",
+            trackIDs: ids + ["qa-metadata-unavailable"], tracks: ids.map { id in
+                remote.tracks.first { $0.externalID == id }
+                    ?? ExternalPlaylistTrack(title: byID[id]!.title, artists: [byID[id]!.artistName ?? ""],
+                                             album: byID[id]!.albumTitle, duration: byID[id]!.duration, externalID: id)
+            })
+        _ = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [fixture]), source: source, library: isolated)
+        let playlistID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: fixture.id)
+        let playlist = try XCTUnwrap(isolated.playlist(id: playlistID))
+        XCTAssertEqual(isolated.pendingEntryCount(forPlaylist: playlistID), 2)
+        XCTAssertEqual(isolated.songs(forPlaylist: playlistID).map(\.id), [known.id])
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "physical-playlist-\(UUID().uuidString)"))
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.prewarmQueueCount = 0
+        let player = AudioPlayerService(sourceManager: services.sourceManager, library: isolated,
+            playbackSettings: settings, playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json")))
+        services.playerService.pause()
+        let oldIdle = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = PlaylistInspectionWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView:
+            NavigationStack { PlaylistDetailView(playlist: playlist) }
+                .environment(player).environment(isolated).environment(services.sourceManager)
+                .environment(services.sourcesStore).environment(services.metadataBackfill)
+                .environment(services.scraperService).environment(services.scraperSettingsStore)
+                .environment(services.themeService).environment(services.coverTintProvider)
+                .environment(services.playbackSettingsStore).environment(services.scanService)
+                .environment(services.appleMusic).environment(services.dlnaRenderer)
+                .environment(services.audioCacheSync).environment(services.batchRemoval)
+                .environment(services.duplicateCleanup).environment(services.serverListeningStats)
+                .environment(services.serverCatalogAutoRefresh).environment(services.cloudSync)
+                .environment(services.appleMusicLibrary).environment(services.musicIntelligence)
+                .environment(services.radioStationsStore).environment(services.updateChecker)
+                .environment(player.audioEngine).environment(player.equalizerService)
+                .environment(player.audioEffectsService).environment(services.visualizer))
+        window.windowLevel = .alert
+        window.makeKeyAndVisible()
+        defer {
+            player.stop()
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+            UIApplication.shared.isIdleTimerDisabled = oldIdle
+        }
+        func screenshot(_ name: String) {
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "\(type.rawValue)-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let inspection = Double(ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_PLAYLIST_INSPECTION_SECONDS"] ?? "") ?? 3
+        print("PHYSICAL_PLAYLIST \(type.rawValue) pending; serverPlaylists=\(snapshot.playlists.count) catalog=\(sourceSongs.count)")
+        try await Task.sleep(for: .seconds(inspection))
+        screenshot("pending")
+        XCTAssertNil(player.currentSong, "A gray row must not start playback during inspection.")
+        player.stop()
+        isolated.addSongs([missing], affectedSourceIDs: [source.id], notifyRemovals: false, pruneMissingSongs: false)
+        await isolated.waitForPendingIndex()
+        let recovered = await waitUntil { isolated.pendingEntryCount(forPlaylist: playlistID) == 1 }
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(isolated.songs(forPlaylist: playlistID).map(\.id), [missing.id, known.id])
+        print("PHYSICAL_PLAYLIST \(type.rawValue) recovered")
+        try await Task.sleep(for: .seconds(inspection))
+        screenshot("recovered")
+        if player.currentSong?.id != missing.id {
+            player.setQueue(isolated.songs(forPlaylist: playlistID))
+            await player.play(song: missing)
+        }
+        let played = await waitUntil(timeout: 30) {
+            player.currentSong?.id == missing.id && player.isPlaying && player.currentTime > 1
+                && player.audioEngine.isActuallyPlaying
+        }
+        XCTAssertTrue(played, player.lastPlaybackError ?? "The restored song must produce playback progress.")
+        XCTAssertEqual(player.queue.map(\.id), [missing.id, known.id])
+        screenshot("playing")
+        print("PHYSICAL_PLAYLIST \(type.rawValue) played=\(played) time=\(player.currentTime) queue=\(player.queue.count)")
+        _ = await isolated.persistNowAndWait()
+        _ = await library.persistNowAndWait()
+        #endif
+    }
+
     private struct Manifest: Decodable {
         let files: [Fixture]
     }

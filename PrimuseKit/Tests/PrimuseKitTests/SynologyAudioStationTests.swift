@@ -679,7 +679,7 @@ struct SynologyAudioStationTests {
         #expect(complete.isIndexComplete)
     }
 
-    @Test func playlistMirrorSnapshotDropsUnindexedEntries() async throws {
+    @Test func playlistMirrorSnapshotKeepsUnindexedMetadata() async throws {
         let snapshot = try await AudioStationFixture().client().playlistMirrorSnapshot()
         #expect(snapshot.failedPlaylistIDs.isEmpty)
         #expect(snapshot.isIndexComplete)
@@ -688,7 +688,9 @@ struct SynologyAudioStationTests {
         #expect(snapshot.playlists.map(\.isSmart) == [false, false, false, false, false, true])
         let drive = try #require(snapshot.playlists.first)
         #expect(drive.id == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
-        #expect(drive.trackIDs == ["music_6906", "music_6906"])
+        #expect(drive.trackIDs == ["music_6906", "music_/volume1/music/日语/刘小慧 - 初恋情人.flac", "music_6906"])
+        #expect(drive.tracks.map(\.externalID) == drive.trackIDs.map(Optional.some))
+        #expect(drive.tracks[1].title == "刘小慧 - 初恋情人.flac")
     }
 
     @Test func playlistMirrorSnapshotKeepsFailedPlaylistsApart() async throws {
@@ -707,7 +709,7 @@ struct SynologyAudioStationTests {
         // 读全的歌单读完就交出，读不到的不交。
         #expect(await delivered.names == ["好"])
         #expect(snapshot.playlists.map(\.name) == ["好"])
-        #expect(snapshot.playlists.first?.trackIDs == ["music_1", "music_v_2"])
+        #expect(snapshot.playlists.first?.trackIDs == ["music_1", "music_/volume1/a.flac", "music_v_2"])
         #expect(snapshot.failedPlaylistIDs == [
             SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/坏")
         ])

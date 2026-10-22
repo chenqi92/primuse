@@ -1535,7 +1535,7 @@ struct PlaylistImportView: View {
                 .components(separatedBy: " / ")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
-            let match = matcher.match(.init(title: raw.displayTitle, artists: artists, duration: nil))
+            let match = matcher.matchImportedTrack(.init(title: raw.displayTitle, artists: artists))
             var updated = raw
             if let best = match.best {
                 updated.matchedSong = best
@@ -1623,27 +1623,26 @@ struct PlaylistImportView: View {
 
         func songByID(_ id: String) -> Song? { byID[id] }
 
-        func matchByBasename(_ path: String) -> Song? {
+        func matchByBasename(_ path: String, title: String, artist: String?) -> Song? {
             let needle = (path as NSString).lastPathComponent.lowercased()
-            return Self.chooseBest(from: byBasename[needle] ?? [])
+            return Self.chooseBest(from: (byBasename[needle] ?? []).filter {
+                PlaylistEntryMatcher.fileMetadataMatches($0, title: title, artist: artist)
+            })
         }
 
         func matchByTitleArtist(title: String, artist: String?) -> Song? {
+            guard let artist, !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             let normTitle = Self.normalize(title)
             guard !normTitle.isEmpty, let bucket = byNormTitle[normTitle] else { return nil }
-            let normArtist = artist.map { Self.normalize($0) }
+            let normArtist = Self.normalize(artist)
             let hits = bucket.filter { song in
-                if let normArtist {
-                    return Self.normalize(song.artistName ?? "") == normArtist
-                }
-                return true
+                Self.normalize(song.artistName ?? "") == normArtist
             }
             return Self.chooseBest(from: hits)
         }
 
-        /// 多个命中挑最高音质 (跟 PlaylistImporter / DuplicateDetector 一致)。
         static func chooseBest(from songs: [Song]) -> Song? {
-            songs.max { DuplicateDetector.qualityScore(of: $0) < DuplicateDetector.qualityScore(of: $1) }
+            songs.count == 1 ? songs.first : nil
         }
 
         static func normalize(_ s: String) -> String {
@@ -1671,7 +1670,7 @@ struct PlaylistImportView: View {
             if let s = index.songByID(track.songID) {
                 return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: s, matchKindRaw: "songID")
             }
-            if let s = index.matchByBasename(track.filePath) {
+            if let s = index.matchByBasename(track.filePath, title: track.title, artist: track.artistName) {
                 return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: s, matchKindRaw: "basename")
             }
             if let s = index.matchByTitleArtist(title: track.title, artist: track.artistName) {
@@ -1724,7 +1723,7 @@ struct PlaylistImportView: View {
 
         let matches = rawEntries.map { raw -> RawMatch in
             let (displayTitle, displayArtist) = Self.parseExtInf(raw.extInf, fallbackPath: raw.path)
-            if let s = index.matchByBasename(raw.path) {
+            if let s = index.matchByBasename(raw.path, title: displayTitle, artist: displayArtist) {
                 return RawMatch(displayTitle: displayTitle, displayArtist: displayArtist, matchedSong: s, matchKindRaw: "basename")
             }
             if let s = index.matchByTitleArtist(title: displayTitle, artist: displayArtist) {
@@ -1948,10 +1947,10 @@ struct PlaylistImportView: View {
         // 播放器导出文件里带着文件路径时，先按文件名对（同一批文件多半就在曲库里）。
         let pathIndex = tracks.contains { $0.location != nil } ? MatchIndex(songs: songs) : nil
         return tracks.map { track in
-            if let location = track.location, let song = pathIndex?.matchByBasename(location) {
+            if let location = track.location, let song = pathIndex?.matchByBasename(location, title: track.title, artist: track.artistLine) {
                 return RawExternalMatch(track: track, matched: song, suggested: nil)
             }
-            let match = matcher.match(anyOf: track.matchSubjects)
+            let match = matcher.matchImportedTrack(track)
             return RawExternalMatch(
                 track: track,
                 matched: match.best,

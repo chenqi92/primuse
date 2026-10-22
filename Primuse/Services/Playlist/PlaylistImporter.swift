@@ -141,7 +141,7 @@ enum PlaylistImporter {
                 )
             }
             // 2. basename 匹配
-            if let s = index.matchByBasename(track.filePath) {
+            if let s = index.matchByBasename(track.filePath, title: track.title, artist: track.artistName) {
                 return ImportEntry(
                     displayTitle: track.title,
                     displayArtist: track.artistName,
@@ -211,7 +211,7 @@ enum PlaylistImporter {
         let entries = rawEntries.map { raw -> ImportEntry in
             let (displayTitle, displayArtist) = parseExtInf(raw.extInf, fallbackPath: raw.path)
             // 1. basename 匹配
-            if let s = index.matchByBasename(raw.path) {
+            if let s = index.matchByBasename(raw.path, title: displayTitle, artist: displayArtist) {
                 return ImportEntry(
                     displayTitle: displayTitle,
                     displayArtist: displayArtist,
@@ -296,9 +296,11 @@ enum PlaylistImporter {
             byNormalizedTitle = titles
         }
 
-        func matchByBasename(_ path: String) -> Song? {
+        func matchByBasename(_ path: String, title: String, artist: String?) -> Song? {
             for needle in PlaylistImporter.basenameCandidates(for: path) {
-                if let match = PlaylistImporter.chooseBest(from: byBasename[needle] ?? []) {
+                if let match = PlaylistImporter.chooseBest(from: (byBasename[needle] ?? []).filter {
+                    PlaylistEntryMatcher.fileMetadataMatches($0, title: title, artist: artist)
+                }) {
                     return match
                 }
             }
@@ -311,7 +313,7 @@ enum PlaylistImporter {
                   let candidates = byNormalizedTitle[normalizedTitle]
             else { return nil }
             guard let artist else {
-                return PlaylistImporter.chooseBest(from: candidates)
+                return nil
             }
             let normalizedArtist = PlaylistImporter.normalize(artist)
             return PlaylistImporter.chooseBest(from: candidates.filter {
@@ -320,10 +322,8 @@ enum PlaylistImporter {
         }
     }
 
-    /// 多个匹配命中时挑最高音质 (DuplicateDetector 已经把这一逻辑写好了)。
     nonisolated private static func chooseBest(from songs: [Song]) -> Song? {
-        guard !songs.isEmpty else { return nil }
-        return songs.max { DuplicateDetector.qualityScore(of: $0) < DuplicateDetector.qualityScore(of: $1) }
+        songs.count == 1 ? songs.first : nil
     }
 
     nonisolated private static func normalize(_ s: String) -> String {

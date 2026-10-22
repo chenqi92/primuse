@@ -326,6 +326,10 @@ import Testing
                 reply = (200, #"{"items":["trk_1","trk_2"],"total":2}"#)
             case "/api/playlists/pl_2/track-ids":
                 reply = (500, "{}")
+            case "/api/tracks/trk_1":
+                reply = (200, #"{"id":"trk_1","title":"晴天","artistName":"原唱","albumTitle":"专辑","durationSeconds":180}"#)
+            case "/api/tracks/trk_2":
+                reply = (404, "{}")
             default:
                 throw URLError(.badServerResponse)
             }
@@ -342,7 +346,14 @@ import Testing
     )
 
     let snapshot = try await client.playlistSnapshot()
-    #expect(snapshot.playlists == [DaoLiYuPlaylist(id: "pl_1", name: "开车", trackIDs: ["trk_1", "trk_2"])])
+    let playlist = try #require(snapshot.playlists.first)
+    #expect(playlist.trackIDs == ["trk_1", "trk_2"])
+    #expect(playlist.tracks.map(\.externalID) == ["trk_1", "trk_2"])
+    #expect(playlist.tracks[0].title == "晴天")
+    #expect(playlist.tracks[0].artists == ["原唱"])
+    #expect(playlist.tracks[0].album == "专辑")
+    #expect(playlist.tracks[0].duration == 180)
+    #expect(playlist.tracks[1].title.isEmpty)
     #expect(snapshot.failedPlaylistIDs == ["pl_2"])
     #expect(!snapshot.isIndexComplete)
 }

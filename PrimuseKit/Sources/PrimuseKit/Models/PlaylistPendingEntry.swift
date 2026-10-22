@@ -19,6 +19,8 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
     public var origin: String?
     /// 在来源平台上的歌曲 id，便于以后精确对照；可空。
     public var externalID: String?
+    /// 服务端镜像的曲目 ID 仅在这个音乐源内有效，不能跨服务器直接对照。
+    public var serverSourceID: String?
     public var createdAt: Date
     /// 规则只够得上「可能是」时记下的候选，界面上给用户一键确认。不会自动写入。
     public var suggestedSongID: String?
@@ -31,6 +33,7 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
         duration: Double? = nil,
         origin: String? = nil,
         externalID: String? = nil,
+        serverSourceID: String? = nil,
         createdAt: Date = Date(),
         suggestedSongID: String? = nil
     ) {
@@ -41,6 +44,7 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
         self.duration = duration
         self.origin = origin
         self.externalID = externalID
+        self.serverSourceID = serverSourceID
         self.createdAt = createdAt
         self.suggestedSongID = suggestedSongID
     }

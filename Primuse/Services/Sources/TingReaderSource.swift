@@ -33,7 +33,8 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
         username: String,
         password: String,
         alternateTLSValidationHostname: String? = nil,
-        excludedLibraryIDs: Set<String> = []
+        excludedLibraryIDs: Set<String> = [],
+        transport: TingReaderRequestTransport? = nil
     ) {
         self.sourceID = sourceID
         self.excludedLibraryIDs = excludedLibraryIDs
@@ -70,7 +71,7 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
             basePath: basePath,
             username: username,
             password: password,
-            transport: TingReaderRequestTransport(
+            transport: transport ?? TingReaderRequestTransport(
                 data: { try await TrustedHTTPTransport.data(for: $0, session: pick($0)) },
                 download: { try await TrustedHTTPTransport.download(for: $0, session: pick($0)) }
             )
@@ -486,6 +487,7 @@ extension TingReaderSource: ServerPlaylistConnector {
             try Task.checkCancellation()
             do {
                 var trackIDs: [String] = []
+                var tracks: [ExternalPlaylistTrack] = []
                 for bookID in playlist.bookIDs {
                     let chapters: [TingReaderChapter]
                     if let cached = chaptersByBook[bookID] {
@@ -499,11 +501,17 @@ extension TingReaderSource: ServerPlaylistConnector {
                         chaptersByBook[bookID] = chapters
                     }
                     trackIDs += chapters.map { TingReaderAPIProtocol.serverItemID(chapterID: $0.id) }
+                    tracks += chapters.map {
+                        ExternalPlaylistTrack(title: $0.title ?? (($0.path as NSString).lastPathComponent as NSString).deletingPathExtension,
+                                              artists: [], duration: $0.duration,
+                                              externalID: TingReaderAPIProtocol.serverItemID(chapterID: $0.id))
+                    }
                 }
                 let mirror = ServerPlaylist(
                     id: playlist.id,
                     name: playlist.title,
                     trackIDs: trackIDs,
+                    tracks: tracks,
                     reportedTrackCount: trackIDs.count
                 )
                 mirrors.append(mirror)
