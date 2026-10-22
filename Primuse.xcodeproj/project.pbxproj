@@ -2064,6 +2064,8 @@
 		B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 		B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */; };
 		17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */; };
+		8001700F4215BDDD3CC9A507 /* AppleMusicCatalogSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */; };
+		BCEDC7604E9B41A53228A773 /* DiagnosticUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3824,6 +3826,8 @@
 		B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleCredentialHealthTests.swift; sourceTree = "<group>"; };
 		B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStreamResourceLoaderTests.swift; sourceTree = "<group>"; };
 		8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfiniCloudAPIClient.swift; sourceTree = "<group>"; };
+		4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSaveTests.swift; sourceTree = "<group>"; };
+		6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticUploadRegressionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4259,6 +4263,8 @@
 		393EBBEB8D646675DDC7B714 /* PrimuseMacTests */ = {
 			isa = PBXGroup;
 			children = (
+				4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */,
+				6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */,
 				F845ACAEAB047249A14588F7 /* AIStreamingIntegrationTests.swift */,
 				B98343D8D4AAF97AB9D565E8 /* MacOutputRoutingTests.swift */,
 				8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */,
@@ -7146,6 +7152,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8001700F4215BDDD3CC9A507 /* AppleMusicCatalogSaveTests.swift in Sources */,
+				BCEDC7604E9B41A53228A773 /* DiagnosticUploadRegressionTests.swift in Sources */,
 				E395200B89B609869A98C278 /* DirectoryScanCooldownTests.swift in Sources */,
 				EA6E1CB39C01C7C4C06AB8E4 /* PlexSignInQuotaTests.swift in Sources */,
 				598812D421EF6C8AEDA0E1E9 /* LastFmSimilarQuotaTests.swift in Sources */,

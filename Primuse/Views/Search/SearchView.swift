@@ -577,8 +577,6 @@ struct SearchView: View {
     /// 正在加进 Apple Music 资料库的那首目录歌。
     @State private var savingAppleMusicSongID: MusicItemID?
     @State private var appleMusicActionFeedback: AppleMusicActionFeedback?
-    /// Mac 上点了只在目录里的歌的「喜欢 / 加歌单」:先说明要去「音乐」里加进资料库。
-    @State private var appleMusicLibraryNoticeSong: MusicKit.Song?
     @State private var expandedCollections: Set<SearchResultSection> = []
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
@@ -1303,21 +1301,6 @@ struct SearchView: View {
             appleMusicActionToast
         }
         .animation(.easeInOut(duration: 0.2), value: appleMusicActionFeedback)
-        .alert(
-            "apple_music_mac_save_title",
-            isPresented: Binding(
-                get: { appleMusicLibraryNoticeSong != nil },
-                set: { if !$0 { appleMusicLibraryNoticeSong = nil } }
-            ),
-            presenting: appleMusicLibraryNoticeSong
-        ) { song in
-            if let url = song.url {
-                Button("apple_music_open_in_music") { openURL(url) }
-            }
-            Button("cancel", role: .cancel) {}
-        } message: { _ in
-            Text("apple_music_mac_save_message")
-        }
         .onChange(of: hiddenLibrarySectionsRawValue) { _, _ in
             performSearch(query: searchText)
         }
@@ -3919,8 +3902,7 @@ struct SearchView: View {
     // MARK: Apple Music 目录歌的操作
 
     /// 搜索里 Apple Music 目录歌的菜单:入队直接用目录歌;喜欢、加歌单只能作用在曲库里的歌上,
-    /// 还不在曲库的先加进用户的 Apple Music 资料库、同步进来再做(iOS)。Mac 没有加进资料库的接口,
-    /// 点了先说明怎么去「音乐」里加。
+    /// 还不在曲库的先加进用户的 Apple Music 资料库、同步进来再做。
     @ViewBuilder
     private func appleMusicSongMenu(_ song: MusicKit.Song) -> some View {
         let librarySong = AppServices.shared.appleMusicLibrary.librarySong(forCatalog: song)
@@ -3961,14 +3943,12 @@ struct SearchView: View {
                 } label: {
                     Label(String(localized: "a11y_like"), systemImage: "heart")
                 }
-                #if os(iOS)
                 Button {
                     saveAppleMusicSong(song)
                 } label: {
                     Label(String(localized: "apple_music_add_to_library"), systemImage: "plus.circle")
                 }
                 .disabled(savingAppleMusicSongID != nil)
-                #endif
             }
 
             #if os(macOS)
@@ -4000,15 +3980,11 @@ struct SearchView: View {
     }
 
     private func likeAppleMusicSong(_ song: MusicKit.Song) {
-        #if os(iOS)
         saveAppleMusicSong(song) { saved in
             library.setLiked(songID: saved.id, isLiked: true, propagatesServerMutation: true)
             PMHaptics.likeToggled(isLiked: true)
             return String(localized: "apple_music_saved_and_liked")
         }
-        #else
-        appleMusicLibraryNoticeSong = song
-        #endif
     }
 
     private func addAppleMusicSongToPlaylist(_ song: MusicKit.Song, librarySong: PrimuseKit.Song?) {
@@ -4017,18 +3993,13 @@ struct SearchView: View {
             showsAddToPlaylist = true
             return
         }
-        #if os(iOS)
         saveAppleMusicSong(song) { saved in
             songsToAddToPlaylist = [saved]
             showsAddToPlaylist = true
             return nil
         }
-        #else
-        appleMusicLibraryNoticeSong = song
-        #endif
     }
 
-    #if os(iOS)
     /// 加进 Apple Music 资料库并等它同步进曲库,再做 `then`。`then` 返回要提示的话,nil 表示不提示
     /// (接着弹了加歌单的表,那张表本身就是回应)。一次只加一首。
     private func saveAppleMusicSong(
@@ -4053,7 +4024,6 @@ struct SearchView: View {
             }
         }
     }
-    #endif
 
     private func showAppleMusicFeedback(_ feedback: AppleMusicActionFeedback) {
         appleMusicActionFeedback = feedback

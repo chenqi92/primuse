@@ -939,9 +939,11 @@ actor PrimuseAIRelayClient {
             output = try await performFeature(
                 path: "/v1/diagnostics/uploads",
                 purpose: "diagnostics",
-                input: request
+                input: request,
+                allowsStoreKitRefresh: true
             )
         } catch {
+            logDiagnosticsFailure(error, stage: "request")
             throw Self.diagnosticUploadError(error)
         }
         guard let slot = DiagnosticUpload.validatedSlot(
@@ -968,6 +970,7 @@ actor PrimuseAIRelayClient {
                 input: DiagnosticsUploadCompleteInput(uploadID: id)
             )
         } catch {
+            logDiagnosticsFailure(error, stage: "complete")
             throw Self.diagnosticUploadError(error)
         }
         guard DiagnosticUpload.isDisplayableCode(output.code) else {
@@ -976,45 +979,41 @@ actor PrimuseAIRelayClient {
         return output.code
     }
 
-    /// 取消原样交回(界面不提示);注册不上(App Attest、StoreKit 兜底都不成)算「不可用」,
-    /// 界面改走邮件;其余按中转的错误码归类。在 URLSession 的回调链上也会用到,所以不碰
-    /// 任何主线程隔离的类型,注册类错误码单独列在下面。
+    private func logDiagnosticsFailure(_ error: Error, stage: String) {
+        guard !(Self.diagnosticUploadError(error) is CancellationError) else { return }
+        let diagnostic = PrimuseAIRelayDiagnostic.classify(error)
+        plog("Diagnostics upload failed stage=\(stage) category=\(diagnostic.category) code=\(diagnostic.code)")
+    }
+
+    /// 认证失败保留错误码并允许重试;只有服务未开放或设备不支持时才隐藏上传入口。
     nonisolated static func diagnosticUploadError(_ error: Error) -> Error {
         if error is CancellationError || error is DiagnosticUpload.Failure { return error }
         if let urlError = error as? URLError {
             return urlError.code == .cancelled ? CancellationError() : DiagnosticUpload.Failure.network
         }
         if (error as NSError).domain == DCError.errorDomain {
-            return DiagnosticUpload.Failure.unavailable
+            return DiagnosticUpload.Failure.other(code: PrimuseAIRelayDiagnostic.classify(error).code)
         }
         guard let relayError = error as? PrimuseAIRelayError else {
             return DiagnosticUpload.Failure.other(code: "unknown_error")
         }
         switch relayError {
         case .requestFailed(let statusCode, let code, let retryAt):
-            let failure = DiagnosticUpload.failure(statusCode: statusCode, code: code, retryAt: retryAt)
-            if case .other = failure, diagnosticsRegistrationCodes.contains(code) {
-                return DiagnosticUpload.Failure.unavailable
-            }
-            return failure
-        case .unsupportedDevice, .credentialUnavailable, .credentialCorrupted,
-             .credentialPersistenceFailed, .storeKitTransactionUnavailable,
-             .storeKitTransactionUnverified, .storeKitAuthenticationCancelled:
+            return DiagnosticUpload.failure(statusCode: statusCode, code: code, retryAt: retryAt)
+        case .unsupportedDevice:
             return DiagnosticUpload.Failure.unavailable
+        case .storeKitAuthenticationCancelled:
+            return CancellationError()
+        case .credentialUnavailable, .credentialCorrupted,
+             .credentialPersistenceFailed, .storeKitTransactionUnavailable,
+             .storeKitTransactionUnverified:
+            return DiagnosticUpload.Failure.other(code: PrimuseAIRelayDiagnostic.classify(error).code)
         case .invalidResponse:
             return DiagnosticUpload.Failure.other(code: "invalid_response")
         case .responseTooLarge:
             return DiagnosticUpload.Failure.other(code: "response_too_large")
         }
     }
-
-    /// 设备注册被拒的错误码(与 `PrimuseAIRelayDiagnostic` 归到 deviceRegistration 的一致)。
-    private nonisolated static let diagnosticsRegistrationCodes: Set<String> = [
-        "invalid_attestation",
-        "invalid_app_attest_policy",
-        "invalid_app_transaction",
-        "storekit_enrollment_unavailable",
-    ]
 
     /// 当前套餐有没有听歌识词:套餐没开放,或转写线路都只留给更高的套餐时,中转在
     /// 用量接口的套餐里不列出它,这时去识别只会被拒。读不到就是不知道,返回 nil。
