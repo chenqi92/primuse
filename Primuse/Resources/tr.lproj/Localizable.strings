@@ -2065,6 +2065,8 @@
 "crossfade_footer" = "Bir parça sonuna kadar çaldığında çapraz solma yukarıda ayarlanan süre kadar sürer; sonraki veya önceki parçaya elle geçtiğinizde yaklaşık bir saniyelik kısa bir solma uygulanır. Parça henüz bu aygıtta veya önbellekte değilse solma olmadan başlar. Boşluksuz oynatmayla birlikte kullanılamaz.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Bağlantı Kimlik Bilgilerini İçerir";
 "offline_download" = "İndir";
+"offline_download_stop" = "İndirmeyi durdur";
+"offline_batch_in_progress_format" = "İndiriliyor · %lld kaldı";
 "theme_color_indigo" = "İndigo";
 "tag_editor_extra_section" = "Ayrıntılar";
 "lyrics_format_plain_short" = "Düz metin";

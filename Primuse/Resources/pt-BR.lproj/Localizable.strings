@@ -2435,6 +2435,8 @@
 "offline_cached" = "Em cache";
 "offline_clear_failed_download" = "Falha ao limpar download";
 "offline_download" = "Baixar";
+"offline_download_stop" = "Parar download";
+"offline_batch_in_progress_format" = "Baixando · faltam %lld";
 "offline_download_failed" = "Falha no download";
 "offline_downloading" = "Baixando";
 "offline_keep_cached" = "Manter-se off-line";

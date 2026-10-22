@@ -302,6 +302,8 @@
 "offline_batch_task_source_title_format" = "Mise en cache de « %@ »";
 "offline_batch_task_progress_format" = "%d sur %d morceaux";
 "offline_download" = "Télécharger";
+"offline_download_stop" = "Arrêter le téléchargement";
+"offline_batch_in_progress_format" = "Téléchargement · encore %lld";
 "offline_cache_song" = "Mettre ce morceau en cache";
 "offline_downloading" = "Téléchargement";
 "offline_keep_cached" = "Garder hors ligne";

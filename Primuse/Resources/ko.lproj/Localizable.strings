@@ -302,6 +302,8 @@
 "offline_batch_task_source_title_format" = "‘%@’ 캐시 중";
 "offline_batch_task_progress_format" = "%d/%d곡";
 "offline_download" = "다운로드";
+"offline_download_stop" = "다운로드 멈추기";
+"offline_batch_in_progress_format" = "다운로드 중 · %lld곡 남음";
 "offline_cache_song" = "이 곡 캐시";
 "offline_downloading" = "다운로드 중";
 "offline_keep_cached" = "오프라인으로 유지";

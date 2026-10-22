@@ -102,6 +102,21 @@ struct AlbumDetailView: View {
         sourcesStore.downloadableSongs(in: songs)
     }
 
+    /// 这张专辑发起的批量离线下载在 `SourceManager` 里的登记键。下着的时候下载键停下这一轮(#336)。
+    private var offlineBatchOwnerID: String { "album:" + album.id }
+
+    private var isOfflineBatchRunning: Bool {
+        sourceManager.activeOfflineBatchOwnerIDs.contains(offlineBatchOwnerID)
+    }
+
+    private func toggleOfflineBatch() {
+        if isOfflineBatchRunning {
+            sourceManager.cancelOfflineBatch(ownerID: offlineBatchOwnerID)
+        } else {
+            sourceManager.downloadForOffline(songs: downloadableSongs, ownerID: offlineBatchOwnerID)
+        }
+    }
+
     /// 这张专辑里有手动编辑或刮削改过、不再跟随文件标签的歌。
     private var hasUserEditedSongs: Bool {
         songs.contains { $0.userMetadataEditedAt != nil }
@@ -363,12 +378,22 @@ struct AlbumDetailView: View {
             .disabled(playable.isEmpty)
 
             if !downloads.isEmpty {
-                PMMenuQuickActionButton(
-                    shortKey: "offline_download",
-                    fullKey: "offline_download",
-                    systemImage: "arrow.down.circle"
-                ) {
-                    sourceManager.downloadForOffline(songs: downloads)
+                if isOfflineBatchRunning {
+                    PMMenuQuickActionButton(
+                        shortKey: "offline_download_stop",
+                        fullKey: "offline_download_stop",
+                        systemImage: "stop.circle"
+                    ) {
+                        toggleOfflineBatch()
+                    }
+                } else {
+                    PMMenuQuickActionButton(
+                        shortKey: "offline_download",
+                        fullKey: "offline_download",
+                        systemImage: "arrow.down.circle"
+                    ) {
+                        toggleOfflineBatch()
+                    }
                 }
             }
         }
@@ -823,10 +848,15 @@ struct AlbumDetailView: View {
                 showsRestoreFileTagsConfirmation = true
             },
         ]
-        let downloads = downloadableSongs
-        if !downloads.isEmpty {
-            second.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
-                sourceManager.downloadForOffline(songs: downloads)
+        if !downloadableSongs.isEmpty {
+            let isDownloading = isOfflineBatchRunning
+            second.insert(.init(
+                icon: isDownloading ? "stop.circle" : "arrow.down.circle",
+                title: isDownloading
+                    ? String(localized: "offline_download_stop")
+                    : String(localized: "offline_download")
+            ) {
+                toggleOfflineBatch()
             }, at: 1)
         }
         if !songs.isEmpty {
@@ -902,9 +932,10 @@ struct AlbumDetailView: View {
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
             if !downloads.isEmpty {
-                PMRoundBtn(icon: "arrow.down.circle", size: 26, iconSize: 12, style: .glass,
-                           help: "offline_download") {
-                    sourceManager.downloadForOffline(songs: downloads)
+                let isDownloading = isOfflineBatchRunning
+                PMRoundBtn(icon: isDownloading ? "stop.circle" : "arrow.down.circle", size: 26, iconSize: 12,
+                           style: .glass, help: isDownloading ? "offline_download_stop" : "offline_download") {
+                    toggleOfflineBatch()
                 }
             }
         }

@@ -78,6 +78,20 @@ struct PlaylistDetailView: View {
         library.songs(forPlaylist: playlist.id)
     }
 
+    /// 这张歌单发起的批量离线下载在 `SourceManager` 里的登记键。
+    private var offlineBatchOwnerID: String { "playlist:" + playlist.id }
+
+    private func toggleOfflineBatch() {
+        if sourceManager.activeOfflineBatchOwnerIDs.contains(offlineBatchOwnerID) {
+            sourceManager.cancelOfflineBatch(ownerID: offlineBatchOwnerID)
+        } else {
+            sourceManager.downloadForOffline(
+                songs: sourcesStore.downloadableSongs(in: songs),
+                ownerID: offlineBatchOwnerID
+            )
+        }
+    }
+
     /// 界面上看到的顺序。默认就是歌单顺序(不额外排,零开销);选了排序维度之后,
     /// 播放全部 / 加入队列 / 离线下载 / 导出也一并按看到的顺序走 —— 用户按的是
     /// 眼前这一列,不是歌单里存的那一列。
@@ -970,16 +984,19 @@ struct PlaylistDetailView: View {
             .accessibilityIdentifier("playlistDetail.favorite")
 
             if songAvailability.hasDownloadable {
+                // 下着的时候同一颗键停下这一轮(#336):几千首的歌单误点了不用再杀掉 App。
+                let isDownloading = sourceManager.activeOfflineBatchOwnerIDs.contains(offlineBatchOwnerID)
                 Button {
-                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: songs))
+                    toggleOfflineBatch()
                 } label: {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: isDownloading ? "stop.circle" : "arrow.down.circle")
                         .font(.headline)
                         .frame(width: 24, height: 24)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .accessibilityLabel(Text("offline_download"))
+                .accessibilityLabel(Text(isDownloading ? "offline_download_stop" : "offline_download"))
             }
         }
     }
@@ -1495,9 +1512,15 @@ struct PlaylistDetailView: View {
             })
         }
         if availability.hasDownloadable {
-            middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
-                sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: songs))
-            })
+            if sourceManager.activeOfflineBatchOwnerIDs.contains(offlineBatchOwnerID) {
+                middle.append(.init(icon: "stop.circle", title: String(localized: "offline_download_stop")) {
+                    toggleOfflineBatch()
+                })
+            } else {
+                middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
+                    toggleOfflineBatch()
+                })
+            }
         }
         if availability.supportsAlwaysDownload {
             middle.append(.init(

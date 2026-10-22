@@ -2435,6 +2435,8 @@
 "offline_cached" = "Zapisano w pamięci podręcznej";
 "offline_clear_failed_download" = "Usuń nieudane pobieranie";
 "offline_download" = "Pobierz";
+"offline_download_stop" = "Zatrzymaj pobieranie";
+"offline_batch_in_progress_format" = "Pobieranie · zostało %lld";
 "offline_download_failed" = "Pobieranie nie powiodło się";
 "offline_downloading" = "Pobieranie";
 "offline_keep_cached" = "Zachowaj tryb offline";

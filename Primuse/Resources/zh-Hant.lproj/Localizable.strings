@@ -1439,6 +1439,8 @@
 "a11y_favorite_add" = "加入歌單";
 "a11y_more_actions" = "更多操作";
 "offline_download" = "離線下載";
+"offline_download_stop" = "停止下載";
+"offline_batch_in_progress_format" = "正在下載，還剩 %lld 首";
 "offline_cache_song" = "快取此歌曲";
 "offline_downloading" = "正在下載";
 "offline_keep_cached" = "固定為離線可用";

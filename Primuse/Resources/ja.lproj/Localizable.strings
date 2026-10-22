@@ -303,6 +303,8 @@
 "offline_batch_task_source_title_format" = "「%@」をキャッシュ中";
 "offline_batch_task_progress_format" = "%d/%d 曲";
 "offline_download" = "ダウンロード";
+"offline_download_stop" = "ダウンロードを停止";
+"offline_batch_in_progress_format" = "ダウンロード中・残り %lld 曲";
 "offline_cache_song" = "この曲をキャッシュ";
 "offline_downloading" = "ダウンロード中";
 "offline_keep_cached" = "オフライン用に保持";

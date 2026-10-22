@@ -2435,6 +2435,8 @@
 "offline_cached" = "แคชไว้";
 "offline_clear_failed_download" = "ล้างการดาวน์โหลดที่ล้มเหลว";
 "offline_download" = "ดาวน์โหลด";
+"offline_download_stop" = "หยุดดาวน์โหลด";
+"offline_batch_in_progress_format" = "กำลังดาวน์โหลด · เหลือ %lld เพลง";
 "offline_download_failed" = "ดาวน์โหลดล้มเหลว";
 "offline_downloading" = "กำลังดาวน์โหลด";
 "offline_keep_cached" = "ให้ออฟไลน์";

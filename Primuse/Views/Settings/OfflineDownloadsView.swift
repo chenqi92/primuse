@@ -59,6 +59,7 @@ struct OfflineDownloadsView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbarContent }
+            .safeAreaInset(edge: .top, spacing: 0) { offlineBatchBanner }
             #if os(macOS)
             .safeAreaInset(edge: .bottom) { macActionBar }
             #endif
@@ -144,6 +145,36 @@ struct OfflineDownloadsView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// 歌单、专辑和多选发起的批量下载还在跑时,顶上这一行能一起停下(#336)。多选发起的没有自己的页面,
+    /// 只能从这里停。已下好的和下了一半的都留着,再点「下载」接着下。
+    @ViewBuilder
+    private var offlineBatchBanner: some View {
+        if !sourceManager.activeOfflineBatchOwnerIDs.isEmpty {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(verbatim: String(
+                    format: String(localized: "offline_batch_in_progress_format"),
+                    sourceManager.offlineBatchRemainingSongCount
+                ))
+                .font(.subheadline)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                Spacer(minLength: 8)
+                Button("offline_download_stop") {
+                    sourceManager.cancelAllOfflineBatches()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("offline.batch.stopAll")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
         }
     }
 

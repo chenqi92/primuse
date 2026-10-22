@@ -3415,6 +3415,16 @@ final class SourceManager {
     /// 这一轮每首歌在资料库里记的大小,算正在下的那几首的零头用。
     @ObservationIgnored private var offlineSourceCacheSongSizes: [String: [String: Int64]] = [:]
     @ObservationIgnored private var offlineSourceCacheTallyRunIDs: [String: UUID] = [:]
+    /// 歌单、专辑、智能歌单页和多选「下载」发起的手动批量离线下载(#336),按发起的页面一轮一份。
+    /// 此前这几轮没有登记,在 App 里停不下来:几千首的歌单误点一下只能杀掉 App。
+    /// 多选发起的没有页面,各记一个随机键,只能从「离线下载」页一起停。
+    @ObservationIgnored private var offlineBatchRuns = KeyedRunRegistry<Task<Void, Never>>()
+    /// 每一轮还没下完(也没放弃)的歌数。
+    @ObservationIgnored private var offlineBatchRemainingCounts: [String: Int] = [:]
+    /// 正在跑的那几轮的发起者:页面上的下载键在自己那一轮跑着时换成停止键。只在开始、停下时变。
+    private(set) var activeOfflineBatchOwnerIDs: Set<String> = []
+    /// 这几轮合起来还剩的歌数,「离线下载」页显示「正在下载」那一行用。一首下完或放弃时变。
+    private(set) var offlineBatchRemainingSongCount = 0
 
     init(
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
@@ -8039,22 +8049,78 @@ final class SourceManager {
         }
     }
 
-    func downloadForOffline(songs: [Song]) {
+    /// - Parameter ownerID: 发起这一轮的页面(歌单、专辑、智能歌单)。这一页已有一轮在跑时不再另开一轮,
+    ///   页面上那颗键此时是停止键。多选发起的不传。
+    func downloadForOffline(songs: [Song], ownerID: String? = nil) {
+        let key = ownerID ?? UUID().uuidString
+        guard offlineBatchRuns.value(forKey: key) == nil else { return }
+        let totalCount = Self.offlineBatchCandidates(songs).count
         let backgroundRun = OfflineBatchBackgroundRun(
             title: String(localized: "offline_batch_task_title"),
-            totalCount: Self.offlineBatchCandidates(songs).count
+            totalCount: totalCount
         )
+        let runID = UUID()
         let batch = Task { [weak self] in
             guard let self else {
                 backgroundRun.end(success: false)
                 return
             }
-            let result = await self.downloadForOfflineBatch(songs: songs) { _, _ in
+            let result = await self.downloadForOfflineBatch(songs: songs) { [weak self] _, _ in
                 backgroundRun.recordSongFinished()
+                self?.recordOfflineBatchSongFinished(key: key, runID: runID)
             }
             backgroundRun.end(success: result.succeeded)
+            self.finishOfflineBatchRun(key: key, runID: runID)
         }
+        offlineBatchRuns.register(key: key, value: batch, id: runID)
+        offlineBatchRemainingCounts[key] = totalCount
+        publishOfflineBatchState()
         backgroundRun.begin { batch.cancel() }
+    }
+
+    /// 停下这一页发起的那一轮。和停止整源缓存一样:已下好的留着,下了一半的文件也留着,
+    /// 再点「下载」从断点接着下;别的请求者也在等的那首照常下完。
+    func cancelOfflineBatch(ownerID: String) {
+        guard offlineBatchRuns.value(forKey: ownerID) != nil else { return }
+        offlineBatchRuns.cancelAndRemoveAll { $0 == ownerID }
+        offlineBatchRemainingCounts[ownerID] = nil
+        publishOfflineBatchState()
+        plog("⏹️ Offline batch stopped by user owner=\(ownerID.prefix(24))")
+    }
+
+    /// 「离线下载」页的停止:所有页面和多选发起的批量下载一起停。整源缓存在音乐源卡片上单独停。
+    func cancelAllOfflineBatches() {
+        guard !offlineBatchRuns.isEmpty else { return }
+        let count = offlineBatchRuns.count
+        offlineBatchRuns.cancelAndRemoveAll()
+        offlineBatchRemainingCounts.removeAll()
+        publishOfflineBatchState()
+        plog("⏹️ Offline batches stopped by user count=\(count)")
+    }
+
+    private func recordOfflineBatchSongFinished(key: String, runID: UUID) {
+        guard offlineBatchRuns.run(forKey: key)?.id == runID,
+              let remaining = offlineBatchRemainingCounts[key] else { return }
+        offlineBatchRemainingCounts[key] = max(0, remaining - 1)
+        publishOfflineBatchState()
+    }
+
+    /// 停下之后旧那一轮还要排空一会儿,它晚到的收尾不能把同一页新开的一轮一起清掉。
+    private func finishOfflineBatchRun(key: String, runID: UUID) {
+        guard offlineBatchRuns.finish(key: key, runID: runID) != nil else { return }
+        offlineBatchRemainingCounts[key] = nil
+        publishOfflineBatchState()
+    }
+
+    private func publishOfflineBatchState() {
+        let owners = Set(offlineBatchRemainingCounts.keys)
+        if owners != activeOfflineBatchOwnerIDs {
+            activeOfflineBatchOwnerIDs = owners
+        }
+        let remaining = offlineBatchRemainingCounts.values.reduce(0, +)
+        if remaining != offlineBatchRemainingSongCount {
+            offlineBatchRemainingSongCount = remaining
+        }
     }
 
     /// 同一个源再点一次「整源缓存」按替换处理: UI (`SourcesView.startCaching`)

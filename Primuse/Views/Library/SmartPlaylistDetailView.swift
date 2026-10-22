@@ -64,6 +64,24 @@ struct SmartPlaylistDetailView: View {
         }
     }
 
+    /// 这张智能歌单发起的批量离线下载在 `SourceManager` 里的登记键。下着的时候下载键停下这一轮(#336)。
+    private var offlineBatchOwnerID: String { "smart:" + smartPlaylistID }
+
+    private var isOfflineBatchRunning: Bool {
+        sourceManager.activeOfflineBatchOwnerIDs.contains(offlineBatchOwnerID)
+    }
+
+    private func toggleOfflineBatch(_ matched: [Song]) {
+        if isOfflineBatchRunning {
+            sourceManager.cancelOfflineBatch(ownerID: offlineBatchOwnerID)
+        } else {
+            sourceManager.downloadForOffline(
+                songs: sourcesStore.downloadableSongs(in: matched),
+                ownerID: offlineBatchOwnerID
+            )
+        }
+    }
+
     private var findQuery: LibraryFindPolicy.Query? {
         LibraryFindPolicy.query(findText)
     }
@@ -420,11 +438,16 @@ struct SmartPlaylistDetailView: View {
             .disabled(matched.isEmpty)
 
             if sourcesStore.containsDownloadableSong(in: matched) {
+                let isDownloading = isOfflineBatchRunning
                 Button {
-                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
+                    toggleOfflineBatch(matched)
                 } label: {
-                    Label("offline_download", systemImage: "arrow.down.circle")
-                        .labelStyle(.iconOnly)
+                    Label(
+                        isDownloading ? "offline_download_stop" : "offline_download",
+                        systemImage: isDownloading ? "stop.circle" : "arrow.down.circle"
+                    )
+                    .labelStyle(.iconOnly)
+                    .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.bordered)
             }
@@ -453,11 +476,15 @@ struct SmartPlaylistDetailView: View {
             .disabled(matched.isEmpty)
 
             if sourcesStore.containsDownloadableSong(in: matched) {
+                let isDownloading = isOfflineBatchRunning
                 Button {
-                    sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
+                    toggleOfflineBatch(matched)
                 } label: {
-                    Label("offline_download", systemImage: "arrow.down.circle")
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        isDownloading ? "offline_download_stop" : "offline_download",
+                        systemImage: isDownloading ? "stop.circle" : "arrow.down.circle"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
             }
@@ -560,8 +587,14 @@ struct SmartPlaylistDetailView: View {
             },
         ]
         if sourcesStore.containsDownloadableSong(in: matched) {
-            actions.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
-                sourceManager.downloadForOffline(songs: sourcesStore.downloadableSongs(in: matched))
+            let isDownloading = isOfflineBatchRunning
+            actions.insert(.init(
+                icon: isDownloading ? "stop.circle" : "arrow.down.circle",
+                title: isDownloading
+                    ? String(localized: "offline_download_stop")
+                    : String(localized: "offline_download")
+            ) {
+                toggleOfflineBatch(matched)
             }, at: 1)
         }
         return AnyView(MacHeaderMoreMenu(sections: [

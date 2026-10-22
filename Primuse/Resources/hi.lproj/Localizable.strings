@@ -2435,6 +2435,8 @@
 "offline_cached" = "कैश्ड";
 "offline_clear_failed_download" = "साफ़ विफल डाउनलोड";
 "offline_download" = "डाउनलोड करें";
+"offline_download_stop" = "डाउनलोड रोकें";
+"offline_batch_in_progress_format" = "डाउनलोड हो रहा है · %lld बाकी";
 "offline_download_failed" = "डाउनलोड विफल";
 "offline_downloading" = "डाउनलोड हो रहा है";
 "offline_keep_cached" = "ऑफ़लाइन रखें";

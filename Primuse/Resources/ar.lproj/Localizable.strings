@@ -2435,6 +2435,8 @@
 "offline_cached" = "مخبأة";
 "offline_clear_failed_download" = "مسح فشل التحميل";
 "offline_download" = "تحميل";
+"offline_download_stop" = "إيقاف التنزيل";
+"offline_batch_in_progress_format" = "جارٍ التنزيل · متبقٍ %lld";
 "offline_download_failed" = "فشل التحميل";
 "offline_downloading" = "التحميل";
 "offline_keep_cached" = "البقاء دون اتصال";
