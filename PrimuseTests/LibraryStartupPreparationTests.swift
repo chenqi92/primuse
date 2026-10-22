@@ -432,10 +432,14 @@ final class LibraryStartupPreparationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture) }
         try await Self.populate(fixture)
 
-        // 只保留可移植 JSON 与设备本地账本: 新目录里的 SQLite 迁移版本落后 (0)。
+        // 只保留可移植 JSON、歌曲兜底与设备本地账本: 新目录里的 SQLite 迁移版本落后 (0)。
         let target = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: target) }
-        for name in ["library-cache.json", "library-device-local-excluded-songs.json"] {
+        for name in [
+            "library-cache.json",
+            MusicLibrary.songFallbackFileName,
+            "library-device-local-excluded-songs.json",
+        ] {
             let source = fixture.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
             try FileManager.default.copyItem(at: source, to: target.appendingPathComponent(name))
@@ -698,9 +702,11 @@ final class LibraryStartupPreparationTests: XCTestCase {
         XCTAssertTrue(recorder.succeeded, "发布之后屏障必须真的写完快照再返回 .success")
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotURL.path))
         XCTAssertEqual(library.songs.map(\.id), ["queued"])
-        let persisted = String(decoding: try Data(contentsOf: snapshotURL), as: UTF8.self)
-        XCTAssertTrue(
-            persisted.contains("\"queued\""),
+        // 歌落在增量库里, 写盘的快照不带歌。
+        let storePath = directory.appendingPathComponent("library-songs.sqlite").path
+        XCTAssertEqual(
+            try IncrementalSongStore(path: storePath).loadSongs().map(\.id),
+            ["queued"],
             "屏障返回成功时, 排队突变提交的行必须已经在磁盘上"
         )
     }

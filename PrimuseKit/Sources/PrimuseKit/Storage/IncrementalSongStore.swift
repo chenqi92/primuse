@@ -3,10 +3,11 @@ import GRDB
 
 /// Device-local canonical storage for library songs.
 ///
-/// `library-cache.json` remains the interoperable snapshot used by iCloud and
-/// Apple TV transfer, while this store makes normal scan/backfill persistence
-/// proportional to the changed rows. Song payloads are encoded individually so
-/// adding two files to a large library does not encode every existing song.
+/// `library-cache.json` keeps the non-song library state; transfers to iCloud
+/// and Apple TV export the songs from memory. This store makes normal
+/// scan/backfill persistence proportional to the changed rows. Song payloads
+/// are encoded individually so adding two files to a large library does not
+/// encode every existing song.
 public final class IncrementalSongStore: @unchecked Sendable {
     private static let authoritativeKey = "songs-authoritative"
     private static let contentRevisionKey = "songs-content-revision"

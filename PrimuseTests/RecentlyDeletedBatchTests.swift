@@ -141,9 +141,12 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         }
 
         let identity = "\(song.sourceID):\(song.filePath)"
-        let snapshotData = try Data(
-            contentsOf: storageDirectory.appendingPathComponent("library-cache.json")
-        )
+        // 发往别的设备的是传输导出的那份(写盘的快照不带歌)。
+        guard case .snapshot(let snapshotData) = await library.portableSnapshotIncludingSongs(
+            byteLimit: .max
+        ) else {
+            return XCTFail("The portable snapshot was not exported")
+        }
         let snapshotText = try XCTUnwrap(String(data: snapshotData, encoding: .utf8))
         XCTAssertFalse(snapshotText.contains(identity))
         let snapshotObject = try XCTUnwrap(
@@ -230,7 +233,9 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         guard case .success = await library.persistNowAndWait() else {
             return XCTFail("Snapshot did not persist")
         }
-        let data = try Data(contentsOf: directory.appendingPathComponent("library-cache.json"))
+        guard case .snapshot(let data) = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
+            return XCTFail("The portable snapshot was not exported")
+        }
         let receiverDirectory = try Self.makeIsolatedStorageDirectory()
         defer { try? FileManager.default.removeItem(at: receiverDirectory) }
         try data.write(to: receiverDirectory.appendingPathComponent("library-cache.json"))

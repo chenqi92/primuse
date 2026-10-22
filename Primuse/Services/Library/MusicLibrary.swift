@@ -4266,6 +4266,8 @@ final class MusicLibrary {
 
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
+    /// 快照不带歌时, 增量库读不出来的那一刻靠它恢复, 见 `songFallbackRefreshInterval`。
+    private let songFallbackURL: URL
     private let startupCacheURL: URL
     private let derivedIndexCacheURL: URL
     private let playlistDurabilityURL: URL
@@ -5263,6 +5265,7 @@ final class MusicLibrary {
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
+        songFallbackURL = directory.appendingPathComponent(Self.songFallbackFileName)
         startupCacheURL = directory.appendingPathComponent("library-startup-cache.plist")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
         playlistDurabilityURL = directory.appendingPathComponent("playlist-durability.json")
@@ -12583,6 +12586,7 @@ final class MusicLibrary {
 
         var snapshotURL: URL { directory.appendingPathComponent("library-cache.json") }
         var backupSnapshotURL: URL { directory.appendingPathComponent("library-cache.backup.json") }
+        var songFallbackURL: URL { directory.appendingPathComponent(MusicLibrary.songFallbackFileName) }
         var startupCacheURL: URL { directory.appendingPathComponent("library-startup-cache.plist") }
         var derivedIndexCacheURL: URL { directory.appendingPathComponent("library-derived-index.plist") }
         var playlistDurabilityURL: URL { directory.appendingPathComponent("playlist-durability.json") }
@@ -12829,15 +12833,29 @@ final class MusicLibrary {
                     decodeFinishedAt = ProcessInfo.processInfo.systemUptime
                 }
             }
-            guard let snapshot = resolvedSnapshot else { return }
+            guard var snapshot = resolvedSnapshot else { return }
             if snapshot.separateSongStore == true, canonicalSongs == nil {
-                // 这份快照的歌只在增量库里, 而增量库这次没读出来。不能拿快照里
-                // 那份空歌单发布: 发布会登记整库替换把增量库写空, 歌单与播放历史
-                // 也会按空曲库清理后写进启动缓存。与快照损坏且无备份一样, 这次
-                // 不发布、不持久化, 下次启动再读一次增量库。
-                persistenceBlockedByCorruption = true
-                plog("⛔ Library snapshot keeps its songs in the incremental store, which could not be read; persistence disabled to protect it")
-                return
+                // 这份快照的歌只在增量库里, 而增量库这次没读出来。先拿兜底那份歌:
+                // 它交给下面「快照里的歌」那条路, 发布时整份重建增量库。连兜底
+                // 也没有时不能拿快照里那份空歌单发布: 发布会登记整库替换把增量库
+                // 写空, 歌单与播放历史也会按空曲库清理后写进启动缓存。与快照损坏
+                // 且无备份一样, 这次不发布、不持久化, 下次启动再读一次增量库。
+                let tombstones = Set(snapshot.deletedSongIdentities ?? [])
+                if let fallbackSongs = MusicLibrary.loadSongFallback(
+                    at: songFallbackURL,
+                    decoder: decoder,
+                    excludingIdentities: tombstones,
+                    identityKey: { identityKey(for: $0) }
+                ) {
+                    // 快照里留着的是只在本机隐藏的那几首, 它们不进增量库, 照旧随快照走。
+                    let fallbackIDs = Set(fallbackSongs.map(\.id))
+                    snapshot.songs = fallbackSongs + snapshot.songs.filter { !fallbackIDs.contains($0.id) }
+                    plog("⚠️ Library songs could not be read from the incremental store; restored \(fallbackSongs.count) song(s) from the fallback copy")
+                } else {
+                    persistenceBlockedByCorruption = true
+                    plog("⛔ Library snapshot keeps its songs in the incremental store, which could not be read; persistence disabled to protect it")
+                    return
+                }
             }
             didPublishSnapshot = true
             MusicLibrary.restorePortableArtworkAssets(snapshot, assetStore: .shared)
@@ -13354,6 +13372,8 @@ final class MusicLibrary {
                     _ = try songStoreSnapshotWriter(songStore, storage.songs, importID)
                     songStoreRequiresReplacement = false
                     pendingSnapshotImportID = nil
+                    // 整库换过了(别处导入的快照、或从兜底恢复), 兜底也跟着换。
+                    songFallbackRefreshRequested = true
                 case .upserts(let changedSongs):
                     try songStore.apply(upserts: changedSongs)
                 }
@@ -13933,7 +13953,15 @@ final class MusicLibrary {
            let persistWriteTask {
             return persistWriteTask
         }
-        let snapshot = makeSnapshot(includingSongs: writesSongsIntoPortableSnapshot)
+        let includesSongs = writesSongsIntoPortableSnapshot
+        let snapshot = makeSnapshot(includingSongs: includesSongs)
+        let fallbackSongs: [Song]? = !includesSongs && songFallbackIsDue() ? songs : nil
+        if let fallbackSongs {
+            songFallbackScheduledAt = Date()
+            songFallbackScheduledSongCount = fallbackSongs.count
+            songFallbackRefreshRequested = false
+        }
+        let fallbackURL = songFallbackURL
         let url = snapshotURL
         let backupURL = backupSnapshotURL
         let cacheURL = startupCacheURL
@@ -13975,6 +14003,9 @@ final class MusicLibrary {
                 derivedIndexSignature: cachedDerivedSignature
             )
             Self.writeStartupCache(cache, to: cacheURL)
+            if let fallbackSongs {
+                Self.writeSongFallback(fallbackSongs, to: fallbackURL)
+            }
             return true
         }
         persistWriteTask = task
@@ -14042,10 +14073,10 @@ final class MusicLibrary {
         case unavailable
     }
 
-    /// 带歌的整库快照, 供 iCloud 整库上传与 Apple TV 直传按需导出: 十万首以上的曲库写盘
-    /// 的快照不带歌(`separateSongStore`), 这里从内存里的曲库编出与不到十万首时写盘同形的
-    /// 那份。先抽样估算, 明显放不进 `byteLimit` 就不编整库。曲库还没装载成功时不导出,
-    /// 免得把空曲库发出去。
+    /// 带歌的整库快照, 供 iCloud 整库上传与 Apple TV 直传按需导出: 写盘的快照不带歌
+    /// (`separateSongStore`), 这里从内存里的曲库编出与原先带歌写盘同形的那份。先抽样
+    /// 估算, 明显放不进 `byteLimit` 就不编整库。曲库还没装载成功时不导出, 免得把空曲库
+    /// 发出去。
     func portableSnapshotIncludingSongs(byteLimit: Int) async -> PortableSnapshotExport {
         guard isReady, !persistenceBlockedByCorruption else { return .unavailable }
         let snapshot = makeSnapshot(includingSongs: true)
@@ -14081,15 +14112,13 @@ final class MusicLibrary {
         return data.count <= byteLimit ? .snapshot(data) : .tooLarge(songCount: songs.count)
     }
 
-    /// Libraries past this many songs write their portable snapshot without
-    /// the songs. The full form is only needed by the iCloud / Apple TV
-    /// transfer, which refuses snapshots over 64 MB (about 80K songs); past
-    /// that it was rewritten in full — several hundred MB of JSON — after
-    /// every like or playlist edit, for nothing but a local fallback the
-    /// incremental store already provides.
-    static let separateSongStoreMinimumSongs = 100_000
-
-    /// Test hook for the threshold above.
+    /// 增量库健康时, 写盘的可移植快照一律不带歌(`separateSongStore`)。歌已经
+    /// 逐行进了 SQLite, 启动也只认 SQLite; 快照里那份整库歌曲只在 iCloud /
+    /// Apple TV 传输时用得上, 而传输读到不带歌的快照会从内存现编一份
+    /// (`portableSnapshotIncludingSongs`)。原先十万首以下照样整份带歌, 于是每次
+    /// 点心、播放记录、远端歌单并进来都要把几万首歌连同歌词重新编码写一遍。
+    ///
+    /// 测试钩子: 设了它, 少于这么多首的曲库仍把歌写进快照。
     @ObservationIgnored var separateSongStoreMinimumSongsOverride: Int?
 
     private var writesSongsIntoPortableSnapshot: Bool {
@@ -14097,8 +14126,99 @@ final class MusicLibrary {
         return true
         #else
         guard songStore != nil, !songStoreRequiresReplacement else { return true }
-        return songs.count < (separateSongStoreMinimumSongsOverride ?? Self.separateSongStoreMinimumSongs)
+        guard let override = separateSongStoreMinimumSongsOverride else { return false }
+        return songs.count < override
         #endif
+    }
+
+    nonisolated static let songFallbackFileName = "library-songs-fallback.json"
+
+    /// 快照不再带歌以后, 增量库读不出来时就没有歌可恢复了。另存一份只带歌的
+    /// 快照兜底, 最多隔这么久重写一次: 恢复时最多少掉这段时间里的变化, 写盘量
+    /// 从「每次落盘一整库」降到「一天一整库」。
+    static let songFallbackRefreshInterval: TimeInterval = 24 * 60 * 60
+
+    /// 超过这么多首不写兜底: 那种规模原先就不带歌, 整库编码一次要几百 MB 内存。
+    static let songFallbackMaximumSongs = 100_000
+
+    /// 这一轮进程里上次安排写兜底的时间与当时的首数; 没安排过时按文件的修改时间算。
+    @ObservationIgnored private var songFallbackScheduledAt: Date?
+    @ObservationIgnored private var songFallbackScheduledSongCount: Int?
+    /// 换成别处导入的整库之后, 下一次落盘不等间隔就重写兜底。
+    @ObservationIgnored private var songFallbackRefreshRequested = false
+
+    private func songFallbackIsDue(now: Date = Date()) -> Bool {
+        guard songs.count <= Self.songFallbackMaximumSongs else { return false }
+        if songFallbackRefreshRequested { return true }
+        if songFallbackScheduledAt == nil {
+            songFallbackScheduledAt = (try? FileManager.default.attributesOfItem(
+                atPath: songFallbackURL.path
+            )[.modificationDate]) as? Date
+        }
+        return Self.songFallbackIsDue(
+            lastWrittenAt: songFallbackScheduledAt,
+            lastSongCount: songFallbackScheduledSongCount,
+            songCount: songs.count,
+            now: now,
+            refreshInterval: Self.songFallbackRefreshInterval
+        )
+    }
+
+    /// 到了间隔、或者首数变了一大截(首次扫描、删掉一个源)就该重写兜底。按一半算,
+    /// 首次扫描从零涨到几万首时总共只多写约三整库。
+    nonisolated static func songFallbackIsDue(
+        lastWrittenAt: Date?,
+        lastSongCount: Int?,
+        songCount: Int,
+        now: Date,
+        refreshInterval: TimeInterval
+    ) -> Bool {
+        guard let lastWrittenAt else { return true }
+        // 系统时间被往回拨过时不能一直等下去。
+        if lastWrittenAt > now { return true }
+        if let lastSongCount,
+           abs(songCount - lastSongCount) > max(500, lastSongCount / 2) {
+            return true
+        }
+        return now.timeIntervalSince(lastWrittenAt) >= refreshInterval
+    }
+
+    private nonisolated static func writeSongFallback(_ songs: [Song], to url: URL) {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let snapshot = Snapshot(
+            songs: songs,
+            playlists: [],
+            mirrorPlaylistSuppressions: nil,
+            smartPlaylists: nil,
+            playlistSongIDs: nil,
+            recentPlaybackSongIDs: nil,
+            deletedSongIdentities: nil,
+            pendingPlaylistIdentities: nil,
+            pendingHistoryIdentities: nil
+        )
+        do {
+            let data = try encodeSnapshotForDisk(snapshot)
+            try data.write(to: url, options: .atomic)
+            let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+            plog("💾 Library song fallback written bytes=\(data.count) songs=\(songs.count) total=\(elapsedMS)ms")
+        } catch {
+            plog("⚠️ Library song fallback write failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// 快照不带歌、增量库又给不出歌时, 从兜底里取歌。已经删掉的(快照里有墓碑)
+    /// 不带回来。读不出来返回 nil, 调用方照旧停用持久化。
+    fileprivate nonisolated static func loadSongFallback(
+        at url: URL,
+        decoder: JSONDecoder,
+        excludingIdentities tombstones: Set<String>,
+        identityKey: (Song) -> String
+    ) -> [Song]? {
+        guard let data = try? Data(contentsOf: url),
+              let fallback = try? decoder.decode(Snapshot.self, from: data) else {
+            return nil
+        }
+        return fallback.songs.filter { !tombstones.contains(identityKey($0)) }
     }
 
     /// Whether `data` is a snapshot whose songs live only in this device's

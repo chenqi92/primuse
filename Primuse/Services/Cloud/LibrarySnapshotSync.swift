@@ -106,7 +106,7 @@ final class LibrarySnapshotSync: Sendable {
     private let fullUploadSingleFlight = SnapshotUploadSingleFlight()
     private let cloudMutationLock = SnapshotMutationLock()
 
-    /// 十万首以上的曲库写盘的快照不带歌, 往外送时由曲库按需导出带歌的完整快照。
+    /// 写盘的快照不带歌(歌在增量库里), 往外送时由曲库按需导出带歌的完整快照。
     /// App 启动时接上(`AppServices`); 没接上时照旧拒发这种快照。
     typealias FullLibrarySnapshotExporter = @Sendable (_ byteLimit: Int) async -> MusicLibrary.PortableSnapshotExport
     private let fullLibrarySnapshotExporter = OSAllocatedUnfairLock<FullLibrarySnapshotExporter?>(initialState: nil)
@@ -308,7 +308,7 @@ final class LibrarySnapshotSync: Sendable {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// 要发往 iCloud / Apple TV 的整库快照。写盘的快照不带歌(十万首以上)时由曲库按需
+    /// 要发往 iCloud / Apple TV 的整库快照。写盘的快照不带歌(增量库健康时)时由曲库按需
     /// 导出带歌的那份; 整库超过一次发送的上限时报 `libraryTooLarge`, 附上首数。
     func libraryDataForTransfer() async -> Result<Data, AppleTVTransferFailure> {
         let fm = FileManager.default
@@ -332,9 +332,9 @@ final class LibrarySnapshotSync: Sendable {
                 plog("LibrarySnapshotSync: local library snapshot failed validation")
                 return .failure(.snapshotPreparationFailed)
             }
-            // A library this large keeps its songs in the incremental store
-            // only; the snapshot on disk would reach the other device without
-            // songs, so the library exports the full one.
+            // The snapshot on disk leaves its songs to the incremental store;
+            // it would reach the other device without songs, so the library
+            // exports the full one.
             guard !MusicLibrary.snapshotKeepsSongsSeparately(data) else {
                 return await exportedFullLibrarySnapshot()
             }

@@ -41,6 +41,15 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         directory.appendingPathComponent("library-cache.json")
     }
 
+    private func fallbackURL(in directory: URL) -> URL {
+        directory.appendingPathComponent(MusicLibrary.songFallbackFileName)
+    }
+
+    private static func snapshotSongs(_ data: Data) throws -> [[String: Any]] {
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(object["songs"] as? [[String: Any]])
+    }
+
     /// 模拟安装事务: 整份替换快照文件, 完全不经过 MusicLibrary 的写入链。
     private func installExternalSnapshot(into directory: URL, marker: String) throws {
         let payload = ["externalInstallMarker": marker]
@@ -269,9 +278,106 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         XCTAssertFalse(MusicLibrary.snapshotKeepsSongsSeparately(full))
     }
 
-    /// 快照不带歌时增量库是唯一一份。它这次读不出来(一行解不开就整体失败),
-    /// 库不能拿快照里的空歌单发布: 否则会整库替换把增量库写空, 歌单也会按
-    /// 空曲库清理后落盘。
+    /// 增量库健康时不论曲库多大, 写盘的快照都不带歌; 另有一份只带歌的兜底,
+    /// 改一首歌不会让兜底再整库写一遍。
+    func testPortableSnapshotLeavesSongsToTheStoreAndKeepsASongFallback() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let songs = (0..<40).map { Self.makeSong(id: "song-\($0)") }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceID])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        let data = try Data(contentsOf: snapshotURL(in: directory))
+        XCTAssertTrue(MusicLibrary.snapshotKeepsSongsSeparately(data))
+        XCTAssertEqual(try Self.snapshotSongs(data).count, 0)
+        let fallback = try Data(contentsOf: fallbackURL(in: directory))
+        XCTAssertTrue(MusicLibrary.isValidSnapshotData(fallback))
+        XCTAssertEqual(
+            Set(try Self.snapshotSongs(fallback).compactMap { $0["id"] as? String }),
+            Set(songs.map(\.id))
+        )
+
+        var renamed = songs[0]
+        renamed.title = "Renamed"
+        library.replaceSongs([renamed])
+        _ = library.createPlaylist(name: "Edited", songIDs: ["song-1"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        XCTAssertEqual(try Data(contentsOf: fallbackURL(in: directory)), fallback)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.song(id: "song-0")?.title, "Renamed")
+        XCTAssertNotNil(reopened.playlists.first { $0.name == "Edited" })
+    }
+
+    /// 增量库读不出来时从兜底恢复: 兜底之后删掉的歌按快照里的墓碑留在外面,
+    /// 增量库按恢复出的歌整份重建, 之后照常落盘。
+    func testUnreadableSongStoreRecoversFromTheSongFallback() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let songs = (0..<40).map { Self.makeSong(id: "song-\($0)") }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceID])
+        _ = library.createPlaylist(name: "Kept", songIDs: ["song-3", "song-7"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        _ = library.deleteSongs([songs[5]], sourceFileDeleted: true)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        let fallbackIDs = try Self.snapshotSongs(Data(contentsOf: fallbackURL(in: directory)))
+            .compactMap { $0["id"] as? String }
+        XCTAssertTrue(fallbackIDs.contains("song-5"))
+
+        let storePath = directory.appendingPathComponent("library-songs.sqlite").path
+        XCTAssertEqual(try Self.sqlite(storePath, "UPDATE librarySongRecords SET payload = X'7B7D' WHERE rowid = (SELECT min(rowid) FROM librarySongRecords)"), 0)
+
+        let expected = Set(songs.map(\.id)).subtracting(["song-5"])
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(Set(reopened.songs.map(\.id)), expected)
+        let kept = try XCTUnwrap(reopened.playlists.first { $0.name == "Kept" })
+        XCTAssertEqual(reopened.songIDs(forPlaylist: kept.id), ["song-3", "song-7"])
+        XCTAssertEqual(try Self.sqlite(storePath, "SELECT COUNT(*) FROM librarySongRecords"), 39)
+        guard case .success = await reopened.persistNowAndWait() else {
+            return XCTFail("the recovered library must persist again")
+        }
+
+        let third = MusicLibrary(storageDirectory: directory)
+        await third.whenReady()
+        XCTAssertEqual(Set(third.songs.map(\.id)), expected)
+    }
+
+    func testSongFallbackRefreshCadence() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let day: TimeInterval = 86_400
+        func due(_ writtenAt: Date?, _ lastCount: Int?, _ count: Int) -> Bool {
+            MusicLibrary.songFallbackIsDue(
+                lastWrittenAt: writtenAt, lastSongCount: lastCount, songCount: count,
+                now: now, refreshInterval: day
+            )
+        }
+        XCTAssertTrue(due(nil, nil, 10))
+        XCTAssertFalse(due(now.addingTimeInterval(-3_600), nil, 40_000))
+        XCTAssertFalse(due(now.addingTimeInterval(-3_600), 40_000, 40_100))
+        XCTAssertTrue(due(now.addingTimeInterval(-day), 40_000, 40_000))
+        // 系统时间往回拨过。
+        XCTAssertTrue(due(now.addingTimeInterval(3_600), 40_000, 40_000))
+        // 首次扫描与删源: 首数变了一大截就不等间隔。
+        XCTAssertFalse(due(now, 0, 500))
+        XCTAssertTrue(due(now, 0, 501))
+        XCTAssertFalse(due(now, 10_000, 15_000))
+        XCTAssertTrue(due(now, 10_000, 15_001))
+        XCTAssertTrue(due(now, 10_000, 4_999))
+    }
+
+    /// 快照不带歌、兜底也没有时增量库是唯一一份。它这次读不出来(一行解不开就
+    /// 整体失败), 库不能拿快照里的空歌单发布: 否则会整库替换把增量库写空,
+    /// 歌单也会按空曲库清理后落盘。
     func testSlimSnapshotWithUnreadableSongStoreKeepsBothFiles() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -284,6 +390,7 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         }
         let snapshot = try Data(contentsOf: snapshotURL(in: directory))
         XCTAssertTrue(MusicLibrary.snapshotKeepsSongsSeparately(snapshot))
+        try FileManager.default.removeItem(at: fallbackURL(in: directory))
 
         let storePath = directory.appendingPathComponent("library-songs.sqlite").path
         XCTAssertEqual(try Self.sqlite(storePath, "UPDATE librarySongRecords SET payload = X'7B7D' WHERE rowid = (SELECT min(rowid) FROM librarySongRecords)"), 0)

@@ -1503,7 +1503,7 @@ final class AppServices {
             }
         )
         library.serverRatingTargetProvider = { [weak ratingSync] song in ratingSync?.target(for: song) }
-        // 十万首以上的曲库写盘不带歌; iCloud 整库上传、Apple TV 直传时由它现场导出带歌的那份。
+        // 写盘的快照不带歌; iCloud 整库上传、Apple TV 直传时由它现场导出带歌的那份。
         LibrarySnapshotSync.shared.setFullLibrarySnapshotExporter { [weak library] byteLimit in
             await library?.portableSnapshotIncludingSongs(byteLimit: byteLimit) ?? .unavailable
         }
