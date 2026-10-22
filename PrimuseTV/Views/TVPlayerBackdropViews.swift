@@ -32,7 +32,12 @@ struct TVPlayerBackdrop: View {
         )
         let frame = resolver.frame.flatMap { $0.source == source ? $0 : nil }
 
-        TVAmbientBackdrop(tint: tint, tint2: tint2, strength: 1, image: frame?.image, imageID: frame?.id)
+        TVAmbientBackdrop(
+            tint: tint, tint2: tint2, strength: 1, image: frame?.image, imageID: frame?.id,
+            meshPalette: source == .coverAmbient && settings.ambientStyle == .mesh
+                ? songID.map { store.artworkAmbientPalette(forSongID: $0) } ?? []
+                : nil
+        )
             .onChange(of: request, initial: true) { _, request in
                 resolver.update(request, store: store)
             }
@@ -90,6 +95,23 @@ struct TVPlayerBackdropSettingsView: View {
                     Text(verbatim: hint(for: settings.source))
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textMuted)
+
+                    if #available(tvOS 18.0, *), settings.source == .coverAmbient {
+                        Text("player_backdrop_ambient_style").tvFont(.rowTitle).padding(.top, 12)
+                        HStack(spacing: 22) {
+                            ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in
+                                choice(
+                                    title: style == .mesh
+                                        ? String(localized: "player_backdrop_ambient_mesh")
+                                        : String(localized: "player_backdrop_ambient_classic"),
+                                    isSelected: settings.ambientStyle == style,
+                                    identifier: "tv.playerBackdrop.ambientStyle.\(style.rawValue)"
+                                ) {
+                                    store.update { $0.ambientStyle = style }
+                                }
+                            }
+                        }
+                    }
 
                     if settings.source.supportsRotation {
                         Text("player_backdrop_rotation").tvFont(.rowTitle).padding(.top, 12)

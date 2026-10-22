@@ -3859,6 +3859,9 @@
 "player_backdrop_title" = "خلفية المشغّل";
 "player_backdrop_cover_ambient" = "ألوان الغلاف";
 "player_backdrop_cover_ambient_hint" = "حقل ألوان متدفق مأخوذ من الغلاف";
+"player_backdrop_ambient_style" = "نمط الألوان";
+"player_backdrop_ambient_mesh" = "تدرج شبكي";
+"player_backdrop_ambient_classic" = "كلاسيكي";
 "player_backdrop_liquid" = "ألوان متدفقة";
 "player_backdrop_liquid_hint" = "تتحول عدة ألوان من الغلاف إلى أضواء ناعمة تنساب أثناء التشغيل";
 "player_backdrop_liquid_tv_hint" = "يعرض Apple TV ألوان الغلاف بدلًا من ذلك.";

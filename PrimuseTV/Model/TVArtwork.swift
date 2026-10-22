@@ -6,7 +6,7 @@ import ImageIO
 import PrimuseKit
 import UniformTypeIdentifiers
 
-/// 从真实封面提取的稳定双色主题。只保存 sRGB 分量，避免把 UIKit/CoreGraphics
+/// 从真实封面提取的双色主题及多色背景调色板。只保存 sRGB 分量，避免把 UIKit/CoreGraphics
 /// 对象跨并发域传递；转换成 SwiftUI Color 始终发生在主线程的 TVStore 中。
 struct TVArtworkPalette: Codable, Equatable, Sendable {
     struct RGB: Codable, Equatable, Sendable {
@@ -30,6 +30,7 @@ struct TVArtworkPalette: Codable, Equatable, Sendable {
 
     let primary: RGB
     let secondary: RGB
+    var ambient: [RGB]? = nil
 }
 
 /// 真实封面提色器。图片缩小、像素分析和落盘都在独立 actor / utility task 中完成，
@@ -100,7 +101,7 @@ actor TVArtworkPaletteLoader {
         let signature = Self.signature(of: data)
         latestSignature[artworkKey] = signature
 
-        if let cached = memoryCache[artworkKey], cached.signature == signature {
+        if let cached = memoryCache[artworkKey], cached.signature == signature, cached.palette.ambient != nil {
             return cached.palette
         }
 
@@ -109,7 +110,7 @@ actor TVArtworkPaletteLoader {
             if let storedData = try? Data(contentsOf: diskURL(for: artworkKey)),
                let stored = try? JSONDecoder().decode(CacheEntry.self, from: storedData) {
                 memoryCache[artworkKey] = stored
-                if stored.signature == signature { return stored.palette }
+                if stored.signature == signature, stored.palette.ambient != nil { return stored.palette }
             }
         }
 
@@ -179,6 +180,8 @@ actor TVArtworkPaletteLoader {
         guard rendered else { return nil }
 
         var buckets: [BucketKey: Bucket] = [:]
+        var ambientPixels: [(UInt8, UInt8, UInt8)] = []
+        ambientPixels.reserveCapacity(width * height)
         let centerX = Double(width - 1) / 2
         let centerY = Double(height - 1) / 2
         let maxDistance = max(1, hypot(centerX, centerY))
@@ -193,6 +196,9 @@ actor TVArtworkPaletteLoader {
                 let red = min(1, Double(pixels[offset]) / 255 / alpha)
                 let green = min(1, Double(pixels[offset + 1]) / 255 / alpha)
                 let blue = min(1, Double(pixels[offset + 2]) / 255 / alpha)
+                if alpha > 0.78 {
+                    ambientPixels.append((UInt8(red * 255), UInt8(green * 255), UInt8(blue * 255)))
+                }
                 let hsv = Self.rgbToHSV(red: red, green: green, blue: blue)
 
                 let distance = hypot(Double(x) - centerX, Double(y) - centerY) / maxDistance
@@ -230,7 +236,14 @@ actor TVArtworkPaletteLoader {
         if Self.distance(primary, secondary) < 0.09 {
             secondary = Self.darkerVariant(of: primary)
         }
-        return TVArtworkPalette(primary: primary, secondary: secondary)
+        let ambient = LiquidBackdropPalettePolicy.palette(fromRGB: ambientPixels).map { color in
+            Self.normalized(
+                .init(red: color.red, green: color.green, blue: color.blue),
+                minimumLuminance: 0.025, maximumLuminance: 0.22,
+                minimumBrightness: 0.16, maximumBrightness: 0.68
+            )
+        }
+        return TVArtworkPalette(primary: primary, secondary: secondary, ambient: ambient)
     }
 
     private nonisolated static func secondaryScore(_ bucket: Bucket,

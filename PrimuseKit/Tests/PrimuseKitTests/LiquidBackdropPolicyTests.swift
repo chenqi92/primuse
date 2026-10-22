@@ -3,6 +3,66 @@ import Testing
 @testable import PrimuseKit
 
 @Suite struct LiquidBackdropPolicyTests {
+
+    @Test("Mesh preserves every representative color, including sparse palettes")
+    func meshPaletteCoverage() {
+        let palette = (0..<7).map { LiquidBackdropColor(red: Double($0) / 6, green: 0.3, blue: 0.8) }
+        for count in 1...7 {
+            let input = Array(palette.prefix(count))
+            let output = MeshBackdropPalettePolicy.colors(for: input)
+            #expect(output.count == 9)
+            #expect(Set(output) == Set(input))
+        }
+        #expect(MeshBackdropPalettePolicy.colors(for: []).isEmpty)
+    }
+
+    @Test("Mesh motion keeps the edges covered and cells in order for a full cycle")
+    func meshGeometry() {
+        for step in 0...1000 {
+            let points = MeshBackdropPalettePolicy.points(phase: Double(step) / 10, amplitude: 0.08)
+            #expect(points.count == 9)
+            #expect(points[0] == [0, 0] && points[2] == [1, 0])
+            #expect(points[6] == [0, 1] && points[8] == [1, 1])
+            #expect(points[1].y == 0 && points[7].y == 1)
+            #expect(points[3].x == 0 && points[5].x == 1)
+            for row in 0..<3 {
+                #expect(points[row * 3].x < points[row * 3 + 1].x)
+                #expect(points[row * 3 + 1].x < points[row * 3 + 2].x)
+            }
+            for column in 0..<3 {
+                #expect(points[column].y < points[column + 3].y)
+                #expect(points[column + 3].y < points[column + 6].y)
+            }
+        }
+        #expect(MeshBackdropPalettePolicy.points(phase: 0, amplitude: 0)
+            == MeshBackdropPalettePolicy.points(phase: 42, amplitude: 0))
+    }
+
+    @Test("Contrast bounds include bright and dark secondary palette colors")
+    func meshContrastBounds() {
+        let palette = [LiquidBackdropColor(red: 0.5, green: 0, blue: 0),
+                       LiquidBackdropColor(red: 1, green: 1, blue: 1),
+                       LiquidBackdropColor(red: 0, green: 0, blue: 0)]
+        #expect(abs(MeshBackdropPalettePolicy.maximumLuminance(in: palette) - 1) < 1e-9)
+        #expect(MeshBackdropPalettePolicy.minimumLuma(in: palette) == 0)
+    }
+
+    @Test("A dark mesh covering the full text region preserves the light appearance floor")
+    func meshLightLegibility() {
+        for contrast in [false, true] {
+            for wash in [0.0, 0.08, 0.4, 1.0] {
+                for gray in [0.0, 0.2, 0.5, 0.9, 1.0] {
+                    let color = LiquidBackdropColor(red: gray, green: gray, blue: gray)
+                    let opacity = MeshBackdropPalettePolicy.lightOpacity(
+                        requested: 1, palette: [color], overlayOpacity: wash,
+                        usesIncreasedContrast: contrast
+                    )
+                    let rendered = (0.94 * (1 - opacity) + gray * opacity) * (1 - wash) + wash
+                    #expect(rendered >= NowPlayingLightAmbientPolicy.minimumLuma(usesIncreasedContrast: contrast) - 1e-9)
+                }
+            }
+        }
+    }
     private func image(_ parts: [((UInt8, UInt8, UInt8), Int)]) -> [(UInt8, UInt8, UInt8)] {
         parts.flatMap { Array(repeating: $0.0, count: $0.1) }
     }

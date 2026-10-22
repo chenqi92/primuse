@@ -414,6 +414,9 @@
 "player_backdrop_title" = "재생 화면 배경";
 "player_backdrop_cover_ambient" = "커버 색상";
 "player_backdrop_cover_ambient_hint" = "앨범 커버 색이 흐르는 컬러 필드";
+"player_backdrop_ambient_style" = "색상 스타일";
+"player_backdrop_ambient_mesh" = "메시";
+"player_backdrop_ambient_classic" = "클래식";
 "player_backdrop_liquid" = "리퀴드 컬러";
 "player_backdrop_liquid_hint" = "커버의 여러 색이 부드러운 빛이 되어 재생 중에 천천히 흐릅니다";
 "player_backdrop_liquid_tv_hint" = "Apple TV에서는 커버 색상으로 표시됩니다.";

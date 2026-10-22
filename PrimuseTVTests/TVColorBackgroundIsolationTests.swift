@@ -4,6 +4,16 @@ import XCTest
 @testable import PrimuseTV
 
 final class TVColorBackgroundIsolationTests: XCTestCase {
+    func testArtworkPaletteCacheRetainsLegacyColorsAndMeshSwatches() throws {
+        let legacy = Data(#"{"primary":{"red":0.2,"green":0.3,"blue":0.4},"secondary":{"red":0.1,"green":0.2,"blue":0.3}}"#.utf8)
+        var palette = try JSONDecoder().decode(TVArtworkPalette.self, from: legacy)
+        XCTAssertNil(palette.ambient)
+        XCTAssertEqual(palette.primary.red, 0.2)
+        palette.ambient = [palette.primary, palette.secondary]
+        let decoded = try JSONDecoder().decode(TVArtworkPalette.self, from: JSONEncoder().encode(palette))
+        XCTAssertEqual(decoded, palette)
+    }
+
     func testDynamicColorResolvesOutsideMainActor() async {
         let result = await Task.detached {
             let dynamicColor = UIColor(TVColor.bg)

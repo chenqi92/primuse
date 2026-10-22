@@ -59,8 +59,57 @@ public struct LiquidBackdropColor: Equatable, Hashable, Sendable {
     }
 }
 
-/// 从封面小图里挑出「流动色彩」用的几个代表色:主色、鲜艳色、亮鲜艳、暗鲜艳、柔和色、亮柔和、暗柔和
-/// (和 Android Palette 的几类目标同一个思路)。只在换歌、封面变了的时候算一次,动画只用算好的颜色。
+public enum MeshBackdropPalettePolicy {
+    public static func colors(for palette: [LiquidBackdropColor]) -> [LiquidBackdropColor] {
+        guard !palette.isEmpty else { return [] }
+        // 九个顶点容纳全部七种代表色，主色重复在左上和中央。
+        return [0, 2, 1, 3, 0, 4, 1, 5, 6].map { palette[$0 % min(palette.count, 7)] }
+    }
+
+    public static func points(phase: Double, amplitude: Double) -> [SIMD2<Float>] {
+        let a = Float(min(max(amplitude, 0), 0.08))
+        return [
+            [0, 0], [0.5 + Float(sin(phase * 0.83)) * a, 0], [1, 0],
+            [0, 0.5 + Float(cos(phase * 0.71)) * a],
+            [0.5 + Float(sin(phase)) * a, 0.5 + Float(cos(phase * 0.91)) * a],
+            [1, 0.5 + Float(sin(phase * 0.63)) * a],
+            [0, 1], [0.5 + Float(cos(phase * 0.57)) * a, 1], [1, 1]
+        ]
+    }
+
+    public static func minimumLuma(in palette: [LiquidBackdropColor]) -> Double {
+        palette.map { 0.2126 * $0.red + 0.7152 * $0.green + 0.0722 * $0.blue }.min() ?? 0
+    }
+
+    public static func lightOpacity(
+        requested: Double,
+        palette: [LiquidBackdropColor],
+        overlayOpacity: Double,
+        usesIncreasedContrast: Bool
+    ) -> Double {
+        let baseLuma = 0.94
+        let darkest = minimumLuma(in: palette)
+        let wash = min(max(overlayOpacity, 0), 1)
+        let opacity = min(max(requested, 0), 1)
+        guard darkest < baseLuma, wash < 1 else { return opacity }
+        // Mesh 色块可以填满文字区域，不能沿用径向光团只覆盖部分区域的估算。
+        let floor = NowPlayingLightAmbientPolicy.minimumLuma(usesIncreasedContrast: usesIncreasedContrast)
+        let limit = (baseLuma * (1 - wash) + wash - floor) / ((baseLuma - darkest) * (1 - wash))
+        return min(opacity, max(0, limit))
+    }
+
+    public static func maximumLuminance(in palette: [LiquidBackdropColor]) -> Double {
+        func linear(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return palette.map {
+            0.2126 * linear($0.red) + 0.7152 * linear($0.green) + 0.0722 * linear($0.blue)
+        }.max() ?? 0
+    }
+}
+
+/// 从封面小图里挑出几个代表色:主色、鲜艳色、亮鲜艳、暗鲜艳、柔和色、亮柔和、暗柔和。
+/// 只在换歌、封面变了的时候算一次，Mesh 与流动色彩共用调色板。
 public enum LiquidBackdropPalettePolicy {
     /// 一块颜色最多这么亮(HSL 明度),免得整屏发白、压不住上面的字。
     public static let maximumLightness = 0.82

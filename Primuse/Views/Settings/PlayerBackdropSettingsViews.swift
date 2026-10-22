@@ -10,6 +10,13 @@ import AppKit
 
 /// 播放页背景设置里各项的文字与图标，iPhone 与 Mac 共用。
 enum PlayerBackdropSettingsText {
+    static func title(_ style: PlayerAmbientStyle) -> String {
+        switch style {
+        case .mesh: String(localized: "player_backdrop_ambient_mesh")
+        case .classic: String(localized: "player_backdrop_ambient_classic")
+        }
+    }
+
     static func title(_ source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient")
@@ -229,6 +236,18 @@ struct PlayerBackdropSettingsSections: View {
         Section {
             ForEach(PlayerBackdropSource.allCases, id: \.self) { source in
                 sourceRow(source, isSelected: settings.source == source)
+            }
+
+            if settings.source == .coverAmbient {
+                Picker("player_backdrop_ambient_style", selection: Binding(
+                    get: { store.settings.ambientStyle },
+                    set: { value in store.update { $0.ambientStyle = value } }
+                )) {
+                    ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in
+                        Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
+                    }
+                }
+                .accessibilityIdentifier("playerBackdrop.ambientStyle")
             }
 
             if settings.source == .customImages {

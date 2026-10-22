@@ -409,10 +409,15 @@ struct NowPlayingAmbientBackdrop: View {
 
     var body: some View {
         let isSurfaceVisible = isSurfaceVisible && !(motion?.isHeld ?? false)
-        let hasArtworkTheme = theme.hasArtworkAmbient
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
         let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
         let usesLiquid = backdropSource == .liquid
+        let usesMesh = backdropSource == .coverAmbient
+            && PlayerBackdropSettingsStore.shared.settings.ambientStyle == .mesh
+        let meshPalette = theme.liquidPalette
+        let hasArtworkTheme = theme.hasArtworkAmbient
+            || (usesMesh && theme.coverDrivenAmbient && !theme.artworkLiquidPalette.isEmpty)
+        let meshLuma = MeshBackdropPalettePolicy.minimumLuma(in: meshPalette)
         var accentOpacity = (hasArtworkTheme
             ? appearance.artworkAccentOpacity
             : appearance.fallbackAccentOpacity) * strength
@@ -443,8 +448,8 @@ struct NowPlayingAmbientBackdrop: View {
                 vivid: appearance.vividLightAmbientLevels,
                 strength: strength,
                 defaultStrength: defaultStrength,
-                primaryLuma: theme.artworkAccentLuma,
-                secondaryLuma: theme.artworkSecondaryLuma,
+                primaryLuma: usesMesh ? meshLuma : theme.artworkAccentLuma,
+                secondaryLuma: usesMesh ? meshLuma : theme.artworkSecondaryLuma,
                 usesIncreasedContrast: colorSchemeContrast == .increased
             )
             accentOpacity = levels.primaryOpacity
@@ -454,8 +459,18 @@ struct NowPlayingAmbientBackdrop: View {
                 bottomOpacity: levels.overlayBottomOpacity
             )
         }
+        if usesMesh, appearance.isLight {
+            accentOpacity = MeshBackdropPalettePolicy.lightOpacity(
+                requested: accentOpacity,
+                palette: meshPalette,
+                overlayOpacity: min(lightOverlay.topOpacity, lightOverlay.bottomOpacity),
+                usesIncreasedContrast: colorSchemeContrast == .increased
+            )
+        }
         let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
-            paletteLuminance: theme.artworkLuminance,
+            paletteLuminance: usesMesh
+                ? MeshBackdropPalettePolicy.maximumLuminance(in: meshPalette)
+                : theme.artworkLuminance,
             primaryOpacity: accentOpacity,
             secondaryOpacity: lowerAccentOpacity,
             usesIncreasedContrast: colorSchemeContrast == .increased
@@ -486,7 +501,8 @@ struct NowPlayingAmbientBackdrop: View {
                     isSceneActive: isSceneActive,
                     isPlaying: isPlaying,
                     paletteVibrancy: theme.artworkVibrancy,
-                    paletteLuminance: theme.artworkLuminance
+                    paletteLuminance: theme.artworkLuminance,
+                    meshPalette: usesMesh ? meshPalette : []
                 )
             }
 
@@ -573,6 +589,7 @@ struct AdaptiveNowPlayingBackdrop: View {
     let isPlaying: Bool
     let paletteVibrancy: Double
     let paletteLuminance: Double
+    var meshPalette: [LiquidBackdropColor] = []
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var runtimeRevision: UInt = 0
@@ -657,37 +674,53 @@ struct AdaptiveNowPlayingBackdrop: View {
         return ZStack {
             baseColor
 
-            RadialGradient(
-                colors: [
-                    primaryAccent.opacity(primaryOpacity * restrainedOpacity),
-                    primaryAccent.opacity(primaryOpacity * restrainedOpacity * 0.34),
-                    .clear
-                ],
-                center: primaryCenter,
-                startRadius: 0,
-                endRadius: radius
-            )
+            if !meshPalette.isEmpty {
+                MeshGradient(
+                    width: 3,
+                    height: 3,
+                    points: MeshBackdropPalettePolicy.points(
+                        phase: phase,
+                        amplitude: policy.motionAmplitude
+                    ),
+                    colors: MeshBackdropPalettePolicy.colors(for: meshPalette).map(\.swiftUIColor),
+                    // 颜色插值不超出顶点范围，文字对比度仍受调色板亮度边界保护。
+                    smoothsColors: false
+                )
+                .opacity(primaryOpacity * restrainedOpacity)
+                .animation(.easeInOut(duration: LiquidArtworkBackdrop.colorTransitionDuration), value: meshPalette)
+            } else {
+                RadialGradient(
+                    colors: [
+                        primaryAccent.opacity(primaryOpacity * restrainedOpacity),
+                        primaryAccent.opacity(primaryOpacity * restrainedOpacity * 0.34),
+                        .clear
+                    ],
+                    center: primaryCenter,
+                    startRadius: 0,
+                    endRadius: radius
+                )
 
-            RadialGradient(
-                colors: [
-                    secondaryAccent.opacity(secondaryOpacity * restrainedOpacity),
-                    secondaryAccent.opacity(secondaryOpacity * restrainedOpacity * 0.30),
-                    .clear
-                ],
-                center: secondaryCenter,
-                startRadius: 0,
-                endRadius: radius * 0.92
-            )
+                RadialGradient(
+                    colors: [
+                        secondaryAccent.opacity(secondaryOpacity * restrainedOpacity),
+                        secondaryAccent.opacity(secondaryOpacity * restrainedOpacity * 0.30),
+                        .clear
+                    ],
+                    center: secondaryCenter,
+                    startRadius: 0,
+                    endRadius: radius * 0.92
+                )
 
-            RadialGradient(
-                colors: [
-                    darkAccent.opacity(secondaryOpacity * 0.42),
-                    .clear
-                ],
-                center: middleCenter,
-                startRadius: 0,
-                endRadius: radius * 0.72
-            )
+                RadialGradient(
+                    colors: [
+                        darkAccent.opacity(secondaryOpacity * 0.42),
+                        .clear
+                    ],
+                    center: middleCenter,
+                    startRadius: 0,
+                    endRadius: radius * 0.72
+                )
+            }
         }
     }
 

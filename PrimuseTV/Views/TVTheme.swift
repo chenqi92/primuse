@@ -594,6 +594,7 @@ struct TVAmbientBackdrop: View {
     var image: CGImage? = nil
     /// 图的身份，变了才算换图（同一张图重新解码不重播淡入）。
     var imageID: String? = nil
+    var meshPalette: [LiquidBackdropColor]? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppThemePreferences.accentHexKey)
@@ -609,22 +610,33 @@ struct TVAmbientBackdrop: View {
         let s = AppThemePreferences.normalizedAmbientStrength(strength * ambientStrength)
         ZStack {
             TVColor.bgDeep
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                ZStack {
-                    Circle()
-                        .fill(primary)
-                        .frame(width: w * 1.1, height: w * 1.1)
-                        .blur(radius: 220)
-                        .opacity((colorScheme == .dark ? 0.82 : 0.42) * s)
-                        .offset(x: -w * 0.18, y: -h * 0.28)
-                    Circle()
-                        .fill(secondary)
-                        .frame(width: w * 0.95, height: w * 0.95)
-                        .blur(radius: 240)
-                        .opacity((colorScheme == .dark ? 0.72 : 0.34) * s)
-                        .offset(x: w * 0.28, y: h * 0.30)
+            if #available(tvOS 18.0, *), let meshPalette {
+                MeshGradient(
+                    width: 3, height: 3,
+                    points: MeshBackdropPalettePolicy.points(phase: 0, amplitude: 0),
+                    colors: meshColors(meshPalette, primary: primary, secondary: secondary),
+                    smoothsColors: false
+                )
+                .opacity((colorScheme == .dark ? 0.82 : 0.42) * s)
+                .animation(.easeInOut(duration: 1.8), value: meshPalette)
+            } else {
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    ZStack {
+                        Circle()
+                            .fill(primary)
+                            .frame(width: w * 1.1, height: w * 1.1)
+                            .blur(radius: 220)
+                            .opacity((colorScheme == .dark ? 0.82 : 0.42) * s)
+                            .offset(x: -w * 0.18, y: -h * 0.28)
+                        Circle()
+                            .fill(secondary)
+                            .frame(width: w * 0.95, height: w * 0.95)
+                            .blur(radius: 240)
+                            .opacity((colorScheme == .dark ? 0.72 : 0.34) * s)
+                            .offset(x: w * 0.28, y: h * 0.30)
+                    }
                 }
             }
             if colorScheme == .dark {
@@ -647,6 +659,15 @@ struct TVAmbientBackdrop: View {
         .animation(.easeInOut(duration: 0.6), value: imageID)
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    private func meshColors(_ palette: [LiquidBackdropColor], primary: Color, secondary: Color) -> [Color] {
+        if coverDrivenAmbient, !palette.isEmpty {
+            return MeshBackdropPalettePolicy.colors(for: palette).map {
+                Color(red: $0.red, green: $0.green, blue: $0.blue)
+            }
+        }
+        return [primary, secondary, primary, secondary, primary, secondary, primary, secondary, primary]
     }
 }
 

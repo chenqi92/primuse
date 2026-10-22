@@ -1816,6 +1816,16 @@ final class TVStore {
         return (palette.primary.color, palette.secondary.color)
     }
 
+    func artworkAmbientPalette(forSongID songID: String) -> [LiquidBackdropColor] {
+        _ = songArtworkPaletteRevision
+        _ = albumArtworkPaletteRevision
+        let songPalette = artworkPalettes[Self.songArtworkPaletteKey(songID)]
+        let albumPalette = library.song(id: songID)?.albumID.flatMap { artworkPalettes[$0] }
+        return (songPalette?.ambient ?? albumPalette?.ambient ?? []).map {
+            LiquidBackdropColor(red: $0.red, green: $0.green, blue: $0.blue)
+        }
+    }
+
     /// Artwork resolves independently for every visible card. Coalesce those
     /// completions so a large grid/list cannot rebuild once per decoded image,
     /// and keep album and song observers isolated from one another.

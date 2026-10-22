@@ -7,6 +7,28 @@ struct PlayerBackdropTests {
     private let idA = String(repeating: "a", count: 64)
     private let idB = String(repeating: "b", count: 64)
 
+    @Test("Existing backdrop settings default to mesh without changing their source")
+    func ambientStyleMigration() {
+        for source in PlayerBackdropSource.allCases {
+            let old = Data("{\"source\":\"\(source.rawValue)\",\"rotation\":\"timed\",\"intervalSeconds\":300}".utf8)
+            let decoded = PlayerBackdropSettings.decode(old)
+            #expect(decoded.source == source)
+            #expect(decoded.rotation == .timed)
+            #expect(decoded.intervalSeconds == 300)
+            #expect(decoded.ambientStyle == .mesh)
+        }
+        var selected = PlayerBackdropSettings(ambientStyle: .classic)
+        selected.source = .coverBlur
+        let restored = PlayerBackdropSettings.decode(selected.encodedData())
+        #expect(restored == selected)
+        #expect(restored.ambientStyle == .classic)
+        for value in ["\"future\"", "null", "42"] {
+            let data = Data("{\"source\":\"liquid\",\"ambientStyle\":\(value)}".utf8)
+            #expect(PlayerBackdropSettings.decode(data).ambientStyle == .mesh)
+            #expect(PlayerBackdropSettings.decode(data).source == .liquid)
+        }
+    }
+
     @Test("Settings round-trip and tolerate unknown or missing values")
     func settingsDecoding() throws {
         let settings = PlayerBackdropSettings(source: .albumBack, rotation: .timed, intervalSeconds: 300)

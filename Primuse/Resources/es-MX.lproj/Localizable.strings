@@ -3859,6 +3859,9 @@
 "player_backdrop_title" = "Fondo del reproductor";
 "player_backdrop_cover_ambient" = "Colores de la portada";
 "player_backdrop_cover_ambient_hint" = "Un campo de color fluido tomado de la portada";
+"player_backdrop_ambient_style" = "Estilo de color";
+"player_backdrop_ambient_mesh" = "Malla";
+"player_backdrop_ambient_classic" = "Clásico";
 "player_backdrop_liquid" = "Colores fluidos";
 "player_backdrop_liquid_hint" = "Varios colores de la portada se mueven como luces suaves mientras suena la música";
 "player_backdrop_liquid_tv_hint" = "El Apple TV muestra los colores de la portada en su lugar.";

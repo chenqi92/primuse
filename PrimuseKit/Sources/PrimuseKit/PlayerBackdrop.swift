@@ -2,7 +2,7 @@ import Foundation
 
 /// 原生播放页的背景用什么。全屏效果打开时以全屏效果为准，这里只管原生播放页。
 public enum PlayerBackdropSource: String, CaseIterable, Codable, Sendable {
-    /// 封面取色的色场（一直以来的样子，默认）。
+    /// 封面代表色组成的色场，默认来源。
     case coverAmbient
     /// 封面里挑出来的几个颜色化成几团柔和的光，随播放缓缓流动（#189）。只换色场的画法，不铺图片。
     /// 不认识这一档的旧版本按解码规则退回封面取色。
@@ -60,7 +60,14 @@ public enum PlayerBackdropRotation: String, CaseIterable, Codable, Sendable {
     public static let defaultValue = PlayerBackdropRotation.fixed
 }
 
-/// 三端同步的那部分播放背景设置：来源、轮播方式与间隔。自选图片本身和它们的列表
+public enum PlayerAmbientStyle: String, CaseIterable, Codable, Sendable {
+    case mesh
+    case classic
+
+    public static let defaultValue = PlayerAmbientStyle.mesh
+}
+
+/// 三端同步的那部分播放背景设置：来源、取色样式、轮播方式与间隔。自选图片本身和它们的列表
 /// 都只留在本机（`customImagesStorageKey`），不同设备各选各的；没有图片的设备选了
 /// 「我的图片」就照旧显示封面取色。
 public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
@@ -80,23 +87,26 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
     public var appliesToAudiobooks: Bool
     /// 「声音律动」画哪一种。只在选了这一档时起作用,换回别的来源也记着。
     public var visualizerStyle: PlayerVisualizerStyle
+    public var ambientStyle: PlayerAmbientStyle
 
     public init(
         source: PlayerBackdropSource = .defaultValue,
         rotation: PlayerBackdropRotation = .defaultValue,
         intervalSeconds: Int = PlayerBackdropSettings.defaultIntervalSeconds,
         appliesToAudiobooks: Bool = false,
-        visualizerStyle: PlayerVisualizerStyle = .defaultValue
+        visualizerStyle: PlayerVisualizerStyle = .defaultValue,
+        ambientStyle: PlayerAmbientStyle = .defaultValue
     ) {
         self.source = source
         self.rotation = rotation
         self.intervalSeconds = Self.normalizedInterval(intervalSeconds)
         self.appliesToAudiobooks = appliesToAudiobooks
         self.visualizerStyle = visualizerStyle
+        self.ambientStyle = ambientStyle
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, rotation, intervalSeconds, appliesToAudiobooks, visualizerStyle
+        case source, rotation, intervalSeconds, appliesToAudiobooks, visualizerStyle, ambientStyle
     }
 
     /// 解码从不失败：不认识的取值（更新版本多出来的来源等）按默认处理，免得一台旧设备
@@ -108,12 +118,14 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         let interval = (try? container?.decodeIfPresent(Int.self, forKey: .intervalSeconds)) ?? nil
         let audiobooks = (try? container?.decodeIfPresent(Bool.self, forKey: .appliesToAudiobooks)) ?? nil
         let rawVisualizerStyle = (try? container?.decodeIfPresent(String.self, forKey: .visualizerStyle)) ?? nil
+        let rawAmbientStyle = (try? container?.decodeIfPresent(String.self, forKey: .ambientStyle)) ?? nil
         self.init(
             source: rawSource.flatMap(PlayerBackdropSource.init(rawValue:)) ?? .defaultValue,
             rotation: rawRotation.flatMap(PlayerBackdropRotation.init(rawValue:)) ?? .defaultValue,
             intervalSeconds: interval ?? Self.defaultIntervalSeconds,
             appliesToAudiobooks: audiobooks ?? false,
-            visualizerStyle: rawVisualizerStyle.flatMap(PlayerVisualizerStyle.init(rawValue:)) ?? .defaultValue
+            visualizerStyle: rawVisualizerStyle.flatMap(PlayerVisualizerStyle.init(rawValue:)) ?? .defaultValue,
+            ambientStyle: rawAmbientStyle.flatMap(PlayerAmbientStyle.init(rawValue:)) ?? .defaultValue
         )
     }
 
@@ -127,6 +139,7 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         if visualizerStyle != .defaultValue {
             try container.encode(visualizerStyle.rawValue, forKey: .visualizerStyle)
         }
+        try container.encode(ambientStyle.rawValue, forKey: .ambientStyle)
     }
 
     public static func decode(_ data: Data?) -> PlayerBackdropSettings {

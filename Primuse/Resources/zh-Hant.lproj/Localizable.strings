@@ -156,6 +156,9 @@
 "player_backdrop_title" = "播放頁背景";
 "player_backdrop_cover_ambient" = "封面取色";
 "player_backdrop_cover_ambient_hint" = "隨封面顏色流動的色場";
+"player_backdrop_ambient_style" = "取色樣式";
+"player_backdrop_ambient_mesh" = "Mesh 漸層";
+"player_backdrop_ambient_classic" = "經典漸層";
 "player_backdrop_liquid" = "流動色彩";
 "player_backdrop_liquid_hint" = "封面裡的幾種顏色化成柔和的光團，隨播放緩緩流動";
 "player_backdrop_liquid_tv_hint" = "Apple TV 上顯示為封面取色。";

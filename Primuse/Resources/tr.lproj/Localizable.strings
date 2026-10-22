@@ -1120,6 +1120,9 @@
 "player_backdrop_title" = "Oynatıcı arka planı";
 "player_backdrop_cover_ambient" = "Kapak renkleri";
 "player_backdrop_cover_ambient_hint" = "Kapaktan alınan akışkan bir renk alanı";
+"player_backdrop_ambient_style" = "Renk stili";
+"player_backdrop_ambient_mesh" = "Mesh";
+"player_backdrop_ambient_classic" = "Klasik";
 "player_backdrop_liquid" = "Akışkan Renkler";
 "player_backdrop_liquid_hint" = "Kapaktaki birkaç renk, müzik çalarken yumuşak ışıklar olarak süzülür";
 "player_backdrop_liquid_tv_hint" = "Apple TV bunun yerine kapak renklerini gösterir.";

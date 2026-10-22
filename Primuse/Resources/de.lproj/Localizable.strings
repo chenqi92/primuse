@@ -414,6 +414,9 @@
 "player_backdrop_title" = "Player-Hintergrund";
 "player_backdrop_cover_ambient" = "Coverfarben";
 "player_backdrop_cover_ambient_hint" = "Ein fließendes Farbfeld aus dem Cover";
+"player_backdrop_ambient_style" = "Farbstil";
+"player_backdrop_ambient_mesh" = "Mesh";
+"player_backdrop_ambient_classic" = "Klassisch";
 "player_backdrop_liquid" = "Fließende Farben";
 "player_backdrop_liquid_hint" = "Mehrere Farben aus dem Cover ziehen als weiches Licht dahin, solange Musik läuft";
 "player_backdrop_liquid_tv_hint" = "Apple TV zeigt stattdessen die Coverfarben.";

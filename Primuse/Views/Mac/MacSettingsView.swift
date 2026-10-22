@@ -8308,6 +8308,19 @@ private struct MacPlayerBackdropSettingsSection: View {
                 }
                 .settingsAnchor("appearance.playerBackdrop")
 
+                if settings.source == .coverAmbient {
+                    MacSTRow(String(localized: "player_backdrop_ambient_style")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { store.settings.ambientStyle },
+                                set: { value in store.update { $0.ambientStyle = value } }
+                            ),
+                            options: PlayerAmbientStyle.allCases.map { ($0, PlayerBackdropSettingsText.title($0)) }
+                        )
+                    }
+                    .accessibilityIdentifier("playerBackdrop.ambientStyle")
+                }
+
                 if settings.source == .customImages {
                     MacSTRow(String(localized: "player_backdrop_custom_images"),
                              hint: importFailed
