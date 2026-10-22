@@ -175,6 +175,8 @@ final class CloudKitSyncService {
     private var startAttemptID: UUID?
     private let stateURL: URL
     private let systemFieldsURL: URL
+    /// system fields 缓存的追加日志, 见 `KeyedDataJournal`。
+    private let systemFieldsJournalURL: URL
     /// `recordName → encoded CKRecord system fields`。用于在重建 CKRecord
     /// 时复用 server changeTag,否则 saveRecord 每次都被 server 当成 insert,
     /// 触发 "record to insert already exists" (CKError.serverRecordChanged)
@@ -184,7 +186,14 @@ final class CloudKitSyncService {
     /// 缓存是整份字典一次编码写盘的。逐条记录都写一遍, 首次同步拉下 N 条记录
     /// 就要写 N 份越来越大的字典, 写入量随记录数平方增长 —— 新设备装好几分钟
     /// 就撞上系统的 1GB 写盘上限。所以改动只记账, 一批事件处理完再写一次。
+    /// 一批也不再整份写: 几千条、近 10MB 的字典每批重写一遍, 平时听歌同步一两条
+    /// 播放记录也是这个量。改动的键追加进日志, 日志长到底本的一半再整份合并。
     private var systemFieldsCacheNeedsPersist = false
+    private var systemFieldsPendingUpserts: [String: Data] = [:]
+    private var systemFieldsPendingRemovals: Set<String> = []
+    /// 底本与日志在盘上的大概字节数, 决定什么时候整份合并。
+    private var systemFieldsBaseBytes = 0
+    private var systemFieldsJournalBytes = 0
     private var systemFieldsPersistTask: Task<Void, Never>?
     private static let systemFieldsPersistDelay: Duration = .seconds(2)
     /// system fields 缓存与两份引擎游标的写盘队列。整份编码不在主线程上做 —— 全量重拉时
@@ -299,6 +308,7 @@ final class CloudKitSyncService {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.stateURL = directory.appendingPathComponent("cloudkit-engine-state.bin")
         self.systemFieldsURL = directory.appendingPathComponent("cloudkit-system-fields.plist")
+        self.systemFieldsJournalURL = directory.appendingPathComponent("cloudkit-system-fields.journal")
         if !CloudKitRuntime.canCreateContainer {
             self.status = .unavailableInBuild
         }
@@ -1982,22 +1992,62 @@ final class CloudKitSyncService {
         guard !systemFieldsCacheLoaded else { return }
         systemFieldsCacheLoaded = true
         stateWriter.drain()
-        guard let data = try? Data(contentsOf: systemFieldsURL),
-              let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) else {
-            return
+        var table: [String: Data] = [:]
+        if let data = try? Data(contentsOf: systemFieldsURL),
+           let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) {
+            table = dict
+            systemFieldsBaseBytes = data.count
         }
-        systemFieldsCache = dict
+        if let journal = try? Data(contentsOf: systemFieldsJournalURL) {
+            let applied = KeyedDataJournal.replay(journal, onto: &table)
+            systemFieldsJournalBytes = journal.count
+            plog("CloudKitSync: system fields journal replayed records=\(applied) bytes=\(journal.count)")
+        }
+        systemFieldsCache = table
     }
 
-    /// 交出去的是此刻的字典快照(值类型), 编码和写盘在 `stateWriter` 的队列上。
+    /// 这批改动追加进日志; 日志长过底本一半时再把此刻的整份字典(值类型快照)写成新
+    /// 底本, 写成功才删日志, 写失败时旧底本加日志仍是完整的。编码和写盘都在
+    /// `stateWriter` 的队列上, 排在随后的引擎游标之前。
     private func persistSystemFieldsCache() {
+        let entry = KeyedDataJournal.Entry(
+            upserts: systemFieldsPendingUpserts,
+            removals: Array(systemFieldsPendingRemovals)
+        )
+        systemFieldsPendingUpserts = [:]
+        systemFieldsPendingRemovals = []
+        if !entry.isEmpty {
+            systemFieldsJournalBytes += entry.upserts.reduce(0) { $0 + $1.key.utf8.count + $1.value.count }
+                + entry.removals.reduce(0) { $0 + $1.utf8.count }
+            stateWriter.append(to: systemFieldsJournalURL, encode: {
+                try KeyedDataJournal.encodeRecord(entry)
+            })
+        }
+        guard KeyedDataJournal.shouldCompact(
+            journalBytes: systemFieldsJournalBytes,
+            baseBytes: systemFieldsBaseBytes
+        ) else { return }
         let snapshot = systemFieldsCache
         let entries = snapshot.count
+        let journalURL = systemFieldsJournalURL
+        systemFieldsBaseBytes = snapshot.reduce(0) { $0 + $1.key.utf8.count + $1.value.count }
+        systemFieldsJournalBytes = 0
         stateWriter.write(to: systemFieldsURL, encode: {
             try PropertyListEncoder().encode(snapshot)
         }, written: { bytes in
+            try? FileManager.default.removeItem(at: journalURL)
             plog("💾 CloudKit system fields cache written entries=\(entries) bytes=\(bytes)")
         })
+    }
+
+    private func recordSystemFieldsUpsert(_ data: Data, forKey key: String) {
+        systemFieldsPendingUpserts[key] = data
+        systemFieldsPendingRemovals.remove(key)
+    }
+
+    private func recordSystemFieldsRemoval(forKey key: String) {
+        systemFieldsPendingUpserts.removeValue(forKey: key)
+        systemFieldsPendingRemovals.insert(key)
     }
 
     /// 记下缓存有改动, 并安排一次合并写。CKSyncEngine 送来的整批记录由
@@ -2087,19 +2137,24 @@ final class CloudKitSyncService {
         let key = Self.systemFieldsKey(for: record.recordID)
         var removedLegacy = false
         for legacyKey in Self.legacySystemFieldsKeys(for: record.recordID) {
-            removedLegacy = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removedLegacy
+            guard systemFieldsCache.removeValue(forKey: legacyKey) != nil else { continue }
+            recordSystemFieldsRemoval(forKey: legacyKey)
+            removedLegacy = true
         }
         if systemFieldsCache[key] != data || removedLegacy {
             systemFieldsCache[key] = data
+            recordSystemFieldsUpsert(data, forKey: key)
             scheduleSystemFieldsCachePersist()
         }
     }
 
     fileprivate func removeSystemFields(for recordID: CKRecord.ID) {
         loadSystemFieldsCacheIfNeeded()
-        var removed = systemFieldsCache.removeValue(forKey: Self.systemFieldsKey(for: recordID)) != nil
-        for legacyKey in Self.legacySystemFieldsKeys(for: recordID) {
-            removed = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removed
+        var removed = false
+        for key in [Self.systemFieldsKey(for: recordID)] + Self.legacySystemFieldsKeys(for: recordID) {
+            guard systemFieldsCache.removeValue(forKey: key) != nil else { continue }
+            recordSystemFieldsRemoval(forKey: key)
+            removed = true
         }
         if removed {
             scheduleSystemFieldsCachePersist()
@@ -2114,10 +2169,15 @@ final class CloudKitSyncService {
         systemFieldsPersistTask?.cancel()
         systemFieldsPersistTask = nil
         systemFieldsCacheNeedsPersist = false
+        systemFieldsPendingUpserts = [:]
+        systemFieldsPendingRemovals = []
+        systemFieldsBaseBytes = 0
+        systemFieldsJournalBytes = 0
         systemFieldsCache.removeAll()
         systemFieldsCacheLoaded = true
         systemFieldsCacheGeneration &+= 1
         stateWriter.removeItem(at: systemFieldsURL)
+        stateWriter.removeItem(at: systemFieldsJournalURL)
     }
 
     private func cachedRecord(for recordID: CKRecord.ID) -> CKRecord? {
