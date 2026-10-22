@@ -252,15 +252,35 @@ public enum LyricTranslationNoticePolicy {
             // failure to translate foreign lyrics (for example zh-Hant → zh-Hans).
             return sourceLanguage == nil || targetLanguage == nil || sourceLanguage != targetLanguage
         }.flatMap(\.candidates).map(\.id))
-        guard !unsupportedLineIDs.isEmpty else { return false }
+        return coversSubstantialShare(unsupportedLineIDs, of: lyrics, song: song)
+    }
+
+    /// 缺离线翻译包的行只占一小部分时(一两行被认成别的语言),不让整首都提示下载翻译模型,
+    /// 门槛和「翻译不可用」相同;那几行照旧不译,包下好后会补上。
+    public static func shouldRequestModel(
+        lyrics: [LyricLine],
+        groupsNeedingModel: [LyricTranslationGroup],
+        song: LyricTranslationSongContext = .init()
+    ) -> Bool {
+        coversSubstantialShare(
+            Set(groupsNeedingModel.flatMap(\.candidates).map(\.id)),
+            of: lyrics,
+            song: song
+        )
+    }
+
+    private static func coversSubstantialShare(
+        _ lineIDs: Set<String>,
+        of lyrics: [LyricLine],
+        song: LyricTranslationSongContext
+    ) -> Bool {
+        guard !lineIDs.isEmpty else { return false }
         let contentLines = LyricTranslationContentPolicy.contentLines(
             in: LyricVoiceTimelinePolicy.flattenedLines(lyrics), song: song
         )
         guard !contentLines.isEmpty else { return false }
-        let unsupportedCount = contentLines.filter {
-            unsupportedLineIDs.contains($0.id)
-        }.count
-        return Double(unsupportedCount) / Double(contentLines.count) > 0.2
+        let coveredCount = contentLines.filter { lineIDs.contains($0.id) }.count
+        return Double(coveredCount) / Double(contentLines.count) > 0.2
     }
 }
 
@@ -2196,11 +2216,67 @@ public enum LyricTranslationGroupingPolicy {
     /// from the complete lyric body. Short metadata lines frequently combine a
     /// local-script label with a Latin name (for example a composer credit),
     /// which can otherwise be classified as an unrelated language.
+    ///
+    /// 结果还要和这行实际的文字对得上(见 `textCanBeWritten(in:text:)`):识别结果或整首的
+    /// 语言把日文标成波斯语时,一个阿拉伯字母都没有的行不能就此进波斯语那一组。对不上时先用
+    /// 整首的语言,整首也对不上就只按文字推断(假名是日文、谚文是韩文),都不行就不标。
     public static func reconciledLineLanguageCode(
         text: String,
         detectedLanguageCode: String?,
         confidence: Double,
         alternativeConfidence: Double = 0,
+        fallbackSourceLanguageCode: String?
+    ) -> String? {
+        let reconciled = unverifiedLineLanguageCode(
+            text: text,
+            detectedLanguageCode: detectedLanguageCode,
+            confidence: confidence,
+            fallbackSourceLanguageCode: fallbackSourceLanguageCode
+        )
+        guard let reconciled, !textCanBeWritten(in: reconciled, text: text) else {
+            return reconciled
+        }
+        return languageCodeMatchingScript(
+            of: text,
+            preferring: fallbackSourceLanguageCode.map(languageIdentity)
+        )
+    }
+
+    /// 标出的语言和这行的文字对不对得上:这种语言平常用非拉丁文字写,这行却只有别的
+    /// 非拉丁文字、一个它自己的字母都没有时为 false(日文认假名和汉字,韩文认谚文和汉字,
+    /// 中文认汉字,波斯语、阿拉伯语认阿拉伯字母)。拉丁字母不算数:夹在歌里的短词、人名、
+    /// 罗马音本来就跟着整首的语言走。认不出这种语言用什么文字、或这行只有符号数字时放行。
+    public static func textCanBeWritten(in languageCode: String, text: String) -> Bool {
+        guard let expected = lineScript(for: languageCode), expected != .latin else { return true }
+        var hasOtherScript = false
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+            guard let script = lineScript(for: scalar.value), script != .latin else { continue }
+            if script == expected { return true }
+            if script == .han, expected == .japanese || expected == .hangul { return true }
+            hasOtherScript = true
+        }
+        return !hasOtherScript
+    }
+
+    /// 标出的语言和文字对不上时的去处:`preferred`(整首的语言)对得上就用它,否则只按文字
+    /// 能确定的语言;别的文字都有好几种语言在用,返回 nil 交给自动检测。
+    static func languageCodeMatchingScript(of text: String, preferring preferred: String?) -> String? {
+        if let preferred, textCanBeWritten(in: preferred, text: text) { return preferred }
+        var hasHangul = false
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+            switch lineScript(for: scalar.value) {
+            case .japanese: return "ja"
+            case .hangul: hasHangul = true
+            default: break
+            }
+        }
+        return hasHangul ? "ko" : nil
+    }
+
+    private static func unverifiedLineLanguageCode(
+        text: String,
+        detectedLanguageCode: String?,
+        confidence: Double,
         fallbackSourceLanguageCode: String?
     ) -> String? {
         let detectedIdentity = detectedLanguageCode.map(languageIdentity)
@@ -2343,7 +2419,8 @@ public enum LyricTranslationGroupingPolicy {
     }
 
     /// `skippedSourceLanguageCodes` 是用户设的「不翻译的语言」:这些语言的行保持原文,
-    /// 和已经是目标语言的行一样不进任何一组。
+    /// 和已经是目标语言的行一样不进任何一组。没认出语言的行跟着整首的语言走,但整首的语言
+    /// 要和这行的文字对得上(整首标成波斯语时,日文行不会跟着进波斯语那一组)。
     public static func groups(
         candidates: [LyricTranslationCandidate],
         targetLanguageCode: String,
@@ -2361,7 +2438,9 @@ public enum LyricTranslationGroupingPolicy {
             guard !text.isEmpty else { continue }
 
             let normalizedSource = candidate.sourceLanguageCode.map(languageIdentity)
-                ?? fallbackSourceIdentity
+                ?? fallbackSourceIdentity.flatMap {
+                    languageCodeMatchingScript(of: text, preferring: $0)
+                }
             if let normalizedSource,
                representsSameTranslationLanguage(normalizedSource, targetIdentity)
                 || isSkippedSourceLanguage(
@@ -2395,6 +2474,14 @@ public enum LyricTranslationGroupingPolicy {
                 candidates: groupedCandidates
             )
         }
+    }
+
+    /// 诊断日志用的分组摘要:每组的源语言和行数,例如「ja 42, en 3, auto 1」,不含歌词原文。
+    public static func diagnosticSummary(of groups: [LyricTranslationGroup]) -> String {
+        guard !groups.isEmpty else { return "none" }
+        return groups
+            .map { "\($0.sourceLanguageCode ?? "auto") \($0.candidates.count)" }
+            .joined(separator: ", ")
     }
 
     /// `sourceLanguageCode` 在不在「不翻译的语言」里。简繁中文分开设;只认出是中文、
@@ -2611,7 +2698,10 @@ public enum LyricTranslationGroupingPolicy {
     ) -> Bool {
         guard let expectedScript = lineScript(for: languageCode),
               let otherScript = lineScript(for: otherLanguageCode),
-              expectedScript != otherScript else {
+              expectedScript != otherScript,
+              // 日文本来就写汉字:日文歌里没有假名的行(「桜吹雪」)不算中文的证据,
+              // 照整首按日文翻。反过来中文歌里带假名的行仍由假名认成日文。
+              !(expectedScript == .han && otherScript == .japanese) else {
             return false
         }
         return textHasScriptEvidence(expectedScript, text: text)

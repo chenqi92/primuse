@@ -384,6 +384,102 @@ struct LyricTranslationGroupingPolicyTests {
         }
     }
 
+    @Test("日文行被识别成波斯语、阿拉伯语时按这行的文字改回来")
+    func japaneseRowsReportedAsPersianFollowTheirScript() {
+        func source(_ text: String, _ detected: String, fallback: String?) -> String? {
+            LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+                text: text,
+                detectedLanguageCode: detected,
+                confidence: 0.9,
+                fallbackSourceLanguageCode: fallback
+            )
+        }
+
+        #expect(source("君の名前を呼んだ", "fa", fallback: nil) == "ja")
+        #expect(source("君の名前を呼んだ", "fa", fallback: "fa") == "ja")
+        #expect(source("ラララ", "ar", fallback: "ja") == "ja")
+        #expect(source("桜吹雪", "fa", fallback: "ja") == "ja")
+        #expect(source("桜吹雪", "fa", fallback: nil) == nil)
+        #expect(source("사랑해", "fa", fallback: nil) == "ko")
+        #expect(source("ラララ", "zh-Hans", fallback: "zh-Hans") == "ja")
+        // 真正的波斯语、夹在波斯语歌里的英文短句照旧。
+        #expect(source("این ترانه برای توست", "fa", fallback: nil) == "fa")
+        #expect(source("Oh no", "fa", fallback: "fa") == "fa")
+    }
+
+    @Test("文字一致性只看非拉丁文字,符号数字行放行")
+    func scriptCheckIgnoresLatinAndNeutralRows() {
+        func fits(_ language: String, _ text: String) -> Bool {
+            LyricTranslationGroupingPolicy.textCanBeWritten(in: language, text: text)
+        }
+
+        #expect(fits("fa", "Oh yeah"))
+        #expect(fits("fa", "♪ 123"))
+        #expect(fits("fa", "این ترانه"))
+        #expect(fits("ja", "Love"))
+        #expect(fits("ja", "桜"))
+        #expect(fits("ko", "愛"))
+        #expect(fits("zh-Hans", "OK"))
+        #expect(fits("en", "君の名前"))
+        #expect(fits("fa-Latn", "夢"))
+        #expect(!fits("fa", "夢"))
+        #expect(!fits("fa", "君の名前 love"))
+        #expect(!fits("ar", "ラララ"))
+        #expect(!fits("zh-Hans", "ラララ"))
+        #expect(!fits("ja", "사랑"))
+    }
+
+    @Test("没认出语言的行继承整首语言前先看文字对不对得上")
+    func inheritedDocumentLanguageMustMatchTheRowScript() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "kana", text: "君の名前を呼んだ", sourceLanguageCode: nil),
+                .init(id: "kanji", text: "桜吹雪", sourceLanguageCode: nil),
+                .init(id: "latin", text: "Oh", sourceLanguageCode: nil),
+                .init(id: "persian", text: "این ترانه برای توست", sourceLanguageCode: nil),
+            ],
+            targetLanguageCode: "zh-Hans",
+            fallbackSourceLanguageCode: "fa"
+        )
+        let sourceByID = Dictionary(uniqueKeysWithValues: groups.flatMap { group in
+            group.candidates.map { ($0.id, group.sourceLanguageCode ?? "auto") }
+        })
+
+        #expect(sourceByID == ["kana": "ja", "kanji": "auto", "latin": "fa", "persian": "fa"])
+    }
+
+    @Test("日文歌里只有汉字的行跟着整首按日文翻,中文歌里带假名的行仍是日文")
+    func japaneseDocumentKeepsKanjiOnlyRows() {
+        func source(_ text: String, _ detected: String, _ confidence: Double, fallback: String) -> String? {
+            LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+                text: text,
+                detectedLanguageCode: detected,
+                confidence: confidence,
+                fallbackSourceLanguageCode: fallback
+            )
+        }
+
+        #expect(source("桜吹雪", "zh-Hans", 0.6, fallback: "ja") == "ja")
+        #expect(source("永遠", "zh-Hant", 0.5, fallback: "ja") == "ja")
+        #expect(source("夢の中で", "ja", 0.5, fallback: "zh-Hans") == "ja")
+        #expect(source("我们一起走过的那些日子永远不会忘记", "zh-Hans", 0.95, fallback: "ja") == "zh-Hans")
+    }
+
+    @Test("诊断摘要只有各组语言与行数")
+    func diagnosticSummaryListsLanguagesAndCounts() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "1", text: "君の名前を呼んだ", sourceLanguageCode: "ja"),
+                .init(id: "2", text: "ラララ", sourceLanguageCode: "ja"),
+                .init(id: "3", text: "Oh yeah", sourceLanguageCode: nil),
+            ],
+            targetLanguageCode: "zh-Hans"
+        )
+
+        #expect(LyricTranslationGroupingPolicy.diagnosticSummary(of: groups) == "ja 2, auto 1")
+        #expect(LyricTranslationGroupingPolicy.diagnosticSummary(of: []) == "none")
+    }
+
     @Test func declaredLyricsLanguageParsesAndValidatesMetadata() {
         #expect(LyricTranslationGroupingPolicy.declaredLanguageCode(in: [
             "[ti:Sample]", " [LA: fa-IR] ",

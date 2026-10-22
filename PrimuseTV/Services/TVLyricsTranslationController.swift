@@ -153,6 +153,10 @@ final class TVLyricsTranslationController {
                 return
             }
             guard let self, self.isCurrent(generation, songID: songID, store: store) else { return }
+            // 每组认出的源语言和行数,诊断报告里看得出整首被认成了什么语言。
+            plog("TV lyrics translation groups -> \(target): "
+                + LyricTranslationGroupingPolicy.diagnosticSummary(of: prepared.groups)
+                + "; script conversions \(prepared.scriptConversions.count)")
             // Lines that already show a translation from the file keep it.
             let shown = Set(store.lyrics.filter { !$0.translation.isEmpty }.map(\.id))
             for (id, text) in prepared.scriptConversions where !shown.contains(id) {
@@ -242,7 +246,12 @@ final class TVLyricsTranslationController {
             if outcome.translatedCount > 0 {
                 plog("🌐 TV lyrics translated \(outcome.translatedCount) lines offline -> \(target)")
             }
-            if !outcome.groupsNeedingModel.isEmpty {
+            // 和「翻译不可用」同一个门槛:一两行缺翻译包时不让整首都提示下载翻译模型。
+            if LyricTranslationNoticePolicy.shouldRequestModel(
+                lyrics: lines,
+                groupsNeedingModel: deduplication.restoringDuplicates(in: outcome.groupsNeedingModel),
+                song: songContext
+            ) {
                 self.activity = .needsModel(local.requestedPack)
             } else if let intelligentResult {
                 self.activity = .done(intelligentResult)

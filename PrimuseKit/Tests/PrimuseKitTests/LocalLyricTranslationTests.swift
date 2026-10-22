@@ -54,6 +54,38 @@ struct LocalLyricTranslationTests {
         #expect(route("fr", "ja", pivot: false) == .unsupported)
     }
 
+    @Test("Rows labelled Persian without Persian script never reach the model")
+    func mislabelledRowsAreSplitOff() {
+        let group = LyricTranslationGroup(
+            id: "fa",
+            sourceLanguageCode: "fa",
+            candidates: [
+                .init(id: "persian", text: "این ترانه برای توست", sourceLanguageCode: "fa"),
+                .init(id: "japanese", text: "君の名前を呼んだ", sourceLanguageCode: "fa"),
+                .init(id: "latin", text: "Oh yeah", sourceLanguageCode: "fa"),
+            ]
+        )
+        let split = LocalLyricTranslationPolicy.splittingRowsByScript(group)
+        #expect(split.readable?.candidates.map(\.id) == ["persian", "latin"])
+        #expect(split.mismatched?.candidates.map(\.id) == ["japanese"])
+        #expect(split.mismatched?.sourceLanguageCode == "fa")
+
+        let japanese = LyricTranslationGroup(
+            id: "ja",
+            sourceLanguageCode: "ja",
+            candidates: [.init(id: "1", text: "桜吹雪", sourceLanguageCode: "ja")]
+        )
+        #expect(LocalLyricTranslationPolicy.splittingRowsByScript(japanese).readable == japanese)
+        #expect(LocalLyricTranslationPolicy.splittingRowsByScript(japanese).mismatched == nil)
+
+        let unknown = LyricTranslationGroup(
+            id: "auto",
+            sourceLanguageCode: nil,
+            candidates: [.init(id: "1", text: "君の名前", sourceLanguageCode: nil)]
+        )
+        #expect(LocalLyricTranslationPolicy.splittingRowsByScript(unknown).readable == unknown)
+    }
+
     // MARK: Output checks
 
     @Test("Model output is cleaned and runaway or copied output is rejected")

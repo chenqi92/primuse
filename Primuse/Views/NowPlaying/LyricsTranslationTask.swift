@@ -134,6 +134,12 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             return
         }
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+        if identity.isEnabled {
+            // 每组认出的源语言和行数,诊断报告里看得出整首被认成了什么语言。
+            plog("Lyrics translation groups -> \(identity.targetLanguageCode): "
+                + LyricTranslationGroupingPolicy.diagnosticSummary(of: prepared.groups)
+                + "; script conversions \(prepared.scriptConversions.count)")
+        }
         let manualTranslations = prepared.manualTranslations
             .merging(prepared.scriptConversions) { manual, _ in manual }
         // Order before deduplicating, so a repeated chorus is sent as the
@@ -447,7 +453,12 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             }
             if activity == .localTranslating { activity = activityBeforeLocal }
             localUnsupportedGroups = outcome.unsupportedGroups
-            localNeedsModel = !outcome.groupsNeedingModel.isEmpty
+            // 和「翻译不可用」同一个门槛:一两行缺翻译包时不让整首都提示下载翻译模型。
+            localNeedsModel = LyricTranslationNoticePolicy.shouldRequestModel(
+                lyrics: lyrics,
+                groupsNeedingModel: deduplication.restoringDuplicates(in: outcome.groupsNeedingModel),
+                song: identity.songContext
+            )
         }
 
         var systemGroups: [LyricTranslationGroup] = []

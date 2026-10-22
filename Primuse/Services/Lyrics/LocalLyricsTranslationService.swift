@@ -386,8 +386,14 @@ final class LocalLyricsTranslationService {
     ) async -> LocalLyricsTranslationOutcome {
         var outcome = LocalLyricsTranslationOutcome()
         let cache = LyricsTranslationCache.shared
-        for group in groups {
+        for listedGroup in groups {
             guard isCurrent(), !Task.isCancelled else { return outcome }
+            let split = LocalLyricTranslationPolicy.splittingRowsByScript(listedGroup)
+            if let mismatched = split.mismatched {
+                outcome.unsupportedGroups.append(mismatched)
+                plog("LocalTranslation: \(mismatched.candidates.count) lines labelled \(mismatched.sourceLanguageCode ?? "auto") do not use its script, skipped")
+            }
+            guard let group = split.readable else { continue }
             var route = LocalLyricTranslationPolicy.route(
                 sourceLanguageCode: group.sourceLanguageCode,
                 targetLanguageCode: targetLanguageCode,

@@ -166,6 +166,41 @@ struct LyricTranslationNoticePolicyTests {
         ))
     }
 
+    @Test("一两行缺离线翻译包时不提示整首下载翻译模型", arguments: [1, 2])
+    func fewRowsNeedingModelStayQuiet(count: Int) {
+        let lyrics = lines(Array(repeating: "君の名前を呼んだ", count: 10))
+
+        #expect(!LyricTranslationNoticePolicy.shouldRequestModel(
+            lyrics: lyrics,
+            groupsNeedingModel: [modelGroup(Array(lyrics.prefix(count)))]
+        ))
+    }
+
+    @Test("缺翻译包的行占得多时仍提示下载翻译模型")
+    func substantialRowsNeedingModelAskForIt() {
+        let lyrics = lines(Array(repeating: "این ترانه برای توست", count: 10))
+
+        #expect(LyricTranslationNoticePolicy.shouldRequestModel(
+            lyrics: lyrics,
+            groupsNeedingModel: [modelGroup(Array(lyrics.prefix(3)))]
+        ))
+        #expect(LyricTranslationNoticePolicy.shouldRequestModel(
+            lyrics: Array(lyrics.prefix(1)),
+            groupsNeedingModel: [modelGroup(Array(lyrics.prefix(1)))]
+        ))
+        #expect(!LyricTranslationNoticePolicy.shouldRequestModel(lyrics: lyrics, groupsNeedingModel: []))
+    }
+
+    private func modelGroup(_ rows: [LyricLine]) -> LyricTranslationGroup {
+        LyricTranslationGroup(
+            id: "fa",
+            sourceLanguageCode: "fa",
+            candidates: rows.map {
+                LyricTranslationCandidate(id: $0.id, text: $0.text, sourceLanguageCode: "fa")
+            }
+        )
+    }
+
     private func showsUnavailable(
         lyrics: [LyricLine],
         unsupportedLineIDs: Set<String>,

@@ -96,6 +96,31 @@ public enum LocalLyricTranslationPolicy {
         return .unsupported
     }
 
+    /// 交给离线模型前按文字分开:标着这种语言、文字却对不上的行(没有一个阿拉伯字母的
+    /// 「波斯语」)不送进模型,送进去只会译出乱码,按译不了处理。没标语言的组原样返回。
+    public static func splittingRowsByScript(
+        _ group: LyricTranslationGroup
+    ) -> (readable: LyricTranslationGroup?, mismatched: LyricTranslationGroup?) {
+        guard let source = group.sourceLanguageCode else { return (group, nil) }
+        var readable: [LyricTranslationCandidate] = []
+        var mismatched: [LyricTranslationCandidate] = []
+        for candidate in group.candidates {
+            if LyricTranslationGroupingPolicy.textCanBeWritten(in: source, text: candidate.text) {
+                readable.append(candidate)
+            } else {
+                mismatched.append(candidate)
+            }
+        }
+        func subgroup(_ candidates: [LyricTranslationCandidate]) -> LyricTranslationGroup? {
+            candidates.isEmpty ? nil : LyricTranslationGroup(
+                id: group.id,
+                sourceLanguageCode: source,
+                candidates: candidates
+            )
+        }
+        return (subgroup(readable), subgroup(mismatched))
+    }
+
     // MARK: Output checks
 
     /// Cleans a model output for display. Returns nil when the result should

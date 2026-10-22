@@ -241,15 +241,18 @@ final class LyricsTranslationSettingsStore {
         for texts: [String],
         metadataLines: [String] = []
     ) -> String? {
-        if let declared = declaredLyricsLanguageCode(from: metadataLines) {
-            return declared
-        }
         let sample = texts
             .lazy
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .prefix(80)
             .joined(separator: "\n")
+        // 文件标签写的语言(`[la:]`、ID3 语言码、TTML xml:lang)也要和歌词文字对得上:
+        // 日文歌词标着波斯语时不采用,改按文字检测。
+        if let declared = declaredLyricsLanguageCode(from: metadataLines),
+           LyricTranslationGroupingPolicy.textCanBeWritten(in: declared, text: sample) {
+            return declared
+        }
         guard !sample.isEmpty else { return nil }
         return detectedLanguageCode(
             for: String(sample.prefix(4_000)),

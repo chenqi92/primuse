@@ -1766,6 +1766,20 @@ extension ListeningFeaturesTests {
         XCTAssertEqual(result.groups.flatMap(\.candidates).map(\.id), ["english"])
     }
 
+    func testJapaneseLyricsTaggedPersianAreTranslatedAsJapanese() async throws {
+        let service = LyricsTranslationPreparer()
+        let texts = ["君の名前を呼んだ夜", "夢の中でまた会えるかな", "桜吹雪", "ずっとそばにいてほしい"]
+        let lyrics = texts.enumerated().map {
+            LyricLine(
+                id: "line\($0.offset)", timestamp: 10 + Double($0.offset) * 5, text: $0.element,
+                metadataLines: $0.offset == 0 ? ["[la:fa]"] : nil
+            )
+        }
+        let result = try await service.prepare(lyrics: lyrics, targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(result.groups.map(\.sourceLanguageCode), ["ja"])
+        XCTAssertEqual(Set(result.groups.flatMap(\.candidates).map(\.id)), Set(lyrics.map(\.id)))
+    }
+
     func testLyricsPreparationExcludesProductionRolesWithEnglishNames() async throws {
         let service = LyricsTranslationPreparer()
         let credits = ["配唱制作人：kent王健", "录音室：1803 Studio", "混音室：Hot Music Studio",
