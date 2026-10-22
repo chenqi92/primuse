@@ -51,8 +51,21 @@ struct QueueView: View {
     private func shuffleToolbarItem(titled: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             let isOn = player.shuffleEnabled
-            Button {
-                player.shuffleEnabled.toggle()
+            // 点一下开关随机, 长按选抽歌偏好(#332)。偏好经 `player.playbackSettings` 读写, 同样不碰环境。
+            Menu {
+                Picker(selection: Binding(
+                    get: { player.playbackSettings.shufflePreference },
+                    set: { player.playbackSettings.shufflePreference = $0 }
+                )) {
+                    ForEach(ShufflePreference.allCases) { preference in
+                        Text(verbatim: preference.displayName).tag(preference)
+                    }
+                } label: {
+                    Text("shuffle_preference_title")
+                }
+                if player.isAppleMusicMode, !player.isPrimuseManagingAppleMusicQueue {
+                    Text("shuffle_preference_apple_music_note")
+                }
             } label: {
                 if titled {
                     Label {
@@ -68,10 +81,13 @@ struct QueueView: View {
                         // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
                         .symbolEffect(.bounce, value: isOn)
                 }
+            } primaryAction: {
+                player.shuffleEnabled.toggle()
             }
             .disabled(player.queueCount < 2)
             .accessibilityLabel(Text("a11y_shuffle"))
             .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
+            .accessibilityHint(Text("shuffle_preference_long_press_hint"))
         }
     }
 

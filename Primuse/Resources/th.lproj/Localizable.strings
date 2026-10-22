@@ -3295,6 +3295,15 @@
 "show_in_library" = "แสดงในคลังเพลง";
 "show_lyrics_background" = "แสดงพื้นหลังเนื้อเพลง";
 "shuffle" = "สุ่มเล่น";
+"shuffle_preference_title" = "รูปแบบการสุ่มเล่น";
+"shuffle_preference_uniform" = "สุ่มทั้งหมด";
+"shuffle_preference_frequent_songs" = "เพลงที่ฟังบ่อยก่อน";
+"shuffle_preference_rare_songs" = "เพลงที่ฟังน้อยก่อน";
+"shuffle_preference_frequent_artists" = "ศิลปินที่ฟังบ่อยก่อน";
+"shuffle_preference_rare_artists" = "ศิลปินที่ฟังน้อยก่อน";
+"shuffle_preference_footer" = "ทุกเพลงยังคงได้เล่นรอบละหนึ่งครั้ง จำนวนครั้งที่เล่นเพียงกำหนดว่าเพลงใดมีโอกาสเล่นก่อนมากกว่า จำนวนครั้งของเพลงใช้ค่าที่มากกว่าระหว่างประวัติการฟังกับที่เซิร์ฟเวอร์เพลงบันทึกไว้ และศิลปินจะรวมจำนวนครั้งของทุกเพลง";
+"shuffle_preference_apple_music_note" = "เมื่อ Apple Music จัดการการสุ่มเล่นเอง การตั้งค่านี้จะไม่มีผล";
+"shuffle_preference_long_press_hint" = "แตะค้างไว้เพื่อเลือกรูปแบบการสุ่มเล่น";
 "shuffle_all" = "สุ่มทั้งหมด";
 "sidebar_all_songs" = "เพลงทั้งหมด";
 "sidebar_liked_songs" = "เพลงที่ชอบ";

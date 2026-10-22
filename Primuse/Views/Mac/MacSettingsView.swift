@@ -2947,6 +2947,20 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.autoContinueSimilarEnabled)
                 }
                 .settingsAnchor("playback.autoContinueSimilar")
+                // 随机播放先抽谁(#332)。「更多」菜单里随机播放下面也能换。
+                MacSTRow(
+                    String(localized: "shuffle_preference_title"),
+                    hint: String(localized: "shuffle_preference_footer")
+                        + " " + String(localized: "shuffle_preference_apple_music_note"),
+                    hintLineLimit: 6
+                ) {
+                    MacSTPicker(
+                        selection: $s.shufflePreference,
+                        options: ShufflePreference.allCases.map { ($0, $0.displayName) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("playback.shufflePreference")
                 MacSTRow(Lz("Gapless Playback")) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))

@@ -92,6 +92,15 @@
 "all_songs_section" = "所有歌曲";
 "play_all" = "全部播放";
 "shuffle" = "随机播放";
+"shuffle_preference_title" = "随机播放偏好";
+"shuffle_preference_uniform" = "完全随机";
+"shuffle_preference_frequent_songs" = "常听的歌优先";
+"shuffle_preference_rare_songs" = "少听的歌优先";
+"shuffle_preference_frequent_artists" = "常听的歌手优先";
+"shuffle_preference_rare_artists" = "少听的歌手优先";
+"shuffle_preference_footer" = "每首歌照样都会轮到，只是按播放次数决定谁更可能先播。一首歌的次数取听歌记录与音乐服务器记下的较大者，歌手按名下各首累加。";
+"shuffle_preference_apple_music_note" = "Apple Music 自己安排随机顺序时，不按这里的偏好。";
+"shuffle_preference_long_press_hint" = "长按可选择随机播放偏好";
 "unknown_title" = "未知标题";
 "unknown_artist" = "未知艺术家";
 

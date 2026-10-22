@@ -3295,6 +3295,15 @@
 "show_in_library" = "लाइब्रेरी में दिखाएँ";
 "show_lyrics_background" = "गीत के बोल की पृष्ठभूमि दिखाएँ";
 "shuffle" = "फेरबदल";
+"shuffle_preference_title" = "फेरबदल की पसंद";
+"shuffle_preference_uniform" = "पूरी तरह रैंडम";
+"shuffle_preference_frequent_songs" = "ज़्यादा सुने गए गाने पहले";
+"shuffle_preference_rare_songs" = "कम सुने गए गाने पहले";
+"shuffle_preference_frequent_artists" = "ज़्यादा सुने गए कलाकार पहले";
+"shuffle_preference_rare_artists" = "कम सुने गए कलाकार पहले";
+"shuffle_preference_footer" = "हर गाना हर राउंड में अब भी एक बार बजता है; प्ले संख्या बस यह तय करती है कि कौन से गाने पहले बजने की ज़्यादा संभावना रखते हैं। किसी गाने के लिए आपके सुनने के इतिहास और म्यूज़िक सर्वर के रिकॉर्ड में से बड़ी संख्या गिनी जाती है, और कलाकार के सभी गानों को जोड़ा जाता है।";
+"shuffle_preference_apple_music_note" = "जब Apple Music खुद फेरबदल संभालता है, तब यह पसंद लागू नहीं होती।";
+"shuffle_preference_long_press_hint" = "फेरबदल की पसंद चुनने के लिए दबाकर रखें।";
 "shuffle_all" = "सभी को शफ़ल करें";
 "sidebar_all_songs" = "सभी गाने";
 "sidebar_liked_songs" = "पसंदीदा गाने";

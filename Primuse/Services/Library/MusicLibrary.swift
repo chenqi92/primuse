@@ -3461,6 +3461,11 @@ struct VisibleSongLookup: Sendable {
               songs[index].id == id else { return false }
         return !playableOnly || songs[index].isPlayable
     }
+
+    /// 逐首看一遍; 随机播放统计各首的服务器播放次数用, 不登记对曲库的观察。
+    func forEachSong(_ body: (Song) -> Void) {
+        for song in songs { body(song) }
+    }
 }
 
 @MainActor

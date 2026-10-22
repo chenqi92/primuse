@@ -66,6 +66,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var equalizerPickerShown = false
     @State private var playbackRatePickerShown = false
     @State private var pitchPickerShown = false
+    @State private var shufflePreferencePickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
@@ -263,6 +264,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 toggleRow(title: "shuffle", symbol: "shuffle",
                           isOn: Binding(get: { player.shuffleEnabled },
                                         set: { player.shuffleEnabled = $0 }))
+                shufflePreferenceRow
                 checkRow(title: repeatMenuTitleKey,
                          symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
                          isChecked: player.repeatMode != .off) {
@@ -1005,6 +1007,72 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
             .buttonStyle(.plain)
             .help(Text("lyrics_bundled_translation_shown_footer"))
+        }
+        .padding(.vertical, 6)
+        .frame(width: 220)
+        .focusEffectDisabled()
+    }
+
+    /// 抽歌偏好(#332):和字号、歌词翻译一样飞出第二层,行尾写着现在选的那一档。
+    private var shufflePreferenceRow: some View {
+        Button { shufflePreferencePickerShown.toggle() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "dice")
+                    .frame(width: 18)
+                    .foregroundStyle(PMColor.textMuted)
+                Text("shuffle_preference_title")
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Text(verbatim: player.playbackSettings.shufflePreference.displayName)
+                    .font(.caption)
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $shufflePreferencePickerShown, arrowEdge: .leading) {
+            shufflePreferencePopover
+        }
+    }
+
+    private var shufflePreferencePopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(ShufflePreference.allCases) { preference in
+                Button {
+                    player.playbackSettings.shufflePreference = preference
+                    shufflePreferencePickerShown = false
+                } label: {
+                    HStack {
+                        Text(verbatim: preference.displayName)
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        if preference == player.playbackSettings.shufflePreference {
+                            Image(systemName: "checkmark")
+                                .font(.caption)
+                                .foregroundStyle(PMColor.brand)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            // Apple Music 自己排随机顺序时偏好不生效:照样能选,这里写明原因。
+            if player.isAppleMusicMode, !player.isPrimuseManagingAppleMusicQueue {
+                Divider().padding(.vertical, 4)
+                Text("shuffle_preference_apple_music_note")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+            }
         }
         .padding(.vertical, 6)
         .frame(width: 220)

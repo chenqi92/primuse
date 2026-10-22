@@ -1356,8 +1356,9 @@ extension CarPlaySceneDelegate {
             play(queue: playable, startAt: 0)
             return
         }
-        AppServices.shared.playerService.shuffleEnabled = shuffled
-        play(queue: shuffled ? playable.shuffled() : playable, startAt: 0)
+        let player = AppServices.shared.playerService
+        player.shuffleEnabled = shuffled
+        play(queue: shuffled ? player.shufflePlayOrder(playable) : playable, startAt: 0)
     }
 
     private static func isSpokenWordOnly(_ songs: [Song]) -> Bool {

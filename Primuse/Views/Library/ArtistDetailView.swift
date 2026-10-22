@@ -1033,7 +1033,7 @@ struct ArtistDetailView: View {
     private func playAll() { playAll(shuffled: false) }
 
     private func playAll(shuffled: Bool) {
-        let queue = shuffled ? playableSongs.shuffled() : playableSongs
+        let queue = shuffled ? player.shufflePlayOrder(playableSongs) : playableSongs
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         Task { await player.play(queue: queue, startingAt: 0) }

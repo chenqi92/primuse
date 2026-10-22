@@ -92,10 +92,11 @@ final class HomeScreenQuickActionCenter {
     private static func shuffleLikedSongs() async {
         let services = AppServices.shared
         _ = await services.musicLibrary.whenReady(timeout: .seconds(8))
-        let queue = services.musicLibrary
-            .songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
-            .filteredPlayable()
-            .shuffled()
+        let queue = services.playerService.shufflePlayOrder(
+            services.musicLibrary
+                .songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
+                .filteredPlayable()
+        )
         guard !queue.isEmpty else { return }
         services.playerService.shuffleEnabled = true
         await services.playerService.play(queue: queue, startingAt: 0, caller: "QuickAction")

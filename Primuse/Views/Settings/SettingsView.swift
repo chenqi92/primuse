@@ -2201,6 +2201,19 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("playback.autoContinueSimilar")
+
+                // 随机播放先抽谁(#332)。播放页的随机键长按也能换。
+                Picker(selection: $settings.shufflePreference) {
+                    ForEach(ShufflePreference.allCases) { preference in
+                        Text(verbatim: preference.displayName).tag(preference)
+                    }
+                } label: {
+                    SettingsInfoLabel("shuffle_preference_title") {
+                        Text("shuffle_preference_footer")
+                        Text("shuffle_preference_apple_music_note")
+                    }
+                }
+                .settingsAnchor("playback.shufflePreference")
             }
 
             Section {

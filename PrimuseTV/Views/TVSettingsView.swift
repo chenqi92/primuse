@@ -69,6 +69,7 @@ struct TVSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
+    @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
     @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
@@ -193,6 +194,17 @@ struct TVSettingsView: View {
                                 String(localized: "auto_continue_similar"),
                                 isOn: $autoContinueSimilar
                             )
+                            settingDivider
+                            // 抽歌偏好按一下换到下一档(#332);随机开着时接下来的歌当场按新偏好重排。
+                            navRow(
+                                "dice",
+                                String(localized: "shuffle_preference_title"),
+                                shufflePreference.displayName,
+                                trailing: "arrow.triangle.2.circlepath"
+                            ) {
+                                store.setShufflePreference(Self.next(after: shufflePreference, in: ShufflePreference.allCases))
+                            }
+                            .accessibilityIdentifier("tv.playback.shufflePreference")
                             settingDivider
                             toggleRow(
                                 "moon.zzz",
@@ -555,6 +567,10 @@ struct TVSettingsView: View {
             region: intelligence.regionAvailability.context.region,
             exposesIntelligentServices: intelligence.shouldExposeRemoteConfiguration
         )
+    }
+
+    private var shufflePreference: ShufflePreference {
+        ShufflePreference(rawValue: shufflePreferenceRawValue) ?? .defaultValue
     }
 
     private static func next<Value: Equatable>(after value: Value, in values: [Value]) -> Value {

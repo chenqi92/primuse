@@ -2461,6 +2461,15 @@
 "material" = "Malzeme";
 "ai_recommendation_intents_settings_footer" = "Yerleşik odaklar çıkarılabilir şablonlardır. Açıklamasını ve tam AI istemini görüntülemek için birini seçin. Özel odaklama, açıklamanızı doğrudan bilgi istemi olarak kullanır.";
 "shuffle" = "Karıştır";
+"shuffle_preference_title" = "Karıştırma Tercihi";
+"shuffle_preference_uniform" = "Tamamen Rastgele";
+"shuffle_preference_frequent_songs" = "Önce En Çok Dinlenen Şarkılar";
+"shuffle_preference_rare_songs" = "Önce En Az Dinlenen Şarkılar";
+"shuffle_preference_frequent_artists" = "Önce En Çok Dinlenen Sanatçılar";
+"shuffle_preference_rare_artists" = "Önce En Az Dinlenen Sanatçılar";
+"shuffle_preference_footer" = "Her şarkı yine her turda bir kez çalar; dinlenme sayısı yalnızca hangi şarkıların önce çalma olasılığının daha yüksek olduğunu belirler. Bir şarkı için dinleme geçmişin ile müzik sunucunun kaydından büyük olanı sayılır, sanatçı için tüm şarkıları toplanır.";
+"shuffle_preference_apple_music_note" = "Karıştırmayı Apple Music kendisi yönettiğinde bu tercih uygulanmaz.";
+"shuffle_preference_long_press_hint" = "Karıştırma tercihini seçmek için basılı tut.";
 "source_diag_config_ok" = "Gerekli ayarlar mevcuttur.";
 "THEME-04 · macOS swaps the runtime Dock icon; the Finder bundle icon stays the same" = "THEME-04 · macOS çalışma zamanı Dock simgesini değiştirir; Finder paketi simgesi aynı kalıyor";
 "Playback Rate" = "Oynatma Oranı";

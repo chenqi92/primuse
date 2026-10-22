@@ -467,7 +467,7 @@ struct MacFavoritesPopover: View {
 
     private func play(_ songs: [Song], shuffled: Bool) {
         let playable = songs.filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         SiriMediaInteractionDonor.donate(.playlist(id: MusicLibrary.likedSongsPlaylistID), shuffled: shuffled)

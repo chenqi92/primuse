@@ -3295,6 +3295,15 @@
 "show_in_library" = "Mostrar en biblioteca";
 "show_lyrics_background" = "Mostrar fondo de letras";
 "shuffle" = "Aleatorio";
+"shuffle_preference_title" = "Preferencia de aleatorio";
+"shuffle_preference_uniform" = "Totalmente aleatorio";
+"shuffle_preference_frequent_songs" = "Primero las canciones más escuchadas";
+"shuffle_preference_rare_songs" = "Primero las canciones menos escuchadas";
+"shuffle_preference_frequent_artists" = "Primero los artistas más escuchados";
+"shuffle_preference_rare_artists" = "Primero los artistas menos escuchados";
+"shuffle_preference_footer" = "Cada canción sigue sonando una vez por ronda; las reproducciones solo deciden cuáles tienen más probabilidad de sonar primero. Una canción cuenta el valor mayor entre tu historial y tu servidor de música, y un artista suma todas sus canciones.";
+"shuffle_preference_apple_music_note" = "Cuando Apple Music controla el modo aleatorio, esta preferencia no se aplica.";
+"shuffle_preference_long_press_hint" = "Mantén presionado para elegir la preferencia de aleatorio.";
 "shuffle_all" = "Reproducir todo en orden aleatorio";
 "sidebar_all_songs" = "Todas las canciones";
 "sidebar_liked_songs" = "Canciones que me gustan";

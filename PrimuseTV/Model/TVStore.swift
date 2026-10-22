@@ -62,6 +62,7 @@ enum TVTrackNavigationAvailabilityPolicy {
 /// - 未开随机:保持列表原顺序,停在被点选的位置;
 /// - 已开随机:被点选的那首排到队首,其余打乱跟随,避免它前面的歌被当成已播过;
 /// - 未指定点选曲且开随机:整表打乱后从头播。
+/// 给了 `weights`(每个位置一个,见抽歌偏好 #332)时按权重打乱,权重大的更常排在前面。
 enum TVPlaybackQueuePolicy {
     struct Plan: Equatable, Sendable {
         var canonicalIndices: [Int]
@@ -73,13 +74,15 @@ enum TVPlaybackQueuePolicy {
     nonisolated static func plan(
         count: Int,
         selectedIndex: Int?,
-        shuffled: Bool
+        shuffled: Bool,
+        weights: [Double]? = nil
     ) -> Plan {
         var generator = SystemRandomNumberGenerator()
         return plan(
             count: count,
             selectedIndex: selectedIndex,
             shuffled: shuffled,
+            weights: weights,
             using: &generator
         )
     }
@@ -88,6 +91,7 @@ enum TVPlaybackQueuePolicy {
         count: Int,
         selectedIndex: Int?,
         shuffled: Bool,
+        weights: [Double]? = nil,
         using generator: inout G
     ) -> Plan {
         guard count > 0 else { return .empty }
@@ -96,17 +100,17 @@ enum TVPlaybackQueuePolicy {
         guard shuffled else {
             return Plan(canonicalIndices: indices, queueIndex: selected ?? 0)
         }
-        guard let selected else {
-            return Plan(
-                canonicalIndices: indices.shuffled(using: &generator),
-                queueIndex: 0
-            )
+        let rest = selected.map { selected in indices.filter { $0 != selected } } ?? indices
+        let order: [Int]
+        if let weights, weights.count == count {
+            order = WeightedShufflePolicy.shuffled(rest, weight: { weights[$0] }, using: &generator)
+        } else {
+            order = rest.shuffled(using: &generator)
         }
-        return Plan(
-            canonicalIndices: [selected]
-                + indices.filter { $0 != selected }.shuffled(using: &generator),
-            queueIndex: 0
-        )
+        guard let selected else {
+            return Plan(canonicalIndices: order, queueIndex: 0)
+        }
+        return Plan(canonicalIndices: [selected] + order, queueIndex: 0)
     }
 }
 
@@ -969,6 +973,12 @@ final class TVStore {
     @ObservationIgnored private var autoContinuationDeadEndSongID: String?
     /// 「播完后继续播放相似歌曲」,默认开。
     nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
+    /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
+    nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
+    static var shufflePreference: ShufflePreference {
+        UserDefaults.standard.string(forKey: shufflePreferenceKey)
+            .flatMap(ShufflePreference.init(rawValue:)) ?? .defaultValue
+    }
     @ObservationIgnored private var queueContinuationWriteTask: Task<Void, Never>?
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
@@ -6250,7 +6260,8 @@ final class TVStore {
         let plan = TVPlaybackQueuePolicy.plan(
             count: resolved.count,
             selectedIndex: songID.flatMap { resolved.firstIndex(of: $0) },
-            shuffled: shuffled
+            shuffled: shuffled,
+            weights: shuffled ? shuffleWeights(for: resolved) : nil
         )
         install(TVQueueInstallation.make(songIDs: resolved, plan: plan))
         guard let first = song(queue[queueIndex]) else { return false }
@@ -6466,10 +6477,7 @@ final class TVStore {
         shuffleEnabled.toggle()
         guard queueCanonicalIndices.indices.contains(queueIndex) else { return }
         if shuffleEnabled {
-            let tailStart = queueIndex + 1
-            if tailStart < queueCanonicalIndices.count {
-                queueCanonicalIndices.replaceSubrange(tailStart..., with: queueCanonicalIndices[tailStart...].shuffled())
-            }
+            reshuffleUpcomingCanonicalIndices()
         } else {
             // Store occurrence indices, not just IDs: playlists may contain the
             // same track more than once and must restore the selected occurrence.
@@ -6479,6 +6487,44 @@ final class TVStore {
         queue = queueCanonicalIndices.map { canonicalQueue[$0] }
         refreshUpNext()
         persistPlaybackSession()
+    }
+
+    /// 抽歌偏好换了:随机开着时,当前这首之后的按新偏好重排,当前这首不动。
+    func setShufflePreference(_ preference: ShufflePreference) {
+        UserDefaults.standard.set(preference.rawValue, forKey: Self.shufflePreferenceKey)
+        guard shuffleEnabled, !isLiveRadio, queueCanonicalIndices.indices.contains(queueIndex) else { return }
+        medleyPlayback?.invalidateSuccessor()
+        reshuffleUpcomingCanonicalIndices()
+        queue = queueCanonicalIndices.map { canonicalQueue[$0] }
+        refreshUpNext()
+        persistPlaybackSession()
+    }
+
+    private func reshuffleUpcomingCanonicalIndices() {
+        let tailStart = queueIndex + 1
+        guard tailStart < queueCanonicalIndices.count else { return }
+        queueCanonicalIndices.replaceSubrange(
+            tailStart...,
+            with: shuffledPositions(Array(queueCanonicalIndices[tailStart...]), songIDs: canonicalQueue)
+        )
+    }
+
+    /// `positions` 是 `songIDs` 里的位置,按抽歌偏好打乱;完全随机时就是 `shuffled()`。
+    private func shuffledPositions(_ positions: [Int], songIDs: [String]) -> [Int] {
+        guard positions.count > 1,
+              let weighting = ShufflePlayCountStore.shared.weighting(for: Self.shufflePreference, library: library)
+        else { return positions.shuffled() }
+        return weighting.shuffled(positions, song: { position in
+            songIDs.indices.contains(position) ? library.unobservedVisibleSong(id: songIDs[position]) : nil
+        })
+    }
+
+    /// 整张列表每个位置的抽歌权重;完全随机时为 nil,队列照原来的办法打乱。
+    private func shuffleWeights(for songIDs: [String]) -> [Double]? {
+        guard songIDs.count > 1,
+              let weighting = ShufflePlayCountStore.shared.weighting(for: Self.shufflePreference, library: library)
+        else { return nil }
+        return weighting.weights(songIDs, song: { library.unobservedVisibleSong(id: $0) })
     }
 
     func cycleRepeatMode() {
@@ -6802,7 +6848,8 @@ final class TVStore {
         let plan = TVPlaybackQueuePolicy.plan(
             count: scope.count,
             selectedIndex: selected,
-            shuffled: shuffleEnabled
+            shuffled: shuffleEnabled,
+            weights: shuffleEnabled ? shuffleWeights(for: scope) : nil
         )
         install(TVQueueInstallation.make(songIDs: scope, plan: plan))
     }
@@ -6855,7 +6902,9 @@ final class TVStore {
         persistQueueContinuation()
         guard !additions.isEmpty else { return }
         let base = canonicalQueue.count
-        let order = shuffleEnabled ? Array(additions.indices).shuffled() : Array(additions.indices)
+        let order = shuffleEnabled
+            ? shuffledPositions(Array(additions.indices), songIDs: additions)
+            : Array(additions.indices)
         canonicalQueue.append(contentsOf: additions)
         queueCanonicalIndices.append(contentsOf: order.map { base + $0 })
         queue.append(contentsOf: order.map { additions[$0] })

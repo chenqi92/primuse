@@ -3167,7 +3167,7 @@ final class AppServices {
     private func startIntentQueue(_ songs: [Song], shuffled: Bool = false) -> Song? {
         var queue = songs.filteredPlayable()
         guard !queue.isEmpty else { return nil }
-        if shuffled { queue.shuffle() }
+        if shuffled { queue = playerService.shufflePlayOrder(queue) }
         let first = queue[0]
         playerService.shuffleEnabled = shuffled
         Task { @MainActor [playerService] in

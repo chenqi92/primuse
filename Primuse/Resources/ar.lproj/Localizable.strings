@@ -3295,6 +3295,15 @@
 "show_in_library" = "عرض في المكتبة";
 "show_lyrics_background" = "إظهار خلفية الكلمات";
 "shuffle" = "تشغيل عشوائي";
+"shuffle_preference_title" = "تفضيل التشغيل العشوائي";
+"shuffle_preference_uniform" = "عشوائي تمامًا";
+"shuffle_preference_frequent_songs" = "الأغاني الأكثر استماعًا أولًا";
+"shuffle_preference_rare_songs" = "الأغاني الأقل استماعًا أولًا";
+"shuffle_preference_frequent_artists" = "الفنانون الأكثر استماعًا أولًا";
+"shuffle_preference_rare_artists" = "الفنانون الأقل استماعًا أولًا";
+"shuffle_preference_footer" = "تظل كل أغنية تُشغَّل مرة واحدة في كل جولة، ويحدد عدد مرات التشغيل فقط أيها أرجح أن يُشغَّل أولًا. تُحسب للأغنية القيمة الأكبر بين سجل الاستماع وما سجّله خادم الموسيقى، ويُجمع للفنان عدد كل أغانيه.";
+"shuffle_preference_apple_music_note" = "عندما يتولى Apple Music التشغيل العشوائي بنفسه، لا يُطبَّق هذا التفضيل.";
+"shuffle_preference_long_press_hint" = "المس مع الاستمرار لاختيار تفضيل التشغيل العشوائي.";
 "shuffle_all" = "خلط الكل";
 "sidebar_all_songs" = "جميع الأغاني";
 "sidebar_liked_songs" = "الأغاني التي أعجبتني";

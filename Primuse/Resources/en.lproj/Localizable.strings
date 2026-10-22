@@ -91,6 +91,15 @@
 "all_songs_section" = "All Songs";
 "play_all" = "Play All";
 "shuffle" = "Shuffle";
+"shuffle_preference_title" = "Shuffle Preference";
+"shuffle_preference_uniform" = "Fully Random";
+"shuffle_preference_frequent_songs" = "Most-Played Songs First";
+"shuffle_preference_rare_songs" = "Least-Played Songs First";
+"shuffle_preference_frequent_artists" = "Most-Played Artists First";
+"shuffle_preference_rare_artists" = "Least-Played Artists First";
+"shuffle_preference_footer" = "Every song still comes up once per round; play counts only decide which songs are more likely to come first. A song counts the higher of your listening history and what your music server recorded, and an artist adds up all of their songs.";
+"shuffle_preference_apple_music_note" = "When Apple Music handles shuffle itself, this preference does not apply.";
+"shuffle_preference_long_press_hint" = "Touch and hold to choose a shuffle preference.";
 "unknown_title" = "Unknown Title";
 "unknown_artist" = "Unknown Artist";
 

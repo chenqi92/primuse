@@ -131,6 +131,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 音乐队列自然播完后按最后几首续上相似歌曲(#166)。默认开:Siri、CarPlay、
     /// 搜索点播的单曲队列最需要它;关掉就是播完即停。
     var autoContinueSimilarEnabled: Bool = true
+    /// 随机播放怎么抽歌(#332): 完全随机, 或按播放次数让常听 / 少听的歌、歌手更常排在前面。
+    var shufflePreference: ShufflePreference = .defaultValue
     /// Uses the current synchronized lyric as the system Now Playing title.
     /// Users can still opt out because the remapped metadata is also visible
     /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
@@ -200,6 +202,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         medleyAutomaticLength = try c.decodeIfPresent(Bool.self, forKey: .medleyAutomaticLength) ?? true
         medleyPrefersPlaybackRange = try c.decodeIfPresent(Bool.self, forKey: .medleyPrefersPlaybackRange) ?? false
         autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
+        // 新版本加的档位旧版本解不出来: 不认识的值按完全随机, 不让整包设置解码失败。
+        shufflePreference = (try? c.decodeIfPresent(ShufflePreference.self, forKey: .shufflePreference)) ?? .defaultValue
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         matchSampleRateWithinAlbum = try c.decodeIfPresent(Bool.self, forKey: .matchSampleRateWithinAlbum) ?? false
@@ -247,6 +251,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         medleyAutomaticLength: Bool = true,
         medleyPrefersPlaybackRange: Bool = false,
         autoContinueSimilarEnabled: Bool = true,
+        shufflePreference: ShufflePreference = .defaultValue,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
         matchSampleRateWithinAlbum: Bool = false,
@@ -292,6 +297,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.medleyAutomaticLength = medleyAutomaticLength
         self.medleyPrefersPlaybackRange = medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
+        self.shufflePreference = shufflePreference
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
         self.matchSampleRateWithinAlbum = matchSampleRateWithinAlbum
@@ -552,6 +558,7 @@ final class PlaybackSettingsStore {
         }
     }
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
+    var shufflePreference: ShufflePreference { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
     var matchSampleRateWithinAlbum: Bool { didSet { persist() } }
@@ -611,6 +618,7 @@ final class PlaybackSettingsStore {
         self.medleyAutomaticLength = s.medleyAutomaticLength
         self.medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
+        self.shufflePreference = s.shufflePreference
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
@@ -692,6 +700,7 @@ final class PlaybackSettingsStore {
         medleyAutomaticLength = s.medleyAutomaticLength
         medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
+        shufflePreference = s.shufflePreference
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
         matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
@@ -748,6 +757,7 @@ final class PlaybackSettingsStore {
             medleyAutomaticLength: medleyAutomaticLength,
             medleyPrefersPlaybackRange: medleyPrefersPlaybackRange,
             autoContinueSimilarEnabled: autoContinueSimilarEnabled,
+            shufflePreference: shufflePreference,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
             matchSampleRateWithinAlbum: matchSampleRateWithinAlbum,

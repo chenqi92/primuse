@@ -1531,6 +1531,7 @@ final class AudioPlayerService {
         applyPlaybackRate()
         observeSpatialAudioSettings()
         observePlaybackRate()
+        observeShufflePreference()
         #if os(macOS)
         audioEngine.exclusiveOutputRequested = playbackSettings.exclusiveOutputEnabled
         #endif
@@ -2106,6 +2107,35 @@ final class AudioPlayerService {
                 guard let self else { return }
                 self.applyPlaybackRate()
                 self.observePlaybackRate()
+            }
+        }
+    }
+
+    /// 抽歌偏好(#332)换了: 随机开着、顺序归 Primuse 管时, 这一轮按新偏好重排, 和打开随机时
+    /// 一样当前这首留在原地。Apple Music 自己排随机顺序时不动, 设置里写明了不生效。
+    /// 不是完全随机时先把年归档里的次数读进来, 第一次排就按全部记录算。
+    private func observeShufflePreference() {
+        let observed = playbackSettings.shufflePreference
+        if observed != .uniform {
+            ShufflePlayCountStore.shared.loadArchivedCountsIfNeeded()
+        }
+        withObservationTracking {
+            _ = playbackSettings.shufflePreference
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observeShufflePreference()
+                // iCloud 推来别的播放设置时整包字段都会重新赋值一遍; 偏好其实没变就不重排。
+                let preference = self.playbackSettings.shufflePreference
+                guard preference != observed else { return }
+                if preference != .uniform {
+                    await ShufflePlayCountStore.shared.loadArchivedCountsIfNeeded()?.value
+                }
+                guard self.usesManagedShuffleOrder, !self.queueEntries.isEmpty else { return }
+                self.cancelPreparedQueueSuccessor()
+                self.rebuildShuffleOrder()
+                self.prefetchNextSong()
+                self.persistPlaybackSession()
             }
         }
     }

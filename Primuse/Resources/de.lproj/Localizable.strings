@@ -347,6 +347,15 @@
 "all_songs_section" = "Alle Titel";
 "play_all" = "Alle wiedergeben";
 "shuffle" = "Zufall";
+"shuffle_preference_title" = "Zufallsauswahl";
+"shuffle_preference_uniform" = "Völlig zufällig";
+"shuffle_preference_frequent_songs" = "Oft gehörte Titel zuerst";
+"shuffle_preference_rare_songs" = "Selten gehörte Titel zuerst";
+"shuffle_preference_frequent_artists" = "Oft gehörte Künstler zuerst";
+"shuffle_preference_rare_artists" = "Selten gehörte Künstler zuerst";
+"shuffle_preference_footer" = "Jeder Titel kommt pro Runde weiterhin einmal dran. Die Wiedergabezahl entscheidet nur, welche Titel eher zuerst kommen. Für einen Titel zählt der höhere Wert aus deinem Verlauf und deinem Musikserver, ein Künstler zählt alle seine Titel zusammen.";
+"shuffle_preference_apple_music_note" = "Wenn Apple Music die Zufallswiedergabe selbst steuert, gilt diese Einstellung nicht.";
+"shuffle_preference_long_press_hint" = "Gedrückt halten, um die Zufallsauswahl zu ändern.";
 "unknown_title" = "Unbekannter Titel";
 "unknown_artist" = "Unbekannter Künstler";
 "sort_by" = "Sortieren nach";

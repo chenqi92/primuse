@@ -2461,6 +2461,15 @@
 "material" = "Матеріал";
 "ai_recommendation_intents_settings_footer" = "Вбудовані фокуси є знімними шаблонами. Виберіть один, щоб переглянути його опис і точну підказку ШІ. Спеціальний фокус використовує ваш опис безпосередньо як підказку.";
 "shuffle" = "Перемішати";
+"shuffle_preference_title" = "Уподобання для перемішування";
+"shuffle_preference_uniform" = "Повністю випадково";
+"shuffle_preference_frequent_songs" = "Спершу часто слухані треки";
+"shuffle_preference_rare_songs" = "Спершу рідко слухані треки";
+"shuffle_preference_frequent_artists" = "Спершу часто слухані виконавці";
+"shuffle_preference_rare_artists" = "Спершу рідко слухані виконавці";
+"shuffle_preference_footer" = "Кожен трек і далі звучить один раз за коло; кількість прослуховувань лише визначає, які з більшою ймовірністю прозвучать раніше. Для треку береться більше зі значень в історії прослуховувань і на музичному сервері, а для виконавця підсумовуються всі його треки.";
+"shuffle_preference_apple_music_note" = "Коли перемішуванням керує Apple Music, це вподобання не діє.";
+"shuffle_preference_long_press_hint" = "Натисніть і утримуйте, щоб вибрати вподобання для перемішування.";
 "source_diag_config_ok" = "Необхідні налаштування присутні.";
 "THEME-04 · macOS swaps the runtime Dock icon; the Finder bundle icon stays the same" = "ТЕМА-04 · macOS змінює значок док-станції часу виконання; піктограма комплекту Finder залишається незмінною";
 "Playback Rate" = "Швидкість відтворення";

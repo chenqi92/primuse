@@ -7525,6 +7525,7 @@ struct NowPlayingView: View {
             spokenFallbackActions: spokenFallback.filter { $0 != .transcript || !lyrics.isEmpty },
             isShowingLyrics: showLyrics,
             isShuffleEnabled: player.shuffleEnabled,
+            shufflePreference: playbackSettings.shufflePreference,
             repeatMode: player.repeatMode,
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
@@ -7642,6 +7643,7 @@ struct NowPlayingView: View {
             onShowEqualizerBypassNotice: { showEqualizerBypassNotice = true },
             onShowPitchNotice: { showPitchNotice(currentPitchAvailability) },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
+            onSelectShufflePreference: { playbackSettings.shufflePreference = $0 },
             onCycleRepeatMode: { cycleRepeatMode() },
             onStartMedley: {
                 let songs = medleyCandidateSongs
@@ -8691,8 +8693,8 @@ struct NowPlayingView: View {
             barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize)
         } else if case .column(let itemSize) = style, action == .queue {
             barColumnQueueButton(itemSize: itemSize)
-        } else if style == .edge, action == .shuffle {
-            ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+        } else if action == .shuffle, unavailableNotice(for: .shuffle) == nil {
+            shuffleControl(style: style)
         } else if style == .edge, action == .repeatMode {
             ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                 cycleRepeatMode()
@@ -8775,6 +8777,36 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
         }
+    }
+
+    /// 随机键:点一下开关随机,长按选抽歌偏好(#332)。`Menu` 带 primaryAction 正是这个分工,
+    /// 点按只切开关、不弹菜单,长按只弹菜单、不切开关。
+    private func shuffleControl(style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(.shuffle)
+        return Menu {
+            Picker(selection: Binding(
+                get: { playbackSettings.shufflePreference },
+                set: { playbackSettings.shufflePreference = $0 }
+            )) {
+                ForEach(ShufflePreference.allCases) { preference in
+                    Text(verbatim: preference.displayName).tag(preference)
+                }
+            } label: {
+                Text("shuffle_preference_title")
+            }
+            // Apple Music 自己排随机顺序时偏好不生效:照样能选,这里写明原因。
+            if player.isAppleMusicMode, !player.isPrimuseManagingAppleMusicQueue {
+                Text("shuffle_preference_apple_music_note")
+            }
+        } label: {
+            controlLabel(face, style: style)
+        } primaryAction: {
+            performControl(.shuffle, style: style)
+        }
+        .frame(width: style.fixedFrame, height: style.fixedFrame)
+        .accessibilityLabel(Text(face.label))
+        .accessibilityValue(controlAccessibilityValue(face, notice: nil))
+        .accessibilityHint(Text("shuffle_preference_long_press_hint"))
     }
 
     /// 速度键直接弹出档位,和「更多」里那一项是同一个开关。升降调(#332)在下面一节,
@@ -11599,6 +11631,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let spokenFallbackActions: [SpokenWordMenuFallback]
     let isShowingLyrics: Bool
     let isShuffleEnabled: Bool
+    /// 随机键没摆在播放页上时,菜单里随机播放下面跟着抽歌偏好(#332)。
+    let shufflePreference: ShufflePreference
     let repeatMode: RepeatMode
     let isMedleyActive: Bool
     let canStartMedley: Bool
@@ -11925,6 +11959,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowEqualizerBypassNotice: () -> Void
     let onShowPitchNotice: () -> Void
     let onToggleShuffle: () -> Void
+    let onSelectShufflePreference: (ShufflePreference) -> Void
     let onCycleRepeatMode: () -> Void
     let onStartMedley: () -> Void
     let onContinueMedleySongInFull: () -> Void
@@ -12067,6 +12102,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     systemImage: snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
                 )
             }
+            Picker(selection: Binding(
+                get: { snapshot.shufflePreference },
+                set: { onSelectShufflePreference($0) }
+            )) {
+                ForEach(ShufflePreference.allCases) { preference in
+                    Text(verbatim: preference.displayName).tag(preference)
+                }
+            } label: {
+                Label(String(localized: "shuffle_preference_title"), systemImage: "dice")
+                Text(verbatim: snapshot.shufflePreference.displayName)
+            }
+            .pickerStyle(.menu)
         case .repeatMode:
             Button(action: onCycleRepeatMode) {
                 Label(

@@ -555,7 +555,7 @@ struct MacSidebar: View {
 
     private func playPlaylist(_ playlist: Playlist, shuffled: Bool = false) {
         let playable = library.songs(forPlaylist: playlist.id).filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         Task { await player.play(queue: queue, startingAt: 0) }
@@ -602,7 +602,7 @@ struct MacSidebar: View {
     private func playSmart(_ smart: SmartPlaylist, shuffled: Bool = false) {
         let playable = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
             .filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         Task { await player.play(queue: queue, startingAt: 0) }

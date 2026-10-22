@@ -201,6 +201,20 @@ struct MacBottomBar: View {
                                  isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }
+                    // 右键选抽歌偏好(#332),左键照旧开关随机。
+                    .contextMenu {
+                        Picker(selection: Binding(
+                            get: { player.playbackSettings.shufflePreference },
+                            set: { player.playbackSettings.shufflePreference = $0 }
+                        )) {
+                            ForEach(ShufflePreference.allCases) { preference in
+                                Text(verbatim: preference.displayName).tag(preference)
+                            }
+                        } label: {
+                            Text("shuffle_preference_title")
+                        }
+                        .pickerStyle(.inline)
+                    }
                     .pmFadeTransition()
                 }
                 if player.currentItemIsSpokenWord, !player.isLiveRadio {

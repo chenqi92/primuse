@@ -217,8 +217,10 @@ extension AudioPlayerService {
         guard !candidateIDs.isEmpty else { return false }
 
         // 一次只续一段随机抽出的歌; 这段播完还会再续下一段, 整库仍然都轮得到,
-        // 但队列不会一下子涨成整个曲库。
-        let additions = candidateIDs.shuffled()
+        // 但队列不会一下子涨成整个曲库。抽哪一段跟着抽歌偏好走(#332)。
+        let orderedIDs = shuffleWeighting()?.shuffled(ids: candidateIDs, lookup: library.visibleSongLookup())
+            ?? candidateIDs.shuffled()
+        let additions = orderedIDs
             .prefix(QueueWindowPolicy.windowLimit)
             .compactMap { library.unobservedVisibleSong(id: $0) }
         guard !additions.isEmpty else { return false }
@@ -228,7 +230,7 @@ extension AudioPlayerService {
         queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
         pendingNextShuffleIndices = nil
         shuffledIndices = [currentIndex]
-            + Array(firstNewIndex..<queueEntries.count).shuffled()
+            + shuffledQueueIndices(firstNewIndex..<queueEntries.count)
         shufflePosition = 0
         plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
         return true
@@ -292,7 +294,7 @@ extension AudioPlayerService {
         let firstNewIndex = queueEntries.count
         queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
         if shuffleEnabled {
-            shuffledIndices.append(contentsOf: Array(firstNewIndex..<queueEntries.count).shuffled())
+            shuffledIndices.append(contentsOf: shuffledQueueIndices(firstNewIndex..<queueEntries.count))
         }
         pendingNextShuffleIndices = nil
         if isAppleMusicMode {
@@ -762,15 +764,38 @@ extension AudioPlayerService {
 
     func rebuildShuffleOrder() {
         guard !queueEntries.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
-        shuffledIndices = Array(0..<queueEntries.count).shuffled()
-        shufflePosition = 0
-        pendingNextShuffleIndices = nil
+        var order = shuffledQueueIndices(0..<queueEntries.count)
         // Place current index at position 0 so current song stays first
         // when shuffle is toggled mid-playback (we don't want to jump
         // off the current track). Wrap-around uses a different builder.
-        if let pos = shuffledIndices.firstIndex(of: currentIndex) {
-            shuffledIndices.swapAt(0, pos)
+        // 挪到最前而不是和 0 号位对调: 按抽歌偏好排在最前的那首不该被换到当前这首
+        // 原来的位置上。完全随机时两种做法得到的顺序分布一样。
+        if let pos = order.firstIndex(of: currentIndex), pos != 0 {
+            order.remove(at: pos)
+            order.insert(currentIndex, at: 0)
         }
+        shuffledIndices = order
+        shufflePosition = 0
+        pendingNextShuffleIndices = nil
+    }
+
+    /// 随机播放的抽歌偏好(#332)换成的加权快照; 完全随机时为 nil, 各处照原来的 `shuffled()` 走。
+    func shuffleWeighting() -> ShuffleWeighting? {
+        ShufflePlayCountStore.shared.weighting(for: playbackSettings.shufflePreference, library: library)
+    }
+
+    /// 各入口「随机播放」先自己排好整张列表再交给 `play(queue:)`, 第一首就是排在最前的那首;
+    /// 经这里排, 第一首也按抽歌偏好来抽。完全随机时就是 `shuffled()`。
+    func shufflePlayOrder(_ songs: [Song]) -> [Song] {
+        guard songs.count > 1, let weighting = shuffleWeighting() else { return songs.shuffled() }
+        return weighting.shuffled(songs, song: { $0 })
+    }
+
+    /// 队列里这一段位置按抽歌偏好排成的随机顺序。
+    func shuffledQueueIndices(_ range: Range<Int>) -> [Int] {
+        guard range.count > 1, let weighting = shuffleWeighting() else { return Array(range).shuffled() }
+        let entries = queueEntries
+        return weighting.shuffled(Array(range), song: { entries.indices.contains($0) ? entries[$0].song : nil })
     }
 
     /// Cache the first generated repeat-all round. `pendingNextShuffleIndices`
@@ -794,14 +819,15 @@ extension AudioPlayerService {
     /// repeat-one even when the UI prepares the round early.
     private func buildPendingNextRound() -> [Int] {
         guard !queueEntries.isEmpty else { return [] }
-        var order = Array(0..<queueEntries.count).shuffled()
+        var order = shuffledQueueIndices(0..<queueEntries.count)
         // The UI may prepare this round well before the current song reaches
         // the boundary. Compare against the eventual last slot of this round,
         // not the song that happened to be current when the preview opened.
         let boundaryIndex = shuffledIndices.last ?? currentIndex
         if queueEntries.count > 1, order.first == boundaryIndex {
-            let otherPos = Int.random(in: 1..<order.count)
-            order.swapAt(0, otherPos)
+            // 只把这一首挪到后面随便一个位置, 其余的先后不动, 抽歌偏好排出的次序保留下来。
+            order.removeFirst()
+            order.insert(boundaryIndex, at: Int.random(in: 1...order.count))
         }
         return order
     }

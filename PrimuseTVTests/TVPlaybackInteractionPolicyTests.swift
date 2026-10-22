@@ -1648,6 +1648,30 @@ final class TVPlaybackQueuePolicyTests: XCTestCase {
         XCTAssertEqual(shuffledPlan.canonicalIndices.sorted(), Array(0..<4))
     }
 
+    func testWeightedShuffleKeepsTheSelectionFirstAndFavorsHeavierWeights() {
+        // 后一半权重 1, 前一半 1/51(抽歌偏好「少听的歌优先」时听过 50 次的歌)。
+        let weights = (0..<40).map { $0 < 20 ? 1.0 / 51 : 1.0 }
+        var generator = TVSeededRandomNumberGenerator(seed: 0x332)
+        let plan = TVPlaybackQueuePolicy.plan(
+            count: 40,
+            selectedIndex: 3,
+            shuffled: true,
+            weights: weights,
+            using: &generator
+        )
+
+        XCTAssertEqual(plan.queueIndex, 0)
+        XCTAssertEqual(plan.canonicalIndices.first, 3)
+        XCTAssertEqual(Set(plan.canonicalIndices), Set(0..<40))
+        XCTAssertEqual(plan.canonicalIndices.count, 40)
+        XCTAssertGreaterThanOrEqual(plan.canonicalIndices.dropFirst().prefix(19).filter { $0 >= 20 }.count, 15)
+
+        // 权重个数对不上(列表在算权重之后变了)时照原来的办法打乱, 不越界。
+        var other = TVSeededRandomNumberGenerator(seed: 0x332)
+        let mismatched = TVPlaybackQueuePolicy.plan(count: 8, selectedIndex: nil, shuffled: true, weights: [1, 2], using: &other)
+        XCTAssertEqual(mismatched.canonicalIndices.sorted(), Array(0..<8))
+    }
+
     func testSingleEntryListKeepsSelectedSongPlayable() {
         var generator = TVSeededRandomNumberGenerator(seed: 3)
         let plan = TVPlaybackQueuePolicy.plan(

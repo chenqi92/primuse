@@ -1517,7 +1517,7 @@ struct LibraryCollectionMenuItems: View {
     private func play(shuffled: Bool) {
         let playable = songs().filteredPlayable()
         guard !playable.isEmpty else { return }
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         if shuffled { player.shuffleEnabled = true }
         if let donation { SiriMediaInteractionDonor.donate(donation, shuffled: shuffled) }
         Task { await player.play(queue: queue, startingAt: 0) }

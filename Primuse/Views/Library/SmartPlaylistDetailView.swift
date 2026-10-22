@@ -748,7 +748,7 @@ struct SmartPlaylistDetailView: View {
 
     private func playAll(shuffled: Bool = false) {
         let playable = matched.filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         SiriMediaInteractionDonor.donate(.playlist(id: smartPlaylistID), shuffled: shuffled)

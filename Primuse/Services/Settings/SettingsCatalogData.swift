@@ -17,6 +17,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.spokenWordSkip", titleKey: "spoken_word_skip_backward", iosPage: .playback, macPage: .playback, keywords: ["有声书", "快进", "快退", "15 秒", "30 秒", "audiobook", "skip"]),
         SettingDefinition(id: "playback.resetSpeed", titleKey: "playback_rate_reset", iosPage: .playback, macPage: nil, anchor: "playback.speed"),
         SettingDefinition(id: "playback.autoContinueSimilar", titleKey: "auto_continue_similar", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "相似歌曲", "自动续播", "继续播放", "播完", "Siri", "CarPlay"]),
+        SettingDefinition(id: "playback.shufflePreference", titleKey: "shuffle_preference_title", iosPage: .playback, macPage: .playback, keywords: ["随机播放", "随机", "抽歌", "常听", "少听", "播放次数", "听歌次数", "歌手", "shuffle", "smart shuffle", "weighted shuffle", "play count", "most played", "least played"]),
         SettingDefinition(id: "playback.gapless", titleKey: "gapless_playback", iosPage: .playback, macPage: .playback, keywords: ["gapless", "无缝", "曲目间隔", "歌曲衔接", "Gapless Playback"]),
         SettingDefinition(id: "playback.matchSampleRateWithinAlbum", titleKey: "output_sr_matching_within_album", iosPage: .playback, macPage: .playback, keywords: ["sample rate", "album", "gapless", "DAC", "采样率", "同一张专辑", "专辑内", "无缝", "停顿", "切换"]),
         SettingDefinition(id: "playback.crossfade", titleKey: "crossfade", iosPage: .playback, macPage: .playback, keywords: ["cross fade", "crossfade", "淡入淡出", "歌曲衔接", "转场"]),

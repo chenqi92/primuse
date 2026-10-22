@@ -1062,7 +1062,7 @@ struct PlaylistListView: View {
 
     private func playPlaylist(_ playlist: Playlist, shuffled: Bool = false) {
         let playable = library.songs(forPlaylist: playlist.id).filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         SiriMediaInteractionDonor.donate(.playlist(id: playlist.id), shuffled: shuffled)

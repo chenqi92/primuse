@@ -1074,7 +1074,7 @@ struct AlbumDetailView: View {
 
     private func playAll(shuffled: Bool = false) {
         let playable = albumSongs.filteredPlayable()
-        let queue = shuffled ? playable.shuffled() : playable
+        let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         if !isCatalogAlbum {

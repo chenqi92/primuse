@@ -192,6 +192,31 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testShufflePreferenceKeepsTheCurrentSongFirstAndFavorsLeastPlayed() async throws {
+        // 前 20 首服务器上各播过 50 次, 后 20 首没播过。
+        var request = songs(40)
+        for index in 0..<20 { request[index].serverPlayCount = 50 }
+        let player = try await makePlayer(librarySongs: request)
+        player.playbackSettings.shufflePreference = .rareSongs
+        player.setQueue(request, startAt: 5)
+        player.shuffleEnabled = false
+        player.shuffleEnabled = true
+
+        XCTAssertEqual(player.shuffledIndices.first, 5, "the playing song stays first")
+        XCTAssertEqual(player.shufflePosition, 0)
+        XCTAssertNil(player.pendingNextShuffleIndices)
+        XCTAssertEqual(player.shuffledIndices.count, 40)
+        XCTAssertEqual(Set(player.shuffledIndices), Set(0..<40))
+        // 权重 1 对 1/51: 接下来的 19 首几乎都是没播过的那一半。
+        let upcoming = player.shuffledIndices.dropFirst().prefix(19)
+        XCTAssertGreaterThanOrEqual(upcoming.filter { $0 >= 20 }.count, 15)
+
+        let order = player.shufflePlayOrder(request)
+        XCTAssertEqual(Set(order.map(\.id)), Set(request.map(\.id)))
+        XCTAssertEqual(order.count, request.count)
+    }
+
+    @MainActor
     func testRebuildingTheCurrentQueueKeepsTheContinuationAndClearingDropsIt() async throws {
         let request = songs(3_000)
         let player = try await makePlayer(librarySongs: [])

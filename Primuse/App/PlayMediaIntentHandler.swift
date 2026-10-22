@@ -142,7 +142,7 @@ final class PlayMediaIntentHandler: NSObject,
                     Self.respond(.success, completion: completion, startedAt: startedAt, detail: "queue")
                     return
                 }
-                if shouldShuffle { queue.shuffle() }
+                if shouldShuffle { queue = player.shufflePlayOrder(queue) }
 
                 switch intent.playbackQueueLocation {
                 case .next:
