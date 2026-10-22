@@ -1673,10 +1673,9 @@ struct PlaylistDetailView: View {
         let playCounts = playCountsBySongID
         // 已经排在歌单最前面的那首不给「置顶」。
         let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
-        let lastRowNumber = table.songCount.formatted(.number.locale(locale))
-        let indexColumnWidth = max(32, ceil((lastRowNumber as NSString).size(withAttributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        ]).width) + 4)
+        let indexColumnWidth = MacOrdinalColumn.width(
+            for: table.songCount, minimum: 32, fontSize: 11, locale: locale
+        )
         let window = SongListScrollWindow.range(
             totalCount: table.rows.count,
             firstVisibleRow: macTableFirstVisibleRow,

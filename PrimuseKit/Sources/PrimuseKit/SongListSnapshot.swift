@@ -250,6 +250,45 @@ public enum SongListScrollWindow {
     }
 }
 
+/// Mac 表格最左边的序号列(第几首、第几张)。序号用等宽字体画, 列宽按格式化后的
+/// 字符直接算, 不排版量字: macOS 15.7 上用 `NSString.size(withAttributes:)` 量这串
+/// 数字时在 CoreText 里崩过(往字典里插 nil, 主线程 SIGABRT), 而列表每次重画都要量。
+public enum SongListOrdinalColumn {
+    /// 字宽, 按字号的倍数, 取自 macOS 上同一字体对各种数字体系的实测:
+    /// 拉丁数字、常见分隔符、阿拉伯-印度数字(含波斯数字)不超过 0.618; 汉字、全角和常见
+    /// 文字的十进制数字(天城文、孟加拉、泰米尔、泰、老挝、缅、高棉、蒙古等)不超过 0.994;
+    /// 其余靠后备字体画的冷门数字最宽到 1.383(爪哇)。
+    static let narrowAdvance = 0.62
+    static let wideAdvance = 1.0
+    static let unknownAdvance = 1.4
+    /// 字形两侧的余量, 与原先量字时一样。
+    static let padding = 4.0
+
+    public static func width(label: String, minimum: Double, fontSize: Double) -> Double {
+        let size = fontSize.isFinite && fontSize > 0 ? fontSize : 11
+        let advance = label.unicodeScalars.reduce(0) { $0 + Self.advance(of: $1) }
+        return max(minimum, (max(advance, narrowAdvance) * size).rounded(.up) + padding)
+    }
+
+    static func advance(of scalar: Unicode.Scalar) -> Double {
+        switch scalar.value {
+        case 0x200E, 0x200F, 0x061C, 0x2066...0x2069:
+            // 方向标记, 不占宽度。
+            0
+        case 0x20...0x7E, 0xA0, 0x2009, 0x202F, 0x0660...0x066C, 0x06F0...0x06F9:
+            narrowAdvance
+        case 0x0966...0x096F, 0x09E6...0x09EF, 0x0A66...0x0A6F, 0x0AE6...0x0AEF,
+             0x0B66...0x0B6F, 0x0BE6...0x0BEF, 0x0C66...0x0C6F, 0x0CE6...0x0CEF,
+             0x0E50...0x0E59, 0x0ED0...0x0ED9, 0x0F20...0x0F29, 0x1040...0x1049,
+             0x1090...0x1099, 0x17E0...0x17E9, 0x1810...0x1819,
+             0x3000...0x303F, 0x3400...0x9FFF, 0xFF00...0xFFEF:
+            wideAdvance
+        default:
+            unknownAdvance
+        }
+    }
+}
+
 /// Row tops for a manually windowed list whose rows are not all one height
 /// (a playlist table mixes song rows with taller greyed-out placeholders).
 /// Find the first visible row here, then size the window with the shortest

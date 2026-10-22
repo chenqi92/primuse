@@ -8,10 +8,14 @@ import UIKit
 import AppKit
 
 enum MacOrdinalColumn {
+    /// 序号按等宽字体逐字算宽, 不经过排版(见 `SongListOrdinalColumn`)。
     static func width(for largestNumber: Int, minimum: CGFloat, fontSize: CGFloat, locale: Locale) -> CGFloat {
         let label = max(1, largestNumber).formatted(.number.locale(locale))
-        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        return max(minimum, ceil((label as NSString).size(withAttributes: [.font: font]).width) + 4)
+        return CGFloat(SongListOrdinalColumn.width(
+            label: label,
+            minimum: Double(minimum),
+            fontSize: Double(fontSize)
+        ))
     }
 }
 #endif

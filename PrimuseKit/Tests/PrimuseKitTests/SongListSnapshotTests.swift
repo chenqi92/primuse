@@ -93,6 +93,32 @@ struct SongListSnapshotTests {
         }
     }
 
+    @Test("Ordinal columns fit localized numbers without measuring text")
+    func ordinalColumnWidth() {
+        func width(_ label: String) -> Double {
+            SongListOrdinalColumn.width(label: label, minimum: 0, fontSize: 11)
+        }
+        // 拉丁数字与原先量字的结果相同或宽 1pt: SF Mono 11pt 每个字符 6.8。
+        #expect(width("9") == 11)
+        #expect(width("9,999") == 39)
+        #expect(width("1,000,000") == 66)
+        // 以下是 macOS 上用同一字体量出的宽度, 列宽不能比它加余量还窄。
+        let measured: [(String, Double)] = [
+            ("١٬٠٠٠٬٠٠٠", 59.5), ("۹٬۹۹۹", 33.1), ("९,९९९", 27.8), ("၉,၉၉၉", 38.5),
+            ("၁,၀၀၀,၀၀၀", 63.5), ("９,９９９", 50.6), ("一,〇〇〇,〇〇〇", 87.3), ("9\u{202F}999", 33.9),
+            ("௯௯,௯௯,௯௯௯", 81.7), ("꧙,꧙꧙꧙,꧙꧙꧙", 120.1),
+        ]
+        for (label, glyphs) in measured {
+            #expect(width(label) >= glyphs.rounded(.up) + 4, "\(label)")
+        }
+        // 阿拉伯-印度数字不按满字号算, 方向标记不占宽度。
+        #expect(width("١٬٠٠٠٬٠٠٠") == width("1,000,000"))
+        #expect(width("\u{200F}١٢") == width("12"))
+        #expect(SongListOrdinalColumn.width(label: "12", minimum: 32, fontSize: 11) == 32)
+        #expect(SongListOrdinalColumn.width(label: "", minimum: 0, fontSize: 11) == 11)
+        #expect(SongListOrdinalColumn.width(label: "99", minimum: 0, fontSize: .nan) == 18)
+    }
+
     @Test("Builds sorted lightweight rows and aggregates")
     func buildsRowsAndAggregates() {
         let songs = [
