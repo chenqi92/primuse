@@ -175,11 +175,13 @@ struct LocalPodcastShowDetailView: View {
                 .tint(tint)
                 .accessibilityIdentifier("podcast.localShow.play")
             }
-            // 封面右边那一栏窄:放不下带图标的语速键就只写倍数。
+            // 封面右边那一栏窄:放不下带图标的语速键就只写倍数。语速键先量:播放键会撑满剩下的宽度,
+            // 和它平分时「1.25×」「1.75×」被截成「1.…」(#336);播放键自己放不下整句会先去掉图标。
             ViewThatFits(in: .horizontal) {
                 speedMenu(showsIcon: true)
                 speedMenu(showsIcon: false)
             }
+            .layoutPriority(1)
             Menu {
                 moreMenu(ordered: ordered)
             } label: {
