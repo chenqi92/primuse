@@ -2900,6 +2900,9 @@
 "remember_device_desc" = "تخطي التحقق من OTP عند تسجيل الدخول التالي";
 "remember_device_otp" = "تذكر هذا الجهاز";
 "remove_from_playlist" = "إزالة من قائمة التشغيل";
+"playlist_moved_to_top_one" = "نُقلت إلى الأعلى";
+"playlist_moved_to_top_format" = "نُقل إلى الأعلى: %d";
+"playlist_moved_to_top_order_reset" = "عادت القائمة إلى ترتيب قائمة التشغيل";
 "remove_from_queue" = "إزالة من قائمة الانتظار";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "إعادة الترتيب";

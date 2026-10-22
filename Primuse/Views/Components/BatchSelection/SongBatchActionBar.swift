@@ -35,17 +35,21 @@ extension View {
     /// - Parameters:
     ///   - orderedIDs: 列表当前顺序，用于全选和还原选中项的顺序。
     ///   - resolve: ID → Song。性能敏感的页面传自己的免观察查找。
+    ///   - onMoveToTop: 非 nil 时多出「置顶」，把选中的歌交给页面移到歌单最前面
+    ///     （页面还要顾及列表的显示顺序）。
     func songBatchActions(
         selection: SongSelectionModel,
         context: SongBatchActionContext = .library,
         orderedIDs: @escaping () -> [String],
-        resolve: @escaping (String) -> Song?
+        resolve: @escaping (String) -> Song?,
+        onMoveToTop: (([String]) -> Void)? = nil
     ) -> some View {
         modifier(SongBatchActionsModifier(
             selection: selection,
             context: context,
             orderedIDs: orderedIDs,
-            resolve: resolve
+            resolve: resolve,
+            onMoveToTop: onMoveToTop
         ))
     }
 }
@@ -263,6 +267,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     let context: SongBatchActionContext
     let orderedIDs: () -> [String]
     let resolve: (String) -> Song?
+    let onMoveToTop: (([String]) -> Void)?
 
     @State private var showAddToPlaylist = false
     @State private var pendingDeletion: PendingDeletion?
@@ -514,6 +519,19 @@ private struct SongBatchActionsModifier: ViewModifier {
         let removalCount = (removesFromPlaylist ? 1 : 0)
             + (removesFromLibrary ? 2 : 0)
             + (deletesSourceFiles ? 1 : 0)
+
+        // 歌单里挑几首一起置顶，彼此保持在歌单里原来的先后。
+        if let onMoveToTop {
+            Section {
+                Button {
+                    onMoveToTop(Array(selection.selectedIDs))
+                    selection.deactivate()
+                } label: {
+                    Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                }
+                .disabled(selection.isEmpty)
+            }
+        }
 
         Section {
             Button {

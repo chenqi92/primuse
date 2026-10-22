@@ -2792,6 +2792,9 @@
 "View Year in Review" = "Переглянути огляд року";
 "cloud_pending_desc_format" = "Primuse подає заявку на офіційний доступ до відкритої платформи %@. Після підтвердження ви зможете ввійти напряму — слідкуйте за оновленнями. Якщо у вас уже є програма розробника на цій платформі, ви можете ввести облікові дані нижче, щоб спробувати її зараз.";
 "remove_from_playlist" = "Видалити зі списку відтворення";
+"playlist_moved_to_top_one" = "Переміщено вгору";
+"playlist_moved_to_top_format" = "Переміщено вгору: %d";
+"playlist_moved_to_top_order_reset" = "Список знову в порядку плейлиста";
 "local_import_progress_failed_format" = "Помилка %d";
 "reverb_large_room" = "Велика кімната";
 "playlist_import_mac_intro_title" = "Щоб почати, виберіть файл списку відтворення";

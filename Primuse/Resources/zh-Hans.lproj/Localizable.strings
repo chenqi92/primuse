@@ -602,6 +602,9 @@
 "manage_playlists" = "管理歌单";
 "create" = "创建";
 "remove_from_playlist" = "从歌单中移除";
+"playlist_moved_to_top_one" = "已置顶";
+"playlist_moved_to_top_format" = "已置顶 %d 首";
+"playlist_moved_to_top_order_reset" = "列表已换回歌单顺序";
 
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";

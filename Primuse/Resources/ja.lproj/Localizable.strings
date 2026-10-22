@@ -834,6 +834,9 @@
 "playlist_name" = "プレイリスト名";
 "create" = "作成";
 "remove_from_playlist" = "プレイリストから削除";
+"playlist_moved_to_top_one" = "先頭に移動しました";
+"playlist_moved_to_top_format" = "%d曲を先頭に移動しました";
+"playlist_moved_to_top_order_reset" = "リストをプレイリストの順序に戻しました";
 "metadata_scraping" = "メタデータとスクレイピング";
 "scraper_sources" = "スクレイピングソース";
 "scraper_sources_footer" = "ドラッグして並べ替えできます。一致が見つかるまで上から順に試されます。歌詞が単語単位で同期していない場合は、より細かい歌詞を求めて後ろの最大 2 つのソースにも問い合わせます。";

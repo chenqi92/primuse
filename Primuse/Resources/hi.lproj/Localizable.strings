@@ -2900,6 +2900,9 @@
 "remember_device_desc" = "अगले लॉगिन पर ओटीपी सत्यापन छोड़ें";
 "remember_device_otp" = "इस उपकरण को याद रखें";
 "remove_from_playlist" = "प्लेलिस्ट से हटाएँ";
+"playlist_moved_to_top_one" = "सबसे ऊपर ले जाया गया";
+"playlist_moved_to_top_format" = "%d गाने सबसे ऊपर ले जाए गए";
+"playlist_moved_to_top_order_reset" = "सूची फिर से प्लेलिस्ट के क्रम में है";
 "remove_from_queue" = "कतार से हटाएँ";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "पुन: व्यवस्थित करें";

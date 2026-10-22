@@ -246,6 +246,112 @@ final class MusicLibraryLikedLocalPodcastTests: XCTestCase {
     }
 }
 
+/// 置顶(#332): 选中的歌移到歌单最前面, 彼此保持原来的先后; 看不见的成员(置灰占位、停用源里的歌、
+/// 「我喜欢」里的本地节目)留着。重排面板和服务器收藏同步也不再挤掉它们、不再打乱置顶。
+@MainActor
+final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
+    func testMovingSongsToTopKeepsHiddenMembers() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseMoveToTopTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            makeSong("music-1"),
+            makeSong("music-2"),
+            makeSong("music-3"),
+            makeSong("episode-1", genre: "Podcast"),
+        ], affectedSourceIDs: ["source-1"])
+        library.addSongs([makeSong("parked", sourceID: "source-2")], affectedSourceIDs: ["source-2"])
+        await library.waitForPendingIndex()
+
+        let liked = MusicLibrary.likedSongsPlaylistID
+        library.ensurePlaylist(id: liked, name: "Liked")
+        library.add(songIDs: ["music-1", "episode-1", "music-2", "music-3"], toPlaylist: liked)
+
+        XCTAssertTrue(library.moveSongsToTop(["music-3"], inPlaylist: liked))
+        XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-3", "music-1", "music-2"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["music-3", "music-1", "episode-1", "music-2"])
+        XCTAssertEqual(library.likedLocalPodcastSongs().map(\.id), ["episode-1"])
+
+        // 一次挑几首: 按它们在歌单里的先后排到最前, 不按点选的先后。
+        XCTAssertTrue(library.moveSongsToTop(["music-2", "music-1"], inPlaylist: liked))
+        XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-1", "music-2", "music-3"])
+        XCTAssertFalse(library.moveSongsToTop(["music-1"], inPlaylist: liked), "Already on top writes nothing")
+
+        let pending = PlaylistPendingEntry(title: "Unmatched", artists: ["Artist"], origin: "import")
+        let playlist = library.createPlaylist(
+            name: "Mixed",
+            members: [.song("music-1"), .pending(pending), .song("parked"), .song("music-2")]
+        )
+        library.updateDisabledSourceIDs(["source-2"])
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-1", "music-2"])
+
+        XCTAssertTrue(library.moveSongsToTop(["music-2"], inPlaylist: playlist.id))
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-2", "music-1", pending.id, "parked"])
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlist.id), 1)
+
+        // 重排面板只列看得见的两首, 置灰占位与停用源里的歌原位留着。
+        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: ["music-1", "music-2"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-1", "music-2", pending.id, "parked"])
+        library.updateDisabledSourceIDs([])
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-1", "music-2", "parked"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library should persist")
+        }
+    }
+
+    func testServerFavoritesRefreshKeepsPinnedSongsOnTop() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseServerLikedOrderTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([makeSong("local-1")], affectedSourceIDs: ["source-1"])
+        library.addSongs([
+            makeSong("server-1", sourceID: "server"),
+            makeSong("server-2", sourceID: "server"),
+            makeSong("server-3", sourceID: "server"),
+        ], affectedSourceIDs: ["server"])
+        await library.waitForPendingIndex()
+
+        let liked = MusicLibrary.likedSongsPlaylistID
+        library.replaceLikedSongs(fromSourceID: "server", with: ["server-1", "server-2"])
+        library.setLiked(songID: "local-1", isLiked: true, propagatesServerMutation: false)
+        XCTAssertEqual(library.songIDs(forPlaylist: liked), ["server-1", "server-2", "local-1"])
+
+        library.moveSongsToTop(["server-2"], inPlaylist: liked)
+        library.replaceLikedSongs(fromSourceID: "server", with: ["server-1", "server-3", "server-2"])
+        XCTAssertEqual(
+            library.songIDs(forPlaylist: liked), ["server-2", "server-1", "local-1", "server-3"],
+            "Songs that stay starred keep their place; new stars join at the end"
+        )
+
+        library.replaceLikedSongs(fromSourceID: "server", with: ["server-3"])
+        XCTAssertEqual(library.songIDs(forPlaylist: liked), ["local-1", "server-3"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library should persist")
+        }
+    }
+
+    private func makeSong(_ id: String, genre: String? = nil, sourceID: String = "source-1") -> Song {
+        Song(
+            id: id,
+            title: id,
+            albumTitle: genre == nil ? "Album" : "Local show",
+            artistName: "Artist",
+            fileFormat: .mp3,
+            filePath: "/\(genre == nil ? "music" : "podcast")/\(id).mp3",
+            sourceID: sourceID,
+            genre: genre
+        )
+    }
+}
+
 /// 「不喜欢」(#193): 和喜欢互斥, 只是一份记录(不进歌单列表), 替人挑歌时跳过。
 @MainActor
 final class MusicLibraryDislikedSongsTests: XCTestCase {

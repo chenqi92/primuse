@@ -582,6 +582,9 @@
 "playlist_name" = "播放清單名稱";
 "create" = "建立";
 "remove_from_playlist" = "從播放清單中移除";
+"playlist_moved_to_top_one" = "已置頂";
+"playlist_moved_to_top_format" = "已置頂 %d 首";
+"playlist_moved_to_top_order_reset" = "列表已換回播放清單順序";
 "metadata_scraping" = "中繼資料與刮削";
 "scraper_sources" = "刮削來源";
 "scraper_sources_footer" = "拖曳調整順序。刮削時按從上到下的順序依序嘗試，找到結果即停止。歌詞不是逐字時，會再問後面最多兩個來源，有更細的就用更細的。";

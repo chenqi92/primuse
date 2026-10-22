@@ -833,6 +833,9 @@
 "playlist_name" = "재생 목록 이름";
 "create" = "생성";
 "remove_from_playlist" = "재생 목록에서 제거";
+"playlist_moved_to_top_one" = "맨 위로 옮겼습니다";
+"playlist_moved_to_top_format" = "%d곡을 맨 위로 옮겼습니다";
+"playlist_moved_to_top_order_reset" = "목록을 재생 목록 순서로 되돌렸습니다";
 "metadata_scraping" = "메타데이터 및 스크래핑";
 "scraper_sources" = "스크래퍼 소스";
 "scraper_sources_footer" = "드래그하여 순서를 변경합니다. 일치하는 항목을 찾을 때까지 위에서 아래 순서로 소스를 시도합니다. 가사가 단어 단위로 동기화되지 않았다면 더 정밀한 가사를 찾기 위해 최대 두 개의 소스를 더 확인합니다.";

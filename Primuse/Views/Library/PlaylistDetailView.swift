@@ -367,7 +367,8 @@ struct PlaylistDetailView: View {
             selection: selection,
             context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
             orderedIDs: { selectableSongIDs },
-            resolve: { library.song(id: $0) }
+            resolve: { library.song(id: $0) },
+            onMoveToTop: allowsPlaylistRemoval ? { moveSongsToTop($0) } : nil
         )
         .onChange(of: findText) { _, _ in
             guard selection.isActive, !selection.isEmpty else { return }
@@ -516,9 +517,9 @@ struct PlaylistDetailView: View {
         }
         .sheet(isPresented: $showReorderSheet) {
             PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
-                library.replacePlaylistSongs(
+                library.reorderPlaylistSongs(
                     playlistID: playlist.id,
-                    songIDs: newOrder.map(\.id)
+                    listedOrder: newOrder.map(\.id)
                 )
             }
         }
@@ -770,11 +771,13 @@ struct PlaylistDetailView: View {
     }
 
     private func playlistRows(_ entries: [MusicLibrary.PlaylistEntry]) -> some View {
-        LazyVStack(spacing: 0) {
+        // 已经排在歌单最前面的那首不给「置顶」。
+        let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
+        return LazyVStack(spacing: 0) {
             ForEach(entries) { entry in
                 switch entry {
                 case .song(let song):
-                    songRow(song)
+                    songRow(song, canMoveToTop: topSongID != nil && song.id != topSongID)
                 case .pending(let pending):
                     PlaylistPendingEntryRow(
                         entry: pending,
@@ -982,8 +985,8 @@ struct PlaylistDetailView: View {
     }
 
     @ViewBuilder
-    private func songRow(_ song: Song) -> some View {
-        // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
+    private func songRow(_ song: Song, canMoveToTop: Bool) -> some View {
+        // 「移出歌单」「置顶」挂在行自己的长按菜单里 —— 在行外面再套一层
         // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
         // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
         // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
@@ -995,6 +998,7 @@ struct PlaylistDetailView: View {
             onRemoveFromPlaylist: allowsPlaylistRemoval
                 ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
                 : nil,
+            onMoveToTop: canMoveToTop ? { moveSongsToTop([song.id]) } : nil,
             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
         )
         .songSelectable(
@@ -1354,9 +1358,9 @@ struct PlaylistDetailView: View {
         .background(PMColor.bg.ignoresSafeArea())
         .sheet(isPresented: $showReorderSheet) {
             PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
-                library.replacePlaylistSongs(
+                library.reorderPlaylistSongs(
                     playlistID: playlist.id,
-                    songIDs: newOrder.map(\.id)
+                    listedOrder: newOrder.map(\.id)
                 )
             }
         }
@@ -1667,6 +1671,8 @@ struct PlaylistDetailView: View {
     /// 主线程就卡死。这里按页面的滚动位置只建可见的一段行, 上下用占位撑出整张表的高度。
     private func macSongTable(_ table: MacTableRows, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         let playCounts = playCountsBySongID
+        // 已经排在歌单最前面的那首不给「置顶」。
+        let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
         let lastRowNumber = table.songCount.formatted(.number.locale(locale))
         let indexColumnWidth = max(32, ceil((lastRowNumber as NSString).size(withAttributes: [
             .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -1704,7 +1710,8 @@ struct PlaylistDetailView: View {
                                     song,
                                     index: row.songIndex,
                                     indexColumnWidth: indexColumnWidth,
-                                    playCount: playCounts[song.id, default: 0]
+                                    playCount: playCounts[song.id, default: 0],
+                                    canMoveToTop: topSongID != nil && song.id != topSongID
                                 )
                                     .songSelectable(
                                         songID: song.id,
@@ -1745,7 +1752,13 @@ struct PlaylistDetailView: View {
         .defaultScrollAnchor(.topLeading, for: .alignment)
     }
 
-    private func macSongRow(_ song: Song, index: Int, indexColumnWidth: CGFloat, playCount: Int) -> some View {
+    private func macSongRow(
+        _ song: Song,
+        index: Int,
+        indexColumnWidth: CGFloat,
+        playCount: Int,
+        canMoveToTop: Bool
+    ) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let columns = tableLayout.activeColumns
         let source = columns.contains(.source)
@@ -1791,6 +1804,14 @@ struct PlaylistDetailView: View {
                 selection.activate(seed: song.id)
             } label: {
                 Label("batch_select", systemImage: "checkmark.circle")
+            }
+
+            if canMoveToTop {
+                Button {
+                    moveSongsToTop([song.id])
+                } label: {
+                    Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                }
             }
 
             if allowsPlaylistRemoval {
@@ -1845,6 +1866,24 @@ struct PlaylistDetailView: View {
         return palette[h]
     }
     #endif
+
+    /// 置顶：长按菜单、Mac 右键菜单和多选栏都走这里。列表正按别的维度排着时置顶看不出来，
+    /// 所以顺手换回歌单顺序（和「重新排序」一样），底部提示一句。
+    private func moveSongsToTop(_ songIDs: [String]) {
+        let resetsDisplayOrder = displaySortOrder != nil
+        let moved = library.moveSongsToTop(songIDs, inPlaylist: playlist.id)
+        guard moved || resetsDisplayOrder else { return }
+        if resetsDisplayOrder {
+            displaySortRawValue = ""
+        }
+        var message = songIDs.count == 1
+            ? String(localized: "playlist_moved_to_top_one")
+            : String(format: String(localized: "playlist_moved_to_top_format"), songIDs.count)
+        if resetsDisplayOrder {
+            message += "\n" + String(localized: "playlist_moved_to_top_order_reset")
+        }
+        showScrapeFeedback(message, systemImage: "arrow.up.to.line", color: .accentColor)
+    }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
         !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
@@ -2104,6 +2143,24 @@ struct PlaylistReorderSheet: View {
                                 Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
+                        Spacer(minLength: 8)
+                        // 上千首的歌单里把一首拖到最上面要拖很久，每行给一颗「置顶」。
+                        if localSongs.first?.id != song.id {
+                            Button {
+                                moveSongToTop(song.id)
+                            } label: {
+                                Image(systemName: "arrow.up.to.line")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(Text("radio_manage_pin_top"))
+                        }
+                    }
+                    .accessibilityAction(named: Text("radio_manage_pin_top")) {
+                        moveSongToTop(song.id)
                     }
                 }
                 .onMove { from, to in
@@ -2145,6 +2202,14 @@ struct PlaylistReorderSheet: View {
                 }
                 #endif
             }
+        }
+    }
+
+    private func moveSongToTop(_ songID: String) {
+        guard let index = localSongs.firstIndex(where: { $0.id == songID }), index > 0 else { return }
+        pmWithAnimation(.list) {
+            let item = localSongs.remove(at: index)
+            localSongs.insert(item, at: 0)
         }
     }
 

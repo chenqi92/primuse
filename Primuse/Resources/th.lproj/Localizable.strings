@@ -2900,6 +2900,9 @@
 "remember_device_desc" = "ข้ามการตรวจสอบ OTP ในการเข้าสู่ระบบครั้งถัดไป";
 "remember_device_otp" = "จำอุปกรณ์นี้ไว้";
 "remove_from_playlist" = "ลบออกจากเพลย์ลิสต์";
+"playlist_moved_to_top_one" = "ย้ายไปบนสุดแล้ว";
+"playlist_moved_to_top_format" = "ย้าย %d เพลงไปบนสุดแล้ว";
+"playlist_moved_to_top_order_reset" = "รายการกลับมาเรียงตามลำดับเพลย์ลิสต์แล้ว";
 "remove_from_queue" = "ลบออกจากคิว";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "สั่งซื้อใหม่";

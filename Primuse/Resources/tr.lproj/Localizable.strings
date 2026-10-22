@@ -2792,6 +2792,9 @@
 "View Year in Review" = "Yılı İncelemede Görüntüle";
 "cloud_pending_desc_format" = "Primuse, %@ açık platformuna resmi erişim için başvuruyor. Onaylandıktan sonra doğrudan oturum açabileceksiniz; bizi izlemeye devam edin. Bu platformda zaten bir geliştirici uygulamanız varsa hemen denemek için kimlik bilgilerini aşağıya girebilirsiniz.";
 "remove_from_playlist" = "Çalma listesinden Kaldır";
+"playlist_moved_to_top_one" = "En üste taşındı";
+"playlist_moved_to_top_format" = "%d şarkı en üste taşındı";
+"playlist_moved_to_top_order_reset" = "Liste yeniden çalma listesi sırasında";
 "local_import_progress_failed_format" = "Başarısız %d";
 "reverb_large_room" = "Büyük Oda";
 "playlist_import_mac_intro_title" = "Başlamak için bir çalma listesi dosyası seçin";

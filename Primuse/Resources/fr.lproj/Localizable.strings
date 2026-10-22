@@ -833,6 +833,9 @@
 "playlist_name" = "Nom de la liste de lecture";
 "create" = "Créer";
 "remove_from_playlist" = "Retirer de la liste de lecture";
+"playlist_moved_to_top_one" = "Déplacé en haut";
+"playlist_moved_to_top_format" = "%d morceaux déplacés en haut";
+"playlist_moved_to_top_order_reset" = "La liste suit de nouveau l’ordre de la playlist";
 "metadata_scraping" = "Métadonnées et récupération";
 "scraper_sources" = "Sources de récupération";
 "scraper_sources_footer" = "Faites glisser pour réorganiser. Les sources sont essayées de haut en bas jusqu'à ce qu'une correspondance soit trouvée. Si les paroles ne sont pas synchronisées mot à mot, jusqu’à deux autres sources sont consultées pour une version plus précise.";

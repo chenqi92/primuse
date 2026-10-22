@@ -56,6 +56,9 @@ struct SongRowView: View {
     /// 歌单页专属：非 nil 时单曲菜单多一项「移出歌单」。行自己不知道它属于
     /// 哪个歌单，也不该知道镜像 / 智能歌单能不能改成员，所以由歌单页决定传不传。
     var onRemoveFromPlaylist: (() -> Void)? = nil
+    /// 歌单页专属：非 nil 时单曲菜单多一项「置顶」（移到歌单最前面）。同上，由歌单页决定传不传；
+    /// 已经排在最前面的那首不传。
+    var onMoveToTop: (() -> Void)? = nil
 
     /// Resolved by the parent so rows do not individually observe every
     /// backfill state mutation.
@@ -754,6 +757,17 @@ struct SongRowView: View {
                 presentedShareSong = song
             } label: {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            }
+        }
+
+        // 歌单页里排在快捷行下面：置顶是在歌单里整理歌的那一下，不该沉到菜单底部。
+        if let onMoveToTop {
+            Section {
+                Button {
+                    onMoveToTop()
+                } label: {
+                    Label(String(localized: "radio_manage_pin_top"), systemImage: "arrow.up.to.line")
+                }
             }
         }
 
@@ -2073,6 +2087,7 @@ extension SongRowView {
         actionsOnly: Bool = false,
         selection: SongSelectionModel? = nil,
         onRemoveFromPlaylist: (() -> Void)? = nil,
+        onMoveToTop: (() -> Void)? = nil,
         queueSwipeActionsEnabled: Bool = true,
         context: RowContext
     ) {
@@ -2085,6 +2100,7 @@ extension SongRowView {
         self.actionsOnly = actionsOnly
         self.selection = selection
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
+        self.onMoveToTop = onMoveToTop
         self.queueSwipeActionsEnabled = queueSwipeActionsEnabled
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName

@@ -2900,6 +2900,9 @@
 "remember_device_desc" = "Pomiń weryfikację OTP przy następnym logowaniu";
 "remember_device_otp" = "Zapamiętaj to urządzenie";
 "remove_from_playlist" = "Usuń z listy odtwarzania";
+"playlist_moved_to_top_one" = "Przeniesiono na górę";
+"playlist_moved_to_top_format" = "Przeniesiono na górę: %d";
+"playlist_moved_to_top_order_reset" = "Lista znów jest w kolejności playlisty";
 "remove_from_queue" = "Usuń z kolejki";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "Zmień kolejność";

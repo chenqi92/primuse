@@ -833,6 +833,9 @@
 "playlist_name" = "Name der Wiedergabeliste";
 "create" = "Erstellen";
 "remove_from_playlist" = "Aus Wiedergabeliste entfernen";
+"playlist_moved_to_top_one" = "Nach oben verschoben";
+"playlist_moved_to_top_format" = "%d Titel nach oben verschoben";
+"playlist_moved_to_top_order_reset" = "Die Liste zeigt wieder die Playlist-Reihenfolge";
 "metadata_scraping" = "Metadaten & Abrufen";
 "scraper_sources" = "Abrufquellen";
 "scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird. Sind die Liedtexte nicht wortgenau, werden bis zu zwei weitere Quellen nach einer genaueren Fassung gefragt.";

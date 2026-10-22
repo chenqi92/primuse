@@ -9036,6 +9036,53 @@ final class MusicLibrary {
         replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
     }
 
+    /// 置顶:把歌单里的这几首移到最前面,彼此保持原来的先后。其余成员(置灰占位、停用源里
+    /// 看不见的歌、「我喜欢」里分出去显示的本地节目)都留着、先后不变。镜像与文件夹歌单的
+    /// 顺序跟着来源走,不改。返回顺序有没有变。
+    @discardableResult
+    func moveSongsToTop(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
+        // S2: 歌单行要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.moveSongsToTop(songIDs, inPlaylist: playlistID)
+        }) { return false }
+        return writeUserPlaylistOrder(
+            PlaylistMemberOrderPolicy.movingToTop(playlistSongIDs[playlistID] ?? [], selected: songIDs),
+            playlistID: playlistID
+        )
+    }
+
+    /// 重排面板「完成」。面板只列看得见的歌:排好的顺序填回它们原来占的位置,
+    /// 置灰占位、停用源里的歌和「我喜欢」里的本地节目原位留着,不会因为一次重排就没了。
+    func reorderPlaylistSongs(playlistID: String, listedOrder songIDs: [String]) {
+        // S2: 同上。
+        if deferringUntilReady({ [weak self] in
+            self?.reorderPlaylistSongs(playlistID: playlistID, listedOrder: songIDs)
+        }) { return }
+        writeUserPlaylistOrder(
+            PlaylistMemberOrderPolicy.reordered(playlistSongIDs[playlistID] ?? [], listedOrder: songIDs),
+            playlistID: playlistID
+        )
+    }
+
+    /// 只换先后、不增减成员的写入。不经 `replacePlaylistSongsUnchecked`:那里按曲库滤一遍,
+    /// 置灰占位会被当成悬空 id 滤掉。
+    @discardableResult
+    private func writeUserPlaylistOrder(_ orderedIDs: [String], playlistID: String) -> Bool {
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              let index = allPlaylists.firstIndex(where: { $0.id == playlistID }),
+              !allPlaylists[index].isDeleted,
+              allPlaylists[index].allowsManualSongMembership,
+              (playlistSongIDs[playlistID] ?? []) != orderedIDs
+        else { return false }
+        playlistSongIDs[playlistID] = orderedIDs
+        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
+        sortPlaylists()
+        persistPlaylistDurabilityLedger()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+        return true
+    }
+
     /// 用外部源的权威快照覆盖镜像歌单。不存在的 songID 会被静默忽略，避免
     /// 同步结果比歌曲写库稍晚时留下悬空引用。
     func replaceMirrorPlaylistSongs(
@@ -9757,7 +9804,9 @@ final class MusicLibrary {
 
     /// Replaces only the liked membership owned by one source. Other local or
     /// server sources retain their entries, while an authoritative empty
-    /// server snapshot removes stale likes from that account.
+    /// server snapshot removes stale likes from that account. Songs that stay
+    /// liked keep their place (a pinned song stays on top); only new likes
+    /// join at the end.
     func replaceLikedSongs(
         fromSourceID sourceID: String,
         with authoritativeSongIDs: [String]
@@ -9771,9 +9820,10 @@ final class MusicLibrary {
             sourceSongIDs.contains($0)
         }
         let current = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
-        var next = current.filter { !sourceSongIDs.contains($0) }
-        let retained = Set(next)
-        next.append(contentsOf: authoritative.filter { !retained.contains($0) })
+        let next = PlaylistMemberOrderPolicy.syncingSourceMembers(
+            current,
+            authoritative: authoritative
+        ) { sourceSongIDs.contains($0) }
         guard next != current else { return }
 
         if allPlaylists.contains(where: { $0.id == Self.likedSongsPlaylistID }) == false {
