@@ -851,7 +851,98 @@ final class FnMusicSourceTests: XCTestCase {
         }
     }
 
+    func testFeiniuUnmatchedPlaylistsSyncMetadataAndPopulateAfterCatalogRefresh() async throws {
+        try await withPlaylistSyncFixture(includeCatalogSong: false) { library, source, manager, host in
+            library.addSongs((0..<20).map {
+                Song(id: "local-\($0)", title: "Local \($0)", fileFormat: .flac,
+                     filePath: "/fnmusic/tracks/local-\($0).flac", sourceID: source.id)
+            })
+            await library.waitForPendingIndex()
+            let names = ["每日推荐 10-20", "αβ叫唤<通常盤>", "..."]
+            FnMusicSourceURLProtocol.setPlaylists(names.enumerated().map { index, name in
+                ["guid": "playlist-\(index)", "name": name, "coverId": "cover-\(index)", "trackCount": 1]
+            }, host: host)
+            let ids = names.indices.map {
+                ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist-\($0)")
+            }
+
+            let unresolved = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(unresolved.syncedPlaylistCount, names.count)
+            XCTAssertEqual(unresolved.unresolvedPlaylistCount, names.count)
+            XCTAssertEqual(unresolved.matchedTrackCount, 0)
+            XCTAssertEqual(Set(library.playlists.map(\.id)), Set(ids))
+            for index in names.indices {
+                let playlist = try XCTUnwrap(library.playlist(id: ids[index]))
+                XCTAssertEqual(playlist.name, names[index])
+                XCTAssertEqual(playlist.coverArtPath, FnMusicAPIProtocol.coverReference(coverID: "cover-\(index)", revision: nil))
+                XCTAssertTrue(playlist.hasDedicatedCoverArt)
+                XCTAssertTrue(library.rawSongIDs(forPlaylist: ids[index]).isEmpty)
+            }
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("Unresolved playlist metadata failed to persist")
+            }
+            library.reloadFromDisk(preferExternalSnapshot: false)
+            XCTAssertEqual(Set(library.playlists.map(\.id)), Set(ids))
+            for index in names.indices {
+                XCTAssertEqual(library.playlist(id: ids[index])?.name, names[index])
+                XCTAssertEqual(library.playlist(id: ids[index])?.coverArtPath, FnMusicAPIProtocol.coverReference(coverID: "cover-\(index)", revision: nil))
+                XCTAssertTrue(library.rawSongIDs(forPlaylist: ids[index]).isEmpty)
+            }
+
+            library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
+                                   filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)])
+            await library.waitForPendingIndex()
+            let matched = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(matched.syncedPlaylistCount, names.count)
+            XCTAssertEqual(matched.unresolvedPlaylistCount, 0)
+            XCTAssertEqual(matched.matchedTrackCount, names.count)
+            XCTAssertEqual(Set(library.playlists.map(\.id)), Set(ids))
+            for id in ids {
+                XCTAssertEqual(library.rawSongIDs(forPlaylist: id), ["song"])
+            }
+        }
+    }
+
+    func testMirrorUpdatesUnresolvedMetadataWithoutClearingSongsOrUnhidingPlaylists() async throws {
+        try await withPlaylistSyncFixture { library, source, _, _ in
+            let existingID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "existing")
+            let newID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "new")
+            library.ensurePlaylist(id: existingID, name: "Old name")
+            library.replaceMirrorPlaylistSongs(playlistID: existingID, songIDs: ["song"], coverArtPath: "old-cover")
+            library.hideMirrorPlaylist(id: existingID)
+
+            let result = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [
+                ServerPlaylist(id: "existing", name: "热门推荐", coverArtReference: "new-cover",
+                               trackIDs: ["missing"], reportedTrackCount: 0, isReadOnly: true),
+                ServerPlaylist(id: "new", name: "biubiubiu", coverArtReference: "another-cover",
+                               trackIDs: [], reportedTrackCount: 20),
+            ]), source: source, library: library)
+            XCTAssertEqual(result.syncedPlaylistCount, 2)
+            XCTAssertEqual(result.unresolvedPlaylistCount, 2)
+            XCTAssertEqual(result.matchedTrackCount, 0)
+            XCTAssertEqual(library.playlist(id: existingID)?.name, "热门推荐")
+            XCTAssertEqual(library.playlist(id: existingID)?.coverArtPath, "new-cover")
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: existingID), ["song"])
+            XCTAssertFalse(library.playlists.contains { $0.id == existingID })
+            XCTAssertEqual(library.hiddenMirrorPlaylists(forSourceID: source.id).map(\.playlistID), [existingID])
+            XCTAssertTrue(ServerPlaylistMirror.readOnlyPlaylistIDs.contains(existingID))
+            XCTAssertTrue(library.playlists.contains { $0.id == newID })
+            XCTAssertEqual(library.playlist(id: newID)?.name, "biubiubiu")
+            XCTAssertEqual(library.playlist(id: newID)?.coverArtPath, "another-cover")
+            XCTAssertTrue(library.rawSongIDs(forPlaylist: newID).isEmpty)
+
+            _ = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [
+                ServerPlaylist(id: "existing", name: "Empty", trackIDs: [], reportedTrackCount: 0),
+                ServerPlaylist(id: "new", name: "biubiubiu", trackIDs: [], reportedTrackCount: 20),
+            ]), source: source, library: library)
+            XCTAssertTrue(library.rawSongIDs(forPlaylist: existingID).isEmpty, "服务端确认为空时仍应清空曲目")
+            XCTAssertNil(library.playlist(id: existingID)?.coverArtPath)
+            XCTAssertFalse(ServerPlaylistMirror.readOnlyPlaylistIDs.contains(existingID))
+        }
+    }
+
     private func withPlaylistSyncFixture(
+        includeCatalogSong: Bool = true,
         _ verify: (MusicLibrary, MusicSource, SourceManager, String) async throws -> Void
     ) async throws {
         let sourceID = UUID().uuidString
@@ -868,8 +959,10 @@ final class FnMusicSourceTests: XCTestCase {
         let source = MusicSource(id: sourceID, name: "Feiniu", type: .fnMusic, host: host)
         let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
         let library = MusicLibrary(storageDirectory: root)
-        library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
-                               filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)])
+        if includeCatalogSong {
+            library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
+                                   filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)])
+        }
         await library.waitForPendingIndex()
         try await verify(library, source, manager, host)
         guard case .success = await library.persistNowAndWait() else {
@@ -877,15 +970,19 @@ final class FnMusicSourceTests: XCTestCase {
         }
         let reloaded = MusicLibrary(storageDirectory: root)
         XCTAssertEqual(Set(reloaded.playlists.map(\.id)), Set(library.playlists.map(\.id)))
-        XCTAssertEqual(reloaded.hiddenMirrorPlaylists, library.hiddenMirrorPlaylists)
+        XCTAssertEqual(reloaded.hiddenMirrorPlaylists.map(\.key), library.hiddenMirrorPlaylists.map(\.key))
+        for (restored, expected) in zip(reloaded.hiddenMirrorPlaylists, library.hiddenMirrorPlaylists) {
+            XCTAssertEqual(restored.playlistID, expected.playlistID)
+            XCTAssertEqual(restored.displayName, expected.displayName)
+            XCTAssertEqual(restored.hiddenAt.ISO8601Format(), expected.hiddenAt.ISO8601Format())
+        }
         for playlist in library.playlists {
             XCTAssertEqual(reloaded.rawSongIDs(forPlaylist: playlist.id), library.rawSongIDs(forPlaylist: playlist.id))
             XCTAssertEqual(reloaded.playlist(id: playlist.id)?.name.utf8.map { $0 }, playlist.name.utf8.map { $0 })
         }
     }
 
-    /// 同步途中先落地的歌单只新建/覆盖、从不删除; 对不上曲库或自报数量对不上的不动。
-    func testProgressiveMirrorShowsPlaylistsWithoutPruningOrApplyingIncompleteOnes() async throws {
+    func testProgressiveMirrorShowsMetadataWithoutPruningOrClearingUnresolvedSongs() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("FnMusicMirror-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let library = MusicLibrary(storageDirectory: root)
@@ -903,16 +1000,25 @@ final class FnMusicSourceTests: XCTestCase {
 
         let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
         applier.apply(ServerPlaylist(id: "first", name: "First", trackIDs: ["two", "one"], reportedTrackCount: 2))
-        applier.apply(ServerPlaylist(id: "unknown", name: "Unknown", trackIDs: ["missing"], reportedTrackCount: 1))
+        applier.apply(ServerPlaylist(id: "unknown", name: "每日推荐 10-20", coverArtReference: "new-cover",
+                                    trackIDs: ["missing"], reportedTrackCount: 1, isReadOnly: true))
+        applier.apply(ServerPlaylist(id: "stale", name: "Renamed", coverArtReference: "updated-cover",
+                                    trackIDs: ["missing"], reportedTrackCount: 1))
         applier.apply(ServerPlaylist(id: "truncated", name: "Truncated", trackIDs: ["one"], reportedTrackCount: 5))
         applier.apply(ServerPlaylist(id: "empty", name: "Empty", trackIDs: [], reportedTrackCount: 0))
 
         XCTAssertEqual(library.songs(forPlaylist: id("first")).map(\.id), ["two", "one"])
         XCTAssertNotNil(library.playlist(id: id("empty")))
-        XCTAssertNil(library.playlist(id: id("unknown")))
+        XCTAssertTrue(library.playlists.contains { $0.id == id("unknown") })
+        XCTAssertEqual(library.playlist(id: id("unknown"))?.name, "每日推荐 10-20")
+        XCTAssertEqual(library.playlist(id: id("unknown"))?.coverArtPath, "new-cover")
+        XCTAssertTrue(library.rawSongIDs(forPlaylist: id("unknown")).isEmpty)
+        XCTAssertTrue(ServerPlaylistMirror.readOnlyPlaylistIDs.contains(id("unknown")))
         // 自报 5 首、实际给出 1 首: 照样用读到的, 不再整张跳过。
         XCTAssertEqual(library.songs(forPlaylist: id("truncated")).map(\.id), ["one"])
         XCTAssertEqual(library.songs(forPlaylist: id("stale")).map(\.id), ["one"])
+        XCTAssertEqual(library.playlist(id: id("stale"))?.name, "Renamed")
+        XCTAssertEqual(library.playlist(id: id("stale"))?.coverArtPath, "updated-cover")
     }
 
     /// 探测失败发生在 connect() 之后时, 被探测的实例可能同时被扫描 / 播放

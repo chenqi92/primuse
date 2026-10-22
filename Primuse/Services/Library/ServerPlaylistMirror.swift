@@ -4,9 +4,10 @@ import PrimuseKit
 @MainActor
 enum ServerPlaylistMirror {
     struct SyncResult {
+        /// 已同步名称和封面的歌单数，包含曲目仍待匹配的歌单。
         var syncedPlaylistCount = 0
         var matchedTrackCount = 0
-        /// 服务端有曲目但本地一首都没匹配上的歌单数。这类歌单被跳过而非清空。
+        /// 服务端有曲目但本地一首都没匹配上的歌单数，只更新名称和封面，保留已有曲目。
         var unresolvedPlaylistCount = 0
     }
 
@@ -124,37 +125,34 @@ enum ServerPlaylistMirror {
                 readOnlyPlaylistIDs.remove(localID)
             }
 
+            library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
+            keepIDs.insert(localID)
+            result.syncedPlaylistCount += 1
+
             // 自报数量比实际给出的多(服务器把读不出、已失效的条目也算进去)时,
             // 照样用读到的这些: 翻页缺页由各来源自己翻页时判出并整份算作失败,
             // 能走到这里的明细就是服务器这次给得出的全部。以前整张跳过, 一张
             // 歌单里有一首坏掉的歌就再也同步不过来。
 
             // 服务端说有曲目, 但本地一首都没匹配上 —— 这是"取不到 / 对不上",
-            // 不是"歌单空了"。保留已有镜像原样(存在的话), 也不新建空歌单。
-            // 直接 replace 成空会在一次不完整的扫描后把整个歌单清光。
+            // 不是"歌单空了"。名称和封面照常同步，歌曲等待后续扫描补齐；
+            // 直接 replace 成空会在一次不完整的扫描后把已有歌单清光。
             let serverHasTracks = Self.serverHasTracks(serverPlaylist)
             if songIDs.isEmpty, serverHasTracks {
                 result.unresolvedPlaylistCount += 1
-                if library.playlist(id: localID) != nil {
-                    // 保住它, 别让 prune 当作"服务端已删"清掉。
-                    keepIDs.insert(localID)
-                    library.updateMirrorPlaylistArtwork(
-                        playlistID: localID,
-                        coverArtPath: serverPlaylist.coverArtReference
-                    )
-                }
-                plog("\(playlistContext) stage=match result=skipped reason=no-local-match local_indexed_tracks=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
+                library.updateMirrorPlaylistArtwork(
+                    playlistID: localID,
+                    coverArtPath: serverPlaylist.coverArtReference
+                )
+                plog("\(playlistContext) stage=match result=metadata-only reason=no-local-match local_indexed_tracks=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
                 continue
             }
 
-            library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: songIDs,
                 coverArtPath: serverPlaylist.coverArtReference
             )
-            keepIDs.insert(localID)
-            result.syncedPlaylistCount += 1
             result.matchedTrackCount += songIDs.count
 
             plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(entry.missingCount) hidden_manual=\(suppressedIDs.contains(localID))")
@@ -186,7 +184,7 @@ enum ServerPlaylistMirror {
 
     /// 同步途中每读全一个歌单就先落地, 不必等整轮读完。只新建/覆盖, 从不删除:
     /// 哪些镜像该删只有整轮的快照说了算, 半路中断时已显示的歌单留到下一轮核对。
-    /// 取舍与 `apply` 相同 —— 服务端说有曲目却一首都没对上的不动。
+    /// 取舍与 `apply` 相同 —— 曲目未匹配时只同步名称和封面，保留已有曲目。
     @MainActor
     final class ProgressiveApplier {
         private let source: MusicSource
@@ -201,7 +199,6 @@ enum ServerPlaylistMirror {
 
         func apply(_ serverPlaylist: ServerPlaylist) {
             let songIDs = ServerPlaylistMirror.uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
-            if songIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) { return }
             let localID = ServerPlaylistIdentity.playlistID(
                 sourceID: source.id,
                 serverPlaylistID: serverPlaylist.id
@@ -212,6 +209,13 @@ enum ServerPlaylistMirror {
                 readOnlyPlaylistIDs.remove(localID)
             }
             library.ensurePlaylist(id: localID, name: ServerPlaylistMirror.resolvedName(serverPlaylist.name, localID: localID, library: library))
+            if songIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) {
+                library.updateMirrorPlaylistArtwork(
+                    playlistID: localID,
+                    coverArtPath: serverPlaylist.coverArtReference
+                )
+                return
+            }
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: songIDs,
