@@ -1,6 +1,7 @@
 #if os(tvOS)
 import CloudKit
 import Intents
+import PrimuseKit
 import SwiftUI
 import UIKit
 
@@ -141,6 +142,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 /// 偏好决定联网拉取还是仅本地重载。
 @main
 struct PrimuseTVApp: App {
+    private let listeningDefaultsInitialized = ListeningDiscoveryDefaults.initializeIfNeeded(platform: .tvOS)
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var themeState = TVThemeState.shared

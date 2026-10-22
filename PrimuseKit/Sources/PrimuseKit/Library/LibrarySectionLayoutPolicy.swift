@@ -199,3 +199,51 @@ public enum LibrarySectionLayoutPolicy {
         return String(decoding: data, as: UTF8.self)
     }
 }
+
+/// Seed discovery preferences before services or views write their first defaults.
+/// Existing installs keep even implicit defaults, including never-opened podcasts.
+public enum ListeningDiscoveryDefaults {
+    public enum Platform: CaseIterable, Sendable {
+        case iOS, macOS, tvOS
+    }
+
+    public static let initializedKey = "primuse.listening.discoveryDefaults.v1"
+    public static let podcastsMigrationKey = "primuse.library.podcastsDefaultHidden.v1"
+    public static let homePodcastsKey = "primuse.home.showPodcasts"
+    public static let homeAudiobooksKey = "primuse.home.showAudiobooks"
+
+    @discardableResult
+    public static func initializeIfNeeded(
+        platform: Platform,
+        defaults: UserDefaults = .standard,
+        domainName: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        guard let domainName else { return false }
+        let stored = defaults.persistentDomain(forName: domainName) ?? [:]
+        guard stored[initializedKey] == nil else { return false }
+        // Read only the app's persisted domain: system and registered defaults
+        // must not make a fresh install look like an upgrade.
+        let hasExistingPreferences = stored.keys.contains {
+            $0.hasPrefix("primuse.") || $0.hasPrefix("primuse_")
+                || $0.hasPrefix("pm.") || $0.hasPrefix("tv.") || $0 == "tvAppearance"
+        }
+        defaults.set(true, forKey: initializedKey)
+        guard !hasExistingPreferences else { return false }
+
+        switch platform {
+        case .iOS, .macOS:
+            let hidden = platform == .macOS ? ["recommendations"] : ["recommendations", "statistics"]
+            defaults.set(LibrarySectionLayoutPolicy.encodeNames(hidden), forKey: LibrarySectionLayoutPolicy.hiddenKey)
+            // The older rollout must not hide podcasts again after this seed.
+            defaults.set(true, forKey: podcastsMigrationKey)
+            defaults.set(true, forKey: homePodcastsKey)
+            defaults.set(true, forKey: homeAudiobooksKey)
+        case .tvOS:
+            var tabs = TVTabBarConfiguration.default
+            tabs.setShown(true, for: .podcasts)
+            tabs.setShown(true, for: .spokenWord)
+            defaults.set(tabs.encoded(), forKey: TVTabBarConfiguration.storageKey)
+        }
+        return true
+    }
+}

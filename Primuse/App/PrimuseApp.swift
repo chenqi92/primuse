@@ -1449,6 +1449,11 @@ private struct SourceAuthenticationPresentationModifier: ViewModifier {
 
 @main
 struct PrimuseApp: App {
+    #if os(macOS)
+    private let listeningDefaultsInitialized = ListeningDiscoveryDefaults.initializeIfNeeded(platform: .macOS)
+    #else
+    private let listeningDefaultsInitialized = ListeningDiscoveryDefaults.initializeIfNeeded(platform: .iOS)
+    #endif
     #if os(iOS)
     @UIApplicationDelegateAdaptor(PrimuseAppDelegate.self) private var appDelegate
     #else
