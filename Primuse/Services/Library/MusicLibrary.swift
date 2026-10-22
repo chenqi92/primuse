@@ -593,6 +593,33 @@ struct LibraryIndexedSearchOutput: Sendable {
     var lyricsIndexComplete: Bool
 }
 
+/// 后台整理资料库时高频写的记账: 搜索索引、Spotlight、补读队列的代次与待办标记。
+///
+/// 它们不放在 `UserDefaults.standard` 里。键名带点号的 `@AppStorage` 只能监听
+/// standard 发出的整库变更通知(不带点号的才按键走 KVO), 每写一次 standard,
+/// 屏幕上每个这种 `@AppStorage` 都要排一次视图更新、抢一次 SwiftUI 的全局锁;
+/// App 在后台时没有按帧合并, 每一次都是整棵视图树重算。导入刚结束、补读刚开始时
+/// 退到后台, 这些记账每批写几次, 主线程就一直在重画看不见的界面。
+enum LibraryMaintenanceDefaults {
+    nonisolated(unsafe) static let store: UserDefaults =
+        UserDefaults(suiteName: "com.welape.yuanyin.library-maintenance") ?? .standard
+
+    /// 把旧版本写在 standard 里的这组键搬过来, 返回 `store`。各组键由各自的主人
+    /// 在第一次用到时搬一次。
+    static func migrating(_ keys: [String], from source: UserDefaults = .standard) -> UserDefaults {
+        let destination = store
+        guard destination !== source else { return destination }
+        for key in keys {
+            guard let value = source.object(forKey: key) else { continue }
+            if destination.object(forKey: key) == nil {
+                destination.set(value, forKey: key)
+            }
+            source.removeObject(forKey: key)
+        }
+        return destination
+    }
+}
+
 /// Private on-device search engine for the snapshot-backed MusicLibrary.
 ///
 /// Search-time work is deliberately limited to FTS lookups and ranking. ICU
@@ -619,6 +646,11 @@ actor LibrarySearchIndex {
         "primuse.librarySearchIndex.preparationGeneration.v1"
     private static let completedPreparationGenerationKey =
         "primuse.librarySearchIndex.completedPreparationGeneration.v1"
+    nonisolated(unsafe) static let maintenanceDefaults = LibraryMaintenanceDefaults.migrating([
+        preparationPendingKey,
+        preparationGenerationKey,
+        completedPreparationGenerationKey,
+    ])
 
     private let dbPool: DatabasePool?
     private var lastMetadataRevisionKey: String?
@@ -685,7 +717,7 @@ actor LibrarySearchIndex {
     /// 生产行为不变。
     @discardableResult
     nonisolated static func persistLibraryChangePending(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) -> Int {
         let current = defaults.integer(forKey: preparationGenerationKey)
         let generation = LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: current)
@@ -699,7 +731,7 @@ actor LibrarySearchIndex {
     }
 
     private nonisolated static func isPreparationPending(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) -> Bool {
         (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
             || defaults.integer(forKey: completedPreparationGenerationKey)
@@ -711,20 +743,20 @@ actor LibrarySearchIndex {
     }
 
     nonisolated static func hasPendingPreparation(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) -> Bool {
         isPreparationPending(defaults: defaults)
     }
 
     nonisolated static func pendingPreparationGeneration(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) -> Int {
         defaults.integer(forKey: preparationGenerationKey)
     }
 
     private nonisolated static func markPreparationCompleted(
         generation: Int,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) {
         defaults.set(generation, forKey: completedPreparationGenerationKey)
         if generation == defaults.integer(forKey: preparationGenerationKey) {
@@ -735,7 +767,7 @@ actor LibrarySearchIndex {
     private nonisolated static func markIncrementalPreparationCompleted(
         firstGeneration: Int,
         lastGeneration: Int,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = maintenanceDefaults
     ) {
         let completed = defaults.integer(forKey: completedPreparationGenerationKey)
         // Never mark a crash-recovery gap clean merely because a later delta
@@ -882,14 +914,14 @@ actor LibrarySearchIndex {
             }
             // The previous fingerprint did not include a display-safe path, so
             // every existing metadata row must be refreshed once.
-            UserDefaults.standard.set(true, forKey: preparationPendingKey)
+            maintenanceDefaults.set(true, forKey: preparationPendingKey)
         }
         migrator.registerMigration(incrementalAllSongsSchemaVersion) { _ in
             // Older builds indexed only the currently visible source set. The
             // incremental index keeps all library rows and filters results
             // against the caller's visible snapshot, so rebuild once when the
             // policy changes.
-            UserDefaults.standard.set(true, forKey: preparationPendingKey)
+            maintenanceDefaults.set(true, forKey: preparationPendingKey)
         }
         try migrator.migrate(pool)
         let needsVacuum = try pool.read { db in
@@ -5234,7 +5266,7 @@ final class MusicLibrary {
         /// 传 nil 时沿用旧行为, 回落到 `sourceIdentityResolver`。
         sourceIdentityPrefixes: [String: String]? = nil,
         /// 搜索索引准备代际所用的偏好存储。默认 `.standard` = 生产行为。
-        searchIndexDefaults: UserDefaults = .standard,
+        searchIndexDefaults: UserDefaults = LibrarySearchIndex.maintenanceDefaults,
         /// 歌词缓存到达后的索引刷新接缝。为 nil 时走
         /// `LibrarySearchIndex.shared`, 即生产路径。
         lyricsSearchIndexRefresh: (

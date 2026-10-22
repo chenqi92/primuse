@@ -81,6 +81,12 @@ final class SpotlightIndexService {
         "primuse.spotlightIndex.synchronizationGeneration.v2"
     private nonisolated static let completedSynchronizationGenerationKey =
         "primuse.spotlightIndex.completedSynchronizationGeneration.v2"
+    /// 每次资料库变动都要写代次, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
+    nonisolated(unsafe) private static let defaults = LibraryMaintenanceDefaults.migrating([
+        synchronizationPendingKey,
+        synchronizationGenerationKey,
+        completedSynchronizationGenerationKey,
+    ])
 
     private let manifestURL: URL
     private let thumbnailDirectoryURL: URL
@@ -113,7 +119,6 @@ final class SpotlightIndexService {
     /// between a library mutation and Observation delivery cannot leave a
     /// stale Spotlight manifest marked clean.
     nonisolated static func persistLibraryChangePending() {
-        let defaults = UserDefaults.standard
         let generation = defaults.integer(forKey: synchronizationGenerationKey)
         defaults.set(
             generation == .max ? 1 : generation + 1,
@@ -126,12 +131,11 @@ final class SpotlightIndexService {
     }
 
     private nonisolated static var synchronizationGeneration: Int {
-        UserDefaults.standard.integer(forKey: synchronizationGenerationKey)
+        defaults.integer(forKey: synchronizationGenerationKey)
     }
 
     private nonisolated static var isSynchronizationPending: Bool {
-        let defaults = UserDefaults.standard
-        return (defaults.object(forKey: synchronizationPendingKey) as? Bool ?? true)
+        (defaults.object(forKey: synchronizationPendingKey) as? Bool ?? true)
             || defaults.integer(forKey: completedSynchronizationGenerationKey)
                 != defaults.integer(forKey: synchronizationGenerationKey)
     }
@@ -318,12 +322,12 @@ final class SpotlightIndexService {
             )
         } else {
             if succeeded, completedRevision == Self.synchronizationGeneration {
-                UserDefaults.standard.set(
+                Self.defaults.set(
                     completedRevision,
                     forKey: Self.completedSynchronizationGenerationKey
                 )
                 needsSynchronization = false
-                UserDefaults.standard.set(false, forKey: Self.synchronizationPendingKey)
+                Self.defaults.set(false, forKey: Self.synchronizationPendingKey)
             } else {
                 persistSynchronizationPending()
             }

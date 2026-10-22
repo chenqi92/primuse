@@ -452,6 +452,11 @@ final class MetadataBackfillService {
         "primuse.metadataBackfill.queueDirty.v1"
     private nonisolated static let queueMutationGenerationDefaultsKey =
         "primuse.metadataBackfill.queueMutationGeneration.v1"
+    /// 队列状态每变一次都要写, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
+    nonisolated(unsafe) private static let queueDefaults = LibraryMaintenanceDefaults.migrating([
+        queueDirtyDefaultsKey,
+        queueMutationGenerationDefaultsKey,
+    ])
 
     private struct QueueState: Codable, Equatable, Sendable {
         let needsRefresh: Bool
@@ -967,7 +972,7 @@ final class MetadataBackfillService {
         self.sourceRetryCountsURL = directory.appendingPathComponent("backfill-source-retry-counts.json")
         self.queueStateURL = directory.appendingPathComponent("backfill-queue-state.json")
         self.peerSeedStateURL = directory.appendingPathComponent("backfill-peer-seeds.json")
-        let defaults = UserDefaults.standard
+        let defaults = Self.queueDefaults
         queueMutationGeneration = defaults.integer(
             forKey: Self.queueMutationGenerationDefaultsKey
         )
@@ -3178,7 +3183,7 @@ final class MetadataBackfillService {
             ? 1
             : queueMutationGeneration + 1
         queueNeedsRefresh = true
-        let defaults = UserDefaults.standard
+        let defaults = Self.queueDefaults
         defaults.set(
             queueMutationGeneration,
             forKey: Self.queueMutationGenerationDefaultsKey
@@ -3208,12 +3213,12 @@ final class MetadataBackfillService {
             guard let data = try? JSONEncoder().encode(state) else { return }
             do {
                 try data.write(to: url, options: .atomic)
-                UserDefaults.standard.set(
+                Self.queueDefaults.set(
                     state.needsRefresh,
                     forKey: Self.queueDirtyDefaultsKey
                 )
             } catch {
-                UserDefaults.standard.set(true, forKey: Self.queueDirtyDefaultsKey)
+                Self.queueDefaults.set(true, forKey: Self.queueDirtyDefaultsKey)
             }
         }
     }

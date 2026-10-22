@@ -821,7 +821,7 @@ final class LifecycleRegressionTests: XCTestCase {
         // 与 `MetadataBackfillService.queueDirtyDefaultsKey` 保持一致(私有常量)。
         // 置真是为了让判定与磁盘上残留的队列状态无关。
         let dirtyKey = "primuse.metadataBackfill.queueDirty.v1"
-        let defaults = UserDefaults.standard
+        let defaults = LibraryMaintenanceDefaults.store
         let previous = defaults.object(forKey: dirtyKey)
         defer {
             if let previous {
