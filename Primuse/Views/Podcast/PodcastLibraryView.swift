@@ -1076,6 +1076,13 @@ struct PodcastLocalShowsSection: View {
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityIdentifier("podcast.localShow")
+                                    .contextMenu {
+                                        // 标错成播客的整档在这里也能改回去(#336)。
+                                        ListeningKindMoveButtons(current: .podcast) { kind in
+                                            SpokenWordStore.shared.move(entry.songs, to: kind)
+                                            library.refreshContentClassification()
+                                        }
+                                    }
                                 }
                             }
                         }

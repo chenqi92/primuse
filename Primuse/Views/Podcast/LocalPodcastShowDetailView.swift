@@ -12,6 +12,7 @@ struct LocalPodcastShowDetailView: View {
     var onMacInlineBack: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var showsReorder = false
 
@@ -236,6 +237,11 @@ struct LocalPodcastShowDetailView: View {
             Label("podcast_reorder_episodes", systemImage: "arrow.up.arrow.down")
         }
         .disabled(ordered.count < 2)
+        Divider()
+        // 标错成播客的整档改回去(#336),和书架上书的「标记为音乐」同一套。
+        ListeningKindMoveButtons(current: .podcast) { kind in
+            move(entry.songs, to: kind)
+        }
     }
 
     // MARK: - Filter and order
@@ -388,6 +394,11 @@ struct LocalPodcastShowDetailView: View {
             } label: {
                 Label("insert_next_short", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
+            Section {
+                ListeningKindMoveButtons(current: .podcast) { kind in
+                    move([song], to: kind)
+                }
+            }
         }
         if item.position != nil {
             Button(role: .destructive) {
@@ -395,6 +406,21 @@ struct LocalPodcastShowDetailView: View {
             } label: {
                 Label("spoken_word_clear_progress", systemImage: "arrow.counterclockwise")
             }
+        }
+    }
+
+    /// 把标错成播客的文件改回音乐或有声书(#336)。收听进度留着,改回播客接着听。
+    /// 整档都搬走了就回上一页:这档节目已经不在了,留在这里只剩一页空白。
+    private func move(_ songs: [Song], to kind: ListeningContentKind) {
+        let movedIDs = Set(songs.map(\.id))
+        let emptiesShow = book.items.allSatisfy { movedIDs.contains($0.id) }
+        spokenWordStore.move(songs, to: kind)
+        library.refreshContentClassification()
+        guard emptiesShow else { return }
+        if let onMacInlineBack {
+            onMacInlineBack()
+        } else {
+            dismiss()
         }
     }
 
