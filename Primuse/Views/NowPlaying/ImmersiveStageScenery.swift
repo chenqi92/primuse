@@ -1237,6 +1237,8 @@ struct ImmersiveAmbientRestOverlay: View {
     var title: String
     var subtitle: String
 
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+
     var body: some View {
         let hasLyric = lyric != nil
         let clockSize = metrics.s(metrics.isPortrait ? 62 : 54)
@@ -1251,7 +1253,7 @@ struct ImmersiveAmbientRestOverlay: View {
                     .foregroundStyle(ImmersiveStagePalette.ink)
                 if let lyric {
                     Text(lyric)
-                        .font(.system(size: lineSize, weight: .medium))
+                        .font(lyricsTypeface.font(size: lineSize, weight: .medium))
                         .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
                         .lineLimit(2)
                 }

@@ -70,6 +70,7 @@
 		08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
 		5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A00EC1465ADE3D6D059485A /* LikedSongsPodcastSplitPolicy.swift */; };
 		5F50312DB57B789285E51498 /* ImmersiveSyllableCrestText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */; };
+		44C0BD97375CA21564CD65AE /* PlayerTextFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */; };
 		0929829CC1BD736FC07E2ADB /* OfflineDownloadQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF7104496375F2054C8BC9F /* OfflineDownloadQualityPolicy.swift */; };
 		0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
 		0942CA3CF25753C75FD0119F /* ServerListeningStatsConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E5CB7F4B45F29DC1E8F30D /* ServerListeningStatsConnectorTests.swift */; };
@@ -192,6 +193,7 @@
 		17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
 		8A057782348E5D175493A842 /* ImmersiveSyllableCrestText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */; };
+		737EA6A79976A72525497357 /* PlayerTextFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */; };
 		175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */; };
 		1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */; };
 		178360B183885653FEC9A805 /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7B1ABACEE5C60AE38F1ED6 /* MusicVideoCompatibilityConverter.swift */; };
@@ -1149,6 +1151,7 @@
 		84FE74F58142B67C53943885 /* SourceSyncDirectoryPruningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778073B1F88B0DE1E1F6806C /* SourceSyncDirectoryPruningPolicy.swift */; };
 		851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
 		DC571DB52F8E3EDB1DC25309 /* ImmersiveSyllableCrestText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */; };
+		7E6BE8EDCEA2C324C5C3F8AD /* PlayerTextFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */; };
 		8520FA42E71C65B9E1BF42FF /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B352CFED2A2E7082B6E15745 /* SourceFailureClassifier.swift */; };
 		853427FA20B67053FED472A3 /* TVSourceAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139EF58C77552DC03F51190D /* TVSourceAssetReader.swift */; };
 		8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */; };
@@ -2853,6 +2856,7 @@
 		4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSuccessorDiscardPolicy.swift; sourceTree = "<group>"; };
 		4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageView.swift; sourceTree = "<group>"; };
 		396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveSyllableCrestText.swift; sourceTree = "<group>"; };
+		82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerTextFont.swift; sourceTree = "<group>"; };
 		4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfigStore.swift; sourceTree = "<group>"; };
 		4C46A7CFAEE41704BC45A8CB /* SongIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIdentity.swift; sourceTree = "<group>"; };
 		4C7B1ABACEE5C60AE38F1ED6 /* MusicVideoCompatibilityConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoCompatibilityConverter.swift; sourceTree = "<group>"; };
@@ -4776,6 +4780,7 @@
 				D573954A1D1D5056E2DDD7A0 /* NowPlayingPitchMenu.swift */,
 				7F0CBFEB2BF4776D91C78B63 /* SleepTimerSheet.swift */,
 				451A85C3C516E3F37FDFAFB1 /* PlayerBackdropImageHost.swift */,
+				82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */,
 				4AA445DB496D02215DDB8FB8 /* NowPlayingTransportFaces.swift */,
 				F86FA91EF178B63A9A52F4BB /* PlayerVisualizerBackdrop.swift */,
 				7608FA3171F7C4546526AFB8 /* PodcastPlayerComponents.swift */,
@@ -7191,6 +7196,7 @@
 			files = (
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FE37913639A21760F2774DBF /* PeerScanSeedStore.swift in Sources */,
+				44C0BD97375CA21564CD65AE /* PlayerTextFont.swift in Sources */,
 				1D3BC00D57849A1D6C476E8F /* PlayerVisualizerBackdrop.swift in Sources */,
 				1E7DE5EEA307E87FCB40455C /* SongTagEditStore.swift in Sources */,
 				94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */,
@@ -7791,6 +7797,7 @@
 				5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */,
 				851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */,
 				DC571DB52F8E3EDB1DC25309 /* ImmersiveSyllableCrestText.swift in Sources */,
+				7E6BE8EDCEA2C324C5C3F8AD /* PlayerTextFont.swift in Sources */,
 				F92AD1060642092C75F73447 /* KaraokeLineView.swift in Sources */,
 				38880CDB964A3E0FE9035019 /* KaraokeSeparationService.swift in Sources */,
 				420EB00B435F607890AC40F4 /* LyricInterludeDots.swift in Sources */,
@@ -7962,6 +7969,7 @@
 			files = (
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				42FDC2B8A2D885F39996CFEA /* PeerScanSeedStore.swift in Sources */,
+				737EA6A79976A72525497357 /* PlayerTextFont.swift in Sources */,
 				87302559AC9D6C078915C94B /* PlayerVisualizerBackdrop.swift in Sources */,
 				8FE31629C0EA5FE2B179D453 /* SongTagEditStore.swift in Sources */,
 				4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */,

@@ -19,6 +19,7 @@ struct MacMiniPlayerView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -824,7 +825,7 @@ struct MacMiniPlayerView: View {
             )
         } else {
             Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(lyricsTypeface.font(size: fontSize, weight: weight))
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .opacity(isActive ? 1 : 0.55)
                 .multilineTextAlignment(.center)

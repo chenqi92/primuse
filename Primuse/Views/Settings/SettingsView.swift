@@ -353,6 +353,8 @@ struct LyricsAppearanceSections: View {
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
+    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -478,6 +480,18 @@ struct LyricsAppearanceSections: View {
             }
             .settingsAnchor("lyrics.alignment")
             .pickerStyle(.segmented)
+
+            // 歌词字体(#332):与 Mac 设置、播放页「更多」里同一个键(随 iCloud 同步)。
+            VStack(alignment: .leading, spacing: 6) {
+                Text("transcript_font")
+                PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: .semibold)
+                if PlayerTextFontLibrary.shared.state(of: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system) == .failed {
+                    Text("transcript_reader_font_download_failed")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .settingsAnchor("lyrics.font")
 
             // 与 Mac 设置、播放页「更多」里的四档同一个键(随 iCloud 同步)。
             VStack(alignment: .leading, spacing: 6) {

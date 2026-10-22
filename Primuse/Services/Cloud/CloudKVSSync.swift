@@ -739,13 +739,14 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.animatedArtworkEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
-        // 歌词外观(字号 `lyricsFontScale` 早已单独同步): 当前行颜色、对齐、模糊、
+        // 歌词外观(字号 `lyricsFontScale` 早已单独同步): 当前行颜色、对齐、字体、模糊、
         // 轻点跳转、定位标尺、间奏三个点。
         PlayerAppearancePreferences.lyricsColorModeKey,
         PlayerAppearancePreferences.customLyricsColorHexKey,
         PlayerAppearancePreferences.gradientLyricsStartColorHexKey,
         PlayerAppearancePreferences.gradientLyricsEndColorHexKey,
         PlayerAppearancePreferences.lyricsAlignmentKey,
+        PlayerAppearancePreferences.lyricsFontKey,
         PlayerAppearancePreferences.blursInactiveLyricsKey,
         PlayerAppearancePreferences.tapLyricsToSeekKey,
         PlayerAppearancePreferences.showsLyricsBrowseTimelineKey,

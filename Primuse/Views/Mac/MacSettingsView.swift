@@ -5437,6 +5437,8 @@ private struct MacSTLyricsView: View {
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale = 0.0
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
+    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -5453,6 +5455,16 @@ private struct MacSTLyricsView: View {
     private var compactMenuBarWithIsland = false
     @State private var showTranscriptionSettings = false
     private var localTranslation: LocalLyricsTranslationService { .shared }
+
+    /// 选了要下载的字体时,字体那一行下面写它下到哪了;能用了就不写。
+    private var lyricsFontHint: String? {
+        switch PlayerTextFontLibrary.shared.state(of: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system) {
+        case .available: nil
+        case .needsDownload: String(localized: "transcript_reader_font_needs_download")
+        case .downloading: String(localized: "transcript_reader_font_downloading")
+        case .failed: String(localized: "transcript_reader_font_download_failed")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -5590,6 +5602,21 @@ private struct MacSTLyricsView: View {
 
             MacSTSection(String(localized: "lyrics_display_section")) {
                 MacSTGroup {
+                    // 歌词字体(#332):播放页、桌面歌词、歌词岛、全屏效果都换,随 iCloud 同步。
+                    MacSTRow(String(localized: "transcript_font"), hint: lyricsFontHint, hintLineLimit: 3, divider: false) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { lyricsFontRawValue },
+                                set: { rawValue in
+                                    lyricsFontRawValue = rawValue
+                                    // 选的是没下好的字体(或下载失败后再选一次)就去下。
+                                    PlayerTextFontLibrary.shared.prepare(PlayerTextFont(rawValue: rawValue) ?? .system)
+                                }
+                            ),
+                            options: PlayerTextFont.allCases.map { ($0.rawValue, $0.localizedTitle) }
+                        )
+                    }
+                    .settingsAnchor("lyrics.font")
                     MacSTRow(String(localized: "lyrics_font_size")) {
                         MacSTSlider(
                             value: Binding(

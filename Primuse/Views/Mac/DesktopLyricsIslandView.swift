@@ -24,6 +24,8 @@ struct DesktopLyricsIslandView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    /// 设置里选的歌词字体(#332),只用在歌词那几行;歌名、音量这些照旧是系统字体。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
@@ -203,7 +205,8 @@ struct DesktopLyricsIslandView: View {
     private var compactTextWidth: CGFloat {
         switch compactLine {
         case .lyric(let text):
-            return Self.textWidth(text, size: lyricFontSize, weight: .semibold) + 4
+            // 按画出来的那种字体量,换了宽一些的西文字体时岛也跟着放宽,不会被截掉。
+            return Self.textWidth(text, font: lyricsTypeface.nsFont(size: lyricFontSize, weight: .semibold)) + 4
         case .nowPlaying(let title, let artist):
             var width = Self.textWidth(title, size: 13, weight: .semibold)
             if let artist {
@@ -226,8 +229,11 @@ struct DesktopLyricsIslandView: View {
     }
 
     private static func textWidth(_ text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: size, weight: weight)
-        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        textWidth(text, font: NSFont.systemFont(ofSize: size, weight: weight))
+    }
+
+    private static func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     @ViewBuilder
@@ -345,7 +351,7 @@ struct DesktopLyricsIslandView: View {
         switch compactLine {
         case .lyric(let text):
             Text(text)
-                .font(.system(size: lyricFontSize, weight: .semibold))
+                .font(lyricsTypeface.font(size: lyricFontSize, weight: .semibold))
                 .foregroundStyle(lyricTint)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -546,7 +552,7 @@ struct DesktopLyricsIslandView: View {
             if !player.isLiveRadio, let next = nextLyricLine,
                !next.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(next.text)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(lyricsTypeface.font(size: 12.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -582,7 +588,7 @@ struct DesktopLyricsIslandView: View {
                 .lineLimit(2)
             } else {
                 Text(line.text)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(lyricsTypeface.font(size: 17, weight: .semibold))
                     .foregroundStyle(lyricTint)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)

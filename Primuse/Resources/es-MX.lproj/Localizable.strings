@@ -5455,6 +5455,7 @@
 "tv_lyrics_font_standard" = "Estándar";
 "tv_lyrics_font_large" = "Grande";
 "tv_lyrics_font_extra_large" = "Muy grande";
+"tv_lyrics_font_format" = "Fuente de la letra: %@";
 "metadata_writeback_plex_forbidden" = "Este servidor de Plex no permite que tu cuenta edite su biblioteca. Los servidores que comparten tus amigos suelen ser solo de reproducción.";
 
 // Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch

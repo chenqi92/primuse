@@ -215,6 +215,8 @@ struct KaraokeLyricsStage: View {
     let isPlaying: Bool
 
     @Environment(\.pmHeightClass) private var heightClass
+    /// 歌词字体跟播放页一样(#332);正在唱的那句由 `KaraokeLineView` 自己读。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     /// 主声部与播放页歌词同样扫成白色；对唱的另一声部用暖粉色区分。
     private static let primaryColor = Color.white
@@ -316,7 +318,7 @@ struct KaraokeLyricsStage: View {
                 )
             case .previous, .next:
                 Text(line.text)
-                    .font(.system(size: fontSize, weight: .semibold))
+                    .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
                     .foregroundStyle(.white.opacity(role == .next ? 0.5 : 0.25))
                     .multilineTextAlignment(side.text)
                     .fixedSize(horizontal: false, vertical: true)

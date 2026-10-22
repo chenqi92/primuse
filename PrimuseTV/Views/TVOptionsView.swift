@@ -16,6 +16,9 @@ struct TVOptionsView: View {
     @State private var matchTarget: TVSongMatchTarget?
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
+    /// 歌词字体(#332),和 iPhone、Mac 同一份(经 iCloud 同步)。
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
+    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @State private var albumScrapeTarget: TVSongMatchTarget?
     @State private var playbackRangeTarget: TVSongMatchTarget?
 
@@ -35,6 +38,17 @@ struct TVOptionsView: View {
 
     // 仅保留已真实接通的动作(其余如「加入歌单/相似歌曲/AirPlay 输出」需额外基建,
     // 暂不放占位假按钮)。
+    /// 按选单里的先后找下一种装着的;现在这种是从手机同步来、电视上没有的,也从它的位置往后找。
+    private static func nextLyricsFont(after current: PlayerTextFont, in installed: [PlayerTextFont]) -> PlayerTextFont {
+        let all = PlayerTextFont.allCases
+        guard let start = all.firstIndex(of: current) else { return .system }
+        for offset in 1...all.count {
+            let candidate = all[(start + offset) % all.count]
+            if installed.contains(candidate) { return candidate }
+        }
+        return .system
+    }
+
     private var sections: [OptionSection] {
         let sleepOn = store.isSleepTimerActive
         // 有声内容不给卡拉OK、歌词字号与串烧这些音乐的玩法。有声书的每个文件也能加进「我喜欢」,
@@ -78,6 +92,17 @@ struct TVOptionsView: View {
                 id: "lyricsFontSize", icon: "textformat.size",
                 label: String(format: String(localized: "tv_lyrics_font_size_format"), level.title),
                 run: { lyricsFontLevelRawValue = level.next.rawValue }
+            ))
+            // 歌词字体:同样就地轮换,只在这台 Apple TV 上装着的几种里转(电视上没有下载字体的入口)。
+            let font = PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
+            song.append(.init(
+                id: "lyricsFont", icon: "textformat",
+                label: String(format: String(localized: "tv_lyrics_font_format"), font.localizedTitle),
+                run: {
+                    let next = Self.nextLyricsFont(after: font, in: PlayerTextFontLibrary.shared.installedFonts())
+                    lyricsFontRawValue = next.rawValue
+                    CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsFontKey)
+                }
             ))
         }
 

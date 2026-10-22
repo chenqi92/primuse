@@ -24,6 +24,7 @@ struct ExternalDisplayNowPlayingView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentLyricIndex = -1
@@ -189,7 +190,7 @@ struct ExternalDisplayNowPlayingView: View {
                 let distance = abs(realIndex - index)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(line.text)
-                        .font(.system(size: current ? 42 : 28, weight: current ? .bold : .semibold))
+                        .font(lyricsTypeface.font(size: current ? 42 : 28, weight: current ? .bold : .semibold))
                         .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -202,7 +203,7 @@ struct ExternalDisplayNowPlayingView: View {
                             at: player.currentTime
                         )
                         Text(background.text)
-                            .font(.system(size: current ? 28 : 22, weight: .medium))
+                            .font(lyricsTypeface.font(size: current ? 28 : 22, weight: .medium))
                             .foregroundStyle(
                                 Color.white.opacity(isBackgroundActive ? 0.82 : 0.38)
                             )

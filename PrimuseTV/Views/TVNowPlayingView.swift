@@ -35,6 +35,8 @@ struct TVNowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 歌词字体(#332),和 iPhone、Mac 同一份设置。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
     /// 进度条两端时间标签的宽度。原本写死 56pt,放得下「0:18」放不下「-3:58」,
     /// 于是「-3:5」和「8」被折成了两行;跟着系统文字大小放大只会更挤。
     /// 按 meta 字号同步缩放,并留足最长形如 -63:20 的六个等宽字符。
@@ -1413,7 +1415,7 @@ struct TVNowPlayingView: View {
                 }
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
-                Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
+                Text(ln.text).font(lyricsTypeface.font(size: size, weight: isCur ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
                     .modifier(TVLyricGlow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2))
                     .multilineTextAlignment(textAlignment)
@@ -1438,19 +1440,19 @@ struct TVNowPlayingView: View {
                     .opacity(0.72)
                 } else {
                     Text(background.text)
-                        .font(.system(size: size * 0.7, weight: .semibold))
+                        .font(lyricsTypeface.font(size: size * 0.7, weight: .semibold))
                         .foregroundStyle(TVColor.text.opacity(0.62))
                         .multilineTextAlignment(textAlignment)
                 }
             }
             if !ln.romanization.isEmpty {
-                Text(ln.romanization).tvFont(size: companionSize, relativeTo: .caption)
+                Text(ln.romanization).modifier(TVLyricCompanionFont(size: companionSize))
                     .foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(textAlignment)
             }
             if !ln.translation.isEmpty {
                 Text(LyricCompanionTextPolicy.displayText(ln.translation))
-                    .tvFont(size: companionSize, relativeTo: .caption).italic()
+                    .modifier(TVLyricCompanionFont(size: companionSize)).italic()
                     .foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(textAlignment)
             }
@@ -1521,6 +1523,8 @@ struct TVKaraokeLine: View {
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 歌词字体(#332),和 iPhone、Mac 同一份设置。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     private var lyricLayoutDirection: LayoutDirection {
         switch writingDirection {
@@ -1585,9 +1589,25 @@ struct TVKaraokeLine: View {
                     .offset(y: -size * LyricSyllableEmphasisPolicy.raisedLiftRatio * raise)
             }
         }
-        .font(.system(size: size, weight: .bold))
+        .font(lyricsTypeface.font(size: size, weight: .bold))
         .modifier(TVLyricGlow(color: tint.opacity(0.4), radius: 16, y: 2))
         .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+}
+
+/// 注音、译文的字体:选了歌词字体时跟着换(和主歌词一样按字号定死),系统字体时照旧走电视的字号档,
+/// 随系统文字尺寸缩放。
+private struct TVLyricCompanionFont: ViewModifier {
+    let size: CGFloat
+
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+
+    func body(content: Content) -> some View {
+        if lyricsTypeface.drawsSystemFont {
+            content.tvFont(size: size, relativeTo: .caption)
+        } else {
+            content.font(lyricsTypeface.font(size: size))
+        }
     }
 }
 

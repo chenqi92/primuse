@@ -5455,6 +5455,7 @@
 "tv_lyrics_font_standard" = "มาตรฐาน";
 "tv_lyrics_font_large" = "ใหญ่";
 "tv_lyrics_font_extra_large" = "ใหญ่พิเศษ";
+"tv_lyrics_font_format" = "แบบอักษรเนื้อเพลง: %@";
 "metadata_writeback_plex_forbidden" = "เซิร์ฟเวอร์ Plex นี้ไม่อนุญาตให้บัญชีของคุณแก้ไขคลังเพลง เซิร์ฟเวอร์ที่เพื่อนแชร์มักใช้ได้เฉพาะการเล่น";
 
 // Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch

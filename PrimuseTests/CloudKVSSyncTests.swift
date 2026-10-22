@@ -125,6 +125,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.controlTintKey,
             PlayerAppearancePreferences.lyricsColorModeKey,
             PlayerAppearancePreferences.lyricsAlignmentKey,
+            PlayerAppearancePreferences.lyricsFontKey,
             PlayerAppearancePreferences.tapLyricsToSeekKey,
             PlayerAppearancePreferences.showsLyricsInterludeKey,
         ] {

@@ -916,6 +916,7 @@ struct PreviewLyricLines: View {
     @AppStorage(CloudKVSKey.lyricsFontScale) private var lyricsFontScale: Double = 1.0
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var alignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     var body: some View {
         let alignment = PlayerLyricsAlignment(rawValue: alignmentRawValue) ?? .defaultValue
@@ -929,7 +930,7 @@ struct PreviewLyricLines: View {
                     // 第二句是正在唱的,上面一句唱过了,下面几句还没到。
                     let isCurrent = index == 1
                     Text(verbatim: line)
-                        .font(.system(size: fontSize, weight: .semibold))
+                        .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
                         .multilineTextAlignment(alignment.textAlignment)
                         .foregroundStyle(tint.opacity(isCurrent ? 1 : (index < 1 ? pastOpacity : futureOpacity)))
                         .padding(alignment == .trailing ? .leading : .trailing, isCurrent && alignment != .center ? squeeze : 0)
@@ -1000,6 +1001,7 @@ private struct PreviewArtworkLyricRows: View {
     @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
     private var fontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
     @ScaledMetric(relativeTo: .callout) private var baseFontSize: CGFloat = 16
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     var body: some View {
         let fontSize = NowPlayingView.artworkLyricFontSize(base: baseFontSize, scale: fontScale)
@@ -1029,7 +1031,7 @@ private struct PreviewArtworkLyricRows: View {
             ForEach(0..<count, id: \.self) { row in
                 let index = first + row
                 Text(verbatim: demo.indices.contains(index) ? demo[index] : "")
-                    .font(.system(size: fontSize, weight: .semibold))
+                    .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
                     .foregroundStyle(appearance.primary)
                     .opacity(row == anchor ? 1 : (row < anchor ? appearance.pastLyricOpacity : appearance.futureLyricOpacity))
                     .lineLimit(1)

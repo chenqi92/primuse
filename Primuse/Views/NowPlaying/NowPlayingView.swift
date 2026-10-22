@@ -11878,6 +11878,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @Binding var pitchSemitones: Int
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    /// 歌词字体(#332),和设置里那一排字体块同一个键。
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
+    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     let immersiveChrome: Bool
     /// 只在 `immersiveChrome` 为真时起作用：圆钮底用固定深色还是跟随明暗外观。
     let chromeGlass: NowPlayingChromeGlass
@@ -12397,6 +12400,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
 
+                    // 要下载的字体选了就开始下,下好之前先用系统字体(下载进度与失败在设置的字体块上)。
+                    Picker(selection: $lyricsFontRawValue) {
+                        ForEach(PlayerTextFont.allCases) { font in
+                            font.title.tag(font.rawValue)
+                        }
+                    } label: {
+                        Label(String(localized: "transcript_font"), systemImage: "textformat")
+                    }
+                    .pickerStyle(.menu)
+
                     if snapshot.showsCompanionFontSize {
                         Picker(selection: $lyricsTranslationFontScale) {
                             Text("lyrics_translation_font_follow").tag(0.0)
@@ -12862,6 +12875,7 @@ private struct NowPlayingArtworkLyricPreview: View {
     private var fontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
     /// `.callout` 的字号, 跟着系统字体大小走。
     @ScaledMetric(relativeTo: .callout) private var baseFontSize: CGFloat = 16
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     var body: some View {
         let fontSize = NowPlayingView.artworkLyricFontSize(base: baseFontSize, scale: fontScale)
@@ -12893,8 +12907,8 @@ private struct NowPlayingArtworkLyricPreview: View {
             isSceneActive: isSceneActive,
             tint: appearance.primary,
             statusTint: appearance.tertiary,
-            font: .system(size: fontSize),
-            emphasizesLine: true,
+            font: lyricsTypeface.font(size: fontSize),
+            emphasizedFont: lyricsTypeface.font(size: fontSize, weight: .semibold),
             lineHeight: lineHeight,
             rowCount: rowCount,
             pastOpacity: appearance.pastLyricOpacity,
@@ -12942,9 +12956,10 @@ private struct NowPlayingLyricPreview: View {
     let tint: Color
     /// 前奏提示、间奏标签与心跳点的颜色。
     let statusTint: Color
-    var font: Font = .callout
-    /// 正在唱的那句加粗(竖屏);横屏照常字重。
-    var emphasizesLine = false
+    /// 没给时是 `.callout` 那么大、设置里选的歌词字体(横屏那一行)。
+    var font: Font?
+    /// 正在唱的那句用的字体(竖屏加粗);没给时和 `font` 一样。
+    var emphasizedFont: Font?
     let lineHeight: CGFloat
     /// 几行;大于 1 时唱过的、接下来的几句按这两个浓淡调淡(和歌词页一样)。
     var rowCount = 1
@@ -12955,6 +12970,8 @@ private struct NowPlayingLyricPreview: View {
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+    @ScaledMetric(relativeTo: .callout) private var calloutSize: CGFloat = 16
     @State private var display: NowPlayingLyricPreviewPolicy.Display = .empty
     @State private var nextChange: TimeInterval?
     /// 多行时每一格放什么;一行时不用。
@@ -12977,6 +12994,14 @@ private struct NowPlayingLyricPreview: View {
     private var hasSynchronizedLyrics: Bool {
         lyrics.contains { $0.isSynchronized }
     }
+
+    /// 系统字体时照旧是 `.callout`(跟着系统字体大小),选了别的字体时按同样大小换上它。
+    private var resolvedFont: Font {
+        if let font { return font }
+        return lyricsTypeface.drawsSystemFont ? .callout : lyricsTypeface.font(size: calloutSize)
+    }
+
+    private var lineFont: Font { emphasizedFont ?? resolvedFont }
 
     private var followIdentity: FollowIdentity {
         FollowIdentity(
@@ -13084,7 +13109,7 @@ private struct NowPlayingLyricPreview: View {
                     case .line(let index, let role):
                         if lyrics.indices.contains(index) {
                             Text(verbatim: lyrics[index].text)
-                                .font(emphasizesLine ? font.weight(.semibold) : font)
+                                .font(lineFont)
                                 .foregroundStyle(tint)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -13124,20 +13149,20 @@ private struct NowPlayingLyricPreview: View {
         case .line(let index):
             if lyrics.indices.contains(index) {
                 Text(verbatim: lyrics[index].text)
-                    .font(emphasizesLine ? font.weight(.semibold) : font)
+                    .font(lineFont)
                     .foregroundStyle(tint)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
         case .intro(let message):
             Text(Self.introMessageKey(message))
-                .font(font)
+                .font(resolvedFont)
                 .foregroundStyle(statusTint)
                 .lineLimit(1)
                 .truncationMode(.tail)
         case .instrumental:
             NowPlayingInstrumentalLabel(
-                font: font,
+                font: resolvedFont,
                 tint: statusTint,
                 isAnimating: player.isPlaying && isSceneActive && !reduceMotion
             )
@@ -13360,6 +13385,8 @@ struct LyricsScrollView: View {
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// 设置里选的歌词字体(#332),原文、译文、注音、和声都用它。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     /// 译文(和注音)行自己的字号;0 = 跟原文一起缩放(#320)。
@@ -13418,6 +13445,16 @@ struct LyricsScrollView: View {
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
+
+    /// 字号或字体(#332)变了,各行的高度跟着变,当前行要重新对准。
+    private struct LyricsTypography: Equatable {
+        let fontScale: Double
+        let typeface: LyricsTypeface
+    }
+
+    private var lyricsTypography: LyricsTypography {
+        LyricsTypography(fontScale: lyricsFontScale, typeface: lyricsTypeface)
+    }
     /// Keep every row on one stable layout size. Current-line emphasis is a
     /// render-layer scale, so a takeover does not reflow the surrounding rows.
     private static let lyricsLayoutBaseSize: CGFloat = 26
@@ -13820,7 +13857,7 @@ struct LyricsScrollView: View {
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true)
                 }
-                .onChange(of: lyricsFontScale) { _, _ in
+                .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .onChange(of: lyricsTranslationFontScale) { _, _ in
@@ -13916,7 +13953,7 @@ struct LyricsScrollView: View {
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true)
                 }
-                .onChange(of: lyricsFontScale) { _, _ in
+                .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .onChange(of: lyricsTranslationFontScale) { _, _ in
@@ -14417,7 +14454,7 @@ struct LyricsScrollView: View {
             // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
             ForEach(companions.indices, id: \.self) { slot in
                 Text(companions[slot])
-                    .font(.system(size: companionFontSize, weight: .medium))
+                    .font(lyricsTypeface.font(size: companionFontSize, weight: .medium))
                     .foregroundStyle(
                         dimmedByAmbient
                             ? appearance.secondary
@@ -14473,7 +14510,7 @@ struct LyricsScrollView: View {
                     let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
                     ForEach(backgroundCompanions.indices, id: \.self) { slot in
                         Text(backgroundCompanions[slot])
-                            .font(.system(size: companionFontSize * 0.7, weight: .medium))
+                            .font(lyricsTypeface.font(size: companionFontSize * 0.7, weight: .medium))
                             .foregroundStyle(appearance.secondary)
                             .multilineTextAlignment(rowAlignment.textAlignment)
                             .fixedSize(horizontal: false, vertical: true)
@@ -14570,7 +14607,7 @@ struct LyricsScrollView: View {
             )
         } else {
             Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(lyricsTypeface.font(size: fontSize, weight: weight))
                 .foregroundStyle(lyricLineStyle(
                     isActive: isActive,
                     index: index,

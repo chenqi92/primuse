@@ -793,70 +793,8 @@ enum SpokenWordTranscriptReaderPreferences {
     static let chromeAutoHideDelay: Duration = .seconds(3)
 }
 
-/// 文稿的字体。中文的几种排在前面(同 Apple 图书):苹方系统自带;宋体、楷体、圆体在 iOS 上要按需下载,
-/// 下好之前与下载失败时先用系统字体显示。
-enum SpokenWordTranscriptFont: String, CaseIterable, Identifiable {
-    case system, pingFang, songti, kaiti, yuanti, serif, rounded, georgia, palatino, charter, iowan
-
-    var id: String { rawValue }
-
-    /// 中文字体的 PostScript 名:显示与下载都认它。
-    var postScriptName: String? {
-        switch self {
-        case .pingFang: "PingFangSC-Regular"
-        case .songti: "STSongti-SC-Regular"
-        case .kaiti: "STKaitiSC-Regular"
-        case .yuanti: "STYuanti-SC-Regular"
-        default: nil
-        }
-    }
-
-    /// `isAvailable` 为 false(还没下好、下载失败)时用系统字体。苹方的三档字重各是一个字体文件,按名字取;
-    /// 其余字体用字重修饰,家族里没有那一档时由系统就近匹配。
-    func font(size: CGFloat, weight: SpokenWordTranscriptWeight = .regular, isAvailable: Bool = true) -> Font {
-        if self == .pingFang {
-            return isAvailable
-                ? .custom(weight.pingFangPostScriptName, size: size)
-                : .system(size: size, weight: weight.fontWeight)
-        }
-        if let postScriptName {
-            return isAvailable
-                ? .custom(postScriptName, size: size).weight(weight.fontWeight)
-                : .system(size: size, weight: weight.fontWeight)
-        }
-        switch self {
-        case .serif: return .system(size: size, weight: weight.fontWeight, design: .serif)
-        case .rounded: return .system(size: size, weight: weight.fontWeight, design: .rounded)
-        case .georgia: return .custom("Georgia", size: size).weight(weight.fontWeight)
-        case .palatino: return .custom("Palatino", size: size).weight(weight.fontWeight)
-        case .charter: return .custom("Charter", size: size).weight(weight.fontWeight)
-        case .iowan: return .custom("Iowan Old Style", size: size).weight(weight.fontWeight)
-        default: return .system(size: size, weight: weight.fontWeight)
-        }
-    }
-
-    /// 系统那几种与中文字体按语言叫,其余是字体本身的名字。
-    var title: Text {
-        switch self {
-        case .system: Text("transcript_font_system")
-        case .pingFang: Text("transcript_reader_font_pingfang")
-        case .songti: Text("transcript_reader_font_songti")
-        case .kaiti: Text("transcript_reader_font_kaiti")
-        case .yuanti: Text("transcript_reader_font_yuanti")
-        case .serif: Text("transcript_font_serif")
-        case .rounded: Text("transcript_font_rounded")
-        case .georgia: Text(verbatim: "Georgia")
-        case .palatino: Text(verbatim: "Palatino")
-        case .charter: Text(verbatim: "Charter")
-        case .iowan: Text(verbatim: "Iowan")
-        }
-    }
-
-    /// 字体块上的样字:中文字体写一个「字」,其余写 Aa。
-    var sample: String { postScriptName == nil ? "Aa" : "\u{5B57}" }
-}
-
 /// 文稿正文的字重。Apple 图书的中文正文是细体,看着更舒展;默认仍是常规。
+/// 字体本身和歌词共用(`PlayerTextFont`,按需下载由 `PlayerTextFontLibrary` 管)。
 enum SpokenWordTranscriptWeight: String, CaseIterable, Identifiable {
     case regular, light, thin
 
@@ -877,118 +815,11 @@ enum SpokenWordTranscriptWeight: String, CaseIterable, Identifiable {
         case .thin: .thin
         }
     }
-
-    /// 苹方每一档字重是单独的字体名,系统都预装。
-    var pingFangPostScriptName: String {
-        switch self {
-        case .regular: "PingFangSC-Regular"
-        case .light: "PingFangSC-Light"
-        case .thin: "PingFangSC-Thin"
-        }
-    }
 }
 
-/// 按需下载的中文字体。宋体、楷体、圆体在 iOS 上不预装,选了才去系统字体库里下;
-/// 下过的字体每次启动后也要再走一遍同一个接口才能用(这次很快,不再联网)。
-@MainActor
-@Observable
-final class SpokenWordTranscriptFontLibrary {
-    enum State: Equatable {
-        case available
-        case needsDownload
-        case downloading(Double)
-        case failed
-    }
-
-    static let shared = SpokenWordTranscriptFontLibrary()
-
-    private var states: [String: State] = [:]
-
-    func state(of font: SpokenWordTranscriptFont) -> State {
-        guard let name = font.postScriptName else { return .available }
-        if let state = states[name] { return state }
-        return Self.isInstalled(name) ? .available : .needsDownload
-    }
-
-    func isAvailable(_ font: SpokenWordTranscriptFont) -> Bool {
-        state(of: font) == .available
-    }
-
-    /// 还不能用就去下载(或激活已经下过的)。正在下的不重复发起;失败过的再点一次重试。
-    func prepare(_ font: SpokenWordTranscriptFont) {
-        guard let name = font.postScriptName else { return }
-        switch state(of: font) {
-        case .available, .downloading:
-            return
-        case .needsDownload, .failed:
-            break
-        }
-        states[name] = .downloading(0)
-        Task {
-            let succeeded = await Self.activate(postScriptName: name) { fraction in
-                Task { @MainActor in self.updateProgress(fraction, for: name) }
-            }
-            states[name] = succeeded ? .available : .failed
-        }
-    }
-
-    private func updateProgress(_ fraction: Double, for name: String) {
-        guard case .downloading = states[name] else { return }
-        states[name] = .downloading(fraction)
-    }
-
-    nonisolated static func isInstalled(_ postScriptName: String) -> Bool {
-        let font = CTFontCreateWithName(postScriptName as CFString, 12, nil)
-        return (CTFontCopyPostScriptName(font) as String) == postScriptName
-    }
-
-    /// 系统的进度回调在 CoreText 自己的队列上跑,所以这里不带主线程隔离。
-    private nonisolated static func activate(
-        postScriptName: String,
-        progress: @escaping @Sendable (Double) -> Void
-    ) async -> Bool {
-        let descriptor = CTFontDescriptorCreateWithAttributes(
-            [kCTFontNameAttribute as String: postScriptName] as CFDictionary
-        )
-        let once = SpokenWordTranscriptFontActivation()
-        return await withCheckedContinuation { continuation in
-            let started = CTFontDescriptorMatchFontDescriptorsWithProgressHandler(
-                [descriptor] as CFArray,
-                nil
-            ) { state, parameters in
-                switch state {
-                case .downloading:
-                    let info = parameters as NSDictionary
-                    if let percent = info[kCTFontDescriptorMatchingPercentage as String] as? Double {
-                        progress(min(max(percent / 100, 0), 1))
-                    }
-                case .didFinish:
-                    if once.claim() {
-                        continuation.resume(returning: SpokenWordTranscriptFontLibrary.isInstalled(postScriptName))
-                    }
-                default:
-                    break
-                }
-                return true
-            }
-            if !started, once.claim() {
-                continuation.resume(returning: false)
-            }
-        }
-    }
-}
-
-/// 下载结束只能报一次:续体恢复两次会直接崩。
-private final class SpokenWordTranscriptFontActivation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var claimed = false
-
-    func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !claimed else { return false }
-        claimed = true
-        return true
+extension PlayerTextFont {
+    func font(size: CGFloat, weight: SpokenWordTranscriptWeight, isAvailable: Bool = true) -> Font {
+        font(size: size, weight: weight.fontWeight, isAvailable: isAvailable)
     }
 }
 
@@ -1317,7 +1148,7 @@ struct SpokenWordTranscriptReader: View {
     /// 播放页全屏打开时外面那层给的跟手退出;没有时(Mac 的弹出页)照旧直接关。
     @Environment(\.spokenWordTranscriptDismissDrag) private var dismissDrag
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontKey)
-    private var fontRawValue = SpokenWordTranscriptFont.system.rawValue
+    private var fontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontWeightKey)
     private var fontWeightRawValue = SpokenWordTranscriptWeight.regular.rawValue
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontSizeKey)
@@ -1391,7 +1222,7 @@ struct SpokenWordTranscriptReader: View {
     #endif
     @FocusState private var searchFieldFocused: Bool
 
-    private var font: SpokenWordTranscriptFont { SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system }
+    private var font: PlayerTextFont { PlayerTextFont(rawValue: fontRawValue) ?? .system }
     private var fontWeight: SpokenWordTranscriptWeight {
         SpokenWordTranscriptWeight(rawValue: fontWeightRawValue) ?? .regular
     }
@@ -1575,7 +1406,7 @@ struct SpokenWordTranscriptReader: View {
             await runSearch()
         }
         .task(id: font) {
-            SpokenWordTranscriptFontLibrary.shared.prepare(font)
+            PlayerTextFontLibrary.shared.prepare(font)
         }
         .task(id: bookmarkNotice) {
             guard bookmarkNotice != nil else { return }
@@ -1687,7 +1518,7 @@ struct SpokenWordTranscriptReader: View {
     }
 
     private func rowStyle(palette: SpokenWordTranscriptPalette) -> Row.Style {
-        let isAvailable = SpokenWordTranscriptFontLibrary.shared.isAvailable(font)
+        let isAvailable = PlayerTextFontLibrary.shared.isAvailable(font)
         let headingSize: CGFloat = size * 1.15
         let translationSize = translationFontSize > 0
             ? CGFloat(min(max(translationFontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
@@ -2858,10 +2689,10 @@ struct SpokenWordTranscriptTypographyPanel: View {
         )
     }
 
-    private var fontLibrary: SpokenWordTranscriptFontLibrary { .shared }
+    private var fontLibrary: PlayerTextFontLibrary { .shared }
 
-    private var selectedFont: SpokenWordTranscriptFont {
-        SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system
+    private var selectedFont: PlayerTextFont {
+        PlayerTextFont(rawValue: fontRawValue) ?? .system
     }
 
     private var selectedWeight: SpokenWordTranscriptWeight {
@@ -2894,14 +2725,7 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     }
                 }
                 Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(SpokenWordTranscriptFont.allCases) { font in
-                                fontChip(font)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
+                    PlayerTextFontPicker(selection: $fontRawValue, sampleWeight: selectedWeight.fontWeight)
                 } header: {
                     Text("transcript_font")
                 } footer: {
@@ -3142,80 +2966,6 @@ struct SpokenWordTranscriptTypographyPanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func fontChip(_ font: SpokenWordTranscriptFont) -> some View {
-        let isSelected = font.rawValue == fontRawValue
-        let state = fontLibrary.state(of: font)
-        return Button {
-            fontRawValue = font.rawValue
-            fontLibrary.prepare(font)
-        } label: {
-            VStack(spacing: 4) {
-                Text(verbatim: font.sample)
-                    .font(font.font(size: 22, weight: selectedWeight, isAvailable: state == .available))
-                font.title
-                    .font(.caption)
-                    .lineLimit(1)
-            }
-            .frame(minWidth: 64)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-            )
-            .overlay(alignment: .topTrailing) {
-                fontStateBadge(state)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityValue(fontStateAccessibilityText(state))
-    }
-
-    /// 要下载的标朵云,下载中画一圈进度,失败标个感叹号。
-    @ViewBuilder
-    private func fontStateBadge(_ state: SpokenWordTranscriptFontLibrary.State) -> some View {
-        switch state {
-        case .available:
-            EmptyView()
-        case .needsDownload:
-            Image(systemName: "icloud.and.arrow.down")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(5)
-        case let .downloading(fraction):
-            ZStack {
-                Circle()
-                    .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: max(0.05, fraction))
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: 12, height: 12)
-            .padding(5)
-        case .failed:
-            Image(systemName: "exclamationmark.circle")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-                .padding(5)
-        }
-    }
-
-    private func fontStateAccessibilityText(_ state: SpokenWordTranscriptFontLibrary.State) -> Text {
-        switch state {
-        case .available: Text(verbatim: "")
-        case .needsDownload: Text("transcript_reader_font_needs_download")
-        case .downloading: Text("transcript_reader_font_downloading")
-        case .failed: Text("transcript_reader_font_download_failed")
-        }
     }
 
     private func paragraphModeTitleKey(_ mode: SpokenWordTranscriptReadingPolicy.ParagraphMode) -> LocalizedStringKey {

@@ -5,17 +5,21 @@ struct LyricsFlowMeasurementKey: Equatable {
     var line: LyricLine?
     var fontSize: CGFloat
     var weight: Font.Weight
+    /// 换了歌词字体(或要下载的字体刚下好)每个字的宽度都变了,不认它的话折行还按旧字体量的排。
+    var typeface: LyricsTypeface
     var layoutDirection: LayoutDirection
 
     init(
         line: LyricLine? = nil,
         fontSize: CGFloat = 0,
         weight: Font.Weight = .regular,
+        typeface: LyricsTypeface = .system,
         layoutDirection: LayoutDirection = .leftToRight
     ) {
         self.line = line
         self.fontSize = fontSize
         self.weight = weight
+        self.typeface = typeface
         self.layoutDirection = layoutDirection
     }
 }
@@ -167,8 +171,12 @@ struct KaraokeLineView: View {
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.lyricsTypeface) private var typeface
 
     private var showsSyllableLift: Bool { !reduceMotion }
+
+    /// 这一行的字体:设置里选的歌词字体,按这一行的字号与字重。
+    private var lineFont: Font { typeface.font(size: fontSize, weight: weight) }
 
     private var showsSyllableGlow: Bool {
         glowsSungSyllables && animatesSyllableBounce && !reduceMotion
@@ -198,6 +206,7 @@ struct KaraokeLineView: View {
             line: line,
             fontSize: fontSize,
             weight: weight,
+            typeface: typeface,
             layoutDirection: lyricLayoutDirection
         )
     }
@@ -285,7 +294,7 @@ struct KaraokeLineView: View {
                 }
         } else {
             Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(lineFont)
                 .foregroundStyle(inactiveColor)
                 .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
@@ -302,7 +311,7 @@ struct KaraokeLineView: View {
             ) {
                 ForEach(syllables.indices, id: \.self) { i in
                     Text(syllables[i].text)
-                        .font(.system(size: fontSize, weight: weight))
+                        .font(lineFont)
                         .foregroundStyle(inactiveColor)
                         .fixedSize()
                         .environment(\.layoutDirection, lyricLayoutDirection)
@@ -311,7 +320,7 @@ struct KaraokeLineView: View {
             .environment(\.layoutDirection, .leftToRight)
         } else {
             Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(lineFont)
                 .foregroundStyle(inactiveColor)
                 .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
@@ -340,7 +349,7 @@ struct KaraokeLineView: View {
         ) {
             ForEach(syllables.indices, id: \.self) { index in
                 Text(syllables[index].text)
-                    .font(.system(size: fontSize, weight: weight))
+                    .font(lineFont)
                     .foregroundStyle(inactiveColor)
                     .fixedSize()
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -363,7 +372,7 @@ struct KaraokeLineView: View {
                 ) {
                     ForEach(syllables.indices, id: \.self) { index in
                         Text(syllables[index].text)
-                            .font(.system(size: fontSize, weight: weight))
+                            .font(lineFont)
                             .foregroundStyle(.white)
                             .fixedSize()
                             .environment(\.layoutDirection, lyricLayoutDirection)
@@ -466,7 +475,7 @@ struct KaraokeLineView: View {
         } symbols: {
             ForEach(syllables.indices, id: \.self) { index in
                 Text(syllables[index].text)
-                    .font(.system(size: fontSize, weight: weight))
+                    .font(lineFont)
                     .foregroundStyle(.white)
                     .fixedSize()
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -549,7 +558,7 @@ struct KaraokeLineView: View {
         )
         return Text(syllable.text)
             .foregroundStyle(inactiveColor)
-            .font(.system(size: fontSize, weight: weight))
+            .font(lineFont)
             .modifier(SyllableRaise(amount: raise, fontSize: fontSize))
             .fixedSize()
     }
@@ -581,7 +590,7 @@ struct KaraokeLineView: View {
         // 柔光画在遮罩里：白色光晕的透明度透出上面那层歌词色，光就是歌词本身的颜色。
         return Text(syllable.text)
             .foregroundStyle(.white)
-            .font(.system(size: fontSize, weight: weight))
+            .font(lineFont)
             .mask(sweepMask(progress: sweepProgress))
             .modifier(SyllableGlow(intensity: glow * Self.glowOpacity, radius: fontSize * Self.glowRadiusRatio))
             .modifier(SyllableRaise(amount: raise, fontSize: fontSize))

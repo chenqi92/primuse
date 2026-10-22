@@ -34,6 +34,8 @@ struct MacNowPlayingView: View {
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.scenePhase) private var scenePhase
+    /// 设置里选的歌词字体(#332)。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     /// 显示与机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的译文。
     @State private var lyrics: [LyricLine] = []
@@ -1468,7 +1470,7 @@ struct MacNowPlayingView: View {
         )
         ForEach(companions.indices, id: \.self) { slot in
             Text(LyricCompanionTextPolicy.displayText(companions[slot]))
-                .font(.system(size: fontSize * 0.62, weight: .medium))
+                .font(lyricsTypeface.font(size: fontSize * 0.62, weight: .medium))
                 .foregroundStyle(playerSecondaryColor)
                 .lineSpacing(1)
                 .multilineTextAlignment(textAlignment)
@@ -1505,7 +1507,7 @@ struct MacNowPlayingView: View {
             .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
         } else {
             Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(lyricsTypeface.font(size: fontSize, weight: weight))
                 .foregroundStyle(playerPrimaryColor)
                 .lineSpacing(2)
                 .multilineTextAlignment(textAlignment)

@@ -176,6 +176,8 @@ struct PrimuseTVApp: App {
                 .environment(musicIntelligence)
                 .preferredColorScheme(appearance.colorScheme)
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
+                // 歌词字体(#332):播放页、卡拉OK、全屏效果的歌词都从这里取。
+                .modifier(LyricsTypefaceProvider())
                 .tint(themeState.accent)
                 .onOpenURL { store.handleDeepLink($0) }
                 .onAppear {
@@ -202,6 +204,8 @@ struct PrimuseTVApp: App {
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
                     // 歌词的间奏提示点跟着 iPhone / Mac 的设置走(那两端由 InterfaceLayoutSync 登记同一个键)。
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeKey) { }
+                    // 歌词字体也跟着 iPhone / Mac 选的走;在电视上换了也推回去,几台设备同一份。
+                    CloudKVSSync.shared.register(key: PlayerAppearancePreferences.lyricsFontKey) { }
                     _ = ArtistNameSettingsStore.shared
                     // 歌词 API 服务的地址列表要有 store 登记才会跟 iCloud 键值同步,扫码直传来的
                     // 也靠它重新载入;电视上以前从没建过它,地址列表一直到不了。

@@ -852,6 +852,8 @@ targets:
       - path: Primuse/Views/NowPlaying/ImmersiveSimulationRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
       - path: Primuse/Views/NowPlaying/ImmersiveSyllableCrestText.swift
+      # 歌词字体(#332):可选字体、按需下载与环境注入,与 iOS / macOS 同一份
+      - path: Primuse/Views/NowPlaying/PlayerTextFont.swift
       - path: SiriVocabulary
         buildPhase: resources
       - path: Primuse/Resources

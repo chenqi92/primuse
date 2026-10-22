@@ -138,6 +138,9 @@ enum PlayerAppearancePreferences {
         .resolved(rawValue: rawValue, fallback: audioInfoModeByDefault)
     }
     static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"
+    /// 歌词的字体(`PlayerTextFont` 的原始值,#332):歌词页、封面下的歌词、全屏效果、Mac 桌面歌词与歌词岛
+    /// 都用它,译文、注音行也跟着换。随 iCloud 同步,电视也跟着这一份。
+    static let lyricsFontKey = "primuse.player.lyricsFont"
     static let lyricsColorModeKey = "primuse.player.lyricsColorMode"
     static let customLyricsColorHexKey = "primuse.player.customLyricsColorHex"
     static let gradientLyricsStartColorHexKey = "primuse.player.gradientLyricsStartColorHex"

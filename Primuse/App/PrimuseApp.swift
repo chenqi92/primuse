@@ -1598,6 +1598,7 @@ struct PrimuseApp: App {
             #if os(iOS) || os(macOS)
             .environment(audioCacheSync)
             #endif
+            .modifier(LyricsTypefaceProvider())
         return injected.tint(themeService.uiAccentColor)
     }
 

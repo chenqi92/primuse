@@ -156,6 +156,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    /// 设置里选的歌词字体(#332)。歌名、规格这些标题照旧用系统字体,只换歌词。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     private func writingDirection(for line: ImmersiveStageLyric) -> LyricWritingDirection {
         line.writingDirection ?? LyricWritingDirectionPolicy.resolvePresentationDirection(
@@ -1469,7 +1471,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
             ForEach(line.companions.indices, id: \.self) { slot in
                 Text(line.companions[slot])
-                    .font(.system(size: fontSize * 0.55, weight: .medium))
+                    .font(lyricsTypeface.font(size: fontSize * 0.55, weight: .medium))
                     .foregroundStyle(
                         ImmersiveStagePalette.text.opacity(line.isActive ? 0.62 : 0.34)
                     )
@@ -1531,7 +1533,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 }
             } else {
                 Text(line.text)
-                    .font(.system(size: fontSize, weight: .medium))
+                    .font(lyricsTypeface.font(size: fontSize, weight: .medium))
                     .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(lineLimit)
@@ -1581,7 +1583,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 )
             } else {
                 Text(line.text)
-                    .font(.system(
+                    .font(lyricsTypeface.font(
                         size: fontSize,
                         weight: line.offset < 0 ? .regular : .medium
                     ))
@@ -1676,7 +1678,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         let clampedProgress = min(1, max(0, progress))
         let lineWritingDirection = writingDirection(for: line)
         let text = Text(line.text)
-            .font(.system(size: fontSize, weight: .bold))
+            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
             .multilineTextAlignment(textAlignment)
             .lineLimit(lineLimit)
             .minimumScaleFactor(0.72)
@@ -2196,6 +2198,9 @@ private struct ImmersiveLyricFillMask: View {
     let fontSize: CGFloat
     let isRightToLeft: Bool
 
+    /// 和被遮的那句同一种字体,量出来的一行才一样高。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+
     /// 单行高度由探针量出,量到之前按一行处理(即退回旧行为,不会画错)。
     @State private var singleRowHeight: CGFloat = 0
 
@@ -2228,7 +2233,7 @@ private struct ImmersiveLyricFillMask: View {
     /// 用同一字号量一行文字的高度,据此判断整段被折成了几行。
     private var rowHeightProbe: some View {
         Text(verbatim: "M")
-            .font(.system(size: fontSize, weight: .bold))
+            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
             .lineLimit(1)
             .hidden()
             .background {

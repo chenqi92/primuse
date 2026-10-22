@@ -85,6 +85,7 @@ private struct ExternalDisplaySceneContent: View {
         .environment(services.scraperService)
         .environment(services.visualizer)
         .environment(services.coverTintProvider)
+        .modifier(LyricsTypefaceProvider())
         .tint(services.themeService.uiAccentColor)
         .preferredColorScheme((IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system).colorScheme)
     }

@@ -36,6 +36,8 @@ struct DesktopLyricsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    /// 设置里选的歌词字体(#332);工具条上的按钮与标签照旧是系统字体。
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
@@ -323,7 +325,7 @@ struct DesktopLyricsView: View {
                     .multilineTextAlignment(.center)
             } else {
                 Text(placeholder)
-                    .font(.system(size: activeFontSize(in: size), weight: .semibold))
+                    .font(lyricsTypeface.font(size: activeFontSize(in: size), weight: .semibold))
                     .foregroundStyle(lyricsColor)
                     .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                     .lineLimit(2)
@@ -337,7 +339,7 @@ struct DesktopLyricsView: View {
                         .multilineTextAlignment(.center)
                 } else {
                     Text(placeholder)
-                        .font(.system(size: activeFontSize(in: size), weight: .semibold))
+                        .font(lyricsTypeface.font(size: activeFontSize(in: size), weight: .semibold))
                         .foregroundStyle(lyricsColor)
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
@@ -348,7 +350,7 @@ struct DesktopLyricsView: View {
                     // 下一行只是提示,保持默认白 — 用户调的颜色只染当前行,
                     // 否则两行同色会让"哪句正在唱"的视觉重点丢失。
                     Text(next.text)
-                        .font(.system(size: nextFontSize(in: size), weight: .medium))
+                        .font(lyricsTypeface.font(size: nextFontSize(in: size), weight: .medium))
                         .foregroundStyle(.white.opacity(0.6))
                         .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
                         .lineLimit(1)
@@ -445,7 +447,7 @@ struct DesktopLyricsView: View {
             .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
         } else {
             Text(line.text)
-                .font(.system(size: size, weight: weight))
+                .font(lyricsTypeface.font(size: size, weight: weight))
                 .foregroundStyle(color)
                 .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                 .lineLimit(2)
@@ -502,7 +504,7 @@ struct DesktopLyricsView: View {
         VStack(spacing: 0) {
             ForEach(Array(text.enumerated()), id: \.offset) { _, char in
                 Text(String(char))
-                    .font(.system(size: fontSize, weight: weight))
+                    .font(lyricsTypeface.font(size: fontSize, weight: weight))
                     .foregroundStyle(color)
                     .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
                     .frame(height: fontSize * Self.verticalLineHeightFactor)
@@ -522,7 +524,7 @@ struct DesktopLyricsView: View {
             VStack(spacing: 0) {
                 ForEach(Array(syllables.enumerated()), id: \.offset) { _, syllable in
                     Text(syllable.text)
-                        .font(.system(size: fontSize, weight: weight))
+                        .font(lyricsTypeface.font(size: fontSize, weight: weight))
                         .foregroundStyle(verticalSyllableColor(syllable, now: now,
                                                                active: activeColor,
                                                                inactive: inactiveColor))

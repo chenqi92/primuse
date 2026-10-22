@@ -19,9 +19,11 @@ struct ImmersiveSyllableCrestText: View {
     /// 关掉时只逐字亮起，不浮起、不放大、不发光（减弱动态效果、歌词动效关闭、省电档）。
     let showsCrest: Bool
 
+    @Environment(\.lyricsTypeface) private var lyricsTypeface
+
     var body: some View {
         indexedText
-            .font(.system(size: fontSize, weight: .bold))
+            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
             .foregroundStyle(ImmersiveStagePalette.ink)
             .multilineTextAlignment(textAlignment)
             .lineLimit(lineLimit)

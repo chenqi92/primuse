@@ -24,6 +24,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
+    /// 歌词字体(#332),和设置里同一个键。
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
+    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -58,6 +61,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// Button 是真 Button,整个 frame 都是 hit-testable。
     @State private var menuShown = false
     @State private var fontPickerShown = false
+    @State private var lyricsFontPickerShown = false
     @State private var translationPickerShown = false
     @State private var equalizerPickerShown = false
     @State private var playbackRatePickerShown = false
@@ -453,6 +457,28 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .buttonStyle(.plain)
             .popover(isPresented: $fontPickerShown, arrowEdge: .leading) {
                 fontPickerPopover
+            }
+            // 歌词字体:每一种用它自己写个样字,要下载的选了就开始下。
+            Button { lyricsFontPickerShown.toggle() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "textformat").frame(width: 18)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("transcript_font")
+                        .font(.callout)
+                        .foregroundStyle(PMColor.text)
+                    Spacer()
+                    Text(verbatim: selectedLyricsFont.localizedTitle)
+                        .font(.caption)
+                        .foregroundStyle(PMColor.textFaint)
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .pmRowBackground(cornerRadius: 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $lyricsFontPickerShown, arrowEdge: .leading) {
+                lyricsFontPickerPopover
             }
             // 有文稿的有声内容:这一集 / 这本书的文稿往前、往后挪(#320)。
             if isSpokenWord, let song = player.currentSong,
@@ -1007,6 +1033,68 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .padding(.vertical, 6)
         .frame(width: 180)
         .focusEffectDisabled()
+    }
+
+    private var selectedLyricsFont: PlayerTextFont {
+        PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
+    }
+
+    private var lyricsFontPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(PlayerTextFont.allCases) { font in
+                lyricsFontRow(font)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 210)
+        .focusEffectDisabled()
+    }
+
+    private func lyricsFontRow(_ font: PlayerTextFont) -> some View {
+        let library = PlayerTextFontLibrary.shared
+        let state = library.state(of: font)
+        return Button {
+            lyricsFontRawValue = font.rawValue
+            library.prepare(font)
+            lyricsFontPickerShown = false
+        } label: {
+            HStack(spacing: 8) {
+                Text(verbatim: font.sample)
+                    .font(font.font(size: 15, weight: .semibold, isAvailable: state == .available))
+                    .foregroundStyle(PMColor.text)
+                    .frame(width: 28)
+                font.title
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                switch state {
+                case .available:
+                    EmptyView()
+                case .needsDownload:
+                    Image(systemName: "icloud.and.arrow.down")
+                        .font(.caption)
+                        .foregroundStyle(PMColor.textFaint)
+                case .downloading:
+                    ProgressView()
+                        .controlSize(.mini)
+                case .failed:
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                if font == selectedLyricsFont {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(state == .failed ? Text("transcript_reader_font_download_failed") : Text(verbatim: ""))
+        .accessibilityValue(PlayerTextFontPicker.stateAccessibilityText(state))
     }
 
     private func fontPickerRow(_ title: LocalizedStringKey, value: Double, translation: Bool = false) -> some View {
