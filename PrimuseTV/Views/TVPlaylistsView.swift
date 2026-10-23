@@ -10,13 +10,20 @@ struct TVPlaylistsView: View {
     @State private var filter = 0
     @State private var appleMusic = TVAppleMusicCatalog()
     @AppStorage(PlaylistListOrder.storageKey) private var orderRawValue = PlaylistListOrder.custom.rawValue
+    /// 设置里的「评分与评论」:关着时电视上不显示星级,按星级聚合的卡片也不出。
+    @AppStorage(LibraryReviewPreferences.enabledKey) private var ratingsEnabled = false
     @FocusState private var isOrderMenuFocused: Bool
     private let cols = 4
     private let gap: CGFloat = 36
 
     var body: some View {
-        let playlists = store.playlists(ordered: order)
+        let stored = store.playlists(ordered: order)
             .filter { filter == 0 || (filter == 2 ? $0.kind == .smart : $0.kind != .smart) }
+        // 五星、四星、三星排在「我喜欢」后面(看板 PRIM-36);它们是自动聚合的,和智能歌单归在一起,
+        // 只看普通歌单时不出现。
+        let rated = ratingsEnabled && filter != 1 ? store.ratingPlaylists : []
+        let likedCount = stored.prefix { $0.kind == .liked }.count
+        let playlists = Array(stored.prefix(likedCount)) + rated + Array(stored.dropFirst(likedCount))
         ZStack {
             TVColor.bg.ignoresSafeArea()
             GeometryReader { geo in
@@ -26,7 +33,7 @@ struct TVPlaylistsView: View {
                     VStack(alignment: .leading, spacing: 30) {
                         VStack(alignment: .leading, spacing: 6) {
                             TVEyebrow(text: PMString("ext.tv.playlists.eyebrow"))
-                            Text(PMString("ext.tv.playlists.title", playlists.count))
+                            Text(PMString("ext.tv.playlists.title", stored.count))
                                 .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                         }
                         HStack(spacing: 16) {
@@ -228,6 +235,20 @@ struct TVPlaylistCard: View {
                             Spacer()
                         }
                         .padding(12)
+                    }
+                    if playlist.kind == .rated {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "star.fill").font(.system(size: 20))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(.black.opacity(0.5), in: Capsule())
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .accessibilityHidden(true)
                     }
                     if playlist.kind == .liked {
                         LinearGradient(colors: [TVColor.brand.opacity(0.8), .clear],

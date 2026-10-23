@@ -325,7 +325,8 @@ enum TVLibraryTint {
     }
 }
 
-enum TVPlaylistKind { case normal, smart, liked }
+/// `rated` 是按星级自动聚合的五星、四星、三星(看板 PRIM-36),不是存下来的歌单。
+enum TVPlaylistKind { case normal, smart, liked, rated }
 
 struct TVPlaylistArtworkCandidate: Identifiable, Hashable {
     let id: String
@@ -1018,6 +1019,10 @@ final class TVStore {
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var smartPlaylistSongIDs: [String: [String]] = [:]
+    @ObservationIgnored private var cachedRatingPlaylists: [TVPlaylist] = []
+    @ObservationIgnored private var ratingPlaylistSongIDs: [String: [String]] = [:]
+    @ObservationIgnored private var ratingPlaylistReviewRevision = -1
+    @ObservationIgnored private var ratingPlaylistContentRevision = -1
     private var playHistoryRevision = 0
     @ObservationIgnored private var sourceTypeByID: [String: MusicSourceType] = [:]
     private struct LookupRevision: Equatable {
@@ -1428,6 +1433,16 @@ final class TVStore {
         return cachedSmartPlaylists
     }
     var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
+    /// 五星、四星、三星三张卡(看板 PRIM-36):打星、改星、清掉星时曲目自己进出,不用手工维护歌单。
+    /// 按「正好几星」分,三档各是一层精选、不互相包含;红心「我喜欢」另算,两边互不影响。
+    /// 只给有歌的那几档。不混进 `playlists`:加歌、排序这些只对存下来的歌单。
+    var ratingPlaylists: [TVPlaylist] {
+        _ = libraryContentRevision
+        _ = library.libraryReviewRevision
+        rebuildRatingPlaylistCacheIfNeeded()
+        return cachedRatingPlaylists
+    }
+    nonisolated static let ratingPlaylistRatings = [5, 4, 3]
     /// 歌单页按排序方式摆好的歌单:「我喜欢」在最前、智能歌单在最后,中间的普通歌单
     /// 和手机歌单页同一套 `PlaylistListOrder`;自定义顺序就是 `playlists`。
     func playlists(ordered order: PlaylistListOrder) -> [TVPlaylist] {
@@ -1990,6 +2005,43 @@ final class TVStore {
         cachedNormalPlaylists = liked + normal.filter { $0.kind != .liked }
         normalPlaylistCacheRevision = libraryContentRevision
         normalPlaylistCollectionRevision = playlistRevision
+    }
+
+    private func rebuildRatingPlaylistCacheIfNeeded() {
+        let reviewRevision = library.libraryReviewRevision
+        guard ratingPlaylistReviewRevision != reviewRevision
+                || ratingPlaylistContentRevision != libraryContentRevision else {
+            return
+        }
+        var rated: [Int: [(id: String, version: TimeInterval)]] = [:]
+        for review in library.allLibraryReviews where review.subject.kind == .song && !review.isDeleted {
+            guard let rating = LibraryReviewPreferences.normalizedRating(review.rating),
+                  Self.ratingPlaylistRatings.contains(rating),
+                  library.song(id: review.subject.entityID) != nil else { continue }
+            rated[rating, default: []].append((review.subject.entityID, review.ratingVersion))
+        }
+        ratingPlaylistSongIDs = [:]
+        cachedRatingPlaylists = Self.ratingPlaylistRatings.compactMap { rating -> TVPlaylist? in
+            // 最近打的星排在前面。
+            let ids = (rated[rating] ?? []).sorted { $0.version > $1.version }.map(\.id)
+            guard !ids.isEmpty else { return nil }
+            let id = "rating:\(rating)"
+            ratingPlaylistSongIDs[id] = ids
+            let covers = ids.prefix(4).compactMap { library.song(id: $0) }
+            return TVPlaylist(
+                id: id,
+                name: String(format: String(localized: "library_review_star_format"), rating),
+                kind: .rated,
+                count: ids.count,
+                artworkSignature: "\(id):" + covers.map(\.id).joined(separator: ","),
+                artworkCandidates: covers.map {
+                    TVPlaylistArtworkCandidate(id: $0.id, kind: .song, songID: $0.id,
+                                               coverRef: $0.coverArtFileName, sourceID: $0.sourceID)
+                }
+            )
+        }
+        ratingPlaylistReviewRevision = reviewRevision
+        ratingPlaylistContentRevision = libraryContentRevision
     }
 
     private func rebuildSmartPlaylistCacheIfNeeded() {
@@ -6324,6 +6376,9 @@ final class TVStore {
         if playlist.kind == .smart {
             _ = smartPlaylists
             ids = smartPlaylistSongIDs[playlist.id] ?? []
+        } else if playlist.kind == .rated {
+            _ = ratingPlaylists
+            ids = ratingPlaylistSongIDs[playlist.id] ?? []
         } else {
             ids = library.songs(forPlaylist: playlist.id).map(\.id)
         }
@@ -7983,7 +8038,7 @@ extension TVStore {
     /// 同 `canPlayMedley(songIDs: medleyPlaylistSongIDs(playlist))`,但普通歌单不先把整张歌单的
     /// Song 取出来:不可见的条目在逐首判断时一样被排除。
     func canPlayMedley(playlist: TVPlaylist) -> Bool {
-        guard playlist.kind != .smart else {
+        guard playlist.kind != .smart, playlist.kind != .rated else {
             return canPlayMedley(songIDs: medleyPlaylistSongIDs(playlist))
         }
         return canPlayMedley(songIDs: library.songIDs(forPlaylist: playlist.id))
@@ -8002,6 +8057,10 @@ extension TVStore {
         if playlist.kind == .smart {
             _ = smartPlaylists
             return smartPlaylistSongIDs[playlist.id] ?? []
+        }
+        if playlist.kind == .rated {
+            _ = ratingPlaylists
+            return ratingPlaylistSongIDs[playlist.id] ?? []
         }
         return library.songs(forPlaylist: playlist.id).map(\.id)
     }
