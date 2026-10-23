@@ -658,7 +658,7 @@ private struct NowPlayingControls: View {
     private func controlIcon(symbol: String, prominent: Bool = false, active: Bool = false) -> some View {
         Image(systemName: symbol)
             .font(.system(size: controlSize(symbol: symbol), weight: .semibold))
-            .foregroundStyle(active ? WidgetDesign.brandTint : WidgetDesign.strongText)
+            .foregroundStyle(active ? AnyShapeStyle(WidgetDesign.brandTint) : AnyShapeStyle(WidgetDesign.controlForeground))
             .widgetAccentable(prominent || active)
             .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
             .background {
@@ -1329,7 +1329,7 @@ private struct CoverPlayerControls: View {
         Button(intent: intent) {
             Image(systemName: symbol)
                 .font(.system(size: symbolSize, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(WidgetDesign.controlForeground)
                 .frame(maxWidth: .infinity, minHeight: symbolSize * 2)
                 .contentShape(Rectangle())
         }

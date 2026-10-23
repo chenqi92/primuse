@@ -43,6 +43,12 @@ struct NowPlayingAppearance {
         return .white.opacity(usesIncreasedContrast ? 0.60 : 0.38)
     }
 
+    /// 系统投放键平时的颜色(`AirPlayButton` 给 AVRoutePickerView 设的 tintColor)。
+    /// 有声内容播放页上传输键以外的按钮都用这一档,和投放键一样亮(#336)。
+    var routePickerTint: Color {
+        (isLight ? Color.black : Color.white).opacity(usesIncreasedContrast ? 0.72 : 0.52)
+    }
+
     var divider: Color {
         primary.opacity(usesIncreasedContrast ? 0.18 : 0.10)
     }
@@ -4571,7 +4577,7 @@ struct NowPlayingView: View {
                         action,
                         slot: slot,
                         font: .body,
-                        tint: appearance.secondary,
+                        tint: appearance.routePickerTint,
                         selectedTint: themedControlAccent,
                         menuSurface: menuSurface
                     )
@@ -5132,7 +5138,7 @@ struct NowPlayingView: View {
                             action,
                             slot: slot,
                             font: .body,
-                            tint: appearance.secondary,
+                            tint: appearance.routePickerTint,
                             selectedTint: themedControlAccent,
                             menuSurface: .wideLandscape,
                             onContents: { flipResidentContents() },
@@ -5155,7 +5161,7 @@ struct NowPlayingView: View {
             if let spokenControls {
                 // 和音乐页底栏一样只画图标(下面一行说明),不垫圆角方块。
                 SpokenWordActionTiles(
-                    palette: spokenWordPalette,
+                    palette: spokenWordControlPalette,
                     layout: .stacked,
                     showsContents: false,
                     tileHeight: 54,
@@ -5168,7 +5174,7 @@ struct NowPlayingView: View {
                     customTile: spokenWordCustomTile(
                         layout: .stacked,
                         tileHeight: 54,
-                        palette: spokenWordPalette,
+                        palette: spokenWordControlPalette,
                         menuSurface: .wideLandscape
                     )
                 )
@@ -5528,8 +5534,11 @@ struct NowPlayingView: View {
                                     ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext())
                                     : nil
                                 if let spokenControls {
-                                    spokenWordLikeButton(shows: spokenControls.headerShowsLike)
-                                        .lyricsHeaderReveal()
+                                    spokenWordLikeButton(
+                                        shows: spokenControls.headerShowsLike,
+                                        idleTint: appearance.routePickerTint
+                                    )
+                                    .lyricsHeaderReveal()
                                 } else if let action = musicControlLayout.action(in: .header) {
                                     controlButton(action, style: .header)
                                         .lyricsHeaderReveal()
@@ -5537,8 +5546,11 @@ struct NowPlayingView: View {
 
                                 // More menu
                                 if spokenControls?.headerShowsMore ?? true {
-                                    makeMoreMenu(controlSurface: .portraitLyrics(headerExtra: headerExtra))
-                                        .lyricsHeaderReveal()
+                                    makeMoreMenu(
+                                        controlSurface: .portraitLyrics(headerExtra: headerExtra),
+                                        plainLabel: spokenWordMoreMenuLabel
+                                    )
+                                    .lyricsHeaderReveal()
                                 }
                             }
                             }
@@ -6322,7 +6334,7 @@ struct NowPlayingView: View {
                     action,
                     slot: slot,
                     font: .body,
-                    tint: appearance.secondary,
+                    tint: appearance.routePickerTint,
                     selectedTint: themedControlAccent
                 )
             }
@@ -6390,7 +6402,7 @@ struct NowPlayingView: View {
                 }
                 if controls.showsInnerChapters {
                     Spacer(minLength: minimumGap)
-                    SpokenWordPartButton(forward: false, color: appearance.secondary)
+                    SpokenWordPartButton(forward: false, color: appearance.routePickerTint)
                 } else if keepsCompact {
                     Spacer(minLength: minimumGap)
                     transportKeySpace
@@ -6406,7 +6418,7 @@ struct NowPlayingView: View {
                 transportSkipButton(forward: true)
                 Spacer(minLength: minimumGap)
                 if controls.showsInnerChapters {
-                    SpokenWordPartButton(forward: true, color: appearance.secondary)
+                    SpokenWordPartButton(forward: true, color: appearance.routePickerTint)
                     Spacer(minLength: minimumGap)
                 } else if keepsCompact {
                     transportKeySpace
@@ -6466,7 +6478,7 @@ struct NowPlayingView: View {
             // 投放默认在标题右侧;摆进传输键两侧的键这里不再重复。
             // 和音乐页底栏、有声书墨黑版一样只画图标(下面一行说明),不垫圆角方块(#283)。
             SpokenWordActionTiles(
-                palette: spokenWordPalette,
+                palette: spokenWordControlPalette,
                 layout: .stacked,
                 tileHeight: 54,
                 tiles: spokenControls.tiles,
@@ -6474,7 +6486,7 @@ struct NowPlayingView: View {
                 onSleep: { showSleepTimer = true },
                 onContents: { openContentsPanel() },
                 onUpNext: { openContentsPanel(tab: .upNext) },
-                customTile: spokenWordCustomTile(layout: .stacked, tileHeight: 54, palette: spokenWordPalette)
+                customTile: spokenWordCustomTile(layout: .stacked, tileHeight: 54, palette: spokenWordControlPalette)
             )
             .padding(.horizontal, 22)
             .padding(.top, 12)
@@ -7866,9 +7878,9 @@ struct NowPlayingView: View {
                             .frame(width: 30, height: 30)
                             .frame(width: 40, height: 44)
                     }
-                    spokenWordLikeButton(shows: controls.headerShowsLike)
+                    spokenWordLikeButton(shows: controls.headerShowsLike, idleTint: appearance.routePickerTint)
                     if controls.headerShowsMore {
-                        makeMoreMenu(controlSurface: controlSurface)
+                        makeMoreMenu(controlSurface: controlSurface, plainLabel: spokenWordMoreMenuLabel)
                     }
                 }
             }
@@ -8233,6 +8245,26 @@ struct NowPlayingView: View {
             tertiary: appearance.tertiary,
             accent: themedControlAccent,
             tileFill: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
+        )
+    }
+
+    /// 播客(以及不走墨黑 / 暖白专版的书)最下面那一排功能块:图标和说明都和投放键一样亮,
+    /// 只有播放键与快退快进是亮白,同有声书墨黑版的 `AudiobookPlayerStyle.control`(#336)。
+    /// 打开着的语速、定时、文字稿仍用强调色。
+    private var spokenWordControlPalette: SpokenWordPlayerPalette {
+        var palette = spokenWordPalette
+        palette.primary = appearance.routePickerTint
+        palette.secondary = appearance.routePickerTint
+        return palette
+    }
+
+    /// 有声内容标题旁的「更多」:和投放键一样亮。音乐照旧用默认的那颗。
+    private var spokenWordMoreMenuLabel: NowPlayingMoreMenuPlainLabel? {
+        guard usesSpokenWordTransport else { return nil }
+        return NowPlayingMoreMenuPlainLabel(
+            font: .system(size: 18, weight: .semibold),
+            tint: appearance.routePickerTint,
+            height: 44
         )
     }
 

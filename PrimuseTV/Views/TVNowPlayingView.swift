@@ -119,7 +119,19 @@ struct TVNowPlayingView: View {
             currentTime: store.currentTime,
             lyricTime: store.interpolatedTime()
         )
+        pdiag(
+            "tv immersive present user=\(isUserInitiated) effect=\(fullscreenPlayerEffectRawValue) "
+                + "picker=\(immersiveStartsWithEffectPicker) idle=\(Int(interactionClock.secondsSinceLastInteraction))s "
+                + "focus=\(diagnosticFocusDescription)"
+        )
         showImmersive = true
+    }
+
+    /// 诊断日志里写焦点停在哪颗键上(看板 PRIM-40:焦点停在「全屏效果」键上时偶发进去又退回来)。
+    private var diagnosticFocusDescription: String {
+        if let focusedRowControl { return focusedRowControl }
+        if let focusedTransport { return String(describing: focusedTransport) }
+        return scrubberFocused ? "scrubber" : "-"
     }
 
     /// 全屏效果是盖在这一页上的 fullScreenCover,这一页还挂着:不停下的话进度条、歌词行、
@@ -153,6 +165,8 @@ struct TVNowPlayingView: View {
             }
         }
         .onAppear {
+            // 播放页整页重建时全屏效果跟着被收掉,不经过 onChange(showImmersive)。
+            pdiag("tv nowPlaying appear showImmersive=\(showImmersive)")
             FullscreenPlayerEffectSync.shared.install()
             onContentAppeared(focusMode)
         }
@@ -220,6 +234,7 @@ struct TVNowPlayingView: View {
             onModalActivityChanged(count > 0)
         }
         .onChange(of: showImmersive) { _, presented in
+            pdiag("tv immersive showImmersive=\(presented)")
             if !presented {
                 immersiveStartsWithEffectPicker = false
                 coveredPlayback.reset()
@@ -227,6 +242,7 @@ struct TVNowPlayingView: View {
             }
         }
         .onDisappear {
+            pdiag("tv nowPlaying disappear showImmersive=\(showImmersive)")
             if activePresentationCount > 0 {
                 onModalActivityChanged(false)
             }
