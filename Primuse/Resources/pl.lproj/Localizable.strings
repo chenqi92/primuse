@@ -2431,7 +2431,8 @@
 "notify_scrape_missing_done_title" = "Pobieranie brakujących metadanych zakończone";
 "now_playing" = "Teraz odtwarzane";
 "offline_available" = "Dostępne w trybie offline";
-"offline_cache_song" = "Zapisz ten utwór w pamięci podręcznej";
+"offline_cache_item" = "Zapisz w pamięci podręcznej";
+"offline_remove_cache" = "Usuń z pamięci podręcznej";
 "offline_cached" = "Zapisano w pamięci podręcznej";
 "offline_clear_failed_download" = "Usuń nieudane pobieranie";
 "offline_download" = "Pobierz";
@@ -2440,9 +2441,7 @@
 "offline_download_failed" = "Pobieranie nie powiodło się";
 "offline_downloading" = "Pobieranie";
 "offline_keep_cached" = "Zachowaj tryb offline";
-"offline_remove_cached_file" = "Usuń plik z pamięci podręcznej";
 "offline_remove_download" = "Usuń pobieranie";
-"offline_remove_song_cache" = "Usuń pamięć podręczną utworów";
 "offline_retry_download" = "Ponów próbę pobrania";
 "offline_wait_background_transfer" = "Oczekiwanie na zakończenie bieżącego transferu pamięci podręcznej w tle.";
 "offline_wait_incompatible_transfer" = "Oczekiwanie na zakończenie kolejnego transferu pamięci podręcznej.";

@@ -2431,7 +2431,8 @@
 "notify_scrape_missing_done_title" = "เมทาดาทาที่หายไปเรียกเมทาดาทาให้เสร็จสมบูรณ์";
 "now_playing" = "กำลังเล่น";
 "offline_available" = "มีจำหน่ายแบบออฟไลน์";
-"offline_cache_song" = "แคชเพลงนี้";
+"offline_cache_item" = "แคช";
+"offline_remove_cache" = "ลบแคช";
 "offline_cached" = "แคชไว้";
 "offline_clear_failed_download" = "ล้างการดาวน์โหลดที่ล้มเหลว";
 "offline_download" = "ดาวน์โหลด";
@@ -2440,9 +2441,7 @@
 "offline_download_failed" = "ดาวน์โหลดล้มเหลว";
 "offline_downloading" = "กำลังดาวน์โหลด";
 "offline_keep_cached" = "ให้ออฟไลน์";
-"offline_remove_cached_file" = "ลบไฟล์แคช";
 "offline_remove_download" = "ลบการดาวน์โหลด";
-"offline_remove_song_cache" = "ลบแคชเพลง";
 "offline_retry_download" = "ลองดาวน์โหลดอีกครั้ง";
 "offline_wait_background_transfer" = "กำลังรอให้การถ่ายโอนแคชพื้นหลังปัจจุบันเสร็จสิ้น";
 "offline_wait_incompatible_transfer" = "กำลังรอให้การถ่ายโอนแคชอื่นเสร็จสิ้น";

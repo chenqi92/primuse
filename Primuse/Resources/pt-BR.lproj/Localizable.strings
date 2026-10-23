@@ -2431,7 +2431,8 @@
 "notify_scrape_missing_done_title" = "Busca de metadados ausentes concluída";
 "now_playing" = "Reproduzindo";
 "offline_available" = "Disponível off-line";
-"offline_cache_song" = "Armazenar esta música em cache";
+"offline_cache_item" = "Armazenar em cache";
+"offline_remove_cache" = "Remover do cache";
 "offline_cached" = "Em cache";
 "offline_clear_failed_download" = "Falha ao limpar download";
 "offline_download" = "Baixar";
@@ -2440,9 +2441,7 @@
 "offline_download_failed" = "Falha no download";
 "offline_downloading" = "Baixando";
 "offline_keep_cached" = "Manter-se off-line";
-"offline_remove_cached_file" = "Remover arquivo em cache";
 "offline_remove_download" = "Remover download";
-"offline_remove_song_cache" = "Remover cache de músicas";
 "offline_retry_download" = "Tentar baixar novamente";
 "offline_wait_background_transfer" = "Aguardando a conclusão da transferência do cache em segundo plano atual.";
 "offline_wait_incompatible_transfer" = "Aguardando a conclusão de outra transferência de cache.";

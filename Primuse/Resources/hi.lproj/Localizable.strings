@@ -2431,7 +2431,8 @@
 "notify_scrape_missing_done_title" = "गुम-मेटाडेटा पूर्ण रूप से मेटाडेटा पुनर्प्राप्त करता है";
 "now_playing" = "अभी चल रहा है";
 "offline_available" = "ऑफ़लाइन उपलब्ध है";
-"offline_cache_song" = "इस गाने को कैश करें";
+"offline_cache_item" = "कैश करें";
+"offline_remove_cache" = "कैश से हटाएँ";
 "offline_cached" = "कैश्ड";
 "offline_clear_failed_download" = "साफ़ विफल डाउनलोड";
 "offline_download" = "डाउनलोड करें";
@@ -2440,9 +2441,7 @@
 "offline_download_failed" = "डाउनलोड विफल";
 "offline_downloading" = "डाउनलोड हो रहा है";
 "offline_keep_cached" = "ऑफ़लाइन रखें";
-"offline_remove_cached_file" = "कैश्ड फ़ाइल हटाएँ";
 "offline_remove_download" = "डाउनलोड हटाएँ";
-"offline_remove_song_cache" = "सॉन्ग कैश हटाएं";
 "offline_retry_download" = "डाउनलोड का पुनः प्रयास करें";
 "offline_wait_background_transfer" = "वर्तमान पृष्ठभूमि कैश स्थानांतरण समाप्त होने की प्रतीक्षा की जा रही है।";
 "offline_wait_incompatible_transfer" = "दूसरे कैश ट्रांसफर के ख़त्म होने की प्रतीक्षा की जा रही है।";

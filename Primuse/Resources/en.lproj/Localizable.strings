@@ -1506,12 +1506,11 @@
 "offline_download" = "Download";
 "offline_download_stop" = "Stop Download";
 "offline_batch_in_progress_format" = "Downloading · %lld left";
-"offline_cache_song" = "Cache This Song";
+"offline_cache_item" = "Cache";
+"offline_remove_cache" = "Remove from Cache";
 "offline_downloading" = "Downloading";
 "offline_keep_cached" = "Keep Offline";
 "offline_remove_download" = "Remove Download";
-"offline_remove_song_cache" = "Remove Song Cache";
-"offline_remove_cached_file" = "Remove Cached File";
 "offline_retry_download" = "Retry Download";
 "offline_clear_failed_download" = "Clear Failed Download";
 "offline_available" = "Available Offline";

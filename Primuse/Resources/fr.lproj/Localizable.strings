@@ -304,12 +304,11 @@
 "offline_download" = "Télécharger";
 "offline_download_stop" = "Arrêter le téléchargement";
 "offline_batch_in_progress_format" = "Téléchargement · encore %lld";
-"offline_cache_song" = "Mettre ce morceau en cache";
+"offline_cache_item" = "Mettre en cache";
+"offline_remove_cache" = "Retirer du cache";
 "offline_downloading" = "Téléchargement";
 "offline_keep_cached" = "Garder hors ligne";
 "offline_remove_download" = "Supprimer le téléchargement";
-"offline_remove_song_cache" = "Supprimer le cache du morceau";
-"offline_remove_cached_file" = "Supprimer le fichier en cache";
 "offline_retry_download" = "Réessayer le téléchargement";
 "offline_clear_failed_download" = "Effacer l'échec du téléchargement";
 "offline_available" = "Disponible hors ligne";

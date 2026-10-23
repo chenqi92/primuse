@@ -305,12 +305,11 @@
 "offline_download" = "ダウンロード";
 "offline_download_stop" = "ダウンロードを停止";
 "offline_batch_in_progress_format" = "ダウンロード中・残り %lld 曲";
-"offline_cache_song" = "この曲をキャッシュ";
+"offline_cache_item" = "キャッシュ";
+"offline_remove_cache" = "キャッシュを削除";
 "offline_downloading" = "ダウンロード中";
 "offline_keep_cached" = "オフライン用に保持";
 "offline_remove_download" = "ダウンロードを削除";
-"offline_remove_song_cache" = "曲のキャッシュを削除";
-"offline_remove_cached_file" = "キャッシュ済みファイルを削除";
 "offline_retry_download" = "ダウンロードを再試行";
 "offline_clear_failed_download" = "失敗したダウンロードを消去";
 "offline_available" = "オフラインで利用可能";

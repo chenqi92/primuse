@@ -304,12 +304,11 @@
 "offline_download" = "Herunterladen";
 "offline_download_stop" = "Download stoppen";
 "offline_batch_in_progress_format" = "Wird geladen · noch %lld";
-"offline_cache_song" = "Diesen Titel zwischenspeichern";
+"offline_cache_item" = "Zwischenspeichern";
+"offline_remove_cache" = "Aus dem Cache entfernen";
 "offline_downloading" = "Wird heruntergeladen";
 "offline_keep_cached" = "Offline behalten";
 "offline_remove_download" = "Download entfernen";
-"offline_remove_song_cache" = "Titel-Cache entfernen";
-"offline_remove_cached_file" = "Zwischengespeicherte Datei entfernen";
 "offline_retry_download" = "Download wiederholen";
 "offline_clear_failed_download" = "Fehlgeschlagenen Download löschen";
 "offline_available" = "Offline verfügbar";

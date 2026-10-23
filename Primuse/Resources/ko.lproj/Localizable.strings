@@ -304,12 +304,11 @@
 "offline_download" = "다운로드";
 "offline_download_stop" = "다운로드 멈추기";
 "offline_batch_in_progress_format" = "다운로드 중 · %lld곡 남음";
-"offline_cache_song" = "이 곡 캐시";
+"offline_cache_item" = "캐시";
+"offline_remove_cache" = "캐시 제거";
 "offline_downloading" = "다운로드 중";
 "offline_keep_cached" = "오프라인으로 유지";
 "offline_remove_download" = "다운로드 제거";
-"offline_remove_song_cache" = "곡 캐시 제거";
-"offline_remove_cached_file" = "캐시된 파일 제거";
 "offline_retry_download" = "다운로드 재시도";
 "offline_clear_failed_download" = "실패한 다운로드 지우기";
 "offline_available" = "오프라인 사용 가능";

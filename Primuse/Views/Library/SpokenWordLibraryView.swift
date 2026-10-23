@@ -1271,6 +1271,7 @@ struct SpokenWordBookDetailView: View {
             } else if let entry = resolved {
                 let book = entry.book
                 let songs = entry.songs
+                let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 SpokenWordChapterList(items: book.items) {
                     header(book, songs: songs)
                 } row: { index, item in
@@ -1286,6 +1287,7 @@ struct SpokenWordBookDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
+                    .loadsOfflineAudioSnapshot(for: songsByID[item.id])
                     .contextMenu {
                         Button {
                             store.markFinished(!item.isFinished, songIDs: [item.id])
@@ -1319,6 +1321,9 @@ struct SpokenWordBookDetailView: View {
                                     systemImage: "arrow.counterclockwise"
                                 )
                             }
+                        }
+                        if let song = songsByID[item.id] {
+                            SongOfflineMenuSection(song: song)
                         }
                     }
                 }

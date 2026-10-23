@@ -3724,7 +3724,8 @@
 "trust_domain" = "Доверие";
 "log_filter_error" = "Ошибки";
 "Failed" = "Не удалось";
-"offline_remove_cached_file" = "Удалить кэшированный файл";
+"offline_cache_item" = "Кэшировать";
+"offline_remove_cache" = "Удалить из кэша";
 "source_diag_advice_oauth_title" = "Срок авторизации в облаке истек.";
 "Checking for Updates" = "Проверка обновлений";
 "local_import_progress_validating" = "Проверка текущего аудиофайла…";
@@ -3872,7 +3873,6 @@
 "cloud_authorizing_waiting" = "Ожидание, пока системный браузер вернет код авторизации…";
 "songs_view_compact" = "Компактный";
 "dup_summary_footer" = "Сгруппировано по названию + исполнителю + продолжительности (±1 с). Рекомендуется сохранить версию самого высокого качества. При очистке дубликатов удаляется только лишний звук; одноименные тексты/каверы остаются, если они все еще используются в сохраненной версии.";
-"offline_cache_song" = "Кэшировать эту песню";
 "source_remove_named_format" = "Удалить «%@»";
 "ai_api_key_stored" = "Ключ API надежно хранится в связке ключей.";
 "offline_available" = "Доступно офлайн";
@@ -4052,7 +4052,6 @@
 "lyrics_editor_no_timing_lines" = "Нет строк текста для синхронизации";
 "Authorize" = "Авторизоваться";
 "credential_temporarily_unavailable" = "Пароль временно недоступен. Разблокируйте устройство и повторите попытку.";
-"offline_remove_song_cache" = "Удалить кэш песен";
 "ai_recommendation_status_daily_limit_local" = "Сегодняшняя квота интеллектуальных услуг исчерпана; существующие рекомендации сохранены";
 "ai_recommendation_status_monthly_limit_local" = "Квота интеллектуальных услуг на этот месяц исчерпана; существующие рекомендации сохранены";
 "reread_song_tags_failure_requires_complete_technical_read" = "Заголовок файла прочитан, но достоверные технические свойства требуют полной проверки файла.";

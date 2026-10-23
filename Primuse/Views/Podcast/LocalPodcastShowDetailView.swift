@@ -336,6 +336,7 @@ struct LocalPodcastShowDetailView: View {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .accessibilityIdentifier("podcast.localShow.episode")
+        .loadsOfflineAudioSnapshot(for: song)
         .contextMenu {
             episodeMenu(item, song: song, ordered: ordered, settings: settings)
         }
@@ -408,6 +409,9 @@ struct LocalPodcastShowDetailView: View {
             } label: {
                 Label("spoken_word_clear_progress", systemImage: "arrow.counterclockwise")
             }
+        }
+        if let song {
+            SongOfflineMenuSection(song: song)
         }
     }
 

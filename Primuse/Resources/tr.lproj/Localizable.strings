@@ -3724,7 +3724,8 @@
 "trust_domain" = "Güven";
 "log_filter_error" = "Hatalar";
 "Failed" = "Başarısız";
-"offline_remove_cached_file" = "Önbelleğe Alınmış Dosyayı Kaldır";
+"offline_cache_item" = "Önbelleğe al";
+"offline_remove_cache" = "Önbellekten kaldır";
 "source_diag_advice_oauth_title" = "Bulut yetkilendirmesinin süresi doldu";
 "Checking for Updates" = "Güncellemeler Kontrol Ediliyor";
 "local_import_progress_validating" = "Geçerli ses dosyası doğrulanıyor…";
@@ -3872,7 +3873,6 @@
 "cloud_authorizing_waiting" = "Sistem tarayıcısının yetkilendirme kodunu döndürmesi bekleniyor…";
 "songs_view_compact" = "Kompakt";
 "dup_summary_footer" = "Başlık + sanatçı + süreye (±1s) göre gruplandırılmıştır. En yüksek kaliteli sürümün saklanması önerilir. Yinelenen temizleme yalnızca gereksiz sesi kaldırır; Aynı adlı şarkı sözleri/cover'lar, saklanan bir sürüm hâlâ bunları kullandığında kalır.";
-"offline_cache_song" = "Bu şarkıyı önbelleğe al";
 "source_remove_named_format" = "“%@”yi kaldırın";
 "ai_api_key_stored" = "Bir API anahtarı, Anahtarlık'ta güvenli bir şekilde saklanır";
 "offline_available" = "Çevrimdışı Kullanılabilir";
@@ -4052,7 +4052,6 @@
 "lyrics_editor_no_timing_lines" = "Zamanlanacak şarkı sözü satırı yok";
 "Authorize" = "Yetkilendir";
 "credential_temporarily_unavailable" = "Şifre geçici olarak kullanılamıyor. Cihazınızın kilidini açın ve tekrar deneyin.";
-"offline_remove_song_cache" = "Şarkı Önbelleğini Kaldır";
 "ai_recommendation_status_daily_limit_local" = "Bugünün akıllı servis kotası doldu; mevcut öneriler korundu";
 "ai_recommendation_status_monthly_limit_local" = "Bu ayın akıllı servis kotası doldu; mevcut öneriler korundu";
 "reread_song_tags_failure_requires_complete_technical_read" = "Dosya başlığı okundu ancak güvenilir teknik özellikler, dosyanın tamamının incelenmesini gerektirir.";

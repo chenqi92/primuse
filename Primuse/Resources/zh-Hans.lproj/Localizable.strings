@@ -1522,12 +1522,11 @@
 "offline_download" = "离线下载";
 "offline_download_stop" = "停止下载";
 "offline_batch_in_progress_format" = "正在下载，还剩 %lld 首";
-"offline_cache_song" = "缓存此歌曲";
+"offline_cache_item" = "缓存";
+"offline_remove_cache" = "移除缓存";
 "offline_downloading" = "正在下载";
 "offline_keep_cached" = "固定为离线可用";
 "offline_remove_download" = "移除离线下载";
-"offline_remove_song_cache" = "移除歌曲缓存";
-"offline_remove_cached_file" = "移除已缓存文件";
 "offline_retry_download" = "重试离线下载";
 "offline_clear_failed_download" = "清除失败缓存";
 "offline_available" = "离线可用";

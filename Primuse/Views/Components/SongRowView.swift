@@ -2131,7 +2131,7 @@ struct SongOfflineActionButtons: View {
             Button(role: .destructive) {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
-                Label(String(localized: "offline_remove_song_cache"), systemImage: "trash")
+                Label(String(localized: "offline_remove_cache"), systemImage: "trash")
             }
         case .cached:
             if allowsDownload {
@@ -2145,7 +2145,7 @@ struct SongOfflineActionButtons: View {
             Button(role: .destructive) {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
-                Label(String(localized: "offline_remove_cached_file"), systemImage: "trash")
+                Label(String(localized: "offline_remove_cache"), systemImage: "trash")
             }
         case .failed:
             if allowsDownload {
@@ -2166,10 +2166,47 @@ struct SongOfflineActionButtons: View {
                 Button {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
-                    Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
+                    Label(String(localized: "offline_cache_item"), systemImage: "arrow.down.circle")
                 }
             }
         }
+    }
+}
+
+/// 有声书章节、本地播客单集这类不用 `SongRowView` 的行,长按菜单里也给同一组「缓存 / 移除缓存」(#336)。
+/// 菜单打开时才去读缓存状态就来不及了,行上要挂 `loadsOfflineAudioSnapshot(for:)`。
+struct SongOfflineMenuSection: View {
+    let song: Song
+    @Environment(SourceManager.self) private var sourceManager
+
+    var body: some View {
+        if song.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                SongOfflineActionButtons(
+                    song: song,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+                )
+            }
+        }
+    }
+}
+
+private struct OfflineAudioSnapshotLoader: ViewModifier {
+    let song: Song?
+    @Environment(SourceManager.self) private var sourceManager
+
+    func body(content: Content) -> some View {
+        content.task(id: song?.id) {
+            guard let song, song.sourceID != AppleMusicLibraryService.systemSourceID else { return }
+            await sourceManager.ensureOfflineAudioSnapshot(for: song)
+        }
+    }
+}
+
+extension View {
+    /// 行出现时读好这首的缓存状态,给 `SongOfflineMenuSection` 用。
+    func loadsOfflineAudioSnapshot(for song: Song?) -> some View {
+        modifier(OfflineAudioSnapshotLoader(song: song))
     }
 }
 

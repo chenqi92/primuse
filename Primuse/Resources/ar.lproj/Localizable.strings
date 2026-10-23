@@ -2431,7 +2431,8 @@
 "notify_scrape_missing_done_title" = "اكتمل مسح بيانات التعريف المفقودة";
 "now_playing" = "قيد التشغيل الآن";
 "offline_available" = "متاح دون اتصال";
-"offline_cache_song" = "ذاكرة التخزين المؤقت لهذه الأغنية";
+"offline_cache_item" = "تخزين مؤقت";
+"offline_remove_cache" = "إزالة من ذاكرة التخزين المؤقت";
 "offline_cached" = "مخبأة";
 "offline_clear_failed_download" = "مسح فشل التحميل";
 "offline_download" = "تحميل";
@@ -2440,9 +2441,7 @@
 "offline_download_failed" = "فشل التحميل";
 "offline_downloading" = "التحميل";
 "offline_keep_cached" = "البقاء دون اتصال";
-"offline_remove_cached_file" = "إزالة الملف المخزن مؤقتا";
 "offline_remove_download" = "إزالة التحميل";
-"offline_remove_song_cache" = "إزالة ذاكرة التخزين المؤقت للأغنية";
 "offline_retry_download" = "إعادة محاولة التحميل";
 "offline_wait_background_transfer" = "انتظار انتهاء عملية النقل الحالية لذاكرة التخزين المؤقت في الخلفية.";
 "offline_wait_incompatible_transfer" = "في انتظار انتهاء عملية نقل ذاكرة التخزين المؤقت الأخرى.";

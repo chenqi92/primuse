@@ -1441,12 +1441,11 @@
 "offline_download" = "離線下載";
 "offline_download_stop" = "停止下載";
 "offline_batch_in_progress_format" = "正在下載，還剩 %lld 首";
-"offline_cache_song" = "快取此歌曲";
+"offline_cache_item" = "快取";
+"offline_remove_cache" = "移除快取";
 "offline_downloading" = "正在下載";
 "offline_keep_cached" = "固定為離線可用";
 "offline_remove_download" = "移除離線下載";
-"offline_remove_song_cache" = "移除歌曲快取";
-"offline_remove_cached_file" = "移除已快取檔案";
 "offline_retry_download" = "重試離線下載";
 "offline_clear_failed_download" = "清除失敗快取";
 "offline_available" = "離線可用";
