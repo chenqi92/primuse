@@ -452,17 +452,22 @@ struct WidgetCoverImageView: View {
 
     var body: some View {
         if let image = loadImage() {
-            Image(widgetImage: image)
-                .resizable()
-                .widgetAccentedRenderingMode(.fullColor)
-                .aspectRatio(contentMode: .fill)
+            // 先占住给的框再把按填满缩放的图叠上去裁: 图和框不一样比例时(小号正在播放的书封、
+            // 电台台标)原来是按图自己的大小裁圆角, 多出框的那截顶出去被小组件边裁平(#345)。
+            Color.clear
+                .overlay {
+                    Image(widgetImage: image)
+                        .resizable()
+                        .widgetAccentedRenderingMode(.fullColor)
+                        .aspectRatio(contentMode: .fill)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay {
                     if outlined {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         } else {
             WidgetPlaceholderArtwork(
                 systemName: "waveform",
@@ -495,15 +500,19 @@ struct RecentAlbumCoverView: View {
 
     var body: some View {
         if let image = loadImage() {
-            Image(widgetImage: image)
-                .resizable()
-                .widgetAccentedRenderingMode(.fullColor)
-                .aspectRatio(contentMode: .fill)
+            // 同 `WidgetCoverImageView`: 不是方的封面也只在给的框里铺满、裁圆角。
+            Color.clear
+                .overlay {
+                    Image(widgetImage: image)
+                        .resizable()
+                        .widgetAccentedRenderingMode(.fullColor)
+                        .aspectRatio(contentMode: .fill)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         } else {
             WidgetPlaceholderArtwork(
                 systemName: "music.note",

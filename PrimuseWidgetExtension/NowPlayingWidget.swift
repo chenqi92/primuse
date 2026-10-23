@@ -298,8 +298,11 @@ private struct SmallNowPlayingView: View {
                 let artworkHeight: CGFloat = min(52, max(34, geometry.size.height - footer - textHeight))
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top) {
+                        // 62 : 52 是唱片套连着露出来的半张唱片; 书、播客和电台只有一张方封面。
                         WidgetPlaybackArtwork(state: state)
-                            .frame(width: artworkHeight * 62 / 52, height: artworkHeight)
+                            .frame(width: state.isSpokenWord || state.isLiveStream
+                                       ? artworkHeight : artworkHeight * 62 / 52,
+                                   height: artworkHeight)
                         Spacer(minLength: 8)
                         WidgetPlaybackButton(state: state, size: min(36, artworkHeight))
                     }
