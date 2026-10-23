@@ -1096,7 +1096,9 @@ enum PlainHTTPClient {
             while true {
                 if let range = buffer.range(of: lineBreak) {
                     let line = Data(buffer[..<range.lowerBound])
-                    buffer.removeFirst(range.upperBound)
+                    // Data 被 removeFirst 过之后下标不再从 0 起，range 是绝对下标，
+                    // 当成个数传给 removeFirst 会多删、越界即闪退。
+                    buffer.removeSubrange(..<range.upperBound)
                     return line
                 }
                 guard buffer.count <= 64 * 1024 else {
@@ -1448,7 +1450,7 @@ enum PlainHTTPClient {
         return ParsedResponseHeader(response: response, contentLength: contentLength, isChunked: isChunked)
     }
 
-    private static func decodeChunkedFile(_ inputURL: URL) throws -> URL {
+    static func decodeChunkedFile(_ inputURL: URL) throws -> URL {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("Primuse-HTTP-\(UUID().uuidString).download")
         guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {

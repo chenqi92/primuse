@@ -162,6 +162,18 @@ def lazy_self_in_deinit(lines):
                 yield number
 
 
+@rule("index-as-count",
+      "把 range 的下标当成个数传给 removeFirst/dropFirst/prefix;Data 被 removeFirst 或切片过之后"
+      "下标不从 0 起,会多删、越界即陷阱。按下标删用 removeSubrange(..<range.upperBound)",
+      "1.12.0(108) HTTP 分块下载 FileStreamReader.readLine 闪退")
+def index_as_count(lines):
+    pattern = re.compile(r"\.(removeFirst|dropFirst|prefix|removeLast|dropLast|suffix)\(\s*"
+                         r"[\w.]+\.(upperBound|lowerBound)\s*\)")
+    for number, line in enumerate(lines, 1):
+        if pattern.search(strip_comment(line)):
+            yield number
+
+
 # ---------------------------------------------------------------------------
 
 def allowed(rule_id, lines, number):
@@ -243,6 +255,11 @@ SELF_TEST = [
                             "deinit {\n  sessionStorage?.invalidateAndCancel()\n}", False),
     ("lazy-self-in-deinit", "lazy var formatter: DateFormatter = {\n  DateFormatter()\n}()\n"
                             "deinit {\n  print(formatter)\n}", False),
+    ("index-as-count", "buffer.removeFirst(range.upperBound)", True),
+    ("index-as-count", "let head = data.prefix(match.lowerBound)", True),
+    ("index-as-count", "buffer.removeSubrange(..<range.upperBound)", False),
+    ("index-as-count", "let head = data.prefix(upTo: match.lowerBound)", False),
+    ("index-as-count", "buffer.removeFirst(range.count)", False),
     ("filehandle-legacy", "// crash-pattern: allow filehandle-legacy 只在测试里造异常\n"
                           "handle.closeFile()", False),
     ("filehandle-legacy", "handle.closeFile() // crash-pattern: allow filehandle-legacy", True),

@@ -821,7 +821,7 @@ private final class RadioPlainHTTPStreamTransport: @unchecked Sendable {
     }
 }
 
-private struct RadioHTTPChunkedBodyDecoder {
+struct RadioHTTPChunkedBodyDecoder {
     private var buffer = Data()
     private var chunkBytesRemaining: Int?
     private var reachedEnd = false
@@ -838,7 +838,8 @@ private struct RadioHTTPChunkedBodyDecoder {
                     return
                 }
                 let lineData = Data(buffer[..<range.lowerBound])
-                buffer.removeFirst(range.upperBound)
+                // range 是绝对下标：removeFirst 过的 Data 下标不从 0 起，不能当个数删。
+                buffer.removeSubrange(..<range.upperBound)
                 guard let line = String(data: lineData, encoding: .ascii),
                       let token = line.split(separator: ";", maxSplits: 1).first,
                       let count = Int(token.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16),
