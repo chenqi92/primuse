@@ -37,6 +37,27 @@ final class LibraryPortableArtworkTests: XCTestCase {
         ])
     }
 
+    func testWidgetCoverKeyFollowsReplacedSongCover() async throws {
+        let songID = "widget-cover-\(UUID().uuidString)"
+        let song = Song(id: songID, title: "Widget cover", fileFormat: .mp3,
+                        filePath: "/widget.mp3", sourceID: "local")
+        defer { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: songID) }
+        XCTAssertNil(WidgetBookCoverRenderer.coverContent(for: song))
+
+        await MetadataAssetStore.shared.cacheCover(try image(color: .red), forSongID: songID)
+        let first = try XCTUnwrap(WidgetBookCoverRenderer.coverContent(for: song))
+        // 同一首歌换了封面:小组件的去重键要跟着变,「收听台」和正在播放才会重画。
+        await MetadataAssetStore.shared.cacheCover(try image(color: .blue), forSongID: songID)
+        let second = try XCTUnwrap(WidgetBookCoverRenderer.coverContent(for: song))
+        XCTAssertNotEqual(first, second)
+        XCTAssertNotEqual(
+            WidgetBookCoverRenderer.coverKey(songID: songID, keepsWholeCover: false, coverContent: first),
+            WidgetBookCoverRenderer.coverKey(songID: songID, keepsWholeCover: false, coverContent: second)
+        )
+        XCTAssertEqual(WidgetBookCoverRenderer.coverKey(songID: songID, keepsWholeCover: true),
+                       songID + "\u{1F}book")
+    }
+
     func testFirstPlayerFrameUsesThumbnailBeforeHighResolutionTaskStarts() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

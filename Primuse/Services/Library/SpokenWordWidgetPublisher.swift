@@ -286,9 +286,23 @@ final class SpokenWordWidgetPublisher {
 /// 竖版、横版的封面整张放进方框，空出来的边垫同一张图放大后的模糊底，再压一层 16% 的黑。
 /// 模糊在 App 这边写图时一次烘好：小组件进程内存很紧，每次刷新时间线都现场模糊也不划算。
 enum WidgetBookCoverRenderer {
-    /// 「正在播放」封面的去重键：同一首歌按书封画过和按普通封面画过算两张图。
-    nonisolated static func coverKey(songID: String, keepsWholeCover: Bool) -> String {
-        keepsWholeCover ? songID + "\u{1F}book" : songID
+    /// 「正在播放」封面的去重键：同一首歌按书封画过和按普通封面画过算两张图；这首歌的
+    /// 封面换过（`coverContent` 变了）也算另一张，以前歌没换，小组件就一直是旧封面。
+    nonisolated static func coverKey(songID: String, keepsWholeCover: Bool, coverContent: String? = nil) -> String {
+        let key = keepsWholeCover ? songID + "\u{1F}book" : songID
+        return coverContent.map { key + "\u{1F}" + $0 } ?? key
+    }
+
+    /// 这首歌眼下那张封面是哪一份，只读文件头、不解码。和写小组件封面时同一个找法：
+    /// 先按歌曲 id，再按它的封面引用。
+    nonisolated static func coverContent(for song: Song) -> String? {
+        let store = MetadataAssetStore.shared
+        if let identity = store.coverContentIdentifier(named: store.expectedCoverFileName(for: song.id)) {
+            return identity
+        }
+        guard let ref = song.coverArtFileName, !ref.isEmpty,
+              !ref.contains("/"), !ref.contains("://") else { return nil }
+        return store.coverContentIdentifier(named: ref)
     }
 
     /// 解码 `data` 并画成 `pixelSize` 见方的 JPEG。`keepsWholeCover` 为 false 时就是居中裁切铺满。

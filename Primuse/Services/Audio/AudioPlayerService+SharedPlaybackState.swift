@@ -420,8 +420,12 @@ extension AudioPlayerService {
             // 有声内容在小组件里画成书封（整张封面垫模糊底）；同一首歌改了归类也要重画。
             let keepsWholeCover = currentItemIsSpokenWord && !isLiveRadio
             let coverPixelSize: CGFloat = fullBleedArtwork ? 600 : 300
-            let coverKey = WidgetBookCoverRenderer.coverKey(songID: song.id, keepsWholeCover: keepsWholeCover)
-                + "\u{1F}\(Int(coverPixelSize))"
+            let coverContent = WidgetBookCoverRenderer.coverContent(for: song)
+            let coverKey = WidgetBookCoverRenderer.coverKey(
+                songID: song.id,
+                keepsWholeCover: keepsWholeCover,
+                coverContent: coverContent
+            ) + "\u{1F}\(Int(coverPixelSize))"
             let needsSharedCoverRefresh = coverKey != lastWidgetCoverKey || !sharedWidgetCoverExists(named: sharedCoverName)
 
             if needsSharedCoverRefresh {
@@ -448,9 +452,12 @@ extension AudioPlayerService {
                 }
 
                 if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
+                    // 「收听台」最近播放的专辑封面:以前只在文件不在时写,专辑换了封面一直是旧图。
                     if let albumCoverName = albumEntry.coverImageName,
-                       !sharedWidgetCoverExists(named: albumCoverName) {
-                        _ = writeWidgetCover(song: song, fileName: albumCoverName, size: 200)
+                       !sharedWidgetCoverExists(named: albumCoverName)
+                        || widgetAlbumCoverContents[albumEntry.id] != coverContent,
+                       writeWidgetCover(song: song, fileName: albumCoverName, size: 200) != nil {
+                        widgetAlbumCoverContents[albumEntry.id] = coverContent
                     }
                     RecentAlbumsStore.record(albumEntry)
                     recentAlbumsChanged = true

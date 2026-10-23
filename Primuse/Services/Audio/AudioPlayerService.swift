@@ -303,17 +303,21 @@ actor MacWidgetPlaybackPublisher {
     private struct PublicationContext: Sendable {
         let lastCoverKey: String?
         let lastTimelineSignature: String?
+        let albumCoverContents: [String: String]
     }
 
     private struct PublicationResult: Sendable {
         let lastCoverKey: String?
         let lastTimelineSignature: String?
+        let albumCoverContents: [String: String]
     }
 
     private var pending: MacWidgetPlaybackPublishRequest?
     private var workerTask: Task<Void, Never>?
     private var lastCoverKey: String?
     private var lastTimelineSignature: String?
+    /// 同 iOS 的 `widgetAlbumCoverContents`。
+    private var albumCoverContents: [String: String] = [:]
 
     func enqueue(_ request: MacWidgetPlaybackPublishRequest) {
         pending = request
@@ -328,13 +332,15 @@ actor MacWidgetPlaybackPublisher {
             pending = nil
             let context = PublicationContext(
                 lastCoverKey: lastCoverKey,
-                lastTimelineSignature: lastTimelineSignature
+                lastTimelineSignature: lastTimelineSignature,
+                albumCoverContents: albumCoverContents
             )
             let result = await Task.detached(priority: .utility) {
                 Self.publish(request, context: context)
             }.value
             lastCoverKey = result.lastCoverKey
             lastTimelineSignature = result.lastTimelineSignature
+            albumCoverContents = result.albumCoverContents
         }
         workerTask = nil
     }
@@ -347,7 +353,11 @@ actor MacWidgetPlaybackPublisher {
               WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
             PlaybackState.clear()
             WidgetCenter.shared.reloadAllTimelines()
-            return PublicationResult(lastCoverKey: nil, lastTimelineSignature: nil)
+            return PublicationResult(
+                lastCoverKey: nil,
+                lastTimelineSignature: nil,
+                albumCoverContents: context.albumCoverContents
+            )
         }
 
         let scope = WidgetSettings.sharedDataScope()
@@ -356,6 +366,7 @@ actor MacWidgetPlaybackPublisher {
         var coverName: String?
         var recentAlbumsChanged = false
         var nextCoverKey = context.lastCoverKey
+        var albumCoverContents = context.albumCoverContents
 
         if !scope.includesCover {
             clearSharedCovers()
@@ -369,7 +380,12 @@ actor MacWidgetPlaybackPublisher {
             let sharedCoverName = "widget_cover.png"
             // 有声内容在小组件里画成书封（整张封面垫模糊底），和 iOS 同一个判断。
             let keepsWholeCover = request.spokenWord != nil && request.playbackKind != .liveRadio
-            let coverKey = WidgetBookCoverRenderer.coverKey(songID: song.id, keepsWholeCover: keepsWholeCover)
+            let coverContent = WidgetBookCoverRenderer.coverContent(for: song)
+            let coverKey = WidgetBookCoverRenderer.coverKey(
+                songID: song.id,
+                keepsWholeCover: keepsWholeCover,
+                coverContent: coverContent
+            )
             let needsRefresh = coverKey != context.lastCoverKey
                 || !sharedCoverExists(named: sharedCoverName)
 
@@ -389,8 +405,10 @@ actor MacWidgetPlaybackPublisher {
                     listeningSpace: request.listeningSpace
                    ) {
                     if let albumCoverName = albumEntry.coverImageName,
-                       !sharedCoverExists(named: albumCoverName) {
-                        _ = writeCover(song: song, fileName: albumCoverName, size: 200)
+                       !sharedCoverExists(named: albumCoverName)
+                        || albumCoverContents[albumEntry.id] != coverContent,
+                       writeCover(song: song, fileName: albumCoverName, size: 200) {
+                        albumCoverContents[albumEntry.id] = coverContent
                     }
                     RecentAlbumsStore.record(albumEntry)
                     recentAlbumsChanged = true
@@ -442,7 +460,8 @@ actor MacWidgetPlaybackPublisher {
         }
         return PublicationResult(
             lastCoverKey: nextCoverKey,
-            lastTimelineSignature: signature
+            lastTimelineSignature: signature,
+            albumCoverContents: albumCoverContents
         )
     }
 
@@ -8233,6 +8252,9 @@ final class AudioPlayerService {
     var lastWidgetCoverKey: String?
     /// Coalesces repeated WidgetKit reload requests with identical content.
     var lastWidgetTimelineSignature: String?
+    /// 「收听台」最近播放里每张专辑封面写的是哪一份封面(按专辑键),封面换了才重写。
+    /// 不落盘:重启后每张专辑第一次放时重写一次。
+    @ObservationIgnored var widgetAlbumCoverContents: [String: String] = [:]
     #if os(iOS)
     /// 小组件给当前这首 Apple Music 资料库歌取到的官方封面, 只留一首。
     @ObservationIgnored var widgetAppleMusicArtwork: (songID: String, data: Data)?

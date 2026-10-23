@@ -557,6 +557,8 @@ extension AudioPlayerService {
             forceReload: true,
             preservingCurrentArtworkWhileLoading: true
         )
+        // 小组件的封面按封面内容去重,重发一次就换成新图(不然要等到下一次切歌、暂停)。
+        updatePlaybackState()
     }
 
     /// Artwork extraction can finish after playback has already attempted its
@@ -569,6 +571,7 @@ extension AudioPlayerService {
             forceReload: true,
             preservingCurrentArtworkWhileLoading: true
         )
+        updatePlaybackState()
     }
 
     func updateNowPlayingArtwork(_ image: PlatformImage) {
