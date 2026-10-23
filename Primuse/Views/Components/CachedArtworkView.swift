@@ -1783,6 +1783,10 @@ struct CachedArtworkView: View {
             // half-black cover. Remove the bad song mirror and continue to the
             // source in this same load instead of returning the corrupted file
             // forever.
+            if FileLogger.isDiagnosticModeActive {
+                let label = await diagnosticSongLabel(songID)
+                plog("🖼️ cover cache undecodable song=\(label) \(ArtworkImageCompatibility.diagnosticSummary(data))")
+            }
             if let songID {
                 await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
             }
@@ -1806,8 +1810,25 @@ struct CachedArtworkView: View {
                 sourceManager: sourceManager
             )
         }
-        guard let fetched,
-              let decoded = finalize(data: fetched, bucket: bucket, cacheKey: cacheKey) else {
+        guard let fetched else {
+            if FileLogger.isDiagnosticModeActive {
+                let label = await diagnosticSongLabel(songID)
+                plog(
+                    "🖼️ cover miss song=\(label) source=\(sourceID ?? "-") ref=\(effectiveRef ?? "nil") "
+                        + "file=\(filePath.map { ($0 as NSString).lastPathComponent } ?? "-") "
+                        + "ignoredFolderCover=\(ignoredGenericFolderCover)"
+                )
+            }
+            return nil
+        }
+        guard let decoded = finalize(data: fetched, bucket: bucket, cacheKey: cacheKey) else {
+            if FileLogger.isDiagnosticModeActive {
+                let label = await diagnosticSongLabel(songID)
+                plog(
+                    "🖼️ cover rejected song=\(label) source=\(sourceID ?? "-") ref=\(effectiveRef ?? "nil") "
+                        + ArtworkImageCompatibility.diagnosticSummary(fetched)
+                )
+            }
             return nil
         }
         if isMultiFrameImage(fetched),
@@ -1822,6 +1843,15 @@ struct CachedArtworkView: View {
             await MetadataAssetStore.shared.cacheCover(staticMirror, forSongID: songID)
         }
         return decoded
+    }
+
+    /// 诊断日志里标一首歌:ID 前段加歌名,用户说「这首没封面」时按歌名就能在日志里找到。
+    private nonisolated static func diagnosticSongLabel(_ songID: String?) async -> String {
+        guard let songID, !songID.isEmpty else { return "-" }
+        let title = await MainActor.run {
+            AppServices.shared.musicLibrary.unobservedVisibleSong(id: songID)?.title
+        }
+        return "\(songID.prefix(12))「\(title ?? "?")」"
     }
 
     /// Static artwork mirrors must never retain a multi-frame container. The

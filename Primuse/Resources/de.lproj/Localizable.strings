@@ -1623,6 +1623,10 @@
 "diagnostics_clear" = "Alle Berichte löschen";
 "diagnostics_clear_confirm" = "Alle Berichte löschen?";
 "diagnostics_send_button" = "An den Autor senden";
+"diagnostics_mode_title" = "Diagnosemodus";
+"diagnostics_mode_toggle" = "Ausführliche Protokolle aufzeichnen";
+"diagnostics_mode_until_format" = "Aktiv bis %@";
+"diagnostics_mode_footer" = "Schalte ihn ein, wenn etwas nicht stimmt. In den nächsten 24 Stunden zeichnet die App zusätzliche Details zur Fehlersuche auf, etwa warum ein Cover nicht lädt, und schaltet sich danach selbst ab. Protokolle bleiben auf diesem Gerät und werden nur mitgeschickt, wenn du beim Senden an den Autor „Protokolle“ auswählst; Passwörter, Tokens und andere Zugangsdaten werden nie geschrieben.";
 "diagnostics_send_privacy" = "Die E-Mail enthält die ausgewählten Berichte oder Protokolle. Prüfe sie vor dem Senden.";
 "diagnostics_send_mail_intro %lld" = "Angehängt sind %lld Primuse-Diagnoseberichte.";
 "diagnostics_send_sent_title" = "Bericht gesendet";

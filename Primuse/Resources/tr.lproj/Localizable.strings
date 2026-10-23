@@ -990,6 +990,10 @@
 "Scrape Entire Library" = "Tüm arşivin üst verilerini bul";
 "diagnostics_clear_confirm" = "Tüm raporlar silinsin mi?";
 "diagnostics_send_button" = "Geliştiriciye gönder";
+"diagnostics_mode_title" = "Tanılama Modu";
+"diagnostics_mode_toggle" = "Ayrıntılı Günlük Kaydet";
+"diagnostics_mode_until_format" = "%@ tarihine kadar açık";
+"diagnostics_mode_footer" = "Bir sorun olduğunda açın. Önümüzdeki 24 saat boyunca uygulama, bir kapağın neden yüklenmediği gibi sorun gidermeye yönelik ek ayrıntıları kaydeder ve sonra kendiliğinden kapanır. Günlükler yalnızca bu cihazda kalır ve yazara gönderirken “Günlükler” seçilirse eklenir; parolalar, belirteçler ve diğer kimlik bilgileri asla yazılmaz.";
 "diagnostics_send_privacy" = "E-postaya seçtiğiniz raporlar veya günlükler eklenir. Göndermeden önce gözden geçirin.";
 "diagnostics_send_mail_intro %lld" = "Ekte %lld Primuse tanılama raporu var.";
 "diagnostics_send_sent_title" = "Rapor gönderildi";

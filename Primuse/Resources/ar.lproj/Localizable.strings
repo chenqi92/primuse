@@ -1175,6 +1175,10 @@
 "diagnostics_clear" = "مسح كافة التقارير";
 "diagnostics_clear_confirm" = "حذف كافة التقارير؟";
 "diagnostics_send_button" = "إرسال إلى المطوّر";
+"diagnostics_mode_title" = "وضع التشخيص";
+"diagnostics_mode_toggle" = "تسجيل سجلات مفصلة";
+"diagnostics_mode_until_format" = "مفعّل حتى %@";
+"diagnostics_mode_footer" = "فعّله عند حدوث مشكلة. خلال الساعات الـ 24 القادمة يسجّل التطبيق تفاصيل إضافية لتحديد السبب، مثل سبب تعذّر تحميل غلاف، ثم يتوقف تلقائيًا. تبقى السجلات على هذا الجهاز ولا تُرفق إلا إذا اخترت «السجلات» عند الإرسال إلى المؤلف؛ ولا تُكتب كلمات المرور أو الرموز أو بيانات الاعتماد الأخرى أبدًا.";
 "diagnostics_send_privacy" = "يتضمن البريد التقارير أو السجلات التي تختارها. راجعه قبل الإرسال.";
 "diagnostics_send_mail_intro %lld" = "عدد تقارير تشخيص Primuse المرفقة: %lld.";
 "diagnostics_send_sent_title" = "تم إرسال التقرير";

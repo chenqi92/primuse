@@ -11,6 +11,7 @@ struct DiagnosticUploadPolicyTests {
         #expect(DiagnosticUpload.logTailBytes(channel: .appStore) == 4 * mebibyte)
         #expect(DiagnosticUpload.logTailBytes(channel: .testFlight) == 8 * mebibyte)
         #expect(DiagnosticUpload.logTailBytes(channel: .development) == 8 * mebibyte)
+        #expect(DiagnosticUpload.logTailBytes(channel: .appStore, diagnosticMode: true) == 8 * mebibyte)
         #expect(DiagnosticUpload.maximumBytes == 8 * mebibyte)
     }
 

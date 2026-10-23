@@ -1175,6 +1175,10 @@
 "diagnostics_clear" = "Borrar todos los informes";
 "diagnostics_clear_confirm" = "¿Eliminar todos los informes?";
 "diagnostics_send_button" = "Enviar al autor";
+"diagnostics_mode_title" = "Modo de diagnóstico";
+"diagnostics_mode_toggle" = "Guardar registros detallados";
+"diagnostics_mode_until_format" = "Activado hasta %@";
+"diagnostics_mode_footer" = "Actívalo cuando algo falle. Durante las próximas 24 horas la app registra más detalles para diagnosticar, como por qué no carga una portada, y después se desactiva sola. Los registros se quedan en este dispositivo y solo se incluyen si marcas «Registros» al enviarlos al autor; nunca se escriben contraseñas, tokens ni otras credenciales.";
 "diagnostics_send_privacy" = "El correo incluye los informes o registros que selecciones. Revísalo antes de enviarlo.";
 "diagnostics_send_mail_intro %lld" = "Reportes de diagnóstico de Primuse adjuntos: %lld.";
 "diagnostics_send_sent_title" = "Reporte enviado";

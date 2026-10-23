@@ -847,6 +847,10 @@ struct AlbumArtworkView: View {
                         reference: song.coverArtFileName,
                         identity: identity
                     )
+                    pdiag(
+                        "🖼️ album 「\(album.title)」 borrowed cover unavailable song=\(song.id.prefix(12))「\(song.title)」 "
+                            + "ref=\(song.coverArtFileName ?? "nil") tried=\(failedFallbacks.identities.count)"
+                    )
                 }
             )
         }
@@ -1007,6 +1011,10 @@ struct ArtistArtworkView: View {
                             songID: fallbackSong.id,
                             reference: fallbackSong.coverArtFileName,
                             identity: identity
+                        )
+                        pdiag(
+                            "🖼️ artist 「\(currentArtist.name)」 borrowed cover unavailable "
+                                + "song=\(fallbackSong.id.prefix(12)) tried=\(failedFallbacks.identities.count)"
                         )
                     }
                 )

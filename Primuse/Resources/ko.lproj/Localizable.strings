@@ -1623,6 +1623,10 @@
 "diagnostics_clear" = "모든 리포트 지우기";
 "diagnostics_clear_confirm" = "모든 리포트를 삭제하시겠습니까?";
 "diagnostics_send_button" = "개발자에게 보내기";
+"diagnostics_mode_title" = "진단 모드";
+"diagnostics_mode_toggle" = "상세 로그 기록";
+"diagnostics_mode_until_format" = "%@에 자동으로 꺼짐";
+"diagnostics_mode_footer" = "문제가 생겼을 때 켜 두세요. 앞으로 24시간 동안 커버를 불러오지 못하는 이유 같은 문제 해결용 정보를 더 기록하고, 시간이 지나면 자동으로 꺼집니다. 로그는 이 기기에만 저장되며 작성자에게 보낼 때 “로그”를 선택해야만 포함됩니다. 암호, 토큰 등 자격 증명은 기록되지 않습니다.";
 "diagnostics_send_privacy" = "선택한 진단 보고서 또는 로그가 이메일에 첨부됩니다. 보내기 전에 확인하세요.";
 "diagnostics_send_mail_intro %lld" = "Primuse 진단 보고서 %lld개를 첨부했습니다.";
 "diagnostics_send_sent_title" = "보고서를 보냈습니다";

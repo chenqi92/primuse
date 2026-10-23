@@ -1647,6 +1647,10 @@
 "diagnostics_clear" = "清空全部报告";
 "diagnostics_clear_confirm" = "确定要删除所有报告吗？";
 "diagnostics_send_button" = "发送给作者";
+"diagnostics_mode_title" = "诊断模式";
+"diagnostics_mode_toggle" = "记录详细日志";
+"diagnostics_mode_until_format" = "开启中，%@ 自动关闭";
+"diagnostics_mode_footer" = "遇到问题时打开，接下来 24 小时会多记一些排查用的信息（比如封面读不出来的原因），到时自动关闭。日志只存在本机，发送给作者时勾选「日志」才会带上；密码、令牌等凭据不会写进日志。";
 "diagnostics_send_privacy" = "邮件将附上你选择的诊断报告或日志，由你确认后发送。";
 "diagnostics_send_mail_intro %lld" = "随附 Primuse 诊断报告 %lld 份。";
 "diagnostics_send_sent_title" = "报告已发送";

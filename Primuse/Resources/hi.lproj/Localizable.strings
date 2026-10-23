@@ -1175,6 +1175,10 @@
 "diagnostics_clear" = "सभी रिपोर्ट साफ़ करें";
 "diagnostics_clear_confirm" = "सभी रिपोर्ट हटाएं?";
 "diagnostics_send_button" = "लेखक को भेजें";
+"diagnostics_mode_title" = "निदान मोड";
+"diagnostics_mode_toggle" = "विस्तृत लॉग रिकॉर्ड करें";
+"diagnostics_mode_until_format" = "%@ तक चालू";
+"diagnostics_mode_footer" = "कोई समस्या होने पर इसे चालू करें। अगले 24 घंटों तक ऐप समस्या खोजने के लिए अतिरिक्त जानकारी दर्ज करता है, जैसे कोई कवर क्यों लोड नहीं हो रहा, फिर अपने आप बंद हो जाता है। लॉग केवल इस डिवाइस पर रहते हैं और लेखक को भेजते समय “लॉग” चुनने पर ही जोड़े जाते हैं; पासवर्ड, टोकन और अन्य क्रेडेंशियल कभी नहीं लिखे जाते।";
 "diagnostics_send_privacy" = "ईमेल में आपकी चुनी हुई रिपोर्ट या लॉग शामिल होंगे। भेजने से पहले जाँच लें।";
 "diagnostics_send_mail_intro %lld" = "संलग्न Primuse डायग्नोस्टिक रिपोर्ट: %lld।";
 "diagnostics_send_sent_title" = "रिपोर्ट भेजी गई";

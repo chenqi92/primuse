@@ -11,11 +11,27 @@ final class FileLogger: @unchecked Sendable {
     static let shared = FileLogger()
 
     /// 单个文件多大轮转、保留几代、队列积压多少条。常规模式 10MB、保留一代
-    /// (长会话里日志不会无上限增长, 又能留住最近一代历史); 开发脚本打开诊断
-    /// 模式时放大, 见 `DiagnosticLoggingPolicy`。
-    private let limits: DiagnosticLoggingPolicy.Limits
+    /// (长会话里日志不会无上限增长, 又能留住最近一代历史); 打开诊断模式时放大,
+    /// 见 `DiagnosticLoggingPolicy`。设置里随时能开关, 所以和有效期一起由 `stateLock` 保护。
+    private var limitsState: DiagnosticLoggingPolicy.Limits
+    private var diagnosticExpiryState: Date?
+    private let stateLock = NSLock()
+
+    private var limits: DiagnosticLoggingPolicy.Limits {
+        stateLock.withLock { limitsState }
+    }
+
     /// 诊断模式生效到什么时候; nil 表示常规模式。
-    let diagnosticLoggingExpiresAt: Date?
+    var diagnosticLoggingExpiresAt: Date? {
+        stateLock.withLock { diagnosticExpiryState }
+    }
+
+    /// 诊断模式这会儿开着。只在诊断模式里才记的详细日志(封面读不出来的原因这类)先问它,
+    /// 常规模式下这些行一条都不进队列。
+    static var isDiagnosticModeActive: Bool {
+        guard let expiry = shared.diagnosticLoggingExpiresAt else { return false }
+        return expiry > Date()
+    }
 
     private static let diagnosticExpiryKey = "primuse.diagnosticLogging.expiresAt"
     /// 诊断模式下主线程取栈门槛(毫秒),跟有效期一起存、一起清。
@@ -55,8 +71,9 @@ final class FileLogger: @unchecked Sendable {
         fileURL = docs.appendingPathComponent("primuse_debug.log")
         directoryURL = docs
         let diagnosticMode = Self.resolveDiagnosticMode()
-        diagnosticLoggingExpiresAt = diagnosticMode.expiresAt
-        limits = DiagnosticLoggingPolicy.limits(isActive: diagnosticMode.isActive)
+        diagnosticExpiryState = diagnosticMode.expiresAt
+        limitsState = DiagnosticLoggingPolicy.limits(isActive: diagnosticMode.isActive)
+        let limits = limitsState
 
         // 以已有文件大小初始化计数器, 让进程内的轮转判断接着上次会话累计。
         if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
@@ -82,12 +99,17 @@ final class FileLogger: @unchecked Sendable {
         #endif
     }
 
-    /// 诊断模式只在 Debug 构建里能打开; 开关变化会改写存下来的有效期。
+    /// 诊断模式由设置里的「诊断报告」页打开(所有构建), Debug 构建另外认开发脚本的
+    /// 环境变量; 开关变化会改写存下来的有效期。
     private static func resolveDiagnosticMode() -> DiagnosticLoggingPolicy.Resolution {
-        #if DEBUG
         let defaults = UserDefaults.standard
+        #if DEBUG
+        let request = ProcessInfo.processInfo.environment[DiagnosticLoggingPolicy.environmentKey]
+        #else
+        let request: String? = nil
+        #endif
         let resolution = DiagnosticLoggingPolicy.resolve(
-            request: ProcessInfo.processInfo.environment[DiagnosticLoggingPolicy.environmentKey],
+            request: request,
             storedExpiry: defaults.object(forKey: diagnosticExpiryKey) as? Date,
             now: Date()
         )
@@ -99,6 +121,7 @@ final class FileLogger: @unchecked Sendable {
         case .unchanged:
             break
         }
+        #if DEBUG
         // 取栈门槛和有效期一样存在 App 里:「一顿一顿」这种几十毫秒的短卡常常不是每次启动都有,
         // 开诊断时带上一次,之后从主屏幕直接打开也照样抓栈。新开一段诊断没带就回到默认。
         if resolution.isActive {
@@ -111,10 +134,48 @@ final class FileLogger: @unchecked Sendable {
         } else {
             defaults.removeObject(forKey: diagnosticStackThresholdKey)
         }
-        return resolution
-        #else
-        return DiagnosticLoggingPolicy.resolve(request: nil, storedExpiry: nil, now: Date())
         #endif
+        return resolution
+    }
+
+    /// 设置里的开关: 打开就从现在起记 `hours` 小时详细日志, 到点自动回到常规模式;
+    /// 关掉立即恢复。改的是和开发脚本同一份有效期, 期间重新启动也接着记。
+    func setDiagnosticMode(enabled: Bool, hours: Int = DiagnosticLoggingPolicy.defaultHours) {
+        let defaults = UserDefaults.standard
+        let until = enabled
+            ? Date().addingTimeInterval(TimeInterval(min(max(hours, 1), DiagnosticLoggingPolicy.maximumHours)) * 3600)
+            : nil
+        if let until {
+            defaults.set(until, forKey: Self.diagnosticExpiryKey)
+        } else {
+            defaults.removeObject(forKey: Self.diagnosticExpiryKey)
+            defaults.removeObject(forKey: Self.diagnosticStackThresholdKey)
+        }
+        let limits = DiagnosticLoggingPolicy.limits(isActive: until != nil)
+        stateLock.withLock {
+            diagnosticExpiryState = until
+            limitsState = limits
+        }
+        let note = until.map {
+            "🩺 Diagnostic logging ON until \($0) (settings) files=\(limits.maxFileBytes / 1_000_000)MB×"
+                + "\(limits.rotatedGenerations + 1) backlog=\(limits.backlogLimit) \(Self.environmentSummary)"
+        } ?? "🩺 Diagnostic logging turned OFF (settings)"
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.flushPendingSummaries()
+            self.appendToFile(self.formatEntry(note, source: Self.internalSource))
+        }
+        #if DEBUG
+        if until != nil { RuntimeDiagnosticsSampler.shared.start() }
+        #endif
+        NotificationCenter.default.post(name: .primuseDiagnosticLoggingDidChange, object: nil)
+    }
+
+    /// 打开诊断模式那一行顺带记下版本、渠道和系统, 收到日志的人不用再问。
+    private static var environmentSummary: String {
+        let bundle = Bundle.main
+        let system = ProcessInfo.processInfo.operatingSystemVersionString
+        return "app=\(bundle.appVersion)(\(bundle.appBuildNumber)) channel=\(bundle.distributionChannel.rawValue) os=\(system)"
     }
 
     private static func diagnosticModeNote(
@@ -130,10 +191,10 @@ final class FileLogger: @unchecked Sendable {
         #endif
         switch resolution.change {
         case .enabled(let until):
-            return "🩺 Diagnostic logging ON until \(until) \(capacity)"
+            return "🩺 Diagnostic logging ON until \(until) \(capacity) \(environmentSummary)"
         case .unchanged:
             guard let until = resolution.expiresAt else { return nil }
-            return "🩺 Diagnostic logging still ON until \(until) \(capacity)"
+            return "🩺 Diagnostic logging still ON until \(until) \(capacity) \(environmentSummary)"
         case .disabled:
             return "🩺 Diagnostic logging turned OFF"
         case .expired:
@@ -173,8 +234,9 @@ final class FileLogger: @unchecked Sendable {
         // 入队前先过准入: 队列是串行的, 消费速度有上限, 而紧循环打点的生产速度
         // 没有上限。超限时直接记一笔丢弃就返回, 连闭包都不分配 —— 这是唯一能
         // 阻止积压把进程撑到 Jetsam 的位置。
+        let backlogLimit = limits.backlogLimit
         backlogLock.lock()
-        guard LogBacklogPolicy.admits(pendingCount: pendingCount, limit: limits.backlogLimit) else {
+        guard LogBacklogPolicy.admits(pendingCount: pendingCount, limit: backlogLimit) else {
             droppedCount += 1
             backlogLock.unlock()
             return
@@ -390,6 +452,17 @@ final class FileLogger: @unchecked Sendable {
 /// Convenience global function
 func plog(_ message: String, file: String = #file, line: Int = #line) {
     FileLogger.shared.log(message, file: file, line: line)
+}
+
+/// 只在诊断模式里记的详细日志。常规模式下连消息字符串都不拼。
+func pdiag(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) {
+    guard FileLogger.isDiagnosticModeActive else { return }
+    FileLogger.shared.log(message(), file: file, line: line)
+}
+
+extension Notification.Name {
+    /// 设置里开关诊断模式之后发, 诊断报告页据此刷新显示的有效期。
+    static let primuseDiagnosticLoggingDidChange = Notification.Name("primuse.diagnosticLoggingDidChange")
 }
 
 #if DEBUG

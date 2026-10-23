@@ -9,6 +9,7 @@ enum PrimuseKit {
     struct Song {
         let id: String
         var coverArtFileName: String? { id }
+        var title: String { id }
         let sourceID = "source"
         let filePath = "song.flac"
         let fileFormat = Format.flac
@@ -38,6 +39,7 @@ extension Notification.Name {
     static let primuseArtworkDidCache = Self("ArtworkLayersSmoke.cache")
     static let primuseArtworkDidInvalidate = Self("ArtworkLayersSmoke.invalidate")
 }
+func pdiag(_ message: @autoclosure () -> String) {}
 final class ArtworkInvalidationBatch: Sendable {
     let references: Set<String>
     init(references: Set<String>) { self.references = references }

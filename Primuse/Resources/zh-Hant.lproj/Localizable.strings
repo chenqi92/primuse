@@ -1566,6 +1566,10 @@
 "diagnostics_clear" = "清空全部報告";
 "diagnostics_clear_confirm" = "確定要刪除所有報告嗎？";
 "diagnostics_send_button" = "傳送給作者";
+"diagnostics_mode_title" = "診斷模式";
+"diagnostics_mode_toggle" = "記錄詳細日誌";
+"diagnostics_mode_until_format" = "開啟中，%@ 自動關閉";
+"diagnostics_mode_footer" = "遇到問題時開啟，接下來 24 小時會多記一些排查用的資訊（例如封面讀不出來的原因），到時自動關閉。日誌只存在本機，傳送給作者時勾選「日誌」才會附上；密碼、權杖等憑證不會寫進日誌。";
 "diagnostics_send_privacy" = "郵件將附上你選擇的診斷報告或日誌，由你確認後傳送。";
 "diagnostics_send_mail_intro %lld" = "隨附 Primuse 診斷報告 %lld 份。";
 "diagnostics_send_sent_title" = "報告已寄出";

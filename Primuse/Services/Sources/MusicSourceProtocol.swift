@@ -1538,13 +1538,18 @@ extension MusicSourceConnector {
                 guard let http = result.1 as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),
                       result.0.isEmpty == false else {
-                    throw SourceError.connectionFailed("Artwork request returned an invalid response")
+                    let status = (result.1 as? HTTPURLResponse).map { String($0.statusCode) } ?? "none"
+                    throw SourceError.connectionFailed(
+                        "Artwork request returned an invalid response (HTTP \(status), \(result.0.count) bytes)"
+                    )
                 }
                 if let mimeType = http.mimeType?.lowercased(),
                    mimeType.hasPrefix("text/")
                     || mimeType.contains("json")
                     || mimeType.contains("xml") {
-                    throw SourceError.connectionFailed("Artwork endpoint returned non-image data")
+                    throw SourceError.connectionFailed(
+                        "Artwork endpoint returned non-image data (\(mimeType), \(result.0.count) bytes)"
+                    )
                 }
                 data = result.0
             }

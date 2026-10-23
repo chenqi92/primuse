@@ -9792,15 +9792,19 @@ private struct MacDiagnosticsWindowView: View {
     @State private var uploader = DiagnosticReportUploader()
     @State private var uploadMessage = ""
     @State private var uploadIncludesReports = true
-    /// 测试渠道默认带日志;正式版要用户自己勾(说明在勾选框的悬停提示里)。
+    /// 测试渠道默认带日志;正式版要用户自己勾(说明在勾选框的悬停提示里),
+    /// 开着诊断模式时默认勾上。
     @State private var uploadIncludesLog = DiagnosticLogExportPolicy.exposesExportEntry(
         channel: Bundle.main.distributionChannel
-    )
+    ) || FileLogger.isDiagnosticModeActive
     @State private var diagnosticReportURLs: [URL] = []
     @State private var uploadTask: Task<Void, Never>?
     @State private var uploadedCode: String?
     @State private var uploadCodeCopied = false
     @State private var uploadError: String?
+    /// 诊断模式开到什么时候;nil 表示没开。
+    @State private var diagnosticModeExpiry: Date? = FileLogger.shared.diagnosticLoggingExpiresAt
+        .flatMap { $0 > Date() ? $0 : nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -9831,6 +9835,10 @@ private struct MacDiagnosticsWindowView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+
+            diagnosticModeSection
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
 
             // 中转收诊断上传时才出现;传完后留着编号,直到点「完成」。
             if uploader.availability == true || uploadedCode != nil {
@@ -10014,6 +10022,39 @@ private struct MacDiagnosticsWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(row.pasteboardText, forType: .string)
         copiedRowID = row.id
+    }
+
+    // MARK: 诊断模式
+
+    private var diagnosticModeSection: some View {
+        MacSTGroup {
+            MacSTRow(
+                String(localized: "diagnostics_mode_toggle"),
+                hint: diagnosticModeExpiry.map {
+                    String(
+                        format: String(localized: "diagnostics_mode_until_format"),
+                        $0.formatted(date: .abbreviated, time: .shortened)
+                    )
+                } ?? String(localized: "diagnostics_mode_footer"),
+                hintLineLimit: 4,
+                divider: false
+            ) {
+                MacSTToggle(isOn: Binding(
+                    get: { diagnosticModeExpiry != nil },
+                    set: { enabled in
+                        FileLogger.shared.setDiagnosticMode(enabled: enabled)
+                        refreshDiagnosticMode()
+                    }
+                ))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDiagnosticLoggingDidChange)) { _ in
+            refreshDiagnosticMode()
+        }
+    }
+
+    private func refreshDiagnosticMode() {
+        diagnosticModeExpiry = FileLogger.shared.diagnosticLoggingExpiresAt.flatMap { $0 > Date() ? $0 : nil }
     }
 
     // MARK: 上传给作者

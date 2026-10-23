@@ -1623,6 +1623,10 @@
 "diagnostics_clear" = "Effacer tous les rapports";
 "diagnostics_clear_confirm" = "Supprimer tous les rapports ?";
 "diagnostics_send_button" = "Envoyer à l’auteur";
+"diagnostics_mode_title" = "Mode diagnostic";
+"diagnostics_mode_toggle" = "Enregistrer des journaux détaillés";
+"diagnostics_mode_until_format" = "Activé jusqu’à %@";
+"diagnostics_mode_footer" = "Activez-le en cas de problème. Pendant les 24 prochaines heures, l’app enregistre davantage d’informations de dépannage, par exemple pourquoi une pochette ne se charge pas, puis le mode se désactive tout seul. Les journaux restent sur cet appareil et ne sont joints que si vous cochez « Journaux » en les envoyant à l’auteur ; les mots de passe, jetons et autres identifiants ne sont jamais écrits.";
 "diagnostics_send_privacy" = "L’e-mail contient les rapports ou journaux sélectionnés. Vérifiez-le avant de l’envoyer.";
 "diagnostics_send_mail_intro %lld" = "%lld rapports de diagnostic Primuse sont joints.";
 "diagnostics_send_sent_title" = "Rapport envoyé";

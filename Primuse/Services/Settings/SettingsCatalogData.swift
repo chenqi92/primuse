@@ -354,6 +354,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "diagnostics.shareReport", titleKey: "diagnostics_title", iosPage: .diagnostics, macPage: nil, anchor: "page.diagnostics", macAnchor: "diagnostics.shareReport", hint: "Choose a diagnostic report to share. Reports appear here when available."),
         SettingDefinition(id: "diagnostics.sendReports", titleKey: "diagnostics_send_button", iosPage: .diagnostics, macPage: nil, keywords: ["hi@yzs.ai", "email", "邮箱", "反馈", "建议", "upload", "上传"]),
         SettingDefinition(id: "diagnostics.clearReports", titleKey: "diagnostics_clear", iosPage: .diagnostics, macPage: nil),
+        SettingDefinition(id: "diagnostics.detailedLogging", titleKey: "diagnostics_mode_toggle", iosPage: .diagnostics, macPage: nil, keywords: ["diagnostic mode", "诊断模式", "详细日志", "verbose", "log", "日志"]),
         SettingDefinition(id: "duplicates.showAll", titleKey: "Show all duplicate groups", table: "SettingsSearch", iosPage: .duplicates, macPage: nil),
         SettingDefinition(id: "duplicates.cleanAll", titleKey: "dup_clean_all_action", iosPage: .duplicates, macPage: nil),
         SettingDefinition(id: "duplicates.keepBest", titleKey: "dup_keep_best_action_short", iosPage: .duplicates, macPage: nil),

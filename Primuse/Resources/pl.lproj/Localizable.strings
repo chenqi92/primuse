@@ -1175,6 +1175,10 @@
 "diagnostics_clear" = "Wyczyść wszystkie raporty";
 "diagnostics_clear_confirm" = "Usunąć wszystkie raporty?";
 "diagnostics_send_button" = "Wyślij do autora";
+"diagnostics_mode_title" = "Tryb diagnostyczny";
+"diagnostics_mode_toggle" = "Zapisuj szczegółowe dzienniki";
+"diagnostics_mode_until_format" = "Włączony do %@";
+"diagnostics_mode_footer" = "Włącz, gdy coś działa nie tak. Przez następne 24 godziny aplikacja zapisuje więcej informacji diagnostycznych, na przykład dlaczego okładka się nie wczytuje, a potem sama się wyłącza. Dzienniki zostają na tym urządzeniu i są dołączane tylko wtedy, gdy przy wysyłaniu do autora zaznaczysz „Dzienniki”; hasła, tokeny i inne dane logowania nigdy nie są zapisywane.";
 "diagnostics_send_privacy" = "Wiadomość zawiera wybrane raporty lub dzienniki. Sprawdź ją przed wysłaniem.";
 "diagnostics_send_mail_intro %lld" = "Załączone raporty diagnostyczne Primuse: %lld.";
 "diagnostics_send_sent_title" = "Raport wysłany";

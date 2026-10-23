@@ -27,6 +27,8 @@ struct DiagnosticReportsView: View {
     /// 反馈页里已经上传或分享出去的报告份数;反馈页收起后据此提议清空本机报告。
     @State private var deliveredReportCount = 0
     @State private var failureMessage: String?
+    /// 诊断模式开到什么时候;nil 表示没开。开关在这一页,到期由日志模块自己收。
+    @State private var diagnosticModeExpiry: Date?
     private let service: CrashDiagnosticsService
 
     init(service: CrashDiagnosticsService) {
@@ -103,6 +105,7 @@ struct DiagnosticReportsView: View {
                 }
 
             }
+            diagnosticModeSection
             logSection
         }
         .navigationTitle(String(localized: "diagnostics_title"))
@@ -121,6 +124,9 @@ struct DiagnosticReportsView: View {
         .task { reload() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { reload() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDiagnosticLoggingDidChange)) { _ in
+            refreshDiagnosticMode()
         }
         // Use a centered alert instead of an iPad popover. A confirmation
         // dialog attached to the List used the bottom destructive section as
@@ -190,6 +196,41 @@ struct DiagnosticReportsView: View {
     }
     #endif
 
+    /// 诊断模式:所有渠道都能开。开着的这段时间多记排查用的日志(封面读不出来的原因这类),
+    /// 到期自动关;发给作者时照旧要勾选「日志」才带上。
+    private var diagnosticModeSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { diagnosticModeExpiry != nil },
+                set: { enabled in
+                    FileLogger.shared.setDiagnosticMode(enabled: enabled)
+                    refreshDiagnosticMode()
+                }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("diagnostics_mode_toggle")
+                    if let expiry = diagnosticModeExpiry {
+                        Text(String(
+                            format: String(localized: "diagnostics_mode_until_format"),
+                            expiry.formatted(date: .abbreviated, time: .shortened)
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .settingsAnchor("diagnostics.detailedLogging")
+        } header: {
+            Text("diagnostics_mode_title")
+        } footer: {
+            Text("diagnostics_mode_footer")
+        }
+    }
+
+    private func refreshDiagnosticMode() {
+        diagnosticModeExpiry = FileLogger.shared.diagnosticLoggingExpiresAt.flatMap { $0 > Date() ? $0 : nil }
+    }
+
     @ViewBuilder private var logSection: some View {
         #if os(iOS)
         if canExportLogs {
@@ -237,6 +278,7 @@ struct DiagnosticReportsView: View {
     }
 
     private func reload() {
+        refreshDiagnosticMode()
         reports = service.reports()
         metricReports = service.metricReports()
         if canExportLogs {
@@ -289,8 +331,9 @@ private struct DiagnosticFeedbackView: View {
         self.onPrepared = onPrepared
         self.onDelivered = onDelivered
         canSendMail = DiagnosticReportMailer.canSendMail
-        // 测试渠道照旧默认带日志;正式版的日志要用户自己勾。
-        _includesLogs = State(initialValue: canExportLogs)
+        // 测试渠道照旧默认带日志;正式版的日志要用户自己勾,开着诊断模式时默认勾上
+        // (打开它就是为了把问题记下来发给作者)。
+        _includesLogs = State(initialValue: canExportLogs || FileLogger.isDiagnosticModeActive)
     }
 
     private var uploadAvailable: Bool { uploader.availability == true }

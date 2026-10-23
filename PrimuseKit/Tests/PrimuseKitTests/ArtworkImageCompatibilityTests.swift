@@ -19,6 +19,20 @@ struct ArtworkImageCompatibilityTests {
         #expect(!ArtworkImageCompatibility.isCompleteImage(Data("not-image".utf8)))
     }
 
+    @Test func diagnosticSummarySeparatesTruncationFromTrailingData() throws {
+        let jpeg = try makeJPEG()
+        #expect(ArtworkImageCompatibility.trailingBytesAfterLastJPEGEnd(jpeg) == 0)
+        let padded = jpeg + Data([0x01, 0x02, 0x03])
+        #expect(ArtworkImageCompatibility.trailingBytesAfterLastJPEGEnd(padded) == 3)
+        #expect(ArtworkImageCompatibility.diagnosticSummary(padded).contains("jpegTrailing=3"))
+        #expect(ArtworkImageCompatibility.diagnosticSummary(padded).contains("terminal=false"))
+        #expect(ArtworkImageCompatibility.trailingBytesAfterLastJPEGEnd(Data("not-image".utf8)) == nil)
+        let summary = ArtworkImageCompatibility.diagnosticSummary(jpeg)
+        #expect(summary.contains("bytes=\(jpeg.count)"))
+        #expect(summary.contains("terminal=true"))
+        #expect(summary.contains("head=FFD8"))
+    }
+
     private func makeJPEG() throws -> Data {
         let pixels = Data([
             0xFF, 0x00, 0x00, 0xFF,

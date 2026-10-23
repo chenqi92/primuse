@@ -15253,12 +15253,20 @@ final class SourceManager {
         }
         let conn = connector(for: source)
         do {
-            return try await conn.fetchArtworkData(
+            let data = try await conn.fetchArtworkData(
                 for: reference,
                 maximumBytes: maximumBytes,
                 purpose: purpose
             )
+            if data == nil {
+                pdiag("🖼️ artwork fetch empty source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose)")
+            }
+            return data
         } catch {
+            pdiag(
+                "🖼️ artwork fetch failed source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose) "
+                    + "error=\(error.localizedDescription)"
+            )
             return nil
         }
     }

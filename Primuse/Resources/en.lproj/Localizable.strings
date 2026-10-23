@@ -1631,6 +1631,10 @@
 "diagnostics_clear" = "Clear all reports";
 "diagnostics_clear_confirm" = "Delete all reports?";
 "diagnostics_send_button" = "Send to the author";
+"diagnostics_mode_title" = "Diagnostic Mode";
+"diagnostics_mode_toggle" = "Record Detailed Logs";
+"diagnostics_mode_until_format" = "On until %@";
+"diagnostics_mode_footer" = "Turn this on when something goes wrong. For the next 24 hours the app records extra troubleshooting details, such as why a cover can't load, then turns it off by itself. Logs stay on this device and are only included when you tick “Logs” while sending to the author; passwords, tokens and other credentials are never written.";
 "diagnostics_send_privacy" = "Your email includes the reports or logs you select. Review it before sending.";
 "diagnostics_send_mail_intro %lld" = "Primuse diagnostic reports attached: %lld.";
 "diagnostics_send_sent_title" = "Report sent";

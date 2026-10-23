@@ -383,7 +383,10 @@ actor MetadataAssetStore {
     func cacheCover(_ data: Data, forSongID songID: String) -> Bool {
         guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
-            plog("MetadataAssetStore: rejected incomplete cover for song '\(songID.prefix(8))'")
+            plog(
+                "MetadataAssetStore: rejected incomplete cover for song '\(songID.prefix(8))' "
+                    + ArtworkImageCompatibility.diagnosticSummary(data)
+            )
             return false
         }
         let fileName = hashedFileName(for: songID, pathExtension: "jpg")

@@ -44,9 +44,10 @@ public enum DiagnosticUpload {
     }
 
     /// 日志带多长的尾巴。日志文本压缩比大约 8~10 倍,两档都放得进 8 MiB 的包;
-    /// 正式版少带一些 —— 日志里有歌名、路径这类使用痕迹,够排查就行。
-    public static func logTailBytes(channel: AppDistributionChannel) -> Int {
-        channel == .appStore ? 4 * 1_048_576 : 8 * 1_048_576
+    /// 正式版少带一些 —— 日志里有歌名、路径这类使用痕迹,够排查就行。用户自己打开了
+    /// 诊断模式(就是为了把问题记下来发给作者)时按长的一档带。
+    public static func logTailBytes(channel: AppDistributionChannel, diagnosticMode: Bool = false) -> Int {
+        channel == .appStore && !diagnosticMode ? 4 * 1_048_576 : 8 * 1_048_576
     }
 
     /// 截图重新编码的一档:长边像素与 JPEG 质量。

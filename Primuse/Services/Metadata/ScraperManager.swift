@@ -850,7 +850,10 @@ actor ScraperManager {
     private func downloadCover(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
         guard let data = try await downloadImage(url: url, sourceConfig: sourceConfig) else { return nil }
         guard ArtworkImageCompatibility.isCompleteImage(data) else {
-            plog("🔍 \(sourceConfig.type.displayName) cover rejected: incomplete image \(data.count)B")
+            plog(
+                "🔍 \(sourceConfig.type.displayName) cover rejected: incomplete image "
+                    + ArtworkImageCompatibility.diagnosticSummary(data)
+            )
             return nil
         }
         return data

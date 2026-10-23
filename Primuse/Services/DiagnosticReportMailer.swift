@@ -74,7 +74,10 @@ enum DiagnosticReportMailer {
             if DiagnosticLogExportPolicy.exposesExportEntry(channel: channel) {
                 logData = try await FileLogger.shared.exportData()
             } else {
-                logData = await FileLogger.shared.tailData(maxBytes: DiagnosticUpload.logTailBytes(channel: channel))
+                logData = await FileLogger.shared.tailData(maxBytes: DiagnosticUpload.logTailBytes(
+                    channel: channel,
+                    diagnosticMode: FileLogger.isDiagnosticModeActive
+                ))
             }
         } else {
             logData = nil
@@ -645,7 +648,10 @@ final class DiagnosticReportUploader {
     private static func packagerInput(_ selection: Selection) async -> DiagnosticReportPackager.Input {
         var log: Data?
         if selection.includesLog {
-            let tail = DiagnosticUpload.logTailBytes(channel: Bundle.main.distributionChannel)
+            let tail = DiagnosticUpload.logTailBytes(
+                channel: Bundle.main.distributionChannel,
+                diagnosticMode: FileLogger.isDiagnosticModeActive
+            )
             let data = await FileLogger.shared.tailData(maxBytes: tail)
             log = data.isEmpty ? nil : data
         }

@@ -6820,6 +6820,59 @@ public enum ArtworkImageCompatibility {
         return true
     }
 
+    /// 诊断日志里说明一份封面数据为什么没被收下:大小、ImageIO 认出的类型和完整度、
+    /// 头尾几个字节、结尾标记在不在、JPEG 最后一个结束标记后面还拖着多少字节
+    /// (下载了半截与「完整的图后面多带了数据」靠这一项分开)。不解码整张图。
+    public static func diagnosticSummary(_ data: Data) -> String {
+        var parts = ["bytes=\(data.count)"]
+        if let source = CGImageSourceCreateWithData(data as CFData, nil) {
+            parts.append("type=\(CGImageSourceGetType(source).map { $0 as String } ?? "nil")")
+            parts.append("status=\(statusName(CGImageSourceGetStatus(source)))")
+            if CGImageSourceGetCount(source) > 0 {
+                parts.append("frame0=\(statusName(CGImageSourceGetStatusAtIndex(source, 0)))")
+            }
+        } else {
+            parts.append("imageio=unreadable")
+        }
+        parts.append("head=\(hex(data.prefix(4))) tail=\(hex(data.suffix(4)))")
+        parts.append("terminal=\(hasRequiredTerminalMarker(data))")
+        if let trailing = trailingBytesAfterLastJPEGEnd(data) {
+            parts.append("jpegTrailing=\(trailing)")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// JPEG 里最后一个结束标记(FF D9)之后还有多少字节;不是 JPEG、或者一个结束标记
+    /// 都没有(多半是下载断在中间)时返回 nil。
+    public static func trailingBytesAfterLastJPEGEnd(_ data: Data) -> Int? {
+        guard data.count >= 4, data[data.startIndex] == 0xFF,
+              data[data.index(after: data.startIndex)] == 0xD8 else { return nil }
+        var index = data.index(data.endIndex, offsetBy: -2)
+        while index > data.startIndex {
+            if data[index] == 0xFF, data[data.index(after: index)] == 0xD9 {
+                return data.distance(from: data.index(index, offsetBy: 2), to: data.endIndex)
+            }
+            index = data.index(before: index)
+        }
+        return nil
+    }
+
+    private static func statusName(_ status: CGImageSourceStatus) -> String {
+        switch status {
+        case .statusComplete: "complete"
+        case .statusIncomplete: "incomplete"
+        case .statusReadingHeader: "readingHeader"
+        case .statusUnknownType: "unknownType"
+        case .statusInvalidData: "invalidData"
+        case .statusUnexpectedEOF: "unexpectedEOF"
+        @unknown default: "status\(status.rawValue)"
+        }
+    }
+
+    private static func hex(_ bytes: Data) -> String {
+        bytes.map { String(format: "%02X", $0) }.joined()
+    }
+
     public static func hasRedundantJPEGSampling(_ data: Data) -> Bool {
         guard data.count >= 12, data[0] == 0xFF, data[1] == 0xD8 else { return false }
         var marker = 2
