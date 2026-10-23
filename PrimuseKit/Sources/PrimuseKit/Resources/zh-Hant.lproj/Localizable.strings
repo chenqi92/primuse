@@ -780,7 +780,7 @@
 
 "batch_scrape_artwork_counts_format" = "已取得 %d · 未取得 %d";
 
-"tv_artist_artwork_source_hint" = "依藝人名稱在線上尋找圖片，使用已啟用的刮削來源；未設定時使用 iTunes。";
+"tv_artist_artwork_source_hint" = "依藝人名稱在 Apple Music 目錄裡尋找藝人照片，名稱須完全一致。需先允許取用 Apple Music；沒有照片的藝人仍顯示自己歌曲的封面。";
 
 "tv_metadata_reread" = "重新讀取全部標籤";
 "ext.tv.sources.rereadTags" = "重新讀取標籤";

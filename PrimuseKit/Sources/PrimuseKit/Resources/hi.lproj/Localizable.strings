@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "उपलब्ध %d · नहीं लाया गया %d";
 
-"tv_artist_artwork_source_hint" = "कलाकार के नाम से सक्षम स्रोतों पर ऑनलाइन तस्वीरें खोजें; कोई स्रोत न हो तो iTunes का उपयोग करें।";
+"tv_artist_artwork_source_hint" = "Apple Music कैटलॉग में सटीक नाम से कलाकार की तस्वीर खोजता है। पहले Apple Music की अनुमति दें; जिन कलाकारों की तस्वीर नहीं मिलती, उनके किसी गाने का कवर ही दिखता है।";
 
 "tv_metadata_reread" = "सभी टैग फिर से पढ़ें";
 "ext.tv.sources.rereadTags" = "टैग दोबारा पढ़ें";

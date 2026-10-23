@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "Доступно %d · Не отримано %d";
 
-"tv_artist_artwork_source_hint" = "Пошук за ім’ям виконавця в активних джерелах або в iTunes, якщо джерела не налаштовано.";
+"tv_artist_artwork_source_hint" = "Шукає фото виконавців у каталозі Apple Music за точним ім’ям. Спершу дозвольте доступ до Apple Music; у виконавців без фото лишається обкладинка однієї з їхніх пісень.";
 
 "tv_metadata_reread" = "Перечитати всі теги";
 "ext.tv.sources.rereadTags" = "Перечитати теги";

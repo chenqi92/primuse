@@ -69,6 +69,21 @@ enum AppleMusicCatalogNeighbors {
         return albums[index]
     }
 
+    /// 曲库艺人的照片:目录里按名字搜艺人,只认名字完全一样且只有一位的那位
+    /// (`uniqueArtistMatchIndex`)。没授权、没搜到、对不上都给 nil。
+    static func artistArtworkURL(matchingName name: String, side: Int) async -> URL? {
+        guard MusicAuthorization.currentStatus == .authorized,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        var request = MusicCatalogSearchRequest(term: name, types: [MusicKit.Artist.self])
+        request.limit = 10
+        guard let artists = try? await Array(request.response().artists),
+              let index = AppleMusicCatalogContinuationPolicy.uniqueArtistMatchIndex(
+                name: name,
+                in: artists.map(\.name)
+              ) else { return nil }
+        return artists[index].artwork?.url(width: side, height: side)
+    }
+
     /// 专辑的全部曲目(只要歌,不要 MV)。曲目多的专辑分批给,一批批取完。
     static func tracks(of album: MusicKit.Album) async -> [MusicKit.Song] {
         do {

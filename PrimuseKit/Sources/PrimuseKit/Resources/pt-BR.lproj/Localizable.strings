@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "%d disponível · %d não obtido";
 
-"tv_artist_artwork_source_hint" = "Busque imagens pelo nome do artista nas fontes ativas ou no iTunes se nenhuma estiver configurada.";
+"tv_artist_artwork_source_hint" = "Busca fotos de artistas no catálogo do Apple Music pelo nome exato. Permita o acesso ao Apple Music primeiro; artistas sem foto mantêm a capa de uma de suas músicas.";
 
 "tv_metadata_reread" = "Reler todas as tags";
 "ext.tv.sources.rereadTags" = "Reler etiquetas";

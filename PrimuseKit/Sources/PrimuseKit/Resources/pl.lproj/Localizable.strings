@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "Dostępne %d · Nie pobrano %d";
 
-"tv_artist_artwork_source_hint" = "Szukaj według nazwy wykonawcy w aktywnych źródłach lub w iTunes, jeśli nie ma skonfigurowanych źródeł.";
+"tv_artist_artwork_source_hint" = "Wyszukuje zdjęcia wykonawców w katalogu Apple Music według dokładnej nazwy. Najpierw zezwól na dostęp do Apple Music; wykonawcy bez zdjęcia zachowują okładkę jednego ze swoich utworów.";
 
 "tv_metadata_reread" = "Odczytaj ponownie wszystkie tagi";
 "ext.tv.sources.rereadTags" = "Odczytaj tagi ponownie";

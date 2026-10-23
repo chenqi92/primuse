@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "Mevcut %d · Getirilmedi %d";
 
-"tv_artist_artwork_source_hint" = "Sanatçı adına göre etkin kaynaklarda arayın; kaynak yoksa iTunes kullanılır.";
+"tv_artist_artwork_source_hint" = "Sanatçı fotoğraflarını Apple Music kataloğunda tam ada göre arar. Önce Apple Music erişimine izin verin; fotoğrafı olmayan sanatçılar kendi şarkılarından birinin kapağını korur.";
 
 "tv_metadata_reread" = "Tüm etiketleri yeniden oku";
 "ext.tv.sources.rereadTags" = "Etiketleri yeniden oku";

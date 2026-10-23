@@ -96,4 +96,16 @@ struct AppleMusicCatalogContinuationPolicyTests {
         #expect(picked.count == 7)
         #expect(picked.prefix(5).map(\.id) == ["0-0", "1-0", "2-0", "3-0", "4-0"])
     }
+
+    @Test("An artist photo needs exactly one catalog artist with the same name")
+    func artistPhotoMatchIsExactAndUnique() {
+        #expect(Policy.uniqueArtistMatchIndex(name: "Beyoncé", in: ["Destiny's Child", "BEYONCE"]) == 1)
+        #expect(Policy.uniqueArtistMatchIndex(name: "周杰伦", in: ["周杰伦 & 费玉清", "周杰伦"]) == 1)
+        // 名字只是包含关系的不是同一位艺人。
+        #expect(Policy.uniqueArtistMatchIndex(name: "Jay", in: ["Jay Chou", "Jay-Z"]) == nil)
+        #expect(Policy.uniqueArtistMatchIndex(name: "陈", in: ["陈奕迅"]) == nil)
+        // 同名的不止一位时分不清是谁。
+        #expect(Policy.uniqueArtistMatchIndex(name: "Anna", in: ["Anna", "ANNA"]) == nil)
+        #expect(Policy.uniqueArtistMatchIndex(name: "  ", in: [""]) == nil)
+    }
 }

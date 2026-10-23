@@ -783,7 +783,7 @@
 
 "batch_scrape_artwork_counts_format" = "Verfügbar %d · Nicht abgerufen %d";
 
-"tv_artist_artwork_source_hint" = "Online nach Künstlernamen suchen: mit aktivierten Quellen oder sonst mit iTunes.";
+"tv_artist_artwork_source_hint" = "Sucht Künstlerfotos im Apple Music-Katalog anhand des genauen Namens. Erlaube zuerst den Zugriff auf Apple Music; Künstler ohne Foto behalten das Cover eines ihrer Titel.";
 
 "tv_metadata_reread" = "Alle Tags erneut lesen";
 "ext.tv.sources.rereadTags" = "Tags neu einlesen";

@@ -730,7 +730,7 @@
 
 "batch_scrape_artwork_counts_format" = "ว่าง %d · ไม่ได้ดึงข้อมูล %d";
 
-"tv_artist_artwork_source_hint" = "ค้นหารูปภาพออนไลน์ตามชื่อศิลปินจากแหล่งที่เปิดใช้ หรือใช้ iTunes หากยังไม่ได้ตั้งค่าแหล่งข้อมูล";
+"tv_artist_artwork_source_hint" = "ค้นหารูปศิลปินในแคตตาล็อก Apple Music ตามชื่อที่ตรงกันทุกตัวอักษร โปรดอนุญาตการเข้าถึง Apple Music ก่อน ศิลปินที่ไม่มีรูปจะยังแสดงปกเพลงของตนเอง";
 
 "tv_metadata_reread" = "อ่านแท็กทั้งหมดอีกครั้ง";
 "ext.tv.sources.rereadTags" = "อ่านแท็กอีกครั้ง";

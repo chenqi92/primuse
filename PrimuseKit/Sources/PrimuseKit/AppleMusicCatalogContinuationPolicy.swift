@@ -56,6 +56,16 @@ public enum AppleMusicCatalogContinuationPolicy {
         }
     }
 
+    /// 曲库艺人在目录艺人搜索结果里是哪一位:名字(忽略大小写、全半角、变音符号与标点)
+    /// 完全一样、且只有一位这样的。艺人照片配错人比没有照片难看得多,所以不认包含关系;
+    /// 同名的有好几位时也分不清是谁,不要。
+    public static func uniqueArtistMatchIndex(name: String, in results: [String]) -> Int? {
+        let wanted = artistKey(name)
+        guard !wanted.isEmpty else { return nil }
+        let matches = results.indices.filter { artistKey(results[$0]) == wanted }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     /// 拼一批续播:先放 Last.fm 那一路(已按相似度排好),再轮流取各位艺人的热门曲。
     /// 同一首(按 `songKey`)只出现一次,`isExcluded` 为真的(已在队列里、刚播过、
     /// 不喜欢的)不要,同一位歌手不超过 `perArtistLimit` 首。

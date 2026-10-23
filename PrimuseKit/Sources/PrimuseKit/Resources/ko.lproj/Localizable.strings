@@ -783,7 +783,7 @@
 
 "batch_scrape_artwork_counts_format" = "사용 가능 %d · 가져오지 못함 %d";
 
-"tv_artist_artwork_source_hint" = "활성화된 소스에서 아티스트 이름으로 이미지를 검색합니다. 설정된 소스가 없으면 iTunes를 사용합니다.";
+"tv_artist_artwork_source_hint" = "Apple Music 카탈로그에서 이름이 정확히 일치하는 아티스트 사진을 찾습니다. 먼저 Apple Music 접근을 허용하세요. 사진이 없는 아티스트는 자신의 노래 커버를 계속 표시합니다.";
 
 "tv_metadata_reread" = "모든 태그 다시 읽기";
 "ext.tv.sources.rereadTags" = "태그 다시 읽기";

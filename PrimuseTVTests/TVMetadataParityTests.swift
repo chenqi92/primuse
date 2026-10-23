@@ -640,16 +640,6 @@ final class TVMetadataParityTests: XCTestCase {
         return Data("RIFF".utf8) + le(UInt32(body.count)) + body
     }
 
-    func testBuiltInArtistLookupRequiresExplicitOptInAndPreservesConfiguredSources() {
-        let empty = ScraperSettings(sources: [])
-        XCTAssertTrue(ArtworkFetchService.artistLookupSources(settings: empty, allowBuiltInFallback: false).isEmpty)
-        XCTAssertEqual(ArtworkFetchService.artistLookupSources(settings: empty, allowBuiltInFallback: true).map(\.type), [.itunes])
-        let configured = ScraperSourceConfig(id: "configured", type: .musicBrainz, isEnabled: true, priority: 0)
-        let settings = ScraperSettings(sources: [configured])
-        XCTAssertEqual(ArtworkFetchService.artistLookupSources(settings: settings, allowBuiltInFallback: true), [configured])
-        XCTAssertTrue(empty.sources.isEmpty)
-    }
-
     func testServerArtworkCacheSeparatesCredentialsAndEndpoints() {
         var source = MusicSource(id: "server", name: "Server", type: .navidrome, host: "example.invalid")
         let first = TVSourceAssetReader.cacheIdentity(source: source, credential: .init(password: "first"))

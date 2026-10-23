@@ -783,7 +783,7 @@
 
 "batch_scrape_artwork_counts_format" = "取得済み %d · 未取得 %d";
 
-"tv_artist_artwork_source_hint" = "アーティスト名で有効なソースを検索します。未設定の場合は iTunes を使用します。";
+"tv_artist_artwork_source_hint" = "Apple Music のカタログで名前が完全に一致するアーティストの写真を探します。先に Apple Music へのアクセスを許可してください。写真がないアーティストは自分の曲のカバーのままです。";
 
 "tv_metadata_reread" = "すべてのタグを再読み込み";
 "ext.tv.sources.rereadTags" = "タグを読み直す";

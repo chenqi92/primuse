@@ -6,7 +6,8 @@ import UIKit
 import AppKit
 #endif
 
-/// Fetches and caches album covers and artist images from online scrapers.
+/// Fetches and caches album covers from online scrapers and artist photos from
+/// the Apple Music catalog.
 actor ArtworkFetchService {
     static let shared = ArtworkFetchService()
     private let assetStore = MetadataAssetStore.shared
@@ -60,25 +61,21 @@ actor ArtworkFetchService {
 
     // MARK: - Artist Image
 
-    /// Fetch artist image: check cache → search online → store
-    func fetchArtistImage(
-        artistName: String,
-        artistID: String,
-        allowBuiltInFallback: Bool = false
-    ) async -> Data? {
+    /// Fetch artist image: check cache → Apple Music artist photo → store
+    func fetchArtistImage(artistName: String, artistID: String) async -> Data? {
         // 1. Check disk cache
         if let cached = await assetStore.cachedArtistImage(forArtistID: artistID) {
             return cached
         }
 
         // 2. Deduplicate in-flight requests
-        let requestID = "\(artistID)|\(allowBuiltInFallback)"
+        let requestID = artistID
         if let existing = inFlightArtist[requestID] {
             return await existing.value
         }
 
         let task = Task<Data?, Never> {
-            let data = await searchArtistImageOnline(artistName: artistName, allowBuiltInFallback: allowBuiltInFallback)
+            let data = await searchArtistPhoto(artistName: artistName)
             if let data {
                 _ = await assetStore.storeArtistImage(data, forArtistID: artistID)
             }
@@ -142,50 +139,34 @@ actor ArtworkFetchService {
         return nil
     }
 
-    nonisolated static func artistLookupSources(
-        settings: ScraperSettings,
-        allowBuiltInFallback: Bool
-    ) -> [ScraperSourceConfig] {
-        let sources = settings.enabledSources.filter { $0.type.supportsCover }
-        guard sources.isEmpty, allowBuiltInFallback else { return sources }
-        // A manual lookup can opt in for this request without enabling any
-        // source for automatic scraping or changing synchronized settings.
-        return [.init(id: "manual-artist-itunes", type: .itunes, isEnabled: true, priority: 0)]
-    }
-
-    private func searchArtistImageOnline(artistName: String, allowBuiltInFallback: Bool) async -> Data? {
-        let sources = Self.artistLookupSources(settings: ScraperSettings.load(), allowBuiltInFallback: allowBuiltInFallback)
-        for config in sources {
-            guard !isBackedOff(config.id) else { continue }
-            do {
-                let scraper = scraper(for: config)
-                guard await !scraper.isCoolingDown() else { continue }
-                let searchResult = try await scraper.search(query: artistName, artist: artistName, album: nil, limit: 3)
-                guard let best = searchResult.items.first(where: {
-                    Self.isConfidentArtistMatch($0, artistName: artistName)
-                }) else {
-                    clearFailure(config.id)
-                    continue
-                }
-                if
-                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
-                    guard let data = try await downloadImage(url: coverUrl, sourceConfig: config) else {
-                        throw ScraperError.networkError("Artwork download failed")
-                    }
-                    clearFailure(config.id)
-                    return compressJPEG(data)
-                }
-                clearFailure(config.id)
-            } catch {
-                if Self.isCancellation(error) { return nil }
-                registerFailure(config.id, error: error)
-                plog("⚠️ ArtworkFetch: artist image search failed for '\(artistName)' via \(config.type.displayName): \(error.localizedDescription)")
-                continue
+    /// 艺人图只用 Apple Music 目录里的艺人照片。刮削源只能按歌搜, 拿到的是某首歌的
+    /// 专辑封面: 当成艺人图就是「按封面配艺人」, 名字互相包含就算对上时还会配到别人。
+    /// 没有照片的艺人卡片照旧借自己一首歌的封面, 那至少是他自己的歌。
+    private func searchArtistPhoto(artistName: String) async -> Data? {
+        guard let url = await AppleMusicCatalogNeighbors.artistArtworkURL(
+            matchingName: artistName,
+            side: 600
+        ) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("image/*", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: .shared,
+                maxBytes: 8 * 1024 * 1024
+            )
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  ArtworkImageCompatibility.isCompleteImage(data) else { return nil }
+            return compressJPEG(data)
+        } catch {
+            if !Self.isCancellation(error) {
+                plog("⚠️ ArtworkFetch: artist photo download failed for '\(artistName)': \(error.localizedDescription)")
             }
+            return nil
         }
-        return nil
     }
-
 
     // MARK: - Helpers
 
@@ -230,29 +211,6 @@ actor ArtworkFetchService {
         let delaySeconds = min(120, 5 * (1 << exponent))
         state.retryAfter = ContinuousClock.now + .seconds(delaySeconds)
         sourceFailures[configID] = state
-    }
-
-    private nonisolated static func isConfidentArtistMatch(
-        _ item: ScraperSearchItem,
-        artistName: String
-    ) -> Bool {
-        let requested = normalized(artistName)
-        guard !requested.isEmpty else { return false }
-        return textMatches(requested, normalized(item.artist))
-            || textMatches(requested, normalized(item.title))
-    }
-
-    private nonisolated static func textMatches(_ lhs: String, _ rhs: String) -> Bool {
-        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
-        return lhs == rhs || lhs.contains(rhs) || rhs.contains(lhs)
-    }
-
-    private nonisolated static func normalized(_ value: String?) -> String {
-        (value ?? "")
-            .lowercased()
-            .folding(options: .diacriticInsensitive, locale: nil)
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .joined()
     }
 
     private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
