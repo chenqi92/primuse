@@ -1627,6 +1627,10 @@
 "diagnostics_mode_toggle" = "Enregistrer des journaux détaillés";
 "diagnostics_mode_until_format" = "Activé jusqu’à %@";
 "diagnostics_mode_footer" = "Activez-le en cas de problème. Pendant les 24 prochaines heures, l’app enregistre davantage d’informations de dépannage, par exemple pourquoi une pochette ne se charge pas, puis le mode se désactive tout seul. Les journaux restent sur cet appareil et ne sont joints que si vous cochez « Journaux » en les envoyant à l’auteur ; les mots de passe, jetons et autres identifiants ne sont jamais écrits.";
+"tv_diagnostics_upload_checking" = "Vérification du service d’envoi…";
+"tv_diagnostics_upload_another" = "Envoyer un autre rapport";
+"tv_diagnostics_how_title" = "Signaler un problème";
+"tv_diagnostics_how_body" = "L’Apple TV n’a pas de rapports de plantage système : ce que vous envoyez ici, ce sont les journaux et votre message. En cas de problème, activez d’abord « Enregistrer des journaux détaillés », reproduisez le problème, puis envoyez et communiquez à l’auteur le code affiché à l’écran.";
 "diagnostics_send_privacy" = "L’e-mail contient les rapports ou journaux sélectionnés. Vérifiez-le avant de l’envoyer.";
 "diagnostics_send_mail_intro %lld" = "%lld rapports de diagnostic Primuse sont joints.";
 "diagnostics_send_sent_title" = "Rapport envoyé";

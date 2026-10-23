@@ -1627,6 +1627,10 @@
 "diagnostics_mode_toggle" = "Ausführliche Protokolle aufzeichnen";
 "diagnostics_mode_until_format" = "Aktiv bis %@";
 "diagnostics_mode_footer" = "Schalte ihn ein, wenn etwas nicht stimmt. In den nächsten 24 Stunden zeichnet die App zusätzliche Details zur Fehlersuche auf, etwa warum ein Cover nicht lädt, und schaltet sich danach selbst ab. Protokolle bleiben auf diesem Gerät und werden nur mitgeschickt, wenn du beim Senden an den Autor „Protokolle“ auswählst; Passwörter, Tokens und andere Zugangsdaten werden nie geschrieben.";
+"tv_diagnostics_upload_checking" = "Upload-Dienst wird geprüft …";
+"tv_diagnostics_upload_another" = "Weiteren Bericht senden";
+"tv_diagnostics_how_title" = "Probleme melden";
+"tv_diagnostics_how_body" = "Apple TV hat keine System-Absturzberichte, hochgeladen werden hier die Protokolle und deine Nachricht. Wenn etwas nicht stimmt, schalte zuerst „Ausführliche Protokolle aufzeichnen“ ein, lass das Problem noch einmal auftreten, lade dann hoch und nenne dem Autor den angezeigten Code.";
 "diagnostics_send_privacy" = "Die E-Mail enthält die ausgewählten Berichte oder Protokolle. Prüfe sie vor dem Senden.";
 "diagnostics_send_mail_intro %lld" = "Angehängt sind %lld Primuse-Diagnoseberichte.";
 "diagnostics_send_sent_title" = "Bericht gesendet";

@@ -305,9 +305,16 @@ actor TVSourceAssetReader {
                 let (data, response) = try await StreamResolverHTTPTransport.data(
                     for: request, session: session, maximumBytes: maximumBytes
                 )
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    pdiag("🖼️ tv artwork fetch failed source=\(source.type.rawValue) ref=\(reference) "
+                        + "http=\((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                    return nil
+                }
                 return data
-            } catch { return nil }
+            } catch {
+                pdiag("🖼️ tv artwork fetch failed source=\(source.type.rawValue) ref=\(reference) error=\(error.localizedDescription)")
+                return nil
+            }
         }
         let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
         let routes = candidates.isEmpty
@@ -335,9 +342,15 @@ actor TVSourceAssetReader {
                     data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: .thumbnail)
                 }
                 try Task.checkCancellation()
+                if data == nil {
+                    pdiag("🖼️ tv artwork fetch empty source=\(routed.type.rawValue) ref=\(reference)")
+                }
                 return data
             } catch is CancellationError { return nil }
-            catch { continue }
+            catch {
+                pdiag("🖼️ tv artwork fetch failed source=\(routed.type.rawValue) ref=\(reference) error=\(error.localizedDescription)")
+                continue
+            }
         }
         return nil
     }
@@ -496,6 +509,12 @@ extension TVStore {
             animationCacheKey: animationCacheKey, source: source, credentialProvider: credentialProvider
         )
         guard !Task.isCancelled, source.map({ self.source(id: $0.id) == $0 }) ?? true else { return nil }
+        if data == nil, FileLogger.isDiagnosticModeActive {
+            plog(
+                "🖼️ tv cover miss song=\(songID.prefix(12))「\(library.song(id: songID)?.title ?? "?")」 "
+                    + "source=\(source?.type.rawValue ?? "-") ref=\(coverRef ?? "nil")"
+            )
+        }
         return data
     }
 }

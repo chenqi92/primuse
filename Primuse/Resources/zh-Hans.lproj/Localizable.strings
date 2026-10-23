@@ -1651,6 +1651,10 @@
 "diagnostics_mode_toggle" = "记录详细日志";
 "diagnostics_mode_until_format" = "开启中，%@ 自动关闭";
 "diagnostics_mode_footer" = "遇到问题时打开，接下来 24 小时会多记一些排查用的信息（比如封面读不出来的原因），到时自动关闭。日志只存在本机，发送给作者时勾选「日志」才会带上；密码、令牌等凭据不会写进日志。";
+"tv_diagnostics_upload_checking" = "正在确认上传服务…";
+"tv_diagnostics_upload_another" = "再传一份";
+"tv_diagnostics_how_title" = "怎么反馈问题";
+"tv_diagnostics_how_body" = "Apple TV 没有系统的崩溃报告，这里上传的是日志和留言。遇到问题时先打开「记录详细日志」，让问题再出现一次，然后上传，把屏幕上的编号告诉作者。";
 "diagnostics_send_privacy" = "邮件将附上你选择的诊断报告或日志，由你确认后发送。";
 "diagnostics_send_mail_intro %lld" = "随附 Primuse 诊断报告 %lld 份。";
 "diagnostics_send_sent_title" = "报告已发送";

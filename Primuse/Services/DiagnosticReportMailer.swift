@@ -4,6 +4,8 @@ import PrimuseKit
 import SwiftUI
 #if os(iOS)
 import MessageUI
+#endif
+#if os(iOS) || os(tvOS)
 import UIKit
 #endif
 
@@ -192,16 +194,17 @@ struct DiagnosticArchiveShareSheet: UIViewControllerRepresentable {
 }
 #endif
 
-#if os(iOS) || os(macOS)
-// MARK: - 打包与上传(iPhone、iPad、Mac 共用)
+// MARK: - 打包与上传(iPhone、iPad、Mac、Apple TV 共用)
 
 /// 版本、型号、系统:邮件主题、上传请求、包里的 feedback.txt 用同一份。
 @MainActor
 enum DiagnosticReportEnvironment {
-    /// 中转只认 "iOS" 与 "macOS";iPad 的系统名是 iPadOS,也报 iOS。
+    /// iPad 的系统名是 iPadOS,也报 iOS;后台按这个名字分平台显示。
     static var platformName: String {
         #if os(macOS)
         "macOS"
+        #elseif os(tvOS)
+        "tvOS"
         #else
         "iOS"
         #endif
@@ -228,7 +231,7 @@ enum DiagnosticReportEnvironment {
         )
     }
 
-    /// 硬件标识("iPhone16,2"、"Mac14,2"):崩溃报告要的就是它,MetricKit 的载荷里
+    /// 硬件标识("iPhone16,2"、"Mac14,2"、"AppleTV14,1"):崩溃报告要的就是它,MetricKit 的载荷里
     /// 也是这个写法。Mac 上 uname 的 machine 只是 arm64,型号要从 hw.model 取。
     private static func hardwareModel() -> String {
         #if os(macOS)
@@ -449,7 +452,8 @@ nonisolated enum DiagnosticReportPackager {
 /// 诊断报告直接上传给作者:问中转收不收、打包、要上传位、PUT、确认。
 ///
 /// 和内置 AI 共用同一个中转客户端(同一份设备注册),但不看内置 AI 的开关和同意 ——
-/// 上传是用户在诊断页亲手点的按钮,传什么由他在页面上勾选。
+/// 上传是用户在诊断页亲手点的按钮,传什么由他在页面上勾选。Apple TV 没有 `AppServices`,
+/// 由诊断页把它自己的中转客户端交进来。
 @MainActor
 @Observable
 final class DiagnosticReportUploader {
@@ -476,7 +480,20 @@ final class DiagnosticReportUploader {
     private static var cachedAvailability: (value: Bool, checkedAt: Date)?
     private static let availabilityLifetime: TimeInterval = 10 * 60
 
-    init() {
+    @ObservationIgnored private let clientProvider: @MainActor () -> PrimuseAIRelayClient
+
+    #if os(tvOS)
+    convenience init(client: PrimuseAIRelayClient) {
+        self.init(clientProvider: { client })
+    }
+    #else
+    convenience init() {
+        self.init(clientProvider: { AppServices.shared.musicIntelligence.primuseRelayClient })
+    }
+    #endif
+
+    private init(clientProvider: @escaping @MainActor () -> PrimuseAIRelayClient) {
+        self.clientProvider = clientProvider
         if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
             availability = false
         } else if let cached = Self.cachedAvailability,
@@ -488,7 +505,7 @@ final class DiagnosticReportUploader {
     var isRunning: Bool { phase != nil }
 
     private var client: PrimuseAIRelayClient {
-        AppServices.shared.musicIntelligence.primuseRelayClient
+        clientProvider()
     }
 
     /// 问一次中转(公开接口,不带设备标识)。这台设备连注册都做不到时直接算不收。
@@ -601,7 +618,7 @@ final class DiagnosticReportUploader {
         }.value
     }
 
-    /// 进行中的步骤怎么写,iPhone 与 Mac 共用。
+    /// 进行中的步骤怎么写,iPhone、Mac 与 Apple TV 共用。
     static func describe(_ phase: Phase) -> String {
         switch phase {
         case .packaging:
@@ -614,7 +631,7 @@ final class DiagnosticReportUploader {
         }
     }
 
-    /// 失败时给人看的一句话,iPhone 与 Mac 共用。
+    /// 失败时给人看的一句话,iPhone、Mac 与 Apple TV 共用。
     static func message(for failure: DiagnosticUpload.Failure) -> String {
         switch failure {
         case .tooLarge:
@@ -744,4 +761,3 @@ private nonisolated final class DiagnosticUploadProgressDelegate: NSObject, URLS
         if shouldReport { report(fraction) }
     }
 }
-#endif

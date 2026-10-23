@@ -1635,6 +1635,10 @@
 "diagnostics_mode_toggle" = "Record Detailed Logs";
 "diagnostics_mode_until_format" = "On until %@";
 "diagnostics_mode_footer" = "Turn this on when something goes wrong. For the next 24 hours the app records extra troubleshooting details, such as why a cover can't load, then turns it off by itself. Logs stay on this device and are only included when you tick “Logs” while sending to the author; passwords, tokens and other credentials are never written.";
+"tv_diagnostics_upload_checking" = "Checking the upload service…";
+"tv_diagnostics_upload_another" = "Upload Another";
+"tv_diagnostics_how_title" = "How to Report a Problem";
+"tv_diagnostics_how_body" = "Apple TV has no system crash reports, so what you upload here is the log and your message. When something goes wrong, turn on Record Detailed Logs first, make the problem happen again, then upload and tell the author the code shown on screen.";
 "diagnostics_send_privacy" = "Your email includes the reports or logs you select. Review it before sending.";
 "diagnostics_send_mail_intro %lld" = "Primuse diagnostic reports attached: %lld.";
 "diagnostics_send_sent_title" = "Report sent";

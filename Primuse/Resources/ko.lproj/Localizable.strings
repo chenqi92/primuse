@@ -1627,6 +1627,10 @@
 "diagnostics_mode_toggle" = "상세 로그 기록";
 "diagnostics_mode_until_format" = "%@에 자동으로 꺼짐";
 "diagnostics_mode_footer" = "문제가 생겼을 때 켜 두세요. 앞으로 24시간 동안 커버를 불러오지 못하는 이유 같은 문제 해결용 정보를 더 기록하고, 시간이 지나면 자동으로 꺼집니다. 로그는 이 기기에만 저장되며 작성자에게 보낼 때 “로그”를 선택해야만 포함됩니다. 암호, 토큰 등 자격 증명은 기록되지 않습니다.";
+"tv_diagnostics_upload_checking" = "업로드 서비스 확인 중…";
+"tv_diagnostics_upload_another" = "하나 더 보내기";
+"tv_diagnostics_how_title" = "문제 알리는 방법";
+"tv_diagnostics_how_body" = "Apple TV에는 시스템 충돌 보고서가 없어 여기서 업로드하는 것은 로그와 메시지입니다. 문제가 생기면 먼저 “상세 로그 기록”을 켜고 문제를 한 번 더 재현한 다음 업로드하고, 화면에 표시된 번호를 작성자에게 알려 주세요.";
 "diagnostics_send_privacy" = "선택한 진단 보고서 또는 로그가 이메일에 첨부됩니다. 보내기 전에 확인하세요.";
 "diagnostics_send_mail_intro %lld" = "Primuse 진단 보고서 %lld개를 첨부했습니다.";
 "diagnostics_send_sent_title" = "보고서를 보냈습니다";

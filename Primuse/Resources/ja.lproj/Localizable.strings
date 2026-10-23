@@ -1628,6 +1628,10 @@
 "diagnostics_mode_toggle" = "詳細ログを記録";
 "diagnostics_mode_until_format" = "%@ に自動でオフ";
 "diagnostics_mode_footer" = "問題が起きたときにオンにしてください。この先 24 時間、カバーが読み込めない理由などの調査用の情報を多めに記録し、時間が来ると自動でオフになります。ログはこのデバイスにだけ保存され、作者に送るときに「ログ」を選んだ場合のみ添付されます。パスワードやトークンなどの認証情報は書き込まれません。";
+"tv_diagnostics_upload_checking" = "アップロードサービスを確認中…";
+"tv_diagnostics_upload_another" = "もう一度送る";
+"tv_diagnostics_how_title" = "問題の伝え方";
+"tv_diagnostics_how_body" = "Apple TV にはシステムのクラッシュレポートがないため、ここでアップロードするのはログとメッセージです。問題が起きたら先に「詳細ログを記録」をオンにし、もう一度問題を起こしてからアップロードし、画面の番号を作者に伝えてください。";
 "diagnostics_send_privacy" = "選択した診断レポートやログをメールに添付します。内容を確認してから送信してください。";
 "diagnostics_send_mail_intro %lld" = "Primuse の診断レポート %lld 件を添付しました。";
 "diagnostics_send_sent_title" = "レポートを送信しました";

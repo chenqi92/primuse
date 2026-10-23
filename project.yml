@@ -802,6 +802,8 @@ targets:
       - path: Primuse/Services/AI/MusicIntelligenceService.swift
       - path: Primuse/Services/AI/OpenAICompatibleProvider.swift
       - path: Primuse/Services/AI/PrimuseAIRelayClient.swift
+      # 诊断报告打包与上传:电视的「诊断报告」页走同一套中转上传,不发邮件。
+      - path: Primuse/Services/DiagnosticReportMailer.swift
       - path: Primuse/Services/AI/LibraryInsightStore.swift
       - path: Primuse/Utilities/KeychainService.swift
       - path: Primuse/Views/Settings/AISettingsView.swift

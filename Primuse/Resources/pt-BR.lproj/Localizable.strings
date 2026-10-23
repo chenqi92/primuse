@@ -1179,6 +1179,10 @@
 "diagnostics_mode_toggle" = "Gravar registros detalhados";
 "diagnostics_mode_until_format" = "Ativado até %@";
 "diagnostics_mode_footer" = "Ative quando algo der errado. Nas próximas 24 horas o app registra mais detalhes para diagnóstico, como o motivo de uma capa não carregar, e depois se desativa sozinho. Os registros ficam neste dispositivo e só são incluídos se você marcar “Registros” ao enviar ao autor; senhas, tokens e outras credenciais nunca são gravados.";
+"tv_diagnostics_upload_checking" = "Verificando o serviço de envio…";
+"tv_diagnostics_upload_another" = "Enviar outro";
+"tv_diagnostics_how_title" = "Como relatar um problema";
+"tv_diagnostics_how_body" = "A Apple TV não tem relatórios de falha do sistema, então o que você envia aqui são os registros e sua mensagem. Quando algo der errado, ative primeiro “Gravar registros detalhados”, faça o problema acontecer de novo, depois envie e informe ao autor o código mostrado na tela.";
 "diagnostics_send_privacy" = "O e-mail inclui os relatórios ou registros selecionados. Confira antes de enviar.";
 "diagnostics_send_mail_intro %lld" = "Relatórios de diagnóstico do Primuse anexados: %lld.";
 "diagnostics_send_sent_title" = "Relatório enviado";

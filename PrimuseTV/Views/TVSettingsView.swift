@@ -28,6 +28,15 @@ private var tvDebugShowsBackdropSettings: Bool {
     #endif
 }
 
+/// 截图:TV_SCREEN=diagnostics 直接打开「诊断报告」。
+private var tvDebugShowsDiagnostics: Bool {
+    #if DEBUG
+    TVDebugLaunch.screen == "diagnostics"
+    #else
+    false
+    #endif
+}
+
 /// 截图 / 取证:TV_SCREEN=settings 配 TV_SCRAPE_DEBUG=settings 直接打开刮削设置。
 private var tvDebugShowsScraperSettings: Bool {
     #if DEBUG
@@ -77,6 +86,9 @@ struct TVSettingsView: View {
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAISettings = false
+    @State private var showsDiagnostics = tvDebugShowsDiagnostics
+    /// 诊断模式开着时「诊断报告」那一行写「已启用」,提醒还在多记日志。
+    @State private var diagnosticModeActive = FileLogger.isDiagnosticModeActive
     @State private var siriAuthorization = TVSiriAuthorizationRuntime.status
     @State private var showsMetadata = false
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
@@ -295,6 +307,14 @@ struct TVSettingsView: View {
                                 openURL(PrimuseAppStore.reviewURL)
                             }
                             settingDivider
+                            navRow(
+                                "stethoscope",
+                                String(localized: "diagnostics_title"),
+                                diagnosticModeActive ? PMString("ext.tv.sources.status.enabled") : ""
+                            ) {
+                                showsDiagnostics = true
+                            }
+                            settingDivider
                             infoRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)")
                         }
                     }
@@ -354,6 +374,12 @@ struct TVSettingsView: View {
             TVAISettingsView()
                 .environment(intelligence)
         }
+        .fullScreenCover(isPresented: $showsDiagnostics, onDismiss: {
+            diagnosticModeActive = FileLogger.isDiagnosticModeActive
+        }) {
+            TVDiagnosticsView()
+                .environment(intelligence)
+        }
         .fullScreenCover(isPresented: $showsTranslationPanel) {
             TVLyricsTranslationPanel(showsCurrentSong: false)
                 .environment(store)
@@ -386,6 +412,8 @@ struct TVSettingsView: View {
                 showsTranslationPanel = false
             } else if showsAISettings {
                 showsAISettings = false
+            } else if showsDiagnostics {
+                showsDiagnostics = false
             } else if showsThemePicker {
                 showsThemePicker = false
             } else if showsEffectPicker {

@@ -1179,6 +1179,10 @@
 "diagnostics_mode_toggle" = "Zapisuj szczegółowe dzienniki";
 "diagnostics_mode_until_format" = "Włączony do %@";
 "diagnostics_mode_footer" = "Włącz, gdy coś działa nie tak. Przez następne 24 godziny aplikacja zapisuje więcej informacji diagnostycznych, na przykład dlaczego okładka się nie wczytuje, a potem sama się wyłącza. Dzienniki zostają na tym urządzeniu i są dołączane tylko wtedy, gdy przy wysyłaniu do autora zaznaczysz „Dzienniki”; hasła, tokeny i inne dane logowania nigdy nie są zapisywane.";
+"tv_diagnostics_upload_checking" = "Sprawdzanie usługi wysyłania…";
+"tv_diagnostics_upload_another" = "Wyślij kolejny";
+"tv_diagnostics_how_title" = "Jak zgłosić problem";
+"tv_diagnostics_how_body" = "Apple TV nie ma systemowych raportów awarii, więc wysyłane są tu dzienniki i Twoja wiadomość. Gdy coś działa nie tak, najpierw włącz „Zapisuj szczegółowe dzienniki”, powtórz problem, a potem wyślij i podaj autorowi kod widoczny na ekranie.";
 "diagnostics_send_privacy" = "Wiadomość zawiera wybrane raporty lub dzienniki. Sprawdź ją przed wysłaniem.";
 "diagnostics_send_mail_intro %lld" = "Załączone raporty diagnostyczne Primuse: %lld.";
 "diagnostics_send_sent_title" = "Raport wysłany";

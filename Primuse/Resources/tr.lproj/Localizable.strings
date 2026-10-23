@@ -994,6 +994,10 @@
 "diagnostics_mode_toggle" = "Ayrıntılı Günlük Kaydet";
 "diagnostics_mode_until_format" = "%@ tarihine kadar açık";
 "diagnostics_mode_footer" = "Bir sorun olduğunda açın. Önümüzdeki 24 saat boyunca uygulama, bir kapağın neden yüklenmediği gibi sorun gidermeye yönelik ek ayrıntıları kaydeder ve sonra kendiliğinden kapanır. Günlükler yalnızca bu cihazda kalır ve yazara gönderirken “Günlükler” seçilirse eklenir; parolalar, belirteçler ve diğer kimlik bilgileri asla yazılmaz.";
+"tv_diagnostics_upload_checking" = "Yükleme hizmeti denetleniyor…";
+"tv_diagnostics_upload_another" = "Bir tane daha gönder";
+"tv_diagnostics_how_title" = "Sorun nasıl bildirilir";
+"tv_diagnostics_how_body" = "Apple TV'de sistem çökme raporları olmadığından burada günlükler ve mesajınız yüklenir. Bir sorun olduğunda önce “Ayrıntılı Günlük Kaydet” seçeneğini açın, sorunu yeniden oluşturun, ardından yükleyin ve ekranda görünen kodu yazara iletin.";
 "diagnostics_send_privacy" = "E-postaya seçtiğiniz raporlar veya günlükler eklenir. Göndermeden önce gözden geçirin.";
 "diagnostics_send_mail_intro %lld" = "Ekte %lld Primuse tanılama raporu var.";
 "diagnostics_send_sent_title" = "Rapor gönderildi";
