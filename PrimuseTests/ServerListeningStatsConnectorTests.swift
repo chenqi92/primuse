@@ -5,6 +5,76 @@ import XCTest
 
 @MainActor
 final class ServerListeningStatsConnectorTests: XCTestCase {
+    func testPasswordFavoriteRoundTripUsesAuthenticatedUserAndReadsEveryPage() async throws {
+        for kind in [MediaServerSource.Kind.emby, .jellyfin] {
+            let paths = LockedValues<String>()
+            let mutations = LockedValues<String>()
+            let source = MediaServerSource(
+                sourceID: "favorite-password-\(UUID().uuidString)",
+                kind: kind,
+                host: "favorites.invalid",
+                port: nil,
+                useSsl: true,
+                basePath: nil,
+                username: "family",
+                secret: "test-password",
+                authType: .password,
+                requestDataLoader: { request in
+                    let url = try XCTUnwrap(request.url)
+                    let method = request.httpMethod ?? "GET"
+                    paths.append(url.path)
+                    if url.path == "/Users/AuthenticateByName" {
+                        XCTAssertEqual(method, "POST")
+                        let body = try XCTUnwrap(request.httpBody)
+                        let login = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+                        XCTAssertEqual(login["Username"], "family")
+                        return try Self.response(request, json: #"{"AccessToken":"family-token","User":{"Id":"family-user"}}"#)
+                    }
+                    XCTAssertEqual(request.value(forHTTPHeaderField: "X-Emby-Token"), "family-token")
+                    switch (method, url.path) {
+                    case ("POST", "/Users/family-user/FavoriteItems/501"),
+                         ("DELETE", "/Users/family-user/FavoriteItems/501"):
+                        mutations.append(method)
+                        return try Self.response(request, statusCode: 204, json: "")
+                    case ("GET", "/Users/family-user/Items"):
+                        let query = Dictionary(uniqueKeysWithValues:
+                            (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                                .map { ($0.name, $0.value ?? "") }
+                        )
+                        XCTAssertEqual(query["Filters"], "IsFavorite")
+                        XCTAssertEqual(query["IncludeItemTypes"], "Audio")
+                        XCTAssertEqual(query["Recursive"], "true")
+                        let start = try XCTUnwrap(query["StartIndex"].flatMap(Int.init))
+                        let limit = try XCTUnwrap(query["Limit"].flatMap(Int.init))
+                        var items: [[String: Any]] = (1...250).map { ["Id": String($0)] }
+                        if mutations.values.last == "POST" { items.append(["Id": 501]) }
+                        let page = Array(items.dropFirst(start).prefix(limit))
+                        let data = try JSONSerialization.data(withJSONObject: [
+                            "Items": page, "TotalRecordCount": items.count
+                        ])
+                        return try Self.response(request, json: String(decoding: data, as: UTF8.self))
+                    default:
+                        throw FixtureError.invalidRequest
+                    }
+                }
+            )
+
+            let liked = try await source.setServerFavorite(itemID: "501", isFavorite: true)
+            XCTAssertTrue(liked.isComplete)
+            XCTAssertEqual(liked.itemIDs.count, 251)
+            XCTAssertTrue(liked.itemIDs.contains("501"))
+            let unliked = try await source.setServerFavorite(itemID: "501", isFavorite: false)
+            XCTAssertTrue(unliked.isComplete)
+            XCTAssertEqual(unliked.itemIDs.count, 250)
+            XCTAssertFalse(unliked.itemIDs.contains("501"))
+            XCTAssertEqual(mutations.values, ["POST", "DELETE"])
+            XCTAssertEqual(paths.values.filter { $0 == "/Users/AuthenticateByName" }.count, 1)
+            XCTAssertFalse(paths.values.contains("/Users/Me"))
+            XCTAssertFalse(paths.values.contains("/Users"))
+            await source.disconnect()
+        }
+    }
+
     func testPlaylistSnapshotReadsAllTracksWithoutRequestingSummaryChildCounts() async throws {
         for kind in [MediaServerSource.Kind.emby, .jellyfin] {
             let source = makeMediaSource(kind: kind) { request in

@@ -5,6 +5,46 @@ import XCTest
 
 @MainActor
 final class LibraryFavoritesStoreTests: XCTestCase {
+    func testRestoringLikedCollectionPreservesSongsAndOtherCollections() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FavoriteCollectionRestore-\(UUID().uuidString)")
+        let suite = "FavoriteCollectionRestore-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let songs = (1...25).map {
+            Song(id: "song-\($0)", title: "Song \($0)", fileFormat: .mp3,
+                 filePath: "/items/\($0).mp3", sourceID: "emby-source")
+        }
+        library.addSongs(songs, affectedSourceIDs: ["emby-source"])
+        library.ensurePlaylist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked")
+        library.add(songIDs: songs.map(\.id), toPlaylist: MusicLibrary.likedSongsPlaylistID)
+        let regular = library.createPlaylist(name: "Existing playlist")
+        let otherPin = QuickAccessPinReference(kind: .playlist, itemID: regular.id)
+        defaults.set(LibraryPinStorage.encode([otherPin]), forKey: LibraryPinStorage.defaultsKey)
+        let collection = FavoriteCollectionStore(
+            defaults: defaults,
+            favorites: LibraryFavoritesStore(fileURL: directory.appendingPathComponent("favorites.json"))
+        )
+
+        XCTAssertFalse(collection.isCollected(FavoriteCollectionStore.anchor, library: library))
+        collection.restoreDefaultEntries(library: library)
+        collection.restoreDefaultEntries(library: library)
+        XCTAssertEqual(collection.references(library: library), [FavoriteCollectionStore.anchor, otherPin])
+        XCTAssertTrue(songs.allSatisfy { library.isLiked(songID: $0.id) })
+        collection.uncollect(FavoriteCollectionStore.anchor, library: library)
+        XCTAssertFalse(collection.isCollected(FavoriteCollectionStore.anchor, library: library))
+        XCTAssertTrue(songs.allSatisfy { library.isLiked(songID: $0.id) })
+        collection.restoreDefaultEntries(library: library)
+        XCTAssertEqual(collection.references(library: library), [FavoriteCollectionStore.anchor, otherPin])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library did not finish persistence")
+        }
+    }
+
     private func makeStore(_ url: URL) -> LibraryFavoritesStore {
         LibraryFavoritesStore(fileURL: url)
     }
