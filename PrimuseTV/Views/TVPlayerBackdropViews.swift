@@ -27,7 +27,7 @@ struct TVPlayerBackdrop: View {
             rotation: settings.rotation,
             step: resolver.rotation.step,
             songID: songID,
-            coverRef: songID.flatMap { store.library.song(id: $0)?.coverArtFileName },
+            cover: source == .coverBlur ? TVPlayerCoverArtwork.input(songID: songID, store: store) : nil,
             customImageIDs: settingsStore.customImageIDs
         )
         let frame = resolver.frame.flatMap { $0.source == source ? $0 : nil }
@@ -43,6 +43,9 @@ struct TVPlayerBackdrop: View {
             }
             .onChange(of: songID, initial: true) { _, songID in
                 resolver.observeSong(songID, rotation: settings.rotation)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                resolver.artworkDidCache(note, request: request, store: store)
             }
             .task(id: TimerKey(
                 isActive: scenePhase == .active && settings.rotation == .timed && source.supportsRotation,

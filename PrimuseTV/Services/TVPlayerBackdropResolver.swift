@@ -23,7 +23,8 @@ final class TVPlayerBackdropResolver {
         var rotation: PlayerBackdropRotation
         var step: Int
         var songID: String?
-        var coverRef: String?
+        /// 模糊封面找图用的歌曲与专辑信息，没有在播的歌时是 nil。
+        var cover: TVPlayerCoverArtwork.Input?
         var customImageIDs: [String]
     }
 
@@ -66,13 +67,13 @@ final class TVPlayerBackdropResolver {
                 return PlayerBackdropImaging.decodedImage(url: url, maxPixel: maxPixel)
             }
         case .coverBlur:
-            guard let songID = request.songID else {
+            guard let cover = request.cover else {
                 clear()
                 return
             }
-            let coverRef = request.coverRef
-            show(key: "blur|\(songID)|\(coverRef ?? "")", source: .coverBlur) { [weak store] in
-                guard let data = await store?.songArtworkData(songID: songID, coverRef: coverRef),
+            show(key: cover.blurKey, source: .coverBlur) { [weak store] in
+                guard let store,
+                      let data = await TVPlayerCoverArtwork.data(for: cover, store: store),
                       !Task.isCancelled,
                       let image = PlayerBackdropImaging.decodedImage(
                         data: data, maxPixel: PlayerBackdropPixelPolicy.blurSourcePixel
@@ -99,6 +100,15 @@ final class TVPlayerBackdropResolver {
                 self.showAlbumBack(files: files ?? [], song: song, request: request, store: store)
             }
         }
+    }
+
+    /// 这首歌的封面刚存进来（电视自己读到标签、扫码直传带来封面）：模糊封面还没铺上就再找一次，
+    /// 不等一分钟的失败冷却。播放页大封面收到同一条通知也会重新取图。
+    func artworkDidCache(_ note: Notification, request: Request, store: TVStore) {
+        guard request.source == .coverBlur, frame == nil, loadingKey == nil,
+              let cover = request.cover, cover.concerns(note) else { return }
+        failedKeys[cover.blurKey] = nil
+        update(request, store: store)
     }
 
     private func clear() {
@@ -161,6 +171,96 @@ final class TVPlayerBackdropResolver {
         loadTask?.cancel()
         loadTask = nil
         loadingKey = nil
+    }
+}
+
+/// 播放页「模糊封面」虚化哪张图：和播放页大封面（`TVArtworkView`）同一个先后——专辑换过的封面、
+/// 歌曲自己的封面、专辑封面缓存，最后按艺人和专辑名在线找。只认歌曲自己的封面时，封面只存在
+/// 专辑一级的歌（手机扫的曲库、在线补到的封面）播放页有封面，背景却什么也不铺。
+@MainActor
+enum TVPlayerCoverArtwork {
+    struct Input: Equatable, Sendable {
+        var songID: String
+        var coverRef: String?
+        var albumID: String
+        var artist: String
+        var album: String
+        var albumArtwork: LibraryArtworkOverrideResolution
+
+        /// 背景图的身份：换了封面引用或专辑换了封面都算另一张。
+        var blurKey: String {
+            let override: String
+            switch albumArtwork {
+            case .automatic: override = ""
+            case .selectedSong(let id): override = "song:\(id)"
+            case .uploaded(let id): override = "upload:\(id)"
+            }
+            return "blur|\(songID)|\(coverRef ?? "")|\(albumID)|\(override)"
+        }
+
+        /// 封面缓存通知是不是这首歌、这张专辑的（判法同 `TVArtworkView`）。
+        func concerns(_ note: Notification) -> Bool {
+            if note.userInfo?["all"] as? Bool == true { return true }
+            var songIDs: Set<String> = [songID]
+            if case .selectedSong(let id) = albumArtwork { songIDs.insert(id) }
+            if let id = note.object as? String, songIDs.contains(id) { return true }
+            if let id = note.userInfo?["songID"] as? String, songIDs.contains(id) { return true }
+            if let ids = note.userInfo?["songIDs"] as? [String], !songIDs.isDisjoint(with: ids) { return true }
+            let tokens = note.userInfo?["tokens"] as? [String] ?? []
+            if !albumID.isEmpty, tokens.contains(albumID) { return true }
+            if let coverRef, !coverRef.isEmpty, tokens.contains(coverRef) { return true }
+            if case .uploaded(let id) = albumArtwork, tokens.contains(id) { return true }
+            return false
+        }
+    }
+
+    static func input(songID: String?, store: TVStore) -> Input? {
+        guard let songID, !songID.isEmpty else { return nil }
+        let nowPlaying = store.nowPlaying
+        let matchesNowPlaying = nowPlaying.songID == songID
+        let albumID = matchesNowPlaying ? nowPlaying.albumID : ""
+        return Input(
+            songID: songID,
+            coverRef: matchesNowPlaying
+                ? nowPlaying.coverRef
+                : store.library.song(id: songID)?.coverArtFileName,
+            albumID: albumID,
+            artist: matchesNowPlaying ? nowPlaying.artist : "",
+            album: matchesNowPlaying ? nowPlaying.album : "",
+            albumArtwork: albumID.isEmpty
+                ? .automatic
+                : store.library.artworkPresentation(
+                    for: LibraryArtworkOwner(kind: .album, id: albumID)
+                ).resolution
+        )
+    }
+
+    static func data(for input: Input, store: TVStore) async -> Data? {
+        switch input.albumArtwork {
+        case .uploaded(let contentID):
+            if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) { return data }
+        case .selectedSong(let selectedSongID):
+            if let song = store.library.song(id: selectedSongID),
+               let data = await store.songArtworkData(songID: song.id, coverRef: song.coverArtFileName) {
+                return data
+            }
+        case .automatic:
+            break
+        }
+        if let data = await store.songArtworkData(songID: input.songID, coverRef: input.coverRef) {
+            return data
+        }
+        // 飞牛的封面引用只认源里那张，不拿专辑缓存或在线搜到的顶上（同 `TVArtworkView`）。
+        guard !Task.isCancelled, !input.albumID.isEmpty,
+              FnMusicAPIProtocol.coverID(from: input.coverRef ?? "") == nil else { return nil }
+        if let cached = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: input.albumID),
+           let data = await TVArtworkLoader.shared.preparedAlbumArtwork(
+            cached, albumID: input.albumID, animationCacheKey: nil
+           ) {
+            return data
+        }
+        guard !Task.isCancelled else { return nil }
+        return await TVArtworkLoader.shared.cover(key: input.albumID, artist: input.artist, album: input.album)
     }
 }
 
