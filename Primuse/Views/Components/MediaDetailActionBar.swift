@@ -169,8 +169,9 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
-    /// iPhone Duo 竖栏在尾侧时：曲目等正文铺到屏幕边缘，尾侧不再把安全区垫回来（头图照旧按侧让开）。
-    /// 竖栏在前沿（外屏横握）时照旧垫回来，行首不压在胶囊下面。
+    /// iPhone Duo 竖栏在尾侧时：正文尾侧的那一段换成安全区留白垫回来。曲目行、按钮照样停在竖栏左侧，
+    /// 横滑的一排（更多来自、相似艺人）像在普通页面上一样顺着滚动方向伸进竖栏、在屏幕边上露出下一张。
+    /// 竖栏在前沿（外屏横握）时和没有竖栏一样直接垫回来。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     /// 单栏 ⇄ 两栏时头图(封面、标题、操作行)从旧位置滑到新位置。
     @Namespace private var layoutNamespace
@@ -214,6 +215,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                     content
                         .padding(.leading, safeArea.leading)
                         .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
+                        .safeAreaPadding(.trailing, verticalBarEdge == .trailing ? safeArea.trailing : 0)
                         .pmLayoutSwitchFade()
                 }
                 // Horizontal artwork shelves must not determine the page width.
@@ -277,6 +279,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 content
                     .padding(.top, safeArea.top + 16)
                     .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
+                    .safeAreaPadding(.trailing, verticalBarEdge == .trailing ? safeArea.trailing : 0)
                     .frame(width: trailingWidth)
             }
             .frame(width: trailingWidth)
@@ -488,7 +491,7 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
-    /// iPhone Duo 竖栏：右栏的曲目铺到屏幕边缘，不再把竖栏那一条垫回来。
+    /// iPhone Duo 竖栏：右栏尾侧的那一段换成安全区留白垫回来，曲目停在竖栏左侧，横滑的一排伸进竖栏。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     /// 单栏 ⇄ 两栏时头部从旧位置滑到新位置(页面在头部上挂 `libraryDetailMatchedHeader()`)。
     @Namespace private var layoutNamespace
@@ -531,6 +534,7 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                             content()
                                 .padding(.top, 16)
                                 .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
+                                .safeAreaPadding(.trailing, verticalBarEdge == .trailing ? safeArea.trailing : 0)
                                 .frame(width: max(0, pageWidth - leadingWidth))
                         }
                         .pmVerticalBarScrollEdge()

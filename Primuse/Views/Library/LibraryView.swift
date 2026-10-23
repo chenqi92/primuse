@@ -761,6 +761,8 @@ struct LibraryView: View {
                     quickAccessItems
                 }
                 .padding(.horizontal, 16)
+                // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面。
+                .pmCoversExtendUnderVerticalBar()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
@@ -1921,6 +1923,8 @@ struct GenreLibraryView: View {
                         }
                     }
                     .padding(16)
+                    // iPhone Duo 竖栏：最右一列风格卡伸进竖栏，系统的玻璃胶囊浮在上面。
+                    .pmCoversExtendUnderVerticalBar()
                     // 只在"有结果 ↔ 没结果"这一层重建时淡入一次, 逐键过滤的网格本身不动。
                     .pmAppearFade(.contentAppear)
                 }

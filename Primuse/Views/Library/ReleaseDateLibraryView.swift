@@ -180,6 +180,8 @@ struct ReleaseDateLibraryView: View {
                     }
                 }
             }
+            // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面；年份标题照旧停在竖栏左侧。
+            .pmCoversExtendUnderVerticalBar()
         }
         .padding(.horizontal, horizontalInset)
         .padding(.top, 6)

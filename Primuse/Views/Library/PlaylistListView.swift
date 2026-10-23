@@ -268,7 +268,6 @@ struct PlaylistListView: View {
                         }
                     }
                 }
-                .pmExtendsUnderVerticalBar()
                 .overlay {
                     if findHasNoResults {
                         ContentUnavailableView.search(text: findText)
@@ -359,7 +358,6 @@ struct PlaylistListView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(.active))
-        .pmExtendsUnderVerticalBar()
         #endif
     }
 

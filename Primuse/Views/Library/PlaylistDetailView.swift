@@ -448,8 +448,6 @@ struct PlaylistDetailView: View {
                     // 找歌时头部让开: 键盘弹起后剩下的那点高度全留给结果。
                     if !isFinding {
                         playlistHeader
-                            // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
-                            .pmClearOfVerticalBar()
                             .libraryDetailMatchedHeader()
 
                         playlistReviewSection

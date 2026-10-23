@@ -3737,7 +3737,6 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                             position: position,
                             isLast: position == cache.positionCount - 1,
                             trailingPadding: showsSectionIndex ? 40 + sectionIndexTrailingInset : 16,
-                            clearsVerticalBar: showsSectionIndex,
                             cache: cache,
                             locatedSongID: locatedSongID,
                             selection: selection,
@@ -3752,8 +3751,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 .scrollTargetLayout()
             }
             .scrollPosition($scrollPosition)
-            // iPhone Duo 竖栏：行铺到屏幕边缘；字母索引不在滚动区里，照旧停在竖栏左侧，
-            // 有索引时行尾连竖栏那一条一起让开（见 `IOSSongListPositionSlot`）。
+            // iPhone Duo 竖栏：行和字母索引都停在竖栏左侧，「开始听」的横滑一排铺到屏幕右缘。
             .pmExtendsUnderVerticalBar()
             .background(songListBackground)
             // 量的是行所在的这个滚动容器, 不是整屏。字母索引是盖在容器右缘的
@@ -3826,15 +3824,10 @@ private struct IOSSongListPositionSlot: View {
     let position: Int
     let isLast: Bool
     let trailingPadding: CGFloat
-    /// 行尾要给字母索引让位：列表铺到竖栏底下时（iPhone Duo），索引停在竖栏左侧，
-    /// 行尾连竖栏盖住的那一条一起让开。
-    var clearsVerticalBar = false
     let cache: SongListCache
     let locatedSongID: String?
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
-    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
-    @Environment(\.pmVerticalBarOverlap) private var verticalBarOverlap
     @Environment(\.songRowStyle) private var rowStyle
 
     var body: some View {
@@ -3847,10 +3840,7 @@ private struct IOSSongListPositionSlot: View {
                 onPlay: onPlay
             )
             .padding(.leading, 16)
-            .padding(
-                .trailing,
-                trailingPadding + (clearsVerticalBar && verticalBarEdge == .trailing ? verticalBarOverlap : 0)
-            )
+            .padding(.trailing, trailingPadding)
             .padding(.vertical, 4)
 
             Divider()

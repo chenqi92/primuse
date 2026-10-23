@@ -205,11 +205,11 @@ struct PMHorizontalArrangement<Primary: View, Secondary: View>: View {
 extension View {
     /// 横滑的一排(首页各区块、详情页「更多来自」、搜索页流派……)遇到系统竖栏时怎么排。
     ///
-    /// iPhone Duo 的竖栏是一列浮在内容上的玻璃胶囊:竖栏在尾侧时页面的滚动内容铺到屏幕物理边缘
-    /// (`pmExtendsUnderVerticalBar()`),横滑的卡片也和其它内容一样铺到屏幕边缘、像普通 iPhone 那样
-    /// 在屏幕边上露出下一张,胶囊浮在上面,不在竖栏前截断。竖栏在前沿(外屏横握)、或所在页面没有铺过去时,
-    /// 横向 ScrollView 本来就顺着滚动方向伸进安全区、滚动边距也按安全区给了,静止时第一张照旧在竖栏外,
-    /// 最后一张照样能完整滚出来。所以这里不再裁切;留着这个入口是为了规则再变时只改一处。
+    /// iPhone Duo 的竖栏是一列浮在内容上的玻璃胶囊。页面照安全区排(行与按钮停在竖栏左侧,见
+    /// `pmExtendsUnderVerticalBar()`),横向 ScrollView 本来就顺着滚动方向伸进安全区、滚动边距也按安全区给了:
+    /// 卡片像普通 iPhone 那样一直滑到屏幕边缘、在边上露出下一张,胶囊浮在上面;静止时第一张在竖栏外,
+    /// 最后一张能完整滚出来,卡片上的按钮总能滑到竖栏外面点。所以这里不裁切;留着这个入口是为了规则再变时只改一处。
+    /// 静止时就在竖排状态栏旁边的那一排用 `pmPinnedRowStopsAtVerticalBar()`。
     func pmStopsAtVerticalBar() -> some View {
         self
     }

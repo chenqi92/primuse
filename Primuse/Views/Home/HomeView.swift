@@ -1413,6 +1413,8 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                 addCard
             }
             .padding(.horizontal, CGFloat(layout.horizontalPadding))
+            // iPhone Duo 竖栏:最右一列台标伸进竖栏,系统的玻璃胶囊浮在上面。
+            .pmCoversExtendUnderVerticalBar()
         }
     }
 
@@ -1715,8 +1717,8 @@ struct HomeView: View {
                             // 再点一次选中的那颗(或它上面的 ✕)回到全部。
                             setHomeFilter(activeHomeFilter == space ? nil : space)
                         }
-                        // iPhone Duo 竖栏:静止时就在竖排状态栏旁边,筛选胶囊照旧让开竖栏。
-                        .pmClearOfVerticalBar()
+                        // iPhone Duo 竖栏:静止时就在竖排状态栏旁边,横滑的筛选胶囊停在竖栏前,不滑到时间和电量底下。
+                        .pmPinnedRowStopsAtVerticalBar()
                         .id(Self.homeTopAnchor)
                     }
 
@@ -1757,7 +1759,7 @@ struct HomeView: View {
             }
             // 下拉就去问一遍各服务器源有没有新歌,有就在后台同步;编辑版面时不接这个手势。
             .serverCatalogPullToRefresh(isEnabled: !editorMode)
-            // iPhone Duo 竖栏：卡片与横滑区铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+            // iPhone Duo 竖栏：文字行和按钮停在竖栏左侧，横滑卡片和封面网格铺到屏幕右缘，系统的玻璃胶囊浮在上面。
             .pmExtendsUnderVerticalBar()
             .onChange(of: activeHomeFilter) { _, _ in
                 // 从全部中段的「全部」「书架」筛过去时,筛出来的内容从顶上开始看。
@@ -2192,6 +2194,10 @@ struct HomeView: View {
         }
         .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
         .environment(\.homeCoverCardWidth, homeAlbumCardWidth)
+        // 两栏时左栏的网格不贴着竖栏,铺过去会压到右栏上:两栏都不铺,封面网格停在竖栏左侧。
+        .transformEnvironment(\.pmVerticalBarOverlap) { overlap in
+            if twoColumns { overlap = 0 }
+        }
         // iPhone Duo 开合、内屏转屏时单栏 ⇄ 两栏:各区块从原位置滑到新位置。
         .pmLayoutSwitchAnimation(twoColumns)
     }
@@ -4341,6 +4347,8 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                // iPhone Duo 竖栏:最右一列封面伸进竖栏,系统的玻璃胶囊浮在上面。
+                .pmCoversExtendUnderVerticalBar()
             case .list:
                 VStack(spacing: 0) {
                     let displayed = Array(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 5 : 4)))
@@ -4653,6 +4661,8 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                // iPhone Duo 竖栏:最右一列封面伸进竖栏,系统的玻璃胶囊浮在上面。
+                .pmCoversExtendUnderVerticalBar()
             }
         }
     }
@@ -4735,6 +4745,8 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                // iPhone Duo 竖栏:最右一列头像伸进竖栏,系统的玻璃胶囊浮在上面。
+                .pmCoversExtendUnderVerticalBar()
             } else {
                 let shownArtists = displayed.prefix(sectionItemCount(.topArtists, usesPadMetrics ? 16 : 8))
                 ScrollView(.horizontal, showsIndicators: false) {

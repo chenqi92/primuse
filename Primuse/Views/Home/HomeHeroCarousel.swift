@@ -251,9 +251,10 @@ struct HomeHeroCarousel: View {
                 reader.scrollTo(recentered, anchor: .center)
             }
             // 卡片阴影往下伸得比上下留的空间远,裁在滚动区里底下会切出一条平边;改成只裁左右,
-            // 两边转开的卡片照旧不画出这一排。
+            // 两边转开的卡片照旧不画出这一排。iPhone Duo 竖栏在尾侧时尾侧多放开竖栏那么宽,
+            // 卡片滑进竖栏底下,不在竖栏边上被切掉。
             .scrollClipDisabled()
-            .clipShape(PMHorizontalClipShape())
+            .pmHorizontalClipExtendingUnderVerticalBar()
         }
         .frame(height: metrics.carouselHeight)
         .background { glow() }

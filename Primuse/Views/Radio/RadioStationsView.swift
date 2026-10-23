@@ -899,7 +899,7 @@ struct RadioStationsView: View {
             }
             .padding(16)
         }
-        // iPhone Duo 竖栏：电台卡片铺到屏幕边缘；上面的筛选条不在滚动区里，照旧让开竖栏。
+        // iPhone Duo 竖栏：电台卡片带「⋯」，和上面的筛选条一样停在竖栏左侧；最近播放的横滑一排铺到屏幕右缘。
         .pmExtendsUnderVerticalBar()
     }
 
@@ -1064,7 +1064,6 @@ struct RadioStationsView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(.active))
-        .pmExtendsUnderVerticalBar()
         #endif
     }
 

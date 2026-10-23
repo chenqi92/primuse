@@ -193,6 +193,8 @@ struct AlbumGridView: View {
                 }
             }
             .padding()
+            // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面。
+            .pmCoversExtendUnderVerticalBar()
         }
     }
     #endif

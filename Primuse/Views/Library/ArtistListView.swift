@@ -261,6 +261,8 @@ struct ArtistListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
+            // iPhone Duo 竖栏：最右一列头像伸进竖栏，系统的玻璃胶囊浮在上面。
+            .pmCoversExtendUnderVerticalBar()
         }
         .pmExtendsUnderVerticalBar()
     }
@@ -309,7 +311,6 @@ struct ArtistListView: View {
             .mediaZoomSource(.artist, id: artist.id)
         }
         .listStyle(.plain)
-        .pmExtendsUnderVerticalBar()
     }
 
     #if os(macOS)

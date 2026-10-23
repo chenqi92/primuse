@@ -113,6 +113,7 @@ struct HomeFoldersSection: View {
                 ) {
                     ForEach(0..<count, id: \.self) { _ in HomeFolderCardPlaceholder(width: cardWidth) }
                 }
+                .pmCoversExtendUnderVerticalBar()
             case .carousel:
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(
@@ -150,6 +151,8 @@ struct HomeFoldersSection: View {
             ) {
                 ForEach(nodes) { node in HomeFolderCard(node: node, width: cardWidth) }
             }
+            // iPhone Duo 竖栏：最右一列文件夹卡伸进竖栏，系统的玻璃胶囊浮在上面。
+            .pmCoversExtendUnderVerticalBar()
         case .carousel:
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(
@@ -604,8 +607,6 @@ struct HomeFolderBrowser: View {
                         }
                         #endif
                     }
-                    // 列表铺到 iPhone Duo 竖栏底下时，行尾的「编辑」照旧让开竖栏。
-                    .pmClearOfVerticalBar()
                 }
             }
 
@@ -682,8 +683,6 @@ struct HomeFolderBrowser: View {
                 }
             }
         }
-        // iPhone Duo 竖栏：文件夹与歌曲行铺到屏幕右缘，系统的玻璃胶囊浮在上面。
-        .pmExtendsUnderVerticalBar()
         .overlay {
             if model.index == nil {
                 ProgressView()

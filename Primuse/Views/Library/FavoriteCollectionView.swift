@@ -340,6 +340,8 @@ struct FavoriteCollectionView: View {
                 #endif
                 if kinds.count > 1 {
                     filterBar(kinds: kinds, entries: matched)
+                        // iPhone Duo 竖栏：静止时就在竖排状态栏旁边，筛选胶囊停在竖栏前。
+                        .pmPinnedRowStopsAtVerticalBar()
                 }
                 if all.isEmpty, folderModel.index != nil || !hasFolderFavorites {
                     emptyState
@@ -358,6 +360,8 @@ struct FavoriteCollectionView: View {
                         }
                     }
                     .padding(.horizontal, horizontalInset)
+                    // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面。
+                    .pmCoversExtendUnderVerticalBar()
                 }
             }
             #if os(macOS)

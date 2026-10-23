@@ -549,7 +549,6 @@ struct PodcastRegionHiddenNote: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
-            .pmClearOfVerticalBar()
         }
     }
 }
@@ -568,7 +567,6 @@ private struct PodcastContinueListeningRow: View {
             VStack(alignment: .leading, spacing: 12) {
                 PodcastSectionHeader(titleKey: "podcast_continue_listening")
                     .padding(.horizontal, 16)
-                    .pmClearOfVerticalBar()
                 if items.count == 1, let item = items.first {
                     // 只有一集时不做横滑,卡片铺满一行,不在右边留一大块空。
                     PodcastContinueCard(episode: item.episode, show: item.show, width: nil) {
@@ -576,7 +574,6 @@ private struct PodcastContinueListeningRow: View {
                     }
                     .frame(maxWidth: 560, alignment: .leading)
                     .padding(.horizontal, 16)
-                    .pmClearOfVerticalBar()
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 12) {
@@ -699,7 +696,6 @@ private struct PodcastLatestEpisodesSection: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
             }
-            .pmClearOfVerticalBar()
             if latest.isEmpty {
                 Text(store.isRefreshingAll ? "podcast_refreshing" : "podcast_all_caught_up")
                     .font(.subheadline)
@@ -759,7 +755,6 @@ private struct PodcastLikedEpisodesSection: View {
                         .foregroundStyle(.secondary)
                     }
                 }
-                .pmClearOfVerticalBar()
                 PodcastLikedEpisodeRows(
                     items: items,
                     localSongs: localSongs,
@@ -910,7 +905,6 @@ struct PodcastShowsGrid: View {
                 .accessibilityLabel(Text("podcast_sort"))
             }
             .padding(.horizontal, 16)
-            .pmClearOfVerticalBar()
 
             if showsBar {
                 PodcastShowOrganizeBar(
@@ -960,6 +954,8 @@ struct PodcastShowsGrid: View {
                 LazyItemCell { tile(show, folders: folders, tags: tags) }
             }
         }
+        // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面；文件夹标题照旧停在竖栏左侧。
+        .pmCoversExtendUnderVerticalBar()
     }
 
     @ViewBuilder
@@ -1013,7 +1009,6 @@ struct PodcastShowsGrid: View {
                 PodcastFolderActions(organizer: navigation.organizer, name: name)
             }
         }
-        .pmClearOfVerticalBar()
     }
 }
 
@@ -1065,7 +1060,6 @@ struct PodcastLocalShowsSection: View {
                     VStack(alignment: .leading, spacing: 12) {
                         PodcastSectionHeader(titleKey: "podcast_local_shows")
                             .padding(.horizontal, 16)
-                            .pmClearOfVerticalBar()
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                             ForEach(shows) { @Sendable entry in
                                 LazyItemCell {
@@ -1087,6 +1081,8 @@ struct PodcastLocalShowsSection: View {
                             }
                         }
                         .padding(.horizontal, 16)
+                        // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面。
+                        .pmCoversExtendUnderVerticalBar()
                     }
                 }
             }
@@ -1702,7 +1698,6 @@ struct PodcastWelcomeView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .pmClearOfVerticalBar()
 
             PodcastChartSection(genreID: nil, limit: 12) { show in
                 navigation.pushedDirectoryShow = show

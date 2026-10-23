@@ -341,7 +341,7 @@ struct SpokenWordLibraryView: View {
         #if os(macOS)
         .background(PMColor.bg.ignoresSafeArea())
         #endif
-        // iPhone Duo 竖栏：书架铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        // iPhone Duo 竖栏：书和按钮停在竖栏左侧，只有封面的书架最右一列伸进竖栏。
         .pmExtendsUnderVerticalBar()
         #if os(iOS)
         .libraryPageFind(text: $findText, prompt: "filter_spoken_word_placeholder")
@@ -581,8 +581,6 @@ struct SpokenWordShelfContent: View {
             if let current = nowListening {
                 SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
                     .contextMenu { bookMenu(current.book, songs: current.songs) }
-                    // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面、带着「继续」的这张卡照旧让开竖栏。
-                    .pmClearOfVerticalBar()
             }
 
             if !shelf.isEmpty || !finished.isEmpty {
@@ -607,8 +605,6 @@ struct SpokenWordShelfContent: View {
                         }
                         #endif
                     }
-                    // 行尾的两颗版式键不钻到 iPhone Duo 竖栏的按钮底下。
-                    .pmClearOfVerticalBar()
                     if !shelf.isEmpty { bookCollection(shelf) }
                 }
             }
@@ -635,7 +631,6 @@ struct SpokenWordShelfContent: View {
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
                     .accessibilityAddTraits(.isHeader)
-                    .pmClearOfVerticalBar()
 
                     // 在找书时听完的也直接摊开, 命中的不藏在折叠里。
                     if showsFinished || findQuery != nil {
@@ -668,7 +663,6 @@ struct SpokenWordShelfContent: View {
                     .contentShape(Rectangle())
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("spokenWord.shelf.archived")
-                    .pmClearOfVerticalBar()
 
                     if expandsArchived || findQuery != nil {
                         bookCollection(archived)
@@ -768,6 +762,8 @@ struct SpokenWordShelfContent: View {
             LazyVGrid(columns: gridColumns, spacing: gridRowSpacing) {
                 ForEach(entries) { @Sendable entry in LazyItemCell { reorderableBookCell(entry, entries: entries) } }
             }
+            // iPhone Duo 竖栏：只有封面的版式最右一列伸进竖栏；书架版式每本书右上角有「⋯」，照旧停在竖栏左侧。
+            .pmCoversExtendUnderVerticalBar(layout == .covers)
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(entries) { @Sendable entry in
@@ -2248,8 +2244,6 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                 header()
                     .padding(.horizontal, inset)
                     .padding(.vertical, 16)
-                    // 铺到 iPhone Duo 竖栏底下时，带着「继续」与语速的头部照旧让开竖栏。
-                    .pmClearOfVerticalBar()
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     row(index, item)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
@@ -2258,8 +2252,6 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                             Divider().padding(.leading, inset + 40)
                                 .padding(.trailing, inset)
                         }
-                        // 有快速拖动条时它停在竖栏左侧，行尾连竖栏那一条一起让开。
-                        .pmClearOfVerticalBar(showsScrubber)
                         .id(item.id)
                 }
             }
@@ -2293,11 +2285,9 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                         }
                     }
                 }
-                // 拖动条固定不动：iPhone Duo 竖栏时和字母索引一样停在竖栏左侧。
-                .pmClearOfVerticalBar()
             }
         }
-        // iPhone Duo 竖栏：章节行铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        // iPhone Duo 竖栏：章节行和快速拖动条停在竖栏左侧，不压在竖排状态栏和系统胶囊底下。
         .pmExtendsUnderVerticalBar()
     }
 }

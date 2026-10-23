@@ -146,7 +146,7 @@ struct ListeningStatsView: View {
             .task(id: snapshot?.report?.year) { await debugScroll(proxy) }
             #endif
         }
-        // iPhone Duo 竖栏：滚动内容铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        // iPhone Duo 竖栏：卡片和按钮停在竖栏左侧，横滑的一排铺到屏幕右缘。
         .pmExtendsUnderVerticalBar()
         .background {
             if let report = snapshot?.report {

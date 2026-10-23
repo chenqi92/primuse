@@ -3450,8 +3450,6 @@ struct SearchView: View {
                         Button("clear_all", role: .destructive, action: clearRecentSearches)
                             .font(.caption)
                     }
-                    // 列表铺到 iPhone Duo 竖栏底下时，吸顶的分组标题会停在竖排状态栏旁边：行尾的按钮让开竖栏。
-                    .pmClearOfVerticalBar()
                 }
             }
 
@@ -3473,7 +3471,6 @@ struct SearchView: View {
                 Text(scope?.title ?? String(localized: "library"))
             }
         }
-        .pmExtendsUnderVerticalBar()
     }
 
     private var searchResultsView: some View {
@@ -3498,7 +3495,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        // iPhone Duo 竖栏：结果行铺到屏幕边缘；上面的范围与分类选择不在列表里，照旧让开竖栏。
+        // iPhone Duo 竖栏：结果行停在竖栏左侧，横滑的一排铺到屏幕右缘；上面的范围与分类选择不在列表里。
         .pmExtendsUnderVerticalBar()
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
@@ -3598,8 +3595,6 @@ struct SearchView: View {
                     .textCase(nil)
             }
         }
-        // 吸顶的分组标题：iPhone Duo 竖栏时「全部」让开竖排状态栏与竖栏按钮。
-        .pmClearOfVerticalBar()
     }
 
     @ViewBuilder
@@ -3637,8 +3632,6 @@ struct SearchView: View {
                     .textCase(nil)
                     #endif
                 }
-                // 吸顶的分组标题：iPhone Duo 竖栏时「全部」让开竖排状态栏与竖栏按钮。
-                .pmClearOfVerticalBar()
             }
         }
     }
@@ -4866,7 +4859,6 @@ struct SearchView: View {
                         Button("see_all") { expandedCollections.insert(section) }.textCase(nil)
                     }
                 }
-                .pmClearOfVerticalBar()
             }
         }
     }
