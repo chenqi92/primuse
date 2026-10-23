@@ -839,6 +839,8 @@
 "eq_enabled" = "Equalizer";
 "eq_reset" = "Zurücksetzen";
 "new_playlist" = "Neue Wiedergabeliste";
+"playlist_rename" = "Umbenennen";
+"playlist_rename_title" = "Playlist umbenennen";
 "manage_playlists" = "Wiedergabelisten verwalten";
 "playlist_name" = "Name der Wiedergabeliste";
 "create" = "Erstellen";

@@ -919,6 +919,8 @@
 "file_not_found_generic" = "Файл не існує.";
 "● Syncing…" = "● Синхронізація…";
 "new_playlist" = "Новий список відтворення";
+"playlist_rename" = "Перейменувати";
+"playlist_rename_title" = "Перейменувати плейлист";
 "playback" = "Відтворення";
 "Width" = "Ширина";
 "metadata_writeback_error_missing_revision" = "Джерело музики не надало версії, яка може безпечно захистити заміну.";

@@ -715,7 +715,11 @@ struct TVRoot: View {
                 onReturnToTabs: leavePlayer,
                 onModalActivityChanged: childModalActivityChanged
             )
-        case .playlists: TVPlaylistsView(openPlayer: { openPlayerFromPage() })
+        case .playlists:
+            TVPlaylistsView(
+                openPlayer: { openPlayerFromPage() },
+                onModalPresentationChanged: childModalPresentationChanged
+            )
         case .sources:
             TVSourcesView(
                 focusRequest: sourcesFocusRequest,

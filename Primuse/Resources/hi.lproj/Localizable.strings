@@ -2395,6 +2395,8 @@
 "new" = "नया";
 "new_ai_smart_playlist" = "नई एआई स्मार्ट प्लेलिस्ट";
 "new_playlist" = "नई प्लेलिस्ट";
+"playlist_rename" = "नाम बदलें";
+"playlist_rename_title" = "प्लेलिस्ट का नाम बदलें";
 "new_rule_smart_playlist" = "नई नियम-आधारित स्मार्ट प्लेलिस्ट";
 "new_smart_playlist" = "नई स्मार्ट प्लेलिस्ट";
 "new_songs_added" = "%d नए गाने";

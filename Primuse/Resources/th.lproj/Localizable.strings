@@ -2395,6 +2395,8 @@
 "new" = "ใหม่";
 "new_ai_smart_playlist" = "เพลย์ลิสต์อัจฉริยะ AI ใหม่";
 "new_playlist" = "เพลย์ลิสต์ใหม่";
+"playlist_rename" = "เปลี่ยนชื่อ";
+"playlist_rename_title" = "เปลี่ยนชื่อเพลย์ลิสต์";
 "new_rule_smart_playlist" = "เพลย์ลิสต์อัจฉริยะตามกฎใหม่";
 "new_smart_playlist" = "เพลย์ลิสต์อัจฉริยะใหม่";
 "new_songs_added" = "%d เพลงใหม่";

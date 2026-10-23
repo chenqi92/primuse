@@ -9094,6 +9094,36 @@ final class MusicLibrary {
         return playlist
     }
 
+    /// 能不能改名:自己建的歌单才行。镜像歌单的名字跟着音乐服务器、Apple Music,文件夹歌单跟着文件夹名,
+    /// 「我喜欢」「不喜欢」是固定的。
+    nonisolated static func allowsRename(_ playlist: Playlist) -> Bool {
+        !playlist.isDeleted
+            && playlist.folderBinding == nil
+            && !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
+            && playlist.id != likedSongsPlaylistID
+            && playlist.id != dislikedSongsPlaylistID
+    }
+
+    /// 给自己建的歌单改名(Apple TV 上也能改,看板 PRIM-35)。曲目和顺序不动;照常记一次版本,
+    /// 其他设备经 iCloud 同步过去。名字去掉首尾空白后为空、或不允许改名时什么也不做。
+    @discardableResult
+    func renamePlaylist(id: String, to rawName: String) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        // S2: 要改的是发布后的那一行。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.renamePlaylist(id: id, to: name)
+        }) { return true }
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
+              Self.allowsRename(allPlaylists[index]) else { return false }
+        guard allPlaylists[index].name != name else { return true }
+        var playlist = allPlaylists[index]
+        playlist.name = name
+        allPlaylists[index] = stampedPlaylist(playlist)
+        commitPlaylistEdits([id])
+        return true
+    }
+
     /// 整体替换普通用户歌单（例如手动重排或把当前队列另存为歌单）。镜像歌单
     /// 必须走 `replaceMirrorPlaylistSongs`，防止任一遗漏的 UI 入口改写只读镜像。
     func replacePlaylistSongs(playlistID: String, songIDs: [String]) {

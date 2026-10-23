@@ -6,6 +6,8 @@ import PrimuseKit
 struct TVPlaylistsView: View {
     @Environment(TVStore.self) private var store
     var openPlayer: () -> Void = {}
+    /// 新建、重命名歌单的面板开着:顶栏停掉播放快捷键,关掉后焦点由这一页自己放回。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     @State private var filter = 0
     @State private var appleMusic = TVAppleMusicCatalog()
@@ -13,6 +15,8 @@ struct TVPlaylistsView: View {
     /// 设置里的「评分与评论」:关着时电视上不显示星级,按星级聚合的卡片也不出。
     @AppStorage(LibraryReviewPreferences.enabledKey) private var ratingsEnabled = false
     @FocusState private var isOrderMenuFocused: Bool
+    @FocusState private var isCreateFocused: Bool
+    @State private var showsCreate = false
     private let cols = 4
     private let gap: CGFloat = 36
 
@@ -45,6 +49,7 @@ struct TVPlaylistsView: View {
                             if filter != 2, store.normalPlaylists.lazy.filter({ $0.kind == .normal }).count >= 2 {
                                 orderMenu
                             }
+                            createButton
                         }
                         // 焦点区撑满整行:顶栏「歌单」在页面中部,只有胶囊宽度时往下的搜索
                         // 落不到这一行和下面的歌单,会越过去落在 Apple Music 那一排。
@@ -60,7 +65,12 @@ struct TVPlaylistsView: View {
                             LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
                                       alignment: .leading, spacing: gap) {
                                 ForEach(playlists) { p in
-                                    TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
+                                    TVPlaylistCard(
+                                        playlist: p,
+                                        width: cell,
+                                        action: openPlayer,
+                                        onModalPresentationChanged: onModalPresentationChanged
+                                    )
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,6 +83,31 @@ struct TVPlaylistsView: View {
             }
         }
         .task { await appleMusic.loadPlaylists() }
+        .fullScreenCover(isPresented: $showsCreate) {
+            TVPlaylistNameView(mode: .create)
+                .environment(store)
+        }
+        .onChange(of: showsCreate) { _, shows in onModalPresentationChanged(shows) }
+        .onDisappear {
+            if showsCreate { onModalPresentationChanged(false) }
+        }
+    }
+
+    /// 筛选行最右端的「新建歌单」(看板 PRIM-35)。电视上只建、改名;往里加歌还在 iPhone、iPad、Mac 上。
+    private var createButton: some View {
+        Button {
+            showsCreate = true
+        } label: {
+            TVFilterChipLabel(
+                title: String(localized: "new_playlist"),
+                systemImage: "plus",
+                isFocused: isCreateFocused
+            )
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($isCreateFocused)
+        .focusEffectDisabled()
+        .accessibilityIdentifier("tv.playlists.create")
     }
 
     private var order: PlaylistListOrder { .resolved(orderRawValue) }
@@ -210,8 +245,10 @@ struct TVPlaylistCard: View {
     @Environment(TVStore.self) private var store
     let playlist: TVPlaylist
     @State private var pendingMedleyIDs: [String]?
+    @State private var showsRename = false
     var width: CGFloat = 300
     var action: () -> Void = {}
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         let h = width * 0.8
@@ -275,6 +312,20 @@ struct TVPlaylistCard: View {
                 pendingMedleyIDs = store.medleyPlaylistSongIDs(playlist)
             }
             .disabled(!store.canPlayMedley(playlist: playlist))
+            // 自己建的歌单能改名(看板 PRIM-35);镜像、文件夹歌单和「我喜欢」的名字不归这里管。
+            if store.canRename(playlist) {
+                Button("playlist_rename", systemImage: "pencil") {
+                    showsRename = true
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showsRename) {
+            TVPlaylistNameView(mode: .rename(playlist))
+                .environment(store)
+        }
+        .onChange(of: showsRename) { _, shows in onModalPresentationChanged(shows) }
+        .onDisappear {
+            if showsRename { onModalPresentationChanged(false) }
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(playlist.name))
@@ -285,6 +336,91 @@ struct TVPlaylistCard: View {
     private func playTapped() {
         guard store.play(playlist: playlist) else { return }
         action()
+    }
+}
+
+/// 电视上新建、重命名歌单(看板 PRIM-35),和电台改名同一套面板。取消或名字是空的不建、不改,
+/// 改名不动歌单里的曲目和顺序。
+struct TVPlaylistNameView: View {
+    enum Mode {
+        case create
+        case rename(TVPlaylist)
+    }
+
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let mode: Mode
+    @State private var name: String
+    @FocusState private var fieldFocused: Bool
+
+    init(mode: Mode) {
+        self.mode = mode
+        switch mode {
+        case .create: _name = State(initialValue: "")
+        case .rename(let playlist): _name = State(initialValue: playlist.name)
+        }
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var isCreating: Bool {
+        if case .create = mode { return true }
+        return false
+    }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.35)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text(isCreating ? String(localized: "new_playlist") : String(localized: "playlist_rename_title"))
+                    .tvFont(.sectionTitle)
+                    .foregroundStyle(TVColor.text)
+                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(String(localized: "playlist_name"))
+                        .tvFont(.caption)
+                        .foregroundStyle(fieldFocused ? TVColor.text : TVColor.textFaint)
+                    TVTextFieldBox {
+                        TextField("", text: $name)
+                            .focused($fieldFocused)
+                            .submitLabel(.done)
+                            .onSubmit(save)
+                            .accessibilityLabel(Text("playlist_name"))
+                    }
+                }
+                HStack(spacing: 18) {
+                    TVPillButton(
+                        title: isCreating ? String(localized: "create") : PMString("ext.tv.sources.form.save"),
+                        systemImage: "checkmark",
+                        style: .solid,
+                        action: save
+                    )
+                    .disabled(trimmedName.isEmpty)
+                    TVPillButton(title: PMString("ext.tv.sources.cancel"), systemImage: "xmark") {
+                        dismiss()
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(40)
+            .frame(width: 900, alignment: .leading)
+            .tvPanel(radius: 22)
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    private func save() {
+        guard !trimmedName.isEmpty else { return }
+        switch mode {
+        case .create:
+            store.createPlaylist(named: trimmedName)
+        case .rename(let playlist):
+            if trimmedName != playlist.name {
+                store.renamePlaylist(id: playlist.id, to: trimmedName)
+            }
+        }
+        dismiss()
     }
 }
 

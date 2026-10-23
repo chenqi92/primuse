@@ -2395,6 +2395,8 @@
 "new" = "Novo";
 "new_ai_smart_playlist" = "Nova lista de reprodução inteligente de IA";
 "new_playlist" = "Nova lista de reprodução";
+"playlist_rename" = "Renomear";
+"playlist_rename_title" = "Renomear playlist";
 "new_rule_smart_playlist" = "Nova lista de reprodução inteligente baseada em regras";
 "new_smart_playlist" = "Nova lista de reprodução inteligente";
 "new_songs_added" = "Novas músicas %d";

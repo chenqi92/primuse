@@ -6368,6 +6368,27 @@ final class TVStore {
         playResolvedQueue(songIDs: songIDs(forAlbum: album.id), shuffled: shuffleEnabled)
     }
 
+    /// 在电视上新建一个歌单(看板 PRIM-35),经 iCloud 同步到其他设备。名字去掉首尾空白后为空时不建,
+    /// 取消也不会留下空歌单。
+    @discardableResult
+    func createPlaylist(named rawName: String) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        _ = library.createPlaylist(name: name)
+        return true
+    }
+
+    /// 自己建的歌单才能改名;镜像歌单、文件夹歌单、「我喜欢」不行(`MusicLibrary.allowsRename`)。
+    func canRename(_ playlist: TVPlaylist) -> Bool {
+        guard playlist.kind == .normal, let stored = library.playlist(id: playlist.id) else { return false }
+        return MusicLibrary.allowsRename(stored)
+    }
+
+    @discardableResult
+    func renamePlaylist(id: String, to name: String) -> Bool {
+        library.renamePlaylist(id: id, to: name)
+    }
+
     /// 播放歌单**自身**的曲目:用歌单全部歌曲建队列、从首曲开始,续播留在歌单内
     /// (而非退化为封面所属专辑或整库)。智能歌单使用与其他端相同的规则引擎。
     @discardableResult

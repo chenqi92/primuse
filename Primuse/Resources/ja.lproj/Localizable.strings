@@ -840,6 +840,8 @@
 "eq_enabled" = "イコライザ";
 "eq_reset" = "リセット";
 "new_playlist" = "新規プレイリスト";
+"playlist_rename" = "名前を変更";
+"playlist_rename_title" = "プレイリスト名を変更";
 "manage_playlists" = "プレイリストを管理";
 "playlist_name" = "プレイリスト名";
 "create" = "作成";

@@ -587,6 +587,8 @@
 "eq_enabled" = "等化器";
 "eq_reset" = "重設";
 "new_playlist" = "新增播放清單";
+"playlist_rename" = "重新命名";
+"playlist_rename_title" = "重新命名播放清單";
 "manage_playlists" = "管理播放清單";
 "playlist_name" = "播放清單名稱";
 "create" = "建立";

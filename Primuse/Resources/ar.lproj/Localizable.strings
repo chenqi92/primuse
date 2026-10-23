@@ -2395,6 +2395,8 @@
 "new" = "جديد";
 "new_ai_smart_playlist" = "قائمة التشغيل الذكية الجديدة بالذكاء الاصطناعي";
 "new_playlist" = "قائمة تشغيل جديدة";
+"playlist_rename" = "إعادة تسمية";
+"playlist_rename_title" = "إعادة تسمية قائمة التشغيل";
 "new_rule_smart_playlist" = "قائمة التشغيل الذكية الجديدة القائمة على القواعد";
 "new_smart_playlist" = "قائمة التشغيل الذكية الجديدة";
 "new_songs_added" = "%d اغاني جديدة";

@@ -608,6 +608,8 @@
 
 // MARK: - Playlists
 "new_playlist" = "New Playlist";
+"playlist_rename" = "Rename";
+"playlist_rename_title" = "Rename Playlist";
 "manage_playlists" = "Manage Playlists";
 "create" = "Create";
 "remove_from_playlist" = "Remove from Playlist";

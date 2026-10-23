@@ -919,6 +919,8 @@
 "file_not_found_generic" = "Dosya mevcut değil.";
 "● Syncing…" = "● Senkronizasyon yapılıyor…";
 "new_playlist" = "Yeni Çalma Listesi";
+"playlist_rename" = "Yeniden Adlandır";
+"playlist_rename_title" = "Çalma Listesini Yeniden Adlandır";
 "playback" = "Oynatma";
 "Width" = "Genişlik";
 "metadata_writeback_error_missing_revision" = "Müzik kaynağı, değiştirmeyi güvenli bir şekilde koruyabilecek bir revizyon sağlamadı.";

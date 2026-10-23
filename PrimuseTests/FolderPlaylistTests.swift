@@ -762,3 +762,63 @@ private actor RateLimitedListingTestConnector: MusicSourceConnector {
         .init { $0.finish() }
     }
 }
+
+@MainActor
+final class PlaylistRenameTests: XCTestCase {
+    func testRenameKeepsSongsAndRecordsANewSyncRevision() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePlaylistRename-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let first = song("first")
+        let second = song("second")
+        library.addSongs([first, second], affectedSourceIDs: ["source"])
+        await library.waitForPendingIndex()
+
+        let playlist = library.createPlaylist(name: "Road Trip", songIDs: [second.id, first.id])
+        let revisionBefore = try XCTUnwrap(library.playlist(id: playlist.id)?.syncRevision)
+
+        XCTAssertTrue(library.renamePlaylist(id: playlist.id, to: "  Night Drive  "))
+
+        let renamed = try XCTUnwrap(library.playlist(id: playlist.id))
+        XCTAssertEqual(renamed.name, "Night Drive")
+        XCTAssertGreaterThan(renamed.syncRevision, revisionBefore)
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), [second.id, first.id])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The renamed playlist must finish persistence")
+        }
+        let restored = MusicLibrary(storageDirectory: directory)
+        await restored.waitForPendingIndex()
+        XCTAssertEqual(restored.playlist(id: playlist.id)?.name, "Night Drive")
+    }
+
+    func testRenameRejectsEmptyNamesAndPlaylistsThatAreNotTheUsers() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePlaylistRename-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let track = song("track")
+        library.addSongs([track], affectedSourceIDs: ["source"])
+        await library.waitForPendingIndex()
+
+        let playlist = library.createPlaylist(name: "Mine", songIDs: [track.id])
+        XCTAssertFalse(library.renamePlaylist(id: playlist.id, to: "   "))
+        XCTAssertEqual(library.playlist(id: playlist.id)?.name, "Mine")
+
+        let mirrorID = ServerPlaylistIdentity.playlistID(sourceID: "source", serverPlaylistID: "42")
+        let mirror = library.ensurePlaylist(id: mirrorID, name: "From Server")
+        XCTAssertFalse(MusicLibrary.allowsRename(mirror))
+        XCTAssertFalse(library.renamePlaylist(id: mirrorID, to: "Renamed"))
+        XCTAssertEqual(library.playlist(id: mirrorID)?.name, "From Server")
+
+        let nodeID = LibraryFolderNodeID(sourceID: "source", kind: .folder, normalizedRelativePath: "/music/live")
+        let folder = library.createFolderPlaylist(name: "Live", nodeID: nodeID, cloudAccountID: nil, songIDs: [track.id])
+        XCTAssertFalse(library.renamePlaylist(id: folder.id, to: "Renamed"))
+        XCTAssertEqual(library.playlist(id: folder.id)?.name, "Live")
+    }
+
+    private func song(_ id: String) -> Song {
+        Song(id: id, title: id, fileFormat: .flac, filePath: "/Music/\(id).flac", sourceID: "source")
+    }
+}
