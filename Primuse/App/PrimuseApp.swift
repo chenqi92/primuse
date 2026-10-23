@@ -2279,6 +2279,9 @@ struct PrimuseApp: App {
                         // UIKit window so its expiration persists checkpoints
                         // and cancels the scans before iOS suspends us.
                         scanService.setBackgroundPlaybackActive(false)
+                        AppServices.shared.spotlightIndex.resumePendingSynchronization(
+                            library: musicLibrary
+                        )
                     }
                     if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
                         metadataBackfill.start()

@@ -5,6 +5,7 @@ import ImageIO
 import OSLog
 import PrimuseKit
 #if os(iOS)
+import UIKit
 import UniformTypeIdentifiers
 #endif
 
@@ -62,7 +63,7 @@ final class SpotlightIndexService {
         let error: (any Error)?
     }
 
-    private nonisolated static let schemaVersion = 1
+    private nonisolated static let schemaVersion = 2
     private nonisolated static let debounceDuration: Duration = .seconds(3)
     private nonisolated static let followUpDebounceDuration: Duration = .seconds(1)
     private nonisolated static let interBatchDelay: Duration = .milliseconds(180)
@@ -81,11 +82,14 @@ final class SpotlightIndexService {
         "primuse.spotlightIndex.synchronizationGeneration.v2"
     private nonisolated static let completedSynchronizationGenerationKey =
         "primuse.spotlightIndex.completedSynchronizationGeneration.v2"
+    private nonisolated static let completedSchemaVersionKey =
+        "primuse.spotlightIndex.completedSchemaVersion"
     /// 每次资料库变动都要写代次, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
     nonisolated(unsafe) private static let defaults = LibraryMaintenanceDefaults.migrating([
         synchronizationPendingKey,
         synchronizationGenerationKey,
         completedSynchronizationGenerationKey,
+        completedSchemaVersionKey,
     ])
 
     private let manifestURL: URL
@@ -99,6 +103,8 @@ final class SpotlightIndexService {
     /// Keep opportunistic full-library indexing out of the interactive
     /// foreground. The scene lifecycle resumes it in the background.
     private var isSynchronizationSuspended = true
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundAssertionGeneration: UUID?
     #else
     private var isSynchronizationSuspended = false
     #endif
@@ -138,6 +144,9 @@ final class SpotlightIndexService {
         (defaults.object(forKey: synchronizationPendingKey) as? Bool ?? true)
             || defaults.integer(forKey: completedSynchronizationGenerationKey)
                 != defaults.integer(forKey: synchronizationGenerationKey)
+            // Older releases could commit a manifest after deleting its items.
+            // A clean dirty bit must not suppress the recovery schema rebuild.
+            || defaults.integer(forKey: completedSchemaVersionKey) != schemaVersion
     }
 
     /// Coalesces rapid library mutations. If a Core Spotlight batch is already
@@ -169,6 +178,7 @@ final class SpotlightIndexService {
     }
 
     private func enqueueSynchronization(library: MusicLibrary, delay: Duration) {
+        beginBackgroundTaskIfNeeded()
         let snapshot = makeLibrarySnapshot(library: library)
 
         switch workPhase {
@@ -203,6 +213,7 @@ final class SpotlightIndexService {
     /// A running Core Spotlight commit is allowed to finish its current batch;
     /// cancellation is observed before any subsequent batch or manifest save.
     func cancelPendingSynchronization() {
+        defer { endBackgroundTaskIfHeld() }
         guard workPhase != .idle else { return }
         persistSynchronizationPending()
         queuedSnapshot = nil
@@ -213,6 +224,31 @@ final class SpotlightIndexService {
             pendingGeneration = nil
             workPhase = .idle
         }
+    }
+
+    private func beginBackgroundTaskIfNeeded() {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .background,
+              backgroundTaskID == .invalid else { return }
+        let generation = UUID()
+        backgroundAssertionGeneration = generation
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.spotlight") { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.backgroundAssertionGeneration == generation else { return }
+                self.suspendSynchronization()
+            }
+        }
+        #endif
+    }
+
+    private func endBackgroundTaskIfHeld() {
+        #if os(iOS)
+        guard backgroundTaskID != .invalid else { return }
+        let identifier = backgroundTaskID
+        backgroundTaskID = .invalid
+        backgroundAssertionGeneration = nil
+        UIApplication.shared.endBackgroundTask(identifier)
+        #endif
     }
 
     /// Parses the stable identifier returned by a Spotlight user activity.
@@ -310,6 +346,7 @@ final class SpotlightIndexService {
         if isSynchronizationSuspended {
             queuedSnapshot = nil
             persistSynchronizationPending()
+            endBackgroundTaskIfHeld()
             return
         }
 
@@ -326,11 +363,13 @@ final class SpotlightIndexService {
                     completedRevision,
                     forKey: Self.completedSynchronizationGenerationKey
                 )
+                Self.defaults.set(Self.schemaVersion, forKey: Self.completedSchemaVersionKey)
                 needsSynchronization = false
                 Self.defaults.set(false, forKey: Self.synchronizationPendingKey)
             } else {
                 persistSynchronizationPending()
             }
+            endBackgroundTaskIfHeld()
         }
     }
 
@@ -403,6 +442,8 @@ final class SpotlightIndexService {
                     clientState: pendingState
                 )
                 guard canPerformIndexing, !Task.isCancelled else { return false }
+                // Index names partition client state, not domain deletions.
+                // This also removes legacy items; never repeat it after upserts.
                 try await deleteDomains(kSpotlightDomains, from: index)
             }
 
@@ -443,6 +484,8 @@ final class SpotlightIndexService {
                         payload: payload,
                         thumbnailDirectoryURL: thumbnailDirectoryURL
                     )
+                    // The library's explicit deletion plan owns their lifetime.
+                    item.searchableItem.expirationDate = .distantFuture
                     searchableItems.append(item.searchableItem)
                     if item.thumbnailCacheMiss {
                         thumbnailCacheMissCount += 1
@@ -467,14 +510,6 @@ final class SpotlightIndexService {
                 searchableItems: [],
                 clientState: finalClientState
             )
-
-            if plan.requiresFullRebuild {
-                do {
-                    try await deleteDomains(kSpotlightDomains, from: .default())
-                } catch {
-                    spotlightLog.error("Legacy Spotlight cleanup failed: \(error.localizedDescription)")
-                }
-            }
 
             guard !Task.isCancelled else { return false }
             try saveManifest(plan.nextManifest, to: manifestURL)
