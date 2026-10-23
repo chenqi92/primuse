@@ -314,6 +314,39 @@ final class TVLibraryStateTests: XCTestCase {
         store.engine.stop()
     }
 
+    func testSearchListsEveryMatchingAlbumIncludingCompilationsByTrackArtist() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var songs = (1...13).map { index -> Song in
+            var song = fixture.song("solo-\(index)")
+            song.title = "Song \(index)"
+            song.artistName = "Lin"
+            song.albumArtistName = "Lin"
+            song.albumTitle = "Album \(index)"
+            song.filePath = "/Music/Album \(index)/01.mp3"
+            return song
+        }
+        // 只有这一首署了这位歌手的合辑:艺人页里有它,搜索结果里也要有。
+        var duet = fixture.song("compilation-duet")
+        duet.title = "Duet"
+        duet.artistName = "Lin"
+        duet.albumArtistName = "Harbor Records"
+        duet.albumTitle = "Summer Mix"
+        duet.filePath = "/Music/Summer Mix/07.mp3"
+        songs.append(duet)
+        fixture.library.addSongs(songs)
+        await fixture.library.waitForPendingIndex()
+        let store = fixture.store()
+        store.reload()
+
+        let results = await store.searchResults("Lin")
+        XCTAssertEqual(results.albums.count, 14)
+        XCTAssertEqual(Set(results.albums.map(\.title)),
+                       Set((1...13).map { "Album \($0)" } + ["Summer Mix"]))
+        // 专辑名、专辑艺人直接对上的排在前面,靠歌补上的合辑在最后。
+        XCTAssertEqual(results.albums.last?.title, "Summer Mix")
+    }
+
     func testPreviousTrackShortcutSkipsEvenAfterPlaybackHasAdvanced() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

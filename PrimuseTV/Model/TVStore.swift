@@ -1492,12 +1492,16 @@ final class TVStore {
         let cache = searchCache
         let revision = library.searchRevision
         let worker = Task.detached(priority: .userInitiated) {
+            // 专辑名、专辑艺人对上的专辑一张不截(以前只给 10 张,第 11 张起搜不到);歌多取一些,
+            // 下面还要从命中的歌里找出它们所在的专辑。AI 补充只用歌,不再白算一遍专辑。
             let primary = LibrarySearchWorker.compute(query: q, songs: songSnapshot,
-                                                      albums: albumSnapshot, cache: cache)
+                                                      albums: albumSnapshot, cache: cache,
+                                                      songLimit: Self.searchRelatedAlbumSongLimit,
+                                                      albumLimit: albumSnapshot.count)
             var secondary: [(String, LibrarySearchOutput)] = []
             for concept in relatedConcepts.prefix(5) where !Task.isCancelled {
                 secondary.append((concept, LibrarySearchWorker.compute(query: concept,
-                    songs: songSnapshot, albums: albumSnapshot, cache: primary.cache)))
+                    songs: songSnapshot, albums: [], cache: primary.cache)))
             }
             return (primary, secondary)
         }
@@ -1520,10 +1524,37 @@ final class TVStore {
             }
         }
         let artistMapper = TVArtistMapper()
+        let albumMapper = self.albumMapper
         return .init(artists: Array(library.visibleArtists.lazy
                         .filter { $0.name.localizedCaseInsensitiveContains(q) }
                         .prefix(12).map(artistMapper.map)),
-                     albums: primary.albumResults.prefix(12).compactMap { album($0.id) }, songs: hits)
+                     albums: Self.searchAlbums(primary, albums: albumSnapshot,
+                                               excludingSongIDs: spokenWordIDs).map(albumMapper.map),
+                     songs: hits)
+    }
+
+    /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
+    nonisolated static let searchRelatedAlbumSongLimit = 240
+
+    /// 搜索结果里的专辑:先是专辑名、专辑艺人对上的,再补上命中的歌所在的专辑。后一种是只有
+    /// 曲目署了这位歌手的合辑、合作专辑,艺人页里列着,以前搜索结果里却没有(与手机端一致)。
+    /// 歌词、文件路径命中的歌不算,有声内容也不算。
+    nonisolated static func searchAlbums(
+        _ output: LibrarySearchOutput,
+        albums: [Album],
+        excludingSongIDs: Set<String>
+    ) -> [Album] {
+        var seen = Set(output.albumResults.map(\.id))
+        var result = output.albumResults
+        let albumByID = Dictionary(albums.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for hit in output.songResults where hit.matchKind == .metadata || hit.matchKind == .fuzzy {
+            guard !excludingSongIDs.contains(hit.song.id),
+                  let albumID = hit.song.albumID,
+                  let album = albumByID[albumID],
+                  seen.insert(albumID).inserted else { continue }
+            result.append(album)
+        }
+        return result
     }
 
     /// 元数据 + 路径 + 拼音/模糊 + 歌词匹配(歌词数据来自同步过来的缓存)。

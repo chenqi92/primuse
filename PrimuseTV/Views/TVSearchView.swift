@@ -98,6 +98,8 @@ struct TVSearchView: View {
     @State private var restoredQuery: String?
     @State private var focusZone: TVSearchFocusZone = .field
     @State private var lastFocusedResultID: String?
+    /// 要放回焦点的那张专辑在横排靠后、卡片还没建出来时,先把横排滚到它。
+    @State private var albumScrollTarget: String?
     @FocusState private var inputActive: Bool
     @FocusState private var focusedResultID: String?
 
@@ -408,16 +410,24 @@ struct TVSearchView: View {
             TVEyebrow(text: PMString("ext.tv.library.title.albums", albumResults.count))
                 .padding(.top, artistResults.isEmpty ? 0 : 18)
                 .padding(.bottom, 8)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
-                    ForEach(albumResults) { album in
-                        TVAlbumCard(album: album, width: 200, action: openPlayer,
-                                    onOpen: { selectedAlbum = album })
-                            .focused($focusedResultID, equals: Self.albumFocusID(album))
+            // 专辑结果不再截断,一个歌手名能对上几十张:只建出看得见的卡片。
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 18) {
+                        ForEach(albumResults) { album in
+                            TVAlbumCard(album: album, width: 200, action: openPlayer,
+                                        onOpen: { selectedAlbum = album })
+                                .focused($focusedResultID, equals: Self.albumFocusID(album))
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 20)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 20)
+                .onChange(of: albumScrollTarget) { _, albumID in
+                    guard let albumID else { return }
+                    albumScrollTarget = nil
+                    proxy.scrollTo(albumID)
+                }
             }
         }
     }
@@ -765,6 +775,9 @@ struct TVSearchView: View {
     /// 没落上再设一次。那条结果已经不在了就交回顶栏。
     private func focusRememberedResult() {
         guard let target = memory.lastFocusedResultID else { return }
+        if let album = albumResults.first(where: { Self.albumFocusID($0) == target }) {
+            albumScrollTarget = album.id
+        }
         Task { @MainActor in
             for attempt in 0..<3 {
                 if attempt > 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
