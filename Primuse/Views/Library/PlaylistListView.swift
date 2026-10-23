@@ -32,6 +32,8 @@ struct PlaylistListView: View {
     @State private var showCopyToServer = false
     /// 长按「同步歌单」时直接带上的那一个歌单。
     @State private var copyToServerPlaylist: Playlist?
+    /// 长按「重命名」的那一个歌单。
+    @State private var renamingPlaylist: Playlist?
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
@@ -249,6 +251,7 @@ struct PlaylistListView: View {
                                 }
                                 .contextMenu {
                                     favoriteToggleButton(for: playlist)
+                                    PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
                                     serverMediaShareButton(for: playlist)
                                     copyToServerButton(for: playlist)
                                     playlistRemovalButtons(for: playlist)
@@ -331,6 +334,7 @@ struct PlaylistListView: View {
             Button("cancel", role: .cancel) { newPlaylistName = "" }
             Button("create") { createPlaylist() }
         }
+        .playlistRenameAlert($renamingPlaylist)
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
@@ -1032,6 +1036,7 @@ struct PlaylistListView: View {
         .disabled(isEmpty || scraperService.isScraping)
 
         favoriteToggleButton(for: playlist)
+        PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
         serverMediaShareButton(for: playlist)
         copyToServerButton(for: playlist)
         playlistRemovalButtons(for: playlist)
@@ -1610,5 +1615,54 @@ private struct SmartPlaylistDestinationModifier: ViewModifier {
                 SmartPlaylistDetailView(smartPlaylistID: smart.id)
             }
         }
+    }
+}
+
+// MARK: - 重命名
+
+/// 长按、右键菜单和歌单页「⋯」里的「重命名」。只有自己建的歌单才有:镜像歌单、文件夹歌单和
+/// 「我喜欢」的名字归它们的来源管(`MusicLibrary.allowsRename`)。电视上另有面板(看板 PRIM-35)。
+struct PlaylistRenameButton: View {
+    let playlist: Playlist
+    let action: () -> Void
+
+    var body: some View {
+        if MusicLibrary.allowsRename(playlist) {
+            Button(action: action) {
+                Label("playlist_rename", systemImage: "pencil")
+            }
+        }
+    }
+}
+
+/// 歌单改名的输入框:给绑定的歌单赋值就弹出,预先填好原来的名字。改名不动曲目和顺序,
+/// 经 iCloud 同步到其他设备;名字去掉首尾空白后为空时不改。
+private struct PlaylistRenameAlert: ViewModifier {
+    @Binding var playlist: Playlist?
+    @Environment(MusicLibrary.self) private var library
+    @State private var name = ""
+
+    func body(content: Content) -> some View {
+        content
+            .alert("playlist_rename_title", isPresented: Binding(
+                get: { playlist != nil },
+                set: { if !$0 { playlist = nil } }
+            )) {
+                TextField("playlist_name", text: $name)
+                Button("cancel", role: .cancel) { playlist = nil }
+                Button("save") {
+                    if let playlist { library.renamePlaylist(id: playlist.id, to: name) }
+                    playlist = nil
+                }
+            }
+            .onChange(of: playlist?.id) { _, _ in
+                name = playlist?.name ?? ""
+            }
+    }
+}
+
+extension View {
+    func playlistRenameAlert(_ playlist: Binding<Playlist?>) -> some View {
+        modifier(PlaylistRenameAlert(playlist: playlist))
     }
 }

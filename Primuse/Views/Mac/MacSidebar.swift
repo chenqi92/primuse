@@ -27,6 +27,8 @@ struct MacSidebar: View {
     @AppStorage(PlaylistListOrder.storageKey)
     private var playlistListOrderRawValue = PlaylistListOrder.custom.rawValue
     @State private var copyToServerPlaylist: Playlist?
+    /// 右键「重命名」的那一个歌单。
+    @State private var renamingPlaylist: Playlist?
 
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
@@ -76,6 +78,7 @@ struct MacSidebar: View {
         .sheet(item: $copyToServerPlaylist) { playlist in
             PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
+        .playlistRenameAlert($renamingPlaylist)
     }
 
     // MARK: - Brand header
@@ -479,6 +482,8 @@ struct MacSidebar: View {
             Label("scrape_missing_metadata", systemImage: "wand.and.stars")
         }
         .disabled(isEmpty || scraperService.isScraping)
+
+        PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
 
         if ServerPlaylistCopyService.hasTarget(for: playlist.id, sourcesStore: sourcesStore) {
             Button {

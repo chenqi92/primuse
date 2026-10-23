@@ -57,6 +57,8 @@ struct PlaylistDetailView: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var showCopyToServer = false
+    /// 「⋯」里点了「重命名」。
+    @State private var renamingPlaylist: Playlist?
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放、加入队列、导出照旧按整张歌单。
     @State private var findText = ""
     #if os(iOS)
@@ -374,6 +376,7 @@ struct PlaylistDetailView: View {
         .alert("playlist_remove_offline_none", isPresented: $showsNoOfflineDownloads) {
             Button("ok", role: .cancel) {}
         }
+        .playlistRenameAlert($renamingPlaylist)
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
         }
@@ -679,6 +682,9 @@ struct PlaylistDetailView: View {
                     Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
                 }
                 .disabled(songs.count < 2)
+            }
+            PlaylistRenameButton(playlist: currentPlaylist ?? playlist) {
+                renamingPlaylist = currentPlaylist ?? playlist
             }
             Button {
                 showArtworkEditor = true
@@ -1501,6 +1507,12 @@ struct PlaylistDetailView: View {
         let canDelete = canDeletePlaylist(playlist.id)
 
         var middle: [MacHeaderMoreMenu.Item] = []
+        let shownPlaylist = currentPlaylist ?? playlist
+        if MusicLibrary.allowsRename(shownPlaylist) {
+            middle.append(.init(icon: "pencil", title: String(localized: "playlist_rename")) {
+                renamingPlaylist = shownPlaylist
+            })
+        }
         middle.append(.init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
             showArtworkEditor = true
         })
