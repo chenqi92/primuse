@@ -29,9 +29,12 @@ final class SpokenWordWidgetPublisher {
     /// Covers written in this launch, so a book's cover is rendered once
     /// rather than on every publish. A new launch refreshes them.
     private var writtenCovers: Set<String> = []
-    /// 本机封面缓存里没有、这次启动已经去源上取过的书封。只试一次:进度每 15 秒存一次就发布一回,
-    /// 真没有封面的书不该每次都连一趟网盘。之后缓存里有了(比如在 App 里看过这本书)照样会用上。
-    private var sourceCoverAttempts: Set<String> = []
+    /// 本机封面缓存里没有、这次启动已经去源上取过的书封,记着上次去取的时间。进度每 15 秒存一次
+    /// 就发布一回,真没有封面的书不该每次都连一趟网盘;可那一次碰上断网、音乐源连不上的书,也不该一直是
+    /// 空白封面到下次启动(#336),隔 `sourceCoverRetryInterval` 以后的发布再试一次。
+    /// 之后缓存里有了(比如在 App 里看过这本书)照样会用上。
+    private var sourceCoverAttempts: [String: Date] = [:]
+    private static let sourceCoverRetryInterval: TimeInterval = 30 * 60
 
     init(library: MusicLibrary) {
         self.library = library
@@ -106,9 +109,14 @@ final class SpokenWordWidgetPublisher {
         var written = cachedWrite.written
         // 本机缓存里没有的书封(文件夹里的 cover.jpg、服务器给的封面地址、还没缓存过的内嵌封面)
         // 照书架的取法去源上取一次,书架有封面、小组件却是占位图的就是这一类(#313)。
-        let sourceJobs = cachedWrite.missing.filter { !sourceCoverAttempts.contains($0.fileName) }
+        let now = Date()
+        let sourceJobs = cachedWrite.missing.filter { job in
+            sourceCoverAttempts[job.fileName].map {
+                now.timeIntervalSince($0) >= Self.sourceCoverRetryInterval
+            } ?? true
+        }
         if !sourceJobs.isEmpty {
-            sourceCoverAttempts.formUnion(sourceJobs.map(\.fileName))
+            for job in sourceJobs { sourceCoverAttempts[job.fileName] = now }
             let sourceManager = AppServices.shared.sourceManager
             let fetched = await Task.detached(priority: .utility) {
                 await Self.writeSourceCovers(sourceJobs, sourceManager: sourceManager)
