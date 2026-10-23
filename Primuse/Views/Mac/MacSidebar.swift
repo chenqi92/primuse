@@ -24,6 +24,9 @@ struct MacSidebar: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    @AppStorage(PlaylistListOrder.storageKey)
+    private var playlistListOrderRawValue = PlaylistListOrder.custom.rawValue
+    @State private var copyToServerPlaylist: Playlist?
 
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
@@ -70,6 +73,9 @@ struct MacSidebar: View {
         }
         .frame(maxHeight: .infinity)
         .background(sidebarBackground.ignoresSafeArea())
+        .sheet(item: $copyToServerPlaylist) { playlist in
+            PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
+        }
     }
 
     // MARK: - Brand header
@@ -200,7 +206,7 @@ struct MacSidebar: View {
                 }
             }
 
-            ForEach(sidebarPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { playlist in
+            ForEach(shownSidebarPlaylists, id: \.id) { playlist in
                 playlistItem(playlist)
                 .contextMenu {
                     playlistContextMenu(for: playlist)
@@ -229,7 +235,7 @@ struct MacSidebar: View {
     /// 用 id 数组当动画的触发值足够小。
     private var playlistRowIDs: [String] {
         sidebarSmartPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
-            + sidebarPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
+            + shownSidebarPlaylists.map(\.id)
             + (sidebarPlaylists.isEmpty && sidebarSmartPlaylists.isEmpty ? [] : ["show-all"])
     }
 
@@ -474,6 +480,15 @@ struct MacSidebar: View {
         }
         .disabled(isEmpty || scraperService.isScraping)
 
+        if ServerPlaylistCopyService.hasTarget(for: playlist.id, sourcesStore: sourcesStore) {
+            Button {
+                copyToServerPlaylist = playlist
+            } label: {
+                Label("server_playlist_copy_action", systemImage: "server.rack")
+            }
+            .disabled(isEmpty)
+        }
+
         if canDeletePlaylist(playlist.id) {
             Divider()
             Button(role: .destructive) {
@@ -565,6 +580,13 @@ struct MacSidebar: View {
     /// 「资料库 · 我喜欢的」固定入口出现了, 不重复。
     private var sidebarPlaylists: [Playlist] {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
+    }
+
+    /// 歌单分区列出来的那几行, 跟歌单页同一个排序方式。
+    private var shownSidebarPlaylists: ArraySlice<Playlist> {
+        PlaylistListOrder.resolved(playlistListOrderRawValue)
+            .sorted(sidebarPlaylists) { library.songCount(forPlaylist: $0) }
+            .prefix(sidebarPlaylistLimit)
     }
 
     private var sidebarSmartPlaylists: [SmartPlaylist] {

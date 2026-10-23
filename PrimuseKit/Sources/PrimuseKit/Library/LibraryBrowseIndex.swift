@@ -279,6 +279,114 @@ public enum LibraryAlbumBrowseOrder: String, CaseIterable, Sendable {
     }
 }
 
+/// 歌单页的排序方式。只管怎么摆,不动歌单自己的位次:「自定义顺序」就是
+/// `PlaylistManualOrderPolicy` 排出来、用户拖过的那个顺序;其余几种随歌单增减自动排好,
+/// 新导入的歌单不用再一个个拖。
+public enum PlaylistListOrder: String, CaseIterable, Sendable {
+    case custom
+    case name
+    case nameDescending
+    /// 新建、导入或同步进来的时间,新的在前。
+    case dateAdded
+    case dateAddedOldest
+    case dateUpdated
+    case dateUpdatedOldest
+    /// 歌多的在前。
+    case songCount
+    case songCountFewest
+
+    public enum Criterion: String, CaseIterable, Sendable {
+        case name
+        case dateAdded
+        case dateUpdated
+        case songCount
+    }
+
+    /// 不带点号:带点号的键会让 @AppStorage 去听整个 UserDefaults 的变更通知。
+    public static let storageKey = "playlistListSortOrder"
+
+    public static func resolved(_ rawValue: String) -> PlaylistListOrder {
+        PlaylistListOrder(rawValue: rawValue) ?? .custom
+    }
+
+    /// nil = 自定义顺序。
+    public var criterion: Criterion? {
+        switch self {
+        case .custom: return nil
+        case .name, .nameDescending: return .name
+        case .dateAdded, .dateAddedOldest: return .dateAdded
+        case .dateUpdated, .dateUpdatedOldest: return .dateUpdated
+        case .songCount, .songCountFewest: return .songCount
+        }
+    }
+
+    /// 名字 A→Z、时间从旧到新、歌从少到多算升序;自定义顺序没有方向,记作升序。
+    public var isAscending: Bool {
+        switch self {
+        case .custom, .name, .dateAddedOldest, .dateUpdatedOldest, .songCountFewest: return true
+        case .nameDescending, .dateAdded, .dateUpdated, .songCount: return false
+        }
+    }
+
+    /// 刚换到一个维度时的方向:名字 A→Z,时间新的在前,歌多的在前。
+    public static func defaultOrder(for criterion: Criterion?) -> PlaylistListOrder {
+        switch criterion {
+        case nil: return .custom
+        case .name: return .name
+        case .dateAdded: return .dateAdded
+        case .dateUpdated: return .dateUpdated
+        case .songCount: return .songCount
+        }
+    }
+
+    /// 换维度;选回当前维度时保持原来的方向。
+    public func selecting(_ criterion: Criterion?) -> PlaylistListOrder {
+        criterion == self.criterion ? self : Self.defaultOrder(for: criterion)
+    }
+
+    public func withAscending(_ ascending: Bool) -> PlaylistListOrder {
+        switch criterion {
+        case nil: return .custom
+        case .name: return ascending ? .name : .nameDescending
+        case .dateAdded: return ascending ? .dateAddedOldest : .dateAdded
+        case .dateUpdated: return ascending ? .dateUpdatedOldest : .dateUpdated
+        case .songCount: return ascending ? .songCountFewest : .songCount
+        }
+    }
+
+    /// `playlists` 按自定义顺序传进来;比较值一样的保持这个先后。名字按
+    /// `LibraryCollationPolicy` 排(「Beyond」和「北京」挨着),没名字的放最后。
+    public func sorted(_ playlists: [Playlist], songCount: (String) -> Int) -> [Playlist] {
+        guard let criterion, playlists.count > 1 else { return playlists }
+        let ascending = isAscending
+        let indices = Array(playlists.indices)
+        let ordered: [Int]
+        switch criterion {
+        case .name:
+            let keys = playlists.map { LibraryCollationPolicy.key(for: $0.name) }
+            ordered = indices.sorted { lhs, rhs in
+                let lhsBlank = keys[lhs].text.isEmpty
+                if lhsBlank != keys[rhs].text.isEmpty { return !lhsBlank }
+                guard keys[lhs] != keys[rhs] else { return lhs < rhs }
+                return (keys[lhs] < keys[rhs]) == ascending
+            }
+        case .dateAdded, .dateUpdated:
+            let dates = playlists.map { criterion == .dateAdded ? $0.createdAt : $0.updatedAt }
+            ordered = indices.sorted { lhs, rhs in
+                guard dates[lhs] != dates[rhs] else { return lhs < rhs }
+                return (dates[lhs] < dates[rhs]) == ascending
+            }
+        case .songCount:
+            let counts = playlists.map { songCount($0.id) }
+            ordered = indices.sorted { lhs, rhs in
+                guard counts[lhs] != counts[rhs] else { return lhs < rhs }
+                return (counts[lhs] < counts[rhs]) == ascending
+            }
+        }
+        return ordered.map { playlists[$0] }
+    }
+}
+
 public enum LibraryAlbumBrowseLayoutBuilder {
     /// - Parameters:
     ///   - songs: 专辑的歌曲,只有 `.recentlyAdded` 用到(取每张专辑最近一首的入库时间)。

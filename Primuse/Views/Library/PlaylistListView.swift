@@ -30,9 +30,12 @@ struct PlaylistListView: View {
     @State private var showPlaylistOrder = false
     @State private var playlistSelection: Set<String> = []
     @State private var showCopyToServer = false
+    /// 长按「同步歌单」时直接带上的那一个歌单。
+    @State private var copyToServerPlaylist: Playlist?
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
+    @AppStorage(PlaylistListOrder.storageKey) private var listOrderRawValue = PlaylistListOrder.custom.rawValue
     /// 「在本页里找」。只按名字筛三类歌单、顺序不变；管理、排序仍对整份列表。
     @State private var findText = ""
 
@@ -60,13 +63,24 @@ struct PlaylistListView: View {
         return items.filter { LibraryFindPolicy.matches(query, fields: [name($0)]) }
     }
 
-    private var shownPlaylists: [Playlist] { shown(playlists, name: \.name) }
+    private var listOrder: PlaylistListOrder { .resolved(listOrderRawValue) }
+
+    private var listOrderBinding: Binding<PlaylistListOrder> {
+        Binding(get: { listOrder }, set: { listOrderRawValue = $0.rawValue })
+    }
+
+    /// 按页面选的排序方式摆好的歌单;「自定义顺序」就是 `playlists` 本身。
+    private func ordered(_ items: [Playlist]) -> [Playlist] {
+        listOrder.sorted(items) { library.songCount(forPlaylist: $0) }
+    }
+
+    private var shownPlaylists: [Playlist] { ordered(shown(playlists, name: \.name)) }
     private var shownAISmartPlaylists: [SmartPlaylist] { shown(aiSmartPlaylists, name: \.name) }
     private var shownRuleSmartPlaylists: [SmartPlaylist] { shown(ruleSmartPlaylists, name: \.name) }
 
     private var findHasNoResults: Bool {
         findQuery != nil
-            && shownPlaylists.isEmpty
+            && shown(playlists, name: \.name).isEmpty
             && shownAISmartPlaylists.isEmpty
             && shownRuleSmartPlaylists.isEmpty
     }
@@ -119,17 +133,22 @@ struct PlaylistListView: View {
             ServerMediaShareSheet(target: target)
         }
         .sheet(isPresented: $showCopyToServer) {
-            // 不预选: 面板里先勾要传的歌单, Apple Music 和别的服务器上的歌单也能选。
+            // 不预选: 面板里先勾要同步的歌单, Apple Music 和别的服务器上的歌单也能选。
             PlaylistCopyToServerSheet(playlistIDs: [])
         }
+        .sheet(item: $copyToServerPlaylist) { playlist in
+            PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
+        }
         .sheet(isPresented: $showPlaylistOrder) {
-            PlaylistOrderSheet(playlists: playlists) { ordered in
-                library.reorderPlaylists(ordered.map(\.id))
+            // 从眼前这一列开始拖: 按名字排好再手动挪几个, 完成后就成了自定义顺序。
+            PlaylistOrderSheet(playlists: playlists, startingWith: ordered(playlists)) { arranged in
+                library.reorderPlaylists(arranged.map(\.id))
+                listOrderRawValue = PlaylistListOrder.custom.rawValue
             }
         }
     }
 
-    /// 有能写歌单的音乐服务器时才给「传到音乐服务器」的入口。
+    /// 有能写歌单的音乐服务器时才给「同步歌单」的入口。
     private var canCopyToServer: Bool {
         !ServerPlaylistCopyService.targetSources(sourcesStore: sourcesStore).isEmpty
     }
@@ -160,6 +179,12 @@ struct PlaylistListView: View {
                                 }
                                 .contextMenu {
                                     SmartPlaylistIntentPinButton(playlistID: smart.id)
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        library.deleteSmartPlaylist(id: smart.id)
+                                    } label: {
+                                        Label("delete_playlist", systemImage: "trash")
+                                    }
                                 }
                             }
                             .onDelete { offsets in
@@ -178,6 +203,12 @@ struct PlaylistListView: View {
                                 }
                                 .contextMenu {
                                     SmartPlaylistIntentPinButton(playlistID: smart.id)
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        library.deleteSmartPlaylist(id: smart.id)
+                                    } label: {
+                                        Label("delete_playlist", systemImage: "trash")
+                                    }
                                 }
                             }
                             .onDelete { offsets in
@@ -219,6 +250,8 @@ struct PlaylistListView: View {
                                 .contextMenu {
                                     favoriteToggleButton(for: playlist)
                                     serverMediaShareButton(for: playlist)
+                                    copyToServerButton(for: playlist)
+                                    playlistRemovalButtons(for: playlist)
                                 }
                             }
                         } header: {
@@ -312,7 +345,7 @@ struct PlaylistListView: View {
     private var playlistManageList: some View {
         List(selection: $playlistSelection) {
             Section {
-                ForEach(playlists) { playlist in
+                ForEach(ordered(playlists)) { playlist in
                     playlistRow(playlist)
                         .tag(playlist.id)
                         .selectionDisabled(isSystemPlaylist(playlist.id))
@@ -387,14 +420,19 @@ struct PlaylistListView: View {
         .accessibilityIdentifier("playlists.new")
     }
 
-    /// 调整顺序与多选。
+    /// 排序方式、调整顺序与多选。
     private func playlistMoreMenu(titled: Bool) -> some View {
         Menu {
             if canReorderPlaylists {
+                Menu {
+                    PlaylistListSortMenuItems(order: listOrderBinding)
+                } label: {
+                    Label("sort_by", systemImage: "arrow.up.arrow.down")
+                }
                 Button {
                     showPlaylistOrder = true
                 } label: {
-                    Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
+                    Label("playlist_order_action", systemImage: "line.3.horizontal")
                 }
             }
             Button {
@@ -750,21 +788,7 @@ struct PlaylistListView: View {
             }
 
             if canReorderPlaylists {
-                Button {
-                    showPlaylistOrder = true
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .frame(width: 32, height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(Text("playlist_order_action"))
+                macSortMenu
             }
 
             if !playlists.isEmpty {
@@ -792,6 +816,42 @@ struct PlaylistListView: View {
                 .help(Text(isManagingPlaylists ? LocalizedStringKey("done") : "batch_select"))
             }
         }
+    }
+
+    /// 排序方式和「调整歌单顺序」收在一颗键里, 键上写着当前怎么排。
+    private var macSortMenu: some View {
+        Menu {
+            PlaylistListSortMenuItems(order: listOrderBinding)
+            Section {
+                Button {
+                    showPlaylistOrder = true
+                } label: {
+                    Label("playlist_order_action", systemImage: "line.3.horizontal")
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(verbatim: listOrder.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(PMColor.text)
+            .padding(.horizontal, 11)
+            .frame(height: 32)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("sort_by"))
     }
 
     private var playlistOverview: some View {
@@ -973,7 +1033,27 @@ struct PlaylistListView: View {
 
         favoriteToggleButton(for: playlist)
         serverMediaShareButton(for: playlist)
+        copyToServerButton(for: playlist)
+        playlistRemovalButtons(for: playlist)
+    }
+    #endif
 
+    /// 长按 / 右键里的「同步歌单」: 直接带上这一个歌单, 面板里只剩选服务器和去向。
+    @ViewBuilder
+    private func copyToServerButton(for playlist: Playlist) -> some View {
+        if ServerPlaylistCopyService.hasTarget(for: playlist.id, sourcesStore: sourcesStore) {
+            Button {
+                copyToServerPlaylist = playlist
+            } label: {
+                Label("server_playlist_copy_action", systemImage: "server.rack")
+            }
+            .disabled(library.songCount(forPlaylist: playlist.id) == 0)
+        }
+    }
+
+    /// 自己的歌单能删; 镜像歌单删了下次同步又回来, 只给「在 Primuse 中隐藏」。
+    @ViewBuilder
+    private func playlistRemovalButtons(for playlist: Playlist) -> some View {
         if !isSystemPlaylist(playlist.id) {
             Divider()
             Button(role: .destructive) {
@@ -990,7 +1070,6 @@ struct PlaylistListView: View {
             }
         }
     }
-    #endif
 
     private func makeServerMediaShareTarget(
         for playlist: Playlist
@@ -1202,6 +1281,63 @@ struct MacNewPlaylistSheet: View {
 }
 #endif
 
+// MARK: - Playlist List Sort
+
+extension PlaylistListOrder {
+    var label: String {
+        switch criterion {
+        case nil: return String(localized: "playlist_sort_custom")
+        case .some(let criterion): return criterion.label
+        }
+    }
+}
+
+extension PlaylistListOrder.Criterion {
+    var label: String {
+        switch self {
+        case .name: return String(localized: "playlist_sort_name")
+        case .dateAdded: return String(localized: "playlist_sort_date_added")
+        case .dateUpdated: return String(localized: "playlist_sort_date_updated")
+        case .songCount: return String(localized: "playlist_sort_song_count")
+        }
+    }
+}
+
+/// 歌单页的排序菜单, 和全部歌曲一样分两段: 先选按什么排(最前面是自定义顺序),
+/// 再选升序还是降序; 自定义顺序没有方向。
+struct PlaylistListSortMenuItems: View {
+    @Binding var order: PlaylistListOrder
+
+    var body: some View {
+        Section {
+            Picker("sort_by", selection: criterionBinding) {
+                Text("playlist_sort_custom").tag(PlaylistListOrder.Criterion?.none)
+                ForEach(PlaylistListOrder.Criterion.allCases, id: \.self) { criterion in
+                    Text(verbatim: criterion.label).tag(Optional(criterion))
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        if order != .custom {
+            Section {
+                Picker("smart_sort_direction", selection: ascendingBinding) {
+                    Label("smart_sort_ascending", systemImage: "arrow.up").tag(true)
+                    Label("smart_sort_descending", systemImage: "arrow.down").tag(false)
+                }
+                .pickerStyle(.inline)
+            }
+        }
+    }
+
+    private var criterionBinding: Binding<PlaylistListOrder.Criterion?> {
+        Binding(get: { order.criterion }, set: { order = order.selecting($0) })
+    }
+
+    private var ascendingBinding: Binding<Bool> {
+        Binding(get: { order.isAscending }, set: { order = order.withAscending($0) })
+    }
+}
+
 // MARK: - Playlist Order Sheet
 
 /// 调整歌单在列表里的顺序。歌单原本固定按最近更新倒序排,往任何一个歌单里加
@@ -1220,9 +1356,15 @@ struct PlaylistOrderSheet: View {
     #endif
     @State private var localPlaylists: [Playlist]
 
-    init(playlists: [Playlist], onDone: @escaping ([Playlist]) -> Void) {
+    /// - Parameter startingWith: 面板一打开时摆出来的顺序, 默认就是歌单现在的顺序。
+    ///   歌单页按名字等排着的时候传眼前那一列; 跟现在的顺序不一样, 点「完成」就照它写回。
+    init(
+        playlists: [Playlist],
+        startingWith startingOrder: [Playlist]? = nil,
+        onDone: @escaping ([Playlist]) -> Void
+    ) {
         self.initialPlaylists = playlists
-        self._localPlaylists = State(initialValue: playlists)
+        self._localPlaylists = State(initialValue: startingOrder ?? playlists)
         self.onDone = onDone
     }
 

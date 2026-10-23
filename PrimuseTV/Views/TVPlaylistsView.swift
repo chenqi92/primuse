@@ -9,11 +9,14 @@ struct TVPlaylistsView: View {
 
     @State private var filter = 0
     @State private var appleMusic = TVAppleMusicCatalog()
+    @AppStorage(PlaylistListOrder.storageKey) private var orderRawValue = PlaylistListOrder.custom.rawValue
+    @FocusState private var isOrderMenuFocused: Bool
     private let cols = 4
     private let gap: CGFloat = 36
 
     var body: some View {
-        let playlists = store.playlists.filter { filter == 0 || (filter == 2 ? $0.kind == .smart : $0.kind != .smart) }
+        let playlists = store.playlists(ordered: order)
+            .filter { filter == 0 || (filter == 2 ? $0.kind == .smart : $0.kind != .smart) }
         ZStack {
             TVColor.bg.ignoresSafeArea()
             GeometryReader { geo in
@@ -30,6 +33,11 @@ struct TVPlaylistsView: View {
                             TVSelectionButton(title: PMString("ext.tv.library.filter.all"), selected: filter == 0) { filter = 0 }
                             TVSelectionButton(title: String(localized: "tab_playlists"), selected: filter == 1) { filter = 1 }
                             TVSelectionButton(title: PMString("ext.tv.library.filter.smart"), selected: filter == 2) { filter = 2 }
+                            Spacer(minLength: 16)
+                            // 只排普通歌单:只看智能歌单、普通歌单不到两个时没得排。
+                            if filter != 2, store.normalPlaylists.lazy.filter({ $0.kind == .normal }).count >= 2 {
+                                orderMenu
+                            }
                         }
                         // 焦点区撑满整行:顶栏「歌单」在页面中部,只有胶囊宽度时往下的搜索
                         // 落不到这一行和下面的歌单,会越过去落在 Apple Music 那一排。
@@ -58,6 +66,64 @@ struct TVPlaylistsView: View {
             }
         }
         .task { await appleMusic.loadPlaylists() }
+    }
+
+    private var order: PlaylistListOrder { .resolved(orderRawValue) }
+
+    /// 筛选行右端的排序菜单, 和手机歌单页一样分两段: 先选按什么排(最前面是自定义顺序),
+    /// 再选升序还是降序。外观同资料库筛选行右端的菜单按钮, 选项用 `Toggle`, 当前那一项带勾。
+    private var orderMenu: some View {
+        Menu {
+            Section(String(localized: "sort_by")) {
+                orderToggle(nil)
+                ForEach(PlaylistListOrder.Criterion.allCases, id: \.self) { criterion in
+                    orderToggle(criterion)
+                }
+            }
+            if order != .custom {
+                Section(String(localized: "smart_sort_direction")) {
+                    directionToggle(ascending: true)
+                    directionToggle(ascending: false)
+                }
+            }
+        } label: {
+            TVFilterChipLabel(
+                title: order.label,
+                systemImage: "arrow.up.arrow.down",
+                isFocused: isOrderMenuFocused
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(TVBareButtonStyle())
+        .focused($isOrderMenuFocused)
+        .focusEffectDisabled()
+        .accessibilityLabel(Text("sort_by"))
+        .accessibilityValue(Text(order.label))
+        .accessibilityIdentifier("tv.playlists.order")
+    }
+
+    private func orderToggle(_ criterion: PlaylistListOrder.Criterion?) -> some View {
+        Toggle(isOn: Binding(
+            get: { order.criterion == criterion },
+            set: { _ in orderRawValue = order.selecting(criterion).rawValue }
+        )) {
+            Label(
+                PlaylistListOrder.defaultOrder(for: criterion).label,
+                systemImage: PlaylistListOrder.systemImage(for: criterion)
+            )
+        }
+    }
+
+    private func directionToggle(ascending: Bool) -> some View {
+        Toggle(isOn: Binding(
+            get: { order.isAscending == ascending },
+            set: { _ in orderRawValue = order.withAscending(ascending).rawValue }
+        )) {
+            Label(
+                String(localized: ascending ? "smart_sort_ascending" : "smart_sort_descending"),
+                systemImage: ascending ? "arrow.up" : "arrow.down"
+            )
+        }
     }
 
     /// Apple Music 上的歌单单独成段:它们不进本机曲库,按下去由系统播放器整条播放,
@@ -105,6 +171,29 @@ struct TVPlaylistsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()
             .padding(.top, 12)
+        }
+    }
+}
+
+extension PlaylistListOrder {
+    var label: String {
+        switch criterion {
+        case nil: return String(localized: "playlist_sort_custom")
+        case .name: return String(localized: "playlist_sort_name")
+        case .dateAdded: return String(localized: "playlist_sort_date_added")
+        case .dateUpdated: return String(localized: "playlist_sort_date_updated")
+        case .songCount: return String(localized: "playlist_sort_song_count")
+        }
+    }
+
+    static func systemImage(for criterion: Criterion?) -> String {
+        switch criterion {
+        case nil: return "line.3.horizontal"
+        // 不用 textformat:它在中文环境下被系统换成「格式」两个字。
+        case .name: return "abc"
+        case .dateAdded: return "calendar"
+        case .dateUpdated: return "clock"
+        case .songCount: return "music.note.list"
         }
     }
 }

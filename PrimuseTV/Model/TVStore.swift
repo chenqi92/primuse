@@ -1428,6 +1428,17 @@ final class TVStore {
         return cachedSmartPlaylists
     }
     var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
+    /// 歌单页按排序方式摆好的歌单:「我喜欢」在最前、智能歌单在最后,中间的普通歌单
+    /// 和手机歌单页同一套 `PlaylistListOrder`;自定义顺序就是 `playlists`。
+    func playlists(ordered order: PlaylistListOrder) -> [TVPlaylist] {
+        guard order != .custom else { return playlists }
+        let normal = normalPlaylists
+        let byID = Dictionary(normal.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let sorted = order.sorted(library.playlists.filter { byID[$0.id]?.kind == .normal }) {
+            byID[$0]?.count ?? 0
+        }
+        return normal.filter { $0.kind == .liked } + sorted.compactMap { byID[$0.id] } + smartPlaylists
+    }
     /// 与 `playlists.count` 相同(两份缓存都是逐条映射),但不触发智能歌单的整库匹配:
     /// 设置页只显示个数,却会随每次播放记录变化重绘。
     var playlistCount: Int { library.playlists.count + library.smartPlaylists.count }
