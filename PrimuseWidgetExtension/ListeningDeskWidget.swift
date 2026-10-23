@@ -332,7 +332,9 @@ struct ListeningDeskView: View {
 
     private func transportButton<Intent: AppIntent>(_ intent: Intent, symbol: String, label: String) -> some View {
         Button(intent: intent) {
-            Image(systemName: symbol).font(.system(size: 14)).frame(width: 32, height: 36)
+            Image(systemName: symbol).font(.system(size: 14))
+                .foregroundStyle(WidgetDesign.controlForeground)
+                .frame(width: 32, height: 36)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

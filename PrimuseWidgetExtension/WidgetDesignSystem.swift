@@ -119,8 +119,21 @@ enum WidgetDesign {
     static let secondaryText = Color.secondary
     static let tertiaryText = Color.secondary
     static let hairline = Color.primary.opacity(0.10)
+    /// 播放 / 暂停、切歌、快进快退这些键的符号色, 见 `WidgetControlForeground`。
+    static let controlForeground = WidgetControlForeground()
 
 
+}
+
+/// 小组件上播放 / 暂停、切歌、快进快退等键的符号色: 深色外观照旧是白; 浅色外观用深灰,
+/// 纯黑压在浅色的毛玻璃圆片上太重(#336)。色调、透明外观由系统按明暗重画, 仍用 primary。
+struct WidgetControlForeground: ShapeStyle {
+    func resolve(in environment: EnvironmentValues) -> Color {
+        guard environment.colorScheme == .light, environment.widgetRenderingMode == .fullColor else {
+            return .primary
+        }
+        return Color(white: 0.30)
+    }
 }
 
 struct WidgetCanvas<Content: View>: View {
@@ -319,7 +332,7 @@ struct WidgetGlassKeyLabel: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: diameter * symbolScale, weight: .semibold))
-            .foregroundStyle(WidgetDesign.strongText)
+            .foregroundStyle(WidgetDesign.controlForeground)
             .widgetAccentable()
             .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
             .frame(width: diameter, height: diameter)
