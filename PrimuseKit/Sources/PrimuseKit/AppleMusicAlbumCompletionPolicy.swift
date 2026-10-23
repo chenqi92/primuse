@@ -54,19 +54,38 @@ public enum AppleMusicAlbumCompletionPolicy {
 /// 专辑名的哈希,两种不会撞上;按专辑 ID 记账的收藏、评价也凭这个前缀认出它,不记。
 public enum AppleMusicCatalogAlbumIdentity {
     private static let prefix = "applemusic-catalog-album:"
+    /// 搜索结果里点开的目录专辑没有种子歌,直接带专辑自己的目录 ID。
+    /// 目录歌与资料库条目的 ID 是数字或 `i.` 开头,不会撞上这个前缀。
+    private static let albumSeedPrefix = "album."
 
     public static func albumID(seedItemID: String) -> String {
         prefix + seedItemID
     }
 
-    /// 不是这种专辑时返回 nil。
+    public static func albumID(catalogAlbumID: String) -> String {
+        prefix + albumSeedPrefix + catalogAlbumID
+    }
+
+    /// 按种子歌拼的专辑才有;不是这种专辑、或者是按专辑 ID 打开的,返回 nil。
     public static func seedItemID(fromAlbumID albumID: String) -> String? {
-        guard albumID.hasPrefix(prefix) else { return nil }
-        let seed = String(albumID.dropFirst(prefix.count))
-        return seed.isEmpty ? nil : seed
+        guard let seed = seed(fromAlbumID: albumID), !seed.hasPrefix(albumSeedPrefix) else { return nil }
+        return seed
+    }
+
+    /// 从搜索结果按专辑 ID 打开的目录专辑才有。
+    public static func catalogAlbumID(fromAlbumID albumID: String) -> String? {
+        guard let seed = seed(fromAlbumID: albumID), seed.hasPrefix(albumSeedPrefix) else { return nil }
+        let id = String(seed.dropFirst(albumSeedPrefix.count))
+        return id.isEmpty ? nil : id
     }
 
     public static func isCatalogAlbum(_ albumID: String) -> Bool {
-        seedItemID(fromAlbumID: albumID) != nil
+        seed(fromAlbumID: albumID) != nil
+    }
+
+    private static func seed(fromAlbumID albumID: String) -> String? {
+        guard albumID.hasPrefix(prefix) else { return nil }
+        let seed = String(albumID.dropFirst(prefix.count))
+        return seed.isEmpty ? nil : seed
     }
 }

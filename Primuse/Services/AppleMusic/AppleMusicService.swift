@@ -145,6 +145,9 @@ final class AppleMusicService {
     }
 
     private(set) var searchResults: [MusicKit.Song] = []
+    /// 同一次目录搜索里的艺人与专辑, 搜索页放在歌曲上面。
+    private(set) var artistSearchResults: [MusicKit.Artist] = []
+    private(set) var albumSearchResults: [MusicKit.Album] = []
     private(set) var isSearching = false
     /// 最近一次播放调用如果失败 (未订阅 / 国家不可用 / 网络),把错误信息
     /// 暴露给 UI 弹 banner。成功后被清空。
@@ -270,14 +273,14 @@ final class AppleMusicService {
         searchTask?.cancel()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard authState == .authorized else {
-            searchResults = []
+            clearSearchResultLists()
             lastSearchError = nil
             lastSearchHitCount = -1
             plog("Apple Music search skipped: not authorized (\(String(describing: self.authState)))")
             return
         }
         guard !trimmed.isEmpty else {
-            searchResults = []
+            clearSearchResultLists()
             lastSearchError = nil
             lastSearchHitCount = -1
             return
@@ -292,10 +295,16 @@ final class AppleMusicService {
     func clearCatalogSearchResults() {
         searchTask?.cancel()
         searchTask = nil
-        searchResults = []
+        clearSearchResultLists()
         isSearching = false
         lastSearchError = nil
         lastSearchHitCount = -1
+    }
+
+    private func clearSearchResultLists() {
+        searchResults = []
+        artistSearchResults = []
+        albumSearchResults = []
     }
 
     private func runSearch(term: String) async {
@@ -306,21 +315,31 @@ final class AppleMusicService {
         isSearching = true
         defer { isSearching = false }
         do {
-            var request = MusicCatalogSearchRequest(term: term, types: [MusicKit.Song.self])
+            var request = MusicCatalogSearchRequest(
+                term: term,
+                types: [MusicKit.Song.self, MusicKit.Album.self, MusicKit.Artist.self]
+            )
             request.limit = 25
             let response = try await request.response()
             if !Task.isCancelled, catalogSearchIsAvailable {
+                let collectionLimit = AppleMusicCatalogSearchPolicy.collectionResultLimit
                 self.searchResults = Array(response.songs)
+                self.artistSearchResults = Array(response.artists.prefix(collectionLimit))
+                self.albumSearchResults = Array(response.albums.prefix(collectionLimit))
                 self.lastSearchError = nil
                 self.lastSearchHitCount = response.songs.count
-                plog("Apple Music search '\(term)' → \(response.songs.count) results")
+                    + self.artistSearchResults.count + self.albumSearchResults.count
+                plog(
+                    "Apple Music search '\(term)' → \(response.songs.count) songs, "
+                        + "\(self.artistSearchResults.count) artists, \(self.albumSearchResults.count) albums"
+                )
             }
         } catch is CancellationError {
             // user 继续打字,旧 query 失效,沉默丢弃
         } catch {
             plog("⚠️Apple Music search failed for '\(term)': \(error.localizedDescription)")
             if !Task.isCancelled, catalogSearchIsAvailable {
-                self.searchResults = []
+                self.clearSearchResultLists()
                 self.lastSearchError = error.localizedDescription
                 self.lastSearchHitCount = -1
             }

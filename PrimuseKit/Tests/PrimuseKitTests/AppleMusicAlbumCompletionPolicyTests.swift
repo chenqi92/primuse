@@ -78,5 +78,18 @@ struct AppleMusicCatalogAlbumIdentityTests {
         #expect(AppleMusicCatalogAlbumIdentity.seedItemID(
             fromAlbumID: AppleMusicCatalogAlbumIdentity.albumID(seedItemID: "")
         ) == nil)
+        #expect(AppleMusicCatalogAlbumIdentity.catalogAlbumID(
+            fromAlbumID: AppleMusicCatalogAlbumIdentity.albumID(catalogAlbumID: "")
+        ) == nil)
+    }
+
+    @Test("An album opened from search keeps its catalog ID and is not read as a seed song")
+    func albumSeedRoundTrip() {
+        let id = AppleMusicCatalogAlbumIdentity.albumID(catalogAlbumID: "1440857781")
+        #expect(AppleMusicCatalogAlbumIdentity.catalogAlbumID(fromAlbumID: id) == "1440857781")
+        #expect(AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: id) == nil)
+        #expect(AppleMusicCatalogAlbumIdentity.isCatalogAlbum(id))
+        let songSeeded = AppleMusicCatalogAlbumIdentity.albumID(seedItemID: "i.abc")
+        #expect(AppleMusicCatalogAlbumIdentity.catalogAlbumID(fromAlbumID: songSeeded) == nil)
     }
 }

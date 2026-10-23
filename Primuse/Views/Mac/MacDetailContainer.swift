@@ -52,6 +52,11 @@ struct MacDetailContainer: View {
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
+                .navigationDestination(for: AppleMusicCatalogArtistHit.self) { artist in
+                    AppleMusicCatalogArtistView(artist: artist, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
+                        .pmAppearFade()
+                }
                 .navigationDestination(for: MacSpokenWordBookDestination.self) { destination in
                     SpokenWordBookDetailView(bookID: destination.bookID, onMacInlineBack: popDetail)
                         .navigationBarBackButtonHidden(true)

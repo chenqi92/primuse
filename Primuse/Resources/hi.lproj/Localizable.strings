@@ -6339,6 +6339,8 @@
 "eq_headroom_note %@" = "बढ़ाए गए बैंड से आवाज़ विकृत न हो, इसलिए कुल वॉल्यूम %@ dB कम किया गया है।";
 
 "apple_music_catalog_album_unavailable" = "Apple Music से इस एल्बम के ट्रैक लोड नहीं हो सके। बाद में फिर से कोशिश करें।";
+"apple_music_catalog_top_songs" = "लोकप्रिय गाने";
+"apple_music_catalog_artist_unavailable" = "Apple Music से यह कलाकार लोड नहीं हो सका। बाद में फिर से कोशिश करें।";
 
 "reverb_headroom_note %@" = "रिवर्ब चालू रहने तक आवाज़ विकृत न हो, इसलिए कुल वॉल्यूम %@ dB कम किया गया है।";
 "compressor_gain_cap_note %@" = "इस थ्रेशोल्ड और हेडरूम पर %@ dB से ज़्यादा गेन से आवाज़ विकृत होगी, इसलिए अतिरिक्त हिस्सा लागू नहीं होता।";

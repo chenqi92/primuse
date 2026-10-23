@@ -6526,6 +6526,8 @@
 "eq_headroom_note %@" = "整体音量已调低 %@ dB，避免提升的频段让声音失真。";
 
 "apple_music_catalog_album_unavailable" = "暂时没能从 Apple Music 取到这张专辑的曲目，请稍后再试。";
+"apple_music_catalog_top_songs" = "热门歌曲";
+"apple_music_catalog_artist_unavailable" = "暂时没能从 Apple Music 取到这位艺人的歌曲和专辑，请稍后再试。";
 
 "reverb_headroom_note %@" = "开着混响时整体音量调低了 %@ dB，避免叠加混响后失真。";
 "compressor_gain_cap_note %@" = "按现在的阈值和余量，总增益超过 %@ dB 会失真，超出的部分不生效。";

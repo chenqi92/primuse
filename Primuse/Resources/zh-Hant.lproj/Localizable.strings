@@ -6410,6 +6410,8 @@
 "eq_headroom_note %@" = "整體音量已調低 %@ dB，避免提升的頻段讓聲音失真。";
 
 "apple_music_catalog_album_unavailable" = "暫時無法從 Apple Music 取得這張專輯的曲目，請稍後再試。";
+"apple_music_catalog_top_songs" = "熱門歌曲";
+"apple_music_catalog_artist_unavailable" = "暫時無法從 Apple Music 取得這位藝人的歌曲和專輯，請稍後再試。";
 
 "reverb_headroom_note %@" = "開著殘響時整體音量調低了 %@ dB，避免疊加殘響後失真。";
 "compressor_gain_cap_note %@" = "依目前的閾值和餘量，總增益超過 %@ dB 會失真，超出的部分不生效。";

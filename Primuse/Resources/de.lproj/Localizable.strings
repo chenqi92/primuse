@@ -6433,6 +6433,8 @@
 "eq_headroom_note %@" = "Gesamtlautstärke um %@ dB abgesenkt, damit angehobene Bänder nicht verzerren.";
 
 "apple_music_catalog_album_unavailable" = "Die Titel dieses Albums konnten nicht von Apple Music geladen werden. Versuche es später erneut.";
+"apple_music_catalog_top_songs" = "Top-Titel";
+"apple_music_catalog_artist_unavailable" = "Dieser Künstler konnte nicht aus Apple Music geladen werden. Versuche es später erneut.";
 
 "reverb_headroom_note %@" = "Bei aktivem Hall ist die Gesamtlautstärke um %@ dB abgesenkt, damit der zusätzliche Hall nicht verzerrt.";
 "compressor_gain_cap_note %@" = "Bei diesem Schwellenwert und Headroom würde Verstärkung über %@ dB verzerren und wird nicht angewendet.";

@@ -84,14 +84,25 @@ extension AppleMusicLibraryService {
         )
     }
 
-    /// 上面那种专辑的整张曲目:按种子歌在目录里找到所在专辑,全部曲目按曲序排好;
-    /// 其中恰好在资料库里的用资料库那一行。
+    /// 搜索结果里的目录专辑点进去打开的那张(ID 规则见 `AppleMusicCatalogAlbumIdentity`)。
+    func catalogAlbum(for album: MusicKit.Album) -> PrimuseKit.Album {
+        PrimuseKit.Album(
+            id: AppleMusicCatalogAlbumIdentity.albumID(catalogAlbumID: album.id.rawValue),
+            title: album.title,
+            artistName: album.artistName,
+            year: album.releaseDate.map { Calendar.current.component(.year, from: $0) },
+            genre: album.genreNames.first,
+            coverArtPath: album.artwork?.url(width: 600, height: 600)?.absoluteString,
+            songCount: album.trackCount,
+            sourceID: Self.systemSourceID
+        )
+    }
+
+    /// 上面两种专辑的整张曲目:按种子歌或专辑自己的目录 ID 找到目录里那张专辑,
+    /// 全部曲目按曲序排好;其中恰好在资料库里的用资料库那一行。
     func catalogAlbumSongs(for album: PrimuseKit.Album) async -> AppleMusicAlbumCompletion? {
         guard catalogPlaybackIsAvailable,
-              let seedID = AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: album.id),
-              let seed = await catalogMusicKitSong(forItemID: seedID),
-              !Task.isCancelled,
-              let catalogAlbum = try? await seed.with([.albums]).albums?.first,
+              let catalogAlbum = await catalogMusicKitAlbum(for: album),
               !Task.isCancelled else { return nil }
         let tracks = await AppleMusicCatalogNeighbors.tracks(of: catalogAlbum)
         guard !tracks.isEmpty, !Task.isCancelled else { return nil }
@@ -102,6 +113,20 @@ extension AppleMusicLibraryService {
             songs: songs,
             catalogOnlySongIDs: Set(songs.filter { !isLibrarySong($0) }.map(\.id))
         )
+    }
+
+    private func catalogMusicKitAlbum(for album: PrimuseKit.Album) async -> MusicKit.Album? {
+        if let albumID = AppleMusicCatalogAlbumIdentity.catalogAlbumID(fromAlbumID: album.id) {
+            let request = MusicCatalogResourceRequest<MusicKit.Album>(
+                matching: \.id,
+                equalTo: MusicItemID(albumID)
+            )
+            return try? await request.response().items.first
+        }
+        guard let seedID = AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: album.id),
+              let seed = await catalogMusicKitSong(forItemID: seedID),
+              !Task.isCancelled else { return nil }
+        return try? await seed.with([.albums]).albums?.first
     }
 
     /// 这张专辑在目录里是哪一张。先按资料库曲目的目录 ID 找它所在的专辑,

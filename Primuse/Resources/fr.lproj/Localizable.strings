@@ -6433,6 +6433,8 @@
 "eq_headroom_note %@" = "Volume global réduit de %@ dB pour que les bandes amplifiées ne saturent pas.";
 
 "apple_music_catalog_album_unavailable" = "Impossible de charger les titres de cet album depuis Apple Music. Réessayez plus tard.";
+"apple_music_catalog_top_songs" = "Titres populaires";
+"apple_music_catalog_artist_unavailable" = "Impossible de charger cet artiste depuis Apple Music. Réessayez plus tard.";
 
 "reverb_headroom_note %@" = "Avec la réverbération active, le volume global est réduit de %@ dB pour éviter la saturation.";
 "compressor_gain_cap_note %@" = "Avec ce seuil et cette marge, un gain au-delà de %@ dB saturerait ; l'excédent n'est pas appliqué.";

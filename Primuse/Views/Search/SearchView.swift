@@ -693,6 +693,19 @@ struct SearchView: View {
         appleMusicSearchEnabled ? appleMusic.searchResults : []
     }
 
+    private var visibleAppleMusicArtists: [MusicKit.Artist] {
+        appleMusicSearchEnabled ? appleMusic.artistSearchResults : []
+    }
+
+    private var visibleAppleMusicAlbums: [MusicKit.Album] {
+        appleMusicSearchEnabled ? appleMusic.albumSearchResults : []
+    }
+
+    /// Apple Music 一段里的歌曲、艺人、专辑一共几条。
+    private var visibleAppleMusicResultCount: Int {
+        visibleAppleMusicSearchResults.count + visibleAppleMusicArtists.count + visibleAppleMusicAlbums.count
+    }
+
     private var resultLayout: SearchResultLayout {
         SearchResultLayout(
             orderRawValue: resultSectionOrderRawValue,
@@ -826,7 +839,7 @@ struct SearchView: View {
             && matchingCollections(.playlists).isEmpty
             && matchingCollections(.folders).isEmpty
             && visibleSemanticResults.isEmpty
-            && visibleAppleMusicSearchResults.isEmpty
+            && visibleAppleMusicResultCount == 0
             && !semanticSearchFeedback.isVisible)
     }
 
@@ -1452,6 +1465,9 @@ struct SearchView: View {
             ArtistDetailView(artist: $0)
                 .mediaZoomDestination(.artist, id: $0.id)
         }
+        .navigationDestination(for: AppleMusicCatalogArtistHit.self) {
+            AppleMusicCatalogArtistView(artist: $0)
+        }
         #if os(iOS)
         .navigationDestination(for: SearchCatalogDestination.self) { destination in
             switch destination {
@@ -1594,7 +1610,7 @@ struct SearchView: View {
                 if macFilterIsAvailable(.appleMusic) {
                     macFilterChip(
                         .appleMusic,
-                        title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                        title: "Apple Music · \(visibleAppleMusicResultCount)"
                     )
                 }
             }
@@ -1807,7 +1823,7 @@ struct SearchView: View {
             return visibleSemanticResults.filter { $0.song.id != topMatch?.songID }.count
                 + visibleSemanticAlbums.count
         case .appleMusic:
-            return visibleAppleMusicSearchResults.count
+            return visibleAppleMusicResultCount
         case .playlists, .folders:
             return matchingCollections(section).count
         case .radio:
@@ -2268,6 +2284,7 @@ struct SearchView: View {
                 systemImage: "applelogo",
                 seeAll: songs.count > shown.count ? .appleMusic : nil
             )
+            macAppleMusicCollections
             if shown.isEmpty {
                 // 未授权、搜索中、出错或真没结果时, 这张状态卡说明原因。
                 HStack(spacing: 10) {
@@ -2296,6 +2313,39 @@ struct SearchView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .pmRowBackground(cornerRadius: 6)
+            }
+        }
+    }
+
+    /// Apple Music 搜到的艺人与专辑, 各一行横向排开; 艺人点进目录艺人页, 专辑点进目录专辑页。
+    @ViewBuilder
+    private var macAppleMusicCollections: some View {
+        if !visibleAppleMusicArtists.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 18) {
+                    ForEach(visibleAppleMusicArtists, id: \.id) { artist in
+                        NavigationLink(value: AppleMusicCatalogArtistHit(artist)) {
+                            AppleMusicCatalogArtistCard(artist: AppleMusicCatalogArtistHit(artist), width: 92)
+                        }
+                        .buttonStyle(.plain)
+                        .pmHoverLift()
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        if !visibleAppleMusicAlbums.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 18) {
+                    ForEach(visibleAppleMusicAlbums, id: \.id) { album in
+                        NavigationLink(value: AppServices.shared.appleMusicLibrary.catalogAlbum(for: album)) {
+                            AppleMusicCatalogAlbumCard(album: album, width: 140)
+                        }
+                        .buttonStyle(.plain)
+                        .pmHoverLift()
+                    }
+                }
+                .padding(.vertical, 2)
             }
         }
     }
@@ -2683,6 +2733,8 @@ struct SearchView: View {
             }
             .padding(14)
             .pmCard(cornerRadius: 10)
+
+            if showsAllResults { macAppleMusicCollections }
 
             if let error = appleMusic.lastPlaybackError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -3269,7 +3321,7 @@ struct SearchView: View {
         macSongResultCount
             + matchingAlbums.count
             + matchingArtists.count
-            + visibleAppleMusicSearchResults.count
+            + visibleAppleMusicResultCount
     }
 
     private var appleMusicStatusText: String {
@@ -3290,7 +3342,7 @@ struct SearchView: View {
             }
             return String(
                 format: String(localized: "search_apple_music_synced_results_format"),
-                visibleAppleMusicSearchResults.count
+                visibleAppleMusicResultCount
             )
         }
     }
@@ -3642,13 +3694,15 @@ struct SearchView: View {
                 } else if let err = appleMusic.lastSearchError {
                     Label(err, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.red)
-                } else if visibleAppleMusicSearchResults.isEmpty {
+                } else if visibleAppleMusicResultCount == 0 {
                     if appleMusic.lastSearchHitCount == 0 {
                         Label("apple_music_notice_no_results", systemImage: "magnifyingglass")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     // hitCount == -1 表示还没搜过, 不显示状态 (避免空 section)
                 } else {
+                    if !visibleAppleMusicArtists.isEmpty { appleMusicArtistShelf }
+                    if !visibleAppleMusicAlbums.isEmpty { appleMusicAlbumShelf }
                     ForEach(visibleAppleMusicSearchResults, id: \.id) { song in
                         appleMusicRow(song)
                     }
@@ -3867,6 +3921,9 @@ struct SearchView: View {
                     }
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(alignment: .bottomTrailing) {
+                        AppleMusicCatalogBadge(size: 14).offset(x: 5, y: 5)
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.subheadline).lineLimit(1)
@@ -3875,8 +3932,6 @@ struct SearchView: View {
                     Spacer(minLength: 4)
                     if savingAppleMusicSongID == song.id {
                         ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "applelogo").font(.caption2).foregroundStyle(.tertiary)
                     }
                 }
                 .contentShape(Rectangle())
@@ -3897,6 +3952,49 @@ struct SearchView: View {
             .accessibilityLabel("a11y_more_actions")
         }
         .contextMenu { appleMusicSongMenu(song) }
+    }
+
+    /// 搜索里的 Apple Music 艺人:点进目录艺人页。
+    private var appleMusicArtistShelf: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("tab_artists").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(visibleAppleMusicArtists, id: \.id) { artist in
+                        NavigationLink(value: AppleMusicCatalogArtistHit(artist)) {
+                            AppleMusicCatalogArtistCard(
+                                artist: AppleMusicCatalogArtistHit(artist),
+                                width: heightClass.value(76, compact: 60)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .pmStopsAtVerticalBar()
+        }
+        .listRowSeparator(.hidden)
+    }
+
+    /// 搜索里的 Apple Music 专辑:点进按目录取整张的专辑页。
+    private var appleMusicAlbumShelf: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("tab_albums").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(visibleAppleMusicAlbums, id: \.id) { album in
+                        NavigationLink(value: AppServices.shared.appleMusicLibrary.catalogAlbum(for: album)) {
+                            AppleMusicCatalogAlbumCard(album: album, width: heightClass.value(120, compact: 96))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .pmStopsAtVerticalBar()
+        }
+        .listRowSeparator(.hidden)
     }
 
     // MARK: Apple Music 目录歌的操作

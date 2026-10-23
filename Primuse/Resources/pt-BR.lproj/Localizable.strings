@@ -6339,6 +6339,8 @@
 "eq_headroom_note %@" = "Volume geral reduzido em %@ dB para que as bandas reforçadas não distorçam.";
 
 "apple_music_catalog_album_unavailable" = "Não foi possível carregar as faixas deste álbum do Apple Music. Tente novamente mais tarde.";
+"apple_music_catalog_top_songs" = "Músicas populares";
+"apple_music_catalog_artist_unavailable" = "Não foi possível carregar este artista do Apple Music. Tente novamente mais tarde.";
 
 "reverb_headroom_note %@" = "Com a reverberação ativada, o volume geral foi reduzido em %@ dB para não distorcer.";
 "compressor_gain_cap_note %@" = "Com este limiar e margem, ganho acima de %@ dB distorceria, então o excesso não é aplicado.";

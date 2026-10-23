@@ -6339,6 +6339,8 @@
 "eq_headroom_note %@" = "ลดระดับเสียงโดยรวมลง %@ dB เพื่อไม่ให้ย่านความถี่ที่เพิ่มขึ้นทำให้เสียงแตก";
 
 "apple_music_catalog_album_unavailable" = "ไม่สามารถโหลดเพลงในอัลบั้มนี้จาก Apple Music ได้ ลองอีกครั้งในภายหลัง";
+"apple_music_catalog_top_songs" = "เพลงยอดนิยม";
+"apple_music_catalog_artist_unavailable" = "โหลดศิลปินนี้จาก Apple Music ไม่ได้ โปรดลองอีกครั้งในภายหลัง";
 
 "reverb_headroom_note %@" = "ขณะเปิดเสียงก้อง ลดระดับเสียงโดยรวมลง %@ dB เพื่อไม่ให้เสียงแตก";
 "compressor_gain_cap_note %@" = "ด้วยเกณฑ์และเฮดรูมตอนนี้ เกนที่เกิน %@ dB จะทำให้เสียงแตก ส่วนที่เกินจึงไม่มีผล";

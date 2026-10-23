@@ -6433,6 +6433,8 @@
 "eq_headroom_note %@" = "부스트한 대역에서 소리가 왜곡되지 않도록 전체 음량을 %@ dB 낮췄습니다.";
 
 "apple_music_catalog_album_unavailable" = "Apple Music에서 이 앨범의 트랙을 불러오지 못했습니다. 잠시 후 다시 시도하세요.";
+"apple_music_catalog_top_songs" = "인기 곡";
+"apple_music_catalog_artist_unavailable" = "Apple Music에서 이 아티스트를 불러오지 못했습니다. 잠시 후 다시 시도하세요.";
 
 "reverb_headroom_note %@" = "리버브를 더해도 왜곡되지 않도록 켜져 있는 동안 전체 음량을 %@ dB 낮췄습니다.";
 "compressor_gain_cap_note %@" = "현재 임계값과 헤드룸에서는 %@ dB를 넘는 게인이 왜곡되므로 초과분은 적용되지 않습니다.";

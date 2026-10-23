@@ -30,8 +30,8 @@ public struct AppleMusicCatalogHit: Sendable, Equatable, Identifiable {
     }
 }
 
-/// 目录里的一张专辑。选中即整张入队播放,不另开详情页。
-public struct AppleMusicCatalogAlbumHit: Sendable, Equatable, Identifiable {
+/// 目录里的一张专辑。电视上选中即整张入队播放;手机、Mac 打开目录专辑页。
+public struct AppleMusicCatalogAlbumHit: Sendable, Hashable, Identifiable {
     public let id: String
     public let title: String
     public let artistName: String
@@ -45,8 +45,8 @@ public struct AppleMusicCatalogAlbumHit: Sendable, Equatable, Identifiable {
     }
 }
 
-/// 目录里的一位艺术家。选中即播其热门曲目。
-public struct AppleMusicCatalogArtistHit: Sendable, Equatable, Identifiable {
+/// 目录里的一位艺术家。电视上选中即播其热门曲目;手机、Mac 打开目录艺人页。
+public struct AppleMusicCatalogArtistHit: Sendable, Hashable, Identifiable {
     public let id: String
     public let name: String
     public let artworkURL: URL?
