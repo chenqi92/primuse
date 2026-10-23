@@ -1070,6 +1070,9 @@ private actor ScheduledFileMaintenance {
             return
         }
         guard !Task.isCancelled else { return }
+        let metadataBackfill = await MainActor.run { AppServices.shared.metadataBackfill }
+        await metadataBackfill.reopenSongsWithUnreadableCoverFiles()
+        guard !Task.isCancelled else { return }
         UserDefaults.standard.set(Date(), forKey: Self.lastCompletedKey)
         plog("ScheduledFileMaintenance: completed scheduled file cleanup")
     }

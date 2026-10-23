@@ -1721,12 +1721,14 @@ struct ScrapeOptionsView: View {
             var hasCover = false
             var coverData: Data?
             // Prefer search result's coverUrl if detail doesn't have one
+            // 下载了半截的图资料库里显示不出来, 不给它「封面」这一项。
             if !isAppleMusicSong, scrapeCover, let candidateCoverUrl,
                let data = try? await ConfigurableScraper.downloadResource(
                 from: candidateCoverUrl,
                 sourceConfig: item.sourceConfig,
                 timeout: 10
-               ) {
+               ),
+               ArtworkImageCompatibility.isCompleteImage(data) {
                 coverData = data
                 hasCover = true
             }

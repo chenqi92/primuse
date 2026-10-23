@@ -233,6 +233,26 @@ actor MetadataAssetStore {
         return "legacy:\(size):\(modified.timeIntervalSinceReferenceDate.bitPattern)"
     }
 
+    /// 封面库自己起的文件名(歌曲 ID 的哈希 + `.jpg`), 不是音乐源里的路径、网址或
+    /// 服务端的封面 ID。
+    nonisolated static func isLocalCoverFileName(_ reference: String) -> Bool {
+        guard reference.hasSuffix(".jpg") else { return false }
+        let stem = reference.utf8.dropLast(4)
+        return stem.count == 32
+            && stem.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// 这个封面文件本机现在读得到: 文件在, 是 redirect 指针的话它指向的内容也在。
+    /// 只读文件头和查目录, 不读整张图。
+    nonisolated func hasReadableCoverFile(named filename: String) -> Bool {
+        guard let identifier = coverContentIdentifier(named: filename) else { return false }
+        guard identifier.hasPrefix("sha256:") else { return !identifier.hasPrefix("legacy:0:") }
+        let sha = identifier.dropFirst("sha256:".count)
+        return FileManager.default.fileExists(
+            atPath: artworkContentDirectoryURL.appendingPathComponent("\(sha).jpg").path
+        )
+    }
+
     struct PortableCover: Sendable {
         let data: Data
         let requiredProcessing: Bool
@@ -336,19 +356,24 @@ actor MetadataAssetStore {
     // MARK: - Song ID-based cache (new architecture: source ref + local cache)
 
     /// Cache cover art data using song ID as the cache key.
-    func cacheCover(_ data: Data, forSongID songID: String) {
+    /// 返回这次是否真的存下了。存不下(图不完整、写盘失败)时调用方不能把歌的封面
+    /// 引用指到 `expectedCoverFileName` 上: 引用不空, 刮削缺失就不会再补这首。
+    @discardableResult
+    func cacheCover(_ data: Data, forSongID songID: String) -> Bool {
         guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
             plog("MetadataAssetStore: rejected incomplete cover for song '\(songID.prefix(8))'")
-            return
+            return false
         }
         let fileName = hashedFileName(for: songID, pathExtension: "jpg")
         let fileURL = artworkDirectory.appendingPathComponent(fileName)
         do {
             try writeContentAddressed(data, refURL: fileURL)
             Self.postCoverCached(songID: songID)
+            return true
         } catch {
             plog("MetadataAssetStore: failed to cache cover for song '\(songID.prefix(8))': \(error.localizedDescription)")
+            return false
         }
     }
 

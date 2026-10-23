@@ -244,7 +244,7 @@ actor ScraperManager {
 
                     // If we already have a detail with cover URL from the same source, use it
                     if let detail = result.detail, detail.source == config.type, let coverUrl = detail.coverUrl {
-                        if let data = try await downloadImage(url: coverUrl, sourceConfig: config) {
+                        if let data = try await downloadCover(url: coverUrl, sourceConfig: config) {
                             registerSuccess(config)
                             result.coverData = data
                             break
@@ -260,7 +260,7 @@ actor ScraperManager {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
                         registerSuccess(config)
                         if let coverUrl = covers.first?.coverUrl,
-                           let data = try await downloadImage(url: coverUrl, sourceConfig: config) {
+                           let data = try await downloadCover(url: coverUrl, sourceConfig: config) {
                             result.coverData = data
                             break
                         }
@@ -843,6 +843,17 @@ actor ScraperManager {
 
     private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
         try await ConfigurableScraper.downloadResource(from: url, sourceConfig: sourceConfig)
+    }
+
+    /// 只收完整的封面图。下载了半截的图封面库存不进去(`MetadataAssetStore.cacheCover`
+    /// 会拒收), 当成刮到了封面的话后面的源就不再试, 这首歌就一直没有封面。
+    private func downloadCover(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
+        guard let data = try await downloadImage(url: url, sourceConfig: sourceConfig) else { return nil }
+        guard ArtworkImageCompatibility.isCompleteImage(data) else {
+            plog("🔍 \(sourceConfig.type.displayName) cover rejected: incomplete image \(data.count)B")
+            return nil
+        }
+        return data
     }
 
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {

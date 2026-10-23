@@ -708,10 +708,28 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(ids)
         saveArtworkGivenUp()
         library.replaceSongs(cleared)
-        plog("📥 Backfill: reopening \(cleared.count) rows whose cover bytes were evicted")
+        plog("📥 Backfill: reopening \(cleared.count) rows whose cover bytes are missing")
         markQueueDirty()
         refreshRemainingCounts(force: true)
         start()
+    }
+
+    /// 引用指着封面库自己的文件、本机却读不到的歌, 摘掉引用交回补读和刮削。以前刮削
+    /// 下载到的封面被封面库拒收(图不完整)时引用照样记上了, 这些歌显示默认封面, 刮削
+    /// 缺失又因为引用不空一直跳过, 用户手上没有任何能修好它的操作。查文件在后台做。
+    func reopenSongsWithUnreadableCoverFiles() async {
+        let references = Set(library.songs.compactMap { song -> String? in
+            guard let reference = song.coverArtFileName,
+                  MetadataAssetStore.isLocalCoverFileName(reference) else { return nil }
+            return reference
+        })
+        guard !references.isEmpty else { return }
+        let missing = await Task.detached(priority: .utility) {
+            references.filter { !MetadataAssetStore.shared.hasReadableCoverFile(named: $0) }
+        }.value
+        guard !missing.isEmpty, !Task.isCancelled else { return }
+        plog("📥 Backfill: \(missing.count) cover references have no readable file on this device")
+        clearEvictedArtworkReferences(missing)
     }
 
     private func readingEnvironment(sourceID: String? = nil) -> MetadataReadingEnvironment {
