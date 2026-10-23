@@ -788,20 +788,25 @@ extension EnvironmentValues {
 #if os(iOS)
 /// 首页筛到电台、有声、播客那一面时,左右划一下回到「全部」(#320):这一面跟着手指走,
 /// 松手过了门槛(`HomeFaceSwipePolicy`)就退出,不够就弹回去。筛选条留在原处不动。
+/// 退出时这一面和「全部」一起横着滑过去(转场在外面,见 `homeFaceTransition`),拖动途中不变淡:
+/// 原来边拖边淡、「全部」再在原处淡入,两层叠着看着发虚(#336)。
 private struct HomeFaceSwipeContainer<Content: View>: View {
     let onExit: () -> Void
+    /// 正往哪边划(-1 左、1 右,没在划是 nil)。外面据此提前备好滑出去的转场:
+    /// 被拿掉的视图用的是它最后一次画出来时挂着的转场,等松手再定就来不及了。
+    let onDirectionChange: (CGFloat?) -> Void
     @ViewBuilder let content: Content
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset: CGFloat = 0
     @State private var width: CGFloat = 0
     @State private var exclusion = HomeFaceSwipeExclusion()
+    @State private var reportedDirection: CGFloat?
 
     var body: some View {
         content
             .environment(\.homeFaceSwipeExclusion, exclusion)
             .offset(x: offset)
-            .opacity(width > 0 ? 1 - min(abs(offset) / width, 1) * 0.6 : 1)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
@@ -815,14 +820,9 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
         case .changed(let translation):
             guard !reduceMotion else { return }
             offset = translation
+            if translation != 0 { report(translation < 0 ? -1 : 1) }
         case .ended(let translation, let velocity):
             if HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) {
-                // 顺着划的方向滑出去、一边淡掉,「全部」在原处淡入。
-                if !reduceMotion {
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        offset = (translation < 0 ? -1 : 1) * max(width, 320)
-                    }
-                }
                 onExit()
             } else {
                 settle()
@@ -832,7 +832,14 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
         }
     }
 
+    private func report(_ direction: CGFloat?) {
+        guard direction != reportedDirection else { return }
+        reportedDirection = direction
+        onDirectionChange(direction)
+    }
+
     private func settle() {
+        report(nil)
         guard offset != 0 else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { offset = 0 }
     }
@@ -1697,32 +1704,37 @@ struct HomeView: View {
                         .id(Self.homeTopAnchor)
                     }
 
-                    if activeHomeFilter == .radio {
-                        homeFace { radioModeContent }
+                    // 换场时新旧两面叠在同一处:直接放在 VStack 里,被拿掉的那一面换场途中还占着位置,
+                    // 新的一面先被挤到它下面,滑进来时就不是并排的了。
+                    ZStack(alignment: .topLeading) {
+                        if activeHomeFilter == .radio {
+                            homeFace { radioModeContent }
+                                .transition(homeFaceTransition)
+                        } else if activeHomeFilter == .spokenWord {
+                            homeFace {
+                                SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
+                                    .padding(.horizontal, 16)
+                            }
                             .transition(homeFaceTransition)
-                    } else if activeHomeFilter == .spokenWord {
-                        homeFace {
-                            SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
-                                .padding(.horizontal, 16)
+                        } else if activeHomeFilter == .podcast {
+                            homeFace {
+                                PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
+                            }
+                            .transition(homeFaceTransition)
+                        } else if !model.isPrepared {
+                            initialLoadingView
+                                .transition(homeFaceTransition)
+                        } else if hasContent {
+                            contentView
+                                // 从加载骨架换过来时原地淡入:骨架与内容同形状,带位移会叠出两层错开的卡片。
+                                .transition(hasShownHomeContent ? homeFaceTransition : .opacity)
+                                .onAppear { hasShownHomeContent = true }
+                        } else {
+                            emptyView
+                                .transition(homeFaceTransition)
                         }
-                        .transition(homeFaceTransition)
-                    } else if activeHomeFilter == .podcast {
-                        homeFace {
-                            PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
-                        }
-                        .transition(homeFaceTransition)
-                    } else if !model.isPrepared {
-                        initialLoadingView
-                            .transition(homeFaceTransition)
-                    } else if hasContent {
-                        contentView
-                            // 从加载骨架换过来时原地淡入:骨架与内容同形状,带位移会叠出两层错开的卡片。
-                            .transition(hasShownHomeContent ? homeFaceTransition : .opacity)
-                            .onAppear { hasShownHomeContent = true }
-                    } else {
-                        emptyView
-                            .transition(homeFaceTransition)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.bottom, bottomChromeClearance)
                 .pmAnimation(.contentAppear, value: model.isPrepared)
@@ -2002,6 +2014,8 @@ struct HomeView: View {
     /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
     @State private var isSceneActive = false
     @State private var hasShownHomeContent = false
+    /// 首页那一面正被往哪边划(-1 左、1 右)。有值时「全部」与那一面换场用横滑,见 `homeFaceTransition`。
+    @State private var homeFaceSwipeDirection: CGFloat?
     /// 书架分好的组。顶部切到电台、有声书时「全部」那一面整块卸下,分组结果放在这一层才留得住,
     /// 切回来书相关的区块不再先空着再弹出来;「有声书」那一面也用同一份(#283)。
     @State private var spokenWordBooks = SpokenWordBooksModel()
@@ -2706,6 +2720,14 @@ struct HomeView: View {
 
     private var homeFaceTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
+        if let direction = homeFaceSwipeDirection {
+            // 划回「全部」:那一面顺着手指滑出去,「全部」从另一侧跟着滑进来,不叠着淡入淡出。
+            let distance = max(homeCanvas.width, 320)
+            return .asymmetric(
+                insertion: .offset(x: -direction * distance),
+                removal: .offset(x: direction * distance)
+            )
+        }
         return .asymmetric(
             insertion: .opacity.combined(with: .offset(y: 10)),
             removal: .opacity
@@ -2716,20 +2738,32 @@ struct HomeView: View {
     @ViewBuilder
     private func homeFace<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         #if os(iOS)
-        HomeFaceSwipeContainer(onExit: { setHomeFilter(nil) }, content: content)
+        HomeFaceSwipeContainer(
+            onExit: {
+                setHomeFilter(nil) { homeFaceSwipeDirection = nil }
+            },
+            onDirectionChange: { homeFaceSwipeDirection = $0 },
+            content: content
+        )
         #else
         content()
         #endif
     }
 
-    private func setHomeFilter(_ space: ListeningSpace?) {
+    private func setHomeFilter(_ space: ListeningSpace?, completion: @escaping () -> Void = {}) {
         let space = space.flatMap { homeFilterSpaces.contains($0) ? $0 : nil }
-        guard space != activeHomeFilter else { return }
+        guard space != activeHomeFilter else {
+            completion()
+            return
+        }
         if reduceMotion {
             homeFilter = space
+            completion()
         } else {
             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                 homeFilter = space
+            } completion: {
+                completion()
             }
         }
         #if os(iOS)
