@@ -6311,6 +6311,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "Paused in Low Power Mode";
 "spoken_word_keep_offline_waiting_thermal" = "Paused while the device is hot";
 "spoken_word_keep_offline_waiting_disk" = "Paused: not enough storage";
+"spoken_word_auto_download" = "Auto Download";
+"spoken_word_auto_download_turn_on" = "Turn On Auto Download";
+"spoken_word_auto_download_turn_off" = "Turn Off Auto Download";
+"spoken_word_auto_download_remove_all" = "Remove All Downloads";
+"spoken_word_auto_download_remove_all_title" = "Remove all downloads for this book?";
+"spoken_word_auto_download_remove_all_message" = "Downloaded chapters will be removed from this device and streamed from the source next time you play them.";
+"spoken_word_auto_download_remove_all_message_enabled" = "Downloaded chapters will be removed from this device and Auto Download will be turned off. They’ll be streamed from the source next time you play them.";
 "player_backdrop_audiobooks_hint" = "When on, the audiobook player uses this background too, in Dark Mode only. Light Mode keeps its paper background.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

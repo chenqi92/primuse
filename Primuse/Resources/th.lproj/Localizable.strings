@@ -6457,6 +6457,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "หยุดชั่วคราวในโหมดพลังงานต่ำ";
 "spoken_word_keep_offline_waiting_thermal" = "หยุดชั่วคราวเพราะเครื่องร้อน";
 "spoken_word_keep_offline_waiting_disk" = "หยุดชั่วคราว: พื้นที่ไม่พอ";
+"spoken_word_auto_download" = "ดาวน์โหลดอัตโนมัติ";
+"spoken_word_auto_download_turn_on" = "เปิดดาวน์โหลดอัตโนมัติ";
+"spoken_word_auto_download_turn_off" = "ปิดดาวน์โหลดอัตโนมัติ";
+"spoken_word_auto_download_remove_all" = "ลบการดาวน์โหลดทั้งหมด";
+"spoken_word_auto_download_remove_all_title" = "ลบการดาวน์โหลดทั้งหมดของหนังสือเล่มนี้ไหม";
+"spoken_word_auto_download_remove_all_message" = "บทที่ดาวน์โหลดไว้จะถูกลบออกจากอุปกรณ์นี้ และครั้งถัดไปจะเล่นจากแหล่งที่มา";
+"spoken_word_auto_download_remove_all_message_enabled" = "บทที่ดาวน์โหลดไว้จะถูกลบออกจากอุปกรณ์นี้ และจะปิดดาวน์โหลดอัตโนมัติ ครั้งถัดไปจะเล่นจากแหล่งที่มา";
 "player_backdrop_audiobooks_hint" = "เมื่อเปิด หน้าเล่นหนังสือเสียงจะใช้พื้นหลังนี้ด้วย เฉพาะในโหมดมืด ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";
 
 /* 歌词翻译：下载离线翻译包前确认 */

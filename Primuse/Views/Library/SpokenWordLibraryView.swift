@@ -1225,6 +1225,10 @@ struct SpokenWordBookDetailView: View {
     /// 页面开着时这本书的 id 可能变:一本没标签的书按目录成书,补读读出第一集的专辑后
     /// 整本改按专辑成书。记下最近一次看到的 id 和章节,按章节把它找回来。
     @State private var followedBookID: String?
+    /// 手机头部的「自动下载」键:整本都不能下时点了讲原因;「删除所有缓存」先确认。
+    @State private var autoDownloadUnavailable: AudiobookOfflinePolicy.Availability?
+    @State private var confirmsCacheRemoval = false
+    @Environment(SourceManager.self) private var sourceManager
     @State private var shownChapterIDs: Set<String> = []
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
@@ -1461,14 +1465,8 @@ struct SpokenWordBookDetailView: View {
     }
 
     private func phoneHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            phoneHeaderTop(book, songs: songs)
-            // 本机下载的播客节目不在这次范围里,只给书。
-            if collection == .books {
-                SpokenWordBookOfflineRow(book: book, songs: songs)
-            }
-        }
-        .padding(.vertical, 8)
+        phoneHeaderTop(book, songs: songs)
+            .padding(.vertical, 8)
     }
 
     private func phoneHeaderTop(_ book: SpokenWordBook, songs: [Song]) -> some View {
@@ -1478,46 +1476,185 @@ struct SpokenWordBookDetailView: View {
                 // 解码尺寸按最大边长取一档,边长随书名行数变时不重新解码。
                 SpokenWordBookCover(song: songs.first, width: side, cornerRadius: 10, decodeSize: 170)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(book.title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(3)
-                if let author = book.author {
-                    Text(author)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+            // 本机下载的播客节目不在「自动下载」的范围里,只给书。
+            if collection == .books {
+                SpokenWordBookOfflineTracker(book: book, songs: songs) { offline in
+                    phoneHeaderColumn(book, songs: songs, offline: offline)
                 }
-                Text(SpokenWordBookSupport.summary(book))
-                    .font(.caption.monospacedDigit())
+            } else {
+                phoneHeaderColumn(book, songs: songs, offline: nil)
+            }
+        }
+    }
+
+    private func phoneHeaderColumn(
+        _ book: SpokenWordBook,
+        songs: [Song],
+        offline: SpokenWordBookOfflineStatus?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(book.title)
+                .font(.title3.weight(.semibold))
+                .lineLimit(3)
+            if let author = book.author {
+                Text(author)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if book.lastListenedAt != nil {
-                    // 撑满右栏:右缘和下面章节的时长对齐。
-                    ProgressView(value: book.fractionComplete)
-                        .progressViewStyle(.linear)
-                        .tint(ListeningSpace.spokenWord.tint)
-                        .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+            }
+            Text(SpokenWordBookSupport.summary(book))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            if book.lastListenedAt != nil {
+                // 撑满右栏:右缘和下面章节的时长对齐。
+                ProgressView(value: book.fractionComplete)
+                    .progressViewStyle(.linear)
+                    .tint(ListeningSpace.spokenWord.tint)
+                    .frame(maxWidth: .infinity)
+            }
+            Spacer(minLength: 4)
+            // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先让「自动下载」只剩图标、
+            // 再把语速收成只剩倍数,还不行把语速和「自动下载」挪到下一行,「继续」始终是一行字。
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    phoneContinueButton(book, songs: songs)
+                    SpokenWordBookSpeedMenu(bookID: book.id)
+                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: true) }
                 }
-                Spacer(minLength: 4)
-                // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先把语速收成
-                // 只剩倍数,再不行把语速挪到下一行,「继续」始终是一行字。
-                ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    phoneContinueButton(book, songs: songs)
+                    SpokenWordBookSpeedMenu(bookID: book.id)
+                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
+                }
+                HStack(spacing: 8) {
+                    phoneContinueButton(book, songs: songs)
+                    SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
+                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    phoneContinueButton(book, songs: songs)
                     HStack(spacing: 8) {
-                        phoneContinueButton(book, songs: songs)
                         SpokenWordBookSpeedMenu(bookID: book.id)
-                    }
-                    HStack(spacing: 8) {
-                        phoneContinueButton(book, songs: songs)
-                        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        phoneContinueButton(book, songs: songs)
-                        SpokenWordBookSpeedMenu(bookID: book.id)
+                        if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // 开着还没下完时写下到第几章、在等什么(#313);下完了键上是对勾,不再占一行。
+            if let offline, offline.isInProgress {
+                Text(offline.statusText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .alert(
+            "spoken_word_keep_offline_unavailable_title",
+            isPresented: Binding(
+                get: { autoDownloadUnavailable != nil },
+                set: { if !$0 { autoDownloadUnavailable = nil } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(autoDownloadUnavailable == .alreadyOnDevice
+                 ? "spoken_word_keep_offline_on_device_message"
+                 : "spoken_word_keep_offline_unsupported_message")
+        }
+        .confirmationDialog(
+            "spoken_word_auto_download_remove_all_title",
+            isPresented: $confirmsCacheRemoval,
+            titleVisibility: .visible
+        ) {
+            if let offline {
+                Button("spoken_word_auto_download_remove_all", role: .destructive) {
+                    removeAllCaches(book, songs: songs, offline: offline)
+                }
+            }
+        } message: {
+            Text(offline?.isEnabled == true
+                 ? "spoken_word_auto_download_remove_all_message_enabled"
+                 : "spoken_word_auto_download_remove_all_message")
+        }
+    }
+
+    /// 「始终保持离线」收成语速右边的一颗键(#336,照 Apple 播客的「自动下载」):
+    /// 关着是下载箭头、开着是对勾;点了弹菜单开关,有下好的章节时多一项「删除所有缓存」。
+    /// 菜单顶上写着已下载几章。整本都不能下时看得出不可用,点了讲原因。
+    @ViewBuilder
+    private func autoDownloadKey(
+        _ book: SpokenWordBook,
+        songs: [Song],
+        offline: SpokenWordBookOfflineStatus,
+        titled: Bool
+    ) -> some View {
+        let label = HStack(spacing: 6) {
+            Image(systemName: offline.isEnabled ? "checkmark.circle" : "arrow.down.circle")
+                .contentTransition(.symbolEffect(.replace))
+            if titled {
+                Text("spoken_word_auto_download")
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(1)
+        if offline.availability == .available {
+            Menu {
+                Section {
+                    Button {
+                        AppServices.shared.alwaysDownload.setEnabled(
+                            !offline.isEnabled,
+                            forBook: book.id,
+                            title: book.title,
+                            songIDs: songs.map(\.id)
+                        )
+                    } label: {
+                        Label(
+                            LocalizedStringKey(offline.isEnabled
+                                ? "spoken_word_auto_download_turn_off"
+                                : "spoken_word_auto_download_turn_on"),
+                            systemImage: offline.isEnabled ? "xmark.circle" : "arrow.down.circle"
+                        )
+                    }
+                    if !offline.downloadedSongs.isEmpty {
+                        Button(role: .destructive) {
+                            confirmsCacheRemoval = true
+                        } label: {
+                            Label("spoken_word_auto_download_remove_all", systemImage: "trash")
+                        }
+                    }
+                } header: {
+                    Text(verbatim: offline.statusText)
+                }
+            } label: {
+                label
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(Text("spoken_word_auto_download"))
+            .accessibilityValue(Text(verbatim: offline.statusText))
+        } else {
+            Button {
+                autoDownloadUnavailable = offline.availability
+            } label: {
+                label.foregroundStyle(.secondary)
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+            .accessibilityLabel(Text("spoken_word_auto_download"))
+            .accessibilityValue(Text(verbatim: offline.statusText))
+        }
+    }
+
+    /// 删掉这本书下好的章节。开着自动下载时先关掉,不然删完又会被下回来。
+    private func removeAllCaches(_ book: SpokenWordBook, songs: [Song], offline: SpokenWordBookOfflineStatus) {
+        if offline.isEnabled {
+            AppServices.shared.alwaysDownload.setEnabled(
+                false,
+                forBook: book.id,
+                title: book.title,
+                songIDs: songs.map(\.id)
+            )
+        }
+        sourceManager.removeOfflineDownloads(offline.downloadedSongs)
     }
 
     private func phoneContinueButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
@@ -1541,18 +1678,80 @@ struct SpokenWordBookDetailView: View {
 
 // MARK: - Keep offline
 
-/// 书籍详情页里那一行「始终保持离线」(#283):整本书下到本机,之后新加的章节也自动下,
-/// 和歌单的同名开关同一套常驻下载(只在 Wi-Fi 等条件允许时下)。下面一行写已下载几章。
-/// 整本书都不能下(Apple Music、本机文件夹里的原文件)时开关换成说明,点了讲原因。
-struct SpokenWordBookOfflineRow: View {
+/// 一本书常驻下载此刻的状况。手机书详情页那颗「自动下载」键、下面那行进度,
+/// 和 Mac 上那一行「始终保持离线」(#283)读的是同一份。
+struct SpokenWordBookOfflineStatus {
+    let availability: AudiobookOfflinePolicy.Availability
+    let isEnabled: Bool
+    let progress: AudiobookOfflinePolicy.Progress
+    let waitingReason: AutomaticOfflineDownloadDeferralReason?
+    /// 已经下到本机的章节:「删除所有缓存」删的就是它们。
+    let downloadedSongs: [Song]
+
+    /// 开着却还没下完:页面上要写出下到第几章、在等什么(#313)。
+    var isInProgress: Bool {
+        availability == .available && isEnabled && !progress.isComplete
+    }
+
+    var statusText: String {
+        switch availability {
+        case .alreadyOnDevice:
+            return String(localized: "spoken_word_keep_offline_on_device_short")
+        case .unsupported:
+            return String(localized: "spoken_word_keep_offline_unsupported_short")
+        case .available:
+            break
+        }
+        if isEnabled, progress.isComplete {
+            return String(localized: "spoken_word_keep_offline_complete")
+        }
+        if isEnabled || progress.downloaded > 0 {
+            let counted = String(
+                format: String(localized: "spoken_word_keep_offline_progress_format"),
+                progress.downloaded,
+                progress.total
+            )
+            guard isEnabled, let waiting = Self.waitingText(waitingReason) else { return counted }
+            return counted + " \u{00B7} " + waiting
+        }
+        return String(localized: "spoken_word_keep_offline_hint")
+    }
+
+    /// 常驻下载停着的原因,接在「已下载 N/M 章」后面。前台这一条在页面上看不到,不写。
+    private static func waitingText(_ reason: AutomaticOfflineDownloadDeferralReason?) -> String? {
+        guard let reason else { return nil }
+        switch reason {
+        case .applicationInactive, .playbackActive:
+            // 书的章节在前台播放时也下;前台这一条在页面上看不到。
+            return nil
+        case .playbackBuffering:
+            return String(localized: "spoken_word_keep_offline_waiting_buffering")
+        case .networkUndetermined, .networkUnavailable:
+            return String(localized: "spoken_word_keep_offline_waiting_network")
+        case .expensiveNetwork:
+            return String(localized: "spoken_word_keep_offline_waiting_wifi")
+        case .constrainedNetwork:
+            return String(localized: "spoken_word_keep_offline_waiting_low_data")
+        case .lowPower:
+            return String(localized: "spoken_word_keep_offline_waiting_low_power")
+        case .thermalPressure:
+            return String(localized: "spoken_word_keep_offline_waiting_thermal")
+        case .insufficientDiskSpace:
+            return String(localized: "spoken_word_keep_offline_waiting_disk")
+        }
+    }
+}
+
+/// 读出一本书的 `SpokenWordBookOfflineStatus` 交给 `content`:已下载几章,开着却没下完时常驻下载在等什么
+/// (播放在缓冲、等 Wi-Fi、低电量……)。
+struct SpokenWordBookOfflineTracker<Content: View>: View {
     let book: SpokenWordBook
     let songs: [Song]
+    @ViewBuilder var content: (SpokenWordBookOfflineStatus) -> Content
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
     @State private var downloadedIDs: Set<String> = []
-    @State private var showsUnavailableReason = false
-    /// 开着却还没下完时,常驻下载此刻在等什么(播放在缓冲、等 Wi-Fi、低电量……)。
     @State private var waitingReason: AutomaticOfflineDownloadDeferralReason?
 
     private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
@@ -1581,20 +1780,77 @@ struct SpokenWordBookOfflineRow: View {
             downloadableIDs: downloadable.map(\.id),
             downloadedIDs: downloadedIDs
         )
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: progress.isComplete ? "arrow.down.circle.fill" : "arrow.down.circle")
+        content(SpokenWordBookOfflineStatus(
+            availability: availability,
+            isEnabled: isEnabled,
+            progress: progress,
+            waitingReason: waitingReason,
+            downloadedSongs: downloadable.filter { downloadedIDs.contains($0.id) }
+        ))
+        .task(id: ProgressKey(
+            bookID: book.id,
+            songIDs: downloadable.map(\.id),
+            isEnabled: isEnabled,
+            snapshotRevision: sourceManager.offlineAudioSnapshotRevision,
+            pinRevision: coordinator.pinRevision
+        )) {
+            guard !downloadable.isEmpty else {
+                downloadedIDs = []
+                return
+            }
+            let items = await sourceManager.offlineDownloadItems(in: downloadable)
+            guard !Task.isCancelled else { return }
+            downloadedIDs = Set(items.map(\.song.id))
+        }
+        // 开着还没下完时说明在等什么:播放、网络换了马上重算,电量、发热、空间这类隔一会儿再看一次。
+        .task(id: WaitingKey(
+            isWaiting: availability == .available && isEnabled && !progress.isComplete,
+            isPlaying: player.isPlaybackActive,
+            isBuffering: player.isLoading,
+            networkGeneration: NetworkMonitor.shared.pathGeneration
+        )) {
+            guard availability == .available, isEnabled, !progress.isComplete else {
+                waitingReason = nil
+                return
+            }
+            let nextChapterBytes = downloadable.first { !downloadedIDs.contains($0.id) }?.fileSize ?? 0
+            while !Task.isCancelled {
+                waitingReason = coordinator.waitingReason(expectedDownloadBytes: nextChapterBytes)
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
+    }
+}
+
+/// Mac 书籍详情页里那一行「始终保持离线」(#283):整本书下到本机,之后新加的章节也自动下,
+/// 和歌单的同名开关同一套常驻下载(只在 Wi-Fi 等条件允许时下)。下面一行写已下载几章。
+/// 整本书都不能下(Apple Music、本机文件夹里的原文件)时开关换成说明,点了讲原因。
+/// 手机上这一行收成了头部的「自动下载」键(#336)。
+struct SpokenWordBookOfflineRow: View {
+    let book: SpokenWordBook
+    let songs: [Song]
+
+    @State private var showsUnavailableReason = false
+
+    private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
+
+    var body: some View {
+        SpokenWordBookOfflineTracker(book: book, songs: songs) { status in
+            row(status)
+        }
+    }
+
+    private func row(_ status: SpokenWordBookOfflineStatus) -> some View {
+        let availability = status.availability
+        return HStack(alignment: .center, spacing: 12) {
+            Image(systemName: status.progress.isComplete ? "arrow.down.circle.fill" : "arrow.down.circle")
                 .font(.title3)
                 .foregroundStyle(availability == .available ? ListeningSpace.spokenWord.tint : Color.secondary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("playlist_always_download")
                     .font(.subheadline.weight(.semibold))
-                Text(statusText(
-                    availability: availability,
-                    isEnabled: isEnabled,
-                    progress: progress,
-                    waitingReason: waitingReason
-                ))
+                Text(status.statusText)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1644,91 +1900,6 @@ struct SpokenWordBookOfflineRow: View {
             Text(availability == .alreadyOnDevice
                  ? "spoken_word_keep_offline_on_device_message"
                  : "spoken_word_keep_offline_unsupported_message")
-        }
-        .task(id: ProgressKey(
-            bookID: book.id,
-            songIDs: downloadable.map(\.id),
-            isEnabled: isEnabled,
-            snapshotRevision: sourceManager.offlineAudioSnapshotRevision,
-            pinRevision: coordinator.pinRevision
-        )) {
-            guard !downloadable.isEmpty else {
-                downloadedIDs = []
-                return
-            }
-            let items = await sourceManager.offlineDownloadItems(in: downloadable)
-            guard !Task.isCancelled else { return }
-            downloadedIDs = Set(items.map(\.song.id))
-        }
-        // 开着还没下完时说明在等什么:播放、网络换了马上重算,电量、发热、空间这类隔一会儿再看一次。
-        .task(id: WaitingKey(
-            isWaiting: availability == .available && isEnabled && !progress.isComplete,
-            isPlaying: player.isPlaybackActive,
-            isBuffering: player.isLoading,
-            networkGeneration: NetworkMonitor.shared.pathGeneration
-        )) {
-            guard availability == .available, isEnabled, !progress.isComplete else {
-                waitingReason = nil
-                return
-            }
-            let nextChapterBytes = downloadable.first { !downloadedIDs.contains($0.id) }?.fileSize ?? 0
-            while !Task.isCancelled {
-                waitingReason = coordinator.waitingReason(expectedDownloadBytes: nextChapterBytes)
-                try? await Task.sleep(for: .seconds(15))
-            }
-        }
-    }
-
-    private func statusText(
-        availability: AudiobookOfflinePolicy.Availability,
-        isEnabled: Bool,
-        progress: AudiobookOfflinePolicy.Progress,
-        waitingReason: AutomaticOfflineDownloadDeferralReason?
-    ) -> String {
-        switch availability {
-        case .alreadyOnDevice:
-            return String(localized: "spoken_word_keep_offline_on_device_short")
-        case .unsupported:
-            return String(localized: "spoken_word_keep_offline_unsupported_short")
-        case .available:
-            break
-        }
-        if isEnabled, progress.isComplete {
-            return String(localized: "spoken_word_keep_offline_complete")
-        }
-        if isEnabled || progress.downloaded > 0 {
-            let counted = String(
-                format: String(localized: "spoken_word_keep_offline_progress_format"),
-                progress.downloaded,
-                progress.total
-            )
-            guard isEnabled, let waiting = Self.waitingText(waitingReason) else { return counted }
-            return counted + " \u{00B7} " + waiting
-        }
-        return String(localized: "spoken_word_keep_offline_hint")
-    }
-
-    /// 常驻下载停着的原因,接在「已下载 N/M 章」后面。前台这一条在页面上看不到,不写。
-    private static func waitingText(_ reason: AutomaticOfflineDownloadDeferralReason?) -> String? {
-        guard let reason else { return nil }
-        switch reason {
-        case .applicationInactive, .playbackActive:
-            // 书的章节在前台播放时也下;前台这一条在页面上看不到。
-            return nil
-        case .playbackBuffering:
-            return String(localized: "spoken_word_keep_offline_waiting_buffering")
-        case .networkUndetermined, .networkUnavailable:
-            return String(localized: "spoken_word_keep_offline_waiting_network")
-        case .expensiveNetwork:
-            return String(localized: "spoken_word_keep_offline_waiting_wifi")
-        case .constrainedNetwork:
-            return String(localized: "spoken_word_keep_offline_waiting_low_data")
-        case .lowPower:
-            return String(localized: "spoken_word_keep_offline_waiting_low_power")
-        case .thermalPressure:
-            return String(localized: "spoken_word_keep_offline_waiting_thermal")
-        case .insufficientDiskSpace:
-            return String(localized: "spoken_word_keep_offline_waiting_disk")
         }
     }
 }

@@ -6457,6 +6457,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "На паузі в режимі енергозбереження";
 "spoken_word_keep_offline_waiting_thermal" = "На паузі: пристрій перегрітий";
 "spoken_word_keep_offline_waiting_disk" = "На паузі: мало місця";
+"spoken_word_auto_download" = "Автозавантаження";
+"spoken_word_auto_download_turn_on" = "Увімкнути автозавантаження";
+"spoken_word_auto_download_turn_off" = "Вимкнути автозавантаження";
+"spoken_word_auto_download_remove_all" = "Видалити всі завантаження";
+"spoken_word_auto_download_remove_all_title" = "Видалити всі завантаження цієї книги?";
+"spoken_word_auto_download_remove_all_message" = "Завантажені розділи буде видалено з цього пристрою, а наступного разу вони відтворюватимуться з джерела.";
+"spoken_word_auto_download_remove_all_message_enabled" = "Завантажені розділи буде видалено з цього пристрою, а автозавантаження вимкнеться. Наступного разу вони відтворюватимуться з джерела.";
 "player_backdrop_audiobooks_hint" = "Якщо ввімкнено, плеєр аудіокниг теж показує це тло — лише в темному режимі. У світлому режимі лишається паперове тло.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

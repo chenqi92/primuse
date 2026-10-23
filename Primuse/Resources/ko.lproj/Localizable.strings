@@ -6551,6 +6551,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "저전력 모드로 일시 정지";
 "spoken_word_keep_offline_waiting_thermal" = "기기가 뜨거워 일시 정지";
 "spoken_word_keep_offline_waiting_disk" = "저장 공간 부족으로 일시 정지";
+"spoken_word_auto_download" = "자동 다운로드";
+"spoken_word_auto_download_turn_on" = "자동 다운로드 켜기";
+"spoken_word_auto_download_turn_off" = "자동 다운로드 끄기";
+"spoken_word_auto_download_remove_all" = "모든 다운로드 삭제";
+"spoken_word_auto_download_remove_all_title" = "이 책의 다운로드를 모두 삭제할까요?";
+"spoken_word_auto_download_remove_all_message" = "다운로드한 챕터가 이 기기에서 삭제되며, 다음에 재생할 때 소스에서 다시 불러옵니다.";
+"spoken_word_auto_download_remove_all_message_enabled" = "다운로드한 챕터가 이 기기에서 삭제되고 자동 다운로드도 꺼집니다. 다음에 재생할 때 소스에서 다시 불러옵니다.";
 "player_backdrop_audiobooks_hint" = "켜면 오디오북 재생 화면에도 이 배경을 사용합니다(다크 모드에서만). 라이트 모드는 종이 배경을 유지합니다.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

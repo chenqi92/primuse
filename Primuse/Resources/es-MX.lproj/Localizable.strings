@@ -6457,6 +6457,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "En pausa por el modo de bajo consumo";
 "spoken_word_keep_offline_waiting_thermal" = "En pausa, el dispositivo está caliente";
 "spoken_word_keep_offline_waiting_disk" = "En pausa: no hay espacio suficiente";
+"spoken_word_auto_download" = "Descarga automática";
+"spoken_word_auto_download_turn_on" = "Activar descarga automática";
+"spoken_word_auto_download_turn_off" = "Desactivar descarga automática";
+"spoken_word_auto_download_remove_all" = "Eliminar todas las descargas";
+"spoken_word_auto_download_remove_all_title" = "¿Eliminar todas las descargas de este libro?";
+"spoken_word_auto_download_remove_all_message" = "Los capítulos descargados se eliminarán de este dispositivo y se reproducirán desde la fuente la próxima vez.";
+"spoken_word_auto_download_remove_all_message_enabled" = "Los capítulos descargados se eliminarán de este dispositivo y se desactivará la descarga automática. Se reproducirán desde la fuente la próxima vez.";
 "player_backdrop_audiobooks_hint" = "Si está activado, el reproductor de audiolibros también usa este fondo, solo en modo oscuro. El modo claro conserva su fondo de papel.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

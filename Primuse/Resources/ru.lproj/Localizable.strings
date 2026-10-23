@@ -6457,6 +6457,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "На паузе в режиме энергосбережения";
 "spoken_word_keep_offline_waiting_thermal" = "На паузе: устройство перегрето";
 "spoken_word_keep_offline_waiting_disk" = "На паузе: мало места";
+"spoken_word_auto_download" = "Автозагрузка";
+"spoken_word_auto_download_turn_on" = "Включить автозагрузку";
+"spoken_word_auto_download_turn_off" = "Выключить автозагрузку";
+"spoken_word_auto_download_remove_all" = "Удалить все загрузки";
+"spoken_word_auto_download_remove_all_title" = "Удалить все загрузки этой книги?";
+"spoken_word_auto_download_remove_all_message" = "Загруженные главы будут удалены с этого устройства и в следующий раз воспроизведутся из источника.";
+"spoken_word_auto_download_remove_all_message_enabled" = "Загруженные главы будут удалены с этого устройства, а автозагрузка выключится. В следующий раз они воспроизведутся из источника.";
 "player_backdrop_audiobooks_hint" = "Если включено, плеер аудиокниг тоже показывает этот фон — только в тёмном режиме. В светлом режиме остаётся бумажный фон.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

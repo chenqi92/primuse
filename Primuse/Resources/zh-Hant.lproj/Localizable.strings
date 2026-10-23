@@ -6528,6 +6528,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "低耗電模式下暫停下載";
 "spoken_word_keep_offline_waiting_thermal" = "裝置過熱，暫停下載";
 "spoken_word_keep_offline_waiting_disk" = "儲存空間不足，暫停下載";
+"spoken_word_auto_download" = "自動下載";
+"spoken_word_auto_download_turn_on" = "開啟自動下載";
+"spoken_word_auto_download_turn_off" = "關閉自動下載";
+"spoken_word_auto_download_remove_all" = "刪除所有快取";
+"spoken_word_auto_download_remove_all_title" = "刪除這本書的所有快取？";
+"spoken_word_auto_download_remove_all_message" = "已下載的章節會從本機刪除，之後播放時重新從音樂來源讀取。";
+"spoken_word_auto_download_remove_all_message_enabled" = "已下載的章節會從本機刪除，自動下載也會一併關閉；之後播放時重新從音樂來源讀取。";
 "player_backdrop_audiobooks_hint" = "打開後有聲書播放頁也用這裡選的背景，只在深色外觀下生效；淺色外觀仍是紙面底。";
 
 /* 歌词翻译：下载离线翻译包前确认 */

@@ -6457,6 +6457,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "متوقف في وضع الطاقة المنخفضة";
 "spoken_word_keep_offline_waiting_thermal" = "متوقف لأن الجهاز ساخن";
 "spoken_word_keep_offline_waiting_disk" = "متوقف: مساحة التخزين غير كافية";
+"spoken_word_auto_download" = "التنزيل التلقائي";
+"spoken_word_auto_download_turn_on" = "تشغيل التنزيل التلقائي";
+"spoken_word_auto_download_turn_off" = "إيقاف التنزيل التلقائي";
+"spoken_word_auto_download_remove_all" = "إزالة كل التنزيلات";
+"spoken_word_auto_download_remove_all_title" = "هل تريد إزالة كل تنزيلات هذا الكتاب؟";
+"spoken_word_auto_download_remove_all_message" = "ستُزال الفصول المنزّلة من هذا الجهاز وتُشغَّل من المصدر في المرة القادمة.";
+"spoken_word_auto_download_remove_all_message_enabled" = "ستُزال الفصول المنزّلة من هذا الجهاز وسيتوقف التنزيل التلقائي. ستُشغَّل من المصدر في المرة القادمة.";
 "player_backdrop_audiobooks_hint" = "عند التشغيل، يعرض مشغل الكتب الصوتية هذه الخلفية أيضًا، في الوضع الداكن فقط. ويحتفظ الوضع الفاتح بخلفيته الورقية.";
 
 /* 歌词翻译：下载离线翻译包前确认 */

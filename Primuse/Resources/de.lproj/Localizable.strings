@@ -6551,6 +6551,13 @@
 "spoken_word_keep_offline_waiting_low_power" = "Pausiert im Stromsparmodus";
 "spoken_word_keep_offline_waiting_thermal" = "Pausiert, Gerät ist zu warm";
 "spoken_word_keep_offline_waiting_disk" = "Pausiert: zu wenig Speicher";
+"spoken_word_auto_download" = "Automatisch laden";
+"spoken_word_auto_download_turn_on" = "Automatisches Laden aktivieren";
+"spoken_word_auto_download_turn_off" = "Automatisches Laden deaktivieren";
+"spoken_word_auto_download_remove_all" = "Alle Downloads entfernen";
+"spoken_word_auto_download_remove_all_title" = "Alle Downloads dieses Buchs entfernen?";
+"spoken_word_auto_download_remove_all_message" = "Geladene Kapitel werden von diesem Gerät entfernt und beim nächsten Abspielen wieder von der Quelle gestreamt.";
+"spoken_word_auto_download_remove_all_message_enabled" = "Geladene Kapitel werden von diesem Gerät entfernt und das automatische Laden wird deaktiviert. Beim nächsten Abspielen werden sie wieder von der Quelle gestreamt.";
 "player_backdrop_audiobooks_hint" = "Wenn aktiviert, zeigt auch der Hörbuch-Player diesen Hintergrund – nur im dunklen Modus. Im hellen Modus bleibt der Papierhintergrund.";
 
 /* 歌词翻译：下载离线翻译包前确认 */
