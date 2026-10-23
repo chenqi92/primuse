@@ -3105,6 +3105,7 @@ enum AIRecommendationContextBuilder {
         minimumResults: Int = 10,
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
+        followsTimeOfDay: Bool = true,
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> AIRecommendationRequest? {
@@ -3152,7 +3153,9 @@ enum AIRecommendationContextBuilder {
             )
         }
         return AIRecommendationRequest(
-            scene: AIRecommendationSceneResolver.resolved(scene, at: now),
+            // AI 歌单以提示词为准:不按钟点把「自动」换成睡前、通勤,
+            // 否则深夜要一份跑步歌单,服务收到的场景却是「睡前」。
+            scene: followsTimeOfDay ? AIRecommendationSceneResolver.resolved(scene, at: now) : scene,
             intent: intent,
             languageCode: Self.recommendationLanguageCode,
             preferences: preferences,
@@ -3192,7 +3195,8 @@ final class AIRecommendationViewModel {
         appending: Bool = false,
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
-        reuseSurface: AIRecommendationSurface? = nil
+        reuseSurface: AIRecommendationSurface? = nil,
+        followsTimeOfDay: Bool = true
     ) async -> Bool {
         finishRetryCooldown()
         generation &+= 1
@@ -3226,7 +3230,8 @@ final class AIRecommendationViewModel {
             maximumResults: maximumResults,
             minimumResults: minimumResults,
             unit: unit,
-            albumCandidates: albumCandidates
+            albumCandidates: albumCandidates,
+            followsTimeOfDay: followsTimeOfDay
         ) else {
             isStreaming = false
             if !appending {
