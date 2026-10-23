@@ -1596,8 +1596,8 @@ struct SimilarSongsSheet: View {
     @State private var results: [MusicDiscoveryResult] = []
     @State private var resultsLoaded: Bool = false
 
-    /// 点"歌曲电台"时 songRadio 是 @MainActor 的全库 O(limit×n) 扫描, 给按钮一个
-    /// loading 态, 让 spinner 先上屏再跑同步计算。
+    /// 点"歌曲电台"时要等 Last.fm(最多几秒)再加一次全库扫描, 给按钮一个
+    /// loading 态, 让 spinner 先上屏。
     @State private var isBuildingRadio: Bool = false
 
     var body: some View {
@@ -1605,7 +1605,7 @@ struct SimilarSongsSheet: View {
             List {
                 Section {
                     seedRow
-                    if !results.isEmpty {
+                    if !results.isEmpty || !lastFmCandidates.isEmpty {
                         Button {
                             startSongRadio()
                         } label: {
@@ -1705,18 +1705,34 @@ struct SimilarSongsSheet: View {
             return
         }
         let service = AppServices.shared.similarTracks
-        let pool = library.visibleSongs
+        let pool = library.musicSongs
         do {
             lastFmCandidates = try await service.fetchSimilar(
                 to: seed,
                 limit: 30,
                 library: pool,
+                excluding: library.dislikedSongIDs,
                 includeUnmatched: false
             )
         } catch {
             lastFmError = error.localizedDescription
         }
         isLoadingLastFm = false
+    }
+
+    /// 本地相似和 Last.fm 相似两路轮流、按专辑和艺人限量,接在 `first` 后面。
+    private func similarQueue(startingWith first: Song) -> [Song] {
+        let lastFm = lastFmCandidates.compactMap(\.librarySong).map {
+            MusicDiscoveryResult(song: $0, score: 0, reasons: [])
+        }
+        let tail = MusicDiscoveryEngine.mixed(
+            seed: first,
+            sources: [lastFm, results],
+            excluding: first.id == seed.id ? [] : [seed.id],
+            limit: 40,
+            limits: .similarList
+        )
+        return ([first] + tail.map(\.song)).filteredPlayable()
     }
 
     private var seedRow: some View {
@@ -1745,7 +1761,7 @@ struct SimilarSongsSheet: View {
     }
 
     private func startSimilarMix() {
-        let queue = ([seed] + results.map(\.song)).filteredPlayable()
+        let queue = similarQueue(startingWith: seed)
         guard !queue.isEmpty else { return }
         player.shuffleEnabled = false
         dismiss()
@@ -1755,12 +1771,11 @@ struct SimilarSongsSheet: View {
     private func startSongRadio() {
         guard !isBuildingRadio else { return }
         isBuildingRadio = true
-        // songRadio 是 @MainActor 的 O(limit×n) 全库扫描, 没法搬离主线程; 先 yield
+        // 本地那一路是 @MainActor 的全库扫描, 没法搬离主线程; 先 yield
         // 让按钮 loading 态上屏, 万首库上点这个按钮才不会像彻底卡死。
         Task { @MainActor in
             await Task.yield()
-            let radio = MusicDiscoveryEngine.songRadio(from: seed, in: library, limit: 48)
-            let queue = radio.map(\.song).filteredPlayable()
+            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
             isBuildingRadio = false
             guard !queue.isEmpty else { return }
             player.shuffleEnabled = false
@@ -1770,8 +1785,7 @@ struct SimilarSongsSheet: View {
     }
 
     private func play(_ song: Song) {
-        let tail = results.map(\.song).filter { $0.id != song.id }
-        let queue = ([song] + tail).filteredPlayable()
+        let queue = similarQueue(startingWith: song)
         guard let first = queue.first else { return }
         player.shuffleEnabled = false
         dismiss()

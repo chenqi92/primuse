@@ -97,16 +97,13 @@ final class MusicDiscoveryEngineEquivalenceTests: XCTestCase {
         }
     }
 
-    func testSimilarSongsAndRadioMatchTheStringImplementation() {
+    func testSimilarSongsMatchTheStringImplementation() {
         let songs = makeLibrary(count: 2_000)
         let recent = Set(songs.prefix(200).map(\.id))
         var outsider = songs[40]
         outsider.id = "outside-library"
         outsider.albumTitle = "Unknown Album"
         outsider.filePath = "Elsewhere/x.flac"
-        let fallbacks = songs.filteredPlayable().suffix(20).map {
-            MusicDiscoveryResult(song: $0, score: 1, reasons: [.libraryPick])
-        }
         for seed in [songs[10], songs[33], songs[1_500], outsider] {
             for limit in [1, 8, 30] {
                 assertSame(
@@ -115,20 +112,92 @@ final class MusicDiscoveryEngineEquivalenceTests: XCTestCase {
                     "similar seed=\(seed.id) limit=\(limit)"
                 )
             }
-            for limit in [1, 12, 48] {
-                assertSame(
-                    MusicDiscoveryEngine.songRadio(
-                        from: seed, songs: songs, recentMonthIDs: recent,
-                        fallbacks: fallbacks, limit: limit, now: now
-                    ),
-                    LegacyMusicDiscoveryEngine.songRadio(
-                        from: seed, songs: songs, recentMonthIDs: recent,
-                        fallbacks: fallbacks, limit: limit, now: now
-                    ),
-                    "radio seed=\(seed.id) limit=\(limit)"
-                )
-            }
         }
+    }
+
+    /// 种子专辑 12 首、同艺人另一张 6 首,另有 12 位同风格同年代的艺人各 5 首。
+    private func makeRadioLibrary() -> [Song] {
+        func song(_ id: String, artist: String, album: String, year: Int) -> Song {
+            Song(
+                id: id,
+                title: id,
+                albumTitle: album,
+                artistName: artist,
+                duration: 240,
+                fileFormat: .flac,
+                filePath: "Music/\(artist)/\(album)/\(id).flac",
+                sourceID: "source-a",
+                genre: "Pop",
+                year: year,
+                dateAdded: now.addingTimeInterval(-400 * 86_400)
+            )
+        }
+        var songs = (1...12).map { song("seed-album-\($0)", artist: "周杰伦", album: "叶惠美", year: 2003) }
+        songs += (1...6).map { song("same-artist-\($0)", artist: "周杰伦", album: "七里香", year: 2004) }
+        let others = ["林俊杰", "陶喆", "王力宏", "孙燕姿", "蔡依林", "潘玮柏", "梁静茹",
+                      "S.H.E", "五月天", "张韶涵", "萧亚轩", "光良"]
+        for artist in others {
+            songs += (1...5).map { song("\(artist)-\($0)", artist: artist, album: "\(artist) 专辑", year: 2003) }
+        }
+        return songs
+    }
+
+    func testSongRadioDoesNotReplayTheSeedsAlbum() {
+        let songs = makeRadioLibrary()
+        let seed = songs[0]
+        let radio = MusicDiscoveryEngine.songRadio(
+            from: seed, songs: songs, recentMonthIDs: [], fallbacks: [], limit: 24, now: now
+        ).map(\.song)
+
+        XCTAssertEqual(radio.first?.id, seed.id)
+        XCTAssertEqual(radio.count, 24)
+        XCTAssertEqual(Set(radio.map(\.id)).count, 24)
+        let tail = radio.dropFirst()
+        XCTAssertLessThanOrEqual(tail.filter { $0.albumTitle == "叶惠美" }.count, 1)
+        XCTAssertLessThanOrEqual(radio.filter { $0.artistName == "周杰伦" }.count, 6)
+        for artist in Set(tail.compactMap(\.artistName)) where artist != "周杰伦" {
+            XCTAssertLessThanOrEqual(tail.filter { $0.artistName == artist }.count, 3, artist)
+        }
+        // 最后几首可能只剩同一位艺人,拉不开。
+        let spaced = radio.prefix(radio.count - 3)
+        for (lhs, rhs) in zip(spaced, spaced.dropFirst()) {
+            XCTAssertNotEqual(lhs.artistName, rhs.artistName, "\(lhs.id) → \(rhs.id)")
+        }
+    }
+
+    func testSongRadioIsStableForTheDayAndStartsWithTheSeed() {
+        let songs = makeRadioLibrary()
+        let seed = songs[3]
+        let first = MusicDiscoveryEngine.songRadio(
+            from: seed, songs: songs, recentMonthIDs: [], fallbacks: [], limit: 20, now: now
+        ).map(\.song.id)
+        let second = MusicDiscoveryEngine.songRadio(
+            from: seed, songs: songs, recentMonthIDs: [], fallbacks: [], limit: 20, now: now
+        ).map(\.song.id)
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(MusicDiscoveryEngine.songRadio(
+            from: seed, songs: songs, recentMonthIDs: [], fallbacks: [], limit: 1, now: now
+        ).map(\.song.id), [seed.id])
+    }
+
+    func testSongRadioFillsFromFallbacksAndAlbumWhenLibraryIsSmall() {
+        let songs = Array(makeRadioLibrary().prefix(12))
+        let seed = songs[0]
+        let fallback = MusicDiscoveryResult(
+            song: Song(
+                id: "fallback", title: "fallback", albumTitle: "Other", artistName: "Other",
+                duration: 30, fileFormat: .flac, filePath: "x/fallback.flac", sourceID: "source-b",
+                dateAdded: now
+            ),
+            score: 1,
+            reasons: [.libraryPick]
+        )
+        let radio = MusicDiscoveryEngine.songRadio(
+            from: seed, songs: songs, recentMonthIDs: [], fallbacks: [fallback], limit: 8, now: now
+        ).map(\.song.id)
+        XCTAssertEqual(radio.count, 8)
+        XCTAssertEqual(radio.first, seed.id)
+        XCTAssertTrue(radio.contains("fallback"))
     }
 }
 
@@ -164,87 +233,6 @@ private enum LegacyMusicDiscoveryEngine {
             }
             .prefix(limit)
             .map { $0 }
-    }
-
-    static func songRadio(
-        from seed: Song,
-        songs: [Song],
-        recentMonthIDs: Set<String>,
-        fallbacks: [MusicDiscoveryResult],
-        limit: Int,
-        now: Date
-    ) -> [MusicDiscoveryResult] {
-        guard seed.isPlayable else { return [] }
-
-        // Precompute everything that doesn't change across the up-to-`limit`
-        // greedy iterations: the candidate pool, a normalized feature index
-        // (so each song's artist/album/genre/folder strings are folded once
-        // instead of O(limit×N) times), the recent-month set, and the
-        // fallback list. The original re-ran `similarSongs` (full O(N) scan +
-        // per-candidate String.folding + a fresh `history.entries` Set) and
-        // `dailyRecommendations` (a 3×limit full-library scoring pass) on every
-        // iteration — multiple seconds on a 10k-song library, all on the main
-        // actor. Now the per-iteration work is a single O(N) pass over cached
-        // numbers/strings.
-        let candidates = songs.filteredPlayable()
-        let features = candidates.map { NormalizedSong(song: $0) }
-        let seedFeature = NormalizedSong(song: seed)
-
-        var output = [
-            MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
-        ]
-        var usedIDs: Set<String> = [seed.id]
-        var cursor = seedFeature
-
-        // Fallback recommendations don't depend on the moving cursor, so build
-        // them once and just skip already-used songs as the queue grows.
-
-        while output.count < limit {
-            var best: (result: MusicDiscoveryResult, sortScore: Double, title: String)?
-            for candidate in features {
-                guard !usedIDs.contains(candidate.song.id), candidate.song.id != cursor.song.id else { continue }
-                var match = similarity(between: cursor, and: candidate)
-                guard match.score > 0 else { continue }
-                if !recentMonthIDs.contains(candidate.song.id) {
-                    match.score += 4
-                    append(.notRecentlyPlayed, to: &match.reasons)
-                }
-                let sortScore = match.score + stableDailyNoise(candidate.song.id, now: now) * 3
-                let isBetter: Bool
-                if let current = best {
-                    if sortScore != current.sortScore {
-                        isBetter = sortScore > current.sortScore
-                    } else {
-                        isBetter = candidate.song.title.localizedCompare(current.title) == .orderedAscending
-                    }
-                } else {
-                    isBetter = true
-                }
-                if isBetter {
-                    best = (
-                        MusicDiscoveryResult(song: candidate.song, score: match.score, reasons: match.reasons),
-                        sortScore,
-                        candidate.song.title
-                    )
-                }
-            }
-
-            if let next = best {
-                output.append(next.result)
-                usedIDs.insert(next.result.song.id)
-                cursor = NormalizedSong(song: next.result.song)
-                continue
-            }
-
-            guard let fallback = fallbacks.first(where: { !usedIDs.contains($0.song.id) }) else {
-                break
-            }
-            output.append(fallback)
-            usedIDs.insert(fallback.song.id)
-            cursor = NormalizedSong(song: fallback.song)
-        }
-
-        return output
     }
 
     static func recommendations(

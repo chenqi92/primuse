@@ -2282,14 +2282,60 @@ enum MusicDiscoveryEngine {
         // Music only: spoken word is never suggested as "similar".
         let songs = library.musicSongs
         let index = featureIndex(for: songs, revision: library.musicSongsRevision)
-        return similarSongs(
+        // 同专辑、同艺人的分数远高于其余,直接取前几十首就是把种子那张专辑列一遍;
+        // 多取一些,再按专辑、艺人限量。
+        let ranked = similarSongs(
             to: seed,
             songs: songs,
             index: index,
             recentIDs: recentIDs,
             excluding: library.dislikedSongIDs,
-            limit: limit
+            limit: max(limit * 4, 60)
         )
+        return mixed(seed: seed, sources: [ranked], limit: limit, limits: .similarList)
+    }
+
+    /// 几路候选按专辑、艺人限量后轮流出歌(`SongRadioMixPolicy`),不含种子。
+    static func mixed(
+        seed: Song,
+        sources: [[MusicDiscoveryResult]],
+        fallback: [MusicDiscoveryResult] = [],
+        excluding excluded: Set<String> = [],
+        limit: Int,
+        limits: SongRadioMixPolicy.Limits
+    ) -> [MusicDiscoveryResult] {
+        var resultsByID: [String: MusicDiscoveryResult] = [:]
+        var groups: [String: RadioGroups] = [seed.id: RadioGroups(seed)]
+        for result in sources.joined() + fallback where resultsByID[result.song.id] == nil {
+            resultsByID[result.song.id] = result
+            groups[result.song.id] = RadioGroups(result.song)
+        }
+        let ids = SongRadioMixPolicy.compose(
+            seedID: seed.id,
+            sources: sources.map { $0.map(\.song.id) },
+            fallback: fallback.map(\.song.id),
+            excluding: excluded,
+            limit: limit,
+            limits: limits,
+            album: { groups[$0]?.album },
+            artist: { groups[$0]?.artist }
+        )
+        return ids.compactMap { resultsByID[$0] }
+    }
+
+    /// 电台限量用的专辑、艺人归属,只按名字认(`SongRadioGrouping`)。
+    struct RadioGroups {
+        let album: String?
+        let artist: String?
+
+        init(_ song: Song) {
+            artist = SongRadioGrouping.artistKey(song.artistName)
+            album = SongRadioGrouping.albumKey(
+                album: song.albumTitle,
+                albumArtist: song.albumArtistName,
+                artist: song.artistName
+            )
+        }
     }
 
     static func similarSongs(
@@ -2640,10 +2686,9 @@ enum MusicDiscoveryEngine {
         )
     }
 
-    /// Greedy walk: each step picks the candidate most similar to the previous
-    /// pick. Everything that does not depend on the moving cursor — the
-    /// normalized features and the per-song daily noise — is computed once,
-    /// so each step is a single pass over integers.
+    /// 按和种子的相似程度排(每天一点扰动换着顺序),再按专辑、艺人限量轮流出歌,
+    /// 同一位艺人尽量不连着放;相似的不够时用每日推荐补。种子总在第一首。
+    /// 以前每一步挑「最像上一首」的歌,同专辑同艺人分数最高,结果就是把种子那张专辑从头放一遍。
     private static func songRadio(
         from seed: Song,
         songs: [Song],
@@ -2654,65 +2699,44 @@ enum MusicDiscoveryEngine {
         limit: Int,
         now: Date
     ) -> [MusicDiscoveryResult] {
-        var output = [
-            MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
-        ]
-        guard let index else { return output }
-        // 不喜欢的歌(#193)当作已经放过, 电台一路都不会走到它; 种子本身是点名的, 照放。
-        var usedIDs = excluded.union([seed.id])
-        var cursor = index.feature(for: seed)
-        var dailyNoise: [Double] = []
-
-        while output.count < limit {
-            if dailyNoise.isEmpty {
-                let day = dailyNoiseDay(now)
-                dailyNoise = index.ids.map { stableDailyNoise($0, day: day) }
+        let seedResult = MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
+        guard limit > 1, let index else { return [seedResult] }
+        let seedFeature = index.feature(for: seed)
+        let day = dailyNoiseDay(now)
+        // 限量会挡下一部分,多留几倍再交给限量去挑。
+        let keep = (limit - 1) * 4
+        var top: [(sortScore: Double, candidate: Candidate)] = []
+        top.reserveCapacity(keep + 1)
+        for position in index.ids.indices where index.playable[position] {
+            let id = index.ids[position]
+            // 不喜欢的歌(#193)电台一路都不会走到; 种子本身是点名的, 照放。
+            guard id != seed.id, !excluded.contains(id) else { continue }
+            var match = similarity(between: seedFeature, and: position, in: index)
+            guard match.score > 0 else { continue }
+            if !recentMonthIDs.contains(id) {
+                match.score += 4
+                match.reasons.insert(.notRecentlyPlayed)
             }
-            var best: (position: Int, match: Match, sortScore: Double)?
-            for position in index.ids.indices where index.playable[position] {
-                let id = index.ids[position]
-                guard !usedIDs.contains(id), id != cursor.id else { continue }
-                var match = similarity(between: cursor, and: position, in: index)
-                guard match.score > 0 else { continue }
-                if !recentMonthIDs.contains(id) {
-                    match.score += 4
-                    match.reasons.insert(.notRecentlyPlayed)
-                }
-                let sortScore = match.score + dailyNoise[position] * 3
-                let isBetter: Bool
-                if let current = best {
-                    if sortScore != current.sortScore {
-                        isBetter = sortScore > current.sortScore
-                    } else {
-                        isBetter = index.titles[position]
-                            .localizedCompare(index.titles[current.position]) == .orderedAscending
-                    }
-                } else {
-                    isBetter = true
-                }
-                if isBetter { best = (position, match, sortScore) }
+            let sortScore = match.score + stableDailyNoise(id, day: day) * 3
+            if top.count == keep, sortScore <= top[keep - 1].sortScore { continue }
+            var low = 0
+            var high = top.count
+            while low < high {
+                let middle = (low + high) / 2
+                if top[middle].sortScore >= sortScore { low = middle + 1 } else { high = middle }
             }
-
-            if let next = best {
-                output.append(Candidate(
-                    position: next.position,
-                    score: next.match.score,
-                    reasons: next.match.reasons
-                ).result(in: songs))
-                usedIDs.insert(index.ids[next.position])
-                cursor = index.feature(at: next.position)
-                continue
-            }
-
-            guard let fallback = fallbacks.first(where: { !usedIDs.contains($0.song.id) }) else {
-                break
-            }
-            output.append(fallback)
-            usedIDs.insert(fallback.song.id)
-            cursor = index.feature(for: fallback.song)
+            top.insert((sortScore, Candidate(position: position, score: match.score, reasons: match.reasons)), at: low)
+            if top.count > keep { top.removeLast() }
         }
-
-        return output
+        let ranked = top.map { $0.candidate.result(in: songs) }
+        return [seedResult] + mixed(
+            seed: seed,
+            sources: [ranked],
+            fallback: fallbacks,
+            excluding: excluded,
+            limit: limit - 1,
+            limits: .radio
+        )
     }
 
     // MARK: - Feature index

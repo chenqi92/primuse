@@ -2157,6 +2157,8 @@ struct MacSimilarSongsPopover: View {
     // library.songs 时 body 又频繁重算 → 滚动时一帧算一次全库, 极卡。
     @State private var localRows: [Row] = []
     @State private var displayRows: [Row] = []
+    /// 「播放相似电台」要等 Last.fm(最多几秒),按钮先转圈。
+    @State private var isBuildingRadio = false
 
     /// 合并去重后的展示行。`affinity` 统一到 0~1,本地分按软上限折算。
     private struct Row: Identifiable {
@@ -2357,8 +2359,14 @@ struct MacSimilarSongsPopover: View {
             playRadio()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 11, weight: .semibold))
+                if isBuildingRadio {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 11, weight: .semibold))
+                }
                 Text("play_similar_radio")
                     .font(.system(size: 12.5, weight: .semibold))
             }
@@ -2368,7 +2376,7 @@ struct MacSimilarSongsPopover: View {
             .background(PMColor.brand, in: .rect(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .disabled(displayRows.isEmpty)
+        .disabled(displayRows.isEmpty || isBuildingRadio)
         .opacity(displayRows.isEmpty ? 0.5 : 1)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -2390,13 +2398,17 @@ struct MacSimilarSongsPopover: View {
     }
 
     private func playRadio() {
-        let queue = MusicDiscoveryEngine.songRadio(from: seed, in: library, limit: 48)
-            .map(\.song)
-            .filteredPlayable()
-        guard !queue.isEmpty else { return }
-        player.shuffleEnabled = false
-        onClose()
-        Task { await player.play(queue: queue, startingAt: 0) }
+        guard !isBuildingRadio else { return }
+        isBuildingRadio = true
+        Task { @MainActor in
+            await Task.yield()
+            let queue = await SongRadioBuilder.queue(from: seed, in: library, limit: 48).filteredPlayable()
+            isBuildingRadio = false
+            guard !queue.isEmpty else { return }
+            player.shuffleEnabled = false
+            onClose()
+            await player.play(queue: queue, startingAt: 0)
+        }
     }
 
     private func loadLastFm() async {
@@ -2406,12 +2418,13 @@ struct MacSimilarSongsPopover: View {
             return
         }
         let service = AppServices.shared.similarTracks
-        let pool = library.visibleSongs
+        let pool = library.musicSongs
         do {
             lastFmCandidates = try await service.fetchSimilar(
                 to: seed,
                 limit: 30,
                 library: pool,
+                excluding: library.dislikedSongIDs,
                 includeUnmatched: false
             )
         } catch {
