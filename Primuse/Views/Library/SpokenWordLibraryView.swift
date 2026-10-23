@@ -2243,21 +2243,20 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
         let showsScrubber = SpokenWordChapterScrubber.isShown(chapterCount: items.count)
         ScrollView {
             LazyVStack(spacing: 0) {
+                // 左右留白一样宽:快速拖动条只在滚动、拖动时浮出来(和系统滚动条一样),
+                // 不再给它在右边一直让出一条,整页看着偏左(#336)。
                 header()
                     .padding(.horizontal, inset)
                     .padding(.vertical, 16)
-                    // 有快速拖动条时右缘和章节行一样让开它:进度条、「始终保持离线」框与章节时长右缘对齐。
-                    .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth - inset : 0)
                     // 铺到 iPhone Duo 竖栏底下时，带着「继续」与语速的头部照旧让开竖栏。
                     .pmClearOfVerticalBar()
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     row(index, item)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        .padding(.leading, inset)
-                        .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : inset)
+                        .padding(.horizontal, inset)
                         .overlay(alignment: .bottom) {
                             Divider().padding(.leading, inset + 40)
-                                .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : inset)
+                                .padding(.trailing, inset)
                         }
                         // 有快速拖动条时它停在竖栏左侧，行尾连竖栏那一条一起让开。
                         .pmClearOfVerticalBar(showsScrubber)
@@ -2303,6 +2302,36 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
     }
 }
 
+/// 拖动条淡出的截止时间与计时任务。不参与观察:滚动时每帧都要挪截止时间。
+@MainActor
+final class SpokenWordScrubberAutoHide {
+    var deadline = ContinuousClock.now
+    var task: Task<Void, Never>?
+}
+
+/// 拖动条滑块的底:毛玻璃,阴影压得很淡,不在页面边上显得突兀(#336)。拖着时描边深一点。
+/// 打开「降低透明度」时系统自己把玻璃和材质换成实底。
+private struct SpokenWordScrubberThumbGlass: ViewModifier {
+    let isDragging: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            content
+                .glassEffect(.regular.interactive(), in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(Color.primary.opacity(isDragging ? 0.18 : 0), lineWidth: 0.5)
+                }
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(Color.primary.opacity(isDragging ? 0.18 : 0.08), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(isDragging ? 0.08 : 0.03), radius: 2, y: 1)
+        }
+    }
+}
+
 /// Where the chapter list is scrolled to, kept apart from the page so a
 /// scroll frame redraws only the scrubber.
 @MainActor
@@ -2320,11 +2349,13 @@ final class SpokenWordChapterScrollState {
 /// 章节很多时, 章节列表右缘的快速拖动条: 滑块跟着列表位置走, 按住拖动时
 /// 列表跟手跳到对应章节, 旁边的气泡报出第几章与章节名。只抓滑块本身, 列表其余
 /// 部分的点按和滚动照旧。
+/// 和系统滚动条一样只在滚动、拖动时浮在行尾上面, 停下一会儿就淡出; 进页面时先露一下,
+/// 让人知道有它。开着旁白时一直在(#336)。
 struct SpokenWordChapterScrubber: View {
     /// 少于这么多章时一屏两屏就翻完了, 不需要它。
     static let minimumChapterCount = 30
-    /// 行尾给滑块留的宽度。
-    static let reservedWidth: CGFloat = 48
+    /// 停下多久后淡出。
+    static let visibleDuration: Duration = .seconds(1.6)
 
     static func isShown(chapterCount: Int) -> Bool {
         #if os(iOS)
@@ -2358,6 +2389,11 @@ struct SpokenWordChapterScrubber: View {
     @State private var dragFraction: Double?
     @State private var scrubbedIndex: Int?
     @State private var hapticTrigger = 0
+    @State private var isRevealed = true
+    @State private var autoHide = SpokenWordScrubberAutoHide()
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    private var showsThumb: Bool { isRevealed || isDragging || voiceOverEnabled }
 
     private let thumbHeight: CGFloat = 64
     private let verticalInset: CGFloat = 8
@@ -2376,15 +2412,14 @@ struct SpokenWordChapterScrubber: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(isDragging ? ListeningSpace.spokenWord.tint : .secondary)
                 .frame(width: 26, height: 56)
-                .background(.regularMaterial, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(Color.primary.opacity(isDragging ? 0.22 : 0.1), lineWidth: 0.5)
-                }
-                .shadow(color: .black.opacity(isDragging ? 0.16 : 0.06), radius: 4, y: 2)
+                .modifier(SpokenWordScrubberThumbGlass(isDragging: isDragging))
                 .frame(width: 44, height: thumbHeight)
                 .contentShape(Rectangle())
                 .gesture(dragGesture(track: track))
                 .offset(y: thumbTop)
+                .opacity(showsThumb ? 1 : 0)
+                .allowsHitTesting(showsThumb)
+                .animation(.easeOut(duration: 0.25), value: showsThumb)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("tv_spoken_word_chapters"))
                 .accessibilityValue(Text(verbatim: "\(Self.index(forFraction: fraction, count: count) + 1) / \(count)"))
@@ -2415,7 +2450,32 @@ struct SpokenWordChapterScrubber: View {
                 dragStartFraction = nil
                 dragFraction = nil
                 scrubbedIndex = nil
+                reveal()
             }
+        }
+        .onChange(of: scroll.fraction) { _, _ in reveal() }
+        .onAppear { reveal() }
+        .onDisappear {
+            autoHide.task?.cancel()
+            autoHide.task = nil
+        }
+    }
+
+    /// 露出来, 再等 `visibleDuration` 没动静就淡出。滚动时每帧都会来一次, 只挪截止时间,
+    /// 不每帧新起一个计时任务。
+    private func reveal() {
+        autoHide.deadline = .now + Self.visibleDuration
+        if !isRevealed { isRevealed = true }
+        guard autoHide.task == nil else { return }
+        autoHide.task = Task { @MainActor in
+            while !Task.isCancelled {
+                let remaining = autoHide.deadline - .now
+                guard remaining > .zero else { break }
+                try? await Task.sleep(for: remaining)
+            }
+            autoHide.task = nil
+            guard !Task.isCancelled, !isDragging else { return }
+            isRevealed = false
         }
     }
 
