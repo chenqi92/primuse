@@ -944,11 +944,13 @@ enum PlainHTTPClient {
         let isChunked: Bool
     }
 
-    private final class DownloadStateBox: @unchecked Sendable {
+    final class DownloadStateBox: @unchecked Sendable {
         private let lock = NSLock()
         private var didResume = false
         private var headerBuffer = Data()
         private var parsedHeader: ParsedResponseHeader?
+        private var chunkedDecoder: HTTPChunkedBodyDecoder?
+        /// 已写进文件的正文字节数；分块响应按解出的正文算。
         private var bodyBytes = 0
         private var fileHandle: FileHandle?
         private var returnedFile = false
@@ -988,6 +990,7 @@ enum PlainHTTPClient {
                 let headerData = Data(headerBuffer[..<headerRange.lowerBound])
                 let parsed = try PlainHTTPClient.parseResponseHeader(headerData, for: responseURL)
                 parsedHeader = parsed
+                if parsed.isChunked { chunkedDecoder = HTTPChunkedBodyDecoder() }
                 let initialBody = Data(headerBuffer[headerRange.upperBound...])
                 headerBuffer.removeAll(keepingCapacity: false)
                 if try appendBody(initialBody) { return true }
@@ -1012,6 +1015,11 @@ enum PlainHTTPClient {
                !intentionallyTruncatedWholeResponse {
                 throw ScraperError.networkError("Truncated HTTP response")
             }
+            if parsedHeader.isChunked,
+               chunkedDecoder?.isComplete != true,
+               !intentionallyTruncatedWholeResponse {
+                throw ScraperError.networkError("Truncated chunked HTTP response")
+            }
 
             if let contentLength = parsedHeader.contentLength,
                !parsedHeader.isChunked,
@@ -1020,15 +1028,8 @@ enum PlainHTTPClient {
             }
             try fileHandle?.close()
             fileHandle = nil
-
-            let completedURL: URL
-            if parsedHeader.isChunked {
-                completedURL = try PlainHTTPClient.decodeChunkedFile(fileURL)
-            } else {
-                completedURL = fileURL
-            }
             returnedFile = true
-            return (completedURL, parsedHeader.response)
+            return (fileURL, parsedHeader.response)
         }
 
         func markResumed() -> Bool {
@@ -1051,13 +1052,31 @@ enum PlainHTTPClient {
 
         private func appendBody(_ data: Data) throws -> Bool {
             guard !data.isEmpty, let parsedHeader else { return false }
+            guard var decoder = chunkedDecoder else {
+                return try writeBody(data, header: parsedHeader)
+            }
 
+            // 分块正文边收边解：只要前缀时按解出的正文算，够了就停，
+            // 不会因为分块就把整首歌、甚至没有尽头的电台流一直收下去。
+            var reachedPrefixLimit = false
+            do {
+                try decoder.append(data) { decoded in
+                    guard !reachedPrefixLimit else { return }
+                    reachedPrefixLimit = try writeBody(decoded, header: parsedHeader)
+                }
+            } catch {
+                guard reachedPrefixLimit else { throw error }
+            }
+            chunkedDecoder = decoder
+            return reachedPrefixLimit || decoder.isComplete
+        }
+
+        private func writeBody(_ data: Data, header: ParsedResponseHeader) throws -> Bool {
             // A metadata head request only needs the requested prefix when a
             // non-compliant server returns HTTP 200 for Range. Stop the socket
             // as soon as that prefix is safely on disk instead of downloading
-            // the entire song. Chunked bodies still need complete decoding.
-            if parsedHeader.response.statusCode == 200,
-               !parsedHeader.isChunked,
+            // the entire song.
+            if header.response.statusCode == 200,
                let wholeResponsePrefixLimit {
                 let remaining = max(0, wholeResponsePrefixLimit - bodyBytes)
                 if remaining > 0 {
@@ -1066,9 +1085,8 @@ enum PlainHTTPClient {
                     bodyBytes += accepted
                 }
                 if bodyBytes >= wholeResponsePrefixLimit {
-                    intentionallyTruncatedWholeResponse = parsedHeader.contentLength.map {
-                        $0 > bodyBytes
-                    } ?? true
+                    intentionallyTruncatedWholeResponse = header.isChunked
+                        || (header.contentLength.map { $0 > bodyBytes } ?? true)
                     return true
                 }
                 return false
@@ -1084,60 +1102,6 @@ enum PlainHTTPClient {
             try fileHandle?.write(contentsOf: data)
             bodyBytes += data.count
             return false
-        }
-    }
-
-    private struct FileStreamReader {
-        let handle: FileHandle
-        var buffer = Data()
-
-        mutating func readLine() throws -> Data {
-            let lineBreak = Data("\r\n".utf8)
-            while true {
-                if let range = buffer.range(of: lineBreak) {
-                    let line = Data(buffer[..<range.lowerBound])
-                    // Data 被 removeFirst 过之后下标不再从 0 起，range 是绝对下标，
-                    // 当成个数传给 removeFirst 会多删、越界即闪退。
-                    buffer.removeSubrange(..<range.upperBound)
-                    return line
-                }
-                guard buffer.count <= 64 * 1024 else {
-                    throw ScraperError.networkError("Invalid chunked HTTP response")
-                }
-                guard let next = try handle.read(upToCount: 64 * 1024), !next.isEmpty else {
-                    throw ScraperError.networkError("Truncated chunked HTTP response")
-                }
-                buffer.append(next)
-            }
-        }
-
-        mutating func copyExactly(_ count: Int, to output: FileHandle) throws {
-            var remaining = count
-            while remaining > 0 {
-                if buffer.isEmpty {
-                    guard let next = try handle.read(upToCount: min(64 * 1024, remaining)), !next.isEmpty else {
-                        throw ScraperError.networkError("Truncated chunked HTTP response")
-                    }
-                    buffer.append(next)
-                }
-                let amount = min(remaining, buffer.count)
-                try output.write(contentsOf: Data(buffer.prefix(amount)))
-                buffer.removeFirst(amount)
-                remaining -= amount
-            }
-        }
-
-        mutating func consumeChunkTerminator() throws {
-            while buffer.count < 2 {
-                guard let next = try handle.read(upToCount: 64 * 1024), !next.isEmpty else {
-                    throw ScraperError.networkError("Missing chunk terminator")
-                }
-                buffer.append(next)
-            }
-            guard buffer.prefix(2).elementsEqual([13, 10]) else {
-                throw ScraperError.networkError("Missing chunk terminator")
-            }
-            buffer.removeFirst(2)
         }
     }
 
@@ -1448,40 +1412,6 @@ enum PlainHTTPClient {
             throw ScraperError.networkError("Failed to construct HTTPURLResponse")
         }
         return ParsedResponseHeader(response: response, contentLength: contentLength, isChunked: isChunked)
-    }
-
-    static func decodeChunkedFile(_ inputURL: URL) throws -> URL {
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Primuse-HTTP-\(UUID().uuidString).download")
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
-            throw ScraperError.networkError("Unable to create decoded HTTP download file")
-        }
-
-        let input = try FileHandle(forReadingFrom: inputURL)
-        let output = try FileHandle(forWritingTo: outputURL)
-        do {
-            var reader = FileStreamReader(handle: input)
-            while true {
-                let sizeLine = String(decoding: try reader.readLine(), as: UTF8.self)
-                let hexPart = sizeLine.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-                guard let chunkSize = Int(hexPart.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16),
-                      chunkSize >= 0 else {
-                    throw ScraperError.networkError("Invalid chunk size: \(sizeLine)")
-                }
-                if chunkSize == 0 { break }
-                try reader.copyExactly(chunkSize, to: output)
-                try reader.consumeChunkTerminator()
-            }
-            try input.close()
-            try output.close()
-            try FileManager.default.removeItem(at: inputURL)
-            return outputURL
-        } catch {
-            try? input.close()
-            try? output.close()
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
-        }
     }
 
     private static func decodeChunked(_ data: Data) throws -> Data {

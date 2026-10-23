@@ -2,59 +2,76 @@ import Foundation
 import XCTest
 @testable import Primuse
 
-/// 1.12.0(108)–1.12.1(111) 的分块下载闪退：读下一行块大小时把 Data 的绝对下标
-/// 当成个数传给 removeFirst，第一块之后的任何一行都会多删甚至越界陷阱。
+/// 公网明文 http 下载的分块响应：1.12.0(108)–1.12.1(111) 在第一块之后读块大小越界闪退；
+/// 只要前缀的请求(电台探测、主页取台标)遇到分块也得整段收完，电台流因此一直收到超时。
 final class HTTPChunkedBodyDecodingTests: XCTestCase {
-    func testChunkedDownloadDecodesSmallChunkAfterLargeOne() throws {
-        let payload = Data(repeating: 0x41, count: 100) + Data("abc".utf8)
-        XCTAssertEqual(try decodeFile(Self.chunked(payload, sizes: [100, 3])), payload)
+    private let url = URL(string: "http://example.com/stream")!
+
+    func testChunkedDownloadFinishesAtLastChunkWithoutWaitingForClose() throws {
+        let payload = Data(repeating: 0x41, count: 100) + Self.randomPayload(count: 300_000)
+        let response = Self.header("200 OK")
+            + Self.chunked(payload, sizes: [100, 3, 70_000, 1, 65_536], extensions: true)
+        let box = try PlainHTTPClient.DownloadStateBox()
+        defer { box.cleanup() }
+        XCTAssertEqual(try feed(response, to: box, split: 4_096), response.count)
+        XCTAssertEqual(try finalizedBody(box), payload)
     }
 
-    func testChunkedDownloadDecodesChunksAcrossReadBoundaries() throws {
-        let payload = Self.randomPayload(count: 300_000)
-        let body = Self.chunked(payload, sizes: [8_192, 1, 70_000, 4_093, 65_536], extensions: true)
-        XCTAssertEqual(try decodeFile(body), payload)
+    func testChunkedPrefixDownloadStopsOnceThePrefixIsDecoded() throws {
+        let payload = Self.randomPayload(count: 500_000)
+        var body = Self.chunked(payload, sizes: [16_384, 7, 8_000])
+        body.removeLast(5)
+        let response = Self.header("200 OK") + body
+        let box = try PlainHTTPClient.DownloadStateBox(wholeResponsePrefixLimit: 65_536)
+        defer { box.cleanup() }
+        let consumed = try XCTUnwrap(feed(response, to: box, split: 4_096))
+        XCTAssertLessThan(consumed, 80_000)
+        XCTAssertEqual(try finalizedBody(box), payload.prefix(65_536))
     }
 
-    func testChunkedDownloadRejectsTruncatedBody() throws {
+    func testChunkedDownloadWithoutLastChunkIsTruncated() throws {
         var body = Self.chunked(Data("hello world".utf8), sizes: [5, 6])
-        body.removeLast(9)
-        XCTAssertThrowsError(try decodeFile(body))
+        body.removeLast(5)
+        let box = try PlainHTTPClient.DownloadStateBox()
+        defer { box.cleanup() }
+        XCTAssertNil(try feed(Self.header("200 OK") + body, to: box, split: 3))
+        XCTAssertThrowsError(try box.finalize())
     }
 
-    func testRadioChunkedStreamDecodesAcrossArbitrarySplits() throws {
-        let payload = Self.randomPayload(count: 150_000)
-        let body = Self.chunked(payload, sizes: [100, 3, 16_384, 1, 70_000], extensions: true)
-        for split in [1, 7, 4_096, body.count] {
-            var decoder = RadioHTTPChunkedBodyDecoder()
-            var decoded = Data()
-            var offset = 0
-            while offset < body.count {
-                let end = min(offset + split, body.count)
-                try decoder.append(body[offset..<end]) { decoded.append($0) }
-                offset = end
-            }
-            XCTAssertEqual(decoded, payload, "split=\(split)")
+    func testChunkedRangeResponseLimitCountsDecodedBytes() throws {
+        let payload = Self.randomPayload(count: 1_024)
+        let response = Self.header("206 Partial Content") + Self.chunked(payload, sizes: [512])
+        let box = try PlainHTTPClient.DownloadStateBox(maximumRangedBodyBytes: 1_024)
+        defer { box.cleanup() }
+        XCTAssertEqual(try feed(response, to: box, split: 4_096), response.count)
+        XCTAssertEqual(try finalizedBody(box), payload)
+
+        let oversized = Self.header("206 Partial Content")
+            + Self.chunked(Self.randomPayload(count: 2_000), sizes: [512])
+        let limited = try PlainHTTPClient.DownloadStateBox(maximumRangedBodyBytes: 1_024)
+        defer { limited.cleanup() }
+        XCTAssertThrowsError(try feed(oversized, to: limited, split: 4_096))
+    }
+
+    /// 按 split 分段喂给下载状态机，返回它说「收够了」时已经喂了多少字节。
+    private func feed(_ response: Data, to box: PlainHTTPClient.DownloadStateBox, split: Int) throws -> Int? {
+        var offset = 0
+        while offset < response.count {
+            let end = min(offset + split, response.count)
+            if try box.consume(response[offset..<end], responseURL: url) { return end }
+            offset = end
         }
+        return nil
     }
 
-    func testRadioChunkedStreamStopsAtLastChunk() throws {
-        var decoder = RadioHTTPChunkedBodyDecoder()
-        var decoded = Data()
-        let body = Self.chunked(Data("hello world".utf8), sizes: [5, 6]) + Data("3\r\nxyz\r\n".utf8)
-        try decoder.append(body) { decoded.append($0) }
-        try decoder.append(Data("3\r\nxyz\r\n".utf8)) { decoded.append($0) }
-        XCTAssertEqual(decoded, Data("hello world".utf8))
+    private func finalizedBody(_ box: PlainHTTPClient.DownloadStateBox) throws -> Data {
+        let (file, _) = try box.finalize()
+        defer { try? FileManager.default.removeItem(at: file) }
+        return try Data(contentsOf: file)
     }
 
-    private func decodeFile(_ body: Data) throws -> Data {
-        let input = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HTTPChunkedBodyDecodingTests-\(UUID().uuidString)")
-        try body.write(to: input)
-        defer { try? FileManager.default.removeItem(at: input) }
-        let output = try PlainHTTPClient.decodeChunkedFile(input)
-        defer { try? FileManager.default.removeItem(at: output) }
-        return try Data(contentsOf: output)
+    private static func header(_ status: String) -> Data {
+        Data("HTTP/1.1 \(status)\r\nTransfer-Encoding: chunked\r\nContent-Type: audio/mpeg\r\n\r\n".utf8)
     }
 
     private static func chunked(_ payload: Data, sizes: [Int], extensions: Bool = false) -> Data {

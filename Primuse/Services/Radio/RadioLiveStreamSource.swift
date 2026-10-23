@@ -611,7 +611,7 @@ private final class RadioPlainHTTPStreamTransport: @unchecked Sendable {
     private var didFinish = false
     private var didReceiveResponse = false
     private var headerBuffer = Data()
-    private var chunkedDecoder: RadioHTTPChunkedBodyDecoder?
+    private var chunkedDecoder: HTTPChunkedBodyDecoder?
 
     init(
         url: URL,
@@ -719,7 +719,7 @@ private final class RadioPlainHTTPStreamTransport: @unchecked Sendable {
             }
             if response.value(forHTTPHeaderField: "Transfer-Encoding")?
                 .localizedCaseInsensitiveContains("chunked") == true {
-                chunkedDecoder = RadioHTTPChunkedBodyDecoder()
+                chunkedDecoder = HTTPChunkedBodyDecoder()
             }
             try consumeBody(bodyData)
             return true
@@ -818,57 +818,5 @@ private final class RadioPlainHTTPStreamTransport: @unchecked Sendable {
             throw URLError(.badServerResponse)
         }
         return response
-    }
-}
-
-struct RadioHTTPChunkedBodyDecoder {
-    private var buffer = Data()
-    private var chunkBytesRemaining: Int?
-    private var reachedEnd = false
-
-    mutating func append(_ data: Data, emit: (Data) -> Void) throws {
-        guard !reachedEnd else { return }
-        buffer.append(data)
-
-        while !reachedEnd {
-            if chunkBytesRemaining == nil {
-                let lineBreak = Data("\r\n".utf8)
-                guard let range = buffer.range(of: lineBreak) else {
-                    guard buffer.count <= 8 * 1_024 else { throw URLError(.badServerResponse) }
-                    return
-                }
-                let lineData = Data(buffer[..<range.lowerBound])
-                // range 是绝对下标：removeFirst 过的 Data 下标不从 0 起，不能当个数删。
-                buffer.removeSubrange(..<range.upperBound)
-                guard let line = String(data: lineData, encoding: .ascii),
-                      let token = line.split(separator: ";", maxSplits: 1).first,
-                      let count = Int(token.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16),
-                      count >= 0 else {
-                    throw URLError(.badServerResponse)
-                }
-                if count == 0 {
-                    reachedEnd = true
-                    return
-                }
-                chunkBytesRemaining = count
-            }
-
-            if let remaining = chunkBytesRemaining, remaining > 0 {
-                guard !buffer.isEmpty else { return }
-                let count = min(remaining, buffer.count)
-                emit(Data(buffer.prefix(count)))
-                buffer.removeFirst(count)
-                chunkBytesRemaining = remaining - count
-                if remaining - count > 0 { return }
-            }
-
-            guard chunkBytesRemaining == 0 else { continue }
-            guard buffer.count >= 2 else { return }
-            guard buffer.prefix(2).elementsEqual([13, 10]) else {
-                throw URLError(.badServerResponse)
-            }
-            buffer.removeFirst(2)
-            chunkBytesRemaining = nil
-        }
     }
 }
