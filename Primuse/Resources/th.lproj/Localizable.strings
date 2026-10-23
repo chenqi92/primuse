@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "เปิดตัวแก้ไขความคิดเห็น";
 "library_review_comment_title" = "ความคิดเห็น";
 "library_review_star_format" = "%d ดาว";
+"library_review_star_at_least_format" = "%d ดาวขึ้นไป";
 
 "carplay_main_menu" = "เมนูหลัก";
 "carplay_menu_name" = "ชื่อเมนู";

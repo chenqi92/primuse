@@ -1433,8 +1433,9 @@ final class TVStore {
         return cachedSmartPlaylists
     }
     var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
-    /// 五星、四星、三星三张卡(看板 PRIM-36):打星、改星、清掉星时曲目自己进出,不用手工维护歌单。
-    /// 按「正好几星」分,三档各是一层精选、不互相包含;红心「我喜欢」另算,两边互不影响。
+    /// 「5 星」「4 星以上」「3 星以上」三张卡(看板 PRIM-36):打星、改星、清掉星时曲目自己进出,
+    /// 不用手工维护歌单。按「至少几星」分:点开一张卡要听的是「这个水平以上的」,按正好几星分的话
+    /// 四星那张反而听不到最好的歌。红心「我喜欢」另算,两边互不影响。
     /// 只给有歌的那几档。不混进 `playlists`:加歌、排序这些只对存下来的歌单。
     var ratingPlaylists: [TVPlaylist] {
         _ = libraryContentRevision
@@ -2013,24 +2014,30 @@ final class TVStore {
                 || ratingPlaylistContentRevision != libraryContentRevision else {
             return
         }
-        var rated: [Int: [(id: String, version: TimeInterval)]] = [:]
+        var rated: [(id: String, rating: Int, version: TimeInterval)] = []
+        let lowest = Self.ratingPlaylistRatings.min() ?? 1
         for review in library.allLibraryReviews where review.subject.kind == .song && !review.isDeleted {
             guard let rating = LibraryReviewPreferences.normalizedRating(review.rating),
-                  Self.ratingPlaylistRatings.contains(rating),
+                  rating >= lowest,
                   library.song(id: review.subject.entityID) != nil else { continue }
-            rated[rating, default: []].append((review.subject.entityID, review.ratingVersion))
+            rated.append((review.subject.entityID, rating, review.ratingVersion))
         }
+        // 星多的在前,同样几星的最近打的在前。
+        rated.sort { $0.rating != $1.rating ? $0.rating > $1.rating : $0.version > $1.version }
         ratingPlaylistSongIDs = [:]
-        cachedRatingPlaylists = Self.ratingPlaylistRatings.compactMap { rating -> TVPlaylist? in
-            // 最近打的星排在前面。
-            let ids = (rated[rating] ?? []).sorted { $0.version > $1.version }.map(\.id)
+        cachedRatingPlaylists = Self.ratingPlaylistRatings.compactMap { threshold -> TVPlaylist? in
+            let ids = rated.filter { $0.rating >= threshold }.map(\.id)
             guard !ids.isEmpty else { return nil }
-            let id = "rating:\(rating)"
+            let id = "rating:\(threshold)"
             ratingPlaylistSongIDs[id] = ids
             let covers = ids.prefix(4).compactMap { library.song(id: $0) }
+            // 满星那张就是「5 星」,其余写「4 星以上」,别让人以为只有正好四星的歌。
+            let format = threshold >= 5
+                ? String(localized: "library_review_star_format")
+                : String(localized: "library_review_star_at_least_format")
             return TVPlaylist(
                 id: id,
-                name: String(format: String(localized: "library_review_star_format"), rating),
+                name: String(format: format, threshold),
                 kind: .rated,
                 count: ids.count,
                 artworkSignature: "\(id):" + covers.map(\.id).joined(separator: ","),

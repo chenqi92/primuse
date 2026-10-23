@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "Yorum düzenleyicisini açar.";
 "library_review_comment_title" = "Yorum";
 "library_review_star_format" = "%d yıldız";
+"library_review_star_at_least_format" = "%d yıldız ve üzeri";
 
 "carplay_main_menu" = "Ana menü";
 "carplay_menu_name" = "Menü adı";

@@ -33,6 +33,7 @@
 "library_review_comment_hint" = "打开评论编辑器。";
 "library_review_comment_title" = "评论";
 "library_review_star_format" = "%d 星";
+"library_review_star_at_least_format" = "%d 星以上";
 "library_quick_access_selected" = "已收藏";
 "library_quick_access_selected_empty" = "还没有收藏";
 "library_quick_access_loading" = "正在载入资料库…";

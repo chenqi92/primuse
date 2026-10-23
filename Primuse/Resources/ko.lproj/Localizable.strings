@@ -4374,6 +4374,7 @@
 "library_review_comment_hint" = "댓글 편집기를 엽니다.";
 "library_review_comment_title" = "댓글";
 "library_review_star_format" = "별 %d개";
+"library_review_star_at_least_format" = "별 %d개 이상";
 
 "carplay_main_menu" = "메인 메뉴";
 "carplay_menu_name" = "메뉴 이름";

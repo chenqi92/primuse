@@ -4375,6 +4375,7 @@
 "library_review_comment_hint" = "コメントの編集画面を開きます。";
 "library_review_comment_title" = "コメント";
 "library_review_star_format" = "星%d個";
+"library_review_star_at_least_format" = "星%d個以上";
 
 "carplay_main_menu" = "メインメニュー";
 "carplay_menu_name" = "メニュー名";

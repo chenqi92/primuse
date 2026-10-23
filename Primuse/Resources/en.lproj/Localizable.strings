@@ -33,6 +33,7 @@
 "library_review_comment_hint" = "Opens the comment editor.";
 "library_review_comment_title" = "Comment";
 "library_review_star_format" = "%d Stars";
+"library_review_star_at_least_format" = "%d Stars & Up";
 "library_quick_access_selected" = "In Favorites";
 "library_quick_access_selected_empty" = "No favorites yet";
 "library_quick_access_loading" = "Loading library…";

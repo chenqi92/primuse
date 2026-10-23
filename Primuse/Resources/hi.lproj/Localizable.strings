@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "टिप्पणी संपादक खोलता है।";
 "library_review_comment_title" = "टिप्पणी";
 "library_review_star_format" = "%d स्टार";
+"library_review_star_at_least_format" = "%d स्टार और ऊपर";
 
 "carplay_main_menu" = "मुख्य मेन्यू";
 "carplay_menu_name" = "मेन्यू का नाम";

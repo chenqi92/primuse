@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "Otwiera edytor komentarzy.";
 "library_review_comment_title" = "Komentarz";
 "library_review_star_format" = "%d gwiazdek";
+"library_review_star_at_least_format" = "Od %d gwiazdek";
 
 "carplay_main_menu" = "Menu główne";
 "carplay_menu_name" = "Nazwa menu";

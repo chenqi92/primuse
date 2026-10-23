@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "يفتح محرر التعليقات.";
 "library_review_comment_title" = "تعليق";
 "library_review_star_format" = "%d نجوم";
+"library_review_star_at_least_format" = "%d نجوم فأكثر";
 
 "carplay_main_menu" = "القائمة الرئيسية";
 "carplay_menu_name" = "اسم القائمة";

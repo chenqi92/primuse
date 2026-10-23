@@ -4280,6 +4280,7 @@
 "library_review_comment_hint" = "Відкриває редактор коментарів.";
 "library_review_comment_title" = "Коментар";
 "library_review_star_format" = "%d зірок";
+"library_review_star_at_least_format" = "Від %d зірок";
 
 "carplay_main_menu" = "Головне меню";
 "carplay_menu_name" = "Назва меню";

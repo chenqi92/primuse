@@ -34,6 +34,7 @@
 "library_review_comment_hint" = "開啟評論編輯器。";
 "library_review_comment_title" = "評論";
 "library_review_star_format" = "%d 星";
+"library_review_star_at_least_format" = "%d 星以上";
 "library_quick_access_selected" = "已收藏";
 "library_quick_access_selected_empty" = "還沒有收藏";
 "library_quick_access_loading" = "正在載入資料庫…";

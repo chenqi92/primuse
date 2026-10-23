@@ -23,8 +23,8 @@ struct TVPlaylistsView: View {
     var body: some View {
         let stored = store.playlists(ordered: order)
             .filter { filter == 0 || (filter == 2 ? $0.kind == .smart : $0.kind != .smart) }
-        // 五星、四星、三星排在「我喜欢」后面(看板 PRIM-36);它们是自动聚合的,和智能歌单归在一起,
-        // 只看普通歌单时不出现。
+        // 「5 星」「4 星以上」「3 星以上」排在「我喜欢」后面(看板 PRIM-36);它们是自动聚合的,
+        // 和智能歌单归在一起,只看普通歌单时不出现。
         let rated = ratingsEnabled && filter != 1 ? store.ratingPlaylists : []
         let likedCount = stored.prefix { $0.kind == .liked }.count
         let playlists = Array(stored.prefix(likedCount)) + rated + Array(stored.dropFirst(likedCount))

@@ -4374,6 +4374,7 @@
 "library_review_comment_hint" = "Öffnet den Kommentar-Editor.";
 "library_review_comment_title" = "Kommentar";
 "library_review_star_format" = "%d Sterne";
+"library_review_star_at_least_format" = "Ab %d Sternen";
 
 "carplay_main_menu" = "Hauptmenü";
 "carplay_menu_name" = "Menüname";
