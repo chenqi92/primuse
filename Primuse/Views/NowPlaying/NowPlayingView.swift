@@ -5797,9 +5797,12 @@ struct NowPlayingView: View {
                             .padding(.horizontal, insets.rows)
 
                         // Controls
+                        // 传输键一排在进度条与底排之间上下居中(#336):高屏上 controlGap 原来上面给满、
+                        // 底排只给一半,播放键看着偏下。总留白不变,上下各分 0.75。上面多的 12 是进度条
+                        // 下面那行时间的余量,和底排键自己的内边距差不多抵平。歌名、进度条的位置不动(#329)。
                         portraitTransportRow(spokenControls: spokenPortraitControls)
                         .matchedLayoutElement(.transport, in: layoutNamespace)
-                        .padding(.top, 12 + controlGap + volumeSlack * 0.3)
+                        .padding(.top, 12 + controlGap * 0.75 + volumeSlack * 0.3)
                         .padding(.horizontal, insets.rows)
 
                         if showsPlayerVolumeBar {
@@ -5813,7 +5816,7 @@ struct NowPlayingView: View {
                         // 竖栏里排着那一列按钮时(iPhone Duo)这一排的键都在那一列里,这里不再重复。
                         if !usesToolColumn {
                             portraitBottomBar(spokenControls: spokenPortraitControls)
-                            .padding(.top, controlGap / 2 + volumeSlack * 0.3)
+                            .padding(.top, controlGap * 0.75 + volumeSlack * 0.3)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
                         }
