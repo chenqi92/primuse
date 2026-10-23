@@ -7889,6 +7889,58 @@ final class MusicLibrary {
         return lookupVisibleSong(songID)
     }
 
+    /// 首选回退歌的封面在本机读不出来时, 卡片接着试的下一首: 同一张专辑 / 同一个
+    /// 艺人名下有封面引用、且歌和引用都没试过的歌里, 按首选的同一个顺序取第一首。
+    /// 只在卡片报告读不出来之后才查, 失效范围同上面两个 scoped 方法。
+    func scopedAlternateArtworkSong(
+        forAlbumID albumID: String,
+        excludingSongIDs: Set<String>,
+        excludingReferences: Set<String>
+    ) -> Song? {
+        _ = artworkLookupToken(for: .album(albumID)).revision
+        let visible = visibleSongsLookupReference.value
+        var best: Song?
+        for position in albumSongPositions()[albumID] ?? [] where visible.indices.contains(position) {
+            let song = visible[position]
+            guard Self.isAlternateArtworkCandidate(
+                song,
+                excludingSongIDs: excludingSongIDs,
+                excludingReferences: excludingReferences
+            ) else { continue }
+            if best.map({ Self.artworkFallbackPrecedes(song, $0) }) != false { best = song }
+        }
+        return best
+    }
+
+    func scopedAlternateArtworkSong(
+        forArtistID artistID: String,
+        excludingSongIDs: Set<String>,
+        excludingReferences: Set<String>
+    ) -> Song? {
+        _ = artworkLookupToken(for: .artist(artistID)).revision
+        let songIDs = visibleSongIDsByArtistID[artistID] ?? albumOnlyArtistSongIDs(artistID)
+        var best: Song?
+        for songID in songIDs {
+            guard let song = lookupVisibleSong(songID),
+                  Self.isAlternateArtworkCandidate(
+                    song,
+                    excludingSongIDs: excludingSongIDs,
+                    excludingReferences: excludingReferences
+                  ) else { continue }
+            if best.map({ Self.artworkFallbackPrecedes(song, $0) }) != false { best = song }
+        }
+        return best
+    }
+
+    private nonisolated static func isAlternateArtworkCandidate(
+        _ song: Song,
+        excludingSongIDs: Set<String>,
+        excludingReferences: Set<String>
+    ) -> Bool {
+        guard let reference = song.coverArtFileName, !reference.isEmpty else { return false }
+        return !excludingSongIDs.contains(song.id) && !excludingReferences.contains(reference)
+    }
+
     /// 艺人卡片用的当前艺人值, 失效范围同 `scopedPreferredArtworkSong(forArtistID:)`。
     /// `visibleArtist(id:)` 读的是整份艺人数组, 扫描时每次入库都会让它失效。
     func scopedVisibleArtist(id artistID: String) -> Artist? {

@@ -35,6 +35,33 @@ public enum ArtworkSourceRequestIdentity {
     }
 }
 
+/// 专辑、艺人卡片借一首歌的封面兜底时, 这首读不出来就换同一张专辑 / 同一个艺人
+/// 的下一首。这里记下试过的歌与封面引用(几首歌共用一个引用时一起跳过), 最多试
+/// `maximumAttempts` 首, 免得一张卡片把整张专辑挨个远程读一遍。
+public struct ArtworkFallbackAttempts: Equatable, Sendable {
+    public static let maximumAttempts = 4
+
+    public private(set) var identities: Set<String> = []
+    public private(set) var songIDs: Set<String> = []
+    public private(set) var references: Set<String> = []
+
+    public init() {}
+
+    public func hasFailed(identity: String) -> Bool {
+        identities.contains(identity)
+    }
+
+    public var canTryAnother: Bool {
+        identities.count < Self.maximumAttempts
+    }
+
+    public mutating func recordFailure(songID: String, reference: String?, identity: String) {
+        identities.insert(identity)
+        songIDs.insert(songID)
+        if let reference, !reference.isEmpty { references.insert(reference) }
+    }
+}
+
 public enum ArtworkContainerFormat: String, Codable, Equatable, Sendable {
     case jpeg
     case png

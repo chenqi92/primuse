@@ -613,6 +613,7 @@ struct AlbumArtworkView: View {
     @State private var reloadRevision = 0
     @State private var missingCachedAlbumIdentity: String?
     @State private var missingCachedAlbumMarkedAt: Date?
+    @State private var failedFallbacks = ArtworkFallbackAttempts()
 
     private var staticAlbumIdentity: String {
         "\(album.id)#\(library.artworkOverrideRevision)#\(reloadRevision)"
@@ -623,8 +624,18 @@ struct AlbumArtworkView: View {
     }
 
     /// 只随这张专辑自己的首选封面变化失效; 扫描入库时别的专辑加入不影响这张卡片。
+    /// 首选那首在本机读不出封面时换专辑里另一首有封面的歌, 不让一首歌拖累整张专辑。
     private var fallbackSong: PrimuseKit.Song? {
-        library.scopedPreferredArtworkSong(forAlbumID: album.id)
+        let preferred = library.scopedPreferredArtworkSong(forAlbumID: album.id)
+        guard let preferred,
+              failedFallbacks.hasFailed(identity: fallbackArtworkIdentity(for: preferred)),
+              failedFallbacks.canTryAnother,
+              let alternate = library.scopedAlternateArtworkSong(
+                forAlbumID: album.id,
+                excludingSongIDs: failedFallbacks.songIDs,
+                excludingReferences: failedFallbacks.references
+              ) else { return preferred }
+        return alternate
     }
 
     var body: some View {
@@ -825,9 +836,17 @@ struct AlbumArtworkView: View {
                 onResolutionChange: { isResolved in
                     if isResolved {
                         resolvedFallbackArtworkIdentity = identity
-                    } else if resolvedFallbackArtworkIdentity == identity {
+                        return
+                    }
+                    if resolvedFallbackArtworkIdentity == identity {
                         resolvedFallbackArtworkIdentity = nil
                     }
+                    guard !failedFallbacks.hasFailed(identity: identity) else { return }
+                    failedFallbacks.recordFailure(
+                        songID: song.id,
+                        reference: song.coverArtFileName,
+                        identity: identity
+                    )
                 }
             )
         }
@@ -882,11 +901,37 @@ struct ArtistArtworkView: View {
     @State private var uploadedImage: PlatformImage?
     @State private var reloadRevision = 0
     @State private var automaticArtworkResolved: Bool?
+    @State private var failedFallbacks = ArtworkFallbackAttempts()
 
     /// 只随这个艺人自己的封面字段失效; `visibleArtist(id:)` 读整份艺人数组,
     /// 扫描每入库一批, 屏幕上的艺人卡片就要全部重算一遍。
     private var currentArtist: PrimuseKit.Artist {
         library.scopedVisibleArtist(id: artist.id) ?? artist
+    }
+
+    /// 没有专属头像时借的那首歌; 它的封面在本机读不出来就换这个艺人的另一首。
+    private var fallbackSong: PrimuseKit.Song? {
+        let preferred = library.scopedPreferredArtworkSong(forArtistID: currentArtist.id)
+        guard let preferred,
+              failedFallbacks.hasFailed(identity: fallbackArtworkIdentity(for: preferred)),
+              failedFallbacks.canTryAnother,
+              let alternate = library.scopedAlternateArtworkSong(
+                forArtistID: currentArtist.id,
+                excludingSongIDs: failedFallbacks.songIDs,
+                excludingReferences: failedFallbacks.references
+              ) else { return preferred }
+        return alternate
+    }
+
+    private func fallbackArtworkIdentity(for song: PrimuseKit.Song) -> String {
+        ArtworkSourceRequestIdentity.key(
+            songID: song.id,
+            artworkReference: song.coverArtFileName,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat.rawValue,
+            revision: "\(song.revision ?? "")#\(library.artworkOverrideRevision)"
+        ) ?? song.id
     }
 
     private var owner: LibraryArtworkOwner {
@@ -944,9 +989,8 @@ struct ArtistArtworkView: View {
 
             if currentArtist.thumbnailPath?.isEmpty != false
                 || automaticArtworkResolved == false,
-               let fallbackSong = library.scopedPreferredArtworkSong(
-                   forArtistID: currentArtist.id
-               ) {
+               let fallbackSong {
+                let identity = fallbackArtworkIdentity(for: fallbackSong)
                 CachedArtworkView(
                     coverRef: fallbackSong.coverArtFileName,
                     songID: fallbackSong.id,
@@ -956,7 +1000,15 @@ struct ArtistArtworkView: View {
                     filePath: fallbackSong.filePath,
                     fileFormat: fallbackSong.fileFormat,
                     showsPlaceholder: false,
-                    revisionToken: library.artworkOverrideRevision
+                    revisionToken: library.artworkOverrideRevision,
+                    onResolutionChange: { isResolved in
+                        guard !isResolved, !failedFallbacks.hasFailed(identity: identity) else { return }
+                        failedFallbacks.recordFailure(
+                            songID: fallbackSong.id,
+                            reference: fallbackSong.coverArtFileName,
+                            identity: identity
+                        )
+                    }
                 )
             }
 

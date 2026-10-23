@@ -18,6 +18,18 @@ enum PrimuseKit {
 }
 enum ArtworkPresentationRole { case staticFirstFrame, animatedHero }
 struct LibraryArtworkOwner { enum Kind { case album }; let kind: Kind; let id: String }
+struct ArtworkFallbackAttempts {
+    static let maximumAttempts = 4
+    private(set) var identities: Set<String> = []
+    private(set) var songIDs: Set<String> = []
+    private(set) var references: Set<String> = []
+    func hasFailed(identity: String) -> Bool { identities.contains(identity) }
+    var canTryAnother: Bool { identities.count < Self.maximumAttempts }
+    mutating func recordFailure(songID: String, reference: String?, identity: String) {
+        identities.insert(identity); songIDs.insert(songID)
+        if let reference { references.insert(reference) }
+    }
+}
 enum ArtworkSourceRequestIdentity {
     static func key(songID: String, artworkReference: String?, sourceID: String, filePath: String,
                     fileFormat: String, revision: String) -> String? { songID + revision }
@@ -25,6 +37,13 @@ enum ArtworkSourceRequestIdentity {
 extension Notification.Name {
     static let primuseArtworkDidCache = Self("ArtworkLayersSmoke.cache")
     static let primuseArtworkDidInvalidate = Self("ArtworkLayersSmoke.invalidate")
+}
+final class ArtworkInvalidationBatch: Sendable {
+    let references: Set<String>
+    init(references: Set<String>) { self.references = references }
+    static func from(_ note: Notification) -> ArtworkInvalidationBatch? {
+        note.userInfo?["batch"] as? ArtworkInvalidationBatch
+    }
 }
 extension Image { init(platformImage: NSImage) { self.init(nsImage: platformImage) } }
 
@@ -37,7 +56,12 @@ extension Image { init(platformImage: NSImage) { self.init(nsImage: platformImag
     func artworkPresentation(for owner: LibraryArtworkOwner) -> ArtworkPresentation {
         .init(uploadedContentID: uploadedContentID, selectedSong: selectedSong)
     }
+    var alternates: [PrimuseKit.Song] = []
     func scopedPreferredArtworkSong(forAlbumID: String) -> PrimuseKit.Song? { fallback }
+    func scopedAlternateArtworkSong(forAlbumID: String, excludingSongIDs: Set<String>,
+                                    excludingReferences: Set<String>) -> PrimuseKit.Song? {
+        alternates.first { !excludingSongIDs.contains($0.id) && !excludingReferences.contains($0.id) }
+    }
 }
 @MainActor enum Loads {
     static var attempted: [String] = []
@@ -143,6 +167,20 @@ struct CachedArtworkView: View {
                 window.contentView = nil; window.close()
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            do {
+                // The preferred song's cover cannot be read on this device; the
+                // album must move on to another of its songs instead of the placeholder.
+                let library = MusicLibrary()
+                library.alternates = [.init(id: "song2"), .init(id: "song3")]
+                Loads.attempted = []; Loads.available = ["song3"]; Loads.recentFailures = []
+                let window = makeWindow(library)
+                try? await Task.sleep(for: .milliseconds(400))
+                if Loads.attempted != ["album", "song", "song2", "song3"] || !rendersSongCover(window) {
+                    print("FAIL alternate song: expected album, song, song2, song3 and a song cover, got \(Loads.attempted)"); failures += 1
+                } else { print("PASS alternate song: \(Loads.attempted)") }
+                window.contentView = nil; window.close()
+                try? await Task.sleep(for: .milliseconds(50))
+            }
             for (label, notification) in [
                 ("album cache notification", Notification(name: .primuseArtworkDidCache, object: "album")),
                 ("global cache notification", Notification(name: .primuseArtworkDidCache, userInfo: ["all": true]))
@@ -212,6 +250,11 @@ struct CachedArtworkView: View {
         // fixture must remain green-dominant, distinct from the blue fallback.
         return color.greenComponent > color.redComponent + 0.2
             && color.greenComponent > color.blueComponent + 0.2
+    }
+    @MainActor private static func rendersSongCover(_ window: NSWindow) -> Bool {
+        guard let color = renderedColor(window) else { return false }
+        return color.blueComponent > color.redComponent + 0.2
+            && color.blueComponent > color.greenComponent + 0.2
     }
     @MainActor private static func renderedColor(_ window: NSWindow) -> NSColor? {
         guard let view = window.contentView else { return nil }

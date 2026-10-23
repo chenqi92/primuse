@@ -1528,6 +1528,43 @@ struct TVArtworkView: View {
                 ) {
                     return
                 }
+                // 借来兜底的那首读不出封面时换专辑里另一首有封面的歌,
+                // 不让一首歌拖累整张专辑(与 iPhone、Mac 的专辑卡片一致)。
+                if requestedSongID == nil, !coverKey.isEmpty, let preferred = sourceArtworkSong {
+                    var attempts = ArtworkFallbackAttempts()
+                    attempts.recordFailure(
+                        songID: preferred.id,
+                        reference: preferred.coverArtFileName,
+                        identity: preferred.id
+                    )
+                    while attempts.canTryAnother,
+                          activeIdentity == identity, !Task.isCancelled,
+                          let alternate = store.library.scopedAlternateArtworkSong(
+                            forAlbumID: coverKey,
+                            excludingSongIDs: attempts.songIDs,
+                            excludingReferences: attempts.references
+                          ) {
+                        let alternateAnimationKey = songAnimationDiskKey(for: alternate)
+                        if let data = await store.songArtworkData(
+                            songID: alternate.id,
+                            coverRef: alternate.coverArtFileName,
+                            animationCacheKey: alternateAnimationKey
+                        ), await accept(
+                            data,
+                            identity: identity,
+                            taskIdentity: taskIdentity,
+                            paletteKey: paletteKey,
+                            animationDiskKey: alternateAnimationKey
+                        ) {
+                            return
+                        }
+                        attempts.recordFailure(
+                            songID: alternate.id,
+                            reference: alternate.coverArtFileName,
+                            identity: alternate.id
+                        )
+                    }
+                }
             }
             if presentationRole == .animatedHero,
                !coverKey.isEmpty, !hasFnMusicCoverReference,
