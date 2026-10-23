@@ -181,22 +181,28 @@ struct ListeningDeskView: View {
                 // 余下的才是上面那块(主角)的高度: iPad mini 中号只剩 57pt、4.7 寸 iPhone 64, 封面原来固定 74,
                 // 现在按这块的高度取。
                 let tilesHeight: CGFloat = large ? 82 : 42
-                let albumsHeight: CGFloat = large && !entry.albums.isEmpty ? 41 + spacing : 0
+                // 最近专辑那排 38 + 上 3, 再给转了 ±5° 的封面伸出来的角留 2。
+                let albumsHeight: CGFloat = large && !entry.albums.isEmpty ? 43 + spacing : 0
                 let heroWithoutHeader: CGFloat = geometry.size.height - tilesHeight - albumsHeight - spacing
                 // 大号的标题一行约 22pt: 带上它主角那块就放不下 118 的封面时(iPad mini 大号只剩约 86、
                 // 4.7 寸 iPhone 约 105), 先省掉标题。
                 let showsHeader = large && heroWithoutHeader - 22 - spacing >= 118
-                let headerHeight: CGFloat = showsHeader ? 22 + spacing : 0
-                let heroHeight: CGFloat = max(1, heroWithoutHeader - headerHeight)
                 VStack(alignment: .leading, spacing: spacing) {
                     if showsHeader { header }
-                    hero(height: heroHeight)
-                        .frame(height: heroHeight)
+                    // 主角那块吃掉其余几行剩下的高度, 封面按量到的高度取。原来按估算的各行高度扣出一个定高,
+                    // iPhone 15 Pro Max 大号上正好用满, 实际排出来多一两点, 最近播放那排就被挤出底边裁掉(#345)。
+                    GeometryReader { proxy in
+                        hero(height: proxy.size.height)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
                     HStack(spacing: 10) {
                         destination(entry.leading)
                         destination(entry.trailing)
                     }
-                    if large, !entry.albums.isEmpty { recentAlbums }
+                    if large, !entry.albums.isEmpty {
+                        recentAlbums
+                            .padding(.bottom, 2)
+                    }
                 }
                 .widgetBounds(geometry.size)
             }
@@ -242,6 +248,8 @@ struct ListeningDeskView: View {
             .frame(width: side, height: side)
             heroText
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // 大号右栏和封面一样高: 眉题顶着封面上沿, 底下那排按键压到封面下沿(#336)。
+                .frame(height: large ? side : nil, alignment: .top)
             if !large, let state = playingState {
                 WidgetPlaybackButton(state: state)
             }
@@ -259,7 +267,11 @@ struct ListeningDeskView: View {
     @ViewBuilder private var heroText: some View {
         if let state = playingState {
             ViewThatFits(in: .vertical) {
-                nowPlayingText(state, titleLines: 2, showsStatus: true)
+                // 有声书和播客的名字只占一行, 放不下写省略号(#336): 章节名有长有短, 折成两行时
+                // 下面的进度和按键跟着上下跳。
+                if !showsProgressBesideCover(state) {
+                    nowPlayingText(state, titleLines: 2, showsStatus: true)
+                }
                 nowPlayingText(state, titleLines: 1, showsStatus: true)
                 nowPlayingText(state, titleLines: 1, showsStatus: false)
             }
@@ -272,22 +284,26 @@ struct ListeningDeskView: View {
     }
 
     private func nowPlayingText(_ state: PlaybackState, titleLines: Int, showsStatus: Bool) -> some View {
-        VStack(alignment: .leading, spacing: large ? 7 : 4) {
-            if showsStatus {
-                Text(PMString(state.isPlaying ? "ext.widget.nowPlaying.playing" : "ext.widget.nowPlaying.paused"))
-                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-            }
-            Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                .font(.system(size: large ? 20 : 16, weight: .bold))
-                .lineLimit(titleLines).minimumScaleFactor(0.88)
-                .contentTransition(.opacity)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: state.currentSongID)
-            Text(state.spokenWord?.bookTitle ?? state.artistName ?? PMString("ext.widget.unknownArtist"))
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-            if large {
-                if showsProgressBesideCover(state), state.duration > 0 {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: large ? 7 : 4) {
+                if showsStatus {
+                    Text(PMString(state.isPlaying ? "ext.widget.nowPlaying.playing" : "ext.widget.nowPlaying.paused"))
+                        .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                }
+                Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                    .font(.system(size: large ? 20 : 16, weight: .bold))
+                    .lineLimit(titleLines).minimumScaleFactor(0.88)
+                    .contentTransition(.opacity)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: state.currentSongID)
+                Text(state.spokenWord?.bookTitle ?? state.artistName ?? PMString("ext.widget.unknownArtist"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                if large, showsProgressBesideCover(state), state.duration > 0 {
                     ProgressLine(progress: playbackProgress(state))
                 }
+            }
+            if large {
+                // 按键压到右栏底边(和封面下沿齐), 和上面至少隔开原来那一格 7。
+                Spacer(minLength: 7)
                 transport(state)
             }
         }
@@ -303,18 +319,20 @@ struct ListeningDeskView: View {
     }
 
     /// 上一首、播放 / 暂停、下一首。有声书和播客换成按设置秒数的后退 / 前进, 电台是切台。
+    /// 打头那颗键的符号贴着左边, 和上面的文字左对齐(#336)。
     private func transport(_ state: PlaybackState) -> some View {
         HStack(spacing: 12) {
             if let info = state.spokenWord, state.isSpokenWord {
                 transportButton(PrimuseSkipBackwardIntent(), symbol: info.skipBackwardSymbol,
-                                label: PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds))
+                                label: PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds),
+                                leading: true)
                 WidgetPlaybackButton(state: state, size: 36)
                 transportButton(PrimuseSkipForwardIntent(), symbol: info.skipForwardSymbol,
                                 label: PMString("ext.widget.spokenWord.skipForwardFormat", info.skipForwardSeconds))
             } else if state.isLiveStream {
                 if entry.canSwitchStation {
                     transportButton(PrimusePreviousIntent(), symbol: "backward.fill",
-                                    label: PMString("widget_desk_previous_station"))
+                                    label: PMString("widget_desk_previous_station"), leading: true)
                 }
                 WidgetPlaybackButton(state: state, size: 36)
                 if entry.canSwitchStation {
@@ -322,7 +340,8 @@ struct ListeningDeskView: View {
                                     label: PMString("widget_desk_next_station"))
                 }
             } else {
-                transportButton(PrimusePreviousIntent(), symbol: "backward.fill", label: PMString("ext.control.previous"))
+                transportButton(PrimusePreviousIntent(), symbol: "backward.fill", label: PMString("ext.control.previous"),
+                                leading: true)
                 WidgetPlaybackButton(state: state, size: 36)
                 transportButton(PrimuseNextIntent(), symbol: "forward.fill", label: PMString("ext.control.next"))
             }
@@ -330,11 +349,12 @@ struct ListeningDeskView: View {
         }
     }
 
-    private func transportButton<Intent: AppIntent>(_ intent: Intent, symbol: String, label: String) -> some View {
+    private func transportButton<Intent: AppIntent>(_ intent: Intent, symbol: String, label: String,
+                                                    leading: Bool = false) -> some View {
         Button(intent: intent) {
-            Image(systemName: symbol).font(.system(size: 14))
+            Image(systemName: symbol).font(.system(size: 17))
                 .foregroundStyle(WidgetDesign.controlForeground)
-                .frame(width: 32, height: 36)
+                .frame(width: 32, height: 36, alignment: leading ? .leading : .center)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
