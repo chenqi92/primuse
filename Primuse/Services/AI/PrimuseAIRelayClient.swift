@@ -1198,7 +1198,7 @@ actor PrimuseAIRelayClient {
         } catch {
             if receivedProgress { throw error }
             if canRecoverLocalAppAttestCredential,
-               Self.isInvalidAppAttestKey(error) {
+               Self.isRecoverableAppAttestAssertionFailure(error) {
                 try await credentialStore.clear()
                 return try await performStreamingFeature(
                     path: path,
@@ -1494,7 +1494,7 @@ actor PrimuseAIRelayClient {
                 )
             } catch {
                 guard canRecoverLocalAppAttestCredential,
-                      Self.isInvalidAppAttestKey(error) else { throw error }
+                      Self.isRecoverableAppAttestAssertionFailure(error) else { throw error }
                 try await credentialStore.clear()
                 return try await performFeature(
                     path: path,
@@ -1903,6 +1903,15 @@ actor PrimuseAIRelayClient {
         let value = error as NSError
         return value.domain == DCError.errorDomain
             && value.code == DCError.invalidKey.rawValue
+    }
+
+    private nonisolated static func isRecoverableAppAttestAssertionFailure(_ error: Error) -> Bool {
+        let value = error as NSError
+        // 摘要由客户端生成并固定为 SHA-256。系统拒绝已有凭据的输入时，
+        // 与失效密钥一样走一次重新注册，仍需服务器验证新证明后才发送功能请求。
+        return value.domain == DCError.errorDomain
+            && (value.code == DCError.invalidKey.rawValue
+                || value.code == DCError.invalidInput.rawValue)
     }
 
     private nonisolated static func isLocalAppAttestFailure(_ error: Error) -> Bool {

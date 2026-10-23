@@ -969,6 +969,82 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertEqual(requests.filter { $0.url?.path == "/v1/auth/installations" }.count, 1)
     }
 
+    func testInvalidAssertionInputReenrollsBeforeSendingTheFeatureOnce() async throws {
+        for streaming in [false, true] {
+            let host = "primuse-relay-invalid-assertion-input-\(streaming).invalid"
+            PrimuseRelayURLProtocol.configure(host: host)
+            let attestor = TestPrimuseAppAttestor(
+                assertionFailuresRemaining: 1,
+                assertionErrorCode: DCError.invalidInput.rawValue
+            )
+            let credentials = TestPrimuseRelayCredentialStore(credential: .init(
+                keyID: "stale-app-attest-key", installationID: "stale-installation"
+            ))
+            let (client, session, _, _) = makeClient(host: host, attestor: attestor, credentials: credentials)
+            defer { session.invalidateAndCancel() }
+
+            let request = AISemanticSearchRequest(query: "quiet night")
+            var plan: AISemanticSearchPlan?
+            if streaming {
+                for try await event in await client.semanticSearchEvents(request) {
+                    if case .completed(let value) = event { plan = value }
+                }
+            } else {
+                plan = try await client.interpretSearch(request)
+            }
+
+            XCTAssertEqual(plan?.expandedTerms, ["night rain", "rainy night"])
+            let snapshot = await attestor.snapshot()
+            let clears = await credentials.clearCount()
+            XCTAssertEqual(clears, 1)
+            XCTAssertEqual(snapshot.generateKeyCount, 1)
+            XCTAssertEqual(snapshot.attestationHashes.count, 1)
+            XCTAssertEqual(snapshot.assertionHashes.count, 2)
+            XCTAssertTrue(snapshot.assertionHashes.allSatisfy { $0.count == 32 })
+            let requests = PrimuseRelayURLProtocol.requests(host: host)
+            XCTAssertEqual(requests.filter { $0.url?.path == "/v1/auth/installations" }.count, 1)
+            let features = requests.filter { $0.url?.path == "/v1/semantic-search" }
+            XCTAssertEqual(features.count, 1)
+            XCTAssertEqual(features.first?.value(forHTTPHeaderField: "X-Primuse-Installation-Id"), "test-installation")
+            XCTAssertNotNil(features.first?.value(forHTTPHeaderField: "X-Primuse-Assertion"))
+        }
+    }
+
+    func testRepeatedInvalidAssertionInputStopsWithoutSendingTheFeature() async throws {
+        for streaming in [false, true] {
+            let host = "primuse-relay-repeated-invalid-assertion-input-\(streaming).invalid"
+            PrimuseRelayURLProtocol.configure(host: host)
+            let attestor = TestPrimuseAppAttestor(
+                assertionFailuresRemaining: 3,
+                assertionErrorCode: DCError.invalidInput.rawValue
+            )
+            let credentials = TestPrimuseRelayCredentialStore(credential: .init(
+                keyID: "stale-app-attest-key", installationID: "stale-installation"
+            ))
+            let (client, session, _, _) = makeClient(host: host, attestor: attestor, credentials: credentials)
+            defer { session.invalidateAndCancel() }
+            let request = AISemanticSearchRequest(query: "quiet night")
+            do {
+                if streaming {
+                    for try await _ in await client.semanticSearchEvents(request) { }
+                } else {
+                    _ = try await client.interpretSearch(request)
+                }
+                XCTFail("Expected the second assertion failure to stop recovery")
+            } catch {
+                XCTAssertEqual((error as NSError).domain, DCError.errorDomain)
+                XCTAssertEqual((error as NSError).code, DCError.invalidInput.rawValue)
+            }
+            let snapshot = await attestor.snapshot()
+            let clears = await credentials.clearCount()
+            XCTAssertEqual(clears, 1)
+            XCTAssertEqual(snapshot.generateKeyCount, 1)
+            XCTAssertEqual(snapshot.assertionHashes.count, 2)
+            XCTAssertFalse(PrimuseRelayURLProtocol.requests(host: host)
+                .contains { $0.url?.path == "/v1/semantic-search" })
+        }
+    }
+
     func testTemporaryAssertionFailureDoesNotReplaceWorkingIdentity() async throws {
         for streaming in [false, true] {
             let host = "primuse-relay-temporary-assertion-\(streaming).invalid"
