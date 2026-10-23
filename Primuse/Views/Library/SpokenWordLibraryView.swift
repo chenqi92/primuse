@@ -2366,6 +2366,41 @@ struct SpokenWordChapterItemRow: View {
     }
 }
 
+#if !os(macOS)
+/// 语速键给了固定高度时的样子:染色的字压在浅灰胶囊上,和 `PodcastCircleKey` 同一种底。
+private struct SpokenWordSpeedKeyFace: ViewModifier {
+    let height: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let height {
+            content
+                .foregroundStyle(.tint)
+                .padding(.horizontal, 14)
+                .frame(height: height)
+                .background(.quaternary.opacity(0.6), in: Capsule())
+                .contentShape(Capsule())
+        } else {
+            content
+        }
+    }
+}
+
+private struct SpokenWordSpeedKeyStyle: ViewModifier {
+    let usesKeyFace: Bool
+
+    func body(content: Content) -> some View {
+        if usesKeyFace {
+            content
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+        } else {
+            content.buttonStyle(.bordered)
+        }
+    }
+}
+#endif
+
 /// A book's own speed on its page. "Default" follows the global spoken-word
 /// speed; any other choice is remembered for this book only and applies at
 /// once if it is playing. The local podcast page uses it per show.
@@ -2373,6 +2408,8 @@ struct SpokenWordBookSpeedMenu: View {
     let bookID: String
     /// 手机上的窄版面只写倍数、不带仪表图标。
     var showsIcon = true
+    /// 给了就画成这么高的胶囊键,和同一排的圆键对齐(本地节目页,#336);不给是系统的描边按钮。
+    var keyHeight: CGFloat? = nil
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -2435,6 +2472,7 @@ struct SpokenWordBookSpeedMenu: View {
             }
             .font(.subheadline.weight(.semibold).monospacedDigit())
             .lineLimit(1)
+            .modifier(SpokenWordSpeedKeyFace(height: keyHeight))
             #endif
         }
         #if os(macOS)
@@ -2444,7 +2482,7 @@ struct SpokenWordBookSpeedMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         #else
-        .buttonStyle(.bordered)
+        .modifier(SpokenWordSpeedKeyStyle(usesKeyFace: keyHeight != nil))
         #endif
         .accessibilityLabel(Text("spoken_word_book_speed"))
         .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)))

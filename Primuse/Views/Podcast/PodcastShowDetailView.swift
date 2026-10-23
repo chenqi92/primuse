@@ -286,9 +286,7 @@ struct PodcastShowDetailView: View {
                     } label: {
                         playLabel(target, show: show)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(tint)
+                    .buttonStyle(PodcastPrimaryKeyStyle(tint: tint))
                     .accessibilityIdentifier("podcast.show.play")
                 }
                 Menu {
@@ -332,9 +330,7 @@ struct PodcastShowDetailView: View {
                 } label: {
                     PodcastPrimaryKeyLabel(titleKey: "podcast_subscribe", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(tint)
+                .buttonStyle(PodcastPrimaryKeyStyle(tint: tint))
                 .disabled(isSubscribing)
                 .accessibilityIdentifier("podcast.show.subscribe")
                 if let target {

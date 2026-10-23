@@ -246,16 +246,14 @@ private struct PodcastEpisodeActions: View {
                     }
                 } label: {
                     if isCurrent && player.isPlaying {
-                        PodcastPrimaryKeyLabel(titleKey: "pause", systemImage: "pause.fill")
+                        PodcastPrimaryKeyLabel(titleKey: "pause", systemImage: "pause.fill", fillsWidth: false)
                     } else if state.isInProgress || (isCurrent && position > 0) {
-                        PodcastPrimaryKeyLabel(titleKey: "podcast_continue", systemImage: "play.fill")
+                        PodcastPrimaryKeyLabel(titleKey: "podcast_continue", systemImage: "play.fill", fillsWidth: false)
                     } else {
-                        PodcastPrimaryKeyLabel(titleKey: "podcast_play", systemImage: "play.fill")
+                        PodcastPrimaryKeyLabel(titleKey: "podcast_play", systemImage: "play.fill", fillsWidth: false)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(tint)
+                .buttonStyle(PodcastPrimaryKeyStyle(tint: tint))
                 .accessibilityIdentifier("podcast.episode.play")
 
                 PodcastDownloadButton(episode: episode)

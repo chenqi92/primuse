@@ -952,9 +952,12 @@ struct PodcastCircleKey: View {
 /// 页面顶上的主键:实心、撑满剩下的宽度,字不折行。
 /// 不用 `Label`:放在 List 行里时它的图标会被染成行的强调色,和白字对不上。
 /// 节目页的键挤在封面右边那一栏,窄屏、大字号下放不下整句时先去掉图标,再不行只留图标。
+/// 底由 `PodcastPrimaryKeyStyle` 画。
 struct PodcastPrimaryKeyLabel: View {
     let titleKey: LocalizedStringKey
     let systemImage: String
+    /// 单集页只有「播放 / 继续 / 暂停」两三个字,不撑满整行(#336)。
+    var fillsWidth = true
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -971,8 +974,33 @@ struct PodcastPrimaryKeyLabel: View {
         }
         .font(.headline)
         .foregroundStyle(.white)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
+        .frame(minWidth: fillsWidth ? nil : 76, maxWidth: fillsWidth ? .infinity : nil)
+        .padding(.horizontal, fillsWidth ? 0 : 6)
+    }
+}
+
+/// 节目页、本地节目页、单集页顶上那颗主键的实心底:和旁边 44pt 的圆键(`PodcastCircleKey`)一样高,
+/// 上下对齐。原来是系统的大号实心按钮,比圆键高出一截,色块看着偏大(#336)。
+struct PodcastPrimaryKeyStyle: ButtonStyle {
+    var tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        PodcastPrimaryKeyBody(configuration: configuration, tint: tint)
+    }
+}
+
+private struct PodcastPrimaryKeyBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .padding(.horizontal, 16)
+            .frame(height: PodcastHeaderMetrics.keyHeight)
+            .background(tint.opacity(isEnabled ? 1 : 0.45), in: Capsule())
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .contentShape(Capsule())
     }
 }
 
@@ -1055,6 +1083,8 @@ enum PodcastHeaderMetrics {
     static let maximumSide: CGFloat = 176
     /// 宽屏(iPad、Mac)上按钮不跟着右栏拉成一长条。
     static let actionRowMaxWidth: CGFloat = 420
+    /// 头部那一排键的高度:主键、语速键和圆键一样高。
+    static let keyHeight: CGFloat = 44
 }
 
 /// 节目页单集列表上方的排序键:图标后面写着现在按什么排,订阅节目与本地节目一样。

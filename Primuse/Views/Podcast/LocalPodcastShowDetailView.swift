@@ -170,9 +170,7 @@ struct LocalPodcastShowDetailView: View {
                 } label: {
                     playLabel(startID: startID, settings: settings)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(tint)
+                .buttonStyle(PodcastPrimaryKeyStyle(tint: tint))
                 .accessibilityIdentifier("podcast.localShow.play")
             }
             // 封面右边那一栏窄:放不下带图标的语速键就只写倍数。语速键先量:播放键会撑满剩下的宽度,
@@ -196,10 +194,7 @@ struct LocalPodcastShowDetailView: View {
     }
 
     private func speedMenu(showsIcon: Bool) -> some View {
-        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: showsIcon)
-            #if os(iOS)
-            .controlSize(.large)
-            #endif
+        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: showsIcon, keyHeight: PodcastHeaderMetrics.keyHeight)
             .tint(tint)
     }
 
