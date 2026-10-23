@@ -1146,15 +1146,13 @@ private struct HomeRadioSpotlightCard: View {
     }
 
     private func card(_ station: RadioStation) -> some View {
-        let stations = radioStationsStore.stations
-        let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
         let isCurrent = player.currentRadioStation?.id == station.id
         let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
         let streamInfo = showsStreamInfo ? station.streamInfoSummary : nil
         let subtitle = isCurrent ? (player.radioMetadataTitle ?? streamInfo) : streamInfo
 
         return VStack(alignment: .leading, spacing: heightClass.value(14, compact: 10)) {
-            HStack(spacing: 16) {
+            HStack(spacing: 20) {
                 RadioStationArtworkView(
                     station: station,
                     size: usesPadMetrics ? 126 : heightClass.value(106, compact: 76),
@@ -1162,85 +1160,23 @@ private struct HomeRadioSpotlightCard: View {
                 )
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        // 只有真在播才亮红点 LIVE。无条件亮着的话，没播放时
-                        // 卡片也在说"正在直播"，跟底部播放条自相矛盾。
-                        if isPlaying {
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 7, height: 7)
-                            Text("live_badge")
-                                .font(.caption2.weight(.bold))
-                                .tracking(0.8)
-                        } else {
-                            Image(systemName: "radio")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("radio_title")
-                                .font(.caption2.weight(.bold))
-                                .tracking(0.8)
-                        }
-                        Spacer()
-                        Text("\(currentIndex + 1) / \(stations.count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.72))
-                    }
-
-                    Text(station.name)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-
-                    // 没有说明时也留出这一行(空白),卡片不因台而变高。
-                    Text(subtitle ?? " ")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.76))
-                        .lineLimit(1)
-                        .accessibilityHidden(subtitle == nil)
-
-                    Spacer(minLength: 2)
-
-                    HStack(spacing: 10) {
-                        Button {
-                            select(relativeTo: station, offset: -1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white.opacity(0.14), in: Circle())
-                        .disabled(stations.count < 2)
-                        .accessibilityLabel("radio_previous_station")
-
-                        Button {
-                            onToggle(station)
-                        } label: {
-                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .frame(width: 38, height: 38)
-                                .contentTransition(.symbolEffect(.replace))
-                                .pmAnimation(.control, value: isPlaying)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(ListeningSpace.radio.backdropTint)
-                        .background(.white, in: Circle())
-                        .accessibilityLabel(isPlaying ? "radio_stop" : "play")
-
-                        Button {
-                            select(relativeTo: station, offset: 1)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white.opacity(0.14), in: Circle())
-                        .disabled(stations.count < 2)
-                        .accessibilityLabel("radio_next_station")
-                    }
+                // 卡片按有说明那一行时的高度排(下面那份看不见的只用来撑高),切台时下面的电台墙不跟着
+                // 上下跳(#320);没有说明的台收起这一行,多出来的高度分到上下两头,台名和按键之间
+                // 不再空出一大截(#336)。
+                ZStack(alignment: .leading) {
+                    textColumn(station, subtitle: subtitle ?? " ", isPlaying: isPlaying)
+                        .hidden()
+                        .accessibilityHidden(true)
+                    // 只取自己的高度居中摆,不跟着撑满:撑满时 Spacer 又会把按键推到底、空出那一截。
+                    textColumn(station, subtitle: subtitle, isPlaying: isPlaying)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .foregroundStyle(.white)
         .padding(heightClass.value(18, compact: 14))
+        // 左边多留一点,封面不贴着卡片左缘,和右边「1 / 29」外侧的空白看着匀(#336)。
+        .padding(.leading, 6)
         .frame(
             maxWidth: .infinity,
             minHeight: heightClass.value(142, compact: 110),
@@ -1264,6 +1200,86 @@ private struct HomeRadioSpotlightCard: View {
             swipeExclusion?.frame = frame
         }
         .pmAnimation(.contentAppear, value: station.id)
+    }
+
+    private func textColumn(_ station: RadioStation, subtitle: String?, isPlaying: Bool) -> some View {
+        let stations = radioStationsStore.stations
+        let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                // 只有真在播才亮红点 LIVE。无条件亮着的话，没播放时
+                // 卡片也在说"正在直播"，跟底部播放条自相矛盾。
+                if isPlaying {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 7, height: 7)
+                    Text("live_badge")
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.8)
+                } else {
+                    Image(systemName: "radio")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("radio_title")
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.8)
+                }
+                Spacer()
+                Text("\(currentIndex + 1) / \(stations.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+
+            Text(station.name)
+                .font(.title3.weight(.bold))
+                .lineLimit(1)
+
+            if let subtitle {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 2)
+
+            HStack(spacing: 10) {
+                Button {
+                    select(relativeTo: station, offset: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(.white.opacity(0.14), in: Circle())
+                .disabled(stations.count < 2)
+                .accessibilityLabel("radio_previous_station")
+
+                Button {
+                    onToggle(station)
+                } label: {
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .contentTransition(.symbolEffect(.replace))
+                        .pmAnimation(.control, value: isPlaying)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ListeningSpace.radio.backdropTint)
+                .background(.white, in: Circle())
+                .accessibilityLabel(isPlaying ? "radio_stop" : "play")
+
+                Button {
+                    select(relativeTo: station, offset: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(.white.opacity(0.14), in: Circle())
+                .disabled(stations.count < 2)
+                .accessibilityLabel("radio_next_station")
+            }
+        }
     }
 
     /// 电台这一面跟电台的颜色(颜色和图标里电台那一项),不跟 App 主题色:
