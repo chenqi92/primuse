@@ -196,6 +196,7 @@
 		8A057782348E5D175493A842 /* ImmersiveSyllableCrestText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396FCC79C3B1BA49B7291ADE /* ImmersiveSyllableCrestText.swift */; };
 		737EA6A79976A72525497357 /* PlayerTextFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82821A7ADE9E0661AA5EE8CD /* PlayerTextFont.swift */; };
 		175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */; };
+		814804222274A06D50F7F4F9 /* TabletopColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F185E3EB84B0F32A5CE41608 /* TabletopColumnsPolicy.swift */; };
 		1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */; };
 		178360B183885653FEC9A805 /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7B1ABACEE5C60AE38F1ED6 /* MusicVideoCompatibilityConverter.swift */; };
 		1790837EA4F8EC1AF716BF70 /* KaraokeMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = D225544D7ED6A92B868B042E /* KaraokeMicrophone.swift */; };
@@ -2599,6 +2600,7 @@
 		202FD9C3E6649FA70A64E987 /* AudioPlayerService+Crossfade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+Crossfade.swift"; sourceTree = "<group>"; };
 		20470D4A65FAE9AED53D633E /* ListeningIntentRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningIntentRanking.swift; sourceTree = "<group>"; };
 		20579F622A3ACBA0BFAA1D96 /* TVSourceSecurityFingerprintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceSecurityFingerprintTests.swift; sourceTree = "<group>"; };
+		F185E3EB84B0F32A5CE41608 /* TabletopColumnsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopColumnsPolicy.swift; sourceTree = "<group>"; };
 		20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopQueueStripPolicy.swift; sourceTree = "<group>"; };
 		21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMetadataWritebackCoordinator.swift; sourceTree = "<group>"; };
 		2117016184001B6F46168B00 /* DuplicateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetector.swift; sourceTree = "<group>"; };
@@ -4640,6 +4642,7 @@
 				7D6572FBDDB559AF4C8F938E /* StreamingDownloadRetirementPolicy.swift */,
 				BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */,
 				27289C451E5716F15CE941FB /* SVGImageSupport.swift */,
+				F185E3EB84B0F32A5CE41608 /* TabletopColumnsPolicy.swift */,
 				20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */,
 				9464BC5CF1BFDC18017640A0 /* TagCleanupPolicy.swift */,
 				77BAF9209044BFC0BECFCC97 /* TrailingArrayJSONEncoding.swift */,
@@ -7177,6 +7180,7 @@
 				532E0E072D027C4152E72129 /* TVScanPipelinePolicy.swift in Sources */,
 				6C03104D9FB6DC24E389421B /* TVSnapshotRowSelection.swift in Sources */,
 				BFD82DD3CB51A95CD3175DD8 /* TVTabBarConfiguration.swift in Sources */,
+				814804222274A06D50F7F4F9 /* TabletopColumnsPolicy.swift in Sources */,
 				1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */,
 				07B5B73F64AE41F7F54E878C /* TagCleanupPolicy.swift in Sources */,
 				C4119D1637677F5C77875054 /* TextEncodingRepair.swift in Sources */,

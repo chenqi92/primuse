@@ -2658,20 +2658,36 @@ struct NowPlayingView: View {
     }
     #endif
 
-    /// 桌面半折:上半屏立着、离人远,放封面(开着歌词时放歌词);下半屏平放在桌上、手够得着,
+    /// 桌面半折:上半屏立着、离人远,放封面与歌词;下半屏平放在桌上、手够得着,
     /// 放歌名、进度与全部控件。同一个播放页换个排法,控件与其它形态一样一个不少。
-    /// 队列里不止一首时,下半屏控件上方再横排一条「接下来播放」的封面,左右滑直接切歌。
+    /// 每一半都是一块偏宽的横条,各自分左右两栏(Kit `TabletopColumnsPolicy`):上半屏左封面、
+    /// 右歌词(有声内容是文字稿);下半屏左控件、右「接下来播放」(有声内容是目录与书签)。
+    /// 这一首确定没有歌词时上半屏封面居中,队列只有一首时控件占满下半屏;画布窄到放不下列表时,
+    /// 下半屏控件上方仍是那一排「接下来播放」的封面。点封面、点歌词键照旧是整幅看歌词。
     private func tabletopPlayerLayout(geo: GeometryProxy, foldMinY: CGFloat, foldMaxY: CGFloat) -> some View {
         let topHeight = max(0, foldMinY)
-        let artworkSide = max(0, min(geo.size.width - 96, topHeight - topSafeArea - 44))
+        let bottomHeight = max(0, geo.size.height - foldMaxY)
+        let top = TabletopColumnsPolicy.topHalf(
+            width: Double(geo.size.width),
+            height: Double(topHeight - topSafeArea - 44),
+            wantsTextColumn: tabletopShowsTextColumn
+        )
+        let bottom = TabletopColumnsPolicy.bottomHalf(
+            width: Double(geo.size.width),
+            wantsList: !player.isMusicVideoPlaybackActive
+                && (usesSpokenWordTransport || player.queueCount > 1)
+        )
         #if os(iOS)
-        let showsQueueStrip = player.queueCount > 1 && !player.isMusicVideoPlaybackActive
+        let showsQueueStrip = !bottom.hasListColumn
+            && player.queueCount > 1 && !player.isMusicVideoPlaybackActive
         #else
         let showsQueueStrip = false
         #endif
         // 下半屏放不下封面条时音量条先让位(与手机横屏骨架的让步顺序一致)，音量键照样能调。
         let showsVolumeRow = showsPlayerVolumeBar
-            && !(showsQueueStrip && geo.size.height - foldMaxY < 560)
+            && !(showsQueueStrip && bottomHeight < 560)
+        // 控件挤在左栏时两侧留白收一档,一行键和手机竖屏一样宽。
+        let controlsPadding: CGFloat = bottom.hasListColumn ? 24 : 36
         // 下半屏的控件一直在,歌词(文字稿)在上半屏。
         let spokenControls = usesSpokenWordTransport
             ? spokenWordControlLayout.resolved(in: SpokenWordControlContext(
@@ -2694,16 +2710,26 @@ struct NowPlayingView: View {
                             .pmLayoutSwitchFade()
                             .transition(lyricsPanelTransition)
                     } else {
-                        artworkOrMusicVideo(
-                            size: artworkSide,
-                            cornerRadius: 16,
-                            playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
-                            shadow: .init(opacity: 0.3, radius: 24, y: 10)
-                        )
-                            .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
-                            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
-                            .onTapGesture { openTextFromArtwork() }
-                            .transition(playerArtworkTransition)
+                        // 封面始终是这一排的第一个,歌词那一栏进出时封面只是挪位置、改大小,不换视图。
+                        HStack(spacing: CGFloat(TabletopColumnsPolicy.columnGap)) {
+                            artworkOrMusicVideo(
+                                size: CGFloat(top.artworkSide),
+                                cornerRadius: 16,
+                                playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
+                                shadow: .init(opacity: 0.3, radius: 24, y: 10)
+                            )
+                                .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
+                                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+                                .onTapGesture { openTextFromArtwork() }
+                            if let textWidth = top.textColumnWidth {
+                                lyricsFullView
+                                    .frame(width: CGFloat(textWidth))
+                                    .pmLayoutSwitchFade()
+                                    .transition(.opacity)
+                            }
+                        }
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: top.hasTextColumn)
+                        .transition(playerArtworkTransition)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2714,46 +2740,94 @@ struct NowPlayingView: View {
             Color.clear
                 .frame(height: max(0, foldMaxY - foldMinY))
 
-            VStack(spacing: 0) {
-                #if os(iOS)
-                if showsQueueStrip {
-                    // 吃掉下半屏控件以外的高度；放不下一张像样的封面时自己不显示。
-                    TabletopQueueStrip(player: player)
-                        .padding(.top, 14)
-                        .frame(maxHeight: .infinity)
-                        .pmLayoutSwitchFade()
-                }
-                #endif
-                nowPlayingSongHeader(titleFont: .title2, metadataFont: .body)
-                    .matchedLayoutElement(.songHeading, in: layoutNamespace)
-                    .padding(.horizontal, 36)
-                    .padding(.top, 18)
-                PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
-                    .matchedLayoutElement(.progress, in: layoutNamespace)
-                    .padding(.horizontal, 36)
-                    .padding(.top, 10)
-                portraitTransportRow(spokenControls: spokenControls)
-                    .matchedLayoutElement(.transport, in: layoutNamespace)
-                    .padding(.top, 10)
-                    .padding(.horizontal, 24)
-                if showsVolumeRow {
-                    playerVolumeRow
-                        .padding(.horizontal, 36)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    #if os(iOS)
+                    if showsQueueStrip {
+                        // 吃掉下半屏控件以外的高度；放不下一张像样的封面时自己不显示。
+                        TabletopQueueStrip(player: player)
+                            .padding(.top, 14)
+                            .frame(maxHeight: .infinity)
+                            .pmLayoutSwitchFade()
+                    }
+                    #endif
+                    nowPlayingSongHeader(titleFont: .title2, metadataFont: .body)
+                        .matchedLayoutElement(.songHeading, in: layoutNamespace)
+                        .padding(.horizontal, controlsPadding)
+                        .padding(.top, 18)
+                    PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
+                        .matchedLayoutElement(.progress, in: layoutNamespace)
+                        .padding(.horizontal, controlsPadding)
                         .padding(.top, 10)
+                    portraitTransportRow(spokenControls: spokenControls)
+                        .matchedLayoutElement(.transport, in: layoutNamespace)
+                        .padding(.top, 10)
+                        .padding(.horizontal, controlsPadding - 12)
+                    if showsVolumeRow {
+                        playerVolumeRow
+                            .padding(.horizontal, controlsPadding)
+                            .padding(.top, 10)
+                            .pmLayoutSwitchFade()
+                    }
+                    if !showsQueueStrip {
+                        Spacer(minLength: 0)
+                    }
+                    portraitBottomBar(spokenControls: spokenControls)
+                    .padding(.top, showsQueueStrip ? 6 : 0)
+                    .pmLayoutSwitchFade()
+                    nowPlayingStatusBand(
+                        height: max(bottomSafeArea, Self.statusBandMinimumHeight),
+                        horizontalPadding: controlsPadding
+                    )
+                }
+                .frame(width: bottom.listWidth == nil ? nil : CGFloat(bottom.controlsWidth))
+                .frame(maxHeight: .infinity)
+
+                if let listWidth = bottom.listWidth {
+                    tabletopListPane(showsTextTab: !top.hasTextColumn && !showLyrics)
+                        .frame(width: CGFloat(listWidth))
+                        .frame(maxHeight: .infinity)
+                        .padding(.bottom, bottomSafeArea)
+                        .overlay(alignment: .leading) {
+                            // 两栏之间一道很淡的分隔,和分栏的右栏一样。
+                            Rectangle()
+                                .fill(appearance.divider)
+                                .frame(width: 1)
+                                .padding(.vertical, 24)
+                        }
                         .pmLayoutSwitchFade()
+                        .transition(.opacity)
                 }
-                if !showsQueueStrip {
-                    Spacer(minLength: 0)
-                }
-                portraitBottomBar(spokenControls: spokenControls)
-                .padding(.top, showsQueueStrip ? 6 : 0)
-                .pmLayoutSwitchFade()
-                nowPlayingStatusBand(
-                    height: max(bottomSafeArea, Self.statusBandMinimumHeight),
-                    horizontalPadding: 36
-                )
             }
             .frame(maxHeight: .infinity)
+        }
+    }
+
+    /// 桌面半折上半屏封面右边要不要摆歌词那一栏。有声内容看有没有文字稿(读出结论前按上次的预判);
+    /// 音乐在这一首的歌词还没读出结论时先按有,确定没有才收成封面居中,读的过程中不来回跳。
+    private var tabletopShowsTextColumn: Bool {
+        if usesSpokenWordTransport { return hasSpokenWordTranscript }
+        guard let song = player.currentSong else { return false }
+        if lyricsSongID != song.id || isResolvingLyrics { return true }
+        return !lyrics.isEmpty
+    }
+
+    /// 桌面半折下半屏右边那一栏:音乐是「接下来播放」(和分栏的右栏是同一份队列),有声内容是
+    /// 目录 / 书签。上半屏已经摆着文字稿时不再重复「文字」那一页;没有文字稿时那一页还在,
+    /// 写明没有、能生成就给生成。
+    @ViewBuilder
+    private func tabletopListPane(showsTextTab: Bool) -> some View {
+        if usesSpokenWordTransport {
+            SpokenWordContentsView(
+                presentation: .embedded(spokenWordPalette),
+                textTab: showsTextTab ? AnyView(lyricsFullView) : nil,
+                requestedTab: $contentsRequestedTab
+            )
+            .padding(.top, 8)
+        } else {
+            QueueView(player: player, isEmbedded: true)
+                .scrollContentBackground(.hidden)
+                .padding(.top, 8)
         }
     }
 
