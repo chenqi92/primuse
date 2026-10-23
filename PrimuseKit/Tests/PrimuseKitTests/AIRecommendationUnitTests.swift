@@ -39,6 +39,22 @@ struct AIRecommendationUnitTests {
         #expect(request.minimumResults == 10)
     }
 
+    @Test("A playlist request can carry 100 candidates and ask for 30 songs")
+    func playlistBounds() {
+        let request = AIRecommendationRequest(
+            scene: .automatic,
+            intent: "适合雨夜开车的歌",
+            preferences: [],
+            candidates: songs(150),
+            maximumResults: 99,
+            minimumResults: 8
+        )
+        #expect(request.candidates.count == AIRecommendationRequest.maximumCandidates)
+        #expect(request.candidates.last?.songID == "s99")
+        #expect(request.maximumResults == AIRecommendationRequest.maximumSongSelections)
+        #expect(request.minimumResults == 8)
+    }
+
     @Test("Album candidates are deduplicated and bounded")
     func albumBounds() {
         var candidates = albums(14)

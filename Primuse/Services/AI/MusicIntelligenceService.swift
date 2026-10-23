@@ -3103,6 +3103,7 @@ enum AIRecommendationContextBuilder {
         candidates: [Song],
         maximumResults: Int = 12,
         minimumResults: Int = 10,
+        candidateLimit: Int = 36,
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
         followsTimeOfDay: Bool = true,
@@ -3136,7 +3137,7 @@ enum AIRecommendationContextBuilder {
                 playCount: item.playCount
             )
         }.prefix(12))
-        let recommendationCandidates = uniqueCandidates.prefix(36).map { song in
+        let recommendationCandidates = uniqueCandidates.prefix(candidateLimit).map { song in
             let durationSeconds: Int
             if song.duration.isFinite {
                 durationSeconds = Int(max(0, min(song.duration, 86_400)).rounded())
@@ -3192,6 +3193,7 @@ final class AIRecommendationViewModel {
         forceRefresh: Bool = false,
         maximumResults: Int = 12,
         minimumResults: Int = 10,
+        candidateLimit: Int = 36,
         appending: Bool = false,
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
@@ -3229,6 +3231,7 @@ final class AIRecommendationViewModel {
             candidates: candidates,
             maximumResults: maximumResults,
             minimumResults: minimumResults,
+            candidateLimit: candidateLimit,
             unit: unit,
             albumCandidates: albumCandidates,
             followsTimeOfDay: followsTimeOfDay

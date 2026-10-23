@@ -2,14 +2,17 @@ import Foundation
 
 /// AI 歌单交给智能服务挑歌的候选池。
 ///
-/// 智能服务每次只看 36 首候选、挑出最多 12 首,所以歌单好不好几乎全看候选池。
+/// 智能服务每次只看 100 首候选、挑出最多 30 首(旧版服务只看前 36 首、最多 12 首),
+/// 所以歌单好不好几乎全看候选池。
 /// 提示词多是心情、场景(「下雨天」「跑步」),按字面在歌名、艺人、专辑里搜不到几首;
 /// 所以除了搜索结果,还按提示词提到的风格、年代从曲库里取歌,再放进常听艺人的歌和
 /// 覆盖整个曲库的抽样,每位艺人限量,让服务真有得挑。
 public enum AIPlaylistCandidatePoolPolicy {
-    public static let poolSize = 36
-    /// 搜索、风格、年代再多,也给常听艺人和全库抽样留这么多位置。
-    public static let reservedForBreadth = 8
+    public static let poolSize = AIRecommendationRequest.maximumCandidates
+    /// 搜索、风格、年代再多,也给常听艺人和全库抽样留这么多位置(约五分之一)。
+    public static func reservedForBreadth(in limit: Int) -> Int {
+        max(8, limit / 5)
+    }
     /// 常听艺人那一路,每位艺人最多几首(连同前面已经放进池子的)。
     public static let tastePerArtist = 2
 
@@ -35,7 +38,7 @@ public enum AIPlaylistCandidatePoolPolicy {
         }
 
         let hasBreadth = !taste.isEmpty || !spread.isEmpty
-        let matchedBudget = hasBreadth ? max(0, limit - reservedForBreadth) : limit
+        let matchedBudget = hasBreadth ? max(0, limit - reservedForBreadth(in: limit)) : limit
         var cursors = Array(repeating: 0, count: matched.count)
         var progressed = true
         while pool.count < matchedBudget, progressed {

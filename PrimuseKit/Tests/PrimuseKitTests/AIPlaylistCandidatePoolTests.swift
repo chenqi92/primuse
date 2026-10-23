@@ -23,7 +23,20 @@ struct AIPlaylistCandidatePoolTests {
         )
         #expect(pool.count == 36)
         #expect(Array(pool.prefix(4)) == ["s1-1", "g1-1", "s2-1", "g2-1"])
-        #expect(pool.filter { $0.hasPrefix("w") }.count == AIPlaylistCandidatePoolPolicy.reservedForBreadth)
+        #expect(pool.filter { $0.hasPrefix("w") }.count == AIPlaylistCandidatePoolPolicy.reservedForBreadth(in: 36))
+    }
+
+    @Test("A full-size pool keeps a fifth for breadth and puts the matched songs first")
+    func fullSizePool() {
+        let search = (1...120).map { "s\($0)-1" }
+        let spread = (1...120).map { "w\($0)-1" }
+        let pool = AIPlaylistCandidatePoolPolicy.compose(
+            matched: [search], taste: [], spread: spread, artist: artist
+        )
+        #expect(pool.count == AIPlaylistCandidatePoolPolicy.poolSize)
+        #expect(pool.filter { $0.hasPrefix("w") }.count == 20)
+        // 只认前 36 首的旧服务拿到的全是和提示词直接相关的。
+        #expect(pool.prefix(36).allSatisfy { $0.hasPrefix("s") })
     }
 
     @Test("Without taste or breadth the matched songs fill the whole pool")

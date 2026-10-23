@@ -104,7 +104,8 @@ final class HomeForYouAIFeed {
             scene: scene,
             candidates: candidates,
             using: intelligence,
-            maximumResults: max(1, candidates.count),
+            // 请求上限放到 30 首是给 AI 歌单的;首页仍最多要 12 首。
+            maximumResults: min(12, max(1, candidates.count)),
             minimumResults: min(10, max(1, candidates.count)),
             unit: unit,
             albumCandidates: albumCandidates,

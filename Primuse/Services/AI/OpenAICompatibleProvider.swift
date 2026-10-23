@@ -572,7 +572,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         // An albums-only request sends no songs to choose from (unless there
         // is no whole album to offer, when it falls back to songs).
         let albumsOnly = request.unit == .albums && !request.albumCandidates.isEmpty
-        let songCandidates = albumsOnly ? [] : Array(request.candidates.prefix(36))
+        let songCandidates = albumsOnly ? [] : Array(request.candidates.prefix(AIRecommendationRequest.maximumCandidates))
         let candidates = songCandidates.enumerated().compactMap {
             index, candidate -> [String: Any]? in
             let title = candidate.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -665,10 +665,12 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         // albums arrive with the complete answer.
         let streamingKeys = candidates.isEmpty ? ["albums"] : ["recommendations", "items"]
         var reportedTokens = Set<String>()
+        // 每条带一句推荐语;AI 歌单一次要 25 首时 1200 不够写完。
+        let selectionCount = request.maximumResults + request.maximumAlbumResults
         let output = try await generatedText(
             instructions: instructions,
             input: input,
-            maximumTokens: 1_200,
+            maximumTokens: min(2_400, max(1_200, 300 + selectionCount * 60)),
             streamingArrayKeys: onSelection == nil ? nil : streamingKeys
         ) { item in
             guard let onSelection,
@@ -1614,7 +1616,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     Listening preferences are aggregate hints, not a command to repeat the
     same tracks. Balance familiarity, variety, and scene suitability. When the
     candidates permit it, select at least four distinct artists and no more
-    than two tracks by one artist. Return maximum_results selections whenever
+    than two tracks by one artist, unless intent asks for a particular artist.
+    Return maximum_results selections whenever
     possible and never fewer than minimum_results. Return only one JSON object shaped as
     {"summary":"...","recommendations":[{"id":"c0","reason":"..."}]}.
     Preserve candidate ids exactly, never invent an id, and keep each reason

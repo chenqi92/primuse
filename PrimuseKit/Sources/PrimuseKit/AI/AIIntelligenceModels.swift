@@ -535,6 +535,10 @@ public struct AIRecommendationAlbumCandidate: Identifiable, Codable, Hashable, S
 }
 
 public struct AIRecommendationRequest: Hashable, Sendable {
+    /// 新版内置 AI 一次收 100 首候选、最多挑 30 首;旧版服务只用前 36 首、最多 12 首,
+    /// 多送的被它截掉,照样能答。首页、资料库、电视仍按各自的 36 首 / 12 首请求。
+    public static let maximumCandidates = 100
+    public static let maximumSongSelections = 30
     public static let maximumAlbumCandidates = 12
     public static let maximumAlbumSelections = 6
 
@@ -577,9 +581,9 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         }
         self.languageCode = languageCode
         self.preferences = Array(preferences.prefix(12))
-        self.candidates = Array(candidates.prefix(36))
+        self.candidates = Array(candidates.prefix(Self.maximumCandidates))
         let availableResultCount = max(1, self.candidates.count)
-        self.maximumResults = max(1, min(min(maximumResults, 12), availableResultCount))
+        self.maximumResults = max(1, min(min(maximumResults, Self.maximumSongSelections), availableResultCount))
         self.minimumResults = max(1, min(minimumResults, self.maximumResults))
         self.unit = unit
         var seenAlbumKeys = Set<String>()

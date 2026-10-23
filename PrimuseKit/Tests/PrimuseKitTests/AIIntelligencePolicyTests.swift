@@ -1205,7 +1205,7 @@ struct AIRecommendationPolicyTests {
     }
 
     @Test func recommendationRequestBoundsResultRangeToAvailableCandidates() {
-        let candidates = (0..<20).map { index in
+        let candidates = (0..<40).map { index in
             AIRecommendationCandidate(
                 songID: "song-\(index)",
                 title: "Song \(index)",
@@ -1216,7 +1216,7 @@ struct AIRecommendationPolicyTests {
             scene: .focus,
             preferences: [],
             candidates: candidates,
-            maximumResults: 20,
+            maximumResults: 40,
             minimumResults: 8
         )
         let shortPage = AIRecommendationRequest(
@@ -1227,7 +1227,7 @@ struct AIRecommendationPolicyTests {
             minimumResults: 8
         )
 
-        #expect(fullPage.maximumResults == 12)
+        #expect(fullPage.maximumResults == AIRecommendationRequest.maximumSongSelections)
         #expect(fullPage.minimumResults == 8)
         #expect(shortPage.maximumResults == 5)
         #expect(shortPage.minimumResults == 5)

@@ -1,7 +1,7 @@
 import SwiftUI
 import PrimuseKit
 
-/// 给智能服务挑歌的 36 首候选。服务只在这里面挑,歌单好不好几乎全看这一步:
+/// 给智能服务挑歌的候选(最多 100 首)。服务只在这里面挑,歌单好不好几乎全看这一步:
 /// 搜索结果(提示词原文和扩展词)、提示词提到的风格和年代、常听艺人的歌、全库抽样,
 /// 按 `AIPlaylistCandidatePoolPolicy` 配比。以前搜不到几首时直接按哈希在全库均匀抽,
 /// 心情、场景类的提示词送去的几乎都是随机歌。
@@ -211,6 +211,9 @@ private enum AIPlaylistCandidateFinder {
         return hash
     }
 
+    /// 每个搜索词取多少首。候选池放到 100 首后,12 首会让搜索结果占不满池子。
+    private nonisolated static let searchLimit = 24
+
     private static func search(
         query: String,
         songs: [Song],
@@ -221,7 +224,7 @@ private enum AIPlaylistCandidateFinder {
             songs: songs,
             albums: [],
             metadataRevisionKey: metadataRevisionKey,
-            songLimit: 12,
+            songLimit: searchLimit,
             albumLimit: 0
         ) {
             return indexed.output.songResults
@@ -235,7 +238,7 @@ private enum AIPlaylistCandidateFinder {
                 cache: LibrarySearchCache(),
                 includeMetadata: true,
                 includeLyrics: false,
-                songLimit: 12,
+                songLimit: searchLimit,
                 albumLimit: 0
             ).songResults
         }
@@ -278,6 +281,9 @@ struct AIPlaylistEditorView: View {
     @State private var generationTask: Task<Void, Never>?
     @State private var generationID = UUID()
     @State private var didLoadInitialState = false
+
+    /// 一次生成挑多少首(内置 AI 一次最多 30 首)。
+    private static let songsPerGeneration = 25
 
     private var isEditing: Bool { existing != nil }
 
@@ -538,8 +544,10 @@ struct AIPlaylistEditorView: View {
                 candidates: candidates,
                 using: intelligence,
                 forceRefresh: true,
-                maximumResults: 12,
+                // 还没升级的服务只看前 36 首、最多回 12 首,8 首以上照样算成功。
+                maximumResults: Self.songsPerGeneration,
                 minimumResults: min(8, candidates.count),
+                candidateLimit: AIRecommendationRequest.maximumCandidates,
                 followsTimeOfDay: false
             )
             guard !Task.isCancelled, generationID == operationID else { return }
