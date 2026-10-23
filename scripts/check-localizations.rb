@@ -292,6 +292,13 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # Genre aliases and decade words in an AI playlist prompt ("摇滚", "八十年代")
+  # matched to library tags and year ranges; matching vocabulary, never shown.
+  "PrimuseKit/Sources/PrimuseKit/AIPlaylistCandidatePool.swift" => [
+    /\A\s*\["[^"]+"(?:, "[^"]+")*\],\s*\z/,
+    /\A\s*\("[^"]+年代", \d{4}\)/,
+    /suffix\.hasPrefix\("年代"\)/
+  ],
   # Disc-folder names ("碟1", "光盘 2") matched when locating an album folder; never shown.
   "PrimuseKit/Sources/PrimuseKit/LibraryInsightFiles.swift" => [
     /\(cd\|disc\|disk\|dvd\|碟\|光盘\|ディスク\)/
