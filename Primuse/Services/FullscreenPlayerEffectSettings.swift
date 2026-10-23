@@ -157,6 +157,10 @@ enum PlayerAppearancePreferences {
     /// 两句歌词之间有长间奏时,在上一句下面显示三个随间奏进度点亮的点(#198 可以关掉)。
     static let showsLyricsInterludeKey = "primuse.player.showsLyricsInterlude"
     static let showsLyricsInterludeByDefault = true
+    /// 有声书、播客的文字稿带逐字时间(本机转写的都带)时一个字一个字地亮;关掉后整句高亮,和整句字幕一样(#336/#345)。
+    /// 键名不带点号(见 #344 的教训)。
+    static let spokenWordTranscriptHighlightsWordsKey = "spokenWordTranscriptHighlightsWords"
+    static let spokenWordTranscriptHighlightsWordsByDefault = true
     /// 拖动歌词时显示定位标尺（时间与从该句播放）。
     static let showsLyricsBrowseTimelineKey = "primuse.player.showsLyricsBrowseTimeline"
     static let showsLyricsBrowseTimelineByDefault = false

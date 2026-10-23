@@ -363,6 +363,8 @@ struct LyricsAppearanceSections: View {
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsKey)
+    private var spokenWordTranscriptHighlightsWords = PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsByDefault
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
@@ -557,6 +559,13 @@ struct LyricsAppearanceSections: View {
                 }
             }
             .settingsAnchor("lyrics.interludeDots")
+
+            Toggle(isOn: $spokenWordTranscriptHighlightsWords) {
+                SettingsInfoLabel("spoken_word_transcript_word_highlight") {
+                    Text("spoken_word_transcript_word_highlight_description")
+                }
+            }
+            .settingsAnchor("lyrics.spokenWordWordHighlight")
         } header: {
             Text("player_lyrics_section")
         }

@@ -6136,6 +6136,8 @@
 "player_menu_item_immersive_face" = "Pełny ekran: okładka/tekst";
 "player_lyrics_interlude_dots" = "Kropki przerwy";
 "player_lyrics_interlude_dots_description" = "W intro przed pierwszym wersem i podczas długich przerw instrumentalnych pojawiają się trzy kropki, które zapalają się po kolei, tuż przed następnym wersem dwa razy delikatnie pulsują i są wyrównane tak jak tekst. Przy tekście synchronizowanym słowo po słowie liczą się też krótsze przerwy.";
+"spoken_word_transcript_word_highlight" = "Podświetlaj transkrypcję słowo po słowie";
+"spoken_word_transcript_word_highlight_description" = "Gdy transkrypcja podcastu lub audiobooka ma czasy słów (transkrypcje z urządzenia je mają), słowa podświetlają się po kolei. Wyłącz, aby podświetlać całe czytane zdanie.";
 "home_filter_bar_title" = "Filtry u góry";
 "home_filter_bar_edit" = "Edytuj filtry u góry";
 "home_filter_bar_none" = "Brak filtrów u góry ekranu głównego";

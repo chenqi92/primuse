@@ -7877,7 +7877,8 @@ struct NowPlayingView: View {
             translatedTextByLineID: lyricTranslationsByLineID,
             translationActivity: lyricsTranslationActivity,
             onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil,
-            spokenWordEmptyState: spokenTranscriptEmptyState
+            spokenWordEmptyState: spokenTranscriptEmptyState,
+            isSpokenWordTranscript: usesSpokenWordTransport
         )
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
@@ -13588,6 +13589,8 @@ struct LyricsScrollView: View {
     /// 有声内容没有文字稿时那一页(写明没有、能生成就给生成、生成中显示进度,#314);为空时是音乐的
     /// 「暂无歌词」与刮削、听歌识词。
     var spokenWordEmptyState: SpokenTranscriptEmptyState.Content? = nil
+    /// 放的是有声书、播客的文字稿:设置里关掉了逐字高亮时整句高亮。
+    var isSpokenWordTranscript = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -13602,6 +13605,8 @@ struct LyricsScrollView: View {
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsKey)
+    private var spokenWordTranscriptHighlightsWords = PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
     private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.customLyricsColorHexKey)
@@ -13813,7 +13818,7 @@ struct LyricsScrollView: View {
                 } else {
                     emptyLyricsView
                 }
-            } else if hasWordLevelLyrics {
+            } else if hasWordLevelLyrics, !isSpokenWordTranscript || spokenWordTranscriptHighlightsWords {
                 smoothWordLyricsView
             } else {
                 lineLevelLyricsView

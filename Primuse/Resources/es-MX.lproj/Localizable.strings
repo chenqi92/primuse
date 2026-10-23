@@ -6136,6 +6136,8 @@
 "player_menu_item_immersive_face" = "Pantalla completa: portada/letra";
 "player_lyrics_interlude_dots" = "Puntos de interludio";
 "player_lyrics_interlude_dots_description" = "En la introducción antes de la primera línea y en los interludios largos aparecen tres puntos que se iluminan uno tras otro, laten suavemente dos veces justo antes de la siguiente línea y se alinean como la letra. Con letras sincronizadas por palabra también cuentan pausas más cortas.";
+"spoken_word_transcript_word_highlight" = "Resaltar la transcripción palabra por palabra";
+"spoken_word_transcript_word_highlight_description" = "Cuando la transcripción de un podcast o audiolibro tiene tiempos por palabra (las hechas en el dispositivo los tienen), las palabras se iluminan una a una. Desactívalo para resaltar toda la oración que se está leyendo.";
 "home_filter_bar_title" = "Filtros superiores";
 "home_filter_bar_edit" = "Editar filtros superiores";
 "home_filter_bar_none" = "Sin filtros en la parte superior de Inicio";

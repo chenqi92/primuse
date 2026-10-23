@@ -6323,6 +6323,8 @@
 "player_menu_item_immersive_face" = "全屏里的封面与歌词切换";
 "player_lyrics_interlude_dots" = "间奏提示点";
 "player_lyrics_interlude_dots_description" = "第一句之前的前奏和两句之间较长的间奏里显示三个点，跟着时间依次点亮，下一句开唱前轻轻跳两下，并和歌词同一侧对齐。逐字歌词的间奏短一些也会显示。";
+"spoken_word_transcript_word_highlight" = "有声内容的文字稿逐字高亮";
+"spoken_word_transcript_word_highlight_description" = "播客、有声书的文字稿带逐字时间时（本机转写的都带）一个字一个字地亮；关掉后正在念的那一句整句亮起。";
 "home_filter_bar_title" = "顶部切换";
 "home_filter_bar_edit" = "调整顶部切换";
 "home_filter_bar_none" = "首页顶上不显示切换按钮";

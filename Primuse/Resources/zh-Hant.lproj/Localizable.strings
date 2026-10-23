@@ -6207,6 +6207,8 @@
 "player_menu_item_immersive_face" = "全螢幕裡的封面與歌詞切換";
 "player_lyrics_interlude_dots" = "間奏提示點";
 "player_lyrics_interlude_dots_description" = "第一句之前的前奏和兩句之間較長的間奏裡顯示三個點，跟著時間依序亮起，下一句開唱前輕輕跳兩下，並和歌詞同一側對齊。逐字歌詞的間奏短一些也會顯示。";
+"spoken_word_transcript_word_highlight" = "有聲內容的文字稿逐字醒目標示";
+"spoken_word_transcript_word_highlight_description" = "Podcast、有聲書的文字稿帶有逐字時間時（本機轉寫的都有）一個字一個字地亮起；關閉後正在念的那一句整句亮起。";
 "home_filter_bar_title" = "頂部切換";
 "home_filter_bar_edit" = "調整頂部切換";
 "home_filter_bar_none" = "首頁頂端不顯示切換按鈕";

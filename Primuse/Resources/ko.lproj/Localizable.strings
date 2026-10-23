@@ -6230,6 +6230,8 @@
 "player_menu_item_immersive_face" = "전체 화면 앨범 아트/가사 전환";
 "player_lyrics_interlude_dots" = "간주 점";
 "player_lyrics_interlude_dots_description" = "첫 줄 전의 전주나 가사 사이의 긴 간주에 점 세 개가 나타나 진행에 따라 차례로 켜지고, 다음 줄 직전에 가볍게 두 번 뜁니다. 점은 가사와 같은 쪽으로 정렬됩니다. 단어 단위 가사에서는 더 짧은 간주에도 표시됩니다.";
+"spoken_word_transcript_word_highlight" = "자막을 단어별로 강조";
+"spoken_word_transcript_word_highlight_description" = "팟캐스트나 오디오북 자막에 단어별 타이밍이 있으면(기기에서 받아쓴 자막에는 있음) 한 단어씩 강조합니다. 끄면 읽고 있는 문장 전체를 강조합니다.";
 "home_filter_bar_title" = "상단 전환";
 "home_filter_bar_edit" = "상단 전환 편집";
 "home_filter_bar_none" = "홈 상단에 전환 버튼 없음";

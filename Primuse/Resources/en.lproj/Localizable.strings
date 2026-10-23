@@ -5990,6 +5990,8 @@
 "player_menu_item_immersive_face" = "Full-Screen Artwork/Lyrics Switch";
 "player_lyrics_interlude_dots" = "Interlude Dots";
 "player_lyrics_interlude_dots_description" = "Before the first line and during long instrumental breaks, three dots appear, light up in turn as the break plays, give a gentle double beat just before the next line, and line up with your lyrics alignment. With word-synced lyrics, shorter breaks count too.";
+"spoken_word_transcript_word_highlight" = "Word-by-Word Transcript Highlight";
+"spoken_word_transcript_word_highlight_description" = "When a podcast or audiobook transcript has word timing (on-device transcripts do), words light up one at a time. Turn off to highlight the whole sentence being read.";
 "home_filter_bar_title" = "Top Filters";
 "home_filter_bar_edit" = "Edit Top Filters";
 "home_filter_bar_none" = "No filters at the top of Home";

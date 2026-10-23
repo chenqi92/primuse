@@ -6136,6 +6136,8 @@
 "player_menu_item_immersive_face" = "Tam ekran: kapak/sözler";
 "player_lyrics_interlude_dots" = "Ara Bölüm Noktaları";
 "player_lyrics_interlude_dots_description" = "İlk satırdan önceki girişte ve uzun enstrümantal aralarda üç nokta belirir, sırayla yanar, sonraki satırdan hemen önce iki kez hafifçe atar ve sözlerle aynı tarafa hizalanır. Kelime kelime senkronize sözlerde daha kısa aralar da sayılır.";
+"spoken_word_transcript_word_highlight" = "Transkripti Kelime Kelime Vurgula";
+"spoken_word_transcript_word_highlight_description" = "Podcast veya sesli kitap transkriptinde kelime zamanlaması varsa (cihazda yapılan transkriptlerde var), kelimeler tek tek vurgulanır. Kapatırsanız okunan cümlenin tamamı vurgulanır.";
 "home_filter_bar_title" = "Üst filtreler";
 "home_filter_bar_edit" = "Üst filtreleri düzenle";
 "home_filter_bar_none" = "Ana sayfanın üstünde filtre yok";
