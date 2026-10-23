@@ -200,7 +200,11 @@ struct MacNowPlayingView: View {
         // removed while the immersive stage is showing.
         .lyricsTranslationTaskIfAvailable(
             songID: player.currentSong?.id,
-            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
+            songContext: .init(
+                title: player.currentSong?.title,
+                artist: player.currentSong?.artistName,
+                isSpokenWord: isSpokenWord
+            ),
             lyricsRevision: lyricsTranslationRevision,
             lyrics: lyrics,
             settings: LyricsTranslationSettingsStore.shared,

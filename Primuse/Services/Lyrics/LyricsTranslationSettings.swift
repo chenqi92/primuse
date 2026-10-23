@@ -412,6 +412,8 @@ actor LyricsTranslationPreparer {
         var requiresPreparation = false
         /// 繁简字形互转在本机直接得出的「译文」，不走任何翻译服务。
         var scriptConversions: [String: String] = [:]
+        /// 有声内容文稿里并进一句的后面几行(句首那一行 → 后面几行),它们不另写译文。
+        var mergedLineIDs: [String: [String]] = [:]
     }
 
     private struct Key: Hashable {
@@ -504,9 +506,13 @@ actor LyricsTranslationPreparer {
                 )
             )
         }
+        // 有声内容的文稿按停顿切行,半句半句地送去翻译译文对不上:没到句末的相邻几行并成一句再译(#336)。
+        let sentences = songContext.isSpokenWord
+            ? LyricTranslationSentenceMergePolicy.merged(candidates, targetLanguageCode: targetLanguageCode)
+            : LyricTranslationSentenceMergePolicy.Merged(candidates: candidates)
         let converted = LyricChineseScriptConversionPolicy.apply(
             to: LyricTranslationGroupingPolicy.groups(
-                candidates: candidates,
+                candidates: sentences.candidates,
                 targetLanguageCode: targetLanguageCode,
                 fallbackSourceLanguageCode: fallbackSourceLanguageCode,
                 skippedSourceLanguageCodes: skippedSourceLanguageCodes
@@ -518,7 +524,8 @@ actor LyricsTranslationPreparer {
             manualTranslations: manualTranslations,
             groups: groups,
             requiresPreparation: !groups.isEmpty,
-            scriptConversions: converted.conversions
+            scriptConversions: converted.conversions,
+            mergedLineIDs: sentences.mergedLineIDs
         )
     }
 }

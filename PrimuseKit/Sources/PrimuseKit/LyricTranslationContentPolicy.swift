@@ -3,10 +3,13 @@ import Foundation
 public struct LyricTranslationSongContext: Hashable, Sendable {
     public let title: String?
     public let artist: String?
+    /// 有声书、播客的文稿:半句的几行并成一句再翻译(`LyricTranslationSentenceMergePolicy`)。
+    public let isSpokenWord: Bool
 
-    public init(title: String? = nil, artist: String? = nil) {
+    public init(title: String? = nil, artist: String? = nil, isSpokenWord: Bool = false) {
         self.title = title
         self.artist = artist
+        self.isSpokenWord = isSpokenWord
     }
 }
 

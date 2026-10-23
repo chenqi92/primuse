@@ -149,7 +149,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 prepared.groups,
                 lyrics: lyrics,
                 playbackTime: player.currentSong?.id == identity.songID ? player.currentTime : 0
-            )
+            ),
+            mergedLineIDs: prepared.mergedLineIDs
         )
         self.deduplication = deduplication
         let groups = deduplication.groups
@@ -961,7 +962,12 @@ final class LyricsTranslationPrefetcher {
             return
         }
         job?.task.cancel()
-        let songContext = LyricTranslationSongContext(title: song.title, artist: song.artistName)
+        // 和播放页同一份上下文:有声内容的文稿按句并好再预先翻译,译文才对得上缓存。
+        let songContext = LyricTranslationSongContext(
+            title: song.title,
+            artist: song.artistName,
+            isSpokenWord: SpokenWordStore.shared.isSpokenWord(song)
+        )
         let skippedSourceLanguageCodes = LyricsTranslationSettingsStore.shared.skippedSourceLanguageCodes
         let showsBundledTranslations = LyricsTranslationSettingsStore.shared.showsBundledTranslations
         let task = Task { @MainActor in

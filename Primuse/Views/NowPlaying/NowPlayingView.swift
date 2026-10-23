@@ -3052,7 +3052,11 @@ struct NowPlayingView: View {
                         .accessibilityHidden(true)
                         .lyricsTranslationTaskIfAvailable(
                             songID: player.currentSong?.id,
-                            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
+                            songContext: .init(
+                                title: player.currentSong?.title,
+                                artist: player.currentSong?.artistName,
+                                isSpokenWord: usesSpokenWordTransport
+                            ),
                             lyricsRevision: lyricsRevision,
                             lyrics: presentedLyrics,
                             settings: LyricsTranslationSettingsStore.shared,

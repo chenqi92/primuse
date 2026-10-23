@@ -134,7 +134,12 @@ final class TVLyricsTranslationController {
         let songID = loaded.songID
         let lines = Self.presentedLines(loaded.lines)
         let song = store.song(songID)
-        let songContext = LyricTranslationSongContext(title: song?.title, artist: song?.artist)
+        // 有声内容的文稿按句并好再翻译(#336),和 iPhone、Mac 一样。
+        let songContext = LyricTranslationSongContext(
+            title: song?.title,
+            artist: song?.artist,
+            isSpokenWord: store.currentSongID == songID && store.currentItemIsSpokenWord
+        )
         let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
         let skippedSourceLanguageCodes = settings.skippedSourceLanguageCodes
         let intelligence = settings.mode == .intelligentWithSystemFallback ? self.intelligence : nil
@@ -178,7 +183,8 @@ final class TVLyricsTranslationController {
                     groups,
                     lyrics: lines,
                     playbackTime: store.currentSongID == songID ? store.currentTime : 0
-                )
+                ),
+                mergedLineIDs: prepared.mergedLineIDs
             )
             var remaining = deduplication.groups
             var intelligentResult: Engine?

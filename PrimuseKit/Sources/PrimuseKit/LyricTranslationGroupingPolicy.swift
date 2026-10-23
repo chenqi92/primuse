@@ -40,8 +40,12 @@ public struct LyricTranslationDeduplication: Equatable, Sendable {
     public let groups: [LyricTranslationGroup]
     /// First occurrence's line ID → the IDs of later rows with the same text.
     public let duplicateLineIDs: [String: [String]]
+    /// 有声内容文稿里并进一句的后面几行(`LyricTranslationSentenceMergePolicy`):它们不另写译文,
+    /// 只在掂量一组占了文稿多少时算回去。
+    public let mergedLineIDs: [String: [String]]
 
-    public init(groups: [LyricTranslationGroup]) {
+    public init(groups: [LyricTranslationGroup], mergedLineIDs: [String: [String]] = [:]) {
+        self.mergedLineIDs = mergedLineIDs
         var duplicates: [String: [String]] = [:]
         self.groups = groups.map { group in
             var representativeByText: [String: String] = [:]
@@ -79,15 +83,17 @@ public struct LyricTranslationDeduplication: Equatable, Sendable {
     }
 
     /// Restores the repeated rows, for decisions that weigh how much of the
-    /// lyric body a group covers.
+    /// lyric body a group covers. Rows merged into a sentence count too.
     public func restoringDuplicates(in groups: [LyricTranslationGroup]) -> [LyricTranslationGroup] {
-        guard !duplicateLineIDs.isEmpty else { return groups }
+        guard !duplicateLineIDs.isEmpty || !mergedLineIDs.isEmpty else { return groups }
         return groups.map { group in
             LyricTranslationGroup(
                 id: group.id,
                 sourceLanguageCode: group.sourceLanguageCode,
                 candidates: group.candidates.flatMap { candidate in
-                    [candidate] + (duplicateLineIDs[candidate.id] ?? []).map {
+                    let heads = [candidate.id] + (duplicateLineIDs[candidate.id] ?? [])
+                    let restoredIDs = heads.flatMap { [$0] + (mergedLineIDs[$0] ?? []) }
+                    return [candidate] + restoredIDs.dropFirst().map {
                         LyricTranslationCandidate(
                             id: $0,
                             text: candidate.text,
@@ -96,6 +102,118 @@ public struct LyricTranslationDeduplication: Equatable, Sendable {
                     }
                 }
             )
+        }
+    }
+}
+
+/// 有声内容的文稿(尤其本机转写出来的)常把一句话按停顿切成几行,逐行送去翻译时每行都是半句,
+/// 译文前后对不上(#336)。翻译前把还没到句末的相邻几行并成一句再送去翻译,译文挂在这一句的
+/// 第一行下面,后面几行不另写译文。原文的显示和时间轴不动,歌曲的歌词不走这里。
+///
+/// 只在文稿本身带句末标点时才并:节目自带的字幕(SRT、VTT)常常一个标点都没有,看不出句子在哪里断,
+/// 一并就会串成一大段。和翻译目标同一种语言的行(繁简互转)也不并,那是逐行就地转换。
+public enum LyricTranslationSentenceMergePolicy {
+    public struct Merged: Equatable, Sendable {
+        public let candidates: [LyricTranslationCandidate]
+        /// 一句的第一行 → 并进这一句的后面几行。
+        public let mergedLineIDs: [String: [String]]
+
+        public init(candidates: [LyricTranslationCandidate], mergedLineIDs: [String: [String]] = [:]) {
+            self.candidates = candidates
+            self.mergedLineIDs = mergedLineIDs
+        }
+    }
+
+    /// 一句最多并几行、多少个字:说话人一直没停顿时也不把一大段当成一句送出去。
+    public static let maximumLines = 4
+    public static let maximumLength = 220
+    /// 带句末标点的行至少占这么多,才认为这份文稿是按句子打了标点的。
+    static let minimumTerminatedShare = 0.2
+
+    public static func merged(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String
+    ) -> Merged {
+        guard candidates.count >= 2 else { return Merged(candidates: candidates) }
+        let terminated = candidates.lazy.filter { endsSentence($0.text) }.count
+        guard Double(terminated) / Double(candidates.count) >= minimumTerminatedShare else {
+            return Merged(candidates: candidates)
+        }
+        let targetLanguage = baseLanguage(targetLanguageCode)
+
+        var output: [LyricTranslationCandidate] = []
+        var mergedLineIDs: [String: [String]] = [:]
+        var sentence: [LyricTranslationCandidate] = []
+
+        func flush() {
+            guard let first = sentence.first else { return }
+            if sentence.count == 1 {
+                output.append(first)
+            } else {
+                output.append(LyricTranslationCandidate(
+                    id: first.id,
+                    text: joined(sentence.map(\.text)),
+                    sourceLanguageCode: first.sourceLanguageCode
+                ))
+                mergedLineIDs[first.id] = sentence.dropFirst().map(\.id)
+            }
+            sentence.removeAll(keepingCapacity: true)
+        }
+
+        for candidate in candidates {
+            let mergeable = candidate.sourceLanguageCode.map { baseLanguage($0) != targetLanguage } ?? true
+            if !mergeable {
+                flush()
+                output.append(candidate)
+                continue
+            }
+            if let first = sentence.first {
+                let length = joined((sentence + [candidate]).map(\.text)).count
+                if candidate.sourceLanguageCode != first.sourceLanguageCode
+                    || sentence.count >= maximumLines
+                    || length > maximumLength {
+                    flush()
+                }
+            }
+            sentence.append(candidate)
+            if endsSentence(candidate.text) { flush() }
+        }
+        flush()
+        return Merged(candidates: output, mergedLineIDs: mergedLineIDs)
+    }
+
+    static func endsSentence(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’」』）)]】》"))
+        guard let last = trimmed.last else { return false }
+        return ".!?。！？…;；".contains(last)
+    }
+
+    /// 拼回一句:中日韩文字之间不加空格,其余两段之间加一个空格。
+    static func joined(_ texts: [String]) -> String {
+        var output = ""
+        for raw in texts {
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            if let previous = output.last, let next = text.first,
+               !isCJK(previous), !isCJK(next) {
+                output.append(" ")
+            }
+            output.append(text)
+        }
+        return output
+    }
+
+    private static func baseLanguage(_ code: String) -> String? {
+        Locale.Language(identifier: LyricTranslationGroupingPolicy.languageIdentity(code)).languageCode?.identifier
+    }
+
+    private static func isCJK(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            (0x2E80...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value)
+                || (0xFF00...0xFFEF).contains(scalar.value)
+                || (0x20000...0x2FA1F).contains(scalar.value)
         }
     }
 }
