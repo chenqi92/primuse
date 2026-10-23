@@ -380,13 +380,13 @@ struct TVImmersivePlayerView: View {
             } else if showsModePicker {
                 guard !modePickerYieldsFocus else { return }
                 if effect == .native {
-                    dismissImmersivePlayer()
+                    dismissImmersivePlayer(reason: "menu-picker-native")
                 } else {
                     yieldModePickerFocus()
                     revealChrome()
                 }
             } else {
-                dismissImmersivePlayer()
+                dismissImmersivePlayer(reason: "menu")
             }
         }
         .onMoveCommand(perform: handleMoveCommand)
@@ -419,8 +419,9 @@ struct TVImmersivePlayerView: View {
                 isNativeEffect: effect == .native,
                 presentsEffectPicker: presentsModePickerOnAppear
             )
+            pdiag("tv immersive appear effect=\(effectRawValue) picker=\(presentsModePickerOnAppear)")
             if initialPresentation.dismissesPlayer {
-                dismissImmersivePlayer()
+                dismissImmersivePlayer(reason: "appear-native")
                 return
             }
             if initialPresentation.startsPresentationWork {
@@ -436,6 +437,7 @@ struct TVImmersivePlayerView: View {
             }
         }
         .onDisappear {
+            pdiag("tv immersive disappear effect=\(effectRawValue)")
             suspendPresentation(for: .disappeared)
         }
         .onChange(of: focusedControl) { _, control in
@@ -456,7 +458,7 @@ struct TVImmersivePlayerView: View {
             // 所选效果变了(这里选的,或别的设备同步过来的):回到所选的那一种。
             rotator.reset()
             if effect == .native, presentationActivity.isMounted {
-                dismissImmersivePlayer()
+                dismissImmersivePlayer(reason: "effect-became-native")
             }
         }
         .onChange(of: rotationModeRawValue) { _, _ in
@@ -1220,7 +1222,10 @@ struct TVImmersivePlayerView: View {
         store.engine.setSpectrumAnalysisEnabled(false)
     }
 
-    private func dismissImmersivePlayer() {
+    /// `reason` 记进诊断日志:全屏效果「进去一秒又退回来」时(看板 PRIM-40)要知道是谁关的;
+    /// 没有这一行的关闭来自外面(播放页把 `showImmersive` 放回了 false)。
+    private func dismissImmersivePlayer(reason: StaticString) {
+        pdiag("tv immersive dismiss reason=\(reason) effect=\(effectRawValue)")
         suspendPresentation(for: .dismissalRequested)
         dismiss()
     }
@@ -1249,7 +1254,7 @@ struct TVImmersivePlayerView: View {
         }
         FullscreenPlayerEffectSync.shared.select(value)
         if value == .native {
-            dismissImmersivePlayer()
+            dismissImmersivePlayer(reason: "picked-native")
         } else if lyricObservationTask == nil {
             resumePresentationWork()
         }
