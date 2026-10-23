@@ -209,6 +209,8 @@ def main() -> None:
     save_flat_brand_assets()
     save_contact_sheet(light_icons)
     save_appearance_sheet(light_icons, dark_icons)
+    from generate_ios_layered_icons import main as save_ios_layered_icons
+    save_ios_layered_icons()
 
 
 if __name__ == "__main__":

@@ -2079,6 +2079,14 @@
 		17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */; };
 		8001700F4215BDDD3CC9A507 /* AppleMusicCatalogSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */; };
 		BCEDC7604E9B41A53228A773 /* DiagnosticUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */; };
+		03F3226FABF98C4719A159EC /* AppIcon21.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3146A2638475D9FF16AD0FFF /* AppIcon21.icon */; };
+		323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */ = {isa = PBXBuildFile; fileRef = AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */; };
+		35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0CB5E6F56603DB9C437C18AB /* AppIcon.icon */; };
+		871654C10D2D37C9C632CD4D /* AppIcon14.icon in Resources */ = {isa = PBXBuildFile; fileRef = B9890251F6597458ED9C8335 /* AppIcon14.icon */; };
+		9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */ = {isa = PBXBuildFile; fileRef = B4E678A7788F43EE2A64E071 /* AppIcon15.icon */; };
+		BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */ = {isa = PBXBuildFile; fileRef = 689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */; };
+		D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */ = {isa = PBXBuildFile; fileRef = 328976B021ACE0B2395E2621 /* AppIcon19.icon */; };
+		FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */ = {isa = PBXBuildFile; fileRef = F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3849,6 +3857,14 @@
 		8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfiniCloudAPIClient.swift; sourceTree = "<group>"; };
 		4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSaveTests.swift; sourceTree = "<group>"; };
 		6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticUploadRegressionTests.swift; sourceTree = "<group>"; };
+		0CB5E6F56603DB9C437C18AB /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		3146A2638475D9FF16AD0FFF /* AppIcon21.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon21.icon; sourceTree = "<group>"; };
+		328976B021ACE0B2395E2621 /* AppIcon19.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon19.icon; sourceTree = "<group>"; };
+		689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon12.icon; sourceTree = "<group>"; };
+		AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon16.icon; sourceTree = "<group>"; };
+		B4E678A7788F43EE2A64E071 /* AppIcon15.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon15.icon; sourceTree = "<group>"; };
+		B9890251F6597458ED9C8335 /* AppIcon14.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon14.icon; sourceTree = "<group>"; };
+		F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon20.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4817,6 +4833,7 @@
 		56BEF600D3EF00B438609834 /* Resources-iOS */ = {
 			isa = PBXGroup;
 			children = (
+				6E057AB9AC84A401AAB2D71D /* AppIcons */,
 				FB45F70255F393A8A7284EE0 /* YearlyReport.xcassets */,
 			);
 			path = "Resources-iOS";
@@ -6004,6 +6021,21 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		6E057AB9AC84A401AAB2D71D /* AppIcons */ = {
+			isa = PBXGroup;
+			children = (
+				0CB5E6F56603DB9C437C18AB /* AppIcon.icon */,
+				689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */,
+				B9890251F6597458ED9C8335 /* AppIcon14.icon */,
+				B4E678A7788F43EE2A64E071 /* AppIcon15.icon */,
+				AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */,
+				328976B021ACE0B2395E2621 /* AppIcon19.icon */,
+				F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */,
+				3146A2638475D9FF16AD0FFF /* AppIcon21.icon */,
+			);
+			path = AppIcons;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -6422,6 +6454,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				03F3226FABF98C4719A159EC /* AppIcon21.icon in Resources */,
+				323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */,
+				35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */,
+				871654C10D2D37C9C632CD4D /* AppIcon14.icon in Resources */,
+				9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */,
+				BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */,
+				D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */,
+				FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */,
 				BE4C8ABADBEDEAA6AFB57A3C /* AppIntentVocabulary.plist in Resources */,
 				14262AEAD1DBF77D0DCAC85C /* AppShortcuts.xcstrings in Resources */,
 				A5C2B802243EEA2162C949F1 /* Assets.xcassets in Resources */,
