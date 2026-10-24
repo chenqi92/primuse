@@ -227,3 +227,30 @@ struct NowPlayingInteractionPolicyTests {
         ) == 0)
     }
 }
+
+struct SliderScrubFeedbackPolicyTests {
+    @Test func edgesAreTheTwoEndsOnly() {
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: 0) == .lower)
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: -0.2) == .lower)
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: 0.5) == .none)
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: 1) == .upper)
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: 1.4) == .upper)
+        #expect(SliderScrubFeedbackPolicy.edge(fraction: .nan) == .none)
+    }
+
+    @Test func edgeFeedbackPlaysOncePerArrival() {
+        #expect(SliderScrubFeedbackPolicy.playsEdgeFeedback(from: .none, to: .upper))
+        #expect(!SliderScrubFeedbackPolicy.playsEdgeFeedback(from: .upper, to: .upper))
+        #expect(!SliderScrubFeedbackPolicy.playsEdgeFeedback(from: .upper, to: .none))
+        #expect(SliderScrubFeedbackPolicy.playsEdgeFeedback(from: .lower, to: .upper))
+        #expect(!SliderScrubFeedbackPolicy.playsEdgeFeedback(from: .none, to: .none))
+    }
+
+    @Test func reduceMotionKeepsOnlyASlightGrowth() {
+        #expect(SliderScrubFeedbackPolicy.activeHeight(resting: 5, active: 10, reduceMotion: false) == 10)
+        #expect(SliderScrubFeedbackPolicy.activeHeight(resting: 5, active: 10, reduceMotion: true) == 6.5)
+        // 按住时也不会比平时细。
+        #expect(SliderScrubFeedbackPolicy.activeHeight(resting: 5, active: 3, reduceMotion: false) == 5)
+        #expect(SliderScrubFeedbackPolicy.activeHeight(resting: 5, active: 6, reduceMotion: true) == 6)
+    }
+}

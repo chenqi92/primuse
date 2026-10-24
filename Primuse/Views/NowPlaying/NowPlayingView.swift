@@ -10389,13 +10389,17 @@ private final class MusicVideoLayerView: NSView {
 
 struct ProgressSlider: View {
     /// 轨道粗细、底色与拖动点。默认是播放页一直用的胶囊条;有声书竖版是细线加一个圆点。
+    /// 按住时加粗到 `draggingHeight`、圆点大一圈(看板 PRIM-45):这条线外面套着固定 44 点高的点按区,
+    /// 变粗不挤动上下的版面,也不改手指位置对应的进度。
     struct TrackStyle: Equatable {
         var restingHeight: CGFloat = 5
-        var draggingHeight: CGFloat = 8
+        var draggingHeight: CGFloat = 10
         /// nil 时按明暗外观取。
         var trackColor: Color? = nil
-        /// 给了就在播放头上画一个这么大的圆点,拖动时放大一圈。
+        /// 给了就在播放头上画一个这么大的圆点,按住时放大一圈。
         var knobDiameter: CGFloat? = nil
+        /// 按住时圆点比平时大多少点。
+        var knobGrowth: CGFloat = 6
         /// 播放过的那段画成波浪(#69),播放头上一道竖着的短条。
         var isWave = false
         /// 播放过的那段和播放头外面一圈同色的光晕(#319)。
@@ -10408,8 +10412,8 @@ struct ProgressSlider: View {
             var track: TrackStyle
             switch style {
             case .standard: track = .standard
-            case .wave: track = TrackStyle(restingHeight: 4, draggingHeight: 7, isWave: true)
-            case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 5, knobDiameter: 12)
+            case .wave: track = TrackStyle(restingHeight: 4, draggingHeight: 8, isWave: true)
+            case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 6, knobDiameter: 12)
             }
             track.glows = glows
             return track
@@ -10454,6 +10458,12 @@ struct ProgressSlider: View {
     @State private var scrubSession: ProgressScrubSession?
     /// 上一次落到填充条上的比例。只用来判断这次变化是不是一次普通的时钟推进。
     @State private var previousProgress: CGFloat = 0
+    /// 手指按在条上(还没拖出方向也算):进入加粗的操作态。手势被取消时自己复位。
+    @GestureState private var isPressing = false
+    /// 开始拖、拖到一头各震一次(PRIM-45),数值变着的时候不连续震。
+    @State private var dragFeedbackToken = 0
+    @State private var edgeFeedbackToken = 0
+    @State private var scrubEdge: SliderScrubFeedbackPolicy.Edge = .none
 
     private var safeTotal: TimeInterval { total.sanitizedDuration }
     private var activePreview: TimeInterval? {
@@ -10462,6 +10472,8 @@ struct ProgressSlider: View {
         return scrubSession.preview
     }
     private var isDragging: Bool { activePreview != nil }
+    /// 按住或正在拖:轨道加粗、圆点放大。
+    private var isActive: Bool { isPressing || isDragging }
     private var displayValue: TimeInterval { (activePreview ?? value).sanitizedDuration }
     private var progress: CGFloat {
         guard safeTotal > 0 else { return 0 }
@@ -10501,6 +10513,19 @@ struct ProgressSlider: View {
         return .linear(duration: Self.clockTickInterval)
     }
 
+    /// 拖到一头时记一笔震动;停在那一头不再震,松手清掉。
+    private func updateScrubEdge(preview: TimeInterval?) {
+        guard let preview, safeTotal > 0 else {
+            scrubEdge = .none
+            return
+        }
+        let edge = SliderScrubFeedbackPolicy.edge(fraction: preview / safeTotal)
+        if SliderScrubFeedbackPolicy.playsEdgeFeedback(from: scrubEdge, to: edge) {
+            edgeFeedbackToken += 1
+        }
+        scrubEdge = edge
+    }
+
     /// 与 AudioPlayerService 的 timeUpdateInterval 对齐。
     private static let clockTickInterval: TimeInterval = 0.5
     private static let maximumAnimatedAdvance: TimeInterval = 1
@@ -10535,7 +10560,7 @@ struct ProgressSlider: View {
 
             Capsule()
                 .fill(fillColor)
-                .frame(width: trackHeight, height: isDragging ? 20 : 14)
+                .frame(width: trackHeight, height: isActive ? (reduceMotion ? 16 : 20) : 14)
                 .offset(x: filledWidth - trackHeight / 2)
                 .animation(fillAnimation, value: progress)
                 .modifier(progressGlow)
@@ -10559,7 +10584,13 @@ struct ProgressSlider: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let trackHeight: CGFloat = isDragging ? trackStyle.draggingHeight : trackStyle.restingHeight
+            let trackHeight: CGFloat = isActive
+                ? CGFloat(SliderScrubFeedbackPolicy.activeHeight(
+                    resting: Double(trackStyle.restingHeight),
+                    active: Double(trackStyle.draggingHeight),
+                    reduceMotion: reduceMotion
+                ))
+                : trackStyle.restingHeight
             let filledWidth = max(0, min(width, width * progress))
 
             ZStack(alignment: .leading) {
@@ -10583,7 +10614,8 @@ struct ProgressSlider: View {
                 }
 
                 if let knob = trackStyle.knobDiameter {
-                    let diameter = isDragging ? knob + 4 : knob
+                    let growth = reduceMotion ? min(trackStyle.knobGrowth, 2) : trackStyle.knobGrowth
+                    let diameter = isActive ? knob + growth : knob
                     Circle()
                         .fill(fillColor)
                         .frame(width: diameter, height: diameter)
@@ -10625,10 +10657,29 @@ struct ProgressSlider: View {
                         }
                     }
             )
-            .animation(.easeInOut(duration: 0.15), value: isDragging)
+            // 一碰到就进入操作态;拖动方向还没定时不改进度,只是先加粗。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isPressing) { _, pressing, _ in pressing = true }
+            )
+            // 按下时弹一下变粗,松手、取消后慢慢收回;减弱动态效果时只是轻微地变。
+            .animation(
+                reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.3, bounce: 0.2),
+                value: isActive
+            )
         }
         .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
-        .onChange(of: activePreview) { _, preview in onPreview(preview) }
+        .onChange(of: activePreview) { _, preview in
+            onPreview(preview)
+            updateScrubEdge(preview: preview)
+        }
+        .onChange(of: isDragging) { _, dragging in
+            if dragging { dragFeedbackToken += 1 }
+        }
+        #if os(iOS)
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: dragFeedbackToken)
+        .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.8), trigger: edgeFeedbackToken)
+        #endif
         .onChange(of: interactionID) { _, _ in
             onPreview(nil)
         }
@@ -10770,27 +10821,138 @@ private struct ProgressWaveShape: Shape {
 
 // MARK: - Volume Slider (thin, matching ProgressSlider style)
 
+/// 播放页音量条的画法。系统样式是细轨道加圆钮;两种都是按住就加粗、圆钮放大,松手、取消后收回,
+/// 开始拖和拖到一头各轻震一次(看板 PRIM-45)。
+struct PlayerVolumeTrackStyle: Equatable {
+    var restingHeight: CGFloat
+    var activeHeight: CGFloat
+    /// nil 时不画圆钮(胶囊条、波浪)。
+    var knobDiameter: CGFloat?
+    var knobGrowth: CGFloat = 6
+    /// 填充那一段画成静止的波浪(音量没有「正在播」,不流动)。
+    var isWave = false
+    var glows = false
+
+    /// 一直以来的系统样式:4 点的细轨道、12 点的圆钮。
+    static let system = PlayerVolumeTrackStyle(restingHeight: 4, activeHeight: 7, knobDiameter: 12)
+
+    func height(isActive: Bool, reduceMotion: Bool) -> CGFloat {
+        guard isActive else { return restingHeight }
+        return CGFloat(SliderScrubFeedbackPolicy.activeHeight(
+            resting: Double(restingHeight),
+            active: Double(activeHeight),
+            reduceMotion: reduceMotion
+        ))
+    }
+
+    func knob(isActive: Bool, reduceMotion: Bool) -> CGFloat? {
+        guard let knobDiameter else { return nil }
+        guard isActive else { return knobDiameter }
+        return knobDiameter + (reduceMotion ? min(knobGrowth, 2) : knobGrowth)
+    }
+}
+
 #if os(iOS)
 /// iOS exposes output volume as read-only on `AVAudioSession`; `MPVolumeView`
 /// is the supported interactive control. Its slider observes hardware-button,
 /// Control Center, Bluetooth and AirPlay volume changes, so the value rendered
 /// here always describes the route that is actually producing sound. This also
 /// works for MusicKit playback, which bypasses Primuse's `AVAudioEngine`.
+///
+/// 只换系统滑块的外观(轨道图、圆钮图),数值、拖动、旁白调节仍是系统那一个滑块自己管,
+/// 硬件音量键、控制中心、隔空播放改的音量照样同步过来。
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
     static let verticalOffset: CGFloat = 1.5
 
-    final class Coordinator {
+    var trackStyle: PlayerVolumeTrackStyle = .system
+    /// 填充与圆钮的颜色;nil 时用前景色(深色白、浅色黑)。
+    var fillTint: Color? = nil
+
+    /// 按住时换上加粗的轨道与放大的圆钮,开始拖、拖到一头时震一下。
+    @MainActor
+    final class Coordinator: NSObject {
         var styleKey: StyleKey?
+        weak var slider: UISlider?
+        var images: SystemVolumeTrackImages?
+        private var edge: SliderScrubFeedbackPolicy.Edge = .none
+        /// 这一次按下之后已经震过「开始拖」了。只点一下圆钮不拖,不震。
+        private var playedDragFeedback = false
+        private let dragFeedback = UIImpactFeedbackGenerator(style: .light)
+        private let edgeFeedback = UIImpactFeedbackGenerator(style: .rigid)
+
+        func attach(to slider: UISlider) {
+            guard self.slider !== slider else { return }
+            self.slider = slider
+            slider.addTarget(self, action: #selector(touchDown(_:)), for: .touchDown)
+            slider.addTarget(self, action: #selector(valueChanged(_:)), for: .valueChanged)
+            slider.addTarget(self, action: #selector(touchEnded(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        }
+
+        @objc private func touchDown(_ slider: UISlider) {
+            edge = Self.edge(of: slider)
+            playedDragFeedback = false
+            dragFeedback.prepare()
+            edgeFeedback.prepare()
+            apply(isActive: true, animated: true)
+        }
+
+        @objc private func valueChanged(_ slider: UISlider) {
+            // 系统自己同步过来的音量(音量键、控制中心)不走这里,只有手指拖动才会震。
+            guard slider.isTracking else { return }
+            if !playedDragFeedback {
+                playedDragFeedback = true
+                dragFeedback.impactOccurred(intensity: 0.7)
+            }
+            let current = Self.edge(of: slider)
+            if SliderScrubFeedbackPolicy.playsEdgeFeedback(from: edge, to: current) {
+                edgeFeedback.impactOccurred(intensity: 0.8)
+            }
+            edge = current
+        }
+
+        @objc private func touchEnded(_ slider: UISlider) {
+            edge = .none
+            apply(isActive: false, animated: true)
+        }
+
+        /// 平时 / 按住两套图之间换。系统样式平时不铺自己的轨道图,和一直以来的系统滑块一模一样。
+        func apply(isActive: Bool, animated: Bool) {
+            guard let slider, let images else { return }
+            let state = isActive ? images.active : images.resting
+            if animated, !UIAccessibility.isReduceMotionEnabled {
+                // 两套图之间淡过去,不是一下跳粗。
+                let fade = CATransition()
+                fade.type = .fade
+                fade.duration = isActive ? 0.16 : 0.24
+                slider.layer.add(fade, forKey: "primuse.volumeTrackState")
+            }
+            UIView.performWithoutAnimation {
+                slider.setMinimumTrackImage(state.minimumTrack, for: .normal)
+                slider.setMaximumTrackImage(state.maximumTrack, for: .normal)
+                slider.setThumbImage(state.thumb, for: .normal)
+                slider.setThumbImage(state.thumb, for: .highlighted)
+            }
+        }
+
+        private static func edge(of slider: UISlider) -> SliderScrubFeedbackPolicy.Edge {
+            let span = slider.maximumValue - slider.minimumValue
+            guard span > 0 else { return .none }
+            return SliderScrubFeedbackPolicy.edge(fraction: Double((slider.value - slider.minimumValue) / span))
+        }
     }
 
     struct StyleKey: Equatable {
         let isLight: Bool
         let usesIncreasedContrast: Bool
+        let trackStyle: PlayerVolumeTrackStyle
+        let fillTint: Color?
+        let reduceMotion: Bool
     }
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -10805,7 +10967,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
             // UISlider's frame can make the track disappear on newer iOS.
             view.setContentHuggingPriority(.defaultLow, for: .horizontal)
             view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            styleSlider(in: view)
+            styleSlider(in: view, coordinator: context.coordinator)
             view.layoutIfNeeded()
         }
         context.coordinator.styleKey = currentStyleKey
@@ -10818,7 +10980,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
             return
         }
         UIView.performWithoutAnimation {
-            styleSlider(in: uiView)
+            styleSlider(in: uiView, coordinator: context.coordinator)
             uiView.setNeedsLayout()
             uiView.layoutIfNeeded()
         }
@@ -10839,7 +11001,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
         return CGSize(width: width, height: Self.compactHeight)
     }
 
-    private func styleSlider(in volumeView: MPVolumeView) {
+    private func styleSlider(in volumeView: MPVolumeView, coordinator: Coordinator) {
         volumeView.backgroundColor = .clear
         volumeView.subviews
             .compactMap { $0 as? UIButton }
@@ -10849,14 +11011,21 @@ struct SystemVolumeSlider: UIViewRepresentable {
             return
         }
         let foreground = playerUIColor
-        slider.minimumTrackTintColor = foreground
-        slider.maximumTrackTintColor = foreground.withAlphaComponent(
-            colorSchemeContrast == .increased ? 0.30 : 0.20
-        )
-        slider.thumbTintColor = foreground
-        slider.setThumbImage(thumbImage(diameter: 12, color: foreground), for: .normal)
-        slider.setThumbImage(thumbImage(diameter: 14, color: foreground), for: .highlighted)
+        let fill = fillTint.map { UIColor($0) } ?? foreground
+        let track = foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.30 : 0.20)
+        slider.minimumTrackTintColor = fill
+        slider.maximumTrackTintColor = track
+        slider.thumbTintColor = fill
         slider.accessibilityLabel = String(localized: "volume")
+        coordinator.attach(to: slider)
+        coordinator.images = SystemVolumeTrackImages(
+            style: trackStyle,
+            fill: fill,
+            track: track,
+            usesSystemTrackAtRest: trackStyle == .system,
+            reduceMotion: reduceMotion
+        )
+        coordinator.apply(isActive: slider.isTracking, animated: false)
     }
 
     private var playerUIColor: UIColor {
@@ -10868,16 +11037,11 @@ struct SystemVolumeSlider: UIViewRepresentable {
     private var currentStyleKey: StyleKey {
         StyleKey(
             isLight: colorScheme == .light,
-            usesIncreasedContrast: colorSchemeContrast == .increased
+            usesIncreasedContrast: colorSchemeContrast == .increased,
+            trackStyle: trackStyle,
+            fillTint: fillTint,
+            reduceMotion: reduceMotion
         )
-    }
-
-    private func thumbImage(diameter: CGFloat, color: UIColor) -> UIImage {
-        let size = CGSize(width: diameter, height: diameter)
-        return UIGraphicsImageRenderer(size: size).image { context in
-            color.setFill()
-            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
-        }
     }
 
     private func findSlider(in view: UIView) -> UISlider? {
@@ -10892,16 +11056,136 @@ struct SystemVolumeSlider: UIViewRepresentable {
         return nil
     }
 }
+
+/// 系统音量滑块平时与按住时的两套图:轨道(填充段、剩余段)与圆钮。
+///
+/// 两段轨道图在同一状态下一样高(发光、波浪的余量都算进去),滑块把它们竖着居中摆,粗细只按画进去的那条线变。
+/// 不画圆钮的样式也留一颗透明的圆钮:系统滑块要从圆钮那里拖起。
+struct SystemVolumeTrackImages {
+    struct State {
+        let minimumTrack: UIImage?
+        let maximumTrack: UIImage?
+        let thumb: UIImage
+    }
+
+    let resting: State
+    let active: State
+
+    /// - Parameter usesSystemTrackAtRest: 系统样式平时不换轨道图(nil 即系统自己画的那条),只在按住时换成加粗的。
+    @MainActor
+    init(
+        style: PlayerVolumeTrackStyle,
+        fill: UIColor,
+        track: UIColor,
+        usesSystemTrackAtRest: Bool,
+        reduceMotion: Bool
+    ) {
+        func state(isActive: Bool) -> State {
+            let height = style.height(isActive: isActive, reduceMotion: reduceMotion)
+            let knob = style.knob(isActive: isActive, reduceMotion: reduceMotion)
+            let glowPad: CGFloat = style.glows ? 8 : 0
+            let wavePad: CGFloat = style.isWave ? Self.waveAmplitude : 0
+            let canvasHeight = height + 2 * (glowPad + wavePad)
+            let useSystemTrack = usesSystemTrackAtRest && !isActive
+            return State(
+                minimumTrack: useSystemTrack ? nil : (style.isWave
+                    ? Self.waveImage(lineWidth: height, canvasHeight: canvasHeight, color: fill, glows: style.glows)
+                    : Self.capsuleImage(height: height, canvasHeight: canvasHeight, color: fill, glows: style.glows)),
+                maximumTrack: useSystemTrack ? nil
+                    : Self.capsuleImage(height: height, canvasHeight: canvasHeight, color: track, glows: false),
+                thumb: knob.map { Self.circleImage(diameter: $0, color: fill, glows: style.glows) }
+                    ?? Self.clearImage(side: 24)
+            )
+        }
+        resting = state(isActive: false)
+        active = state(isActive: true)
+    }
+
+    static let waveAmplitude: CGFloat = 3
+    static let waveLength: CGFloat = 26
+
+    /// 一条居中的胶囊,两头按半径留出不拉伸的部分。
+    @MainActor
+    private static func capsuleImage(height: CGFloat, canvasHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
+        let inset = (canvasHeight - height) / 2
+        let width = height + 2 * inset + 2
+        let size = CGSize(width: width, height: canvasHeight)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let rect = CGRect(x: inset, y: inset, width: width - 2 * inset, height: height)
+            if glows {
+                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
+            }
+            color.setFill()
+            UIBezierPath(roundedRect: rect, cornerRadius: height / 2).fill()
+        }
+        let cap = inset + height / 2
+        return image.resizableImage(
+            withCapInsets: UIEdgeInsets(top: 0, left: cap, bottom: 0, right: cap),
+            resizingMode: .stretch
+        )
+    }
+
+    /// 一个波长的正弦线,横着平铺成填充那一段。
+    @MainActor
+    private static func waveImage(lineWidth: CGFloat, canvasHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
+        let size = CGSize(width: waveLength, height: canvasHeight)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let path = UIBezierPath()
+            let midY = canvasHeight / 2
+            var x: CGFloat = 0
+            path.move(to: CGPoint(x: 0, y: midY))
+            while x < waveLength {
+                x = min(x + 1, waveLength)
+                path.addLine(to: CGPoint(x: x, y: midY + waveAmplitude * sin(2 * .pi * x / waveLength)))
+            }
+            if glows {
+                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
+            }
+            color.setStroke()
+            path.lineWidth = lineWidth
+            path.lineCapStyle = .butt
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+        return image.resizableImage(withCapInsets: .zero, resizingMode: .tile)
+    }
+
+    @MainActor
+    private static func circleImage(diameter: CGFloat, color: UIColor, glows: Bool) -> UIImage {
+        let pad: CGFloat = glows ? 6 : 0
+        let size = CGSize(width: diameter + 2 * pad, height: diameter + 2 * pad)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            if glows {
+                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
+            }
+            color.setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: pad, y: pad, width: diameter, height: diameter))
+        }
+    }
+
+    @MainActor
+    private static func clearImage(side: CGFloat) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in }
+    }
+}
 #endif
 
 struct VolumeSlider: View {
     @Binding var value: Double
+    var trackStyle: PlayerVolumeTrackStyle = .system
+    /// 填充与圆钮的颜色;nil 时用前景色。
+    var fillTint: Color? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var isDragging = false
     @State private var localValue: Double?
+    /// 开始拖、拖到一头各震一次(PRIM-45)。
+    @State private var dragFeedbackToken = 0
+    @State private var edgeFeedbackToken = 0
+    @State private var edge: SliderScrubFeedbackPolicy.Edge = .none
 
     private var displayValue: Double { localValue ?? value }
     private var appearance: NowPlayingAppearance {
@@ -10912,34 +11196,85 @@ struct VolumeSlider: View {
         GeometryReader { geo in
             let width = geo.size.width
             let progress = CGFloat(max(0, min(1, displayValue)))
-            let trackHeight: CGFloat = isDragging ? 8 : 5
+            let trackHeight = trackStyle.height(isActive: isDragging, reduceMotion: reduceMotion)
+            let filledWidth = max(0, min(width, width * progress))
+            let fill = fillTint ?? appearance.primary
+            let glow = ProgressGlow(color: fill, isEnabled: trackStyle.glows, isLit: true, isLight: appearance.isLight)
 
             ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(appearance.track)
-                    .frame(height: trackHeight)
+                if trackStyle.isWave {
+                    Capsule()
+                        .fill(appearance.track)
+                        .frame(width: max(0, width - filledWidth), height: trackHeight)
+                        .offset(x: filledWidth)
+                    ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
+                        .stroke(fill, style: StrokeStyle(lineWidth: trackHeight, lineCap: .round, lineJoin: .round))
+                        .frame(width: filledWidth)
+                        .modifier(glow)
+                } else {
+                    Capsule()
+                        .fill(appearance.track)
+                        .frame(height: trackHeight)
 
-                Capsule()
-                    .fill(appearance.primary)
-                    .frame(width: max(0, min(width, width * progress)), height: trackHeight)
+                    Capsule()
+                        .fill(fill)
+                        .frame(width: filledWidth, height: trackHeight)
+                        .modifier(glow)
+                }
+
+                if let knob = trackStyle.knob(isActive: isDragging, reduceMotion: reduceMotion) {
+                    Circle()
+                        .fill(fill)
+                        .frame(width: knob, height: knob)
+                        .offset(x: filledWidth - knob / 2)
+                        .modifier(glow)
+                }
             }
             .frame(height: 20)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        isDragging = true
-                        localValue = Double(max(0, min(1, gesture.location.x / width)))
-                        value = localValue!
+                        if !isDragging {
+                            isDragging = true
+                            dragFeedbackToken += 1
+                        }
+                        let next = Double(max(0, min(1, gesture.location.x / max(width, 1))))
+                        let nextEdge = SliderScrubFeedbackPolicy.edge(fraction: next)
+                        if SliderScrubFeedbackPolicy.playsEdgeFeedback(from: edge, to: nextEdge) {
+                            edgeFeedbackToken += 1
+                        }
+                        edge = nextEdge
+                        localValue = next
+                        value = next
                     }
                     .onEnded { _ in
                         localValue = nil
-                        withAnimation(.easeOut(duration: 0.2)) { isDragging = false }
+                        edge = .none
+                        isDragging = false
                     }
             )
-            .animation(.easeInOut(duration: 0.15), value: isDragging)
+            // 按下时弹一下变粗,松手后慢慢收回;减弱动态效果时只是轻微地变。
+            .animation(
+                reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.3, bounce: 0.2),
+                value: isDragging
+            )
         }
         .frame(height: 20)
+        #if os(iOS)
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: dragFeedbackToken)
+        .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.8), trigger: edgeFeedbackToken)
+        #endif
+        .accessibilityElement()
+        .accessibilityLabel(Text("volume"))
+        .accessibilityValue(Text(verbatim: "\(Int((displayValue * 100).rounded()))%"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(1, value + 0.0625)
+            case .decrement: value = max(0, value - 0.0625)
+            @unknown default: break
+            }
+        }
     }
 }
 

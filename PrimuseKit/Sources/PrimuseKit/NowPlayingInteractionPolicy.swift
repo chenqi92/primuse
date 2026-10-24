@@ -197,3 +197,37 @@ public enum NowPlayingInteractionPolicy {
         return min(max(currentTime + delta, 0), duration)
     }
 }
+
+/// 播放页进度条、音量条按住时的操作态与触感(看板 PRIM-45)。按住就加粗,松手、取消再慢慢收回;
+/// 只在开始拖和拖到一头时各轻震一次,数值变着的时候不跟着连续震。
+public enum SliderScrubFeedbackPolicy {
+    /// 拖到了哪一头。
+    public enum Edge: Equatable, Sendable {
+        case none
+        case lower
+        case upper
+    }
+
+    /// 离两头多近(占整条的比例)算碰到。
+    public static let edgeTolerance = 0.001
+    /// 开了「减弱动态效果」时按住只加粗这么多点。
+    public static let reducedMotionGrowth = 1.5
+
+    public static func edge(fraction: Double) -> Edge {
+        guard fraction.isFinite else { return .none }
+        if fraction <= edgeTolerance { return .lower }
+        if fraction >= 1 - edgeTolerance { return .upper }
+        return .none
+    }
+
+    /// 碰到一头时震一次;停在那一头不再震,离开以后再碰到才再震,直接从一头拖到另一头也算一次。
+    public static func playsEdgeFeedback(from previous: Edge, to current: Edge) -> Bool {
+        current != .none && current != previous
+    }
+
+    /// 按住时轨道的粗细。减弱动态效果时只比平时粗一点。
+    public static func activeHeight(resting: Double, active: Double, reduceMotion: Bool) -> Double {
+        let target = max(resting, active)
+        return reduceMotion ? min(target, resting + reducedMotionGrowth) : target
+    }
+}

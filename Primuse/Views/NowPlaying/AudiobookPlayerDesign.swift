@@ -426,10 +426,11 @@ struct AudiobookProgressBar: View {
             track.trackColor = style.track
             return track
         }
+        // 按住时和音乐页一样明显加粗、圆点放大(PRIM-45)。
         if selected == .wave {
             return ProgressSlider.TrackStyle(
                 restingHeight: 3,
-                draggingHeight: 5,
+                draggingHeight: 6,
                 trackColor: style.track,
                 isWave: true,
                 glows: progressGlows
@@ -437,9 +438,10 @@ struct AudiobookProgressBar: View {
         }
         return ProgressSlider.TrackStyle(
             restingHeight: 2,
-            draggingHeight: 4,
+            draggingHeight: 5,
             trackColor: style.track,
             knobDiameter: 9,
+            knobGrowth: 5,
             glows: progressGlows
         )
     }
