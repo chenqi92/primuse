@@ -7354,8 +7354,12 @@ final class AudioPlayerService {
     }
 
     func shouldBypassContinuousAudioTransition(for song: Song?) -> Bool {
-        guard let song,
-              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+        guard let song else { return false }
+        // Apple Music 的歌由 MusicKit 出声, 本地引擎拿不到它的音频: 既不能提前
+        // 解码接上, 也淡不进去。不拦的话淡入淡出到点会先去解析它的地址, 必然
+        // 报 "Apple Music is not implemented yet" 后作废, 再照常在曲末交接。
+        if song.sourceID == AppleMusicLibraryService.systemSourceID { return true }
+        guard song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
         // 独立 MV 始终走视频管线, 无论模式开关 / 车机路由都不该做 gapless 预取。

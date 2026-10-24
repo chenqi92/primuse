@@ -439,6 +439,25 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 0)
     }
 
+    func testAppleMusicSuccessorIsNeitherPreparedNorCrossfadedInto() throws {
+        let appleMusic = Song(
+            id: "apple-music", title: "Apple Music Song", duration: 240, fileFormat: .m4a,
+            filePath: "i.apple-music", sourceID: AppleMusicLibraryService.systemSourceID
+        )
+        var settings = try makePlayer().playbackSettings.snapshot()
+        settings.gaplessEnabled = true
+        settings.crossfadeEnabled = false
+
+        let local = try makeQueuedPlayer([song("current"), song("next")])
+        XCTAssertFalse(local.shouldBypassContinuousAudioTransition(for: local.nextSongInQueue()))
+        XCTAssertNotEqual(local.continuousTransitionPlan(settings: settings), .restart)
+
+        let player = try makeQueuedPlayer([song("current"), appleMusic])
+        XCTAssertEqual(player.nextSongInQueue()?.id, appleMusic.id)
+        XCTAssertTrue(player.shouldBypassContinuousAudioTransition(for: appleMusic))
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart)
+    }
+
     // MARK: - Medley
 
     func testMedleySlicesCarryTheirWindowAndSkipWhatCannotBeSliced() throws {
