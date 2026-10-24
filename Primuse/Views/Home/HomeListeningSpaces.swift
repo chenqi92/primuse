@@ -201,9 +201,6 @@ struct HomeBooksInProgressStrip: View {
     var limit = 12
     var openSpace: (ListeningSpace) -> Void
 
-    @Environment(AudioPlayerService.self) private var player
-    @Environment(\.homeCoverCardWidth) private var cardWidth
-
     var body: some View {
         if books.count >= max(1, minimumCount) {
             VStack(alignment: .leading, spacing: 10) {
@@ -215,23 +212,7 @@ struct HomeBooksInProgressStrip: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(books.prefix(max(limit, 1)), id: \.0.id) { book, songs in
-                            Button {
-                                SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
-                                    ProgressView(value: book.fractionComplete)
-                                        .progressViewStyle(.linear)
-                                        .tint(ListeningSpace.spokenWord.tint)
-                                    Text(book.title)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(2)
-                                }
-                                .frame(width: cardWidth, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                            HomeBookCard(book: book, songs: songs, showsAuthor: false)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -285,8 +266,6 @@ struct HomeAudiobooksSection: View {
     var excludesInProgressWhenAutomatic = false
     var openSpace: (ListeningSpace) -> Void
 
-    @Environment(AudioPlayerService.self) private var player
-    @Environment(\.homeCoverCardWidth) private var cardWidth
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var selectionRawValue = ""
     @AppStorage("spokenWord.shelf.order") private var shelfOrderRawValue = ""
 
@@ -324,41 +303,101 @@ struct HomeAudiobooksSection: View {
     }
 
     private func bookButton(_ entry: SpokenWordLibrarySnapshot.Entry) -> some View {
-        let book = entry.book
-        return Button {
-            SpokenWordBookSupport.play(book, songs: entry.songs, from: nil, player: player)
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                SpokenWordBookCover(song: entry.songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
+        HomeBookCard(book: entry.book, songs: entry.songs)
+    }
+}
+
+/// 首页「有声书」「在听的书」里的一本书,照「播客」那一排的卡片排(#349):点封面或书名进书的页面,
+/// 封面右下角一颗播放 / 暂停键,外圈是听到哪儿的进度,不再在封面下面另画一条进度条。
+struct HomeBookCard: View {
+    let book: SpokenWordBook
+    let songs: [Song]
+    var showsAuthor = true
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.homeCoverCardWidth) private var cardWidth
+
+    private var tint: Color { ListeningSpace.spokenWord.tint }
+
+    /// 和播客卡上那颗一样大:跟着封面缩放,手机横屏的小卡上也不小于 30。
+    private var playButtonSize: CGFloat {
+        min(36, max(30, (cardWidth * 0.23).rounded()))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            NavigationLink {
+                SpokenWordBookDetailView(bookID: book.id)
+            } label: {
+                SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
                     .overlay(alignment: .topTrailing) {
                         if book.isFinished {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.subheadline)
                                 .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, ListeningSpace.spokenWord.tint)
+                                .foregroundStyle(.white, tint)
                                 .padding(5)
                         }
                     }
-                if book.isInProgress {
-                    ProgressView(value: book.fractionComplete)
-                        .progressViewStyle(.linear)
-                        .tint(ListeningSpace.spokenWord.tint)
-                }
-                Text(book.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                if let author = book.author, !author.isEmpty {
-                    Text(author)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
             }
-            .frame(width: cardWidth, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .overlay(alignment: .bottomTrailing) {
+                playButton
+                    .background(.regularMaterial, in: Circle())
+                    .padding(8)
+            }
+            NavigationLink {
+                SpokenWordBookDetailView(bookID: book.id)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(book.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if showsAuthor, let author = book.author, !author.isEmpty {
+                        Text(author)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(width: cardWidth, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: cardWidth, alignment: .leading)
+    }
+
+    private var isCurrentBook: Bool {
+        guard let currentID = player.currentSong?.id else { return false }
+        return songs.contains { $0.id == currentID }
+    }
+
+    private var playButton: some View {
+        let isCurrent = isCurrentBook
+        let isPlaying = isCurrent && player.isPlaying
+        let fraction = CGFloat(book.isFinished ? 1 : min(1, max(0, book.fractionComplete)))
+        return Button {
+            if isCurrent {
+                player.togglePlayPause()
+            } else {
+                SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+            }
+        } label: {
+            SpokenWordProgressPlayGlyph(
+                fraction: fraction,
+                isPlaying: isPlaying,
+                isLoading: isCurrent && player.isLoading,
+                size: playButtonSize,
+                tint: tint
+            )
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(Text(isPlaying ? "pause" : (book.canContinue ? "spoken_word_continue" : "spoken_word_start")))
+        .accessibilityValue(Text(verbatim: "\(Int((fraction * 100).rounded()))%"))
     }
 }
 
