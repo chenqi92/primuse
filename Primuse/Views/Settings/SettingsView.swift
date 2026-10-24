@@ -631,6 +631,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
+    @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
+    private var tapArtworkOpensLyrics = PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
     private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
     @AppStorage(ExternalDisplayContentMode.storageKey)
@@ -712,6 +714,14 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.audioInfo")
+            }
+            Section {
+                Toggle(isOn: $tapArtworkOpensLyrics) {
+                    SettingsInfoLabel("player_tap_artwork_opens_lyrics") {
+                        Text("player_tap_artwork_opens_lyrics_footer")
+                    }
+                }
+                .settingsAnchor("player.tapArtworkOpensLyrics")
             }
             Section {
                 Toggle(isOn: $keepsScreenAwake) {
@@ -2237,6 +2247,13 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("playback.shufflePreference")
+
+                Toggle(isOn: $settings.previousRestartsCurrentSong) {
+                    SettingsInfoLabel("previous_restarts_current_song") {
+                        Text("previous_restarts_current_song_footer")
+                    }
+                }
+                .settingsAnchor("playback.previousRestarts")
             }
 
             Section {

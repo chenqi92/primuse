@@ -2055,6 +2055,9 @@ struct NowPlayingView: View {
     /// 点大封面切到歌词。有声内容同样切到文字稿那一页,有没有文字稿都一样:没有时那一页写明没有、
     /// 能生成就给生成,生成中显示进度(`SpokenTranscriptEmptyState`)。
     private func openTextFromArtwork() {
+        // 设置里关了「点封面切到歌词」(#348):误碰封面不再换页,只有歌词键切换。点按那一刻才读。
+        guard UserDefaults.standard.object(forKey: PlayerAppearancePreferences.tapArtworkOpensLyricsKey) as? Bool
+            ?? PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault else { return }
         if usesSpokenWordTransport, isPlayerSplit {
             showSpokenWordTextPane()
             return
@@ -3542,8 +3545,7 @@ struct NowPlayingView: View {
         // 专辑、书、播客节目、电台这几张资料库页面套 `playerLibraryPagePresentation`,照 App 的外观画。
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .queueSheetPresentation()
                 .playerPresentationColorScheme()
         }
         .modifier(NowPlayingSpokenWordTextPresentations(
@@ -14528,7 +14530,7 @@ struct LyricsScrollView: View {
                         let longPressAt = lastSurfaceLongPressAt
                         lastSurfaceLongPressAt = .distantPast
                         guard LyricsBackgroundTapPolicy.shouldHandle(
-                            hasLyrics: !lyrics.isEmpty,
+                            showsLyricsSurface: !lyrics.isEmpty || spokenWordEmptyState == nil,
                             isPinching: isPinchingLyrics,
                             rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime),
                             timeSinceUserScroll: eventTime.timeIntervalSince(lastUserScrollTime),
@@ -14568,9 +14570,13 @@ struct LyricsScrollView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
+    /// 「暂无歌词」那一页点空白回封面(#348);按这两颗按钮不算点空白。
     @ViewBuilder
     private var emptyLyricsActions: some View {
-        Button { onAutomaticScrape() } label: {
+        Button {
+            lastLyricRowTapAt = Date()
+            onAutomaticScrape()
+        } label: {
             HStack(spacing: 7) {
                 if isScrapingCurrentSong {
                     ProgressView()
@@ -14591,7 +14597,10 @@ struct LyricsScrollView: View {
         .disabled(isScrapeActionUnavailable)
 
         if canTranscribeAudio {
-            Button { onTranscribeAudio() } label: {
+            Button {
+                lastLyricRowTapAt = Date()
+                onTranscribeAudio()
+            } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "waveform.badge.mic")
                     Text("ai_audio_transcription_action")

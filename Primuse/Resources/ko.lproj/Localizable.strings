@@ -682,6 +682,10 @@
 "gapless_desc" = "무음 구간 없이 트랙 사이를 자연스럽게 전환합니다.";
 "auto_continue_similar" = "재생 후 비슷한 곡 계속 재생";
 "auto_continue_similar_footer" = "대기열이 끝나면 마지막 몇 곡과 비슷한 곡을 보관함에서 이어서 재생합니다. 대기열에서는 '자동 재생' 아래에 표시됩니다. 오디오북, 라디오, 반복 재생에는 적용되지 않습니다.";
+"previous_restarts_current_song" = "이전 곡 버튼은 먼저 처음부터";
+"previous_restarts_current_song_footer" = "노래가 3초 넘게 재생된 뒤 이전 곡을 누르면 먼저 이 곡을 처음부터 재생하고, 한 번 더 누르면 이전 곡으로 갑니다. 끄면 언제나 바로 이전 곡으로 갑니다.";
+"player_tap_artwork_opens_lyrics" = "아트워크를 탭하면 가사 보기";
+"player_tap_artwork_opens_lyrics_footer" = "플레이어의 큰 아트워크를 탭하면 가사로 전환됩니다(오디오북과 팟캐스트는 텍스트). 끄면 아트워크를 탭해도 전환되지 않으며 아래의 가사 버튼으로 전환합니다. 가사가 없는 노래에서는 가사 화면의 빈 곳을 탭해도 아트워크로 돌아갑니다.";
 "queue_autoplay_section" = "자동 재생 · 비슷한 곡";
 "crossfade" = "크로스페이드";
 "crossfade_duration" = "크로스페이드 시간";

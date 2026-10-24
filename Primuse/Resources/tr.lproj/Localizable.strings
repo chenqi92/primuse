@@ -1228,6 +1228,10 @@
 "gapless_desc" = "Parçalar arasında herhangi bir sessizlik boşluğu olmadan sorunsuz geçiş yapın.";
 "auto_continue_similar" = "Benzer şarkılarla devam et";
 "auto_continue_similar_footer" = "Sıra bittiğinde kitaplığındaki, son çalınanlara benzeyen şarkılar çalmaya devam eder. Sırada “Otomatik oynatma” altında görünürler. Sesli kitaplar, radyo ve tekrar bundan etkilenmez.";
+"previous_restarts_current_song" = "Önceki önce şarkıyı baştan başlatır";
+"previous_restarts_current_song_footer" = "Şarkı 3 saniyeden uzun çaldıysa Önceki önce onu baştan başlatır, ikinci basış önceki şarkıya geçer. Kapatırsanız Önceki her zaman doğrudan önceki şarkıya geçer.";
+"player_tap_artwork_opens_lyrics" = "Kapağa dokununca şarkı sözleri";
+"player_tap_artwork_opens_lyrics_footer" = "Oynatıcıdaki büyük kapağa dokunmak şarkı sözlerine, sesli kitap ve podcast’lerde metne geçer. Kapatırsanız kapağa dokunmak bir şey yapmaz; sözler düğmesini kullanın. Şarkının sözü yoksa sözler sayfasında boş bir yere dokunmak da kapağa geri döner.";
 "queue_autoplay_section" = "Otomatik oynatma · Benzer";
 "baidu_error_invalid_scope" = "Access_token geçersiz veya netdisk kapsamına sahip değil (hata -6).";
 "carplay_search_no_results" = "Sonuç yok";

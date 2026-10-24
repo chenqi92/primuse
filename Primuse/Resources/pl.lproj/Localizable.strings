@@ -1461,6 +1461,10 @@
 "gapless_desc" = "Płynne przejście między utworami, bez przerwy ciszy.";
 "auto_continue_similar" = "Odtwarzaj dalej podobne utwory";
 "auto_continue_similar_footer" = "Gdy kolejka się skończy, grają dalej utwory z biblioteki podobne do ostatnich. W kolejce pojawiają się w sekcji „Autoodtwarzanie”. Nie dotyczy audiobooków, radia ani powtarzania.";
+"previous_restarts_current_song" = "Wstecz najpierw od początku utworu";
+"previous_restarts_current_song_footer" = "Gdy utwór gra dłużej niż 3 sekundy, Wstecz najpierw odtwarza go od początku, a drugie naciśnięcie przechodzi do poprzedniego. Po wyłączeniu Wstecz zawsze od razu przechodzi do poprzedniego utworu.";
+"player_tap_artwork_opens_lyrics" = "Stuknięcie okładki pokazuje tekst";
+"player_tap_artwork_opens_lyrics_footer" = "Stuknięcie dużej okładki w odtwarzaczu przełącza na tekst utworu, a w audiobookach i podcastach na transkrypcję. Po wyłączeniu stuknięcie okładki nic nie robi; przełączaj przyciskiem tekstu. Gdy utwór nie ma tekstu, stuknięcie pustego miejsca na stronie tekstu też wraca do okładki.";
 "queue_autoplay_section" = "Autoodtwarzanie · Podobne";
 "gapless_not_available" = "Odtwarzanie bez przerw jest dostępne dla utworów znajdujących się w kolejce. Crossfade wyłącza to.";
 "gapless_playback" = "Odtwarzanie bez przerw";

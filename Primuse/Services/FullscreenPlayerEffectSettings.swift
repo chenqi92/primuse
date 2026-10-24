@@ -167,6 +167,10 @@ enum PlayerAppearancePreferences {
     static let playerScreenWakeRequiresChargingByDefault = false
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
     static let tapLyricsToSeekByDefault = true
+    /// 点大封面切到歌词(有声书、播客是文字稿)。关掉后点封面不换页,只用歌词键切换(#348)。
+    /// 键名不带点号(见 #344 的教训)。
+    static let tapArtworkOpensLyricsKey = "playerTapArtworkOpensLyrics"
+    static let tapArtworkOpensLyricsByDefault = true
     /// 两句歌词之间有长间奏时,在上一句下面显示三个随间奏进度点亮的点(#198 可以关掉)。
     static let showsLyricsInterludeKey = "primuse.player.showsLyricsInterlude"
     static let showsLyricsInterludeByDefault = true

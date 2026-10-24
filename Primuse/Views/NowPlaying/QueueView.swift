@@ -14,21 +14,39 @@ struct QueueView: View {
     @Environment(\.pmHeightClass) private var heightClass
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:随机键带上标题、优先留在竖栏里。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.dismiss) private var dismiss
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
         if isEmbedded {
             content
         } else {
+            // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
+            let close = dismiss
             NavigationStack {
                 content
                     .navigationTitle("queue_title")
                     #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
                     #endif
-                    // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
-                    .toolbar { shuffleToolbarContent(titled: verticalBarEdge != nil) }
+                    .toolbar {
+                        closeToolbarItem(close)
+                        shuffleToolbarContent(titled: verticalBarEdge != nil)
+                    }
             }
+        }
+    }
+
+    /// 左上角的关闭键:拉到全屏后不必再把手伸到顶上往下拉(#348)。
+    @ToolbarContentBuilder
+    private func closeToolbarItem(_ close: DismissAction) -> some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button {
+                close()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .accessibilityLabel(Text("close"))
         }
     }
 
@@ -405,6 +423,30 @@ struct QueueView: View {
         pmWithAnimation(.list) {
             _ = player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
         }
+    }
+}
+
+/// 播放队列的弹出页：半屏起手、上拉到全屏；全屏时一拉下来就关掉，不再先退回半屏、要再拉一次才收起
+/// （#348）。认的是「从全屏落到半屏」这一步，不管是哪种手势让它落下来的。挂在弹出页的内容上，
+/// `dismiss` 关的就是这一页。
+struct QueueSheetPresentation: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+    @State private var detent: PresentationDetent = .medium
+
+    func body(content: Content) -> some View {
+        content
+            .presentationDetents([.medium, .large], selection: $detent)
+            .presentationDragIndicator(.visible)
+            .onChange(of: detent) { previous, current in
+                guard previous == .large, current == .medium else { return }
+                dismiss()
+            }
+    }
+}
+
+extension View {
+    func queueSheetPresentation() -> some View {
+        modifier(QueueSheetPresentation())
     }
 }
 

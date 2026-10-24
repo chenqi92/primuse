@@ -7534,14 +7534,17 @@ public enum LyricsBackgroundTapPolicy {
     /// 长按识别之后这段时间内松手的那一下都不算点空白（按得再久也少有超过这个）。
     public static let longPressSuppressionInterval: TimeInterval = 8
 
+    /// - Parameter showsLyricsSurface: 歌词、加载占位或「暂无歌词」那一页正显示着。没歌词时点空白
+    ///   同样回封面(#348),那一页的按钮自己按 `rowTapTimeDistance` 挡掉;只有有声内容还没有文字稿
+    ///   时那一页(生成、导入文字稿的面板)不算。
     public static func shouldHandle(
-        hasLyrics: Bool,
+        showsLyricsSurface: Bool,
         isPinching: Bool,
         rowTapTimeDistance: TimeInterval,
         timeSinceUserScroll: TimeInterval = .infinity,
         timeSinceLongPress: TimeInterval = .infinity
     ) -> Bool {
-        hasLyrics
+        showsLyricsSurface
             && !isPinching
             && abs(rowTapTimeDistance) > rowSuppressionInterval
             && abs(timeSinceUserScroll) > scrollSuppressionInterval

@@ -683,6 +683,10 @@
 "gapless_desc" = "曲間の無音をなくし、トラック間をシームレスに切り替えます。";
 "auto_continue_similar" = "再生後に似た曲を続けて再生";
 "auto_continue_similar_footer" = "キューの再生が終わると、最後の数曲に似た曲をライブラリから続けて再生します。キューでは「自動再生」の下に表示されます。オーディオブック、ラジオ、リピート中は対象外です。";
+"previous_restarts_current_song" = "前の曲ボタンでまず曲の頭に戻る";
+"previous_restarts_current_song_footer" = "曲が 3 秒以上再生されているときに前の曲を押すと、まずその曲を最初から再生し、もう一度押すと前の曲に戻ります。オフにすると常に前の曲へ直接移動します。";
+"player_tap_artwork_opens_lyrics" = "アートワークをタップして歌詞を表示";
+"player_tap_artwork_opens_lyrics_footer" = "プレーヤーの大きなアートワークをタップすると歌詞に切り替わります（オーディオブックとポッドキャストではテキスト）。オフにするとアートワークをタップしても切り替わらず、下の歌詞ボタンで切り替えます。歌詞がない曲では、歌詞画面の空いている所をタップするとアートワークに戻ります。";
 "queue_autoplay_section" = "自動再生 · 似た曲";
 "crossfade" = "クロスフェード";
 "crossfade_duration" = "クロスフェードの長さ";

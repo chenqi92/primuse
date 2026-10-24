@@ -682,6 +682,10 @@
 "gapless_desc" = "Enchaînez les morceaux en continu, sans silence entre eux.";
 "auto_continue_similar" = "Continuer avec des titres similaires";
 "auto_continue_similar_footer" = "Quand la file d’attente se termine, des titres de votre bibliothèque proches des derniers écoutés prennent le relais. Ils apparaissent sous « Lecture automatique » dans la file. Les livres audio, la radio et la répétition ne sont pas concernés.";
+"previous_restarts_current_song" = "Précédent revient d’abord au début";
+"previous_restarts_current_song_footer" = "Quand un morceau joue depuis plus de 3 secondes, Précédent le reprend d’abord au début ; un second appui passe au morceau précédent. Désactivez l’option pour toujours passer directement au morceau précédent.";
+"player_tap_artwork_opens_lyrics" = "Toucher la pochette pour les paroles";
+"player_tap_artwork_opens_lyrics_footer" = "Toucher la grande pochette du lecteur affiche les paroles, ou la transcription pour les livres audio et les podcasts. Désactivez l’option pour qu’un toucher sur la pochette ne fasse rien ; utilisez le bouton des paroles. Quand un morceau n’a pas de paroles, toucher un endroit vide de la page des paroles ramène aussi à la pochette.";
 "queue_autoplay_section" = "Lecture automatique · Titres similaires";
 "crossfade" = "Fondu enchaîné";
 "crossfade_duration" = "Durée du fondu enchaîné";

@@ -1461,6 +1461,10 @@
 "gapless_desc" = "Transição perfeita entre faixas sem qualquer intervalo de silêncio.";
 "auto_continue_similar" = "Continuar com músicas parecidas";
 "auto_continue_similar_footer" = "Quando a fila termina, músicas da sua biblioteca parecidas com as últimas continuam tocando. Elas aparecem na fila em “Reprodução automática”. Audiolivros, rádio e repetição não são afetados.";
+"previous_restarts_current_song" = "Anterior volta primeiro ao início";
+"previous_restarts_current_song_footer" = "Quando uma música já tocou mais de 3 segundos, Anterior primeiro a recomeça e um segundo toque vai para a música anterior. Desative para ir sempre direto para a música anterior.";
+"player_tap_artwork_opens_lyrics" = "Tocar na capa mostra a letra";
+"player_tap_artwork_opens_lyrics_footer" = "Tocar na capa grande do player mostra a letra, ou a transcrição em audiolivros e podcasts. Desative para que tocar na capa não faça nada; use o botão de letra. Quando a música não tem letra, tocar num espaço vazio da página de letra também volta para a capa.";
 "queue_autoplay_section" = "Reprodução automática · Parecidas";
 "gapless_not_available" = "A reprodução contínua está disponível para faixas na fila. Crossfade desliga.";
 "gapless_playback" = "Reprodução sem intervalos";

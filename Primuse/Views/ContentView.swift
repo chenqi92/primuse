@@ -1252,8 +1252,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showsMinimalQueue) {
                 QueueView(player: player)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
+                    .queueSheetPresentation()
             }
     }
 

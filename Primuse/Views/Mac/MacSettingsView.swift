@@ -2962,6 +2962,14 @@ private struct MacSTPlaybackView: View {
                     )
                 }
                 .settingsAnchor("playback.shufflePreference")
+                MacSTRow(
+                    String(localized: "previous_restarts_current_song"),
+                    hint: String(localized: "previous_restarts_current_song_footer"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTToggle(isOn: $s.previousRestartsCurrentSong)
+                }
+                .settingsAnchor("playback.previousRestarts")
                 MacSTRow(Lz("Gapless Playback")) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))

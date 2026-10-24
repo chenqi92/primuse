@@ -78,6 +78,7 @@ struct TVSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
+    @AppStorage(TVStore.previousRestartsCurrentSongKey) private var previousRestartsCurrentSong = true
     @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
     @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
@@ -217,6 +218,13 @@ struct TVSettingsView: View {
                                 store.setShufflePreference(Self.next(after: shufflePreference, in: ShufflePreference.allCases))
                             }
                             .accessibilityIdentifier("tv.playback.shufflePreference")
+                            settingDivider
+                            toggleRow(
+                                "backward.end",
+                                String(localized: "previous_restarts_current_song"),
+                                detail: String(localized: "previous_restarts_current_song_footer"),
+                                isOn: $previousRestartsCurrentSong
+                            )
                             settingDivider
                             toggleRow(
                                 "moon.zzz",

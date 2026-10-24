@@ -131,6 +131,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 音乐队列自然播完后按最后几首续上相似歌曲(#166)。默认开:Siri、CarPlay、
     /// 搜索点播的单曲队列最需要它;关掉就是播完即停。
     var autoContinueSimilarEnabled: Bool = true
+    /// 「上一首」先回到这首开头(放过 3 秒时, 按钮、耳机线控、锁屏的老习惯)。关掉后一律直接切到上一首(#348)。
+    var previousRestartsCurrentSong: Bool = true
     /// 随机播放怎么抽歌(#332): 完全随机, 或按播放次数让常听 / 少听的歌、歌手更常排在前面。
     var shufflePreference: ShufflePreference = .defaultValue
     /// Uses the current synchronized lyric as the system Now Playing title.
@@ -202,6 +204,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         medleyAutomaticLength = try c.decodeIfPresent(Bool.self, forKey: .medleyAutomaticLength) ?? true
         medleyPrefersPlaybackRange = try c.decodeIfPresent(Bool.self, forKey: .medleyPrefersPlaybackRange) ?? false
         autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
+        previousRestartsCurrentSong = try c.decodeIfPresent(Bool.self, forKey: .previousRestartsCurrentSong) ?? true
         // 新版本加的档位旧版本解不出来: 不认识的值按完全随机, 不让整包设置解码失败。
         shufflePreference = (try? c.decodeIfPresent(ShufflePreference.self, forKey: .shufflePreference)) ?? .defaultValue
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
@@ -251,6 +254,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         medleyAutomaticLength: Bool = true,
         medleyPrefersPlaybackRange: Bool = false,
         autoContinueSimilarEnabled: Bool = true,
+        previousRestartsCurrentSong: Bool = true,
         shufflePreference: ShufflePreference = .defaultValue,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
@@ -297,6 +301,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.medleyAutomaticLength = medleyAutomaticLength
         self.medleyPrefersPlaybackRange = medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
+        self.previousRestartsCurrentSong = previousRestartsCurrentSong
         self.shufflePreference = shufflePreference
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
@@ -558,6 +563,7 @@ final class PlaybackSettingsStore {
         }
     }
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
+    var previousRestartsCurrentSong: Bool { didSet { persist() } }
     var shufflePreference: ShufflePreference { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
@@ -618,6 +624,7 @@ final class PlaybackSettingsStore {
         self.medleyAutomaticLength = s.medleyAutomaticLength
         self.medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
+        self.previousRestartsCurrentSong = s.previousRestartsCurrentSong
         self.shufflePreference = s.shufflePreference
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
@@ -700,6 +707,7 @@ final class PlaybackSettingsStore {
         medleyAutomaticLength = s.medleyAutomaticLength
         medleyPrefersPlaybackRange = s.medleyPrefersPlaybackRange
         autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
+        previousRestartsCurrentSong = s.previousRestartsCurrentSong
         shufflePreference = s.shufflePreference
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
@@ -757,6 +765,7 @@ final class PlaybackSettingsStore {
             medleyAutomaticLength: medleyAutomaticLength,
             medleyPrefersPlaybackRange: medleyPrefersPlaybackRange,
             autoContinueSimilarEnabled: autoContinueSimilarEnabled,
+            previousRestartsCurrentSong: previousRestartsCurrentSong,
             shufflePreference: shufflePreference,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,

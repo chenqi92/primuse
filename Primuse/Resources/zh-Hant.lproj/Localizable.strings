@@ -431,6 +431,10 @@
 "gapless_desc" = "曲目之間無縫銜接，消除靜音間隙。";
 "auto_continue_similar" = "播完後繼續播放相似歌曲";
 "auto_continue_similar_footer" = "佇列播完後，按最後幾首歌從資料庫裡接著播放相似的歌曲，它們在佇列裡排在「以下為自動續播」下面。有聲書、電台和循環播放不受影響。";
+"previous_restarts_current_song" = "上一首先回到開頭";
+"previous_restarts_current_song_footer" = "一首歌播過 3 秒後按上一首，先從頭播放這首，再按一次才回到上一首。關掉後按上一首一律直接切到上一首。";
+"player_tap_artwork_opens_lyrics" = "點封面切到歌詞";
+"player_tap_artwork_opens_lyrics_footer" = "點播放頁的大封面切到歌詞，有聲書和播客切到文字稿。關掉後點封面不再換頁，用底部的歌詞鍵切換。沒有歌詞時，點歌詞頁的空白處也會回到封面。";
 "queue_autoplay_section" = "以下為自動續播";
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出時長";

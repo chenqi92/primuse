@@ -443,6 +443,10 @@
 "gapless_desc" = "曲目之间无缝衔接，消除静音间隙。";
 "auto_continue_similar" = "播完后继续播放相似歌曲";
 "auto_continue_similar_footer" = "队列播完后，按最后几首歌从曲库里接着播放相似的歌曲，它们在队列里排在「以下为自动续播」下面。有声书、电台和循环播放不受影响。";
+"previous_restarts_current_song" = "上一首先回到开头";
+"previous_restarts_current_song_footer" = "一首歌放过 3 秒后按上一首，先从头播放这首，再按一次才回到上一首。关掉后按上一首一律直接切到上一首。";
+"player_tap_artwork_opens_lyrics" = "点封面切到歌词";
+"player_tap_artwork_opens_lyrics_footer" = "点播放页的大封面切到歌词，有声书和播客切到文字稿。关掉后点封面不再换页，用底部的歌词键切换。没有歌词时，点歌词页的空白处也会回到封面。";
 "queue_autoplay_section" = "以下为自动续播";
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出时长";

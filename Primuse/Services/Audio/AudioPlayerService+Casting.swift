@@ -924,9 +924,11 @@ extension AudioPlayerService {
     }
 
     /// - Parameter restartsCurrentFirst: 放过 3 秒时先回到这首开头（按钮、耳机线控的习惯）。
-    ///   封面流里往回拖、点左边那张时为 false：用户要的就是左边那一首。
+    ///   封面流里往回拖、点左边那张时为 false：用户要的就是左边那一首。设置里关了
+    ///   「上一首先回到开头」时(#348)一律直接切到上一首。
     @discardableResult
     func previous(restartsCurrentFirst: Bool = true) async -> Bool {
+        let restartsCurrentFirst = restartsCurrentFirst && playbackSettings.previousRestartsCurrentSong
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,

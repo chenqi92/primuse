@@ -440,7 +440,7 @@ struct LyricsBackgroundTapPolicyTests {
     @Test("Unused lyric space can switch the normal surface")
     func unusedSpaceIsHandled() {
         #expect(LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 1
         ))
@@ -449,36 +449,50 @@ struct LyricsBackgroundTapPolicyTests {
     @Test("A lyric row tap is not also treated as a background tap")
     func rowTapIsSuppressed() {
         #expect(!LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 0.04
         ))
     }
 
-    @Test("Pinching and empty lyrics do not switch surfaces")
+    @Test("Pinching, and the transcript panel of spoken word without text, do not switch surfaces")
     func nonTapInteractionsAreIgnored() {
         #expect(!LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: true,
             rowTapTimeDistance: 1
         ))
         #expect(!LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: false,
+            showsLyricsSurface: false,
             isPinching: false,
             rowTapTimeDistance: 1
+        ))
+    }
+
+    @Test("The no-lyrics page returns to the artwork, but not through its scrape button")
+    func noLyricsPageReturnsToArtwork() {
+        #expect(LyricsBackgroundTapPolicy.shouldHandle(
+            showsLyricsSurface: true,
+            isPinching: false,
+            rowTapTimeDistance: 1
+        ))
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            showsLyricsSurface: true,
+            isPinching: false,
+            rowTapTimeDistance: -0.02
         ))
     }
 
     @Test("A tap that stops or just follows a scroll is not a background tap")
     func scrollTapIsSuppressed() {
         #expect(!LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 1,
             timeSinceUserScroll: 0.1
         ))
         #expect(LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 1,
             timeSinceUserScroll: 2
@@ -488,13 +502,13 @@ struct LyricsBackgroundTapPolicyTests {
     @Test("Releasing a long press is not a background tap")
     func longPressReleaseIsSuppressed() {
         #expect(!LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 1,
             timeSinceLongPress: 1.5
         ))
         #expect(LyricsBackgroundTapPolicy.shouldHandle(
-            hasLyrics: true,
+            showsLyricsSurface: true,
             isPinching: false,
             rowTapTimeDistance: 1,
             timeSinceLongPress: 30

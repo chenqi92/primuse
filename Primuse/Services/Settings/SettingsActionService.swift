@@ -134,6 +134,7 @@ struct SettingsActionService {
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled
         case "playback.mixWithOthers": playback.mixesWithOtherAudio
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
+        case "playback.previousRestarts": playback.previousRestartsCurrentSong
         case "playback.gapless": playback.gaplessEnabled
         case "playback.crossfade": playback.crossfadeEnabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled
@@ -156,6 +157,7 @@ struct SettingsActionService {
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
         case "player.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
+        case "player.tapArtworkOpensLyrics": preference(PlayerAppearancePreferences.tapArtworkOpensLyricsKey, fallback: PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault)
         case "player.keepScreenAwakeChargingOnly": preference(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey, fallback: PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault)
         default: nil
         }
@@ -175,6 +177,7 @@ struct SettingsActionService {
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled = enabled
         case "playback.mixWithOthers": playback.mixesWithOtherAudio = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
+        case "playback.previousRestarts": playback.previousRestartsCurrentSong = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled
         case "playback.crossfade": playback.crossfadeEnabled = enabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled = enabled
@@ -196,6 +199,7 @@ struct SettingsActionService {
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)
         case "player.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
+        case "player.tapArtworkOpensLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
         case "player.keepScreenAwakeChargingOnly": defaults.set(enabled, forKey: PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
         default: throw SettingsActionError.unavailable(SettingsStrings.text("Open this setting in the app to make changes."))
         }

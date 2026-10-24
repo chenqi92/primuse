@@ -974,6 +974,8 @@ final class TVStore {
     @ObservationIgnored private var autoContinuationDeadEndSongID: String?
     /// 「播完后继续播放相似歌曲」,默认开。
     nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
+    /// 「上一首」先回到这首开头(#348)。关掉后遥控器的上一首一律直接切歌。
+    nonisolated static let previousRestartsCurrentSongKey = "primuse.tv.previousRestartsCurrentSong"
     /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
     nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
     static var shufflePreference: ShufflePreference {
@@ -6954,8 +6956,10 @@ final class TVStore {
             return
         }
         endSourceQuotaSkip(showingReason: true)
-        // 播过 3 秒先回到开头(播放时间段的开头),否则切上一首。
-        if restartCurrentIfNeeded, currentTime - engine.playbackFloor > 3 { engine.seek(to: 0); return }
+        // 播过 3 秒先回到开头(播放时间段的开头),否则切上一首。设置里可以关掉先回开头。
+        let restartsFirst = restartCurrentIfNeeded
+            && (UserDefaults.standard.object(forKey: Self.previousRestartsCurrentSongKey) as? Bool ?? true)
+        if restartsFirst, currentTime - engine.playbackFloor > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
             before: queueIndex,
             isAvailable: { song(queue[$0]) != nil }

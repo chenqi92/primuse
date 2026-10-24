@@ -682,6 +682,10 @@
 "gapless_desc" = "Nahtloser Übergang zwischen Titeln ohne stille Pause.";
 "auto_continue_similar" = "Ähnliche Titel weiterspielen";
 "auto_continue_similar_footer" = "Wenn die Warteschlange endet, laufen Titel aus deiner Mediathek weiter, die den letzten ähneln. Sie erscheinen in der Warteschlange unter „Autoplay“. Hörbücher, Radio und Wiederholen sind nicht betroffen.";
+"previous_restarts_current_song" = "Zurück startet den Titel zuerst neu";
+"previous_restarts_current_song_footer" = "Läuft ein Titel schon länger als 3 Sekunden, startet „Zurück“ ihn zuerst neu; ein zweiter Druck springt zum vorherigen Titel. Ausgeschaltet springt „Zurück“ immer direkt zum vorherigen Titel.";
+"player_tap_artwork_opens_lyrics" = "Tippen aufs Cover zeigt Liedtext";
+"player_tap_artwork_opens_lyrics_footer" = "Ein Tippen auf das große Cover im Player wechselt zum Liedtext, bei Hörbüchern und Podcasts zum Transkript. Ausgeschaltet bewirkt ein Tippen aufs Cover nichts; gewechselt wird mit der Liedtext-Taste. Hat ein Titel keinen Liedtext, führt auch ein Tippen auf eine leere Stelle der Liedtextseite zurück zum Cover.";
 "queue_autoplay_section" = "Autoplay · Ähnliche Titel";
 "crossfade" = "Überblenden";
 "crossfade_duration" = "Überblenddauer";

@@ -443,6 +443,10 @@
 "gapless_desc" = "Seamlessly transition between tracks without any silence gap.";
 "auto_continue_similar" = "Keep Playing Similar Songs";
 "auto_continue_similar_footer" = "When the queue ends, songs from your library like the last few keep the music going. They appear under \"Autoplay\" in the queue. Audiobooks, radio and repeat are not affected.";
+"previous_restarts_current_song" = "Previous Restarts the Song First";
+"previous_restarts_current_song_footer" = "After a song has played for 3 seconds, Previous first starts it over and a second press goes to the previous song. Turn this off to always go straight to the previous song.";
+"player_tap_artwork_opens_lyrics" = "Tap Artwork for Lyrics";
+"player_tap_artwork_opens_lyrics_footer" = "Tapping the large artwork in the player switches to lyrics, or to the transcript for audiobooks and podcasts. Turn this off so a tap on the artwork does nothing; use the lyrics button instead. When a song has no lyrics, tapping an empty spot on the lyrics page also goes back to the artwork.";
 "queue_autoplay_section" = "Autoplay · Similar Songs";
 "crossfade" = "Crossfade";
 "crossfade_duration" = "Crossfade Duration";

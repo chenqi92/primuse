@@ -1461,6 +1461,10 @@
 "gapless_desc" = "Transición fluida entre pistas sin ningún espacio de silencio.";
 "auto_continue_similar" = "Seguir con canciones similares";
 "auto_continue_similar_footer" = "Cuando termina la cola, siguen sonando canciones de tu biblioteca parecidas a las últimas. Aparecen en la cola bajo «Reproducción automática». No afecta a audiolibros, radio ni repetición.";
+"previous_restarts_current_song" = "Anterior vuelve primero al inicio";
+"previous_restarts_current_song_footer" = "Cuando una canción lleva más de 3 segundos, Anterior primero la reinicia y una segunda pulsación pasa a la canción anterior. Desactívalo para ir siempre directo a la canción anterior.";
+"player_tap_artwork_opens_lyrics" = "Tocar la portada muestra la letra";
+"player_tap_artwork_opens_lyrics_footer" = "Al tocar la portada grande del reproductor se muestra la letra, o la transcripción en audiolibros y podcasts. Desactívalo para que tocar la portada no haga nada; usa el botón de letra. Si una canción no tiene letra, tocar un espacio vacío de la página de letra también regresa a la portada.";
 "queue_autoplay_section" = "Reproducción automática · Similares";
 "gapless_not_available" = "La reproducción sin pausas está disponible para pistas en cola. El fundido cruzado lo desactiva.";
 "gapless_playback" = "Reproducción sin pausas";
