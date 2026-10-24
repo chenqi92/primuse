@@ -269,13 +269,17 @@ public enum SongTagEditPolicy {
         let fileStem = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
         let fileNameTitles: Set<String> = [fileStem, MediaMetadataTextRepair.fileNameTitle(from: song.filePath)]
             .compactMap { $0 }.reduce(into: []) { $0.insert($1) }
-        let fileNameArtist = MediaMetadataTextRepair.fileNameArtist(from: song.filePath)
+        // 「03-01 - 歌名」以前会把碟号-曲号拆成艺人，那样的旧值也是文件名拆出来的。
+        let fileNameArtists: Set<String> = [
+            MediaMetadataTextRepair.fileNameArtist(from: song.filePath),
+            MediaMetadataTextRepair.fileNameIdentity(fromBaseName: fileStem)?.artist
+        ].compactMap { $0 }.reduce(into: []) { $0.insert($1) }
         var edit = SongTagEdit(songID: song.id)
         for field in textFields {
             guard let value = value(of: field, in: song, modifiedAt: clock),
                   value.text?.isEmpty == false || value.number != nil else { continue }
             if field == .title, let text = value.text, fileNameTitles.contains(text) { continue }
-            if field == .artist, let fileNameArtist, value.text == fileNameArtist { continue }
+            if field == .artist, let text = value.text, fileNameArtists.contains(text) { continue }
             edit[field] = value
         }
         if let cover {

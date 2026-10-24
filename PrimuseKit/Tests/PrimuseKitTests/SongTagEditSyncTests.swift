@@ -219,6 +219,15 @@ struct SongTagEditSyncTests {
         #expect(edit[.artist] == nil)
     }
 
+    @Test("A legacy row that took a disc-track prefix as its artist does not send it")
+    func legacyEditSkipsDiscTrackPrefixArtist() throws {
+        var unread = song(title: "夜曲", artist: "03-01", album: nil, year: nil, editedAt: Date(timeIntervalSince1970: 700))
+        unread.filePath = "/music/03-01 - 夜曲.flac"
+        let edit = try #require(SongTagEditPolicy.legacyEdit(for: unread, cover: nil))
+        #expect(edit[.title] == nil)
+        #expect(edit[.artist] == nil)
+    }
+
     @Test("Empty text and no text are different values and merge the same way in either order")
     func tieBreakSeparatesNilFromEmpty() {
         var empty = SongTagEdit(songID: "song-1")

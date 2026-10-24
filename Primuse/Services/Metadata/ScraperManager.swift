@@ -903,8 +903,8 @@ actor ScraperManager {
             }
 
             // 约定「歌手 - 标题」或「歌手 _ 标题 _ 日期」:左歌手、右标题。
-            // 数字左段是曲序而不是歌手，仍可去掉但不能制造一个假歌手。
-            return (right, left.allSatisfy(\.isNumber) ? nil : left)
+            // 曲号（含「03-01」这类碟号-曲号）左段不是歌手，仍可去掉但不能制造一个假歌手。
+            return (right, MediaMetadataTextRepair.isTrackNumberLabel(left) ? nil : left)
         }
         return (cleaned, artist)
     }

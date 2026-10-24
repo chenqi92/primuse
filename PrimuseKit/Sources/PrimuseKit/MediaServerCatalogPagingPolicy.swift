@@ -221,3 +221,23 @@ public enum SubsonicLibraryScopePolicy {
         return result
     }
 }
+
+/// Plex 曲目的艺人。`grandparentTitle` 是专辑艺人，曲目艺人和它不同时 Plex 才另给
+/// `originalTitle`，没给就是同一个人。文件名只在服务端的值读不出来时兜底：
+/// 「03-01 - 歌名」这类文件名左边不一定是艺人。
+public enum PlexTrackArtistPolicy {
+    public static func trackArtist(
+        originalTitle: String?,
+        grandparentTitle: String?,
+        filePath: String?
+    ) -> String? {
+        let albumArtist = MediaMetadataTextRepair.repaired(grandparentTitle)
+        guard originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return albumArtist ?? MediaMetadataTextRepair.fileNameArtist(from: filePath)
+        }
+        // 另给了曲目艺人却读不出来时，专辑艺人是别人（合辑、合作专辑），文件名更接近这首歌。
+        return MediaMetadataTextRepair.repaired(originalTitle)
+            ?? MediaMetadataTextRepair.fileNameArtist(from: filePath)
+            ?? albumArtist
+    }
+}

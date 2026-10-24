@@ -4097,12 +4097,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let title = MediaMetadataTextRepair.repaired(item.title)
             ?? MediaMetadataTextRepair.fileNameTitle(from: part?.file)
             ?? item.title
-        let artist = [item.originalTitle]
-            .lazy
-            .compactMap(MediaMetadataTextRepair.repaired)
-            .first
-            ?? MediaMetadataTextRepair.fileNameArtist(from: part?.file)
-            ?? MediaMetadataTextRepair.repaired(item.grandparentTitle)
+        let artist = PlexTrackArtistPolicy.trackArtist(
+            originalTitle: item.originalTitle,
+            grandparentTitle: item.grandparentTitle,
+            filePath: part?.file
+        )
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: MediaMetadataTextRepair.repaired(item.grandparentTitle),
             trackArtistName: artist

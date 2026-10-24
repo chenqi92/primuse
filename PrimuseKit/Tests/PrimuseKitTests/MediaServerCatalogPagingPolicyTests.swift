@@ -278,3 +278,57 @@ struct MediaServerLibrarySelectionPolicyTests {
         #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/", "/anything"))
     }
 }
+
+struct PlexTrackArtistPolicyTests {
+    @Test func albumArtistIsTheTrackArtistWhenPlexGivesNoOther() {
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: nil,
+                grandparentTitle: "Bruce Springsteen",
+                filePath: "/share/Music/The Ties That Bind/03-01 - Born To Run.flac"
+            ) == "Bruce Springsteen"
+        )
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: " ",
+                grandparentTitle: "等什么君",
+                filePath: "/music/别人 - 慕夏.mp3"
+            ) == "等什么君"
+        )
+    }
+
+    @Test func ownTrackArtistWinsOverAlbumArtist() {
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: "Patti Smith",
+                grandparentTitle: "Various Artists",
+                filePath: "/music/01 - Because The Night.flac"
+            ) == "Patti Smith"
+        )
+    }
+
+    @Test func fileNameStandsInOnlyForUnreadableServerText() {
+        // 另给的曲目艺人编码坏了：专辑艺人是群星，文件名更接近。
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: "等什??",
+                grandparentTitle: "Various Artists",
+                filePath: "/mnt/docker/TestMedia/PrimuseMusic/等什么君 - 慕夏.mp3"
+            ) == "等什么君"
+        )
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: nil,
+                grandparentTitle: "对面??",
+                filePath: "/mnt/docker/TestMedia/PrimuseMusic/等什么君 - 慕夏.mp3"
+            ) == "等什么君"
+        )
+        #expect(
+            PlexTrackArtistPolicy.trackArtist(
+                originalTitle: nil,
+                grandparentTitle: nil,
+                filePath: "/music/03-01 - Born To Run.flac"
+            ) == nil
+        )
+    }
+}

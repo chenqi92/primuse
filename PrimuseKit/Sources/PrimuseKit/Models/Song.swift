@@ -983,12 +983,22 @@ public enum MediaMetadataTextRepair {
         return nil
     }
 
-    /// 文件名给出的歌名与艺人，只解析一遍。曲号开头的（「01. 歌名」「01 - 歌名」）只有歌名。
+    /// 文件名给出的歌名与艺人，只解析一遍。曲号开头的（「01. 歌名」「01 - 歌名」「03-01 - 歌名」）只有歌名。
     private static func fileNameReferences(from path: String?) -> (title: String?, artist: String?) {
         guard let baseName = fileBaseName(from: path) else { return (nil, nil) }
         if let title = dotNumberedTrackTitle(baseName) { return (title, nil) }
         guard let parsed = fileNameIdentity(fromBaseName: baseName) else { return (baseName, nil) }
-        return (parsed.title, parsed.artist.allSatisfy(\.isNumber) ? nil : parsed.artist)
+        return (parsed.title, isTrackNumberLabel(parsed.artist) ? nil : parsed.artist)
+    }
+
+    /// 曲号或「碟号-曲号」：「01」「03-01」「1.05」「CD1-01」。文件名分隔符左边是它时没有艺人可拆。
+    public static func isTrackNumberLabel(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.unicodeScalars.first else { return false }
+        if trimmed.allSatisfy(\.isNumber) { return true }
+        // 整库装载时每首都要过这里：首字不是数字、也不是 CD/Disc 的首字母就不跑正则。
+        guard first.properties.numericType != nil || "cCdD".unicodeScalars.contains(first) else { return false }
+        return trackNumberLabel.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
     }
 
     /// Parses common NAS base names without treating a bare underscore inside a
@@ -1026,6 +1036,9 @@ public enum MediaMetadataTextRepair {
 
     // 整库装载时每首歌都要解析文件名，正则预先编译好。
     private static let underscoreSeparator = try! NSRegularExpression(pattern: "\\s+_\\s*|\\s*_\\s+")
+    private static let trackNumberLabel = try! NSRegularExpression(
+        pattern: #"^(?:(?:cd|dis[ck])\s*)?\d+(?:\s*[-._/]\s*\d+)*$"#, options: [.caseInsensitive]
+    )
 
     /// 以 `\d` 开头的正则只可能在首个字符是数字时匹配。
     private static func startsWithNumber(_ value: String) -> Bool {
@@ -1045,7 +1058,7 @@ public enum MediaMetadataTextRepair {
         guard let dot = value.range(of: ". ") else { return nil }
         let prefix = value[..<dot.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
         let title = value[dot.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prefix.isEmpty, prefix.allSatisfy(\.isNumber), !title.isEmpty else { return nil }
+        guard isTrackNumberLabel(prefix), !title.isEmpty else { return nil }
         return title
     }
 

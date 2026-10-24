@@ -331,3 +331,22 @@ import Testing
     #expect(MediaMetadataTextRepair.fileNameTitle(from: "/music/01 - Opening.flac") == "Opening")
     #expect(MediaMetadataTextRepair.fileNameTitle(from: "/music/02. Finale.flac") == "Finale")
 }
+
+@Test func discTrackPrefixIsNotAnArtist() {
+    let path = "/share/Music/Bruce Springsteen/The Ties That Bind/03-01 - Born To Run.flac"
+    #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == nil)
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: path) == "Born To Run")
+    for prefix in ["1-05", "01.03", "2_07", "CD1-01", "Disc 2-03", "cd 1"] {
+        #expect(MediaMetadataTextRepair.fileNameArtist(from: "/music/\(prefix) - Song.flac") == nil, "\(prefix)")
+    }
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: "/music/1-05. Finale.flac") == "Finale")
+}
+
+@Test func artistsThatStartWithDigitsOrDiscLettersStillParse() {
+    for artist in ["2Pac", "50 Cent", "10cc", "Daft Punk", "CDB", "Disclosure", "U2"] {
+        #expect(MediaMetadataTextRepair.fileNameArtist(from: "/music/\(artist) - Song.flac") == artist, "\(artist)")
+    }
+    #expect(!MediaMetadataTextRepair.isTrackNumberLabel(""))
+    #expect(!MediaMetadataTextRepair.isTrackNumberLabel("Vol. 1"))
+    #expect(MediaMetadataTextRepair.isTrackNumberLabel("03-01"))
+}
