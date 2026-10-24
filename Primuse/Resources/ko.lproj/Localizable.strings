@@ -5668,7 +5668,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "팟캐스트";
-"home_section_podcasts" = "팟캐스트 새 에피소드";
+"home_section_podcasts" = "팟캐스트";
 "home_section_podcasts_hint" = "팔로우 중인 팟캐스트의 최신 에피소드입니다.";
 "home_podcasts_open_all" = "모든 팟캐스트";
 "podcast_add" = "추가";

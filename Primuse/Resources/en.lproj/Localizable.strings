@@ -5431,7 +5431,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Podcasts";
-"home_section_podcasts" = "New Episodes";
+"home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Latest episodes from the podcasts you follow.";
 "home_podcasts_open_all" = "All Podcasts";
 "podcast_add" = "Add";

@@ -215,10 +215,11 @@ JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
 ].freeze
 
 IDENTICAL_VALUE_ALLOWLIST = {
-  "es-MX" => %w[home_mode_radio radio_title carplay_visible],
-  "pt-BR" => %w[stats_hours_minutes_format carplay_section_playlists carplay_tab_playlists],
+  "es-MX" => %w[home_mode_radio radio_title carplay_visible home_section_podcasts],
+  "pt-BR" => %w[stats_hours_minutes_format carplay_section_playlists carplay_tab_playlists home_section_podcasts],
   "pl" => %w[ext.tv.sources.form.host carplay_player_standard],
   "de" => %w[
+    home_section_podcasts
     drime_token_section
     fnmusic_connection_fnconnect
     fnmusic_fnid
@@ -229,6 +230,7 @@ IDENTICAL_VALUE_ALLOWLIST = {
     carplay_player_standard
   ],
   "fr" => %w[
+    home_section_podcasts
     drime_token_section
     fnmusic_connection_fnconnect
     fnmusic_fnid

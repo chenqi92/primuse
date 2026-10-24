@@ -5574,7 +5574,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Подкасты";
-"home_section_podcasts" = "Новые выпуски";
+"home_section_podcasts" = "Подкасты";
 "home_section_podcasts_hint" = "Свежие выпуски подкастов, на которые вы подписаны.";
 "home_podcasts_open_all" = "Все подкасты";
 "podcast_add" = "Добавить";

@@ -5574,7 +5574,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "البودكاست";
-"home_section_podcasts" = "حلقات جديدة";
+"home_section_podcasts" = "البودكاست";
 "home_section_podcasts_hint" = "أحدث حلقات البودكاست التي تتابعها.";
 "home_podcasts_open_all" = "كل البودكاست";
 "podcast_add" = "إضافة";

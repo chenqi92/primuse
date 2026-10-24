@@ -5574,7 +5574,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "पॉडकास्ट";
-"home_section_podcasts" = "नए एपिसोड";
+"home_section_podcasts" = "पॉडकास्ट";
 "home_section_podcasts_hint" = "आपके फ़ॉलो किए पॉडकास्ट के नवीनतम एपिसोड।";
 "home_podcasts_open_all" = "सभी पॉडकास्ट";
 "podcast_add" = "जोड़ें";

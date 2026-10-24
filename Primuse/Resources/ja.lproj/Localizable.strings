@@ -5669,7 +5669,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "ポッドキャスト";
-"home_section_podcasts" = "ポッドキャストの新着";
+"home_section_podcasts" = "ポッドキャスト";
 "home_section_podcasts_hint" = "フォロー中のポッドキャストの最新エピソード。";
 "home_podcasts_open_all" = "すべてのポッドキャスト";
 "podcast_add" = "追加";

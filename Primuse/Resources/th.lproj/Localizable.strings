@@ -5574,7 +5574,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "พอดแคสต์";
-"home_section_podcasts" = "ตอนใหม่";
+"home_section_podcasts" = "พอดแคสต์";
 "home_section_podcasts_hint" = "ตอนล่าสุดจากพอดแคสต์ที่คุณติดตาม";
 "home_podcasts_open_all" = "พอดแคสต์ทั้งหมด";
 "podcast_add" = "เพิ่ม";

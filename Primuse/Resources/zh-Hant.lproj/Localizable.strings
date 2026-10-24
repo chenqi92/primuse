@@ -5645,7 +5645,7 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "播客";
-"home_section_podcasts" = "Podcast 更新";
+"home_section_podcasts" = "播客";
 "home_section_podcasts_hint" = "已訂閱播客最近推出的單集。";
 "home_podcasts_open_all" = "全部播客";
 "podcast_add" = "加入";
