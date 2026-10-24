@@ -1080,34 +1080,36 @@ struct MacNowPlayingView: View {
                         let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
                         // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
                         // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。
+                        // `scrollTo` 找目标时从第一格起逐格往后看:格子上不挂 `.id`,每格先只包一层,
+                        // 排到屏幕上才建这一行,免得长文稿每换一句就把前面几百行全建一遍。
                         ForEach(lyricsListEntries) { entry in
-                            switch entry.kind {
-                            case .line(let i, let line):
-                                macLyricLine(
-                                    line: line,
-                                    index: i,
-                                    isActive: i == currentIndex,
-                                    fontSize: lyricLayoutFontSize,
-                                    isDuet: isDuet
-                                )
-                                    .id(entry.id)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                    .if(canSeekToLyricLine(line)) { view in
-                                        view
-                                            .onTapGesture { seekToLyricLine(line) }
-                                            .accessibilityAddTraits(.isButton)
-                                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                                    }
-                                    .padding(.top, lyricsRowSpacing)
-                            case .interlude(let window, let voice):
-                                macInterludeMarker(
-                                    window,
-                                    isActive: activeInterludeAnchor == entry.id,
-                                    voice: voice,
-                                    isDuet: isDuet
-                                )
-                                .id(entry.id)
+                            MacDeferredLyricRow {
+                                switch entry.kind {
+                                case .line(let i, let line):
+                                    macLyricLine(
+                                        line: line,
+                                        index: i,
+                                        isActive: i == currentIndex,
+                                        fontSize: lyricLayoutFontSize,
+                                        isDuet: isDuet
+                                    )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                        .if(canSeekToLyricLine(line)) { view in
+                                            view
+                                                .onTapGesture { seekToLyricLine(line) }
+                                                .accessibilityAddTraits(.isButton)
+                                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                        }
+                                        .padding(.top, lyricsRowSpacing)
+                                case .interlude(let window, let voice):
+                                    macInterludeMarker(
+                                        window,
+                                        isActive: activeInterludeAnchor == entry.id,
+                                        voice: voice,
+                                        isDuet: isDuet
+                                    )
+                                }
                             }
                         }
                     }
@@ -2361,5 +2363,16 @@ private struct NowPlayingWindowResolver: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onResolve(nsView.window) }
     }
+}
+
+/// 惰性歌词列表的一格:只存怎么建这一行,真正排到屏幕上才调用。
+private struct MacDeferredLyricRow<Content: View>: View {
+    let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View { content() }
 }
 #endif

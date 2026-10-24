@@ -12893,6 +12893,17 @@ private struct NowPlayingEqualizerMenu: View {
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
 /// 歌词各行的竖排容器:行数多时惰性排版,只建屏幕附近的行(见 `LyricsScrollView.usesLazyRows`)。
+/// 惰性歌词列表的一格:只存怎么建这一行,真正排到屏幕上才调用(见 `lyricRowCells`)。
+private struct DeferredLyricRowCell<Content: View>: View {
+    let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View { content() }
+}
+
 private struct LyricsRowStack<Content: View>: View {
     let isLazy: Bool
     let spacing: CGFloat
@@ -14481,8 +14492,12 @@ struct LyricsScrollView: View {
         var id: LyricsScrollTarget { .line(id: line.id) }
     }
 
-    /// 歌词的每一格。惰性排版时还没建出来的行也要能滚过去:滚动目标挂在格子本身上,
-    /// 并且和 ForEach 的身份是同一个值(Mac 歌词同一种做法);全部实排时仍挂在那一句上。
+    /// 歌词的每一格。惰性排版时还没建出来的行也要能滚过去:滚动目标就是 ForEach 的身份
+    /// (Mac 歌词同一种做法);全部实排时仍挂在那一句上。
+    ///
+    /// 惰性那一支:`scrollTo` 找目标行时从第一格起逐格往后看,格子要是当场把整行(含逐字排版)
+    /// 建出来,几百行的文稿每换一句就把前面几百行全建一遍,越往后越卡。所以格子上不挂 `.id`,
+    /// 每格先只包一层 `DeferredLyricRowCell`,排到屏幕上时才建这一行。
     @ViewBuilder
     private func lyricRowCells(
         isDuet: Bool,
@@ -14491,14 +14506,15 @@ struct LyricsScrollView: View {
     ) -> some View {
         if usesLazyRows {
             ForEach(lyrics.indices.map { LyricRowEntry(index: $0, line: lyrics[$0]) }) { entry in
-                lyricRowCell(
-                    index: entry.index,
-                    line: entry.line,
-                    activity: activity(entry.index),
-                    isDuet: isDuet,
-                    textWidth: textWidth
-                )
-                .id(entry.id)
+                DeferredLyricRowCell {
+                    lyricRowCell(
+                        index: entry.index,
+                        line: entry.line,
+                        activity: activity(entry.index),
+                        isDuet: isDuet,
+                        textWidth: textWidth
+                    )
+                }
             }
         } else {
             ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
