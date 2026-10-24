@@ -4,9 +4,9 @@ import Foundation
 import ImageIO
 import OSLog
 import PrimuseKit
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
-import UniformTypeIdentifiers
 #endif
 
 private let spotlightLog = Logger(subsystem: "com.welape.yuanyin", category: "Spotlight")
@@ -38,19 +38,44 @@ final class SpotlightIndexService {
 
     private struct LibrarySnapshot: Sendable {
         let songs: [Song]
-        /// Recently played and liked songs, which a capped index keeps first.
+        /// Recently played and liked songs: indexed first, and the ones a
+        /// capped index keeps.
         var prioritySongIDs: [String] = []
         let albums: [Album]
         let artists: [Artist]
         let playlists: [PlaylistSummary]
         let artistNameConfiguration: ArtistNameConfiguration
+        var showsArtwork = true
+    }
+
+    /// A cover in the artwork store that a search result can show.
+    private struct CoverSource: Sendable {
+        let fileName: String
+        let contentIdentifier: String
     }
 
     private enum IndexPayload: Sendable {
-        case song(Song, artistDisplayName: String?, coverContentIdentifier: String?)
-        case album(Album)
+        case song(Song, artistDisplayName: String?, cover: CoverSource?)
+        case album(Album, cover: CoverSource?)
         case artist(Artist)
         case playlist(PlaylistSummary)
+    }
+
+    /// The first pass attaches only thumbnails already on disk, so every item
+    /// becomes searchable at the text-only rate; covers that still have to be
+    /// decoded follow in a second pass under the per-batch decode budget.
+    private enum ThumbnailPass {
+        case cachedOnly
+        case generating
+    }
+
+    private enum ThumbnailOutcome {
+        case none
+        case attached
+        /// A cover exists but has no thumbnail yet; indexed text-only for now.
+        case deferred
+        /// Attached after decoding the cover (counts against the budget).
+        case generated
     }
 
     private struct PreparedSnapshot: Sendable {
@@ -63,7 +88,9 @@ final class SpotlightIndexService {
         let error: (any Error)?
     }
 
-    private nonisolated static let schemaVersion = 2
+    /// 3: thumbnails travel as data (Spotlight cannot read a file in the app
+    /// container), items are written in priority order with checkpoints.
+    private nonisolated static let schemaVersion = 3
     private nonisolated static let debounceDuration: Duration = .seconds(3)
     private nonisolated static let followUpDebounceDuration: Duration = .seconds(1)
     private nonisolated static let interBatchDelay: Duration = .milliseconds(180)
@@ -76,6 +103,15 @@ final class SpotlightIndexService {
     nonisolated static let maxIndexedSongs = 20_000
     private nonisolated static let maxDeletesPerBatch = 250
     private nonisolated static let maxThumbnailCacheMissesPerBatch = 8
+    /// How often a long synchronization saves its progress. Each save rewrites
+    /// the whole manifest, so not after every batch; an interruption also
+    /// saves before stopping.
+    private nonisolated static let checkpointInterval: Duration = .seconds(8)
+    /// Manifest signature of an item indexed without the thumbnail it should
+    /// have: it differs from the real one, so the next run adds the cover.
+    private nonisolated static let textOnlySignatureSuffix = "~text"
+    /// 「Spotlight 搜索结果显示封面」。用户在设置里翻的开关, 只在翻动时写。
+    nonisolated static let showsArtworkKey = "primuse.spotlight.showsArtwork"
     private nonisolated static let synchronizationPendingKey =
         "primuse.spotlightIndex.synchronizationPending.v2"
     private nonisolated static let synchronizationGenerationKey =
@@ -134,6 +170,18 @@ final class SpotlightIndexService {
         if defaults.object(forKey: synchronizationPendingKey) as? Bool != true {
             defaults.set(true, forKey: synchronizationPendingKey)
         }
+    }
+
+    nonisolated static var showsArtwork: Bool {
+        UserDefaults.standard.object(forKey: showsArtworkKey) as? Bool ?? true
+    }
+
+    /// The cover switch changes every item's signature, so the next
+    /// synchronization re-indexes the library with or without thumbnails.
+    func artworkPreferenceChanged(library: MusicLibrary) {
+        Self.persistLibraryChangePending()
+        needsSynchronization = true
+        scheduleSynchronization(library: library)
     }
 
     private nonisolated static var synchronizationGeneration: Int {
@@ -280,18 +328,17 @@ final class SpotlightIndexService {
                 songCount: library.songCount(forPlaylist: playlist.id)
             )
         }
-        var prioritySongIDs: [String] = []
-        if library.visibleSongs.count > Self.maxIndexedSongs {
-            prioritySongIDs = library.recentPlaybackSongIDsForSync
-                + library.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
-        }
+        // 最近放过、喜欢的歌最先进索引: 首页顶上那几首正是用户最先去搜的。
+        let prioritySongIDs = library.recentPlaybackSongIDsForSync
+            + library.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
         return LibrarySnapshot(
             songs: library.visibleSongs,
             prioritySongIDs: prioritySongIDs,
             albums: library.visibleAlbums,
             artists: library.visibleArtists,
             playlists: playlistSummaries,
-            artistNameConfiguration: library.artistNameConfiguration
+            artistNameConfiguration: library.artistNameConfiguration,
+            showsArtwork: Self.showsArtwork
         )
     }
 
@@ -429,11 +476,56 @@ final class SpotlightIndexService {
 
         guard canPerformIndexing, !Task.isCancelled else { return false }
         let pendingState = Data("v\(schemaVersion):pending".utf8)
+        let signatures = plan.nextManifest.signaturesByIdentifier
+
+        // Progress survives an interruption: the manifest on disk and the
+        // index's client state always describe the same checkpoint, so the
+        // next run plans from it instead of wiping the index and starting
+        // over (which, in 30-second background windows, never got past the
+        // first few hundred items).
+        var progress = SpotlightIndexCheckpoint(plan: plan, previousManifest: previousManifest)
+        var checkpointState = pendingState
+        var hasUnsavedProgress = false
+        var lastCheckpoint = ContinuousClock.now
+
+        func saveCheckpoint() async throws {
+            let manifest = progress.manifest
+            try saveManifest(manifest, to: manifestURL)
+            let state = clientState(for: manifest)
+            try await applyBatch(
+                to: index,
+                deletingIdentifiers: [],
+                searchableItems: [],
+                clientState: state
+            )
+            checkpointState = state
+            hasUnsavedProgress = false
+            lastCheckpoint = .now
+        }
+
+        func saveCheckpointIfDue() async throws {
+            guard hasUnsavedProgress,
+                  ContinuousClock.now - lastCheckpoint >= checkpointInterval else { return }
+            try await saveCheckpoint()
+        }
+
+        /// Stops at a batch boundary, keeping what has been committed so far.
+        func stop() async -> Bool {
+            if hasUnsavedProgress {
+                do {
+                    try await saveCheckpoint()
+                } catch {
+                    spotlightLog.error("Spotlight checkpoint failed: \(error.localizedDescription)")
+                }
+            }
+            spotlightLog.notice("Spotlight sync paused; progress kept for the next run")
+            return false
+        }
 
         do {
             if plan.requiresFullRebuild {
                 // Mark the named index dirty before clearing it. If the app is
-                // suspended after deletion but before the first item batch,
+                // suspended after deletion but before the first checkpoint,
                 // the next launch will detect the mismatch and recover again.
                 try await applyBatch(
                     to: index,
@@ -446,10 +538,13 @@ final class SpotlightIndexService {
                 // This also removes legacy items; never repeat it after upserts.
                 try await deleteDomains(kSpotlightDomains, from: index)
             }
+            // Everything this run is about to touch is recorded as unconfirmed
+            // before the first change reaches the index.
+            try await saveCheckpoint()
 
             var deleteCursor = 0
             while deleteCursor < plan.identifiersToDelete.count {
-                guard canPerformIndexing, !Task.isCancelled else { return false }
+                guard canPerformIndexing, !Task.isCancelled else { return await stop() }
                 let end = min(
                     deleteCursor + maxDeletesPerBatch,
                     plan.identifiersToDelete.count
@@ -459,62 +554,78 @@ final class SpotlightIndexService {
                     to: index,
                     deletingIdentifiers: identifiers,
                     searchableItems: [],
-                    clientState: pendingState
+                    clientState: checkpointState
                 )
+                progress.confirmDeleted(identifiers)
+                hasUnsavedProgress = true
                 deleteCursor = end
-                guard await pauseBetweenBatches() else { return false }
+                try await saveCheckpointIfDue()
+                guard await pauseBetweenBatches() else { return await stop() }
             }
 
-            var upsertCursor = 0
-            while upsertCursor < plan.identifiersToUpsert.count {
-                guard canPerformIndexing, !Task.isCancelled else { return false }
-                var searchableItems: [CSSearchableItem] = []
-                searchableItems.reserveCapacity(maxItemsPerBatch)
-                var thumbnailCacheMissCount = 0
+            var deferredThumbnails: [String] = []
+            for pass in [ThumbnailPass.cachedOnly, .generating] {
+                let identifiers = pass == .cachedOnly ? plan.identifiersToUpsert : deferredThumbnails
+                var upsertCursor = 0
+                while upsertCursor < identifiers.count {
+                    guard canPerformIndexing, !Task.isCancelled else { return await stop() }
+                    var searchableItems: [CSSearchableItem] = []
+                    searchableItems.reserveCapacity(maxItemsPerBatch)
+                    var confirmed: [String: String] = [:]
+                    var thumbnailCacheMissCount = 0
 
-                while upsertCursor < plan.identifiersToUpsert.count,
-                      searchableItems.count < maxItemsPerBatch,
-                      thumbnailCacheMissCount < maxThumbnailCacheMissesPerBatch {
-                    let identifier = plan.identifiersToUpsert[upsertCursor]
-                    guard let payload = prepared.payloadsByIdentifier[identifier] else {
-                        spotlightLog.error("Spotlight payload missing for \(identifier, privacy: .public)")
-                        return false
+                    while upsertCursor < identifiers.count,
+                          searchableItems.count < maxItemsPerBatch,
+                          thumbnailCacheMissCount < maxThumbnailCacheMissesPerBatch {
+                        let identifier = identifiers[upsertCursor]
+                        guard let payload = prepared.payloadsByIdentifier[identifier],
+                              let signature = signatures[identifier] else {
+                            spotlightLog.error("Spotlight payload missing for \(identifier, privacy: .public)")
+                            return false
+                        }
+                        let item = makeSearchableItem(
+                            payload: payload,
+                            thumbnailPass: pass,
+                            thumbnailDirectoryURL: thumbnailDirectoryURL
+                        )
+                        // The library's explicit deletion plan owns their lifetime.
+                        item.searchableItem.expirationDate = .distantFuture
+                        searchableItems.append(item.searchableItem)
+                        switch item.thumbnail {
+                        case .deferred:
+                            deferredThumbnails.append(identifier)
+                            confirmed[identifier] = signature + textOnlySignatureSuffix
+                        case .generated:
+                            thumbnailCacheMissCount += 1
+                            confirmed[identifier] = signature
+                        case .none, .attached:
+                            confirmed[identifier] = signature
+                        }
+                        upsertCursor += 1
                     }
-                    let item = makeSearchableItem(
-                        payload: payload,
-                        thumbnailDirectoryURL: thumbnailDirectoryURL
+
+                    try await applyBatch(
+                        to: index,
+                        deletingIdentifiers: [],
+                        searchableItems: searchableItems,
+                        clientState: checkpointState
                     )
-                    // The library's explicit deletion plan owns their lifetime.
-                    item.searchableItem.expirationDate = .distantFuture
-                    searchableItems.append(item.searchableItem)
-                    if item.thumbnailCacheMiss {
-                        thumbnailCacheMissCount += 1
-                    }
-                    upsertCursor += 1
+                    progress.confirmIndexed(confirmed)
+                    hasUnsavedProgress = true
+                    try await saveCheckpointIfDue()
+                    guard await pauseBetweenBatches() else { return await stop() }
                 }
-
-                try await applyBatch(
-                    to: index,
-                    deletingIdentifiers: [],
-                    searchableItems: searchableItems,
-                    clientState: pendingState
-                )
-                guard await pauseBetweenBatches() else { return false }
             }
 
-            guard canPerformIndexing, !Task.isCancelled else { return false }
-            let finalClientState = clientState(for: plan.nextManifest)
-            try await applyBatch(
-                to: index,
-                deletingIdentifiers: [],
-                searchableItems: [],
-                clientState: finalClientState
-            )
-
-            guard !Task.isCancelled else { return false }
-            try saveManifest(plan.nextManifest, to: manifestURL)
+            guard canPerformIndexing, !Task.isCancelled else { return await stop() }
+            try await saveCheckpoint()
+            guard progress.manifest == plan.nextManifest else {
+                // Still a truthful checkpoint: the next run plans the rest.
+                spotlightLog.error("Spotlight progress diverged from the plan; continuing next run")
+                return false
+            }
             spotlightLog.notice(
-                "Spotlight synchronized: upsert=\(plan.identifiersToUpsert.count) delete=\(plan.identifiersToDelete.count) full=\(plan.requiresFullRebuild)"
+                "Spotlight synchronized: upsert=\(plan.identifiersToUpsert.count) delete=\(plan.identifiersToDelete.count) thumbnails=\(deferredThumbnails.count) full=\(plan.requiresFullRebuild)"
             )
             return true
         } catch {
@@ -523,39 +634,79 @@ final class SpotlightIndexService {
         }
     }
 
-    /// The songs that go into the index: all of them up to `maxIndexedSongs`,
-    /// otherwise the priority songs and then the newest additions (picked by
-    /// a bounded selection, not by sorting the library).
-    private nonisolated static func indexedSongs(of snapshot: LibrarySnapshot) -> [Song] {
+    /// The songs that go into the index, in the order they are written: the
+    /// priority songs (recently played, liked) and then the newest additions,
+    /// up to `maxIndexedSongs`. A bounded selection, not a sort of the library.
+    private nonisolated static func indexedSongs(
+        of snapshot: LibrarySnapshot
+    ) -> (songs: [Song], priorityCount: Int) {
         let songs = snapshot.songs
-        guard songs.count > maxIndexedSongs else { return songs }
+        let limit = min(songs.count, maxIndexedSongs)
         var chosen: [Song] = []
-        chosen.reserveCapacity(maxIndexedSongs)
+        chosen.reserveCapacity(limit)
         var chosenIDs: Set<String> = []
         let wanted = Set(snapshot.prioritySongIDs)
         if !wanted.isEmpty {
-            for song in songs where wanted.contains(song.id) && chosenIDs.insert(song.id).inserted {
-                chosen.append(song)
-                if chosen.count == maxIndexedSongs { return chosen }
+            // 先按最近放过、再按喜欢的顺序: 列表本身就是这个顺序。
+            var byID: [String: Int] = [:]
+            byID.reserveCapacity(wanted.count)
+            for index in songs.indices where wanted.contains(songs[index].id) {
+                byID[songs[index].id] = index
+            }
+            for id in snapshot.prioritySongIDs {
+                guard chosen.count < limit,
+                      let index = byID[id],
+                      chosenIDs.insert(id).inserted else { continue }
+                chosen.append(songs[index])
             }
         }
+        let priorityCount = chosen.count
+        guard chosen.count < limit else { return (chosen, priorityCount) }
         // 选的是下标: 比较只读日期与 ID, 不为每次比较复制整首歌。
         let newest = CarPlayListSelection.firstSorted(
             songs.indices.lazy.filter { !chosenIDs.contains(songs[$0].id) },
-            limit: maxIndexedSongs - chosen.count
+            limit: limit - chosen.count
         ) { lhs, rhs in
             songs[lhs].dateAdded != songs[rhs].dateAdded
                 ? songs[lhs].dateAdded > songs[rhs].dateAdded
                 : songs[lhs].id < songs[rhs].id
         }
         chosen.append(contentsOf: newest.map { songs[$0] })
-        return chosen
+        return (chosen, priorityCount)
+    }
+
+    /// Resolves a cover the artwork store already holds; nothing is fetched.
+    /// Source-relative and remote references fall back to the song's own
+    /// mirror, which the app writes once it has shown that cover.
+    private nonisolated static func coverSource(
+        reference: String?,
+        songID: String?,
+        identities: inout [String: String?]
+    ) -> CoverSource? {
+        var candidates: [String] = []
+        if let reference, !reference.isEmpty { candidates.append(reference) }
+        if let songID {
+            candidates.append(MetadataAssetStore.shared.expectedCoverFileName(for: songID))
+        }
+        for fileName in candidates {
+            let identity: String?
+            if let cached = identities[fileName] {
+                identity = cached
+            } else {
+                identity = MetadataAssetStore.shared.coverContentIdentifier(named: fileName)
+                identities[fileName] = identity
+            }
+            if let identity {
+                return CoverSource(fileName: fileName, contentIdentifier: identity)
+            }
+        }
+        return nil
     }
 
     private nonisolated static func prepareSnapshot(
         _ snapshot: LibrarySnapshot
     ) -> PreparedSnapshot? {
-        let songs = indexedSongs(of: snapshot)
+        let (songs, priorityCount) = indexedSongs(of: snapshot)
         let totalCount = songs.count
             + snapshot.albums.count
             + snapshot.artists.count
@@ -564,29 +715,18 @@ final class SpotlightIndexService {
         records.reserveCapacity(totalCount)
         var payloads: [String: IndexPayload] = [:]
         payloads.reserveCapacity(totalCount)
-        var coverIdentityCache: [String: String] = [:]
-        var missingCoverIdentities: Set<String> = []
+        var coverIdentities: [String: String?] = [:]
+        let showsArtwork = snapshot.showsArtwork
 
-        for (offset, song) in songs.enumerated() {
-            if offset.isMultiple(of: 256), Task.isCancelled { return nil }
+        func appendSong(_ song: Song) {
             let identifier = "song:\(song.id)"
-            let coverContentIdentifier: String?
-            if let coverRef = song.coverArtFileName, !coverRef.isEmpty {
-                if let cached = coverIdentityCache[coverRef] {
-                    coverContentIdentifier = cached
-                } else if missingCoverIdentities.contains(coverRef) {
-                    coverContentIdentifier = nil
-                } else if let identity = MetadataAssetStore.shared
-                    .coverContentIdentifier(named: coverRef) {
-                    coverIdentityCache[coverRef] = identity
-                    coverContentIdentifier = identity
-                } else {
-                    missingCoverIdentities.insert(coverRef)
-                    coverContentIdentifier = nil
-                }
-            } else {
-                coverContentIdentifier = nil
-            }
+            let cover = showsArtwork
+                ? coverSource(
+                    reference: song.coverArtFileName,
+                    songID: song.id,
+                    identities: &coverIdentities
+                )
+                : nil
             let artistDisplayName = song.displayArtistName(
                 configuration: snapshot.artistNameConfiguration
             )
@@ -595,24 +735,37 @@ final class SpotlightIndexService {
                 song.albumTitle,
                 artistDisplayName,
                 snapshot.artistNameConfiguration.cacheSignature,
-                song.coverArtFileName,
-                coverContentIdentifier,
+                cover?.contentIdentifier,
             ])
             records.append(SpotlightIndexRecord(identifier: identifier, signature: signature))
             payloads[identifier] = .song(
                 song,
                 artistDisplayName: artistDisplayName,
-                coverContentIdentifier: coverContentIdentifier
+                cover: cover
             )
+        }
+
+        // Write order: the songs people search first, then the few albums,
+        // artists and playlists, then the rest of the songs.
+        for (offset, song) in songs[..<priorityCount].enumerated() {
+            if offset.isMultiple(of: 256), Task.isCancelled { return nil }
+            appendSong(song)
         }
 
         for album in snapshot.albums {
             let identifier = "album:\(album.id)"
+            let cover = showsArtwork
+                ? coverSource(
+                    reference: album.coverArtPath,
+                    songID: nil,
+                    identities: &coverIdentities
+                )
+                : nil
             records.append(SpotlightIndexRecord(
                 identifier: identifier,
-                signature: contentSignature([album.title, album.artistName])
+                signature: contentSignature([album.title, album.artistName, cover?.contentIdentifier])
             ))
-            payloads[identifier] = .album(album)
+            payloads[identifier] = .album(album, cover: cover)
         }
 
         let artistSubtitle = String(localized: "spotlight_artist_subtitle")
@@ -638,64 +791,75 @@ final class SpotlightIndexService {
             payloads[identifier] = .playlist(playlist)
         }
 
+        for (offset, song) in songs[priorityCount...].enumerated() {
+            if offset.isMultiple(of: 256), Task.isCancelled { return nil }
+            appendSong(song)
+        }
+
         return PreparedSnapshot(records: records, payloadsByIdentifier: payloads)
     }
 
     private nonisolated static func makeSearchableItem(
         payload: IndexPayload,
+        thumbnailPass: ThumbnailPass,
         thumbnailDirectoryURL: URL
-    ) -> (searchableItem: CSSearchableItem, thumbnailCacheMiss: Bool) {
+    ) -> (searchableItem: CSSearchableItem, thumbnail: ThumbnailOutcome) {
         switch payload {
-        case let .song(song, artistDisplayName, coverContentIdentifier):
+        case let .song(song, artistDisplayName, cover):
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = song.title
+            attrs.displayName = song.title
             attrs.album = song.albumTitle
             attrs.artist = artistDisplayName
             attrs.contentDescription = [artistDisplayName, song.albumTitle]
                 .compactMap { $0 }
                 .joined(separator: " — ")
             attrs.keywords = [song.title, artistDisplayName, song.albumTitle].compactMap { $0 }
-            var thumbnailCacheMiss = false
-            #if os(iOS)
-            if let coverRef = song.coverArtFileName,
-               let coverContentIdentifier {
-                let thumbnail = cachedThumbnailURL(
-                    coverArtFileName: coverRef,
-                    coverContentIdentifier: coverContentIdentifier,
-                    directoryURL: thumbnailDirectoryURL
-                )
-                attrs.thumbnailURL = thumbnail.url
-                thumbnailCacheMiss = thumbnail.cacheMiss
+            if song.duration > 0 {
+                attrs.duration = NSNumber(value: song.duration)
             }
-            #endif
+            let thumbnail = attachThumbnail(
+                cover,
+                to: attrs,
+                pass: thumbnailPass,
+                directoryURL: thumbnailDirectoryURL
+            )
             return (
                 CSSearchableItem(
                     uniqueIdentifier: "song:\(song.id)",
                     domainIdentifier: kSongDomain,
                     attributeSet: attrs
                 ),
-                thumbnailCacheMiss
+                thumbnail
             )
 
-        case let .album(album):
+        case let .album(album, cover):
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = album.title
+            attrs.displayName = album.title
             attrs.album = album.title
             attrs.artist = album.artistName
             attrs.contentDescription = album.artistName ?? ""
             attrs.keywords = [album.title, album.artistName].compactMap { $0 }
+            let thumbnail = attachThumbnail(
+                cover,
+                to: attrs,
+                pass: thumbnailPass,
+                directoryURL: thumbnailDirectoryURL
+            )
             return (
                 CSSearchableItem(
                     uniqueIdentifier: "album:\(album.id)",
                     domainIdentifier: kAlbumDomain,
                     attributeSet: attrs
                 ),
-                false
+                thumbnail
             )
 
         case let .artist(artist):
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = artist.name
+            attrs.displayName = artist.name
             attrs.artist = artist.name
             attrs.contentDescription = String(localized: "spotlight_artist_subtitle")
             attrs.keywords = [artist.name]
@@ -705,12 +869,13 @@ final class SpotlightIndexService {
                     domainIdentifier: kArtistDomain,
                     attributeSet: attrs
                 ),
-                false
+                .none
             )
 
         case let .playlist(playlist):
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = playlist.name
+            attrs.displayName = playlist.name
             attrs.contentDescription = String(
                 format: String(localized: "spotlight_playlist_subtitle_format"),
                 playlist.songCount
@@ -722,31 +887,53 @@ final class SpotlightIndexService {
                     domainIdentifier: kPlaylistDomain,
                     attributeSet: attrs
                 ),
-                false
+                .none
             )
         }
     }
 
-    #if os(iOS)
-    /// Reuses a persistent 128 px JPEG keyed by the source artwork's content
-    /// identity. Full recovery builds decode at most eight new covers per batch;
-    /// later launches and metadata-only updates perform no image work.
-    private nonisolated static func cachedThumbnailURL(
-        coverArtFileName: String,
-        coverContentIdentifier: String,
+    /// Spotlight renders results in its own process, which cannot open files
+    /// in the app container, so the thumbnail travels as data. A thumbnailURL
+    /// into Application Support showed only the generic icon.
+    private nonisolated static func attachThumbnail(
+        _ cover: CoverSource?,
+        to attrs: CSSearchableItemAttributeSet,
+        pass: ThumbnailPass,
         directoryURL: URL
-    ) -> (url: URL?, cacheMiss: Bool) {
-        let cacheKey = SHA256.hash(data: Data(coverContentIdentifier.utf8))
+    ) -> ThumbnailOutcome {
+        guard let cover else { return .none }
+        let url = thumbnailURL(for: cover, directoryURL: directoryURL)
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            attrs.thumbnailData = data
+            return .attached
+        }
+        guard pass == .generating else { return .deferred }
+        // A cover that cannot be decoded stays without a thumbnail until it
+        // changes; retrying it every run would only repeat the failure.
+        if let data = makeThumbnail(for: cover, at: url) {
+            attrs.thumbnailData = data
+        }
+        return .generated
+    }
+
+    private nonisolated static func thumbnailURL(
+        for cover: CoverSource,
+        directoryURL: URL
+    ) -> URL {
+        let cacheKey = SHA256.hash(data: Data(cover.contentIdentifier.utf8))
             .prefix(20)
             .map { String(format: "%02x", $0) }
             .joined()
-        let url = directoryURL.appendingPathComponent("\(cacheKey).jpg")
-        if FileManager.default.fileExists(atPath: url.path) {
-            return (url, false)
-        }
-        guard let raw = MetadataAssetStore.shared.readCoverData(named: coverArtFileName),
+        return directoryURL.appendingPathComponent("\(cacheKey).jpg")
+    }
+
+    /// Writes a persistent 128 px JPEG keyed by the cover's content identity.
+    /// Builds decode at most eight new covers per batch; later runs and
+    /// metadata-only updates read the cached file.
+    private nonisolated static func makeThumbnail(for cover: CoverSource, at url: URL) -> Data? {
+        guard let raw = MetadataAssetStore.shared.readCoverData(named: cover.fileName),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(raw) else {
-            return (nil, true)
+            return nil
         }
 
         let encoded: Data? = autoreleasepool {
@@ -782,16 +969,14 @@ final class SpotlightIndexService {
             guard CGImageDestinationFinalize(destination) else { return nil }
             return output as Data
         }
-        guard let encoded else { return (nil, true) }
+        guard let encoded else { return nil }
         do {
             try encoded.write(to: url, options: .atomic)
-            return (url, true)
         } catch {
             spotlightLog.error("Spotlight thumbnail cache write failed: \(error.localizedDescription)")
-            return (nil, true)
         }
+        return encoded
     }
-    #endif
 
     private nonisolated static func applyBatch(
         to index: CSSearchableIndex,

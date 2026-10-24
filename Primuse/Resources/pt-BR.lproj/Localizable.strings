@@ -3667,6 +3667,8 @@
 "spatial_head_tracking_desc" = "No AirPods compatível, o palco sonoro permanece ancorado enquanto você move a cabeça.";
 "spotlight_artist_subtitle" = "Artista em Primuse";
 "spotlight_playlist_subtitle_format" = "Lista de reprodução Primuse · Faixas %d";
+"spotlight_shows_artwork" = "Mostrar capas nos resultados";
+"spotlight_shows_artwork_detail" = "Mostra a capa ao lado das músicas e álbuns encontrados pelo Spotlight. Só são usadas capas já salvas neste dispositivo e nada é baixado para isso, então uma música de servidor cuja capa o app ainda não mostrou fica com o ícone padrão. Desative para mostrar só o ícone padrão; o índice fica menor e é criado mais rápido.";
 "ssh_key" = "Chave SSH";
 "ssh_key_placeholder" = "Cole a chave privada PEM aqui...";
 "ssl_trust_changed_message" = "O certificado do servidor é diferente daquele que você confirmou anteriormente. Verifique os detalhes antes de atualizar a confiança.";

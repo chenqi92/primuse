@@ -1536,6 +1536,8 @@
 "update_whats_new" = "Neu in dieser Version";
 "spotlight_artist_subtitle" = "Künstler in Primuse";
 "spotlight_playlist_subtitle_format" = "Primuse-Wiedergabeliste · %d Titel";
+"spotlight_shows_artwork" = "Cover in Suchergebnissen zeigen";
+"spotlight_shows_artwork_detail" = "Zeigt Cover neben Titeln und Alben, die Spotlight findet. Es werden nur Cover verwendet, die bereits auf diesem Gerät gespeichert sind, und dafür wird nichts heruntergeladen. Ein Titel von einem Server, dessen Cover die App noch nicht angezeigt hat, behält deshalb das Standardsymbol. Ausgeschaltet erscheint nur das Standardsymbol; der Index ist kleiner und schneller erstellt.";
 "smart_value_format_none" = "Beliebiges Format";
 "smart_value_source_none" = "Beliebige Quelle";
 "tag_editor_cover_section" = "Cover";

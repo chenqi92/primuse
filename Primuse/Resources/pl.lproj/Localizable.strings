@@ -3667,6 +3667,8 @@
 "spatial_head_tracking_desc" = "Na obsługiwanych AirPods scena dźwiękowa pozostaje niezmieniona, gdy poruszasz głową.";
 "spotlight_artist_subtitle" = "Artysta w Primuse";
 "spotlight_playlist_subtitle_format" = "Lista odtwarzania Primuse · Utwory %d";
+"spotlight_shows_artwork" = "Okładki w wynikach";
+"spotlight_shows_artwork_detail" = "Pokazuje okładkę obok utworów i albumów znalezionych przez Spotlight. Używane są tylko okładki zapisane już na tym urządzeniu i nic nie jest w tym celu pobierane, więc utwór z serwera, którego okładki aplikacja jeszcze nie wyświetliła, ma domyślną ikonę. Po wyłączeniu widać tylko domyślną ikonę; indeks jest mniejszy i tworzy się szybciej.";
 "ssh_key" = "Klucz SSH";
 "ssh_key_placeholder" = "Wklej tutaj klucz prywatny PEM...";
 "ssl_trust_changed_message" = "Certyfikat serwera różni się od tego, który wcześniej potwierdziłeś. Przed aktualizacją zaufania sprawdź szczegóły.";

@@ -1292,6 +1292,8 @@
 "update_whats_new" = "本次更新";
 "spotlight_artist_subtitle" = "Primuse 內的演出者";
 "spotlight_playlist_subtitle_format" = "Primuse 歌單 · %d 首";
+"spotlight_shows_artwork" = "搜尋結果顯示封面";
+"spotlight_shows_artwork_detail" = "系統搜尋（Spotlight）裡搜到的歌和專輯旁邊顯示封面。只用本機已經存下的封面，不會為此連網下載，所以 App 裡還沒顯示過封面的伺服器歌曲先顯示預設圖示。關掉後只顯示預設圖示，索引更小、建得更快。";
 "smart_value_format_none" = "不限格式";
 "smart_value_source_none" = "不限音樂來源";
 "tag_editor_menu" = "編輯標籤";

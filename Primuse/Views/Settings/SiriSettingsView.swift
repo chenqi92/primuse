@@ -45,6 +45,11 @@ struct SiriSettingsView: View {
                 SettingsShortcutsHelpView()
             }
             Section {
+                SpotlightArtworkToggle()
+            } header: {
+                Text(verbatim: "Spotlight")
+            }
+            Section {
                 Label("siri_play_song_example", systemImage: "quote.bubble")
                 ShortcutsLink()
                     .shortcutsLinkStyle(.automaticOutline)

@@ -286,6 +286,8 @@ targets:
         NSPhotoLibraryAddUsageDescription: "Primuse 需要保存歌词海报和实况照片到你的相册。"
         NSUserActivityTypes:
           - com.welape.yuanyin.nowplaying
+        # Spotlight 结果下面给「在 Primuse 中搜索」, 点了带着输入的字进 App 的搜索页。
+        CoreSpotlightContinuation: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:

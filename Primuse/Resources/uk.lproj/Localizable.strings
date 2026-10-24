@@ -1597,6 +1597,8 @@
 "apple_music_notice_notDetermined_in_sources" = "Apple Music ще не підключено. Підключіть його в джерелі Apple Music у розділі «Керування джерелами», щоб увімкнути пошук по каталогу.";
 "relay_share_qr_accessibility" = "Поділіться QR-кодом посилання";
 "spotlight_playlist_subtitle_format" = "Список відтворення Primuse · треки %d";
+"spotlight_shows_artwork" = "Обкладинки в результатах";
+"spotlight_shows_artwork_detail" = "Показує обкладинку поруч із піснями та альбомами, знайденими в Spotlight. Використовуються лише обкладинки, уже збережені на цьому пристрої, і для цього нічого не завантажується, тож пісня із сервера, обкладинку якої застосунок ще не показував, лишається зі стандартною іконкою. Якщо вимкнути, буде лише стандартна іконка; індекс менший і створюється швидше.";
 "home_no_scans" = "Немає сканувань";
 "library_folder_other" = "Інше";
 "keyboard_shortcuts_modifier_required" = "Додайте до цієї клавіші Command, Option, Control або Shift.";

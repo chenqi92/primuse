@@ -8,9 +8,10 @@ struct Song: Sendable {
     var albumTitle: String? = "Smoke album"
     var coverArtFileName: String?
     var dateAdded = Date()
+    var duration: TimeInterval = 0
     func displayArtistName(configuration: ArtistNameConfiguration) -> String? { "Smoke artist" }
 }
-struct Album: Sendable { let id: String; let title: String; var artistName: String? }
+struct Album: Sendable { let id: String; let title: String; var artistName: String?; var coverArtPath: String? }
 struct Artist: Sendable { let id: String; let name: String }
 struct Playlist: Sendable { let id: String; let name: String }
 struct ArtistNameConfiguration: Sendable { let cacheSignature = "smoke" }
@@ -36,6 +37,7 @@ enum MetadataAssetStore {
 struct MetadataAssetStoreFixture: Sendable {
     func coverContentIdentifier(named: String) -> String? { nil }
     func readCoverData(named: String) -> Data? { nil }
+    func expectedCoverFileName(for key: String) -> String { "\(key).jpg" }
 }
 enum ArtworkImageCompatibility {
     static func hasRedundantJPEGSampling(_ data: Data) -> Bool { false }
@@ -178,7 +180,7 @@ extension SpotlightIndexService {
         migrated.resumePendingSynchronization(library: library)
         try await migrated.waitForCompletion()
         try await expectRows(expected, label: "previously clean but empty v1 index repairs itself")
-        try require(loadManifest(from: migrated.manifestURL)?.schemaVersion == 2, "Recovery schema not persisted")
+        try require(loadManifest(from: migrated.manifestURL)?.schemaVersion == schemaVersion, "Recovery schema not persisted")
         let relaunched = SpotlightIndexService()
         relaunched.synchronizeIfNeeded(library: library)
         try require(relaunched.workPhase == .idle, "Clean recovered index rebuilt again on launch")
@@ -199,6 +201,84 @@ extension SpotlightIndexService {
         try await migrated.waitForCompletion()
         try await expectRows(expected, label: "background pause resumes cancelled work and applies incremental edits/deletions")
         print("PASS: cancelled work remains pending until a successful commit")
+
+        try await interruptedRebuildResumes(library: library, service: migrated)
+    }
+
+    /// A 30-second background window used to end a rebuild before its manifest
+    /// was saved, so every window wiped the index and wrote the same first few
+    /// hundred items again. The interrupted run must leave a checkpoint the
+    /// next run continues from, with the recently played song already in.
+    private static func interruptedRebuildResumes(
+        library: MusicLibrary,
+        service: SpotlightIndexService
+    ) async throws {
+        let total = 1200
+        library.visibleSongs = (0..<total).map {
+            Song(id: String(format: "bulk-%04d", $0), title: "Bulk smoke \($0)")
+        }
+        library.visibleAlbums = []
+        library.visibleArtists = []
+        library.playlists = []
+        library.recentPlaybackSongIDsForSync = ["bulk-0007"]
+        try saveManifest(SpotlightIndexManifest(schemaVersion: 0, signaturesByIdentifier: [:]), to: service.manifestURL)
+        let snapshot = service.makeLibrarySnapshot(library: library)
+        let manifestURL = service.manifestURL
+        let thumbnailDirectoryURL = service.thumbnailDirectoryURL
+        let interrupted = Task.detached {
+            await performSynchronization(
+                snapshot: snapshot,
+                manifestURL: manifestURL,
+                thumbnailDirectoryURL: thumbnailDirectoryURL
+            )
+        }
+        var sawFirstBatch = false
+        for _ in 0..<200 {
+            if try await indexedRows().keys.contains(where: { $0.hasPrefix("song:bulk-") }) {
+                sawFirstBatch = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        interrupted.cancel()
+        let interruptedResult = await interrupted.value
+        try require(sawFirstBatch, "Rebuild never committed a batch")
+        try require(!interruptedResult, "Interrupted rebuild reported success")
+
+        guard let checkpoint = loadManifest(from: manifestURL) else {
+            throw SmokeFailure(description: "Interrupted rebuild left no checkpoint")
+        }
+        let confirmed = checkpoint.signaturesByIdentifier.filter {
+            $0.value != SpotlightIndexCheckpoint.unconfirmedSignature
+        }
+        try require(
+            !confirmed.isEmpty && confirmed.count < total,
+            "Checkpoint kept \(confirmed.count) of \(total) items"
+        )
+        try require(confirmed["song:bulk-0007"] != nil, "Recently played song was not written first")
+        let state = await fetchClientState(from: CSSearchableIndex(name: kSpotlightIndexName))
+        try require(state.data == clientState(for: checkpoint), "Checkpoint and client state disagree")
+        let resumedPlan = SpotlightIndexPlanner.makePlan(
+            currentRecords: prepareSnapshot(snapshot)!.records,
+            previousManifest: checkpoint,
+            schemaVersion: schemaVersion
+        )
+        try require(!resumedPlan.requiresFullRebuild, "Resume would wipe the index again")
+        try require(
+            resumedPlan.identifiersToUpsert.count == total - confirmed.count,
+            "Resume plans \(resumedPlan.identifiersToUpsert.count) upserts after \(confirmed.count) were kept"
+        )
+        print("PASS: interrupted rebuild keeps \(confirmed.count) committed items and the recently played song")
+
+        let finished = await performSynchronization(
+            snapshot: snapshot,
+            manifestURL: manifestURL,
+            thumbnailDirectoryURL: thumbnailDirectoryURL
+        )
+        try require(finished, "Resumed synchronization failed")
+        var expected = ["control": "Unrelated control"]
+        for song in library.visibleSongs { expected["song:\(song.id)"] = song.title }
+        try await expectRows(expected, label: "resumed rebuild completes the library without starting over")
     }
 }
 
@@ -206,8 +286,8 @@ extension SpotlightIndexService {
 struct SpotlightIndexSmoke {
     @MainActor
     static func main() async {
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 45) {
-            print("FAIL: Spotlight probe exceeded its 45-second budget")
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 90) {
+            print("FAIL: Spotlight probe exceeded its 90-second budget")
             exit(2)
         }
         var failed = false

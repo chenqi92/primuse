@@ -31,6 +31,25 @@ struct SiriSpokenNamesView: View {
     }
 }
 
+/// Spotlight 搜索结果里的封面(#346)。关掉后结果只显示默认图标,索引更小、建得更快;
+/// 翻动时整库重新写一遍索引(每一项的签名都带着这个开关)。
+struct SpotlightArtworkToggle: View {
+    @Environment(MusicLibrary.self) private var library
+    @AppStorage(SpotlightIndexService.showsArtworkKey) private var showsArtwork = true
+
+    var body: some View {
+        Toggle(isOn: $showsArtwork) {
+            SettingsInfoLabel("spotlight_shows_artwork") {
+                Text("spotlight_shows_artwork_detail")
+            }
+        }
+        .onChange(of: showsArtwork) { _, _ in
+            AppServices.shared.spotlightIndex.artworkPreferenceChanged(library: library)
+        }
+        .settingsAnchor("siri.spotlightArtwork")
+    }
+}
+
 /// A personal shortcut is the only phrase a listener can choose: Siri runs it
 /// by its name alone, so the app name never has to be heard correctly.
 struct SiriCustomPhraseGuideView: View {

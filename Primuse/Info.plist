@@ -62,6 +62,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CoreSpotlightContinuation</key>
+	<true/>
 	<key>INAlternativeAppNames</key>
 	<array>
 		<dict>

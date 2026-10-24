@@ -1536,6 +1536,8 @@
 "update_whats_new" = "Nouveautés";
 "spotlight_artist_subtitle" = "Artiste dans Primuse";
 "spotlight_playlist_subtitle_format" = "Liste de lecture Primuse · %d morceaux";
+"spotlight_shows_artwork" = "Afficher les pochettes dans les résultats";
+"spotlight_shows_artwork_detail" = "Affiche la pochette à côté des morceaux et albums trouvés par Spotlight. Seules les pochettes déjà enregistrées sur cet appareil sont utilisées et rien n’est téléchargé pour cela : un morceau d’un serveur dont l’app n’a pas encore affiché la pochette garde l’icône par défaut. Désactivez l’option pour n’afficher que l’icône par défaut ; l’index est plus petit et se construit plus vite.";
 "smart_value_format_none" = "Tous les formats";
 "smart_value_source_none" = "Toutes les sources";
 "tag_editor_cover_section" = "Illustration";

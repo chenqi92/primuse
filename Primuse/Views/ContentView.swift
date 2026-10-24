@@ -1,5 +1,6 @@
 import SwiftUI
 #if os(iOS)
+import CoreSpotlight
 import MusicKit
 import PrimuseKit
 import UIKit
@@ -1571,21 +1572,34 @@ struct ContentView: View {
         // 首页模型放进环境：设置里的界面编辑器要就地渲染真实首页，编辑的必须是
         // 同一份状态，另起一个实例会看到不一样的快照。
         .environment(homeModel)
-        // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。
-        // song 直接播; album / artist / playlist 推进资料库对应详情页。
+        // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等;Spotlight 的
+        // 「在 App 中搜索」;Handoff 从另一台设备带来的完整播放上下文。场景代理也会收到
+        // 同一次点按, 都交给 `SystemActivityRouter`, 由它去重、等库发布后播放。
         //
         // Stage 2b: 系统会把启动时的 Spotlight / Handoff 活动随场景连接选项
         // 一起投递, 那一刻挂在树上的只有占位界面。处理器因此必须挂在外层 ——
-        // 挂在 `mainContent` 上这次点击会被整个丢掉。库还没发布时先交给
-        // `onReady` 存着, 发布之后重放(已就绪时立即执行, 与历史版本一致)。
-        .onContinueUserActivity("com.apple.corespotlight.searchableitem") { activity in
-            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
-            library.onReady { handleSpotlightItem(item) }
+        // 挂在 `mainContent` 上这次点击会被整个丢掉。
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            SystemActivityRouter.shared.handle(activity, route: "swiftui")
         }
-        // Handoff ── 从另一台设备过来时拿到完整播放上下文 (当前歌 / 队列 /
-        // 播放位置 / 播放或暂停 / shuffle / repeat),无缝接着播下去。
-        .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
-            library.onReady { handleHandoffActivity(activity) }
+        .onContinueUserActivity(CSQueryContinuationActionType) { activity in
+            SystemActivityRouter.shared.handle(activity, route: "swiftui")
+        }
+        .onContinueUserActivity(SystemActivityRouter.handoffActivityType) { activity in
+            SystemActivityRouter.shared.handle(activity, route: "swiftui")
+        }
+        // 要切页的那一部分 (专辑 / 艺人 / 歌单详情, 带着 Spotlight 里输入的字去搜索)。
+        .onChange(of: SystemActivityRouter.shared.pendingDestination, initial: true) { _, destination in
+            guard let destination else { return }
+            SystemActivityRouter.shared.consumeDestination()
+            switch destination {
+            case .library(let link):
+                showNowPlaying = false
+                openLibraryDeepLink(link)
+            case .search(let query):
+                searchText = query
+                selectMinimalPage(.search)
+            }
         }
         // 主屏幕快捷菜单的「搜索」。请求先记在快捷菜单那边,这里接手:冷启动时同样
         // 只有外层挂着,切页和弹键盘的状态留到搜索页出来再用。
@@ -2025,95 +2039,6 @@ struct ContentView: View {
             if player.currentSong == nil {
                 showNowPlaying = false
             }
-        }
-    }
-
-    /// Handoff 受方 ── 把 publisher 那边记录的 (当前歌, 队列, 播放位置, 状态)
-    /// 还原到本机播放器上。受方库里找不到的歌跳过, 当前歌也找不到时静默忽略
-    /// (跨设备库未同步的常见情况, 不弹 error 干扰用户)。
-    private func handleHandoffActivity(_ activity: NSUserActivity) {
-        guard let info = activity.userInfo,
-              let songID = info["songID"] as? String else { return }
-
-        // 还原队列。queueIDs 没传时退化成"只播当前歌";有时按顺序解析 ──
-        // 受方 library 现在可能比 publisher 少 (CloudKit 同步未到位 / 不同 source
-        // 启用状态),compactMap 后丢失的歌不影响其它歌正常播。
-        let queueIDs = (info["queueIDs"] as? [String]) ?? [songID]
-        let resolvedQueue = queueIDs.compactMap { library.visibleSong(id: $0) }
-        guard !resolvedQueue.isEmpty,
-              let songIndex = resolvedQueue.firstIndex(where: { $0.id == songID }) else {
-            // 当前歌在受方库里不存在 → 退回纯 song-id 路径,让 spotlight 同
-            // 一套逻辑兜底 (会把整库当队列起播); 至少不会"啥都没发生"。
-            handleSpotlightItem(.song(id: songID))
-            return
-        }
-
-        let song = resolvedQueue[songIndex]
-        if let shuffle = info["shuffleEnabled"] as? Bool { player.shuffleEnabled = shuffle }
-        if let rmRaw = info["repeatMode"] as? String,
-           let rm = RepeatMode(rawValue: rmRaw) {
-            player.repeatMode = rm
-        }
-
-        let snapshotTime = (info["snapshotTime"] as? Double)
-            ?? Date().timeIntervalSinceReferenceDate
-        let baseTime = (info["currentTime"] as? Double) ?? 0
-        let wasPlaying = (info["isPlaying"] as? Bool) ?? true
-        // 仅当 publisher 当时是播放状态才把"经过时间"加上;暂停态就保留
-        // 原 currentTime,用户继续听不会跳过任何内容。
-        let elapsed = wasPlaying
-            ? max(0, Date().timeIntervalSinceReferenceDate - snapshotTime)
-            : 0
-        let resumeTime = baseTime + elapsed
-
-        Task {
-            if wasPlaying {
-                await player.play(
-                    queue: resolvedQueue,
-                    startingAt: songIndex,
-                    caller: "Handoff"
-                )
-                // play(song:) starts at zero; seek to the publisher's live
-                // position only for an explicitly playing Handoff.
-                player.seek(to: resumeTime, startPlaying: true)
-            } else {
-                player.stop()
-                player.setQueue(resolvedQueue, startAt: songIndex)
-                if let shuffle = info["shuffleEnabled"] as? Bool {
-                    player.shuffleEnabled = shuffle
-                }
-                if let rmRaw = info["repeatMode"] as? String,
-                   let rm = RepeatMode(rawValue: rmRaw) {
-                    player.repeatMode = rm
-                }
-                player.stagePausedHandoff(song: song, at: resumeTime)
-            }
-        }
-    }
-
-    /// Spotlight 命中 -> 路由。`song` 直接进 queue 开播; album / artist /
-    /// playlist 进入资料库并推到对应详情页。
-    private func handleSpotlightItem(_ item: SpotlightItem) {
-        switch item {
-        case .song(let id):
-            guard library.visibleSong(id: id) != nil else { return }
-            // 命中歌 + 整库剩下的拼起来当队列,跟 Siri / Shortcuts 同款行为;
-            // 只交 ID, 整库在主线程之外按窗口取。
-            var ids = [id]
-            ids.reserveCapacity(library.visibleSongs.count)
-            for song in library.visibleSongs where song.id != id { ids.append(song.id) }
-            Task {
-                await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight")
-            }
-        case .album(let id):
-            guard let album = library.visibleAlbums.first(where: { $0.id == id }) else { return }
-            openLibraryDeepLink(.album(album))
-        case .artist(let id):
-            guard let artist = library.visibleArtists.first(where: { $0.id == id }) else { return }
-            openLibraryDeepLink(.artist(artist))
-        case .playlist(let id):
-            guard let playlist = library.playlists.first(where: { $0.id == id }) else { return }
-            openLibraryDeepLink(.playlist(playlist))
         }
     }
 

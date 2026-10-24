@@ -62,7 +62,7 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
-    /// 主窗口场景挂上 `PrimuseWindowSceneDelegate` 接主屏幕快捷菜单;冷启动时点的那一项
+    /// 主窗口场景挂上 `PrimuseWindowSceneDelegate` 接主屏幕快捷菜单与 Spotlight;冷启动时点的那一项
     /// 跟着连接选项一起到,在这里交出去。CarPlay、外接屏等其它角色照 Info.plist 里登记的
     /// 配置走。
     func application(
@@ -76,6 +76,10 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         }
         if let shortcutItem = options.shortcutItem {
             HomeScreenQuickActionCenter.shared.handle(shortcutItem)
+        }
+        // 点 Spotlight 结果冷启动时, 那一项跟着连接选项到。
+        for activity in options.userActivities {
+            SystemActivityRouter.shared.handle(activity, route: "launch")
         }
         #if DEBUG
         // 模拟器上没法长按图标,按冷启动的同一条路把动作交出去(值为 HomeScreenQuickAction 的 rawValue)。
@@ -206,6 +210,8 @@ private enum BackgroundScanResumeTask {
                 let services = AppServices.shared
                 services.musicLibrary.resumePendingIdentityResolution()
                 services.resumePendingLocalImportScanIfNeeded()
+                // 系统给的这段后台时间也让 Spotlight 接着建索引(从上次的进度续)。
+                services.spotlightIndex.resumePendingSynchronization(library: services.musicLibrary)
             },
             scheduleNextRequest: {
                 // If anything still has a checkpoint or pending bare songs,

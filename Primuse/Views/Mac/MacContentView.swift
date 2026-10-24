@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import CoreSpotlight
 import PrimuseKit
 
 /// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
@@ -486,6 +487,11 @@ struct MacContentView: View {
             guard note.object is Artist else { return }
             nowPlayingPresented = false
         }
+        // 在 Spotlight 里点开的一项:歌直接放,专辑、艺人、歌单打开详情。之前 Mac 上点了只是把窗口叫到前面。
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
+            library.onReady { openSpotlightItem(item) }
+        }
         .background {
             PMWindowResolver { window in
                 hostWindow = window
@@ -672,6 +678,27 @@ struct MacContentView: View {
         MacFrameCommit.afterCurrentCommit {
             guard let route = routeSwitch.pending else { return }
             applyRoute(route)
+        }
+    }
+
+    private func openSpotlightItem(_ item: SpotlightItem) {
+        switch item {
+        case .song(let id):
+            guard library.visibleSong(id: id) != nil else { return }
+            // 命中歌 + 整库剩下的拼起来当队列,跟 iOS 与 Siri 同款;只交 ID。
+            var ids = [id]
+            ids.reserveCapacity(library.visibleSongs.count)
+            for song in library.visibleSongs where song.id != id { ids.append(song.id) }
+            Task { await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight") }
+        case .album(let id):
+            guard let album = library.visibleAlbum(id: id) else { return }
+            NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+        case .artist(let id):
+            guard let artist = library.visibleArtist(id: id) else { return }
+            NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+        case .playlist(let id):
+            guard let playlist = library.playlists.first(where: { $0.id == id }) else { return }
+            selectRoute(.playlist(playlist))
         }
     }
 

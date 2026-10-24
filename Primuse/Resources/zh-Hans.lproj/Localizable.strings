@@ -1373,6 +1373,8 @@
 "update_whats_new" = "本次更新";
 "spotlight_artist_subtitle" = "Primuse 内的艺术家";
 "spotlight_playlist_subtitle_format" = "Primuse 歌单 · %d 首";
+"spotlight_shows_artwork" = "搜索结果显示封面";
+"spotlight_shows_artwork_detail" = "系统搜索（Spotlight）里搜到的歌和专辑旁边显示封面。只用本机已经存下的封面，不会为此联网下载，所以 App 里还没显示过封面的服务器歌曲先显示默认图标。关掉后只显示默认图标，索引更小、建得更快。";
 "smart_value_format_none" = "不限格式";
 "smart_value_source_none" = "不限音乐源";
 "tag_editor_menu" = "编辑标签";

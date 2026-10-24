@@ -1537,6 +1537,8 @@
 "update_whats_new" = "新機能";
 "spotlight_artist_subtitle" = "Primuse のアーティスト";
 "spotlight_playlist_subtitle_format" = "Primuse のプレイリスト · %d 曲";
+"spotlight_shows_artwork" = "検索結果にアートワークを表示";
+"spotlight_shows_artwork_detail" = "Spotlight で見つかった曲やアルバムの横にアートワークを表示します。このデバイスに保存済みのアートワークだけを使い、そのためにダウンロードはしないため、アプリでまだアートワークを表示していないサーバー上の曲はデフォルトのアイコンのままです。オフにするとデフォルトのアイコンだけになり、インデックスが小さく、作成も速くなります。";
 "smart_value_format_none" = "すべてのフォーマット";
 "smart_value_source_none" = "すべてのソース";
 "tag_editor_cover_section" = "アートワーク";

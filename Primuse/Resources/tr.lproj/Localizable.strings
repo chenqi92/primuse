@@ -1597,6 +1597,8 @@
 "apple_music_notice_notDetermined_in_sources" = "Apple Music henüz bağlanmadı. Katalog aramayı etkinleştirmek için “Kaynakları Yönet” bölümündeki Apple Music kaynağından bağlayın.";
 "relay_share_qr_accessibility" = "Bağlantıyı paylaş QR kodu";
 "spotlight_playlist_subtitle_format" = "Primuse çalma listesi · %d parçalar";
+"spotlight_shows_artwork" = "Sonuçlarda kapakları göster";
+"spotlight_shows_artwork_detail" = "Spotlight’ın bulduğu şarkı ve albümlerin yanında kapak gösterir. Yalnızca bu cihazda zaten kayıtlı kapaklar kullanılır ve bunun için hiçbir şey indirilmez; bu yüzden uygulamanın kapağını henüz göstermediği sunucu şarkıları varsayılan simgeyle kalır. Kapatırsanız yalnızca varsayılan simge görünür; dizin daha küçük olur ve daha hızlı oluşturulur.";
 "home_no_scans" = "Devam eden tarama yok";
 "library_folder_other" = "Diğer";
 "keyboard_shortcuts_modifier_required" = "Bu tuşa Komut, Seçenek, Kontrol veya Shift ekleyin.";

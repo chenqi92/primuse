@@ -1357,6 +1357,8 @@
 "update_whats_new" = "What’s New";
 "spotlight_artist_subtitle" = "Artist in Primuse";
 "spotlight_playlist_subtitle_format" = "Primuse playlist · %d tracks";
+"spotlight_shows_artwork" = "Show Artwork in Results";
+"spotlight_shows_artwork_detail" = "Shows cover art next to songs and albums found in Spotlight. Only covers already saved on this device are used and nothing is downloaded for this, so a server song whose cover the app hasn’t shown yet keeps the default icon. Turn this off to show only the default icon; the index is smaller and builds faster.";
 "smart_value_format_none" = "Any format";
 "smart_value_source_none" = "Any source";
 "tag_editor_menu" = "Edit Tags";
