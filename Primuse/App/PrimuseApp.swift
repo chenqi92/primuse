@@ -1674,7 +1674,8 @@ struct PrimuseApp: App {
                 onExitFullScreen: {},
                 onToggleQueue: {},
                 usesDemoEvidenceContent: true,
-                debugEffectOverride: .flowingLines
+                debugEffectOverride: ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_EFFECT"]
+                    .flatMap(FullscreenPlayerEffect.init(rawValue:)) ?? .flowingLines
             )
         } else {
             MacContentView()

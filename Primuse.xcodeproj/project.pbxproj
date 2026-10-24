@@ -7,8 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */; };
+		33D1E32F333BB6855ACD7CA3 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
+		3B0F187D3A2F82837C1F159D /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
+		548224D4D9A8F40A8FCF1518 /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
+		725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		AB0708000CBC4F108CF7DF5D /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
 		124D12FF62714B9F877C64EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
 		8A1DC1FDB35C4F5F829E91EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
@@ -147,6 +152,7 @@
 		84792B3B17A4935F18905716 /* AppleMusicCatalogContinuationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342417F25A449C5361360E90 /* AppleMusicCatalogContinuationPolicy.swift */; };
 		10E2E9512E5EEA74BCBE5E9C /* LastFmSimilarAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */; };
 		10EBE27956C433C1DD89A664 /* SearchResultLayoutEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234C5E25758071CA1B4DEE7D /* SearchResultLayoutEditor.swift */; };
+		B54D01211CF8BE605BAB93B6 /* ImmersiveKineticDirectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */; };
 		C7B091C75A77489229BF31ED /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		D29712AB5F6AB7ECD686014B /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		DE2B46B43B7D49957F37FFC5 /* AppleMusicCatalogArtistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F5E568CDE8A250C881F921 /* AppleMusicCatalogArtistView.swift */; };
@@ -182,6 +188,7 @@
 		15D68850E066D89C71F3C9A4 /* PlayHistoryArchiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */; };
 		15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */; };
 		6C5DE0B469D585D3243284F5 /* NowPlayingPitchMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D573954A1D1D5056E2DDD7A0 /* NowPlayingPitchMenu.swift */; };
+		F398050B8B099D3BC51E4FB7 /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		FE9ED2C4369C469D9F9921F5 /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0CBFEB2BF4776D91C78B63 /* SleepTimerSheet.swift */; };
 		15F8953A7BF4561637FE2FE4 /* WiFiTransfer.strings in Resources */ = {isa = PBXBuildFile; fileRef = A4124C42E899AF4EF9EEE92D /* WiFiTransfer.strings */; };
 		1605D2F9A4BA223992D18D5F /* ListeningSpaceStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F838D6F0318995192A0A2F0 /* ListeningSpaceStyle.swift */; };
@@ -2369,6 +2376,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMetalBackdrop.swift; sourceTree = "<group>"; };
+		5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticDirectionPolicy.swift; sourceTree = "<group>"; };
 		5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsPolicy.swift; sourceTree = "<group>"; };
 		E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsText.swift; sourceTree = "<group>"; };
 		EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkRenderingTests.swift; sourceTree = "<group>"; };
@@ -2496,6 +2505,7 @@
 		EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudResolverRequests.swift; sourceTree = "<group>"; };
 		2E2F250EE1085F2C54CA66D1 /* OAuthTokenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthTokenRequests.swift; sourceTree = "<group>"; };
 		EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWallLayoutPolicy.swift; sourceTree = "<group>"; };
+		EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticShaderSource.swift; sourceTree = "<group>"; };
 		F0758171C80FAED182F55FFA /* FlyAuditoryCircuit.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = FlyAuditoryCircuit.bin; sourceTree = "<group>"; };
 		F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveSimulationRenderers.swift; sourceTree = "<group>"; };
 		F86FA91EF178B63A9A52F4BB /* PlayerVisualizerBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerVisualizerBackdrop.swift; sourceTree = "<group>"; };
@@ -4364,6 +4374,7 @@
 			children = (
 				261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */,
 				0C35FD6FD282B62FAA4E59FA /* ImmersiveEffectRotationPolicy.swift */,
+				5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */,
 				5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */,
 				036AA04905BA927ADD037522 /* RequestQuotaRegistry.swift */,
 				6488DA53AC9E8F4FC41DBA94 /* ServerRequestScheduler.swift */,
@@ -4826,6 +4837,8 @@
 				6FC3E2189D425CE5CEEFED7D /* ChapterListView.swift */,
 				3E2D4C63C61A4242A2B2D15E /* ImmersiveEffectDrawer.swift */,
 				E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */,
+				192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */,
+				EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */,
 				694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */,
 				F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */,
 				183552F57FE08FA9E466F722 /* ImmersiveStageRenderers.swift */,
@@ -6760,6 +6773,7 @@
 			files = (
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */,
+				B54D01211CF8BE605BAB93B6 /* ImmersiveKineticDirectionPolicy.swift in Sources */,
 				28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */,
 				BE21C127F973A0CA735F61AC /* LibraryUserDataBackup.swift in Sources */,
 				5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */,
@@ -7302,6 +7316,8 @@
 			files = (
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				D29712AB5F6AB7ECD686014B /* ImmersiveKineticLyricsText.swift in Sources */,
+				548224D4D9A8F40A8FCF1518 /* ImmersiveKineticMetalBackdrop.swift in Sources */,
+				3B0F187D3A2F82837C1F159D /* ImmersiveKineticShaderSource.swift in Sources */,
 				A9C99479A53DBC9EB09D1692 /* LibraryBackupService.swift in Sources */,
 				FE37913639A21760F2774DBF /* PeerScanSeedStore.swift in Sources */,
 				44C0BD97375CA21564CD65AE /* PlayerTextFont.swift in Sources */,
@@ -7859,6 +7875,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				C7B091C75A77489229BF31ED /* ImmersiveKineticLyricsText.swift in Sources */,
+				02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */,
+				725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */,
 				03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */,
 				3CD689893E36F677189359F8 /* LibNFSSession.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
@@ -8084,6 +8102,8 @@
 			files = (
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */,
+				F398050B8B099D3BC51E4FB7 /* ImmersiveKineticMetalBackdrop.swift in Sources */,
+				33D1E32F333BB6855ACD7CA3 /* ImmersiveKineticShaderSource.swift in Sources */,
 				3D2B105120AA7AE50379B7E1 /* LibraryBackupService.swift in Sources */,
 				42FDC2B8A2D885F39996CFEA /* PeerScanSeedStore.swift in Sources */,
 				737EA6A79976A72525497357 /* PlayerTextFont.swift in Sources */,

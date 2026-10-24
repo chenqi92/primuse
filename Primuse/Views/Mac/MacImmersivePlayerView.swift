@@ -70,7 +70,16 @@ struct MacImmersivePlayerView: View {
     @State private var isPresentationActive = false
     @State private var isWindowVisible = false
 
-    private var isRenderingActive: Bool { isPresentationActive && isWindowVisible }
+    private var isRenderingActive: Bool { isPresentationActive && (isWindowVisible || rendersWhileHidden) }
+
+    /// 取证演示页在锁屏的编译机上跑：窗口一直被判成看不见，照常渲染才截得到舞台。
+    private var rendersWhileHidden: Bool {
+        #if DEBUG
+        usesDemoEvidenceContent
+        #else
+        false
+        #endif
+    }
     @State private var visualizerOwnerID = UUID()
     @State private var visualizerRetryTask: Task<Void, Never>?
     /// 重试过也挂不上频谱的那首歌。换歌或挂上了就清掉。
@@ -148,7 +157,7 @@ struct MacImmersivePlayerView: View {
         NowPlayingVisualActivityPolicy(
             isSceneActive: isRenderingActive,
             isPlaying: player.isPlaying,
-            usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
+            usesRealtimeSpectrum: presentationEffect.readsRealtimeSpectrum,
             reduceMotion: reduceMotion
         )
     }
@@ -1140,7 +1149,7 @@ struct MacImmersivePlayerView: View {
 
     private var lyricPlaybackTime: TimeInterval {
         #if DEBUG
-        if usesDemoEvidenceContent { return 0 }
+        if usesDemoEvidenceContent { return ImmersiveEvidenceClock.now }
         #endif
         return player.interpolatedTime()
     }
@@ -1177,7 +1186,13 @@ struct MacImmersivePlayerView: View {
             if activeLyricIndex != index { activeLyricIndex = index }
             if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
 
-            guard visualActivityPolicy.shouldPollLyrics else { return }
+            #if DEBUG
+            let keepsPolling = visualActivityPolicy.shouldPollLyrics
+                || (usesDemoEvidenceContent && ImmersiveEvidenceClock.isRunning)
+            #else
+            let keepsPolling = visualActivityPolicy.shouldPollLyrics
+            #endif
+            guard keepsPolling else { return }
 
             do {
                 try await Task.sleep(for: .milliseconds(100))
@@ -1189,6 +1204,11 @@ struct MacImmersivePlayerView: View {
 
     /// 由舞台叶子视图按需调用，读取被限制在消费频谱的那一层。
     private var spectrumLevels: [CGFloat] {
+        #if DEBUG
+        if usesDemoEvidenceContent, ImmersiveEvidenceClock.isRunning {
+            return ImmersiveDemoStage.beatLevels(at: ImmersiveEvidenceClock.now)
+        }
+        #endif
         guard visualActivityPolicy.shouldRunVisualizer else { return [] }
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }
     }
@@ -1329,7 +1349,7 @@ struct MacImmersivePlayerView: View {
         guard isRenderingActive,
               !isLowPower,
               player.isPlaying,
-              value.usesRealtimeSpectrum else {
+              value.readsRealtimeSpectrum else {
             visualizer.release(owner: visualizerOwnerID)
             return
         }

@@ -137,6 +137,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    /// 「动态歌词」的导演：每首歌的编排和此刻的动静，背景与歌词共用一个。
+    @State private var kineticDirector = ImmersiveKineticDirector()
     /// 各动态层的重绘帧率；经环境传给舞台里的每一层。
     var frameRate: ImmersiveFrameRateMode = .defaultValue
     /// 动效强度：按时间走的层的速度、起伏幅度与对声音的敏感度；经环境传给舞台里的每一层。
@@ -750,16 +752,27 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 12. 动态歌词
 
-    /// 一次只放一句，压在画面正中，一个字一个字地动起来（`ImmersiveKineticLyricsPolicy`）：上一句往上飘走的同时
-    /// 这一句从下方弹上来，唱到的字亮起、弹一下。左上角是封面、歌手和专辑；没有带时间的歌词、或者第一句还没到时，
-    /// 正中放歌名。底下只用专辑色，不读频谱。
+    /// 一次只放一句，压在画面正中，一个字一个字地动起来（`ImmersiveKineticLyricsPolicy`）。每首歌由导演
+    /// （`ImmersiveKineticDirector`）固定挑一套背景场景、换句镜头、字的强调与机位，副歌换更激烈的镜头；背景是
+    /// Metal 着色器，有频谱时跟着鼓点动，读不到频谱时跟着歌词的字头动。左上角是封面、歌手和专辑；没有带时间的
+    /// 歌词、或者第一句还没到时，正中放歌名。
     private var kineticLyricsScene: some View {
         let width = kineticLyricsWidth
         let headerSide = metrics.s(metrics.isPortrait ? 56 : (platform == .tvOS ? 96 : 62))
         // 歌词的竖直中心：页头下沿到控件让出的那一段之间的正中。
         let centerY = (topInset + headerSide + metrics.size.height - bottomInset) / 2
+        let director = preparedKineticDirector
+        let clock = playbackTime
+        let elapsed = track.elapsed
+        let duration = track.duration
         return ZStack {
-            ImmersiveKineticBackdrop(palette: palette, isAnimating: sceneIsAnimating)
+            ImmersiveKineticSceneBackdrop(
+                scene: director.direction.scene,
+                palette: palette,
+                director: director,
+                progress: { duration > 0 ? (clock?() ?? elapsed) / duration : 0 },
+                isAnimating: sceneIsAnimating
+            )
             ImmersiveVignette(color: .black, clearStop: 0.26, strength: 0.52)
 
             compactHeader(artSide: headerSide)
@@ -772,6 +785,17 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .frame(width: width)
                 .position(x: metrics.size.width / 2, y: centerY)
         }
+    }
+
+    /// 动态歌词的导演：换歌时按新歌重挑编排；频谱（不建立观察的那份）、播放进度交给它，背景和歌词每帧来取。
+    private var preparedKineticDirector: ImmersiveKineticDirector {
+        let director = kineticDirector
+        director.prepare(for: track)
+        director.levelsProvider = scheduledSpectrumProvider
+        let clock = playbackTime
+        let elapsed = track.elapsed
+        director.playbackTime = { clock?() ?? elapsed }
+        return director
     }
 
     private var kineticLyricsWidth: CGFloat {
@@ -846,50 +870,99 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    /// 这一刻台上的东西：正在退场的上一句、当前这句，或者两句之间的空档里那三个点。
+    /// 这一刻台上的东西：正在退场的上一句、当前这句，或者两句之间的空档里那三个点。每句按自己的镜头进出：
+    /// 逐字浮现时字一个个弹上来、飘走，其余镜头整句一起走（`ImmersiveKineticDirectionPolicy`）。
     @available(tvOS 18.0, *)
     private func kineticLyricsFrame(width: CGFloat, at time: TimeInterval) -> some View {
+        let director = kineticDirector
+        let motion = syllableCrestIsAnimating
         let ordered = lyricWindow.sorted { $0.offset < $1.offset }
         let active = ordered.first(where: \.isActive)
         let previous = ordered.last { $0.offset < 0 }
         let upcoming = ordered.first { $0.offset > 0 }
         let activeTokens = active.map { kineticTokens($0) } ?? []
         let previousTokens = previous.map { kineticTokens($0) } ?? []
-        let upcomingStart = upcoming.flatMap { kineticTokens($0).first?.start ?? $0.startTime }
+        let upcomingTokens = upcoming.map { kineticTokens($0) } ?? []
+        // 读不到频谱时背景跟着这几句的字头动。
+        director.lyricOnsets = (previousTokens + activeTokens + upcomingTokens).map(\.start)
+        let previousMove = previous.map { kineticMove(for: $0, motion: motion) }
+        let activeMove = active.map { kineticMove(for: $0, motion: motion) }
+        let upcomingMove = upcoming.map { kineticMove(for: $0, motion: motion) }
+        let previousEnter = kineticEnterStart(previous, tokens: previousTokens, move: previousMove)
+        let activeEnter = kineticEnterStart(active, tokens: activeTokens, move: activeMove)
+        let upcomingEnter = kineticEnterStart(upcoming, tokens: upcomingTokens, move: upcomingMove)
+        let upcomingStart = upcoming.flatMap { upcomingTokens.first?.start ?? $0.startTime }
         let activeStart = activeTokens.first?.start ?? active?.startTime
-        let activeExit = ImmersiveKineticLyricsPolicy.exitStart(of: activeTokens, nextLineStart: upcomingStart)
-        let previousExit = ImmersiveKineticLyricsPolicy.exitStart(
-            of: previousTokens,
+        let activeExit = kineticExitStart(
+            tokens: activeTokens,
+            move: activeMove,
+            nextEnterStart: upcomingEnter,
+            nextLineStart: upcomingStart
+        )
+        let previousExit = kineticExitStart(
+            tokens: previousTokens,
+            move: previousMove,
+            nextEnterStart: activeEnter ?? upcomingEnter,
             nextLineStart: activeStart ?? upcomingStart
         )
-        let showsPrevious = previousExit.map {
-            time < $0 + ImmersiveKineticLyricsPolicy.exitSpan(tokenCount: previousTokens.count)
-        } ?? false
+        // 台上画哪几句：进场已经开始、出场还没走完的都画。下一句可能在当前句还没切过去时就开始进场（整句镜头
+        // 比第一个字早一截开始），所以三句都要看；按句子的 id 排，同一句换了角色视图也不换。
+        let entries = [
+            previous.flatMap { line in previousMove.map {
+                ImmersiveKineticStageEntry(line: line, tokens: previousTokens, move: $0, enterStart: previousEnter, exitStart: previousExit)
+            } },
+            active.flatMap { line in activeMove.map {
+                ImmersiveKineticStageEntry(line: line, tokens: activeTokens, move: $0, enterStart: activeEnter, exitStart: activeExit)
+            } },
+            upcoming.flatMap { line in upcomingMove.map {
+                ImmersiveKineticStageEntry(line: line, tokens: upcomingTokens, move: $0, enterStart: upcomingEnter, exitStart: nil)
+            } },
+        ].compactMap { $0 }.filter { entry in
+            guard !entry.tokens.isEmpty else { return false }
+            if let enterStart = entry.enterStart, time < enterStart { return false }
+            if let exitStart = entry.exitStart,
+               time >= exitStart + kineticExitSpan(entry.move, tokenCount: entry.tokens.count) {
+                return false
+            }
+            return true
+        }
         // 空档：台上那句已经唱完先走了、下一句还没来。
         let interlude = ImmersiveKineticLyricsPolicy.interludeVisibility(
             previousExit: active == nil ? previousExit : activeExit,
             nextLineStart: upcomingStart,
             at: time
         )
+        let shake = director.direction.accent == .slam
+            ? ImmersiveKineticLyricsPolicy.shake(for: activeTokens, at: time, motion: motion)
+            : (x: 0, y: 0)
         return ZStack {
-            if let previous, showsPrevious {
-                kineticLine(previous, tokens: previousTokens, exitStart: previousExit, width: width, time: time)
-                    .accessibilityHidden(true)
+            ForEach(entries) { entry in
+                let isActive = entry.line.id == active?.id
+                kineticLine(
+                    entry.line,
+                    tokens: entry.tokens,
+                    move: entry.move,
+                    enterStart: entry.enterStart,
+                    exitStart: entry.exitStart,
+                    width: width,
+                    time: time
+                )
+                .offset(
+                    x: isActive ? CGFloat(shake.x) * kineticFontBase : 0,
+                    y: isActive ? CGFloat(shake.y) * kineticFontBase : 0
+                )
+                .accessibilityHidden(!isActive)
             }
-            if let active {
-                if activeTokens.isEmpty {
-                    Text(active.text)
-                        .font(lyricsTypeface.font(size: kineticFontSize(for: active.text, width: width), weight: .bold))
-                        .foregroundStyle(ImmersiveStagePalette.ink)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(kineticMaximumLines)
-                        .minimumScaleFactor(0.6)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: width)
-                        .environment(\.layoutDirection, layoutDirection(for: active))
-                } else {
-                    kineticLine(active, tokens: activeTokens, exitStart: activeExit, width: width, time: time)
-                }
+            if let active, activeTokens.isEmpty {
+                Text(active.text)
+                    .font(lyricsTypeface.font(size: kineticFontSize(for: active.text, width: width), weight: .bold))
+                    .foregroundStyle(ImmersiveStagePalette.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(kineticMaximumLines)
+                    .minimumScaleFactor(0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: width)
+                    .environment(\.layoutDirection, layoutDirection(for: active))
             }
             if interlude > 0 {
                 ImmersiveKineticInterlude(
@@ -902,6 +975,104 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
         }
         .frame(width: width)
+        .modifier(ImmersiveKineticStagingEffect(
+            staging: director.direction.staging,
+            time: time,
+            animates: motion
+        ))
+    }
+
+    /// 一句用哪个镜头；动效关掉时一律逐字浮现（这时它退化成只淡入淡出）。
+    private func kineticMove(for line: ImmersiveStageLyric, motion: Bool) -> ImmersiveKineticDirector.LineMove {
+        guard motion else { return ImmersiveKineticDirector.LineMove(transition: .cascade, side: 1) }
+        return kineticDirector.move(for: line)
+    }
+
+    private func kineticEnterStart(
+        _ line: ImmersiveStageLyric?,
+        tokens: [ImmersiveKineticLyricsPolicy.Token],
+        move: ImmersiveKineticDirector.LineMove?
+    ) -> TimeInterval? {
+        guard let line, let move, let first = tokens.first?.start ?? line.startTime else { return nil }
+        guard move.transition.movesWholeLine else { return first - ImmersiveKineticLyricsPolicy.entranceLead }
+        return ImmersiveKineticDirectionPolicy.enterStart(firstTokenStart: first, transition: move.transition)
+    }
+
+    private func kineticExitStart(
+        tokens: [ImmersiveKineticLyricsPolicy.Token],
+        move: ImmersiveKineticDirector.LineMove?,
+        nextEnterStart: TimeInterval?,
+        nextLineStart: TimeInterval?
+    ) -> TimeInterval? {
+        guard let move, move.transition.movesWholeLine else {
+            return ImmersiveKineticLyricsPolicy.exitStart(of: tokens, nextLineStart: nextLineStart)
+        }
+        guard let lastEnd = tokens.map(\.end).max() else { return nil }
+        return ImmersiveKineticDirectionPolicy.exitStart(
+            lastTokenEnd: lastEnd,
+            nextEnterStart: nextEnterStart,
+            transition: move.transition
+        )
+    }
+
+    private func kineticExitSpan(_ move: ImmersiveKineticDirector.LineMove?, tokenCount: Int) -> TimeInterval {
+        guard let move, move.transition.movesWholeLine else {
+            return ImmersiveKineticLyricsPolicy.exitSpan(tokenCount: tokenCount)
+        }
+        return ImmersiveKineticDirectionPolicy.exitDuration(move.transition)
+    }
+
+    /// 竖排：一个字一行排成列，列从右往左；按歌词区的高度算每列放几个字，平均分列，太宽时整体缩小字号。
+    @available(tvOS 18.0, *)
+    private func kineticColumns(
+        tokens: [ImmersiveKineticLyricsPolicy.Token],
+        appearances: [ImmersiveKineticLyricsPolicy.Appearance],
+        horizontalFontSize: CGFloat,
+        width: CGFloat
+    ) -> some View {
+        let availableHeight = max(metrics.size.height - topInset - bottomInset, 1) * 0.7
+        var fontSize = min(horizontalFontSize, kineticFontBase * 0.88)
+        let perColumn = max(Int(availableHeight / (fontSize * 1.18)), 4)
+        let columns = ImmersiveKineticDirectionPolicy.verticalColumns(tokenCount: tokens.count, perColumn: perColumn)
+        let wanted = CGFloat(columns.count) * fontSize * 1.6
+        if wanted > width { fontSize *= width / wanted }
+        return HStack(alignment: .top, spacing: fontSize * 0.6) {
+            ForEach(Array(columns.reversed().enumerated()), id: \.offset) { _, range in
+                ImmersiveKineticLyricText(
+                    tokens: Array(tokens[range]),
+                    appearances: Array(appearances[range]),
+                    fontSize: fontSize,
+                    lineLimit: range.count,
+                    glowColor: palette.primary,
+                    separator: "\n"
+                )
+            }
+        }
+        // 列序是从右往左排好的，不跟着界面方向再翻一次。
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    /// 镜头带着整句走时整句此刻的样子：出场开始后按出场算，之前按进场算。
+    private func kineticLineTransform(
+        _ move: ImmersiveKineticDirector.LineMove,
+        enterStart: TimeInterval?,
+        exitStart: TimeInterval?,
+        at time: TimeInterval
+    ) -> ImmersiveKineticLineTransform {
+        guard move.transition.movesWholeLine else { return .identity }
+        if let exitStart, time >= exitStart {
+            return ImmersiveKineticDirectionPolicy.exiting(
+                move.transition,
+                progress: (time - exitStart) / ImmersiveKineticDirectionPolicy.exitDuration(move.transition),
+                side: move.side
+            )
+        }
+        guard let enterStart else { return .identity }
+        return ImmersiveKineticDirectionPolicy.entering(
+            move.transition,
+            progress: (time - enterStart) / ImmersiveKineticDirectionPolicy.enterDuration(move.transition),
+            side: move.side
+        )
     }
 
     private func kineticTokens(_ line: ImmersiveStageLyric) -> [ImmersiveKineticLyricsPolicy.Token] {
@@ -919,31 +1090,48 @@ struct ImmersiveStageView<Artwork: View>: View {
     private func kineticLine(
         _ line: ImmersiveStageLyric,
         tokens: [ImmersiveKineticLyricsPolicy.Token],
+        move: ImmersiveKineticDirector.LineMove,
+        enterStart: TimeInterval?,
         exitStart: TimeInterval?,
         width: CGFloat,
         time: TimeInterval
     ) -> some View {
         let fontSize = kineticFontSize(for: line.text, width: width)
         let motion = syllableCrestIsAnimating
+        let choreography: ImmersiveKineticLyricsPolicy.Choreography = move.transition.movesWholeLine ? .wholeLine : .cascade
+        let accent = kineticDirector.direction.accent
+        // 整句一起走时译文不自己退场：整句的镜头带着它走。
+        let companionExit = move.transition.movesWholeLine ? nil : exitStart
         let companion = ImmersiveKineticLyricsPolicy.companionAppearance(
             lineStart: tokens.first?.start ?? 0,
-            exitStart: exitStart,
+            exitStart: companionExit,
             at: time,
             motion: motion
         )
+        let appearances = ImmersiveKineticLyricsPolicy.appearances(
+            for: tokens,
+            exitStart: exitStart,
+            at: time,
+            motion: motion,
+            choreography: choreography,
+            accent: accent
+        )
+        let standsVertically = kineticDirector.direction.staging == .vertical
+            && ImmersiveKineticDirectionPolicy.suitsVerticalLayout(line.text)
         return VStack(spacing: fontSize * 0.28) {
-            ImmersiveKineticLyricText(
-                tokens: tokens,
-                appearances: ImmersiveKineticLyricsPolicy.appearances(
-                    for: tokens,
-                    exitStart: exitStart,
-                    at: time,
-                    motion: motion
-                ),
-                fontSize: fontSize,
-                lineLimit: kineticMaximumLines,
-                glowColor: palette.primary
-            )
+            Group {
+                if standsVertically {
+                    kineticColumns(tokens: tokens, appearances: appearances, horizontalFontSize: fontSize, width: width)
+                } else {
+                    ImmersiveKineticLyricText(
+                        tokens: tokens,
+                        appearances: appearances,
+                        fontSize: fontSize,
+                        lineLimit: kineticMaximumLines,
+                        glowColor: palette.primary
+                    )
+                }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: PMString("immersive_current_lyric_accessibility", line.text)))
 
@@ -961,7 +1149,9 @@ struct ImmersiveStageView<Artwork: View>: View {
                             for: backing,
                             exitStart: exitStart,
                             at: time,
-                            motion: motion
+                            motion: motion,
+                            choreography: choreography,
+                            accent: accent
                         ),
                         fontSize: fontSize * 0.6,
                         lineLimit: 2,
@@ -988,6 +1178,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
         .frame(width: width)
         .environment(\.layoutDirection, layoutDirection(for: line))
+        .modifier(ImmersiveKineticLineMotion(
+            transform: kineticLineTransform(move, enterStart: enterStart, exitStart: exitStart, at: time),
+            side: move.side,
+            width: width,
+            fontSize: fontSize
+        ))
     }
 
     // MARK: - 只放歌词（沙画、萤火、神经共鸣的非竖屏）
@@ -2498,4 +2694,15 @@ private extension View {
         opacity(isResting ? 0 : 1)
             .accessibilityHidden(isResting)
     }
+}
+
+/// 动态歌词台上的一句：它的字、镜头和进出场的时刻。
+private struct ImmersiveKineticStageEntry: Identifiable {
+    let line: ImmersiveStageLyric
+    let tokens: [ImmersiveKineticLyricsPolicy.Token]
+    let move: ImmersiveKineticDirector.LineMove
+    let enterStart: TimeInterval?
+    let exitStart: TimeInterval?
+
+    var id: Int { line.id }
 }

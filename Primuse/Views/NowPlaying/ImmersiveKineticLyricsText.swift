@@ -13,6 +13,8 @@ struct ImmersiveKineticLyricText: View {
     let fontSize: CGFloat
     let lineLimit: Int
     let glowColor: Color
+    /// 字与字之间插什么：竖排时是换行，一个字一行。
+    var separator = ""
 
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
@@ -36,7 +38,8 @@ struct ImmersiveKineticLyricText: View {
         tokens.indices.reduce(Text(verbatim: "")) { text, index in
             let token = Text(verbatim: tokens[index].text)
                 .customAttribute(ImmersiveKineticTokenIndex(index: index))
-            return Text("\(text)\(token)")
+            guard index > 0, !separator.isEmpty else { return Text("\(text)\(token)") }
+            return Text("\(text)\(Text(verbatim: separator))\(token)")
         }
     }
 }
@@ -78,6 +81,9 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
     ) {
         guard appearance.opacity > 0.002 else { return }
         let bounds = run.typographicBounds.rect
+        if appearance.ripple > 0 {
+            drawRipple(under: bounds, progress: appearance.ripple, opacity: appearance.opacity, in: base)
+        }
         var context = base
         context.opacity = appearance.opacity
         // 绕这个字自己的中心缩放，再整体上下挪。
@@ -89,6 +95,18 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
         if appearance.blur > 0.004 {
             context.addFilter(.blur(radius: CGFloat(appearance.blur) * fontSize))
         }
+        if appearance.glitch > 0.01 {
+            // 故障字：红、青两色往两边错开。
+            let shift = CGFloat(appearance.glitch) * fontSize * 0.11
+            for (tint, dx) in [(Color(red: 1, green: 0.15, blue: 0.3), -shift), (Color(red: 0.1, green: 0.95, blue: 1), shift)] {
+                var copy = context
+                copy.opacity = appearance.opacity * 0.75 * appearance.glitch
+                copy.translateBy(x: dx, y: 0)
+                copy.addFilter(.colorMultiply(tint))
+                copy.blendMode = .screen
+                copy.draw(run)
+            }
+        }
         if appearance.glow > 0.01 {
             var glow = context
             glow.addFilter(.shadow(
@@ -99,6 +117,95 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
             glow.draw(run)
         }
         context.draw(run)
+    }
+
+    /// 落字成纹：字脚下荡开一圈压扁的涟漪，越荡越大、越细、越淡。
+    private func drawRipple(under bounds: CGRect, progress: Double, opacity: Double, in base: GraphicsContext) {
+        let spread = 1 - pow(1 - progress, 2.2)
+        let width = fontSize * (0.55 + 2.2 * spread)
+        let height = width * 0.3
+        let center = CGPoint(x: bounds.midX, y: bounds.maxY + fontSize * 0.06)
+        let ring = Path(ellipseIn: CGRect(
+            x: center.x - width / 2,
+            y: center.y - height / 2,
+            width: width,
+            height: height
+        ))
+        var context = base
+        context.opacity = opacity * 0.7 * pow(1 - progress, 1.4)
+        context.stroke(ring, with: .color(glowColor), lineWidth: max(fontSize * 0.04 * (1 - progress), 0.5))
+    }
+}
+
+/// 镜头带着整句走时（`ImmersiveKineticDirectionPolicy`）整句此刻的位移、缩放、虚化、透明度；甩镜时身后拖几道
+/// 越来越淡的残影，圈入圈出时套一个圆形遮罩。
+struct ImmersiveKineticLineMotion: ViewModifier {
+    let transform: ImmersiveKineticLineTransform
+    /// 甩镜往哪边走：1 往左。
+    let side: Double
+    let width: CGFloat
+    let fontSize: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        // 圈入圈出才套遮罩；同一句的镜头不会中途换，视图结构不会来回变。
+        if let iris = transform.iris {
+            moved(content).mask {
+                GeometryReader { proxy in
+                    let radius = CGFloat(iris) * hypot(proxy.size.width, proxy.size.height) / 2 + 1
+                    Circle()
+                        .frame(width: radius * 2, height: radius * 2)
+                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                }
+            }
+        } else {
+            moved(content)
+        }
+    }
+
+    private func moved(_ content: Content) -> some View {
+        let offsetX = CGFloat(transform.offsetX) * width
+        let smear = CGFloat(transform.smear)
+        return ZStack {
+            if smear > 0.05 {
+                // 残影排在运动方向的后面。
+                ForEach(1..<4, id: \.self) { step in
+                    content
+                        .opacity(Double(smear) * (0.42 - 0.12 * Double(step)))
+                        .offset(x: CGFloat(side) * smear * fontSize * 0.55 * CGFloat(step))
+                }
+            }
+            content
+        }
+        .scaleEffect(CGFloat(transform.scale))
+        .blur(radius: CGFloat(transform.blur) * fontSize)
+        .opacity(transform.opacity)
+        .offset(x: offsetX, y: CGFloat(transform.offsetY) * fontSize)
+    }
+}
+
+/// 斜面透视：整块歌词排在一块向远处倾斜的平面上，机位慢慢左右摇；平视、竖排时原样。
+struct ImmersiveKineticStagingEffect: ViewModifier {
+    let staging: ImmersiveKineticStaging
+    let time: TimeInterval
+    let animates: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch staging {
+        case .flat, .vertical:
+            content
+        case .tilted:
+            // 一行字只靠俯仰几乎看不出斜面，要靠左右摇和够强的透视；摇到 15° 时近端放大，整句会出画。
+            content
+                .rotation3DEffect(.degrees(26), axis: (x: 1, y: 0, z: 0), anchor: .center, perspective: 1.4)
+                .rotation3DEffect(
+                    .degrees(animates ? sin(time * 0.16) * 12 : 8),
+                    axis: (x: 0, y: 1, z: 0),
+                    anchor: .center,
+                    perspective: 1.4
+                )
+        }
     }
 }
 

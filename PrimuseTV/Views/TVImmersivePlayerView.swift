@@ -1156,7 +1156,7 @@ struct TVImmersivePlayerView: View {
 
     /// 由舞台叶子视图按需调用，频谱的读取与重算都限制在消费它的那一层。
     private var spectrumLevels: [CGFloat] {
-        guard presentationEffect.usesRealtimeSpectrum else { return [] }
+        guard presentationEffect.readsRealtimeSpectrum else { return [] }
         return store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
@@ -1164,7 +1164,7 @@ struct TVImmersivePlayerView: View {
     /// 否则每发布一次频谱就在时间表之外多画一遍，电视上的帧率上限不起作用。
     /// 频谱环、能量光晕这些靠发布驱动重画的层仍读 `spectrumLevels`。
     private var scheduledSpectrumLevelsProvider: @MainActor () -> [CGFloat] {
-        guard presentationEffect.usesRealtimeSpectrum else { return { [] } }
+        guard presentationEffect.readsRealtimeSpectrum else { return { [] } }
         let engine = store.engine
         return { @MainActor in
             engine.latestSpectrumLevels.map { min(max(CGFloat($0), 0), 1) }
@@ -1187,7 +1187,7 @@ struct TVImmersivePlayerView: View {
                 && !isLowPower
                 && !showsModePicker
                 && effect != .native
-                && presentation.usesRealtimeSpectrum
+                && presentation.readsRealtimeSpectrum
         )
     }
 

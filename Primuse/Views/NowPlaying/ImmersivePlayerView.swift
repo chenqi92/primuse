@@ -169,7 +169,7 @@ struct ImmersivePlayerView: View {
             // 省电档里频谱停下，舞台上的频谱层停在最后一帧。
             isSceneActive: isSceneActive && !isLowPower,
             isPlaying: player.isPlaying,
-            usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
+            usesRealtimeSpectrum: presentationEffect.readsRealtimeSpectrum,
             reduceMotion: reduceMotion
         )
     }

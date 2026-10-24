@@ -884,6 +884,9 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         default: false
         }
     }
+    /// 有频谱就拿来用的效果：除了跟着频谱的那几种，「动态歌词」的背景也跟着鼓点动，读不到频谱时改跟歌词的
+    /// 字头，所以不提示「读不到频谱」——那个提示只看 `usesRealtimeSpectrum`。
+    var readsRealtimeSpectrum: Bool { usesRealtimeSpectrum || self == .kineticLyrics }
     var usesShowcaseChrome: Bool { !isNative }
 
     func advanced(by offset: Int) -> FullscreenPlayerEffect {

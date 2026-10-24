@@ -36,13 +36,27 @@ public enum ImmersiveKineticLyricsPolicy {
         public var blur: Double
         /// 主题色光的强度，0…1。
         public var glow: Double
+        /// 落字成纹那圈涟漪走到哪儿：0 是没有，(0, 1] 从刚荡开到散尽。
+        public var ripple: Double
+        /// 故障字红、青两色错开多少，0…1。
+        public var glitch: Double
 
-        public init(opacity: Double, scale: Double, offset: Double, blur: Double, glow: Double) {
+        public init(
+            opacity: Double,
+            scale: Double,
+            offset: Double,
+            blur: Double,
+            glow: Double,
+            ripple: Double = 0,
+            glitch: Double = 0
+        ) {
             self.opacity = opacity
             self.scale = scale
             self.offset = offset
             self.blur = blur
             self.glow = glow
+            self.ripple = ripple
+            self.glitch = glitch
         }
 
         public static let hidden = Appearance(opacity: 0, scale: 1, offset: 0, blur: 0, glow: 0)
@@ -94,15 +108,48 @@ public enum ImmersiveKineticLyricsPolicy {
     /// 唱完离下一句还有多久算「隔得久」（间奏、长换气）：这时唱完停一会儿就先退场，留出空档。
     public static let gapThreshold: TimeInterval = 4
     public static let holdAfterLine: TimeInterval = 1.6
-    /// 空档里那三个点淡入淡出用的时长。
+    /// 空档里那三个点淡入淡出用的时长；空档短于 `interludeMinimumGap` 时不出（两句交接时一闪而过很怪）。
     public static let interludeFade: TimeInterval = 0.4
+    public static let interludeMinimumGap: TimeInterval = 1.5
 
     /// 没有动效时（减弱动态效果、歌词动效关闭、省电档）只淡入淡出用的时长。
     public static let plainFade: TimeInterval = 0.2
     public static let plainExit: TimeInterval = 0.3
 
-    /// 字最多会画出自己的字框多远（相对字号）：入场从下方弹上来、退场往上飘、光。绘制区域按它留边。
-    public static let maximumOverhangRatio = 0.9
+    /// 字最多会画出自己的字框多远（相对字号）：入场从下方弹上来、退场往上飘、光、冲击字砸下来前放大的那一截、
+    /// 涟漪。绘制区域按它留边。
+    public static let maximumOverhangRatio = 1.1
+
+    /// 落字成纹：一圈涟漪荡开散尽用多久；字本身只轻轻弹一下。
+    public static let rippleDuration: TimeInterval = 1.1
+    public static let rippleSwell = 0.05
+    public static let rippleLift = 0.04
+    /// 冲击字：唱到时从多大砸到原样、砸下来用多久，落地后压扁回弹用多久；光多快散掉。
+    public static let slamInitialScale = 1.45
+    public static let slamDrop: TimeInterval = 0.12
+    public static let slamRebound: TimeInterval = 0.12
+    public static let slamSquash = 0.94
+    public static let slamGlowDecay: TimeInterval = 0.25
+    /// 霓虹灯管：通电时闪几下用多久，之后一直带着的光有多亮。
+    public static let neonIgnition: TimeInterval = 0.22
+    public static let neonSteadyGlow = 0.55
+    /// 故障字：错开多久散掉。
+    public static let glitchDuration: TimeInterval = 0.2
+    /// 冲击字砸下来时整句震一下：最大幅度（相对字号）、多快衰减、震多久。
+    public static let shakeAmplitude = 0.035
+    public static let shakeDecay = 14.0
+    public static let shakeSpan: TimeInterval = 0.35
+
+    /// 一句里的字怎么进出。`cascade` 一个字接一个从下方弹上来、往上飘走；`wholeLine` 字只跟着整句一起淡入、
+    /// 唱到时点亮，进出由整句的镜头带着走（`ImmersiveKineticDirectionPolicy`）。
+    public enum Choreography: Sendable {
+        case cascade
+        case wholeLine
+    }
+
+    /// 整句一起动时字提前多久就位：整句的镜头比第一个字早一截开始进场（最长约 0.6 秒），进场之前由镜头把整句
+    /// 藏起来（透明、在画外或收在圆里），字自己不再晚一步才出现。
+    public static let wholeLineLead: TimeInterval = 0.6
 
     // MARK: - 切分
 
@@ -214,20 +261,62 @@ public enum ImmersiveKineticLyricsPolicy {
         at time: TimeInterval,
         motion: Bool
     ) -> [Appearance] {
+        appearances(
+            for: tokens,
+            exitStart: exitStart,
+            at: time,
+            motion: motion,
+            choreography: .cascade,
+            accent: .glow
+        )
+    }
+
+    /// 同上，按编排与强调方式算。`wholeLine` 时 `exitStart` 不起作用：退场交给整句的镜头。
+    public static func appearances(
+        for tokens: [Token],
+        exitStart: TimeInterval?,
+        at time: TimeInterval,
+        motion: Bool,
+        choreography: Choreography,
+        accent: ImmersiveKineticAccent
+    ) -> [Appearance] {
         guard let first = tokens.first, time.isFinite else { return tokens.map { _ in .hidden } }
-        let entranceStart = first.start - entranceLead
+        let cascades = choreography == .cascade
+        let entranceStart = first.start - entranceLead - (cascades ? 0 : wholeLineLead)
         let count = tokens.count
-        let entranceStep = count > 1 ? min(entranceStagger, entranceSpread / Double(count - 1)) : 0
+        let entranceStep = cascades && count > 1 ? min(entranceStagger, entranceSpread / Double(count - 1)) : 0
         let exitStep = count > 1 ? min(exitStagger, exitSpread / Double(count - 1)) : 0
         return tokens.indices.map { index in
             appearance(
                 token: tokens[index],
                 enterAt: entranceStart + entranceStep * Double(index),
-                exitAt: exitStart.map { $0 + exitStep * Double(index) },
+                exitAt: cascades ? exitStart.map { $0 + exitStep * Double(index) } : nil,
                 time: time,
-                motion: motion
+                motion: motion,
+                cascades: cascades,
+                accent: accent
             )
         }
+    }
+
+    /// 冲击字砸下来时整句跟着震的位移（相对字号）。每个字砸下来都一样震，不看它唱多久。
+    public static func shake(
+        for tokens: [Token],
+        at time: TimeInterval,
+        motion: Bool
+    ) -> (x: Double, y: Double) {
+        guard motion, time.isFinite else { return (0, 0) }
+        var x = 0.0
+        var y = 0.0
+        for index in tokens.indices {
+            let sung = time - tokens[index].start
+            guard sung >= 0, sung < shakeSpan else { continue }
+            let amplitude = shakeAmplitude * exp(-sung * shakeDecay)
+            let phase = Double(index) * 1.7
+            x += amplitude * sin(sung * 95 + phase)
+            y += amplitude * 0.6 * cos(sung * 80 + phase)
+        }
+        return (x, y)
     }
 
     /// 这一句什么时候开始退场。下一句紧接着来时赶在下一句入场前一点先往上飘（最多早 `exitLead`，但不早于自己
@@ -252,6 +341,7 @@ public enum ImmersiveKineticLyricsPolicy {
         guard let previousExit, time.isFinite else { return 0 }
         let shown = smoothstep((time - previousExit - exitDuration * 0.5) / interludeFade)
         guard let nextLineStart else { return shown }
+        guard nextLineStart - previousExit >= interludeMinimumGap else { return 0 }
         let hidden = smoothstep((nextLineStart - entranceLead - time) / interludeFade)
         return min(shown, hidden)
     }
@@ -295,15 +385,17 @@ public enum ImmersiveKineticLyricsPolicy {
         enterAt: TimeInterval,
         exitAt: TimeInterval?,
         time: TimeInterval,
-        motion: Bool
+        motion: Bool,
+        cascades: Bool = true,
+        accent: ImmersiveKineticAccent = .glow
     ) -> Appearance {
         let entered = time - enterAt
         guard entered >= 0 else { return .hidden }
 
         var result = Appearance.lit
-        // 入场
+        // 入场：一个字一个字弹上来；整句一起动时只淡入，挪动交给整句。
         let fadeIn = smoothstep(min(1, entered / entranceFade))
-        if motion {
+        if motion, cascades {
             let settle = spring(entered)
             result.offset = entranceRise * (1 - settle)
             result.scale = entranceInitialScale + (1 - entranceInitialScale) * settle
@@ -315,10 +407,36 @@ public enum ImmersiveKineticLyricsPolicy {
         let lit = sung < -igniteLead ? 0 : smoothstep(min(1, (sung + igniteLead) / igniteRamp))
         result.opacity = fadeIn * (waitingOpacity + (1 - waitingOpacity) * lit)
         if motion {
-            let pulse = pulseStrength(sung: sung)
-            result.scale *= 1 + pulseSwell * pulse
-            result.offset -= pulseLift * pulse
-            result.glow = pulse
+            switch accent {
+            case .glow:
+                let pulse = pulseStrength(sung: sung)
+                result.scale *= 1 + pulseSwell * pulse
+                result.offset -= pulseLift * pulse
+                result.glow = pulse
+            case .ripple:
+                let pulse = pulseStrength(sung: sung)
+                result.scale *= 1 + rippleSwell * pulse
+                result.offset -= rippleLift * pulse
+                result.glow = 0.55 * pulse
+                if sung >= 0, sung < rippleDuration {
+                    result.ripple = max(sung / rippleDuration, 0.0001)
+                }
+            case .slam:
+                result.scale *= slamScale(sung: sung)
+                if sung >= 0 {
+                    result.glow = exp(-sung / slamGlowDecay)
+                }
+            case .neon:
+                // 灯管通电：先闪两下，亮了就一直带着光。
+                if sung >= 0 {
+                    result.opacity *= neonFlicker(sung: sung)
+                    result.glow = sung < neonIgnition ? 0.9 : neonSteadyGlow
+                }
+            case .glitch:
+                if sung >= 0, sung < glitchDuration {
+                    result.glitch = 1 - sung / glitchDuration
+                }
+            }
         }
 
         // 退场
@@ -342,6 +460,30 @@ public enum ImmersiveKineticLyricsPolicy {
         return sung < pulseAttack
             ? easeOutCubic(sung / pulseAttack)
             : exp(-(sung - pulseAttack) / pulseDecay)
+    }
+
+    /// 霓虹灯管通电那一下的亮度：亮、暗、亮、半暗、亮，之后一直亮着。
+    static func neonFlicker(sung: TimeInterval) -> Double {
+        guard sung >= 0, sung < neonIgnition else { return 1 }
+        switch sung / neonIgnition {
+        case ..<0.2: return 1
+        case ..<0.4: return 0.25
+        case ..<0.6: return 1
+        case ..<0.75: return 0.5
+        default: return 1
+        }
+    }
+
+    /// 冲击字的大小：开唱那一刻从 `slamInitialScale` 砸到原样，落地压扁一下再回弹。
+    static func slamScale(sung: TimeInterval) -> Double {
+        guard sung >= 0 else { return 1 }
+        if sung < slamDrop {
+            let progress = easeInCubic(sung / slamDrop)
+            return slamInitialScale + (slamSquash - slamInitialScale) * progress
+        }
+        let rebound = sung - slamDrop
+        guard rebound < slamRebound else { return 1 }
+        return slamSquash + (1 - slamSquash) * easeOutCubic(rebound / slamRebound)
     }
 
     /// 欠阻尼弹簧从 0 到 1 的阶跃响应：先冲过一点，再停在 1。
@@ -390,6 +532,11 @@ public enum ImmersiveKineticLyricsPolicy {
             || (0xF900...0xFAFF).contains(value)
             || (0xFF00...0xFFEF).contains(value)
             || (0x20000...0x3134F).contains(value)
+    }
+
+    private static func easeInCubic(_ value: Double) -> Double {
+        let clamped = min(max(value, 0), 1)
+        return clamped * clamped * clamped
     }
 
     private static func easeOutCubic(_ value: Double) -> Double {

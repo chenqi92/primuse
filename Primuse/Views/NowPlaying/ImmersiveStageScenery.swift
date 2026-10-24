@@ -609,6 +609,26 @@ struct ImmersiveEffectPreview: View {
 
 /// 设置页预览、效果抽屉缩略图与调试取证页共用的演示舞台：同一套演示曲目、
 /// 歌词与占位封面，只有视口度量和控件占位由调用方决定。
+#if DEBUG
+/// 取证用的演示时钟：从 `PRIMUSE_EVIDENCE_TIME`（秒，默认 0）起，按 `PRIMUSE_EVIDENCE_CLOCK` 倍速走（默认 0 停着；
+/// 0.1 是十倍慢动作，0.3 秒的甩镜拉成 3 秒，连拍几张就能拍到半路）。
+enum ImmersiveEvidenceClock {
+    private static let launch = Date()
+
+    static var now: TimeInterval {
+        let environment = ProcessInfo.processInfo.environment
+        let start = environment["PRIMUSE_EVIDENCE_TIME"].flatMap(Double.init) ?? 0
+        let rate = environment["PRIMUSE_EVIDENCE_CLOCK"].flatMap(Double.init) ?? 0
+        return start + rate * Date().timeIntervalSince(launch)
+    }
+
+    /// 时钟在走：演示播放页这时按播放中轮询歌词、喂合成的鼓点频谱。
+    static var isRunning: Bool {
+        (ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_CLOCK"].flatMap(Double.init) ?? 0) > 0
+    }
+}
+#endif
+
 enum ImmersiveDemoStage {
     static var platform: ImmersiveStagePlatform {
         #if os(tvOS)
@@ -686,7 +706,8 @@ enum ImmersiveDemoStage {
         let longIndex = max(0, units.count - 3)
         let durations = units.indices.map { $0 == longIndex ? 1.6 : 0.32 }
         let total = durations.reduce(0, +)
-        var start = time - min(max(sungFraction, 0), 1) * total
+        // 小于 0 时这句还没开唱（整句镜头在第一个字之前就开始进场，取证帧要能停在进场途中）。
+        var start = time - min(max(sungFraction, -0.5), 1) * total
         return units.indices.map { index in
             defer { start += durations[index] }
             return LyricSyllable(text: units[index], start: start, end: start + durations[index])

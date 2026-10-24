@@ -152,6 +152,8 @@ struct ImmersiveKineticLyricsPolicyTests {
         #expect(Policy.interludeVisibility(previousExit: exit, nextLineStart: 30, at: 20) == 1)
         #expect(Policy.interludeVisibility(previousExit: exit, nextLineStart: 30, at: 30) == 0)
         #expect(Policy.interludeVisibility(previousExit: exit, nextLineStart: nil, at: 40) == 1)
+        // 两句之间只隔一下：不出那三个点。
+        #expect(Policy.interludeVisibility(previousExit: 4.3, nextLineStart: 5.0, at: 4.7) == 0)
     }
 
     @Test func companionsFollowTheLine() {

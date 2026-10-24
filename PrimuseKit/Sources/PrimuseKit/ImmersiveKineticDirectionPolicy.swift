@@ -1,0 +1,673 @@
+import Foundation
+
+// 全屏效果「动态歌词」的编排：每首歌固定挑一套背景场景、换句镜头、字的强调与机位，副歌（这首歌自己最响的
+// 那几段）换成这一套里更激烈的镜头。这里只决定选什么、此刻走到哪一步，画法交给界面。
+
+/// 背景场景。`isEnergetic` 分安静与激烈两组。
+public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
+    /// 雨窗：雨点落在玻璃上往下滑，窗外是虚化的光斑。
+    case rainGlass
+    /// 水面涟漪：俯看一片映着专辑色的水，鼓点、字头在水面上荡开一圈圈涟漪。
+    case ripplePond
+    /// 天光一日：天色随这首歌的进度从拂晓走到入夜。
+    case daylight
+    /// 曲速隧道：星光拉成线从中心往外冲，速度跟着能量走，重拍时冲出一道冲击波。
+    case warpTunnel
+    /// 雷暴：翻滚的乌云和斜雨，重拍劈下闪电。
+    case thunderstorm
+    /// 雾中光柱：光从高处斜穿薄雾，浮尘在光里闪。
+    case godRays
+    /// 星轨长曝光：星星绕着极点划出一圈圈弧，重拍时划过流星。
+    case starTrails
+    /// 池底焦散：泳池底那张晃动的光网，跟着能量流动。
+    case caustics
+    /// 墨入水：鼓点滴进一团团墨，被水流扯成丝慢慢晕开。
+    case inkBloom
+    /// 激光秀：台口一排激光扫来扫去，鼓点时张开。
+    case laserShow
+    /// 霓虹夜驰：沿着发光的网格路面往地平线上的城市冲。
+    case neonDrive
+
+    public var isEnergetic: Bool {
+        switch self {
+        case .rainGlass, .ripplePond, .daylight, .godRays, .starTrails, .caustics, .inkBloom: false
+        case .warpTunnel, .thunderstorm, .laserShow, .neonDrive: true
+        }
+    }
+}
+
+/// 换句时整句怎么进出，取自电影的转场。
+public enum ImmersiveKineticTransition: String, CaseIterable, Sendable {
+    /// 逐字浮现：字一个接一个从下方弹上来，唱完往上飘走（最早那一版的样子）。
+    case cascade
+    /// 甩镜：整句带着拖影横向甩出画面，新句从另一侧甩进来。
+    case whipPan
+    /// 焦点转移：旧句退向远处、虚掉，新句从镜头前的虚焦里清楚起来。
+    case rackFocus
+    /// 急推：新句从镜头前猛地推到原样，旧句冲出画面。
+    case crashZoom
+    /// 圈入圈出：一个圆把旧句收掉，再张开露出新句。
+    case iris
+    /// 抽帧：一顿一顿地挪进来，身后拖着残影，像王家卫电影里降格又补帧的镜头。
+    case stepPrint
+
+    /// 整句一起进出、字只跟着点亮（`cascade` 以外都是）。
+    public var movesWholeLine: Bool { self != .cascade }
+}
+
+/// 唱到一个字时怎么强调它。每个字都一样，不看它唱多久。
+public enum ImmersiveKineticAccent: String, CaseIterable, Sendable {
+    /// 弹一下、带一圈光。
+    case glow
+    /// 落字成纹：字下面荡开一圈涟漪。
+    case ripple
+    /// 冲击字：字砸下来，整句跟着一震。
+    case slam
+    /// 霓虹灯管：字像灯管通电，先闪两下再稳稳亮着。
+    case neon
+    /// 故障字：唱到时红、青两色错开一下。
+    case glitch
+}
+
+/// 歌词摆在哪个平面上。
+public enum ImmersiveKineticStaging: String, CaseIterable, Sendable {
+    case flat
+    /// 斜面透视：歌词排在一块向远处倾斜的平面上，机位慢慢左右摇。
+    case tilted
+    /// 竖排：中日文一列一列从右往左排，像古籍的版面。一句里有拉丁字母时这句照常横排。
+    case vertical
+}
+
+/// 一首歌的整套编排。
+public struct ImmersiveKineticDirection: Equatable, Sendable {
+    public var scene: ImmersiveKineticScene
+    public var staging: ImmersiveKineticStaging
+    public var accent: ImmersiveKineticAccent
+    /// 平常换句用的镜头。
+    public var transition: ImmersiveKineticTransition
+    /// 副歌换句用的镜头。
+    public var climaxTransition: ImmersiveKineticTransition
+
+    public init(
+        scene: ImmersiveKineticScene,
+        staging: ImmersiveKineticStaging,
+        accent: ImmersiveKineticAccent,
+        transition: ImmersiveKineticTransition,
+        climaxTransition: ImmersiveKineticTransition
+    ) {
+        self.scene = scene
+        self.staging = staging
+        self.accent = accent
+        self.transition = transition
+        self.climaxTransition = climaxTransition
+    }
+}
+
+/// 整句此刻的样子（镜头带着整句走时）。
+public struct ImmersiveKineticLineTransform: Equatable, Sendable {
+    /// 横向位移，相对歌词那一栏的宽度。
+    public var offsetX: Double
+    /// 竖直位移，相对字号，向下为正。
+    public var offsetY: Double
+    public var scale: Double
+    /// 虚化半径，相对字号。
+    public var blur: Double
+    public var opacity: Double
+    /// 横向拖影的强度，0…1（甩镜）。
+    public var smear: Double
+    /// 圈入圈出那个圆有多大：1 是整句完全露出，0 是收成一个点；nil 时不加圆。
+    public var iris: Double?
+
+    public init(
+        offsetX: Double = 0,
+        offsetY: Double = 0,
+        scale: Double = 1,
+        blur: Double = 0,
+        opacity: Double = 1,
+        smear: Double = 0,
+        iris: Double? = nil
+    ) {
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.scale = scale
+        self.blur = blur
+        self.opacity = opacity
+        self.smear = smear
+        self.iris = iris
+    }
+
+    public static let identity = ImmersiveKineticLineTransform()
+    public static let hidden = ImmersiveKineticLineTransform(opacity: 0)
+}
+
+public enum ImmersiveKineticDirectionPolicy {
+    // MARK: - 选编排
+
+    /// 按歌名、歌手、专辑固定挑一套：同一首歌每次都一样，换一首就不同。流派听得出快慢时安静的歌多半挑
+    /// 安静的场景，激烈的歌多半挑激烈的；水面配涟漪字，激烈场景偏冲击字。
+    public static func direction(
+        title: String,
+        artist: String,
+        album: String,
+        genre: String
+    ) -> ImmersiveKineticDirection {
+        var random = ImmersiveRandom(seed: ImmersiveRandom.seed(for: "\(title)\u{1F}\(artist)\u{1F}\(album)"))
+        let energeticChance: Double = switch temperament(of: genre) {
+        case .calm: 0.12
+        case .lively: 0.8
+        case .unknown: 0.4
+        }
+        let energetic = random.unit() < energeticChance
+        let scenes = ImmersiveKineticScene.allCases.filter { $0.isEnergetic == energetic }
+        let scene = pick(scenes, &random)
+
+        let accent: ImmersiveKineticAccent
+        if scene == .ripplePond {
+            accent = .ripple
+        } else if scene == .neonDrive {
+            accent = random.unit() < 0.6 ? .neon : .glitch
+        } else if energetic {
+            accent = pick([.slam, .slam, .glitch, .neon, .glow], &random)
+        } else {
+            accent = pick([.ripple, .glow, .glow, .neon], &random)
+        }
+        let stagingRoll = random.unit()
+        let staging: ImmersiveKineticStaging
+        if energetic {
+            staging = stagingRoll < 0.3 ? .tilted : .flat
+        } else {
+            staging = stagingRoll < 0.28 ? .tilted : (stagingRoll < 0.5 ? .vertical : .flat)
+        }
+
+        let usual: [ImmersiveKineticTransition] = energetic
+            ? [.whipPan, .crashZoom, .cascade]
+            : [.cascade, .rackFocus, .iris, .stepPrint]
+        let transition = pick(usual, &random)
+        let climaxChoices: [ImmersiveKineticTransition] = (energetic ? [.crashZoom, .whipPan] : [.whipPan, .rackFocus])
+            .filter { $0 != transition }
+        let climaxTransition = pick(climaxChoices.isEmpty ? [transition] : climaxChoices, &random)
+        return ImmersiveKineticDirection(
+            scene: scene,
+            staging: staging,
+            accent: accent,
+            transition: transition,
+            climaxTransition: climaxTransition
+        )
+    }
+
+    /// 这句适不适合竖排：至少两个汉字或假名，并且没有拉丁字母这类按词拼写的文字（数字、标点不算）。
+    public static func suitsVerticalLayout(_ text: String) -> Bool {
+        var ideographs = 0
+        for scalar in text.unicodeScalars {
+            if (0x3040...0x30FF).contains(scalar.value)
+                || (0x3400...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value) {
+                ideographs += 1
+            } else if CharacterSet.letters.contains(scalar) {
+                return false
+            }
+        }
+        return ideographs >= 2
+    }
+
+    /// 竖排时每列放几个字、分几列：一列至少四个字，列数尽量少；`perColumn` 是放得下的上限。
+    public static func verticalColumns(tokenCount: Int, perColumn: Int) -> [Range<Int>] {
+        guard tokenCount > 0 else { return [] }
+        let capacity = max(perColumn, 4)
+        let columns = (tokenCount + capacity - 1) / capacity
+        // 平均分到每一列，免得最后一列只剩一两个字。
+        let size = (tokenCount + columns - 1) / columns
+        return stride(from: 0, to: tokenCount, by: size).map { $0..<min($0 + size, tokenCount) }
+    }
+
+    enum Temperament: Equatable {
+        case calm
+        case lively
+        case unknown
+    }
+
+    /// 从流派里听快慢：两边都沾（「抒情摇滚」）或都不沾时算不知道。
+    static func temperament(of genre: String) -> Temperament {
+        let text = genre.lowercased()
+        guard !text.isEmpty else { return .unknown }
+        let lively = livelyGenreWords.contains { text.contains($0) }
+        let calm = calmGenreWords.contains { text.contains($0) }
+        switch (lively, calm) {
+        case (true, false): return .lively
+        case (false, true): return .calm
+        default: return .unknown
+        }
+    }
+
+    private static let livelyGenreWords = [
+        "rock", "metal", "punk", "electro", "edm", "dance", "house", "techno", "trance", "dubstep",
+        "drum", "hip hop", "hip-hop", "hiphop", "rap", "trap", "funk", "disco", "grunge", "hardcore",
+        "摇滚", "电子", "舞曲", "说唱", "嘻哈", "金属", "朋克", "迪斯科",
+    ]
+    private static let calmGenreWords = [
+        "classical", "piano", "ambient", "folk", "jazz", "acoustic", "lo-fi", "lofi", "new age", "chill",
+        "ballad", "instrumental", "soundtrack", "lullaby", "meditation",
+        "古典", "钢琴", "民谣", "爵士", "轻音乐", "纯音乐", "氛围", "抒情", "古风", "摇篮曲",
+    ]
+
+    private static func pick<Element>(_ values: [Element], _ random: inout ImmersiveRandom) -> Element {
+        values[min(Int(random.unit() * Double(values.count)), values.count - 1)]
+    }
+
+    // MARK: - 镜头的时间
+
+    /// 一句进场用多久。
+    public static func enterDuration(_ transition: ImmersiveKineticTransition) -> TimeInterval {
+        switch transition {
+        case .cascade: ImmersiveKineticLyricsPolicy.entranceSpread
+        case .whipPan: 0.32
+        case .rackFocus: 0.6
+        case .crashZoom: 0.3
+        case .iris: 0.42
+        case .stepPrint: 0.9
+        }
+    }
+
+    /// 一句出场用多久。
+    public static func exitDuration(_ transition: ImmersiveKineticTransition) -> TimeInterval {
+        switch transition {
+        case .cascade: ImmersiveKineticLyricsPolicy.exitDuration
+        case .whipPan: 0.3
+        case .rackFocus: 0.55
+        case .crashZoom: 0.26
+        case .iris: 0.36
+        case .stepPrint: 0.7
+        }
+    }
+
+    /// 整句开始进场的时刻：进场走完正好唱第一个字（急推和圈入圈出晚一点，让上一句先走开）。
+    public static func enterStart(
+        firstTokenStart: TimeInterval,
+        transition: ImmersiveKineticTransition
+    ) -> TimeInterval {
+        switch transition {
+        case .cascade:
+            firstTokenStart - ImmersiveKineticLyricsPolicy.entranceLead
+        case .crashZoom, .iris:
+            firstTokenStart - enterDuration(transition) * 0.75
+        case .whipPan, .rackFocus:
+            firstTokenStart - enterDuration(transition) * 0.9
+        case .stepPrint:
+            firstTokenStart - enterDuration(transition) * 0.6
+        }
+    }
+
+    /// 这一句什么时候开始出场（镜头带着整句走时）：赶在下一句进场前走开——甩镜、焦点转移与下一句交叠一半，
+    /// 急推与圈入圈出等这一句走完才进下一句；不早于自己最后一个字唱完，除非下一句已经要进来了。隔得久时
+    /// 唱完停一会儿先走；最后一句一直留着。
+    public static func exitStart(
+        lastTokenEnd: TimeInterval,
+        nextEnterStart: TimeInterval?,
+        transition: ImmersiveKineticTransition
+    ) -> TimeInterval? {
+        guard lastTokenEnd.isFinite, let nextEnterStart, nextEnterStart.isFinite else { return nil }
+        if nextEnterStart - lastTokenEnd > ImmersiveKineticLyricsPolicy.gapThreshold {
+            return lastTokenEnd + ImmersiveKineticLyricsPolicy.holdAfterLine
+        }
+        let overlap: Double = switch transition {
+        case .whipPan, .rackFocus, .stepPrint: 0.5
+        case .cascade, .crashZoom, .iris: 1
+        }
+        let wanted = nextEnterStart - exitDuration(transition) * overlap
+        return min(max(lastTokenEnd, wanted), nextEnterStart)
+    }
+
+    // MARK: - 整句此刻的样子
+
+    /// 进场走到 `progress`（0…1）时整句的样子。`side` 是甩镜从哪边进来：1 从右往左甩，-1 从左往右。
+    public static func entering(
+        _ transition: ImmersiveKineticTransition,
+        progress: Double,
+        side: Double = 1
+    ) -> ImmersiveKineticLineTransform {
+        let p = clamp(progress)
+        switch transition {
+        case .cascade:
+            return .identity
+        case .whipPan:
+            let travel = 1 - easeOutCubic(p)
+            // 拖影跟速度走：缓出曲线一开始最快。
+            return ImmersiveKineticLineTransform(
+                offsetX: 1.15 * side * travel,
+                opacity: smoothstep(p / 0.35),
+                smear: min(1, 3 * (1 - p) * (1 - p))
+            )
+        case .rackFocus:
+            let settle = easeOutCubic(p)
+            return ImmersiveKineticLineTransform(
+                scale: 1.18 - 0.18 * settle,
+                blur: 0.55 * (1 - settle),
+                opacity: smoothstep(p / 0.6)
+            )
+        case .crashZoom:
+            let settle = easeOutExpo(p)
+            return ImmersiveKineticLineTransform(
+                scale: 2.6 - 1.6 * settle,
+                blur: 0.35 * (1 - settle),
+                opacity: smoothstep(p / 0.25)
+            )
+        case .iris:
+            return ImmersiveKineticLineTransform(iris: easeInOutCubic(p))
+        case .stepPrint:
+            let stepped = stepPrintProgress(p)
+            return ImmersiveKineticLineTransform(
+                offsetX: 0.14 * side * (1 - easeOutCubic(stepped)),
+                blur: 0.04 * (1 - stepped),
+                opacity: smoothstep(stepped / 0.45),
+                smear: 0.75 * (1 - stepped)
+            )
+        }
+    }
+
+    /// 出场走到 `progress`（0…1）时整句的样子。`side` 与进场相同：1 时往左甩出去。
+    public static func exiting(
+        _ transition: ImmersiveKineticTransition,
+        progress: Double,
+        side: Double = 1
+    ) -> ImmersiveKineticLineTransform {
+        let p = clamp(progress)
+        switch transition {
+        case .cascade:
+            return .identity
+        case .whipPan:
+            let travel = easeInCubic(p)
+            // 缓入曲线越往后越快，拖影跟着越来越长。
+            return ImmersiveKineticLineTransform(
+                offsetX: -1.15 * side * travel,
+                opacity: 1 - smoothstep((p - 0.55) / 0.45),
+                smear: min(1, 3 * p * p)
+            )
+        case .rackFocus:
+            // 往上、往远处退开，和从前景对焦进来的新句错开一层，两句不叠在同一处。
+            let recede = easeInOutCubic(p)
+            return ImmersiveKineticLineTransform(
+                offsetY: -0.75 * recede,
+                scale: 1 - 0.24 * recede,
+                blur: 0.5 * recede,
+                opacity: 1 - recede
+            )
+        case .crashZoom:
+            let rush = easeInCubic(p)
+            return ImmersiveKineticLineTransform(
+                scale: 1 + 2.2 * rush,
+                blur: 0.3 * rush,
+                opacity: 1 - smoothstep(p / 0.8)
+            )
+        case .iris:
+            return ImmersiveKineticLineTransform(iris: 1 - easeInOutCubic(p))
+        case .stepPrint:
+            let stepped = stepPrintProgress(p)
+            return ImmersiveKineticLineTransform(
+                offsetX: -0.14 * side * easeInCubic(stepped),
+                blur: 0.04 * stepped,
+                opacity: 1 - stepped,
+                smear: 0.75 * stepped
+            )
+        }
+    }
+
+    /// 抽帧那种一顿一顿的进度：每秒只走八下左右。
+    static let stepPrintSteps = 7.0
+
+    static func stepPrintProgress(_ progress: Double) -> Double {
+        let p = clamp(progress)
+        return p >= 1 ? 1 : floor(p * stepPrintSteps) / stepPrintSteps
+    }
+
+    // MARK: - 进副歌那一下
+
+    /// 进副歌那一下背景的变焦（希区柯克变焦：歌词不动，背后的景往前推一截再慢慢放回）。`sinceClimax` 是进副歌
+    /// 以来的秒数，还没进时为 nil；返回背景的放大倍数。
+    public static func dollyZoom(sinceClimax: TimeInterval?) -> Double {
+        guard let since = sinceClimax, since >= 0, since < dollyZoomSpan else { return 1 }
+        let p = since / dollyZoomSpan
+        // 很快推上去，再慢慢退回。
+        let push = p < 0.25 ? easeOutCubic(p / 0.25) : 1 - easeInOutCubic((p - 0.25) / 0.75)
+        return 1 + 0.16 * push
+    }
+
+    public static let dollyZoomSpan: TimeInterval = 2.4
+
+    /// 进副歌那一下扫过画面的胶片漏光：(亮度 0…1, 光带横向位置 0…1)。
+    public static func lightLeak(sinceClimax: TimeInterval?) -> (amount: Double, position: Double) {
+        guard let since = sinceClimax, since >= 0, since < lightLeakSpan else { return (0, 0) }
+        let p = since / lightLeakSpan
+        return (sin(.pi * p) * 0.85, -0.2 + 1.4 * easeInOutCubic(p))
+    }
+
+    public static let lightLeakSpan: TimeInterval = 1.6
+
+    // MARK: - 曲线
+
+    static func clamp(_ value: Double) -> Double { min(max(value, 0), 1) }
+
+    static func smoothstep(_ value: Double) -> Double {
+        let x = clamp(value)
+        return x * x * (3 - 2 * x)
+    }
+
+    static func easeOutCubic(_ value: Double) -> Double {
+        let inverse = 1 - clamp(value)
+        return 1 - inverse * inverse * inverse
+    }
+
+    static func easeInCubic(_ value: Double) -> Double {
+        let x = clamp(value)
+        return x * x * x
+    }
+
+    static func easeInOutCubic(_ value: Double) -> Double {
+        let x = clamp(value)
+        return x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2
+    }
+
+    static func easeOutExpo(_ value: Double) -> Double {
+        let x = clamp(value)
+        return x >= 1 ? 1 : 1 - pow(2, -10 * x)
+    }
+}
+
+// MARK: - 指挥：声音 → 场景里的动静
+
+/// 一帧里场景要用的动静：都是 0…1，事件是最近几次落点（涟漪、冲击波），闪电单独限频。
+public struct ImmersiveKineticDrive: Equatable, Sendable {
+    public struct Event: Equatable, Sendable {
+        /// 在画面里的位置，0…1，左上为原点。
+        public var x: Double
+        public var y: Double
+        /// 发生的时刻（与 `update` 的 `time` 同一个时钟）。
+        public var time: TimeInterval
+        public var strength: Double
+
+        public init(x: Double, y: Double, time: TimeInterval, strength: Double) {
+            self.x = x
+            self.y = y
+            self.time = time
+            self.strength = strength
+        }
+    }
+
+    /// 整体有多热闹，按零点几秒平滑。
+    public var energy: Double = 0
+    public var bass: Double = 0
+    /// 鼓点（没有频谱时是歌词的字头）那一下的包络。
+    public var pulse: Double = 0
+    /// 镲片这类高频起音的包络。
+    public var sparkle: Double = 0
+    /// 这一刻在这首歌自己的响度范围里排在哪儿。
+    public var intensity: Double = 0
+    /// 正在这首歌的高潮段里。
+    public var isClimax = false
+    /// 这一次进高潮的时刻（与 `update` 的 `time` 同一个时钟）；不在高潮里时为 nil。
+    public var climaxStart: TimeInterval?
+    /// 闪电的亮度包络（两下快闪再慢慢暗下去）；`flashSeed` 决定这一道劈在哪儿、什么形状。
+    public var flash: Double = 0
+    public var flashSeed: Double = 0
+    /// 曲速隧道往前冲了多远：速度随能量变，按时间积分，速度变了画面也不会跳。
+    public var travel: Double = 0
+    /// 最近的落点，最新的在后面，最多 `ImmersiveKineticConductor.eventCapacity` 个。
+    public var events: [Event] = []
+    /// 这一帧有没有读到频谱；没有时动静来自歌词的字头。
+    public var hasSpectrum = false
+
+    public init() {}
+}
+
+/// 把频谱（或者没有频谱时歌词的字头）变成场景里的动静。确定性：同一个种子、同样的输入得到同样的落点。
+public struct ImmersiveKineticConductor: Sendable {
+    public static let eventCapacity = 8
+    /// 一个落点留多久（涟漪散尽、冲击波出画）。
+    public static let eventLifetime: TimeInterval = 4
+    /// 两道闪电至少隔多久：一秒不超过三次闪光。
+    public static let minimumFlashInterval: TimeInterval = 0.45
+    /// 鼓点多重才劈闪电、才落一个点。
+    public static let flashThreshold = 0.55
+    public static let eventThreshold = 0.3
+    /// 进高潮：响度排位持续高于 `climaxEnter` 这么久；出高潮：持续低于 `climaxExit` 这么久。
+    public static let climaxEnter = 0.72
+    public static let climaxExit = 0.5
+    public static let climaxEnterHold: TimeInterval = 1.5
+    public static let climaxExitHold: TimeInterval = 2.5
+    /// 没有频谱时整体热闹程度的底子。
+    public static let lyricDrivenEnergy = 0.35
+
+    private var random: ImmersiveRandom
+    private var tracker = ImmersiveBeatTracker()
+    private var drive = ImmersiveKineticDrive()
+    private var lastTime: TimeInterval?
+    private var lastPlaybackTime: TimeInterval?
+    private var lastFlash = -Double.infinity
+    private var flashStart = -Double.infinity
+    private var aboveSince: TimeInterval?
+    private var belowSince: TimeInterval?
+    private var lyricPulse = 0.0
+
+    public init(seed: UInt64) {
+        random = ImmersiveRandom(seed: seed)
+    }
+
+    /// 走一帧。`levels` 为空或几乎无声（Apple Music、电台读不到频谱）时，`playbackTime` 越过 `lyricOnsets`
+    /// 里哪个字头，就当那里有一下鼓点。`time` 是动画时钟，事件与闪电都记在它上面。
+    public mutating func update(
+        levels: [Double],
+        lyricOnsets: [TimeInterval],
+        playbackTime: TimeInterval?,
+        at time: TimeInterval
+    ) -> ImmersiveKineticDrive {
+        let dt = lastTime.map { min(max(time - $0, 0), 0.25) } ?? 0
+        lastTime = time
+        let features = tracker.update(levels: levels, at: time)
+        let hasSpectrum = features.energy > 0.02
+        drive.hasSpectrum = hasSpectrum
+
+        var hit = 0.0
+        var accent = 0.0
+        if hasSpectrum {
+            drive.energy = follow(drive.energy, toward: min(features.energy * 2.2, 1), dt: dt, halfLife: 0.25)
+            drive.bass = features.bass
+            drive.pulse = features.pulse
+            drive.sparkle = follow(drive.sparkle, toward: features.onsets[2], dt: dt, halfLife: 0.12)
+            drive.intensity = features.intensity
+            hit = features.beat
+            accent = features.onsets[1]
+        } else {
+            let crossed = crossedOnsets(lyricOnsets, playbackTime: playbackTime)
+            lyricPulse *= pow(0.5, dt / 0.18)
+            if crossed > 0 {
+                lyricPulse = 1
+                hit = 0.62
+            }
+            drive.energy = follow(drive.energy, toward: Self.lyricDrivenEnergy + 0.25 * lyricPulse, dt: dt, halfLife: 0.4)
+            drive.bass = 0.3 * lyricPulse
+            drive.pulse = lyricPulse
+            drive.sparkle = 0
+            drive.intensity = 0.5
+        }
+        lastPlaybackTime = playbackTime
+
+        if hit >= Self.eventThreshold {
+            addEvent(strength: hit, at: time)
+        } else if accent >= 0.6 {
+            addEvent(strength: accent * 0.6, at: time)
+        }
+        if hit >= Self.flashThreshold, time - lastFlash >= Self.minimumFlashInterval {
+            lastFlash = time
+            flashStart = time
+            drive.flashSeed = random.unit()
+        }
+        drive.flash = Self.flashEnvelope(age: time - flashStart)
+        drive.travel += dt * (0.25 + 1.6 * drive.energy + 2.2 * drive.pulse + (drive.isClimax ? 0.6 : 0))
+        drive.events.removeAll { time - $0.time > Self.eventLifetime }
+        updateClimax(at: time)
+        return drive
+    }
+
+    /// 闪电的亮度：一下全亮、暗一下、再亮一下，然后慢慢熄。
+    public static func flashEnvelope(age: TimeInterval) -> Double {
+        guard age >= 0, age.isFinite else { return 0 }
+        switch age {
+        case ..<0.06: return 1
+        case ..<0.12: return 0.35
+        case ..<0.18: return 0.8
+        default: return 0.8 * exp(-(age - 0.18) * 7)
+        }
+    }
+
+    private mutating func addEvent(strength: Double, at time: TimeInterval) {
+        let event = ImmersiveKineticDrive.Event(
+            x: 0.12 + 0.76 * random.unit(),
+            y: 0.18 + 0.66 * random.unit(),
+            time: time,
+            strength: min(max(strength, 0), 1)
+        )
+        drive.events.append(event)
+        if drive.events.count > Self.eventCapacity {
+            drive.events.removeFirst(drive.events.count - Self.eventCapacity)
+        }
+    }
+
+    /// 上一帧到这一帧之间播放进度越过了几个字头。往回拖、跳太远（切歌、拖进度）不算。
+    private func crossedOnsets(_ onsets: [TimeInterval], playbackTime: TimeInterval?) -> Int {
+        guard let playbackTime, let lastPlaybackTime,
+              playbackTime > lastPlaybackTime, playbackTime - lastPlaybackTime < 0.5 else { return 0 }
+        return onsets.filter { $0 > lastPlaybackTime && $0 <= playbackTime }.count
+    }
+
+    private mutating func updateClimax(at time: TimeInterval) {
+        guard drive.hasSpectrum else {
+            drive.isClimax = false
+            drive.climaxStart = nil
+            aboveSince = nil
+            belowSince = nil
+            return
+        }
+        if drive.intensity >= Self.climaxEnter {
+            aboveSince = aboveSince ?? time
+        } else {
+            aboveSince = nil
+        }
+        if drive.intensity < Self.climaxExit {
+            belowSince = belowSince ?? time
+        } else {
+            belowSince = nil
+        }
+        if !drive.isClimax, let aboveSince, time - aboveSince >= Self.climaxEnterHold {
+            drive.isClimax = true
+            drive.climaxStart = time
+        } else if drive.isClimax, let belowSince, time - belowSince >= Self.climaxExitHold {
+            drive.isClimax = false
+            drive.climaxStart = nil
+        }
+    }
+
+    private func follow(_ value: Double, toward target: Double, dt: TimeInterval, halfLife: TimeInterval) -> Double {
+        guard dt > 0 else { return target }
+        let keep = pow(0.5, dt / halfLife)
+        return target + (value - target) * keep
+    }
+}
