@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "Подкасты";
 "home_section_podcasts" = "Подкасты";
 "home_section_podcasts_hint" = "Свежие выпуски подкастов, на которые вы подписаны.";
+"home_cover_size_title" = "Размер обложек";
+"home_cover_size_large" = "Крупные";
+"home_cover_size_small" = "Мелкие";
 "home_podcasts_open_all" = "Все подкасты";
 "podcast_add" = "Добавить";
 "podcast_add_by_url" = "Добавить по RSS-адресу";

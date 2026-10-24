@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "พอดแคสต์";
 "home_section_podcasts" = "พอดแคสต์";
 "home_section_podcasts_hint" = "ตอนล่าสุดจากพอดแคสต์ที่คุณติดตาม";
+"home_cover_size_title" = "ขนาดปก";
+"home_cover_size_large" = "ใหญ่";
+"home_cover_size_small" = "เล็ก";
 "home_podcasts_open_all" = "พอดแคสต์ทั้งหมด";
 "podcast_add" = "เพิ่ม";
 "podcast_add_by_url" = "เพิ่มด้วยที่อยู่ RSS";

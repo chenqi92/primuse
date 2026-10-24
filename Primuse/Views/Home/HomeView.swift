@@ -1975,6 +1975,7 @@ struct HomeView: View {
 
     // Section toggles. 顶部欢迎卡片不参与排序,但同样可以在首页编辑里隐藏。
     @AppStorage("primuse.home.showHero") private var showHero = true
+    @AppStorage(HomeCoverSize.storageKey) private var coverSize: HomeCoverSize = .large
     @AppStorage("primuse.home.showStatsGlimpse") private var showStatsGlimpse: Bool = true
     @AppStorage("primuse.home.showForYou") private var showForYou: Bool = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
@@ -2168,6 +2169,7 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
                     filterBarEditorRow
+                    coverSizeEditorRow
                     heroEditorRow
                 } else if model.snapshot.hasContent, showHero {
                     libraryHeroSection
@@ -2488,6 +2490,35 @@ struct HomeView: View {
             }
         }
         #endif
+    }
+
+    /// 横排封面卡大一档还是小一档(#349):专辑、歌单、电台、有声书、播客那几排一起变。
+    private var coverSizeEditorRow: some View {
+        editorBlockFrame(visible: true) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.resize")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                Text("home_cover_size_title")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Picker("home_cover_size_title", selection: $coverSize) {
+                    ForEach(HomeCoverSize.allCases) { size in
+                        Text(size.titleKey).tag(size)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .accessibilityIdentifier("home.edit.coverSize")
+            }
+            .padding(.horizontal, 20)
+        }
+        .settingsAnchor("home.coverSize")
     }
 
     /// 顶部欢迎卡片钉在所有区块之上,不参与排序,编辑态只给显隐。
@@ -4561,7 +4592,7 @@ struct HomeView: View {
     /// 横排卡片的宽度,取值见 `HomeCoverCardMetrics`。经环境下发给接着听、书、播客、文件夹几个区块,
     /// 各区块的封面和这里的专辑、歌单卡一样大。
     private var homeAlbumCardWidth: CGFloat {
-        HomeCoverCardMetrics.width(usesPadMetrics: usesPadMetrics, isCompactHeight: heightClass.isCompact)
+        HomeCoverCardMetrics.width(usesPadMetrics: usesPadMetrics, isCompactHeight: heightClass.isCompact, size: coverSize)
     }
 
     /// 封面 + 两行说明文字。多行横排要用 LazyHGrid,而它要求行高固定。

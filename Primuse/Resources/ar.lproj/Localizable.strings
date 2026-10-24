@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "البودكاست";
 "home_section_podcasts" = "البودكاست";
 "home_section_podcasts_hint" = "أحدث حلقات البودكاست التي تتابعها.";
+"home_cover_size_title" = "حجم الأغلفة";
+"home_cover_size_large" = "كبير";
+"home_cover_size_small" = "صغير";
 "home_podcasts_open_all" = "كل البودكاست";
 "podcast_add" = "إضافة";
 "podcast_add_by_url" = "إضافة عبر عنوان RSS";

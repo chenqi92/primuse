@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "पॉडकास्ट";
 "home_section_podcasts" = "पॉडकास्ट";
 "home_section_podcasts_hint" = "आपके फ़ॉलो किए पॉडकास्ट के नवीनतम एपिसोड।";
+"home_cover_size_title" = "कवर का आकार";
+"home_cover_size_large" = "बड़ा";
+"home_cover_size_small" = "छोटा";
 "home_podcasts_open_all" = "सभी पॉडकास्ट";
 "podcast_add" = "जोड़ें";
 "podcast_add_by_url" = "RSS पते से जोड़ें";

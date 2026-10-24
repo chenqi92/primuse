@@ -249,6 +249,7 @@ struct HomeRadioSpaceSection: View {
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(RadioStationsStore.self) private var radioStore
+    @Environment(\.homeCoverCardWidth) private var cardWidth
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -261,8 +262,13 @@ struct HomeRadioSpaceSection: View {
                     actionKey: "home_radio_open_all",
                     action: { openSpace(.radio) }
                 )
-                // 和上面的分区标题、别的横排一样从 20 起排。
-                RadioStationStrip(horizontalInset: 20, limit: limit)
+                // 和上面的分区标题、别的横排一样从 20 起排;台标格和下面的书、播客封面一样大(#349)。
+                RadioStationStrip(
+                    horizontalInset: 20,
+                    limit: limit,
+                    tileWidth: cardWidth,
+                    tileCornerRadius: HomeCoverCardMetrics.cornerRadius
+                )
             }
         }
     }
@@ -366,8 +372,30 @@ enum HomeCoverCardMetrics {
 
     /// 窄屏下比网格的一半略窄,好让第三张卡露出一角 —— 边缘不留半张卡,用户看不出这一行还能往右滑。
     /// 手机横屏再收一档:一行货架加上标题就要占掉半个视口,后面的区块全落在折叠线以下。
-    static func width(usesPadMetrics: Bool, isCompactHeight: Bool) -> CGFloat {
-        usesPadMetrics ? 160 : (isCompactHeight ? 108 : 132)
+    /// 「小」是原来电台台标格的大小,一屏多露一张卡(#349)。
+    static func width(usesPadMetrics: Bool, isCompactHeight: Bool, size: HomeCoverSize = .large) -> CGFloat {
+        switch size {
+        case .large: usesPadMetrics ? 160 : (isCompactHeight ? 108 : 132)
+        case .small: usesPadMetrics ? 128 : (isCompactHeight ? 88 : 104)
+        }
+    }
+}
+
+/// 首页横排封面卡大一档还是小一档(首页编辑里选,随 iCloud 同步)。专辑、歌单、文件夹、接着听、电台、
+/// 有声书、播客都跟着变;「收藏」是一排快捷图标,不跟。
+enum HomeCoverSize: String, CaseIterable, Identifiable {
+    case large
+    case small
+
+    static let storageKey = "primuse.home.coverSize"
+
+    var id: String { rawValue }
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .large: "home_cover_size_large"
+        case .small: "home_cover_size_small"
+        }
     }
 }
 

@@ -5433,6 +5433,9 @@
 "listening_space_podcast" = "Podcasts";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Latest episodes from the podcasts you follow.";
+"home_cover_size_title" = "Cover Size";
+"home_cover_size_large" = "Large";
+"home_cover_size_small" = "Small";
 "home_podcasts_open_all" = "All Podcasts";
 "podcast_add" = "Add";
 "podcast_add_by_url" = "Add by RSS Address";

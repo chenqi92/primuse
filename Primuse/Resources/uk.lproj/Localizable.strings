@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "Подкасти";
 "home_section_podcasts" = "Подкасти";
 "home_section_podcasts_hint" = "Свіжі випуски подкастів, на які ви підписані.";
+"home_cover_size_title" = "Розмір обкладинок";
+"home_cover_size_large" = "Великі";
+"home_cover_size_small" = "Малі";
 "home_podcasts_open_all" = "Усі подкасти";
 "podcast_add" = "Додати";
 "podcast_add_by_url" = "Додати за RSS-адресою";

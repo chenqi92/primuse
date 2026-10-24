@@ -5647,6 +5647,9 @@
 "listening_space_podcast" = "播客";
 "home_section_podcasts" = "播客";
 "home_section_podcasts_hint" = "已訂閱播客最近推出的單集。";
+"home_cover_size_title" = "封面大小";
+"home_cover_size_large" = "大";
+"home_cover_size_small" = "小";
 "home_podcasts_open_all" = "全部播客";
 "podcast_add" = "加入";
 "podcast_add_by_url" = "透過 RSS 位址加入";

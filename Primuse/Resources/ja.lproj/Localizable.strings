@@ -5671,6 +5671,9 @@
 "listening_space_podcast" = "ポッドキャスト";
 "home_section_podcasts" = "ポッドキャスト";
 "home_section_podcasts_hint" = "フォロー中のポッドキャストの最新エピソード。";
+"home_cover_size_title" = "カバーのサイズ";
+"home_cover_size_large" = "大";
+"home_cover_size_small" = "小";
 "home_podcasts_open_all" = "すべてのポッドキャスト";
 "podcast_add" = "追加";
 "podcast_add_by_url" = "RSSアドレスで追加";

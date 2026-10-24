@@ -5670,6 +5670,9 @@
 "listening_space_podcast" = "팟캐스트";
 "home_section_podcasts" = "팟캐스트";
 "home_section_podcasts_hint" = "팔로우 중인 팟캐스트의 최신 에피소드입니다.";
+"home_cover_size_title" = "커버 크기";
+"home_cover_size_large" = "크게";
+"home_cover_size_small" = "작게";
 "home_podcasts_open_all" = "모든 팟캐스트";
 "podcast_add" = "추가";
 "podcast_add_by_url" = "RSS 주소로 추가";

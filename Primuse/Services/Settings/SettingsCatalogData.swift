@@ -158,6 +158,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "home.order", titleKey: "home_settings_sections_label", iosPage: .home, macPage: .appearance, keywords: ["排序", "顺序", "调整顺序", "区块", "order", "reorder", "sections"]),
         SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_all", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.hero", titleKey: "home_hero_section_title", iosPage: .home, macPage: nil, keywords: ["问候", "欢迎", "顶部", "早上好", "greeting", "welcome", "header"]),
+        SettingDefinition(id: "home.coverSize", titleKey: "home_cover_size_title", iosPage: .home, macPage: nil, keywords: ["封面", "大小", "尺寸", "卡片", "大图", "小图", "cover", "size", "artwork", "large", "small"]),
         SettingDefinition(id: "home.continueSpaces", titleKey: "home_continue_spaces_title", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.startListening", titleKey: "home_section_start_listening", iosPage: .home, macPage: .appearance, keywords: ["开始听", "意图", "流行", "原声", "年代", "随便听听", "铺开", "展开", "网格", "横排", "intent", "genre", "decade", "mood", "grid", "layout"]),
         SettingDefinition(id: "home.continueListening", titleKey: "home_section_continue_listening", iosPage: .home, macPage: .appearance),

@@ -93,8 +93,11 @@ extension RadioStationRecencyPolicy {
 /// 点一下起播/停播；iOS 上长按直接打开电台详情，Mac 上右键菜单里有「电台信息」。
 /// 播放状态在格子自己的 body 里读，换台只重画新旧两格。
 struct RadioStationStripTile: View {
+    static let defaultCornerRadius: CGFloat = 14
+
     let station: RadioStation
     var width: CGFloat = 104
+    var cornerRadius: CGFloat = RadioStationStripTile.defaultCornerRadius
     let onPlay: () -> Void
     let onDetails: () -> Void
 
@@ -116,9 +119,9 @@ struct RadioStationStripTile: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(
                             isCurrent ? RadioSpacePalette.accent : Color.secondary.opacity(0.15),
                             lineWidth: isCurrent ? 1.6 : 0.6
@@ -177,6 +180,7 @@ struct RadioStationStripTile: View {
 struct RadioStationTileRow: View {
     let stations: [RadioStation]
     var tileWidth: CGFloat = 104
+    var tileCornerRadius: CGFloat = RadioStationStripTile.defaultCornerRadius
     var horizontalInset: CGFloat = 16
     let onPlay: (RadioStation) -> Void
     let onDetails: (RadioStation) -> Void
@@ -188,6 +192,7 @@ struct RadioStationTileRow: View {
                     RadioStationStripTile(
                         station: station,
                         width: tileWidth,
+                        cornerRadius: tileCornerRadius,
                         onPlay: { onPlay(station) },
                         onDetails: { onDetails(station) }
                     )
@@ -212,6 +217,9 @@ struct RadioStationTileRow: View {
 struct RadioStationStrip: View {
     var horizontalInset: CGFloat = 16
     var limit: Int = RadioStationRecencyPolicy.stripLimit
+    /// 首页传入横排封面卡的边长与圆角,台标格和旁边几排一样大(#349);不传是电台自己那一档。
+    var tileWidth: CGFloat? = nil
+    var tileCornerRadius: CGFloat? = nil
 
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
@@ -220,7 +228,8 @@ struct RadioStationStrip: View {
     @State private var detailStation: RadioStation?
     @AppStorage(HomeSpotlightSelection.radioStorageKey) private var selectionRawValue = ""
 
-    private var tileWidth: CGFloat {
+    private var resolvedTileWidth: CGFloat {
+        if let tileWidth { return tileWidth }
         #if os(macOS)
         return 120
         #else
@@ -239,7 +248,8 @@ struct RadioStationStrip: View {
         if !stations.isEmpty {
             RadioStationTileRow(
                 stations: stations,
-                tileWidth: tileWidth,
+                tileWidth: resolvedTileWidth,
+                tileCornerRadius: tileCornerRadius ?? RadioStationStripTile.defaultCornerRadius,
                 horizontalInset: horizontalInset,
                 onPlay: play,
                 onDetails: { detailStation = $0 }

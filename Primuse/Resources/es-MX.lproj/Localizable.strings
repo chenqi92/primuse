@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "Podcasts";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Los episodios más recientes de los podcasts que sigues.";
+"home_cover_size_title" = "Tamaño de portadas";
+"home_cover_size_large" = "Grande";
+"home_cover_size_small" = "Pequeño";
 "home_podcasts_open_all" = "Todos los podcasts";
 "podcast_add" = "Agregar";
 "podcast_add_by_url" = "Agregar con dirección RSS";

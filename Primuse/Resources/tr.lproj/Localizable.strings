@@ -5576,6 +5576,9 @@
 "listening_space_podcast" = "Podcast'ler";
 "home_section_podcasts" = "Podcast'ler";
 "home_section_podcasts_hint" = "Takip ettiğiniz podcast'lerin en yeni bölümleri.";
+"home_cover_size_title" = "Kapak boyutu";
+"home_cover_size_large" = "Büyük";
+"home_cover_size_small" = "Küçük";
 "home_podcasts_open_all" = "Tüm podcast'ler";
 "podcast_add" = "Ekle";
 "podcast_add_by_url" = "RSS adresiyle ekle";
