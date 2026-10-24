@@ -24,6 +24,8 @@ enum ServerPlaylistMirror {
             let songIDs: [String]
             let memberIDs: [String]
             let pendingEntries: [PlaylistPendingEntry]
+            /// 曲库里没有、服务端能按 ID 直接播的曲目, 落地前先入库(见 `admitCollectionOnlySongs`)。
+            let playlistOnlySongs: [Song]
             let missingCount: Int
             let logContext: String
         }
@@ -72,7 +74,9 @@ enum ServerPlaylistMirror {
     ) -> PreparedSnapshot {
         let index = serverItemIndex(sourceID: sourceID, songs: songs)
         let needsMetadataMatch = snapshot.playlists.contains { playlist in
-            playlist.tracks.contains { track in track.externalID.map { index[$0] == nil } ?? false }
+            playlist.tracks.contains { track in
+                track.externalID.map { index[$0] == nil && playlist.playableSongs[$0] == nil } ?? false
+            }
         }
         let matcher = needsMetadataMatch ? PlaylistEntryMatcher(songs: matchingSongs) : nil
         let entries = snapshot.playlists.map { serverPlaylist in
@@ -97,6 +101,7 @@ enum ServerPlaylistMirror {
         var songIDs: [String] = []
         var members: [String] = []
         var pending: [PlaylistPendingEntry] = []
+        var playlistOnlySongs: [Song] = []
         var seen = Set<String>()
         var missingCount = 0
         for trackID in playlist.trackIDs {
@@ -110,10 +115,14 @@ enum ServerPlaylistMirror {
                     duration: track?.duration, origin: sourceType.rawValue,
                     externalID: trackID, serverSourceID: sourceID
                 )
-            if let songID = index[trackID] ?? matcher?.matchServerEntry(entry)?.id {
+            // 曲库里没有、服务端能按这个 ID 直接播的(插件塞进歌单的在线歌曲), 用服务端给的这一首,
+            // 不去别的源里按标题猜。
+            let playable = index[trackID] == nil ? playlist.playableSongs[trackID] : nil
+            if let songID = index[trackID] ?? playable?.id ?? matcher?.matchServerEntry(entry)?.id {
                 if seen.insert(songID).inserted {
                     songIDs.append(songID)
                     members.append(songID)
+                    if let playable, playable.id == songID { playlistOnlySongs.append(playable) }
                 }
             } else {
                 missingCount += 1
@@ -128,6 +137,7 @@ enum ServerPlaylistMirror {
             serverPlaylist: playlist,
             localID: ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: playlist.id),
             songIDs: songIDs, memberIDs: members, pendingEntries: pending,
+            playlistOnlySongs: playlistOnlySongs,
             missingCount: missingCount,
             logContext: "\(context) playlist=\(LogRedactionPolicy.digest(playlist.id)) received=\(playlist.trackIDs.count) expected=\(playlist.reportedTrackCount ?? playlist.trackIDs.count)"
         )
@@ -153,6 +163,8 @@ enum ServerPlaylistMirror {
             synchronizedServerPlaylistIDs: snapshot.playlists.map(\.id),
             failedServerPlaylistIDs: snapshot.failedPlaylistIDs
         )
+        let playlistOnlySongs = prepared.entries.flatMap(\.playlistOnlySongs)
+        library.admitCollectionOnlySongs(playlistOnlySongs, sourceID: source.id, indexMaintenance: .immediate)
 
         for entry in prepared.entries {
             let serverPlaylist = entry.serverPlaylist
@@ -197,7 +209,7 @@ enum ServerPlaylistMirror {
             )
             result.matchedTrackCount += songIDs.count
 
-            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(entry.missingCount) pending=\(entry.pendingEntries.count) hidden_manual=\(suppressedIDs.contains(localID))")
+            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) playlist_only=\(entry.playlistOnlySongs.count) missing=\(entry.missingCount) pending=\(entry.pendingEntries.count) hidden_manual=\(suppressedIDs.contains(localID))")
         }
 
         // 清理服务端已删除的歌单镜像。前缀带 sourceID, 只影响这一个源。
@@ -207,6 +219,8 @@ enum ServerPlaylistMirror {
                 keepingIDs: keepIDs
             )
         }
+        // 换掉的那批(每日推荐换了歌、歌单删了)只按落地后的成员算: 读失败而保留的旧镜像照样引用着。
+        library.releaseUnreferencedCollectionOnlySongs(sourceID: source.id)
         let remainingMirrors = library.allPlaylists.filter { $0.id.hasPrefix(prefix) }
         let remainingIDs = Set(remainingMirrors.filter { !$0.isDeleted }.map(\.id))
         let visibleIDs = Set(library.playlists.map(\.id)).intersection(remainingIDs)
@@ -260,6 +274,12 @@ enum ServerPlaylistMirror {
                 )
                 return
             }
+            // 同步途中一个歌单一个歌单地加, 整库重建合并到延后维护里, 收尾的 `apply` 再立即重建。
+            library.admitCollectionOnlySongs(
+                entry.playlistOnlySongs,
+                sourceID: source.id,
+                indexMaintenance: .deferredIncremental
+            )
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: entry.memberIDs,

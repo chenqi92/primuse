@@ -701,6 +701,9 @@ final class TVStore {
         self.library.likedStateMutationHandler = { [weak self] song, previous, desired in
             self?.serverFeedback.setLiked(song: song, previous: previous, desired: desired)
         }
+        self.library.playbackQueueSongIDsProvider = { [weak self] in
+            Set(self?.queueSongIDs ?? [])
+        }
         syncTrackNavigationCommands()
         observeLibraryChanges()
         observePlaybackHistoryChanges()
@@ -5025,7 +5028,16 @@ final class TVStore {
         roots: [String],
         evidenceURL: URL
     ) -> [Song] {
-        let existing = library.songs.filter { $0.sourceID == source.id }
+        // 只在服务端歌单里的歌(`admitCollectionOnlySongs`)不在列表里: 不算缺席、原样带过去;
+        // 列表里出现了的已经是曲库的歌, 不再算仅歌单。
+        let listedIDs = Set(listed.map(\.id))
+        let trackedCollectionOnlyIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: source.id)
+        if !trackedCollectionOnlyIDs.isDisjoint(with: listedIDs) {
+            CollectionOnlySongStore.shared.replace(trackedCollectionOnlyIDs.subtracting(listedIDs), forSourceID: source.id)
+        }
+        let collectionOnlyIDs = trackedCollectionOnlyIDs.subtracting(listedIDs)
+        let collectionOnly = library.songs.filter { $0.sourceID == source.id && collectionOnlyIDs.contains($0.id) }
+        let existing = library.songs.filter { $0.sourceID == source.id && !collectionOnlyIDs.contains($0.id) }
         let previous = (try? Data(contentsOf: evidenceURL)).flatMap {
             try? JSONDecoder().decode(ScanDeletionEvidence.self, from: $0)
         }
@@ -5051,9 +5063,9 @@ final class TVStore {
             withIntermediateDirectories: true
         )
         try? JSONEncoder().encode(evidence).write(to: evidenceURL, options: .atomic)
-        guard plan.hasPendingConfirmations else { return listed }
+        guard plan.hasPendingConfirmations else { return listed + collectionOnly }
         plog("⏸ TV scan \(source.name): keeping \(plan.pendingSongIDs.count) song(s) missing from the listing until another complete scan confirms (mass=\(plan.isMassDisappearance))")
-        return listed + existing.filter { plan.pendingSongIDs.contains($0.id) }
+        return listed + collectionOnly + existing.filter { plan.pendingSongIDs.contains($0.id) }
     }
 
     /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。
@@ -5098,6 +5110,12 @@ final class TVStore {
 
     /// 清单不完整（有条目认不出被跳过）时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
     private func applyServerFavorites(_ snapshot: ServerFavoriteSnapshot, source: MusicSource) {
+        // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
+        library.admitCollectionOnlySongs(
+            snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] },
+            sourceID: source.id,
+            indexMaintenance: .immediate
+        )
         let favorites = Set(snapshot.itemIDs)
         let songIDs = library.songs.filter {
             guard $0.sourceID == source.id else { return false }
@@ -5107,6 +5125,7 @@ final class TVStore {
             ).map(favorites.contains) == true
         }.map(\.id)
         library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
+        library.releaseUnreferencedCollectionOnlySongs(sourceID: source.id)
     }
 
     private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, generation: UUID) async {
@@ -5119,7 +5138,7 @@ final class TVStore {
                 source: source, credential: credential
             ) { @MainActor [weak self] playlist in
                 guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
-                applier.apply(Self.serverPlaylist(playlist))
+                applier.apply(Self.serverPlaylist(playlist, sourceID: source.id))
             }
             guard isCurrentScan(source: source, generation: generation) else {
                 plog("\(context) stage=apply result=skipped reason=stale-scan")
@@ -5127,7 +5146,7 @@ final class TVStore {
             }
             _ = ServerPlaylistMirror.apply(
                 snapshot: ServerPlaylistSnapshot(
-                    playlists: snapshot.playlists.map(Self.serverPlaylist),
+                    playlists: snapshot.playlists.map { Self.serverPlaylist($0, sourceID: source.id) },
                     failedPlaylistIDs: snapshot.failedPlaylistIDs,
                     isIndexComplete: snapshot.isIndexComplete
                 ), source: source, library: library
@@ -5152,10 +5171,11 @@ final class TVStore {
         }
     }
 
-    private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
+    private static func serverPlaylist(_ playlist: FnMusicPlaylist, sourceID: String) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
                        trackIDs: playlist.trackIDs, tracks: playlist.tracks,
-                       reportedTrackCount: playlist.reportedTrackCount)
+                       reportedTrackCount: playlist.reportedTrackCount,
+                       playableSongs: playlist.playableSongs(sourceID: sourceID))
     }
 
     private func isCurrentScan(source: MusicSource, generation: UUID) -> Bool {

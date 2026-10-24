@@ -2628,7 +2628,12 @@ final class ScanService {
         // remotely. With it, the scanner skips known files at the
         // listFiles-stream level and `addedCount` tracks just the actual
         // delta.
-        let knownExisting = library.songs.filter { $0.sourceID == source.id }
+        // 只在服务端歌单里的歌(`admitCollectionOnlySongs`)从来不在走查里, 不算进「这一轮少了哪些」,
+        // 否则几百首插件歌曲每轮都被当成一大批消失, 连真删掉的歌也跟着等确认。
+        let collectionOnlySongIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: source.id)
+        let knownExisting = library.songs.filter {
+            $0.sourceID == source.id && !collectionOnlySongIDs.contains($0.id)
+        }
         let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
         let identityScopeFingerprint = Self.scopeFingerprint(for: source, directories: [])
         let scanFenceIsValid: () -> Bool = {
@@ -5039,6 +5044,18 @@ final class ScanService {
             )
         }
         var catalogSongs = songs
+        // 只在服务端歌单里的歌不在走查里, 整源替换时照留; 走查列出来的那些已经是曲库里的歌,
+        // 不再算仅歌单, 目录没别的变化、下面不提交时也要放回歌曲列表。
+        let walkedSongIDs = Set(songs.map(\.id))
+        let trackedCollectionOnlyIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: sourceID)
+        if !trackedCollectionOnlyIDs.isDisjoint(with: walkedSongIDs) {
+            CollectionOnlySongStore.shared.replace(
+                trackedCollectionOnlyIDs.subtracting(walkedSongIDs),
+                forSourceID: sourceID
+            )
+            library.refreshContentClassification()
+        }
+        let collectionOnlySongIDs = trackedCollectionOnlyIDs.subtracting(walkedSongIDs)
         let detectedCatalogChanges: Bool
         if let authoritativeSongIDs, source?.type.usesPagedCatalogStaging == true {
             let librarySongsSnapshot = library.songs
@@ -5055,7 +5072,7 @@ final class ScanService {
             // device removed locally — so set inequality would force a full
             // catalogue rewrite on every no-op scan.
             detectedCatalogChanges = !songs.isEmpty
-                || !existingIDs.subtracting(authoritativeSongIDs).isEmpty
+                || !existingIDs.subtracting(authoritativeSongIDs).subtracting(collectionOnlySongIDs).isEmpty
         } else if source?.type.isSubsonicFamily == true {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
             let prepared = await Task.detached(priority: .utility) {
@@ -5074,7 +5091,9 @@ final class ScanService {
             catalogSongs = prepared.0
             detectedCatalogChanges = prepared.1
         } else if source?.type == .fnMusic {
-            let existingSongs = library.songs.filter { $0.sourceID == sourceID }
+            let existingSongs = library.songs.filter {
+                $0.sourceID == sourceID && !collectionOnlySongIDs.contains($0.id)
+            }
             detectedCatalogChanges = await Task.detached(priority: .utility) {
                 SourceCatalogSnapshotPolicy.hasChanges(existing: existingSongs, candidate: songs)
             }.value
@@ -5147,13 +5166,17 @@ final class ScanService {
         } else {
             previousFolderMemberships = [:]
         }
+        // 没给权威集合时剪枝按这次交上来的歌算, 仅歌单的行要并进去才留得下。
+        let prunedAgainstIDs: Set<String>? = pruneMissingSongs && !collectionOnlySongIDs.isEmpty
+            ? (authoritativeSongIDs ?? Set(catalogSongs.map(\.id))).union(collectionOnlySongIDs)
+            : authoritativeSongIDs
         if let preparedCatalog {
             library.addSongs(
                 preparedCatalog,
                 affectedSourceIDs: Set([sourceID]),
                 notifyRemovals: true,
                 pruneMissingSongs: pruneMissingSongs,
-                authoritativeIncomingIDs: authoritativeSongIDs,
+                authoritativeIncomingIDs: prunedAgainstIDs,
                 mergeServerCatalogRows: false,
                 indexMaintenance: .immediate
             )
@@ -5162,7 +5185,7 @@ final class ScanService {
                 catalogSongs,
                 affectedSourceIDs: Set([sourceID]),
                 pruneMissingSongs: pruneMissingSongs,
-                authoritativeIncomingIDs: authoritativeSongIDs,
+                authoritativeIncomingIDs: prunedAgainstIDs,
                 mergeServerCatalogRows: source?.type.isSubsonicFamily == true
             )
         }
@@ -5202,8 +5225,9 @@ final class ScanService {
         // count — otherwise a deleted-then-rescanned song shows as still
         // present in the source card while the library actually filters it.
         // 最终提交要精确值: 缓存聚合只在"总数相等"时才被认为是新的, 并发扫描
-        // 下这个条件可能被另一个源的中间 flush 偶然满足。
+        // 下这个条件可能被另一个源的中间 flush 偶然满足。仅歌单的行不算源里的歌。
         let acceptedCount = library.exactSongCount(forSourceID: sourceID)
+            - collectionOnlySongIDs.filter { library.storedSong(id: $0) != nil }.count
         sourceStore.updateLocal(sourceID) {
             $0.songCount = acceptedCount
             $0.lastScannedAt = Date()

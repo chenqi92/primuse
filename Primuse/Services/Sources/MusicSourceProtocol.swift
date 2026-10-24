@@ -2275,6 +2275,9 @@ struct ServerPlaylist: Sendable {
     let isReadOnly: Bool
     /// 服务端按规则生成的歌单(Navidrome `.nsp`), 谁都不能手动加歌。
     let isSmartPlaylist: Bool
+    /// 服务端曲目 ID → 能直接按这个 ID 播放的歌。曲库走查里没有的曲目(飞牛音乐扩展这类
+    /// 插件塞进歌单的在线歌曲)靠它建成「只在歌单里」的一行, 不必等扫描入库。
+    let playableSongs: [String: Song]
 
     init(
         id: String,
@@ -2284,7 +2287,8 @@ struct ServerPlaylist: Sendable {
         tracks: [ExternalPlaylistTrack] = [],
         reportedTrackCount: Int? = nil,
         isReadOnly: Bool = false,
-        isSmartPlaylist: Bool = false
+        isSmartPlaylist: Bool = false,
+        playableSongs: [String: Song] = [:]
     ) {
         self.id = id
         self.name = name
@@ -2294,6 +2298,7 @@ struct ServerPlaylist: Sendable {
         self.reportedTrackCount = reportedTrackCount
         self.isReadOnly = isReadOnly || isSmartPlaylist
         self.isSmartPlaylist = isSmartPlaylist
+        self.playableSongs = playableSongs
     }
 
     func withReadOnly(_ isReadOnly: Bool) -> ServerPlaylist {
@@ -2305,7 +2310,8 @@ struct ServerPlaylist: Sendable {
             tracks: tracks,
             reportedTrackCount: reportedTrackCount,
             isReadOnly: isReadOnly,
-            isSmartPlaylist: isSmartPlaylist
+            isSmartPlaylist: isSmartPlaylist,
+            playableSongs: playableSongs
         )
     }
 }
@@ -2436,10 +2442,13 @@ struct ServerFavoriteSnapshot: Sendable {
     let itemIDs: [String]
     /// 有条目认不出、被跳过时为 false：这份清单只能证明哪些歌被收藏，证明不了哪些被取消。
     let isComplete: Bool
+    /// 同 `ServerPlaylist.playableSongs`: 曲库走查里没有、服务端能按 ID 直接播的收藏。
+    let playableSongs: [String: Song]
 
-    init(itemIDs: [String], isComplete: Bool = true) {
+    init(itemIDs: [String], isComplete: Bool = true, playableSongs: [String: Song] = [:]) {
         self.itemIDs = itemIDs
         self.isComplete = isComplete
+        self.playableSongs = playableSongs
     }
 }
 

@@ -28,6 +28,43 @@ struct FnMusicLibraryTests {
         #expect(snapshot.playlists.first?.tracks == playlist.tracks)
     }
 
+    /// 飞牛音乐扩展把在线歌曲以官方曲目的形态塞进歌单和收藏、不进 `/track/list`；
+    /// 明细行本身就够建出一首能按 guid 去 `/track/stream` 播的歌。
+    @Test func detailRowsOutsideTheCatalogBecomePlayableSongs() async throws {
+        let online = "0123456789abcdef0123456789abcdef"
+        let row: [String: Any] = [
+            "guid": online, "title": "在线歌曲", "artists": [["name": "歌手", "guid": "\(online)-artist"]],
+            "album": ["name": "专辑", "guid": "\(online)-album", "coverId": "track_\(online)"],
+            "audioSpec": ["path": "online/netease/\(online).mp3", "format": "mp3", "duration": 200_000, "size": 0],
+            "coverId": "track_\(online)", "is_online": true, "source": "netease",
+        ]
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1,
+                        list: [row, ["guid": "id-only"], row], total: 3)
+        fixture.setPage("/favorite-track/list", page: 1, list: [row], total: 1)
+        let (client, _, _) = fixture.clients()
+
+        let playlist = try await client.library.playlist(id: "p")
+        #expect(playlist.trackIDs == [online, "id-only", online])
+        let songs = playlist.playableSongs(sourceID: "fn")
+        #expect(Set(songs.keys) == [online], "没有格式的行建不出能播的歌，照旧当占位")
+        let song = try #require(songs[online])
+        #expect(song.filePath == FnMusicAPIProtocol.trackPath(guid: online, fileExtension: "mp3"))
+        #expect(FnMusicAPIProtocol.trackGUID(from: song.filePath) == online)
+        #expect(song.sourceID == "fn")
+        #expect(song.title == "在线歌曲")
+        #expect(song.artistName == "歌手")
+        #expect(song.albumTitle == "专辑")
+        #expect(song.duration == 200)
+        #expect(song.fileFormat == .mp3)
+
+        let favorites = try await client.library.favoriteSnapshot()
+        #expect(favorites.playableSongs(sourceID: "fn")[online]?.id == song.id)
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.playlists.first?.playableSongs(sourceID: "fn")[online]?.id == song.id)
+    }
+
     @Test func serverPendingIdentityPersistsAndOldPendingEntriesStillDecode() throws {
         let entry = PlaylistPendingEntry(title: "Song", artists: ["Singer"], externalID: "track", serverSourceID: "source")
         let data = try JSONEncoder().encode(entry)

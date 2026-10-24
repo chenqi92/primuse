@@ -2332,7 +2332,8 @@ final class TVSourceScanner {
                 diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
             )
         }
-        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete)
+        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete,
+                                      playableSongs: snapshot.playableSongs(sourceID: source.id))
     }
 
     func validateDaoLiYuConnection(

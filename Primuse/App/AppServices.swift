@@ -1609,6 +1609,9 @@ final class AppServices {
             guard let store else { return [] }
             return Set(store.allSources.lazy.filter { $0.type == .local && !$0.isDeleted }.map(\.id))
         }
+        library.playbackQueueSongIDsProvider = { [weak player] in
+            Set(player?.queue.map(\.id) ?? [])
+        }
         #if os(iOS) || os(macOS)
         // 只在准入判定命中删除墓碑时才被调用, 所以常态一次都不跑。回答的是
         // "这首歌属于本机文件源, 而且它的文件此刻确实在磁盘上" —— 本机源的

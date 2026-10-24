@@ -262,6 +262,36 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(fixture.library.spotlightIndexRevision, spotlightRevision)
     }
 
+    /// 整源重扫只认曲库走查: 仅歌单的行不在走查里也留着、不算进源的歌曲数; 走查列出来的回到歌曲列表。
+    func testFnMusicRescanKeepsPlaylistOnlySongsAndReturnsWalkedOnesToTheCatalog() async throws {
+        let fixture = try makeScanFixture(count: 3, failAfterPage: false)
+        let sourceID = fixture.source.id
+        defer { CollectionOnlySongStore.shared.replace([], forSourceID: sourceID) }
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+        let online = Song(id: "online", title: "在线歌曲", fileFormat: .mp3,
+                          filePath: "/fnmusic/tracks/online.mp3", sourceID: sourceID)
+        fixture.library.admitCollectionOnlySongs([online], sourceID: sourceID, indexMaintenance: .immediate)
+        fixture.library.ensurePlaylist(id: "saved", name: "Saved")
+        fixture.library.replacePlaylistSongs(playlistID: "saved", songIDs: [online.id])
+        CollectionOnlySongStore.shared.replace([online.id, "track-1"], forSourceID: sourceID)
+        fixture.library.refreshContentClassification()
+        await fixture.library.waitForPendingIndex()
+        XCTAssertFalse(fixture.library.musicSongs.contains { $0.id == "track-1" })
+
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+        XCTAssertNil(fixture.scan.scanStates[sourceID]?.failureMessage)
+        XCTAssertNotNil(fixture.library.storedSong(id: online.id))
+        XCTAssertEqual(fixture.library.rawSongIDs(forPlaylist: "saved"), [online.id])
+        XCTAssertEqual(CollectionOnlySongStore.shared.songIDs(forSourceID: sourceID), [online.id])
+        XCTAssertEqual(fixture.store.source(id: sourceID)?.songCount, 3)
+        XCTAssertFalse(fixture.library.musicSongs.contains { $0.id == online.id })
+        XCTAssertTrue(fixture.library.musicSongs.contains { $0.id == "track-1" })
+    }
+
     func testDeferredForegroundResumeWaitsForBackoffAndStartsOnlyOnce() async throws {
         let resumeAfter = Date(timeIntervalSince1970: ceil(Date().timeIntervalSince1970) + 1)
         let fixture = try makeScanFixture(count: 1, failAfterPage: false, resumeAfter: resumeAfter)
@@ -961,6 +991,90 @@ final class FnMusicSourceTests: XCTestCase {
         }
     }
 
+    /// 飞牛音乐扩展把在线歌曲以官方曲目的形态放进歌单、曲库走查里没有: 按 guid 建成仅歌单的歌,
+    /// 能播、不进歌曲列表; 歌单不再列出、也没被喜欢或排在播放队列里时移出曲库。
+    func testFeiniuPlaylistOnlyTracksPlayFromThePlaylistAndLeaveWithIt() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            defer { CollectionOnlySongStore.shared.replace([], forSourceID: source.id) }
+            let online = "0123456789abcdef0123456789abcdef"
+            FnMusicSourceURLProtocol.setPlaylistTracks([Self.pluginTrackRow(guid: online), ["guid": "song"]],
+                                                       playlistID: "playlist", host: host)
+            let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            let onlinePath = FnMusicAPIProtocol.trackPath(guid: online, fileExtension: "mp3")
+
+            let result = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            await library.waitForPendingIndex()
+            let onlineSong = try XCTUnwrap(library.songs.first { $0.filePath == onlinePath })
+            XCTAssertEqual(onlineSong.title, "在线歌曲")
+            XCTAssertEqual(result.matchedTrackCount, 2)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), [onlineSong.id, "song"])
+            XCTAssertEqual(library.pendingEntryCount(forPlaylist: id), 0)
+            XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), [onlineSong.id, "song"])
+            XCTAssertEqual(CollectionOnlySongStore.shared.songIDs(forSourceID: source.id), [onlineSong.id])
+            XCTAssertFalse(library.musicSongs.contains { $0.id == onlineSong.id }, "不进歌曲列表")
+            XCTAssertTrue(library.musicSongs.contains { $0.id == "song" })
+
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(library.songs.filter { $0.filePath == onlinePath }.count, 1)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), [onlineSong.id, "song"])
+
+            FnMusicSourceURLProtocol.setPlaylistTracks([["guid": "song"]], playlistID: "playlist", host: host)
+            library.playbackQueueSongIDsProvider = { [onlineSong.id] }
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNotNil(library.storedSong(id: onlineSong.id), "还在播放队列里的先留着")
+            library.playbackQueueSongIDsProvider = nil
+            library.setLiked(songID: onlineSong.id, isLiked: true, propagatesServerMutation: false)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNotNil(library.storedSong(id: onlineSong.id), "喜欢过的留着")
+
+            library.setLiked(songID: onlineSong.id, isLiked: false, propagatesServerMutation: false)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            await library.waitForPendingIndex()
+            XCTAssertNil(library.storedSong(id: onlineSong.id))
+            XCTAssertTrue(CollectionOnlySongStore.shared.songIDs(forSourceID: source.id).isEmpty)
+            XCTAssertNotNil(library.storedSong(id: "song"))
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: id), ["song"])
+        }
+    }
+
+    /// 插件的在线收藏同样只在收藏清单里: 建成仅歌单的歌并标成喜欢, 歌单同步不会把它当成没人引用;
+    /// 服务端取消收藏后移出曲库。
+    func testFeiniuFavoritesOutsideTheCatalogBecomeLikedPlaylistOnlySongs() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            defer { CollectionOnlySongStore.shared.replace([], forSourceID: source.id) }
+            let online = "fedcba9876543210fedcba9876543210"
+            FnMusicSourceURLProtocol.setFavoriteRows([Self.pluginTrackRow(guid: online), ["guid": "song"]], host: host)
+            let surfaces = FavoriteSourceStub(source)
+            let favorites = ServerFavoriteSyncService(sourceManager: manager, sourcesStore: surfaces,
+                                                      library: library, player: surfaces)
+            await favorites.refresh(source: source)
+            await library.waitForPendingIndex()
+            let path = FnMusicAPIProtocol.trackPath(guid: online, fileExtension: "mp3")
+            let onlineSong = try XCTUnwrap(library.songs.first { $0.filePath == path })
+            XCTAssertTrue(library.isLiked(songID: onlineSong.id))
+            XCTAssertTrue(library.isLiked(songID: "song"))
+            XCTAssertEqual(CollectionOnlySongStore.shared.songIDs(forSourceID: source.id), [onlineSong.id])
+            XCTAssertFalse(library.musicSongs.contains { $0.id == onlineSong.id })
+
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNotNil(library.storedSong(id: onlineSong.id))
+
+            FnMusicSourceURLProtocol.setFavoriteRows([["guid": "song"]], host: host)
+            await favorites.refresh(source: source)
+            await library.waitForPendingIndex()
+            XCTAssertNil(library.storedSong(id: onlineSong.id))
+            XCTAssertTrue(library.isLiked(songID: "song"))
+            XCTAssertTrue(CollectionOnlySongStore.shared.songIDs(forSourceID: source.id).isEmpty)
+        }
+    }
+
+    /// 飞牛音乐扩展下发的在线曲目行：guid 伪装成 32 位十六进制，`audioSpec.path` 带真实后缀。
+    private static func pluginTrackRow(guid: String) -> [String: Any] {
+        ["guid": guid, "title": "在线歌曲", "artists": [["name": "歌手"]], "album": ["name": "专辑"],
+         "audioSpec": ["path": "online/netease/\(guid).mp3", "format": "mp3", "duration": 200_000],
+         "coverId": "track_\(guid)", "is_online": true, "source": "netease"]
+    }
+
     func testServerPendingMatchingRejectsCoversVersionsMissingMetadataAndAmbiguity() {
         let entry = PlaylistPendingEntry(title: "Song", artists: ["Singer"], album: "Album", duration: 180,
                                          externalID: "track", serverSourceID: "fn")
@@ -1265,6 +1379,14 @@ private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector {
     }
 }
 
+@MainActor
+private final class FavoriteSourceStub: ServerFavoriteSourcesProviding, ServerFavoriteSurfacePublishing {
+    let source: MusicSource
+    init(_ source: MusicSource) { self.source = source }
+    func source(id: String) -> MusicSource? { id == source.id ? source : nil }
+    func republishNowPlayingSurfaces() {}
+}
+
 private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private struct State {
@@ -1278,6 +1400,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var playlistRequests = 0
         var playlistTracks: [String: [String]] = [:]
         var playlistTrackRows: [String: [[String: Any]]] = [:]
+        var favoriteRows: [[String: Any]]?
         var addTrackBodies: [Data] = []
     }
     nonisolated(unsafe) private static var states: [String: State] = [:]
@@ -1304,6 +1427,9 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     }
     static func setPlaylistTracks(_ rows: [[String: Any]], playlistID: String, host: String) {
         lock.withLock { states[host]?.playlistTrackRows[playlistID] = rows }
+    }
+    static func setFavoriteRows(_ rows: [[String: Any]], host: String) {
+        lock.withLock { states[host]?.favoriteRows = rows }
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -1390,7 +1516,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 }
                 return (200, jsonHeaders, json(["code": 0, "data": NSNull()]))
             case "list" where url.path.contains("/favorite-track/"):
-                return (200, jsonHeaders, page(state.favorite ? [["guid": "song"]] : []))
+                return (200, jsonHeaders, page(state.favoriteRows ?? (state.favorite ? [["guid": "song"]] : [])))
             case "create", "delete":
                 state.favorite = url.lastPathComponent == "create"
                 return (200, jsonHeaders, json(["code": 0, "data": NSNull()]))

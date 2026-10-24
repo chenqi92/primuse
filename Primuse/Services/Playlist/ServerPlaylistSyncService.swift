@@ -345,6 +345,13 @@ protocol ServerFavoriteLibraryManaging: AnyObject {
     func setLiked(songID: String, isLiked: Bool, propagatesServerMutation: Bool)
     func replaceLikedSongs(fromSourceID sourceID: String, with authoritativeSongIDs: [String])
     func presentServerFavoriteError(_ message: String)
+    func admitCollectionOnlySongs(_ incoming: [Song], sourceID: String, indexMaintenance: LibraryMaintenanceDisposition)
+    func releaseUnreferencedCollectionOnlySongs(sourceID: String)
+}
+
+extension ServerFavoriteLibraryManaging {
+    func admitCollectionOnlySongs(_ incoming: [Song], sourceID: String, indexMaintenance: LibraryMaintenanceDisposition) {}
+    func releaseUnreferencedCollectionOnlySongs(sourceID: String) {}
 }
 
 extension MusicLibrary: ServerFavoriteLibraryManaging {}
@@ -670,6 +677,12 @@ final class ServerFavoriteSyncService {
         sourceID: String,
         sourceType: MusicSourceType
     ) {
+        // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
+        library.admitCollectionOnlySongs(
+            snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] },
+            sourceID: sourceID,
+            indexMaintenance: .immediate
+        )
         var songsByServerItemID: [String: String] = [:]
         var retainedLikes: [String] = []
         var likedBefore = Set<String>()
@@ -693,6 +706,7 @@ final class ServerFavoriteSyncService {
             fromSourceID: sourceID,
             with: retainedLikes + serverLikes
         )
+        library.releaseUnreferencedCollectionOnlySongs(sourceID: sourceID)
     }
 
     private func takeNextMutation(sourceID: String) -> PendingMutation? {

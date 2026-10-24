@@ -3820,6 +3820,12 @@ final class MusicLibrary {
     @ObservationIgnored
     var deviceLocalFilePresenceProbe: ((_ candidates: [Song]) -> Set<String>)?
 
+    /// 播放队列里的歌(含正在放的那首)。清理不再被歌单引用的仅歌单歌曲时跳过它们: 移出曲库
+    /// 会让播放器把它们从队列里拿掉, 每日推荐这类歌单一换批, 正在听的歌就被切走; 下一轮同步再清。
+    /// 由 `AppServices` 与电视端 `TVStore` 装上, nil 时不跳过。
+    @ObservationIgnored
+    var playbackQueueSongIDsProvider: (() -> Set<String>)?
+
     /// 「从本机移除」挡住的路径上换了文件时放行(`LibrarySongAdmissionPolicy
     /// .replacedFileReleasesDeviceExclusion`)。只有 Apple TV 打开: 那边它是唯一的删除
     /// 入口、也没有恢复界面; iPhone / Mac 维持「重新扫描不会加回来」。
@@ -4687,6 +4693,8 @@ final class MusicLibrary {
         }
         let previousSpokenWordCount = spokenWordSongIDs.count
         rebuildVisibleCache()
+        // 后台正在跑的整库重建拿的是改之前的分类, 落地时会把这次的结果盖回去; 换一份新请求接替它。
+        if rebuildIndexTask != nil { rebuildIndex() }
         plog("🎧 Content classification refreshed: spoken word/podcast \(previousSpokenWordCount) → \(spokenWordSongIDs.count) of \(visibleSongs.count)")
     }
 
@@ -9457,6 +9465,66 @@ final class MusicLibrary {
             ServerPlaylistIdentity.playlistIDPrefix(sourceID: $0)
         })
         prunePlaylists(withIDPrefixes: prefixes, keepingIDs: [])
+        for sourceID in sourceIDs {
+            CollectionOnlySongStore.shared.replace([], forSourceID: sourceID)
+        }
+    }
+
+    /// 只在服务端歌单里出现、曲库走查里没有的歌(飞牛音乐扩展这类插件塞进歌单的在线歌曲)入库。
+    /// 先登记成「仅歌单」再加歌: 加歌触发的那次重建就把它们留在歌单、搜索和播放里, 不进
+    /// 歌曲 / 专辑 / 艺人列表。库里已有的行不动, 扫描入库的歌不会因此变成仅歌单。
+    func admitCollectionOnlySongs(
+        _ incoming: [Song],
+        sourceID: String,
+        indexMaintenance: LibraryMaintenanceDisposition
+    ) {
+        if deferringUntilReady({ [weak self] in
+            self?.admitCollectionOnlySongs(incoming, sourceID: sourceID, indexMaintenance: indexMaintenance)
+        }) { return }
+        var admittedIDs = Set<String>()
+        let fresh = incoming.filter {
+            $0.sourceID == sourceID && songIndexByID[$0.id] == nil && admittedIDs.insert($0.id).inserted
+        }
+        guard !fresh.isEmpty else { return }
+        let store = CollectionOnlySongStore.shared
+        store.replace(store.songIDs(forSourceID: sourceID).union(admittedIDs), forSourceID: sourceID)
+        addSongs(
+            fresh,
+            affectedSourceIDs: [sourceID],
+            notifyRemovals: false,
+            pruneMissingSongs: false,
+            indexMaintenance: indexMaintenance
+        )
+    }
+
+    /// 这个源的仅歌单歌曲里, 已经没有任何歌单(含「我喜欢」和回收站里的歌单)引用、也不在
+    /// 播放队列里的那些移出曲库。不留删除墓碑: 歌单以后再列出它, 照样加得回来。
+    func releaseUnreferencedCollectionOnlySongs(sourceID: String) {
+        if deferringUntilReady({ [weak self] in
+            self?.releaseUnreferencedCollectionOnlySongs(sourceID: sourceID)
+        }) { return }
+        let store = CollectionOnlySongStore.shared
+        let tracked = store.songIDs(forSourceID: sourceID)
+        guard !tracked.isEmpty else { return }
+        var retained = tracked.intersection(playbackQueueSongIDsProvider?() ?? [])
+        for members in playlistSongIDs.values {
+            for id in members where tracked.contains(id) { retained.insert(id) }
+        }
+        let released = tracked.subtracting(retained)
+        guard !released.isEmpty else { return }
+        store.replace(retained, forSourceID: sourceID)
+        let present = released.filter { songIndexByID[$0] != nil }
+        guard !present.isEmpty else { return }
+        var keptIDs = Set(songs.lazy.filter { $0.sourceID == sourceID }.map(\.id)).subtracting(present)
+        keptIDs.formUnion(locallyRemovedSongIDs(forSourceID: sourceID))
+        addSongs(
+            [],
+            affectedSourceIDs: [sourceID],
+            notifyRemovals: true,
+            pruneMissingSongs: true,
+            authoritativeIncomingIDs: keptIDs
+        )
+        plog("Server playlists source=\(LogRedactionPolicy.digest(sourceID)) stage=collection-only result=released released=\(present.count) retained=\(retained.count)")
     }
 
     /// 移除 Apple Music 音乐源时,连同它同步出来的镜像歌单一起删掉 ——

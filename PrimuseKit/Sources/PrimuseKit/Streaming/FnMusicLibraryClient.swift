@@ -18,12 +18,21 @@ public struct FnMusicPlaylist: Sendable {
     public let tracks: [ExternalPlaylistTrack]
     /// 服务端列出的条数，读不出而跳过的也算在内：只要它大于 0，一首都没认出来也不能当成歌单被清空。
     public let reportedTrackCount: Int
+    /// 明细里每首的完整曲目行，键是 `trackIDs` 里的 id。
+    public let catalogTracks: [String: FnMusicCatalogTrack]
+
+    /// 能按曲目 id 直接播的歌，和曲库扫描建出来的同一形态。曲库走查（`/track/list`）里没有的曲目
+    /// 靠它也能播：飞牛音乐扩展这类插件只把在线歌曲塞进歌单、收藏，不进曲库，播放仍走 `/track/stream`。
+    public func playableSongs(sourceID: String) -> [String: Song] {
+        catalogTracks.compactMapValues { $0.makeSong(sourceID: sourceID) }
+    }
 }
 
 extension FnMusicPlaylist {
     fileprivate init(summary: FnMusicLibraryClient.Summary, tracks: FnMusicLibraryClient.PlaylistTracks) {
         self.init(id: summary.id, name: summary.name, coverReference: summary.coverReference,
-                  trackIDs: tracks.ids, tracks: tracks.metadata, reportedTrackCount: tracks.listed)
+                  trackIDs: tracks.ids, tracks: tracks.metadata, reportedTrackCount: tracks.listed,
+                  catalogTracks: tracks.catalog)
     }
 }
 
@@ -31,6 +40,12 @@ extension FnMusicPlaylist {
 public struct FnMusicFavoriteSnapshot: Sendable {
     public let trackIDs: [String]
     public let isComplete: Bool
+    /// 清单里每首的完整曲目行，键是 `trackIDs` 里的 id；用法同 `FnMusicPlaylist.catalogTracks`。
+    public let catalogTracks: [String: FnMusicCatalogTrack]
+
+    public func playableSongs(sourceID: String) -> [String: Song] {
+        catalogTracks.compactMapValues { $0.makeSong(sourceID: sourceID) }
+    }
 }
 
 public struct FnMusicPlaylistSnapshot: Sendable {
@@ -125,6 +140,7 @@ public struct FnMusicLibraryClient: Sendable {
         var ids: [String]
         var metadata: [ExternalPlaylistTrack]
         var listed: Int
+        var catalog: [String: FnMusicCatalogTrack]
     }
 
     private func playlistTracks(
@@ -138,7 +154,16 @@ public struct FnMusicLibraryClient: Sendable {
             diagnosticLogger: diagnosticLogger,
             parse: Track.init
         )
-        return PlaylistTracks(ids: rows.items.map(\.id), metadata: rows.items.map(\.metadata), listed: rows.listed)
+        return PlaylistTracks(ids: rows.items.map(\.id), metadata: rows.items.map(\.metadata), listed: rows.listed,
+                              catalog: Self.catalogTracks(rows.items))
+    }
+
+    private static func catalogTracks(_ items: [Track]) -> [String: FnMusicCatalogTrack] {
+        var catalog: [String: FnMusicCatalogTrack] = [:]
+        for item in items where catalog[item.id] == nil {
+            catalog[item.id] = item.catalog
+        }
+        return catalog
     }
 
     public func favorites(diagnosticLogger: (@Sendable (String) -> Void)? = nil) async throws -> [String] {
@@ -154,7 +179,8 @@ public struct FnMusicLibraryClient: Sendable {
         do {
             let rows: Rows<Track> = try await pages(path: "/favorite-track/list", diagnosticLogger: log, parse: Track.init)
             log("stage=fetch result=complete received=\(rows.items.count) id_shape=\(Self.identifierShape(rows.items.first?.id))")
-            return FnMusicFavoriteSnapshot(trackIDs: rows.items.map(\.id), isComplete: rows.items.count == rows.listed)
+            return FnMusicFavoriteSnapshot(trackIDs: rows.items.map(\.id), isComplete: rows.items.count == rows.listed,
+                                           catalogTracks: Self.catalogTracks(rows.items))
         } catch {
             let result = OperationCancellationPolicy.isCancellation(error) ? "cancelled" : "failed"
             log("stage=fetch result=\(result) \(LogRedactionPolicy.errorSummary(error))")
@@ -433,12 +459,14 @@ public struct FnMusicLibraryClient: Sendable {
     private struct Track: FnMusicLibraryItem {
         let id: String
         let metadata: ExternalPlaylistTrack
+        let catalog: FnMusicCatalogTrack?
         init(_ json: [String: Any]) throws {
             guard let id = fnMusicFirstNonemptyString(json, keys: ["guid", "trackGUID", "id"]) else {
                 throw FnMusicLibraryClient.invalidResponse("track without a usable guid")
             }
             self.id = id
             let track = FnMusicCatalogTrack(json: json)
+            catalog = track
             metadata = ExternalPlaylistTrack(
                 title: fnMusicFirstNonemptyString(json, keys: ["title", "trackTitle", "name", "filename"]) ?? "",
                 artists: track?.artistNames ?? [],

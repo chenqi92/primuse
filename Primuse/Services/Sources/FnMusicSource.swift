@@ -494,13 +494,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     func fetchServerPlaylists(
         progress: @escaping ServerPlaylistProgress
     ) async throws -> ServerPlaylistSnapshot {
+        let sourceID = sourceID
         let sourceTag = LogRedactionPolicy.digest(sourceID)
         let snapshot = try await libraryClient.playlists(
             diagnosticLogger: { plog("source=\(sourceTag) \($0)") },
-            onPlaylist: { await progress(Self.serverPlaylist($0)) }
+            onPlaylist: { await progress(Self.serverPlaylist($0, sourceID: sourceID)) }
         )
         return ServerPlaylistSnapshot(
-            playlists: snapshot.playlists.map(Self.serverPlaylist),
+            playlists: snapshot.playlists.map { Self.serverPlaylist($0, sourceID: sourceID) },
             failedPlaylistIDs: snapshot.failedPlaylistIDs,
             isIndexComplete: snapshot.isIndexComplete
         )
@@ -512,7 +513,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         let current = try await libraryClient.playlist(id: id)
         var seen = Set(current.trackIDs)
         let missing = itemIDs.filter { seen.insert($0).inserted }
-        guard !missing.isEmpty else { return Self.serverPlaylist(current) }
+        guard !missing.isEmpty else { return Self.serverPlaylist(current, sourceID: sourceID) }
         try await connect()
         var offset = 0
         while offset < missing.count {
@@ -529,13 +530,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
         let refreshed = try await libraryClient.playlist(id: id)
         guard Set(refreshed.trackIDs).isSuperset(of: missing) else { throw ServerPlaylistAppendError.notConfirmed }
-        return Self.serverPlaylist(refreshed)
+        return Self.serverPlaylist(refreshed, sourceID: sourceID)
     }
 
-    private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
+    private static func serverPlaylist(_ playlist: FnMusicPlaylist, sourceID: String) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
                        trackIDs: playlist.trackIDs, tracks: playlist.tracks,
-                       reportedTrackCount: playlist.reportedTrackCount)
+                       reportedTrackCount: playlist.reportedTrackCount,
+                       playableSongs: playlist.playableSongs(sourceID: sourceID))
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
@@ -543,12 +545,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         let snapshot = try await libraryClient.favoriteSnapshot(
             diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
         )
-        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete)
+        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete,
+                                      playableSongs: snapshot.playableSongs(sourceID: sourceID))
     }
 
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot {
         let confirmed = try await libraryClient.setFavorite(trackID: itemID, isFavorite: isFavorite)
-        return ServerFavoriteSnapshot(itemIDs: confirmed.trackIDs, isComplete: confirmed.isComplete)
+        return ServerFavoriteSnapshot(itemIDs: confirmed.trackIDs, isComplete: confirmed.isComplete,
+                                      playableSongs: confirmed.playableSongs(sourceID: sourceID))
     }
 
     // MARK: - Audio
