@@ -6644,6 +6644,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "再生画面のスタイルとボタン";
+"player_style_presets_title" = "まとめて適用";
+"player_style_presets_footer" = "変わるのは音楽の再生画面の見た目だけです（ボタンの位置、再生ボタン、曲名の下のアルバム名、音量バー、再生バー、コントロールの色、アートワークのスタイル、背景、アートワーク下の歌詞）。適用前の状態はこのデバイスに保存され、いつでも戻せます。下の各項目は適用後も個別に変更できます。";
+"player_style_preset_concise" = "シンプル";
+"player_style_preset_concise_description" = "大きなアートワーク、アーティストのみ、枠なしの大きな再生ボタン。再生ボタンの両側にシャッフルとリピートを置かず（「その他」に移動）、音量バーと再生バーをそろえ、コントロールは単色、背景は流れる色。";
+"player_style_preset_standard" = "Primuse の標準";
+"player_style_preset_standard_description" = "これらをすべて標準に戻します：塗りつぶしの丸い再生ボタン、その両側にシャッフルとリピート、アルバム名を表示、システムの音量バー、アートワークの色の背景。";
+"player_style_preset_restore" = "適用前の状態に戻す";
+"player_style_preset_confirm_title %@" = "「%@」を適用しますか？";
+"player_style_preset_confirm_message" = "ボタンの位置、再生ボタン、音量バー、再生バー、コントロールの色、アートワークのスタイル、再生画面の背景などの設定を置き換えます。あとからここで適用前の状態に戻せます。";
+"player_style_preset_apply" = "適用";
 "player_style_editor_subtitle" = "アートワーク、プログレスバー、音量、色、背景、ボタンをライブプレビューで調整";
 "player_style_preview_actual_size" = "実際のサイズ";
 "player_style_section_colors" = "色";

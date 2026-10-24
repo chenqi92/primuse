@@ -6549,6 +6549,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Estilo y botones del reproductor";
+"player_style_presets_title" = "Estilos rápidos";
+"player_style_presets_footer" = "Solo cambia el aspecto del reproductor de música: posición de los botones, botón de reproducir, álbum bajo el título, barras de volumen y progreso, color de los controles, estilo de portada, fondo y letra bajo la portada. El aspecto anterior queda guardado en este dispositivo para restaurarlo, y cada opción de abajo se puede seguir cambiando.";
+"player_style_preset_concise" = "Limpio";
+"player_style_preset_concise_description" = "Portada grande, solo el artista, botón de reproducir grande sin marco, sin aleatorio ni repetir a los lados (pasan a Más), barras de volumen y progreso iguales, controles monocromos y fondo de colores fluidos.";
+"player_style_preset_standard" = "Predeterminado de Primuse";
+"player_style_preset_standard_description" = "Todo vuelve a lo predeterminado: botón de reproducir redondo relleno, aleatorio y repetir a los lados, álbum visible, barra de volumen del sistema y fondo con el color de la portada.";
+"player_style_preset_restore" = "Restaurar el aspecto anterior";
+"player_style_preset_confirm_title %@" = "¿Aplicar «%@»?";
+"player_style_preset_confirm_message" = "Reemplaza la posición de los botones, el botón de reproducir, las barras de volumen y progreso, el color de los controles, el estilo de portada y el fondo del reproductor. Después puedes restaurar el aspecto anterior aquí.";
+"player_style_preset_apply" = "Aplicar";
 "player_style_editor_subtitle" = "Portada, barra de progreso, volumen, colores, fondo y botones, con vista previa en vivo";
 "player_style_preview_actual_size" = "Tamaño real";
 "player_style_section_colors" = "Colores";

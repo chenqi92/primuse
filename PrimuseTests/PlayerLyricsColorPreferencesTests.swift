@@ -508,3 +508,53 @@ final class PlaybackSettingsCrossfadeDurationTests: XCTestCase {
         )
     }
 }
+
+/// 「播放页样式与按钮」的一键套用:写进去的是这一套,打得上勾,恢复后和套用前一模一样。
+@MainActor
+final class NowPlayingStylePresetTests: XCTestCase {
+    private func makeDefaults() -> UserDefaults {
+        let suite = "NowPlayingStylePresetTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
+    func testConcisePresetWritesItsLookAndRestoresTheOldOne() {
+        let defaults = makeDefaults()
+        let backdrop = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        // 套用前:改过播放键,随机键挪到了底栏,其余没碰过。
+        defaults.set(NowPlayingPlayButtonStyle.outlinedCircle.rawValue, forKey: PlayerAppearancePreferences.playButtonStyleKey)
+        let customLayout = NowPlayingControlLayout.default.placing(.shuffle, at: .bar(3))
+        defaults.set(customLayout.encoded(), forKey: NowPlayingControlLayout.musicStorageKey)
+        let before = NowPlayingStylePresetApplier.snapshot(defaults: defaults, backdrop: backdrop)
+
+        XCTAssertFalse(NowPlayingStylePreset.concise.matches(defaults: defaults, backdropSource: backdrop.settings.source))
+        NowPlayingStylePresetApplier.apply(.concise, defaults: defaults, backdrop: backdrop)
+
+        XCTAssertTrue(NowPlayingStylePreset.concise.matches(defaults: defaults, backdropSource: backdrop.settings.source))
+        XCTAssertFalse(NowPlayingStylePreset.standard.matches(defaults: defaults, backdropSource: backdrop.settings.source))
+        XCTAssertEqual(defaults.string(forKey: PlayerAppearancePreferences.playButtonStyleKey), "largePlain")
+        XCTAssertEqual(defaults.object(forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey) as? Bool, false)
+        XCTAssertEqual(backdrop.settings.source, .liquid)
+        let layout = NowPlayingControlLayout.decode(defaults.string(forKey: NowPlayingControlLayout.musicStorageKey) ?? "")
+        XCTAssertNil(layout.action(in: .leadingEdge))
+        XCTAssertNil(layout.action(in: .trailingEdge))
+        XCTAssertEqual(layout.action(in: .header), .like)
+        XCTAssertEqual(layout.bar, NowPlayingControlLayout.defaultBar)
+        XCTAssertNotNil(defaults.string(forKey: NowPlayingStylePresetSnapshot.storageKey))
+
+        NowPlayingStylePresetApplier.restore(defaults: defaults, backdrop: backdrop)
+        XCTAssertEqual(NowPlayingStylePresetApplier.snapshot(defaults: defaults, backdrop: backdrop), before)
+        XCTAssertEqual(backdrop.settings.source, .coverAmbient)
+        // 没存过的键恢复后照样没存(以后改默认也跟得上)。
+        XCTAssertNil(defaults.object(forKey: PlayerAppearancePreferences.volumeBarStyleKey))
+        XCTAssertNil(defaults.string(forKey: NowPlayingStylePresetSnapshot.storageKey))
+    }
+
+    func testUntouchedSettingsAreTheDefaultPreset() {
+        let defaults = makeDefaults()
+        let backdrop = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        XCTAssertTrue(NowPlayingStylePreset.standard.matches(defaults: defaults, backdropSource: backdrop.settings.source))
+        XCTAssertEqual(Set(NowPlayingStylePreset.concise.values.keys), Set(NowPlayingStylePreset.defaultValues.keys))
+    }
+}

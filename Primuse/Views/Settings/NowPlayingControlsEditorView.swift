@@ -256,6 +256,9 @@ struct NowPlayingControlsEditorView: View {
 
     @ViewBuilder
     private var coverSections: some View {
+            // 一键换成一整套样子(#101、#332、#338),下面各项照样能一项项再改。
+            NowPlayingStylePresetSection()
+
             Section {
                 ForEach(NowPlayingControlSlot.single) { slot in
                     slotRow(slot)
@@ -2375,6 +2378,279 @@ extension NowPlayingRadioControlItem {
         case .history: "radio_detail_heard_title"
         case .sleepTimer: "sleep_timer"
         }
+    }
+}
+// MARK: - 一键套用
+
+/// 「播放页样式与按钮」最上面那一节的一键套用(#101、#332、#338)。只换音乐播放页封面那一面的样子:
+/// 按钮位置、播放键、歌名下的专辑名、音量条、进度条、控件颜色、封面样式、背景与封面下的歌词。
+/// 歌词动效,有声书、播客、电台各自的设置都不动。
+enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
+    /// 大封面、只写艺人、无框大播放键,播放键两边不放随机与循环(还在「更多」里),音量条和进度条一个样子,
+    /// 控件单色,流动色彩背景。
+    case concise
+    /// 上面这些都回到默认。
+    case standard
+
+    enum Value: Equatable {
+        case string(String)
+        case bool(Bool)
+    }
+
+    var id: String { rawValue }
+
+    var titleKey: String {
+        switch self {
+        case .concise: "player_style_preset_concise"
+        case .standard: "player_style_preset_standard"
+        }
+    }
+
+    var descriptionKey: LocalizedStringKey {
+        switch self {
+        case .concise: "player_style_preset_concise_description"
+        case .standard: "player_style_preset_standard_description"
+        }
+    }
+
+    /// 直接写进偏好的那几项。两套写的是同一批键;按钮布局与背景另算。
+    var values: [String: Value] {
+        switch self {
+        case .concise:
+            [
+                PlayerAppearancePreferences.playButtonStyleKey: .string(NowPlayingPlayButtonStyle.largePlain.rawValue),
+                PlayerAppearancePreferences.skipButtonStyleKey: .string(NowPlayingSkipButtonStyle.standard.rawValue),
+                PlayerAppearancePreferences.showsAlbumInSubtitleKey: .bool(false),
+                PlayerAppearancePreferences.showsVolumeBarKey: .bool(true),
+                PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.matchesProgress.rawValue),
+                PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),
+                PlayerAppearancePreferences.progressGlowKey: .bool(false),
+                PlayerAppearancePreferences.controlTintKey: .string(NowPlayingControlTint.monochrome.rawValue),
+                PlayerAppearancePreferences.artworkStyleKey: .string(NowPlayingArtworkStyle.card.rawValue),
+                PlayerAppearancePreferences.showsArtworkLyricsKey: .bool(false),
+            ]
+        case .standard:
+            Self.defaultValues
+        }
+    }
+
+    /// 这批键没存过时的值(就是「Primuse 默认」)。
+    static let defaultValues: [String: Value] = [
+        PlayerAppearancePreferences.playButtonStyleKey: .string(NowPlayingPlayButtonStyle.filledCircle.rawValue),
+        PlayerAppearancePreferences.skipButtonStyleKey: .string(NowPlayingSkipButtonStyle.standard.rawValue),
+        PlayerAppearancePreferences.showsAlbumInSubtitleKey: .bool(PlayerAppearancePreferences.showsAlbumInSubtitleByDefault),
+        PlayerAppearancePreferences.showsVolumeBarKey: .bool(PlayerAppearancePreferences.showsVolumeBarByDefault),
+        PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.system.rawValue),
+        PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),
+        PlayerAppearancePreferences.progressGlowKey: .bool(PlayerAppearancePreferences.progressGlowByDefault),
+        PlayerAppearancePreferences.controlTintKey: .string(NowPlayingControlTint.theme.rawValue),
+        PlayerAppearancePreferences.artworkStyleKey: .string(NowPlayingArtworkStyle.card.rawValue),
+        PlayerAppearancePreferences.showsArtworkLyricsKey: .bool(PlayerAppearancePreferences.showsArtworkLyricsByDefault),
+    ]
+
+    var backdropSource: PlayerBackdropSource {
+        switch self {
+        case .concise: .liquid
+        case .standard: .defaultValue
+        }
+    }
+
+    /// 按钮摆法:从现在这份出发,状态行与「更多」里关掉的项不动。
+    func layout(from current: NowPlayingControlLayout) -> NowPlayingControlLayout {
+        let reset = current.resettingActions()
+        switch self {
+        case .concise:
+            // 随机与循环从两端拿掉之后照样在「更多」里(`needsMenuFallback`)。
+            return reset
+                .placing(nil, at: .slot(.leadingEdge))
+                .placing(nil, at: .slot(.trailingEdge))
+        case .standard:
+            return reset
+        }
+    }
+
+    /// 现在的设置是不是正好是这一套。
+    func matches(defaults: UserDefaults, backdropSource current: PlayerBackdropSource) -> Bool {
+        for (key, value) in values where Self.currentValue(for: key, defaults: defaults) != value {
+            return false
+        }
+        let layout = NowPlayingControlLayout.decode(defaults.string(forKey: NowPlayingControlLayout.musicStorageKey) ?? "")
+        let target = self.layout(from: layout)
+        return layout.actions == target.actions && layout.bar == target.bar && current == backdropSource
+    }
+
+    static func currentValue(for key: String, defaults: UserDefaults) -> Value? {
+        switch defaultValues[key] {
+        case .string(let fallback)?:
+            return .string(defaults.string(forKey: key) ?? fallback)
+        case .bool(let fallback)?:
+            return .bool(defaults.object(forKey: key) as? Bool ?? fallback)
+        case nil:
+            return nil
+        }
+    }
+}
+
+/// 套用前那几项设置原来的样子,只记在这台设备上(不进 iCloud),「恢复套用前的样子」照它写回去。
+struct NowPlayingStylePresetSnapshot: Codable, Equatable {
+    /// 本机偏好里存这一份的键。
+    static let storageKey = "primuse.player.stylePresetSnapshot.v1"
+
+    var strings: [String: String] = [:]
+    var bools: [String: Bool] = [:]
+    /// 套用前没存过的键,恢复时删掉(回到默认、也跟着以后改默认)。
+    var absent: [String] = []
+    var backdropSource: String
+
+    static func decode(_ raw: String) -> NowPlayingStylePresetSnapshot? {
+        guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(Self.self, from: data)
+    }
+
+    func encoded() -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(self) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+@MainActor
+enum NowPlayingStylePresetApplier {
+    /// 套用会改的键:各项设置与音乐按钮布局(背景单独记来源)。
+    static var touchedKeys: [String] {
+        NowPlayingStylePreset.defaultValues.keys.sorted() + [NowPlayingControlLayout.musicStorageKey]
+    }
+
+    static func apply(
+        _ preset: NowPlayingStylePreset,
+        defaults: UserDefaults = .standard,
+        backdrop: PlayerBackdropSettingsStore = .shared
+    ) {
+        defaults.set(snapshot(defaults: defaults, backdrop: backdrop).encoded(), forKey: NowPlayingStylePresetSnapshot.storageKey)
+        for (key, value) in preset.values {
+            switch value {
+            case .string(let string): defaults.set(string, forKey: key)
+            case .bool(let bool): defaults.set(bool, forKey: key)
+            }
+        }
+        let current = NowPlayingControlLayout.decode(defaults.string(forKey: NowPlayingControlLayout.musicStorageKey) ?? "")
+        defaults.set(preset.layout(from: current).encoded(), forKey: NowPlayingControlLayout.musicStorageKey)
+        backdrop.update { $0.source = preset.backdropSource }
+    }
+
+    /// 写回套用前的样子,用过就清掉这一份。
+    static func restore(defaults: UserDefaults = .standard, backdrop: PlayerBackdropSettingsStore = .shared) {
+        guard let snapshot = NowPlayingStylePresetSnapshot.decode(
+            defaults.string(forKey: NowPlayingStylePresetSnapshot.storageKey) ?? ""
+        ) else { return }
+        for (key, value) in snapshot.strings { defaults.set(value, forKey: key) }
+        for (key, value) in snapshot.bools { defaults.set(value, forKey: key) }
+        for key in snapshot.absent { defaults.removeObject(forKey: key) }
+        backdrop.update { $0.source = PlayerBackdropSource(rawValue: snapshot.backdropSource) ?? .defaultValue }
+        defaults.removeObject(forKey: NowPlayingStylePresetSnapshot.storageKey)
+    }
+
+    static func snapshot(defaults: UserDefaults, backdrop: PlayerBackdropSettingsStore) -> NowPlayingStylePresetSnapshot {
+        var snapshot = NowPlayingStylePresetSnapshot(backdropSource: backdrop.settings.source.rawValue)
+        for key in touchedKeys {
+            switch defaults.object(forKey: key) {
+            case let string as String: snapshot.strings[key] = string
+            case let bool as Bool: snapshot.bools[key] = bool
+            default: snapshot.absent.append(key)
+            }
+        }
+        return snapshot
+    }
+}
+
+/// 一键套用那一节:两行预设,正好是哪一套就打勾;套用过就多一行「恢复套用前的样子」。
+private struct NowPlayingStylePresetSection: View {
+    // 下面这几项变了要重新判断打不打勾,所以都挂在这里。
+    @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
+    @AppStorage(PlayerAppearancePreferences.playButtonStyleKey) private var playStyle = ""
+    @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey) private var skipStyle = ""
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbum = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey) private var volumeStyle = ""
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey) private var progressStyle = ""
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.controlTintKey) private var controlTint = ""
+    @AppStorage(PlayerAppearancePreferences.artworkStyleKey) private var artworkStyle = ""
+    @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
+    private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(NowPlayingStylePresetSnapshot.storageKey) private var snapshot = ""
+    @State private var backdrop = PlayerBackdropSettingsStore.shared
+    @State private var pendingPreset: NowPlayingStylePreset?
+
+    var body: some View {
+        // 只为让上面这些值参与这一次重画。
+        let _ = (storage, playStyle, skipStyle, showsAlbum, showsVolumeBar, volumeStyle,
+                 progressStyle, progressGlows, controlTint, artworkStyle, showsArtworkLyrics)
+        let source = backdrop.settings.source
+        Section {
+            presetRow(.concise, backdropSource: source)
+                .settingsAnchor("appearance.playerStylePresets")
+            presetRow(.standard, backdropSource: source)
+
+            if !snapshot.isEmpty {
+                Button {
+                    NowPlayingStylePresetApplier.restore(backdrop: backdrop)
+                } label: {
+                    Label("player_style_preset_restore", systemImage: "arrow.uturn.backward")
+                }
+            }
+        } header: {
+            Text("player_style_presets_title")
+        } footer: {
+            Text("player_style_presets_footer")
+        }
+        .alert(
+            Text("player_style_preset_confirm_title \(pendingPreset.map { String(localized: String.LocalizationValue($0.titleKey)) } ?? "")"),
+            isPresented: Binding(
+                get: { pendingPreset != nil },
+                set: { if !$0 { pendingPreset = nil } }
+            ),
+            presenting: pendingPreset
+        ) { preset in
+            Button("player_style_preset_apply") {
+                NowPlayingStylePresetApplier.apply(preset, backdrop: backdrop)
+                pendingPreset = nil
+            }
+            Button("cancel", role: .cancel) { pendingPreset = nil }
+        } message: { _ in
+            Text("player_style_preset_confirm_message")
+        }
+    }
+
+    private func presetRow(_ preset: NowPlayingStylePreset, backdropSource: PlayerBackdropSource) -> some View {
+        let isCurrent = preset.matches(defaults: .standard, backdropSource: backdropSource)
+        return Button {
+            pendingPreset = preset
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(LocalizedStringKey(preset.titleKey))
+                        .foregroundStyle(.primary)
+                    Text(preset.descriptionKey)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }
 }
 #endif

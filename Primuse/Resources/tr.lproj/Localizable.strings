@@ -6549,6 +6549,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Oynatıcı Stili ve Düğmeler";
+"player_style_presets_title" = "Hızlı görünümler";
+"player_style_presets_footer" = "Yalnızca müzik oynatıcının görünümünü değiştirir: düğme konumları, oynat düğmesi, başlığın altındaki albüm, ses ve ilerleme çubukları, kontrol rengi, kapak stili, arka plan ve kapak altındaki sözler. Önceki görünüm bu cihazda saklanır ve geri yüklenebilir; aşağıdaki her seçenek ayrıca değiştirilebilir.";
+"player_style_preset_concise" = "Sade";
+"player_style_preset_concise_description" = "Büyük kapak, yalnızca sanatçı, çerçevesiz büyük oynat düğmesi, yanında karıştır ve tekrar yok (Diğer'e taşınır), aynı görünen ses ve ilerleme çubukları, tek renkli kontroller ve akan renkli arka plan.";
+"player_style_preset_standard" = "Primuse varsayılanı";
+"player_style_preset_standard_description" = "Hepsi varsayılana döner: dolu yuvarlak oynat düğmesi, yanında karıştır ve tekrar, görünen albüm, sistem ses çubuğu ve kapak renginde arka plan.";
+"player_style_preset_restore" = "Önceki görünümü geri yükle";
+"player_style_preset_confirm_title %@" = "«%@» uygulansın mı?";
+"player_style_preset_confirm_message" = "Düğme konumları, oynat düğmesi, ses ve ilerleme çubukları, kontrol rengi, kapak stili ve oynatıcı arka planı değişir. Önceki görünümü daha sonra buradan geri yükleyebilirsiniz.";
+"player_style_preset_apply" = "Uygula";
 "player_style_editor_subtitle" = "Kapak, ilerleme çubuğu, ses, renkler, arka plan ve düğmeler; canlı önizlemeyle";
 "player_style_preview_actual_size" = "Gerçek Boyut";
 "player_style_section_colors" = "Renkler";

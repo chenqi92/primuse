@@ -6620,6 +6620,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "播放頁樣式與按鈕";
+"player_style_presets_title" = "一鍵套用";
+"player_style_presets_footer" = "只換音樂播放頁的樣子：按鈕位置、播放鍵、歌名下的專輯名稱、音量列、進度列、控制項顏色、封面樣式、背景和封面下的歌詞。套用前的樣子記在這台裝置上，可以隨時恢復；套用後下面各項照樣能一項項再改。";
+"player_style_preset_concise" = "簡潔";
+"player_style_preset_concise_description" = "大封面、只寫藝人、無框大播放鍵，播放鍵兩邊不放隨機與循環（在「更多」裡），音量列和進度列一個樣子，控制項單色，流動色彩背景。";
+"player_style_preset_standard" = "Primuse 預設";
+"player_style_preset_standard_description" = "上面說的這些都回到預設的樣子：實心圓播放鍵、隨機與循環在播放鍵兩邊、顯示專輯名稱、系統樣式的音量列、封面取色背景。";
+"player_style_preset_restore" = "恢復套用前的樣子";
+"player_style_preset_confirm_title %@" = "套用「%@」？";
+"player_style_preset_confirm_message" = "會取代按鈕位置、播放鍵、音量列、進度列、控制項顏色、封面樣式和播放頁背景等設定。之後可以在這裡恢復套用前的樣子。";
+"player_style_preset_apply" = "套用";
 "player_style_editor_subtitle" = "封面、進度條、音量條、顏色、背景和按鈕，邊改邊看效果";
 "player_style_preview_actual_size" = "實際大小";
 "player_style_section_colors" = "顏色";

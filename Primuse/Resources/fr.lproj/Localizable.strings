@@ -6643,6 +6643,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Style et boutons du lecteur";
+"player_style_presets_title" = "Styles rapides";
+"player_style_presets_footer" = "Ne change que l’apparence du lecteur de musique : position des boutons, bouton de lecture, album sous le titre, barres de volume et de progression, couleur des commandes, style de pochette, arrière-plan et paroles sous la pochette. L’apparence précédente reste sur cet appareil pour être restaurée, et chaque option ci-dessous reste modifiable.";
+"player_style_preset_concise" = "Épuré";
+"player_style_preset_concise_description" = "Grande pochette, artiste seul, grand bouton de lecture sans cadre, pas d’aléatoire ni de répétition à côté (ils passent dans Plus), barres de volume et de progression assorties, commandes monochromes et fond de couleurs fluides.";
+"player_style_preset_standard" = "Par défaut de Primuse";
+"player_style_preset_standard_description" = "Tout revient par défaut : bouton de lecture rond plein, aléatoire et répétition à côté, album affiché, curseur de volume système et fond aux couleurs de la pochette.";
+"player_style_preset_restore" = "Restaurer l’apparence précédente";
+"player_style_preset_confirm_title %@" = "Appliquer « %@ » ?";
+"player_style_preset_confirm_message" = "Remplace la position des boutons, le bouton de lecture, les barres de volume et de progression, la couleur des commandes, le style de pochette et l’arrière-plan du lecteur. Vous pourrez restaurer l’apparence précédente ici.";
+"player_style_preset_apply" = "Appliquer";
 "player_style_editor_subtitle" = "Pochette, barre de progression, volume, couleurs, arrière-plan et boutons, avec aperçu en direct";
 "player_style_preview_actual_size" = "Taille réelle";
 "player_style_section_colors" = "Couleurs";

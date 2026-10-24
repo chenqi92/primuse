@@ -6403,6 +6403,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Player Style & Buttons";
+"player_style_presets_title" = "Quick Looks";
+"player_style_presets_footer" = "Changes only the music player’s look: button positions, play button, album under the title, volume and progress bars, control color, artwork style, background and lyrics under the artwork. The previous look is kept on this device so you can restore it, and every option below can still be changed one by one.";
+"player_style_preset_concise" = "Clean";
+"player_style_preset_concise_description" = "Large artwork, artist only, a big frameless play button, no shuffle or repeat beside it (they move to More), matching volume and progress bars, monochrome controls and a flowing color background.";
+"player_style_preset_standard" = "Primuse Default";
+"player_style_preset_standard_description" = "All of these go back to the default: filled round play button, shuffle and repeat beside it, album shown, system volume slider and artwork-color background.";
+"player_style_preset_restore" = "Restore Previous Look";
+"player_style_preset_confirm_title %@" = "Apply “%@”?";
+"player_style_preset_confirm_message" = "This replaces button positions, the play button, volume and progress bars, control color, artwork style and the player background. You can restore the previous look here afterwards.";
+"player_style_preset_apply" = "Apply";
 "player_style_editor_subtitle" = "Artwork, progress bar, volume, colors, background and buttons, with a live preview";
 "player_style_preview_actual_size" = "Actual Size";
 "player_style_section_colors" = "Colors";

@@ -6643,6 +6643,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "재생 화면 스타일 및 버튼";
+"player_style_presets_title" = "한 번에 적용";
+"player_style_presets_footer" = "음악 재생 화면의 모양만 바뀝니다: 버튼 위치, 재생 버튼, 제목 아래 앨범 이름, 볼륨 막대, 진행 막대, 컨트롤 색, 아트워크 스타일, 배경, 아트워크 아래 가사. 적용 전 모양은 이 기기에 저장되어 언제든 되돌릴 수 있고, 아래 항목은 적용 후에도 하나씩 바꿀 수 있습니다.";
+"player_style_preset_concise" = "간결";
+"player_style_preset_concise_description" = "큰 아트워크, 아티스트만 표시, 테두리 없는 큰 재생 버튼. 재생 버튼 양옆에 셔플과 반복을 두지 않고(「더 보기」로 이동), 볼륨 막대와 진행 막대를 같게, 컨트롤은 단색, 흐르는 색 배경.";
+"player_style_preset_standard" = "Primuse 기본";
+"player_style_preset_standard_description" = "모두 기본 모양으로 돌아갑니다: 채워진 원형 재생 버튼, 양옆의 셔플과 반복, 앨범 이름 표시, 시스템 볼륨 막대, 아트워크 색 배경.";
+"player_style_preset_restore" = "적용 전 모양으로 되돌리기";
+"player_style_preset_confirm_title %@" = "「%@」을(를) 적용할까요?";
+"player_style_preset_confirm_message" = "버튼 위치, 재생 버튼, 볼륨 막대, 진행 막대, 컨트롤 색, 아트워크 스타일, 재생 화면 배경 등의 설정을 바꿉니다. 나중에 여기서 적용 전 모양으로 되돌릴 수 있습니다.";
+"player_style_preset_apply" = "적용";
 "player_style_editor_subtitle" = "앨범 아트, 진행 막대, 볼륨, 색상, 배경, 버튼을 실시간 미리보기로 조정";
 "player_style_preview_actual_size" = "실제 크기";
 "player_style_section_colors" = "색상";

@@ -6549,6 +6549,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Estilo e botões do player";
+"player_style_presets_title" = "Estilos rápidos";
+"player_style_presets_footer" = "Muda só a aparência do player de música: posição dos botões, botão de tocar, álbum abaixo do título, barras de volume e progresso, cor dos controles, estilo da capa, fundo e letra abaixo da capa. A aparência anterior fica salva neste aparelho para restaurar, e cada opção abaixo continua editável.";
+"player_style_preset_concise" = "Limpo";
+"player_style_preset_concise_description" = "Capa grande, só o artista, botão de tocar grande sem moldura, sem aleatório e repetir ao lado (vão para Mais), barras de volume e progresso iguais, controles monocromáticos e fundo de cores fluidas.";
+"player_style_preset_standard" = "Padrão do Primuse";
+"player_style_preset_standard_description" = "Tudo volta ao padrão: botão de tocar redondo preenchido, aleatório e repetir ao lado, álbum visível, barra de volume do sistema e fundo com a cor da capa.";
+"player_style_preset_restore" = "Restaurar aparência anterior";
+"player_style_preset_confirm_title %@" = "Aplicar «%@»?";
+"player_style_preset_confirm_message" = "Substitui a posição dos botões, o botão de tocar, as barras de volume e progresso, a cor dos controles, o estilo da capa e o fundo do player. Depois você pode restaurar a aparência anterior aqui.";
+"player_style_preset_apply" = "Aplicar";
 "player_style_editor_subtitle" = "Capa, barra de progresso, volume, cores, fundo e botões, com prévia ao vivo";
 "player_style_preview_actual_size" = "Tamanho real";
 "player_style_section_colors" = "Cores";

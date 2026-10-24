@@ -6549,6 +6549,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Styl i przyciski odtwarzacza";
+"player_style_presets_title" = "Szybkie style";
+"player_style_presets_footer" = "Zmienia tylko wygląd odtwarzacza muzyki: położenie przycisków, przycisk odtwarzania, album pod tytułem, paski głośności i postępu, kolor elementów, styl okładki, tło i tekst pod okładką. Poprzedni wygląd zostaje na tym urządzeniu do przywrócenia, a każdą opcję poniżej nadal można zmienić osobno.";
+"player_style_preset_concise" = "Prosty";
+"player_style_preset_concise_description" = "Duża okładka, tylko wykonawca, duży przycisk odtwarzania bez ramki, bez losowania i powtarzania obok (trafiają do „Więcej”), jednakowe paski głośności i postępu, jednokolorowe elementy i płynne kolorowe tło.";
+"player_style_preset_standard" = "Domyślny Primuse";
+"player_style_preset_standard_description" = "Wszystko wraca do domyślnych: pełny okrągły przycisk odtwarzania, losowanie i powtarzanie obok, widoczny album, systemowy suwak głośności i tło w kolorze okładki.";
+"player_style_preset_restore" = "Przywróć poprzedni wygląd";
+"player_style_preset_confirm_title %@" = "Zastosować „%@”?";
+"player_style_preset_confirm_message" = "Zastąpi położenie przycisków, przycisk odtwarzania, paski głośności i postępu, kolor elementów, styl okładki i tło odtwarzacza. Poprzedni wygląd można potem przywrócić tutaj.";
+"player_style_preset_apply" = "Zastosuj";
 "player_style_editor_subtitle" = "Okładka, pasek postępu, głośność, kolory, tło i przyciski – z podglądem na żywo";
 "player_style_preview_actual_size" = "Rzeczywisty rozmiar";
 "player_style_section_colors" = "Kolory";

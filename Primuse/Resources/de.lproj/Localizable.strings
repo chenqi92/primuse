@@ -6643,6 +6643,16 @@
 
 /* 播放页样式与按钮 */
 "player_style_editor_title" = "Player-Stil & Tasten";
+"player_style_presets_title" = "Schnellauswahl";
+"player_style_presets_footer" = "Ändert nur das Aussehen der Musikwiedergabe: Tastenpositionen, Wiedergabetaste, Album unter dem Titel, Lautstärke- und Fortschrittsbalken, Steuerfarbe, Cover-Stil, Hintergrund und Liedtext unter dem Cover. Das vorherige Aussehen bleibt auf diesem Gerät gespeichert und lässt sich wiederherstellen; alle Optionen unten bleiben einzeln änderbar.";
+"player_style_preset_concise" = "Schlicht";
+"player_style_preset_concise_description" = "Großes Cover, nur Künstler, große Wiedergabetaste ohne Rahmen, keine Zufalls- und Wiederholtaste daneben (sie wandern in „Mehr“), gleich aussehende Lautstärke- und Fortschrittsbalken, einfarbige Steuerung und fließender Farbhintergrund.";
+"player_style_preset_standard" = "Primuse-Standard";
+"player_style_preset_standard_description" = "All das kehrt zum Standard zurück: gefüllte runde Wiedergabetaste, Zufall und Wiederholen daneben, Album sichtbar, System-Lautstärkeregler und Hintergrund in Coverfarbe.";
+"player_style_preset_restore" = "Vorheriges Aussehen wiederherstellen";
+"player_style_preset_confirm_title %@" = "„%@“ anwenden?";
+"player_style_preset_confirm_message" = "Ersetzt Tastenpositionen, Wiedergabetaste, Lautstärke- und Fortschrittsbalken, Steuerfarbe, Cover-Stil und Hintergrund der Wiedergabe. Das vorherige Aussehen lässt sich hier später wiederherstellen.";
+"player_style_preset_apply" = "Anwenden";
 "player_style_editor_subtitle" = "Cover, Fortschrittsbalken, Lautstärke, Farben, Hintergrund und Tasten – mit Live-Vorschau";
 "player_style_preview_actual_size" = "Originalgröße";
 "player_style_section_colors" = "Farben";
