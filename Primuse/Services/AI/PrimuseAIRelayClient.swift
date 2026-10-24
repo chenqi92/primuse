@@ -907,6 +907,12 @@ actor PrimuseAIRelayClient {
         return info.diagnosticsUpload == "available"
     }
 
+    /// 中转收不收 AI 额度兑换码。和诊断上传一样,老版本中转不报这一项,算不收;读不到返回 nil。
+    func redeemCodesAvailability() async -> Bool? {
+        guard let info = await serviceInfo(timeout: 8) else { return nil }
+        return info.redeemCodes == "available"
+    }
+
     private func serviceInfo(timeout: TimeInterval) async -> ServiceInfoOutput? {
         guard let url = URL(string: "/v1/service-info", relativeTo: baseURL)?.absoluteURL else { return nil }
         var request = URLRequest(
@@ -926,6 +932,70 @@ actor PrimuseAIRelayClient {
             return nil
         }
         return envelope.data
+    }
+
+    // MARK: - 兑换码
+
+    /// 用兑换码换套餐。签名请求(用途 redeem),这台设备还没注册过时会先注册;中转把套餐
+    /// 授给关联的 Apple 账号(没关联时授给这台设备),回套餐名和到期时间。
+    /// `body` 是 `AIRedeemCode.normalized(_:)` 的结果。错误统一折成 `AIRedeemCode.Failure`。
+    func redeemCode(body: String) async throws -> AIRedeemCode.Redemption {
+        let output: RedeemOutput
+        do {
+            output = try await performFeature(
+                path: "/v1/redeem",
+                purpose: "redeem",
+                input: AIRedeemCode.Request(body: body),
+                allowsStoreKitRefresh: true
+            )
+        } catch {
+            let failure = Self.redeemError(error)
+            if !(failure is CancellationError) {
+                let diagnostic = PrimuseAIRelayDiagnostic.classify(error)
+                plog("Redeem code failed category=\(diagnostic.category) code=\(diagnostic.code)")
+            }
+            throw failure
+        }
+        guard let redemption = AIRedeemCode.validatedRedemption(
+            planID: output.planID,
+            planName: output.planName,
+            subjectType: output.subjectType,
+            startsAt: output.startsAt,
+            expiresAt: output.expiresAt
+        ) else {
+            throw AIRedeemCode.Failure.other(code: "invalid_response")
+        }
+        return redemption
+    }
+
+    /// 中转的拒绝按兑换码的码归类;断网单独一类;设备用不了内置 AI 时说没开放。
+    nonisolated static func redeemError(_ error: Error) -> Error {
+        if error is CancellationError || error is AIRedeemCode.Failure { return error }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled ? CancellationError() : AIRedeemCode.Failure.network
+        }
+        if (error as NSError).domain == DCError.errorDomain {
+            return AIRedeemCode.Failure.other(code: PrimuseAIRelayDiagnostic.classify(error).code)
+        }
+        guard let relayError = error as? PrimuseAIRelayError else {
+            return AIRedeemCode.Failure.other(code: "unknown_error")
+        }
+        switch relayError {
+        case .requestFailed(let statusCode, let code, let retryAt):
+            return AIRedeemCode.failure(statusCode: statusCode, code: code, retryAt: retryAt)
+        case .unsupportedDevice:
+            return AIRedeemCode.Failure.unavailable
+        case .storeKitAuthenticationCancelled:
+            return CancellationError()
+        case .credentialUnavailable, .credentialCorrupted,
+             .credentialPersistenceFailed, .storeKitTransactionUnavailable,
+             .storeKitTransactionUnverified:
+            return AIRedeemCode.Failure.other(code: PrimuseAIRelayDiagnostic.classify(error).code)
+        case .invalidResponse:
+            return AIRedeemCode.Failure.other(code: "invalid_response")
+        case .responseTooLarge:
+            return AIRedeemCode.Failure.other(code: "response_too_large")
+        }
     }
 
     // MARK: - 诊断报告上传
@@ -2515,12 +2585,50 @@ actor PrimuseAIRelayClient {
     private struct ServiceInfoOutput: Decodable, Sendable {
         var audioTranscription: String?
         var diagnosticsUpload: String?
+        var redeemCodes: String?
         var transcriptGeneration: String?
 
         private enum CodingKeys: String, CodingKey {
             case audioTranscription = "audio_transcription"
             case diagnosticsUpload = "diagnostics_upload"
+            case redeemCodes = "redeem_codes"
             case transcriptGeneration = "transcript_generation"
+        }
+    }
+
+    /// `POST /v1/redeem` 的回复。时间是 Unix 秒,ISO 8601 也认;认不出的时间当没给。
+    private struct RedeemOutput: Decodable, Sendable {
+        var planID: String?
+        var planName: String?
+        var subjectType: String?
+        var startsAt: Date?
+        var expiresAt: Date?
+
+        private enum CodingKeys: String, CodingKey {
+            case planID = "plan_id"
+            case planName = "plan_name"
+            case subjectType = "subject_type"
+            case startsAt = "starts_at"
+            case expiresAt = "expires_at"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            planID = try? container.decodeIfPresent(String.self, forKey: .planID)
+            planName = try? container.decodeIfPresent(String.self, forKey: .planName)
+            subjectType = try? container.decodeIfPresent(String.self, forKey: .subjectType)
+            startsAt = Self.date(container, .startsAt)
+            expiresAt = Self.date(container, .expiresAt)
+        }
+
+        private static func date(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Date? {
+            if let seconds = try? container.decodeIfPresent(Double.self, forKey: key) {
+                return Date(timeIntervalSince1970: seconds > 100_000_000_000 ? seconds / 1_000 : seconds)
+            }
+            guard let text = try? container.decodeIfPresent(String.self, forKey: key) else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
         }
     }
 

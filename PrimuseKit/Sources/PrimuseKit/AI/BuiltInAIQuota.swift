@@ -495,3 +495,170 @@ private struct WireUsage: Decodable, Sendable {
     var today: Today?
     var period: Period?
 }
+
+// MARK: - 兑换码
+
+/// AI 额度兑换码:活动或抽奖送出的码,在智能服务的额度区块里输入,中转给这台设备
+/// (关联了 Apple 账号时给账号)授予一个套餐一段时间。
+///
+/// 码的样子是 `PRM-XXXX-XXXX-XXXX`:前缀加 12 位 Crockford Base32(没有 I、L、O、U,
+/// 手抄时不容易认错)。比对前统一规范成 12 位主体,中转那边按同样的规则处理。
+public enum AIRedeemCode {
+    public static let prefix = "PRM"
+    public static let bodyLength = 12
+    /// 输入框里最多留这么多字符:带前缀和三个连字符正好 18 个,多留一点给空格。
+    public static let maximumInputLength = 24
+
+    private static let alphabet = Set("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
+
+    /// 规范成 12 位主体:全角转半角、转大写,只留字母和数字(空格、各种连字符都去掉),
+    /// 去掉 `PRM` 前缀,I、L 当 1,O 当 0。不像兑换码时返回 nil。
+    public static func normalized(_ raw: String) -> String? {
+        var characters = raw
+            .folding(options: .widthInsensitive, locale: nil)
+            .uppercased()
+            .filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        if characters.count == prefix.count + bodyLength, characters.hasPrefix(prefix) {
+            characters.removeFirst(prefix.count)
+        }
+        let body = String(characters.map { character -> Character in
+            switch character {
+            case "I", "L": "1"
+            case "O": "0"
+            default: character
+            }
+        })
+        guard body.count == bodyLength, body.allSatisfy(alphabet.contains) else { return nil }
+        return body
+    }
+
+    /// 给人看、发给中转的形式:`PRM-7K2Q-9XAB-C3DE`。
+    public static func formatted(_ body: String) -> String {
+        var groups: [String] = []
+        var index = body.startIndex
+        while index < body.endIndex {
+            let end = body.index(index, offsetBy: 4, limitedBy: body.endIndex) ?? body.endIndex
+            groups.append(String(body[index..<end]))
+            index = end
+        }
+        return ([prefix] + groups).joined(separator: "-")
+    }
+
+    /// 输入框边打边整理:全角转半角、转大写,只留字母、数字、连字符和空格,限制长度。
+    /// 不在这里重排连字符,免得光标跳来跳去。
+    public static func editingText(_ raw: String) -> String {
+        let cleaned = raw
+            .folding(options: .widthInsensitive, locale: nil)
+            .uppercased()
+            .filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == " ") }
+        return String(cleaned.prefix(maximumInputLength))
+    }
+
+    /// `POST /v1/redeem` 的请求体。
+    public struct Request: Encodable, Equatable, Sendable {
+        public let code: String
+
+        /// `body` 是 `normalized(_:)` 的结果。
+        public init(body: String) {
+            code = AIRedeemCode.formatted(body)
+        }
+    }
+
+    /// 兑换成功后授予的套餐。
+    public struct Redemption: Equatable, Sendable {
+        public enum Subject: String, Equatable, Sendable {
+            /// 授给了这台设备关联的 Apple 账号,同一账号的设备都能用。
+            case account
+            /// 只授给这台设备。
+            case installation
+        }
+
+        public let planID: String
+        public let planName: String
+        public let subject: Subject
+        public let startsAt: Date?
+        public let expiresAt: Date?
+
+        public init(planID: String, planName: String, subject: Subject, startsAt: Date?, expiresAt: Date?) {
+            self.planID = planID
+            self.planName = planName
+            self.subject = subject
+            self.startsAt = startsAt
+            self.expiresAt = expiresAt
+        }
+    }
+
+    /// 中转回的结果是否可信:套餐标识必须有;套餐名缺了就用标识;认不出的授予对象按设备算。
+    public static func validatedRedemption(
+        planID: String?,
+        planName: String?,
+        subjectType: String?,
+        startsAt: Date?,
+        expiresAt: Date?
+    ) -> Redemption? {
+        guard let planID = planID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !planID.isEmpty, planID.count <= 64 else { return nil }
+        let name = planName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Redemption(
+            planID: planID,
+            planName: name.isEmpty ? planID : String(name.prefix(80)),
+            subject: subjectType == Redemption.Subject.account.rawValue ? .account : .installation,
+            startsAt: startsAt,
+            expiresAt: expiresAt
+        )
+    }
+
+    /// 界面要分开说明的几种失败。
+    public enum Failure: Error, Equatable, Sendable {
+        /// 码的格式不对(本地就能看出来,或中转回 invalid_request)。
+        case malformed
+        /// 没有这个码。
+        case notFound
+        /// 这个码已经兑换过。
+        case alreadyRedeemed
+        /// 过了兑换期限。
+        case expired
+        /// 码已经作废。
+        case revoked
+        /// 今天输错太多次;`retryAt` 是什么时候能再试。
+        case rateLimited(retryAt: Date?)
+        /// 中转还没开放兑换(老版本中转不认这个接口或用途),或这台设备用不了内置 AI。
+        case unavailable
+        /// 连不上网、超时。
+        case network
+        /// 其他被拒或中途出错;`code` 显示给人看,方便对照。
+        case other(code: String)
+    }
+
+    /// 中转回的错误码归类。兑换自己的 `redeem_*` 码按码处理,不看状态码 ——
+    /// 404 的 `redeem_code_invalid` 说的是没有这个码,不是没有这项服务。
+    public static func failure(statusCode: Int, code: String, retryAt: Date?) -> Failure {
+        switch code {
+        case "redeem_code_invalid": return .notFound
+        case "redeem_code_redeemed": return .alreadyRedeemed
+        case "redeem_code_expired": return .expired
+        case "redeem_code_revoked": return .revoked
+        case "redeem_rate_limited": return .rateLimited(retryAt: retryAt)
+        case "invalid_request": return .malformed
+        case "route_not_found", "unsupported_purpose", "unsupported_feature", "feature_not_found":
+            return .unavailable
+        default:
+            break
+        }
+        if code.hasPrefix("redeem_") { return .other(code: code) }
+        switch statusCode {
+        case 404: return .unavailable
+        case 429: return .rateLimited(retryAt: retryAt)
+        default: return .other(code: code)
+        }
+    }
+
+    /// 被限流时什么时候能再试:中转给了就用它给的,没给就是下一个 UTC 零点(按天计次)。
+    public static func retryDate(retryAt: Date?, now: Date) -> Date {
+        if let retryAt, retryAt > now { return retryAt }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
+        let startOfDay = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? now.addingTimeInterval(86_400)
+    }
+}

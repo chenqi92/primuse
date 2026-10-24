@@ -1258,6 +1258,7 @@ struct AISettingsView: View {
     @State private var showsRemoveProviderConfirmation = false
     @State private var showsManualModelEntry = false
     @State private var manualModelDraft = ""
+    @State private var showsRedeemSheet = false
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
     @State private var lyricsRomanization = LyricsRomanizationSettingsStore.shared
@@ -1956,6 +1957,13 @@ struct AISettingsView: View {
                     Text("ai_quota_unavailable")
                         .foregroundStyle(.secondary)
                 }
+                if intelligence.builtInRedeemOffered {
+                    Button {
+                        showsRedeemSheet = true
+                    } label: {
+                        Label("ai_redeem_entry", systemImage: "ticket")
+                    }
+                }
             } header: {
                 HStack {
                     Text("ai_quota_section")
@@ -1971,7 +1979,14 @@ struct AISettingsView: View {
             } footer: {
                 Text(verbatim: BuiltInAIQuotaText.footer(quota.overview))
             }
-            .task { await intelligence.refreshBuiltInQuota() }
+            .task {
+                await intelligence.refreshBuiltInQuota()
+                await intelligence.refreshBuiltInRedeemOffer()
+            }
+            .sheet(isPresented: $showsRedeemSheet) {
+                BuiltInAIRedeemSheet()
+                    .environment(intelligence)
+            }
         }
     }
 
@@ -2527,6 +2542,125 @@ private struct AIModelSelectionField: View {
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
+            }
+        }
+    }
+}
+#endif
+
+#if !os(tvOS)
+/// 输入 AI 额度兑换码:iPhone、iPad 和 Mac 共用的表单页,从「额度」区块弹出。
+/// 电视那一份在 `TVAISettingsView.swift`(`TVAIRedeemCodeView`),两边共用
+/// `MusicIntelligenceService.redeemBuiltInAICode` 和 `BuiltInAIRedeemText`。
+struct BuiltInAIRedeemSheet: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var isRedeeming = false
+    @State private var redemption: AIRedeemCode.Redemption?
+    @State private var errorMessage: String?
+    @FocusState private var fieldFocused: Bool
+
+    private var isWellFormed: Bool { AIRedeemCode.normalized(code) != nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let redemption {
+                    Section {
+                        Label {
+                            Text(verbatim: BuiltInAIRedeemText.success(redemption))
+                        } icon: {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundStyle(.green)
+                        }
+                    }
+                } else {
+                    Section {
+                        // 码的样子不用翻译;标题已在区块头里,输入框自己不再显示标签。
+                        TextField(
+                            String(localized: "ai_redeem_code_field"),
+                            text: $code,
+                            prompt: Text(verbatim: "\(AIRedeemCode.prefix)-XXXX-XXXX-XXXX")
+                        )
+                        .labelsHidden()
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.characters)
+                        .keyboardType(.asciiCapable)
+                        #endif
+                        .focused($fieldFocused)
+                        .submitLabel(.done)
+                        .onSubmit(redeem)
+                        .disabled(isRedeeming)
+                        .accessibilityLabel(Text("ai_redeem_code_field"))
+                        .onChange(of: code) { _, newValue in
+                            let cleaned = AIRedeemCode.editingText(newValue)
+                            if cleaned != newValue { code = cleaned }
+                            errorMessage = nil
+                        }
+                    } header: {
+                        Text("ai_redeem_code_field")
+                    } footer: {
+                        Text("ai_redeem_code_footer")
+                    }
+                    if let errorMessage {
+                        Section {
+                            Label {
+                                Text(verbatim: errorMessage)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    Section {
+                        Button(action: redeem) {
+                            HStack(spacing: 8) {
+                                if isRedeeming { ProgressView() }
+                                Text(isRedeeming ? LocalizedStringKey("ai_redeem_in_progress") : LocalizedStringKey("ai_redeem_action"))
+                            }
+                        }
+                        .disabled(isRedeeming || !isWellFormed)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("ai_redeem_title")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: redemption == nil ? .cancellationAction : .confirmationAction) {
+                    Button(redemption == nil ? LocalizedStringKey("cancel") : LocalizedStringKey("done")) { dismiss() }
+                        .disabled(isRedeeming)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, idealWidth: 460, minHeight: 320, idealHeight: 340)
+        #endif
+        .interactiveDismissDisabled(isRedeeming)
+        .onAppear { fieldFocused = true }
+    }
+
+    private func redeem() {
+        guard !isRedeeming else { return }
+        guard isWellFormed else {
+            if !code.isEmpty { errorMessage = BuiltInAIRedeemText.message(for: AIRedeemCode.Failure.malformed) }
+            return
+        }
+        isRedeeming = true
+        errorMessage = nil
+        Task {
+            defer { isRedeeming = false }
+            do {
+                redemption = try await intelligence.redeemBuiltInAICode(code)
+            } catch is CancellationError {
+                // 用户在系统弹窗里取消(StoreKit 登录),不当错误显示。
+            } catch {
+                errorMessage = BuiltInAIRedeemText.message(for: error)
             }
         }
     }

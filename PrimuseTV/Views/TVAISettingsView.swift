@@ -29,6 +29,7 @@ struct TVAISettingsView: View {
     @State private var editor = AISettingsEditorModel()
     @State private var providerTarget: TVAIProviderTarget?
     @State private var routeTarget: TVAIRouteTarget?
+    @State private var showsRedeemCode = false
     /// 推荐单位:首页智能推荐那一排开头放不放整张专辑。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
@@ -78,6 +79,10 @@ struct TVAISettingsView: View {
         }
         .fullScreenCover(item: $routeTarget) { target in
             TVAIRoutePickerView(editor: editor, feature: target.feature)
+                .environment(intelligence)
+        }
+        .fullScreenCover(isPresented: $showsRedeemCode) {
+            TVAIRedeemCodeView()
                 .environment(intelligence)
         }
         .accessibilityIdentifier("tv.ai.settings")
@@ -183,10 +188,23 @@ struct TVAISettingsView: View {
                         )
                     }
                 }
+                if intelligence.builtInRedeemOffered {
+                    TVAIDivider()
+                    TVAIActionRow(
+                        icon: "ticket",
+                        title: String(localized: "ai_redeem_entry"),
+                        subtitle: String(localized: "ai_redeem_entry_hint")
+                    ) {
+                        showsRedeemCode = true
+                    }
+                }
                 TVAIDivider()
                 TVAINoteRow(icon: "info.circle", tint: TVColor.textMuted, text: BuiltInAIQuotaText.footer(quota.overview))
             }
-            .task { await intelligence.refreshBuiltInQuota() }
+            .task {
+                await intelligence.refreshBuiltInQuota()
+                await intelligence.refreshBuiltInRedeemOffer()
+            }
         }
     }
 
@@ -1039,6 +1057,107 @@ struct TVAIProviderDetailView: View {
 // 下面几种面板行也给「刮削」设置页用(TVScraperSettingsView),两页保持同一套样式。
 
 /// 分组标题 + 一块面板,与 `TVSettingsView` 的分组视觉保持一致。
+/// 输入 AI 额度兑换码(电视)。兑换逻辑和文案与手机、Mac 的 `BuiltInAIRedeemSheet`
+/// 共用(`MusicIntelligenceService.redeemBuiltInAICode`、`BuiltInAIRedeemText`);
+/// 输入框沿用信源表单的 `TVFormField`,用遥控器的系统键盘输入。
+struct TVAIRedeemCodeView: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var isRedeeming = false
+    @State private var redemption: AIRedeemCode.Redemption?
+    @State private var errorMessage: String?
+
+    private var isWellFormed: Bool { AIRedeemCode.normalized(code) != nil }
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    TVAISection(title: String(localized: "ai_redeem_code_field")) {
+                        if let redemption {
+                            TVAINoteRow(
+                                icon: "checkmark.seal.fill",
+                                tint: TVColor.ok,
+                                text: BuiltInAIRedeemText.success(redemption)
+                            )
+                        } else {
+                            TVFormField(
+                                label: String(localized: "ai_redeem_code_format"),
+                                text: $code,
+                                mono: true,
+                                autofocus: true
+                            )
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            if let errorMessage {
+                                TVAIDivider()
+                                TVAINoteRow(icon: "exclamationmark.triangle.fill", tint: TVColor.warn, text: errorMessage)
+                            }
+                            TVAIDivider()
+                            TVAIActionRow(
+                                icon: isRedeeming ? "hourglass" : "ticket",
+                                title: isRedeeming
+                                    ? String(localized: "ai_redeem_in_progress")
+                                    : String(localized: "ai_redeem_action"),
+                                isEnabled: !isRedeeming && isWellFormed,
+                                action: redeem
+                            )
+                        }
+                        TVAIDivider()
+                        TVAINoteRow(icon: "info.circle", tint: TVColor.textMuted, text: String(localized: "ai_redeem_code_footer"))
+                    }
+                    .frame(maxWidth: 1100, alignment: .leading)
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .onChange(of: code) { _, newValue in
+            let cleaned = AIRedeemCode.editingText(newValue)
+            if cleaned != newValue { code = cleaned }
+            errorMessage = nil
+        }
+        .onExitCommand {
+            if !isRedeeming { dismiss() }
+        }
+        .accessibilityIdentifier("tv.ai.redeem")
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                TVEyebrow(text: String(localized: "ai_quota_section"))
+                Text("ai_redeem_title").tvFont(.pageTitle)
+            }
+            Spacer(minLength: 0)
+            TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
+                .disabled(isRedeeming)
+        }
+        .padding(.bottom, 28)
+    }
+
+    private func redeem() {
+        guard !isRedeeming, isWellFormed else { return }
+        isRedeeming = true
+        errorMessage = nil
+        Task {
+            defer { isRedeeming = false }
+            do {
+                redemption = try await intelligence.redeemBuiltInAICode(code)
+            } catch is CancellationError {
+                // 取消了系统弹窗(StoreKit 登录),不当错误显示。
+            } catch {
+                errorMessage = BuiltInAIRedeemText.message(for: error)
+            }
+        }
+    }
+}
+
 struct TVAISection<Content: View>: View {
     let title: String
     @ViewBuilder var content: () -> Content

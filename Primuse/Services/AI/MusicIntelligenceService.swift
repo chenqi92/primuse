@@ -347,6 +347,9 @@ final class MusicIntelligenceService {
     private(set) var builtInRomanizationUnsupportedAt: Date?
     /// 内置 AI 的额度,设置页的「额度」区块读它;每次调用的回复都会顺带更新。
     let builtInQuota: BuiltInAIQuotaModel
+    /// 中转收不收 AI 额度兑换码(service-info 说的);没问到之前当作不收,不给一个点了必失败的入口。
+    private(set) var builtInRedeemOffered = false
+    @ObservationIgnored private var builtInRedeemCheckedAt: Date?
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
@@ -508,6 +511,33 @@ final class MusicIntelligenceService {
         await builtInQuota.refresh(force: force) { await client.quotaOverview() }
     }
 
+    /// 问一次中转收不收兑换码;半小时内问过就不再问(`force` 除外)。和额度区块同一个前提:
+    /// 开着内置 AI、同意过、这台设备能用。读不到时保留上次的结果。
+    func refreshBuiltInRedeemOffer(force: Bool = false) async {
+        guard showsBuiltInQuota else {
+            builtInRedeemOffered = false
+            return
+        }
+        if !force, let checkedAt = builtInRedeemCheckedAt,
+           Date().timeIntervalSince(checkedAt) < 30 * 60 {
+            return
+        }
+        guard let offered = await primuseRelayClient.redeemCodesAvailability() else { return }
+        builtInRedeemCheckedAt = Date()
+        builtInRedeemOffered = offered
+    }
+
+    /// 兑换 AI 额度兑换码。码先在本机规范一遍,格式不对直接报,不占中转的输错次数;
+    /// 成功后重读额度和听歌识词、文稿生成的开放情况(新套餐可能多给了功能)。
+    func redeemBuiltInAICode(_ raw: String) async throws -> AIRedeemCode.Redemption {
+        guard let body = AIRedeemCode.normalized(raw) else { throw AIRedeemCode.Failure.malformed }
+        guard showsBuiltInQuota else { throw AIRedeemCode.Failure.unavailable }
+        let redemption = try await primuseRelayClient.redeemCode(body: body)
+        await refreshBuiltInQuota(force: true)
+        await refreshBuiltInTranscriptionOffer(force: true)
+        return redemption
+    }
+
     /// 内置 AI 这条路现在能不能用(不看用户选没选它)。
     var isBuiltInTranscriptionReady: Bool {
         settingsStore.primuseRelayEnabled
@@ -653,6 +683,8 @@ final class MusicIntelligenceService {
         builtInTranscriptionOffered = false
         builtInTranscriptionNotInPlan = false
         builtInTranscriptionCheckedAt = nil
+        builtInRedeemOffered = false
+        builtInRedeemCheckedAt = nil
     }
 
     private var primuseRelayProviderName: String {
@@ -4167,5 +4199,47 @@ enum BuiltInAIQuotaText {
             ?? overview?.features.compactMap(\.today.resetsAt).min() else { return footer }
         let time = resets.formatted(date: .omitted, time: .shortened)
         return String(localized: "ai_quota_resets_daily \(time)") + "\n" + footer
+    }
+}
+
+/// 兑换码页的文字,三端共用。
+enum BuiltInAIRedeemText {
+    /// 成功后的说明:换到了什么、到什么时候、给了账号还是这台设备。
+    static func success(_ redemption: AIRedeemCode.Redemption) -> String {
+        let headline = redemption.expiresAt.map { date in
+            String(localized: "ai_redeem_success_until \(redemption.planName) \(date.formatted(date: .abbreviated, time: .omitted))")
+        } ?? String(localized: "ai_redeem_success \(redemption.planName)")
+        let subject = redemption.subject == .account
+            ? String(localized: "ai_redeem_subject_account")
+            : String(localized: "ai_redeem_subject_device")
+        return headline + "\n" + subject
+    }
+
+    static func message(for error: Error, now: Date = Date()) -> String {
+        guard let failure = error as? AIRedeemCode.Failure else {
+            return String(localized: "ai_redeem_error_other \("unknown_error")")
+        }
+        switch failure {
+        case .malformed:
+            return String(localized: "ai_redeem_error_malformed")
+        case .notFound:
+            return String(localized: "ai_redeem_error_not_found")
+        case .alreadyRedeemed:
+            return String(localized: "ai_redeem_error_redeemed")
+        case .expired:
+            return String(localized: "ai_redeem_error_expired")
+        case .revoked:
+            return String(localized: "ai_redeem_error_revoked")
+        case .rateLimited(let retryAt):
+            let date = AIRedeemCode.retryDate(retryAt: retryAt, now: now)
+            // 默认解禁在下一个 UTC 零点,可能落在本地的另一天,所以带上日期。
+            return String(localized: "ai_redeem_error_rate_limited \(date.formatted(date: .abbreviated, time: .shortened))")
+        case .unavailable:
+            return String(localized: "ai_redeem_error_unavailable")
+        case .network:
+            return String(localized: "ai_redeem_error_network")
+        case .other(let code):
+            return String(localized: "ai_redeem_error_other \(code)")
+        }
     }
 }

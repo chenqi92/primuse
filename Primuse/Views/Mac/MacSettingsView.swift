@@ -1566,6 +1566,7 @@ private struct MacSTIntelligenceView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
     @State private var tab: Tab = .features
+    @State private var showsRedeemSheet = false
     @State private var serviceSelection: ServiceSelection?
     @State private var showsRemoveProviderConfirmation = false
     @State private var modelDraft = ""
@@ -2220,9 +2221,26 @@ private struct MacSTIntelligenceView: View {
                             }
                         }
                     }
+                    if intelligence.builtInRedeemOffered {
+                        MacSTRow(
+                            String(localized: "ai_redeem_entry"),
+                            hint: String(localized: "ai_redeem_entry_hint")
+                        ) {
+                            MacSTButton(title: String(localized: "ai_redeem_action"), systemImage: "ticket") {
+                                showsRedeemSheet = true
+                            }
+                        }
+                    }
                 }
             }
-            .task { await intelligence.refreshBuiltInQuota() }
+            .task {
+                await intelligence.refreshBuiltInQuota()
+                await intelligence.refreshBuiltInRedeemOffer()
+            }
+            .sheet(isPresented: $showsRedeemSheet) {
+                BuiltInAIRedeemSheet()
+                    .environment(intelligence)
+            }
         }
     }
 
