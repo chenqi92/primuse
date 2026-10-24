@@ -547,8 +547,8 @@ final class WatchSessionBridge: NSObject {
         }
         var image = raw.flatMap { UIImage(data: $0) }
         if image == nil, song.sourceID == AppleMusicLibraryIdentity.sourceID {
-            image = await CarPlayHomeContent.appleMusicSongArtwork(
-                song, pixelSize: 300, mirrorsIntoSongCache: false
+            image = await AppleMusicSongArtwork.image(
+                for: song, pixelSize: 300, mirrorsIntoSongCache: false
             )
         }
         guard let img = image else { return nil }

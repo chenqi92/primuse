@@ -260,10 +260,10 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         delegate.configureNavigation(on: template, configuration: configuration)
         XCTAssertNotNil(template.assistantCellConfiguration)
         XCTAssertEqual(template.trailingNavigationBarButtons.count, 1)
-        XCTAssertNil(CarPlayHomeContent.httpArtworkReference("musicKit://artwork/123"))
-        XCTAssertNil(CarPlayHomeContent.httpArtworkReference("file:///artwork.jpg"))
-        XCTAssertNil(CarPlayHomeContent.httpArtworkReference("https:///"))
-        XCTAssertEqual(CarPlayHomeContent.httpArtworkReference("https://example.com/cover.jpg"), "https://example.com/cover.jpg")
+        XCTAssertNil(AppleMusicSongArtwork.httpReference("musicKit://artwork/123"))
+        XCTAssertNil(AppleMusicSongArtwork.httpReference("file:///artwork.jpg"))
+        XCTAssertNil(AppleMusicSongArtwork.httpReference("https:///"))
+        XCTAssertEqual(AppleMusicSongArtwork.httpReference("https://example.com/cover.jpg"), "https://example.com/cover.jpg")
     }
 
     func testMainMenuEditingPersistsAndProjectsToNativeTabs() async throws {

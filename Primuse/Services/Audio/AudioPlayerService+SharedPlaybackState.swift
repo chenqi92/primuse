@@ -528,8 +528,8 @@ extension AudioPlayerService {
         Task.detached(priority: .utility) { [weak self] in
             guard let configurations = try? await WidgetCenter.shared.currentConfigurations(),
                   !configurations.isEmpty,
-                  let image = await CarPlayHomeContent.appleMusicSongArtwork(
-                      song, pixelSize: pixelSize, mirrorsIntoSongCache: false
+                  let image = await AppleMusicSongArtwork.image(
+                      for: song, pixelSize: pixelSize, mirrorsIntoSongCache: false
                   ),
                   let data = image.jpegData(compressionQuality: 0.9) else { return }
             await MainActor.run { [weak self] in

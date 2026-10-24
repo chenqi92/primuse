@@ -438,6 +438,22 @@ extension AudioPlayerService {
         sourceManager: SourceManager?
     ) async -> PlatformImage? {
         guard !Task.isCancelled else { return nil }
+
+        // Apple Music 歌的封面归 MusicKit 管: 资料库歌的引用是 `musicKit://`, 下面几层一层也读不到,
+        // 锁屏就只剩一个灰方块。播放页画的就是 MusicKit 这一张, 这里也只认它, 不读 songID 底下
+        // 以前刮削存下的旧图。
+        if sourceID == AppleMusicLibraryIdentity.sourceID, let filePath, !filePath.isEmpty {
+            let song = Song(
+                id: songID,
+                title: "",
+                fileFormat: fileFormat ?? .aac,
+                filePath: filePath,
+                sourceID: AppleMusicLibraryIdentity.sourceID,
+                coverArtFileName: coverRef
+            )
+            return await AppleMusicSongArtwork.image(for: song, pixelSize: 768, mirrorsIntoSongCache: false)
+        }
+
         let store = MetadataAssetStore.shared
 
         // Tier 1: songID-based cache (透明处理 content-addressed redirect)
@@ -466,8 +482,9 @@ extension AudioPlayerService {
             // yesterday's scan. Download through the adaptive connector so the
             // Now Playing/full-screen path gets the same route validation and
             // failover as in-app artwork views.
-            // 播客单集的封面是公网地址,没有连接器可问。
+            // 播客单集的封面与直播电台还没存到本机的台标都是公网地址,没有连接器可问。
             let isPublicReference = sourceID == PodcastPlaybackSong.sourceID
+                || sourceID == RadioStation.playbackSourceID
             if let sourceID, let sourceManager, !isPublicReference {
                 fetchedData = await sourceManager.artworkData(
                     for: coverRef,
@@ -491,7 +508,10 @@ extension AudioPlayerService {
 
             if let data = fetchedData, let image = decodeArtworkImage(from: data) {
                 guard !Task.isCancelled else { return nil }
-                await store.cacheCover(data, forSongID: songID)
+                // 封面库只收位图, 矢量图每次现画。
+                if !SVGImageSupport.looksLikeSVG(data) {
+                    await store.cacheCover(data, forSongID: songID)
+                }
                 return image
             }
         }
@@ -503,7 +523,13 @@ extension AudioPlayerService {
                 ?? .mp3
             let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
                                  sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            if let cachedURL = await sourceManager.cachedURL(for: dummySong) {
+            // 本地源的音频文件本来就在磁盘上, 从不产生缓存副本: 封面被容量驱逐之后
+            // 只能直接读原文件, 和播放页的取图一样。
+            var localURL = await sourceManager.cachedURL(for: dummySong)
+            if localURL == nil {
+                localURL = await sourceManager.directLocalFileURL(for: dummySong)
+            }
+            if let cachedURL = localURL {
                 guard !Task.isCancelled else { return nil }
                 let metadata = await FileMetadataReader.read(from: cachedURL)
                 if let coverData = metadata.coverArtData {
@@ -521,9 +547,13 @@ extension AudioPlayerService {
     /// 超大位图会显著拖慢传输甚至失败, 懒解码则会把解码开销转嫁给
     /// MPMediaItemArtwork 的系统回调队列。
     nonisolated private static func decodeArtworkImage(from data: Data) -> PlatformImage? {
-        guard !Task.isCancelled,
-              data.count <= 16 * 1_024 * 1_024,
-              ArtworkImageCompatibility.isCompleteImage(data),
+        guard !Task.isCancelled, data.count <= 16 * 1_024 * 1_024 else { return nil }
+        // ImageIO 没有 SVG 解码器(电台台标常见), 播放页能画出来的矢量图这里也要能画。
+        if SVGImageSupport.looksLikeSVG(data) {
+            return SVGArtworkRasterizer.makeCGImage(from: data, maximumPixelSize: 768)
+                .map(PlatformImage.fromCGImage)
+        }
+        guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
             return nil
         }

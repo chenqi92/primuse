@@ -1,11 +1,13 @@
+import Foundation
+import struct MusicKit.MusicAuthorization
+import struct MusicKit.MusicDataRequest
+import PrimuseKit
 #if os(iOS)
 import CarPlay
 import Combine
 import ImageIO
-import struct MusicKit.MusicAuthorization
-import struct MusicKit.MusicDataRequest
 import UIKit
-import PrimuseKit
+#endif
 
 actor CarPlayAppleMusicArtwork {
     enum Kind: String, Sendable { case songs, playlists }
@@ -91,6 +93,41 @@ actor CarPlayAppleMusicArtwork {
     }
 }
 
+/// Apple Music 歌的官方封面。资料库歌的引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它,
+/// 也没有连接器可问: 先用 MusicKit 缓存给的地址或歌曲自带的公网地址, 都没有再查资料库接口换成公网地址。
+/// CarPlay、手表、小组件和系统「正在播放」共用, 所以不限平台。
+@MainActor
+enum AppleMusicSongArtwork {
+    /// 手表、小组件和系统「正在播放」传 `mirrorsIntoSongCache: false`: 按 songID 存进封面库会发
+    /// 封面已缓存的通知, 播放页随即改按像素取色(播放中途变色), 它们只要这一张图。
+    static func image(for song: Song, pixelSize: Int, mirrorsIntoSongCache: Bool = true) async -> PlatformImage? {
+        let songID = mirrorsIntoSongCache ? song.id : nil
+        let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
+            .url(width: pixelSize, height: pixelSize)?.absoluteString
+        if let image = await bitmap(references: [reference, song.coverArtFileName], pixelSize: pixelSize, songID: songID) { return image }
+        let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .songs, id: song.filePath, pixelSize: pixelSize)
+        return await bitmap(references: [libraryReference], pixelSize: pixelSize, songID: songID)
+    }
+
+    static func bitmap(references: [String?], pixelSize: Int, songID: String? = nil) async -> PlatformImage? {
+        for reference in references {
+            guard let reference = httpReference(reference) else { continue }
+            // MusicKit artwork URLs are public images, not requests to an audio source connector.
+            if let image = await CachedArtworkView.resolveImage(coverRef: reference, songID: songID,
+                size: CGFloat(pixelSize), sourceID: nil, filePath: nil, fileFormat: nil,
+                sourceManager: AppServices.shared.sourceManager) { return image }
+        }
+        return nil
+    }
+
+    static func httpReference(_ reference: String?) -> String? {
+        guard let reference, let url = URL(string: reference), let host = url.host, !host.isEmpty,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return reference
+    }
+}
+
+#if os(iOS)
 @MainActor
 final class CarPlayArtworkUpdates {
     private final class Bindings {
@@ -382,10 +419,10 @@ enum CarPlayHomeContent {
                     if sourceID == AppleMusicLibraryIdentity.sourceID {
                         let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitPlaylistArtwork(playlistID: playlist.id)?
                             .url(width: pixelSize, height: pixelSize)?.absoluteString
-                        if let image = await appleMusicBitmap(references: [reference, candidate.artworkReference], pixelSize: pixelSize) { return image }
+                        if let image = await AppleMusicSongArtwork.bitmap(references: [reference, candidate.artworkReference], pixelSize: pixelSize) { return image }
                         guard let id = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id)?.remotePlaylistID else { return nil }
                         let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .playlists, id: id, pixelSize: pixelSize)
-                        return await appleMusicBitmap(references: [libraryReference], pixelSize: pixelSize)
+                        return await AppleMusicSongArtwork.bitmap(references: [libraryReference], pixelSize: pixelSize)
                     }
                     return await CachedArtworkView.resolveImage(coverRef: candidate.artworkReference, songID: nil,
                         size: CGFloat(pixelSize), sourceID: sourceID, filePath: nil, fileFormat: nil,
@@ -399,45 +436,15 @@ enum CarPlayHomeContent {
         }
     }
 
-    static func httpArtworkReference(_ reference: String?) -> String? {
-        guard let reference, let url = URL(string: reference), let host = url.host, !host.isEmpty,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-        return reference
-    }
-
-    private static func appleMusicBitmap(references: [String?], pixelSize: Int, songID: String? = nil) async -> UIImage? {
-        for reference in references {
-            guard let reference = httpArtworkReference(reference) else { continue }
-            // MusicKit artwork URLs are public images, not requests to an audio source connector.
-            if let image = await CachedArtworkView.resolveImage(coverRef: reference, songID: songID,
-                size: CGFloat(pixelSize), sourceID: nil, filePath: nil, fileFormat: nil,
-                sourceManager: AppServices.shared.sourceManager) { return image }
-        }
-        return nil
-    }
-
     static func songArtwork(_ song: Song, pixelSize: Int, sourceManager: SourceManager = AppServices.shared.sourceManager) async -> UIImage? {
         if let image = await CarPlayArtworkDecoder.shared.thumbnail(forSongID: song.id,
             coverRef: song.coverArtFileName, maximumPixelSize: pixelSize) { return image }
         if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-            return await appleMusicSongArtwork(song, pixelSize: pixelSize)
+            return await AppleMusicSongArtwork.image(for: song, pixelSize: pixelSize)
         }
         return await CachedArtworkView.resolveImage(coverRef: song.coverArtFileName, songID: song.id,
             size: CGFloat(pixelSize), sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
             sourceManager: sourceManager)
-    }
-
-    /// Apple Music 歌的官方封面。资料库歌的引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它:
-    /// 先用 MusicKit 缓存给的地址或歌曲自带的公网地址, 都没有再查资料库接口换成公网地址。
-    /// 手表和小组件也走这里, 它们传 `mirrorsIntoSongCache: false`: 按 songID 存进封面库的图
-    /// 会被播放页取色和系统「正在播放」拿去用, 它们只要这一张图。
-    static func appleMusicSongArtwork(_ song: Song, pixelSize: Int, mirrorsIntoSongCache: Bool = true) async -> UIImage? {
-        let songID = mirrorsIntoSongCache ? song.id : nil
-        let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
-            .url(width: pixelSize, height: pixelSize)?.absoluteString
-        if let image = await appleMusicBitmap(references: [reference, song.coverArtFileName], pixelSize: pixelSize, songID: songID) { return image }
-        let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .songs, id: song.filePath, pixelSize: pixelSize)
-        return await appleMusicBitmap(references: [libraryReference], pixelSize: pixelSize, songID: songID)
     }
 
     static func artworkSongIDs(_ artwork: CarPlayContentArtwork) -> Set<String> {
