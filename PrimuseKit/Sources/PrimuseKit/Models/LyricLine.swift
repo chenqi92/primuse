@@ -137,6 +137,8 @@ public enum LyricSyllableEmphasisPolicy {
     public static let glowAttack: TimeInterval = 0.12
     /// 字唱完后柔光散去的时长。
     public static let glowRelease: TimeInterval = 0.45
+    /// 柔光的强度。每个字都一样，不按这个字唱多久分强弱。
+    public static let glowStrength: Double = 0.7
 
     /// 这个字已经放大了多少：开唱前 0，随演唱先快后慢地涨，唱完为 1 并保持。
     public static func rise(
@@ -167,8 +169,11 @@ public enum LyricSyllableEmphasisPolicy {
         return 1 - smoothstep((now - (settleEnd - settleDuration)) / settleDuration)
     }
 
-    /// 柔光强度：开唱后很快亮起，唱的过程中保持，唱完后散去。拖得越长的字越亮，
-    /// 一闪而过的字只留淡淡一层，免得快歌里整行一路闪。
+    /// 柔光强度：开唱后很快亮起，唱的过程中保持，唱完后散去。
+    ///
+    /// 强度对每个字都一样（`glowStrength`），不看这个字唱多久：以前长音更亮、一闪而过的字更淡，
+    /// 「按字的演唱时长分两种显示」正是 US12592007B2 独立权利要求里的一项，我们的对唱又已经按
+    /// 演唱者分左右，两样凑齐就落进去了。这里刻意不再读时长去定强弱。
     public static func glow(
         for syllable: LyricSyllable,
         nextSyllableStart: TimeInterval? = nil,
@@ -182,8 +187,7 @@ public enum LyricSyllableEmphasisPolicy {
         guard now > syllable.start, now < end + glowRelease else { return 0 }
         let attack = easeOut((now - syllable.start) / glowAttack)
         let release = now <= end ? 1 : 1 - (now - end) / glowRelease
-        let strength = 0.45 + 0.55 * clamp((duration - 0.25) / 0.75)
-        return attack * release * strength
+        return attack * release * glowStrength
     }
 
     /// 整句最后一个字唱完的时刻（按各字的有效时长，不要求按时间排好序）。

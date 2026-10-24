@@ -78,10 +78,6 @@ public enum ImmersiveKineticLyricsPolicy {
     public static let pulseDecay: TimeInterval = 0.36
     public static let pulseSwell = 0.11
     public static let pulseLift = 0.08
-    /// 唱满多久算长音：长音唱着的时候一直撑在这个强度，唱完再落回。
-    public static let holdThreshold: TimeInterval = 0.55
-    public static let holdStrength = 0.5
-    public static let holdRelease: TimeInterval = 0.3
     /// 光最亮时的半径（相对字号）。
     public static let glowRadiusRatio = 0.26
 
@@ -319,7 +315,7 @@ public enum ImmersiveKineticLyricsPolicy {
         let lit = sung < -igniteLead ? 0 : smoothstep(min(1, (sung + igniteLead) / igniteRamp))
         result.opacity = fadeIn * (waitingOpacity + (1 - waitingOpacity) * lit)
         if motion {
-            let pulse = pulseStrength(sung: sung, duration: max(token.end - token.start, 0))
+            let pulse = pulseStrength(sung: sung)
             result.scale *= 1 + pulseSwell * pulse
             result.offset -= pulseLift * pulse
             result.glow = pulse
@@ -339,20 +335,13 @@ public enum ImmersiveKineticLyricsPolicy {
         return result
     }
 
-    /// 点亮那一下的强度：极快弹到顶再慢慢落回；长音唱着的时候撑在一半，唱完再落回。
-    static func pulseStrength(sung: TimeInterval, duration: TimeInterval) -> Double {
+    /// 点亮那一下的强度：极快弹到顶再慢慢落回。每个字都一样，不看这个字唱多久——以前长音唱着时
+    /// 一直撑在一半，「按字的演唱时长分两种显示」是 US12592007B2 独立权利要求里的一项，已去掉。
+    static func pulseStrength(sung: TimeInterval) -> Double {
         guard sung >= 0 else { return 0 }
-        let impulse = sung < pulseAttack
+        return sung < pulseAttack
             ? easeOutCubic(sung / pulseAttack)
             : exp(-(sung - pulseAttack) / pulseDecay)
-        guard duration >= holdThreshold else { return impulse }
-        let sustain: Double
-        if sung < duration {
-            sustain = holdStrength * smoothstep(min(1, sung / holdThreshold))
-        } else {
-            sustain = holdStrength * exp(-(sung - duration) / holdRelease)
-        }
-        return max(impulse, sustain)
     }
 
     /// 欠阻尼弹簧从 0 到 1 的阶跃响应：先冲过一点，再停在 1。

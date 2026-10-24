@@ -79,13 +79,18 @@ struct ImmersiveKineticLyricsPolicyTests {
         #expect(later[0].opacity == 1 && later[0].glow < 0.01)
     }
 
-    @Test func longNotesStayHeldUntilTheyEnd() {
-        let held = Policy.pulseStrength(sung: 1.2, duration: 1.6)
-        let short = Policy.pulseStrength(sung: 1.2, duration: 0.3)
-        #expect(abs(held - Policy.holdStrength) < 1e-9)
-        #expect(short < 0.1)
-        #expect(Policy.pulseStrength(sung: 2.4, duration: 1.6) < held)
-        #expect(Policy.pulseStrength(sung: -0.1, duration: 1.6) == 0)
+    @Test func pulseIsTheSameForLongAndShortWords() {
+        // 点亮那一下只看开唱后过了多久，长音不额外撑着。
+        #expect(abs(Policy.pulseStrength(sung: Policy.pulseAttack) - 1) < 1e-9)
+        #expect(Policy.pulseStrength(sung: 1.2) < 0.1)
+        #expect(Policy.pulseStrength(sung: 2.4) < Policy.pulseStrength(sung: 1.2))
+        #expect(Policy.pulseStrength(sung: -0.1) == 0)
+        let long = [Policy.Token(text: "ooh", start: 10, end: 12)]
+        let short = [Policy.Token(text: "a", start: 10, end: 10.2)]
+        let longNow = Policy.appearances(for: long, exitStart: nil, at: 11.2, motion: true)[0]
+        let shortNow = Policy.appearances(for: short, exitStart: nil, at: 11.2, motion: true)[0]
+        #expect(longNow.glow == shortNow.glow)
+        #expect(longNow.scale == shortNow.scale)
     }
 
     @Test func exitingLineFloatsUpBlursAndFadesOut() {

@@ -38,11 +38,15 @@ struct ImmersiveSyllableCrestPolicyTests {
         #expect(Policy.appearance(start: 10, end: 11, at: 10.5).fill == 0.75)
     }
 
-    @Test func crestPeaksQuicklyAndShortSyllablesPeakLower() {
+    @Test func crestPeaksQuicklyAndShortSyllablesStillRiseFully() {
         let held = Policy.appearance(start: 10, end: 11, at: 10 + Policy.crestAttack)
         #expect(abs(held.crest - 1) < 1e-9)
-        let quick = Policy.appearance(start: 10, end: 10 + Policy.crestAttack / 2, at: 10 + Policy.crestAttack / 2)
-        #expect(quick.crest > 0.8 && quick.crest < 0.9)
+        // 唱得比升浪尖还快的字，唱完之后浪尖照样往上走，不因为字短就低一截。
+        let quickEnd = 10 + Policy.crestAttack / 2
+        let atEnd = Policy.appearance(start: 10, end: quickEnd, at: quickEnd)
+        let afterEnd = Policy.appearance(start: 10, end: quickEnd, at: 10 + Policy.crestAttack)
+        #expect(afterEnd.crest > atEnd.crest)
+        #expect(afterEnd.crest > 0.95)
     }
 
     @Test func crestSettlesAfterTheSyllableEnds() {
@@ -57,20 +61,16 @@ struct ImmersiveSyllableCrestPolicyTests {
         #expect(settled.crest == 0 && settled.lift == 0 && settled.scale == 1 && settled.fill == 1)
     }
 
-    @Test func longNotesRiseHigherThanShortOnes() {
+    @Test func longNotesGetNoExtraEmphasis() {
+        // 浪尖的高度、大小和光只看此刻浪尖到了哪儿，不看这个字一共唱多久。
         let short = Policy.appearance(start: 10, end: 10.4, at: 10.3)
-        #expect(short.hold == 0)
-        let midway = Policy.appearance(start: 10, end: 13, at: 10 + (Policy.holdOnset + Policy.holdFull) / 2)
-        #expect(abs(midway.hold - 0.5) < 1e-9)
-        let full = Policy.appearance(start: 10, end: 13, at: 10 + Policy.holdFull)
-        #expect(full.hold == 1)
-        #expect(full.lift > short.lift)
-        #expect(full.scale > short.scale)
-        #expect(full.glow > short.glow)
-        #expect(abs(full.lift - (Policy.liftRatio + Policy.holdLiftRatio)) < 1e-9)
-        // 长音唱完落回时保留加成，浪尖照常散去。
+        let long = Policy.appearance(start: 10, end: 13, at: 11.8)
+        #expect(abs(short.crest - 1) < 1e-9 && abs(long.crest - 1) < 1e-9)
+        #expect(short.lift == long.lift)
+        #expect(short.scale == long.scale)
+        #expect(short.glow == long.glow)
+        #expect(abs(long.lift - Policy.liftRatio) < 1e-9)
         let releasing = Policy.appearance(start: 10, end: 13, at: 13 + Policy.crestRelease / 2)
-        #expect(releasing.hold == 1)
         #expect(releasing.crest > 0 && releasing.crest < 1)
     }
 

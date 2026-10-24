@@ -45,22 +45,21 @@ struct LyricSyllableEmphasisPolicyTests {
         let word = line[2]
         #expect(LyricSyllableEmphasisPolicy.glow(for: word, at: 10.7) == 0)
         let singing = LyricSyllableEmphasisPolicy.glow(for: word, at: 11.5)
-        #expect(singing > 0.9)
+        #expect(abs(singing - LyricSyllableEmphasisPolicy.glowStrength) < 1e-9)
         let fading = LyricSyllableEmphasisPolicy.glow(for: word, at: 12.2)
         #expect(fading > 0)
         #expect(fading < singing)
         #expect(LyricSyllableEmphasisPolicy.glow(for: word, at: 12.5) == 0)
     }
 
-    @Test("Short words glow faintly, held notes glow fully")
-    func glowScalesWithWordLength() {
+    @Test("Glow strength does not depend on how long the word is sung")
+    func glowIgnoresWordLength() {
         let short = LyricSyllable(text: "a", start: 0, end: 0.2)
         let held = LyricSyllable(text: "ooh", start: 0, end: 1.5)
         let shortPeak = LyricSyllableEmphasisPolicy.glow(for: short, at: 0.15)
         let heldPeak = LyricSyllableEmphasisPolicy.glow(for: held, at: 0.8)
-        #expect(shortPeak > 0)
-        #expect(shortPeak < 0.5)
-        #expect(heldPeak > 0.99)
+        #expect(abs(shortPeak - LyricSyllableEmphasisPolicy.glowStrength) < 1e-9)
+        #expect(abs(heldPeak - LyricSyllableEmphasisPolicy.glowStrength) < 1e-9)
     }
 
     @Test("Sung end uses each word's effective end even when out of order")
