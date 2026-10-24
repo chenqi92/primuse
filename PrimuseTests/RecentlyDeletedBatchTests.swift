@@ -625,3 +625,85 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         XCTAssertEqual(smbFailure.deviceLocalRemovableSongs.map(\.id), [smbSong.id])
     }
 }
+
+/// #341: iPhone 和 iPad 上放着同一批本机文件, 往同步的歌单里加歌另一台不更新。
+/// 本机文件源的 id 每台设备各不相同, 只能按源里的相对路径把别的设备的歌对回来。
+@MainActor
+final class DeviceLocalPlaylistIdentityTests: XCTestCase {
+    private static let localSourceID = "local-this-device"
+
+    private func makeLibrary() throws -> (MusicLibrary, URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseDeviceLocalIdentity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        library.deviceLocalSourceIDsProvider = { [Self.localSourceID] }
+        return (library, directory)
+    }
+
+    /// 刚导入、还没读标签的本机文件:歌名是文件名, 时长 0。
+    private func bareLocalSong(id: String = "this-device-song", sourceID: String = localSourceID) -> Song {
+        Song(id: id, title: "01 Song", duration: 0, fileFormat: .mp3,
+             filePath: "/Album/01 Song.mp3", sourceID: sourceID)
+    }
+
+    /// 另一台设备读完标签后加进歌单的那首。
+    private var senderIdentity: SongIdentity {
+        SongIdentity(songID: "other-device-song", title: "Song", artistName: "Artist",
+                     duration: 200, cloudAccountID: nil, filePath: "/Album/01 Song.mp3")
+    }
+
+    private var remotePlaylist: Playlist {
+        Playlist(id: "shared-playlist", name: "Shared", syncRevision: 3,
+                 syncWriterID: "other-device", syncOperationID: "op-3")
+    }
+
+    func testRemotePlaylistMatchesAFreshlyImportedLocalFileByPath() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        library.addSongs([bareLocalSong()])
+        await library.waitForPendingIndex()
+
+        library.applyRemotePlaylist(remotePlaylist, songIDs: ["other-device-song"], identities: [senderIdentity])
+
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: "shared-playlist"), ["this-device-song"])
+        XCTAssertTrue(library.pendingSongIdentities(forPlaylist: "shared-playlist").isEmpty)
+        _ = await library.persistNowAndWait()
+    }
+
+    /// 歌单先到、文件后导入:iPhone 前台只做按 id 的重试, 本机文件按路径也要点亮。
+    func testForegroundRetryMatchesALocalFileImportedAfterThePlaylist() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // 同一路径上一首别的源(网络源)的歌不算。
+        library.addSongs([bareLocalSong(id: "server-song", sourceID: "nas")])
+        await library.waitForPendingIndex()
+        library.applyRemotePlaylist(remotePlaylist, songIDs: ["other-device-song"], identities: [senderIdentity])
+        XCTAssertEqual(library.pendingSongIdentities(forPlaylist: "shared-playlist"), [senderIdentity])
+
+        library.addSongs([bareLocalSong()])
+        await library.waitForPendingIndex()
+        XCTAssertTrue(library.flushPendingIdentitiesForTesting(exactIDOnly: true))
+
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: "shared-playlist"), ["this-device-song"])
+        XCTAssertTrue(library.pendingSongIdentities(forPlaylist: "shared-playlist").isEmpty)
+        _ = await library.persistNowAndWait()
+    }
+
+    /// 两边都读过时长、差得多:同名文件不是同一首, 留着等。
+    func testAKnownDifferentDurationIsNotTheSameFile() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var other = bareLocalSong()
+        other.title = "Song"
+        other.duration = 260
+        library.addSongs([other])
+        await library.waitForPendingIndex()
+
+        library.applyRemotePlaylist(remotePlaylist, songIDs: ["other-device-song"], identities: [senderIdentity])
+
+        XCTAssertTrue(library.rawSongIDs(forPlaylist: "shared-playlist").isEmpty)
+        XCTAssertEqual(library.pendingSongIdentities(forPlaylist: "shared-playlist"), [senderIdentity])
+        _ = await library.persistNowAndWait()
+    }
+}

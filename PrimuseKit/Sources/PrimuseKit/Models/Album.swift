@@ -503,7 +503,8 @@ public enum LibraryArtworkSongResolutionCachePolicy {
         return .reuse
     }
 
-    /// 与整库匹配同一套条件：同一云账号下的同一路径，或标题相同、时长差一秒以内、
+    /// 与整库匹配同一套条件：同一云账号下的同一路径，本机文件源里的同一相对路径
+    /// （`SongIdentityDeviceLocalPathMatch`），或标题相同、时长差一秒以内、
     /// 身份带了艺术家时艺术家也相同。
     public static func song(
         title: String,
@@ -511,12 +512,19 @@ public enum LibraryArtworkSongResolutionCachePolicy {
         duration: Double,
         filePath: String,
         cloudAccountID: () -> String?,
+        isDeviceLocalFile: () -> Bool = { false },
         matches identity: SongIdentity
     ) -> Bool {
         if let accountID = identity.cloudAccountID,
            !identity.filePath.isEmpty,
            filePath == identity.filePath,
            cloudAccountID() == accountID {
+            return true
+        }
+        if filePath == identity.filePath,
+           SongIdentityDeviceLocalPathMatch.isEligible(identity),
+           SongIdentityDeviceLocalPathMatch.isCompatible(identity, duration: duration),
+           isDeviceLocalFile() {
             return true
         }
         return !identity.title.isEmpty

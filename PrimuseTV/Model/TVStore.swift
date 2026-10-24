@@ -640,6 +640,12 @@ final class TVStore {
         // 电视上「从本机移除」是唯一的删除入口:同一位置换成新文件(重新嵌了封面、转码后
         // 同名放回)要能重新入库,否则扫描看得见、资料库里永远没有。
         self.library.deviceExclusionsYieldToReplacedFiles = true
+        // 扫码直传到电视的歌在本机文件源里, 源 id 和手机不同: 手机歌单里的同一个文件按
+        // 相对路径对回来(#341)。
+        self.library.deviceLocalSourceIDsProvider = { [weak initialSources] in
+            guard let initialSources else { return [] }
+            return Set(initialSources.allSources.lazy.filter { $0.type == .local && !$0.isDeleted }.map(\.id))
+        }
         self.defaults = defaults
         self.scraperSettings = ScraperSettingsStore(defaults: defaults)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(

@@ -3798,6 +3798,12 @@ final class MusicLibrary {
         }
     }
 
+    /// 这台设备自己的文件源(`.local`:导入进来的、本机选的文件夹)。它们的源 id
+    /// 每台设备各不相同, 别的设备歌单里的这些歌只能按源内的相对路径对回来(#341)。
+    /// 由 `AppServices` / `TVStore` 装上; nil 时不做这一级。
+    @ObservationIgnored
+    var deviceLocalSourceIDsProvider: (() -> Set<String>)?
+
     /// 回答"这些歌属于本机文件源, 而且它们的文件此刻确实在磁盘上吗"。
     /// 准入判定只在命中全局墓碑时才问它, 所以常态(库里没有删除记录)是零
     /// 开销 —— `hasAdmissionFilters` 先短路了整批。另一个调用点是删除的那
@@ -10633,6 +10639,9 @@ final class MusicLibrary {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
             playlistSongIDs[playlist.id] = resolved
             updatePendingPlaylistIdentities(playlistID: playlist.id, with: unresolved)
+            if !unresolved.isEmpty {
+                plog("PendingIdentity: playlist \(playlist.id.prefix(8)) matched \(resolved.count)/\(identities.count), \(unresolved.count) waiting for this device's songs")
+            }
         } else {
             playlistSongIDs[playlist.id] = songIDs
         }
@@ -10699,6 +10708,9 @@ final class MusicLibrary {
         }
 
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
+        if !unresolved.isEmpty {
+            plog("PendingIdentity: merged playlist \(playlist.id.prefix(8)) matched \(resolved.count)/\(additionalIdentities.count), \(unresolved.count) waiting for this device's songs")
+        }
         // `baseSongIDs` 是本机现在的曲目表。有上次同步的基线就做三方合并: 基线里有而
         // 一边没有的, 是那一边删掉的, 不能再从另一边并回来; 没有基线(旧快照)才退化
         // 成并集 —— 那种情况下一台删歌、另一台同时改, 被删的歌会回来。
@@ -10839,6 +10851,8 @@ final class MusicLibrary {
     private struct IdentityResolutionIndex {
         let songIDByCloudPath: [IdentityCloudPathKey: String]
         let songIndicesByTitle: [String: [Int]]
+        /// 本机文件源里, 每个被问到的相对路径上有哪些歌。
+        var deviceLocalPathCandidates: [String: [SongIdentityDeviceLocalPathMatch.Candidate]] = [:]
     }
 
     /// Builds only the lookup buckets required by the pending identities.
@@ -10856,6 +10870,11 @@ final class MusicLibrary {
             return IdentityCloudPathKey(accountID: accountID, filePath: identity.filePath)
         })
         let requestedFilePaths = Set(requestedCloudPaths.map(\.filePath))
+        let deviceLocalSourceIDs = deviceLocalSourceIDsProvider?() ?? []
+        let requestedLocalPaths: Set<String> = deviceLocalSourceIDs.isEmpty ? [] : Set(
+            identities.lazy.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
+        )
+        var deviceLocalPathCandidates: [String: [SongIdentityDeviceLocalPathMatch.Candidate]] = [:]
 
         var songIDByCloudPath: [IdentityCloudPathKey: String] = [:]
         var songIndicesByTitle: [String: [Int]] = [:]
@@ -10872,7 +10891,8 @@ final class MusicLibrary {
         let allSongs = songs
         let matchesTitles = !requestedTitles.isEmpty
         let matchesPaths = !requestedFilePaths.isEmpty
-        guard matchesTitles || matchesPaths else {
+        let matchesLocalPaths = !requestedLocalPaths.isEmpty
+        guard matchesTitles || matchesPaths || matchesLocalPaths else {
             return IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
         }
         for songIndex in allSongs.indices {
@@ -10881,6 +10901,13 @@ final class MusicLibrary {
                 if requestedTitles.contains(title) {
                     songIndicesByTitle[title, default: []].append(songIndex)
                 }
+            }
+            if matchesLocalPaths,
+               requestedLocalPaths.contains(allSongs[songIndex].filePath),
+               deviceLocalSourceIDs.contains(allSongs[songIndex].sourceID) {
+                deviceLocalPathCandidates[allSongs[songIndex].filePath, default: []].append(
+                    Self.deviceLocalPathCandidate(allSongs[songIndex])
+                )
             }
             guard matchesPaths else { continue }
             let filePath = allSongs[songIndex].filePath
@@ -10898,7 +10925,40 @@ final class MusicLibrary {
 
         return IdentityResolutionIndex(
             songIDByCloudPath: songIDByCloudPath,
-            songIndicesByTitle: songIndicesByTitle
+            songIndicesByTitle: songIndicesByTitle,
+            deviceLocalPathCandidates: deviceLocalPathCandidates
+        )
+    }
+
+    /// iOS 前台的重试不建整库索引(见 `schedulePendingIdentityFlush`), 本机文件源
+    /// 的相对路径照样能查: 只走这几个源在可见曲库里的位置, 不碰别的歌。
+    private func makeDeviceLocalPathIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
+        var index = IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
+        let requested = Set(
+            identities.lazy.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
+        )
+        guard !requested.isEmpty,
+              let sourceIDs = deviceLocalSourceIDsProvider?(),
+              !sourceIDs.isEmpty else { return index }
+        let visible = visibleSongs
+        for sourceID in sourceIDs {
+            for position in visibleSongPositionsBySourceID[sourceID] ?? []
+            where visible.indices.contains(position) && requested.contains(visible[position].filePath) {
+                index.deviceLocalPathCandidates[visible[position].filePath, default: []].append(
+                    Self.deviceLocalPathCandidate(visible[position])
+                )
+            }
+        }
+        return index
+    }
+
+    private nonisolated static func deviceLocalPathCandidate(
+        _ song: Song
+    ) -> SongIdentityDeviceLocalPathMatch.Candidate {
+        SongIdentityDeviceLocalPathMatch.Candidate(
+            songID: song.id,
+            title: song.title,
+            duration: song.duration
         )
     }
 
@@ -10910,6 +10970,13 @@ final class MusicLibrary {
         // Tier 1: exact ID — same mount on both devices, or hash collision.
         if songForSynchronization(id: identity.songID) != nil {
             return identity.songID
+        }
+        // Tier 1b: 本机文件源按相对路径 —— 源 id 每台设备不同, 歌刚导入时还没读标签,
+        // 下面的模糊匹配对不上。前台只按 id 重试时也查这一级, 索引只含本机文件源。
+        if let candidates = resolutionIndex.deviceLocalPathCandidates[identity.filePath],
+           let songID = SongIdentityDeviceLocalPathMatch.match(identity, among: candidates),
+           songForSynchronization(id: songID) != nil {
+            return songID
         }
         guard !exactIDOnly else { return nil }
         // Tier 2: cloud account + file path. `sourceIdentityResolver`
@@ -10993,6 +11060,7 @@ final class MusicLibrary {
             duration: song.duration,
             filePath: song.filePath,
             cloudAccountID: { sourceIdentityResolver?(song.sourceID) },
+            isDeviceLocalFile: { deviceLocalSourceIDsProvider?().contains(song.sourceID) ?? false },
             matches: identity
         )
     }
@@ -11077,6 +11145,7 @@ final class MusicLibrary {
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return false }
 
         var changed = false
+        var resolvedCount = 0
 
         let now = Date()
         let cutoff = now.addingTimeInterval(-Self.pendingIdentityTTL)
@@ -11089,7 +11158,7 @@ final class MusicLibrary {
             identitiesToResolve.append(contentsOf: pending.lazy.map(\.identity))
         }
         let resolutionIndex = exactIDOnly
-            ? IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
+            ? makeDeviceLocalPathIndex(for: identitiesToResolve)
             : makeIdentityResolutionIndex(for: identitiesToResolve)
 
         // Playlists: each pending entry that resolves gets appended to
@@ -11108,6 +11177,7 @@ final class MusicLibrary {
                     stillPending.append(entry)
                 }
             }
+            resolvedCount += newlyResolved.count
             if !newlyResolved.isEmpty {
                 var seen = Set(playlistSongIDs[playlistID] ?? [])
                 let toAppend = newlyResolved.filter { seen.insert($0).inserted }
@@ -11132,6 +11202,7 @@ final class MusicLibrary {
                 stillPendingHistory.append(entry)
             }
         }
+        resolvedCount += resolvedHistory.count
         if !resolvedHistory.isEmpty {
             var seen = Set(recentPlaybackSongIDs)
             let toAdd = resolvedHistory.filter { seen.insert($0).inserted }
@@ -11143,8 +11214,21 @@ final class MusicLibrary {
         }
         if stillPendingHistory != pendingHistoryIdentities { changed = true }
         pendingHistoryIdentities = stillPendingHistory
+        if resolvedCount > 0 {
+            let waiting = pendingHistoryIdentities.count
+                + pendingPlaylistIdentities.values.reduce(0) { $0 + $1.count }
+            plog("PendingIdentity: flush exactIDOnly=\(exactIDOnly) matched \(resolvedCount), \(waiting) still waiting")
+        }
         return changed
     }
+
+    #if DEBUG
+    /// 单测直接跑一次待匹配身份的重试, 不等 8 秒的去抖。
+    @discardableResult
+    func flushPendingIdentitiesForTesting(exactIDOnly: Bool) -> Bool {
+        flushPendingIdentities(exactIDOnly: exactIDOnly)
+    }
+    #endif
 
     /// Scan/backfill can publish several library snapshots a second. Resolving
     /// CloudKit identities after every publication repeatedly rebuilds a large

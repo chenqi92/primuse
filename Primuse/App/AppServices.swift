@@ -1603,6 +1603,12 @@ final class AppServices {
         library.sourceIdentityResolver = { [weak store] sourceID in
             store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
         }
+        // 本机文件源的 id 每台设备各不相同, 别的设备歌单、「我喜欢」里的这些歌按相对路径
+        // 对回来(#341)。平台媒体库(.appleMusicLibrary)也归本机一类, 但它的 filePath 不是路径。
+        library.deviceLocalSourceIDsProvider = { [weak store] in
+            guard let store else { return [] }
+            return Set(store.allSources.lazy.filter { $0.type == .local && !$0.isDeleted }.map(\.id))
+        }
         #if os(iOS) || os(macOS)
         // 只在准入判定命中删除墓碑时才被调用, 所以常态一次都不跑。回答的是
         // "这首歌属于本机文件源, 而且它的文件此刻确实在磁盘上" —— 本机源的
