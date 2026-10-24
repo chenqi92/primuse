@@ -228,3 +228,14 @@ struct NowPlayingDismissGesturePolicyTests {
         ) == nil)
     }
 }
+
+@Suite("Player overlay residency")
+struct PlayerOverlayResidencyPolicyTests {
+    @Test("Stays resident only while something non-video is loaded")
+    func residencyRequiresAnItemAndNoMusicVideo() {
+        #expect(PlayerOverlayResidencyPolicy.allowsResidency(hasCurrentItem: true, isMusicVideoActive: false))
+        #expect(!PlayerOverlayResidencyPolicy.allowsResidency(hasCurrentItem: false, isMusicVideoActive: false))
+        #expect(!PlayerOverlayResidencyPolicy.allowsResidency(hasCurrentItem: true, isMusicVideoActive: true))
+        #expect(!PlayerOverlayResidencyPolicy.allowsResidency(hasCurrentItem: false, isMusicVideoActive: true))
+    }
+}

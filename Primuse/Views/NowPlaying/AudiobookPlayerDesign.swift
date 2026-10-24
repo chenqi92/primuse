@@ -407,7 +407,10 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
 struct AudiobookProgressBar: View {
     let style: AudiobookPlayerStyle
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
     @State private var previewTime: TimeInterval?
+    /// 收进休眠时不读播放时钟(#322),见 `PlayerClockSnapshot`。
+    @State private var clock = PlayerClockSnapshot()
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
@@ -461,10 +464,11 @@ struct AudiobookProgressBar: View {
     }
 
     var body: some View {
-        let displayedTime = previewTime ?? player.currentTime
+        let clockTime = clock.time(of: player, isAwake: surfaceIsAwake)
+        let displayedTime = previewTime ?? clockTime
         VStack(spacing: 0) {
             ProgressSlider(
-                value: player.currentTime,
+                value: clockTime,
                 total: player.duration,
                 interactionID: player.currentSong?.id,
                 fillTint: style.control(paper: style.accent),
@@ -486,7 +490,7 @@ struct AudiobookProgressBar: View {
             }
             .overlay {
                 // 按这本书的语速折算,不是内容时长。拖动时让位给跟手的时间。
-                if previewTime == nil, let remaining = SpokenWordPlayerText.partRemaining(player) {
+                if previewTime == nil, let remaining = clock.partRemaining(of: player, isAwake: surfaceIsAwake) {
                     Text(verbatim: remaining)
                         .font(.caption2)
                         .lineLimit(1)

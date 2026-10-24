@@ -28,6 +28,14 @@ public struct PlayerOverlayDismissalState: Equatable, Sendable {
     }
 }
 
+/// 播放页收起后还要不要留着休眠(#322)。没有在放的东西时没什么可展开的;放着 MV 时画面挂在
+/// 视频图层上,收着也在渲染,不留。收到内存警告由调用方另外处理。
+public enum PlayerOverlayResidencyPolicy {
+    public static func allowsResidency(hasCurrentItem: Bool, isMusicVideoActive: Bool) -> Bool {
+        hasCurrentItem && !isMusicVideoActive
+    }
+}
+
 /// Expensive player content may begin only after the container has reached
 /// its visible phase. Scene interruptions and an in-flight dismissal keep the
 /// gate closed even if an older animation completion arrives afterward.

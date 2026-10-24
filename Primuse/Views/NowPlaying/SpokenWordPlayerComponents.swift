@@ -896,6 +896,40 @@ extension EnvironmentValues {
     }
 }
 
+/// 常驻的播放页醒着没有(#322)。收进休眠时外层放进 false;自己走钟、又不经过播放页「可见」开关的
+/// 零件(波浪进度条之类)据此停下,收着时不在看不见的地方一直画。
+private struct PlayerSurfaceIsAwakeKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var playerSurfaceIsAwake: Bool {
+        get { self[PlayerSurfaceIsAwakeKey.self] }
+        set { self[PlayerSurfaceIsAwakeKey.self] = newValue }
+    }
+}
+
+/// 播放页里读播放时钟的进度条、时间经过它(#322):醒着时读 `currentTime`(建立观察)并记下;收进
+/// 休眠时给记下的值、不读时钟,看不见的进度条不再跟着 0.5 秒一跳重画,填充条也不再一直接动画。
+@MainActor
+final class PlayerClockSnapshot {
+    private var time: TimeInterval = 0
+    private var partRemaining: String?
+
+    func time(of player: AudioPlayerService, isAwake: Bool) -> TimeInterval {
+        guard isAwake else { return time }
+        time = player.currentTime
+        return time
+    }
+
+    /// 「本章还剩约 18 分钟」也跟着时钟走,一样冻住。
+    func partRemaining(of player: AudioPlayerService, isAwake: Bool) -> String? {
+        guard isAwake else { return partRemaining }
+        partRemaining = SpokenWordPlayerText.partRemaining(player)
+        return partRemaining
+    }
+}
+
 /// 从播放页弹出的页面(目录、队列、歌曲信息……)套上它。播放页强制深色时,弹出页跟着拿到白字,
 /// 弹出页的底和列表却跟着窗口还是浅色,字几乎看不见;这里把弹出页整页(底、列表、状态栏连同字)
 /// 都换成深色。没开「始终用深色」时什么也不加,照旧跟着 App 的外观。

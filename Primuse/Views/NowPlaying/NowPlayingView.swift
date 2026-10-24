@@ -1274,6 +1274,8 @@ struct NowPlayingView: View {
     @State private var lyricsHaveBundledTranslations = false
     /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
     @State private var lyricsSongID: String?
+    /// 收进休眠时看着的那一首,见 `lyricTaskSubject`。
+    @State private var dormantLyricTaskSubject: LyricTaskSubject?
     /// 当前歌词各行的译文（文件自带的优先，其次是翻译任务给出的）。翻译任务挂在
     /// 播放页常驻的零尺寸视图上，这份结果同时供歌词面板、全屏舞台和歌词海报读取。
     @State private var lyricTranslationsByLineID: [String: String] = [:]
@@ -1351,10 +1353,17 @@ struct NowPlayingView: View {
 
     private var isVisualSceneActive: Bool {
         #if os(iOS)
-        scenePhase == .active
+        scenePhase == .active && !isPlayerDormant
         #else
         true
         #endif
+    }
+
+    /// 常驻的播放页收着(#322):第一次入场停稳过、现在不是展示面。再展开的入场途中也算,停稳才醒,
+    /// 醒来那一下的整页重算落在动作停住之后。休眠时歌词、封面下歌词、背景这些跟着时间走的东西都停,
+    /// 也不跟着换歌去读歌词、翻译。
+    private var isPlayerDormant: Bool {
+        isPresentationSettled && !isPresentationActive
     }
 
     private var isAlbumPresentationActive: Bool {
@@ -1410,7 +1419,30 @@ struct NowPlayingView: View {
     }
 
     private var initialLyricsLoadIdentity: String {
-        "\(player.currentSong?.id ?? "")|settled:\(isPresentationSettled)"
+        "\(player.currentSong?.id ?? "")|settled:\(isPresentationSettled)|dormant:\(isPlayerDormant)"
+    }
+
+    /// 翻译、罗马音按哪一首算。休眠时停在收起前那一首:换了歌它们的输入不变、不会去算新的一首
+    /// (智能翻译不白花次数);再展开停稳后换成当前这首,没换歌时什么都不重来,译文不闪。
+    private struct LyricTaskSubject: Equatable {
+        let songID: String?
+        let title: String?
+        let artist: String?
+        let isSpokenWord: Bool
+    }
+
+    private var currentLyricTaskSubject: LyricTaskSubject {
+        LyricTaskSubject(
+            songID: player.currentSong?.id,
+            title: player.currentSong?.title,
+            artist: player.currentSong?.artistName,
+            isSpokenWord: usesSpokenWordTransport
+        )
+    }
+
+    private var lyricTaskSubject: LyricTaskSubject {
+        if isPlayerDormant, let dormantLyricTaskSubject { return dormantLyricTaskSubject }
+        return currentLyricTaskSubject
     }
 
     /// Keep startup buffering and playback-state changes from starting a second
@@ -1902,6 +1934,59 @@ struct NowPlayingView: View {
         guard !composer.lines.isEmpty else { return }
         lyricPosterComposer = composer
     }
+
+    #if os(iOS)
+    /// 收进休眠(#322)。原来整页拿掉时它弹出的页面、全屏与沉浸都跟着消失;常驻以后得自己收,
+    /// 不然从播放页里跳去资料库、设置时弹出页还盖在 App 上,再展开时也不该停在全屏里。
+    /// 封面 / 歌词哪一面照旧留着,下次展开回到原来那一面。
+    private func enterPlayerDormancy() {
+        dormantLyricTaskSubject = currentLyricTaskSubject
+        immersiveControlsAutoHideTask?.cancel()
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isFullscreenPlayerPresented = false
+            enteredFullscreenForLandscape = false
+            if isLyricsImmersive {
+                isLyricsImmersive = false
+                immersiveControlsState = immersiveControlsState.applying(.dismiss)
+            }
+            isLyricsChromeCollapsed = false
+            showsImmersiveEffectPicker = false
+            showChapterList = false
+            transcriptGenerationSong = nil
+            presentedAlbum = nil
+            presentedBook = nil
+            presentedPodcastSheet = nil
+            showsTranscriptReader = false
+            showQueue = false
+            scrapeTargetSong = nil
+            libraryActions.playlistSong = nil
+            libraryActions.failureMessage = nil
+            shareSong = nil
+            presentsLyricPosterAfterShare = false
+            lyricPosterComposer = nil
+            showSongInfo = false
+            playbackRangeEditorRequest = nil
+            showTagEditor = false
+            showKaraoke = false
+            lyricsEditorTargetSong = nil
+            showCastPicker = false
+            showEqualizer = false
+            showEqualizerBypassNotice = false
+            showMusicVideoFullScreen = false
+            radioDetailStationID = nil
+            showSleepTimer = false
+            controlNotice = nil
+            scrapeAlertMessage = nil
+            sourceLyricsReloadAlertMessage = nil
+            showNoScraperSourceAlert = false
+            showDeleteConfirm = false
+            deleteErrorMessage = nil
+            showSimilarSongs = false
+        }
+    }
+    #endif
 
     private func dismissImmersiveLyrics() {
         immersiveControlsAutoHideTask?.cancel()
@@ -3034,6 +3119,14 @@ struct NowPlayingView: View {
                     isVisible: isPresentationSettled && isPresentationActive,
                     sceneIsActive: isVisualSceneActive
                 )
+                .onChange(of: isPlayerDormant) { _, dormant in
+                    if dormant {
+                        enterPlayerDormancy()
+                    } else {
+                        // 醒来就不再用记下的那首;下次收起时先按当前这首算,翻译任务的输入不跳。
+                        dormantLyricTaskSubject = nil
+                    }
+                }
 
                 // 转横屏自动进全屏(#191，默认关)。挂在常驻的零尺寸视图上：进了全屏普通播放页会被
                 // 卸载，转回竖屏这件事也得有人接着看。
@@ -3062,11 +3155,11 @@ struct NowPlayingView: View {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                         .lyricsTranslationTaskIfAvailable(
-                            songID: player.currentSong?.id,
+                            songID: lyricTaskSubject.songID,
                             songContext: .init(
-                                title: player.currentSong?.title,
-                                artist: player.currentSong?.artistName,
-                                isSpokenWord: usesSpokenWordTransport
+                                title: lyricTaskSubject.title,
+                                artist: lyricTaskSubject.artist,
+                                isSpokenWord: lyricTaskSubject.isSpokenWord
                             ),
                             lyricsRevision: lyricsRevision,
                             lyrics: presentedLyrics,
@@ -3086,8 +3179,8 @@ struct NowPlayingView: View {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                         .lyricsRomanizationTask(
-                            songID: player.currentSong?.id,
-                            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
+                            songID: lyricTaskSubject.songID,
+                            songContext: .init(title: lyricTaskSubject.title, artist: lyricTaskSubject.artist),
                             lyricsRevision: lyricsRevision,
                             lyrics: presentedLyrics,
                             overlay: $lyricRomanizationOverlay
@@ -3392,6 +3485,18 @@ struct NowPlayingView: View {
         }
         .task(id: initialLyricsLoadIdentity) {
             guard isPresentationSettled else { return }
+            if isPlayerDormant {
+                // 收着时换了歌:旧歌词清掉、先按「正在读」显示占位,展开停稳后才读这一首。
+                if let lyricsSongID, lyricsSongID != player.currentSong?.id {
+                    clearLyricsForDormantSongChange()
+                }
+                return
+            }
+            // 再展开时还是这一首:歌词与译文都在,不重读。
+            if let lyricsSongID, lyricsSongID == player.currentSong?.id, !isResolvingLyrics {
+                consumeAutomaticScrapeCompletion()
+                return
+            }
             consumeAutomaticScrapeCompletion()
             // 换歌就丢掉上一首的译文: 翻译任务没挂着时(封面模式)它不会自己清空,
             // 从"更多"菜单做海报会带上一首的翻译。
@@ -3755,7 +3860,8 @@ struct NowPlayingView: View {
             "com.welape.yuanyin.nowplaying",
             // 进场动画结束后再挂 Handoff：激活时要拼一份队列窗口与显示名，
             // 不必挤进首次展开那几帧。
-            isActive: isPresentationSettled && player.currentSong != nil && !player.isLiveRadio,
+            isActive: isPresentationSettled && isPresentationActive
+                && player.currentSong != nil && !player.isLiveRadio,
             configureHandoffActivity
         )
     }
@@ -3853,11 +3959,7 @@ struct NowPlayingView: View {
                         .frame(width: 8, height: 8)
                     Text("live_badge")
                         .font(.caption.weight(.bold))
-                    if player.currentTime > 0 {
-                        Text("·")
-                        Text(player.currentTime.formattedDuration)
-                            .monospacedDigit()
-                    }
+                    LiveRadioElapsedTime()
                 }
                 .foregroundStyle(appearance.primary)
                 .padding(.horizontal, 12)
@@ -9906,6 +10008,20 @@ struct NowPlayingView: View {
         lyricsResolutionTimeoutTask = nil
     }
 
+    /// 常驻的播放页收着时换了歌(#322):不读新歌词,先把上一首的清掉、标成「正在读」(不计超时),
+    /// 再展开的入场途中显示占位,而不是上一首的歌词或「暂无歌词」。
+    private func clearLyricsForDormantSongChange() {
+        lyricsLoadRevision &+= 1
+        lyricsResolutionTimeoutTask?.cancel()
+        lyricsResolutionTimeoutTask = nil
+        lyricsResolvingRevision = lyricsLoadRevision
+        lyrics = []
+        lyricsSongID = nil
+        lyricTranslationsByLineID = [:]
+        presentBundledTranslationVisibility()
+        lyricsRevision &+= 1
+    }
+
     private func setLyrics(_ value: [LyricLine]) {
         clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
@@ -10788,10 +10904,11 @@ private struct ProgressWaveFill: View {
     let isFlowing: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
     @State private var isVisible = false
 
     private var animatesPhase: Bool {
-        isFlowing && isVisible && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        isFlowing && isVisible && surfaceIsAwake && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     /// Mac 的屏幕多是 120Hz,每秒 30 帧的波峰看得出一格一格地挪。
@@ -13476,6 +13593,23 @@ private struct LyricsLoadingSkeleton: View {
     }
 }
 
+/// 电台这一次听了多久。单独一层:播放时钟只让这一小块重画,不再带着整个电台版面每 0.5 秒重算;
+/// 收进休眠时也不读时钟(#322)。
+private struct LiveRadioElapsedTime: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
+    @State private var clock = PlayerClockSnapshot()
+
+    var body: some View {
+        let elapsed = clock.time(of: player, isAwake: surfaceIsAwake)
+        if elapsed > 0 {
+            Text("·")
+            Text(elapsed.formattedDuration)
+                .monospacedDigit()
+        }
+    }
+}
+
 /// 暂停后的歌词定位刷新只依赖这一层的 currentTime/isPlaying 读取。
 private struct LyricsPausedTimeObserver: View {
     let player: AudioPlayerService
@@ -16016,7 +16150,11 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
     @State private var previewTime: TimeInterval?
+    @State private var clock = PlayerClockSnapshot()
+
+    private var clockTime: TimeInterval { clock.time(of: player, isAwake: surfaceIsAwake) }
 
     /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
     private static var timeLabelReserve: CGFloat { 50 }
@@ -16034,19 +16172,19 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     /// 驱动而不是按浮点进度。拖动时数字是跟手的, 翻页追不上, 这段期间给 nil。
     private var animatedSecond: Int? {
         guard previewTime == nil, holdScrub?.previewTime == nil else { return nil }
-        return player.currentTime.sanitizedDuration.rounded(.down).finiteInt()
+        return clockTime.sanitizedDuration.rounded(.down).finiteInt()
     }
 
     var body: some View {
         let holdPreviewTime = holdScrub?.previewTime
-        let displayedTime = previewTime ?? holdPreviewTime ?? player.currentTime
+        let displayedTime = previewTime ?? holdPreviewTime ?? clockTime
         Group {
             if player.isLiveRadio {
                 HStack(spacing: 7) {
                     Circle().fill(.red).frame(width: 7, height: 7)
                     Text("live_badge").fontWeight(.bold)
                     Spacer()
-                    Text(player.currentTime.formattedDuration).monospacedDigit()
+                    Text(clockTime.formattedDuration).monospacedDigit()
                 }
                 .font(.caption)
                 .foregroundStyle(appearance.secondary)
@@ -16057,7 +16195,7 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                 } ?? false
                 VStack(spacing: 4) {
                     ProgressSlider(
-                        value: holdPreviewTime ?? player.currentTime,
+                        value: holdPreviewTime ?? clockTime,
                         total: player.duration,
                         interactionID: player.currentSong?.id,
                         fillTint: fillTint,
@@ -16082,7 +16220,7 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         Text(displayedTime.formattedDuration)
                             .contentTransition(.numericText()); Spacer()
                         if isSpokenWord, previewTime == nil, !isFetchingFromICloud,
-                           let remaining = SpokenWordPlayerText.partRemaining(player) {
+                           let remaining = clock.partRemaining(of: player, isAwake: surfaceIsAwake) {
                             // 按这本书的语速折算,不是内容时长。
                             Text(verbatim: remaining)
                                 .lineLimit(1)

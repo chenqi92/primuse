@@ -1649,12 +1649,8 @@ struct ContentView: View {
                 }
             }
 
-            // Player overlay — mounted on demand. NowPlayingView holds heavy
-            // observers (player, library, lyrics) and a 0.3s timer; keeping it
-            // mounted while the user is on the song list means scrolling pays
-            // for those observations every time anything in the player state
-            // changes. The slide-in animation is driven by PlayerOverlay's
-            // own internal `entered` state on first appear.
+            // 播放页第一次展开时挂上,之后收起也留着,收着时休眠(#322):每次展开、收起不再重建、
+            // 拆掉整棵播放页。休眠时看不见、不接触摸,里面跟着时间走的东西都停下,见 `PlayerOverlay`。
             PlayerOverlayMount(
                 isPresented: $showNowPlaying,
                 presentationID: $nowPlayingPresentationID,
@@ -2235,21 +2231,47 @@ private struct AuthoritativeSongRemovalObserver: View {
 
 /// 播放页挂不挂由这一层读，ContentView 的 body 只递绑定、不读值。读值放在 ContentView 里，
 /// 每次展开、收起整个 ContentView 都要重算，底下的首页跟着重建、重新排版，正好压在展开的
-/// 第一帧和收起落到迷你条的那一帧上（#322）。换身份的编号同样经绑定传进来。
+/// 第一帧和收起落到迷你条的那一帧上（#322）。迷你条每次点开换的编号同样经绑定传进来。
+///
+/// 第一次展开后常驻：收起时播放页留在原地休眠，下次展开不必重新建一整棵播放页（首次展开那几百毫秒
+/// 建图、每次展开开头的挂载与收起落定的卸载都没有了）。锁屏、切到别的 App 也留着，回来展开照样快；
+/// 队列清空、放着 MV、收到内存警告时不再常驻，收着的就拿掉，等下次展开再挂。
 private struct PlayerOverlayMount: View {
     @Binding var isPresented: Bool
     @Binding var presentationID: UUID
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
+    @Environment(AudioPlayerService.self) private var player
+    @State private var isResident = false
+
+    private var allowsResidency: Bool {
+        PlayerOverlayResidencyPolicy.allowsResidency(
+            hasCurrentItem: player.currentSong != nil,
+            isMusicVideoActive: player.isMusicVideoPlaybackActive
+        )
+    }
 
     var body: some View {
-        if isPresented {
-            PlayerOverlay(
-                isPresented: $isPresented,
-                onOpenAlbum: onOpenAlbum,
-                onOpenArtist: onOpenArtist
-            )
-                .id(presentationID)
+        Group {
+            if isPresented || isResident {
+                PlayerOverlay(
+                    isPresented: $isPresented,
+                    isResident: $isResident,
+                    presentationRequest: presentationID,
+                    onOpenAlbum: onOpenAlbum,
+                    onOpenArtist: onOpenArtist
+                )
+            }
+        }
+        // 常驻由播放页第一次入场停稳时置上;没停稳就收起的照旧整页拿掉。
+        .onChange(of: isPresented) { _, presented in
+            if !presented, !allowsResidency { isResident = false }
+        }
+        .onChange(of: allowsResidency) { _, allows in
+            if !allows, !isPresented { isResident = false }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            if !isPresented { isResident = false }
         }
     }
 }
@@ -2268,6 +2290,8 @@ private struct NowPlayingPrewarmers: View {
 
 struct PlayerOverlay: View {
     private enum PresentationPhase: Equatable {
+        /// 收着:常驻但看不见、不接触摸(#322)。
+        case dormant
         case staging
         case visible
         case dismissingDown
@@ -2280,6 +2304,11 @@ struct PlayerOverlay: View {
     }
 
     @Binding var isPresented: Bool
+    /// 第一次入场停稳后置上:从此收起时留下休眠,不再拿掉(#322)。
+    @Binding var isResident: Bool
+    /// 迷你条每点一次换一个编号。已经展开着又收到一次(系统界面打断后留下一层透明的播放页),
+    /// 就重新走一遍入场,迷你条始终能把播放页叫回来。
+    let presentationRequest: UUID
     let onOpenAlbum: (PrimuseKit.Album) -> Void
     let onOpenArtist: (PrimuseKit.Artist) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -2289,7 +2318,12 @@ struct PlayerOverlay: View {
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
     @State private var presentationPhase = PresentationPhase.staging
+    /// 第一次入场停稳后一直为真:推迟的内容(歌词、大图)建好以后休眠也留着。
     @State private var presentationHasSettled = false
+    /// 播放页正被看着:入场停稳之后、收进休眠之前。休眠时里面跟着时间走的东西据此停下。
+    @State private var isSurfaceLive = false
+    @State private var entranceTask: Task<Void, Never>?
+    @State private var dormancyTask: Task<Void, Never>?
     /// 变形进度与拖动位移。展开、收起、拖动时每帧都在变，放在引用模型里、只由偏移修饰符读取，
     /// 每帧只刷新那个修饰符，不会重建整个 NowPlayingView (它的 body 很重)。
     @State private var motion = PlayerOverlayMotion()
@@ -2307,7 +2341,7 @@ struct PlayerOverlay: View {
                 // 这个值不翻转，播放页就不必在动画第一帧上整页重算。开始收起时同样不翻转：
                 // 要停的动画改由 `surfaceMotion` 告诉那几处，不再让整页在收起的第一帧重建（#322）。
                 isPresentationSettled: presentationHasSettled,
-                isPresentationActive: presentationHasSettled,
+                isPresentationActive: isSurfaceLive,
                 surfaceMotion: surfaceMotion,
                 reduceMotion: reduceMotion,
                 layoutDirection: layoutDirection,
@@ -2348,7 +2382,7 @@ struct PlayerOverlay: View {
                 .environment(\.appColorScheme, systemColorScheme)
                 // 播放页里弹出的页面据此整页换成深色(`playerPresentationColorScheme`),不然白字压在浅色底上。
                 .environment(\.playerForcesDarkAppearance, playerAlwaysDark)
-                .statusBarHidden(playerAlwaysDark && systemColorScheme == .light)
+                .statusBarHidden(playerAlwaysDark && systemColorScheme == .light && presentationPhase != .dormant)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.
@@ -2374,37 +2408,32 @@ struct PlayerOverlay: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
+        // 休眠时整层透明、读屏跳过;收着的那一刻卡片已经缩进胶囊、内容早已淡掉,看不出切换。
+        .opacity(presentationPhase == .dormant ? 0 : 1)
+        .accessibilityHidden(presentationPhase == .dormant)
         .task {
-            guard presentationPhase == .staging else { return }
-            // Commit the lightweight player tree off-screen first. Artwork
-            // may reuse a decoded thumbnail here, while large decode, dynamic
-            // artwork, and lyrics work remain suspended until completion.
-            do {
-                try await Task.sleep(for: .milliseconds(20))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            capsuleFrame = NowPlayingCapsuleGeometry.shared.frameInWindow()
-            presentationPhase = .visible
-            if reduceMotion {
-                motion.setProgress(1)
-                completeEntranceIfPossible()
+            if isPresented {
+                beginEntrance()
             } else {
-                // 从迷你条胶囊长成整页，带一点回弹：冲过头时卡片略大于屏幕，不会露出下面的界面。
-                // 动作完全停住才放行歌词这些推迟的活：落定那一下要整页重算，放在回弹尾巴上就是
-                // 一次看得见的顿挫。大封面不靠这里，迷你条状态下已经预先解码好了。
-                motion.animateProgress(to: 1, spring: Self.entranceSpring) {
-                    completeEntranceIfPossible()
-                }
+                enterDormancy()
             }
+        }
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                beginEntrance()
+            } else {
+                enterDormancy()
+            }
+        }
+        .onChange(of: presentationRequest) { _, _ in
+            if isPresented { beginEntrance() }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 completeEntranceIfPossible()
                 return
             }
-            guard newPhase != .active,
+            guard presentationPhase != .dormant,
                   dismissalState.isDismissing || motion.offset != .zero else { return }
             // Control Center / screen recording can interrupt an in-flight
             // transition. Invalidate its delayed completion and restore the
@@ -2423,6 +2452,10 @@ struct PlayerOverlay: View {
         .onDisappear {
             dismissalTask?.cancel()
             dismissalTask = nil
+            entranceTask?.cancel()
+            entranceTask = nil
+            dormancyTask?.cancel()
+            dormancyTask = nil
             motion.stop()
         }
         #if DEBUG
@@ -2445,6 +2478,56 @@ struct PlayerOverlay: View {
         return CGRect(x: (size.width - width) / 2, y: size.height - 150, width: width, height: 56)
     }
 
+    /// 从迷你条胶囊长成整页。第一次挂上时先让轻量的播放页在屏外提交一帧;常驻的那棵树早就建好了,
+    /// 下一轮就开始。中途收起、收起途中被打断的,都从当前的进度与位移接着展开。
+    private func beginEntrance() {
+        dormancyTask?.cancel()
+        dormancyTask = nil
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        if dismissalState.isDismissing { dismissalState.cancelForSystemInterruption() }
+        surfaceMotion.isDismissing = false
+        if presentationPhase == .visible, motion.progress == 1, motion.offset == .zero {
+            completeEntranceIfPossible()
+            return
+        }
+        let firstCommit = !presentationHasSettled
+        entranceTask?.cancel()
+        presentationPhase = .staging
+        entranceTask = Task { @MainActor in
+            // Commit the lightweight player tree off-screen first. Artwork
+            // may reuse a decoded thumbnail here, while large decode, dynamic
+            // artwork, and lyrics work remain suspended until completion.
+            do {
+                if firstCommit {
+                    try await Task.sleep(for: .milliseconds(20))
+                } else {
+                    await Task.yield()
+                }
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isPresented else { return }
+            capsuleFrame = NowPlayingCapsuleGeometry.shared.frameInWindow()
+            presentationPhase = .visible
+            if reduceMotion {
+                motion.setOffset(.zero)
+                motion.setProgress(1)
+                completeEntranceIfPossible()
+            } else {
+                if motion.offset != .zero {
+                    motion.animateOffset(to: .zero, spring: Self.entranceSpring)
+                }
+                // 从迷你条胶囊长成整页，带一点回弹：冲过头时卡片略大于屏幕，不会露出下面的界面。
+                // 动作完全停住才放行歌词这些推迟的活：落定那一下要整页重算，放在回弹尾巴上就是
+                // 一次看得见的顿挫。大封面不靠这里，迷你条状态下已经预先解码好了。
+                motion.animateProgress(to: 1, spring: Self.entranceSpring) {
+                    completeEntranceIfPossible()
+                }
+            }
+        }
+    }
+
     private func completeEntranceIfPossible() {
         guard PlayerOverlayDeferredContentPolicy.allowsLoading(
             isPresented: isPresented,
@@ -2453,6 +2536,41 @@ struct PlayerOverlay: View {
             isDismissing: dismissalState.isDismissing
         ) else { return }
         presentationHasSettled = true
+        isSurfaceLive = true
+        isResident = true
+    }
+
+    /// 收进休眠:卡片停在胶囊上、整层透明。收起动画走完的,再过一会儿才让里面的动画停下、弹出的页面
+    /// 关掉 —— 这一下要整页重算,不压在落到迷你条的那一帧上;从外面直接关的(跳去资料库、设置)立刻停。
+    private func enterDormancy() {
+        let collapsedByAnimation = presentationPhase == .dismissingDown
+            || presentationPhase == .dismissingLeading
+        entranceTask?.cancel()
+        entranceTask = nil
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        if dismissalState.isDismissing { dismissalState.cancelForSystemInterruption() }
+        surfaceMotion.isDismissing = false
+        motion.stop()
+        motion.setOffset(.zero)
+        motion.setProgress(0)
+        presentationPhase = .dormant
+        dormancyTask?.cancel()
+        dormancyTask = nil
+        guard isSurfaceLive else { return }
+        guard collapsedByAnimation else {
+            isSurfaceLive = false
+            return
+        }
+        dormancyTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard presentationPhase == .dormant else { return }
+            isSurfaceLive = false
+        }
     }
 
     private func updateInteractiveOffset(axis: InteractiveAxis, value: CGFloat) {
@@ -2508,7 +2626,7 @@ struct PlayerOverlay: View {
             let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
             let travel = max(motion.containerSize.width, motion.containerSize.height) + 1
             motion.animateOffset(to: CGSize(width: travel * direction, height: 0), spring: Self.dismissalSpring)
-        case .staging, .visible:
+        case .dormant, .staging, .visible:
             break
         }
         dismissalTask = Task { @MainActor in
@@ -2580,6 +2698,8 @@ private struct PlayerOverlayContent: View, @MainActor Equatable {
             isPresentationActive: isPresentationActive,
             surfaceMotionFromHost: surfaceMotion
         )
+        // 收进休眠(第一次停稳过、现在不是展示面)时告诉里面自己走钟的零件停下(#322)。
+        .environment(\.playerSurfaceIsAwake, isPresentationActive || !isPresentationSettled)
     }
 }
 
