@@ -296,16 +296,30 @@ final class LocalLyricsTranslationService {
     @ObservationIgnored private let runner = LocalLyricsTranslationRunner()
 
     private init() {
+        // 查包在不在本机要同步问系统的 Background Assets 服务,真机上头一次约 80ms;第一次用到这个
+        // 服务往往就是打开歌词那一下(翻译任务要读 `modelRevision`)。先记作没下载,到后台查完再改成可用。
+        let isSupported = LocalLyricsTranslationModel.isSystemSupported
         for pack in Pack.allCases {
-            if !LocalLyricsTranslationModel.isSystemSupported {
-                states[pack] = .unsupportedSystem
-            } else if let located = LocalLyricsTranslationModel.locate(pack) {
-                locatedPacks[pack] = located
-                states[pack] = .ready
-            } else {
-                states[pack] = .notDownloaded
-            }
+            states[pack] = isSupported ? .notDownloaded : .unsupportedSystem
         }
+        guard isSupported else { return }
+        Task { await locateInstalledPacks() }
+    }
+
+    private func locateInstalledPacks() async {
+        let found = await Task.detached(priority: .utility) {
+            Pack.allCases.compactMap { pack in
+                LocalLyricsTranslationModel.locate(pack).map { (pack, $0) }
+            }
+        }.value
+        var changed = false
+        // 查的这段时间里已经开始下载的包不动,下载完自己会标成可用。
+        for (pack, located) in found where modelState(for: pack) == .notDownloaded {
+            locatedPacks[pack] = located
+            states[pack] = .ready
+            changed = true
+        }
+        if changed { modelRevision &+= 1 }
     }
 
     func modelState(for pack: Pack) -> ModelState { states[pack] ?? .unsupportedSystem }
