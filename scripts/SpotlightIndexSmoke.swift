@@ -35,7 +35,11 @@ enum MetadataAssetStore {
     static let shared = MetadataAssetStoreFixture()
 }
 struct MetadataAssetStoreFixture: Sendable {
-    func coverContentIdentifier(named: String) -> String? { nil }
+    var artworkDirectoryURL: URL { SmokeStorage.root.appendingPathComponent("artwork") }
+    func coverContentIdentifier(named: String) -> String? {
+        guard FileManager.default.fileExists(atPath: artworkDirectoryURL.appendingPathComponent(named).path) else { return nil }
+        return "fixture:\(named)"
+    }
     func readCoverData(named: String) -> Data? { nil }
     func expectedCoverFileName(for key: String) -> String { "\(key).jpg" }
 }
@@ -132,6 +136,7 @@ extension SpotlightIndexService {
     static func runRegression() async throws {
         try require(Bundle.main.bundleIdentifier == "org.primuse.tests.spotlight-index-smoke", "Unexpected probe bundle")
         try require(CSSearchableIndex.isIndexingAvailable(), "Core Spotlight unavailable")
+        try coverLookupPreservesLocalFallback()
         defaults.removePersistentDomain(forName: SmokeStorage.defaultsName)
         try await CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: kSpotlightDomains + [SmokeStorage.controlDomain])
         let library = MusicLibrary()
@@ -203,6 +208,29 @@ extension SpotlightIndexService {
         print("PASS: cancelled work remains pending until a successful commit")
 
         try await interruptedRebuildResumes(library: library, service: migrated)
+    }
+
+    private static func coverLookupPreservesLocalFallback() throws {
+        let root = MetadataAssetStore.shared.artworkDirectoryURL
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("album"), withIntermediateDirectories: true)
+        let direct = root.appendingPathComponent("album/cover.jpg")
+        let mirrored = root.appendingPathComponent("mirrored.jpg")
+        try Data([1]).write(to: direct)
+        try Data([2]).write(to: mirrored)
+        defer {
+            try? FileManager.default.removeItem(at: direct)
+            try? FileManager.default.removeItem(at: mirrored)
+        }
+        let names = availableCoverFileNames()
+        var identities: [String: String?] = [:]
+        let album = coverSource(reference: "album/cover.jpg", songID: nil, availableFileNames: names, identities: &identities)
+        let fallback = coverSource(reference: "server/path/cover.jpg", songID: "mirrored", availableFileNames: names, identities: &identities)
+        let missing = coverSource(reference: "missing.jpg", songID: "uncached", availableFileNames: names, identities: &identities)
+        try require(album?.fileName == "album/cover.jpg", "Nested local album cover was lost")
+        try require(fallback?.fileName == "mirrored.jpg", "Server cover did not use the local song mirror")
+        try require(missing == nil, "Uncached cover unexpectedly resolved")
+        try require(identities["missing.jpg"] == nil && identities["uncached.jpg"] == nil, "Missing files reached the cover reader")
+        print("PASS: cover inventory preserves nested artwork and server-song mirrors while skipping missing files")
     }
 
     /// A 30-second background window used to end a rebuild before its manifest

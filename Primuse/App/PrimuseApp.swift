@@ -2062,6 +2062,9 @@ struct PrimuseApp: App {
                         // over later if iOS expires that finite window. The
                         // coordinator owns the delay so returning to the
                         // foreground cancels it and the phase is re-read live.
+                        if !playerService.isPlaybackActive {
+                            AppServices.shared.spotlightIndex.prepareForBackgroundSynchronization()
+                        }
                         BackgroundLibraryMaintenanceCoordinator.shared.scheduleSceneSettle {
                             musicLibrary.endSceneTransitionQuiescence()
                             musicLibrary.persistNow()

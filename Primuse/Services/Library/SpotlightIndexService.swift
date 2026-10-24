@@ -209,6 +209,10 @@ final class SpotlightIndexService {
     /// launch into a new dirty event. On iOS this remains deferred until the
     /// scene enters a non-playing background window.
     func synchronizeIfNeeded(library: MusicLibrary) {
+        synchronizeIfNeeded(library: library, delay: Self.debounceDuration)
+    }
+
+    private func synchronizeIfNeeded(library: MusicLibrary, delay: Duration) {
         // Stage 2b: 准备中的库快照是空的。空快照与上一份 manifest 一比, 所有
         // 已索引的条目都会落进 `identifiersToDelete`, 整份 Spotlight 索引被
         // 提交删除, 发布之后再花几分钟重建。守卫放在这里, 启动定时器、后台
@@ -216,13 +220,13 @@ final class SpotlightIndexService {
         // 一起覆盖。
         guard library.isReady else {
             library.onReady { [weak self] in
-                self?.synchronizeIfNeeded(library: library)
+                self?.synchronizeIfNeeded(library: library, delay: delay)
             }
             return
         }
         needsSynchronization = needsSynchronization || Self.isSynchronizationPending
         guard needsSynchronization, !isSynchronizationSuspended else { return }
-        enqueueSynchronization(library: library, delay: Self.debounceDuration)
+        enqueueSynchronization(library: library, delay: delay)
     }
 
     private func enqueueSynchronization(library: MusicLibrary, delay: Duration) {
@@ -246,7 +250,14 @@ final class SpotlightIndexService {
         // 解除挂起是纯标志位, 立刻生效; 真正的快照由 `synchronizeIfNeeded`
         // 的就绪守卫推迟到发布之后。
         isSynchronizationSuspended = false
-        synchronizeIfNeeded(library: library)
+        synchronizeIfNeeded(library: library, delay: .zero)
+    }
+
+    /// Keep the process alive across the scene-settle delay. Without this
+    /// assertion, iOS can suspend the app before the delayed indexing starts.
+    func prepareForBackgroundSynchronization() {
+        guard needsSynchronization || Self.isSynchronizationPending else { return }
+        beginBackgroundTaskIfNeeded()
     }
 
     /// Retain only the dirty bit while the user is interacting. The next
@@ -681,6 +692,7 @@ final class SpotlightIndexService {
     private nonisolated static func coverSource(
         reference: String?,
         songID: String?,
+        availableFileNames: Set<String>?,
         identities: inout [String: String?]
     ) -> CoverSource? {
         var candidates: [String] = []
@@ -689,18 +701,28 @@ final class SpotlightIndexService {
             candidates.append(MetadataAssetStore.shared.expectedCoverFileName(for: songID))
         }
         for fileName in candidates {
+            if let availableFileNames, !availableFileNames.contains(fileName) { continue }
             let identity: String?
             if let cached = identities[fileName] {
                 identity = cached
             } else {
                 identity = MetadataAssetStore.shared.coverContentIdentifier(named: fileName)
-                identities[fileName] = identity
+                identities.updateValue(identity, forKey: fileName)
             }
             if let identity {
                 return CoverSource(fileName: fileName, contentIdentifier: identity)
             }
         }
         return nil
+    }
+
+    /// Most server songs have no local cover. One directory walk avoids
+    /// opening a missing file for every song in each short background window.
+    private nonisolated static func availableCoverFileNames() -> Set<String>? {
+        guard let files = FileManager.default.enumerator(
+            atPath: MetadataAssetStore.shared.artworkDirectoryURL.path
+        ) else { return nil }
+        return Set(files.compactMap { $0 as? String })
     }
 
     private nonisolated static func prepareSnapshot(
@@ -717,6 +739,8 @@ final class SpotlightIndexService {
         payloads.reserveCapacity(totalCount)
         var coverIdentities: [String: String?] = [:]
         let showsArtwork = snapshot.showsArtwork
+        let availableFileNames = showsArtwork ? availableCoverFileNames() : nil
+        let artistConfigurationSignature = snapshot.artistNameConfiguration.cacheSignature
 
         func appendSong(_ song: Song) {
             let identifier = "song:\(song.id)"
@@ -724,6 +748,7 @@ final class SpotlightIndexService {
                 ? coverSource(
                     reference: song.coverArtFileName,
                     songID: song.id,
+                    availableFileNames: availableFileNames,
                     identities: &coverIdentities
                 )
                 : nil
@@ -734,7 +759,7 @@ final class SpotlightIndexService {
                 song.title,
                 song.albumTitle,
                 artistDisplayName,
-                snapshot.artistNameConfiguration.cacheSignature,
+                artistConfigurationSignature,
                 cover?.contentIdentifier,
             ])
             records.append(SpotlightIndexRecord(identifier: identifier, signature: signature))
@@ -758,6 +783,7 @@ final class SpotlightIndexService {
                 ? coverSource(
                     reference: album.coverArtPath,
                     songID: nil,
+                    availableFileNames: availableFileNames,
                     identities: &coverIdentities
                 )
                 : nil
