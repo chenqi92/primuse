@@ -1038,17 +1038,9 @@ struct PreviewFullBleedArtwork<Artwork: View>: View {
                 .clipped()
                 .mask { FullBleedArtworkFadeMask() }
 
-            LinearGradient(
-                colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: min(height, topSafeArea + 44))
-
-            Capsule()
-                .fill(appearance.primary.opacity(0.5))
-                .frame(width: 48, height: 5)
-                .padding(.top, topSafeArea + 6)
+            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
+                .frame(height: min(height, FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)), alignment: .top)
+                .clipped()
         }
         .frame(width: width, height: height, alignment: .top)
     }

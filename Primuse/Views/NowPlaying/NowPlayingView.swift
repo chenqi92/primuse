@@ -4069,17 +4069,9 @@ struct NowPlayingView: View {
                         .mask { FullBleedArtworkFadeMask() }
                 }
 
-                LinearGradient(
-                    colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: min(height, topSafeArea + 44))
-
-                Capsule()
-                    .fill(appearance.primary.opacity(0.5))
-                    .frame(width: 48, height: 5)
-                    .padding(.top, topSafeArea + 6)
+                FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
+                    .frame(height: min(height, FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)), alignment: .top)
+                    .clipped()
             }
             .frame(width: width, height: height, alignment: .top)
         }
@@ -7223,20 +7215,10 @@ struct NowPlayingView: View {
                 // 铺满封面压住了状态栏与下拉把手：顶上垫一道背景色的淡底，把手画在封面上面。
                 // 版面里那根把手还在原位，被封面盖着；切到歌词时这两样淡出，露出的正是它。
                 if anchor.coversTopChrome {
-                    let band = topSafeArea + 44
-                    LinearGradient(
-                        colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(width: rect.width, height: band)
-                    .position(x: rect.midX, y: rect.minY + band / 2)
-                    .transition(.opacity)
-
-                    Capsule()
-                        .fill(appearance.primary.opacity(0.5))
-                        .frame(width: 48, height: 5)
-                        .position(x: rect.midX, y: rect.minY + topSafeArea + 8.5)
+                    let band = FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)
+                    FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
+                        .frame(width: rect.width)
+                        .position(x: rect.midX, y: rect.minY + band / 2)
                         .transition(.opacity)
                 }
 

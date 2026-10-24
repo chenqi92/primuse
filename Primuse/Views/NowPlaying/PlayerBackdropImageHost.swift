@@ -146,6 +146,39 @@ struct FullBleedArtworkFadeMask: View {
     }
 }
 
+/// 铺满封面（台标）顶上那一截：状态栏和下拉把手压在封面上，垫一道背景色的淡底让时间看得清。
+/// 音乐、播客、电台的播放页与设置里的预览共用这一份，一个样子。宽度跟父视图，高度是 `bandHeight`。
+///
+/// 把手照旧常驻（下拉收起要看得出来），但不再是一根亮白的条：压到和状态栏图标差不多的分量，
+/// 浅色封面上靠一层很淡的影子分开，像系统面板顶上的把手一样是界面的一部分，不像贴在照片上（#338）。
+/// 宽度和版面里那根一样，切到歌词时两根交叉淡变，看不出换了一根。
+struct FullBleedTopChrome: View {
+    let topSafeArea: CGFloat
+    let appearance: NowPlayingAppearance
+
+    static func bandHeight(topSafeArea: CGFloat) -> CGFloat { topSafeArea + 44 }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: Self.bandHeight(topSafeArea: topSafeArea))
+
+            Capsule()
+                .fill(appearance.primary.opacity(appearance.isLight ? 0.3 : 0.36))
+                .frame(width: 48, height: 5)
+                .shadow(color: .black.opacity(appearance.isLight ? 0 : 0.16), radius: 1.5)
+                .padding(.top, topSafeArea + 6)
+        }
+        .frame(height: Self.bandHeight(topSafeArea: topSafeArea), alignment: .top)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// 只在背景选的是封面取色时铺：流动色彩、声音律动和背景图是用户特意选的，封面下面照旧露出它们。
 struct FullBleedArtworkExtension: View {
     /// 封面下沿渐隐那一截占封面高度的比例，播放页的铺满封面位用同一个值。
