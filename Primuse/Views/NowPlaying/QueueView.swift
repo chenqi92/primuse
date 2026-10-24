@@ -31,7 +31,7 @@ struct QueueView: View {
                     #endif
                     .toolbar {
                         closeToolbarItem(close)
-                        shuffleToolbarContent(titled: verticalBarEdge != nil)
+                        playbackModeToolbarContent(titled: verticalBarEdge != nil)
                     }
             }
         }
@@ -50,27 +50,115 @@ struct QueueView: View {
         }
     }
 
-    /// 队列页自己的随机播放开关。在这之前, 想把手上这份队列打乱, 只能先点开
-    /// 播放页、再去底部那排控件里找随机播放 —— 队列就摊在眼前, 却没有入口。
+    /// 队列页右上角的「随机方式」与「播放方式」两颗键(#338),左上角是关闭键。
+    ///
+    /// 以前这里只有一颗随机开关,循环要回播放页才能改;现在随机、列表循环、单曲循环与顺序播放合成一颗,
+    /// 点一下换下一种,长按直接选。状态就是播放器上那两个开关,和播放页、锁屏、车机是同一份。
+    /// 紧挨着它的是抽歌偏好(#332),只在随机时起作用:别的方式下画成灰色,但照样点得开,
+    /// 点开先说明、给一颗「打开随机播放」,偏好也能先选好。
+    /// 有声书章节、播客单集与电台没有随机和循环这回事,两颗都不出现(播放页上同样不给)。
     /// 只读 `player` 这个存储属性, 不碰 @Environment: 导航栏条目会在转场期间
     /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
     @ToolbarContentBuilder
-    private func shuffleToolbarContent(titled: Bool) -> some ToolbarContent {
-        if titled {
-            // 系统竖栏(iPhone Duo):带上标题(收进系统溢出菜单时要用),空间不够时最后才收。
-            shuffleToolbarItem(titled: true)
-                .pmHighVisibilityPriority()
-        } else {
-            shuffleToolbarItem(titled: false)
+    private func playbackModeToolbarContent(titled: Bool) -> some ToolbarContent {
+        if !player.currentItemIsSpokenWord, !player.isLiveRadio {
+            if titled {
+                // 系统竖栏(iPhone Duo):带上标题(收进系统溢出菜单时要用),空间不够时最后才收。
+                shufflePreferenceToolbarItem(titled: true)
+                    .pmHighVisibilityPriority()
+                playbackModeToolbarItem(titled: true)
+                    .pmHighVisibilityPriority()
+            } else {
+                shufflePreferenceToolbarItem(titled: false)
+                playbackModeToolbarItem(titled: false)
+            }
+        }
+    }
+
+    private var playbackMode: PlaybackOrderMode {
+        PlaybackOrderMode(shuffleEnabled: player.shuffleEnabled, repeatMode: player.repeatMode)
+    }
+
+    /// 队列不到两首时随机打不开(原来的随机键也是这时置灰),轮换和菜单里都跳过它。
+    private var allowsShuffle: Bool { player.queueCount >= 2 }
+
+    private func applyPlaybackMode(_ mode: PlaybackOrderMode) {
+        let target = mode.settings(from: player.repeatMode)
+        if player.repeatMode != target.repeatMode { player.repeatMode = target.repeatMode }
+        if player.shuffleEnabled != target.shuffleEnabled { player.shuffleEnabled = target.shuffleEnabled }
+    }
+
+    private static func titleKey(for mode: PlaybackOrderMode) -> LocalizedStringKey {
+        switch mode {
+        case .sequential: "play_mode_sequential"
+        case .repeatAll: "play_mode_repeat_all"
+        case .repeatOne: "play_mode_repeat_one"
+        case .shuffle: "play_mode_shuffle"
         }
     }
 
     @ToolbarContentBuilder
-    private func shuffleToolbarItem(titled: Bool) -> some ToolbarContent {
+    private func playbackModeToolbarItem(titled: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            let isOn = player.shuffleEnabled
-            // 点一下开关随机, 长按选抽歌偏好(#332)。偏好经 `player.playbackSettings` 读写, 同样不碰环境。
+            let mode = playbackMode
+            let allowsShuffle = allowsShuffle
             Menu {
+                Picker(selection: Binding(
+                    get: { mode },
+                    set: { applyPlaybackMode($0) }
+                )) {
+                    ForEach(PlaybackOrderMode.allCases.filter { $0 != .shuffle || allowsShuffle || mode == .shuffle }, id: \.self) { option in
+                        Label {
+                            Text(Self.titleKey(for: option))
+                        } icon: {
+                            Image(systemName: option.symbolName)
+                        }
+                        .tag(option)
+                    }
+                } label: {
+                    Text("queue_play_mode")
+                }
+            } label: {
+                let icon = Image(systemName: mode.symbolName)
+                    .foregroundStyle(mode == .sequential ? Color.secondary : Color.accentColor)
+                    // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
+                    .contentTransition(.symbolEffect(.replace))
+                if titled {
+                    Label {
+                        Text(Self.titleKey(for: mode))
+                    } icon: {
+                        icon
+                    }
+                } else {
+                    icon
+                }
+            } primaryAction: {
+                applyPlaybackMode(mode.next(allowsShuffle: allowsShuffle))
+            }
+            .accessibilityLabel(Text("queue_play_mode"))
+            .accessibilityValue(Text(Self.titleKey(for: mode)))
+            .accessibilityHint(Text("queue_play_mode_hint"))
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func shufflePreferenceToolbarItem(titled: Bool) -> some ToolbarContent {
+        // 和播放方式键同在右上角、排在它左边;左上角留给关闭键(#348)。
+        ToolbarItem(placement: .primaryAction) {
+            // 单曲循环时随机开着也只放这一首,偏好同样不起作用。
+            let isEffective = playbackMode == .shuffle
+            // 偏好经 `player.playbackSettings` 读写, 同样不碰环境。
+            Menu {
+                if !isEffective {
+                    Text("shuffle_preference_needs_shuffle")
+                    if allowsShuffle {
+                        Button {
+                            applyPlaybackMode(.shuffle)
+                        } label: {
+                            Label("shuffle_preference_turn_on_shuffle", systemImage: "shuffle")
+                        }
+                    }
+                }
                 Picker(selection: Binding(
                     get: { player.playbackSettings.shufflePreference },
                     set: { player.playbackSettings.shufflePreference = $0 }
@@ -85,27 +173,26 @@ struct QueueView: View {
                     Text("shuffle_preference_apple_music_note")
                 }
             } label: {
+                let icon = Image(systemName: "dice")
+                    .foregroundStyle(isEffective ? Color.accentColor : Color.secondary)
+                    .opacity(isEffective ? 1 : 0.45)
                 if titled {
                     Label {
-                        Text("a11y_shuffle")
+                        Text("shuffle_preference_title")
                     } icon: {
-                        Image(systemName: "shuffle")
-                            .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
-                            .symbolEffect(.bounce, value: isOn)
+                        icon
                     }
                 } else {
-                    Image(systemName: "shuffle")
-                        .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
-                        // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
-                        .symbolEffect(.bounce, value: isOn)
+                    icon
                 }
-            } primaryAction: {
-                player.shuffleEnabled.toggle()
             }
-            .disabled(player.queueCount < 2)
-            .accessibilityLabel(Text("a11y_shuffle"))
-            .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
-            .accessibilityHint(Text("shuffle_preference_long_press_hint"))
+            .accessibilityLabel(Text("shuffle_preference_title"))
+            .accessibilityValue(Text(verbatim: player.playbackSettings.shufflePreference.displayName))
+            .accessibilityHint(Text(
+                isEffective
+                    ? LocalizedStringKey("shuffle_preference_choose_hint")
+                    : LocalizedStringKey("shuffle_preference_needs_shuffle")
+            ))
         }
     }
 

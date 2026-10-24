@@ -2500,6 +2500,15 @@
 "shuffle_preference_footer" = "Her şarkı yine her turda bir kez çalar; dinlenme sayısı yalnızca hangi şarkıların önce çalma olasılığının daha yüksek olduğunu belirler. Bir şarkı için dinleme geçmişin ile müzik sunucunun kaydından büyük olanı sayılır, sanatçı için tüm şarkıları toplanır.";
 "shuffle_preference_apple_music_note" = "Karıştırmayı Apple Music kendisi yönettiğinde bu tercih uygulanmaz.";
 "shuffle_preference_long_press_hint" = "Karıştırma tercihini seçmek için basılı tut.";
+"queue_play_mode" = "Çalma Modu";
+"queue_play_mode_hint" = "Sonraki moda geçmek için dokunun, seçmek için basılı tutun.";
+"play_mode_sequential" = "Sırayla Çal";
+"play_mode_repeat_all" = "Tümünü Tekrarla";
+"play_mode_repeat_one" = "Şarkıyı Tekrarla";
+"play_mode_shuffle" = "Karıştır";
+"shuffle_preference_needs_shuffle" = "Bu tercih karıştırma açıkken uygulanır.";
+"shuffle_preference_turn_on_shuffle" = "Karıştırmayı Aç";
+"shuffle_preference_choose_hint" = "Karıştırmanın hangi şarkıları öne çıkaracağını seçin.";
 "source_diag_config_ok" = "Gerekli ayarlar mevcuttur.";
 "THEME-04 · macOS swaps the runtime Dock icon; the Finder bundle icon stays the same" = "THEME-04 · macOS çalışma zamanı Dock simgesini değiştirir; Finder paketi simgesi aynı kalıyor";
 "Playback Rate" = "Oynatma Oranı";

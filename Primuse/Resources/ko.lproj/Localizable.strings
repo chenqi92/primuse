@@ -357,6 +357,15 @@
 "shuffle_preference_footer" = "모든 곡은 여전히 한 바퀴에 한 번씩 재생되며, 재생 횟수는 어떤 곡이 먼저 나올 가능성이 높은지만 정합니다. 곡의 횟수는 재생 기록과 음악 서버 기록 중 큰 값을 쓰고, 아티스트는 소속 곡의 횟수를 합산합니다.";
 "shuffle_preference_apple_music_note" = "Apple Music이 셔플을 직접 관리할 때는 이 설정이 적용되지 않습니다.";
 "shuffle_preference_long_press_hint" = "길게 눌러 셔플 선곡을 선택합니다";
+"queue_play_mode" = "재생 방식";
+"queue_play_mode_hint" = "탭하면 다음 방식으로 바뀌고, 길게 누르면 바로 고를 수 있습니다.";
+"play_mode_sequential" = "순서대로 재생";
+"play_mode_repeat_all" = "전체 반복";
+"play_mode_repeat_one" = "한 곡 반복";
+"play_mode_shuffle" = "셔플";
+"shuffle_preference_needs_shuffle" = "셔플을 켜면 이 설정에 따라 곡을 고릅니다.";
+"shuffle_preference_turn_on_shuffle" = "셔플 켜기";
+"shuffle_preference_choose_hint" = "셔플할 때 어떤 곡을 먼저 고를지 선택합니다.";
 "unknown_title" = "알 수 없는 제목";
 "unknown_artist" = "알 수 없는 아티스트";
 "sort_by" = "정렬 기준";

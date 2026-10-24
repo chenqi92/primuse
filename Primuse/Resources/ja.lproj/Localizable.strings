@@ -358,6 +358,15 @@
 "shuffle_preference_footer" = "どの曲も1巡に1回は再生されます。再生回数で変わるのは、どの曲が先に流れやすいかだけです。曲の回数は再生履歴と音楽サーバーの記録の多い方を使い、アーティストは各曲の回数を合計します。";
 "shuffle_preference_apple_music_note" = "Apple Musicがシャッフルを管理しているときは、この設定は適用されません。";
 "shuffle_preference_long_press_hint" = "長押しでシャッフルの選曲を選べます";
+"queue_play_mode" = "再生モード";
+"queue_play_mode_hint" = "タップで次のモードへ、長押しで選択します";
+"play_mode_sequential" = "順番に再生";
+"play_mode_repeat_all" = "全曲リピート";
+"play_mode_repeat_one" = "1曲リピート";
+"play_mode_shuffle" = "シャッフル";
+"shuffle_preference_needs_shuffle" = "シャッフルをオンにするとこの設定で選曲します";
+"shuffle_preference_turn_on_shuffle" = "シャッフルをオン";
+"shuffle_preference_choose_hint" = "シャッフルで優先する曲を選びます";
 "unknown_title" = "不明なタイトル";
 "unknown_artist" = "不明なアーティスト";
 "sort_by" = "並べ替え";

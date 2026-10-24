@@ -2534,7 +2534,8 @@ private struct DebugEvidenceOrientation: ViewModifier {
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
 ///   `PRIMUSE_AUTOPLAY_SEEK=<秒>` 时开播后跳到这个位置（配 `PAUSE=1` 就停在这里，看前奏、间奏里歌词那一行的样子）；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）；
-///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）。
+///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）；
+///   `PRIMUSE_AUTOPLAY_MODE=sequential|repeatAll|repeatOne|shuffle` 时开播后换成这种播放方式（看队列页那两颗键）。
 /// - `PRIMUSE_DEBUG_LIKE=<标题片段>[,…]`：曲库里出现标题包含这些片段的歌后给它们点心（看「我喜欢」页与「喜欢的单集」）。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
@@ -2586,6 +2587,12 @@ private struct DebugLaunchAutomation: ViewModifier {
                         await player.play(queue: [song], startingAt: 0)
                     } else {
                         await player.play(song: song)
+                    }
+                    if let mode = env["PRIMUSE_AUTOPLAY_MODE"].flatMap(PlaybackOrderMode.init(rawValue:)) {
+                        let target = mode.settings(from: player.repeatMode)
+                        player.repeatMode = target.repeatMode
+                        player.shuffleEnabled = target.shuffleEnabled
+                        plog("🧪 DebugLaunchAutomation: play mode \(mode.rawValue)")
                     }
                     let seekTarget = env["PRIMUSE_AUTOPLAY_SEEK"].flatMap(Double.init)
                     if env["PRIMUSE_AUTOPLAY_PAUSE"] == "1" {

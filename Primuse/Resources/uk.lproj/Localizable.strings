@@ -2500,6 +2500,15 @@
 "shuffle_preference_footer" = "Кожен трек і далі звучить один раз за коло; кількість прослуховувань лише визначає, які з більшою ймовірністю прозвучать раніше. Для треку береться більше зі значень в історії прослуховувань і на музичному сервері, а для виконавця підсумовуються всі його треки.";
 "shuffle_preference_apple_music_note" = "Коли перемішуванням керує Apple Music, це вподобання не діє.";
 "shuffle_preference_long_press_hint" = "Натисніть і утримуйте, щоб вибрати вподобання для перемішування.";
+"queue_play_mode" = "Режим відтворення";
+"queue_play_mode_hint" = "Торкніться, щоб перемкнути режим; утримуйте, щоб вибрати.";
+"play_mode_sequential" = "По порядку";
+"play_mode_repeat_all" = "Повтор усіх";
+"play_mode_repeat_one" = "Повтор треку";
+"play_mode_shuffle" = "Перемішати";
+"shuffle_preference_needs_shuffle" = "Налаштування діє, коли ввімкнено перемішування.";
+"shuffle_preference_turn_on_shuffle" = "Увімкнути перемішування";
+"shuffle_preference_choose_hint" = "Виберіть, яким трекам надавати перевагу під час перемішування.";
 "source_diag_config_ok" = "Необхідні налаштування присутні.";
 "THEME-04 · macOS swaps the runtime Dock icon; the Finder bundle icon stays the same" = "ТЕМА-04 · macOS змінює значок док-станції часу виконання; піктограма комплекту Finder залишається незмінною";
 "Playback Rate" = "Швидкість відтворення";

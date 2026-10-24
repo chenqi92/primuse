@@ -102,6 +102,15 @@
 "shuffle_preference_footer" = "每首歌照样都会轮到，只是按播放次数决定谁更可能先播。一首歌的次数取听歌记录与音乐服务器记下的较大者，歌手按名下各首累加。";
 "shuffle_preference_apple_music_note" = "Apple Music 自己安排随机顺序时，不按这里的偏好。";
 "shuffle_preference_long_press_hint" = "长按可选择随机播放偏好";
+"queue_play_mode" = "播放方式";
+"queue_play_mode_hint" = "点按换下一种播放方式，长按直接选择";
+"play_mode_sequential" = "顺序播放";
+"play_mode_repeat_all" = "列表循环";
+"play_mode_repeat_one" = "单曲循环";
+"play_mode_shuffle" = "随机播放";
+"shuffle_preference_needs_shuffle" = "打开随机播放后才按这里的偏好抽歌";
+"shuffle_preference_turn_on_shuffle" = "打开随机播放";
+"shuffle_preference_choose_hint" = "选择随机播放时先抽哪些歌";
 "unknown_title" = "未知标题";
 "unknown_artist" = "未知艺术家";
 

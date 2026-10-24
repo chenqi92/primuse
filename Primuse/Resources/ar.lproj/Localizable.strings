@@ -3337,6 +3337,15 @@
 "shuffle_preference_footer" = "تظل كل أغنية تُشغَّل مرة واحدة في كل جولة، ويحدد عدد مرات التشغيل فقط أيها أرجح أن يُشغَّل أولًا. تُحسب للأغنية القيمة الأكبر بين سجل الاستماع وما سجّله خادم الموسيقى، ويُجمع للفنان عدد كل أغانيه.";
 "shuffle_preference_apple_music_note" = "عندما يتولى Apple Music التشغيل العشوائي بنفسه، لا يُطبَّق هذا التفضيل.";
 "shuffle_preference_long_press_hint" = "المس مع الاستمرار لاختيار تفضيل التشغيل العشوائي.";
+"queue_play_mode" = "طريقة التشغيل";
+"queue_play_mode_hint" = "اضغط للتبديل إلى الطريقة التالية، واضغط مطولًا للاختيار.";
+"play_mode_sequential" = "التشغيل بالترتيب";
+"play_mode_repeat_all" = "تكرار الكل";
+"play_mode_repeat_one" = "تكرار الأغنية";
+"play_mode_shuffle" = "تشغيل عشوائي";
+"shuffle_preference_needs_shuffle" = "يُطبَّق هذا التفضيل عند تشغيل الوضع العشوائي.";
+"shuffle_preference_turn_on_shuffle" = "تشغيل الوضع العشوائي";
+"shuffle_preference_choose_hint" = "اختر الأغاني التي يفضّلها التشغيل العشوائي.";
 "shuffle_all" = "خلط الكل";
 "sidebar_all_songs" = "جميع الأغاني";
 "sidebar_liked_songs" = "الأغاني التي أعجبتني";

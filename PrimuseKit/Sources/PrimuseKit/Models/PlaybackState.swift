@@ -6,6 +6,58 @@ public enum RepeatMode: String, Codable, Sendable {
     case one
 }
 
+/// 队列页那颗「播放方式」键(#338):随机与循环两个开关合成一颗,点一下换下一种。
+/// 状态仍是播放器上那两个开关,这里只管怎么读成一种、怎么换到下一种。
+public enum PlaybackOrderMode: String, CaseIterable, Sendable {
+    case sequential
+    case repeatAll
+    case repeatOne
+    case shuffle
+
+    /// 两个开关现在落在哪一种上。单曲循环决定实际播什么,随机同时开着也算单曲循环。
+    public init(shuffleEnabled: Bool, repeatMode: RepeatMode) {
+        if repeatMode == .one {
+            self = .repeatOne
+        } else if shuffleEnabled {
+            self = .shuffle
+        } else if repeatMode == .all {
+            self = .repeatAll
+        } else {
+            self = .sequential
+        }
+    }
+
+    /// 点一下换到的下一种:顺序 → 列表循环 → 单曲循环 → 随机 → 顺序。队列不到两首、随机打不开时跳过随机。
+    public func next(allowsShuffle: Bool) -> PlaybackOrderMode {
+        let order = Self.allCases
+        var index = order.firstIndex(of: self) ?? 0
+        repeat {
+            index = (index + 1) % order.count
+        } while order[index] == .shuffle && !allowsShuffle
+        return order[index]
+    }
+
+    /// 换到这一种后两个开关的值。进随机时原来是单曲循环就改成列表循环(随机播完一轮接着来),
+    /// 原来是顺序或列表循环的照旧。
+    public func settings(from currentRepeat: RepeatMode) -> (shuffleEnabled: Bool, repeatMode: RepeatMode) {
+        switch self {
+        case .sequential: (false, .off)
+        case .repeatAll: (false, .all)
+        case .repeatOne: (false, .one)
+        case .shuffle: (true, currentRepeat == .one ? .all : currentRepeat)
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .sequential: "list.number"
+        case .repeatAll: "repeat"
+        case .repeatOne: "repeat.1"
+        case .shuffle: "shuffle"
+        }
+    }
+}
+
 public struct PlaybackState: Codable, Sendable {
     public var currentSongID: String?
     public var songTitle: String?

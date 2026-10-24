@@ -3337,6 +3337,15 @@
 "shuffle_preference_footer" = "ทุกเพลงยังคงได้เล่นรอบละหนึ่งครั้ง จำนวนครั้งที่เล่นเพียงกำหนดว่าเพลงใดมีโอกาสเล่นก่อนมากกว่า จำนวนครั้งของเพลงใช้ค่าที่มากกว่าระหว่างประวัติการฟังกับที่เซิร์ฟเวอร์เพลงบันทึกไว้ และศิลปินจะรวมจำนวนครั้งของทุกเพลง";
 "shuffle_preference_apple_music_note" = "เมื่อ Apple Music จัดการการสุ่มเล่นเอง การตั้งค่านี้จะไม่มีผล";
 "shuffle_preference_long_press_hint" = "แตะค้างไว้เพื่อเลือกรูปแบบการสุ่มเล่น";
+"queue_play_mode" = "รูปแบบการเล่น";
+"queue_play_mode_hint" = "แตะเพื่อเปลี่ยนเป็นรูปแบบถัดไป แตะค้างเพื่อเลือก";
+"play_mode_sequential" = "เล่นตามลำดับ";
+"play_mode_repeat_all" = "เล่นซ้ำทั้งหมด";
+"play_mode_repeat_one" = "เล่นซ้ำเพลงเดียว";
+"play_mode_shuffle" = "สุ่มเล่น";
+"shuffle_preference_needs_shuffle" = "การตั้งค่านี้ใช้เมื่อเปิดสุ่มเล่น";
+"shuffle_preference_turn_on_shuffle" = "เปิดสุ่มเล่น";
+"shuffle_preference_choose_hint" = "เลือกว่าการสุ่มเล่นจะเน้นเพลงแบบไหน";
 "shuffle_all" = "สุ่มทั้งหมด";
 "sidebar_all_songs" = "เพลงทั้งหมด";
 "sidebar_liked_songs" = "เพลงที่ชอบ";
