@@ -6451,6 +6451,8 @@
 "player_artwork_style_podcast_footer" = "Bord à bord étend la pochette de l’épisode sur toute la largeur en haut du lecteur, avec un fondu vers l’arrière-plan, et la réduit en petite pochette quand vous ouvrez la transcription. S’applique au lecteur de l’iPhone en portrait.";
 "player_radio_artwork_style_title" = "Style du logo";
 "player_artwork_style_radio_footer" = "Bord à bord étend le logo de la station sur toute la largeur en haut du lecteur, avec un fondu vers l’arrière-plan. S’applique au lecteur de l’iPhone en portrait.";
+"player_full_bleed_top_softening" = "Adoucir le bord supérieur";
+"player_full_bleed_top_softening_description" = "Quand la pochette occupe le haut du lecteur bord à bord, la bande derrière la barre d’état et la poignée affiche une copie floutée de la pochette qui redevient nette vers le bas : l’heure reste lisible et l’image n’a plus de bord supérieur franc. Commun à la musique et aux podcasts.";
 "player_always_dark_title" = "Lecteur toujours sombre";
 "player_always_dark_footer" = "Le lecteur reste sombre même quand le système est clair, comme dans Apple Music, livres audio compris. La barre d’état est alors masquée dans le lecteur.";
 "player_progress_style_standard" = "Par défaut";

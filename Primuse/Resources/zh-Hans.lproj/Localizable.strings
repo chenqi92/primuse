@@ -6544,6 +6544,8 @@
 "player_artwork_style_podcast_footer" = "铺满：单集封面从屏幕顶端铺满整个宽度，下沿渐隐进背景，打开文字稿时缩成顶栏的小封面。只用于 iPhone 竖屏的播放页。";
 "player_radio_artwork_style_title" = "台标样式";
 "player_artwork_style_radio_footer" = "铺满：台标从屏幕顶端铺满整个宽度，下沿渐隐进背景。只用于 iPhone 竖屏的播放页。";
+"player_full_bleed_top_softening" = "铺满时顶部柔化";
+"player_full_bleed_top_softening_description" = "封面铺满时，状态栏和下拉把手那一截换成模糊的封面，往下渐渐变清楚：时间看得清，顶上也不再是一刀切的照片边。音乐和播客共用这一项。";
 "player_always_dark_title" = "播放页始终用深色";
 "player_always_dark_footer" = "系统是浅色时播放页也用深色，像 Apple Music 那样，有声书也一样。这时播放页里不显示状态栏。";
 "player_progress_style_standard" = "默认";

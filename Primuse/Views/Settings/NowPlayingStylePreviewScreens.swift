@@ -1156,7 +1156,8 @@ struct RadioPreviewScreen: View {
                             width: region.size.width,
                             height: region.size.height,
                             topSafeArea: canvas.topSafeArea,
-                            appearance: appearance
+                            appearance: appearance,
+                            allowsTopSoftening: false
                         ) {
                             RadioStationPlaceholderArtwork()
                         }

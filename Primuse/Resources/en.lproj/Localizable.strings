@@ -6211,6 +6211,8 @@
 "player_artwork_style_podcast_footer" = "Edge to Edge fills the top of the player with the episode artwork, fading into the background below, and shrinks it into the small artwork when you open the transcript. Applies to the iPhone player in portrait.";
 "player_radio_artwork_style_title" = "Logo Style";
 "player_artwork_style_radio_footer" = "Edge to Edge fills the top of the player with the station logo, fading into the background below. Applies to the iPhone player in portrait.";
+"player_full_bleed_top_softening" = "Soften Top Edge";
+"player_full_bleed_top_softening_description" = "When the artwork fills the top of the player, the strip behind the status bar and the grabber shows a blurred copy of the artwork that sharpens as it goes down, so the time stays readable and the photo has no hard top edge. Shared by music and podcasts.";
 "player_always_dark_title" = "Always Dark Player";
 "player_always_dark_footer" = "Uses the dark look for the player even when the system is light, like Apple Music, audiobooks included. The status bar is hidden in the player then.";
 "player_progress_style_standard" = "Default";

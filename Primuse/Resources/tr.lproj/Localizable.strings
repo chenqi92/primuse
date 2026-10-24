@@ -6357,6 +6357,8 @@
 "player_artwork_style_podcast_footer" = "Kenardan Kenara, bölüm kapağını oynatıcının üst kısmında tüm genişliğe yayar, alt kenarını arka plana karıştırır ve metin açılınca küçük kapağa dönüştürür. Yalnızca dikey iPhone oynatıcısında geçerlidir.";
 "player_radio_artwork_style_title" = "Logo stili";
 "player_artwork_style_radio_footer" = "Kenardan Kenara, istasyon logosunu oynatıcının üst kısmında tüm genişliğe yayar ve alt kenarını arka plana karıştırır. Yalnızca dikey iPhone oynatıcısında geçerlidir.";
+"player_full_bleed_top_softening" = "Üst Kenarı Yumuşat";
+"player_full_bleed_top_softening_description" = "Kapak oynatıcının üst kısmını kenardan kenara doldurduğunda, durum çubuğu ve tutamacın arkasındaki şerit kapağın bulanık bir kopyasını gösterir ve aşağı doğru netleşir: saat okunaklı kalır, görselin üstünde sert bir kenar olmaz. Müzik ve podcast’ler için ortaktır.";
 "player_always_dark_title" = "Oynatıcı Hep Koyu";
 "player_always_dark_footer" = "Sistem açık renkteyken de oynatıcı Apple Music'teki gibi koyu görünür, sesli kitaplar dahil. Bu durumda oynatıcıda durum çubuğu gizlenir.";
 "player_progress_style_standard" = "Varsayılan";

@@ -516,6 +516,8 @@ extension NowPlayingControlsEditorView {
 private struct PlayerLookSettingsSections: View {
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
+    private var fullBleedTopSoftening = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
@@ -556,6 +558,9 @@ private struct PlayerLookSettingsSections: View {
             .settingsAnchor("appearance.playerArtworkStyle")
             // 「封面播放」小组件跟着换卡片 / 铺满, 立刻重新发布一次。
             .onChange(of: artworkStyleRawValue) { player.updatePlaybackState() }
+            if PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed {
+                FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
+            }
             Toggle(isOn: $showsArtworkLyrics) {
                 SettingsInfoLabel("player_artwork_lyrics") {
                     Text("player_artwork_lyrics_description")
@@ -1415,7 +1420,8 @@ private struct SpokenWordControlsSections: View {
             PlayerArtworkStyleSection(
                 key: PlayerAppearancePreferences.podcastArtworkStyleKey,
                 title: "player_artwork_style_title",
-                footer: "player_artwork_style_podcast_footer"
+                footer: "player_artwork_style_podcast_footer",
+                offersTopSoftening: true
             )
         }
 
@@ -1730,16 +1736,34 @@ private struct RadioControlsSections: View {
     }
 }
 
+/// 铺满时顶部柔化的开关(#338),音乐与播客共用一个键,哪一页选了铺满就在哪一页出现。
+private struct FullBleedTopSofteningToggle: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            SettingsInfoLabel("player_full_bleed_top_softening") {
+                Text("player_full_bleed_top_softening_description")
+            }
+        }
+    }
+}
+
 /// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `PlayerLookSettingsSections`。
 private struct PlayerArtworkStyleSection: View {
     @AppStorage private var rawValue: String
+    @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
+    private var fullBleedTopSoftening = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
     let title: LocalizedStringKey
     let footer: LocalizedStringKey
+    /// 播客的单集封面铺满时也做顶部柔化;电台台标不做。
+    let offersTopSoftening: Bool
 
-    init(key: String, title: LocalizedStringKey, footer: LocalizedStringKey) {
+    init(key: String, title: LocalizedStringKey, footer: LocalizedStringKey, offersTopSoftening: Bool = false) {
         _rawValue = AppStorage(wrappedValue: NowPlayingArtworkStyle.card.rawValue, key)
         self.title = title
         self.footer = footer
+        self.offersTopSoftening = offersTopSoftening
     }
 
     var body: some View {
@@ -1756,6 +1780,9 @@ private struct PlayerArtworkStyleSection: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            if offersTopSoftening, PlayerAppearancePreferences.artworkStyle(rawValue: rawValue) == .fullBleed {
+                FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
+            }
         } header: {
             SettingsInfoHeader(title) {
                 Text(footer)

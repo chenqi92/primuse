@@ -212,6 +212,9 @@ enum PlayerAppearancePreferences {
     static let artworkStyleKey = "primuse.player.artworkStyle"
     static let podcastArtworkStyleKey = "primuse.player.artworkStyle.podcast"
     static let radioArtworkStyleKey = "primuse.player.artworkStyle.radio"
+    /// 铺满封面时状态栏和把手那一截换成模糊的封面、往下渐渐清楚(#338)。音乐和播客共用,电台台标不做。
+    static let fullBleedTopSofteningKey = "primuse.player.fullBleedTopSoftening"
+    static let fullBleedTopSofteningByDefault = true
 
     static func artworkStyle(rawValue: String) -> NowPlayingArtworkStyle {
         NowPlayingArtworkStyle(rawValue: rawValue) ?? .card

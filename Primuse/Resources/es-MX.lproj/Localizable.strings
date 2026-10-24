@@ -6357,6 +6357,8 @@
 "player_artwork_style_podcast_footer" = "De borde a borde llena la parte superior del reproductor con la portada del episodio, que se desvanece hacia el fondo, y la reduce a la portada pequeña al abrir la transcripción. Se aplica al reproductor del iPhone en vertical.";
 "player_radio_artwork_style_title" = "Estilo del logotipo";
 "player_artwork_style_radio_footer" = "De borde a borde llena la parte superior del reproductor con el logotipo de la emisora, que se desvanece hacia el fondo. Se aplica al reproductor del iPhone en vertical.";
+"player_full_bleed_top_softening" = "Suavizar el borde superior";
+"player_full_bleed_top_softening_description" = "Cuando la portada llena la parte superior del reproductor de borde a borde, la franja detrás de la barra de estado y el tirador muestra una copia desenfocada de la portada que se vuelve nítida hacia abajo: la hora se lee bien y la imagen no tiene un borde superior marcado. Se comparte entre música y podcasts.";
 "player_always_dark_title" = "Reproductor siempre oscuro";
 "player_always_dark_footer" = "El reproductor usa el aspecto oscuro aunque el sistema esté en claro, como Apple Music, también con audiolibros. En ese caso, la barra de estado se oculta en el reproductor.";
 "player_progress_style_standard" = "Predeterminada";

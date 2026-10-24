@@ -155,13 +155,15 @@ struct FullBleedArtworkFadeMask: View {
 struct FullBleedTopChrome: View {
     let topSafeArea: CGFloat
     let appearance: NowPlayingAppearance
+    /// 底下垫着模糊的封面(`FullBleedArtworkTopSoftening`):时间已经看得清,淡底减轻,不再压出一道灰。
+    var softened = false
 
     static func bandHeight(topSafeArea: CGFloat) -> CGFloat { topSafeArea + 44 }
 
     var body: some View {
         ZStack(alignment: .top) {
             LinearGradient(
-                colors: [appearance.backgroundBase.opacity(0.42), appearance.backgroundBase.opacity(0)],
+                colors: [appearance.backgroundBase.opacity(softened ? 0.24 : 0.42), appearance.backgroundBase.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -176,6 +178,181 @@ struct FullBleedTopChrome: View {
         .frame(height: Self.bandHeight(topSafeArea: topSafeArea), alignment: .top)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// 播放页铺满封面顶上那一截：柔化（设置里开着时）、淡底和把手，摆在封面 `artworkRect` 的顶端。
+/// 只在铺满时挂上，那个开关也只在这时被观察，不让整个播放页跟着它重算。
+struct FullBleedArtworkTop: View {
+    let song: Song?
+    let coverRevision: Int
+    let artworkRect: CGRect
+    let topSafeArea: CGFloat
+    let appearance: NowPlayingAppearance
+    let allowsLoading: Bool
+
+    @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
+    private var softens = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
+
+    var body: some View {
+        let band = FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)
+        ZStack {
+            if softens {
+                FullBleedArtworkTopSoftening(
+                    song: song,
+                    coverRevision: coverRevision,
+                    artworkRect: artworkRect,
+                    height: FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea),
+                    allowsLoading: allowsLoading
+                )
+            }
+            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance, softened: softens)
+                .frame(width: artworkRect.width)
+                .position(x: artworkRect.midX, y: artworkRect.minY + band / 2)
+        }
+    }
+}
+
+/// 铺满封面顶上那一截的柔化（「播放页样式与按钮」里可关，#338）：状态栏和把手底下换成同一张封面的
+/// 模糊版，往下渐渐露出清楚的封面，像底部渐隐进背景那样，顶上也不再是一刀切的照片边。模糊图在后台
+/// 做好一次放进背景图缓存，播放页上只是一张静态图加一道渐变遮罩，不做实时模糊。
+///
+/// 摆在 `artworkRect` 顶上、和封面同宽，高度 `height`；图按封面同样的边长居中裁切，和下面的封面对齐。
+struct FullBleedArtworkTopSoftening: View {
+    let song: Song?
+    let coverRevision: Int
+    let artworkRect: CGRect
+    let height: CGFloat
+    /// 入场动画结束前不开始取图；内存里已经有的照样立刻用。
+    let allowsLoading: Bool
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var shown: FullBleedTopSofteningImage?
+
+    init(song: Song?, coverRevision: Int, artworkRect: CGRect, height: CGFloat, allowsLoading: Bool) {
+        self.song = song
+        self.coverRevision = coverRevision
+        self.artworkRect = artworkRect
+        self.height = height
+        self.allowsLoading = allowsLoading
+        _shown = State(initialValue: song.flatMap {
+            FullBleedTopSofteningImage.cached(song: $0, coverRevision: coverRevision)
+        })
+    }
+
+    /// 顶上实打实模糊那一截占的比例，再往下渐隐到 `height` 处变回清楚的封面。
+    static let solidFraction: CGFloat = 0.42
+
+    private struct LoadKey: Equatable {
+        let cacheKey: String?
+        let allowsLoading: Bool
+    }
+
+    var body: some View {
+        let cacheKey = song.map { FullBleedTopSofteningImage.cacheKey(song: $0, coverRevision: coverRevision) }
+        let visibleHeight = max(1, min(height, artworkRect.height))
+        ZStack {
+            if let shown {
+                let side = max(artworkRect.width, artworkRect.height)
+                Image(decorative: shown.image, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .frame(width: side, height: side)
+                    .frame(width: artworkRect.width, height: artworkRect.height)
+                    .clipped()
+                    .frame(width: artworkRect.width, height: visibleHeight, alignment: .top)
+                    .clipped()
+                    .mask { Self.mask }
+                    .id(shown.key)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: artworkRect.width, height: visibleHeight)
+        .position(x: artworkRect.midX, y: artworkRect.minY + visibleHeight / 2)
+        .task(id: LoadKey(cacheKey: cacheKey, allowsLoading: allowsLoading)) {
+            guard let song, let cacheKey, shown?.key != cacheKey else { return }
+            if let cached = FullBleedTopSofteningImage.cached(song: song, coverRevision: coverRevision) {
+                withAnimation(Self.crossfade) { shown = cached }
+                return
+            }
+            // 换歌后新封面没好之前留着上一首的，好了再交叉淡入。
+            guard allowsLoading else { return }
+            let loaded = await FullBleedTopSofteningImage.load(
+                song: song,
+                coverRevision: coverRevision,
+                sourceManager: sourceManager
+            )
+            guard !Task.isCancelled else { return }
+            withAnimation(Self.crossfade) { shown = loaded }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static let crossfade = Animation.easeInOut(duration: 0.35)
+
+    /// 上面一截实色，往下按 smoothstep 取的五个点渐隐，看不出从哪一行开始变清楚。
+    static var mask: LinearGradient {
+        let solid = solidFraction
+        let fade = 1 - solid
+        return LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: solid),
+                .init(color: .black.opacity(0.844), location: solid + fade * 0.25),
+                .init(color: .black.opacity(0.5), location: solid + fade * 0.5),
+                .init(color: .black.opacity(0.156), location: solid + fade * 0.75),
+                .init(color: .clear, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// 柔化那一截从封面顶端往下多高：状态栏、把手，再往下留一段渐隐。
+    static func height(topSafeArea: CGFloat) -> CGFloat { topSafeArea + 72 }
+}
+
+/// 顶部柔化用的模糊封面，和铺满延伸底图共用背景图的内存缓存。
+struct FullBleedTopSofteningImage: Sendable {
+    let key: String
+    let image: CGImage
+
+    static func cacheKey(song: Song, coverRevision: Int) -> String {
+        "fullbleedtop|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)"
+    }
+
+    static func cached(song: Song, coverRevision: Int) -> FullBleedTopSofteningImage? {
+        let key = cacheKey(song: song, coverRevision: coverRevision)
+        guard let image = PlayerBackdropMemoryCache.shared.image(forKey: key) else { return nil }
+        return FullBleedTopSofteningImage(key: key, image: image)
+    }
+
+    /// 取封面小图、在后台模糊一次，结果放进背景图的内存缓存。
+    static func load(
+        song: Song,
+        coverRevision: Int,
+        sourceManager: SourceManager
+    ) async -> FullBleedTopSofteningImage? {
+        if let cached = cached(song: song, coverRevision: coverRevision) { return cached }
+        let key = cacheKey(song: song, coverRevision: coverRevision)
+        let cover = await CachedArtworkView.resolveImage(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: 256,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat,
+            sourceManager: sourceManager,
+            cacheDiscriminator: String(coverRevision)
+        )
+        guard !Task.isCancelled, let image = cover?.platformCGImage else { return nil }
+        let softened = await Task.detached(priority: .userInitiated) {
+            PlayerBackdropImaging.fullBleedTopSoftening(from: image)
+        }.value
+        guard let softened else { return nil }
+        PlayerBackdropMemoryCache.shared.insert(softened, forKey: key)
+        return FullBleedTopSofteningImage(key: key, image: softened)
     }
 }
 
@@ -382,6 +559,8 @@ struct PlayerBackdropPrewarmer: View {
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
     private var podcastArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
+    private var fullBleedTopSoftening = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
 
     private struct PrewarmKey: Equatable {
         let request: PlayerBackdropResolver.Request
@@ -434,6 +613,15 @@ struct PlayerBackdropPrewarmer: View {
                 sourceManager: sourceManager
             )
         }
+        // 顶部柔化那张模糊封面同样提前备好，展开时顶上不会晚一拍才淡入。它不看背景选的是什么。
+        .task(id: topSofteningKey(song: song)) {
+            guard let song, topSofteningKey(song: song).isSceneActive else { return }
+            _ = await FullBleedTopSofteningImage.load(
+                song: song,
+                coverRevision: player.coverRevision,
+                sourceManager: sourceManager
+            )
+        }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -441,19 +629,32 @@ struct PlayerBackdropPrewarmer: View {
     /// 只有 iPhone 选了铺满封面、背景是封面取色时才用得上；电台的台标和 MV 不铺这一截，也不备。
     /// 播客单集看播客那一页选的样式。
     private func extensionKey(song: Song?, source: PlayerBackdropSource) -> ExtensionKey {
-        let isPodcast = song.map { PodcastPlaybackSong.isEpisode($0) || SpokenWordStore.shared.isPodcast($0) } ?? false
-        let applies = UIDevice.current.userInterfaceIdiom == .phone
-            && PlayerAppearancePreferences.artworkStyle(
-                rawValue: isPodcast ? podcastArtworkStyleRawValue : artworkStyleRawValue
-            ) == .fullBleed
-            && source == .coverAmbient
-            && !player.isMusicVideoPlaybackActive
+        let applies = usesFullBleedArtwork(song: song) && source == .coverAmbient
         return ExtensionKey(
             cacheKey: applies ? song.map {
                 FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: player.coverRevision)
             } : nil,
             isSceneActive: applies && scenePhase == .active
         )
+    }
+
+    private func topSofteningKey(song: Song?) -> ExtensionKey {
+        let applies = usesFullBleedArtwork(song: song) && fullBleedTopSoftening
+        return ExtensionKey(
+            cacheKey: applies ? song.map {
+                FullBleedTopSofteningImage.cacheKey(song: $0, coverRevision: player.coverRevision)
+            } : nil,
+            isSceneActive: applies && scenePhase == .active
+        )
+    }
+
+    private func usesFullBleedArtwork(song: Song?) -> Bool {
+        let isPodcast = song.map { PodcastPlaybackSong.isEpisode($0) || SpokenWordStore.shared.isPodcast($0) } ?? false
+        return UIDevice.current.userInterfaceIdiom == .phone
+            && PlayerAppearancePreferences.artworkStyle(
+                rawValue: isPodcast ? podcastArtworkStyleRawValue : artworkStyleRawValue
+            ) == .fullBleed
+            && !player.isMusicVideoPlaybackActive
     }
 }
 #endif

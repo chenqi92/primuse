@@ -102,6 +102,24 @@ enum PlayerBackdropImaging {
     /// 延伸底图的宽度。模糊过的图放大到整屏宽看不出差别。
     private nonisolated static let fullBleedExtensionWidth: CGFloat = 96
 
+    /// 铺满封面顶部柔化的底图：整张封面缩成小图，重重模糊一次。播放页把它按封面同样的位置、
+    /// 同样的裁法铺开，只露出状态栏和把手那一截，往下渐隐回清楚的封面。
+    nonisolated static func fullBleedTopSoftening(from image: CGImage) -> CGImage? {
+        let width = CGFloat(image.width)
+        guard width > 0, image.height > 0 else { return nil }
+        let scale = min(1, fullBleedTopSofteningWidth / width)
+        let input = CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = input.extent.integral
+        let blurred = input
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(extent.width * 0.045))
+            .cropped(to: extent)
+        return ciContext.createCGImage(blurred, from: extent)
+    }
+
+    private nonisolated static let fullBleedTopSofteningWidth: CGFloat = 128
+
     nonisolated static func jpegData(_ image: CGImage, quality: Double) -> Data? {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(

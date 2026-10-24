@@ -7212,14 +7212,18 @@ struct NowPlayingView: View {
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
 
-                // 铺满封面压住了状态栏与下拉把手：顶上垫一道背景色的淡底，把手画在封面上面。
-                // 版面里那根把手还在原位，被封面盖着；切到歌词时这两样淡出，露出的正是它。
+                // 铺满封面压住了状态栏与下拉把手：顶上那一截换成模糊的封面(设置里可关)、垫一道淡底，
+                // 把手画在封面上面。版面里那根把手还在原位，被封面盖着；切到歌词时这几样淡出，露出的正是它。
                 if anchor.coversTopChrome {
-                    let band = FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)
-                    FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
-                        .frame(width: rect.width)
-                        .position(x: rect.midX, y: rect.minY + band / 2)
-                        .transition(.opacity)
+                    FullBleedArtworkTop(
+                        song: player.currentSong,
+                        coverRevision: player.coverRevision,
+                        artworkRect: rect,
+                        topSafeArea: topSafeArea,
+                        appearance: appearance,
+                        allowsLoading: isPresentationSettled
+                    )
+                    .transition(.opacity)
                 }
 
                 if anchor.showsVideoPreparation {

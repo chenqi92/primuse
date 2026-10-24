@@ -6428,6 +6428,8 @@
 "player_artwork_style_podcast_footer" = "鋪滿：單集封面從螢幕頂端鋪滿整個寬度，下緣漸隱進背景，打開文字稿時縮成頂列的小封面。只用於 iPhone 直向的播放頁。";
 "player_radio_artwork_style_title" = "台標樣式";
 "player_artwork_style_radio_footer" = "鋪滿：台標從螢幕頂端鋪滿整個寬度，下緣漸隱進背景。只用於 iPhone 直向的播放頁。";
+"player_full_bleed_top_softening" = "鋪滿時頂部柔化";
+"player_full_bleed_top_softening_description" = "封面鋪滿時，狀態列和下拉把手那一段換成模糊的封面，往下漸漸變清楚：時間看得清楚，頂端也不再是一刀切的照片邊緣。音樂和 Podcast 共用這一項。";
 "player_always_dark_title" = "播放頁始終用深色";
 "player_always_dark_footer" = "系統是淺色時播放頁也用深色，像 Apple Music 那樣，有聲書也一樣。這時播放頁裡不顯示狀態列。";
 "player_progress_style_standard" = "預設";

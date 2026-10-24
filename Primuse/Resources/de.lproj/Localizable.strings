@@ -6451,6 +6451,8 @@
 "player_artwork_style_podcast_footer" = "Randlos füllt den oberen Teil des Players mit dem Folgencover, das nach unten in den Hintergrund ausblendet, und lässt es beim Öffnen des Transkripts zum kleinen Cover schrumpfen. Gilt für den iPhone-Player im Hochformat.";
 "player_radio_artwork_style_title" = "Logo-Stil";
 "player_artwork_style_radio_footer" = "Randlos füllt den oberen Teil des Players mit dem Senderlogo, das nach unten in den Hintergrund ausblendet. Gilt für den iPhone-Player im Hochformat.";
+"player_full_bleed_top_softening" = "Oberen Rand weichzeichnen";
+"player_full_bleed_top_softening_description" = "Wenn das Cover randlos oben im Player liegt, zeigt der Streifen hinter Statusleiste und Griff eine unscharfe Kopie des Covers, die nach unten hin scharf wird – die Uhrzeit bleibt lesbar und das Bild hat keine harte Oberkante. Gilt für Musik und Podcasts.";
 "player_always_dark_title" = "Player immer dunkel";
 "player_always_dark_footer" = "Der Player bleibt auch bei hellem System dunkel, wie bei Apple Music, auch bei Hörbüchern. Die Statusleiste wird im Player dann ausgeblendet.";
 "player_progress_style_standard" = "Standard";

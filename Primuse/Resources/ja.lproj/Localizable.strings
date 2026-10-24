@@ -6452,6 +6452,8 @@
 "player_artwork_style_podcast_footer" = "全面表示では、エピソードのアートワークが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。テキストを開くと上部の小さなアートワークに縮みます。iPhoneの縦向きのプレーヤーのみ。";
 "player_radio_artwork_style_title" = "ロゴのスタイル";
 "player_artwork_style_radio_footer" = "全面表示では、局のロゴが画面上端から横幅いっぱいに広がり、下端は背景に溶け込みます。iPhoneの縦向きのプレーヤーのみ。";
+"player_full_bleed_top_softening" = "上端をぼかす";
+"player_full_bleed_top_softening_description" = "アートワークを全面表示すると、ステータスバーとつまみの後ろの帯がぼかしたアートワークになり、下に向かって徐々にくっきりします。時刻が読みやすくなり、上端で写真が途切れて見えなくなります。音楽とポッドキャストで共通です。";
 "player_always_dark_title" = "プレーヤーを常にダークにする";
 "player_always_dark_footer" = "システムがライトでも、Apple Music のようにプレーヤーをダークで表示します（オーディオブックも同様）。このときプレーヤーではステータスバーを表示しません。";
 "player_progress_style_standard" = "デフォルト";

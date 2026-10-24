@@ -1029,16 +1029,36 @@ struct PreviewFullBleedArtwork<Artwork: View>: View {
     let height: CGFloat
     let topSafeArea: CGFloat
     let appearance: NowPlayingAppearance
+    /// 电台台标不做顶部柔化,和播放页一样。
+    var allowsTopSoftening = true
     @ViewBuilder let artwork: () -> Artwork
 
+    @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
+    private var topSoftening = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
+
     var body: some View {
+        let softens = allowsTopSoftening && topSoftening
         ZStack(alignment: .top) {
             artwork()
                 .frame(width: width, height: height)
                 .clipped()
                 .mask { FullBleedArtworkFadeMask() }
 
-            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
+            // 播放页上是后台做好的模糊图;预览很小,直接把同一张封面模糊一下,高度、遮罩照播放页。
+            if softens {
+                artwork()
+                    .frame(width: width, height: height)
+                    .blur(radius: 8, opaque: true)
+                    .clipped()
+                    .frame(
+                        height: min(height, FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea)),
+                        alignment: .top
+                    )
+                    .clipped()
+                    .mask { FullBleedArtworkTopSoftening.mask }
+            }
+
+            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance, softened: softens)
                 .frame(height: min(height, FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)), alignment: .top)
                 .clipped()
         }
