@@ -3329,6 +3329,10 @@
 "player_current_lyric_color_description" = "현재 줄과 단어별 강조 색상만 변경하며, 나머지 가사는 기존 스타일을 유지합니다.";
 "player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
 "player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";
+"player_lyrics_motion" = "줄 전환 동작";
+"player_lyrics_motion_description" = "계단식: 줄이 바뀌면 아래 가사가 한 줄씩 차례로 따라오며 스프링처럼 자리 잡습니다. 현재 줄에서 멀수록 흐리고 부드럽게 보입니다. 부드럽게: 가사 전체가 함께 다음 줄로 스크롤됩니다. 동작 줄이기, 저전력 모드 또는 기기가 뜨거울 때는 항상 부드럽게로 표시됩니다.";
+"player_lyrics_motion_standard" = "부드럽게";
+"player_lyrics_motion_cascade" = "계단식";
 "player_keep_screen_awake_title" = "플레이어 화면에서 화면 켜짐 유지";
 "player_keep_screen_awake_subtitle" = "플레이어 화면이 열려 있고 Primuse가 활성 상태일 때 가사와 전체 화면 효과를 포함해 자동 잠금을 막습니다.";
 "player_keep_screen_awake_charging_only_title" = "충전 중에만";

@@ -147,6 +147,9 @@ enum PlayerAppearancePreferences {
     static let gradientLyricsEndColorHexKey = "primuse.player.gradientLyricsEndColorHex"
     static let blursInactiveLyricsKey = "primuse.player.blursInactiveLyrics"
     static let blursInactiveLyricsByDefault = false
+    /// 歌词页换句时怎么滚(`PlayerLyricsMotion` 的原始值):整份歌词一起平滑滚动,或一行接一行像弹簧一样落位、
+    /// 离当前句越远越淡越虚。随 iCloud 同步。
+    static let lyricsMotionKey = "primuse.player.lyricsMotion"
     /// 播放器界面保持常亮。沿用早先「歌词界面常亮」的存储键，老用户开过的直接生效。
     static let keepsScreenAwakeInPlayerKey = "primuse.player.keepsScreenAwakeForLyrics"
     static let keepsScreenAwakeInPlayerByDefault = false
@@ -260,6 +263,25 @@ enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
             "player_lyrics_color_custom"
         case .gradient:
             "player_lyrics_color_gradient"
+        }
+    }
+}
+
+/// 歌词页换句时的滚动方式。
+enum PlayerLyricsMotion: String, CaseIterable, Identifiable {
+    /// 整份歌词一起平滑滚到下一句(一直以来的做法)。
+    case standard
+    /// 一行接一行跟上来、像弹簧一样落位,离当前句越远越淡越虚(`LyricCascadeMotionPolicy`)。
+    case cascade
+
+    static let defaultValue = PlayerLyricsMotion.standard
+
+    var id: String { rawValue }
+
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .standard: "player_lyrics_motion_standard"
+        case .cascade: "player_lyrics_motion_cascade"
         }
     }
 }

@@ -3315,6 +3315,10 @@
 "player_current_lyric_color_description" = "僅變更目前歌詞與逐字高亮顏色；非目前歌詞維持原有樣式。";
 "player_blur_inactive_lyrics" = "非目前歌詞模糊";
 "player_blur_inactive_lyrics_description" = "輕微模糊目前行以外的同步歌詞，突顯正在播放的歌詞。";
+"player_lyrics_motion" = "換句捲動";
+"player_lyrics_motion_description" = "層疊彈性：換句時下面的歌詞一行接一行跟上來，像彈簧一樣落位，離目前這句越遠越淡、越虛。整體平滑：整份歌詞一起捲到下一句。開著「減少動態效果」、低耗電模式或機身發熱時照舊整體平滑。";
+"player_lyrics_motion_standard" = "整體平滑";
+"player_lyrics_motion_cascade" = "層疊彈性";
 "player_keep_screen_awake_title" = "播放器介面保持螢幕常亮";
 "player_keep_screen_awake_subtitle" = "開啟播放器介面且 Primuse 位於前景時防止自動鎖定，包括歌詞與全螢幕效果。";
 "player_keep_screen_awake_charging_only_title" = "僅在充電時";

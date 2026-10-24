@@ -2601,6 +2601,10 @@
 "player_appearance_title" = "Reproductor";
 "player_blur_inactive_lyrics" = "Difuminar líneas inactivas";
 "player_blur_inactive_lyrics_description" = "Desenfoque ligeramente las letras sincronizadas que no sean la línea actual para enfatizar lo que se está reproduciendo.";
+"player_lyrics_motion" = "Cambio de línea";
+"player_lyrics_motion_description" = "Cascada: al cambiar de línea, la letra de abajo sigue una línea tras otra y se acomoda con un rebote suave; cuanto más lejos de la línea actual, más tenue y difusa. Suave: toda la letra se desplaza junta a la siguiente línea. Con Reducir movimiento, el modo de bajo consumo o el dispositivo caliente siempre se usa Suave.";
+"player_lyrics_motion_standard" = "Suave";
+"player_lyrics_motion_cascade" = "Cascada";
 "player_current_lyric_color" = "Color de la línea actual";
 "player_current_lyric_color_description" = "Cambia solo la línea actual y el color de resaltado a nivel de palabra; Las letras inactivas mantienen su apariencia actual.";
 "player_empty_message" = "Elija uno de la biblioteca o busque a la izquierda.";

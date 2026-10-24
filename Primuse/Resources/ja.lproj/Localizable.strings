@@ -3330,6 +3330,10 @@
 "player_current_lyric_color_description" = "現在行と単語単位のハイライト色のみを変更し、それ以外の歌詞は元の表示を維持します。";
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
+"player_lyrics_motion" = "行送りの動き";
+"player_lyrics_motion_description" = "カスケード：行が変わると、下の歌詞が1行ずつ順に追いかけ、ばねのように収まります。現在の行から離れるほど薄く、ぼかして表示します。スムーズ：歌詞全体が次の行へまとめてスクロールします。「視差効果を減らす」、低電力モード、本体が熱いときは常にスムーズになります。";
+"player_lyrics_motion_standard" = "スムーズ";
+"player_lyrics_motion_cascade" = "カスケード";
 "player_keep_screen_awake_title" = "プレーヤー画面では画面を消灯しない";
 "player_keep_screen_awake_subtitle" = "プレーヤー画面を開いていて Primuse が前面にある間、歌詞やフルスクリーンエフェクトを含めて自動ロックを防ぎます。";
 "player_keep_screen_awake_charging_only_title" = "充電中のみ";

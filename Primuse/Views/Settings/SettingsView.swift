@@ -355,6 +355,8 @@ struct LyricsAppearanceSections: View {
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
+    private var lyricsMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
@@ -540,6 +542,18 @@ struct LyricsAppearanceSections: View {
             Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
             .settingsAnchor("lyrics.blurInactive")
                 .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
+
+            // 换句时整份一起滚,还是一行接一行弹簧落位(层叠时离当前句越远越淡越虚,不看上面那个开关)。
+            Picker(selection: $lyricsMotionRawValue) {
+                ForEach(PlayerLyricsMotion.allCases) { motion in
+                    Text(motion.localizedTitle).tag(motion.rawValue)
+                }
+            } label: {
+                SettingsInfoLabel("player_lyrics_motion") {
+                    Text("player_lyrics_motion_description")
+                }
+            }
+            .settingsAnchor("lyrics.motion")
 
             Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
             .settingsAnchor("lyrics.tapToSeek")

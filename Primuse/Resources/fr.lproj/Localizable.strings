@@ -3329,6 +3329,10 @@
 "player_current_lyric_color_description" = "Modifie uniquement la ligne actuelle et la surbrillance mot par mot ; les autres paroles conservent leur apparence.";
 "player_blur_inactive_lyrics" = "Flouter les paroles inactives";
 "player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";
+"player_lyrics_motion" = "Changement de ligne";
+"player_lyrics_motion_description" = "Cascade : au changement de ligne, les paroles en dessous suivent l’une après l’autre et se posent avec un léger rebond ; plus une ligne est loin de la ligne en cours, plus elle est pâle et floue. Fluide : toutes les paroles défilent ensemble jusqu’à la ligne suivante. Avec « Réduire les animations », le mode économie d’énergie ou un appareil chaud, Fluide est toujours utilisé.";
+"player_lyrics_motion_standard" = "Fluide";
+"player_lyrics_motion_cascade" = "Cascade";
 "player_keep_screen_awake_title" = "Garder l’écran allumé dans le lecteur";
 "player_keep_screen_awake_subtitle" = "Empêche le verrouillage automatique tant que l’écran du lecteur est ouvert et que Primuse est actif, paroles et effets plein écran compris.";
 "player_keep_screen_awake_charging_only_title" = "Uniquement pendant la charge";

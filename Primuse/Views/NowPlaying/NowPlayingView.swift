@@ -12032,6 +12032,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     /// 歌词字体(#332),和设置里那一排字体块同一个键。
     @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
+    /// 歌词页换句时整份滚动还是层叠弹性,和设置 › 歌词里同一个键。
+    @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
+    private var lyricsScrollMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
     let immersiveChrome: Bool
     /// 只在 `immersiveChrome` 为真时起作用：圆钮底用固定深色还是跟随明暗外观。
     let chromeGlass: NowPlayingChromeGlass
@@ -12620,6 +12623,15 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         importedLyricsFontSection
                     } label: {
                         Label(String(localized: "transcript_font"), systemImage: "textformat")
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker(selection: $lyricsScrollMotionRawValue) {
+                        ForEach(PlayerLyricsMotion.allCases) { motion in
+                            Text(motion.localizedTitle).tag(motion.rawValue)
+                        }
+                    } label: {
+                        Label(String(localized: "player_lyrics_motion"), systemImage: "arrow.up.and.down.text.horizontal")
                     }
                     .pickerStyle(.menu)
 
@@ -13488,6 +13500,19 @@ final class LyricRowAnchorYs {
     var values: [Int: CGFloat] = [:]
 }
 
+/// 歌词列表此刻滚到哪、视口多高。只在「层叠弹性」换句那一刻读（算这次要滚多远），
+/// 放在引用盒子里，滚动时写入不触发重绘。
+struct LyricScrollMetrics: Equatable {
+    var offsetY: CGFloat
+    var viewportHeight: CGFloat
+}
+
+final class LyricCascadeTracker {
+    var metrics: LyricScrollMetrics?
+    /// 上一次层叠换句的时刻：离得太近（上一次还没落稳）就照旧整体平滑滚动。
+    var lastCascadeAt: Date = .distantPast
+}
+
 /// 拖动歌词时横在定位线上的标尺：一根两端淡出的细线，时间和播放键收在歌词
 /// 对齐方向的另一侧，尽量不压住正在看的那句。
 struct LyricsBrowseTimeline: View {
@@ -13641,6 +13666,15 @@ struct LyricsScrollView: View {
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
+    private var lyricsMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
+    /// 「层叠弹性」时每一格额外的纵向偏移:换句那一刻整份歌词瞬间滚到位、各格先补回这段滚动差
+    /// (看上去一动不动),下一帧各格按自己的延迟以弹簧回到 0。一次换句只变两次,不随时间走。
+    @State private var cascadeOffset: CGFloat = 0
+    /// 每层叠一次加一,各格的弹簧动画认它;`cascadeActiveRow` 是那一次的当前句,各格按离它几行算晚多久出发。
+    @State private var cascadeGeneration = 0
+    @State private var cascadeActiveRow = -1
+    @State private var cascadeTracker = LyricCascadeTracker()
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     /// 这次亲手拖动开始时的滚动位置。往上翻过 `chromeCollapseScrollDistance` 才收起控件:
@@ -13896,6 +13930,8 @@ struct LyricsScrollView: View {
             isPinchingLyrics = false
             userScrollStartOffsetY = nil
             lineAutoFollowResumeTask?.cancel()
+            cascadeOffset = 0
+            cascadeTracker.lastCascadeAt = .distantPast
         }
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -14052,10 +14088,14 @@ struct LyricsScrollView: View {
                 .overlay(alignment: .top) {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y
-                } action: { _, offsetY in
-                    collapseChromeIfScrolledUp(offsetY: offsetY)
+                .onScrollGeometryChange(for: LyricScrollMetrics.self) { geometry in
+                    LyricScrollMetrics(
+                        offsetY: geometry.contentOffset.y,
+                        viewportHeight: geometry.containerSize.height
+                    )
+                } action: { _, metrics in
+                    cascadeTracker.metrics = metrics
+                    collapseChromeIfScrolledUp(offsetY: metrics.offsetY)
                 }
                 .onScrollPhaseChange { oldPhase, newPhase, context in
                     trackUserScrollStart(
@@ -14078,7 +14118,7 @@ struct LyricsScrollView: View {
                         break
                     }
                 }
-                .onChange(of: playbackScrollTarget) { _, target in
+                .onChange(of: playbackScrollTarget) { previous, target in
                     guard isSceneActive,
                           !isRestoringVisualPosition,
                           !isPinchingLyrics,
@@ -14087,7 +14127,7 @@ struct LyricsScrollView: View {
                     // 否则刚拖到想看的位置又被自动 scrollTo 弹回, 等同不能浏览。
                     guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
-                    scroll(to: target, proxy: proxy, animated: true)
+                    scroll(to: target, proxy: proxy, animated: true, following: previous)
                 }
                 .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
@@ -14152,10 +14192,14 @@ struct LyricsScrollView: View {
                 .overlay(alignment: .top) {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y
-                } action: { _, offsetY in
-                    collapseChromeIfScrolledUp(offsetY: offsetY)
+                .onScrollGeometryChange(for: LyricScrollMetrics.self) { geometry in
+                    LyricScrollMetrics(
+                        offsetY: geometry.contentOffset.y,
+                        viewportHeight: geometry.containerSize.height
+                    )
+                } action: { _, metrics in
+                    cascadeTracker.metrics = metrics
+                    collapseChromeIfScrolledUp(offsetY: metrics.offsetY)
                 }
                 .onScrollPhaseChange { oldPhase, newPhase, context in
                     trackUserScrollStart(
@@ -14176,14 +14220,14 @@ struct LyricsScrollView: View {
                         break
                     }
                 }
-                .onChange(of: playbackScrollTarget) { _, target in
+                .onChange(of: playbackScrollTarget) { previous, target in
                     guard isSceneActive,
                           !isRestoringVisualPosition,
                           !isPinchingLyrics,
                           let target,
                           Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
-                    scroll(to: target, proxy: proxy, animated: true)
+                    scroll(to: target, proxy: proxy, animated: true, following: previous)
                 }
                 .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
@@ -14406,12 +14450,19 @@ struct LyricsScrollView: View {
         )
     }
 
+    /// - Parameter previous: 自动跟随换句时上一次的目标。给了且选的是「层叠弹性」时先试层叠,
+    ///   条件不满足(间奏、跳得远、换得太快、省电……)照旧整体平滑滚动。
     private func scroll(
         to target: LyricsScrollTarget,
         proxy: ScrollViewProxy,
-        animated: Bool
+        animated: Bool,
+        following previous: LyricsScrollTarget? = nil
     ) {
         let resolvedTarget = lazyRowScrollTarget(for: target)
+        if animated, let previous,
+           cascadeScroll(from: previous, to: target, resolvedTarget: resolvedTarget, proxy: proxy) {
+            return
+        }
         let update = {
             proxy.scrollTo(
                 resolvedTarget,
@@ -14425,6 +14476,83 @@ struct LyricsScrollView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction, update)
         }
+    }
+
+    private var lyricsMotion: PlayerLyricsMotion {
+        PlayerLyricsMotion(rawValue: lyricsMotionRawValue) ?? .defaultValue
+    }
+
+    /// 选了「层叠弹性」且是一首歌那样的短列表(上千行的文字稿走惰性排版,照旧整体滚动)。
+    private var usesCascadeStyle: Bool {
+        lyricsMotion == .cascade && !usesLazyRows
+    }
+
+    /// 层叠换句:整份歌词瞬间滚到位、各格先补回滚动差(看上去一动不动),等这一帧画出来,
+    /// 各格再按离当前句几行晚一点以弹簧回到原位 —— 唱过的和当前句先走,下面一行接一行跟上。
+    /// 只在一句接一句地往下走时做;条件不满足返回 false,由调用方照旧整体平滑滚动。
+    private func cascadeScroll(
+        from previous: LyricsScrollTarget,
+        to target: LyricsScrollTarget,
+        resolvedTarget: LyricsScrollTarget,
+        proxy: ScrollViewProxy
+    ) -> Bool {
+        guard usesCascadeStyle,
+              !reduceMotion,
+              !isManuallyBrowsingLyrics,
+              !isPinchingLyrics,
+              case .line = previous,
+              case .line(let targetID) = target,
+              activeInterlude == nil,
+              lyrics.indices.contains(currentLineIndex),
+              lyrics[currentLineIndex].id == targetID,
+              let anchorY = rowAnchorYs.values[currentLineIndex],
+              let metrics = cascadeTracker.metrics,
+              !ProcessInfo.processInfo.isLowPowerModeEnabled
+        else { return false }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical: return false
+        default: break
+        }
+        // 自动跟随把这一句的定位点对到视口同一比例处,滚完的位置就是这一句的定位点减去那一截。
+        let distance = anchorY - metrics.viewportHeight * Self.lyricsVisualAnchor - metrics.offsetY
+        let now = Date()
+        guard LyricCascadeMotionPolicy.shouldCascade(
+            scrollDistance: Double(distance),
+            viewportHeight: Double(metrics.viewportHeight),
+            sinceLastCascade: now.timeIntervalSince(cascadeTracker.lastCascadeAt)
+        ) else { return false }
+        cascadeTracker.lastCascadeAt = now
+        let activeRow = currentLineIndex
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            cascadeOffset = distance
+            proxy.scrollTo(resolvedTarget, anchor: UnitPoint(x: 0.5, y: Self.lyricsVisualAnchor))
+        }
+        // 两次改动并进同一帧就成了一下跳到位,等补偏移的那一帧画出来再放开。
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(20))
+            cascadeActiveRow = activeRow
+            cascadeGeneration &+= 1
+            cascadeOffset = 0
+        }
+        return true
+    }
+
+    /// 这一格回原位用的弹簧;不是层叠时为 nil(补偏移那一下也不动画,见 `cascadeScroll`)。
+    private func cascadeAnimation(forRow index: Int) -> Animation? {
+        guard usesCascadeStyle else { return nil }
+        return .spring(
+            response: LyricCascadeMotionPolicy.springResponse,
+            dampingFraction: LyricCascadeMotionPolicy.springDampingFraction
+        )
+        .delay(LyricCascadeMotionPolicy.delay(forRow: index, activeRow: cascadeActiveRow))
+    }
+
+    /// 层叠时离当前句越远越淡;拖着浏览时不淡,方便看清要找的那句。
+    private func cascadeDepthOpacity(forRow index: Int) -> Double {
+        guard usesCascadeStyle, !isManuallyBrowsingLyrics else { return 1 }
+        return LyricCascadeMotionPolicy.depthOpacity(forRow: index, activeRow: currentLineIndex)
     }
 
     /// 间奏时上一句下面那三个点:和那一句同一侧对齐,跟着间奏的时间依次点亮(#198),
@@ -14585,6 +14713,9 @@ struct LyricsScrollView: View {
                 .id(LyricsScrollTarget.interlude(afterLineID: line.id))
             }
         }
+        // 层叠换句的位移挂在整格(含译文、和声、间奏点)外面、测量定位点之外;平时为 0。
+        .offset(y: usesCascadeStyle ? cascadeOffset : 0)
+        .animation(cascadeAnimation(forRow: index), value: cascadeGeneration)
     }
 
     /// 第一句前的前奏够长时,第一句上面那一行点(只在前奏里展开);对齐跟第一句。
@@ -14898,7 +15029,7 @@ struct LyricsScrollView: View {
                 ? 1.0
                 : (index < currentLineIndex
                     ? appearance.pastLyricOpacity
-                    : appearance.futureLyricOpacity),
+                    : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index),
             scale: index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
         )
     }
@@ -14920,7 +15051,7 @@ struct LyricsScrollView: View {
             ? 1.0
             : (index < currentLineIndex
                 ? appearance.pastLyricOpacity
-                : appearance.futureLyricOpacity)
+                : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index)
         return RowActivity(
             opacity: opacity,
             scale: isActive ? Self.lyricsActiveVisualScale : 1.0
@@ -14943,7 +15074,7 @@ struct LyricsScrollView: View {
         CGFloat(LyricDepthEffectPolicy.blurRadius(
             forRow: index,
             activeRow: currentLineIndex,
-            isEnabled: blursInactiveLyrics
+            isEnabled: (blursInactiveLyrics || usesCascadeStyle)
                 && !reduceTransparency
                 && !isManuallyBrowsingLyrics
                 && !isPinchingLyrics,

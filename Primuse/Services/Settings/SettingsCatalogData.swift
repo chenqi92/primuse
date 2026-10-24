@@ -79,6 +79,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.gradientEnd", titleKey: "player_lyrics_gradient_end_color", iosPage: .lyrics, macPage: nil, anchor: "lyrics.colorMode"),
         SettingDefinition(id: "lyrics.alignment", titleKey: "player_lyrics_alignment", iosPage: .lyrics, macPage: nil),
         SettingDefinition(id: "lyrics.blurInactive", titleKey: "player_blur_inactive_lyrics", iosPage: .lyrics, macPage: nil),
+        SettingDefinition(id: "lyrics.motion", titleKey: "player_lyrics_motion", iosPage: .lyrics, macPage: nil, keywords: ["lyrics animation", "lyrics scroll", "cascade", "spring", "bounce", "stagger", "karaoke", "歌词动效", "歌词滚动", "换句", "层叠", "弹性", "弹簧", "错落", "卡拉OK"]),
         SettingDefinition(id: "lyrics.tapToSeek", titleKey: "player_tap_lyrics_to_seek", iosPage: .lyrics, macPage: .lyrics),
         SettingDefinition(id: "lyrics.interludeDots", titleKey: "player_lyrics_interlude_dots", iosPage: .lyrics, macPage: .lyrics, keywords: ["interlude", "dots", "ellipsis", "intro", "instrumental", "heartbeat", "间奏", "前奏", "三个点", "省略号", "间隔", "心跳"]),
         SettingDefinition(id: "lyrics.spokenWordWordHighlight", titleKey: "spoken_word_transcript_word_highlight", iosPage: .lyrics, macPage: nil, keywords: ["transcript", "subtitle", "highlight", "word", "sentence", "podcast", "audiobook", "文字稿", "字幕", "逐字", "整句", "高亮", "播客", "有声书"]),

@@ -128,6 +128,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.lyricsFontKey,
             PlayerAppearancePreferences.tapLyricsToSeekKey,
             PlayerAppearancePreferences.showsLyricsInterludeKey,
+            PlayerAppearancePreferences.lyricsMotionKey,
         ] {
             XCTAssertTrue(keys.contains(synced), synced)
         }

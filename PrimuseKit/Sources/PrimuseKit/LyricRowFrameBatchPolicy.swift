@@ -56,6 +56,64 @@ public enum LyricDepthEffectPolicy {
     }
 }
 
+/// 歌词「层叠弹性」滚动：换句时不再整份歌词一起平移，而是每一行各自像弹簧一样跟上来 ——
+/// 唱过的几句和当前句先走，往下的每一行比上一行晚一点出发，读起来是一行接一行地落位；
+/// 离当前句越远越淡（虚化沿用 `LyricDepthEffectPolicy`）。
+///
+/// 这里只算每一行晚多久出发、淡到几成、这一次换句该不该走层叠；位移由界面做。强调只看行与
+/// 当前句隔了几行，不看哪个字唱多久。
+public enum LyricCascadeMotionPolicy {
+    /// 当前句往下，每一行比上一行晚出发多久。
+    public static let rowDelayStep: TimeInterval = 0.045
+    /// 最多晚几行：再往下的行和这一行同时出发，长歌词底下不会拖出一长串尾巴。
+    public static let maximumDelayedRows = 8
+    /// 每一行跟上来用的弹簧（SwiftUI `spring(response:dampingFraction:)` 的两个参数）：
+    /// 只过冲一点，约半秒落稳。
+    public static let springResponse: Double = 0.58
+    public static let springDampingFraction: Double = 0.82
+    /// 两次层叠至少隔多久。上一次还没落稳又换句（快歌、Rap）时这一次照旧整体平滑滚动，
+    /// 免得还在路上的行被拽回去重来。
+    public static let minimumInterval: TimeInterval = 0.9
+    /// 一次滚动超过视口这么多（拖动进度条、跳到很远的一句）就不走层叠，直接整体滚过去。
+    public static let maximumViewportFraction = 0.75
+    /// 离当前句每远一行淡多少，以及最淡淡到几成。当前句与上下相邻的一行不淡。
+    public static let depthOpacityStep = 0.14
+    public static let minimumDepthOpacity = 0.4
+
+    /// 这一行晚多久出发。当前句和它上面（唱过的）几行不等。
+    public static func delay(forRow row: Int, activeRow: Int) -> TimeInterval {
+        guard activeRow >= 0 else { return 0 }
+        let distance = row - activeRow
+        guard distance > 0 else { return 0 }
+        return Double(min(distance, maximumDelayedRows)) * rowDelayStep
+    }
+
+    /// 这一行在原有明暗上再乘多少。没有当前句（前奏、没同步）时都是 1。
+    public static func depthOpacity(forRow row: Int, activeRow: Int) -> Double {
+        guard activeRow >= 0, row >= 0 else { return 1 }
+        let distance = abs(row - activeRow)
+        guard distance > 1 else { return 1 }
+        return max(minimumDepthOpacity, 1 - depthOpacityStep * Double(distance - 1))
+    }
+
+    /// 这次换句走不走层叠。
+    /// - Parameters:
+    ///   - scrollDistance: 这次要滚多远（内容偏移的差，往上滚为正）。
+    ///   - viewportHeight: 歌词视口的高度。
+    ///   - sinceLastCascade: 离上一次层叠过了多久。
+    public static func shouldCascade(
+        scrollDistance: Double,
+        viewportHeight: Double,
+        sinceLastCascade: TimeInterval
+    ) -> Bool {
+        guard scrollDistance.isFinite, viewportHeight.isFinite, viewportHeight > 0 else { return false }
+        let distance = abs(scrollDistance)
+        return distance >= 1
+            && distance <= viewportHeight * maximumViewportFraction
+            && sinceLastCascade >= minimumInterval
+    }
+}
+
 public enum LyricPlaybackPositionPolicy {
     public enum ScrollTarget: Equatable, Sendable {
         case line(Int)
