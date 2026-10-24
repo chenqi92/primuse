@@ -15516,7 +15516,10 @@ final class MusicLibrary {
             directory: folders.directory(sourceID: song.sourceID, filePath: song.filePath),
             albumTitle: song.albumTitle,
             albumArtistName: song.albumArtistName,
-            trackArtistName: song.artistName
+            trackArtistName: song.artistName,
+            year: song.year,
+            discNumber: song.discNumber,
+            trackNumber: song.trackNumber
         )
     }
 
@@ -16061,7 +16064,7 @@ final class MusicLibrary {
         var hasher = SHA256()
         var input = Data()
         input.reserveCapacity(1 << 16)
-        appendStableString("derived-index-v6", to: &input)
+        appendStableString("derived-index-v7", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
         appendStableString(configuration.cacheSignature, to: &input)
 
@@ -16075,6 +16078,9 @@ final class MusicLibrary {
             appendStableString(song.albumArtistName, to: &input)
             appendStableString(song.albumTitle, to: &input)
             appendStableInteger(song.year.map(Int64.init) ?? Int64.min, to: &input)
+            // 合唱并进主唱那张时用来排除同名的另一张(#338)。
+            appendStableInteger(song.discNumber.map(Int64.init) ?? Int64.min, to: &input)
+            appendStableInteger(song.trackNumber.map(Int64.init) ?? Int64.min, to: &input)
             appendStableString(song.genre, to: &input)
             appendStableInteger(song.duration.sanitizedDuration.bitPattern, to: &input)
             appendStableString(song.sourceID, to: &input)

@@ -166,6 +166,24 @@ final class TVMetadataParityTests: XCTestCase {
                        "Compilation Artist")
     }
 
+    /// #338 电视端:电视自己读标签建的行,合唱那首也并进主唱那张。
+    func testDuetReadOnTVJoinsTheSoloAlbum() {
+        let rows = ["李荣浩", "李荣浩", "李荣浩 & 张惠妹"].enumerated().map { index, singer in
+            var metadata = FileMetadataReader.Metadata()
+            metadata.artist = singer
+            metadata.albumTitle = "纵横四海"
+            metadata.trackNumber = index + 1
+            var base = song()
+            base.id = "track-\(index)"
+            return TVMetadataEnricher.applying(metadata, to: base, duration: 180)
+        }
+        XCTAssertEqual(rows.last?.albumArtistName, "李荣浩 & 张惠妹")
+        let result = MusicLibrary.computeAlbumsAndArtists(songs: rows)
+        XCTAssertEqual(result.albums.count, 1)
+        XCTAssertEqual(result.albums.first?.artistName, "李荣浩")
+        XCTAssertEqual(result.albums.first?.songCount, 3)
+    }
+
     func testMissingEmbeddedTitleKeepsExistingLibraryTitle() {
         var existing = song()
         existing.title = "Correct library title"

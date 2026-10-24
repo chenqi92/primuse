@@ -10,7 +10,10 @@ struct AlbumArtistInferencePolicyTests {
         directory: String? = "/music/ost",
         albumTitle: String? = "鸣潮 原声带",
         albumArtistName: String? = nil,
-        trackArtistName: String? = nil
+        trackArtistName: String? = nil,
+        year: Int? = nil,
+        disc: Int? = nil,
+        number: Int? = nil
     ) -> AlbumArtistInferencePolicy.Track {
         AlbumArtistInferencePolicy.Track(
             id: id,
@@ -18,8 +21,26 @@ struct AlbumArtistInferencePolicyTests {
             directory: directory,
             albumTitle: albumTitle,
             albumArtistName: albumArtistName,
-            trackArtistName: trackArtistName
+            trackArtistName: trackArtistName,
+            year: year,
+            discNumber: disc,
+            trackNumber: number
         )
+    }
+
+    /// 服务器源的一张专辑:路径都一样,没有文件夹替它作证,也就没有多数票。
+    private func flat(
+        _ id: String,
+        _ artist: String?,
+        album: String = "纵横四海",
+        albumArtist: String? = nil,
+        year: Int? = nil,
+        disc: Int? = nil,
+        number: Int? = nil
+    ) -> AlbumArtistInferencePolicy.Track {
+        track(id, sourceID: "server", directory: "/songs", albumTitle: album,
+              albumArtistName: albumArtist, trackArtistName: artist,
+              year: year, disc: disc, number: number)
     }
 
     /// A lone track in a second folder. It makes the source directory
@@ -388,5 +409,146 @@ struct AlbumArtistInferencePolicyTests {
                 "\(path)"
             )
         }
+    }
+
+    // MARK: - 合唱并进主唱那张 (#338)
+
+    /// 《纵横四海》没有专辑艺人标签,合唱那首写的是「李荣浩 & 张惠妹」,按曲目艺人分组
+    /// 就自成一张。服务器源没有多数票,原来救不回来。
+    @Test func aDuetOnAFlatSourceFoldsIntoTheSoloCredit() {
+        let tracks = [
+            flat("1", "李荣浩", number: 1),
+            flat("2", "李荣浩", number: 2),
+            flat("3", "李荣浩 & 张惠妹", number: 3),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == ["3": "李荣浩"])
+    }
+
+    /// 文件夹源两首歌一比一凑不出多数,合唱照样并进去。
+    @Test func aDuetFoldsWhereTheFolderVoteTies() {
+        let tracks = [
+            track("1", albumTitle: "纵横四海", trackArtistName: "李荣浩"),
+            track("2", albumTitle: "纵横四海", trackArtistName: "李荣浩 feat. 张惠妹"),
+            neighbourFolderTrack,
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == ["2": "李荣浩"])
+    }
+
+    @Test func everyCollaborationSpellingFoldsAndChainsEndAtTheSoloCredit() {
+        let tracks = [
+            flat("1", "A"),
+            flat("2", "A (ft. B)"),
+            flat("3", "A、C"),
+            flat("4", "A x D"),
+            flat("5", "A／E；F"),
+            flat("6", "A & B & C"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == [
+            "2": "A", "3": "A", "4": "A", "5": "A", "6": "A",
+        ])
+    }
+
+    /// 乐队名本身带「&」:只会并进同一张里一个它包含的署名,所以不会被拆坏。
+    @Test func aBandNameWithASeparatorKeepsItsOwnCredit() {
+        let tracks = [
+            flat("1", "Simon & Garfunkel", album: "Bookends"),
+            flat("2", "Simon & Garfunkel", album: "Bookends"),
+            flat("3", "Simon & Garfunkel feat. Guest", album: "Bookends"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == ["3": "Simon & Garfunkel"])
+    }
+
+    @Test func ambiguousAllDuetAndUnrelatedCreditsStayApart() {
+        // 「A & B」旁边 A 和 B 都在:并给谁都说不清。
+        let ambiguous = [flat("1", "A"), flat("2", "B"), flat("3", "A & B")]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: ambiguous).isEmpty)
+
+        // 整张都是合唱、没有一首纯主唱:保持原样。
+        let allDuets = [flat("1", "A & B"), flat("2", "A & C")]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: allDuets).isEmpty)
+
+        // 不同歌手的同名专辑没有包含关系。
+        let unrelated = [flat("1", "A"), flat("2", "B & C")]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: unrelated).isEmpty)
+    }
+
+    @Test func albumArtistTagsDecideBeforeCreditsAreCompared() {
+        // 一个显式标签:整张跟它走,合唱也一样。
+        let tagged = [
+            flat("1", "A", albumArtist: "Label"),
+            flat("2", "A"),
+            flat("3", "A & B"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tagged) == [
+            "2": "Label", "3": "Label",
+        ])
+
+        // 标签互相冲突是故意分开的,合唱也不动。
+        let conflicting = [
+            flat("1", "A", albumArtist: "Label A"),
+            flat("2", "B", albumArtist: "Label B"),
+            flat("3", "A"),
+            flat("4", "A & C"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: conflicting).isEmpty)
+    }
+
+    /// 同一位歌手两张同名专辑,一张署名「A」一张「A & 乐队」:年份不同或者曲号撞车就是两张。
+    @Test func aDifferentYearOrATakenTrackNumberMeansAnotherRelease() {
+        let otherYear = [
+            flat("1", "A", album: "Live", year: 2019),
+            flat("2", "A", album: "Live", year: 2019),
+            flat("3", "A & The Band", album: "Live", year: 2023),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: otherYear).isEmpty)
+
+        let takenNumber = [
+            flat("1", "A", album: "Live", number: 1),
+            flat("2", "A", album: "Live", number: 2),
+            flat("3", "A & The Band", album: "Live", number: 1),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: takenNumber).isEmpty)
+
+        // 第二碟的第 1 首不算撞车;年份对得上也照并。
+        let secondDisc = [
+            flat("1", "A", album: "Live", year: 2019, disc: 1, number: 1),
+            flat("2", "A & The Band", album: "Live", year: 2019, disc: 2, number: 1),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: secondDisc) == ["2": "A"])
+
+        // 两首合唱同一个曲号:先到的并进去,后一首留下。
+        let twoDuets = [
+            flat("1", "A", album: "Live", number: 1),
+            flat("2", "A & B", album: "Live", number: 2),
+            flat("3", "A & C", album: "Live", number: 2),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: twoDuets) == ["2": "A"])
+    }
+
+    /// 合唱并进主唱那张就定案了,和多数票一样,不必回文件里再读一遍。
+    @Test func aFoldedDuetNeedsNoReread() {
+        let duet = [
+            track("1", albumTitle: "纵横四海", trackArtistName: "李荣浩"),
+            track("2", albumTitle: "纵横四海", trackArtistName: "李荣浩 & 张惠妹"),
+        ]
+        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: duet).isEmpty)
+
+        let ambiguous = [
+            track("1", albumTitle: "合唱", trackArtistName: "A"),
+            track("2", albumTitle: "合唱", trackArtistName: "B"),
+            track("3", albumTitle: "合唱", trackArtistName: "A & B"),
+        ]
+        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: ambiguous) == ["1", "2", "3"])
+    }
+
+    @Test func creditNamesSplitCollaborationsOnly() {
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "李荣浩 & 张惠妹") == ["李荣浩", "张惠妹"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "A feat. B") == ["A", "B"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "A (Feat. B)") == ["A", "B"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "A ft B") == ["A", "B"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "A x B") == ["A", "B"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "Daft Punk") == ["Daft Punk"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "Charli xcx") == ["Charli xcx"])
+        #expect(AlbumArtistInferencePolicy.creditNames(in: "Elvis Presley") == ["Elvis Presley"])
     }
 }

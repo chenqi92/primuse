@@ -31,6 +31,12 @@ public enum AlbumArtistInferencePolicy {
         public let albumTitle: String?
         public let albumArtistName: String?
         public let trackArtistName: String?
+        /// Only consulted before folding a co-credited track into the solo
+        /// credit beside it (`creditContainmentTargets`): a different year or
+        /// a track number already taken there means a different release.
+        public let year: Int?
+        public let discNumber: Int?
+        public let trackNumber: Int?
 
         public init(
             id: String,
@@ -38,7 +44,10 @@ public enum AlbumArtistInferencePolicy {
             directory: String?,
             albumTitle: String?,
             albumArtistName: String?,
-            trackArtistName: String?
+            trackArtistName: String?,
+            year: Int? = nil,
+            discNumber: Int? = nil,
+            trackNumber: Int? = nil
         ) {
             self.id = id
             self.sourceID = sourceID
@@ -46,6 +55,9 @@ public enum AlbumArtistInferencePolicy {
             self.albumTitle = albumTitle
             self.albumArtistName = albumArtistName
             self.trackArtistName = trackArtistName
+            self.year = year
+            self.discNumber = discNumber
+            self.trackNumber = trackNumber
             let albumArtist = AlbumArtistInferencePolicy.trimmed(albumArtistName)
             let trackArtist = AlbumArtistInferencePolicy.trimmed(trackArtistName)
             trimmedAlbumTitle = AlbumArtistInferencePolicy.trimmed(albumTitle)
@@ -72,12 +84,25 @@ public enum AlbumArtistInferencePolicy {
     /// folds the string.
     private struct GroupingKeys {
         private var keyBySpelling: [String: String] = [:]
+        private var creditsBySpelling: [String: Set<String>] = [:]
 
         mutating func key(_ spelling: String) -> String {
             if let key = keyBySpelling[spelling] { return key }
             let key = ArtistIdentityPolicy.groupingKey(spelling)
             keyBySpelling[spelling] = key
             return key
+        }
+
+        /// The grouping keys of the artists one credit names, see `creditNames(in:)`.
+        mutating func credits(_ spelling: String) -> Set<String> {
+            if let credits = creditsBySpelling[spelling] { return credits }
+            var credits: Set<String> = []
+            for name in AlbumArtistInferencePolicy.creditNames(in: spelling) {
+                credits.insert(key(name))
+            }
+            if credits.isEmpty { credits.insert(key(spelling)) }
+            creditsBySpelling[spelling] = credits
+            return credits
         }
     }
 
@@ -138,7 +163,10 @@ public enum AlbumArtistInferencePolicy {
         var keys = GroupingKeys()
         for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
         where scope.count >= 2 {
-            guard let target = target(for: scope, keys: &keys) else { continue }
+            guard let target = target(for: scope, keys: &keys) else {
+                result.merge(creditContainmentTargets(for: scope, keys: &keys)) { _, new in new }
+                continue
+            }
             for track in scope where track.effectiveArtist != target {
                 result[track.id] = target
             }
@@ -152,9 +180,15 @@ public enum AlbumArtistInferencePolicy {
             !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
         }
         guard !unfoldered.isEmpty else { return result }
+        // Folding a duet into the solo credit beside it needs no majority, so
+        // it is open to these scopes too: it only ever joins credits that
+        // already share an artist, never an album by somebody else.
         for scope in scopes(for: unfoldered, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
-            guard let target = target(for: scope, explicitTagsOnly: true, keys: &keys) else { continue }
+            guard let target = target(for: scope, explicitTagsOnly: true, keys: &keys) else {
+                result.merge(creditContainmentTargets(for: scope, keys: &keys)) { _, new in new }
+                continue
+            }
             for track in scope where track.effectiveArtist != target {
                 result[track.id] = target
             }
@@ -196,6 +230,15 @@ public enum AlbumArtistInferencePolicy {
                 keys.insert(groupingKeys.key(value))
             }
             guard keys.count >= 2, target(for: scope, keys: &groupingKeys) == nil else { continue }
+            // A duet folded into the solo credit beside it settles the album as
+            // firmly as a majority does: rereading cannot change the grouping.
+            let folded = creditContainmentTargets(for: scope, keys: &groupingKeys)
+            var settled: Set<String> = []
+            for track in scope {
+                guard let value = folded[track.id] ?? track.effectiveArtist else { continue }
+                settled.insert(groupingKeys.key(value))
+            }
+            guard settled.count >= 2 else { continue }
             for track in scope { result.insert(track.id) }
         }
         return result
@@ -277,6 +320,119 @@ public enum AlbumArtistInferencePolicy {
         guard tally.keyOrder.count >= 2 || missingCount > 0 else { return nil }
         return tally.spelling(forKeyAt: top)
     }
+
+    /// Track ID → the credit a co-credited track folds into, for a scope the
+    /// rules above leave split (#338). An album without album-artist tags
+    /// keys each track by its own artist, so the duet on 李荣浩's 《纵横四海》,
+    /// credited 「李荣浩 & 张惠妹」, became a same-titled album of its own.
+    ///
+    /// A credit folds into a base credit of the scope — one that contains no
+    /// other credit there, the solo artist or the band — whose artists are a
+    /// strict subset of its own, and only when exactly one base credit fits:
+    /// 「A & B」 beside both 「A」 and 「B」 stays where it is. A band whose name
+    /// holds a separator is safe for the same reason: it only ever takes in a
+    /// credit of the same album that contains it. Albums where every track is
+    /// a duet keep their credits.
+    ///
+    /// Nothing moves while any track carries an album-artist tag: one tag
+    /// already decides the scope above, and several disagree on purpose. A
+    /// fold is refused when the two credits' years differ or a track number
+    /// is taken on both sides — same-titled releases, not one album.
+    private static func creditContainmentTargets(
+        for scope: [Track],
+        keys: inout GroupingKeys
+    ) -> [String: String] {
+        guard !scope.contains(where: \.hasExplicitAlbumArtist) else { return [:] }
+        var tally = Tally()
+        var tracksByKey: [String: [Track]] = [:]
+        for track in scope {
+            guard let value = track.effectiveArtist else { continue }
+            let key = keys.key(value)
+            tally.add(value, key: key)
+            tracksByKey[key, default: []].append(track)
+        }
+        guard tally.keyOrder.count >= 2 else { return [:] }
+
+        var credits: [String: Set<String>] = [:]
+        for key in tally.keyOrder {
+            guard let spelling = tally.spelling(forKey: key) else { continue }
+            credits[key] = keys.credits(spelling)
+        }
+        func contains(_ key: String, _ other: String) -> Bool {
+            guard let own = credits[key], let inner = credits[other] else { return false }
+            return inner.count < own.count && inner.isSubset(of: own)
+        }
+        // A one-artist credit contains nothing, so only the collaborations are
+        // compared: a catch-all title such as 「[Unknown Album]」 can hold
+        // thousands of artists and only a handful of duets.
+        let collaborations = tally.keyOrder.filter { (credits[$0]?.count ?? 0) >= 2 }
+        guard !collaborations.isEmpty else { return [:] }
+        var nonBases: Set<String> = []
+        for key in collaborations where tally.keyOrder.contains(where: { contains(key, $0) }) {
+            nonBases.insert(key)
+        }
+        var targetByKey: [String: String] = [:]
+        for key in collaborations where nonBases.contains(key) {
+            var fitting: String?
+            var ambiguous = false
+            for other in tally.keyOrder where !nonBases.contains(other) && contains(key, other) {
+                if fitting == nil { fitting = other } else { ambiguous = true; break }
+            }
+            if !ambiguous, let fitting { targetByKey[key] = fitting }
+        }
+        guard !targetByKey.isEmpty else { return [:] }
+
+        var result: [String: String] = [:]
+        var takenNumbers: [String: Set<DiscTrack>] = [:]
+        for key in tally.keyOrder {
+            guard let target = targetByKey[key],
+                  let moving = tracksByKey[key],
+                  let staying = tracksByKey[target],
+                  let spelling = tally.spelling(forKey: target) else { continue }
+            let movingYears = Set(moving.compactMap(\.year))
+            let stayingYears = Set(staying.compactMap(\.year))
+            if !movingYears.isEmpty, !stayingYears.isEmpty, movingYears.isDisjoint(with: stayingYears) {
+                continue
+            }
+            var taken = takenNumbers[target] ?? Set(staying.compactMap(DiscTrack.init))
+            let incoming = moving.compactMap(DiscTrack.init)
+            guard taken.isDisjoint(with: incoming) else { continue }
+            taken.formUnion(incoming)
+            takenNumbers[target] = taken
+            for track in moving { result[track.id] = spelling }
+        }
+        return result
+    }
+
+    private struct DiscTrack: Hashable {
+        let disc: Int
+        let track: Int
+
+        init?(_ track: Track) {
+            guard let number = track.trackNumber, number > 0 else { return nil }
+            self.disc = track.discNumber ?? 1
+            self.track = number
+        }
+    }
+
+    /// The artists one credit string names, split on the separators a
+    /// collaboration is written with: 「李荣浩 & 张惠妹」, 「A feat. B」,
+    /// 「A (ft. B)」, 「A、B」, 「A x B」. Only used to compare credits inside
+    /// one album title; artist pages keep their own splitting rules.
+    static func creditNames(in credit: String) -> [String] {
+        let range = NSRange(credit.startIndex..., in: credit)
+        let marked = creditSeparator.stringByReplacingMatches(
+            in: credit,
+            range: range,
+            withTemplate: "\u{1F}"
+        )
+        return marked.split(separator: "\u{1F}").compactMap { trimmed(String($0)) }
+    }
+
+    private static let creditSeparator = try! NSRegularExpression(
+        pattern: #"[&＆,，、/／;；×()（）\[\]【】]|\b(?:feat|ft|featuring|vs)\b\.?|\s[xX]\s"#,
+        options: [.caseInsensitive]
+    )
 
     /// Counts grouping keys in first-seen order and remembers, per key, the
     /// most frequent spelling (ties resolved by the spelling seen first).

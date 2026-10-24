@@ -483,6 +483,22 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertEqual(MusicLibrary.computeAlbumsAndArtists(songs: songs).albums.count, 2)
     }
 
+    /// #338:《纵横四海》没有专辑艺人标签,合唱那首按曲目艺人自成一张。
+    func testDuetWithoutAlbumArtistJoinsTheSoloAlbum() {
+        // 扫描时逐首算的专辑 ID 还是拆开的,整库重建要把合唱那首纠正过来。
+        let songs = ["李荣浩", "李荣浩", "李荣浩 & 张惠妹"].enumerated().map { index, singer in
+            var row = song(id: "\(index)", metadata: .init(artist: singer, albumTitle: "纵横四海"))
+            MusicLibrary.fillDerivedIDs(&row)
+            return row
+        }
+        XCTAssertEqual(Set(songs.compactMap(\.albumID)).count, 2)
+        let result = MusicLibrary.computeAlbumsAndArtists(songs: songs)
+        XCTAssertEqual(result.albums.count, 1)
+        XCTAssertEqual(result.albums.first?.artistName, "李荣浩")
+        XCTAssertEqual(result.albums.first?.songCount, 3)
+        XCTAssertEqual(result.albumIDCorrections.keys.sorted(), ["2"])
+    }
+
     private func song(id: String, metadata: FileMetadataReader.Metadata) -> Song {
         Song(
             id: id, title: id, albumTitle: metadata.albumTitle,
