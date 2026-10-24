@@ -3385,6 +3385,10 @@
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
 "player_album_in_subtitle" = "歌名下显示专辑名";
 "player_album_in_subtitle_description" = "关掉后歌名下面只写艺人，长专辑名不会再把这一行挤得截断或滚动；点这一行照样能去专辑。只管音乐，有声书和播客照旧写书名、节目名。";
+"player_volume_style_title" = "音量条样式";
+"player_volume_style_system" = "系统样式";
+"player_volume_style_matches_progress" = "跟进度条一致";
+"player_volume_style_footer" = "系统样式是细轨道加圆钮。选「跟进度条一致」时，音量条和上面的进度条用同一种画法：胶囊条、波浪或细线加圆点，发光也跟着进度条的开关，颜色和进度条一样。两种都是按住时加粗。";
 "player_artwork_lyrics" = "封面下显示歌词";
 "player_artwork_lyrics_description" = "不用切到歌词页，在进度条上面就能看到正在唱的那一句。前奏和间奏里显示简短的提示，不会提前露出下一句。打开后封面会按需缩小一点，给歌词让出位置；点歌词进入歌词页。";
 "player_artwork_lyrics_lines" = "歌词行数";

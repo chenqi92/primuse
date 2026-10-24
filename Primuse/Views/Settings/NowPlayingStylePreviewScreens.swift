@@ -465,27 +465,11 @@ struct AudiobookPreviewScreen: View {
     /// 和 `AudiobookProgressBar` 同一个取法:打开了「有声书也用」时三种都照音乐播放页画,
     /// 否则只有选了波浪才换掉自己那根细线。
     private var trackStyle: ProgressSlider.TrackStyle {
-        let selected = PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
-        if followsProgressStyle {
-            var track = ProgressSlider.TrackStyle.forProgressStyle(selected, glows: progressGlows)
-            track.trackColor = style.track
-            return track
-        }
-        if selected == .wave {
-            return ProgressSlider.TrackStyle(
-                restingHeight: 3,
-                draggingHeight: 5,
-                trackColor: style.track,
-                isWave: true,
-                glows: progressGlows
-            )
-        }
-        return ProgressSlider.TrackStyle(
-            restingHeight: 2,
-            draggingHeight: 4,
-            trackColor: style.track,
-            knobDiameter: 9,
-            glows: progressGlows
+        AudiobookProgressBar.trackStyle(
+            selected: PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+            glows: progressGlows,
+            followsProgressStyle: followsProgressStyle,
+            trackColor: style.track
         )
     }
 
@@ -557,7 +541,12 @@ struct AudiobookPreviewScreen: View {
 
                     if style.isNocturne {
                         if showsVolumeBar {
-                            PreviewVolumeRow(primary: style.primary, iconTint: style.tertiary)
+                            PreviewVolumeRow(
+                                primary: style.primary,
+                                iconTint: style.tertiary,
+                                fillTint: style.control(paper: style.accent),
+                                matchedTrack: trackStyle
+                            )
                                 .padding(.horizontal, 12)
                                 .padding(.top, isShort ? 10 : 16)
                         }
@@ -586,7 +575,12 @@ struct AudiobookPreviewScreen: View {
                         )
                         .padding(.top, 6)
                         if showsVolumeBar {
-                            PreviewVolumeRow(primary: style.primary, iconTint: style.tertiary)
+                            PreviewVolumeRow(
+                                primary: style.primary,
+                                iconTint: style.tertiary,
+                                fillTint: style.control(paper: style.accent),
+                                matchedTrack: trackStyle
+                            )
                                 .padding(.horizontal, 12)
                                 .padding(.top, 4)
                         }
@@ -958,7 +952,7 @@ struct PodcastPreviewScreen: View {
                     .padding(.top, 12 + gap + volumeSlack * 0.3)
 
                 if showsVolumeBar {
-                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary)
+                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary, fillTint: accent)
                         .padding(.horizontal, 26)
                         .padding(.top, 10 + gap)
                 }
@@ -1125,6 +1119,9 @@ struct RadioPreviewScreen: View {
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.radioSkipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.controlTintKey)
+    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @Environment(ThemeService.self) private var theme
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -1134,6 +1131,11 @@ struct RadioPreviewScreen: View {
         let canvas = context.canvas
         let skipStyle = PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
         let radioPlayStyle = PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
+        let radioAccent = nowPlayingPreviewAccent(
+            appearance: appearance,
+            theme: theme,
+            controlTintRawValue: controlTintRawValue
+        )
         let size = canvas.size
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let layout = NowPlayingRadioControlLayout.decode(storage)
@@ -1232,7 +1234,7 @@ struct RadioPreviewScreen: View {
                 .accessibilityHidden(true)
 
                 if showsVolume {
-                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary)
+                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary, fillTint: radioAccent)
                         .frame(maxWidth: 460)
                         .padding(.horizontal, 36)
                         .padding(.top, 14 + gap)

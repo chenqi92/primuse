@@ -527,6 +527,8 @@ private struct PlayerLookSettingsSections: View {
     private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
+    private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
@@ -628,6 +630,22 @@ private struct PlayerLookSettingsSections: View {
                 }
             }
             .settingsAnchor("appearance.volumeBar")
+            // 系统样式(带圆钮)或和上面的进度条同一种画法(#338)。
+            if showsVolumeBar {
+                Picker(selection: Binding(
+                    get: { PlayerAppearancePreferences.volumeBarStyle(rawValue: volumeBarStyleRawValue) },
+                    set: { volumeBarStyleRawValue = $0.rawValue }
+                )) {
+                    ForEach(NowPlayingVolumeBarStyle.allCases, id: \.self) { style in
+                        Text(LocalizedStringKey(style.titleKey)).tag(style)
+                    }
+                } label: {
+                    SettingsInfoLabel("player_volume_style_title") {
+                        Text("player_volume_style_footer")
+                    }
+                }
+                .settingsAnchor("appearance.playerVolumeStyle")
+            }
         }
 
         Section {

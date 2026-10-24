@@ -2635,6 +2635,10 @@
 "player_volume_bar_description" = "Mostrar o controle deslizante de volume no player. Outros controles preenchem naturalmente o espaço disponível quando estão ocultos.";
 "player_album_in_subtitle" = "Mostrar álbum abaixo do título";
 "player_album_in_subtitle_description" = "Desativado, a linha abaixo do título mostra só o artista, então um nome de álbum longo não a corta nem a faz rolar. Tocar na linha ainda leva ao álbum. Só para música; audiolivros e podcasts continuam mostrando o livro ou o programa.";
+"player_volume_style_title" = "Estilo da barra de volume";
+"player_volume_style_system" = "Sistema";
+"player_volume_style_matches_progress" = "Igual ao progresso";
+"player_volume_style_footer" = "Sistema é uma trilha fina com botão. Com «Igual ao progresso», o volume é desenhado como a barra de progresso acima: cápsula, onda ou linha fina com ponto, com o mesmo brilho e cor. As duas ficam mais grossas enquanto você segura.";
 "player_artwork_lyrics" = "Letra abaixo da capa";
 "player_artwork_lyrics_description" = "Mostra a linha que está sendo cantada logo acima da barra de progresso, sem mudar para a tela de letra. Na introdução e nos trechos instrumentais aparece um aviso curto em vez de adiantar a próxima linha. A capa diminui um pouco quando necessário para abrir espaço. Toque na letra para abrir a tela de letra.";
 "player_artwork_lyrics_lines" = "Linhas";

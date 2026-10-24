@@ -110,6 +110,12 @@ enum PlayerAppearancePreferences {
     /// 点开那一行的菜单里照样能去专辑。只管音乐;有声书、播客那一行的书名、节目名照旧。
     static let showsAlbumInSubtitleKey = "primuse.player.showsAlbumInSubtitle"
     static let showsAlbumInSubtitleByDefault = true
+    /// 音量条的画法(`NowPlayingVolumeBarStyle` 的原始值,#338):系统样式带圆钮,或者和进度条同一种画法。
+    static let volumeBarStyleKey = "primuse.player.volumeBarStyle"
+
+    static func volumeBarStyle(rawValue: String) -> NowPlayingVolumeBarStyle {
+        NowPlayingVolumeBarStyle(rawValue: rawValue) ?? .system
+    }
     /// 竖屏播放页封面模式在进度条上面显示正在唱的那一句(#69、#318)。
     static let showsArtworkLyricsKey = "primuse.player.showsArtworkLyrics"
     static let showsArtworkLyricsByDefault = false
@@ -375,6 +381,21 @@ enum NowPlayingProgressStyle: String, CaseIterable, Sendable {
         case .standard: "player_progress_style_standard"
         case .wave: "player_progress_style_wave"
         case .dot: "player_progress_style_dot"
+        }
+    }
+}
+
+/// 播放页音量条的画法(#338)。iPhone / iPad 播放页用;Mac 播放页的音量条另有一套,不跟。
+enum NowPlayingVolumeBarStyle: String, CaseIterable, Sendable {
+    /// 一直以来的系统样式:细轨道加圆钮。
+    case system
+    /// 和进度条同一种画法:胶囊条、波浪或细线加圆点,发光也跟进度条的开关。
+    case matchesProgress
+
+    var titleKey: String {
+        switch self {
+        case .system: "player_volume_style_system"
+        case .matchesProgress: "player_volume_style_matches_progress"
         }
     }
 }

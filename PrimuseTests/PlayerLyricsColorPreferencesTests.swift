@@ -22,6 +22,18 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             XCTAssertEqual(NowPlayingSkipButtonStyle.pairingScale(with: style) > 1, style == .largePlain, style.rawValue)
         }
         XCTAssertGreaterThan(NowPlayingPlayPauseFace.largePlainGlyphScale, NowPlayingPlayPauseFace.plainGlyphScale)
+        // 音量条默认还是系统样式;存的原始值改名就丢了用户的选择。
+        XCTAssertEqual(PlayerAppearancePreferences.volumeBarStyle(rawValue: ""), .system)
+        XCTAssertEqual(NowPlayingVolumeBarStyle.allCases.map(\.rawValue), ["system", "matchesProgress"])
+        // 「跟进度条一致」照抄进度条的粗细、圆点与波浪,按住时也一样加粗。
+        let dot = PlayerVolumeTrackStyle.matching(.forProgressStyle(.dot, glows: true))
+        XCTAssertEqual(dot.restingHeight, 3)
+        XCTAssertEqual(dot.activeHeight, 6)
+        XCTAssertEqual(dot.knobDiameter, 12)
+        XCTAssertTrue(dot.glows)
+        XCTAssertTrue(PlayerVolumeTrackStyle.matching(.forProgressStyle(.wave)).isWave)
+        XCTAssertNil(PlayerVolumeTrackStyle.matching(.forProgressStyle(.standard)).knobDiameter)
+        XCTAssertGreaterThan(PlayerVolumeTrackStyle.system.height(isActive: true, reduceMotion: false), PlayerVolumeTrackStyle.system.restingHeight)
         XCTAssertEqual(
             NowPlayingSkipButtonStyle.allCases.map(\.rawValue),
             ["standard", "bold", "track", "filledCircle", "outlinedCircle"]

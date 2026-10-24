@@ -104,6 +104,7 @@ final class CloudKVSSyncTests: XCTestCase {
         for synced in [
             PlayerAppearancePreferences.showsVolumeBarKey,
             PlayerAppearancePreferences.showsAlbumInSubtitleKey,
+            PlayerAppearancePreferences.volumeBarStyleKey,
             PlayerAppearancePreferences.showsArtworkLyricsKey,
             PlayerAppearancePreferences.artworkLyricsLinesKey,
             PlayerAppearancePreferences.artworkLyricsFontScaleKey,

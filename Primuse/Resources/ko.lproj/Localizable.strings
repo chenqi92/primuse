@@ -3283,6 +3283,10 @@
 "player_volume_bar_description" = "플레이어에 음량 슬라이더를 표시합니다. 숨기면 다른 컨트롤이 사용 가능한 공간을 자연스럽게 채웁니다.";
 "player_album_in_subtitle" = "제목 아래 앨범 이름 표시";
 "player_album_in_subtitle_description" = "끄면 제목 아래에 아티스트만 표시되어 긴 앨범 이름 때문에 줄이 잘리거나 스크롤되지 않습니다. 이 줄을 탭하면 여전히 앨범으로 이동합니다. 음악에만 적용되며 오디오북과 팟캐스트는 책 제목이나 프로그램 이름을 그대로 표시합니다.";
+"player_volume_style_title" = "볼륨 막대 스타일";
+"player_volume_style_system" = "시스템";
+"player_volume_style_matches_progress" = "진행 막대와 같게";
+"player_volume_style_footer" = "시스템은 얇은 트랙과 손잡이입니다. 「진행 막대와 같게」를 고르면 볼륨 막대가 위의 진행 막대와 같은 방식(캡슐, 물결, 점이 있는 가는 선)으로 그려지고 빛 효과와 색도 진행 막대를 따릅니다. 두 방식 모두 누르고 있는 동안 굵어집니다.";
 "player_artwork_lyrics" = "아트워크 아래에 가사 표시";
 "player_artwork_lyrics_description" = "가사 화면으로 전환하지 않아도 재생 막대 바로 위에 지금 부르는 줄을 표시합니다. 전주와 간주 동안에는 다음 줄을 미리 보여 주지 않고 짧은 안내를 표시합니다. 필요하면 아트워크가 조금 작아져 가사 자리를 만듭니다. 가사를 탭하면 가사 화면이 열립니다.";
 "player_artwork_lyrics_lines" = "줄 수";

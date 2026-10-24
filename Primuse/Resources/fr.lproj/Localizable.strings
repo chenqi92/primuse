@@ -3283,6 +3283,10 @@
 "player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";
 "player_album_in_subtitle" = "Afficher l’album sous le titre";
 "player_album_in_subtitle_description" = "Désactivé, la ligne sous le titre n’affiche que l’artiste : un long nom d’album ne la tronque plus et ne la fait plus défiler. Toucher la ligne mène toujours à l’album. Musique uniquement ; les livres audio et podcasts affichent toujours le livre ou l’émission.";
+"player_volume_style_title" = "Style du curseur de volume";
+"player_volume_style_system" = "Système";
+"player_volume_style_matches_progress" = "Comme la progression";
+"player_volume_style_footer" = "Système est une piste fine avec un bouton. Avec « Comme la progression », le volume est dessiné comme la barre de progression au-dessus : capsule, vague ou ligne fine avec point, avec le même halo et la même couleur. Les deux s’épaississent quand vous les maintenez.";
 "player_artwork_lyrics" = "Paroles sous la pochette";
 "player_artwork_lyrics_description" = "Affiche la ligne chantée juste au-dessus de la barre de progression, sans passer à la vue des paroles. Pendant l’intro et les passages instrumentaux, un court message s’affiche au lieu de la ligne suivante. La pochette rétrécit un peu si nécessaire pour lui faire de la place. Touchez les paroles pour ouvrir la vue des paroles.";
 "player_artwork_lyrics_lines" = "Lignes";

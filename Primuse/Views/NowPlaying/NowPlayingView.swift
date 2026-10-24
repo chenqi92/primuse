@@ -1159,6 +1159,15 @@ struct NowPlayingView: View {
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
+    /// 音量条的画法(#338);「跟进度条一致」时照进度条的画法与发光画。
+    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
+    private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
+    private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
     /// 封面下的歌词几行;字号只在 `NowPlayingArtworkLyricPreview` 里读。
     @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
@@ -4047,12 +4056,38 @@ struct NowPlayingView: View {
     }
 
     private var playerVolumeRow: some View {
-        HStack(spacing: 8) {
+        playerVolumeRow(matching: .forProgressStyle(
+            PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+            glows: progressGlows
+        ), fillTint: themedControlAccent)
+    }
+
+    /// 有声书墨黑 / 暖白那套版式的音量条:「跟进度条一致」时照这套版式自己的进度条画。
+    private func audiobookVolumeRow(style: AudiobookPlayerStyle) -> some View {
+        playerVolumeRow(matching: AudiobookProgressBar.trackStyle(
+            selected: PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+            glows: progressGlows,
+            followsProgressStyle: progressStyleAppliesToAudiobooks,
+            trackColor: style.track
+        ), fillTint: style.control(paper: style.accent))
+    }
+
+    /// - Parameters:
+    ///   - progressTrack: 这一页进度条的画法;音量条选了「跟进度条一致」时照它画。
+    ///   - fillTint: 那时填充段的颜色,和进度条一样。系统样式仍是前景色。
+    private func playerVolumeRow(
+        matching progressTrack: ProgressSlider.TrackStyle,
+        fillTint: Color
+    ) -> some View {
+        let matches = PlayerAppearancePreferences.volumeBarStyle(rawValue: volumeBarStyleRawValue) == .matchesProgress
+        let trackStyle: PlayerVolumeTrackStyle = matches ? .matching(progressTrack) : .system
+        let volumeTint: Color? = matches ? fillTint : nil
+        return HStack(spacing: 8) {
             Image(systemName: "speaker.fill")
                 .font(.caption2)
                 .foregroundStyle(appearance.tertiary)
             #if os(iOS) && !targetEnvironment(simulator)
-            SystemVolumeSlider()
+            SystemVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint)
                 .frame(maxWidth: .infinity)
                 .frame(height: SystemVolumeSlider.compactHeight)
                 .offset(y: SystemVolumeSlider.verticalOffset)
@@ -4062,10 +4097,14 @@ struct NowPlayingView: View {
             // 读到恒为 1 的值，拖完立刻弹回。
             PMPlaybackVolumeSlider(tint: themedControlAccent)
             #else
-            VolumeSlider(value: Binding(
-                get: { Double(player.audioEngine.userVolume) },
-                set: { player.setPlaybackVolume(Float($0)) }
-            ))
+            VolumeSlider(
+                value: Binding(
+                    get: { Double(player.audioEngine.userVolume) },
+                    set: { player.setPlaybackVolume(Float($0)) }
+                ),
+                trackStyle: trackStyle,
+                fillTint: volumeTint
+            )
             #endif
             Image(systemName: "speaker.wave.3.fill")
                 .font(.caption2)
@@ -6051,7 +6090,7 @@ struct NowPlayingView: View {
                     Group {
                         if style.isNocturne {
                             if showsPlayerVolumeBar {
-                                playerVolumeRow
+                                audiobookVolumeRow(style: style)
                                     .padding(.horizontal, 12)
                                     .padding(.top, isShort ? 10 : 16)
                             }
@@ -6073,7 +6112,7 @@ struct NowPlayingView: View {
                                     .padding(.top, 6)
                             }
                             if showsPlayerVolumeBar {
-                                playerVolumeRow
+                                audiobookVolumeRow(style: style)
                                     .padding(.horizontal, 12)
                                     .padding(.top, 4)
                             }
@@ -10821,8 +10860,8 @@ private struct ProgressWaveShape: Shape {
 
 // MARK: - Volume Slider (thin, matching ProgressSlider style)
 
-/// 播放页音量条的画法。系统样式是细轨道加圆钮;两种都是按住就加粗、圆钮放大,松手、取消后收回,
-/// 开始拖和拖到一头各轻震一次(看板 PRIM-45)。
+/// 播放页音量条的画法。系统样式是细轨道加圆钮;选了「跟进度条一致」时照进度条那一种画(#338)。
+/// 两种都是按住就加粗、圆钮放大,松手、取消后收回,开始拖和拖到一头各轻震一次(看板 PRIM-45)。
 struct PlayerVolumeTrackStyle: Equatable {
     var restingHeight: CGFloat
     var activeHeight: CGFloat
@@ -10832,9 +10871,24 @@ struct PlayerVolumeTrackStyle: Equatable {
     /// 填充那一段画成静止的波浪(音量没有「正在播」,不流动)。
     var isWave = false
     var glows = false
+    /// 没填充那一段的颜色;nil 时按明暗外观取(有声书那套版式用自己的)。
+    var trackColor: Color? = nil
 
     /// 一直以来的系统样式:4 点的细轨道、12 点的圆钮。
     static let system = PlayerVolumeTrackStyle(restingHeight: 4, activeHeight: 7, knobDiameter: 12)
+
+    /// 和这条进度条同一种画法:粗细、圆点、波浪、发光、底色都照抄。
+    static func matching(_ track: ProgressSlider.TrackStyle) -> PlayerVolumeTrackStyle {
+        PlayerVolumeTrackStyle(
+            restingHeight: track.restingHeight,
+            activeHeight: track.draggingHeight,
+            knobDiameter: track.knobDiameter,
+            knobGrowth: track.knobGrowth,
+            isWave: track.isWave,
+            glows: track.glows,
+            trackColor: track.trackColor
+        )
+    }
 
     func height(isActive: Bool, reduceMotion: Bool) -> CGFloat {
         guard isActive else { return restingHeight }
@@ -11012,7 +11066,8 @@ struct SystemVolumeSlider: UIViewRepresentable {
         }
         let foreground = playerUIColor
         let fill = fillTint.map { UIColor($0) } ?? foreground
-        let track = foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.30 : 0.20)
+        let track = trackStyle.trackColor.map { UIColor($0) }
+            ?? foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.30 : 0.20)
         slider.minimumTrackTintColor = fill
         slider.maximumTrackTintColor = track
         slider.thumbTintColor = fill
@@ -11204,7 +11259,7 @@ struct VolumeSlider: View {
             ZStack(alignment: .leading) {
                 if trackStyle.isWave {
                     Capsule()
-                        .fill(appearance.track)
+                        .fill(trackStyle.trackColor ?? appearance.track)
                         .frame(width: max(0, width - filledWidth), height: trackHeight)
                         .offset(x: filledWidth)
                     ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
@@ -11213,7 +11268,7 @@ struct VolumeSlider: View {
                         .modifier(glow)
                 } else {
                     Capsule()
-                        .fill(appearance.track)
+                        .fill(trackStyle.trackColor ?? appearance.track)
                         .frame(height: trackHeight)
 
                     Capsule()

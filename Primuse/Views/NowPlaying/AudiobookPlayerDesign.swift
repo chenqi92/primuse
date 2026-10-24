@@ -420,10 +420,24 @@ struct AudiobookProgressBar: View {
     /// 那里打开了「有声书」时三种都照音乐播放页画,底色仍用这套版式的(#320)。
     /// 「进度条发光」默认关,打开了这里也跟着亮(#319)。
     private var trackStyle: ProgressSlider.TrackStyle {
-        let selected = PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+        Self.trackStyle(
+            selected: PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+            glows: progressGlows,
+            followsProgressStyle: followsProgressStyle,
+            trackColor: style.track
+        )
+    }
+
+    /// 这套版式的进度条画法;设置里的预览、「跟进度条一致」的音量条也照它画。
+    static func trackStyle(
+        selected: NowPlayingProgressStyle,
+        glows: Bool,
+        followsProgressStyle: Bool,
+        trackColor: Color
+    ) -> ProgressSlider.TrackStyle {
         if followsProgressStyle {
-            var track = ProgressSlider.TrackStyle.forProgressStyle(selected, glows: progressGlows)
-            track.trackColor = style.track
+            var track = ProgressSlider.TrackStyle.forProgressStyle(selected, glows: glows)
+            track.trackColor = trackColor
             return track
         }
         // 按住时和音乐页一样明显加粗、圆点放大(PRIM-45)。
@@ -431,18 +445,18 @@ struct AudiobookProgressBar: View {
             return ProgressSlider.TrackStyle(
                 restingHeight: 3,
                 draggingHeight: 6,
-                trackColor: style.track,
+                trackColor: trackColor,
                 isWave: true,
-                glows: progressGlows
+                glows: glows
             )
         }
         return ProgressSlider.TrackStyle(
             restingHeight: 2,
             draggingHeight: 5,
-            trackColor: style.track,
+            trackColor: trackColor,
             knobDiameter: 9,
             knobGrowth: 5,
-            glows: progressGlows
+            glows: glows
         )
     }
 

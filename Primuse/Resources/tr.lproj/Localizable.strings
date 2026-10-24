@@ -4031,6 +4031,10 @@
 "player_volume_bar_description" = "Oynatıcıda ses düzeyi kaydırıcısını gösterin. Diğer kontroller gizlendiğinde doğal olarak mevcut alanı doldurur.";
 "player_album_in_subtitle" = "Başlığın altında albümü göster";
 "player_album_in_subtitle_description" = "Kapalıyken başlığın altında yalnızca sanatçı görünür; uzun albüm adı satırı kesmez veya kaydırmaz. Satıra dokunmak yine albüme götürür. Yalnızca müzik için; sesli kitaplar ve podcast'ler kitap veya program adını göstermeye devam eder.";
+"player_volume_style_title" = "Ses çubuğu stili";
+"player_volume_style_system" = "Sistem";
+"player_volume_style_matches_progress" = "İlerlemeyle aynı";
+"player_volume_style_footer" = "Sistem, düğmeli ince bir çizgidir. «İlerlemeyle aynı» seçilince ses çubuğu yukarıdaki ilerleme çubuğu gibi çizilir: kapsül, dalga veya noktalı ince çizgi; parıltı ayarı ve rengi de aynıdır. İkisi de basılı tutarken kalınlaşır.";
 "player_artwork_lyrics" = "Kapağın Altında Şarkı Sözleri";
 "player_artwork_lyrics_description" = "Söz ekranına geçmeden, ilerleme çubuğunun hemen üstünde söylenen satırı gösterir. Girişte ve enstrümantal aralarda sonraki satırı önceden göstermek yerine kısa bir bilgi gösterir. Gerektiğinde kapak yer açmak için biraz küçülür. Söz ekranını açmak için sözlere dokunun.";
 "player_artwork_lyrics_lines" = "Satır sayısı";

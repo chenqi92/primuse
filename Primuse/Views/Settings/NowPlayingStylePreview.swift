@@ -326,40 +326,67 @@ struct PreviewProgressBar: View {
     }
 }
 
-/// 系统音量条的样子:细轨道、前景色填充、12 点的圆钮。
+/// 音量条的样子:系统样式是细轨道、前景色填充、12 点的圆钮;选了「跟进度条一致」时照这一页的进度条画(#338)。
 struct PreviewVolumeRow: View {
     let primary: Color
     let iconTint: Color
+    /// 「跟进度条一致」时的填充色,和这一页进度条的一样;nil 时用前景色。
+    var fillTint: Color? = nil
+    /// 这一页的进度条画法(有声书那套版式自己的细线);nil 时按「设置 › 进度条」选的画。
+    var matchedTrack: ProgressSlider.TrackStyle? = nil
 
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
+    private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "speaker.fill")
                 .font(.caption2)
                 .foregroundStyle(iconTint)
-            GeometryReader { track in
-                let filled = track.size.width * 0.62
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(primary.opacity(colorSchemeContrast == .increased ? 0.3 : 0.2))
-                        .frame(height: 4)
-                    Capsule()
-                        .fill(primary)
-                        .frame(width: filled, height: 4)
-                    Circle()
-                        .fill(primary)
-                        .frame(width: 12, height: 12)
-                        .offset(x: filled - 6)
-                }
-                .frame(maxHeight: .infinity)
+            if PlayerAppearancePreferences.volumeBarStyle(rawValue: volumeBarStyleRawValue) == .matchesProgress {
+                VolumeSlider(
+                    value: .constant(0.62),
+                    trackStyle: .matching(matchedTrack ?? .forProgressStyle(
+                        PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+                        glows: progressGlows
+                    )),
+                    fillTint: fillTint
+                )
+                .allowsHitTesting(false)
+                .frame(height: NowPlayingView.portraitVolumeRowHeight)
+            } else {
+                systemTrack
             }
-            .frame(height: NowPlayingView.portraitVolumeRowHeight)
             Image(systemName: "speaker.wave.3.fill")
                 .font(.caption2)
                 .foregroundStyle(iconTint)
         }
         .accessibilityHidden(true)
+    }
+
+    private var systemTrack: some View {
+        GeometryReader { track in
+            let filled = track.size.width * 0.62
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(primary.opacity(colorSchemeContrast == .increased ? 0.3 : 0.2))
+                    .frame(height: 4)
+                Capsule()
+                    .fill(primary)
+                    .frame(width: filled, height: 4)
+                Circle()
+                    .fill(primary)
+                    .frame(width: 12, height: 12)
+                    .offset(x: filled - 6)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .frame(height: NowPlayingView.portraitVolumeRowHeight)
     }
 }
 
@@ -721,7 +748,7 @@ private struct MusicPortraitPreviewScreen: View {
                     .padding(.top, 12 + controlGap + volumeSlack * 0.3)
 
                 if showsVolumeBar {
-                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary)
+                    PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary, fillTint: accent)
                         .padding(.horizontal, 26)
                         .padding(.top, 10 + controlGap)
                 }

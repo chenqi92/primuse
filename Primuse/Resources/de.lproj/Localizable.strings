@@ -3283,6 +3283,10 @@
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
 "player_album_in_subtitle" = "Album unter dem Titel zeigen";
 "player_album_in_subtitle_description" = "Wenn aus, steht unter dem Titel nur der Künstler – ein langer Albumname schneidet die Zeile nicht mehr ab und lässt sie nicht scrollen. Ein Tippen auf die Zeile führt weiterhin zum Album. Gilt nur für Musik; Hörbücher und Podcasts zeigen weiter Buch bzw. Sendung.";
+"player_volume_style_title" = "Lautstärkeregler-Stil";
+"player_volume_style_system" = "System";
+"player_volume_style_matches_progress" = "Wie Fortschritt";
+"player_volume_style_footer" = "System ist eine dünne Spur mit Regler. Mit „Wie Fortschritt“ wird die Lautstärke wie der Fortschrittsbalken darüber gezeichnet: Kapsel, Welle oder dünne Linie mit Punkt, mit derselben Leucht-Einstellung und Farbe. Beide werden beim Halten dicker.";
 "player_artwork_lyrics" = "Liedtext unter dem Cover";
 "player_artwork_lyrics_description" = "Zeigt die gerade gesungene Zeile direkt über der Fortschrittsleiste, ohne zur Liedtextansicht zu wechseln. Im Intro und in Instrumentalpassagen erscheint ein kurzer Hinweis statt der nächsten Zeile. Das Cover wird bei Bedarf etwas kleiner, um Platz zu schaffen. Tippe auf den Liedtext, um die Liedtextansicht zu öffnen.";
 "player_artwork_lyrics_lines" = "Zeilen";
