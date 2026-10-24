@@ -1282,6 +1282,14 @@ private final class State: @unchecked Sendable {
     /// 反复跨 chunk 边界 cache miss, 还是云盘真的拉不动"。
     private var cacheHitCount: Int = 0
     private var cacheHitBytes: Int = 0
+    /// Core Audio walks an MP3 packet by packet on its way to a seek target,
+    /// one small read per packet; resuming deep into an audiobook makes
+    /// hundreds of thousands of them, nearly all in bytes the session holds.
+    /// They are served from one window of the cache file instead of opening
+    /// the file for each. Held bytes never change within a session, so the
+    /// window is never stale.
+    private var cacheReadWindow: (offset: Int64, bytes: Data)?
+    private static let cacheReadWindowLength: Int64 = 256 * 1024
     /// 每个 chunkStart 累计被 fetch 的次数。第 2 次 + 时打 retry 日志,
     /// 不正常应用情况下 SFB 不应该让同一个 chunk 被 fetch 多次 (fetch
     /// 完会写 cache, 下次 read 应该 cache hit)。出现 retry > 1 通常是
@@ -2178,6 +2186,17 @@ private final class State: @unchecked Sendable {
 
     private func readFromCacheIfAvailable(offset: Int64, endOffset: Int64) -> Data? {
         guard offset >= 0, endOffset >= offset else { return nil }
+        lock.lock()
+        if let window = cacheReadWindow,
+           offset >= window.offset,
+           endOffset > offset,
+           endOffset <= window.offset + Int64(window.bytes.count) {
+            let start = Int(offset - window.offset)
+            let served = window.bytes.subdata(in: start..<(start + Int(endOffset - offset)))
+            lock.unlock()
+            return served
+        }
+        lock.unlock()
         // A second pass covers a promotion or detach that moved the file
         // between reading `activeURL` and opening it.
         for _ in 0..<2 {
@@ -2188,12 +2207,17 @@ private final class State: @unchecked Sendable {
             guard let coveringRange else { return nil }
             let upper = min(endOffset, coveringRange.upperBound)
             guard upper > offset, let readLength = Int(exactly: upper - offset) else { return nil }
+            let windowEnd = min(coveringRange.upperBound, max(upper, offset + Self.cacheReadWindowLength))
+            guard let windowLength = Int(exactly: windowEnd - offset) else { return nil }
             if let handle = try? FileHandle(forReadingFrom: url) {
                 defer { try? handle.close() }
                 if (try? handle.seek(toOffset: UInt64(offset))) != nil,
-                   let data = try? handle.read(upToCount: readLength),
-                   data.count == readLength {
-                    return data
+                   let data = try? handle.read(upToCount: windowLength),
+                   data.count == windowLength {
+                    lock.lock()
+                    cacheReadWindow = (offset, data)
+                    lock.unlock()
+                    return readLength == windowLength ? data : data.subdata(in: 0..<readLength)
                 }
             }
             if forgetVanishedFile(url) { return nil }

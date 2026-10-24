@@ -169,10 +169,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         let inputBox = InputSourceBox(inputSource)
         // Core Audio counts an MP3's frames by reading every frame of a file
         // without a Xing/VBRI header. Over a range stream that downloads the
-        // whole song before the first buffer, so a streamed MP3 decoded from
-        // its top learns its length when it reaches the end instead.
+        // whole song before the first buffer, so a streamed MP3 learns its
+        // length when it reaches the end instead. A seek needs no length:
+        // Core Audio walks packets only as far as the target, and a resume
+        // after pause finds those bytes already in the session's cache.
         let defersLength = lengthCanWait
-            && (startTime ?? 0) <= 0
             && inputSource.url.map {
                 Self.coreAudioPreferredExtensions.contains($0.pathExtension.lowercased())
             } == true
@@ -189,7 +190,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     if let lane {
                         framesToDiscard = try await self.openDecoder(
                             on: lane,
-                            startingAt: startTime
+                            startingAt: startTime,
+                            seekClampsToLength: !defersLength
                         )
                         guard let opened = inputBox.decoder else {
                             throw AudioDecoderError.decodingFailed("Native input source closed")
@@ -199,7 +201,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         let prepared = try self.prepareDecoder(
                             startingAt: startTime,
                             reopenAfterFailedSeek: false,
-                            allowDecodeAndDiscardFallback: false
+                            allowDecodeAndDiscardFallback: false,
+                            seekClampsToLength: !defersLength
                         ) {
                             try Self.makeSafeDecoder(inputSource: inputBox.value)
                         }
@@ -229,13 +232,15 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// lane owns.
     private func openDecoder(
         on lane: SFBInputSourceDecodeLane,
-        startingAt startTime: TimeInterval?
+        startingAt startTime: TimeInterval?,
+        seekClampsToLength: Bool
     ) async throws -> AVAudioFramePosition {
         try await lane.perform { box in
             let prepared = try self.prepareDecoder(
                 startingAt: startTime,
                 reopenAfterFailedSeek: false,
-                allowDecodeAndDiscardFallback: false
+                allowDecodeAndDiscardFallback: false,
+                seekClampsToLength: seekClampsToLength
             ) {
                 try Self.makeSafeDecoder(inputSource: box.value)
             }
@@ -385,7 +390,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     ///   would make Core Audio scan a streamed MP3 end to end first. Reads on
     ///   such a source block until their bytes arrive or fail, so a read that
     ///   yields no frames is the end of the file; the frame count reached
-    ///   there is reported as the length.
+    ///   there is reported as the length. A session that decodes nothing
+    ///   reports none: after a seek past the end the position is the target.
     private func runDecode(
         decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
@@ -397,6 +403,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     ) async throws {
         let sourceFormat = decoder.processingFormat
         let totalFrames = defersLength ? -1 : decoder.length
+        let startPosition = defersLength ? max(0, decoder.position) : 0
         var framesToDiscard = max(0, initialFramesToDiscard)
 
         plog("🎵 SFBDecoder: sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(defersLength ? "at end" : String(totalFrames)) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
@@ -566,7 +573,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
 
         if defersLength, !Task.isCancelled, let onResolveSourceLength,
-           sourceFormat.sampleRate > 0, decoder.position > 0 {
+           sourceFormat.sampleRate > 0, decoder.position > startPosition {
             onResolveSourceLength(Double(decoder.position) / sourceFormat.sampleRate)
         }
         if let blockingLane {
@@ -592,11 +599,16 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         startingAt startTime: TimeInterval?,
         reopenAfterFailedSeek: Bool,
         allowDecodeAndDiscardFallback: Bool,
+        seekClampsToLength: Bool = true,
         makeDecoder: () throws -> any SFBAudioEngine.PCMDecoding
     ) throws -> PreparedDecoder {
         var decoder = try makeDecoder()
         try decoder.open()
-        guard let target = seekTarget(decoder: decoder, startTime: startTime) else {
+        guard let target = seekTarget(
+            decoder: decoder,
+            startTime: startTime,
+            clampsToLength: seekClampsToLength
+        ) else {
             return PreparedDecoder(decoder: decoder, framesToDiscard: 0)
         }
 
@@ -651,9 +663,12 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         try? decoder.decode(into: buffer, length: 1)
     }
 
+    /// Without `clampsToLength` the target is used as asked: a seek past the
+    /// end then decodes nothing, which reads as having reached the end.
     private func seekTarget(
         decoder: any SFBAudioEngine.PCMDecoding,
-        startTime: TimeInterval?
+        startTime: TimeInterval?,
+        clampsToLength: Bool
     ) -> AVAudioFramePosition? {
         guard let startTime,
               startTime.isFinite,
@@ -662,6 +677,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         let requested = AVAudioFramePosition(
             (startTime * decoder.processingFormat.sampleRate).rounded(.down)
         )
+        guard clampsToLength else { return max(0, requested) }
         return decoder.length > 0
             ? min(max(0, requested), decoder.length - 1)
             : max(0, requested)

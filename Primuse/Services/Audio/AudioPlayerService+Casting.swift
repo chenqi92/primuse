@@ -1406,7 +1406,8 @@ extension AudioPlayerService {
                             from: inputSource,
                             outputFormat: outputFormat,
                             startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
+                            onResolveSourceLength: onResolveLength,
+                            lengthCanWait: savedDuration > 0
                         )
                     } else {
                         if isColdSessionRestore {
@@ -1451,7 +1452,8 @@ extension AudioPlayerService {
                             from: inputSource,
                             outputFormat: outputFormat,
                             startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
+                            onResolveSourceLength: onResolveLength,
+                            lengthCanWait: savedDuration > 0
                         )
                     } else {
                         if isColdSessionRestore {

@@ -1027,6 +1027,78 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(seconds, 10, accuracy: 0.5)
     }
 
+    /// Core Audio learns the length of an MP3 without a Xing/VBRI header,
+    /// common among audiobooks, only by reading every frame. Resuming after
+    /// pause or seeking on the range stream asked for that length first and
+    /// so waited for the rest of the song to download.
+    func testStreamedMP3SeekDoesNotReadTheRestOfTheSongBeforePlaying() async throws {
+        let fixture = Self.makeUnindexedMP3Fixture(seconds: 60)
+        let untouched = Self.unindexedMP3ByteOffset(seconds: 40)..<(fixture.bytes.count - 4_096)
+
+        let deferred = try await Self.readsBeforeFirstBuffer(
+            of: fixture.bytes, startingAt: 20, lengthCanWait: true
+        )
+        XCTAssertFalse(
+            deferred.contains { $0.overlaps(untouched) },
+            "the seek read past its target before the first buffer"
+        )
+        let counted = try await Self.readsBeforeFirstBuffer(
+            of: fixture.bytes, startingAt: 20, lengthCanWait: false
+        )
+        XCTAssertTrue(
+            counted.contains { $0.overlaps(untouched) },
+            "the fixture no longer needs a full scan for its length"
+        )
+    }
+
+    func testStreamedMP3SeekReportsTheLengthOnlyAfterDecodingFrames() async throws {
+        let fixture = Self.makeUnindexedMP3Fixture(seconds: 30)
+        let fileSeconds = Double(fixture.frames) / 44_100
+
+        let resumed = try await Self.decodeUnindexedMP3(fixture.bytes, startingAt: 10)
+        XCTAssertEqual(resumed.seconds, fileSeconds - 10, accuracy: 0.2)
+        XCTAssertEqual(resumed.reportedLengths.count, 1)
+        XCTAssertEqual(resumed.reportedLengths.first ?? 0, fileSeconds, accuracy: 0.05)
+
+        // A target past the end decodes nothing; its position is no length.
+        let pastEnd = try await Self.decodeUnindexedMP3(fixture.bytes, startingAt: fileSeconds + 15)
+        XCTAssertEqual(pastEnd.seconds, 0)
+        XCTAssertEqual(pastEnd.reportedLengths, [])
+    }
+
+    /// The seek walks held bytes a packet at a time; every one of those
+    /// small reads must come back byte for byte without another fetch.
+    func testSmallReadsOverHeldBytesComeFromTheCache() async throws {
+        let sourceID = "cloud-small-reads-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.bin")
+        let chunk = Int(CloudPlaybackSource.chunkSize)
+        let payload = Self.patternedPayload(count: chunk * 2 + 2_048)
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let input = try makeInputSource(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload,
+            connector: connector, allowsTrailingFill: false
+        )
+        XCTAssertTrue(Self.read(input, byteCount: 1_000).success)
+        let fetchesBefore = await connector.requests().count
+
+        var offset = 1_000
+        while offset + 417 <= chunk {
+            let result = Self.read(input, byteCount: 417, offset: offset)
+            XCTAssertEqual(result.data, payload.subdata(in: offset..<(offset + 417)), "offset \(offset)")
+            offset += 401
+        }
+        let fetchesAfter = await connector.requests().count
+        XCTAssertEqual(fetchesAfter, fetchesBefore)
+
+        let edge = Self.read(input, byteCount: 1_000, offset: chunk - 300)
+        XCTAssertEqual(edge.data, payload.subdata(in: (chunk - 300)..<(chunk + 700)))
+    }
+
     /// A prefetched seed of a file only a little longer than the head arrives
     /// as two adjacent ranges; it must play through without touching the
     /// network and become the complete cache file afterwards.
@@ -1249,6 +1321,77 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             frames += Int(buffer.frameLength)
         }
         return Double(frames) / 44_100
+    }
+
+    /// MPEG-1 Layer III at 128 kbps, 44.1 kHz stereo, without a Xing/VBRI
+    /// header: silent 417-byte frames of 1,152 samples each.
+    private static func makeUnindexedMP3Fixture(seconds: Double) -> (bytes: Data, frames: Int) {
+        let frameCount = Int((seconds * 44_100 / 1_152).rounded(.up))
+        var frame = Data([0xFF, 0xFB, 0x90, 0x00])
+        frame.append(Data(count: 413))
+        var bytes = Data(capacity: frame.count * frameCount)
+        for _ in 0..<frameCount { bytes.append(frame) }
+        return (bytes, frameCount * 1_152)
+    }
+
+    private static func unindexedMP3ByteOffset(seconds: Double) -> Int {
+        Int(seconds * 44_100 / 1_152) * 417
+    }
+
+    private static func unindexedMP3Input(
+        _ bytes: Data,
+        log: MP3ReadLog? = nil
+    ) -> CloudInputSourceObjC {
+        CloudInputSourceObjC(
+            url: URL(string: "primuse-cloud://fixture/chapter.mp3"),
+            totalLength: Int64(bytes.count)
+        ) { offset, length, _ in
+            guard offset >= 0, offset < bytes.count else { return Data() }
+            let end = min(Int(offset + length), bytes.count)
+            log?.append(Int(offset)..<end)
+            return bytes.subdata(in: Int(offset)..<end)
+        }
+    }
+
+    private static func readsBeforeFirstBuffer(
+        of bytes: Data,
+        startingAt startTime: TimeInterval,
+        lengthCanWait: Bool
+    ) async throws -> [Range<Int>] {
+        let log = MP3ReadLog()
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let stream = NativeAudioDecoder().decode(
+            from: unindexedMP3Input(bytes, log: log),
+            outputFormat: format,
+            startingAt: startTime,
+            lengthCanWait: lengthCanWait
+        )
+        var sawBuffer = false
+        for try await _ in stream {
+            sawBuffer = true
+            break
+        }
+        XCTAssertTrue(sawBuffer)
+        return log.ranges()
+    }
+
+    private static func decodeUnindexedMP3(
+        _ bytes: Data,
+        startingAt startTime: TimeInterval
+    ) async throws -> (seconds: Double, reportedLengths: [TimeInterval]) {
+        let reported = MP3ReadLog()
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        var frames = 0
+        for try await buffer in NativeAudioDecoder().decode(
+            from: unindexedMP3Input(bytes),
+            outputFormat: format,
+            startingAt: startTime,
+            onResolveSourceLength: { reported.appendLength($0) },
+            lengthCanWait: true
+        ) {
+            frames += Int(buffer.frameLength)
+        }
+        return (Double(frames) / 44_100, reported.lengths())
     }
 
     /// AAC in M4A written by Core Audio: packet data first, `moov` at the end,
@@ -2443,6 +2586,38 @@ private struct ReadResult: Sendable {
     let bytesRead: Int
     let error: String?
     var data: Data = Data()
+}
+
+/// Byte ranges an MP3 decode asked for, and the lengths it reported; both
+/// are written from the decoder's lane.
+private final class MP3ReadLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedRanges: [Range<Int>] = []
+    private var storedLengths: [TimeInterval] = []
+
+    func append(_ range: Range<Int>) {
+        lock.lock()
+        storedRanges.append(range)
+        lock.unlock()
+    }
+
+    func appendLength(_ length: TimeInterval) {
+        lock.lock()
+        storedLengths.append(length)
+        lock.unlock()
+    }
+
+    func ranges() -> [Range<Int>] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRanges
+    }
+
+    func lengths() -> [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLengths
+    }
 }
 
 private final class LockedReadResult: @unchecked Sendable {
