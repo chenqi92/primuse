@@ -10769,6 +10769,26 @@ final class MusicLibrary {
         plog("🏷️ Restored carried marks: reviews=\(restoredReviews) liked=\(toLike.count), \(entries.count) still waiting")
     }
 
+    /// 从备份恢复时曲库里还没有的歌: 评分和喜欢记进同一本账, 扫到了自动补上。
+    func addCarriedSongMarks(_ entries: [CarriedSongMarks]) {
+        if deferringUntilReady({ [weak self] in self?.addCarriedSongMarks(entries) }) { return }
+        let fresh = entries.filter(\.hasMarks)
+        guard !fresh.isEmpty else { return }
+        storeCarriedSongMarks(CarriedSongMarksPolicy.merging(loadedCarriedSongMarks(), adding: fresh))
+        scheduleCarriedMarksResolution()
+    }
+
+    /// 还在等的标记, 导出备份时一起带上。会在第一次调用时读盘, 别在视图的 body 里调。
+    func carriedSongMarksList() -> [CarriedSongMarks] {
+        loadedCarriedSongMarks().values.sorted { $0.id < $1.id }
+    }
+
+    /// 设置页出现时调一次, 让 `carriedSongMarksCount` 反映盘上的那份。
+    func loadCarriedSongMarksIfNeeded() {
+        guard !isPreparing else { return }
+        _ = loadedCarriedSongMarks()
+    }
+
     /// 设置页「清除待找回的标记」: 用户确认那些歌不会再回来了。
     func discardCarriedSongMarks() {
         if deferringUntilReady({ [weak self] in self?.discardCarriedSongMarks() }) { return }

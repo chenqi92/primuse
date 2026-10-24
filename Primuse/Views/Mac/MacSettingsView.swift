@@ -1398,6 +1398,55 @@ private struct MacLyricsRomanizationSection: View {
     }
 }
 
+/// 评分、红心与自建歌单的备份和恢复(看板 PRIM-38)。状态在 `LibraryBackupFlow`, 和 iPhone 共用。
+private struct MacLibraryBackupGroup: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @State private var flow = LibraryBackupFlow()
+    @State private var showsImporter = false
+    @State private var confirmsDiscardingWaitingMarks = false
+
+    var body: some View {
+        MacSTGroup {
+            MacSTRow(
+                String(localized: "library_backup_section"),
+                hint: String(localized: "library_backup_footer"),
+                hintLineLimit: 4,
+                divider: false
+            ) {
+                HStack(spacing: 8) {
+                    if flow.isWorking { ProgressView().controlSize(.small) }
+                    MacSTButton(title: String(localized: "library_backup_import"), systemImage: "square.and.arrow.down") {
+                        guard !flow.isWorking else { return }
+                        showsImporter = true
+                    }
+                    MacSTButton(title: String(localized: "library_backup_export"), systemImage: "square.and.arrow.up") {
+                        flow.export(library: library, sourcesStore: sourcesStore)
+                    }
+                }
+            }
+            .settingsAnchor("library.backup")
+            if library.carriedSongMarksCount > 0 {
+                MacSTRow(
+                    String(format: String(localized: "library_backup_waiting_format"), library.carriedSongMarksCount),
+                    hint: String(localized: "library_backup_waiting_description"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTButton(title: String(localized: "library_backup_waiting_clear"), destructive: true) {
+                        confirmsDiscardingWaitingMarks = true
+                    }
+                }
+            }
+        }
+        .libraryBackupPresentations(
+            flow: flow,
+            showsImporter: $showsImporter,
+            confirmsDiscardingWaitingMarks: $confirmsDiscardingWaitingMarks
+        )
+        .task { library.loadCarriedSongMarksIfNeeded() }
+    }
+}
+
 private struct MacSTButton: View {
     let title: String
     var systemImage: String? = nil
@@ -7881,6 +7930,8 @@ private struct MacSTThemeView: View {
                 }
                 .settingsAnchor("library.flatBrowse")
             }
+
+            MacLibraryBackupGroup()
 
             MacSTGroup {
                 // 这张列表就是侧栏「资料库」分组的样子: 同一条规则取行、同一个顺序,

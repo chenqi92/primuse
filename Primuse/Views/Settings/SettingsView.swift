@@ -850,8 +850,13 @@ private struct PlayerAppearanceSettingsView: View {
 #endif
 
 private struct LibraryDisplaySettingsView: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
+    @State private var backupFlow = LibraryBackupFlow()
+    @State private var showsBackupImporter = false
+    @State private var confirmsDiscardingWaitingMarks = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     #if os(iOS)
     @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
@@ -914,6 +919,8 @@ private struct LibraryDisplaySettingsView: View {
                 }
                 .settingsAnchor("library.ratingsAndComments")
             }
+
+            backupSection
 
             Section {
                 Picker("library_quick_access_cover_style", selection: $quickAccessCoverStyle) {
@@ -1122,6 +1129,59 @@ private struct LibraryDisplaySettingsView: View {
         .sheet(item: $inspectedRecommendationIntent) { details in
             AIRecommendationIntentDetailView(details: details)
         }
+        .libraryBackupPresentations(
+            flow: backupFlow,
+            showsImporter: $showsBackupImporter,
+            confirmsDiscardingWaitingMarks: $confirmsDiscardingWaitingMarks
+        )
+        .task { library.loadCarriedSongMarksIfNeeded() }
+    }
+
+    /// 评分、红心与自建歌单的备份和恢复(看板 PRIM-38), 以及换了身份还在等的那些标记。
+    private var backupSection: some View {
+        Section {
+            Button {
+                backupFlow.export(library: library, sourcesStore: sourcesStore)
+            } label: {
+                Label("library_backup_export", systemImage: "square.and.arrow.up")
+            }
+            .disabled(backupFlow.isWorking)
+            Button {
+                showsBackupImporter = true
+            } label: {
+                HStack {
+                    Label("library_backup_import", systemImage: "square.and.arrow.down")
+                    if backupFlow.isWorking {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(backupFlow.isWorking)
+            if library.carriedSongMarksCount > 0 {
+                HStack {
+                    Text(verbatim: String(
+                        format: String(localized: "library_backup_waiting_format"),
+                        library.carriedSongMarksCount
+                    ))
+                    Spacer()
+                    Button("library_backup_waiting_clear", role: .destructive) {
+                        confirmsDiscardingWaitingMarks = true
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .accessibilityHint(Text("library_backup_waiting_description"))
+            }
+        } header: {
+            SettingsInfoHeader("library_backup_section") {
+                Text("library_backup_footer")
+            }
+        } footer: {
+            if library.carriedSongMarksCount > 0 {
+                Text("library_backup_waiting_description")
+            }
+        }
+        .settingsAnchor("library.backup")
     }
 
     private func visibilityBinding(for section: LibrarySection) -> Binding<Bool> {
@@ -3459,6 +3519,98 @@ struct LicensesView: View {
     }
 }
 
+
+// MARK: - 资料库备份
+
+/// 「备份与恢复」的文件选择器、分享面板、恢复前的预览、结果提示和清除确认。
+/// iPhone/iPad 与 Mac 的设置页共用, 状态都在 `LibraryBackupFlow`。
+private struct LibraryBackupPresentations: ViewModifier {
+    @Environment(MusicLibrary.self) private var library
+    @Bindable var flow: LibraryBackupFlow
+    @Binding var showsImporter: Bool
+    @Binding var confirmsDiscardingWaitingMarks: Bool
+
+    private var showsRestorePreview: Binding<Bool> {
+        Binding(get: { flow.pendingRestore != nil }, set: { if !$0 { flow.pendingRestore = nil } })
+    }
+
+    private var showsNotice: Binding<Bool> {
+        Binding(get: { flow.notice != nil }, set: { if !$0 { flow.notice = nil } })
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $showsImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                flow.importFile(result, library: library)
+            }
+            #if os(iOS)
+            .sheet(item: $flow.exportedFile) { file in
+                ShareSheet(items: [file.url])
+            }
+            #endif
+            .alert(
+                Text("library_backup_restore_title"),
+                isPresented: showsRestorePreview,
+                presenting: flow.pendingRestore
+            ) { restore in
+                // 本机已有不同的评分时默认保留本机, 用备份的要明确选。
+                if restore.plan.conflicts.isEmpty {
+                    Button("library_backup_restore_confirm") {
+                        flow.confirmRestore(overwritingConflicts: false, library: library)
+                    }
+                } else {
+                    Button("library_backup_restore_keep_local") {
+                        flow.confirmRestore(overwritingConflicts: false, library: library)
+                    }
+                    Button("library_backup_restore_use_backup") {
+                        flow.confirmRestore(overwritingConflicts: true, library: library)
+                    }
+                }
+                Button("cancel", role: .cancel) {}
+            } message: { restore in
+                Text(verbatim: flow.previewMessage(for: restore))
+            }
+            .alert(
+                flow.notice?.title ?? "",
+                isPresented: showsNotice,
+                presenting: flow.notice
+            ) { _ in
+                Button("ok", role: .cancel) {}
+            } message: { notice in
+                Text(verbatim: notice.message)
+            }
+            .confirmationDialog(
+                Text("library_backup_waiting_clear_confirm"),
+                isPresented: $confirmsDiscardingWaitingMarks,
+                titleVisibility: .visible
+            ) {
+                Button("library_backup_waiting_clear", role: .destructive) {
+                    library.discardCarriedSongMarks()
+                }
+                Button("cancel", role: .cancel) {}
+            } message: {
+                Text("library_backup_waiting_clear_message")
+            }
+    }
+}
+
+extension View {
+    func libraryBackupPresentations(
+        flow: LibraryBackupFlow,
+        showsImporter: Binding<Bool>,
+        confirmsDiscardingWaitingMarks: Binding<Bool>
+    ) -> some View {
+        modifier(LibraryBackupPresentations(
+            flow: flow,
+            showsImporter: showsImporter,
+            confirmsDiscardingWaitingMarks: confirmsDiscardingWaitingMarks
+        ))
+    }
+}
 
 // MARK: - Share Sheet
 

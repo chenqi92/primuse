@@ -267,3 +267,98 @@ final class CarriedSongMarksLibraryTests: XCTestCase {
         )
     }
 }
+
+/// 看板 PRIM-38:评分、红心与自建歌单的整份备份,导到 id 全换了的曲库里也能恢复。
+@MainActor
+final class LibraryBackupServiceTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUp() async throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseLibraryBackup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testBackupRestoresIntoRebuiltLibraryWithoutDuplicates() async throws {
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let original = MusicLibrary(storageDirectory: directory.appendingPathComponent("a"))
+        original.addSongs(
+            [song("a-1", title: "Song A"), song("a-2", title: "Song B"), song("a-3", title: "Song C")],
+            affectedSourceIDs: ["source-1"]
+        )
+        await original.waitForPendingIndex()
+        original.updateLibraryReview(for: .song("a-1"), rating: 5, comment: "副歌")
+        original.updateLibraryReview(for: .song("a-2"), rating: 2, comment: "")
+        original.likeSongs(["a-3", "a-1"])
+        _ = original.createPlaylist(name: "通勤", songIDs: ["a-3", "a-1", "a-2"])
+        let data = try LibraryBackupService.makeBackup(library: original, sourcesStore: sources).encoded()
+
+        // 重建后的曲库:同样的歌换了 id,Song B 本机已经打了 4 星,Song C 还没扫到。
+        let rebuilt = MusicLibrary(storageDirectory: directory.appendingPathComponent("b"))
+        rebuilt.addSongs([song("b-1", title: "Song A"), song("b-2", title: "Song B")], affectedSourceIDs: ["source-2"])
+        await rebuilt.waitForPendingIndex()
+        rebuilt.updateLibraryReview(for: .song("b-2"), rating: 4, comment: "")
+
+        let restore = try await LibraryBackupService.prepareRestore(data: data, library: rebuilt)
+        XCTAssertEqual(restore.plan.conflicts.count, 1)
+        XCTAssertEqual(restore.plan.unmatchedTrackCount, 1)
+        LibraryBackupService.apply(restore, overwritingConflicts: false, library: rebuilt)
+
+        XCTAssertEqual(rebuilt.libraryReview(for: .song("b-1"))?.rating, 5)
+        XCTAssertEqual(rebuilt.libraryReview(for: .song("b-1"))?.comment, "副歌")
+        XCTAssertEqual(rebuilt.libraryReview(for: .song("b-2"))?.rating, 4, "本机已有的评分默认不动")
+        XCTAssertTrue(rebuilt.isLiked(songID: "b-1"))
+        let playlist = try XCTUnwrap(rebuilt.playlists.first { $0.name == "通勤" })
+        XCTAssertEqual(rebuilt.rawSongIDs(forPlaylist: playlist.id).count, 3, "没扫到的那首留占位")
+        XCTAssertEqual(rebuilt.songs(forPlaylist: playlist.id).map(\.id), ["b-1", "b-2"])
+
+        // 再导一次:不新建歌单、不重复加歌。
+        let again = try await LibraryBackupService.prepareRestore(data: data, library: rebuilt)
+        LibraryBackupService.apply(again, overwritingConflicts: false, library: rebuilt)
+        XCTAssertEqual(rebuilt.playlists.filter { $0.name == "通勤" }.count, 1)
+        XCTAssertEqual(rebuilt.rawSongIDs(forPlaylist: playlist.id).count, 3)
+
+        // Song C 后来扫到了:评分、红心和歌单位置都补上。
+        rebuilt.addSongs([song("b-3", title: "Song C")], affectedSourceIDs: ["source-3"])
+        await rebuilt.waitForPendingIndex()
+        await rebuilt.resolveCarriedSongMarksForTesting()
+        rebuilt.resolvePlaylistPendingEntriesForTesting()
+        XCTAssertTrue(rebuilt.isLiked(songID: "b-3"))
+        XCTAssertEqual(rebuilt.songs(forPlaylist: playlist.id).map(\.id), ["b-3", "b-1", "b-2"])
+    }
+
+    func testOverwritingConflictsUsesTheBackupsRating() async throws {
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let original = MusicLibrary(storageDirectory: directory.appendingPathComponent("a"))
+        original.addSongs([song("a-1", title: "Song A")], affectedSourceIDs: ["source-1"])
+        await original.waitForPendingIndex()
+        original.updateLibraryReview(for: .song("a-1"), rating: 5, comment: "")
+        let data = try LibraryBackupService.makeBackup(library: original, sourcesStore: sources).encoded()
+
+        let rebuilt = MusicLibrary(storageDirectory: directory.appendingPathComponent("b"))
+        rebuilt.addSongs([song("b-1", title: "Song A")], affectedSourceIDs: ["source-2"])
+        await rebuilt.waitForPendingIndex()
+        rebuilt.updateLibraryReview(for: .song("b-1"), rating: 1, comment: "")
+        let restore = try await LibraryBackupService.prepareRestore(data: data, library: rebuilt)
+        LibraryBackupService.apply(restore, overwritingConflicts: true, library: rebuilt)
+        XCTAssertEqual(rebuilt.libraryReview(for: .song("b-1"))?.rating, 5)
+    }
+
+    private func song(_ id: String, title: String) -> Song {
+        Song(
+            id: id,
+            title: title,
+            albumTitle: "Album",
+            artistName: "Artist",
+            duration: title == "Song A" ? 200 : (title == "Song B" ? 180 : 240),
+            fileFormat: .flac,
+            filePath: "/music/\(title).flac",
+            sourceID: id.hasPrefix("a") ? "source-1" : (id == "b-3" ? "source-3" : "source-2"),
+            fileSize: 1_000
+        )
+    }
+}

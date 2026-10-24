@@ -173,6 +173,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "home.topArtists", titleKey: "home_section_top_artists", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.recentlyAdded", titleKey: "recent_albums", table: "HomeDiscovery", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.stats", titleKey: "stats_title", iosPage: .home, macPage: nil),
+        SettingDefinition(id: "library.backup", titleKey: "library_backup_section", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["备份", "恢复", "导出", "导入", "评分", "星级", "红心", "我喜欢", "歌单", "重新扫描", "backup", "restore", "export", "import", "ratings", "stars", "likes", "playlists"]),
         SettingDefinition(id: "library.quickAccessCoverStyle", titleKey: "library_quick_access_cover_style", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["封面", "圆形", "方形", "多图", "拼图", "cover", "circle", "square", "collage"]),
         SettingDefinition(id: "library.playlistCoverWall", titleKey: "library_playlist_cover_wall_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["歌单", "风格", "流派", "头图", "封面墙", "拼贴", "动态", "playlist", "genre", "header", "cover wall", "collage"]),
         SettingDefinition(id: "library.iconStyle", titleKey: "library_icon_style_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["图标", "彩色", "简洁", "单色", "极简", "色块", "icon", "colorful", "simple", "monochrome", "minimal"]),
