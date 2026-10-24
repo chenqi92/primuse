@@ -24,6 +24,9 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
     public var createdAt: Date
     /// 规则只够得上「可能是」时记下的候选，界面上给用户一键确认。不会自动写入。
     public var suggestedSongID: String?
+    /// 音乐源被移除、文件从源里消失时留下的占位：原来那首的 `Song.id`。同一个 id 回到曲库
+    /// （从回收站恢复源、改回原来的连接参数）时直接原位点亮，不必再按元数据对。
+    public var formerSongID: String?
 
     public init(
         id: String = PlaylistPendingEntry.makeID(),
@@ -35,7 +38,8 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
         externalID: String? = nil,
         serverSourceID: String? = nil,
         createdAt: Date = Date(),
-        suggestedSongID: String? = nil
+        suggestedSongID: String? = nil,
+        formerSongID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -47,6 +51,7 @@ public struct PlaylistPendingEntry: Codable, Hashable, Sendable, Identifiable {
         self.serverSourceID = serverSourceID
         self.createdAt = createdAt
         self.suggestedSongID = suggestedSongID
+        self.formerSongID = formerSongID
     }
 
     public static func makeID() -> String {

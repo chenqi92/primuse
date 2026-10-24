@@ -2095,6 +2095,7 @@
 		35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0CB5E6F56603DB9C437C18AB /* AppIcon.icon */; };
 		871654C10D2D37C9C632CD4D /* AppIcon14.icon in Resources */ = {isa = PBXBuildFile; fileRef = B9890251F6597458ED9C8335 /* AppIcon14.icon */; };
 		9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */ = {isa = PBXBuildFile; fileRef = B4E678A7788F43EE2A64E071 /* AppIcon15.icon */; };
+		A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817E8CEB7A7D57D2B5841E83 /* CarriedSongMarks.swift */; };
 		BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */ = {isa = PBXBuildFile; fileRef = 689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */; };
 		D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */ = {isa = PBXBuildFile; fileRef = 328976B021ACE0B2395E2621 /* AppIcon19.icon */; };
 		FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */ = {isa = PBXBuildFile; fileRef = F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */; };
@@ -3879,6 +3880,7 @@
 		3146A2638475D9FF16AD0FFF /* AppIcon21.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon21.icon; sourceTree = "<group>"; };
 		328976B021ACE0B2395E2621 /* AppIcon19.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon19.icon; sourceTree = "<group>"; };
 		689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon12.icon; sourceTree = "<group>"; };
+		817E8CEB7A7D57D2B5841E83 /* CarriedSongMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarriedSongMarks.swift; sourceTree = "<group>"; };
 		AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon16.icon; sourceTree = "<group>"; };
 		B4E678A7788F43EE2A64E071 /* AppIcon15.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon15.icon; sourceTree = "<group>"; };
 		B9890251F6597458ED9C8335 /* AppIcon14.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon14.icon; sourceTree = "<group>"; };
@@ -5534,6 +5536,7 @@
 			isa = PBXGroup;
 			children = (
 				D3F5118298859B35A67F4604 /* AlbumArtistBrowsing.swift */,
+				817E8CEB7A7D57D2B5841E83 /* CarriedSongMarks.swift */,
 				7901837A48E8B1B42DEEBA64 /* ExternalTrackMatchPolicy.swift */,
 				CB7E4BB2916CE1370F4541DF /* FolderPlaylistMembership.swift */,
 				74839E5521EA528A1060DED5 /* LibraryBrowseIndex.swift */,
@@ -6749,6 +6752,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
+				A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */,
 				28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */,
 				5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */,
 				12F66C7F24C3128B3C3660EE /* PlaylistMemberOrderPolicy.swift in Sources */,

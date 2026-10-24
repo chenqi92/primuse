@@ -4344,6 +4344,9 @@ final class MusicLibrary {
     private let startupCacheURL: URL
     private let derivedIndexCacheURL: URL
     private let playlistDurabilityURL: URL
+    /// 换了 id 的歌待找回的评分、评论与「我喜欢」(见 `CarriedSongMarks`)。只在本机,
+    /// 不进快照、不上 iCloud: 别的设备会通过同步拿到还回去之后的结果。
+    private let carriedSongMarksURL: URL
     /// Device-local song exclusions. Deliberately a separate file from
     /// `snapshotURL`: nothing in the iCloud/Apple TV transfer path reads or
     /// copies it, so the exclusion cannot leak to another device.
@@ -4619,8 +4622,9 @@ final class MusicLibrary {
         rebuildVisibleCache()
         playlistCollectionRevision &+= 1
         spotlightIndexRevision &+= 1
-        // 重新启用一个源可能让置灰的歌有了着落。
+        // 重新启用一个源可能让置灰的歌、待找回的标记有了着落。
         schedulePlaylistPendingResolution()
+        scheduleCarriedMarksResolution()
     }
 
     /// `updateDisabledSourceIDs` 的离主线程版本。整库可见缓存 (过滤、艺术家解析、
@@ -4669,6 +4673,7 @@ final class MusicLibrary {
             playlistCollectionRevision &+= 1
             spotlightIndexRevision &+= 1
             schedulePlaylistPendingResolution()
+            scheduleCarriedMarksResolution()
             plog("📚 disabled sources applied off-main prepareMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(songsSnapshot.value.count) hidden=\(ids.count)")
             return
         }
@@ -5344,6 +5349,7 @@ final class MusicLibrary {
         startupCacheURL = directory.appendingPathComponent("library-startup-cache.plist")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
         playlistDurabilityURL = directory.appendingPathComponent("playlist-durability.json")
+        carriedSongMarksURL = directory.appendingPathComponent("library-carried-song-marks.json")
         deviceLocalExclusionURL = directory
             .appendingPathComponent("library-device-local-excluded-songs.json")
         portableSnapshotNeedsInitialWrite = !fileManager.fileExists(atPath: snapshotURL.path)
@@ -6279,11 +6285,10 @@ final class MusicLibrary {
 
         songs = mergedSongs
         songIndexByID = existingIndexByID
-        #if !os(tvOS)
-        // tvOS 的扫描剪枝可以回滚(`rollbackScanPruning`), 回滚按原成员表比对;
-        // 这里改写成员会让回滚认不出来, 所以电视上保持原来的直接清理。
+        // 电视的扫描剪枝可以回滚(`rollbackScanPruning`): 它记着剪枝刚做完时的成员表,
+        // 这里换成另一份或留下的占位照样认得出来。
         reassignPlaylistMembers(ofRemoved: removedSongs, leavingPlaceholders: true)
-        #endif
+        recordCarriedMarks(of: removedSongs, origin: .removedSource)
         // 一首没删时库里的 ID 只增不减, 已有成员不可能因此悬空。
         if removedSongs.isEmpty { carryPlaylistCleanupVerification(playlistCleanupWasVerified) }
         cleanPlaylistEntries()
@@ -6363,13 +6368,16 @@ final class MusicLibrary {
         fileprivate let memberships: [String: [String]]
         fileprivate let playlistDates: [String: Date]
         fileprivate let recentIDs: [String]
+        /// 剪枝刚做完时的成员表: 被剪掉的歌已换成另一份或置灰占位。回滚时成员表还是这样,
+        /// 说明这期间没人动过, 才整份换回剪枝前的。
+        fileprivate var prunedMemberships: [String: [String]]? = nil
     }
 
     func beginScanPruning(_ incoming: [Song], sourceID: String) -> ScanPruningRecovery {
         adoptScannedIDsForRetainedSongs(incoming, sourceID: sourceID)
         let incomingIDs = Set(incoming.map(\.id))
         let removed = songs.filter { $0.sourceID == sourceID && !incomingIDs.contains($0.id) }
-        let recovery = ScanPruningRecovery(
+        var recovery = ScanPruningRecovery(
             songs: removed, memberships: playlistSongIDs,
             playlistDates: Dictionary(allPlaylists.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first }),
             recentIDs: recentPlaybackSongIDs
@@ -6389,12 +6397,14 @@ final class MusicLibrary {
                 addSongs(changed, affectedSourceIDs: nil, notifyRemovals: false,
                          pruneMissingSongs: false)
             }
+            recovery.prunedMemberships = playlistSongIDs
             return recovery
         }
         plog("📥 TV scan prune source=\(sourceID) incoming=\(incoming.count) removed=\(removed.count) staleRetained=\(hasStaleRetainedRows)")
         // Cache deletion notifications are irreversible; publish them only
         // after both the library and source checkpoint have committed.
         addSongs(incoming, affectedSourceIDs: [sourceID], notifyRemovals: false)
+        recovery.prunedMemberships = playlistSongIDs
         return recovery
     }
 
@@ -6437,11 +6447,16 @@ final class MusicLibrary {
         for playlist in allPlaylists where !playlist.isDeleted {
             guard playlist.updatedAt == recovery.playlistDates[playlist.id],
                   let original = recovery.memberships[playlist.id],
-                  playlistSongIDs[playlist.id] == original.filter({ !removedIDs.contains($0) }) else { continue }
+                  playlistSongIDs[playlist.id] == recovery.prunedMemberships?[playlist.id]
+                    ?? original.filter({ !removedIDs.contains($0) }) else { continue }
             // A user edit made while persistence was suspended takes priority
             // over the pre-prune membership; only undo the scan's cleanup.
-            playlistSongIDs[playlist.id] = original.filter { songIndexByID[$0] != nil }
+            playlistSongIDs[playlist.id] = original.filter {
+                songIndexByID[$0] != nil || playlistPendingEntries[$0] != nil
+            }
         }
+        // 剪枝时替被剪掉的歌留下的占位, 成员表换回去以后就没人引用了。
+        playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
         if recentPlaybackSongIDs == recovery.recentIDs.filter({ !removedIDs.contains($0) }) {
             recentPlaybackSongIDs = recovery.recentIDs.filter { songIndexByID[$0] != nil }
         }
@@ -7181,6 +7196,7 @@ final class MusicLibrary {
         )
         invalidateSearchCaches()
         reassignPlaylistMembers(ofRemoved: prepared.removedSongs, leavingPlaceholders: true)
+        recordCarriedMarks(of: prepared.removedSongs, origin: .removedSource)
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -10358,8 +10374,19 @@ final class MusicLibrary {
     ) -> PendingEntryMatchOutcome {
         var outcome = PendingEntryMatchOutcome()
         guard !entries.isEmpty, !songs.isEmpty else { return outcome }
+        // 删源、剪枝留下的占位记着原来那首的 id:同一个 id 回来(源从回收站恢复、连接参数
+        // 改回原样)就原位点亮。只为这几个 id 扫一遍曲库, 不建整库的表。
+        let formerIDs = Set(entries.values.compactMap(\.formerSongID))
+        var returnedFormerIDs = Set<String>()
+        if !formerIDs.isEmpty {
+            for song in songs where formerIDs.contains(song.id) { returnedFormerIDs.insert(song.id) }
+        }
         let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
         for (id, entry) in entries {
+            if let former = entry.formerSongID, returnedFormerIDs.contains(former) {
+                outcome.resolved[id] = former
+                continue
+            }
             if entry.serverSourceID != nil {
                 if let song = matcher.matchServerEntry(entry) { outcome.resolved[id] = song.id }
                 continue
@@ -10468,7 +10495,8 @@ final class MusicLibrary {
                         artists: PlaylistEntryMatcher.artists(of: song),
                         album: song.albumTitle,
                         duration: song.duration > 0 ? song.duration : nil,
-                        origin: "removed-source"
+                        origin: "removed-source",
+                        formerSongID: song.id
                     )
                     placeholders[id] = entry
                     playlistPendingEntries[entry.id] = entry
@@ -10510,6 +10538,267 @@ final class MusicLibrary {
         }
         return result
     }
+
+    // MARK: - 换了 id 的歌: 找回评分、评论与「我喜欢」
+
+    /// 待找回的标记, 键是旧的 `Song.id`。nil 表示还没从盘上读: 第一次用到才读,
+    /// 文件通常不存在。
+    @ObservationIgnored private var carriedSongMarksStorage: [String: CarriedSongMarks]?
+    /// 还在等的条数(设置页显示用)。
+    private(set) var carriedSongMarksCount = 0
+    @ObservationIgnored private var carriedSongMarksResolutionTask: Task<Void, Never>?
+    @ObservationIgnored private var carriedSongMarksResolutionGeneration: UInt64 = 0
+    /// 每存一次加一。和曲库的两个代数一起记下上一轮对过的状态: 都没变就不再整库对一遍
+    /// (扫描期间每次提交都会来问, 对不上的条目一直留着时不能每次都重建匹配表)。
+    @ObservationIgnored private var carriedSongMarksRevision: UInt64 = 0
+    @ObservationIgnored private var carriedSongMarksCheckedState: CarriedSongMarksCheckState?
+    private struct CarriedSongMarksCheckState: Equatable {
+        let songs: UInt64
+        let visible: UInt64
+        let marks: UInt64
+    }
+    private nonisolated static let carriedSongMarksWriteQueue = DispatchQueue(
+        label: "com.welape.primuse.library.carriedSongMarks",
+        qos: .utility
+    )
+
+    private func loadedCarriedSongMarks() -> [String: CarriedSongMarks] {
+        if let carriedSongMarksStorage { return carriedSongMarksStorage }
+        var loaded: [String: CarriedSongMarks] = [:]
+        if let data = try? Data(contentsOf: carriedSongMarksURL) {
+            do {
+                let entries = try decoder.decode([CarriedSongMarks].self, from: data)
+                loaded = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            } catch {
+                plog("⚠️ Carried song marks unreadable: \(error.localizedDescription)")
+            }
+        }
+        carriedSongMarksStorage = loaded
+        carriedSongMarksCount = loaded.count
+        return loaded
+    }
+
+    private func storeCarriedSongMarks(_ entries: [String: CarriedSongMarks]) {
+        carriedSongMarksStorage = entries
+        carriedSongMarksRevision &+= 1
+        if carriedSongMarksCount != entries.count { carriedSongMarksCount = entries.count }
+        let sorted = entries.values.sorted { $0.id < $1.id }
+        let url = carriedSongMarksURL
+        // 串行队列保证后一次写盖住前一次; 几千条也只是几百 KB, 不占主线程。
+        Self.carriedSongMarksWriteQueue.async {
+            do {
+                if sorted.isEmpty {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(sorted).write(to: url, options: .atomic)
+            } catch {
+                plog("⚠️ Carried song marks write failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 这些歌离开了曲库(或在电视上随源藏了起来), 它们的 id 多半不会再回来: 打过分、写过评论
+    /// 或点过喜欢的各记一条, 等同一首歌以新 id 出现时还回去。必须在 `cleanPlaylistEntries`
+    /// 之前调 —— 那之后「我喜欢」里就没有它们了; 也要在 `reassignPlaylistMembers` 之后:
+    /// 已经换到另一份上的喜欢不必再记。用户亲手删歌不走这里。
+    private func recordCarriedMarks(of removed: [Song], origin: CarriedSongMarks.Origin) {
+        guard !removed.isEmpty else { return }
+        let liked = Set(playlistSongIDs[Self.likedSongsPlaylistID] ?? [])
+        let hasReviews = !libraryReviewsBySubject.isEmpty
+        guard hasReviews || !liked.isEmpty else { return }
+        let now = Date()
+        var recorded: [CarriedSongMarks] = []
+        for song in removed {
+            let review = hasReviews
+                ? libraryReviewsBySubject[LibraryReviewSubject.song(song.id).storageKey]
+                : nil
+            let activeReview = review?.isDeleted == false ? review : nil
+            let rating = LibraryReviewPreferences.normalizedRating(activeReview?.rating)
+            let comment = activeReview?.comment ?? ""
+            let isLiked = liked.contains(song.id)
+            guard rating != nil || !comment.isEmpty || isLiked,
+                  !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            recorded.append(CarriedSongMarks(
+                id: song.id,
+                title: song.title,
+                artists: PlaylistEntryMatcher.artists(of: song),
+                album: song.albumTitle,
+                duration: song.duration > 0 ? song.duration : nil,
+                fileSize: song.fileSize > 0 ? song.fileSize : nil,
+                fileName: CarriedSongMarks.fileName(fromPath: song.filePath),
+                rating: rating,
+                comment: comment.isEmpty ? nil : comment,
+                liked: isLiked,
+                origin: origin,
+                createdAt: now
+            ))
+        }
+        guard !recorded.isEmpty else { return }
+        storeCarriedSongMarks(CarriedSongMarksPolicy.merging(loadedCarriedSongMarks(), adding: recorded))
+        plog("🏷️ Carrying marks of \(recorded.count) song(s) that left the library (\(origin.rawValue))")
+        scheduleCarriedMarksResolution()
+    }
+
+    /// 电视上「从 Apple TV 移除」只把源藏起来, 歌还在库里。用户接着把同一个网盘当新源再加一遍,
+    /// 扫出来的歌 id 全换了: 歌单里是藏起来的旧歌, 评分和「我喜欢」也挂在旧歌上。按删源的
+    /// 规矩给歌单留占位、把评分和喜欢记下, 新源扫出同一首时还回去; 从回收站恢复这个源时,
+    /// 占位按原来的 id 原样点亮。调之前源要已经算进 `disabledSourceIDs`, 否则歌单会被
+    /// 原地换回藏起来的那一份。
+    func carryMarksFromHiddenSource(_ sourceID: String) {
+        if deferringUntilReady({ [weak self] in self?.carryMarksFromHiddenSource(sourceID) }) { return }
+        let hidden = songs.filter { $0.sourceID == sourceID }
+        guard !hidden.isEmpty else { return }
+        reassignPlaylistMembers(ofRemoved: hidden, leavingPlaceholders: true)
+        recordCarriedMarks(of: hidden, origin: .hiddenSource)
+        playlistCollectionRevision &+= 1
+        persistSnapshot()
+    }
+
+    /// 曲库变了之后在后台把待找回的标记和曲库对一遍。规则比歌单占位更严
+    /// (`CarriedSongMarksPolicy.select`), 拿不准的继续等。
+    private func scheduleCarriedMarksResolution(after delay: Duration = .seconds(3)) {
+        guard !isPreparing, !loadedCarriedSongMarks().isEmpty else { return }
+        carriedSongMarksResolutionTask?.cancel()
+        carriedSongMarksResolutionGeneration &+= 1
+        let generation = carriedSongMarksResolutionGeneration
+        carriedSongMarksResolutionTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            if self.isDeferringSceneTransitionPublications {
+                self.carriedSongMarksResolutionTask = nil
+                self.scheduleCarriedMarksResolution(after: .seconds(10))
+                return
+            }
+            let state = CarriedSongMarksCheckState(
+                songs: self.songMutationGeneration,
+                visible: self.visibleCacheGeneration,
+                marks: self.carriedSongMarksRevision
+            )
+            guard state != self.carriedSongMarksCheckedState else {
+                self.carriedSongMarksResolutionTask = nil
+                return
+            }
+            let entries = Array(self.loadedCarriedSongMarks().values)
+            let candidates = self.visibleSongs
+            let cache = self.playlistEntryMatchKeyCache
+            let resolutions = await Task.detached(priority: .utility) {
+                Self.matchCarriedMarks(entries, against: candidates, keyCache: cache)
+            }.value
+            guard generation == self.carriedSongMarksResolutionGeneration else { return }
+            self.carriedSongMarksResolutionTask = nil
+            self.carriedSongMarksCheckedState = state
+            self.applyCarriedMarks(resolutions)
+        }
+    }
+
+    /// 旧 id → 认领它的歌。旧 id 自己回到了曲库就认它; 否则按元数据挑唯一的一首。
+    nonisolated static func matchCarriedMarks(
+        _ entries: [CarriedSongMarks],
+        against songs: [Song],
+        keyCache: PlaylistEntryMatchKeyCache?
+    ) -> [String: String] {
+        guard !entries.isEmpty, !songs.isEmpty else { return [:] }
+        let wanted = Set(entries.map(\.id))
+        var returned = Set<String>()
+        for song in songs where wanted.contains(song.id) { returned.insert(song.id) }
+        var result: [String: String] = [:]
+        let unresolved = entries.filter { entry in
+            guard returned.contains(entry.id) else { return true }
+            result[entry.id] = entry.id
+            return false
+        }
+        guard !unresolved.isEmpty else { return result }
+        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        for entry in unresolved {
+            let confident = matcher.match(entry.matchSubject).confident
+            guard !confident.isEmpty else { continue }
+            let candidates = confident.map { song in
+                CarriedSongMarksPolicy.Candidate(
+                    title: song.title,
+                    artists: PlaylistEntryMatcher.artists(of: song),
+                    album: song.albumTitle,
+                    duration: song.duration > 0 ? song.duration : nil,
+                    fileSize: song.fileSize > 0 ? song.fileSize : nil,
+                    fileName: CarriedSongMarks.fileName(fromPath: song.filePath)
+                )
+            }
+            if let index = CarriedSongMarksPolicy.select(for: entry, among: candidates) {
+                result[entry.id] = confident[index].id
+            }
+        }
+        return result
+    }
+
+    /// 还回去: 目标歌自己已有的评分、评论不动, 只补空着的; 喜欢走和点红心同一条路
+    /// (`likeSongs`), 服务端源的收藏也跟着写回, 否则下一次和服务端同步又会被拿掉。
+    private func applyCarriedMarks(_ resolutions: [String: String]) {
+        guard !resolutions.isEmpty else { return }
+        var entries = loadedCarriedSongMarks()
+        var toLike: [String] = []
+        var restoredReviews = 0
+        for (entryID, targetID) in resolutions {
+            guard let entry = entries[entryID], visibleSong(id: targetID) != nil else { continue }
+            entries[entryID] = nil
+            let subject = LibraryReviewSubject.song(targetID)
+            let existing = libraryReview(for: subject)
+            if let restored = CarriedSongMarksPolicy.restoredReview(
+                entry: entry,
+                existingRating: existing?.rating,
+                existingComment: existing?.comment
+            ) {
+                updateLibraryReview(for: subject, rating: restored.rating, comment: restored.comment)
+                restoredReviews += 1
+            }
+            // 这一份被用户点过「不喜欢」就不替他改主意。
+            if entry.liked, !isLiked(songID: targetID), !isDisliked(songID: targetID),
+               !toLike.contains(targetID) {
+                toLike.append(targetID)
+            }
+        }
+        guard entries.count != loadedCarriedSongMarks().count else { return }
+        if !toLike.isEmpty { likeSongs(toLike) }
+        storeCarriedSongMarks(entries)
+        plog("🏷️ Restored carried marks: reviews=\(restoredReviews) liked=\(toLike.count), \(entries.count) still waiting")
+    }
+
+    /// 设置页「清除待找回的标记」: 用户确认那些歌不会再回来了。
+    func discardCarriedSongMarks() {
+        if deferringUntilReady({ [weak self] in self?.discardCarriedSongMarks() }) { return }
+        guard !loadedCarriedSongMarks().isEmpty else { return }
+        carriedSongMarksResolutionTask?.cancel()
+        carriedSongMarksResolutionTask = nil
+        storeCarriedSongMarks([:])
+    }
+
+    #if DEBUG
+    /// 单测直接跑一次认领, 不等 3 秒的去抖。
+    func resolveCarriedSongMarksForTesting() async {
+        let entries = Array(loadedCarriedSongMarks().values)
+        let candidates = visibleSongs
+        let cache = playlistEntryMatchKeyCache
+        let resolutions = await Task.detached(priority: .utility) {
+            Self.matchCarriedMarks(entries, against: candidates, keyCache: cache)
+        }.value
+        applyCarriedMarks(resolutions)
+    }
+
+    var carriedSongMarksForTesting: [String: CarriedSongMarks] { loadedCarriedSongMarks() }
+
+    /// 单测直接点亮一次歌单占位, 不等 3 秒的去抖。
+    func resolvePlaylistPendingEntriesForTesting() {
+        applyPendingResolutions(Self.matchPendingEntries(
+            playlistPendingEntries, against: visibleSongs, keyCache: playlistEntryMatchKeyCache
+        ))
+    }
+    #endif
 
     /// 这些歌各自在别的(启用中的)源里的其他版本, 不含自己。播放时原曲所在的源连不上,
     /// 播放器从这里挑一份能播的。一次调用只扫一遍可见曲库。
@@ -11305,6 +11594,7 @@ final class MusicLibrary {
     /// correctness.
     private func schedulePendingIdentityFlush(after delay: Duration = .seconds(8)) {
         schedulePlaylistPendingResolution()
+        scheduleCarriedMarksResolution()
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return }
         // iOS 前台不做整库的模糊匹配(见 `suspendPendingIdentityResolution`),但歌曲 id 对得上的照样
         // 点亮:同一个音乐源在各设备上算出的歌曲 id 一样,别的设备的「我喜欢」、歌单、最近播放

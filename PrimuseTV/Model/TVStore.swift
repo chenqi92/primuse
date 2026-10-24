@@ -4149,6 +4149,9 @@ final class TVStore {
         // 用户亲手删 / 停用的源要立刻从资料库消失(测试钉住了这一点),这里保持同步;
         // 后台重算只用于 iCloud 合并等观察回调。
         refreshVisibility()
+        // 歌还在库里、只是藏起来了。同一个网盘当新源再加回来时 id 全换,评分、「我喜欢」
+        // 和歌单成员要能跟到新扫出来的那一份上(看板 PRIM-37)。
+        library.carryMarksFromHiddenSource(id)
         sourcesRevision += 1
     }
 
