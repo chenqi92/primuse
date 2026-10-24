@@ -6625,6 +6625,7 @@
 "player_play_style_plain" = "無框";
 "player_play_style_outlined_circle" = "圓圈";
 "player_play_style_filled_square" = "方塊";
+"player_play_style_large_plain" = "大號無框";
 "player_skip_style_standard" = "標準";
 "player_skip_style_bold" = "大號";
 "player_skip_style_track" = "帶豎線";

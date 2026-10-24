@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "Bez ramki";
 "player_play_style_outlined_circle" = "Kontur";
 "player_play_style_filled_square" = "Kwadrat";
+"player_play_style_large_plain" = "Duży";
 "player_skip_style_standard" = "Standard";
 "player_skip_style_bold" = "Duże";
 "player_skip_style_track" = "Z kreską";

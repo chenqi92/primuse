@@ -6648,6 +6648,7 @@
 "player_play_style_plain" = "Sans cadre";
 "player_play_style_outlined_circle" = "Contour";
 "player_play_style_filled_square" = "Carré";
+"player_play_style_large_plain" = "Grand";
 "player_skip_style_standard" = "Standard";
 "player_skip_style_bold" = "Gras";
 "player_skip_style_track" = "Avec barre";

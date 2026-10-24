@@ -3864,7 +3864,7 @@ struct NowPlayingView: View {
                     Task { await player.previous() }
                 } label: {
                     Image(systemName: skipButtonStyle.symbol(forward: false))
-                        .font(skipButtonStyle.compactFont)
+                        .font(skipButtonStyle.compactFont(pairedWith: playButtonStyle))
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!player.canSwitchRadioStation)
@@ -3891,7 +3891,7 @@ struct NowPlayingView: View {
                     Task { await player.next() }
                 } label: {
                     Image(systemName: skipButtonStyle.symbol(forward: true))
-                        .font(skipButtonStyle.compactFont)
+                        .font(skipButtonStyle.compactFont(pairedWith: playButtonStyle))
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!player.canSwitchRadioStation)
@@ -6368,7 +6368,10 @@ struct NowPlayingView: View {
         } label: {
             // 和播放键、书名一样亮,跟音乐页的上一首 / 下一首、播客的快退快进同一层级(#329)。
             Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
-                .font(.system(size: 28, weight: .light))
+                .font(.system(
+                    size: 28 * NowPlayingSkipButtonStyle.pairingScale(with: playButtonStyle),
+                    weight: .light
+                ))
                 .foregroundStyle(style.primary)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 56, height: 56)
@@ -6528,8 +6531,9 @@ struct NowPlayingView: View {
     /// 快退 / 快进(有声内容)或上一首 / 下一首。长按有声内容跳章,音乐按住快进快退。
     private func transportSkipButton(forward: Bool) -> some View {
         Button { if forward { transportForward() } else { transportBackward() } } label: {
+            // 播放键选了「大号无框」时跟着放大(#338)。
             Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
-                .font(skipButtonStyle.font).foregroundStyle(appearance.primary)
+                .font(skipButtonStyle.font(pairedWith: playButtonStyle)).foregroundStyle(appearance.primary)
                 .contentTransition(.symbolEffect(.replace))
         }
         .frame(width: 56, height: 56)
@@ -6789,7 +6793,7 @@ struct NowPlayingView: View {
                     if forward { transportForward() } else { transportBackward() }
                 } label: {
                     Image(systemName: symbol)
-                        .font(skipButtonStyle.font)
+                        .font(skipButtonStyle.font(pairedWith: playButtonStyle))
                         .foregroundStyle(appearance.primary)
                         .contentTransition(.symbolEffect(.replace))
                         .frame(

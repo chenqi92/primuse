@@ -6408,6 +6408,7 @@
 "player_play_style_plain" = "No Frame";
 "player_play_style_outlined_circle" = "Outline";
 "player_play_style_filled_square" = "Square";
+"player_play_style_large_plain" = "Large";
 "player_skip_style_standard" = "Standard";
 "player_skip_style_bold" = "Bold";
 "player_skip_style_track" = "With Bar";

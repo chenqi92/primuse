@@ -801,8 +801,9 @@ struct AudiobookPreviewScreen: View {
     }
 
     private func skipGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 28, weight: .light))
+        let playStyle = PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
+        return Image(systemName: symbol)
+            .font(.system(size: 28 * NowPlayingSkipButtonStyle.pairingScale(with: playStyle), weight: .light))
             .foregroundStyle(style.primary)
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)
@@ -1046,7 +1047,12 @@ struct PodcastPreviewScreen: View {
                     Color.clear.frame(width: 44, height: 44)
                 }
                 Spacer(minLength: 0)
-                PreviewSkipGlyph(forward: false, tint: appearance.primary, fixedSymbol: player.spokenWordSkipBackwardSymbol)
+                PreviewSkipGlyph(
+                    forward: false,
+                    tint: appearance.primary,
+                    fixedSymbol: player.spokenWordSkipBackwardSymbol,
+                    playStyleKey: PlayerAppearancePreferences.podcastPlayButtonStyleKey
+                )
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
@@ -1056,7 +1062,12 @@ struct PodcastPreviewScreen: View {
             )
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                PreviewSkipGlyph(forward: true, tint: appearance.primary, fixedSymbol: player.spokenWordSkipForwardSymbol)
+                PreviewSkipGlyph(
+                    forward: true,
+                    tint: appearance.primary,
+                    fixedSymbol: player.spokenWordSkipForwardSymbol,
+                    playStyleKey: PlayerAppearancePreferences.podcastPlayButtonStyleKey
+                )
                 Spacer(minLength: 0)
                 if controls.showsInnerChapters {
                     chapterButton("forward.end.fill")
@@ -1122,6 +1133,7 @@ struct RadioPreviewScreen: View {
     var body: some View {
         let canvas = context.canvas
         let skipStyle = PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
+        let radioPlayStyle = PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
         let size = canvas.size
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let layout = NowPlayingRadioControlLayout.decode(storage)
@@ -1197,7 +1209,7 @@ struct RadioPreviewScreen: View {
 
                 HStack(spacing: 38) {
                     Image(systemName: skipStyle.symbol(forward: false))
-                        .font(skipStyle.compactFont)
+                        .font(skipStyle.compactFont(pairedWith: radioPlayStyle))
                         .frame(width: 44, height: 44)
                     ZStack {
                         Image(systemName: "play.circle.fill")
@@ -1212,7 +1224,7 @@ struct RadioPreviewScreen: View {
                         )
                     }
                     Image(systemName: skipStyle.symbol(forward: true))
-                        .font(skipStyle.compactFont)
+                        .font(skipStyle.compactFont(pairedWith: radioPlayStyle))
                         .frame(width: 44, height: 44)
                 }
                 .foregroundStyle(appearance.primary)

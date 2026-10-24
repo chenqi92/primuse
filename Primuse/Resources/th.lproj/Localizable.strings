@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "ไม่มีกรอบ";
 "player_play_style_outlined_circle" = "เส้นขอบ";
 "player_play_style_filled_square" = "สี่เหลี่ยม";
+"player_play_style_large_plain" = "ขนาดใหญ่";
 "player_skip_style_standard" = "มาตรฐาน";
 "player_skip_style_bold" = "ใหญ่";
 "player_skip_style_track" = "มีเส้น";

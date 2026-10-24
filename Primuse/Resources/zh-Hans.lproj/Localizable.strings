@@ -6741,6 +6741,7 @@
 "player_play_style_plain" = "无框";
 "player_play_style_outlined_circle" = "圆圈";
 "player_play_style_filled_square" = "方块";
+"player_play_style_large_plain" = "大号无框";
 "player_skip_style_standard" = "标准";
 "player_skip_style_bold" = "大号";
 "player_skip_style_track" = "带竖线";

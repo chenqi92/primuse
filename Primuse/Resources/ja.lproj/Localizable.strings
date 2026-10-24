@@ -6649,6 +6649,7 @@
 "player_play_style_plain" = "枠なし";
 "player_play_style_outlined_circle" = "輪郭";
 "player_play_style_filled_square" = "四角";
+"player_play_style_large_plain" = "大きめ";
 "player_skip_style_standard" = "標準";
 "player_skip_style_bold" = "太字";
 "player_skip_style_track" = "縦線付き";

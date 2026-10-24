@@ -6648,6 +6648,7 @@
 "player_play_style_plain" = "테두리 없음";
 "player_play_style_outlined_circle" = "윤곽선";
 "player_play_style_filled_square" = "사각형";
+"player_play_style_large_plain" = "크게";
 "player_skip_style_standard" = "기본";
 "player_skip_style_bold" = "굵게";
 "player_skip_style_track" = "막대 포함";

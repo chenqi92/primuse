@@ -428,6 +428,8 @@ enum NowPlayingPlayButtonStyle: String, CaseIterable, Sendable {
     case outlinedCircle
     /// 实心圆角方块,三角挖空。
     case filledSquare
+    /// 不带框,三角 / 两竖撑满整颗键,比「无框」大一圈,上一首 / 下一首跟着放大(#338)。
+    case largePlain
 
     var titleKey: String {
         switch self {
@@ -435,6 +437,7 @@ enum NowPlayingPlayButtonStyle: String, CaseIterable, Sendable {
         case .plain: "player_play_style_plain"
         case .outlinedCircle: "player_play_style_outlined_circle"
         case .filledSquare: "player_play_style_filled_square"
+        case .largePlain: "player_play_style_large_plain"
         }
     }
 }

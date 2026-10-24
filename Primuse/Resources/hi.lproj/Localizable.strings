@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "बिना फ़्रेम";
 "player_play_style_outlined_circle" = "रूपरेखा";
 "player_play_style_filled_square" = "वर्ग";
+"player_play_style_large_plain" = "बड़ा";
 "player_skip_style_standard" = "मानक";
 "player_skip_style_bold" = "बड़ा";
 "player_skip_style_track" = "रेखा सहित";

@@ -15,8 +15,13 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         // 存进设置的是原始值,改名就丢了用户选的样式。
         XCTAssertEqual(
             NowPlayingPlayButtonStyle.allCases.map(\.rawValue),
-            ["filledCircle", "plain", "outlinedCircle", "filledSquare"]
+            ["filledCircle", "plain", "outlinedCircle", "filledSquare", "largePlain"]
         )
+        // 只有「大号无框」让上一首 / 下一首跟着放大,别的样式还是原来的字号。
+        for style in NowPlayingPlayButtonStyle.allCases {
+            XCTAssertEqual(NowPlayingSkipButtonStyle.pairingScale(with: style) > 1, style == .largePlain, style.rawValue)
+        }
+        XCTAssertGreaterThan(NowPlayingPlayPauseFace.largePlainGlyphScale, NowPlayingPlayPauseFace.plainGlyphScale)
         XCTAssertEqual(
             NowPlayingSkipButtonStyle.allCases.map(\.rawValue),
             ["standard", "bold", "track", "filledCircle", "outlinedCircle"]

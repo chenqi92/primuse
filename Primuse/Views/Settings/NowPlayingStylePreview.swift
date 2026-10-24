@@ -394,18 +394,38 @@ struct PreviewGlassCircle: View {
 }
 
 /// 播放页上一首 / 下一首(按设置里的图标样式;`fixedSymbol` 给了就照它画,有声内容的快退快进用)。
+/// 播放键选了「大号无框」时跟着放大,和播放页一样(`playStyleKey` 是哪一页的播放键样式,默认音乐)。
 struct PreviewSkipGlyph: View {
     let forward: Bool
     let tint: Color
-    var fixedSymbol: String? = nil
+    let fixedSymbol: String?
 
     @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage private var playButtonStyleRawValue: String
+
+    init(
+        forward: Bool,
+        tint: Color,
+        fixedSymbol: String? = nil,
+        playStyleKey: String = PlayerAppearancePreferences.playButtonStyleKey
+    ) {
+        self.forward = forward
+        self.tint = tint
+        self.fixedSymbol = fixedSymbol
+        _playButtonStyleRawValue = AppStorage(
+            wrappedValue: NowPlayingPlayButtonStyle.filledCircle.rawValue,
+            playStyleKey
+        )
+    }
 
     var body: some View {
         let skip = PlayerAppearancePreferences.skipButtonStyle(rawValue: skipButtonStyleRawValue)
+        let playStyle = PlayerAppearancePreferences.playButtonStyle(rawValue: playButtonStyleRawValue)
         Image(systemName: fixedSymbol ?? skip.symbol(forward: forward))
-            .font(fixedSymbol == nil ? skip.font : .title)
+            .font(fixedSymbol == nil
+                ? skip.font(pairedWith: playStyle)
+                : NowPlayingSkipButtonStyle.standard.font(pairedWith: playStyle))
             .foregroundStyle(tint)
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)

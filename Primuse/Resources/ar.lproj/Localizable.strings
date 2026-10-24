@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "بلا إطار";
 "player_play_style_outlined_circle" = "محيط";
 "player_play_style_filled_square" = "مربع";
+"player_play_style_large_plain" = "كبير";
 "player_skip_style_standard" = "قياسي";
 "player_skip_style_bold" = "عريض";
 "player_skip_style_track" = "مع خط";

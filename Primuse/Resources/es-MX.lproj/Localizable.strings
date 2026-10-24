@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "Sin marco";
 "player_play_style_outlined_circle" = "Contorno";
 "player_play_style_filled_square" = "Cuadrado";
+"player_play_style_large_plain" = "Grande";
 "player_skip_style_standard" = "Estándar";
 "player_skip_style_bold" = "Grande";
 "player_skip_style_track" = "Con barra";

@@ -15,6 +15,9 @@ struct NowPlayingPlayPauseFace: View {
 
     /// 不带框时符号的字号占边长的比例。0.68 时暂停只有 22.5×32 点,比 28 号的上一首(38×22)还显小(#329)。
     static let plainGlyphScale: CGFloat = 0.82
+    /// 「大号无框」撑满整颗键:56 点的键里暂停约 33×47 点,三角约 41×49 点,仍在键的方框里,
+    /// 两边的键不用挪位置(#338)。
+    static let largePlainGlyphScale: CGFloat = 1
 
     var body: some View {
         let pause = stops ? "stop" : "pause"
@@ -25,6 +28,8 @@ struct NowPlayingPlayPauseFace: View {
             glyph(showsPause ? "\(pause).circle" : "play.circle", size: diameter, weight: .light)
         case .plain:
             glyph(showsPause ? "\(pause).fill" : "play.fill", size: diameter * Self.plainGlyphScale)
+        case .largePlain:
+            glyph(showsPause ? "\(pause).fill" : "play.fill", size: diameter * Self.largePlainGlyphScale)
         case .filledSquare:
             let side = diameter * 0.9
             ZStack {
@@ -66,6 +71,23 @@ extension NowPlayingSkipButtonStyle {
         case .standard, .track: .title3
         case .bold, .filledCircle, .outlinedCircle: font(scale: 0.72)
         }
+    }
+
+    /// 播放键选了「大号无框」时上一首 / 下一首放大两成,和它站在一起不显得小(#338)。其余样式照旧。
+    static func pairingScale(with playStyle: NowPlayingPlayButtonStyle) -> CGFloat {
+        playStyle == .largePlain ? 1.2 : 1
+    }
+
+    /// 和播放键配对后的字号(播放页传输键一行、设置里的预览)。
+    func font(pairedWith playStyle: NowPlayingPlayButtonStyle) -> Font {
+        let scale = Self.pairingScale(with: playStyle)
+        return scale == 1 ? font : font(scale: scale)
+    }
+
+    /// 电台那一对按同样的比例放大。
+    func compactFont(pairedWith playStyle: NowPlayingPlayButtonStyle) -> Font {
+        let scale = Self.pairingScale(with: playStyle)
+        return scale == 1 ? compactFont : font(scale: 0.72 * scale)
     }
 
     /// 同一种字号按比例缩小(设置里的小样)。`.title` 按 28 点算。

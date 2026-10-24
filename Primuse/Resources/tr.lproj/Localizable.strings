@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "Çerçevesiz";
 "player_play_style_outlined_circle" = "Dış Çizgi";
 "player_play_style_filled_square" = "Kare";
+"player_play_style_large_plain" = "Büyük";
 "player_skip_style_standard" = "Standart";
 "player_skip_style_bold" = "Kalın";
 "player_skip_style_track" = "Çizgili";

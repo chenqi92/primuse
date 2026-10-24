@@ -6554,6 +6554,7 @@
 "player_play_style_plain" = "Без рамки";
 "player_play_style_outlined_circle" = "Контур";
 "player_play_style_filled_square" = "Квадрат";
+"player_play_style_large_plain" = "Крупно";
 "player_skip_style_standard" = "Стандарт";
 "player_skip_style_bold" = "Крупные";
 "player_skip_style_track" = "С чертой";
