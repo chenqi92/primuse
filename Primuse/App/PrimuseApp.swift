@@ -2637,6 +2637,7 @@ private struct DebugLaunchAutomation: ViewModifier {
 ///   给定向采样「反复点开 / 收起」用；`PRIMUSE_DEBUG_PLAYER_CYCLE_INTERVAL` 改间隔秒数。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
+/// - `PRIMUSE_DEBUG_PRESENT=book`：有声书在播后弹出这本书的详情页,`PRIMUSE_DEBUG_BOOK_RATE=<倍数>` 先把这本书的语速设好。
 /// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
 ///   （clip 是正在播的歌的「铃声与导出」，配合 `PRIMUSE_DEBUG_CLIP_ACTION=highlight,ringtone` 依次定位高潮、制作铃声；
 ///   sleep 是睡眠定时面板，`PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 先开一个倒计时）
@@ -2788,6 +2789,15 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         guard services.playerService.hasChapters || services.playerService.currentItemIsSpokenWord else { continue }
                         try? await Task.sleep(for: .seconds(3))
                     }
+                    if page == "book" {
+                        guard let bookID = services.playerService.currentBookID else { continue }
+                        if let rate = env["PRIMUSE_DEBUG_BOOK_RATE"].flatMap(Float.init) {
+                            services.playerService.setSpokenWordRate(rate, forBookID: bookID)
+                        }
+                        try? await Task.sleep(for: .seconds(2))
+                        presented = Presented(page: page, songs: [], proposals: [])
+                        return
+                    }
                     if page == "karaoke" || page == "queue" || page == "clip" || page == "sleep" {
                         guard services.playerService.currentSong != nil else { continue }
                         if page == "sleep", let minutes = env["PRIMUSE_DEBUG_SLEEP_MINUTES"].flatMap(Int.init) {
@@ -2880,6 +2890,10 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         switch item.page {
         case "spokenWord":
             NavigationStack { SpokenWordLibraryView() }
+        case "book":
+            if let bookID = services.playerService.currentBookID {
+                NavigationStack { SpokenWordBookDetailView(bookID: bookID) }
+            }
         case let podcastPage where podcastPage.hasPrefix("podcast"):
             PodcastDebugScreen(page: podcastPage)
         case "chapters":

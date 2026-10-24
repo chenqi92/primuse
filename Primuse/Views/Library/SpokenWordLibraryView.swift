@@ -1225,6 +1225,7 @@ struct SpokenWordBookDetailView: View {
     @State private var autoDownloadUnavailable: AudiobookOfflinePolicy.Availability?
     @State private var confirmsCacheRemoval = false
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var shownChapterIDs: Set<String> = []
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
@@ -1510,7 +1511,9 @@ struct SpokenWordBookDetailView: View {
             }
             Spacer(minLength: 4)
             // 封面旁这一栏在 iPhone mini、放大显示或大字号下很窄:一排放不下时先让「自动下载」只剩图标、
-            // 再把语速收成只剩倍数,还不行把语速和「自动下载」挪到下一行,「继续」始终是一行字。
+            // 再把语速收成只剩倍数,还不行就让「继续」那颗键自己缩一点,三颗键始终是一排(#349:选 1.25×
+            // 这类三位数的倍数时 mini 上原来会把语速和「自动下载」挤到下一行)。「继续」撑满剩下的宽度,
+            // 一排的左右两头和上面的进度条对齐。只有辅助功能那几档大字号才挪到两行。
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     phoneContinueButton(book, songs: songs)
@@ -1527,11 +1530,25 @@ struct SpokenWordBookDetailView: View {
                     SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
                     if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    phoneContinueButton(book, songs: songs)
-                    HStack(spacing: 8) {
-                        SpokenWordBookSpeedMenu(bookID: book.id)
-                        if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        phoneContinueButton(book, songs: songs)
+                        HStack(spacing: 8) {
+                            SpokenWordBookSpeedMenu(bookID: book.id)
+                            if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
+                        }
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        phoneContinueButton(book, songs: songs)
+                        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
+                            .fixedSize()
+                            .layoutPriority(1)
+                        if let offline {
+                            autoDownloadKey(book, songs: songs, offline: offline, titled: false)
+                                .fixedSize()
+                                .layoutPriority(1)
+                        }
                     }
                 }
             }
@@ -1666,6 +1683,8 @@ struct SpokenWordBookDetailView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .contentTransition(.symbolEffect(.replace))
+            // 撑满语速键左边剩下的宽度,一排的两头和进度条对齐(#349)。
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .tint(ListeningSpace.spokenWord.tint)
