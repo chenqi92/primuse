@@ -3415,8 +3415,20 @@ struct NowPlayingView: View {
                     // 首次留出封面加载时间，短间隔用来验证尚未结束的动画反向切换。
                     try? await Task.sleep(for: .seconds(count == 0 ? max(4, interval) : interval))
                     guard !Task.isCancelled else { return }
+                    // 每次切换之后 0.6 秒里最长的一帧、超出帧预算的总和、惰性列表建了几行，单独记一行。
+                    let opens = !showLyrics
+                    let probe = DebugFrameGapProbe()
+                    let rowsBefore = DebugLyricRowBuildCounter.count
+                    probe.start()
                     toggleStandardLyrics()
                     count += 1
+                    let index = count
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(600))
+                        let frames = probe.finish()
+                        let rows = DebugLyricRowBuildCounter.count - rowsBefore
+                        plog("🧪 lyrics toggle \(index) \(opens ? "open" : "close") worst=\(frames.worst)ms over=\(frames.over)ms rows=\(rows) total=\(DebugLyricRowBuildCounter.count)")
+                    }
                 }
             case "immersive":
                 showLyrics = true
@@ -13420,18 +13432,40 @@ private struct NowPlayingEqualizerMenu: View {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
-/// 歌词各行的竖排容器:行数多时惰性排版,只建屏幕附近的行(见 `LyricsScrollView.usesLazyRows`)。
 /// 惰性歌词列表的一格:只存怎么建这一行,真正排到屏幕上才调用(见 `lyricRowCells`)。
+/// `isLive` 为假时只占一个空位,见 `LyricsScrollView.lazyRowFloor`。
 private struct DeferredLyricRowCell<Content: View>: View {
+    let isLive: Bool
+    let placeholderHeight: CGFloat
     let content: () -> Content
 
-    init(@ViewBuilder content: @escaping () -> Content) {
+    init(isLive: Bool, placeholderHeight: CGFloat, @ViewBuilder content: @escaping () -> Content) {
+        self.isLive = isLive
+        self.placeholderHeight = placeholderHeight
         self.content = content
     }
 
-    var body: some View { content() }
+    var body: some View {
+        if isLive {
+            #if DEBUG
+            let _ = { DebugLyricRowBuildCounter.count += 1 }()
+            #endif
+            content()
+        } else {
+            Color.clear.frame(height: placeholderHeight)
+        }
+    }
 }
 
+#if DEBUG
+/// 取证用:惰性歌词列表一共建过几行(`lyricsToggle` 每次开关记一次增量)。
+@MainActor
+enum DebugLyricRowBuildCounter {
+    static var count = 0
+}
+#endif
+
+/// 歌词各行的竖排容器:行数多时惰性排版,只建屏幕附近的行(见 `LyricsScrollView.usesLazyRows`)。
 private struct LyricsRowStack<Content: View>: View {
     let isLazy: Bool
     let spacing: CGFloat
@@ -14231,6 +14265,12 @@ struct LyricsScrollView: View {
     /// 各行定位点在滚动内容里的纵坐标。只随排版变化，放在引用盒子里，
     /// 写入不触发重绘；滚动时按它找出定位线上的那一句。
     @State private var rowAnchorYs = LyricRowAnchorYs()
+    /// 惰性排版的文稿从这一行往下才建真的行,往上的格子只占空位;为空时全是空位。打开那一帧列表
+    /// 还停在最上面,开头十来格建出来后惰性列表会一直留着,当场换成真的行就白建一遍(滚走之后
+    /// 再换也一样)。滚到当前句时把下限定在它往上 `lazyRowFloorMargin` 行;往回跳过下限时跟着
+    /// 往上挪,一拖动歌词就整个放开。
+    @State private var lazyRowFloor: Int?
+    private static let lazyRowFloorMargin = 16
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -14449,6 +14489,10 @@ struct LyricsScrollView: View {
                 lineAutoFollowResumeTask?.cancel()
                 updateCurrentLine(disableAnimations: true)
             }
+        }
+        .onChange(of: currentLineIndex) { _, index in
+            // 往回跳到下限以上:那一段的格子要建出真的行,滚过去才看得见字。
+            if lazyRowFloor != nil { lowerLazyRowFloor(toCover: index) }
         }
         .onChange(of: songID) { _, _ in
             // 换歌后先等待新歌首句时间戳，再恢复高亮与自动滚动。
@@ -14676,8 +14720,8 @@ struct LyricsScrollView: View {
                     // Publish the active row first, then allow SwiftUI to lay
                     // out that state before issuing the initial scroll request.
                     await Task.yield()
-                    guard !Task.isCancelled, let target else { return }
-                    scroll(to: target, proxy: proxy, animated: false)
+                    guard !Task.isCancelled else { return }
+                    restoreInitialPosition(to: target, proxy: proxy)
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
@@ -14774,8 +14818,8 @@ struct LyricsScrollView: View {
                     defer { isRestoringVisualPosition = false }
                     let target = updateCurrentLine(disableAnimations: true)
                     await Task.yield()
-                    guard !Task.isCancelled, let target else { return }
-                    scroll(to: target, proxy: proxy, animated: false)
+                    guard !Task.isCancelled else { return }
+                    restoreInitialPosition(to: target, proxy: proxy)
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
@@ -14803,6 +14847,31 @@ struct LyricsScrollView: View {
 
     private var lineLevelScrollIdentity: String {
         lyricsPresentationIdentity
+    }
+
+    /// 打开歌词、换歌、回到前台时对准当前句。惰性排版时同一个事务里定下真的行从哪一行起:
+    /// 滚动先按空位找到目标,真的行只在它附近建出来(见 `lazyRowFloor`)。
+    private func restoreInitialPosition(to target: LyricsScrollTarget?, proxy: ScrollViewProxy) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if let target {
+                scroll(to: target, proxy: proxy, animated: false)
+            }
+            lowerLazyRowFloor(toCover: currentLineIndex)
+        }
+    }
+
+    /// 让这一句往上 `lazyRowFloorMargin` 行起都是真的行。下限只往上挪。
+    private func lowerLazyRowFloor(toCover index: Int) {
+        let floor = max(0, index - Self.lazyRowFloorMargin)
+        if let current = lazyRowFloor, current <= floor { return }
+        lazyRowFloor = floor
+    }
+
+    /// 空位的高度,约一行字加上下留白。只影响打开那一两帧里的估算,目标行照样对准。
+    private var lazyRowPlaceholderHeight: CGFloat {
+        Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale) * 1.3 + 10
     }
 
     private var lyricsPresentationIdentity: String {
@@ -14870,6 +14939,8 @@ struct LyricsScrollView: View {
     }
 
     private func beginLineManualBrowsing() {
+        // 拖动可能一路拖到下限以上,整个放开。
+        if lazyRowFloor != nil { lowerLazyRowFloor(toCover: 0) }
         lineAutoFollowResumeTask?.cancel()
         lastUserScrollTime = Date()
         // 按住后拖动了就是滚动，滚动自己有保护期；长按记录不再留着挡后面的点按。
@@ -15166,8 +15237,12 @@ struct LyricsScrollView: View {
         activity: @escaping (Int) -> RowActivity
     ) -> some View {
         if usesLazyRows {
+            let placeholderHeight = lazyRowPlaceholderHeight
             ForEach(lyrics.indices.map { LyricRowEntry(index: $0, line: lyrics[$0]) }) { entry in
-                DeferredLyricRowCell {
+                DeferredLyricRowCell(
+                    isLive: lazyRowFloor.map { entry.index >= $0 } == true,
+                    placeholderHeight: placeholderHeight
+                ) {
                     lyricRowCell(
                         index: entry.index,
                         line: entry.line,

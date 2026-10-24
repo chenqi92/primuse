@@ -519,6 +519,38 @@ final class FrameHitchMonitor: NSObject {
         plog(String(format: "🩺 frame hitch %.0fms", gap * 1000))
     }
 }
+
+/// 取证用：从开始那一刻起记每一帧和上一帧隔了多久，结束时给出最长的一帧和超出帧预算的总和。
+/// 播放页 `lyricsToggle` 用它单独量每次开关歌词、文字稿的那几帧，不和别的掉帧混在一起。
+@MainActor
+final class DebugFrameGapProbe: NSObject {
+    private var link: CADisplayLink?
+    private var lastTimestamp = CACurrentMediaTime()
+    private var worstGap: CFTimeInterval = 0
+    private var overBudget: CFTimeInterval = 0
+
+    func start() {
+        lastTimestamp = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    /// 最长一帧与超出预算的总和，单位毫秒。
+    func finish() -> (worst: Int, over: Int) {
+        link?.invalidate()
+        link = nil
+        return (Int((worstGap * 1000).rounded()), Int((overBudget * 1000).rounded()))
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let gap = link.timestamp - lastTimestamp
+        lastTimestamp = link.timestamp
+        let budget = max(link.targetTimestamp - link.timestamp, 1.0 / 120)
+        worstGap = max(worstGap, gap)
+        overBudget += max(0, gap - budget)
+    }
+}
 #endif
 
 /// 诊断日志模式下的运行状态采样, 只在 Debug 构建里存在。
