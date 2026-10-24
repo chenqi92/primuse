@@ -2125,8 +2125,13 @@ private struct GenreArtworkMosaic: View {
     let genre: LibraryGenre
     let artworkSize: CGFloat
 
+    /// 代表曲不满 3 张专辑时会拿同专辑的歌补位，拼贴里同一张封面叠两次像重影，所以一张专辑只放一张。
     private var songs: [Song] {
-        genre.representativeSongIDs.compactMap { library.visibleSong(id: $0) }
+        var seenAlbums = Set<String>()
+        return genre.representativeSongIDs.compactMap { library.visibleSong(id: $0) }.filter { song in
+            let albumID = song.albumID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return seenAlbums.insert(albumID.isEmpty ? "song:\(song.id)" : albumID).inserted
+        }
     }
 
     var body: some View {
