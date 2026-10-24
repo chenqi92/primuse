@@ -1832,6 +1832,12 @@ struct PodcastDebugScreen: View {
             let duration = episode.duration ?? 3_600
             SpokenWordStore.shared.rememberPosition(duration * 0.35, duration: duration, forSongID: episode.id)
         }
+        // `PRIMUSE_DEBUG_PODCAST_LIKE=<n>`:给最新的 n 集点心,看「我喜欢」页底下那一段。
+        if let count = env["PRIMUSE_DEBUG_PODCAST_LIKE"].flatMap(Int.init), count > 0 {
+            for episode in store.latestEpisodes(limit: count) where !store.isLiked(episodeID: episode.id) {
+                store.setLiked(true, episode: episode)
+            }
+        }
         plog("🧪 Debug: podcast seed done shows=\(store.shows.count)")
     }
 }

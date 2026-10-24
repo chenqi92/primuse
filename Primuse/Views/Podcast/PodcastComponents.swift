@@ -602,6 +602,8 @@ struct PodcastLikedEpisodeRows: View {
     let items: [PodcastLikedEpisodeItem]
     var localSongs: [Song] = []
     var limit: Int?
+    /// 「我喜欢」页底下:每一集排得和上面的歌曲行一样(`LikedPodcastEpisodeSongRow`,#349)。
+    var matchesSongRows = false
     var onOpen: ((String) -> Void)?
     var openShow: ((String) -> Void)?
     var openLocalShow: ((String) -> Void)?
@@ -616,25 +618,133 @@ struct PodcastLikedEpisodeRows: View {
         ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
             let continuing = Array(episodes.dropFirst(index + 1).prefix(30))
             let canOpen = onOpen != nil && store.episode(id: item.episode.id) != nil
-            PodcastEpisodeRow(
-                episode: item.episode,
-                show: item.show,
-                showsArtwork: true,
-                showsSummary: false,
-                continuing: continuing,
-                showsDivider: index < shown.count - 1 || !shownLocal.isEmpty,
-                onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
-            )
-            .podcastEpisodeContextMenu(item.episode, continuing: continuing, openShow: openShow)
+            if matchesSongRows {
+                LikedPodcastEpisodeSongRow(
+                    episode: item.episode,
+                    show: item.show,
+                    continuing: continuing,
+                    openShow: openShow,
+                    onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
+                )
+            } else {
+                PodcastEpisodeRow(
+                    episode: item.episode,
+                    show: item.show,
+                    showsArtwork: true,
+                    showsSummary: false,
+                    continuing: continuing,
+                    showsDivider: index < shown.count - 1 || !shownLocal.isEmpty,
+                    onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
+                )
+                .podcastEpisodeContextMenu(item.episode, continuing: continuing, openShow: openShow)
+            }
         }
         ForEach(Array(shownLocal.enumerated()), id: \.element.id) { index, song in
             LikedLocalPodcastEpisodeRow(
                 song: song,
                 continuing: Array(localSongs.dropFirst(index + 1).prefix(30)),
                 showsDivider: index < shownLocal.count - 1,
+                matchesSongRows: matchesSongRows,
                 openShow: openLocalShow
             )
         }
+    }
+}
+
+/// 「我喜欢」页底下的一集订阅单集,封面、字号、行距都照上面的歌曲行(`SongRowStyle`,#349)。
+/// 点一行进单集页(feed 里已经没有的那几集点了就放),右边那颗键放 / 停,外圈是听到哪儿。
+struct LikedPodcastEpisodeSongRow: View {
+    let episode: PodcastEpisode
+    var show: PodcastShow?
+    var continuing: [PodcastEpisode] = []
+    var openShow: ((String) -> Void)?
+    var onOpen: (() -> Void)?
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.songRowStyle) private var style
+    @State private var pendingInsecureHost: String?
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        let isCurrent = player.currentSong?.id == episode.id
+        let state = store.state(for: episode)
+        HStack(spacing: style.artworkSpacing) {
+            Button {
+                if let onOpen {
+                    onOpen()
+                } else if isCurrent {
+                    player.togglePlayPause()
+                } else {
+                    PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { pendingInsecureHost = $0 }
+                }
+            } label: {
+                HStack(spacing: style.artworkSpacing) {
+                    PodcastArtwork(episode: episode, show: show, size: style.artworkSize, cornerRadius: style.artworkCornerRadius)
+                    VStack(alignment: .leading, spacing: style.textSpacing) {
+                        Text(episode.title)
+                            .font(style.titleFont)
+                            .foregroundStyle(isCurrent ? ListeningSpace.podcast.tint : (state.isFinished ? .secondary : .primary))
+                            .lineLimit(1)
+                        Text(verbatim: subtitle)
+                            .font(style.subtitleFont)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            PodcastPlayButton(episode: episode, continuing: continuing, size: 30)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .podcastEpisodeContextMenu(episode, continuing: continuing, openShow: openShow)
+        .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
+            PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { _ in }
+        }
+        .accessibilityIdentifier("podcast.liked.episode")
+    }
+
+    /// 节目名 · 哪天出的,和歌曲行的「艺人 · 专辑」同一行。
+    private var subtitle: String {
+        [show?.title, PodcastFormat.date(episode.publishedAt)]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: " · ")
+    }
+}
+
+/// 播放 / 暂停的圆键画法,外圈画听到哪儿,和 `PodcastPlayButton` 一个样子(#349)。
+/// 首页的书卡和「我喜欢」里的本地节目用;点按由外面那层管。
+struct SpokenWordProgressPlayGlyph: View {
+    let fraction: CGFloat
+    let isPlaying: Bool
+    var isLoading = false
+    let size: CGFloat
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(tint.opacity(0.18), lineWidth: 2.5)
+            if fraction > 0 {
+                Circle()
+                    .trim(from: 0, to: min(1, fraction))
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: size * 0.36, weight: .bold))
+                    .foregroundStyle(tint)
+                    .offset(x: isPlaying ? 0 : size * 0.03)
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
 
@@ -643,6 +753,9 @@ struct PodcastLikedEpisodeRows: View {
 /// Mac 的详情区不是导航栈,点一行不进单集页(行里的播放键照样能放)。
 struct PodcastLikedEpisodesFooter: View {
     var opensEpisodes = true
+    /// 手机上排得和上面的歌曲一样(#349):不另起「喜欢的单集」标题,和歌曲之间空一行,
+    /// 每一集的封面、字号、左右留白都照歌曲行。
+    var matchesSongRows = false
 
     @Environment(MusicLibrary.self) private var library
     @State private var pushedEpisodeID: String?
@@ -654,21 +767,25 @@ struct PodcastLikedEpisodesFooter: View {
         let items = store.likedEpisodes()
         let localSongs = library.likedLocalPodcastSongs()
         if !items.isEmpty || !localSongs.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                PodcastSectionHeader(titleKey: "podcast_liked_episodes")
+            VStack(alignment: .leading, spacing: matchesSongRows ? 0 : 4) {
+                if !matchesSongRows {
+                    PodcastSectionHeader(titleKey: "podcast_liked_episodes")
+                }
                 if opensEpisodes {
                     PodcastLikedEpisodeRows(
                         items: items,
                         localSongs: localSongs,
+                        matchesSongRows: matchesSongRows,
                         onOpen: { pushedEpisodeID = $0 },
                         openLocalShow: { pushedLocalShowID = $0 }
                     )
                 } else {
-                    PodcastLikedEpisodeRows(items: items, localSongs: localSongs)
+                    PodcastLikedEpisodeRows(items: items, localSongs: localSongs, matchesSongRows: matchesSongRows)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+            // 歌曲行自己带左右留白;两段之间空出一行歌那么高。
+            .padding(.horizontal, matchesSongRows ? 0 : 16)
+            .padding(.top, matchesSongRows ? 28 : 12)
             .navigationDestination(item: $pushedEpisodeID) { episodeID in
                 PodcastEpisodeDetailView(episodeID: episodeID)
             }
@@ -685,10 +802,13 @@ struct LikedLocalPodcastEpisodeRow: View {
     let song: Song
     var continuing: [Song] = []
     var showsDivider = false
+    /// 「我喜欢」页底下排得和歌曲行一样(#349),见 `compactBody`。
+    var matchesSongRows = false
     var openShow: ((String) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.songRowStyle) private var songRowStyle
     /// 封面跟文字一样高时实际量出来的边长,下面那一排键和分隔线按它让开。
     @State private var matchedArtworkSide: CGFloat?
 
@@ -709,9 +829,61 @@ struct LikedLocalPodcastEpisodeRow: View {
     }
 
     var body: some View {
+        if matchesSongRows {
+            compactBody
+        } else {
+            regularBody
+        }
+    }
+
+    /// 封面、字号、行距照上面的歌曲行;整行点一下就放,右边的圆键只是显示听到哪儿。
+    private var compactBody: some View {
         let item = SpokenWordBookSupport.item(for: song, store: SpokenWordStore.shared)
         let isCurrent = player.currentSong?.id == song.id
-        Button {
+        let style = songRowStyle
+        return Button {
+            play()
+        } label: {
+            HStack(spacing: style.artworkSpacing) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: style.artworkSize,
+                    cornerRadius: style.artworkCornerRadius,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                .frame(width: style.artworkSize, height: style.artworkSize)
+                VStack(alignment: .leading, spacing: style.textSpacing) {
+                    Text(library.displayTitle(for: song))
+                        .font(style.titleFont)
+                        .foregroundStyle(isCurrent ? ListeningSpace.podcast.tint : (item.isFinished ? .secondary : .primary))
+                        .lineLimit(1)
+                    metaLine(item: item, font: style.subtitleFont)
+                }
+                Spacer(minLength: 0)
+                SpokenWordProgressPlayGlyph(
+                    fraction: CGFloat(item.isFinished ? 1 : item.fractionComplete),
+                    isPlaying: isCurrent && player.isPlaying,
+                    isLoading: isCurrent && player.isLoading,
+                    size: 30,
+                    tint: ListeningSpace.podcast.tint
+                )
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu { menu(item: item) }
+        .accessibilityIdentifier("podcast.liked.localEpisode")
+    }
+
+    private var regularBody: some View {
+        let item = SpokenWordBookSupport.item(for: song, store: SpokenWordStore.shared)
+        let isCurrent = player.currentSong?.id == song.id
+        return Button {
             play()
         } label: {
             SpokenWordHeaderRowLayout(
@@ -771,7 +943,7 @@ struct LikedLocalPodcastEpisodeRow: View {
         .accessibilityIdentifier("podcast.liked.localEpisode")
     }
 
-    private func metaLine(item: SpokenWordBookItem) -> some View {
+    private func metaLine(item: SpokenWordBookItem, font: Font = .caption.weight(.medium)) -> some View {
         HStack(spacing: 6) {
             if let showTitle {
                 Text(showTitle)
@@ -782,7 +954,7 @@ struct LikedLocalPodcastEpisodeRow: View {
                 Text(date)
             }
         }
-        .font(.caption.weight(.medium))
+        .font(font)
         .foregroundStyle(.secondary)
         .lineLimit(1)
     }

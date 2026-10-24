@@ -779,7 +779,7 @@ struct PlaylistDetailView: View {
 
         // 喜欢的播客单集不在曲库里,不进歌单本身,列在「我喜欢」最下面。
         if playlist.id == MusicLibrary.likedSongsPlaylistID, !isFinding {
-            PodcastLikedEpisodesFooter()
+            PodcastLikedEpisodesFooter(matchesSongRows: true)
         }
     }
 
