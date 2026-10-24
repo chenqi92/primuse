@@ -2633,6 +2633,8 @@
 "lyrics_play_from_line" = "Odtwarzaj od tego wiersza";
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
+"player_album_in_subtitle" = "Album pod tytułem";
+"player_album_in_subtitle_description" = "Po wyłączeniu pod tytułem widać tylko wykonawcę, więc długa nazwa albumu nie ucina już ani nie przewija wiersza. Dotknięcie wiersza nadal otwiera album. Tylko muzyka; audiobooki i podcasty dalej pokazują książkę lub program.";
 "player_artwork_lyrics" = "Tekst pod okładką";
 "player_artwork_lyrics_description" = "Pokazuje śpiewany wers tuż nad paskiem postępu, bez przełączania na widok tekstu. Podczas intro i przerw instrumentalnych zamiast następnego wersu wyświetla krótki komunikat. W razie potrzeby okładka lekko się zmniejsza, aby zrobić miejsce. Stuknij tekst, aby otworzyć widok tekstu.";
 "player_artwork_lyrics_lines" = "Wiersze";

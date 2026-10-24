@@ -3051,6 +3051,8 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
+"player_album_in_subtitle" = "Show Album Under Title";
+"player_album_in_subtitle_description" = "When off, the line under the title shows only the artist, so a long album name no longer truncates or scrolls it. Tapping the line still takes you to the album. Music only; audiobooks and podcasts keep showing the book or show.";
 "player_artwork_lyrics" = "Lyrics Under Artwork";
 "player_artwork_lyrics_description" = "Show the line being sung just above the progress bar, without switching to the lyrics view. During the intro and instrumental breaks it shows a short status instead of jumping ahead to the next line. The artwork shrinks a little when needed to make room. Tap the lyrics to open the lyrics view.";
 "player_artwork_lyrics_lines" = "Lines";

@@ -1157,6 +1157,8 @@ struct NowPlayingView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     /// 封面下的歌词几行;字号只在 `NowPlayingArtworkLyricPreview` 里读。
     @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
@@ -8636,7 +8638,10 @@ struct NowPlayingView: View {
     /// - Parameter scrolls: 只占一行、放不下时慢慢滚动(竖屏歌名下面那一行);否则最多 `lineLimit` 行。
     private func nowPlayingMetadataLinks(font: Font, lineLimit: Int = 2, scrolls: Bool = false) -> some View {
         let artistName = currentArtistDisplayName
-        let albumTitle = player.currentSong?.albumTitle ?? ""
+        // 音乐可以只写艺人(#338、#101),专辑仍在点开的菜单里;有声书、播客这一行写的是书名、节目名,照旧。
+        let albumTitle = showsAlbumInSubtitle || usesSpokenWordTransport
+            ? player.currentSong?.albumTitle ?? ""
+            : ""
         let metadata = [artistName, albumTitle].filter { !$0.isEmpty }.joined(separator: " · ")
         let label = Group {
             if scrolls {

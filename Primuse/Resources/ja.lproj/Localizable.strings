@@ -3282,6 +3282,8 @@
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
+"player_album_in_subtitle" = "曲名の下にアルバム名を表示";
+"player_album_in_subtitle_description" = "オフにすると曲名の下にはアーティストだけを表示し、長いアルバム名で行が切れたりスクロールしたりしなくなります。この行をタップすれば今までどおりアルバムへ移動できます。音楽のみが対象で、オーディオブックとポッドキャストは書名や番組名を表示します。";
 "player_artwork_lyrics" = "アートワークの下に歌詞を表示";
 "player_artwork_lyrics_description" = "歌詞画面に切り替えなくても、再生バーのすぐ上に今歌っている行を表示します。前奏や間奏の間は次の行を先に出さず、短い案内を表示します。必要に応じてアートワークが少し小さくなり、歌詞の場所を空けます。歌詞をタップすると歌詞画面を開きます。";
 "player_artwork_lyrics_lines" = "行数";

@@ -472,7 +472,12 @@ struct PreviewPlayGlyph: View {
 /// 预览用的演示歌名、艺人与歌词(和全屏效果的预览同一套)。
 enum NowPlayingPreviewDemo {
     static var title: String { ImmersiveDemoContent.title }
-    static var subtitle: String { "\(ImmersiveDemoContent.artist) · \(ImmersiveDemoContent.album)" }
+    /// 歌名下面那一行,照「歌名下显示专辑名」的开关写(和播放页 `nowPlayingMetadataLinks` 同一个取法)。
+    static func subtitle(artist: String, album: String, showsAlbum: Bool) -> String {
+        (showsAlbum ? [artist, album] : [artist])
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
     static var lyrics: [String] { ImmersiveDemoContent.lyrics }
 }
 
@@ -510,6 +515,8 @@ private struct MusicPortraitPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
     private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
@@ -786,10 +793,18 @@ private struct MusicPortraitPreviewScreen: View {
     }
 
     private var subtitle: String {
-        guard let song else { return NowPlayingPreviewDemo.subtitle }
-        return [library.artistDisplayName(for: song) ?? "", song.albumTitle ?? ""]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
+        guard let song else {
+            return NowPlayingPreviewDemo.subtitle(
+                artist: ImmersiveDemoContent.artist,
+                album: ImmersiveDemoContent.album,
+                showsAlbum: showsAlbumInSubtitle
+            )
+        }
+        return NowPlayingPreviewDemo.subtitle(
+            artist: library.artistDisplayName(for: song) ?? "",
+            album: song.albumTitle ?? "",
+            showsAlbum: showsAlbumInSubtitle
+        )
     }
 
     private var songHeader: some View {

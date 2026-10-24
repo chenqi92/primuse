@@ -3267,6 +3267,8 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量列";
 "player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";
+"player_album_in_subtitle" = "歌名下顯示專輯名稱";
+"player_album_in_subtitle_description" = "關掉後歌名下面只寫藝人，長專輯名稱不會再把這一行擠得截斷或捲動；點這一行照樣能前往專輯。只管音樂，有聲書和 Podcast 照舊寫書名、節目名稱。";
 "player_artwork_lyrics" = "封面下顯示歌詞";
 "player_artwork_lyrics_description" = "不用切到歌詞頁，在進度條上方就能看到正在唱的那一句。前奏和間奏裡顯示簡短的提示，不會提前露出下一句。開啟後封面會視需要縮小一點，讓出歌詞的位置；點歌詞進入歌詞頁。";
 "player_artwork_lyrics_lines" = "歌詞行數";

@@ -103,6 +103,7 @@ final class CloudKVSSyncTests: XCTestCase {
         let keys = Set(InterfaceLayoutSync.keys)
         for synced in [
             PlayerAppearancePreferences.showsVolumeBarKey,
+            PlayerAppearancePreferences.showsAlbumInSubtitleKey,
             PlayerAppearancePreferences.showsArtworkLyricsKey,
             PlayerAppearancePreferences.artworkLyricsLinesKey,
             PlayerAppearancePreferences.artworkLyricsFontScaleKey,

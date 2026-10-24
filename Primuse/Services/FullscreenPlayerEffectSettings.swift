@@ -106,6 +106,10 @@ enum PlayerAppearancePreferences {
     static let motionArtworkServiceEndpointByDefault = ""
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
+    /// 播放页歌名下面那一行带不带专辑名(#338、#101):专辑名长的时候那一行总被截断、滚动。关掉后只写艺人,
+    /// 点开那一行的菜单里照样能去专辑。只管音乐;有声书、播客那一行的书名、节目名照旧。
+    static let showsAlbumInSubtitleKey = "primuse.player.showsAlbumInSubtitle"
+    static let showsAlbumInSubtitleByDefault = true
     /// 竖屏播放页封面模式在进度条上面显示正在唱的那一句(#69、#318)。
     static let showsArtworkLyricsKey = "primuse.player.showsArtworkLyrics"
     static let showsArtworkLyricsByDefault = false

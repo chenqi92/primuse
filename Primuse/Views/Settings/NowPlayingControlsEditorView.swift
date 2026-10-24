@@ -84,6 +84,8 @@ struct NowPlayingControlsEditorView: View {
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     @State private var editing: NowPlayingPreviewSlot?
@@ -276,6 +278,16 @@ struct NowPlayingControlsEditorView: View {
                 }
             } footer: {
                 Text("player_style_preview_pip_hint")
+            }
+
+            // 歌名下面那一行只写艺人还是「艺人 · 专辑」(#338、#101)。
+            Section {
+                Toggle(isOn: $showsAlbumInSubtitle) {
+                    SettingsInfoLabel("player_album_in_subtitle") {
+                        Text("player_album_in_subtitle_description")
+                    }
+                }
+                .settingsAnchor("appearance.playerAlbumInSubtitle")
             }
 
             NowPlayingBarSection(
