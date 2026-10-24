@@ -336,13 +336,8 @@ struct PlaylistDetailView: View {
         #endif
         }
         #if os(iOS)
-        // 收在导航栏下面, 往下拉就出来; 往上滚自己收起, 不占曲目表的地方。
-        .searchable(
-            text: $findText,
-            isPresented: $isFindPresented,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: Text("playlist_find_prompt")
-        )
+        // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
+        .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
@@ -443,11 +438,12 @@ struct PlaylistDetailView: View {
     private var legacyPlaylistDetail: some View {
         // iPhone Duo 内屏横握时头部在左栏、曲目在右栏；其它设备原样单栏。
         LibraryDetailWideColumns {
-            ScrollView {
+            // 头部顶到屏幕上沿, 返回键和工具栏按钮浮在头部上。
+            LibraryDetailTopBleedScroll(bleedsUnderTopBar: !isFinding) { topInset in
                 VStack(spacing: 20) {
                     // 找歌时头部让开: 键盘弹起后剩下的那点高度全留给结果。
                     if !isFinding {
-                        playlistHeader
+                        playlistHeader(topInset: topInset)
                             .libraryDetailMatchedHeader()
 
                         playlistReviewSection
@@ -458,10 +454,9 @@ struct PlaylistDetailView: View {
                         .pmLayoutSwitchFade()
                 }
             }
-            .pmExtendsUnderVerticalBar()
         } header: {
             VStack(spacing: 20) {
-                playlistHeader
+                playlistHeader()
                     .libraryDetailMatchedHeader()
 
                 playlistReviewSection
@@ -474,11 +469,11 @@ struct PlaylistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             #if os(iOS)
-            // 导航栏下面的搜索框平时收着, 这颗按钮直接把它弹出来并聚焦。
+            // 找歌的输入框平时不出现, 这颗按钮把它钉到导航栏下面并聚焦。
             ToolbarItem(placement: .topBarTrailing) {
                 HiddenWhileSelectingSongs(selection: selection) {
                     Button {
-                        isFindPresented = true
+                        pmWithAnimation(.control) { isFindPresented = true }
                     } label: {
                         PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
                     }
@@ -820,16 +815,20 @@ struct PlaylistDetailView: View {
     /// 两种排布共用同一棵子树 —— `AnyLayout` 只换布局不换视图身份, 旋转时行上的
     /// 长按菜单不会被连根替换。竖屏的取值全部照抄原来的常量: 外层 8 的间距加上
     /// 计数行之后那 12 的上边距, 还原成原来「计数 → 操作行」之间的 20。
+    ///
+    /// `topInset`: 头部顶到屏幕上沿时状态栏加导航栏那一截, 封面墙往上铺过去, 单封面头部往下让开。
     @ViewBuilder
-    private var playlistHeader: some View {
+    private func playlistHeader(topInset: CGFloat = 0) -> some View {
         #if os(iOS)
         if let wallSongs = coverWallSongs {
-            coverWallPlaylistHeader(wallSongs)
+            coverWallPlaylistHeader(wallSongs, topInset: topInset)
         } else {
             classicPlaylistHeader
+                .padding(.top, topInset)
         }
         #else
         classicPlaylistHeader
+            .padding(.top, topInset)
         #endif
     }
 
@@ -847,14 +846,15 @@ struct PlaylistDetailView: View {
     }
 
     /// 墙面自带标题与歌曲数；下面接原来的批量刮削进度与操作行。
-    private func coverWallPlaylistHeader(_ wallSongs: [Song]) -> some View {
+    private func coverWallPlaylistHeader(_ wallSongs: [Song], topInset: CGFloat) -> some View {
         VStack(spacing: 8) {
             CollectionCoverWallHeader(
                 title: currentPlaylist?.name ?? playlist.name,
                 subtitle: "\(wallSongs.count) \(String(localized: "songs_count"))",
                 songs: wallSongs,
                 nowPlaying: player.currentSong,
-                wallHeight: horizontalSizeClass == .regular ? 340 : 300
+                wallHeight: horizontalSizeClass == .regular ? 340 : 300,
+                topInset: topInset
             ) {
                 EmptyView()
             }

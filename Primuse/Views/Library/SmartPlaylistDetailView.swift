@@ -119,13 +119,8 @@ struct SmartPlaylistDetailView: View {
         #else
         return AnyView(
             legacyBody(matched)
-                // 收在导航栏下面, 往下拉就出来; 往上滚自己收起, 不占曲目表的地方。
-                .searchable(
-                    text: $findText,
-                    isPresented: $isFindPresented,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: Text("playlist_find_prompt")
-                )
+                // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
+                .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
                 .minimalNavigationDetail()
                 .librarySearchContext {
                     LibrarySearchScope(
@@ -144,11 +139,12 @@ struct SmartPlaylistDetailView: View {
             if let smart {
                 // iPhone Duo 内屏横握时头部在左栏、曲目在右栏；其它设备原样单栏。
                 LibraryDetailWideColumns {
-                    ScrollView {
+                    // 头部顶到屏幕上沿, 返回键和工具栏按钮浮在头部上。
+                    LibraryDetailTopBleedScroll(bleedsUnderTopBar: !isFinding) { topInset in
                         VStack(spacing: 20) {
                             // 找歌时头部让开: 键盘弹起后剩下的那点高度全留给结果。
                             if !isFinding {
-                                legacyHeader(smart, matched: matched)
+                                legacyHeader(smart, matched: matched, topInset: topInset)
                                     .libraryDetailMatchedHeader()
 
                                 smartReviewSection(smart)
@@ -159,7 +155,6 @@ struct SmartPlaylistDetailView: View {
                                 .pmLayoutSwitchFade()
                         }
                     }
-                    .pmExtendsUnderVerticalBar()
                 } header: {
                     VStack(spacing: 20) {
                         legacyHeader(smart, matched: matched)
@@ -175,10 +170,10 @@ struct SmartPlaylistDetailView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     #if os(iOS)
-                    // 导航栏下面的搜索框平时收着, 这颗按钮直接把它弹出来并聚焦。
+                    // 找歌的输入框平时不出现, 这颗按钮把它钉到导航栏下面并聚焦。
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            isFindPresented = true
+                            pmWithAnimation(.control) { isFindPresented = true }
                         } label: {
                             PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
                         }
@@ -290,23 +285,27 @@ struct SmartPlaylistDetailView: View {
     ///
     /// 排布由 `AnyLayout` 决定, 视图身份不随旋转变化。竖屏取值全部照抄原常量:
     /// 外层 8 的间距加上摘要之后那 12 的上边距, 还原成原来「摘要 → 操作行」的 20。
+    ///
+    /// `topInset`: 头部顶到屏幕上沿时状态栏加导航栏那一截, 封面墙往上铺过去, 单封面头部往下让开。
     @ViewBuilder
-    private func legacyHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+    private func legacyHeader(_ smart: SmartPlaylist, matched: [Song], topInset: CGFloat = 0) -> some View {
         #if os(iOS)
         // 封面够多时头部换成封面墙（#114），墙面自带名称与歌曲数；手机横屏首屏放不下一面墙。
         if usesCoverWallHeader, !usesCompactHeaderLayout,
            matchedCache.coverWallAvailable({ CollectionCoverWall.isAvailable(for: matched) }) {
-            coverWallHeader(smart, matched: matched)
+            coverWallHeader(smart, matched: matched, topInset: topInset)
         } else {
             classicHeader(smart, matched: matched)
+                .padding(.top, topInset)
         }
         #else
         classicHeader(smart, matched: matched)
+            .padding(.top, topInset)
         #endif
     }
 
     #if os(iOS)
-    private func coverWallHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+    private func coverWallHeader(_ smart: SmartPlaylist, matched: [Song], topInset: CGFloat) -> some View {
         VStack(spacing: 8) {
             CollectionCoverWallHeader(
                 title: smart.name,
@@ -314,7 +313,8 @@ struct SmartPlaylistDetailView: View {
                 titleSymbol: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
                 songs: matched,
                 nowPlaying: player.currentSong,
-                wallHeight: horizontalSizeClass == .regular ? 340 : 300
+                wallHeight: horizontalSizeClass == .regular ? 340 : 300,
+                topInset: topInset
             ) {
                 EmptyView()
             }

@@ -16,6 +16,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     private let coverSongs: [String: Song]
     private let focusCoverID: String?
     private let wallHeight: CGFloat
+    private let topInset: CGFloat
     private let fallback: Fallback
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -29,6 +30,8 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     ///   - songs: 集合里的歌，按页面上看到的顺序。只会扫前面一段。
     ///   - nowPlaying: 正在播放的歌。它的封面在这面墙里时会成为焦点。
     ///   - wallHeight: 墙面高度，含压在下沿的标题块。
+    ///   - topInset: 页面让头图顶到屏幕上沿时状态栏加导航栏那一截。墙面往上多铺这么高，
+    ///     返回键和工具栏按钮浮在墙上；为 0 时墙面从导航栏下面淡入。
     init(
         title: String,
         subtitle: String,
@@ -36,12 +39,14 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         songs: [Song],
         nowPlaying: Song?,
         wallHeight: CGFloat,
+        topInset: CGFloat = 0,
         @ViewBuilder fallback: () -> Fallback
     ) {
         self.title = title
         self.subtitle = subtitle
         self.titleSymbol = titleSymbol
         self.wallHeight = wallHeight
+        self.topInset = max(0, topInset)
         self.fallback = fallback()
 
         let focusGroupKey = nowPlaying.map(CollectionCoverWall.groupKey(for:))
@@ -84,19 +89,9 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                 wall(in: proxy.size)
             }
             .clipped()
-            // 上沿从导航栏下面淡入，下沿融进页面底色：不画硬边，也不需要知道页面底色是什么。
+            // 下沿融进页面底色：不画硬边，也不需要知道页面底色是什么。
             .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.16),
-                        .init(color: .black, location: 0.44),
-                        .init(color: .black.opacity(0.24), location: 0.78),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                LinearGradient(stops: maskStops, startPoint: .top, endPoint: .bottom)
             }
             .accessibilityHidden(true)
 
@@ -104,7 +99,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 14)
         }
-        .frame(height: wallHeight)
+        .frame(height: wallHeight + topInset)
         .frame(maxWidth: .infinity)
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
@@ -126,6 +121,30 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                 step += 1
             }
         }
+    }
+
+    /// 不顶到上沿时墙面从导航栏下面淡入。顶到上沿时状态栏和按钮底下的那一截半透明地掺着页面底色,
+    /// 时间、电量和按钮压在封面上也读得清; 往下照原样渐隐。
+    private var maskStops: [Gradient.Stop] {
+        guard topInset > 0 else {
+            return [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.16),
+                .init(color: .black, location: 0.44),
+                .init(color: .black.opacity(0.24), location: 0.78),
+                .init(color: .clear, location: 1),
+            ]
+        }
+        let total = wallHeight + topInset
+        let wallTop = topInset / total
+        let wallSpan = wallHeight / total
+        return [
+            .init(color: .black.opacity(0.45), location: 0),
+            .init(color: .black, location: wallTop),
+            .init(color: .black, location: wallTop + wallSpan * 0.44),
+            .init(color: .black.opacity(0.24), location: wallTop + wallSpan * 0.78),
+            .init(color: .clear, location: 1),
+        ]
     }
 
     private var titleBlock: some View {
@@ -154,7 +173,8 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     /// 窄的头图（手机竖屏、iPhone Duo 左栏）铺一张 5×5；宽的头图（iPad）左右拼两张，
     /// 只用一张去盖宽幅时每格会大到只剩三四张图，看不出是一面墙。
     private func wall(in size: CGSize) -> some View {
-        let isWide = size.width > size.height * 1.9
+        // 宽窄按墙面本身的高度判断: 顶到上沿多出来的那一截不该让 iPad 换成另一种拼法。
+        let isWide = size.width > (size.height - topInset) * 1.9
         let composition: CoverWallComposition
         let geometry: CoverWallGeometry
         if isWide {

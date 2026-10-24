@@ -479,6 +479,32 @@ private struct LibraryDetailHeaderSwitchTracker: ViewModifier {
     }
 }
 
+/// 歌单、智能歌单单栏整页的滚动区：头部顶到屏幕上沿，导航栏不铺底，返回键和工具栏按钮浮在头部上
+/// （和专辑、艺人页一样）。`content` 拿到状态栏加导航栏那一截的高度，由头部自己垫开。
+/// 找歌时头部让开，滚动区照常从导航栏（和钉在下面的输入框）下面开始，导航栏恢复铺底。
+struct LibraryDetailTopBleedScroll<Content: View>: View {
+    let bleedsUnderTopBar: Bool
+    @ViewBuilder let content: (_ topInset: CGFloat) -> Content
+
+    var body: some View {
+        #if os(iOS)
+        GeometryReader { geometry in
+            let topInset = bleedsUnderTopBar ? geometry.safeAreaInsets.top : 0
+            ScrollView {
+                content(topInset)
+            }
+            .ignoresSafeArea(.container, edges: bleedsUnderTopBar ? .top : [])
+            .pmExtendsUnderVerticalBar()
+        }
+        .toolbarBackground(bleedsUnderTopBar ? .hidden : .automatic, for: .navigationBar)
+        #else
+        ScrollView {
+            content(0)
+        }
+        #endif
+    }
+}
+
 /// 歌单、智能歌单这类自己排整页的详情页用的两栏容器：够宽时头部与列表左右分栏、各自滚动，
 /// 否则原样交回单栏的整页（调用方自己的 ScrollView）。只在可能分栏的画布上才量尺寸，
 /// 普通 iPhone 与 iPad 上直接返回单栏，视图树不变。

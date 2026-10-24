@@ -65,7 +65,45 @@ private struct LibraryPageFindModifier: ViewModifier {
     }
 }
 
-/// 极简界面里的页内输入框, 样子跟顶栏的全局搜索框一致, 只是矮一点。
+extension View {
+    /// 歌单、智能歌单详情页的「在歌单里找歌」: 平时不占地方, 点工具栏的放大镜才在导航栏下面
+    /// 钉出一条输入框, 「取消」清掉查找词并收起。系统的抽屉搜索框会常驻在头部上面, 和放大镜重复。
+    func libraryDetailFind(
+        isPresented: Binding<Bool>,
+        text: Binding<String>,
+        prompt: LocalizedStringKey
+    ) -> some View {
+        modifier(LibraryDetailFindModifier(isPresented: isPresented, text: text, prompt: prompt))
+    }
+}
+
+private struct LibraryDetailFindModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var text: String
+    let prompt: LocalizedStringKey
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            if isPresented || !text.isEmpty {
+                LibraryPageFindField(
+                    text: $text,
+                    prompt: prompt,
+                    focusesOnAppear: text.isEmpty,
+                    onDismiss: {
+                        text = ""
+                        pmWithAnimation(.control) { isPresented = false }
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+    }
+}
+
+/// 极简界面与歌单详情页里的页内输入框, 样子跟顶栏的全局搜索框一致, 只是矮一点。
 private struct LibraryPageFindField: View {
     @Binding var text: String
     let prompt: LocalizedStringKey
