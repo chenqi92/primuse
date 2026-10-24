@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "تأثير ملء الشاشة";
 "external_display_mode_mirror" = "مطابقة هذا الجهاز";
 "external_display_effect_title" = "التأثير على الشاشة الخارجية";
+"lyrics_translation_spoken_word_timing" = "نصوص البودكاست والكتب الصوتية";
+"lyrics_translation_spoken_word_timing_automatic" = "ترجمة تلقائية";
+"lyrics_translation_spoken_word_timing_on_request" = "الترجمة عند الطلب";
+"lyrics_translation_spoken_word_timing_footer" = "نصوص البودكاست والكتب الصوتية طويلة غالبًا. مع «الترجمة عند الطلب» لا تُترجم الحلقة أو الفصل الجديد حتى تضغط «ترجمة النص»؛ بعد ذلك تُترجم كالمعتاد. يبقى ما تُرجم سابقًا ظاهرًا، ولا تتأثر كلمات الأغاني.";
+"lyrics_translation_spoken_word_request" = "ترجمة النص";

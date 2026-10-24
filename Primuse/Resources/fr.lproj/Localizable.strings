@@ -6734,3 +6734,8 @@
 "external_display_mode_immersive" = "Effet plein écran";
 "external_display_mode_mirror" = "Recopier cet appareil";
 "external_display_effect_title" = "Effet sur l’écran externe";
+"lyrics_translation_spoken_word_timing" = "Transcriptions de podcasts et livres audio";
+"lyrics_translation_spoken_word_timing_automatic" = "Traduire automatiquement";
+"lyrics_translation_spoken_word_timing_on_request" = "Traduire à la demande";
+"lyrics_translation_spoken_word_timing_footer" = "Les transcriptions de podcasts et de livres audio sont souvent longues. Avec « Traduire à la demande », un nouvel épisode ou chapitre n’est traduit que lorsque vous touchez « Traduire la transcription » ; ensuite il est traduit comme d’habitude. Ce qui est déjà traduit reste affiché et les paroles de chansons ne sont pas concernées.";
+"lyrics_translation_spoken_word_request" = "Traduire la transcription";

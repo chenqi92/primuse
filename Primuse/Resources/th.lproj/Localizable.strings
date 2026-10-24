@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "เอฟเฟ็กต์แบบเต็มหน้าจอ";
 "external_display_mode_mirror" = "สะท้อนหน้าจออุปกรณ์นี้";
 "external_display_effect_title" = "เอฟเฟ็กต์บนจอแสดงผลภายนอก";
+"lyrics_translation_spoken_word_timing" = "ข้อความถอดเสียงของพอดแคสต์และหนังสือเสียง";
+"lyrics_translation_spoken_word_timing_automatic" = "แปลอัตโนมัติ";
+"lyrics_translation_spoken_word_timing_on_request" = "แปลเมื่อแตะ";
+"lyrics_translation_spoken_word_timing_footer" = "ข้อความถอดเสียงของพอดแคสต์และหนังสือเสียงมักยาว เมื่อเลือก “แปลเมื่อแตะ” ตอนหรือบทใหม่จะยังไม่ถูกแปลจนกว่าคุณจะแตะ “แปลข้อความถอดเสียง” หลังจากนั้นจะแปลตามปกติ เนื้อหาที่แปลไว้แล้วยังแสดงอยู่ และไม่มีผลกับเนื้อเพลง";
+"lyrics_translation_spoken_word_request" = "แปลข้อความถอดเสียง";

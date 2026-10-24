@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "Tam ekran efekti";
 "external_display_mode_mirror" = "Bu Cihazı Yansıt";
 "external_display_effect_title" = "Harici ekrandaki efekt";
+"lyrics_translation_spoken_word_timing" = "Podcast ve Sesli Kitap Transkriptleri";
+"lyrics_translation_spoken_word_timing_automatic" = "Otomatik Çevir";
+"lyrics_translation_spoken_word_timing_on_request" = "İstenince Çevir";
+"lyrics_translation_spoken_word_timing_footer" = "Podcast ve sesli kitap transkriptleri genellikle uzundur. “İstenince Çevir” seçildiğinde yeni bir bölüm, transkriptte “Transkripti Çevir”e dokunana kadar çevrilmez; sonrasında her zamanki gibi çevrilir. Önceden çevrilmiş içerik görünmeye devam eder, şarkı sözleri etkilenmez.";
+"lyrics_translation_spoken_word_request" = "Transkripti Çevir";

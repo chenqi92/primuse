@@ -52,6 +52,17 @@ struct LyricsSettingsView: View {
                     if displayedMode.wrappedValue == .baidu {
                         BaiduTranslateStatusRow()
                     }
+                    Picker(selection: $settings.spokenWordTranslationTiming) {
+                        Text("lyrics_translation_spoken_word_timing_automatic")
+                            .tag(SpokenWordTranslationTiming.automatic)
+                        Text("lyrics_translation_spoken_word_timing_on_request")
+                            .tag(SpokenWordTranslationTiming.onRequest)
+                    } label: {
+                        SettingsInfoLabel("lyrics_translation_spoken_word_timing") {
+                            Text("lyrics_translation_spoken_word_timing_footer")
+                        }
+                    }
+                    .settingsAnchor("lyrics.spokenWordTranslationTiming")
                 }
 
                 Section("lyrics_translation_target_language") {

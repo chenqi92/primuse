@@ -74,6 +74,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let intelligentReadiness: LyricsAITranslationReadiness?
         /// 选了百度翻译时 APP ID 与密钥的版本:填好、换掉或移除后重来。
         let baiduRevision: UInt?
+        /// 有声内容选了「点了再翻译」且这一条还没点过:只显示缓存里有的译文。点了就重来。
+        let awaitsSpokenWordRequest: Bool
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -92,7 +94,11 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             localModelRevision: localTranslation.modelRevision,
             intelligentReadiness: settings.mode == .intelligentWithSystemFallback
                 ? intelligence.lyricsAITranslationReadiness : nil,
-            baiduRevision: settings.mode == .baidu ? BaiduTranslateAccount.shared.revision : nil
+            baiduRevision: settings.mode == .baidu ? BaiduTranslateAccount.shared.revision : nil,
+            awaitsSpokenWordRequest: settings.spokenWordTranslationAwaitsRequest(
+                itemID: songID,
+                isSpokenWord: songContext.isSpokenWord
+            )
         )
     }
 
@@ -221,6 +227,11 @@ struct LyricsTranslationTaskModifier: ViewModifier {
 
         translatedTextByLineID = deduplication.expanding(hits)
         if let intelligentNotice { activity = intelligentNotice }
+        // 有声内容等用户点了再翻:缓存里有的照常显示,剩下的一行都不送出去。
+        if identity.awaitsSpokenWordRequest, let songID = identity.songID, !uncachedGroups.isEmpty {
+            activity = .spokenWordTranslationRequestable(itemID: songID)
+            return
+        }
         guard !uncachedGroups.isEmpty else {
             if preferredCacheProvider == .intelligent, !hits.isEmpty {
                 activity = .intelligentCached
@@ -962,12 +973,18 @@ final class LyricsTranslationPrefetcher {
             return
         }
         job?.task.cancel()
+        job = nil
         // 和播放页同一份上下文:有声内容的文稿按句并好再预先翻译,译文才对得上缓存。
         let songContext = LyricTranslationSongContext(
             title: song.title,
             artist: song.artistName,
             isSpokenWord: SpokenWordStore.shared.isSpokenWord(song)
         )
+        // 选了「点了再翻译」的有声内容,下一条也等用户点了再翻。
+        guard !LyricsTranslationSettingsStore.shared.spokenWordTranslationAwaitsRequest(
+            itemID: song.id,
+            isSpokenWord: songContext.isSpokenWord
+        ) else { return }
         let skippedSourceLanguageCodes = LyricsTranslationSettingsStore.shared.skippedSourceLanguageCodes
         let showsBundledTranslations = LyricsTranslationSettingsStore.shared.showsBundledTranslations
         let task = Task { @MainActor in

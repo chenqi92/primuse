@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "Повноекранний ефект";
 "external_display_mode_mirror" = "Дублювати цей пристрій";
 "external_display_effect_title" = "Ефект на зовнішньому дисплеї";
+"lyrics_translation_spoken_word_timing" = "Розшифровки подкастів і аудіокниг";
+"lyrics_translation_spoken_word_timing_automatic" = "Перекладати автоматично";
+"lyrics_translation_spoken_word_timing_on_request" = "Перекладати на запит";
+"lyrics_translation_spoken_word_timing_footer" = "Розшифровки подкастів і аудіокниг часто довгі. У режимі «Перекладати на запит» новий випуск чи розділ не перекладається, доки ви не натиснете «Перекласти розшифровку»; після цього переклад іде як зазвичай. Уже перекладене й далі показується, тексти пісень це не зачіпає.";
+"lyrics_translation_spoken_word_request" = "Перекласти розшифровку";

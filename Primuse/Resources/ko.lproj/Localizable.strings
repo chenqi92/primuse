@@ -6734,3 +6734,8 @@
 "external_display_mode_immersive" = "전체 화면 효과";
 "external_display_mode_mirror" = "이 기기 미러링";
 "external_display_effect_title" = "외부 디스플레이 효과";
+"lyrics_translation_spoken_word_timing" = "팟캐스트와 오디오북 자막";
+"lyrics_translation_spoken_word_timing_automatic" = "자동으로 번역";
+"lyrics_translation_spoken_word_timing_on_request" = "누르면 번역";
+"lyrics_translation_spoken_word_timing_footer" = "팟캐스트와 오디오북 자막은 긴 경우가 많습니다. '누르면 번역'을 선택하면 새 에피소드나 챕터로 바뀌어도 바로 번역하지 않고, 자막에서 '이 자막 번역'을 눌러야 시작합니다. 한 번 누른 항목은 이후 평소처럼 번역합니다. 이미 번역된 내용은 그대로 표시되며 노래 가사에는 영향이 없습니다.";
+"lyrics_translation_spoken_word_request" = "이 자막 번역";

@@ -6494,3 +6494,8 @@
 "external_display_mode_immersive" = "Full-screen Effect";
 "external_display_mode_mirror" = "Mirror This Device";
 "external_display_effect_title" = "Effect on External Display";
+"lyrics_translation_spoken_word_timing" = "Podcast & Audiobook Transcripts";
+"lyrics_translation_spoken_word_timing_automatic" = "Translate Automatically";
+"lyrics_translation_spoken_word_timing_on_request" = "Translate When Asked";
+"lyrics_translation_spoken_word_timing_footer" = "Podcast and audiobook transcripts are often long. With Translate When Asked, a new episode or chapter isn't translated until you tap Translate Transcript on it; after that it translates as usual. Anything already translated still shows, and song lyrics aren't affected.";
+"lyrics_translation_spoken_word_request" = "Translate Transcript";

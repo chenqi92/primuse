@@ -7878,7 +7878,10 @@ struct NowPlayingView: View {
             translationActivity: lyricsTranslationActivity,
             onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil,
             spokenWordEmptyState: spokenTranscriptEmptyState,
-            isSpokenWordTranscript: usesSpokenWordTransport
+            isSpokenWordTranscript: usesSpokenWordTransport,
+            // 全屏键 34 宽、右边距 12,标签再空 8。
+            translationStatusTrailingInset: showsReaderButton && usesSpokenWordTransport && !lyrics.isEmpty
+                ? 12 + 34 + 8 : 12
         )
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
@@ -12973,6 +12976,8 @@ enum LyricsTranslationActivity: Equatable {
     case baiduSuccess
     /// 选了百度翻译却没用上(没填好、译不成这种语言或请求出错),改用了系统翻译。
     case baiduNotReady(BaiduTranslateIssue)
+    /// 有声内容选了「点了再翻译」,这一条还没点过(#336)。
+    case spokenWordTranslationRequestable(itemID: String)
 }
 
 extension LyricsAITranslationReadiness {
@@ -13591,6 +13596,8 @@ struct LyricsScrollView: View {
     var spokenWordEmptyState: SpokenTranscriptEmptyState.Content? = nil
     /// 放的是有声书、播客的文字稿:设置里关掉了逐字高亮时整句高亮。
     var isSpokenWordTranscript = false
+    /// 右上角翻译状态标签离右边多远:文字稿右上角有全屏键时让开它,点得到「翻译这份文字稿」。
+    var translationStatusTrailingInset: CGFloat = 12
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -13827,7 +13834,7 @@ struct LyricsScrollView: View {
         .overlay(alignment: .topTrailing) {
             translationStatusBadge
                 .padding(.top, 8)
-                .padding(.trailing, 12)
+                .padding(.trailing, translationStatusTrailingInset)
         }
         .task(id: playbackFollowTaskIdentity) {
             guard hasSynchronizedLyrics else {
@@ -15155,6 +15162,12 @@ private struct LyricsTranslationStatusChip: View {
                           action: issue == .notConfigured ? {
                               SettingsNavigation.shared.open("intelligence.baiduTranslate")
                           } : nil)
+        case .spokenWordTranslationRequestable(let itemID):
+            return Status(key: "spokenWordRequest|\(itemID)",
+                          title: String(localized: "lyrics_translation_spoken_word_request"),
+                          systemImage: "character.bubble", tone: .action) {
+                LyricsTranslationSettingsStore.shared.requestSpokenWordTranslation(itemID: itemID)
+            }
         }
     }
 

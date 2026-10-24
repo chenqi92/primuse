@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "Полноэкранный эффект";
 "external_display_mode_mirror" = "Повтор этого устройства";
 "external_display_effect_title" = "Эффект на внешнем дисплее";
+"lyrics_translation_spoken_word_timing" = "Расшифровки подкастов и аудиокниг";
+"lyrics_translation_spoken_word_timing_automatic" = "Переводить автоматически";
+"lyrics_translation_spoken_word_timing_on_request" = "Переводить по запросу";
+"lyrics_translation_spoken_word_timing_footer" = "Расшифровки подкастов и аудиокниг часто длинные. В режиме «Переводить по запросу» новый выпуск или глава не переводится, пока вы не нажмёте «Перевести расшифровку»; после этого перевод идёт как обычно. Уже переведённое по-прежнему показывается, тексты песен это не затрагивает.";
+"lyrics_translation_spoken_word_request" = "Перевести расшифровку";

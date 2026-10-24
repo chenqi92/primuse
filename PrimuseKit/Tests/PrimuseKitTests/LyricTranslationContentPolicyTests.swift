@@ -136,3 +136,38 @@ struct LyricTranslationContentPolicyTests {
         #expect(LyricTranslationContentPolicy.contentLines(in: lines).isEmpty)
     }
 }
+
+struct SpokenWordTranslationRequestPolicyTests {
+    @Test func onlySpokenWordUnderOnRequestWaitsForTheListener() {
+        #expect(SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: true, itemID: "ep", approvedItemIDs: []))
+        #expect(!SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .automatic, isSpokenWord: true, itemID: "ep", approvedItemIDs: []))
+        #expect(!SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: false, itemID: "song", approvedItemIDs: []))
+        #expect(!SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: true, itemID: nil, approvedItemIDs: []))
+        #expect(!SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: true, itemID: "", approvedItemIDs: []))
+    }
+
+    @Test func anApprovedItemTranslatesAutomaticallyAfterwards() {
+        let approved = SpokenWordTranslationRequestPolicy.approving("ep", in: [])
+        #expect(!SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: true, itemID: "ep", approvedItemIDs: approved))
+        #expect(SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: .onRequest, isSpokenWord: true, itemID: "other", approvedItemIDs: approved))
+    }
+
+    @Test func approvingMovesTheItemLastAndForgetsTheOldest() {
+        #expect(SpokenWordTranslationRequestPolicy.approving("a", in: ["a", "b"]) == ["b", "a"])
+        #expect(SpokenWordTranslationRequestPolicy.approving("d", in: ["a", "b", "c"], limit: 3) == ["b", "c", "d"])
+        #expect(SpokenWordTranslationRequestPolicy.approving("x", in: ["a", "b"], limit: 0) == ["x"])
+    }
+
+    @Test func timingDecodesFromItsRawValue() {
+        #expect(SpokenWordTranslationTiming(rawValue: "onRequest") == .onRequest)
+        #expect(SpokenWordTranslationTiming(rawValue: "automatic") == .automatic)
+        #expect(SpokenWordTranslationTiming(rawValue: "later") == nil)
+    }
+}

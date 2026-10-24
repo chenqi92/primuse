@@ -54,6 +54,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.bundledTranslation", titleKey: "lyrics_bundled_translation_shown", iosPage: .lyrics, macPage: .lyrics, keywords: ["自带译文", "双语", "内嵌翻译", "bilingual", "embedded translation"]),
         SettingDefinition(id: "lyrics.translationMode", titleKey: "lyrics_translation_mode", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.translationTarget", titleKey: "lyrics_translation_target", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
+        SettingDefinition(id: "lyrics.spokenWordTranslationTiming", titleKey: "lyrics_translation_spoken_word_timing", iosPage: .lyrics, macPage: .lyrics, keywords: ["文字稿", "字幕", "播客", "有声书", "手动翻译", "点了再翻译", "额度", "transcript", "podcast", "audiobook", "translate on request"]),
         SettingDefinition(id: "lyrics.translationSkippedLanguages", titleKey: "lyrics_translation_skipped_languages", iosPage: .lyrics, macPage: .lyrics, keywords: ["不翻译", "原文", "keep original", "skip"]),
         SettingDefinition(id: "lyrics.baiduTranslate", titleKey: "baidu_translate_title", iosPage: .lyrics, macPage: .lyrics, keywords: ["baidu", "百度", "百度翻译", "APP ID", "翻译 API", "translation API"], anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.romanizationDisplay", titleKey: "lyrics_romanization_display", iosPage: .lyrics, macPage: .lyrics, keywords: ["romanization", "romaji", "pinyin", "transliteration", "罗马音", "罗马字", "拼音", "注音", "读音", "发音", "ローマ字", "로마자"]),

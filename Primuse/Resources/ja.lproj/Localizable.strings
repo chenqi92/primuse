@@ -6735,3 +6735,8 @@
 "external_display_mode_immersive" = "フルスクリーンエフェクト";
 "external_display_mode_mirror" = "このデバイスをミラーリング";
 "external_display_effect_title" = "外部ディスプレイのエフェクト";
+"lyrics_translation_spoken_word_timing" = "ポッドキャストとオーディオブックの文字起こし";
+"lyrics_translation_spoken_word_timing_automatic" = "自動で翻訳";
+"lyrics_translation_spoken_word_timing_on_request" = "タップしてから翻訳";
+"lyrics_translation_spoken_word_timing_footer" = "ポッドキャストやオーディオブックの文字起こしは長くなりがちです。「タップしてから翻訳」にすると、新しいエピソードや章に切り替えてもすぐには翻訳せず、文字起こしの「この文字起こしを翻訳」をタップしたときに始めます。一度タップした項目は以後いつも通り翻訳します。翻訳済みの内容はそのまま表示され、歌詞には影響しません。";
+"lyrics_translation_spoken_word_request" = "この文字起こしを翻訳";

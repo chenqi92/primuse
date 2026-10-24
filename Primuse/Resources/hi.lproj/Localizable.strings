@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "फ़ुल-स्क्रीन प्रभाव";
 "external_display_mode_mirror" = "इस डिवाइस को मिरर करें";
 "external_display_effect_title" = "बाहरी डिस्प्ले पर प्रभाव";
+"lyrics_translation_spoken_word_timing" = "पॉडकास्ट और ऑडियोबुक ट्रांसक्रिप्ट";
+"lyrics_translation_spoken_word_timing_automatic" = "अपने आप अनुवाद करें";
+"lyrics_translation_spoken_word_timing_on_request" = "माँगने पर अनुवाद करें";
+"lyrics_translation_spoken_word_timing_footer" = "पॉडकास्ट और ऑडियोबुक के ट्रांसक्रिप्ट अक्सर लंबे होते हैं। “माँगने पर अनुवाद करें” चुनने पर नया एपिसोड या अध्याय तब तक अनुवादित नहीं होता जब तक आप “ट्रांसक्रिप्ट का अनुवाद करें” पर टैप न करें; उसके बाद वह सामान्य रूप से अनुवादित होता है। पहले से अनुवादित सामग्री दिखती रहती है और गानों के बोल पर असर नहीं पड़ता।";
+"lyrics_translation_spoken_word_request" = "ट्रांसक्रिप्ट का अनुवाद करें";

@@ -1187,6 +1187,13 @@ struct MacNowPlayingView: View {
                 Label(readiness.systemFallbackNotice, systemImage: "sparkles")
             case .baiduNotReady(let issue):
                 Label(issue.notice, systemImage: "character.bubble")
+            case .spokenWordTranslationRequestable(let itemID):
+                Button {
+                    LyricsTranslationSettingsStore.shared.requestSpokenWordTranslation(itemID: itemID)
+                } label: {
+                    Label(String(localized: "lyrics_translation_spoken_word_request"), systemImage: "character.bubble")
+                }
+                .buttonStyle(.plain)
             default:
                 EmptyView()
             }
@@ -1206,7 +1213,8 @@ struct MacNowPlayingView: View {
         case .localModelRequired:
             if case .downloading = LocalLyricsTranslationService.shared.modelState { return true }
             return LocalLyricsTranslationService.shared.modelState != .ready
-        case .systemPreparationRequired, .systemUnavailable, .intelligentNotReady, .baiduNotReady:
+        case .systemPreparationRequired, .systemUnavailable, .intelligentNotReady, .baiduNotReady,
+             .spokenWordTranslationRequestable:
             return true
         default:
             return false

@@ -13,6 +13,45 @@ public struct LyricTranslationSongContext: Hashable, Sendable {
     }
 }
 
+/// 有声内容(播客、有声书)的文字稿什么时候送去翻译(#336)。文稿动辄几百行,随便点开听听的
+/// 那一集也整份翻掉,会白花智能翻译的次数或百度翻译的免费额度。歌词不受这个设置影响。
+public enum SpokenWordTranslationTiming: String, Codable, CaseIterable, Sendable {
+    /// 和歌词一样,换到这一条就翻。
+    case automatic
+    /// 先不翻:在文字稿上点「翻译这份文字稿」才翻,点过的那一条之后照常翻。
+    case onRequest
+}
+
+public enum SpokenWordTranslationRequestPolicy {
+    /// 点过翻译的条目记这么多条,超出时先点的先忘。
+    public static let rememberedLimit = 300
+
+    /// 这一条的文稿要不要等用户点了再翻。没有条目 id 的认不出是哪一条,照常翻。
+    public static func awaitsRequest(
+        timing: SpokenWordTranslationTiming,
+        isSpokenWord: Bool,
+        itemID: String?,
+        approvedItemIDs: [String]
+    ) -> Bool {
+        guard timing == .onRequest, isSpokenWord,
+              let itemID, !itemID.isEmpty else { return false }
+        return !approvedItemIDs.contains(itemID)
+    }
+
+    /// 点了「翻译这份文字稿」之后记下的列表:这一条挪到最后,超出上限丢掉最早的。
+    public static func approving(
+        _ itemID: String,
+        in approvedItemIDs: [String],
+        limit: Int = rememberedLimit
+    ) -> [String] {
+        var ids = approvedItemIDs.filter { $0 != itemID }
+        ids.append(itemID)
+        let overflow = ids.count - max(1, limit)
+        if overflow > 0 { ids.removeFirst(overflow) }
+        return ids
+    }
+}
+
 /// Selects sung text for language detection and machine translation without
 /// changing the displayed document, its timing, or authored translations.
 public enum LyricTranslationContentPolicy {

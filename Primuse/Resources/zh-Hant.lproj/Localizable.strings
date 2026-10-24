@@ -6711,3 +6711,8 @@
 "external_display_mode_immersive" = "全螢幕效果";
 "external_display_mode_mirror" = "鏡像本機畫面";
 "external_display_effect_title" = "外接螢幕上的效果";
+"lyrics_translation_spoken_word_timing" = "有聲內容的文字稿";
+"lyrics_translation_spoken_word_timing_automatic" = "自動翻譯";
+"lyrics_translation_spoken_word_timing_on_request" = "點了再翻譯";
+"lyrics_translation_spoken_word_timing_footer" = "Podcast 和有聲書的文字稿往往很長。選「點了再翻譯」後，換到新的一集或一章時先不翻譯，在文字稿上點「翻譯這份文字稿」才開始；點過的那一條以後照常翻譯。已經翻譯過的內容照常顯示，歌詞不受影響。";
+"lyrics_translation_spoken_word_request" = "翻譯這份文字稿";

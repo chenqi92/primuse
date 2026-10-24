@@ -5526,6 +5526,28 @@ private struct MacSTLyricsView: View {
                         MacBaiduTranslateStatusRow()
                             .settingsAnchor("lyrics.baiduTranslate")
                     }
+                    MacSTRow(
+                        String(localized: "lyrics_translation_spoken_word_timing"),
+                        hint: String(localized: "lyrics_translation_spoken_word_timing_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { settings.spokenWordTranslationTiming.rawValue },
+                                set: {
+                                    settings.spokenWordTranslationTiming =
+                                        SpokenWordTranslationTiming(rawValue: $0) ?? .automatic
+                                }
+                            ),
+                            options: [
+                                (SpokenWordTranslationTiming.automatic.rawValue,
+                                 String(localized: "lyrics_translation_spoken_word_timing_automatic")),
+                                (SpokenWordTranslationTiming.onRequest.rawValue,
+                                 String(localized: "lyrics_translation_spoken_word_timing_on_request")),
+                            ]
+                        )
+                    }
+                    .settingsAnchor("lyrics.spokenWordTranslationTiming")
                     MacSTRow(String(localized: "lyrics_translation_target")) {
                         MacSTPicker(
                             selection: Binding(

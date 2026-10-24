@@ -6827,3 +6827,8 @@
 "external_display_mode_immersive" = "全屏效果";
 "external_display_mode_mirror" = "镜像本机画面";
 "external_display_effect_title" = "外接屏上的效果";
+"lyrics_translation_spoken_word_timing" = "有声内容的文字稿";
+"lyrics_translation_spoken_word_timing_automatic" = "自动翻译";
+"lyrics_translation_spoken_word_timing_on_request" = "点了再翻译";
+"lyrics_translation_spoken_word_timing_footer" = "播客和有声书的文字稿往往很长。选「点了再翻译」后，换到新的一集或一章时先不翻译，在文字稿上点「翻译这份文字稿」才开始；点过的那一条以后照常翻译。已经翻译过的内容照常显示，歌词不受影响。";
+"lyrics_translation_spoken_word_request" = "翻译这份文字稿";

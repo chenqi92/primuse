@@ -21,6 +21,8 @@ final class LyricsTranslationSettingsStore {
     static let shared = LyricsTranslationSettingsStore()
 
     private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
+    /// 选了「点了再翻译」后点过翻译的有声内容条目,只存本机。
+    private static let approvedSpokenWordItemsKey = "primuse.lyrics.translation.spokenWordApproved.v1"
     private static let preparationRequestMaximumAge: TimeInterval = 30
 
     /// Only a direct tap on the in-player translation action issues this
@@ -53,6 +55,37 @@ final class LyricsTranslationSettingsStore {
             persist()
             LyricsTranslationSettingsStore.notifyChanged()
         }
+    }
+
+    /// 播客、有声书的文字稿是换到这一条就翻,还是在文字稿上点了才翻(#336)。
+    var spokenWordTranslationTiming: SpokenWordTranslationTiming {
+        didSet {
+            guard spokenWordTranslationTiming != oldValue else { return }
+            persist()
+            LyricsTranslationSettingsStore.notifyChanged()
+        }
+    }
+
+    /// 点过「翻译这份文字稿」的条目,最近点的在最后。
+    private(set) var approvedSpokenWordItemIDs: [String]
+
+    /// 这一条有声内容的文稿要不要等用户点了再翻。
+    func spokenWordTranslationAwaitsRequest(itemID: String?, isSpokenWord: Bool) -> Bool {
+        SpokenWordTranslationRequestPolicy.awaitsRequest(
+            timing: spokenWordTranslationTiming,
+            isSpokenWord: isSpokenWord,
+            itemID: itemID,
+            approvedItemIDs: approvedSpokenWordItemIDs
+        )
+    }
+
+    /// 文字稿上点了「翻译这份文字稿」:这一条现在就翻,以后也照常翻。
+    func requestSpokenWordTranslation(itemID: String) {
+        approvedSpokenWordItemIDs = SpokenWordTranslationRequestPolicy.approving(
+            itemID,
+            in: approvedSpokenWordItemIDs
+        )
+        UserDefaults.standard.set(approvedSpokenWordItemIDs, forKey: Self.approvedSpokenWordItemsKey)
     }
 
     /// BCP-47 语言标识 (例如 "zh-Hans" / "zh-Hant" / "en" / "ja")。
@@ -159,6 +192,7 @@ final class LyricsTranslationSettingsStore {
         var mode = LyricsTranslationMode.system
         var skippedSourceLanguageCodes: [String] = []
         var showsBundledTranslations = true
+        var spokenWordTranslationTiming = SpokenWordTranslationTiming.automatic
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             isEnabled = decoded.isEnabled
@@ -168,6 +202,8 @@ final class LyricsTranslationSettingsStore {
                 decoded.skippedSourceLanguageCodes ?? []
             )
             showsBundledTranslations = decoded.showsBundledTranslations ?? true
+            spokenWordTranslationTiming = decoded.spokenWordTranslationTiming
+                .flatMap(SpokenWordTranslationTiming.init(rawValue:)) ?? .automatic
         } else {
             // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
             let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
@@ -187,6 +223,9 @@ final class LyricsTranslationSettingsStore {
         self.mode = mode
         self.skippedSourceLanguageCodes = skippedSourceLanguageCodes
         self.showsBundledTranslations = showsBundledTranslations
+        self.spokenWordTranslationTiming = spokenWordTranslationTiming
+        self.approvedSpokenWordItemIDs = UserDefaults.standard
+            .stringArray(forKey: Self.approvedSpokenWordItemsKey) ?? []
     }
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
@@ -306,7 +345,8 @@ final class LyricsTranslationSettingsStore {
             targetLanguageCode: targetLanguageCode,
             mode: mode.rawValue,
             skippedSourceLanguageCodes: skippedSourceLanguageCodes,
-            showsBundledTranslations: showsBundledTranslations
+            showsBundledTranslations: showsBundledTranslations,
+            spokenWordTranslationTiming: spokenWordTranslationTiming.rawValue
         )
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
@@ -324,6 +364,8 @@ final class LyricsTranslationSettingsStore {
         let mode: String?
         let skippedSourceLanguageCodes: [String]?
         let showsBundledTranslations: Bool?
+        /// 和 `mode` 一样存字符串,认不出的值退回自动翻译。
+        let spokenWordTranslationTiming: String?
     }
 }
 

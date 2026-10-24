@@ -6640,3 +6640,8 @@
 "external_display_mode_immersive" = "Efekt pełnoekranowy";
 "external_display_mode_mirror" = "Powielaj to urządzenie";
 "external_display_effect_title" = "Efekt na wyświetlaczu zewnętrznym";
+"lyrics_translation_spoken_word_timing" = "Transkrypcje podcastów i audiobooków";
+"lyrics_translation_spoken_word_timing_automatic" = "Tłumacz automatycznie";
+"lyrics_translation_spoken_word_timing_on_request" = "Tłumacz na żądanie";
+"lyrics_translation_spoken_word_timing_footer" = "Transkrypcje podcastów i audiobooków bywają długie. W trybie „Tłumacz na żądanie” nowy odcinek lub rozdział nie jest tłumaczony, dopóki nie stukniesz „Przetłumacz transkrypcję”; potem jest tłumaczony jak zwykle. To, co już przetłumaczone, nadal się wyświetla, a teksty piosenek się nie zmieniają.";
+"lyrics_translation_spoken_word_request" = "Przetłumacz transkrypcję";

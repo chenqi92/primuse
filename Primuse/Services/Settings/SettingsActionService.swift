@@ -119,6 +119,7 @@ struct SettingsActionService {
             return SettingsStrings.text("Enable the compressor to adjust this setting.")
         }
         if ["lyrics.translationMode", "lyrics.translationTarget", "lyrics.translationSkippedLanguages",
+            "lyrics.spokenWordTranslationTiming",
             "lyrics.translationCache", "lyrics.clearTranslationCache"].contains(id),
            !LyricsTranslationSettingsStore.shared.isEnabled {
             return SettingsStrings.text("Enable lyrics translation to adjust this setting.")

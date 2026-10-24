@@ -6734,3 +6734,8 @@
 "external_display_mode_immersive" = "Vollbildeffekt";
 "external_display_mode_mirror" = "Dieses Gerät spiegeln";
 "external_display_effect_title" = "Effekt auf dem externen Display";
+"lyrics_translation_spoken_word_timing" = "Podcast- und Hörbuch-Transkripte";
+"lyrics_translation_spoken_word_timing_automatic" = "Automatisch übersetzen";
+"lyrics_translation_spoken_word_timing_on_request" = "Erst auf Anfrage übersetzen";
+"lyrics_translation_spoken_word_timing_footer" = "Podcast- und Hörbuch-Transkripte sind oft lang. Bei „Erst auf Anfrage übersetzen“ wird eine neue Folge oder ein neues Kapitel erst übersetzt, wenn du im Transkript auf „Transkript übersetzen“ tippst; danach wird es wie gewohnt übersetzt. Bereits Übersetztes wird weiter angezeigt, Liedtexte sind nicht betroffen.";
+"lyrics_translation_spoken_word_request" = "Transkript übersetzen";
