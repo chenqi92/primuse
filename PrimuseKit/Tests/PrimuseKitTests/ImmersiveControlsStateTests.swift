@@ -192,6 +192,7 @@ struct ImmersivePresentationFallbackPolicyTests {
             "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
             "albumFlow", "chladniPlate", "fireflySync", "flyBrain",
+            "kineticLyrics",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: selected,

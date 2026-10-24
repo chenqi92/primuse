@@ -173,12 +173,12 @@ struct MacImmersivePlayerView: View {
                                 Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: .lowPower))
                             }
                         }
-                        // 自动轮换换场时那一下暗场。
-                        .overlay {
-                            Color.black
-                                .opacity(rotator.dipOpacity)
-                                .allowsHitTesting(false)
-                        }
+                        // 换效果时那一下柔焦。
+                        .modifier(ImmersiveSoftFocusEffect(
+                            softFocus: rotator.softFocus,
+                            scale: rotator.focusScale,
+                            maximumBlur: metrics.s(28)
+                        ))
                 } else {
                     entrySurface(metrics: metrics)
                 }
@@ -219,7 +219,7 @@ struct MacImmersivePlayerView: View {
 
                     // 面板贴着顶栏左边那个效果按钮展开。
                     MacImmersiveEffectPicker(
-                        selected: displayedEffect,
+                        selected: rotator.highlightedEffect(selected: effect),
                         effects: FullscreenPlayerEffect.allCases,
                         palette: artworkPalette,
                         onSelect: { candidate in
@@ -312,6 +312,8 @@ struct MacImmersivePlayerView: View {
             if isStageReady { updateVisualizer(for: presentationEffect) }
             if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker {
                 advanceRotation()
+            } else if isRenderingActive, isStageReady {
+                rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
             }
         }
         .onChange(of: effectRawValue) { _, _ in
@@ -718,7 +720,7 @@ struct MacImmersivePlayerView: View {
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
             .trailing
-        case .native, .albumFlow:
+        case .native, .albumFlow, .kineticLyrics:
             .center
         }
     }
@@ -779,7 +781,7 @@ struct MacImmersivePlayerView: View {
             }
         } label: {
             HStack(spacing: 7) {
-                Text(verbatim: displayedEffect.localizedTitle)
+                Text(verbatim: rotator.highlightedEffect(selected: effect).localizedTitle)
                     .font(.system(size: 13, weight: .semibold))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
@@ -1302,8 +1304,12 @@ struct MacImmersivePlayerView: View {
     }
 
     private func selectEffect(_ value: FullscreenPlayerEffect) {
-        // 整个场景树包含实时模糊和 Canvas；直接换组，避免隐式动画逐层插值。
-        rotator.reset()
+        // 整个场景树包含实时模糊和 Canvas；不让隐式动画逐层插值，由柔焦换场带过去。
+        if value != displayedEffect {
+            rotator.beginManualChange(from: displayedEffect, reduceMotion: reduceMotion)
+        } else {
+            rotator.reset()
+        }
         effectRawValue = value.rawValue
         FullscreenPlayerEffectSync.shared.select(value)
     }

@@ -1903,6 +1903,9 @@
 "fullscreen_effect_fly_brain" = "神经共鸣";
 "fullscreen_effect_fly_brain_subtitle" = "真实果蝇大脑的听觉通路化作缓缓转动的全息投影，声音沿真实接线一级级点亮";
 "fullscreen_effect_fly_brain_motion" = "实时频谱驱动 · 较耗电 · 真实神经接线，活动为模拟";
+"fullscreen_effect_kinetic_lyrics" = "动态歌词";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "一次一句压在画面正中，字一个个弹上来，唱到哪个字哪个字亮起，上一句往上飘散";
+"fullscreen_effect_kinetic_lyrics_motion" = "字随演唱弹起、点亮 · 上下句柔焦交替 · 无需实时频谱";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

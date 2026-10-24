@@ -766,7 +766,6 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
 
     /// 神经共鸣追加在萤火同步之后，归在声音响应那一组，要开实时频谱。
     func testFlyBrainIsAppendedAfterFireflySync() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .flyBrain)
         XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .flyBrain), 11)
         XCTAssertEqual(FullscreenPlayerEffect.flyBrain.rawValue, "flyBrain")
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "flyBrain"), .flyBrain)
@@ -780,6 +779,26 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
                 hasArtwork: false
             ),
             "flyBrain"
+        )
+    }
+
+    /// 动态歌词追加在最后，归在场景动态那一组，不读频谱。
+    func testKineticLyricsIsAppendedLast() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .kineticLyrics)
+        XCTAssertEqual(FullscreenPlayerEffect.kineticLyrics.rawValue, "kineticLyrics")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "kineticLyrics"), .kineticLyrics)
+        XCTAssertEqual(FullscreenPlayerEffect.kineticLyrics.collection, .sceneMotion)
+        XCTAssertEqual(FullscreenPlayerEffect.kineticLyrics.scene, .kineticLyrics)
+        XCTAssertFalse(FullscreenPlayerEffect.kineticLyrics.usesRealtimeSpectrum)
+        // 旧版本留下的「歌词舞台」别名仍然迁到流动声纹，不会被新效果接走。
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "lyricStage"), .flowingLines)
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "kineticLyrics",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "kineticLyrics"
         )
     }
 

@@ -1887,6 +1887,9 @@
 "fullscreen_effect_fly_brain" = "Neural Resonance";
 "fullscreen_effect_fly_brain_subtitle" = "A real fruit fly’s hearing circuit turns slowly as a hologram and lights up stage by stage along its actual wiring as the music plays";
 "fullscreen_effect_fly_brain_motion" = "Live spectrum driven · Uses more power · Real wiring, simulated activity";
+"fullscreen_effect_kinetic_lyrics" = "Kinetic Lyrics";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "One line at a time, center stage: words spring up one by one, light up as they’re sung, and the last line drifts away";
+"fullscreen_effect_kinetic_lyrics_motion" = "Words spring and glow as they’re sung · Soft-focus line changes · No live spectrum needed";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

@@ -633,16 +633,30 @@ enum ImmersiveDemoStage {
 
     /// `sungFraction` 不为 nil 时当前句按字配上时间，`time` 时刻正好唱到这句的这个比例，
     /// 用来在取证页看逐字浪尖；设置页预览不传，整句保持亮着。
+    /// 配了字的时间时前后两句也带上行时间（上一句唱到这句开头、下一句紧接着这句），动态歌词的取证帧
+    /// 里看得到上一句退场、这一句入场。
     static func lyrics(sungFraction: Double?, at time: TimeInterval) -> [ImmersiveStageLyric] {
-        Array(ImmersiveDemoContent.lyrics.prefix(3)).enumerated().map { index, text in
-            ImmersiveStageLyric(
+        let texts = Array(ImmersiveDemoContent.lyrics.prefix(3))
+        let current = texts.count > 1
+            ? sungFraction.map { wordTimedSyllables(for: texts[1], sungFraction: $0, at: time) }
+            : nil
+        let currentStart = current?.first?.start
+        let currentEnd = current?.last?.end
+        return texts.enumerated().map { index, text in
+            let window: (start: TimeInterval, end: TimeInterval)?
+            switch index {
+            case 0: window = currentStart.map { ($0 - 4, $0) }
+            case 1: window = currentStart.flatMap { start in currentEnd.map { (start, $0) } }
+            default: window = currentEnd.map { ($0 + 0.4, $0 + 4.4) }
+            }
+            return ImmersiveStageLyric(
                 id: index,
                 text: text,
                 isActive: index == 1,
                 offset: index - 1,
-                syllables: index == 1
-                    ? sungFraction.map { wordTimedSyllables(for: text, sungFraction: $0, at: time) }
-                    : nil
+                syllables: index == 1 ? current : nil,
+                startTime: window?.start,
+                endTime: window?.end
             )
         }
     }

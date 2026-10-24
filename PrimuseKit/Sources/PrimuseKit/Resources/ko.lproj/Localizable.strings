@@ -692,6 +692,9 @@
 "fullscreen_effect_fly_brain" = "신경 공명";
 "fullscreen_effect_fly_brain_subtitle" = "실제 초파리 뇌의 청각 회로가 천천히 도는 홀로그램이 되어, 소리가 실제 배선을 따라 단계별로 빛납니다";
 "fullscreen_effect_fly_brain_motion" = "실시간 스펙트럼 구동 · 전력 소모 많음 · 실제 배선, 활동은 시뮬레이션";
+"fullscreen_effect_kinetic_lyrics" = "키네틱 가사";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "한 번에 한 줄을 화면 가운데에. 단어가 하나씩 튀어 오르고 부르는 순간 빛나며, 이전 줄은 위로 흩어집니다";
+"fullscreen_effect_kinetic_lyrics_motion" = "노래에 맞춰 글자가 튀어 오르며 빛남 · 줄 전환은 소프트 포커스 · 실시간 스펙트럼 불필요";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

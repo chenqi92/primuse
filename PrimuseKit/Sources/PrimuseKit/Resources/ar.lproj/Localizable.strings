@@ -583,6 +583,9 @@
 "fullscreen_effect_fly_brain" = "الرنين العصبي";
 "fullscreen_effect_fly_brain_subtitle" = "تتحول دائرة السمع لذبابة فاكهة حقيقية إلى صورة ثلاثية الأبعاد تدور ببطء، وتضيء مرحلةً بعد مرحلة على امتداد توصيلاتها الحقيقية مع الموسيقى";
 "fullscreen_effect_fly_brain_motion" = "مدفوع بالطيف اللحظي · يستهلك طاقة أكبر · توصيلات حقيقية ونشاط محاكى";
+"fullscreen_effect_kinetic_lyrics" = "كلمات متحركة";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "سطر واحد في كل مرة في منتصف الشاشة: تقفز الكلمات واحدة تلو الأخرى وتتوهّج عند غنائها، ويتلاشى السطر السابق صعودًا";
+"fullscreen_effect_kinetic_lyrics_motion" = "كلمات تقفز وتتوهّج مع الغناء · انتقال ناعم بين الأسطر · لا يحتاج إلى طيف مباشر";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
 "fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";

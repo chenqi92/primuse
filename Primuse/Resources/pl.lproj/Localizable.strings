@@ -1448,6 +1448,9 @@
 "fullscreen_effect_fly_brain" = "Rezonans neuronowy";
 "fullscreen_effect_fly_brain_subtitle" = "Obwód słuchowy prawdziwej muszki owocowej obraca się powoli jako hologram i w rytm muzyki rozświetla się etapami wzdłuż swoich prawdziwych połączeń";
 "fullscreen_effect_fly_brain_motion" = "Widmo w czasie rzeczywistym · Większe zużycie energii · Prawdziwe połączenia, symulowana aktywność";
+"fullscreen_effect_kinetic_lyrics" = "Animowany tekst";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "Jedna linijka naraz na środku ekranu: słowa wyskakują jedno po drugim, rozświetlają się podczas śpiewu, a poprzednia linijka odpływa w górę";
+"fullscreen_effect_kinetic_lyrics_motion" = "Słowa podskakują i świecą w rytm śpiewu · Miękkie przejścia między linijkami · Bez widma na żywo";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

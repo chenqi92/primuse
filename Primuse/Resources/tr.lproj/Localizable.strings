@@ -1477,6 +1477,9 @@
 "fullscreen_effect_fly_brain" = "Sinirsel Rezonans";
 "fullscreen_effect_fly_brain_subtitle" = "Gerçek bir meyve sineğinin işitme devresi yavaşça dönen bir holograma dönüşür ve müzikle birlikte gerçek bağlantıları boyunca adım adım yanar";
 "fullscreen_effect_fly_brain_motion" = "Gerçek zamanlı spektrum · Daha fazla güç kullanır · Gerçek bağlantılar, benzetilmiş etkinlik";
+"fullscreen_effect_kinetic_lyrics" = "Hareketli Sözler";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "Ekranın ortasında her seferinde tek satır: kelimeler tek tek sıçrar, söylendikçe parlar ve önceki satır yukarı doğru dağılır";
+"fullscreen_effect_kinetic_lyrics_motion" = "Kelimeler söylendikçe sıçrar ve parlar · Yumuşak odaklı satır geçişleri · Canlı spektrum gerekmez";
 "unknown_title" = "Bilinmeyen Başlık";
 "metadata" = "Üst veri";
 "synology_auth_error_406" = "Bu hesap için iki adımlı doğrulama uygulanmaktadır.";

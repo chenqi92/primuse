@@ -583,6 +583,9 @@
 "fullscreen_effect_fly_brain" = "Ressonância neural";
 "fullscreen_effect_fly_brain_subtitle" = "O circuito auditivo de uma mosca-das-frutas real gira devagar como holograma e acende etapa por etapa pela fiação real conforme a música toca";
 "fullscreen_effect_fly_brain_motion" = "Espectro em tempo real · Consome mais energia · Fiação real, atividade simulada";
+"fullscreen_effect_kinetic_lyrics" = "Letra animada";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "Uma linha por vez no centro da tela: as palavras surgem uma a uma, acendem quando cantadas e a linha anterior se dissolve para cima";
+"fullscreen_effect_kinetic_lyrics_motion" = "Palavras que saltam e brilham ao serem cantadas · Troca de linhas com desfoque suave · Dispensa espectro em tempo real";
 "fullscreen_effect_native" = "Originais";
 "fullscreen_effect_native_motion" = "Transição nativa · Padrão";
 "fullscreen_effect_native_subtitle" = "O layout e os controles familiares do player";

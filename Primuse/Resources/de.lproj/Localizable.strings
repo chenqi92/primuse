@@ -1849,6 +1849,9 @@
 "fullscreen_effect_fly_brain" = "Neuronale Resonanz";
 "fullscreen_effect_fly_brain_subtitle" = "Der Hörschaltkreis einer echten Fruchtfliege dreht sich langsam als Hologramm und leuchtet zur Musik Stufe für Stufe entlang seiner echten Verschaltung auf";
 "fullscreen_effect_fly_brain_motion" = "Echtzeit-Spektrum · Höherer Energiebedarf · Echte Verschaltung, simulierte Aktivität";
+"fullscreen_effect_kinetic_lyrics" = "Bewegter Liedtext";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "Eine Zeile nach der anderen in der Bildmitte: Wörter springen einzeln herein, leuchten beim Singen auf, und die vorige Zeile schwebt davon";
+"fullscreen_effect_kinetic_lyrics_motion" = "Wörter springen und leuchten beim Singen · Weiche Zeilenwechsel · Kein Live-Spektrum nötig";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

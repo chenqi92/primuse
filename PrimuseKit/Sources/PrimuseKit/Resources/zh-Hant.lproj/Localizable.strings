@@ -689,6 +689,9 @@
 "fullscreen_effect_fly_brain" = "神經共鳴";
 "fullscreen_effect_fly_brain_subtitle" = "真實果蠅大腦的聽覺通路化作緩緩轉動的全像投影，聲音沿真實接線一級級點亮";
 "fullscreen_effect_fly_brain_motion" = "即時頻譜驅動 · 較耗電 · 真實神經接線，活動為模擬";
+"fullscreen_effect_kinetic_lyrics" = "動態歌詞";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "一次一句置於畫面正中，字一個個彈上來，唱到哪個字哪個字亮起，上一句往上飄散";
+"fullscreen_effect_kinetic_lyrics_motion" = "字隨演唱彈起、點亮 · 上下句柔焦交替 · 無需即時頻譜";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

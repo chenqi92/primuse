@@ -692,6 +692,9 @@
 "fullscreen_effect_fly_brain" = "Résonance neuronale";
 "fullscreen_effect_fly_brain_subtitle" = "Le circuit auditif d’une vraie drosophile tourne lentement en hologramme et s’illumine étape par étape le long de son câblage réel au fil de la musique";
 "fullscreen_effect_fly_brain_motion" = "Spectre en temps réel · Plus énergivore · Câblage réel, activité simulée";
+"fullscreen_effect_kinetic_lyrics" = "Paroles animées";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "Une ligne à la fois au centre de l’écran : les mots surgissent un à un, s’illuminent quand ils sont chantés, et la ligne précédente s’envole";
+"fullscreen_effect_kinetic_lyrics_motion" = "Mots qui rebondissent et s’illuminent au chant · Transitions en flou doux · Sans spectre en temps réel";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

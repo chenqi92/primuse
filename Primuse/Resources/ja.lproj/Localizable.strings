@@ -1850,6 +1850,9 @@
 "fullscreen_effect_fly_brain" = "神経の共鳴";
 "fullscreen_effect_fly_brain_subtitle" = "本物のショウジョウバエの聴覚回路がゆっくり回るホログラムになり、音が実際の配線に沿って段階的に光る";
 "fullscreen_effect_fly_brain_motion" = "リアルタイムスペクトラム駆動 · 電力消費が多め · 実際の配線、活動はシミュレーション";
+"fullscreen_effect_kinetic_lyrics" = "キネティック歌詞";
+"fullscreen_effect_kinetic_lyrics_subtitle" = "一度に一行を画面の中央に。言葉が一つずつ跳ね上がり、歌われた言葉から光り、前の行は上へ消えていきます";
+"fullscreen_effect_kinetic_lyrics_motion" = "歌に合わせて文字が跳ねて光る · 行はソフトフォーカスで入れ替わる · リアルタイムスペクトル不要";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

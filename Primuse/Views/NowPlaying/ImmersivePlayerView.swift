@@ -140,12 +140,16 @@ struct ImmersivePlayerView: View {
         )
     }
 
-    /// 手动换效果(抽屉、捏合):记成所选的效果,轮换换上来的那一种作废。
+    /// 手动换效果(抽屉、捏合):记成所选的效果,轮换换上来的那一种作废;舞台柔焦着换过去。
     private var manualEffectSelection: Binding<FullscreenPlayerEffect> {
         Binding(
-            get: { displayedEffect },
+            get: { rotator.highlightedEffect(selected: effect) },
             set: { value in
-                rotator.reset()
+                if value != displayedEffect {
+                    rotator.beginManualChange(from: displayedEffect, reduceMotion: reduceMotion)
+                } else {
+                    rotator.reset()
+                }
                 effect = value
             }
         )
@@ -196,12 +200,12 @@ struct ImmersivePlayerView: View {
                             Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: isLowPower ? .lowPower : .resting))
                         }
                     }
-                    // 自动轮换换场时那一下暗场。
-                    .overlay {
-                        Color.black
-                            .opacity(rotator.dipOpacity)
-                            .allowsHitTesting(false)
-                    }
+                    // 换效果时那一下柔焦。
+                    .modifier(ImmersiveSoftFocusEffect(
+                        softFocus: rotator.softFocus,
+                        scale: rotator.focusScale,
+                        maximumBlur: metrics.s(24)
+                    ))
 
                 Color.clear
                     .contentShape(Rectangle())
@@ -315,6 +319,11 @@ struct ImmersivePlayerView: View {
             synchronizeVisualizer()
             if rotationMode == .perSong, isSceneActive, !showsEffectPicker {
                 advanceRotation()
+            } else if isSceneActive {
+                rotator.settleAfterSongChange(
+                    on: presentationEffect,
+                    isEnabled: !reduceMotion && !isLowPower && !isAmbientRest
+                )
             }
         }
         .task(id: rotationSchedule) {
@@ -786,8 +795,8 @@ struct ImmersivePlayerView: View {
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
             return .trailing
-        case .native, .albumFlow:
-            // 封面流的画面左右对称, 控件也居中。
+        case .native, .albumFlow, .kineticLyrics:
+            // 封面流的画面左右对称、动态歌词压在正中, 控件也居中。
             return .center
         }
     }

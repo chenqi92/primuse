@@ -298,12 +298,12 @@ struct TVImmersivePlayerView: View {
                             Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: .lowPower))
                         }
                     }
-                    // 自动轮换换场时那一下暗场。
-                    .overlay {
-                        Color.black
-                            .opacity(rotator.dipOpacity)
-                            .allowsHitTesting(false)
-                    }
+                    // 换效果时那一下柔焦。
+                    .modifier(ImmersiveSoftFocusEffect(
+                        softFocus: rotator.softFocus,
+                        scale: rotator.focusScale,
+                        maximumBlur: metrics.s(22)
+                    ))
                     .accessibilityHidden(showsModePicker)
 
                 if isLowPower {
@@ -489,6 +489,8 @@ struct TVImmersivePlayerView: View {
             if rotationMode == .perSong, presentationActivity.isRenderingActive,
                !showsModePicker, !showsQueue {
                 advanceRotation()
+            } else if presentationActivity.isRenderingActive {
+                rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
             }
         }
         .onChange(of: lyricObservationIdentity) { _, _ in
@@ -705,7 +707,7 @@ struct TVImmersivePlayerView: View {
         case .flyBrain:
             // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
             .trailing
-        case .native, .albumFlow:
+        case .native, .albumFlow, .kineticLyrics:
             .center
         }
     }
@@ -847,9 +849,13 @@ struct TVImmersivePlayerView: View {
         TVFullscreenEffectPicker(
             // 高亮眼前显示的那一种;选了就记成所选的效果,轮换换上来的作废。
             selectedRawValue: Binding(
-                get: { displayedEffect.rawValue },
+                get: { rotator.highlightedEffect(selected: effect).rawValue },
                 set: { value in
-                    rotator.reset()
+                    if value != displayedEffect.rawValue {
+                        rotator.beginManualChange(from: displayedEffect, reduceMotion: reduceMotion)
+                    } else {
+                        rotator.reset()
+                    }
                     effectRawValue = value
                 }
             ),
@@ -1245,7 +1251,11 @@ struct TVImmersivePlayerView: View {
     }
 
     private func selectEffect(_ value: FullscreenPlayerEffect) {
-        rotator.reset()
+        if value != displayedEffect {
+            rotator.beginManualChange(from: displayedEffect, reduceMotion: reduceMotion)
+        } else {
+            rotator.reset()
+        }
         withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
             0.28,
             reduceMotion: reduceMotion

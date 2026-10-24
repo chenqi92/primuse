@@ -656,6 +656,7 @@ enum ImmersiveEffectScene: Sendable {
     case chladniPlate
     case fireflySync
     case flyBrain
+    case kineticLyrics
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -720,6 +721,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case fireflySync
     /// 神经共鸣：真实果蝇大脑听觉通路的全息投影，声音沿真实接线一级级点亮。
     case flyBrain
+    /// 动态歌词：一次一句压在画面正中，字一个个弹上来、唱到就亮起，上一句往上飘走。只用专辑色，不读频谱。
+    case kineticLyrics
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -742,6 +745,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .chladniPlate: "chladniPlate"
         case .fireflySync: "fireflySync"
         case .flyBrain: "flyBrain"
+        case .kineticLyrics: "kineticLyrics"
         }
     }
 
@@ -779,6 +783,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .fireflySync
         case "flyBrain":
             self = .flyBrain
+        case "kineticLyrics":
+            self = .kineticLyrics
         default:
             return nil
         }
@@ -788,7 +794,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: .native
         case .coverGallery, .vinylDeck, .albumFlow: .coverReactive
-        case .flowingLines, .auroraVeil: .sceneMotion
+        case .flowingLines, .auroraVeil, .kineticLyrics: .sceneMotion
         case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate, .fireflySync, .flyBrain: .audioReactive
         }
     }
@@ -806,6 +812,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .chladniPlate: .chladniPlate
         case .fireflySync: .fireflySync
         case .flyBrain: .flyBrain
+        case .kineticLyrics: .kineticLyrics
         }
     }
 
@@ -844,6 +851,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .chladniPlate: "chladni_plate"
         case .fireflySync: "firefly_sync"
         case .flyBrain: "fly_brain"
+        case .kineticLyrics: "kinetic_lyrics"
         }
     }
 
@@ -877,6 +885,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .chladniPlate: "squareshape.split.3x3"
         case .fireflySync: "sparkles"
         case .flyBrain: "brain"
+        case .kineticLyrics: "textformat.size"
         }
     }
 }
@@ -923,63 +932,166 @@ struct ImmersiveEffectRotationSchedule: Hashable {
     var interval: TimeInterval? { isRunning ? mode.interval : nil }
 }
 
-/// 全屏效果自动轮换(#312)眼前换上的那一种,和换场时那一下暗场;iPhone / iPad、Mac、Apple TV 的全屏页共用,
-/// 计时由各页按 `ImmersiveEffectRotationSchedule` 自己做。只在这一次全屏里有效:不写回所选效果(那是三端同步的
-/// 设置),手动换了效果、或者别的设备改了所选效果,就回到所选的那一种。
+/// 全屏效果眼前换上的那一种,和换场时那一下柔焦;iPhone / iPad、Mac、Apple TV 的全屏页共用,自动轮换(#312)的
+/// 计时由各页按 `ImmersiveEffectRotationSchedule` 自己做。轮换换上来的只在这一次全屏里有效:不写回所选效果(那是
+/// 三端同步的设置),手动换了效果、或者别的设备改了所选效果,就回到所选的那一种。
+///
+/// 换场(轮换和手动换都一样):旧画面略微放大、虚化、压暗着退下,换成新的一种以后再从虚化里落定。舞台里有实时模糊和
+/// Canvas,两套场景叠着交叉淡化太重,所以同一时刻只画一种。换歌时整幅从轻微虚化里落定一下(封面流、动态歌词
+/// 自己有换歌的动画,不做)。
 @MainActor
 @Observable
 final class ImmersiveEffectRotator {
     /// 轮换换上来的效果;nil 时显示用户选定的那一种。
     private(set) var rotatedEffect: FullscreenPlayerEffect?
-    /// 换场时整幅先暗下去、换好再亮起来。舞台里有实时模糊和 Canvas,两套场景叠着交叉淡化太重。
-    private(set) var dipOpacity: Double = 0
+    /// 手动换场时,虚化到底之前先留着的旧效果。
+    private(set) var heldEffect: FullscreenPlayerEffect?
+    /// 柔焦的深浅:0 清楚,1 虚化、压暗到底。
+    private(set) var softFocus: Double = 0
+    /// 柔焦时整幅的缩放:退下时放大一点,新的一种从略大落回原样。不缩到 1 以下,画面边上不会露出底色。
+    private(set) var focusScale: Double = 1
     @ObservationIgnored private var queue = ImmersiveEffectRotationQueue()
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
 
-    private static let dipDuration: TimeInterval = 0.45
+    private static let outDuration: TimeInterval = 0.42
+    private static let inDuration: TimeInterval = 0.58
+    private static let outScale = 1.06
+    private static let inScale = 1.035
+    /// 换歌时从多深的虚化里落定、用多久。
+    private static let songSettleFocus = 0.5
+    private static let songSettleDuration: TimeInterval = 0.65
 
+    /// 舞台上正画着的那一种:手动换场虚化到底之前还是旧的。
     func displayedEffect(selected: FullscreenPlayerEffect) -> FullscreenPlayerEffect {
+        heldEffect ?? rotatedEffect ?? selected
+    }
+
+    /// 选择器里该高亮的那一种:轮换换上来的,或者刚选的(哪怕舞台还在换场)。
+    func highlightedEffect(selected: FullscreenPlayerEffect) -> FullscreenPlayerEffect {
         rotatedEffect ?? selected
     }
 
-    /// 回到所选的那一种,换场做到一半的也停下。
+    /// 回到所选的那一种。手动换场做到一半时只丢掉轮换结果,换场照常做完;否则换场停下、画面变清楚。
     func reset() {
+        rotatedEffect = nil
+        guard heldEffect == nil else { return }
         transitionTask?.cancel()
         transitionTask = nil
+        settleImmediately(animated: true)
+    }
+
+    /// 手动换效果(抽屉、捏合、选择器、快捷键)时调用,紧接着再写入所选效果:旧画面先柔焦着退下,换成新选的再
+    /// 从虚化里落定。换场途中又选了一次,就接着退下、最后换到最新选的那一种。减弱动态效果时直接换。
+    func beginManualChange(from current: FullscreenPlayerEffect, reduceMotion: Bool) {
         rotatedEffect = nil
-        if dipOpacity > 0 {
-            withAnimation(.easeOut(duration: Self.dipDuration)) { dipOpacity = 0 }
+        guard !reduceMotion else {
+            transitionTask?.cancel()
+            transitionTask = nil
+            heldEffect = nil
+            settleImmediately(animated: false)
+            return
+        }
+        if heldEffect == nil { heldEffect = current }
+        runTransition { [weak self] in
+            self?.heldEffect = nil
         }
     }
 
-    /// 换到候选里的下一种。减弱动态效果时直接换,不做暗场。
+    /// 换到候选里的下一种。减弱动态效果时直接换,不做柔焦。
     func advance(selected: FullscreenPlayerEffect, scope: ImmersiveEffectRotationScope, reduceMotion: Bool) {
         let current = displayedEffect(selected: selected)
         let pool = FullscreenPlayerEffect.rotationPool(scope).map(\.rawValue)
         guard let raw = queue.next(after: current.rawValue, pool: pool),
               let next = FullscreenPlayerEffect(rawValue: raw) else { return }
         let target: FullscreenPlayerEffect? = next == selected ? nil : next
-        transitionTask?.cancel()
         guard !reduceMotion else {
+            transitionTask?.cancel()
             transitionTask = nil
-            dipOpacity = 0
+            heldEffect = nil
+            settleImmediately(animated: false)
             rotatedEffect = target
             return
         }
+        runTransition { [weak self] in
+            self?.heldEffect = nil
+            self?.rotatedEffect = target
+        }
+    }
+
+    /// 换歌了:整幅从轻微虚化里落定一下。正在换场、减弱动态效果、省电休憩时不做;封面流、动态歌词自己有换歌的动画。
+    func settleAfterSongChange(on effect: FullscreenPlayerEffect, isEnabled: Bool) {
+        guard isEnabled, transitionTask == nil, effect != .albumFlow, effect != .kineticLyrics else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            softFocus = Self.songSettleFocus
+            focusScale = 1 + (Self.inScale - 1) * Self.songSettleFocus
+        }
+        withAnimation(.easeOut(duration: Self.songSettleDuration)) {
+            softFocus = 0
+            focusScale = 1
+        }
+    }
+
+    /// 退下 → 换上 → 落定。`swap` 在虚化到底、画面最暗的那一刻无动画地换场景。
+    private func runTransition(swap: @escaping @MainActor @Sendable () -> Void) {
+        transitionTask?.cancel()
         transitionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            withAnimation(.easeIn(duration: Self.dipDuration)) { self.dipOpacity = 1 }
-            try? await Task.sleep(for: .seconds(Self.dipDuration))
+            withAnimation(.easeIn(duration: Self.outDuration)) {
+                self.softFocus = 1
+                self.focusScale = Self.outScale
+            }
+            try? await Task.sleep(for: .seconds(Self.outDuration))
             guard !Task.isCancelled else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
-            withTransaction(transaction) { self.rotatedEffect = target }
-            // 留一帧给新场景建好再亮起来,不让上一种的最后一帧闪回来。
+            withTransaction(transaction) {
+                swap()
+                self.focusScale = Self.inScale
+            }
+            // 留一帧给新场景建好再落定,不让上一种的最后一帧闪回来。
             try? await Task.sleep(for: .milliseconds(80))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: Self.dipDuration * 1.3)) { self.dipOpacity = 0 }
+            withAnimation(.easeOut(duration: Self.inDuration)) {
+                self.softFocus = 0
+                self.focusScale = 1
+            }
             self.transitionTask = nil
         }
+    }
+
+    private func settleImmediately(animated: Bool) {
+        guard softFocus > 0 || focusScale != 1 else { return }
+        if animated {
+            withAnimation(.easeOut(duration: Self.inDuration)) {
+                softFocus = 0
+                focusScale = 1
+            }
+        } else {
+            softFocus = 0
+            focusScale = 1
+        }
+    }
+}
+
+/// 换场柔焦落在舞台上的样子:缩放、虚化、压暗。三端全屏页都挂在舞台外面,控件不受影响。
+/// 清楚的时候三样都是原样,舞台不会多走一遍模糊。
+struct ImmersiveSoftFocusEffect: ViewModifier {
+    let softFocus: Double
+    let scale: Double
+    /// 虚化到底时的模糊半径(点)。
+    let maximumBlur: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .blur(radius: maximumBlur * CGFloat(softFocus))
+            .overlay {
+                Color.black
+                    .opacity(0.55 * softFocus)
+                    .allowsHitTesting(false)
+            }
     }
 }
 
