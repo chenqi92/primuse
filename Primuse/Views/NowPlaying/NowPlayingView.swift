@@ -4979,7 +4979,7 @@ struct NowPlayingView: View {
             }
         } else {
             if player.hasChapters {
-                Button { player.seekToPreviousChapter() } label: {
+                Button { player.seekToPreviousChapter(restartingCurrentChapter: false) } label: {
                     Label("spoken_word_previous_chapter", systemImage: "backward.end")
                 }
             }

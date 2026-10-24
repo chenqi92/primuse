@@ -1018,15 +1018,9 @@ extension AudioPlayerService {
 
     // MARK: - Moving between a book's items
 
-    /// Long-press "previous chapter" for a book without chapter marks: back
-    /// to the start of the item first, then to the previous item. Books with
-    /// marks use `seekToPreviousChapter()`.
+    /// 「上一集」(快退键的长按菜单): 点的就是上一集, 直接过去。以前在这一集里放过
+    /// 3 秒就先回到这一集开头, 菜单上写着上一集却从头重播(#349)。
     func skipToPreviousBookItem() {
-        if SpokenWordBookNavigationPolicy.previousRestartsCurrentItem(currentTime: currentTime) {
-            seek(to: 0, startPlaying: isPlaying ? true : nil)
-            rememberSpokenWordPosition(force: true)
-            return
-        }
         moveWithinBook(by: -1)
     }
 
@@ -1241,10 +1235,12 @@ extension AudioPlayerService {
     /// Goes back to the start of the current chapter first, like every
     /// audiobook player: a second press within the opening seconds moves to
     /// the previous mark.
-    func seekToPreviousChapter() {
+    /// 两侧的「上一章」键照有声书的习惯: 这一章放过 3 秒先回到章首。长按菜单里点「上一章」
+    /// 是明说要去上一章, 传 `restartingCurrentChapter: false` 直接过去(#349)。
+    func seekToPreviousChapter(restartingCurrentChapter: Bool = true) {
         guard let index = currentChapterIndex else { return }
         let chapterStart = spokenWordChapters[index].startTime
-        if currentTime - chapterStart > 3 {
+        if restartingCurrentChapter, currentTime - chapterStart > 3 {
             seekToChapter(at: index)
         } else {
             seekToChapter(at: max(0, index - 1))

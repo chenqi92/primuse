@@ -438,7 +438,5 @@ struct SpokenWordBookPlaybackPolicyTests {
         #expect(SpokenWordBookNavigationPolicy.adjacentItemID(from: "c", offset: 1, in: ids) == nil)
         #expect(SpokenWordBookNavigationPolicy.adjacentItemID(from: "a", offset: -1, in: ids) == nil)
         #expect(SpokenWordBookNavigationPolicy.adjacentItemID(from: "x", offset: 1, in: ids) == nil)
-        #expect(SpokenWordBookNavigationPolicy.previousRestartsCurrentItem(currentTime: 10))
-        #expect(!SpokenWordBookNavigationPolicy.previousRestartsCurrentItem(currentTime: 1))
     }
 }

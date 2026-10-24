@@ -90,13 +90,4 @@ public enum SpokenWordBookNavigationPolicy {
         guard bookItemIDs.indices.contains(target), target != index else { return nil }
         return bookItemIDs[target]
     }
-
-    /// "Previous" inside an item restarts it first, like every audiobook
-    /// player: only a press within the opening seconds moves to the previous
-    /// item.
-    public static let restartThreshold: TimeInterval = 3
-
-    public static func previousRestartsCurrentItem(currentTime: TimeInterval) -> Bool {
-        currentTime.isFinite && currentTime > restartThreshold
-    }
 }
