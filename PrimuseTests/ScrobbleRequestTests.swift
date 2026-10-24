@@ -181,6 +181,50 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         XCTAssertGreaterThanOrEqual(queueDeadline(defaults), before + 3590, "Manual retry or restart cannot shorten server cooldown")
         XCTAssertEqual(fixture.count, 1)
     }
+
+    @MainActor
+    func testRejectedTokenHoldsListensUntilANewTokenSendsThem() async throws {
+        let suite = "scrobble-rejected-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = ScrobbleSettingsStore.shared
+        let wasEnabled = settings.isEnabled
+        settings.isEnabled = false // Only the explicit retry below may send.
+        defer { settings.isEnabled = wasEnabled }
+        let fixture = ScrobbleHTTPFixture(status: 401)
+        let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+        var provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
+        let rejectedFingerprint = provider.credentialFingerprint
+        let service = ScrobbleService(defaults: defaults, providers: { [provider] })
+        func listen(_ id: String) {
+            service.handlePlaybackStarted(song: Song(id: id, title: id, albumTitle: "Album", artistName: "Artist",
+                duration: 60, fileFormat: .flac, filePath: "/\(id).flac", sourceID: "fixture"))
+            service.handleProgressTick(playedDelta: 30)
+        }
+
+        listen("first")
+        for _ in 0..<1_000 where service.rejectedCredentials[.listenBrainz] == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.rejectedCredentials[.listenBrainz], rejectedFingerprint)
+        XCTAssertEqual(service.pendingCount, 1, "A rejected token must not drop the listen")
+        XCTAssertTrue(service.hasRejectedCredential(for: .listenBrainz))
+
+        listen("second")
+        XCTAssertEqual(service.pendingCount, 2)
+        XCTAssertEqual(fixture.count, 1, "The rejected token is not sent again")
+
+        fixture.setResponse(status: 200, headers: [:], body: "{}")
+        provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
+        XCTAssertFalse(service.hasRejectedCredential(for: .listenBrainz))
+        settings.isEnabled = true
+        service.retryPendingNow()
+        for _ in 0..<1_000 where service.pendingCount > 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.pendingCount, 0)
+        XCTAssertEqual(fixture.count, 3)
+    }
     private func queueDeadline(_ defaults: UserDefaults) -> TimeInterval {
         guard let data = defaults.data(forKey: "primuse.scrobble.queue.v1"),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }

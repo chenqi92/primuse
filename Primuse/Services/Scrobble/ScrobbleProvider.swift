@@ -37,6 +37,10 @@ public struct ScrobbleEntry: Codable, Sendable, Hashable {
 public protocol ScrobbleProvider: Sendable {
     var id: ScrobbleProviderID { get }
 
+    /// 当前这份凭据的摘要。服务端拒绝过的凭据按它记下, 不保存原文;
+    /// 换了 token / 重新登录后摘要随之改变。
+    var credentialFingerprint: String { get }
+
     /// 检查认证是否还有效 (token / sessionKey 还能用)。
     /// 网络异常时返回 nil 让 service 跳过这次而不是报错。
     func validateCredentials() async -> Bool?
@@ -48,6 +52,13 @@ public protocol ScrobbleProvider: Sendable {
     /// 提交一条 (或多条) 听歌历史 — 计入 history。
     /// 实现应该尽量批量发送, ScrobbleQueue 一次最多给 50 条。
     func submitListens(_ entries: [ScrobbleEntry]) async throws
+}
+
+enum ScrobbleCredentialFingerprint {
+    static func of(_ parts: String...) -> String {
+        SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 /// Scrobble 错误类型 — 让 service 决定是否重试 / 提示用户。
@@ -84,7 +95,8 @@ public enum ScrobbleError: Error, LocalizedError {
     }
 
     /// 是否值得放进失败队列重试 (vs. 立即丢弃)。
-    /// 认证错 / 配置错 → 不重试 (不会变好)。
+    /// 认证错 / 配置错 → 不重试 (不会变好)。认证错时 ScrobbleService 记下这份凭据,
+    /// 记录留在队列里, 换了凭据再补。
     /// 网络 / 限速 / 5xx → 重试 (后台稳定时再发)。
     var isRetryable: Bool {
         switch self {

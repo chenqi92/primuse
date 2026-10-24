@@ -27,6 +27,10 @@ struct LastFmProvider: ScrobbleProvider {
 
     private let baseURL = URL(string: "https://ws.audioscrobbler.com/2.0/")!
 
+    var credentialFingerprint: String {
+        ScrobbleCredentialFingerprint.of(id.rawValue, apiKey, sessionKey)
+    }
+
     func validateCredentials() async -> Bool? {
         guard !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty else { return false }
         let params = ["method": "user.getInfo", "api_key": apiKey, "sk": sessionKey, "format": "json"]

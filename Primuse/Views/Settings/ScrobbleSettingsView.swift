@@ -23,6 +23,8 @@ struct ScrobbleSettingsView: View {
     @State private var lastFmAPIKey: String = ""
     @State private var lastFmAPISecret: String = ""
     @State private var lastFmConnected: Bool = false
+    /// 已登录, 但 Last.fm 拒绝了这次登录的 session (被撤销或失效), 要重新登录。
+    @State private var lastFmRejected = false
     @State private var lastFmUsername: String = ""
     @State private var isLoggingInLastFm: Bool = false
     @State private var lastFmError: String?
@@ -48,6 +50,7 @@ struct ScrobbleSettingsView: View {
             #endif
         }
         .onAppear { loadStoredTokens() }
+        .onChange(of: service.rejectedCredentials) { _, _ in refreshCredentialRejections() }
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             guard lastFmPendingToken != nil,
@@ -92,6 +95,7 @@ struct ScrobbleSettingsView: View {
                     return
                 }
                 lastFmConnected = false
+                lastFmRejected = false
                 lastFmUsername = ""
                 lastFmPendingToken = nil
                 NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
@@ -363,10 +367,10 @@ struct ScrobbleSettingsView: View {
                 // 留在容器布局里, 把后面的内容顶开再弹回。
                 if lastFmConnected {
                     HStack(spacing: 8) {
-                        Label(lastFmUsername.isEmpty ? String(localized: "scrobble_lastfm_connected") : String(format: String(localized: "scrobble_lastfm_connected_as_format"), lastFmUsername),
-                              systemImage: "checkmark.circle.fill")
+                        Label(lastFmConnectionStatus,
+                              systemImage: lastFmRejected ? "xmark.circle.fill" : "checkmark.circle.fill")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(PMColor.ok)
+                            .foregroundStyle(lastFmRejected ? PMColor.bad : PMColor.ok)
                         Spacer()
                         macTinyButton(String(localized: "scrobble_lastfm_signout"), icon: "rectangle.portrait.and.arrow.right", tint: PMColor.bad) {
                             showLastFmSignOutConfirm = true
@@ -733,12 +737,11 @@ struct ScrobbleSettingsView: View {
                 // 三态：旧的一态直接消失、新的一态淡入。交叉淡入会让两态同时
                 // 留在容器布局里, 把后面的内容顶开再弹回。
                 if lastFmConnected {
-                    // 已登录: 显示用户名 + 登出
+                    // 已登录: 显示用户名 + 登出; 服务端拒绝了这次登录时提示重新登录
                     HStack {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                        Text(lastFmUsername.isEmpty
-                             ? String(localized: "scrobble_lastfm_connected")
-                             : String(format: String(localized: "scrobble_lastfm_connected_as_format"), lastFmUsername))
+                        Image(systemName: lastFmRejected ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(lastFmRejected ? Color.red : Color.green)
+                        Text(lastFmConnectionStatus)
                             .font(.subheadline)
                         Spacer()
                     }
@@ -878,6 +881,9 @@ struct ScrobbleSettingsView: View {
             lastFmConnected = true
             lastFmPendingToken = nil
             NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
+            // 重新登录换了 session: 被拒期间存着的记录马上补报。
+            refreshCredentialRejections()
+            service.retryPendingNow()
         } catch {
             if showError {
                 lastFmError = error.localizedDescription
@@ -955,6 +961,23 @@ struct ScrobbleSettingsView: View {
         lastFmPendingToken = lastFmConnected ? nil : LastFmCredentialsStore.loadPendingAuthToken()
         // 用户已经粘过自己的 key, 默认展开高级让他们看见; 否则收起
         showLastFmAdvanced = LastFmCredentialsStore.usingCustomKeys
+        refreshCredentialRejections()
+    }
+
+    /// 上报时服务端拒绝过当前保存的凭据: ListenBrainz 显示无效, Last.fm 提示重新登录。
+    private func refreshCredentialRejections() {
+        if !listenBrainzToken.isEmpty, service.hasRejectedCredential(for: .listenBrainz) {
+            listenBrainzValid = false
+            listenBrainzUnconfirmed = false
+        }
+        lastFmRejected = lastFmConnected && service.hasRejectedCredential(for: .lastFm)
+    }
+
+    private var lastFmConnectionStatus: String {
+        if lastFmRejected { return String(localized: "error_scrobble_invalid_credentials") }
+        return lastFmUsername.isEmpty
+            ? String(localized: "scrobble_lastfm_connected")
+            : String(format: String(localized: "scrobble_lastfm_connected_as_format"), lastFmUsername)
     }
 
     private func relativeReportTime(_ date: Date) -> String {
@@ -983,6 +1006,10 @@ struct ScrobbleSettingsView: View {
                 credentialSaveError = String(localized: "credential_save_failed_message")
                 return
             }
+            // 换了 token: 被拒期间存着的记录马上用新 token 补报。
+            listenBrainzValid = !service.hasRejectedCredential(for: .listenBrainz)
+            listenBrainzUnconfirmed = false
+            service.retryPendingNow()
         }
     }
 
@@ -1018,6 +1045,7 @@ struct ScrobbleSettingsView: View {
         let result = await provider.validateCredentials()
         listenBrainzValid = result
         listenBrainzUnconfirmed = result == nil
+        if let result { service.noteCredentialValidation(for: .listenBrainz, isValid: result) }
     }
 }
 

@@ -30,6 +30,10 @@ final class ScrobbleService {
     private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
     private static let recentReportsLimit = 12
     private(set) var recentReports: [RecentReport] = []
+    /// 服务端明确拒绝过的凭据, provider → 凭据摘要。被拒的那份凭据不再拿来
+    /// 请求, 听歌记录照常留在补报队列里, 换了 token / 重新登录或复核通过后再补。
+    private static let rejectedCredentialsKey = "primuse.scrobble.rejectedCredentials.v1"
+    private(set) var rejectedCredentials: [ScrobbleProviderID: String] = [:]
     /// 后台 retry task — settings 变化或网络恢复时启动。
     private var retryTask: Task<Void, Never>?
 
@@ -84,6 +88,10 @@ final class ScrobbleService {
         self.providersOverride = providers
         loadQueue()
         loadRecentReports()
+        loadRejectedCredentials()
+        if !rejectedCredentials.isEmpty {
+            Task { await self.recheckRejectedCredentials() }
+        }
         // Settings 变化 (启用 provider 切换) 时尝试 flush 队列。
         NotificationCenter.default.addObserver(
             forName: .scrobbleSettingsChanged,
@@ -210,6 +218,25 @@ final class ScrobbleService {
         saveQueue()
     }
 
+    /// 当前保存的凭据是否被服务端拒绝过 —— 设置页据此显示「无效」。
+    func hasRejectedCredential(for pid: ScrobbleProviderID) -> Bool {
+        guard let rejected = rejectedCredentials[pid] else { return false }
+        return credentialSnapshot().ready.contains { $0.id == pid && $0.credentialFingerprint == rejected }
+    }
+
+    /// 设置页手动验证的结论: 有效就解除拒绝并立刻补报存着的记录, 无效就记下。
+    func noteCredentialValidation(for pid: ScrobbleProviderID, isValid: Bool) {
+        guard let provider = credentialSnapshot().ready.first(where: { $0.id == pid }) else { return }
+        if isValid {
+            guard rejectedCredentials.removeValue(forKey: pid) != nil else { return }
+            saveRejectedCredentials()
+            plog("🎵 scrobble [\(pid.displayName)] credentials confirmed; resuming held listens")
+            retryPendingNow()
+        } else {
+            recordCredentialRejection(provider)
+        }
+    }
+
     // MARK: - Internal: dispatch + queue
 
     /// Now Playing 同步发送 — 失败不入队 (now playing 是实时状态, 没必要补)。
@@ -221,17 +248,28 @@ final class ScrobbleService {
         }
         guard !providers.isEmpty else { return }
         Task {
-            await withTaskGroup(of: Void.self) { group in
+            let rejected = await withTaskGroup(
+                of: (any ScrobbleProvider)?.self,
+                returning: [any ScrobbleProvider].self
+            ) { group in
                 for provider in providers {
                     group.addTask {
                         do {
                             try await provider.sendNowPlaying(entry)
                         } catch {
                             plog("🎵 scrobble nowPlaying [\(provider.id.displayName)] failed: \(error.localizedDescription)")
+                            if ScrobbleService.isCredentialRejection(error) { return provider }
                         }
+                        return nil
                     }
                 }
+                var found: [any ScrobbleProvider] = []
+                for await provider in group {
+                    if let provider { found.append(provider) }
+                }
+                return found
             }
+            for provider in rejected { recordCredentialRejection(provider) }
         }
     }
 
@@ -254,25 +292,30 @@ final class ScrobbleService {
         }
 
         Task {
-            await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool, TimeInterval?).self) { group in
+            await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool, TimeInterval?, (any ScrobbleProvider)?).self) { group in
                 for provider in providers {
                     group.addTask {
                         do {
                             try await provider.submitListens([entry])
                             plog("🎵 scrobble [\(provider.id.displayName)] OK: \(entry.title)")
-                            return (provider.id, true, true, nil)
+                            return (provider.id, true, true, nil, nil)
+                        } catch let err as ScrobbleError where ScrobbleService.isCredentialRejection(err) {
+                            // 凭据被拒: 记录留在队列里, 等凭据换了 / 复核通过再补。
+                            plog("🎵 scrobble [\(provider.id.displayName)] failed (held): \(err.localizedDescription)")
+                            return (provider.id, false, false, nil, provider)
                         } catch let err as ScrobbleError {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (\(err.isRetryable ? "queued" : "dropped")): \(err.localizedDescription)")
-                            return (provider.id, !err.isRetryable, false, nil)  // 不可重试 = 视作 "完成", 别留队列里
+                            return (provider.id, !err.isRetryable, false, nil, nil)  // 不可重试 = 视作 "完成", 别留队列里
                         } catch {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (queued): \(error.localizedDescription)")
                             let delay = (error as? HTTPResponseFailure)?.retryAfter
-                            return (provider.id, false, false, delay)
+                            return (provider.id, false, false, delay, nil)
                         }
                     }
                 }
-                for await (pid, done, didSubmit, serverDelay) in group {
+                for await (pid, done, didSubmit, serverDelay, rejected) in group {
                     if let serverDelay { self.recordServerRetry(entry: entry, delay: serverDelay) }
+                    if let rejected { self.recordCredentialRejection(rejected) }
                     if didSubmit {
                         self.recordRecent(entry: entry, provider: pid)
                     }
@@ -380,12 +423,14 @@ final class ScrobbleService {
             let dueKeys: [(songID: String, startedAt: Int64)] = dueIndices.map {
                 (queue[$0].entry.songID, queue[$0].entry.startedAt)
             }
+            // 每轮读一次凭据: 凭据被拒时队列可能攒到上千条, 逐条读 Keychain 不划算。
+            var available = activeProviders()
             for key in dueKeys {
                 guard let idx = queue.firstIndex(where: {
                     $0.entry.songID == key.songID && $0.entry.startedAt == key.startedAt
                 }) else { continue }  // 条目在 await 期间被清空/出队
                 let item = queue[idx]
-                let providers = activeProviders().filter { item.pendingProviders.contains($0.id) }
+                let providers = available.filter { item.pendingProviders.contains($0.id) }
                 guard !providers.isEmpty else {
                     // 走到这里 isEnabled 必为 true (总开关已在循环顶部拦掉)。空集只
                     // 可能因为: pending provider 被显式从 enabledProviders 移除, 或
@@ -414,6 +459,11 @@ final class ScrobbleService {
                         try await provider.submitListens([item.entry])
                         plog("🎵 scrobble retry [\(provider.id.displayName)] OK")
                         recordRecent(entry: item.entry, provider: provider.id)
+                    } catch let err as ScrobbleError where ScrobbleService.isCredentialRejection(err) {
+                        plog("🎵 scrobble retry [\(provider.id.displayName)] held: \(err.localizedDescription)")
+                        recordCredentialRejection(provider)
+                        available.removeAll { $0.id == provider.id }
+                        stillFailed.insert(provider.id)
                     } catch let err as ScrobbleError where !err.isRetryable {
                         plog("🎵 scrobble retry [\(provider.id.displayName)] dropped: \(err.localizedDescription)")
                     } catch {
@@ -448,9 +498,20 @@ final class ScrobbleService {
 
     // MARK: - Provider factory
 
+    /// 能拿来发送的 provider。服务端拒绝过的凭据和 Keychain 暂不可读一样处理:
+    /// 记录照常进补报队列, 只是不再拿这份凭据去请求。
+    private func providerSnapshot() -> ProviderSnapshot {
+        var snapshot = credentialSnapshot()
+        let rejected = snapshot.ready.filter { rejectedCredentials[$0.id] == $0.credentialFingerprint }
+        guard !rejected.isEmpty else { return snapshot }
+        snapshot.ready.removeAll { rejectedCredentials[$0.id] == $0.credentialFingerprint }
+        snapshot.unavailable.formUnion(rejected.map(\.id))
+        return snapshot
+    }
+
     /// 当前启用 provider 的凭据快照。Keychain 暂不可读与明确未配置必须
     /// 分开：前者进入补报队列，后者不为新播放创建无法发送的队列项。
-    private func providerSnapshot() -> ProviderSnapshot {
+    private func credentialSnapshot() -> ProviderSnapshot {
         if let providersOverride { return ProviderSnapshot(ready: providersOverride()) }
         let settings = ScrobbleSettingsStore.shared
         guard settings.isEnabled else { return ProviderSnapshot() }
@@ -581,6 +642,47 @@ final class ScrobbleService {
            let decoded = try? JSONDecoder().decode([RecentReport].self, from: data) {
             recentReports = Array(decoded.prefix(Self.recentReportsLimit))
         }
+    }
+
+    // MARK: - Rejected credentials
+
+    /// 服务端明确说凭据不对(token 被撤销、session 失效)。网络错、限流、5xx 不算。
+    nonisolated static func isCredentialRejection(_ error: Error) -> Bool {
+        if case .invalidCredentials? = error as? ScrobbleError { return true }
+        return false
+    }
+
+    private func recordCredentialRejection(_ provider: any ScrobbleProvider) {
+        let fingerprint = provider.credentialFingerprint
+        guard rejectedCredentials[provider.id] != fingerprint else { return }
+        rejectedCredentials[provider.id] = fingerprint
+        saveRejectedCredentials()
+        plog("🎵 scrobble [\(provider.id.displayName)] credentials rejected; holding listens until they change")
+    }
+
+    /// 被拒的凭据每次启动复核一次: 服务端一时误拒、或用户在网站上恢复了授权,
+    /// 复核通过就解除, 存着的记录接着补报。
+    private func recheckRejectedCredentials() async {
+        let rejected = credentialSnapshot().ready.filter {
+            rejectedCredentials[$0.id] == $0.credentialFingerprint
+        }
+        for provider in rejected {
+            guard await provider.validateCredentials() == true,
+                  rejectedCredentials[provider.id] == provider.credentialFingerprint else { continue }
+            noteCredentialValidation(for: provider.id, isValid: true)
+        }
+    }
+
+    private func saveRejectedCredentials() {
+        let stored = Dictionary(uniqueKeysWithValues: rejectedCredentials.map { ($0.key.rawValue, $0.value) })
+        defaults.set(stored, forKey: Self.rejectedCredentialsKey)
+    }
+
+    private func loadRejectedCredentials() {
+        let stored = defaults.dictionary(forKey: Self.rejectedCredentialsKey) as? [String: String] ?? [:]
+        rejectedCredentials = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
+            ScrobbleProviderID(rawValue: key).map { ($0, value) }
+        })
     }
 
     private static func monotonicNow() -> TimeInterval {

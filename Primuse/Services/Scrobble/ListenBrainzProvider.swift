@@ -22,6 +22,10 @@ struct ListenBrainzProvider: ScrobbleProvider {
         self.baseURL = baseURL
     }
 
+    var credentialFingerprint: String {
+        ScrobbleCredentialFingerprint.of(id.rawValue, baseURL.absoluteString, userToken)
+    }
+
     func validateCredentials() async -> Bool? {
         guard !userToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var request = URLRequest(url: baseURL.appendingPathComponent("1/validate-token"))
