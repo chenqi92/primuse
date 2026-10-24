@@ -551,6 +551,15 @@ final class NowPlayingStylePresetTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: NowPlayingStylePresetSnapshot.storageKey))
     }
 
+    func testBoolStoredAsStringStillMatches() {
+        let defaults = makeDefaults()
+        let backdrop = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        NowPlayingStylePresetApplier.apply(.concise, defaults: defaults, backdrop: backdrop)
+        // 启动参数 `-primuse.player.showsAlbumInSubtitle NO` 进来的是字符串,播放页照样当成关。
+        defaults.set("NO", forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+        XCTAssertTrue(NowPlayingStylePreset.concise.matches(defaults: defaults, backdropSource: backdrop.settings.source))
+    }
+
     func testUntouchedSettingsAreTheDefaultPreset() {
         let defaults = makeDefaults()
         let backdrop = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)

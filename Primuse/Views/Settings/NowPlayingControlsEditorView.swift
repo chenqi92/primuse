@@ -2484,7 +2484,8 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
         case .string(let fallback)?:
             return .string(defaults.string(forKey: key) ?? fallback)
         case .bool(let fallback)?:
-            return .bool(defaults.object(forKey: key) as? Bool ?? fallback)
+            // 照 `bool(forKey:)` 读：启动参数写进来的 "NO"/"YES" 是字符串，播放页认得，这里也要认。
+            return .bool(defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key))
         case nil:
             return nil
         }
