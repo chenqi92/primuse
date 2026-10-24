@@ -1815,7 +1815,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             let fallback = await scraper.suggestedScrapeTitle(for: song)
             let query = await scraper.suggestedSearchQuery(for: song)
             XCTAssertEqual(fallback, "走在冷风中 (Live) - 刘思涵")
-            XCTAssertEqual(query, "走在冷风中 刘思涵")
+            XCTAssertEqual(query, "走在冷风中 (Live) 刘思涵")
 
             for onlyFillMissing in [true, false] {
                 settings.onlyFillMissingFields = onlyFillMissing
@@ -1835,7 +1835,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                         XCTAssertEqual(repaired?.song.title, expectedTitle)
                         XCTAssertEqual(repaired?.song.filePath, song.filePath)
                         let manualQuery = await scraper.suggestedSearchQuery(for: song)
-                        XCTAssertEqual(manualQuery, "走在冷风中 刘思涵")
+                        XCTAssertEqual(manualQuery, "走在冷风中 (Live) 刘思涵")
                     }
                 }
             }
