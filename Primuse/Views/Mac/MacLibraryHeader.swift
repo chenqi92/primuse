@@ -30,6 +30,10 @@ struct MacLibraryHeader: View {
     /// 底图用这张专辑 / 这位艺人的封面虚化铺满，像影片介绍页的海报底图；
     /// 关掉（歌单、风格等）照旧是固定色的氛围底。
     var artworkBackdrop = false
+    /// 左边那张「封面」自己画(风格页的代表封面拼贴),按 `coverSide` 见方摆放。
+    var cover: AnyView? = nil
+    /// 底图用这首歌的封面虚化(风格这种没有专辑封面、也没有艺人照的集合)。
+    var backdropSong: Song? = nil
 
     @State private var showMoreMenu = false
 
@@ -164,7 +168,7 @@ struct MacLibraryHeader: View {
         .background {
             // Keeping the ambient layer in background avoids an offscreen sibling
             // rendering above the header when the view is reused in a split view.
-            if artworkBackdrop, coverAlbum != nil || coverArtist != nil {
+            if artworkBackdrop, coverAlbum != nil || coverArtist != nil || backdropSong != nil {
                 artworkBackdropLayer
             } else {
                 AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.4)
@@ -228,12 +232,23 @@ struct MacLibraryHeader: View {
             )
         } else if let artist = coverArtist {
             ArtistArtworkView(artist: artist, size: side, cornerRadius: 0)
+        } else if let song = backdropSong {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName, songID: song.id,
+                size: side,
+                cornerRadius: 0,
+                sourceID: song.sourceID, filePath: song.filePath,
+                fileFormat: song.fileFormat,
+                showsPlaceholder: false
+            )
         }
     }
 
     @ViewBuilder
     private var coverArt: some View {
-        if let playlist = coverPlaylist {
+        if let cover {
+            cover
+        } else if let playlist = coverPlaylist {
             PlaylistArtworkView(
                 playlist: playlist,
                 size: 160,

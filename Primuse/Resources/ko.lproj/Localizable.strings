@@ -6423,8 +6423,8 @@
 "source_mutation_permission_denied" = "원본 파일을 수정할 권한이 거부되었습니다.";
 "source_mutation_read_only" = "이 소스에서는 파일을 변경할 수 없습니다.";
 "metadata_writeback_local_only_notice" = "소스에서 쓰기를 거부했습니다. 변경 사항은 Primuse에만 저장되었으며 원본 파일은 업데이트되지 않았습니다.";
-"library_playlist_cover_wall_title" = "재생목록 헤더를 커버 월로 표시";
-"library_playlist_cover_wall_description" = "재생목록이나 스마트 재생목록에 서로 다른 앨범 커버가 4장 이상 있으면 헤더가 기울어진 커버 월로 바뀌고 몇 초마다 배치가 달라집니다. 휴대폰 가로 화면과 직접 커버를 지정한 재생목록은 커버 한 장을 그대로 표시합니다.";
+"library_playlist_cover_wall_title" = "재생목록·장르 헤더를 커버 월로 표시";
+"library_playlist_cover_wall_description" = "재생목록, 스마트 재생목록이나 장르에 서로 다른 앨범 커버가 4장 이상 있으면 헤더가 기울어진 커버 월로 바뀌고 몇 초마다 배치가 달라집니다. 휴대폰 가로 화면과 직접 커버를 지정한 재생목록은 커버 한 장을 그대로 표시합니다.";
 "player_backdrop_strength_footer" = "오른쪽으로 갈수록 배경이 커버 색에 가까워집니다. 라이트 모드에서 커버 색이 아주 어두우면 글자가 잘 보이는 정도에서 멈춥니다. 흐린 커버 같은 배경 이미지를 쓰면 이미지 위 어둡게 하는 층의 강도를 조절합니다.";
 "player_progress_style_title" = "진행 막대";
 "player_progress_style_footer" = "물결은 재생 중에만 흐르고, 일시 정지하거나 드래그하면 직선으로 펴집니다. iPhone, iPad, Mac의 플레이어에 적용됩니다. 팟캐스트와 오디오북에도 적용됩니다. 다만 오디오북 세로 레이아웃은 물결일 때만 바뀌고, 나머지 두 가지에서는 자체의 가는 선을 유지합니다. 아래 「오디오북」을 켜면 나머지 두 가지도 오디오북에 적용됩니다.";

@@ -6516,8 +6516,8 @@
 "source_mutation_permission_denied" = "没有修改源文件的权限。";
 "source_mutation_read_only" = "这个音乐源不允许修改文件。";
 "metadata_writeback_local_only_notice" = "音乐源拒绝写入，修改只保存在了 Primuse 里，源文件没有更新。";
-"library_playlist_cover_wall_title" = "歌单头图用封面墙";
-"library_playlist_cover_wall_description" = "歌单和智能歌单里有 4 张以上不同的专辑封面时，头图铺成一面倾斜的封面墙，每隔几秒换一次排法。手机横屏和自己设过封面的歌单仍显示单张封面。";
+"library_playlist_cover_wall_title" = "歌单和风格头图用封面墙";
+"library_playlist_cover_wall_description" = "歌单、智能歌单和风格里有 4 张以上不同的专辑封面时，头图铺成一面倾斜的封面墙，每隔几秒换一次排法。手机横屏和自己设过封面的歌单仍显示单张封面。";
 "player_backdrop_strength_footer" = "越往右，背景越贴近封面的颜色。浅色外观下封面颜色很深时，会停在文字还看得清的程度；选了模糊封面等背景图时，调的是图上那层遮罩的深浅。";
 "player_progress_style_title" = "进度条";
 "player_progress_style_footer" = "波浪只在播放时流动，暂停或拖动时抚平成直线。iPhone、iPad 与 Mac 的播放页都会跟着换。播客和有声书也一样，只是有声书的竖屏版式只跟着换成波浪，选另外两种时保留它自己的细线。打开下面的「有声书」，另外两种也会用到有声书上。";

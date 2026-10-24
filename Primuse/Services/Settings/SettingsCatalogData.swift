@@ -167,7 +167,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "home.recentlyAdded", titleKey: "recent_albums", table: "HomeDiscovery", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.stats", titleKey: "stats_title", iosPage: .home, macPage: nil),
         SettingDefinition(id: "library.quickAccessCoverStyle", titleKey: "library_quick_access_cover_style", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["封面", "圆形", "方形", "多图", "拼图", "cover", "circle", "square", "collage"]),
-        SettingDefinition(id: "library.playlistCoverWall", titleKey: "library_playlist_cover_wall_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["歌单", "头图", "封面墙", "拼贴", "动态", "playlist", "header", "cover wall", "collage"]),
+        SettingDefinition(id: "library.playlistCoverWall", titleKey: "library_playlist_cover_wall_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["歌单", "风格", "流派", "头图", "封面墙", "拼贴", "动态", "playlist", "genre", "header", "cover wall", "collage"]),
         SettingDefinition(id: "library.iconStyle", titleKey: "library_icon_style_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["图标", "彩色", "简洁", "单色", "极简", "色块", "icon", "colorful", "simple", "monochrome", "minimal"]),
         SettingDefinition(id: "library.flatBrowse", titleKey: "library_default_flat_view", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.minimalStartListening", titleKey: "listening_intent_minimal_songs_toggle", iosPage: .libraryDisplay, macPage: nil, keywords: ["开始听", "极简", "minimal", "intent"]),
