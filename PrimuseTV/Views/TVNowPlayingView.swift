@@ -120,7 +120,8 @@ struct TVNowPlayingView: View {
             lyricTime: store.interpolatedTime()
         )
         pdiag(
-            "tv immersive present user=\(isUserInitiated) effect=\(fullscreenPlayerEffectRawValue) "
+            // 字段别叫 user=:日志脱敏把 user/account 一类的值当账号名打码。
+            "tv immersive present manual=\(isUserInitiated) effect=\(fullscreenPlayerEffectRawValue) "
                 + "picker=\(immersiveStartsWithEffectPicker) idle=\(Int(interactionClock.secondsSinceLastInteraction))s "
                 + "focus=\(diagnosticFocusDescription)"
         )

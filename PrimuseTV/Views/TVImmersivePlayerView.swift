@@ -865,9 +865,13 @@ struct TVImmersivePlayerView: View {
     }
 
     private func finishModePicker() {
-        // 选到「原生」时由 effectRawValue 的 onChange 负责退出沉浸模式,这里不重复处理。
+        // 选的是「原生」:原生就是播放页本身,全屏页上没有可放的,直接退出。从别的效果换成原生时
+        // effectRawValue 的 onChange 随后也会来退,它看到已经不在挂载状态就不再重复。本来就是
+        // 原生、又点了一次「原生」时值没变,没有那次 onChange —— 以前这里只收起选择器,
+        // 全屏页就空着停在那里,只有按 Menu 才回得去。
         guard effect != .native else {
             showsModePicker = false
+            if presentationActivity.isMounted { dismissImmersivePlayer(reason: "picker-native") }
             return
         }
         yieldModePickerFocus()
