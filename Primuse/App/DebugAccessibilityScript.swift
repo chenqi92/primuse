@@ -18,6 +18,9 @@ import PrimuseKit
 /// - `scrollend` / `scrolltop`：对所有暴露 `AXScrollToBottom` / `AXScrollToTop` 的元素执行该动作。
 /// - `report`：记下窗口里每个滚动视图的位置与文档尺寸。
 /// - `window:<宽>x<高>`：把主窗口改成这个尺寸（点）。
+/// - `resize:<宽1>-<宽2>x<高>:<步数>`：主窗口从宽1 一步步改到宽2 再改回来，每步同步排版、画一帧，
+///   隔 16 毫秒再走下一步；记下每步同步耗时和这 16 毫秒被拖了多久（异步跟进的排版也算在里面）——
+///   量拖动缩放窗口顺不顺用。
 /// - `scroll:<y>`：把主窗口里最大的那个竖向滚动视图滚到 y。
 /// - `route:<页面>`：主窗口换到这一页，写法同 `primuse.navigation.macRoute.v1`（home、section:albums…）。
 /// - `open:album:<片段>` / `open:artist:<片段>` / `open:book:<片段>`：把名字含这一段（不分大小写）的第一张专辑、
@@ -63,6 +66,8 @@ enum DebugAccessibilityScript {
             report()
         case "window":
             resizeMainWindow(argument)
+        case "resize":
+            await sweepMainWindowWidth(argument)
         case "scroll":
             scrollMainWindow(to: Double(argument) ?? 0)
         case "route":
@@ -227,6 +232,53 @@ enum DebugAccessibilityScript {
         frame.size = NSSize(width: size[0], height: size[1])
         window.setFrame(frame, display: true)
         plog("🧪 AX script: window -> \(window.frame.size)")
+    }
+
+    @MainActor
+    private static func sweepMainWindowWidth(_ argument: String) async {
+        let parts = argument.split(separator: ":").map(String.init)
+        let size = (parts.first ?? "").split(separator: "x").map(String.init)
+        let widths = (size.first ?? "").split(separator: "-").compactMap { Double($0) }
+        let steps = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+        guard widths.count == 2, size.count == 2, let height = Double(size[1]), steps > 0,
+              let window = mainWindow else {
+            plog("🧪 AX script: resize \(argument) skipped")
+            return
+        }
+        let forward = (0...steps).map { widths[0] + (widths[1] - widths[0]) * Double($0) / Double(steps) }
+        var syncMilliseconds: [Double] = []
+        var lateMilliseconds: [Double] = []
+        let clock = ContinuousClock()
+        for width in forward + forward.reversed() {
+            var frame = window.frame
+            frame.size = NSSize(width: width, height: height)
+            let start = clock.now
+            window.setFrame(frame, display: true)
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            let synced = clock.now
+            try? await Task.sleep(for: .milliseconds(16))
+            syncMilliseconds.append(milliseconds(start.duration(to: synced)))
+            lateMilliseconds.append(max(0, milliseconds(synced.duration(to: clock.now)) - 16))
+        }
+        plog("🧪 AX script: resize \(argument) steps=\(syncMilliseconds.count) "
+            + "sync \(distribution(syncMilliseconds)) late \(distribution(lateMilliseconds)) "
+            + "final=\(window.frame.size)")
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+    }
+
+    /// 「中位数/p90/最大值/合计」，毫秒。
+    private static func distribution(_ values: [Double]) -> String {
+        let sorted = values.sorted()
+        guard !sorted.isEmpty else { return "-" }
+        func at(_ fraction: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count) * fraction))] }
+        return String(
+            format: "p50=%.1f p90=%.1f max=%.1f sum=%.0f",
+            at(0.5), at(0.9), sorted[sorted.count - 1], sorted.reduce(0, +)
+        )
     }
 
     @MainActor

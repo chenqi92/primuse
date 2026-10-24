@@ -7,7 +7,7 @@ import PrimuseKit
 /// The colours a spoken-word player part is drawn in. The iPhone player and
 /// the Mac player each pass their own foreground tones, so the parts sit on
 /// either background without knowing which it is.
-struct SpokenWordPlayerPalette {
+struct SpokenWordPlayerPalette: Equatable {
     var primary: Color
     var secondary: Color
     var tertiary: Color
@@ -755,6 +755,89 @@ struct SpokenWordPartButton: View {
         .disabled(forward && !player.canGoToNextSpokenWordPart)
         .opacity(forward && !player.canGoToNextSpokenWordPart ? 0.35 : 1)
         .accessibilityLabel(Text(SpokenWordPlayerText.partButtonLabelKey(player, forward: forward)))
+    }
+}
+
+// MARK: - Pane tabs
+
+/// 播放页侧栏顶上那排页签:文字左对齐排开,选中的一页用正文色加粗、下面一道强调色短线,
+/// 其余用次要色;放不下时横向滑动。有声内容的「目录 / 书签 / 文字稿」和 iPad 分栏右栏的
+/// 「歌词 / 待播」共用。原来的系统分段控件居中飘在栏里,窄了还会钻到右上角那排按钮底下(#350)。
+struct PlayerPaneTabBar<Value: Hashable>: View {
+    struct Item: Identifiable {
+        let value: Value
+        let title: String
+        var id: Value { value }
+    }
+
+    let items: [Item]
+    @Binding var selection: Value
+    var primary: Color = .primary
+    var secondary: Color = .secondary
+    var accent: Color = .accentColor
+    /// 第一个页签左边留多少,和下面内容的左边缘对齐。
+    var leadingInset: CGFloat = 16
+
+    @Namespace private var marker
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 22) {
+                ForEach(items) { item in
+                    tab(item)
+                }
+            }
+            .padding(.horizontal, leadingInset)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    private func tab(_ item: Item) -> some View {
+        let isSelected = item.value == selection
+        return Button {
+            guard !isSelected else { return }
+            pmWithAnimation(.selection) { selection = item.value }
+        } label: {
+            // 宽度按加粗那一版占好,选中与否字不来回挤。
+            Text(verbatim: item.title)
+                .fontWeight(.semibold)
+                .hidden()
+                .overlay {
+                    Text(verbatim: item.title)
+                        .fontWeight(isSelected ? .semibold : .regular)
+                        .foregroundStyle(isSelected ? primary : secondary)
+                }
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.vertical, 9)
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        Capsule()
+                            .fill(accent)
+                            .frame(width: 18, height: 3)
+                            .matchedGeometryEffect(id: "marker", in: marker)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        #if os(macOS)
+        .pmPointingHand()
+        #endif
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+extension View {
+    /// 页签下面那块内容的上沿淡出:列表滑到页签下面时不再硬切掉半行。
+    func playerPaneTopFade(height: CGFloat = 14) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: height)
+                Rectangle()
+            }
+        }
     }
 }
 

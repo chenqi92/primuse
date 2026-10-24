@@ -86,51 +86,43 @@ struct SpokenWordContentsView: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            Picker(selection: $tab) {
-                if isPodcast {
-                    // 播客:节目说明在前;章节只在单集带章节时有;「接下来」是队列里后面的单集。
-                    Text("podcast_player_notes_short").tag(Tab.notes)
-                    if player.hasChapters {
-                        Text("podcast_chapters").tag(Tab.contents)
-                    }
-                    if textTab != nil {
-                        Text("spoken_word_text_tab").tag(Tab.text)
-                    }
-                    Text(bookmarksTabTitle).tag(Tab.bookmarks)
-                    Text("podcast_player_up_next_short").tag(Tab.upNext)
-                } else {
-                    Text("spoken_word_contents_title").tag(Tab.contents)
-                    Text(bookmarksTabTitle).tag(Tab.bookmarks)
-                    if textTab != nil {
-                        Text("spoken_word_text_tab").tag(Tab.text)
-                    }
-                }
-            } label: {
-                EmptyView()
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            PlayerPaneTabBar(
+                items: tabItems,
+                selection: $tab,
+                primary: palette?.primary ?? .primary,
+                secondary: palette?.secondary ?? .secondary,
+                accent: palette?.accent ?? .accentColor,
+                leadingInset: Self.tabLeadingInset
+            )
+            // 和目录行之间的分隔线一样,从序号那一列起一直通到栏的右边。
+            Rectangle()
+                .fill((palette?.tertiary ?? .secondary).opacity(0.25))
+                .frame(height: 0.5)
+                .padding(.leading, Self.tabLeadingInset)
 
-            switch tab {
-            case .contents:
-                contentsList
-            case .bookmarks:
-                bookmarksList
-            case .text:
-                if let textTab {
-                    textTab
-                } else {
-                    contentsList
-                }
-            case .notes:
-                notesPage
-            case .upNext:
-                PodcastUpNextList(palette: palette) {
-                    onOpen?()
-                    if isSheet { dismiss() }
+            VStack(spacing: 0) {
+                switch tab {
+                case .contents:
+                    contentsPage
+                case .bookmarks:
+                    bookmarksList
+                case .text:
+                    if let textTab {
+                        textTab
+                    } else {
+                        contentsPage
+                    }
+                case .notes:
+                    notesPage
+                case .upNext:
+                    PodcastUpNextList(palette: palette) {
+                        onOpen?()
+                        if isSheet { dismiss() }
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .playerPaneTopFade()
         }
         .onChange(of: textTab == nil) { _, hasNoText in
             if hasNoText, tab == .text { tab = defaultTab }
@@ -149,6 +141,37 @@ struct SpokenWordContentsView: View {
     }
 
     private var isPodcast: Bool { PodcastPlaybackSong.isEpisode(player.currentSong) }
+
+    /// 页签左边缘对齐目录的序号那一列:行左边留 16,Mac 的列表自己还要再缩进 8。
+    #if os(macOS)
+    private static let tabLeadingInset: CGFloat = 24
+    #else
+    private static let tabLeadingInset: CGFloat = 16
+    #endif
+
+    private var tabItems: [PlayerPaneTabBar<Tab>.Item] {
+        typealias Item = PlayerPaneTabBar<Tab>.Item
+        var items: [Item] = []
+        if isPodcast {
+            // 播客:节目说明在前;章节只在单集带章节时有;「接下来」是队列里后面的单集。
+            items.append(Item(value: .notes, title: String(localized: "podcast_player_notes_short")))
+            if player.hasChapters {
+                items.append(Item(value: .contents, title: String(localized: "podcast_chapters")))
+            }
+            if textTab != nil {
+                items.append(Item(value: .text, title: String(localized: "spoken_word_text_tab")))
+            }
+            items.append(Item(value: .bookmarks, title: bookmarksTabTitle))
+            items.append(Item(value: .upNext, title: String(localized: "podcast_player_up_next_short")))
+        } else {
+            items.append(Item(value: .contents, title: String(localized: "spoken_word_contents_title")))
+            items.append(Item(value: .bookmarks, title: bookmarksTabTitle))
+            if textTab != nil {
+                items.append(Item(value: .text, title: String(localized: "spoken_word_text_tab")))
+            }
+        }
+        return items
+    }
 
     /// 书先看目录;播客有章节时先看章节,没有就是节目说明。
     private var defaultTab: Tab {
@@ -212,103 +235,16 @@ struct SpokenWordContentsView: View {
 
     // MARK: Contents
 
-    private var contentsList: some View {
-        // Reading these registers the list with the store, so progress and
-        // finished marks refresh while the list is open.
-        _ = store.positions.count
-        _ = store.finishedAt.count
-        let rows = player.spokenWordContentsRows()
-        let initial = SpokenWordContentsPolicy.initialRowIndex(
-            in: rows,
-            resumeItemID: player.currentSpokenWordBook?.resumeItemID
-        )
-        return ScrollViewReader { proxy in
-            List {
-                // 播放页上全书进度只剩章节位置前那一圈,具体听了多少、还剩多久在这里写明。
-                if let summary = bookSummaryLine {
-                    Text(verbatim: summary)
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(palette?.secondary ?? Color.secondary)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-                ForEach(rows) { row in
-                    Button {
-                        player.openSpokenWordContentsRow(row)
-                        onOpen?()
-                        if isSheet { dismiss() }
-                    } label: {
-                        SpokenWordContentsRowView(row: row, palette: palette)
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .id(row.id)
-                    .listRowBackground(rowBackground(row))
-                    .listRowInsets(EdgeInsets(
-                        top: 0,
-                        leading: row.isNested ? 44 : 16,
-                        bottom: 0,
-                        trailing: 16
-                    ))
-                    .contextMenu { rowMenu(row) }
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(isSheet ? .automatic : .hidden)
-            .onAppear {
-                guard let initial, rows.indices.contains(initial) else { return }
-                proxy.scrollTo(rows[initial].id, anchor: .center)
-            }
-        }
-    }
-
-    /// "全书 9% · 已听完 11/120 · 剩约 58 小时" above the list.
-    private var bookSummaryLine: String? {
-        guard let book = player.currentSpokenWordBook, !isPodcast else { return nil }
-        var parts: [String] = []
-        if let summary = player.spokenWordNowPlayingSummary(live: false), summary.partCount != nil {
-            parts.append(SpokenWordPlayerText.bookFraction(summary.bookFraction))
-        }
-        if book.chapterCount > 1 {
-            parts.append(String(
-                format: String(localized: "spoken_word_book_progress_format"),
-                book.finishedCount,
-                book.chapterCount
-            ))
-        }
-        if let remaining = book.remainingDuration, remaining > 0 {
-            parts.append(String(
-                format: String(localized: "spoken_word_book_remaining_format"),
-                SpokenWordPlayerText.approximateDuration(SpokenWordNowPlayingPolicy.listeningTime(
-                    forContent: remaining,
-                    rate: player.currentSpokenWordRate
-                ))
-            ))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private func rowBackground(_ row: SpokenWordContentsRow) -> some View {
-        let tint = palette?.accent ?? Color.accentColor
-        return (row.isCurrent ? tint.opacity(0.12) : Color.clear)
-    }
-
+    /// 目录页单独成一个视图、按值比较输入：播放页每重排一次(Mac 上拖窗口宽度时每一步都是)
+    /// 外面这一层就跟着重建,几百章的目录要是一起重建、整份比对,拖一下卡一下(#350)。
+    /// 有回调时照常每次重建 —— 回调可能换了,比较里不看它。
     @ViewBuilder
-    private func rowMenu(_ row: SpokenWordContentsRow) -> some View {
-        if row.kind == .item {
-            if store.isFinished(songID: row.itemID) {
-                Button {
-                    store.markFinished(false, songIDs: [row.itemID])
-                } label: {
-                    Label(String(localized: "spoken_word_mark_unfinished"), systemImage: "arrow.uturn.backward")
-                }
-            } else {
-                Button {
-                    store.markFinished(true, songIDs: [row.itemID])
-                } label: {
-                    Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark")
-                }
-            }
+    private var contentsPage: some View {
+        let list = SpokenWordContentsList(palette: palette, isSheet: isSheet, onOpen: onOpen)
+        if onOpen == nil {
+            list.equatable()
+        } else {
+            list
         }
     }
 
@@ -389,6 +325,123 @@ struct SpokenWordContentsView: View {
         #if os(iOS)
         .sensoryFeedback(.success, trigger: bookmarkFeedbackToken)
         #endif
+    }
+}
+
+/// 正在听的这本书的目录,见 `SpokenWordContentsView.contentsPage`。
+private struct SpokenWordContentsList: View, Equatable {
+    let palette: SpokenWordPlayerPalette?
+    let isSheet: Bool
+    let onOpen: (() -> Void)?
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.dismiss) private var dismiss
+
+    private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.palette == rhs.palette && lhs.isSheet == rhs.isSheet
+    }
+
+    var body: some View {
+        // Reading these registers the list with the store, so progress and
+        // finished marks refresh while the list is open.
+        _ = store.positions.count
+        _ = store.finishedAt.count
+        let rows = player.spokenWordContentsRows()
+        let initial = SpokenWordContentsPolicy.initialRowIndex(
+            in: rows,
+            resumeItemID: player.currentSpokenWordBook?.resumeItemID
+        )
+        return ScrollViewReader { proxy in
+            List {
+                // 播放页上全书进度只剩章节位置前那一圈,具体听了多少、还剩多久在这里写明。
+                if let summary = bookSummaryLine {
+                    Text(verbatim: summary)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(palette?.secondary ?? Color.secondary)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(rows) { row in
+                    Button {
+                        player.openSpokenWordContentsRow(row)
+                        onOpen?()
+                        if isSheet { dismiss() }
+                    } label: {
+                        SpokenWordContentsRowView(row: row, palette: palette)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .id(row.id)
+                    .listRowBackground(rowBackground(row))
+                    .listRowInsets(EdgeInsets(
+                        top: 0,
+                        leading: row.isNested ? 44 : 16,
+                        bottom: 0,
+                        trailing: 16
+                    ))
+                    .contextMenu { rowMenu(row) }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(isSheet ? .automatic : .hidden)
+            .onAppear {
+                guard let initial, rows.indices.contains(initial) else { return }
+                proxy.scrollTo(rows[initial].id, anchor: .center)
+            }
+        }
+    }
+
+    /// "全书 9% · 已听完 11/120 · 剩约 58 小时" above the list.
+    private var bookSummaryLine: String? {
+        guard let book = player.currentSpokenWordBook,
+              !PodcastPlaybackSong.isEpisode(player.currentSong) else { return nil }
+        var parts: [String] = []
+        if let summary = player.spokenWordNowPlayingSummary(live: false), summary.partCount != nil {
+            parts.append(SpokenWordPlayerText.bookFraction(summary.bookFraction))
+        }
+        if book.chapterCount > 1 {
+            parts.append(String(
+                format: String(localized: "spoken_word_book_progress_format"),
+                book.finishedCount,
+                book.chapterCount
+            ))
+        }
+        if let remaining = book.remainingDuration, remaining > 0 {
+            parts.append(String(
+                format: String(localized: "spoken_word_book_remaining_format"),
+                SpokenWordPlayerText.approximateDuration(SpokenWordNowPlayingPolicy.listeningTime(
+                    forContent: remaining,
+                    rate: player.currentSpokenWordRate
+                ))
+            ))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func rowBackground(_ row: SpokenWordContentsRow) -> some View {
+        let tint = palette?.accent ?? Color.accentColor
+        return (row.isCurrent ? tint.opacity(0.12) : Color.clear)
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ row: SpokenWordContentsRow) -> some View {
+        if row.kind == .item {
+            if store.isFinished(songID: row.itemID) {
+                Button {
+                    store.markFinished(false, songIDs: [row.itemID])
+                } label: {
+                    Label(String(localized: "spoken_word_mark_unfinished"), systemImage: "arrow.uturn.backward")
+                }
+            } else {
+                Button {
+                    store.markFinished(true, songIDs: [row.itemID])
+                } label: {
+                    Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark")
+                }
+            }
+        }
     }
 }
 

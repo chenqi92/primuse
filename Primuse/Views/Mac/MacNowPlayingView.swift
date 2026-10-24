@@ -82,6 +82,13 @@ struct MacNowPlayingView: View {
     @State private var showsTranscriptReader = false
     /// 从文字稿那一页打开的生成面板(#314)。
     @State private var transcriptGenerationSong: Song?
+    /// 右上角那排浮动按钮的下沿、有声内容右栏的上沿,都在 `surfaceSpace` 里量。
+    /// 封面那一栏比窗口可用高度高时,整排内容被居中、上下留白一起被吃掉,右栏顶上的
+    /// 「目录 / 书签 / 文稿」就顶进按钮那一排底下(#350)。窗口越矮、标题折行越多越明显。
+    @State private var floatingControlsBottom: CGFloat = 0
+    @State private var spokenWordPaneTop: CGFloat = 0
+    /// 按钮排自己多宽(拖窗口宽度时不变),用来算封面那一栏左边让多少。
+    @State private var floatingControlsWidth: CGFloat = 0
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -114,6 +121,7 @@ struct MacNowPlayingView: View {
     /// 译文(和注音)行自己的字号;0 = 跟原文一起缩放(#320)。
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
 
+    private static let surfaceSpace = "macNowPlayingSurface"
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
     /// Keep lyric rows on a stable layout size and only apply a subtle active
@@ -185,7 +193,7 @@ struct MacNowPlayingView: View {
         // GeometryReader 给的是容器的真实尺寸,固定成它之后,子层再怎么扩张也只
         // 影响自己的绘制,不会把这棵树顶出去。
         GeometryReader { proxy in
-            playerSurface
+            playerSurface(width: proxy.size.width)
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 // 顶部这几层必须挂在尺寸钉死之后。挂在 `playerSurface` 上时它们贴的是
                 // 内容撑出来的自然尺寸（实测 1048 高，而容器只有 861），`.frame` 居中
@@ -194,6 +202,8 @@ struct MacNowPlayingView: View {
                 .overlay { fullscreenEffectScrim }
                 .overlay(alignment: .topLeading) { topLeftControls }
                 .overlay(alignment: .topLeading) { fullscreenEffectPanel }
+                // 按钮排和右栏在这里量,播放页整页滑入滑出时读数不跟着变。
+                .coordinateSpace(.named(Self.surfaceSpace))
                 .pmLogFrame("nowPlaying")
         }
         // Translation lives here rather than on the lyrics pane, which is
@@ -222,7 +232,7 @@ struct MacNowPlayingView: View {
     }
 
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
-    private var playerSurface: some View {
+    private func playerSurface(width: CGFloat) -> some View {
         ZStack {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
@@ -247,16 +257,23 @@ struct MacNowPlayingView: View {
                     } else {
                         HStack(alignment: .center, spacing: isWindowFullScreen ? 80 : 40) {
                             artworkPane
-                                .frame(width: isWindowFullScreen ? 520 : 380)
+                                .frame(width: artworkColumnWidth)
                                 .frame(maxHeight: .infinity)
                             if isSpokenWord {
                                 // 有声内容的右栏是这本书的目录、书签与文字稿。
+                                // 顶上让出按钮排的高度,分段排在按钮下面。
                                 SpokenWordContentsView(
                                     presentation: .embedded(spokenWordPalette),
                                     textTab: AnyView(spokenWordTextTab),
                                     requestedTab: $contentsRequestedTab
                                 )
+                                .pmLogFrame("spokenWordPane")
+                                .padding(.top, max(0, floatingControlsBottom - spokenWordPaneTop))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                // 量的是让位之前的上沿,让多少不会反过来改它。
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    proxy.frame(in: .named(Self.surfaceSpace)).minY
+                                } action: { spokenWordPaneTop = $0 }
                                 .sheet(isPresented: $showsTranscriptReader) {
                                     SpokenWordTranscriptReader(
                                         lines: lyrics,
@@ -274,7 +291,8 @@ struct MacNowPlayingView: View {
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
                         }
-                        .padding(.horizontal, isWindowFullScreen ? 100 : 56)
+                        .padding(.leading, artworkLeadingPadding(surfaceWidth: width))
+                        .padding(.trailing, isWindowFullScreen ? 100 : 56)
                         .padding(.top, isWindowFullScreen ? 70 : 50)
                         .padding(.bottom, isWindowFullScreen ? 80 : 60)
                     }
@@ -388,9 +406,27 @@ struct MacNowPlayingView: View {
                     fullscreenVolumeControl
                 }
             }
-            .padding(isWindowFullScreen ? 24 : 16)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(Self.surfaceSpace)).maxY
+            } action: { floatingControlsBottom = $0 }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { floatingControlsWidth = $0 }
+            .padding(floatingControlsInset)
             .pmLogFrame("topRight")
         }
+    }
+
+    private var floatingControlsInset: CGFloat { isWindowFullScreen ? 24 : 16 }
+
+    private var artworkColumnWidth: CGFloat { isWindowFullScreen ? 520 : 380 }
+
+    /// 封面那一栏左边留多少。窗口窄到右上角那排按钮要伸进封面那一栏时,随宽度把这份留白
+    /// 一点点收掉、封面往左让,最多收到一半;够宽时照旧。
+    private func artworkLeadingPadding(surfaceWidth: CGFloat) -> CGFloat {
+        let standard: CGFloat = isWindowFullScreen ? 100 : 56
+        let room = surfaceWidth - floatingControlsWidth - floatingControlsInset - 12 - artworkColumnWidth
+        return min(standard, max(standard / 2, room))
     }
 
     /// 全屏时左上角的退出与效果入口。

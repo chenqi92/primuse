@@ -2422,17 +2422,20 @@ struct NowPlayingView: View {
             HStack(spacing: 12) {
                 // 有声内容的右栏自带「目录 / 书签 / 文字」切换。
                 if !usesSpokenWordTransport {
-                    Picker(selection: Binding(
-                        get: { showLyrics ? 0 : 1 },
-                        set: { selectSidePane(showsQueue: $0 == 1) }
-                    )) {
-                        Text("lyrics_title").tag(0)
-                        Text("up_next").tag(1)
-                    } label: {
-                        EmptyView()
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 280)
+                    PlayerPaneTabBar(
+                        items: [
+                            .init(value: false, title: String(localized: "lyrics_title")),
+                            .init(value: true, title: String(localized: "up_next")),
+                        ],
+                        selection: Binding(
+                            get: { !showLyrics },
+                            set: { selectSidePane(showsQueue: $0) }
+                        ),
+                        primary: appearance.primary,
+                        secondary: appearance.secondary,
+                        accent: themedControlAccent,
+                        leadingInset: 0
+                    )
                 }
 
                 Spacer(minLength: 0)
