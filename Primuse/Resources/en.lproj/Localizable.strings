@@ -6606,5 +6606,17 @@
 "kinetic_scene_marble_drop" = "Marble Drop";
 "kinetic_scene_note_highway" = "Note Highway";
 "kinetic_scene_saber_slash" = "Saber Slash";
+"spotlight_index_status" = "Index Progress";
+"spotlight_index_count_format" = "%1$@ / %2$@ items";
+"spotlight_index_measuring" = "Counting…";
+"spotlight_index_indexing" = "Building…";
+"spotlight_index_held" = "Paused while the device is hot or Low Power Mode is on; it continues afterwards.";
+"spotlight_index_complete" = "Up to date. Everything can be found in Spotlight.";
+"spotlight_index_remaining_background_format" = "%@ items still to add. Building continues when Primuse is in the background and nothing is playing.";
+"spotlight_index_remaining_format" = "%@ items still to add.";
+"spotlight_index_awaiting_artwork_format" = "%@ of them show the default icon for now; their covers follow.";
+"spotlight_index_song_limit_format" = "With more than %1$@ songs, only the %1$@ most recently played, liked and newest songs are indexed.";
+"spotlight_index_build_now" = "Build Now";
+"spotlight_index_build_now_footer" = "Stay on this page while it builds; after you leave, it continues in the background.";
 "Search Library" = "Search Library";
 "Open Primuse's search with these words." = "Open Primuse's search with these words.";

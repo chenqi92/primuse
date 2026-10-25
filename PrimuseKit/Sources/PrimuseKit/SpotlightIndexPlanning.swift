@@ -151,3 +151,56 @@ public struct SpotlightIndexCheckpoint: Equatable, Sendable {
         }
     }
 }
+
+/// How far the index has come for the library as it is now, for the
+/// Spotlight settings (#346): of the items the library wants indexed, how many
+/// the index already holds as they are, and how many it holds with their text
+/// but not yet their cover (searchable already; the cover follows).
+public struct SpotlightIndexCoverage: Equatable, Sendable {
+    public let total: Int
+    public let indexed: Int
+    public let awaitingArtwork: Int
+
+    public init(total: Int, indexed: Int, awaitingArtwork: Int) {
+        self.total = max(0, total)
+        self.indexed = min(max(0, indexed), self.total)
+        self.awaitingArtwork = min(max(0, awaitingArtwork), self.total - self.indexed)
+    }
+
+    /// Found by Spotlight now, with or without the cover.
+    public var searchable: Int { indexed + awaitingArtwork }
+    public var remaining: Int { total - searchable }
+    public var isComplete: Bool { indexed == total }
+    public var fraction: Double { total > 0 ? Double(searchable) / Double(total) : 1 }
+
+    /// - Parameters:
+    ///   - wanted: the manifest the library wants (`SpotlightIndexPlan.nextManifest`).
+    ///   - stored: what the index holds (the saved manifest or a checkpoint);
+    ///     another schema version means the index is rebuilt and holds none.
+    ///   - textOnlySuffix: what marks an item indexed without its cover.
+    public static func measure(
+        wanted: SpotlightIndexManifest,
+        stored: SpotlightIndexManifest?,
+        textOnlySuffix: String
+    ) -> SpotlightIndexCoverage {
+        let wantedSignatures = wanted.signaturesByIdentifier
+        guard let stored, stored.schemaVersion == wanted.schemaVersion else {
+            return SpotlightIndexCoverage(total: wantedSignatures.count, indexed: 0, awaitingArtwork: 0)
+        }
+        var indexed = 0
+        var awaitingArtwork = 0
+        for (identifier, signature) in wantedSignatures {
+            guard let held = stored.signaturesByIdentifier[identifier], !held.isEmpty else { continue }
+            if held == signature {
+                indexed += 1
+            } else if !textOnlySuffix.isEmpty, held == signature + textOnlySuffix {
+                awaitingArtwork += 1
+            }
+        }
+        return SpotlightIndexCoverage(
+            total: wantedSignatures.count,
+            indexed: indexed,
+            awaitingArtwork: awaitingArtwork
+        )
+    }
+}

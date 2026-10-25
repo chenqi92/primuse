@@ -45,6 +45,7 @@ struct SiriSettingsView: View {
                 SettingsShortcutsHelpView()
             }
             Section {
+                SpotlightIndexStatusRow()
                 SpotlightArtworkToggle()
             } header: {
                 Text(verbatim: "Spotlight")

@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "गिरते कंचे";
 "kinetic_scene_note_highway" = "नोट्स की पट्टी";
 "kinetic_scene_saber_slash" = "तलवार का वार";
+"spotlight_index_status" = "इंडेक्स की प्रगति";
+"spotlight_index_count_format" = "%1$@ / %2$@ आइटम";
+"spotlight_index_measuring" = "गिनती हो रही है…";
+"spotlight_index_indexing" = "बनाया जा रहा है…";
+"spotlight_index_held" = "डिवाइस गर्म है या लो पावर मोड चालू है, इसलिए रोका गया है; उसके बाद जारी रहेगा।";
+"spotlight_index_complete" = "अप टू डेट। सब कुछ Spotlight में खोजा जा सकता है।";
+"spotlight_index_remaining_background_format" = "%@ आइटम बाकी हैं। Primuse बैकग्राउंड में हो और कुछ न चल रहा हो, तब जारी रहेगा।";
+"spotlight_index_remaining_format" = "%@ आइटम बाकी हैं।";
+"spotlight_index_awaiting_artwork_format" = "इनमें से %@ अभी डिफ़ॉल्ट आइकन दिखाते हैं; कवर बाद में जुड़ेंगे।";
+"spotlight_index_song_limit_format" = "%1$@ से ज़्यादा गाने होने पर सिर्फ़ हाल ही में चलाए गए, पसंदीदा और सबसे नए %1$@ गाने इंडेक्स होते हैं।";
+"spotlight_index_build_now" = "अभी बनाएँ";
+"spotlight_index_build_now_footer" = "बनते समय इसी पेज पर रहें; पेज छोड़ने के बाद यह बैकग्राउंड में जारी रहेगा।";
 "Search Library" = "लाइब्रेरी में खोजें";
 "Open Primuse's search with these words." = "इन शब्दों के साथ Primuse की खोज खोलता है।";

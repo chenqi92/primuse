@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "Caída de canicas";
 "kinetic_scene_note_highway" = "Pista de notas";
 "kinetic_scene_saber_slash" = "Corte de sable";
+"spotlight_index_status" = "Progreso del índice";
+"spotlight_index_count_format" = "%1$@ / %2$@ elementos";
+"spotlight_index_measuring" = "Contando…";
+"spotlight_index_indexing" = "Creando…";
+"spotlight_index_held" = "En pausa mientras el dispositivo está caliente o el modo de bajo consumo está activado; luego continúa.";
+"spotlight_index_complete" = "Al día. Todo se puede encontrar en Spotlight.";
+"spotlight_index_remaining_background_format" = "Faltan %@ elementos. Continúa cuando Primuse está en segundo plano y no se reproduce nada.";
+"spotlight_index_remaining_format" = "Faltan %@ elementos.";
+"spotlight_index_awaiting_artwork_format" = "%@ de ellos muestran el ícono predeterminado por ahora; las portadas llegan después.";
+"spotlight_index_song_limit_format" = "Con más de %1$@ canciones, solo se indexan las %1$@ reproducidas recientemente, favoritas y más nuevas.";
+"spotlight_index_build_now" = "Crear ahora";
+"spotlight_index_build_now_footer" = "Quédate en esta página mientras se crea; al salir, continúa en segundo plano.";
 "Search Library" = "Buscar en la biblioteca";
 "Open Primuse's search with these words." = "Abre la búsqueda de Primuse con estas palabras.";

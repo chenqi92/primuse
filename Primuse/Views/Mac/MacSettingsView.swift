@@ -412,6 +412,7 @@ struct MacSettingsView: View {
                 SiriSpokenNamesView()
                 SiriCustomPhraseGuideView()
                 SettingsShortcutsHelpView()
+                SpotlightIndexStatusRow()
                 SpotlightArtworkToggle()
             }
         }

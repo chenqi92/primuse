@@ -6847,5 +6847,17 @@
 "kinetic_scene_marble_drop" = "マーブルドロップ";
 "kinetic_scene_note_highway" = "ノーツハイウェイ";
 "kinetic_scene_saber_slash" = "セイバースラッシュ";
+"spotlight_index_status" = "インデックスの進行状況";
+"spotlight_index_count_format" = "%1$@ / %2$@ 件";
+"spotlight_index_measuring" = "集計中…";
+"spotlight_index_indexing" = "作成中…";
+"spotlight_index_held" = "デバイスが熱いか低電力モードがオンのため一時停止中です。解消すると再開します。";
+"spotlight_index_complete" = "最新です。すべて Spotlight で検索できます。";
+"spotlight_index_remaining_background_format" = "残り %@ 件。Primuse がバックグラウンドにあり、再生していないときに続けます。";
+"spotlight_index_remaining_format" = "残り %@ 件。";
+"spotlight_index_awaiting_artwork_format" = "うち %@ 件は当面デフォルトのアイコンで表示され、アートワークは後から追加されます。";
+"spotlight_index_song_limit_format" = "曲数が %1$@ 曲を超える場合、最近再生した曲、お気に入り、新しく追加した曲の %1$@ 曲だけをインデックスします。";
+"spotlight_index_build_now" = "今すぐ作成";
+"spotlight_index_build_now_footer" = "作成中はこのページを開いたままにしてください。離れるとバックグラウンドで続けます。";
 "Search Library" = "ライブラリを検索";
 "Open Primuse's search with these words." = "これらの語句で Primuse の検索を開きます。";

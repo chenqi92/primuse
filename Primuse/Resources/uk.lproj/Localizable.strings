@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "Падіння кульок";
 "kinetic_scene_note_highway" = "Нотна доріжка";
 "kinetic_scene_saber_slash" = "Удар меча";
+"spotlight_index_status" = "Перебіг індексування";
+"spotlight_index_count_format" = "%1$@ / %2$@ об’єктів";
+"spotlight_index_measuring" = "Підрахунок…";
+"spotlight_index_indexing" = "Створення…";
+"spotlight_index_held" = "Призупинено: пристрій перегрівся або ввімкнено режим енергозбереження. Потім продовжиться.";
+"spotlight_index_complete" = "Усе актуально. Усе можна знайти в Spotlight.";
+"spotlight_index_remaining_background_format" = "Залишилося %@ об’єктів. Продовжиться, коли Primuse у фоні й нічого не грає.";
+"spotlight_index_remaining_format" = "Залишилося %@ об’єктів.";
+"spotlight_index_awaiting_artwork_format" = "З них %@ поки показуються зі стандартною іконкою; обкладинки додадуться пізніше.";
+"spotlight_index_song_limit_format" = "Якщо пісень більше %1$@, індексуються лише %1$@ нещодавно прослуханих, улюблених і найновіших.";
+"spotlight_index_build_now" = "Створити зараз";
+"spotlight_index_build_now_footer" = "Залишайтеся на цій сторінці під час створення; після виходу воно продовжиться у фоні.";
 "Search Library" = "Пошук у медіатеці";
 "Open Primuse's search with these words." = "Відкриває пошук Primuse із цими словами.";

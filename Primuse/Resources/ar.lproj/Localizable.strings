@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "سقوط الكرات";
 "kinetic_scene_note_highway" = "مسار النغمات";
 "kinetic_scene_saber_slash" = "ضربة السيف";
+"spotlight_index_status" = "تقدّم الفهرسة";
+"spotlight_index_count_format" = "%1$@ / %2$@ عنصر";
+"spotlight_index_measuring" = "جارٍ العدّ…";
+"spotlight_index_indexing" = "جارٍ الإنشاء…";
+"spotlight_index_held" = "متوقفة مؤقتًا لأن الجهاز ساخن أو وضع الطاقة المنخفضة مفعّل؛ وتستأنف بعد ذلك.";
+"spotlight_index_complete" = "محدّثة. يمكن العثور على كل شيء في Spotlight.";
+"spotlight_index_remaining_background_format" = "تبقّى %@ عنصر. يستمر الإنشاء عندما يكون Primuse في الخلفية ولا يُشغَّل شيء.";
+"spotlight_index_remaining_format" = "تبقّى %@ عنصر.";
+"spotlight_index_awaiting_artwork_format" = "يظهر %@ منها بالأيقونة الافتراضية حاليًا، وتُضاف الأغلفة لاحقًا.";
+"spotlight_index_song_limit_format" = "عندما يتجاوز عدد الأغاني %1$@، تُفهرس فقط %1$@ أغنية من الأحدث تشغيلًا والمفضلة والأحدث إضافةً.";
+"spotlight_index_build_now" = "إنشاء الآن";
+"spotlight_index_build_now_footer" = "ابقَ في هذه الصفحة أثناء الإنشاء؛ بعد مغادرتها يستمر في الخلفية.";
 "Search Library" = "البحث في المكتبة";
 "Open Primuse's search with these words." = "يفتح بحث Primuse بهذه الكلمات.";

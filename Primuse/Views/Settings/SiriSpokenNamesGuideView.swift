@@ -50,6 +50,99 @@ struct SpotlightArtworkToggle: View {
     }
 }
 
+/// Spotlight 索引建到哪儿了(#346):收录了多少、在不在建、为什么停着;还没建完时可以在这一页前台接着建。
+/// 曲库大时原来看不出进度,搜不到的歌是还没轮到还是根本不收录也分不清。
+struct SpotlightIndexStatusRow: View {
+    @Environment(MusicLibrary.self) private var library
+
+    private var service: SpotlightIndexService { AppServices.shared.spotlightIndex }
+
+    var body: some View {
+        let status = service.status
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("spotlight_index_status")
+                Spacer(minLength: 12)
+                if let coverage = status.coverage {
+                    Text(verbatim: String(
+                        format: String(localized: "spotlight_index_count_format"),
+                        coverage.searchable.formatted(),
+                        coverage.total.formatted()
+                    ))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+            }
+            if let coverage = status.coverage, !coverage.isComplete || status.activity == .indexing {
+                ProgressView(value: coverage.fraction)
+            }
+            ForEach(Array(details(status).enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if offersBuildNow(status) {
+                Button("spotlight_index_build_now") {
+                    service.synchronizeNow(library: library)
+                }
+                .buttonStyle(.borderless)
+                #if os(iOS)
+                Text("spotlight_index_build_now_footer")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                #endif
+            }
+        }
+        .task { service.refreshStatus(library: library) }
+        .onDisappear { service.endForegroundSynchronization() }
+        .settingsAnchor("siri.spotlightIndex")
+    }
+
+    private func offersBuildNow(_ status: SpotlightIndexStatus) -> Bool {
+        guard let coverage = status.coverage else { return false }
+        return !coverage.isComplete && status.activity == .idle && !status.isHeldByDevice
+    }
+
+    private func details(_ status: SpotlightIndexStatus) -> [String] {
+        var lines: [String] = []
+        switch status.activity {
+        case .measuring where status.coverage == nil:
+            lines.append(String(localized: "spotlight_index_measuring"))
+        case .indexing:
+            lines.append(String(localized: "spotlight_index_indexing"))
+        default:
+            if status.isHeldByDevice {
+                lines.append(String(localized: "spotlight_index_held"))
+            } else if let coverage = status.coverage {
+                if coverage.isComplete {
+                    lines.append(String(localized: "spotlight_index_complete"))
+                } else if coverage.remaining > 0 {
+                    #if os(iOS)
+                    let format = String(localized: "spotlight_index_remaining_background_format")
+                    #else
+                    let format = String(localized: "spotlight_index_remaining_format")
+                    #endif
+                    lines.append(String(format: format, coverage.remaining.formatted()))
+                }
+            }
+        }
+        if let coverage = status.coverage, coverage.awaitingArtwork > 0 {
+            lines.append(String(
+                format: String(localized: "spotlight_index_awaiting_artwork_format"),
+                coverage.awaitingArtwork.formatted()
+            ))
+        }
+        if status.exceedsSongLimit {
+            lines.append(String(
+                format: String(localized: "spotlight_index_song_limit_format"),
+                SpotlightIndexService.maxIndexedSongs.formatted()
+            ))
+        }
+        return lines
+    }
+}
+
 /// A personal shortcut is the only phrase a listener can choose: Siri runs it
 /// by its name alone, so the app name never has to be heard correctly.
 struct SiriCustomPhraseGuideView: View {

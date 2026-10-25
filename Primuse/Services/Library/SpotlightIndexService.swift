@@ -132,6 +132,10 @@ final class SpotlightIndexService {
     private let manifestURL: URL
     private let thumbnailDirectoryURL: URL
     private var workPhase: WorkPhase = .idle
+    /// 设置页上看的收录进度与状态。
+    let status = SpotlightIndexStatus()
+    /// 设置页里点了「现在建立」:离开那一页时把前台建的这一轮交回后台。
+    private var isForegroundSynchronizationRequested = false
     private var pendingTask: Task<Void, Never>?
     private var pendingGeneration: UUID?
     private var queuedSnapshot: LibrarySnapshot?
@@ -311,6 +315,54 @@ final class SpotlightIndexService {
         #endif
     }
 
+    /// 打开设置页时量一次收录进度:没在建时拿本机记下的清单比对这份曲库,不碰索引本身。
+    func refreshStatus(library: MusicLibrary) {
+        guard library.isReady, workPhase != .running, status.beginMeasuring() else { return }
+        let snapshot = makeLibrarySnapshot(library: library)
+        let manifestURL = self.manifestURL
+        let status = self.status
+        Task.detached(priority: .utility) {
+            let coverage = Self.measureCoverage(snapshot: snapshot, manifestURL: manifestURL)
+            await status.finishMeasuring(coverage, exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs)
+        }
+    }
+
+    /// 设置页里的「现在建立」。iOS 平时只在退到后台、没在播放时建;点了就在这一页前台接着建,
+    /// 离开这一页(`endForegroundSynchronization`)再交回后台。
+    func synchronizeNow(library: MusicLibrary) {
+        isForegroundSynchronizationRequested = true
+        needsSynchronization = true
+        isSynchronizationSuspended = false
+        synchronizeIfNeeded(library: library, delay: .zero)
+    }
+
+    func endForegroundSynchronization() {
+        guard isForegroundSynchronizationRequested else { return }
+        isForegroundSynchronizationRequested = false
+        #if os(iOS)
+        // 已经退到后台的那一次交给场景切换照常处理。
+        guard UIApplication.shared.applicationState != .background else { return }
+        suspendSynchronization()
+        #endif
+    }
+
+    private nonisolated static func measureCoverage(
+        snapshot: LibrarySnapshot,
+        manifestURL: URL
+    ) -> SpotlightIndexCoverage? {
+        guard let prepared = prepareSnapshot(snapshot) else { return nil }
+        let wanted = SpotlightIndexPlanner.makePlan(
+            currentRecords: prepared.records,
+            previousManifest: nil,
+            schemaVersion: schemaVersion
+        ).nextManifest
+        return SpotlightIndexCoverage.measure(
+            wanted: wanted,
+            stored: loadManifest(from: manifestURL),
+            textOnlySuffix: textOnlySignatureSuffix
+        )
+    }
+
     static func parse(uniqueIdentifier: String) -> SpotlightItem? {
         let parts = uniqueIdentifier.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }
@@ -350,6 +402,7 @@ final class SpotlightIndexService {
         let synchronizationRevision = Self.synchronizationGeneration
         let manifestURL = self.manifestURL
         let thumbnailDirectoryURL = self.thumbnailDirectoryURL
+        let status = self.status
         pendingGeneration = generation
         workPhase = .debouncing
 
@@ -367,7 +420,8 @@ final class SpotlightIndexService {
             let succeeded = await Self.performSynchronization(
                 snapshot: snapshot,
                 manifestURL: manifestURL,
-                thumbnailDirectoryURL: thumbnailDirectoryURL
+                thumbnailDirectoryURL: thumbnailDirectoryURL,
+                status: status
             )
             await self?.finishSynchronization(
                 generation: generation,
@@ -392,6 +446,7 @@ final class SpotlightIndexService {
         pendingTask = nil
         pendingGeneration = nil
         workPhase = .idle
+        status.finishIndexing()
 
         if isSynchronizationSuspended {
             queuedSnapshot = nil
@@ -431,10 +486,13 @@ final class SpotlightIndexService {
     private nonisolated static func performSynchronization(
         snapshot: LibrarySnapshot,
         manifestURL: URL,
-        thumbnailDirectoryURL: URL
+        thumbnailDirectoryURL: URL,
+        status: SpotlightIndexStatus
     ) async -> Bool {
+        let exceedsSongLimit = snapshot.songs.count > maxIndexedSongs
         guard canPerformIndexing, !Task.isCancelled else {
             spotlightLog.notice("Spotlight sync deferred because of thermal/low-power state")
+            if !Task.isCancelled { await status.holdByDevice() }
             return false
         }
 
@@ -472,10 +530,29 @@ final class SpotlightIndexService {
             forceFullRebuild: forceFullRebuild
         )
 
+        var lastReport = ContinuousClock.now
+        /// 设置页上的进度:每写完一批报一次,最多半秒一次。
+        func report(
+            _ stored: SpotlightIndexManifest?,
+            indexing: Bool,
+            force: Bool = false
+        ) async {
+            guard force || ContinuousClock.now - lastReport >= .milliseconds(500) else { return }
+            lastReport = .now
+            let coverage = SpotlightIndexCoverage.measure(
+                wanted: plan.nextManifest,
+                stored: stored,
+                textOnlySuffix: textOnlySignatureSuffix
+            )
+            await status.report(coverage, isIndexing: indexing, exceedsSongLimit: exceedsSongLimit)
+        }
+
         if plan.isEmpty, !plan.requiresFullRebuild {
             spotlightLog.debug("Spotlight index already matches the library")
+            await report(previousManifest, indexing: false, force: true)
             return true
         }
+        await report(plan.requiresFullRebuild ? nil : previousManifest, indexing: true, force: true)
 
         guard canPerformIndexing, !Task.isCancelled else { return false }
         let pendingState = Data("v\(schemaVersion):pending".utf8)
@@ -522,6 +599,8 @@ final class SpotlightIndexService {
                 }
             }
             spotlightLog.notice("Spotlight sync paused; progress kept for the next run")
+            await report(progress.manifest, indexing: false, force: true)
+            if !canPerformIndexing { await status.holdByDevice() }
             return false
         }
 
@@ -562,6 +641,7 @@ final class SpotlightIndexService {
                 progress.confirmDeleted(identifiers)
                 hasUnsavedProgress = true
                 deleteCursor = end
+                await report(progress.manifest, indexing: true)
                 try await saveCheckpointIfDue()
                 guard await pauseBetweenBatches() else { return await stop() }
             }
@@ -615,6 +695,7 @@ final class SpotlightIndexService {
                     )
                     progress.confirmIndexed(confirmed)
                     hasUnsavedProgress = true
+                    await report(progress.manifest, indexing: true)
                     try await saveCheckpointIfDue()
                     guard await pauseBetweenBatches() else { return await stop() }
                 }
@@ -622,6 +703,7 @@ final class SpotlightIndexService {
 
             guard canPerformIndexing, !Task.isCancelled else { return await stop() }
             try await saveCheckpoint()
+            await report(progress.manifest, indexing: false, force: true)
             guard progress.manifest == plan.nextManifest else {
                 // Still a truthful checkpoint: the next run plans the rest.
                 spotlightLog.error("Spotlight progress diverged from the plan; continuing next run")
@@ -1140,6 +1222,56 @@ final class SpotlightIndexService {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(manifest).write(to: url, options: .atomic)
+    }
+}
+
+/// 设置页上看的 Spotlight 索引状态(#346):收录到哪儿了、在不在建、为什么停着。
+/// 建的时候每写完一批更新一次;没在建时打开设置页按本机记下的清单量一次。
+@MainActor
+@Observable
+final class SpotlightIndexStatus {
+    enum Activity: Equatable {
+        case idle
+        case measuring
+        case indexing
+    }
+
+    private(set) var coverage: SpotlightIndexCoverage?
+    private(set) var activity: Activity = .idle
+    /// 上一次该建时设备过热或开着低电量模式,停着没建。
+    private(set) var isHeldByDevice = false
+    /// 曲库里的歌多于能收录的上限,只收录其中一部分。
+    private(set) var exceedsSongLimit = false
+
+    func report(_ coverage: SpotlightIndexCoverage, isIndexing: Bool, exceedsSongLimit: Bool) {
+        self.coverage = coverage
+        self.exceedsSongLimit = exceedsSongLimit
+        activity = isIndexing ? .indexing : .idle
+        if isIndexing { isHeldByDevice = false }
+    }
+
+    func holdByDevice() {
+        isHeldByDevice = true
+        if activity == .indexing { activity = .idle }
+    }
+
+    func finishIndexing() {
+        if activity == .indexing { activity = .idle }
+    }
+
+    /// 已经在量或在建时不再量。
+    func beginMeasuring() -> Bool {
+        guard activity == .idle else { return false }
+        activity = .measuring
+        return true
+    }
+
+    func finishMeasuring(_ coverage: SpotlightIndexCoverage?, exceedsSongLimit: Bool) {
+        // 量的时候开始建了:以建的那边报的为准。
+        guard activity == .measuring else { return }
+        activity = .idle
+        if let coverage { self.coverage = coverage }
+        self.exceedsSongLimit = exceedsSongLimit
     }
 }
 

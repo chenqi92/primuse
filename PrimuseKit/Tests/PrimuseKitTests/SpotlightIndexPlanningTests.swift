@@ -172,3 +172,55 @@ struct SpotlightIndexPlanningTests {
         )
     }
 }
+
+@Suite("Spotlight index coverage")
+struct SpotlightIndexCoverageTests {
+    private let wanted = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [
+        "song:a": "1", "song:b": "2", "song:c": "3", "album:x": "4",
+    ])
+
+    @Test("Nothing stored yet, or another schema, counts nothing as indexed")
+    func nothingStored() {
+        let none = SpotlightIndexCoverage.measure(wanted: wanted, stored: nil, textOnlySuffix: "~text")
+        #expect(none == SpotlightIndexCoverage(total: 4, indexed: 0, awaitingArtwork: 0))
+        let old = SpotlightIndexManifest(schemaVersion: 2, signaturesByIdentifier: ["song:a": "1"])
+        #expect(SpotlightIndexCoverage.measure(wanted: wanted, stored: old, textOnlySuffix: "~text").indexed == 0)
+        #expect(none.fraction == 0)
+        #expect(!none.isComplete)
+    }
+
+    @Test("Matching items count as indexed, text-only ones as awaiting their cover")
+    func partial() {
+        let stored = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [
+            "song:a": "1",
+            "song:b": "2~text",
+            // Unconfirmed in a checkpoint, changed since, and gone from the library.
+            "song:c": "",
+            "album:x": "old",
+            "song:gone": "9",
+        ])
+        let coverage = SpotlightIndexCoverage.measure(wanted: wanted, stored: stored, textOnlySuffix: "~text")
+        #expect(coverage == SpotlightIndexCoverage(total: 4, indexed: 1, awaitingArtwork: 1))
+        #expect(coverage.searchable == 2)
+        #expect(coverage.remaining == 2)
+        #expect(coverage.fraction == 0.5)
+    }
+
+    @Test("Complete only when every item holds its wanted signature")
+    func complete() {
+        let full = SpotlightIndexCoverage.measure(wanted: wanted, stored: wanted, textOnlySuffix: "~text")
+        #expect(full.isComplete)
+        #expect(full.remaining == 0)
+        let empty = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [:])
+        let nothingWanted = SpotlightIndexCoverage.measure(wanted: empty, stored: nil, textOnlySuffix: "~text")
+        #expect(nothingWanted.isComplete)
+        #expect(nothingWanted.fraction == 1)
+    }
+
+    @Test("Counts stay inside the total")
+    func clamped() {
+        let coverage = SpotlightIndexCoverage(total: 3, indexed: 5, awaitingArtwork: 2)
+        #expect(coverage.indexed == 3)
+        #expect(coverage.awaitingArtwork == 0)
+    }
+}

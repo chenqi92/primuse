@@ -308,6 +308,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "siri.authorization", titleKey: "Siri authorization", table: "SettingsSearch", iosPage: .siri, macPage: nil),
         SettingDefinition(id: "siri.shortcuts", titleKey: "siri_shortcuts_hint", iosPage: .siri, macPage: nil),
         SettingDefinition(id: "siri.spokenNames", titleKey: "siri_spoken_names_title", iosPage: .siri, macPage: .siri, keywords: ["猿音", "Primuse", "Pro Muse", "听错", "识别", "名字", "app name", "misheard"]),
+        SettingDefinition(id: "siri.spotlightIndex", titleKey: "spotlight_index_status", iosPage: .siri, macPage: .siri, keywords: ["Spotlight", "搜索", "系统搜索", "索引", "进度", "建立索引", "search", "index", "progress"]),
         SettingDefinition(id: "siri.spotlightArtwork", titleKey: "spotlight_shows_artwork", iosPage: .siri, macPage: .siri, keywords: ["Spotlight", "搜索", "系统搜索", "封面", "图标", "缩略图", "search", "artwork", "cover", "thumbnail"]),
         SettingDefinition(id: "siri.customPhrase", titleKey: "siri_custom_phrase_title", iosPage: .siri, macPage: .siri, keywords: ["口令", "快捷指令", "自定义", "说法", "Hey Siri", "shortcut", "phrase"]),
         SettingDefinition(id: "carplay.preset", titleKey: "carplay_layout_title", iosPage: .carplay, macPage: nil, keywords: ["CarPlay", "车载", "车机", "预设", "布局"]),

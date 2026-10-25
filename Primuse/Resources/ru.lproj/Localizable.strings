@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "Падающие шарики";
 "kinetic_scene_note_highway" = "Нотная дорожка";
 "kinetic_scene_saber_slash" = "Удар меча";
+"spotlight_index_status" = "Ход индексации";
+"spotlight_index_count_format" = "%1$@ / %2$@ объектов";
+"spotlight_index_measuring" = "Подсчёт…";
+"spotlight_index_indexing" = "Создание…";
+"spotlight_index_held" = "Приостановлено: устройство перегрето или включён режим энергосбережения. Потом продолжится.";
+"spotlight_index_complete" = "Всё актуально. Всё можно найти в Spotlight.";
+"spotlight_index_remaining_background_format" = "Осталось %@ объектов. Продолжится, когда Primuse в фоне и ничего не играет.";
+"spotlight_index_remaining_format" = "Осталось %@ объектов.";
+"spotlight_index_awaiting_artwork_format" = "Из них %@ пока показываются со стандартным значком; обложки добавятся позже.";
+"spotlight_index_song_limit_format" = "Если песен больше %1$@, индексируются только %1$@ недавно прослушанных, любимых и самых новых.";
+"spotlight_index_build_now" = "Создать сейчас";
+"spotlight_index_build_now_footer" = "Оставайтесь на этой странице, пока идёт создание; после ухода оно продолжится в фоне.";
 "Search Library" = "Поиск в медиатеке";
 "Open Primuse's search with these words." = "Открывает поиск Primuse с этими словами.";

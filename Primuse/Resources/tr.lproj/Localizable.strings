@@ -6752,5 +6752,17 @@
 "kinetic_scene_marble_drop" = "Düşen Bilyeler";
 "kinetic_scene_note_highway" = "Nota Yolu";
 "kinetic_scene_saber_slash" = "Kılıç Darbesi";
+"spotlight_index_status" = "Dizin İlerlemesi";
+"spotlight_index_count_format" = "%1$@ / %2$@ öğe";
+"spotlight_index_measuring" = "Sayılıyor…";
+"spotlight_index_indexing" = "Oluşturuluyor…";
+"spotlight_index_held" = "Cihaz ısındığı veya Düşük Güç Modu açık olduğu için duraklatıldı; sonra devam eder.";
+"spotlight_index_complete" = "Güncel. Her şey Spotlight’ta bulunabilir.";
+"spotlight_index_remaining_background_format" = "%@ öğe kaldı. Primuse arka plandayken ve bir şey çalmıyorken devam eder.";
+"spotlight_index_remaining_format" = "%@ öğe kaldı.";
+"spotlight_index_awaiting_artwork_format" = "Bunların %@ tanesi şimdilik varsayılan simgeyi gösteriyor; kapaklar sonra gelecek.";
+"spotlight_index_song_limit_format" = "%1$@ şarkıdan fazlası olduğunda yalnızca son çalınan, beğenilen ve en yeni %1$@ şarkı dizine eklenir.";
+"spotlight_index_build_now" = "Şimdi Oluştur";
+"spotlight_index_build_now_footer" = "Oluşturulurken bu sayfada kalın; sayfadan çıkınca arka planda devam eder.";
 "Search Library" = "Arşivde Ara";
 "Open Primuse's search with these words." = "Primuse aramasını bu sözcüklerle açar.";
