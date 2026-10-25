@@ -363,6 +363,8 @@ struct LyricsAppearanceSections: View {
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+    private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     @AppStorage(PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsKey)
     private var spokenWordTranscriptHighlightsWords = PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsByDefault
 
@@ -571,6 +573,14 @@ struct LyricsAppearanceSections: View {
                 }
             }
             .settingsAnchor("lyrics.interludeDots")
+
+            if showsLyricsInterlude {
+                Toggle(isOn: $showsLyricsInterludeAlways) {
+                    SettingsInfoLabel("player_lyrics_interlude_always") {
+                        Text("player_lyrics_interlude_always_description")
+                    }
+                }
+            }
 
             Toggle(isOn: $spokenWordTranscriptHighlightsWords) {
                 SettingsInfoLabel("spoken_word_transcript_word_highlight") {

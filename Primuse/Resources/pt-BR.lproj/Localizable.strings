@@ -6168,6 +6168,8 @@
 "player_menu_item_immersive_face" = "Tela cheia: capa/letra";
 "player_lyrics_interlude_dots" = "Pontos de interlúdio";
 "player_lyrics_interlude_dots_description" = "Na introdução antes da primeira linha e em interlúdios longos aparecem três pontos que acendem um após o outro, pulsam de leve duas vezes logo antes da próxima linha e seguem o alinhamento da letra. Com letras sincronizadas por palavra, pausas mais curtas também contam.";
+"player_lyrics_interlude_always" = "Sempre mostrar pontos";
+"player_lyrics_interlude_always_description" = "Cada intervalo mantém sua linha de pontos, exibida de forma suave até chegar a vez dele. Desativado, os pontos só aparecem quando o intervalo começa e não ocupam espaço no resto do tempo.";
 "spoken_word_transcript_word_highlight" = "Destacar a transcrição palavra por palavra";
 "spoken_word_transcript_word_highlight_description" = "Quando a transcrição de um podcast ou audiolivro tem tempo por palavra (as feitas no dispositivo têm), as palavras acendem uma a uma. Desative para destacar a frase inteira que está sendo lida.";
 "home_filter_bar_title" = "Filtros no topo";

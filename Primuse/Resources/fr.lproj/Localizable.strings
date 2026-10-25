@@ -6262,6 +6262,8 @@
 "player_menu_item_immersive_face" = "Plein écran : pochette/paroles";
 "player_lyrics_interlude_dots" = "Points d’interlude";
 "player_lyrics_interlude_dots_description" = "Pendant l’intro avant la première ligne et les longs interludes, trois points apparaissent, s’allument l’un après l’autre, battent doucement deux fois juste avant la ligne suivante et s’alignent comme les paroles. Avec des paroles synchronisées mot à mot, des pauses plus courtes comptent aussi.";
+"player_lyrics_interlude_always" = "Toujours afficher les points";
+"player_lyrics_interlude_always_description" = "Chaque pause garde sa ligne de points, affichée en transparence jusqu’à son tour. Désactivé, les points n’apparaissent qu’au début de la pause et ne prennent pas de place le reste du temps.";
 "spoken_word_transcript_word_highlight" = "Surligner la transcription mot à mot";
 "spoken_word_transcript_word_highlight_description" = "Quand la transcription d’un podcast ou d’un livre audio a le minutage des mots (celles faites sur l’appareil l’ont), les mots s’allument un par un. Désactivez pour surligner toute la phrase lue.";
 "home_filter_bar_title" = "Filtres en haut";

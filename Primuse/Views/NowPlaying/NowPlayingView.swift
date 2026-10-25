@@ -14224,6 +14224,8 @@ struct LyricsScrollView: View {
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+    private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
     private var lyricsMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
     /// 「层叠弹性」时每一格额外的纵向偏移:换句那一刻整份歌词瞬间滚到位、各格先补回这段滚动差
@@ -15158,8 +15160,9 @@ struct LyricsScrollView: View {
     }
 
     /// 间奏时上一句下面那三个点:和那一句同一侧对齐,跟着间奏的时间依次点亮(#198),
-    /// 下一句开唱前跳两下(#315)。只在这段间奏真正开始后才展开出现,下一句开唱时收起;
+    /// 下一句开唱前跳两下(#315)。默认只在这段间奏真正开始后才展开出现,下一句开唱时收起;
     /// 没轮到的间奏不占位置也看不见。展开、收起与滚动走同一条曲线(见 `updateCurrentLine`)。
+    /// 设了「没轮到也显示」就每段都留一行,没轮到时淡淡地摆着(#315 之前的样子)。
     private func interludeMarker(
         _ window: LyricPlaybackPositionPolicy.InterludeWindow,
         isActive: Bool,
@@ -15178,15 +15181,17 @@ struct LyricsScrollView: View {
                 )
             },
             tint: appearance.primary,
-            restingOpacity: 0
+            restingOpacity: showsLyricsInterludeAlways ? appearance.futureLyricOpacity * 0.5 : 0
         )
         .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
         .frame(height: Self.interludeMarkerHeight)
         // 展开时自带一份行间距(这一格和上一句同在一个 spacing 0 的 VStack 里)。
         .padding(spacingEdge, Self.lyricsRowSpacing)
-        .opacity(isActive ? 1 : 0)
+        .opacity(isActive || showsLyricsInterludeAlways ? 1 : 0)
         .frame(
-            height: isActive ? Self.interludeMarkerHeight + Self.lyricsRowSpacing : 0,
+            height: isActive || showsLyricsInterludeAlways
+                ? Self.interludeMarkerHeight + Self.lyricsRowSpacing
+                : 0,
             alignment: .top
         )
         .allowsHitTesting(false)

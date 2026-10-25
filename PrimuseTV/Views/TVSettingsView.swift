@@ -77,6 +77,8 @@ struct TVSettingsView: View {
     /// 和 iPhone、Mac 同一个键,经 iCloud 键值同步(启动时在 App 里登记)。
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+    private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
     @AppStorage(TVStore.previousRestartsCurrentSongKey) private var previousRestartsCurrentSong = true
     @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
@@ -456,6 +458,21 @@ struct TVSettingsView: View {
                     }
                 )
             )
+            if showsLyricsInterlude {
+                settingDivider
+                toggleRow(
+                    "ellipsis.rectangle",
+                    String(localized: "player_lyrics_interlude_always"),
+                    detail: String(localized: "player_lyrics_interlude_always_description"),
+                    isOn: Binding(
+                        get: { showsLyricsInterludeAlways },
+                        set: { shows in
+                            showsLyricsInterludeAlways = shows
+                            CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+                        }
+                    )
+                )
+            }
             settingDivider
             toggleRow(
                 "character.bubble",

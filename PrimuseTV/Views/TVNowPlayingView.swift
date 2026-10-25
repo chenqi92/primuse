@@ -60,6 +60,8 @@ struct TVNowPlayingView: View {
     /// 和 iPhone、Mac 同一个键(设置 › 歌词 › 间奏提示点)。
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+    private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     /// 展开着的那一行提示点(正在走的前奏或间奏)。跟着歌词位置变,变的时候和滚动同一次动画,
     /// 下面几句被推开、拉回也走同一条曲线。
     @State private var expandedLyricsMarker: TVLyricsAnchor?
@@ -1351,7 +1353,8 @@ struct TVNowPlayingView: View {
     }
 
     /// 前奏与长间奏里的三个点(和 iPhone、Mac 同一个 `LyricInterludeDots`),按电视歌词字号放大。
-    /// 只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
+    /// 默认只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
+    /// 设了「没轮到也显示」就每段都留一行,没轮到时淡淡地摆着。
     private func interludeMarker(
         _ window: LyricPlaybackPositionPolicy.InterludeWindow,
         isActive: Bool,
@@ -1374,7 +1377,7 @@ struct TVNowPlayingView: View {
                 )
             },
             tint: TVColor.text,
-            restingOpacity: 0,
+            restingOpacity: showsLyricsInterludeAlways ? 0.3 : 0,
             dotSize: (size * 0.31).rounded(),
             spacing: (size * 0.27).rounded()
         )
@@ -1382,8 +1385,8 @@ struct TVNowPlayingView: View {
         .frame(height: markerHeight)
         // 展开时自带上面那份行间距,和歌词行一样。
         .padding(.top, spacing)
-        .opacity(isActive ? 1 : 0)
-        .frame(height: isActive ? markerHeight + spacing : 0, alignment: .top)
+        .opacity(isActive || showsLyricsInterludeAlways ? 1 : 0)
+        .frame(height: isActive || showsLyricsInterludeAlways ? markerHeight + spacing : 0, alignment: .top)
         .allowsHitTesting(false)
     }
 

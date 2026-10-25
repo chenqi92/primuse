@@ -6262,6 +6262,8 @@
 "player_menu_item_immersive_face" = "Vollbild: Cover/Liedtext wechseln";
 "player_lyrics_interlude_dots" = "Zwischenspiel-Punkte";
 "player_lyrics_interlude_dots_description" = "Im Intro vor der ersten Zeile und bei langen Zwischenspielen erscheinen drei Punkte, die nacheinander aufleuchten, kurz vor der nächsten Zeile zweimal sanft pulsieren und sich an der Ausrichtung des Liedtexts orientieren. Bei wortgenauen Liedtexten zählen auch kürzere Pausen.";
+"player_lyrics_interlude_always" = "Punkte immer zeigen";
+"player_lyrics_interlude_always_description" = "Jede Pause behält ihre Punktzeile, blass angezeigt, bis sie dran ist. Wenn aus, erscheinen die Punkte erst zu Beginn der Pause und belegen sonst keinen Platz.";
 "spoken_word_transcript_word_highlight" = "Transkript Wort für Wort hervorheben";
 "spoken_word_transcript_word_highlight_description" = "Hat ein Podcast- oder Hörbuch-Transkript Wort-Timing (auf dem Gerät erstellte Transkripte haben es), leuchten die Wörter einzeln auf. Deaktiviert wird der ganze gerade gelesene Satz hervorgehoben.";
 "home_filter_bar_title" = "Filter oben";

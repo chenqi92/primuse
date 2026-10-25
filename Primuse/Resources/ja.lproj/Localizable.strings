@@ -6263,6 +6263,8 @@
 "player_menu_item_immersive_face" = "フルスクリーンのアートワーク／歌詞切り替え";
 "player_lyrics_interlude_dots" = "間奏のドット";
 "player_lyrics_interlude_dots_description" = "最初の行の前の前奏や歌詞の間の長い間奏で 3 つのドットを表示し、進み具合に合わせて順に点灯して、次の行の直前に軽く 2 回脈打ちます。ドットは歌詞と同じ側にそろいます。単語単位の歌詞では短めの間奏でも表示されます。";
+"player_lyrics_interlude_always" = "常にドットを表示";
+"player_lyrics_interlude_always_description" = "すべての間奏にドットの行を残し、順番が来るまでは薄く表示します。オフにすると間奏が始まったときだけ表示され、それ以外はスペースを取りません。";
 "spoken_word_transcript_word_highlight" = "文字起こしを単語ごとにハイライト";
 "spoken_word_transcript_word_highlight_description" = "ポッドキャストやオーディオブックの文字起こしに単語ごとのタイミングがあるとき（端末での文字起こしにはあります）、1語ずつ光ります。オフにすると読まれている文全体を光らせます。";
 "home_filter_bar_title" = "上部の切り替え";

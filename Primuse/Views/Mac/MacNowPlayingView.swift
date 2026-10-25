@@ -100,6 +100,8 @@ struct MacNowPlayingView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
+    private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -1389,8 +1391,9 @@ struct MacNowPlayingView: View {
     }
 
     /// 前奏与长间奏里的三个点(和 iPhone 歌词页同一个 `LyricInterludeDots`),大小跟着歌词字号。
-    /// 只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
-    /// 展开、收起与滚动走同一条曲线(见 `updateIndex`)。
+    /// 默认只在这段间奏真正开始后才展开出现,下一句开唱时收起;没轮到的不占位置也看不见。
+    /// 展开、收起与滚动走同一条曲线(见 `updateIndex`)。设了「没轮到也显示」就每段都留一行,
+    /// 没轮到时淡淡地摆着。
     private func macInterludeMarker(
         _ window: LyricPlaybackPositionPolicy.InterludeWindow,
         isActive: Bool,
@@ -1417,7 +1420,7 @@ struct MacNowPlayingView: View {
                 )
             },
             tint: playerPrimaryColor,
-            restingOpacity: 0,
+            restingOpacity: showsLyricsInterludeAlways ? 0.3 : 0,
             dotSize: (scaledSize * 0.31).rounded(),
             spacing: (scaledSize * 0.27).rounded()
         )
@@ -1425,8 +1428,8 @@ struct MacNowPlayingView: View {
         .frame(height: markerHeight)
         // 展开时自带上面那份行间距,和歌词行一样。
         .padding(.top, spacing)
-        .opacity(isActive ? 1 : 0)
-        .frame(height: isActive ? markerHeight + spacing : 0, alignment: .top)
+        .opacity(isActive || showsLyricsInterludeAlways ? 1 : 0)
+        .frame(height: isActive || showsLyricsInterludeAlways ? markerHeight + spacing : 0, alignment: .top)
         .allowsHitTesting(false)
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
