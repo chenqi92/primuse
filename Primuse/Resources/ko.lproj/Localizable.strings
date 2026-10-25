@@ -6860,3 +6860,7 @@
 "spotlight_index_build_now_footer" = "만드는 동안 이 페이지에 머물러 주세요. 페이지를 떠나면 백그라운드에서 이어서 만듭니다.";
 "Search Library" = "보관함 검색";
 "Open Primuse's search with these words." = "이 단어로 Primuse 검색을 엽니다.";
+"transcript_reader_page_margin" = "여백";
+"transcript_reader_justify" = "양쪽 정렬";
+"transcript_reader_scroll_indicator" = "스크롤 막대 표시";
+"transcript_reader_justify_footer" = "양쪽 정렬을 켜면 문단의 마지막 줄을 제외한 모든 줄이 양쪽 끝까지 맞춰집니다.";

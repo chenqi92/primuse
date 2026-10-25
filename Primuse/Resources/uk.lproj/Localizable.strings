@@ -6766,3 +6766,7 @@
 "spotlight_index_build_now_footer" = "Залишайтеся на цій сторінці під час створення; після виходу воно продовжиться у фоні.";
 "Search Library" = "Пошук у медіатеці";
 "Open Primuse's search with these words." = "Відкриває пошук Primuse із цими словами.";
+"transcript_reader_page_margin" = "Поля";
+"transcript_reader_justify" = "Вирівнювання за шириною";
+"transcript_reader_scroll_indicator" = "Показувати смугу прокручування";
+"transcript_reader_justify_footer" = "Під час вирівнювання за шириною кожен рядок, крім останнього в абзаці, доходить до обох країв.";

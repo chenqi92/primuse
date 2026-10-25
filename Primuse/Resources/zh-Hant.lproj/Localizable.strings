@@ -6837,3 +6837,7 @@
 "spotlight_index_build_now_footer" = "建立時留在這一頁；離開這一頁後改回在背景建。";
 "Search Library" = "搜尋資料庫";
 "Open Primuse's search with these words." = "用這些字詞打開 Primuse 的搜尋。";
+"transcript_reader_page_margin" = "頁邊距";
+"transcript_reader_justify" = "左右對齊";
+"transcript_reader_scroll_indicator" = "顯示捲軸";
+"transcript_reader_justify_footer" = "左右對齊時，每段最後一行以外的行都會排滿到左右兩邊。";

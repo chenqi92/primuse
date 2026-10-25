@@ -6953,3 +6953,7 @@
 "spotlight_index_build_now_footer" = "建的时候留在这一页；离开这一页后改回在后台建。";
 "Search Library" = "搜索资料库";
 "Open Primuse's search with these words." = "用这些词打开 Primuse 的搜索。";
+"transcript_reader_page_margin" = "页边距";
+"transcript_reader_justify" = "两端对齐";
+"transcript_reader_scroll_indicator" = "显示滚动条";
+"transcript_reader_justify_footer" = "两端对齐时，每段最后一行以外的行都排满到左右两边。";

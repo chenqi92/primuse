@@ -6620,3 +6620,7 @@
 "spotlight_index_build_now_footer" = "Stay on this page while it builds; after you leave, it continues in the background.";
 "Search Library" = "Search Library";
 "Open Primuse's search with these words." = "Open Primuse's search with these words.";
+"transcript_reader_page_margin" = "Margins";
+"transcript_reader_justify" = "Justify Text";
+"transcript_reader_scroll_indicator" = "Show Scroll Bar";
+"transcript_reader_justify_footer" = "With Justify Text on, every line except the last one in a paragraph runs to both edges.";

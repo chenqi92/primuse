@@ -6860,3 +6860,7 @@
 "spotlight_index_build_now_footer" = "Bleib währenddessen auf dieser Seite; danach geht es im Hintergrund weiter.";
 "Search Library" = "Mediathek durchsuchen";
 "Open Primuse's search with these words." = "Öffnet die Suche in Primuse mit diesen Wörtern.";
+"transcript_reader_page_margin" = "Seitenränder";
+"transcript_reader_justify" = "Blocksatz";
+"transcript_reader_scroll_indicator" = "Scrollleiste anzeigen";
+"transcript_reader_justify_footer" = "Im Blocksatz reicht jede Zeile außer der letzten eines Absatzes bis an beide Ränder.";

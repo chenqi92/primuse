@@ -6766,3 +6766,7 @@
 "spotlight_index_build_now_footer" = "Zostań na tej stronie podczas tworzenia; po jej opuszczeniu praca będzie kontynuowana w tle.";
 "Search Library" = "Szukaj w bibliotece";
 "Open Primuse's search with these words." = "Otwiera wyszukiwanie w Primuse z tymi słowami.";
+"transcript_reader_page_margin" = "Marginesy";
+"transcript_reader_justify" = "Wyjustuj tekst";
+"transcript_reader_scroll_indicator" = "Pokaż pasek przewijania";
+"transcript_reader_justify_footer" = "Przy wyjustowaniu każdy wiersz oprócz ostatniego w akapicie sięga obu krawędzi.";

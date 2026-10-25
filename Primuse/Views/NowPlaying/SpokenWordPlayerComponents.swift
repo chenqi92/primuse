@@ -867,9 +867,19 @@ enum SpokenWordTranscriptReaderPreferences {
     static let textModeKey = "primuse.transcriptReader.textMode"
     /// 双语时译文的字号;0 = 跟着原文,是原文字号的 `followingTranslationScale`。
     static let translationFontSizeKey = "primuse.transcriptReader.translationFontSize"
+    /// 两端对齐(同 Apple 图书):每段最后一行以外的行都排满到左右两边。
+    static let justifiesTextKey = "primuse.transcriptReader.justifiesText"
+    /// 正文左右两边留多宽的白。
+    static let pageMarginKey = "primuse.transcriptReader.pageMargin"
+    /// 右边的滚动条。默认不显示:当阅读器用时整屏只有字。
+    static let showsScrollIndicatorKey = "primuse.transcriptReader.showsScrollIndicator"
     static let followingTranslationScale = 0.85
     static let fontSizeRange: ClosedRange<Double> = 14...36
     static let defaultFontSize = 20.0
+    static let pageMarginRange: ClosedRange<Double> = 8...64
+    static let defaultPageMargin = 24.0
+    /// 页边距是默认值时正文最宽这么宽;边距每宽一点,大屏上这一栏也跟着窄一点。
+    static let defaultColumnMaxWidth: CGFloat = 720
     static let defaultCustomTextHex = "3B3127"
     static let defaultCustomBackgroundHex = "EFE6D5"
     /// 这么久没碰(播放中、暂停着都一样),顶上的关闭与底下的进度、按键收起来。
@@ -1296,6 +1306,12 @@ struct SpokenWordTranscriptReader: View {
     private var textModeRawValue = Policy.TextMode.original.rawValue
     @AppStorage(SpokenWordTranscriptReaderPreferences.translationFontSizeKey)
     private var translationFontSize = 0.0
+    @AppStorage(SpokenWordTranscriptReaderPreferences.justifiesTextKey)
+    private var justifiesText = false
+    @AppStorage(SpokenWordTranscriptReaderPreferences.pageMarginKey)
+    private var pageMargin = SpokenWordTranscriptReaderPreferences.defaultPageMargin
+    @AppStorage(SpokenWordTranscriptReaderPreferences.showsScrollIndicatorKey)
+    private var showsScrollIndicator = false
     @State private var paragraphs: [Policy.Paragraph] = []
     /// 这份文稿有没有哪一行带译文;没有时设置里不给读法,也一直按原文排。
     @State private var hasTranslations = false
@@ -1331,6 +1347,8 @@ struct SpokenWordTranscriptReader: View {
     /// 文稿那一屏的大小与位置,判断点在不在左右两边的点按区(`SpokenWordTranscriptEdgeTapPolicy`)。
     /// 按文稿自己的坐标量:整页跟手横移、下拉时它不变,拖动时不会每帧写一次、整页重算。
     @State private var viewportFrame: CGRect = .zero
+    /// 正文那一栏的宽度,两端对齐时每行排满到这么宽。
+    @State private var columnWidth: CGFloat = 0
     #if os(iOS)
     /// 文稿顶上让出的高度:状态栏藏起来时安全区会变矮(没有刘海的 iPhone、iPad),正文不跟着往上跳,
     /// 一直按出现过的最高那档留。转屏(宽度变了)时重新量。
@@ -1365,6 +1383,14 @@ struct SpokenWordTranscriptReader: View {
     private var size: CGFloat {
         CGFloat(min(max(fontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
                     SpokenWordTranscriptReaderPreferences.fontSizeRange.upperBound))
+    }
+    private var margin: CGFloat {
+        CGFloat(min(max(pageMargin, SpokenWordTranscriptReaderPreferences.pageMarginRange.lowerBound),
+                    SpokenWordTranscriptReaderPreferences.pageMarginRange.upperBound))
+    }
+    private var columnMaxWidth: CGFloat {
+        SpokenWordTranscriptReaderPreferences.defaultColumnMaxWidth
+            - 2 * (margin - CGFloat(SpokenWordTranscriptReaderPreferences.defaultPageMargin))
     }
 
     /// 主题与外观选定的明暗;主题块也按它画。「跟随系统」看 App 本身的深浅:这一页自己定过的深浅
@@ -1452,7 +1478,10 @@ struct SpokenWordTranscriptReader: View {
                 colorScheme: appearanceScheme,
                 offsetSong: player.currentSong,
                 textModeRawValue: hasTranslations ? $textModeRawValue : nil,
-                translationFontSize: $translationFontSize
+                translationFontSize: $translationFontSize,
+                justifiesText: $justifiesText,
+                pageMargin: $pageMargin,
+                showsScrollIndicator: $showsScrollIndicator
             )
             #if os(iOS)
             .presentationDetents([.medium, .large])
@@ -1578,9 +1607,14 @@ struct SpokenWordTranscriptReader: View {
                     }
                 }
             }
-            .frame(maxWidth: 720, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                columnWidth = width
+            }
+            .frame(maxWidth: columnMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, margin)
             .padding(.top, topPadding)
             // 底下的进度、时间与一排键比原来高,最后一段也要能滚到它们上面。
             .padding(.bottom, 190)
@@ -1591,6 +1625,7 @@ struct SpokenWordTranscriptReader: View {
                     .onTapGesture { toggleChrome() }
             }
         }
+        .scrollIndicators(showsScrollIndicator ? .automatic : .hidden)
         .scrollDismissesKeyboard(.interactively)
         // 点按位置按这一屏自己的坐标量(原来按窗口):整页跟手横移、下拉时窗口坐标每帧都在变。
         .coordinateSpace(.named(Self.viewportSpace))
@@ -1648,6 +1683,7 @@ struct SpokenWordTranscriptReader: View {
             translationFont: font.font(size: translationSize, weight: fontWeight, isAvailable: isAvailable),
             lineSpacing: lineSpacing.lineSpacing(fontSize: size),
             translationLineSpacing: lineSpacing.lineSpacing(fontSize: translationSize),
+            justifiedWidth: justifiesText && columnWidth > 0 ? columnWidth : nil,
             palette: palette
         )
     }
@@ -2585,6 +2621,8 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
         var translationFont: Font
         var lineSpacing: CGFloat
         var translationLineSpacing: CGFloat
+        /// 两端对齐时那一栏的宽度;nil 是左对齐。
+        var justifiedWidth: CGFloat?
         var palette: SpokenWordTranscriptPalette
     }
 
@@ -2599,6 +2637,7 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
             Text(attributedText)
                 .font(paragraph.isHeading ? style.headingFont : style.font)
                 .lineSpacing(style.lineSpacing)
+                .modifier(SpokenWordTranscriptJustification(width: justifiedWidth, text: paragraph.text))
                 .frame(maxWidth: .infinity, alignment: .leading)
             // 双语:这一段的译文排在原文下面,字小一号、颜色淡一档(#320)。
             if let translation = paragraph.translation {
@@ -2606,6 +2645,7 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
                     .font(style.translationFont)
                     .lineSpacing(style.translationLineSpacing)
                     .foregroundStyle(translationColor)
+                    .modifier(SpokenWordTranscriptJustification(width: justifiedWidth, text: translation))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -2614,6 +2654,11 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(paragraph.isHeading ? .isHeader : [])
         .animation(.easeInOut(duration: 0.25), value: emphasis)
+    }
+
+    /// 章节名不摊开。搜到的段也照常排:命中处的底色是跟着整行画的,一个字一个字挪开画时不一定跟着走。
+    private var justifiedWidth: CGFloat? {
+        paragraph.isHeading || !matches.isEmpty ? nil : style.justifiedWidth
     }
 
     /// 正在念的段(和没在播时)译文比原文淡一些;别的段跟原文一样压暗。
@@ -2663,6 +2708,133 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
         let lower = characters.index(characters.startIndex, offsetBy: offsets.lowerBound)
         let upper = characters.index(lower, offsetBy: offsets.count)
         return lower..<upper
+    }
+}
+
+/// 有栏宽时给这段字套上两端对齐的画法;没有时照常左对齐。
+private struct SpokenWordTranscriptJustification: ViewModifier {
+    let width: CGFloat?
+    let text: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let width {
+            content.textRenderer(SpokenWordTranscriptJustifiedRenderer(width: width, units: Array(text.utf16)))
+        } else {
+            content
+        }
+    }
+}
+
+/// 两端对齐(同 Apple 图书)。`Text` 只有居左、居中、居右,这里在画的时候把每一行(段末那行和换行前那行除外)
+/// 差的宽度摊开:挨着汉字、假名的字缝各摊一份,西文摊在空格上,一行里只有一个长单词时才摊进字母之间。
+/// 只挪字的位置不改折行,段落高度不变。
+private struct SpokenWordTranscriptJustifiedRenderer: TextRenderer {
+    /// 这一栏的宽度,每行排满到这么宽。
+    let width: CGFloat
+    /// 这段字的 UTF-16,按字形对应的位置认空格、汉字与换行。
+    let units: [UInt16]
+
+    /// 差得比这还多的行不摊开(多半是换行前的短行),摊开了字稀得没法读。
+    private static let maximumStretchRatio: CGFloat = 0.3
+
+    private enum Kind { case space, ideograph, lineBreak, other }
+
+    private struct Glyph {
+        let slice: Text.Layout.RunSlice
+        let bounds: CGRect
+        let kind: Kind
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, text: TextProxy) -> CGSize {
+        // 字框占满整栏:摊开后的行画到栏的右沿,不能落到字框外面。
+        let size = text.sizeThatFits(proposal)
+        guard let proposed = proposal.width, proposed.isFinite else { return size }
+        return CGSize(width: max(size.width, proposed), height: size.height)
+    }
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        // 字形对应的位置从这段字的第一个字算起。
+        let base = layout.lazy.flatMap { $0 }.flatMap(\.characterIndices).min()
+        for (index, line) in layout.enumerated() {
+            guard index < layout.count - 1,
+                  let base,
+                  let glyphs = justifiedGlyphs(in: line, base: base) else {
+                context.draw(line)
+                continue
+            }
+            for (slice, offset) in glyphs {
+                var shifted = context
+                shifted.translateBy(x: offset, y: 0)
+                shifted.draw(slice)
+            }
+        }
+    }
+
+    /// 这一行每个字形往右挪多少;不该摊开的行返回 nil。
+    private func justifiedGlyphs(
+        in line: Text.Layout.Line,
+        base: Text.Layout.CharacterIndex
+    ) -> [(Text.Layout.RunSlice, CGFloat)]? {
+        var glyphs: [Glyph] = []
+        var lastCharacter = 0
+        for run in line {
+            for slice in run {
+                let offsets = slice.characterIndices.map { base.distance(to: $0) }
+                let glyphKind = offsets.first.map(characterKind(at:)) ?? .other
+                guard glyphKind != .lineBreak else { return nil }
+                lastCharacter = max(lastCharacter, offsets.max() ?? 0)
+                glyphs.append(Glyph(slice: slice, bounds: slice.typographicBounds.rect, kind: glyphKind))
+            }
+        }
+        // 下一个字是换行:这一行是这一小段的最后一行。
+        if characterKind(at: lastCharacter + 1) == .lineBreak { return nil }
+
+        glyphs.sort { $0.bounds.minX < $1.bounds.minX }
+        guard let first = glyphs.firstIndex(where: { $0.kind != .space }),
+              let last = glyphs.lastIndex(where: { $0.kind != .space }),
+              first < last else { return nil }
+        let left = glyphs[first].bounds.minX
+        let extra = width - (glyphs[last].bounds.maxX - left)
+        guard extra > 0.5, extra <= width * Self.maximumStretchRatio else { return nil }
+
+        var weights = (first..<last).map { Self.weight(glyphs[$0].kind, glyphs[$0 + 1].kind) }
+        if weights.allSatisfy({ $0 == 0 }) {
+            weights = Array(repeating: 1, count: weights.count)
+        }
+        let total = weights.reduce(0, +)
+
+        var offset = -left
+        return glyphs.indices.map { index in
+            if index > first, index <= last {
+                offset += extra * weights[index - first - 1] / total
+            }
+            return (glyphs[index].slice, offset)
+        }
+    }
+
+    /// 两个相邻字形之间这道缝分多少。空格两边的缝都分;挨着汉字的缝分;西文单词里的字母之间不分。
+    private static func weight(_ lhs: Kind, _ rhs: Kind) -> CGFloat {
+        if lhs == .space || rhs == .space { return 1 }
+        if lhs == .ideograph || rhs == .ideograph { return 1 }
+        return 0
+    }
+
+    private func characterKind(at offset: Int) -> Kind {
+        guard units.indices.contains(offset) else { return .other }
+        switch units[offset] {
+        case 0x0A, 0x0D, 0x2028, 0x2029:
+            return .lineBreak
+        case 0x09, 0x20, 0xA0, 0x3000:
+            return .space
+        case 0x2E80...0x2FFF, 0x3001...0x303F, 0x3040...0x30FF, 0x3100...0x312F, 0x31F0...0x31FF,
+             0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0xFF00...0xFFEF,
+             // 扩展区的汉字是一对代理项,前一半落在这一段。
+             0xD840...0xD87F:
+            return .ideograph
+        default:
+            return .other
+        }
     }
 }
 
@@ -2792,6 +2964,9 @@ struct SpokenWordTranscriptTypographyPanel: View {
     var textModeRawValue: Binding<String>? = nil
     /// 双语时译文的字号,0 = 跟着原文。
     @Binding var translationFontSize: Double
+    @Binding var justifiesText: Bool
+    @Binding var pageMargin: Double
+    @Binding var showsScrollIndicator: Bool
 
     @Environment(\.dismiss) private var dismiss
     /// 「自定义」下面两个取色器改的是哪一套;打开时对准文稿此刻用的那一套。
@@ -2880,6 +3055,20 @@ struct SpokenWordTranscriptTypographyPanel: View {
                 }
                 Section("transcript_paragraph_spacing") {
                     spacingPicker("transcript_paragraph_spacing", selection: $paragraphSpacingRawValue)
+                }
+                Section("transcript_reader_page_margin") {
+                    Slider(
+                        value: $pageMargin,
+                        in: SpokenWordTranscriptReaderPreferences.pageMarginRange,
+                        step: 4
+                    )
+                    .accessibilityLabel(Text("transcript_reader_page_margin"))
+                }
+                Section {
+                    Toggle("transcript_reader_justify", isOn: $justifiesText)
+                    Toggle("transcript_reader_scroll_indicator", isOn: $showsScrollIndicator)
+                } footer: {
+                    Text("transcript_reader_justify_footer")
                 }
                 Section {
                     Picker("transcript_reader_paragraphs", selection: $paragraphModeRawValue) {

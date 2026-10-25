@@ -6766,3 +6766,7 @@
 "spotlight_index_build_now_footer" = "बनते समय इसी पेज पर रहें; पेज छोड़ने के बाद यह बैकग्राउंड में जारी रहेगा।";
 "Search Library" = "लाइब्रेरी में खोजें";
 "Open Primuse's search with these words." = "इन शब्दों के साथ Primuse की खोज खोलता है।";
+"transcript_reader_page_margin" = "हाशिये";
+"transcript_reader_justify" = "टेक्स्ट दोनों ओर संरेखित करें";
+"transcript_reader_scroll_indicator" = "स्क्रॉल बार दिखाएँ";
+"transcript_reader_justify_footer" = "दोनों ओर संरेखण में, अनुच्छेद की अंतिम पंक्ति को छोड़कर हर पंक्ति दोनों किनारों तक जाती है।";

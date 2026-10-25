@@ -6766,3 +6766,7 @@
 "spotlight_index_build_now_footer" = "Fique nesta página enquanto cria; ao sair, continua em segundo plano.";
 "Search Library" = "Buscar na biblioteca";
 "Open Primuse's search with these words." = "Abre a busca do Primuse com estas palavras.";
+"transcript_reader_page_margin" = "Margens";
+"transcript_reader_justify" = "Justificar texto";
+"transcript_reader_scroll_indicator" = "Mostrar barra de rolagem";
+"transcript_reader_justify_footer" = "Com o texto justificado, todas as linhas, exceto a última de cada parágrafo, vão até as duas margens.";

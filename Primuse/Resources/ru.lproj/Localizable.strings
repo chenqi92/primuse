@@ -6766,3 +6766,7 @@
 "spotlight_index_build_now_footer" = "Оставайтесь на этой странице, пока идёт создание; после ухода оно продолжится в фоне.";
 "Search Library" = "Поиск в медиатеке";
 "Open Primuse's search with these words." = "Открывает поиск Primuse с этими словами.";
+"transcript_reader_page_margin" = "Поля";
+"transcript_reader_justify" = "Выравнивание по ширине";
+"transcript_reader_scroll_indicator" = "Показывать полосу прокрутки";
+"transcript_reader_justify_footer" = "При выравнивании по ширине каждая строка, кроме последней в абзаце, доходит до обоих краёв.";
