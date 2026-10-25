@@ -37,6 +37,36 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// iPhone 端队列是否因超过 payload 上限被截断 (只推了前若干首)。
     var queueTruncated: Bool = false
 
+    // MARK: 「更多」页与播放键
+
+    /// 这首能不能标喜欢 (曲库里的歌、播客单集), 和锁屏那颗心同一口径。
+    var canLike: Bool = false
+    var isLiked: Bool = false
+    /// 音乐才有播放方式; 电台和有声内容没有。
+    var offersPlaybackModes: Bool = false
+    var playbackMode: WatchPlaybackMode = .sequential
+    /// 队列不到两首时随机打不开, 轮换时跳过。
+    var allowsShuffle: Bool = false
+    /// 有声内容的快进快退秒数; 0 表示是音乐, 显示上一首 / 下一首。
+    var skipBackwardSeconds: Int = 0
+    var skipForwardSeconds: Int = 0
+    var skipBackwardSymbol: String = "gobackward.15"
+    var skipForwardSymbol: String = "goforward.30"
+    /// 电台收藏不止一台时, 上一首 / 下一首就是换台。
+    var canSwitchStation: Bool = false
+    /// 这首有没有歌词 (间奏时 currentLyric 也是空的, 靠它区分)。
+    var hasLyrics: Bool = false
+    var nextLyric: String = ""
+    /// iPhone 现在把声音放到哪。kind: iphone / headphones / bluetooth / airplay / car / display / cast / other。
+    var outputName: String = ""
+    var outputKind: String = ""
+    /// 主色够亮时播放键上的图标改用深色, 不然白色主题下白底白字。
+    var accentIsLight: Bool = false
+
+    var usesSkipIntervals: Bool { skipBackwardSeconds > 0 && skipForwardSeconds > 0 }
+    /// 上一首 / 下一首两颗键在不在: 音乐和有声内容都在, 电台只有能换台时在。
+    var showsSideTransport: Bool { !isLiveStream || canSwitchStation }
+
     /// 队列被截断时的提示文案 (例如「仅显示前 300 首, 共 412 首」), 未截断返回 nil。
     /// UI 可直接绑定此属性在列表顶部给出说明, 避免用户误以为队列只有这么多。
     var queueTruncationNotice: String? {
@@ -55,12 +85,23 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// 同理: 用户最近一次主动 seek 的时刻。1 秒内 iPhone 推过来的 currentTime
     /// 如果偏离乐观值 >2s 视为 stale, 忽略。
     private var lastUserSeekAt: Date = .distantPast
+    /// 喜欢和播放方式同样先改本地, 窗口期内不让在途的旧状态改回去。
+    private var lastUserLikeAt: Date = .distantPast
+    private var lastUserModeAt: Date = .distantPast
+    #if DEBUG
+    /// 截图用的演示数据 (启动环境变量 PRIMUSE_WATCH_DEMO), 开着时不让真实连接状态覆盖。
+    private(set) var isDemo = false
+    /// PRIMUSE_WATCH_DEMO_SCREEN: 启动后直接打开的那一页 (queue / options / seek)。
+    private(set) var demoScreen = ""
+    #endif
 
-    /// 上次写给 Complication 的四元组 ── Complication 只显示
-    /// (songID, title, artist, isPlaying), 跟歌词 / 进度等无关。缓存它,
-    /// 仅当其中任一字段变化时才 write + reload timeline, 避免播放有歌词的歌
+    /// 上次写给 Complication 的曲目与播放状态 ── 表盘跟歌词无关, 进度圈自己走。
+    /// 缓存它, 仅当其中任一字段变化时才 write + reload timeline, 避免播放有歌词的歌
     /// 时每隔几秒的歌词行推送都触发一次 reload, 耗尽 watchOS 每日刷新预算。
     private var lastComplicationKey: ComplicationKey?
+    /// 上次写给表盘的「这首从哪一刻开始放」(播放中) 或「停在第几秒」(暂停)。
+    /// 表盘的进度圈自己走, 只有拖了进度、偏差超过几秒才需要重写。
+    private var lastComplicationPosition: TimeInterval?
 
     private let session: WCSession?
 
@@ -71,6 +112,15 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             session = nil
         }
         super.init()
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        if let demo = environment["PRIMUSE_WATCH_DEMO"] {
+            demoScreen = environment["PRIMUSE_WATCH_DEMO_SCREEN"] ?? ""
+            applyDemo(demo)
+            startTicker()
+            return
+        }
+        #endif
         session?.delegate = self
         session?.activate()
         startTicker()
@@ -140,11 +190,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
     func next() {
-        guard !isLiveStream else { return }
+        guard showsSideTransport else { return }
         send(["command": "next"])
     }
     func previous() {
-        guard !isLiveStream else { return }
+        guard showsSideTransport else { return }
         send(["command": "previous"])
     }
     func seek(to time: TimeInterval) {
@@ -153,6 +203,26 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             requestCurrentState()
             return
         }
+        let rollback = moveOptimistically(to: time)
+        send(["command": "seek", "time": currentTime], rollback: rollback)
+    }
+
+    /// 有声内容的快退 / 快进。iPhone 按同一套规则落点, 回推后对齐。
+    func skipBackward() { skip(by: -skipBackwardSeconds, command: "skipBackward") }
+    func skipForward() { skip(by: skipForwardSeconds, command: "skipForward") }
+
+    private func skip(by seconds: Int, command: String) {
+        guard usesSkipIntervals, !isLiveStream else { return }
+        guard canSendRealtimeCommand else {
+            requestCurrentState()
+            return
+        }
+        let rollback = moveOptimistically(to: currentTime + TimeInterval(seconds))
+        send(["command": command], rollback: rollback)
+    }
+
+    /// 先把本地进度挪过去, 返回发送失败时的还原。
+    private func moveOptimistically(to time: TimeInterval) -> @MainActor @Sendable () -> Void {
         let previousTime = currentTime
         let previousSentTime = sentCurrentTime
         let previousAnchor = sentTimeAnchor
@@ -161,11 +231,42 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         currentTime = clamped
         sentCurrentTime = clamped
         sentTimeAnchor = Date().timeIntervalSince1970
-        send(["command": "seek", "time": clamped]) { [weak self] in
+        return { [weak self] in
             guard let self else { return }
             self.currentTime = previousTime
             self.sentCurrentTime = previousSentTime
             self.sentTimeAnchor = previousAnchor
+        }
+    }
+
+    /// 发「设成喜欢 / 取消」而不是「切换」, 重发也不会改回去; 带上 songID, 期间换歌 iPhone 就不动。
+    func setLiked(_ liked: Bool) {
+        guard canLike else { return }
+        guard canSendRealtimeCommand else {
+            requestCurrentState()
+            return
+        }
+        let previous = isLiked
+        isLiked = liked
+        lastUserLikeAt = Date()
+        send(["command": "setLiked", "liked": liked, "songID": songID]) { [weak self] in
+            self?.isLiked = previous
+        }
+    }
+
+    /// 和 iPhone 队列页「播放方式」键一样轮换: 顺序 → 列表循环 → 单曲循环 → 随机。
+    func cyclePlaybackMode() {
+        guard offersPlaybackModes else { return }
+        guard canSendRealtimeCommand else {
+            requestCurrentState()
+            return
+        }
+        let previous = playbackMode
+        let target = playbackMode.next(allowsShuffle: allowsShuffle)
+        playbackMode = target
+        lastUserModeAt = Date()
+        send(["command": "setPlaybackMode", "mode": target.rawValue]) { [weak self] in
+            self?.playbackMode = previous
         }
     }
     func requestCurrentState() { send(["command": "requestState"]) }
@@ -228,7 +329,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
                              error: Error?) {
         let reachable = session.isReachable
         Task { @MainActor in
-            self.isReachable = reachable
+            self.setReachable(reachable)
             // 启动后立刻问 iPhone 拿一次最新状态。
             self.requestCurrentState()
         }
@@ -291,14 +392,24 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         let reachable = session.isReachable
         Task { @MainActor in
-            self.isReachable = reachable
+            self.setReachable(reachable)
             // 跟 iPhone 重新接通, 主动拉一次最新状态。
             if reachable { self.requestCurrentState() }
         }
     }
 
+    private func setReachable(_ reachable: Bool) {
+        #if DEBUG
+        if isDemo { return }
+        #endif
+        isReachable = reachable
+    }
+
     @MainActor
     private func applyContext(_ snap: ContextSnapshot, cover: Data?) {
+        #if DEBUG
+        if isDemo { return }
+        #endif
         let now = Date()
         let songChanged = snap.songID != songID
         // 换歌跨越乐观窗口 ── 用户操作前后是不同曲目, 一切重新跟随 iPhone。
@@ -306,6 +417,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             coverImage = nil
             lastUserToggleAt = .distantPast
             lastUserSeekAt = .distantPast
+            lastUserLikeAt = .distantPast
+            lastUserModeAt = .distantPast
         }
 
         songID = snap.songID
@@ -317,7 +430,29 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         duration = snap.duration
         queueCount = snap.queueCount
         currentLyric = snap.currentLyric
+        nextLyric = snap.nextLyric
+        hasLyrics = snap.hasLyrics
         accent = Color(red: snap.accentR, green: snap.accentG, blue: snap.accentB)
+        accentIsLight = Self.isLight(r: snap.accentR, g: snap.accentG, b: snap.accentB)
+        canLike = snap.canLike
+        offersPlaybackModes = snap.offersPlaybackModes
+        allowsShuffle = snap.allowsShuffle
+        skipBackwardSeconds = snap.skipBackwardSeconds
+        skipForwardSeconds = snap.skipForwardSeconds
+        if !snap.skipBackwardSymbol.isEmpty { skipBackwardSymbol = snap.skipBackwardSymbol }
+        if !snap.skipForwardSymbol.isEmpty { skipForwardSymbol = snap.skipForwardSymbol }
+        canSwitchStation = snap.canSwitchStation
+        outputName = snap.outputName
+        outputKind = snap.outputKind
+
+        // 喜欢偶尔要等 iPhone 曲库就绪才落地, 窗口放宽到 1.5 秒。
+        if !(now.timeIntervalSince(lastUserLikeAt) < 1.5 && snap.isLiked != isLiked) {
+            isLiked = snap.isLiked
+        }
+        let snapMode = WatchPlaybackMode(rawValue: snap.playbackMode) ?? .sequential
+        if !(now.timeIntervalSince(lastUserModeAt) < 1.5 && snapMode != playbackMode) {
+            playbackMode = snapMode
+        }
 
         // isPlaying 在 toggle 窗口期内拒绝矛盾值 ── 等 iPhone 处理完命令
         // 真实状态自然推过来, 否则会 stale 消息覆盖乐观值后又被纠正, 看到
@@ -336,42 +471,123 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             currentTime = snap.currentTime
         }
 
+        var coverChanged = false
         if let cover {
             if cover.isEmpty {
                 coverImage = nil
+                coverChanged = true
             } else if let img = UIImage(data: cover) {
                 coverImage = img
+                coverChanged = true
             }
         }
 
         // 同步给表盘 Complication ── 写共享 UserDefaults + reload timeline。
-        // Complication 只显示 (songID, title, artist, isPlaying), 仅当这四个
-        // 字段任一变化时才写 + reload; 歌词 / 进度等无关字段的频繁推送不触发,
-        // 避免耗尽 watchOS 每日刷新预算。reloadTimelines(ofKind:) 只刷本
-        // Complication, 比 reloadAllTimelines 范围更小。
+        // 只在表盘显示的东西变了才写 + reload (曲目、播放状态、时长、封面, 以及拖进度
+        // 造成的位置跳变); 歌词等无关字段的频繁推送不触发, 避免耗尽 watchOS 每日刷新预算。
+        // reloadTimelines(ofKind:) 只刷本 Complication, 比 reloadAllTimelines 范围更小。
         // 当 App Group 没在 dev portal 配好时, UserDefaults(suiteName:) 会
         // 返回 nil, write 内部静默失败, 不影响 watch app 主体功能。
         let complicationKey = ComplicationKey(
             songID: songID, title: title, artist: artist,
-            isPlaying: isPlaying, isLiveStream: isLiveStream
+            isPlaying: isPlaying, isLiveStream: isLiveStream,
+            durationSeconds: Int(duration.rounded())
         )
-        if complicationKey != lastComplicationKey {
+        let position = isPlaying
+            ? Date().timeIntervalSince1970 - currentTime
+            : currentTime
+        let positionJumped = lastComplicationPosition.map { abs($0 - position) > 3 } ?? true
+        if coverChanged {
+            SharedNowPlayingState.writeCover(cover, songID: songID)
+        }
+        if complicationKey != lastComplicationKey || positionJumped || coverChanged {
             lastComplicationKey = complicationKey
+            lastComplicationPosition = position
             SharedNowPlayingState.write(
                 songID: songID, title: title, artist: artist,
-                isPlaying: isPlaying, isLiveStream: isLiveStream
+                isPlaying: isPlaying, isLiveStream: isLiveStream,
+                duration: duration, elapsed: currentTime,
+                accent: (snap.accentR, snap.accentG, snap.accentB)
             )
             WidgetCenter.shared.reloadTimelines(ofKind: SharedNowPlayingState.widgetKind)
         }
     }
 
-    /// Complication 关心的四元组 ── 用来去重重复推送, 只有它变了才刷新表盘。
+    /// Complication 关心的字段 ── 用来去重重复推送, 只有它变了才刷新表盘。
     private struct ComplicationKey: Equatable {
         let songID: String
         let title: String
         let artist: String
         let isPlaying: Bool
         let isLiveStream: Bool
+        let durationSeconds: Int
+    }
+
+    /// 相对亮度超过 0.6 就算浅色 (sRGB 近似, 够用来挑图标颜色)。
+    static func isLight(r: Double, g: Double, b: Double) -> Bool {
+        0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6
+    }
+
+    /// 声音输出到哪的图标。AirPods 一类按系统给的设备名再细分。
+    var outputSymbol: String {
+        let name = outputName.lowercased()
+        switch outputKind {
+        case "iphone": return "iphone"
+        case "headphones": return "headphones"
+        case "bluetooth":
+            if name.contains("airpods max") { return "airpodsmax" }
+            if name.contains("airpods pro") { return "airpodspro" }
+            if name.contains("airpods") { return "airpods" }
+            if name.contains("beats") { return "beats.headphones" }
+            return "headphones"
+        case "airplay": return name.contains("homepod") ? "homepod.fill" : "airplayaudio"
+        case "car": return "car.fill"
+        case "display": return "tv"
+        case "cast": return "tv.and.hifispeaker.fill"
+        default: return "speaker.wave.2.fill"
+        }
+    }
+
+    /// iPhone 自己的扬声器显示成「iPhone」, 其余用系统给的设备名。
+    var outputDisplayName: String {
+        if outputKind == "iphone" || outputName.isEmpty { return "iPhone" }
+        return outputName
+    }
+}
+
+/// iPhone 队列页「播放方式」那四种, 原始值与 PrimuseKit `PlaybackOrderMode` 一致
+/// (手表不编 PrimuseKit, 这里照抄一份轮换顺序)。
+enum WatchPlaybackMode: String, CaseIterable, Sendable {
+    case sequential
+    case repeatAll
+    case repeatOne
+    case shuffle
+
+    func next(allowsShuffle: Bool) -> WatchPlaybackMode {
+        let order = Self.allCases
+        var index = order.firstIndex(of: self) ?? 0
+        repeat {
+            index = (index + 1) % order.count
+        } while order[index] == .shuffle && !allowsShuffle
+        return order[index]
+    }
+
+    var symbolName: String {
+        switch self {
+        case .sequential: "list.number"
+        case .repeatAll: "repeat"
+        case .repeatOne: "repeat.1"
+        case .shuffle: "shuffle"
+        }
+    }
+
+    var titleKey: String {
+        switch self {
+        case .sequential: "ext.watch.mode.sequential"
+        case .repeatAll: "ext.watch.mode.repeatAll"
+        case .repeatOne: "ext.watch.mode.repeatOne"
+        case .shuffle: "ext.watch.mode.shuffle"
+        }
     }
 }
 
@@ -401,6 +617,20 @@ struct ContextSnapshot: Sendable {
     let accentR: Double
     let accentG: Double
     let accentB: Double
+    let canLike: Bool
+    let isLiked: Bool
+    let offersPlaybackModes: Bool
+    let playbackMode: String
+    let allowsShuffle: Bool
+    let skipBackwardSeconds: Int
+    let skipForwardSeconds: Int
+    let skipBackwardSymbol: String
+    let skipForwardSymbol: String
+    let canSwitchStation: Bool
+    let hasLyrics: Bool
+    let nextLyric: String
+    let outputName: String
+    let outputKind: String
 
     init(_ ctx: [String: Any]) {
         songID = ctx["songID"] as? String ?? ""
@@ -418,5 +648,105 @@ struct ContextSnapshot: Sendable {
         accentR = ctx["accentR"] as? Double ?? 0.078
         accentG = ctx["accentG"] as? Double ?? 0.490
         accentB = ctx["accentB"] as? Double ?? 0.541
+        // 以下是后加的键, 旧版 iPhone 不带时按「没有这项」处理。
+        canLike = ctx["canLike"] as? Bool ?? false
+        isLiked = ctx["isLiked"] as? Bool ?? false
+        offersPlaybackModes = ctx["offersPlaybackModes"] as? Bool ?? false
+        playbackMode = ctx["playbackMode"] as? String ?? ""
+        allowsShuffle = ctx["allowsShuffle"] as? Bool ?? false
+        skipBackwardSeconds = ctx["skipBackwardSeconds"] as? Int ?? 0
+        skipForwardSeconds = ctx["skipForwardSeconds"] as? Int ?? 0
+        skipBackwardSymbol = ctx["skipBackwardSymbol"] as? String ?? ""
+        skipForwardSymbol = ctx["skipForwardSymbol"] as? String ?? ""
+        canSwitchStation = ctx["canSwitchStation"] as? Bool ?? false
+        // 旧版 iPhone 不报这项: 有当前行就当作有歌词。
+        hasLyrics = ctx["hasLyrics"] as? Bool ?? !currentLyric.isEmpty
+        nextLyric = ctx["nextLyric"] as? String ?? ""
+        outputName = ctx["outputName"] as? String ?? ""
+        outputKind = ctx["outputKind"] as? String ?? ""
     }
 }
+
+#if DEBUG
+extension WatchPlayerStore {
+    /// 截图用的演示状态: PRIMUSE_WATCH_DEMO = music / lyrics / audiobook / radio / offline / empty。
+    /// 不连 iPhone, 不发任何命令以外的消息 (按键照常走 send, 模拟器里没有配对的 iPhone 就丢掉)。
+    fileprivate func applyDemo(_ kind: String) {
+        isDemo = true
+        isReachable = kind != "offline"
+        guard kind != "empty", kind != "offline" else { return }
+
+        songID = "demo-current"
+        isPlaying = true
+        accent = Color(red: 0.86, green: 0.36, blue: 0.42)
+        outputKind = "bluetooth"
+        outputName = "AirPods Pro"
+        queue = (1...14).map { index in
+            WatchLibrarySong(
+                id: index == 4 ? "demo-current" : "demo-\(index)",
+                title: index == 4 ? "Midnight City Lights" : "Demo Track \(index)",
+                artist: "Demo Artist"
+            )
+        }
+        queueTotalCount = queue.count
+
+        switch kind {
+        case "audiobook":
+            title = "Chapter 3: The Long Road Home"
+            artist = "Demo Narrator"
+            duration = 3_725
+            sentCurrentTime = 1_284
+            skipBackwardSeconds = 15
+            skipForwardSeconds = 30
+            skipBackwardSymbol = "gobackward.15"
+            skipForwardSymbol = "goforward.30"
+            canLike = false
+        case "radio":
+            title = "Demo FM 101.7"
+            artist = ""
+            isLiveStream = true
+            canSwitchStation = true
+            sentCurrentTime = 312
+        default:
+            title = "Midnight City Lights"
+            artist = "Demo Artist"
+            duration = 241
+            sentCurrentTime = 87
+            canLike = true
+            isLiked = true
+            offersPlaybackModes = true
+            playbackMode = .repeatAll
+            allowsShuffle = true
+            hasLyrics = true
+            currentLyric = "Every street light hums along with the song we never wrote"
+            nextLyric = "And the city keeps the time for us"
+            if kind == "lyrics" {
+                UserDefaults.standard.set(true, forKey: "watch.nowPlaying.showsLyrics")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "watch.nowPlaying.showsLyrics")
+            }
+        }
+        currentTime = sentCurrentTime
+        sentTimeAnchor = Date().timeIntervalSince1970
+        coverImage = Self.demoCover(accent: accent)
+    }
+
+    private static func demoCover(accent: Color) -> UIImage? {
+        let renderer = ImageRenderer(content:
+            ZStack {
+                LinearGradient(
+                    colors: [accent, Color(red: 0.18, green: 0.12, blue: 0.35)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "music.note")
+                    .font(.system(size: 60, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .frame(width: 160, height: 160)
+        )
+        renderer.scale = 2
+        return renderer.uiImage
+    }
+}
+#endif

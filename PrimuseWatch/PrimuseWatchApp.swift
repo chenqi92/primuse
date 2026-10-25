@@ -6,16 +6,11 @@ struct PrimuseWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // 左右横滑分页 ── 第一页 Now Playing, 第二页播放队列。竖向分页要先把
-            // 队列滚回顶部才能翻回正在播放; 横滑在队列任意位置都能一下回去,
-            // 表冠和上下滑动也都留给页内的滚动与进度调节。
-            TabView {
+            // 正在播放是根页面, 一屏放下封面和播放键: 播放列表从左上角推进去, 更多选项从
+            // 右上角弹出。不再横滑分页: 分页圆点压在播放键上, 表冠也要留给 iPhone 音量。
+            NavigationStack {
                 NowPlayingWatchView()
-                if !store.isLiveStream {
-                    LibraryWatchView()
-                }
             }
-            .tabViewStyle(.page)
             .environment(store)
         }
     }

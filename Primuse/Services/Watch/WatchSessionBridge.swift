@@ -1,6 +1,7 @@
 // WatchConnectivity 在 macOS 上不可用, 整个文件 iOS-only。macOS 端的
 // Mac app 没有 Watch 伴侣关系 ── Watch app 跟 Mac 桌面端不配对。
 #if os(iOS)
+import AVFoundation
 import Foundation
 import Observation
 import UIKit
@@ -46,6 +47,13 @@ final class WatchSessionBridge: NSObject {
     /// Quantized RGB of the last delivered artwork accent. Cover extraction is
     /// asynchronous, so the color can change after the first state for a song.
     private var lastPushedAccentSignature: UInt32?
+    /// 手表「更多」页与播放键用的其余状态(喜欢、播放方式、有声书快进快退、
+    /// 下一句歌词、声音输出到哪)。任一项变了就再推一次。
+    private var lastPushedExtras: WatchStateExtras?
+    /// iPhone 现在的声音输出。读 currentRoute 要问一次音频会话, 不放进 0.5s 的
+    /// tick 里反复读, 只在线路变化时刷新。
+    private var cachedOutput = WatchOutputRoute(name: "", kind: "")
+    private var routeChangeObserver: NSObjectProtocol?
     /// 最近一次成功推送的封面 songID。换歌后 cover 推送一次就够。
     private var lastSentCoverSongID: String?
     /// 最近一次编码好的封面 JPEG + 其 songID。watch 不可达走 applicationContext
@@ -83,6 +91,19 @@ final class WatchSessionBridge: NSObject {
         super.init()
         session?.delegate = self
         session?.activate()
+        cachedOutput = Self.readOutputRoute()
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.cachedOutput = Self.readOutputRoute()
+                // 暂停时 ticker 挂着, 戴上或摘下耳机要在这里补推一次。
+                self.pushIfMeaningfulChange()
+            }
+        }
     }
 
     /// App 启动时调用 ── 注入依赖；只有已安装 Watch app 时才保留 ticker。
@@ -164,6 +185,10 @@ final class WatchSessionBridge: NSObject {
                 // queueEntries 的任何改动 (含重排) 都会触发, 暂停时改队列
                 // 也能把新快照推到 watch。
                 _ = player.queueCount
+                _ = player.shuffleEnabled
+                _ = player.repeatMode
+                // 在 iPhone 上点了喜欢, 手表上的心也要跟着变。
+                _ = self.likeState(for: player.currentSong)
                 // 封面主色是异步提取的: 暂停时换歌, 颜色可能比状态晚到,
                 // 这里跟一下免得 watch 停在上一首的主色。
                 _ = theme?.accentColor
@@ -190,6 +215,7 @@ final class WatchSessionBridge: NSObject {
         let artist = song.flatMap { library?.artistDisplayName(for: $0) } ?? ""
         let lyric = isLiveStream ? "" : currentLyricLine(song: song, time: player.currentTime)
         let accentSignature = currentAccentSignature()
+        let extras = currentExtras(song: song, time: player.currentTime)
 
         let songChanged = songID != lastPushedSongID
         let stateChanged = force
@@ -201,6 +227,7 @@ final class WatchSessionBridge: NSObject {
             || artist != lastPushedArtist
             || lyric != lastPushedLyric
             || accentSignature != lastPushedAccentSignature
+            || extras != lastPushedExtras
 
         if !stateChanged { return }
 
@@ -216,6 +243,7 @@ final class WatchSessionBridge: NSObject {
         lastPushedArtist = artist
         lastPushedLyric = lyric
         lastPushedAccentSignature = accentSignature
+        lastPushedExtras = extras
 
         // 封面带不带取决于 watch 是否已经拿到这首的封面 ── 用
         // lastSentCoverSongID 而不是 songChanged 判断: watch 冷启动 / 重连后发
@@ -293,9 +321,10 @@ final class WatchSessionBridge: NSObject {
     private func stateScalars(song: Song?, isPlaying: Bool, isLoading: Bool,
                               lyric: String) -> [String: Any] {
         let (r, g, b) = currentAccentRGB()
+        let extras = currentExtras(song: song, time: player?.currentTime ?? 0)
         // currentTimeAnchor 用 Date() (推送时刻), 不用 player 内部 anchor ──
         // player anchor 可能是几秒前的, 让 watch 外推得到未来时间, 跳变就来了。
-        return [
+        var payload: [String: Any] = [
             "type": "state",
             "songID": song?.id ?? "",
             "title": song?.title ?? "",
@@ -311,6 +340,8 @@ final class WatchSessionBridge: NSObject {
             "currentLyric": player?.isLiveRadio == true ? "" : lyric,
             "accentR": r, "accentG": g, "accentB": b,
         ]
+        payload.merge(extras.payload) { _, new in new }
+        return payload
     }
 
     /// 优先 sendMessage 即时投递; watch 不可达时退到 applicationContext。
@@ -475,6 +506,100 @@ final class WatchSessionBridge: NSObject {
         return (quantized(r) << 16) | (quantized(g) << 8) | quantized(b)
     }
 
+    /// 手表上除歌名、进度以外的状态。电台只有切台, 有声内容换成快进快退,
+    /// 喜欢的口径和锁屏那颗心一样(曲库里的歌和播客单集)。
+    private func currentExtras(song: Song?, time: TimeInterval) -> WatchStateExtras {
+        var extras = WatchStateExtras()
+        if let renderer = player?.castingRenderer {
+            extras.outputName = renderer.friendlyName
+            extras.outputKind = "cast"
+        } else {
+            extras.outputName = cachedOutput.name
+            extras.outputKind = cachedOutput.kind
+        }
+        guard let player, let song else { return extras }
+        extras.canSwitchStation = player.canSwitchRadioStation
+        guard !player.isLiveRadio else { return extras }
+        let like = likeState(for: song)
+        extras.canLike = like.canLike
+        extras.isLiked = like.isLiked
+        if player.currentItemIsSpokenWord {
+            extras.skipBackwardSeconds = player.spokenWordSkipBackwardSeconds
+            extras.skipForwardSeconds = player.spokenWordSkipForwardSeconds
+            extras.skipBackwardSymbol = player.spokenWordSkipBackwardSymbol
+            extras.skipForwardSymbol = player.spokenWordSkipForwardSymbol
+        } else {
+            extras.offersPlaybackModes = true
+            extras.playbackMode = PlaybackOrderMode(
+                shuffleEnabled: player.shuffleEnabled,
+                repeatMode: player.repeatMode
+            ).rawValue
+            // 和队列页那颗键一样: 不到两首时随机打不开。
+            extras.allowsShuffle = player.queueCount >= 2
+        }
+        if song.id == cachedLyricsForSongID, !cachedLyrics.isEmpty {
+            extras.hasLyrics = true
+            extras.nextLyric = nextLyricLine(time: time)
+        }
+        return extras
+    }
+
+    private func likeState(for song: Song?) -> (canLike: Bool, isLiked: Bool) {
+        guard let song, let player, !player.isLiveRadio else { return (false, false) }
+        if PodcastPlaybackSong.isEpisode(song) {
+            return (true, PodcastStore.shared.isLiked(episodeID: song.id))
+        }
+        guard let library, library.song(id: song.id) != nil else { return (false, false) }
+        return (true, library.isLiked(songID: song.id))
+    }
+
+    /// 手表按的是「设成喜欢 / 取消」而不是「切换」: 重发一次不会又改回去。
+    /// 带上手表当时看到的那首, 期间换了歌就不动。
+    private func setLikedFromWatch(_ liked: Bool, songID: String?) {
+        guard let player, let song = player.currentSong,
+              songID == nil || songID == song.id else { return }
+        let state = likeState(for: song)
+        guard state.canLike, state.isLiked != liked else { return }
+        if PodcastPlaybackSong.isEpisode(song) {
+            player.toggleLikeForCurrentPodcastEpisode()
+        } else {
+            library?.setLiked(songID: song.id, isLiked: liked, propagatesServerMutation: true)
+            player.republishNowPlayingSurfaces()
+        }
+    }
+
+    /// 和队列页「播放方式」键同一套: 换到哪一种由两个开关决定, 随机要队列够两首。
+    private func applyPlaybackModeFromWatch(_ mode: PlaybackOrderMode) {
+        guard let player, !player.isLiveRadio, !player.currentItemIsSpokenWord else { return }
+        if mode == .shuffle, player.queueCount < 2 { return }
+        let target = mode.settings(from: player.repeatMode)
+        if player.repeatMode != target.repeatMode { player.repeatMode = target.repeatMode }
+        if player.shuffleEnabled != target.shuffleEnabled { player.shuffleEnabled = target.shuffleEnabled }
+    }
+
+    private static func readOutputRoute() -> WatchOutputRoute {
+        guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first else {
+            return WatchOutputRoute(name: "", kind: "")
+        }
+        let kind: String
+        switch port.portType {
+        case .builtInSpeaker, .builtInReceiver: kind = "iphone"
+        case .headphones, .usbAudio, .lineOut: kind = "headphones"
+        case .bluetoothA2DP, .bluetoothLE, .bluetoothHFP: kind = "bluetooth"
+        case .airPlay: kind = "airplay"
+        case .carAudio: kind = "car"
+        case .HDMI: kind = "display"
+        default: kind = "other"
+        }
+        return WatchOutputRoute(name: port.portName, kind: kind)
+    }
+
+    /// 当前这句之后的下一句(手表歌词面板里淡显在下面)。
+    private func nextLyricLine(time: TimeInterval) -> String {
+        guard let index = cachedLyrics.firstIndex(where: { $0.timestamp > time }) else { return "" }
+        return cachedLyrics[index].text
+    }
+
     /// 从缓存的歌词数组里找当前 time 应该高亮的行。无歌词返回空字符串。
     /// 缓存由 `refreshLyricsCache` 在换歌时异步填充, 这里只 sync 查找。
     private func currentLyricLine(song: Song?, time: TimeInterval) -> String {
@@ -572,11 +697,58 @@ struct WatchCommand: Sendable {
     let command: String
     let time: Double?
     let songID: String?
+    let liked: Bool?
+    let mode: String?
 
     init(_ message: [String: Any]) {
         command = message["command"] as? String ?? ""
         time = message["time"] as? Double
         songID = message["songID"] as? String
+        liked = message["liked"] as? Bool
+        mode = message["mode"] as? String
+    }
+}
+
+/// iPhone 现在把声音放到哪: kind 给手表挑图标, name 是系统给的设备名。
+struct WatchOutputRoute: Equatable {
+    let name: String
+    let kind: String
+}
+
+/// 推给手表的附加状态, 跟着每条状态消息一起走。旧版手表不认这些键, 照常显示。
+struct WatchStateExtras: Equatable {
+    var canLike = false
+    var isLiked = false
+    var offersPlaybackModes = false
+    var playbackMode = PlaybackOrderMode.sequential.rawValue
+    var allowsShuffle = false
+    var skipBackwardSeconds = 0
+    var skipForwardSeconds = 0
+    var skipBackwardSymbol = ""
+    var skipForwardSymbol = ""
+    var canSwitchStation = false
+    var hasLyrics = false
+    var nextLyric = ""
+    var outputName = ""
+    var outputKind = ""
+
+    var payload: [String: Any] {
+        [
+            "canLike": canLike,
+            "isLiked": isLiked,
+            "offersPlaybackModes": offersPlaybackModes,
+            "playbackMode": playbackMode,
+            "allowsShuffle": allowsShuffle,
+            "skipBackwardSeconds": skipBackwardSeconds,
+            "skipForwardSeconds": skipForwardSeconds,
+            "skipBackwardSymbol": skipBackwardSymbol,
+            "skipForwardSymbol": skipForwardSymbol,
+            "canSwitchStation": canSwitchStation,
+            "hasLyrics": hasLyrics,
+            "nextLyric": nextLyric,
+            "outputName": outputName,
+            "outputKind": outputKind,
+        ]
     }
 }
 
@@ -694,11 +866,24 @@ extension WatchSessionBridge: WCSessionDelegate {
         case "pause":
             if player.isPlaying { player.pause() }
         case "next":
-            guard !player.isLiveRadio else { return }
+            // 电台收藏了不止一台时, 上一首 / 下一首就是换台(和锁屏一致)。
+            guard !player.isLiveRadio || player.canSwitchRadioStation else { return }
             await player.next(caller: "watch")
         case "previous":
-            guard !player.isLiveRadio else { return }
+            guard !player.isLiveRadio || player.canSwitchRadioStation else { return }
             await player.previous()
+        case "skipForward":
+            guard player.currentItemIsSpokenWord, !player.isLiveRadio else { return }
+            player.skipSpokenWordForward()
+        case "skipBackward":
+            guard player.currentItemIsSpokenWord, !player.isLiveRadio else { return }
+            player.skipSpokenWordBackward()
+        case "setLiked":
+            guard let liked = cmd.liked else { return }
+            setLikedFromWatch(liked, songID: cmd.songID)
+        case "setPlaybackMode":
+            guard let mode = cmd.mode.flatMap(PlaybackOrderMode.init(rawValue:)) else { return }
+            applyPlaybackModeFromWatch(mode)
         case "seek":
             guard !player.isLiveRadio else { return }
             if let t = cmd.time { player.seek(to: t) }
