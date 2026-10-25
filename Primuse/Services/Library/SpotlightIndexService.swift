@@ -189,6 +189,12 @@ final class SpotlightIndexService {
         scheduleSynchronization(library: library)
     }
 
+    /// 本机新存下了一批封面(存储管理里「下载全部封面和歌词」)。带封面的条目签名变了,
+    /// 下一轮同步只重写这些条目。
+    func artworkAvailabilityChanged(library: MusicLibrary) {
+        artworkPreferenceChanged(library: library)
+    }
+
     private nonisolated static var synchronizationGeneration: Int {
         defaults.integer(forKey: synchronizationGenerationKey)
     }

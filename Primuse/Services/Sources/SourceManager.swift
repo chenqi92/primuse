@@ -9159,6 +9159,237 @@ final class SourceManager {
         return max(0, original.byteCount - output.byteCount)
     }
 
+    // MARK: 下载全部封面和歌词
+
+    /// 「下载全部封面和歌词」要做的事(#346):本机还没存下的封面和歌词。服务器源的封面和歌词平时要在
+    /// 界面上显示过、或者放过才存到本机,Spotlight 缩略图、断网时都用不上。
+    struct CompanionAssetPlan: Sendable {
+        /// 每组是同一个源、同一个封面引用的歌:取第一首,其余直接指到同一份内容。
+        var coverGroups: [[Song]]
+        var lyricsSongs: [Song]
+        /// 封面库现在的张数与大小,估算下载完会占多大。
+        var existingCoverCount: Int
+        var existingCoverBytes: Int64
+
+        var isEmpty: Bool { coverGroups.isEmpty && lyricsSongs.isEmpty }
+        var itemCount: Int { coverGroups.count + lyricsSongs.count }
+
+        var projectedCoverBytes: Int64 {
+            ArtworkStoreLimitPolicy.projectedBytes(
+                existingBytes: existingCoverBytes,
+                existingCount: existingCoverCount,
+                additionalCount: coverGroups.count
+            )
+        }
+    }
+
+    struct CompanionAssetProgress: Equatable, Sendable {
+        var completed: Int
+        var total: Int
+        var coversSaved: Int
+        var lyricsSaved: Int
+    }
+
+    /// 正在下载时的进度;nil 表示没在下。
+    private(set) var companionAssetProgress: CompanionAssetProgress?
+    /// 上一轮的结果,设置页拿它说「存下了几张封面、几份歌词」。
+    private(set) var lastCompanionAssetResult: CompanionAssetProgress?
+    @ObservationIgnored private var companionAssetTask: Task<Void, Never>?
+    /// 下载到了新封面时调用(让 Spotlight 补上缩略图),由 AppServices 装上。
+    @ObservationIgnored var onCompanionArtworkDownloaded: (@MainActor () -> Void)?
+    /// 同时在取的条数。界面上看得见的封面也走同一条取封面的限流,留出余地给它。
+    private nonisolated static let companionAssetConcurrency = 3
+
+    /// 挑出本机还没存下的封面与歌词。只查文件在不在,不联网;整库几万首也只是一轮目录查询。
+    nonisolated static func companionAssetPlan(for songs: [Song]) -> CompanionAssetPlan {
+        let store = MetadataAssetStore.shared
+        var groupIndex: [String: Int] = [:]
+        var coverGroups: [[Song]] = []
+        var lyricsSongs: [Song] = []
+        for song in songs where song.sourceID != AppleMusicLibraryIdentity.sourceID {
+            if let reference = song.coverArtFileName, !reference.isEmpty,
+               !CachedArtworkView.shouldIgnoreGenericFolderCover(ref: reference, filePath: song.filePath),
+               !hasStoredCover(song, reference: reference, store: store) {
+                let key = song.sourceID + "\u{1F}" + reference
+                if let index = groupIndex[key] {
+                    coverGroups[index].append(song)
+                } else {
+                    groupIndex[key] = coverGroups.count
+                    coverGroups.append([song])
+                }
+            }
+            if !store.hasCachedLyricsFile(forSongID: song.id),
+               !(song.lyricsFileName.map { store.hasLyricsFile(named: $0) } ?? false) {
+                lyricsSongs.append(song)
+            }
+        }
+        let usage = store.artworkContentUsage()
+        return CompanionAssetPlan(
+            coverGroups: coverGroups,
+            lyricsSongs: lyricsSongs,
+            existingCoverCount: usage.count,
+            existingCoverBytes: usage.bytes
+        )
+    }
+
+    private nonisolated static func hasStoredCover(
+        _ song: Song,
+        reference: String,
+        store: MetadataAssetStore
+    ) -> Bool {
+        if MetadataAssetStore.isLocalCoverFileName(reference), store.hasReadableCoverFile(named: reference) {
+            return true
+        }
+        return store.hasReadableCoverFile(named: store.expectedCoverFileName(for: song.id))
+    }
+
+    /// 一次只跑一轮。离开 App 之后照常接着下(iOS 26 起系统给一张能看进度、能停止的卡片)。
+    func startCompanionAssetDownload(_ plan: CompanionAssetPlan) {
+        guard companionAssetTask == nil, !plan.isEmpty else { return }
+        lastCompanionAssetResult = nil
+        companionAssetProgress = CompanionAssetProgress(
+            completed: 0,
+            total: plan.itemCount,
+            coversSaved: 0,
+            lyricsSaved: 0
+        )
+        companionAssetTask = Task { @MainActor [weak self] in
+            await self?.runCompanionAssetDownload(plan)
+        }
+    }
+
+    /// 停在手头这几条做完之后。
+    func cancelCompanionAssetDownload() {
+        companionAssetTask?.cancel()
+    }
+
+    private enum CompanionAssetItem: Sendable {
+        case cover([Song])
+        case lyrics(Song)
+
+        var sourceID: String {
+            switch self {
+            case .cover(let songs): songs.first?.sourceID ?? ""
+            case .lyrics(let song): song.sourceID
+            }
+        }
+    }
+
+    private func runCompanionAssetDownload(_ plan: CompanionAssetPlan) async {
+        let backgroundRun = OfflineBatchBackgroundRun(
+            title: String(localized: "companion_assets_download_in_progress"),
+            totalCount: plan.itemCount
+        )
+        backgroundRun.begin { [weak self] in
+            self?.cancelCompanionAssetDownload()
+        }
+        defer {
+            let result = companionAssetProgress
+            lastCompanionAssetResult = result
+            companionAssetProgress = nil
+            companionAssetTask = nil
+            backgroundRun.end(success: !Task.isCancelled)
+            if (result?.coversSaved ?? 0) > 0 {
+                onCompanionArtworkDownloaded?()
+            }
+        }
+        // 各个源轮流排:几个源一起下时谁也不会被一个大曲库堵在后面,一个源上同时也只有一两条。
+        let items = Self.interleavedBySource(
+            plan.coverGroups.map(CompanionAssetItem.cover) + plan.lyricsSongs.map(CompanionAssetItem.lyrics)
+        )
+        plog("📥 Companion assets: covers=\(plan.coverGroups.count) lyrics=\(plan.lyricsSongs.count)")
+        await withTaskGroup(of: CompanionAssetOutcome.self) { group in
+            var next = 0
+
+            // 停下来之后不再排新的,手头这几条做完就收。
+            func enqueueNext() {
+                guard next < items.count, !Task.isCancelled else { return }
+                let item = items[next]
+                next += 1
+                group.addTask {
+                    await self.processCompanionAsset(item)
+                }
+            }
+
+            for _ in 0..<Self.companionAssetConcurrency { enqueueNext() }
+            while let outcome = await group.next() {
+                companionAssetProgress?.completed += 1
+                if outcome.savedCover { companionAssetProgress?.coversSaved += 1 }
+                if outcome.savedLyrics { companionAssetProgress?.lyricsSaved += 1 }
+                backgroundRun.recordSongFinished()
+                enqueueNext()
+            }
+        }
+        plog(
+            "📥 Companion assets done: covers=\(companionAssetProgress?.coversSaved ?? 0) "
+                + "lyrics=\(companionAssetProgress?.lyricsSaved ?? 0) cancelled=\(Task.isCancelled)"
+        )
+    }
+
+    private nonisolated static func interleavedBySource(_ items: [CompanionAssetItem]) -> [CompanionAssetItem] {
+        var order: [String] = []
+        var bySource: [String: [CompanionAssetItem]] = [:]
+        for item in items {
+            if bySource[item.sourceID] == nil { order.append(item.sourceID) }
+            bySource[item.sourceID, default: []].append(item)
+        }
+        var result: [CompanionAssetItem] = []
+        result.reserveCapacity(items.count)
+        var cursor = 0
+        while result.count < items.count {
+            for sourceID in order {
+                guard let queue = bySource[sourceID], cursor < queue.count else { continue }
+                result.append(queue[cursor])
+            }
+            cursor += 1
+        }
+        return result
+    }
+
+    private struct CompanionAssetOutcome: Sendable {
+        var savedCover = false
+        var savedLyrics = false
+    }
+
+    private func processCompanionAsset(_ item: CompanionAssetItem) async -> CompanionAssetOutcome {
+        switch item {
+        case .cover(let songs):
+            return CompanionAssetOutcome(savedCover: await downloadCompanionCover(songs))
+        case .lyrics(let song):
+            return CompanionAssetOutcome(
+                savedLyrics: await LyricsLoader.cacheSourceProvidedLyrics(for: song, sourceManager: self)
+            )
+        }
+    }
+
+    /// 取第一首的封面(和界面上显示时同一条路,存成按歌曲 ID 的镜像),同组其余几首直接指到同一份内容。
+    private func downloadCompanionCover(_ songs: [Song]) async -> Bool {
+        guard let first = songs.first, let reference = first.coverArtFileName else { return false }
+        _ = await CachedArtworkView.resolveImage(
+            coverRef: reference,
+            songID: first.id,
+            size: 64,
+            sourceID: first.sourceID,
+            filePath: first.filePath,
+            fileFormat: first.fileFormat,
+            sourceManager: self
+        )
+        let store = MetadataAssetStore.shared
+        let mirror = store.expectedCoverFileName(for: first.id)
+        guard store.hasReadableCoverFile(named: mirror) else {
+            return Self.hasStoredCover(first, reference: reference, store: store)
+        }
+        if songs.count > 1,
+           let identifier = store.coverContentIdentifier(named: mirror),
+           identifier.hasPrefix("sha256:") {
+            let contentKey = String(identifier.dropFirst("sha256:".count))
+            for song in songs.dropFirst() {
+                _ = store.linkCoverContentIfPresent(contentKey, forSongID: song.id)
+            }
+        }
+        return true
+    }
+
     // MARK: 转换已缓存的歌曲
 
     struct OfflineCompactionSweepProgress: Equatable, Sendable {

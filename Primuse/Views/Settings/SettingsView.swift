@@ -2780,6 +2780,9 @@ struct StorageManagementView: View {
     @State private var isClearingQuarantine = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
+    @AppStorage(ArtworkStoreLimitSetting.key)
+    private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
+    @State private var companionAssetFlow = CompanionAssetDownloadFlow()
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -3038,14 +3041,37 @@ struct StorageManagementView: View {
                     }
                 }
                 .settingsAnchor("storage.clearMetadata")
+
+                Picker("artwork_store_limit", selection: Binding(
+                    get: { Int64(artworkStoreLimit) },
+                    set: { artworkStoreLimit = Int($0) }
+                )) {
+                    ForEach(
+                        ArtworkStoreLimitPolicy.options(including: Int64(artworkStoreLimit)),
+                        id: \.self
+                    ) { bytes in
+                        Text(CompanionAssetDownloadFlow.limitLabel(bytes)).tag(bytes)
+                    }
+                }
+                .settingsAnchor("storage.artworkLimit")
+
+                companionAssetDownloadRow
+                    .settingsAnchor("storage.downloadCompanions")
             } header: {
                 SettingsInfoHeader("persistent_data") {
                     Text("metadata_clear_footer")
+                    Text("artwork_store_limit_footer")
+                    Text("companion_assets_download_footer")
                 }
             }
 
         }
         .navigationTitle("storage_management")
+        .modifier(CompanionAssetDownloadAlerts(flow: companionAssetFlow))
+        .onChange(of: sourceManager.companionAssetProgress == nil) { _, finished in
+            // 下完了,封面与歌词那一行的大小跟着变。
+            if finished { Task { await refreshSizes() } }
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -3130,6 +3156,52 @@ struct StorageManagementView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isClearing)
+        }
+    }
+
+    /// 「下载全部封面和歌词」: 进行中显示进度与停止, 结束后在按钮下面说一句结果。
+    @ViewBuilder
+    private var companionAssetDownloadRow: some View {
+        let status = CompanionAssetDownloadFlow.statusText(
+            progress: sourceManager.companionAssetProgress,
+            lastResult: sourceManager.lastCompanionAssetResult,
+            foundNothing: companionAssetFlow.foundNothingToDownload
+        )
+        if sourceManager.companionAssetProgress != nil {
+            HStack(spacing: 10) {
+                ProgressView()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("companion_assets_download")
+                    if let status {
+                        Text(verbatim: status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                Spacer()
+                Button("cancel") {
+                    sourceManager.cancelCompanionAssetDownload()
+                }
+            }
+        } else {
+            Button {
+                companionAssetFlow.begin(songs: library.visibleSongs, sourceManager: sourceManager)
+            } label: {
+                HStack {
+                    Label("companion_assets_download", systemImage: "arrow.down.circle")
+                    Spacer()
+                    if companionAssetFlow.isPlanning {
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(companionAssetFlow.isPlanning)
+            if let status {
+                Text(verbatim: status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -3888,3 +3960,155 @@ struct CloudSharingControllerView: View {
     }
 }
 #endif
+
+// MARK: - 下载全部封面和歌词
+
+/// 存储管理里「下载全部封面和歌词」(#346)点下去之后的那几步:先在后台数一遍本机缺哪些;下载完封面会超过
+/// 空间上限就先提示调高(不然下完每天整理时又被删掉);在用蜂窝网络时再问一次。iOS 与 Mac 共用。
+@MainActor
+@Observable
+final class CompanionAssetDownloadFlow {
+    private(set) var isPlanning = false
+    /// 数完发现封面和歌词都已经在本机了。
+    private(set) var foundNothingToDownload = false
+    var showsLimitPrompt = false
+    var showsCellularPrompt = false
+    private(set) var plan: SourceManager.CompanionAssetPlan?
+    private(set) var suggestedLimit: Int64 = ArtworkStoreLimitPolicy.unlimitedBytes
+    @ObservationIgnored private weak var sourceManager: SourceManager?
+
+    func begin(songs: [Song], sourceManager: SourceManager) {
+        guard !isPlanning, sourceManager.companionAssetProgress == nil else { return }
+        self.sourceManager = sourceManager
+        isPlanning = true
+        foundNothingToDownload = false
+        Task {
+            let plan = await Task.detached(priority: .userInitiated) {
+                SourceManager.companionAssetPlan(for: songs)
+            }.value
+            isPlanning = false
+            guard !plan.isEmpty else {
+                foundNothingToDownload = true
+                return
+            }
+            self.plan = plan
+            if let suggestion = ArtworkStoreLimitPolicy.suggestedLimit(
+                projectedBytes: plan.projectedCoverBytes,
+                currentLimit: ArtworkStoreLimitSetting.currentBytes
+            ) {
+                suggestedLimit = suggestion
+                showsLimitPrompt = true
+            } else {
+                confirmNetworkThenStart()
+            }
+        }
+    }
+
+    func raiseLimitAndContinue() {
+        UserDefaults.standard.set(Int(suggestedLimit), forKey: ArtworkStoreLimitSetting.key)
+        confirmNetworkThenStart()
+    }
+
+    func keepLimitAndContinue() {
+        confirmNetworkThenStart()
+    }
+
+    func start() {
+        guard let plan, let sourceManager else { return }
+        self.plan = nil
+        sourceManager.startCompanionAssetDownload(plan)
+    }
+
+    func dismiss() {
+        plan = nil
+    }
+
+    private func confirmNetworkThenStart() {
+        if NetworkMonitor.shared.isExpensive {
+            showsCellularPrompt = true
+        } else {
+            start()
+        }
+    }
+
+    /// 空间上限一档的写法:「不限」或按二进制单位的大小,和音频缓存上限一样。
+    static func limitLabel(_ bytes: Int64) -> String {
+        guard bytes != ArtworkStoreLimitPolicy.unlimitedBytes else {
+            return String(localized: "smart_limit_placeholder")
+        }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    /// 进行中的进度、上一轮的结果,或者「都已经在本机了」。没有可说的返回 nil。
+    static func statusText(
+        progress: SourceManager.CompanionAssetProgress?,
+        lastResult: SourceManager.CompanionAssetProgress?,
+        foundNothing: Bool
+    ) -> String? {
+        if let progress {
+            return String(
+                format: String(localized: "companion_assets_download_progress_format"),
+                progress.completed,
+                progress.total
+            )
+        }
+        if foundNothing { return String(localized: "companion_assets_download_nothing") }
+        guard let lastResult else { return nil }
+        return String(
+            format: String(localized: "companion_assets_download_result_format"),
+            lastResult.coversSaved,
+            lastResult.lyricsSaved
+        )
+    }
+}
+
+/// 「下载全部封面和歌词」的两个确认框:超出空间上限、在用蜂窝网络。
+struct CompanionAssetDownloadAlerts: ViewModifier {
+    @Bindable var flow: CompanionAssetDownloadFlow
+
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                Text("companion_assets_limit_title"),
+                isPresented: $flow.showsLimitPrompt,
+                presenting: flow.plan
+            ) { _ in
+                Button(raiseTitle) { flow.raiseLimitAndContinue() }
+                Button("companion_assets_keep_limit") { flow.keepLimitAndContinue() }
+                Button("cancel", role: .cancel) { flow.dismiss() }
+            } message: { plan in
+                Text(verbatim: String(
+                    format: String(localized: "companion_assets_limit_message_format"),
+                    plan.coverGroups.count.formatted(),
+                    ByteCountFormatter.string(fromByteCount: plan.projectedCoverBytes, countStyle: .binary),
+                    CompanionAssetDownloadFlow.limitLabel(ArtworkStoreLimitSetting.currentBytes),
+                    CompanionAssetDownloadFlow.limitLabel(flow.suggestedLimit)
+                ))
+            }
+            .alert(
+                Text("companion_assets_cellular_title"),
+                isPresented: $flow.showsCellularPrompt,
+                presenting: flow.plan
+            ) { _ in
+                Button("companion_assets_download_start") { flow.start() }
+                Button("cancel", role: .cancel) { flow.dismiss() }
+            } message: { plan in
+                Text(verbatim: String(
+                    format: String(localized: "companion_assets_cellular_message_format"),
+                    plan.coverGroups.count.formatted(),
+                    plan.lyricsSongs.count.formatted()
+                ))
+            }
+    }
+
+    private var raiseTitle: String {
+        flow.suggestedLimit == ArtworkStoreLimitPolicy.unlimitedBytes
+            ? String(localized: "companion_assets_unlimited_and_download")
+            : String(
+                format: String(localized: "companion_assets_raise_limit_format"),
+                CompanionAssetDownloadFlow.limitLabel(flow.suggestedLimit)
+            )
+    }
+}

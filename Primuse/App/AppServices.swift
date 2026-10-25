@@ -2741,6 +2741,12 @@ final class AppServices {
         library.onReady { [weak self] in
             self?.observeSpotlightLibraryToken(library: library, index: index)
         }
+
+        // 「下载全部封面和歌词」存下了新封面:曲库没变,但搜索结果该换上封面了。
+        sourceManager.onCompanionArtworkDownloaded = { [weak library, weak index] in
+            guard let library, let index else { return }
+            index.artworkAvailabilityChanged(library: library)
+        }
     }
 
     private func observeSpotlightLibraryToken(

@@ -1917,7 +1917,9 @@ struct CachedArtworkView: View {
         return nil
     }
 
-    private nonisolated static func shouldIgnoreGenericFolderCover(
+    /// 「音乐」这类泛用文件夹里的 cover.jpg 不当这首歌的封面(整个文件夹的歌会共用一张不相干的图)。
+    /// 「下载全部封面和歌词」挑候选时也按它跳过。
+    nonisolated static func shouldIgnoreGenericFolderCover(
         ref: String?,
         filePath: String?
     ) -> Bool {

@@ -100,6 +100,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.clearSourceFiles", titleKey: "source_file_cache", iosPage: .storage, macPage: .storage, keywords: ["source cache", "downloaded files", "documents and data", "free up space", "音乐源", "整首下载", "文稿与数据", "占用空间", "释放空间", "清理缓存"]),
         SettingDefinition(id: "storage.clearMusicVideoCache", titleKey: "music_video_cache", iosPage: .storage, macPage: .storage, keywords: ["music video", "MV", "video cache", "音乐视频", "视频缓存", "释放空间"]),
         SettingDefinition(id: "storage.clearMetadata", titleKey: "cover_art_lyrics", iosPage: .storage, macPage: nil),
+        SettingDefinition(id: "storage.artworkLimit", titleKey: "artwork_store_limit", iosPage: .storage, macPage: .storage, keywords: ["artwork limit", "cover limit", "封面上限", "存储空间", "封面", "歌词"]),
+        SettingDefinition(id: "storage.downloadCompanions", titleKey: "companion_assets_download", iosPage: .storage, macPage: .storage, keywords: ["download artwork", "download lyrics", "下载封面", "下载歌词", "离线", "封面", "歌词", "Spotlight"]),
         SettingDefinition(id: "storage.clearPartial", titleKey: "cache_partial", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),
         SettingDefinition(id: "storage.clearOrphaned", titleKey: "cache_orphaned", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),
         SettingDefinition(id: "storage.wifiOnly", titleKey: "cloud_scan_wifi_only", iosPage: .storage, macPage: nil, keywords: ["wifi", "wi-fi", "cellular", "save data", "省流量", "流量", "手机网络", "蜂窝网络"]),

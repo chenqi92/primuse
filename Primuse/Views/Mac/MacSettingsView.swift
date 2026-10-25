@@ -434,6 +434,9 @@ private struct MacSTStorageView: View {
     @State private var musicVideoCacheBytes: Int64?
     /// 隔离区平时是空的, 有内容才出现那一行。
     @State private var quarantinedCacheBytes: Int64 = 0
+    @AppStorage(ArtworkStoreLimitSetting.key)
+    private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
+    @State private var companionAssetFlow = CompanionAssetDownloadFlow()
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -555,6 +558,49 @@ private struct MacSTStorageView: View {
                 }
             }
 
+            MacSTSection(String(localized: "persistent_data")) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "artwork_store_limit"),
+                        hint: String(localized: "artwork_store_limit_footer"),
+                        hintLineLimit: 3,
+                        divider: false
+                    ) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { Int64(artworkStoreLimit) },
+                                set: { artworkStoreLimit = Int($0) }
+                            ),
+                            options: ArtworkStoreLimitPolicy.options(including: Int64(artworkStoreLimit))
+                                .map { ($0, CompanionAssetDownloadFlow.limitLabel($0)) },
+                            width: 120
+                        )
+                    }
+                    .settingsAnchor("storage.artworkLimit")
+                    MacSTRow(
+                        String(localized: "companion_assets_download"),
+                        hint: companionAssetHint,
+                        hintLineLimit: 5
+                    ) {
+                        if sourceManager.companionAssetProgress != nil {
+                            MacSTButton(title: String(localized: "cancel")) {
+                                sourceManager.cancelCompanionAssetDownload()
+                            }
+                        } else {
+                            if companionAssetFlow.isPlanning {
+                                ProgressView().controlSize(.small)
+                            }
+                            MacSTButton(title: String(localized: "companion_assets_download_start")) {
+                                companionAssetFlow.begin(songs: library.visibleSongs, sourceManager: sourceManager)
+                            }
+                            .disabled(companionAssetFlow.isPlanning)
+                        }
+                    }
+                    .settingsAnchor("storage.downloadCompanions")
+                }
+            }
+            .modifier(CompanionAssetDownloadAlerts(flow: companionAssetFlow))
+
             MacSTSection(String(localized: "notifications_section")) {
                 MacSTGroup {
                     MacSTRow(
@@ -644,6 +690,17 @@ private struct MacSTStorageView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .binary
         return formatter.string(fromByteCount: bytes)
+    }
+
+    /// 说明下面接着写进度、上一轮的结果。
+    private var companionAssetHint: String {
+        let footer = String(localized: "companion_assets_download_footer")
+        guard let status = CompanionAssetDownloadFlow.statusText(
+            progress: sourceManager.companionAssetProgress,
+            lastResult: sourceManager.lastCompanionAssetResult,
+            foundNothing: companionAssetFlow.foundNothingToDownload
+        ) else { return footer }
+        return footer + "\n" + status
     }
 }
 

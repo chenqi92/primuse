@@ -52,6 +52,30 @@ enum LyricsLoader {
         )
     }
 
+    /// 存储管理里「下载全部封面和歌词」用(#346):只从音乐源本身取,不按歌名去找在线歌词。
+    /// 服务器源读服务器给的歌词(服务器那份乱码时照旧联网换一份能读的);文件类的源读同目录的
+    /// `.lrc` 等字幕文件。`load` 不能直接用:服务器说没有歌词时它会按歌名在线兜底。
+    /// 返回这首有没有存下歌词。
+    static func cacheSourceProvidedLyrics(for song: Song, sourceManager: SourceManager) async -> Bool {
+        guard !PodcastPlaybackSong.isEpisode(song),
+              song.sourceID != AppleMusicLibraryIdentity.sourceID,
+              let connector = try? await sourceManager.auxiliaryConnector(for: song),
+              !Task.isCancelled else { return false }
+        if let server = connector as? any ServerLyricsConnector {
+            guard server.serverLyricsCapabilities.canRead else { return false }
+            switch await refreshFromResolvedServer(for: song, server: server, trigger: .initial) {
+            case .updated(let lines):
+                return !lines.isEmpty
+            case .unchanged:
+                return MetadataAssetStore.shared.hasCachedLyricsFile(forSongID: song.id)
+            default:
+                return false
+            }
+        }
+        let lines = await load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
+        return !lines.isEmpty
+    }
+
     /// Routes every server-document fetch, including ordinary cache misses,
     /// through the same per-source/song single-flight coordinator.
     static func refreshFromResolvedServer(

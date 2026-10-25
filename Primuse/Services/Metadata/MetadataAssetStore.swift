@@ -5,6 +5,17 @@ import ImageIO
 import PrimuseKit
 import UniformTypeIdentifiers
 
+/// 存储管理里「封面与歌词空间上限」那一项(#346),每天的文件整理按它删旧封面。本机设置。
+enum ArtworkStoreLimitSetting {
+    static let key = "primuse.artworkStoreLimitBytes"
+
+    static var currentBytes: Int64 {
+        ArtworkStoreLimitPolicy.resolved(
+            (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value
+        )
+    }
+}
+
 actor MetadataAssetStore {
     static let shared = MetadataAssetStore()
 
@@ -971,6 +982,29 @@ actor MetadataAssetStore {
         return fileName
     }
 
+    /// 歌曲记着的那份歌词(`Song.lyricsFileName`)本机还在不在。
+    nonisolated func hasLyricsFile(named fileName: String) -> Bool {
+        guard !fileName.isEmpty else { return false }
+        return FileManager.default.fileExists(
+            atPath: lyricsDirectoryURL.appendingPathComponent(fileName).path
+        )
+    }
+
+    /// 封面内容现在有几张、一共多大(按内容去重后的,和空间上限比的就是它)。只查目录。
+    nonisolated func artworkContentUsage() -> (count: Int, bytes: Int64) {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: artworkContentDirectoryURL,
+            includingPropertiesForKeys: [.fileSizeKey]
+        ) else { return (0, 0) }
+        var count = 0
+        var bytes: Int64 = 0
+        for url in contents where url.pathExtension == "jpg" {
+            count += 1
+            bytes += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return (count, bytes)
+    }
+
     /// 本机有没有这首歌的歌词缓存。
     nonisolated func hasCachedLyricsFile(forSongID songID: String) -> Bool {
         FileManager.default.fileExists(
@@ -1149,10 +1183,12 @@ actor MetadataAssetStore {
     /// 音频文件才能重建, 代价远高于它占的那点空间。
     @discardableResult
     private func evictArtworkContentIfNeeded(
-        maxBytes: Int64 = 500 * 1024 * 1024,
+        maxBytes: Int64,
         references: [String: [URL]],
         protectedRefs: Set<String>
     ) -> Bool {
+        // 存储管理里选了「不限」。
+        guard maxBytes > ArtworkStoreLimitPolicy.unlimitedBytes else { return true }
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: artworkContentDirectory,
@@ -1291,6 +1327,7 @@ actor MetadataAssetStore {
             contentDir: artworkContentDirectory
         ) else { return false }
         return evictArtworkContentIfNeeded(
+            maxBytes: ArtworkStoreLimitSetting.currentBytes,
             references: references,
             protectedRefs: protectedCoverRefs
         ) && evictArtworkDirectoryIfNeeded(portableArtworkDirectoryURL, maxBytes: 48 * 1024 * 1024)
