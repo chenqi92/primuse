@@ -343,7 +343,7 @@ struct HomeBookCard: View {
             .buttonStyle(.plain)
             .overlay(alignment: .bottomTrailing) {
                 playButton
-                    .background(.regularMaterial, in: Circle())
+                    .overArtworkKeyBackground()
                     .padding(8)
             }
             NavigationLink {
@@ -391,7 +391,8 @@ struct HomeBookCard: View {
                 isPlaying: isPlaying,
                 isLoading: isCurrent && player.isLoading,
                 size: playButtonSize,
-                tint: tint
+                tint: .white,
+                trackOpacity: SpokenWordProgressPlayGlyph.overArtworkTrackOpacity
             )
             .contentShape(Circle())
         }

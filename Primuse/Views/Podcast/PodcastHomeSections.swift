@@ -90,8 +90,8 @@ struct HomePodcastEpisodeCard: View {
             }
             .buttonStyle(.plain)
             .overlay(alignment: .bottomTrailing) {
-                PodcastPlayButton(episode: episode, continuing: continuing, size: playButtonSize)
-                    .background(.regularMaterial, in: Circle())
+                PodcastPlayButton(episode: episode, continuing: continuing, size: playButtonSize, keyTint: .white)
+                    .overArtworkKeyBackground()
                     .padding(8)
             }
             NavigationLink(value: PodcastRoute.episode(episode.id)) {

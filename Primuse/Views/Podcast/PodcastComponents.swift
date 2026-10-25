@@ -62,12 +62,14 @@ struct PodcastPlayButton: View {
     let episode: PodcastEpisode
     var continuing: [PodcastEpisode] = []
     var size: CGFloat = 34
+    /// 压在封面角上时是白色(配 `overArtworkKeyBackground`);列表行里跟播客的颜色。
+    var keyTint: Color? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @State private var pendingInsecureHost: String?
 
     private var store: PodcastStore { PodcastStore.shared }
-    private var tint: Color { ListeningSpace.podcast.tint }
+    private var tint: Color { keyTint ?? ListeningSpace.podcast.tint }
 
     var body: some View {
         let state = store.state(for: episode)
@@ -83,7 +85,7 @@ struct PodcastPlayButton: View {
         } label: {
             ZStack {
                 Circle()
-                    .stroke(tint.opacity(0.18), lineWidth: 2.5)
+                    .stroke(tint.opacity(keyTint == nil ? 0.18 : SpokenWordProgressPlayGlyph.overArtworkTrackOpacity), lineWidth: 2.5)
                 if fraction > 0 {
                     Circle()
                         .trim(from: 0, to: fraction)
@@ -723,11 +725,16 @@ struct SpokenWordProgressPlayGlyph: View {
     var isLoading = false
     let size: CGFloat
     let tint: Color
+    /// 外圈底色的浓淡;白色键压在深色毛玻璃上时要浓一点才看得出圈。
+    var trackOpacity = 0.18
+
+    /// 封面角上那颗白色键的外圈底色。
+    static let overArtworkTrackOpacity = 0.3
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(tint.opacity(0.18), lineWidth: 2.5)
+                .stroke(tint.opacity(trackOpacity), lineWidth: 2.5)
             if fraction > 0 {
                 Circle()
                     .trim(from: 0, to: min(1, fraction))
@@ -745,6 +752,20 @@ struct SpokenWordProgressPlayGlyph: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+extension View {
+    /// 首页卡片封面角上那颗播放键的底:深色毛玻璃配白色键(同屏幕小组件),不跟着各张封面或收听空间的颜色变,
+    /// 一排封面颜色各不相同时也是一个样子(#349)。
+    func overArtworkKeyBackground() -> some View {
+        background {
+            Circle()
+                .fill(.ultraThinMaterial)
+                .overlay(Circle().fill(Color.black.opacity(0.38)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
+        }
+        .environment(\.colorScheme, .dark)
     }
 }
 
