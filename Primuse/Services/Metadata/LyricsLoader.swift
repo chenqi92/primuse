@@ -1090,7 +1090,7 @@ extension LyricsLoader {
     }
 
     /// Tier4：本地/网盘等普通源确实没有歌词时，按启用顺序向在线歌词源取一次并写入缓存。
-    /// 开关关、没有启用的歌词源、台账说最近问过、任务被取消 → nil。
+    /// 开关关、没有启用的歌词源、网络不通、台账说最近问过、任务被取消 → nil。
     static func automaticOnlineLyrics(
         for song: Song,
         expectedFingerprint: LyricsDocumentFingerprint?
@@ -1100,6 +1100,9 @@ extension LyricsLoader {
         guard AutomaticOnlineLyricsGate.allowsAutomaticFetch(settings: ScraperSettings.load()) else {
             return nil
         }
+        // 没网、或者用户不让这个 App 联网时不问，也不记进台账：网络回来后这首照常能问。
+        await NetworkMonitor.shared.waitForInitialPath()
+        guard NetworkMonitor.shared.allowsAutomaticInternetRequests else { return nil }
         guard await AutomaticOnlineLyricsLedger.shared.shouldAttempt(songID: song.id) else { return nil }
         guard !Task.isCancelled else { return nil }
 

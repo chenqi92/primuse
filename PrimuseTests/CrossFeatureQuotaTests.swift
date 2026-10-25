@@ -74,6 +74,50 @@ final class CrossFeatureQuotaTests: XCTestCase {
         await checker.checkForUpdate()
         XCTAssertEqual(fixture.requests.count, before, "Successful checks retain the daily application throttle")
     }
+
+    @MainActor
+    func testAutomaticUpdateCheckWaitsForAUsableNetwork() async throws {
+        let registry = RequestQuotaRegistry()
+        let fixture = CatalogQuotaFixture { _ in (200, [:], Data(#"{"results":[]}"#.utf8)) }
+        let suite = "QuotaTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let checker = AppUpdateChecker(
+            defaults: defaults,
+            session: fixture.session,
+            quotaRegistry: registry,
+            automaticCheckIsAllowed: { false }
+        )
+        await checker.checkForUpdate()
+        XCTAssertEqual(fixture.requests.count, 0, "Without network access every request makes iOS show its data-access alert again")
+        XCTAssertNil(checker.lastCheckedAt)
+        await checker.checkForUpdate(force: true, userInitiated: true)
+        XCTAssertGreaterThan(fixture.requests.count, 0, "A check the user asks for still goes out")
+    }
+
+    @MainActor
+    func testFailedAutomaticUpdateCheckIsNotRepeatedOnEveryForeground() async throws {
+        let registry = RequestQuotaRegistry()
+        let fixture = CatalogQuotaFixture { _ in (200, [:], Data("not json".utf8)) }
+        let suite = "QuotaTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let checker = AppUpdateChecker(
+            defaults: defaults,
+            session: fixture.session,
+            quotaRegistry: registry,
+            automaticCheckIsAllowed: { true }
+        )
+        await checker.checkForUpdate()
+        XCTAssertNotNil(checker.lastErrorMessage)
+        XCTAssertNil(checker.lastCheckedAt)
+        let afterFailure = fixture.requests.count
+        XCTAssertGreaterThan(afterFailure, 0)
+        await checker.checkForUpdate()
+        XCTAssertEqual(fixture.requests.count, afterFailure, "Coming back to the foreground right after a failed check must not ask again")
+        await checker.checkForUpdate(force: true)
+        XCTAssertGreaterThan(fixture.requests.count, afterFailure, "A forced check ignores the automatic retry wait")
+    }
     #endif
 
     func testPodcastQuotaDefersMetadataLookups() async throws {

@@ -50,6 +50,9 @@ final class AppUpdateChecker {
     private let defaults: UserDefaults
     private let session: URLSession
     private let quotaRegistry: RequestQuotaRegistry
+    private let automaticCheckIsAllowed: @MainActor () async -> Bool
+    /// 自动检查失败后, 这之前不再自动查。只记在内存里: 下次启动照常查一次。
+    private var automaticRetryNotBefore: Date?
 
     private static let skippedVersionKey = "primuse.update.skippedVersion"
     private static let snoozeUntilKey = "primuse.update.snoozeUntil"
@@ -60,9 +63,12 @@ final class AppUpdateChecker {
     /// 一天 fetch 一次 App Store 足够 ── 用户实际感知的"有新版"决策
     /// 颗粒度本来就是天级。频繁 hit Apple lookup 浪费流量也可能被节流。
     private static let throttleInterval: TimeInterval = 24 * 3600
+    /// 只在成功后记下检查时间, 失败的不能每回前台就重来一遍(每次两个地区, 各带重试)。
+    private static let automaticRetryInterval: TimeInterval = 3600
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared,
-         quotaRegistry: RequestQuotaRegistry = .shared) {
+         quotaRegistry: RequestQuotaRegistry = .shared,
+         automaticCheckIsAllowed: @escaping @MainActor () async -> Bool = AppUpdateChecker.networkAllowsAutomaticCheck) {
         let info = Bundle.main.infoDictionary
         self.bundleID = info?["CFBundleIdentifier"] as? String ?? "com.welape.yuanyin"
         #if DEBUG
@@ -83,6 +89,7 @@ final class AppUpdateChecker {
         self.defaults = defaults
         self.session = session
         self.quotaRegistry = quotaRegistry
+        self.automaticCheckIsAllowed = automaticCheckIsAllowed
         self.lastCheckedAt = defaults.object(forKey: Self.lastCheckKey) as? Date
     }
 
@@ -123,6 +130,10 @@ final class AppUpdateChecker {
            Date().timeIntervalSince(last) < Self.throttleInterval {
             return
         }
+        if !force {
+            if let notBefore = automaticRetryNotBefore, Date() < notBefore { return }
+            guard await automaticCheckIsAllowed() else { return }
+        }
 
         isChecking = true
         defer { isChecking = false }
@@ -131,8 +142,12 @@ final class AppUpdateChecker {
         do {
             info = try await fetchLatest()
             lastErrorMessage = nil
+            automaticRetryNotBefore = nil
         } catch {
             lastErrorMessage = error.localizedDescription
+            if !force {
+                automaticRetryNotBefore = Date().addingTimeInterval(Self.automaticRetryInterval)
+            }
             return
         }
         let checkedAt = Date()
@@ -167,6 +182,13 @@ final class AppUpdateChecker {
         }
 
         availableUpdate = info
+    }
+
+    /// 自动检查(启动、回到前台)在网络确定不通时不查: 用户不让这个 App 联网时,
+    /// 每查一次系统就弹一次「已关闭无线数据」。设置里手动点「检查更新」照常查。
+    static func networkAllowsAutomaticCheck() async -> Bool {
+        await NetworkMonitor.shared.waitForInitialPath()
+        return NetworkMonitor.shared.allowsAutomaticInternetRequests
     }
 
     /// "Skip this version" — banner stays hidden until App Store lists

@@ -160,6 +160,8 @@ final class MusicScraperService {
     @ObservationIgnored private var pendingEnrichmentSongIDs: [String] = []
     @ObservationIgnored private var pendingEnrichmentHead = 0
     @ObservationIgnored private var pendingEnrichmentSongIDSet: Set<String> = []
+    /// 补全因为网络不通停下后, 正在等网络回来。
+    @ObservationIgnored private var isWaitingForNetworkToEnrich = false
 
     private var hasPendingEnrichment: Bool {
         pendingEnrichmentHead < pendingEnrichmentSongIDs.count
@@ -1983,6 +1985,7 @@ final class MusicScraperService {
             isBackgroundEnriching = false
         }
 
+        await NetworkMonitor.shared.waitForInitialPath()
         while !Task.isCancelled {
             if isScraping {
                 // Don't leave completed enrichment results task-local while a
@@ -1990,6 +1993,16 @@ final class MusicScraperService {
                 publishPendingSongUpdates()
                 try? await Task.sleep(for: .seconds(1))
                 continue
+            }
+
+            // 文件里的标签和旁边的歌词/封面文件, 扫描和补读时已经读过, 这里要的是在线源。
+            // 网络不通(没网, 或者用户不让这个 App 联网)就停下, 队列原样留着等网络回来:
+            // 不停的话每首都发一次注定失败的请求, 不让联网时系统还会一遍遍弹提示。
+            guard NetworkMonitor.shared.allowsAutomaticInternetRequests else {
+                publishPendingSongUpdates()
+                plog("⏸️ Background enrichment paused until the network is back (\(pendingEnrichmentSongIDs.count - pendingEnrichmentHead) songs kept)")
+                resumeBackgroundEnrichmentWhenNetworkReturns(in: library)
+                return
             }
 
             guard let song = nextSongForBackgroundEnrichment(in: library) else {
@@ -2049,6 +2062,25 @@ final class MusicScraperService {
             }
 
             try? await Task.sleep(for: .milliseconds(150))
+        }
+    }
+
+    /// 网络回来(或者用户在系统设置里放开了联网)就接着补, 不用等下一次扫描或回到前台。
+    private func resumeBackgroundEnrichmentWhenNetworkReturns(in library: MusicLibrary) {
+        guard !isWaitingForNetworkToEnrich else { return }
+        isWaitingForNetworkToEnrich = true
+        withObservationTracking {
+            _ = NetworkMonitor.shared.allowsAutomaticInternetRequests
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isWaitingForNetworkToEnrich = false
+                if NetworkMonitor.shared.allowsAutomaticInternetRequests {
+                    self.startBackgroundEnrichmentIfNeeded(in: library)
+                } else {
+                    self.resumeBackgroundEnrichmentWhenNetworkReturns(in: library)
+                }
+            }
         }
     }
 
