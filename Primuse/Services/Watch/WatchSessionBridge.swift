@@ -54,6 +54,10 @@ final class WatchSessionBridge: NSObject {
     /// tick 里反复读, 只在线路变化时刷新。
     private var cachedOutput = WatchOutputRoute(name: "", kind: "")
     private var routeChangeObserver: NSObjectProtocol?
+    /// 最近一次 iPhone 音量变化的时刻 (手表转表冠、按音量键都算)。手表平时把音量控件藏着,
+    /// 收到它才亮出来, 停下一会儿再淡出。手表 App 自己收不到表冠转动, 只能靠这边告诉它。
+    private var lastVolumeChangeSignal: Date?
+    private var volumeObservation: NSKeyValueObservation?
     /// 最近一次成功推送的封面 songID。换歌后 cover 推送一次就够。
     private var lastSentCoverSongID: String?
     /// 最近一次编码好的封面 JPEG + 其 songID。watch 不可达走 applicationContext
@@ -104,6 +108,26 @@ final class WatchSessionBridge: NSObject {
                 self.pushIfMeaningfulChange()
             }
         }
+        volumeObservation = AVAudioSession.sharedInstance().observe(
+            \.outputVolume,
+            options: [.old, .new]
+        ) { [weak self] _, change in
+            guard change.oldValue != change.newValue else { return }
+            Task { @MainActor [weak self] in
+                self?.noteOutputVolumeChange()
+            }
+        }
+    }
+
+    /// 音量在变: 立刻推一次, 不等 0.5 秒的 tick (暂停时 tick 还挂着)。连着转表冠时
+    /// 0.3 秒最多推一次 ── 手表只要知道「还在调」, 不需要每一格的值。
+    private func noteOutputVolumeChange() {
+        // 手表 App 没开着就没人看, 按 iPhone 音量键时不必一直改后台上下文。
+        guard session?.isReachable == true else { return }
+        let now = Date()
+        if let last = lastVolumeChangeSignal, now.timeIntervalSince(last) < 0.3 { return }
+        lastVolumeChangeSignal = now
+        pushIfMeaningfulChange()
     }
 
     /// App 启动时调用 ── 注入依赖；只有已安装 Watch app 时才保留 ticker。
@@ -517,6 +541,7 @@ final class WatchSessionBridge: NSObject {
             extras.outputName = cachedOutput.name
             extras.outputKind = cachedOutput.kind
         }
+        extras.volumeChangedAt = lastVolumeChangeSignal?.timeIntervalSince1970 ?? 0
         guard let player, let song else { return extras }
         extras.canSwitchStation = player.canSwitchRadioStation
         guard !player.isLiveRadio else { return extras }
@@ -737,6 +762,7 @@ struct WatchStateExtras: Equatable {
     var outputName = ""
     var outputKind = ""
     var playbackRate = 1.0
+    var volumeChangedAt: TimeInterval = 0
 
     var payload: [String: Any] {
         [
@@ -755,6 +781,7 @@ struct WatchStateExtras: Equatable {
             "outputName": outputName,
             "outputKind": outputKind,
             "playbackRate": playbackRate,
+            "volumeChangedAt": volumeChangedAt,
         ]
     }
 }

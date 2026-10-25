@@ -62,6 +62,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     var outputKind: String = ""
     /// 主色够亮时播放键上的图标改用深色, 不然白色主题下白底白字。
     var accentIsLight: Bool = false
+    /// iPhone 音量刚变过一次就加一 (转表冠、按 iPhone 音量键都算)。正在播放页平时藏着
+    /// 音量控件, 看到它变才亮出来。
+    private(set) var volumeActivity = 0
+    /// 已经处理过的最近一次音量变化 (iPhone 的时间戳), 同一次变化随后续状态重复推来时不再算。
+    private var lastVolumeChangedAt: TimeInterval = 0
 
     var usesSkipIntervals: Bool { skipBackwardSeconds > 0 && skipForwardSeconds > 0 }
     /// 上一首 / 下一首两颗键在不在: 音乐和有声内容都在, 电台只有能换台时在。
@@ -448,6 +453,13 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         outputName = snap.outputName
         outputKind = snap.outputKind
         playbackRate = snap.playbackRate
+        if snap.volumeChangedAt > lastVolumeChangedAt {
+            lastVolumeChangedAt = snap.volumeChangedAt
+            // 重新连上时补来的是几分钟前的那次, 不算; 只认刚刚发生的。
+            if abs(now.timeIntervalSince1970 - snap.volumeChangedAt) < 3 {
+                volumeActivity &+= 1
+            }
+        }
 
         // 喜欢偶尔要等 iPhone 曲库就绪才落地, 窗口放宽到 1.5 秒。
         if !(now.timeIntervalSince(lastUserLikeAt) < 1.5 && snap.isLiked != isLiked) {
@@ -639,6 +651,7 @@ struct ContextSnapshot: Sendable {
     let outputName: String
     let outputKind: String
     let playbackRate: Double
+    let volumeChangedAt: TimeInterval
 
     init(_ ctx: [String: Any]) {
         songID = ctx["songID"] as? String ?? ""
@@ -674,6 +687,7 @@ struct ContextSnapshot: Sendable {
         outputKind = ctx["outputKind"] as? String ?? ""
         let rate = ctx["playbackRate"] as? Double ?? 1
         playbackRate = rate.isFinite && rate > 0 ? rate : 1
+        volumeChangedAt = ctx["volumeChangedAt"] as? Double ?? 0
     }
 }
 

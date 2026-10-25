@@ -8,7 +8,8 @@ import WatchKit
 /// 电台只有能换台时才有两侧键。
 ///
 /// 数字表冠调 iPhone 的音量 (系统音量控件, 和 Apple Music 一样, 戴着 AirPods 时就是
-/// AirPods 的音量)。拖进度挪到「更多 → 调整进度」, 在那一页里表冠调进度。
+/// AirPods 的音量)。控件平时藏着, 转表冠时才在表冠一侧亮出来, 停下后淡出。
+/// 拖进度挪到「更多 → 调整进度」, 在那一页里表冠调进度。
 struct NowPlayingWatchView: View {
     @Environment(WatchPlayerStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
@@ -19,6 +20,9 @@ struct NowPlayingWatchView: View {
     /// 每加一次, 音量控件就重新要一次表冠: 回到这页、从后台回来、关掉弹出页之后
     /// 表冠都被别的页面拿走过。
     @State private var volumeFocusRequest = 0
+    /// 音量控件这会儿亮着没有。手表收不到表冠转动, 靠 iPhone 推来的音量变化判断。
+    @State private var showsVolume = false
+    @State private var volumeHideTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -72,6 +76,9 @@ struct NowPlayingWatchView: View {
         .onChange(of: store.hasSong) { _, hasSong in
             if hasSong { requestVolumeFocus() }
         }
+        .onChange(of: store.volumeActivity) { _, _ in
+            revealVolume()
+        }
     }
 
     private var playerLayout: some View {
@@ -97,7 +104,7 @@ struct NowPlayingWatchView: View {
         ZStack {
             if showsLyricsFace {
                 WatchLyricsPanel()
-                    .padding(.horizontal, WatchNowPlayingMetrics.volumeGutter)
+                    .padding(.horizontal, 4)
                     .transition(.opacity)
             } else {
                 WatchArtworkView()
@@ -117,11 +124,13 @@ struct NowPlayingWatchView: View {
         .accessibilityHint(store.hasLyrics && !store.isLiveStream
             ? WatchString(showsLyricsFace ? "ext.watch.lyrics.hide" : "ext.watch.lyrics.show")
             : "")
-        // 音量控件贴在表冠这一侧, 转表冠时看得见音量在变。
+        // 音量控件贴在表冠这一侧, 平时藏着不占地方, 转表冠时才亮出来、盖在封面或歌词上。
         .overlay(alignment: .trailing) {
             WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest)
                 .frame(width: WatchNowPlayingMetrics.volumeControlSide,
                        height: WatchNowPlayingMetrics.volumeControlSide)
+                .background(.black.opacity(0.4), in: Circle())
+                .opacity(showsVolume ? 1 : WatchNowPlayingMetrics.hiddenVolumeOpacity)
         }
         .overlay(alignment: .top) {
             if !store.isReachable {
@@ -162,12 +171,24 @@ struct NowPlayingWatchView: View {
         volumeFocusRequest &+= 1
     }
 
+    /// 音量变了: 亮出音量控件, 停下 1.5 秒再淡出; 连着调时一直顺延。
+    private func revealVolume() {
+        withAnimation(.easeOut(duration: 0.15)) { showsVolume = true }
+        volumeHideTask?.cancel()
+        volumeHideTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.4)) { showsVolume = false }
+        }
+    }
+
     #if DEBUG
-    /// 截图用: PRIMUSE_WATCH_DEMO_SCREEN=queue / options 直接打开那一页。
+    /// 截图用: PRIMUSE_WATCH_DEMO_SCREEN=queue / options 直接打开那一页, volume 让音量控件一直亮着。
     private func openDemoScreenIfNeeded() {
         switch store.demoScreen {
         case "queue": showsQueue = true
         case "options", "seek": showsOptions = true
+        case "volume": showsVolume = true
         default: break
         }
     }
@@ -181,9 +202,10 @@ enum WatchNowPlayingMetrics {
     static var playDiameter: CGFloat { min(62, max(46, (screenWidth * 0.3).rounded())) }
     static var sideDiameter: CGFloat { (playDiameter * 0.76).rounded() }
     static let volumeControlSide: CGFloat = 30
-    /// 左右各让出音量控件的宽度, 歌词不压到它。
-    static let volumeGutter: CGFloat = volumeControlSide + 2
-    static var maxArtworkSide: CGFloat { screenWidth - 2 * volumeGutter - 8 }
+    /// 音量控件藏起来时不设成 0: 完全透明的控件有可能被系统当成看不见, 表冠就交不到它手上。
+    /// 留这一点点肉眼看不出来。
+    static let hiddenVolumeOpacity: Double = 0.02
+    static var maxArtworkSide: CGFloat { screenWidth - 16 }
     /// 播放键离屏幕下沿的距离, 圆角处两侧键不被切到。
     static var bottomInset: CGFloat { screenWidth >= 190 ? 10 : 6 }
 }
