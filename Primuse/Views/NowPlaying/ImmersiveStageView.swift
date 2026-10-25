@@ -911,6 +911,11 @@ struct ImmersiveStageView<Artwork: View>: View {
         let upcomingTokens = upcoming.map { kineticTokens($0, at: time) } ?? []
         // 读不到频谱时背景跟着这几句的字头动。
         director.lyricOnsets = (previousTokens + activeTokens + upcomingTokens).map(\.start)
+        // 音游场景提前把接下来几句的字头放上轨道。
+        if director.direction.scene.playsRhythmChart {
+            let beatLocked = director.latestDrive.beatClock.isLocked
+            director.lyricCues = ordered.filter { $0.offset >= -1 }.flatMap { kineticCueTimes($0, beatLocked: beatLocked) }
+        }
         let previousMove = previous.map { kineticMove(for: $0, motion: motion) }
         let activeMove = active.map { kineticMove(for: $0, motion: motion) }
         let upcomingMove = upcoming.map { kineticMove(for: $0, motion: motion) }
@@ -1198,6 +1203,20 @@ struct ImmersiveStageView<Artwork: View>: View {
             progress: (time - enterStart) / ImmersiveKineticDirectionPolicy.enterDuration(move.transition),
             side: move.side
         )
+    }
+
+    /// 音游场景要提前知道的字头：逐字歌词每个字都算；逐行歌词对上了拍子时只取句首（字的快慢交给拍子，按字数
+    /// 摊开的时刻和唱的对不上），读不到拍子时按字数摊开，轨道上才有东西可打。
+    private func kineticCueTimes(_ line: ImmersiveStageLyric, beatLocked: Bool) -> [TimeInterval] {
+        guard line.fillProgress == nil else { return [] }
+        let starts = ImmersiveKineticLyricsPolicy.tokens(
+            text: line.text,
+            syllables: line.syllables,
+            lineStart: line.startTime,
+            lineEnd: line.endTime
+        ).map(\.start)
+        guard line.syllables?.isEmpty ?? true, beatLocked else { return starts }
+        return Array(starts.prefix(1))
     }
 
     /// 一句里会各自动起来的字。逐字歌词用它自己的时间；逐行歌词有频谱时跟着声音里的起音亮，读不到频谱时整句

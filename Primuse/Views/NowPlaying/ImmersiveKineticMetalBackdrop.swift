@@ -40,11 +40,21 @@ final class ImmersiveKineticDirector {
     /// 听到起音的播放时间（升序，最近 30 秒）：逐行歌词按它定每个字什么时候亮。
     private var onsetTimes: [TimeInterval] = []
     private let epoch = CACurrentMediaTime()
+    /// 弹珠落音与两个音游场景的模拟，和它们这一帧打包好的数据（同一帧里第二次来问直接给）。
+    private var marble = ImmersiveKineticMarbleRun(seed: 1)
+    private var chart = ImmersiveKineticRhythmChart(seed: 1)
+    private var marbleProps = ImmersiveKineticDirector.emptyProps
+    private var chartProps = ImmersiveKineticDirector.emptyProps
+    private var marbleUpdate = -Double.infinity
+    private var chartUpdate = -Double.infinity
+    nonisolated static let emptyProps = [SIMD4<Float>](repeating: .zero, count: ImmersiveKineticRhythmChart.propsCapacity)
 
     /// 舞台每次重算时更新：频谱（不建立观察的那份）、播放进度、台上这几句的字头。
     var levelsProvider: @MainActor () -> [CGFloat] = { [] }
     var playbackTime: @MainActor () -> TimeInterval? = { nil }
     var lyricOnsets: [TimeInterval] = []
+    /// 台上和接下来几句歌词的字头（提前就知道的那份时间）：音游场景提前把它们放上轨道。
+    var lyricCues: [TimeInterval] = []
 
     /// 场景时钟：从这个导演建起来算的秒数。着色器里用 float，开机以来的秒数太大，动画会一跳一跳。
     var sceneTime: TimeInterval { CACurrentMediaTime() - epoch }
@@ -70,6 +80,11 @@ final class ImmersiveKineticDirector {
         seedUnit = Double(seed % 10_000) / 10_000
         // 接着上一首的里程与落点：换歌时旧场景还要淡出一会儿，不能一下跳回起点。
         conductor = ImmersiveKineticConductor(seed: seed, continuing: drive, at: sceneTime)
+        marble = ImmersiveKineticMarbleRun(seed: seed)
+        chart = ImmersiveKineticRhythmChart(seed: seed)
+        marbleUpdate = -Double.infinity
+        chartUpdate = -Double.infinity
+        lyricCues.removeAll()
         lineMoves.removeAll()
         lineTimings.removeAll()
         onsetTimes.removeAll()
@@ -94,6 +109,29 @@ final class ImmersiveKineticDirector {
         )
         if drive.onset > 0, let playback { recordOnset(at: playback) }
         return drive
+    }
+
+    /// 弹珠落音、音游场景这一帧交给着色器的那份数据（buffer 1）；别的场景给一份空的。和 `currentDrive()` 一样只在
+    /// 背景的绘制回调里调。时间用播放时间：暂停时球和音符都停住，拖进度时从头来。
+    func props(for scene: ImmersiveKineticScene, aspect: Double) -> [SIMD4<Float>] {
+        guard scene == .marbleDrop || scene.playsRhythmChart else { return Self.emptyProps }
+        let drive = currentDrive()
+        guard let playback = playbackTime() else { return Self.emptyProps }
+        let now = sceneTime
+        if scene == .marbleDrop {
+            if now - marbleUpdate > 0.004 {
+                marbleUpdate = now
+                marble.update(hits: drive.registerHits, followsSpectrum: drive.hasSpectrum, aspect: aspect, at: playback)
+                marbleProps = marble.packed(at: playback)
+            }
+            return marbleProps
+        }
+        if now - chartUpdate > 0.004 {
+            chartUpdate = now
+            chart.update(clock: drive.beatClock, cues: lyricCues, climax: drive.climaxLevel, at: playback)
+            chartProps = chart.packed(clock: drive.beatClock, climax: drive.climaxLevel, at: playback)
+        }
+        return chartProps
     }
 
     private func recordOnset(at playback: TimeInterval) {
@@ -235,14 +273,26 @@ final class ImmersiveKineticRenderer: NSObject {
               let buffer = queue.makeCommandBuffer(),
               let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         if let pipeline = pipeline(for: scene) {
-            var uniforms = uniforms(size: view.drawableSize)
-            encoder.setRenderPipelineState(pipeline)
-            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ImmersiveKineticUniforms>.stride, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            encode(pipeline, size: view.drawableSize, into: encoder)
         }
         encoder.endEncoding()
         buffer.present(drawable)
         buffer.commit()
+    }
+
+    /// 画一帧：参数（buffer 0）和弹珠、音游场景的那份数据（buffer 1，别的场景是空的，着色器不读）。
+    private func encode(_ pipeline: MTLRenderPipelineState, size: CGSize, into encoder: MTLRenderCommandEncoder) {
+        var uniforms = uniforms(size: size)
+        let aspect = size.height > 0 ? Double(size.width / size.height) : 1
+        let props = director?.props(for: scene, aspect: aspect) ?? ImmersiveKineticDirector.emptyProps
+        encoder.setRenderPipelineState(pipeline)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ImmersiveKineticUniforms>.stride, index: 0)
+        props.withUnsafeBytes { bytes in
+            if let base = bytes.baseAddress {
+                encoder.setFragmentBytes(base, length: bytes.count, index: 1)
+            }
+        }
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 
     private func uniforms(size: CGSize) -> ImmersiveKineticUniforms {
@@ -459,10 +509,10 @@ struct ImmersiveKineticSceneBackdrop: View {
         }
     }
 
-    /// 安静的场景一秒三十帧就够；冲得快的那几个（隧道、激光、网格路面、雷雨）按六十帧画，三十帧下细线一帧
-    /// 跨一大截，看着一格一格跳。电视一律三十帧；帧率设成更高时按设定走。
+    /// 安静的场景一秒三十帧就够；冲得快的那几个（隧道、激光、网格路面、雷雨、音游）和弹珠落音按六十帧画，三十帧下
+    /// 细线、小球一帧跨一大截，看着一格一格跳。电视一律三十帧；帧率设成更高时按设定走。
     private var framesPerSecond: Int {
-        let interval = (scene.isEnergetic
+        let interval = (scene.isEnergetic || scene == .marbleDrop
             ? frameRate.minimumInterval(fastBase: 1.0 / 60, televisionFloor: 1.0 / 30)
             : frameRate.minimumInterval(base: 1.0 / 30, televisionFloor: 1.0 / 30)) ?? (1.0 / 60)
         return max(Int((1 / max(interval, 1.0 / 120)).rounded()), 1)
@@ -632,10 +682,7 @@ extension ImmersiveKineticRenderer {
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return nil }
-        var uniforms = uniforms(size: CGSize(width: width, height: height))
-        encoder.setRenderPipelineState(pipeline)
-        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ImmersiveKineticUniforms>.stride, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encode(pipeline, size: CGSize(width: width, height: height), into: encoder)
         encoder.endEncoding()
         buffer.commit()
         buffer.waitUntilCompleted()

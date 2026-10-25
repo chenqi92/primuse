@@ -4,7 +4,8 @@
 // 打包机就不需要另装 Xcode 的 Metal Toolchain。每个场景一个片元函数，共用一个铺满画面的顶点函数。
 //
 // `KineticUniforms` 必须和 `ImmersiveKineticUniforms`（ImmersiveKineticMetalBackdrop.swift）逐字段一致，
-// 全部用 float4，两边的对齐方式不会有分歧。
+// 全部用 float4，两边的对齐方式不会有分歧。弹珠落音和两个音游场景另有一份 `props`（buffer 1，float4 数组），
+// 由 PrimuseKit 的 `ImmersiveKineticMarbleRun.packed`、`ImmersiveKineticRhythmChart.packed` 打包，格式写在各场景前面。
 
 import PrimuseKit
 
@@ -725,6 +726,536 @@ fragment float4 kinetic_neonDrive(KineticVertexOut in [[stage_in]], constant Kin
     }
     // 地平线上一层辉光，重拍时更亮。
     color += neonA * exp(-abs(uv.y - horizon) * 22.0) * (0.25 + 0.5 * u.drive3.x);
+    color *= vignette(uv, 0.55);
+    return float4(kineticFinish(color, uv, u), 1.0);
+}
+// ---- 三个新场景共用 ----
+
+static float segmentDistance(float2 p, float2 a, float2 b) {
+    float2 pa = p - a;
+    float2 ba = b - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-7), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+// 点在三角形里时为 1（不管三个点是顺时针还是逆时针）。
+static float insideTriangle(float2 p, float2 a, float2 b, float2 c) {
+    float e0 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    float e1 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+    float e2 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+    bool positive = e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0;
+    bool negative = e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0;
+    return (positive || negative) ? 1.0 : 0.0;
+}
+
+// 圆角方块的有向距离：里面为负。
+static float roundedBox(float2 p, float halfSize, float corner) {
+    float2 d = abs(p) - (halfSize - corner);
+    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - corner;
+}
+
+static float2 rotate2(float2 p, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return float2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+// 两只手 / 两类音符的颜色：一暖一冷，专辑色带一点进去，整张专辑颜色相近时也分得开。
+static float3 rhythmHandColor(int hand, constant KineticUniforms& u) {
+    if (hand == 0) {
+        return mix(u.colorA.rgb * 1.2 + 0.05, float3(1.0, 0.26, 0.36), 0.5);
+    }
+    return mix(u.colorB.rgb * 1.6 + 0.1, float3(0.2, 0.62, 1.0), 0.6);
+}
+
+// ---- 弹珠落音 ----
+// props（float4）：[0] 球数、音条数、拖尾点数、画面在这条路上走到哪（只用来让背景的微尘跟着往上退）；
+// [1…3] 每颗球 x、y（画面里，按画面高度算，x 从 0 到宽高比）、半径、声部；[4…6] 离上次弹开多久、速度、拖尾点数；
+// [8…22] 每颗球五组拖尾点（两个点一组，最新的在前）；[24…] 每根音条两组：撞点 x、y、法线角、长度，离撞上多久、声部、力度。
+
+static float3 marbleVoiceColor(int voice, constant KineticUniforms& u) {
+    float3 a = u.colorA.rgb;
+    float3 b = u.colorB.rgb;
+    if (voice == 0) { return mix(a * 1.15, float3(1.0, 0.55, 0.42), 0.3); }
+    if (voice == 1) { return mix(b * 1.6 + 0.12, float3(0.42, 0.86, 1.0), 0.5); }
+    return mix(float3(1.0, 0.9, 0.7), a, 0.15);
+}
+
+fragment float4 kinetic_marbleDrop(KineticVertexOut in [[stage_in]], constant KineticUniforms& u [[buffer(0)]], constant float4* props [[buffer(1)]]) {
+    float2 uv = kineticZoom(in.uv, u);
+    float aspect = u.frame.x / max(u.frame.y, 1.0);
+    float t = u.frame.z;
+    float2 q = float2(uv.x * aspect, uv.y);
+    float3 a = u.colorA.rgb;
+    float3 b = u.colorB.rgb;
+    int ballCount = min(int(props[0].x), 3);
+    int barCount = min(int(props[0].y), 52);
+    float camera = props[0].w;
+    float3 color = mix(b * 0.10 + float3(0.006, 0.007, 0.014), a * 0.07 + float3(0.012, 0.012, 0.022), uv.y);
+    // 远近两层微尘：画面往下走，它们往上退，越近退得越快。
+    for (int layer = 0; layer < 2; layer++) {
+        float fl = float(layer);
+        float2 p = float2(q.x, q.y + camera * (0.3 + 0.4 * fl)) * (34.0 - 12.0 * fl);
+        float2 cell = floor(p);
+        float h = hash21(cell + fl * 31.0);
+        float2 f = fract(p) - 0.5 - (float2(hash21(cell + 2.3), hash21(cell + 7.1)) - 0.5) * 0.7;
+        float mote = below(0.0, 0.07 + 0.05 * fl, length(f)) * step(0.88, h);
+        color += mix(b * 1.4 + 0.1, float3(1.0), 0.5) * mote * (0.05 + 0.05 * fl) * (0.7 + 0.3 * sin(t * 1.3 + h * 40.0));
+    }
+    // 音条：撞上那一下亮起来、荡开一圈，之后留着微光慢慢暗下去。
+    for (int i = 0; i < barCount; i++) {
+        float4 g = props[24 + i * 2];
+        float4 m = props[25 + i * 2];
+        float2 c = g.xy;
+        float2 rel = q - c;
+        if (abs(rel.x) > 0.2 || abs(rel.y) > 0.2) { continue; }
+        float age = m.x;
+        float3 tint = marbleVoiceColor(int(m.y), u);
+        float2 n = float2(cos(g.z), sin(g.z));
+        float2 tangent = float2(-n.y, n.x);
+        float halfLength = g.w * 0.5;
+        // 音条贴着撞点、往背离球的一侧让出一点厚度。
+        float2 mid = c - n * 0.004;
+        float d = segmentDistance(q, mid - tangent * halfLength, mid + tangent * halfLength);
+        float flash = exp(-age * 5.0) * (0.45 + 0.55 * m.z);
+        float life = below(4.5, 7.0, age) * (0.4 + 0.6 * exp(-age * 0.6));
+        float core = below(0.0028, 0.0048, d);
+        // 顺着音条一道高光，像一根发光的琴键。
+        float along = dot(q - mid, tangent) / max(halfLength, 0.001);
+        float sheen = 0.75 + 0.25 * cos(along * 2.2);
+        color += tint * (core * (0.42 + 1.5 * flash) * sheen + exp(-d * 85.0) * (0.06 + 0.6 * flash)) * life;
+        if (age < 0.7) {
+            float ring = exp(-sq((length(rel) - age * 0.12) * 160.0)) * sq(1.0 - age / 0.7) * (0.4 + 0.6 * m.z);
+            color += tint * ring * 0.45;
+        }
+    }
+    // 球和拖尾。
+    for (int i = 0; i < ballCount; i++) {
+        float4 ball = props[1 + i];
+        float4 info = props[4 + i];
+        float r = ball.z;
+        float3 tint = marbleVoiceColor(int(ball.w), u);
+        float2 previous = ball.xy;
+        int points = min(int(info.z), 10);
+        float trail = 0.0;
+        // 拖尾按走过的路长算、最长 `trailReach`：一直往下掉时十个采样能拉出小半个画面，像一道竖线。离得比这还远的
+        // 像素不必逐段量。
+        const float trailReach = 0.09;
+        if (length(q - ball.xy) > trailReach + r * 2.0) { points = 0; }
+        float travelled = 0.0;
+        for (int k = 0; k < points; k++) {
+            float4 pair = props[8 + i * 5 + k / 2];
+            float2 p = (k % 2 == 0) ? pair.xy : pair.zw;
+            float step = length(p - previous);
+            if (travelled + step > trailReach) {
+                p = previous + (p - previous) * ((trailReach - travelled) / max(step, 1e-5));
+                step = trailReach - travelled;
+            }
+            float fade = 1.0 - (travelled + step) / trailReach;
+            float d = segmentDistance(q, previous, p);
+            trail = max(trail, below(0.0, r * (0.15 + 0.7 * fade), d) * fade * fade);
+            travelled += step;
+            previous = p;
+            if (travelled >= trailReach) { break; }
+        }
+        color += tint * trail * 0.4;
+        float d = length(q - ball.xy);
+        float hit = exp(-info.x * 7.0);
+        float body = below(r * 0.86, r, d);
+        float2 local = (q - ball.xy) / r;
+        float shade = 0.5 + 0.5 * clamp(1.0 - length(local - float2(-0.35, -0.45)) * 0.8, 0.0, 1.0);
+        float3 surface = tint * shade * (1.0 + 0.7 * hit) + float3(0.25) * hit;
+        // 左上一点高光。
+        surface += float3(1.0) * below(0.0, 0.32, length(local - float2(-0.38, -0.42))) * 0.5;
+        color = mix(color, surface, body);
+        color += tint * exp(-max(d - r, 0.0) / (r * (1.3 + 2.2 * hit))) * (0.22 + 0.6 * hit) * (1.0 - body);
+    }
+    color *= vignette(uv, 0.5);
+    return float4(kineticFinish(color, uv, u), 1.0);
+}
+
+// ---- 下落轨道 ----
+// props（float4）：[0] 小节里第几拍（0…4，没对上拍子时 -1）、一拍多长、拍子多可信、音符数；[1] 提前多久放上轨道、
+// 进副歌的程度、打掉了多少个；[16…] 每个音符两组：光剑用的位置 x、y，离该打还有多久（负的是已经打掉了多久）、
+// 力度，第几条轨道（小数部分乘 2 是这个音符自己的随机数）、手（+2 是歌词的字头）、劈的方向、放上轨道多久了。
+
+// 轨道在画面上的样子：地平线、判定线、判定线处半宽（按画面高度算）。
+static float3 highwayFrame(float aspect) {
+    float portrait = aspect < 1.0 ? 1.0 : 0.0;
+    float horizon = mix(0.14, 0.12, portrait);
+    float judge = mix(0.86, 0.84, portrait);
+    float halfWidth = min(0.42 * aspect, 0.46);
+    return float3(horizon, judge, halfWidth);
+}
+
+// 判定线到最远处的纵深、镜头离判定线多远（越远透视越平：近处的音符不会大得占掉半个画面）。
+constant float kHighwayFar = 6.5;
+constant float kHighwayEye = 3.0;
+
+fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant KineticUniforms& u [[buffer(0)]], constant float4* props [[buffer(1)]]) {
+    float2 uv = kineticZoom(in.uv, u);
+    float aspect = u.frame.x / max(u.frame.y, 1.0);
+    float t = u.frame.z;
+    float2 q = float2(uv.x * aspect, uv.y);
+    float3 a = u.colorA.rgb;
+    float3 b = u.colorB.rgb;
+    float3 frame = highwayFrame(aspect);
+    float horizon = frame.x;
+    float judge = frame.y;
+    float halfWidth = frame.z;
+    float cx = 0.5 * aspect;
+    float measure = props[0].x;
+    float period = max(props[0].y, 0.1);
+    float lead = max(props[1].x, 0.1);
+    float climax = props[1].y;
+    float combo = min(props[1].z / 60.0, 1.0);
+    int noteCount = min(int(props[0].w), 56);
+    float zPerSecond = kHighwayFar / lead;
+    float3 laneWarm = rhythmHandColor(0, u);
+    float3 laneCool = rhythmHandColor(1, u);
+
+    // 背景：深色，地平线上一层光，两侧的舞台光柱跟着鼓点亮。
+    float3 color = mix(float3(0.008, 0.008, 0.018) + b * 0.06, a * 0.10 + float3(0.02, 0.012, 0.035), smoothstep(0.0, horizon + 0.1, uv.y) * below(horizon, 1.0, uv.y));
+    color += mix(a, float3(1.0), 0.4) * exp(-abs(uv.y - horizon) * 24.0) * (0.18 + 0.3 * u.drive3.x);
+    for (int side = 0; side < 2; side++) {
+        float sx = side == 0 ? -1.0 : 1.0;
+        float2 source = float2(cx + sx * (halfWidth * 1.9 + 0.05), -0.05);
+        float2 rel = q - source;
+        float sweep = sx * (0.28 + 0.12 * sin(u.drive3.y * 0.6 + float(side) * 2.0));
+        float2 dir = normalize(float2(-sin(sweep), 1.0));
+        float across = abs(rel.x * dir.y - rel.y * dir.x);
+        float beam = exp(-across * 34.0) * step(0.0, dot(rel, dir)) * exp(-length(rel) * 1.2);
+        color += (side == 0 ? laneWarm : laneCool) * beam * (0.08 + 0.35 * u.drive3.x + 0.15 * climax);
+    }
+
+    float s = (q.y - horizon) / (judge - horizon);
+    if (s > 0.02) {
+        float z = kHighwayEye * (1.0 / s - 1.0);
+        float xw = (q.x - cx) / (halfWidth * s);
+        float lanes = (xw + 1.0) * 2.0;
+        float fog = exp(-max(z, 0.0) * 0.2) * smoothstep(0.02, 0.3, s);
+        if (abs(xw) < 1.0) {
+            // 路面：半透明的深色，越远越淡；连击越多两边越亮。
+            color = mix(color, float3(0.012, 0.012, 0.026) + b * 0.05, 0.75 * fog);
+            float laneLine = abs(fract(lanes + 0.5) - 0.5);
+            color += mix(b, float3(1.0), 0.5) * below(0.0, fwidth(lanes) * 1.2, laneLine) * 0.22 * fog;
+            // 拍线：每一拍一道横线迎面过来，每小节第一拍那道更亮。
+            if (measure >= 0.0 && z >= 0.0) {
+                float w = measure + z / zPerSecond / period;
+                float beatLine = abs(fract(w + 0.5) - 0.5);
+                float strong = fmod(floor(w + 0.5), 4.0) < 0.5 ? 1.0 : 0.0;
+                float lineAlpha = below(0.0, fwidth(w) * 1.3, beatLine) * clamp(props[0].z * 1.5 - 0.4, 0.0, 1.0);
+                color += mix(a, float3(1.0), 0.5) * lineAlpha * (0.12 + 0.22 * strong) * fog;
+            }
+        }
+        // 两侧的导轨。
+        float edge = abs(abs(xw) - 1.0) * halfWidth * s;
+        color += mix(a, float3(1.0), 0.3) * exp(-edge * 380.0) * (0.45 + 0.4 * combo + 0.3 * u.drive3.x) * fog * step(-0.2, z);
+
+        // 音符：从远处顺着轨道落到判定线。
+        for (int i = noteCount - 1; i >= 0; i--) {
+            float4 g = props[16 + i * 2];
+            float4 m = props[17 + i * 2];
+            float tth = g.z;
+            int lane = int(m.x);
+            float laneCenter = -0.75 + 0.5 * float(lane);
+            float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
+            bool lyric = m.y >= 2.0;
+            if (tth > -0.02) {
+                float zn = max(tth, 0.0) * zPerSecond;
+                float dz = abs(z - zn);
+                float dx = abs(xw - laneCenter);
+                if (dz < 0.6 && dx < 0.3) {
+                    float appear = smoothstep(0.0, 0.25, m.w);
+                    // 在路面上量的圆角块：横跨大半条轨道，纵深一小截。
+                    float2 local = float2(dx / 0.21, dz / 0.16);
+                    float box = length(max(local - float2(0.82, 0.55), 0.0)) + min(max(local.x - 0.82, local.y - 0.55), 0.0) - 0.18;
+                    float fill = below(0.0, fwidth(box) * 1.5 + 0.001, box);
+                    float rim = exp(-abs(box) * 9.0);
+                    float3 body = mix(tint, float3(1.0), lyric ? 0.45 : 0.18);
+                    float glowFront = 0.8 + 0.6 * below(0.0, 0.6, local.y) * step(z, zn);
+                    color = mix(color, body * glowFront * (0.85 + 0.25 * g.w), fill * appear * fog);
+                    color += tint * rim * 0.35 * appear * fog;
+                }
+            } else {
+                // 打中：判定线上炸开一圈，整条轨道亮一下，往上溅火星。
+                float age = -tth;
+                if (age < 0.6) {
+                    float bright = exp(-age * 7.0) * (0.6 + 0.4 * g.w);
+                    float column = exp(-abs(xw - laneCenter) * 9.0) * step(abs(xw), 1.0) * exp(-z * 0.3) * step(-0.05, z);
+                    color += tint * column * bright * 0.5;
+                }
+            }
+        }
+    }
+
+    // 判定线和下面那排键：音符到时那条轨道的键被按下去、亮起来。
+    float judgeGlow = exp(-abs(q.y - judge) * 140.0) * step(abs(q.x - cx), halfWidth);
+    color += mix(a, float3(1.0), 0.6) * judgeGlow * (0.55 + 0.4 * u.drive3.x);
+    for (int lane = 0; lane < 4; lane++) {
+        float laneCenter = cx + (-0.75 + 0.5 * float(lane)) * halfWidth;
+        float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
+        float press = 0.0;
+        for (int i = 0; i < noteCount; i++) {
+            float4 g = props[16 + i * 2];
+            if (int(props[17 + i * 2].x) != lane) { continue; }
+            float tth = g.z;
+            press = max(press, smoothstep(-0.03, 0.0, -tth + 0.0) * below(0.06, 0.16, -tth) * step(tth, 0.03));
+        }
+        float keyHalf = halfWidth * 0.21;
+        float2 keyCenter = float2(laneCenter, judge + 0.032 + 0.006 * press);
+        float2 rel = q - keyCenter;
+        float key = roundedBox(rel * float2(1.0, keyHalf / 0.022), keyHalf, keyHalf * 0.3);
+        float keyFill = below(0.0, 0.002, key);
+        float3 keyColor = mix(float3(0.05, 0.05, 0.08) + tint * 0.12, mix(tint, float3(1.0), 0.35) * 1.2, press);
+        color = mix(color, keyColor, keyFill * 0.92);
+        color += tint * exp(-max(key, 0.0) * 70.0) * (0.12 + 0.7 * press);
+    }
+
+    // 打中的那一下：判定线上一圈光环、一团闪光和往上溅的火星（画在最上层）。
+    for (int i = 0; i < noteCount; i++) {
+        float4 g = props[16 + i * 2];
+        float4 m = props[17 + i * 2];
+        float age = -g.z;
+        if (age < 0.0 || age > 0.6) { continue; }
+        int lane = int(m.x);
+        float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
+        float2 burst = float2(cx + (-0.75 + 0.5 * float(lane)) * halfWidth, judge);
+        float2 rel = q - burst;
+        float2 squashed = rel * float2(1.0, 2.4);
+        float ring = exp(-sq((length(squashed) - (0.02 + age * 0.22)) * 90.0)) * sq(1.0 - age / 0.6);
+        float flash = exp(-length(squashed) * 26.0) * exp(-age * 10.0);
+        color += mix(tint, float3(1.0), 0.4) * (ring * 0.8 + flash * 1.6) * (0.6 + 0.4 * g.w);
+        float salt = hash11(fract(m.x) * 2.0 * 37.0 + float(lane) * 1.7);
+        for (int k = 0; k < 7; k++) {
+            float fk = float(k);
+            float angle = -1.5708 + (hash11(salt * 13.0 + fk) - 0.5) * 2.2;
+            float speed = 0.25 + 0.3 * hash11(salt * 29.0 + fk * 3.1);
+            float2 p = burst + float2(cos(angle), sin(angle)) * speed * age + float2(0.0, 0.9 * age * age);
+            float spark = exp(-length(q - p) * 420.0) * (1.0 - age / 0.6);
+            color += mix(tint, float3(1.0), 0.6) * spark * 1.2;
+        }
+    }
+    color *= vignette(uv, 0.55);
+    return float4(kineticFinish(color, uv, u), 1.0);
+}
+
+// ---- 光剑劈方块 ----
+// props 与下落轨道相同，另有 [2…5]、[6…9] 两只手的光剑这一刻和之前七个采样指着哪儿（打的那个平面上，x 向右、
+// y 向上，两个点一组，最新的在前），[10] 两只手挥得多快。
+
+constant float kSaberHitDepth = 1.5;
+constant float kSaberSpeed = 8.0;
+constant float kSaberCube = 0.2;
+
+static float2 saberProject(float3 p, float2 center, float focal) {
+    float z = max(p.z, 0.05);
+    return float2(center.x + p.x / z * focal, center.y - p.y / z * focal);
+}
+
+// 劈的方向（画面上，y 向下），编号同 `ImmersiveKineticRhythmChart.Cut`。
+static float2 saberCutVector(int cut) {
+    switch (cut) {
+        case 1: return float2(0.0, -1.0);
+        case 2: return float2(-1.0, 0.0);
+        case 3: return float2(1.0, 0.0);
+        case 4: return float2(-0.7071, 0.7071);
+        case 5: return float2(0.7071, 0.7071);
+        case 6: return float2(-0.7071, -0.7071);
+        case 7: return float2(0.7071, -0.7071);
+        default: return float2(0.0, 1.0);
+    }
+}
+
+static float2 saberAim(constant float4* props, int hand, int step) {
+    float4 pair = props[2 + hand * 4 + step / 2];
+    return (step % 2 == 0) ? pair.xy : pair.zw;
+}
+
+// 光剑的握把在镜头前下方，跟着手腕往挥的方向带一点。
+static float3 saberHilt(int hand, float2 aim) {
+    float side = hand == 0 ? -1.0 : 1.0;
+    float2 rest = float2(side * 0.36, -0.82);
+    return float3(side * 0.15 + (aim.x - rest.x) * 0.3, -0.5 + (aim.y - rest.y) * 0.25, 0.55);
+}
+
+static float3 saberTip(int hand, float2 aim) {
+    float3 hilt = saberHilt(hand, aim);
+    float3 target = float3(aim, kSaberHitDepth);
+    return hilt + (target - hilt) * 1.25;
+}
+
+fragment float4 kinetic_saberSlash(KineticVertexOut in [[stage_in]], constant KineticUniforms& u [[buffer(0)]], constant float4* props [[buffer(1)]]) {
+    float2 uv = kineticZoom(in.uv, u);
+    float aspect = u.frame.x / max(u.frame.y, 1.0);
+    float t = u.frame.z;
+    float2 q = float2(uv.x * aspect, uv.y);
+    float3 a = u.colorA.rgb;
+    float3 b = u.colorB.rgb;
+    float2 center = float2(0.5 * aspect, 0.48);
+    float focal = min(1.35 * aspect, 1.1);
+    float measure = props[0].x;
+    float period = max(props[0].y, 0.1);
+    float climax = props[1].y;
+    int noteCount = min(int(props[0].w), 56);
+    float3 warm = rhythmHandColor(0, u);
+    float3 cool = rhythmHandColor(1, u);
+    float beatPhase = measure >= 0.0 ? fract(measure) : 0.5;
+    float onBeat = measure >= 0.0 ? exp(-beatPhase * 6.0) * props[0].z : u.drive3.x;
+
+    // 场地：深色，远处一层雾光。
+    float2 rel = q - center;
+    float3 color = float3(0.006, 0.007, 0.016) + b * 0.05;
+    color += mix(a, b, 0.5) * exp(-length(rel * float2(0.7, 1.6)) * 3.0) * 0.12;
+    // 地面：往远处收拢的网格，两条霓虹灯带沿着两侧。
+    if (q.y > center.y + 0.01) {
+        float depth = 0.9 * focal / (q.y - center.y);
+        float worldX = rel.x * depth / focal;
+        float travel = u.motion.x * 2.0;
+        float row = depth + travel;
+        float rowLine = abs(fract(row * 0.8 + 0.5) - 0.5);
+        float fade = exp(-depth * 0.12);
+        color += mix(b, float3(1.0), 0.3) * below(0.0, fwidth(row * 0.8) * 1.4, rowLine) * 0.10 * fade;
+        for (int side = 0; side < 2; side++) {
+            float sx = side == 0 ? -1.0 : 1.0;
+            float strip = abs(worldX - sx * 1.1);
+            float width = fwidth(worldX) * 1.5;
+            color += (side == 0 ? warm : cool) * (below(0.0, width + 0.02, strip) * 0.6 + exp(-strip * 6.0) * 0.12) * fade * (0.5 + 0.7 * onBeat);
+        }
+    }
+    // 远处一圈圈方形的灯环：每一拍往镜头这边推近一截，慢慢转。
+    for (int k = 0; k < 6; k++) {
+        float fk = float(k);
+        float ringZ = 3.0 + fk * 1.6 - (measure >= 0.0 ? beatPhase : fract(t * 0.5)) * 1.6;
+        float halfSize = 1.05 / ringZ * focal;
+        float2 p = rotate2(rel, 0.08 * sin(t * 0.3 + fk * 0.7) + (climax > 0.5 ? 0.1 * fk : 0.0));
+        float square = abs(max(abs(p.x), abs(p.y)) - halfSize);
+        float fade = smoothstep(2.4, 3.6, ringZ) * below(9.0, 11.0, ringZ);
+        color += mix(k % 2 == 0 ? warm : cool, float3(1.0), 0.25) * exp(-square * 260.0 * ringZ / 3.0) * fade * (0.18 + 0.5 * onBeat);
+    }
+
+    // 方块：从远处飞过来，远的先画、近的盖在上面。打掉以后两半往两边飞开。
+    for (int i = noteCount - 1; i >= 0; i--) {
+        float4 g = props[16 + i * 2];
+        float4 m = props[17 + i * 2];
+        float tth = g.z;
+        int hand = int(fmod(m.y, 2.0));
+        bool lyric = m.y >= 2.0;
+        float3 tint = hand == 0 ? warm : cool;
+        if (tth > 0.0) {
+            float z = kSaberHitDepth + tth * kSaberSpeed;
+            float2 c = saberProject(float3(g.x, g.y, z), center, focal);
+            float cubeHalf = kSaberCube * 0.5 / z * focal;
+            float2 local = q - c;
+            if (abs(local.x) > cubeHalf * 3.0 || abs(local.y) > cubeHalf * 3.0) { continue; }
+            float2 cutDir = saberCutVector(int(m.z));
+            float appear = smoothstep(0.0, 0.25, m.w) * below(12.0, 13.5, z);
+            // 后面那一面：往消失点那边缩一点，画出方块的侧面。
+            float2 back = saberProject(float3(g.x, g.y, z + kSaberCube), center, focal);
+            float backHalf = kSaberCube * 0.5 / (z + kSaberCube) * focal;
+            float sideBox = 1e3;
+            for (int s = 0; s <= 4; s++) {
+                float f = float(s) / 4.0;
+                sideBox = min(sideBox, roundedBox(q - mix(c, back, f), mix(cubeHalf, backHalf, f), mix(cubeHalf, backHalf, f) * 0.18));
+            }
+            float face = roundedBox(local, cubeHalf, cubeHalf * 0.18);
+            float sideFill = below(0.0, 0.0015, sideBox);
+            float faceFill = below(0.0, 0.0015, face);
+            color = mix(color, tint * 0.35, sideFill * appear);
+            float3 faceColor = mix(tint * 0.55, tint * 1.05, smoothstep(cubeHalf, -cubeHalf, local.y + local.x * 0.3));
+            color = mix(color, faceColor, faceFill * appear);
+            color += mix(tint, float3(1.0), 0.4) * exp(-abs(face) / max(cubeHalf * 0.08, 0.0008)) * 0.6 * appear;
+            // 面上的箭头（歌词的字头是一个点：哪个方向劈都行）。
+            float2 arrowSpace = float2(dot(local, float2(-cutDir.y, cutDir.x)), dot(local, cutDir)) / cubeHalf;
+            float mark;
+            if (lyric) {
+                mark = below(0.2, 0.28, length(arrowSpace));
+            } else {
+                // 一道折角朝劈的方向的人字。
+                float chevron = arrowSpace.y + 0.9 * abs(arrowSpace.x) - 0.28;
+                mark = below(0.09, 0.13, abs(chevron)) * below(0.5, 0.56, abs(arrowSpace.x));
+            }
+            color = mix(color, float3(1.0), mark * faceFill * appear * 0.95);
+        } else {
+            float age = -tth;
+            if (age > 0.6) { continue; }
+            float z = kSaberHitDepth - age * 0.5;
+            float2 c = saberProject(float3(g.x, g.y, z), center, focal);
+            float cubeHalf = kSaberCube * 0.5 / z * focal;
+            // 碎块和火星飞得最远的地方以外不必算。
+            if (length(q - c) > cubeHalf * 5.0 + focal * (0.85 * age + 0.2 * age * age) + 0.02) { continue; }
+            float2 cutDir = saberCutVector(int(m.z));
+            float2 perp = float2(-cutDir.y, cutDir.x);
+            float fade = below(0.08, 0.32, age);
+            // 一刀两半：沿着刀口的两侧往外飞、各自打着转，往下掉。
+            for (int s = 0; s < 2; s++) {
+                float sx = s == 0 ? 1.0 : -1.0;
+                float2 offset = perp * sx * cubeHalf * (0.12 + age * 3.2) + cutDir * age * cubeHalf * 1.2 + float2(0.0, 0.5 * age * age);
+                float angle = sx * age * 4.0;
+                float2 local = rotate2(q - (c + offset), -angle);
+                float box = roundedBox(local, cubeHalf, cubeHalf * 0.18);
+                float side = dot(local, perp) * sx;
+                float piece = below(0.0, 0.0015, max(box, -side));
+                color = mix(color, tint * 0.8, piece * fade);
+                color += tint * exp(-abs(max(box, -side)) / max(cubeHalf * 0.06, 0.0008)) * fade * 0.5;
+                // 切面亮一下。
+                color += float3(1.0) * exp(-abs(side) / max(cubeHalf * 0.05, 0.0006)) * step(box, 0.0) * exp(-age * 12.0) * 0.9;
+            }
+            // 刀口一道光，和沿着刀口飞出去的火星。
+            float slash = exp(-abs(dot(q - c, perp)) * 600.0) * below(cubeHalf * 1.6, cubeHalf * 2.6, abs(dot(q - c, cutDir))) * exp(-age * 14.0);
+            color += mix(tint, float3(1.0), 0.5) * slash * 1.5;
+            float salt = hash11(fract(m.x) * 2.0 * 37.0 + floor(m.x) * 3.3);
+            for (int k = 0; k < 8; k++) {
+                float fk = float(k);
+                float spread = (hash11(salt * 17.0 + fk) - 0.5) * 1.6;
+                float2 dir = normalize(cutDir * (k % 2 == 0 ? 1.0 : -0.4) + perp * spread);
+                float speed = (0.35 + 0.45 * hash11(salt * 31.0 + fk * 1.7)) * focal;
+                float2 p = c + dir * speed * age + float2(0.0, 0.6 * age * age);
+                color += mix(tint, float3(1.0), 0.6) * exp(-length(q - p) * 380.0) * below(0.2, 0.5, age) * 1.4;
+            }
+        }
+    }
+
+    // 两把光剑和挥过的拖影。
+    for (int hand = 0; hand < 2; hand++) {
+        float3 tint = hand == 0 ? warm : cool;
+        float swing = clamp(props[10][hand] / 6.0, 0.0, 1.0);
+        float2 aim0 = saberAim(props, hand, 0);
+        float3 hilt3 = saberHilt(hand, aim0);
+        float3 tip3 = saberTip(hand, aim0);
+        // 拖影：相邻两个采样之间那一片，靠刀尖那段才有，越早越淡。挥得慢时看不出拖影，整段不算。
+        if (swing > 0.05) {
+            float ribbon = 0.0;
+            float3 hPrev = saberHilt(hand, aim0);
+            float3 tPrev = saberTip(hand, aim0);
+            float2 innerPrev = saberProject(mix(hPrev, tPrev, 0.45), center, focal);
+            float2 outerPrev = saberProject(tPrev, center, focal);
+            for (int k = 1; k < 8; k++) {
+                float2 aim = saberAim(props, hand, k);
+                float3 h = saberHilt(hand, aim);
+                float3 tipPoint = saberTip(hand, aim);
+                float2 inner = saberProject(mix(h, tipPoint, 0.45), center, focal);
+                float2 outer = saberProject(tipPoint, center, focal);
+                float inside = max(insideTriangle(q, innerPrev, outerPrev, outer), insideTriangle(q, innerPrev, outer, inner));
+                ribbon = max(ribbon, inside * (1.0 - float(k - 1) / 7.0));
+                innerPrev = inner;
+                outerPrev = outer;
+            }
+            color += mix(tint, float3(1.0), 0.25) * ribbon * ribbon * (0.25 + 0.55 * swing);
+        }
+        float2 hilt = saberProject(hilt3, center, focal);
+        float2 tip = saberProject(tip3, center, focal);
+        float2 ba = tip - hilt;
+        float h = clamp(dot(q - hilt, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+        float d = length(q - hilt - ba * h);
+        // 越靠近镜头越粗。
+        float width = mix(0.012, 0.004, h) * focal;
+        float core = below(width * 0.35, width * 0.6, d);
+        color = mix(color, float3(1.0), core);
+        color += tint * exp(-d / (width * (1.4 + 0.8 * swing))) * 0.9;
+    }
+    // 拍上整个场子闪一下。
+    color += mix(a, float3(1.0), 0.4) * onBeat * 0.035;
     color *= vignette(uv, 0.55);
     return float4(kineticFinish(color, uv, u), 1.0);
 }

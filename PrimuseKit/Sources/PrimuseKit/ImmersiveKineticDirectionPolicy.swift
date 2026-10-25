@@ -11,7 +11,7 @@ public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
     case ripplePond
     /// 天光一日：天色随这首歌的进度从拂晓走到入夜。
     case daylight
-    /// 曲速隧道：星光拉成线从中心往外冲，速度跟着能量走，重拍时冲出一道冲击波。
+    /// 曲速隧道：星光拉成线从中心往外冲，平常慢慢巡航，每一下鼓点往前蹿一截，重拍时冲出一道冲击波。
     case warpTunnel
     /// 雷暴：翻滚的乌云和斜雨，重拍劈下闪电。
     case thunderstorm
@@ -27,13 +27,23 @@ public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
     case laserShow
     /// 霓虹夜驰：沿着发光的网格路面往地平线上的城市冲。
     case neonDrive
+    /// 弹珠落音：发光的小球一直往下掉，每一个音都是一颗球撞上一根冒出来的音条，一路留下的音条就是这首歌
+    /// （`ImmersiveKineticMarbleRun`）。
+    case marbleDrop
+    /// 下落轨道：节奏大师那样的四条轨道，音符踩着拍子和字头落下来，到判定线时被自动打掉（`ImmersiveKineticRhythmChart`）。
+    case noteHighway
+    /// 光剑劈方块：方块踩着拍子从远处飞来，两把光剑照着方块上的箭头一刀刀劈开（`ImmersiveKineticRhythmChart`）。
+    case saberSlash
 
     public var isEnergetic: Bool {
         switch self {
-        case .rainGlass, .ripplePond, .daylight, .godRays, .starTrails, .caustics, .inkBloom: false
-        case .warpTunnel, .thunderstorm, .laserShow, .neonDrive: true
+        case .rainGlass, .ripplePond, .daylight, .godRays, .starTrails, .caustics, .inkBloom, .marbleDrop: false
+        case .warpTunnel, .thunderstorm, .laserShow, .neonDrive, .noteHighway, .saberSlash: true
         }
     }
+
+    /// 音游场景：要提前知道接下来的拍子与字头（`ImmersiveKineticRhythmChart`）。
+    public var playsRhythmChart: Bool { self == .noteHighway || self == .saberSlash }
 }
 
 /// 换句时整句怎么进出，取自电影的转场。
@@ -785,6 +795,12 @@ public struct ImmersiveKineticDrive: Equatable, Sendable {
     public var hasSpectrum = false
     /// 这一帧听到的起音（鼓点或人声那一段），0 是没有。只在跟着频谱时有：逐行歌词用它定每个字什么时候亮。
     public var onset: Double = 0
+    /// 这一帧低、中、高三段各自的起音力度（0 是没有）；读不到频谱时只有中段，是歌词的字头。弹珠落音按它让球撞上音条。
+    public var registerHits: [Double] = [0, 0, 0]
+    /// 鼓点给曲速的那一下推力：鼓点那一刻两三帧冲上去，约 0.14 秒衰减一半。
+    public var thrust: Double = 0
+    /// 跟着鼓点走的节拍钟（播放时间）：音游场景靠它预报接下来的拍子。
+    public var beatClock = ImmersiveBeatClock()
 
     public init() {}
 }
@@ -811,6 +827,8 @@ public struct ImmersiveKineticConductor: Sendable {
     public static let climaxExitHold: TimeInterval = 2.5
     /// 没有频谱时整体热闹程度的底子。
     public static let lyricDrivenEnergy = 0.35
+    /// 鼓点推力衰减一半要多久。
+    public static let thrustHalfLife: TimeInterval = 0.14
 
     private var random: ImmersiveRandom
     private var tracker = ImmersiveBeatTracker()
@@ -827,6 +845,7 @@ public struct ImmersiveKineticConductor: Sendable {
     private var followsSpectrum = false
     private var spectrumSince: TimeInterval?
     private var silentSince: TimeInterval?
+    private var thrustTarget = 0.0
 
     public init(seed: UInt64) {
         random = ImmersiveRandom(seed: seed)
@@ -839,6 +858,8 @@ public struct ImmersiveKineticConductor: Sendable {
         drive.flow = previous.flow
         drive.energy = previous.energy
         drive.events = previous.events
+        // 同一张专辑接着放时拍子多半还对得上；对不上的话几拍之内就会重新数。
+        drive.beatClock = previous.beatClock
         lastEvent = previous.events.last?.time ?? -Double.infinity
         lastTime = time
         // 上一首一直读得到频谱，这一首开头不必再等一会儿才认。
@@ -872,9 +893,22 @@ public struct ImmersiveKineticConductor: Sendable {
             hit = features.beat
             accent = features.onsets[1]
             drive.onset = max(hit, accent)
+            drive.registerHits = features.onsets
+            if let playbackTime {
+                drive.beatClock.update(
+                    beat: features.beat,
+                    beatsPerSecond: features.beatsPerSecond,
+                    steadiness: features.steadiness,
+                    at: playbackTime
+                )
+            }
         } else {
             drive.onset = 0
             let crossed = crossedOnsets(lyricOnsets, playbackTime: playbackTime)
+            drive.registerHits = [0, crossed > 0 ? 0.62 : 0, 0]
+            if let playbackTime {
+                drive.beatClock.update(beat: 0, beatsPerSecond: nil, steadiness: 0, at: playbackTime)
+            }
             lyricPulse *= pow(0.5, dt / 0.18)
             if crossed > 0 {
                 lyricPulse = 1
@@ -913,7 +947,17 @@ public struct ImmersiveKineticConductor: Sendable {
         drive.climaxLevel = follow(drive.climaxLevel, toward: drive.isClimax ? 1 : 0, dt: dt, halfLife: 0.35)
         climaxPushStage = follow(climaxPushStage, toward: drive.isClimax ? 1 : 0, dt: dt, halfLife: 0.5)
         drive.climaxPush = follow(drive.climaxPush, toward: climaxPushStage, dt: dt, halfLife: 0.5)
-        drive.travelSpeed = 0.25 + 1.4 * drive.energy + 1.2 * drive.swell + 0.5 * drive.climaxLevel
+        // 曲速：平常按这首歌此刻在自己的响度里排第几、按拍速慢慢巡航，每一下鼓点（读不到频谱时是字头）往前蹿一截
+        // 再滑行。以前速度主要跟整体电平走，响一点的歌一直顶在最快、一秒两三颗星撞到脸上，鼓点只占一小份，看着又快
+        // 又不跟拍。
+        if hit > 0 { thrustTarget = max(thrustTarget, 0.55 + 1.0 * hit) }
+        thrustTarget *= pow(0.5, dt / Self.thrustHalfLife)
+        drive.thrust = thrustTarget > drive.thrust
+            ? follow(drive.thrust, toward: thrustTarget, dt: dt, halfLife: 0.03)
+            : thrustTarget
+        let tempo = drive.beatClock.isLocked ? min(max(0.5 / drive.beatClock.period, 0.75), 1.3) : 1
+        let cruise = (0.1 + 0.22 * drive.intensity + 0.12 * drive.climaxLevel) * tempo
+        drive.travelSpeed = cruise + drive.thrust
         drive.travel += dt * drive.travelSpeed
         drive.flow += dt * (0.55 + 0.9 * drive.energy + 0.35 * drive.climaxLevel)
         drive.events.removeAll { time - $0.time > Self.eventLifetime }

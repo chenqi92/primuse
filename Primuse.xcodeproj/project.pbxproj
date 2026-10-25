@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
+		049D4134DD6831CA70BE9E36 /* ImmersiveBeatClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */; };
 		1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		28737F944638146B0887DFC4 /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */; };
 		28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */; };
@@ -17,6 +18,8 @@
 		548224D4D9A8F40A8FCF1518 /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		860A0B170B8BE7E994633978 /* PlaybackOptionsWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */; };
+		883754878658C0948119180E /* ImmersiveKineticRhythmChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */; };
+		A242B4213BA6183AB754326E /* ImmersiveKineticMarbleRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */; };
 		AB0708000CBC4F108CF7DF5D /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
 		124D12FF62714B9F877C64EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
 		8A1DC1FDB35C4F5F829E91EB /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
@@ -2383,12 +2386,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveBeatClock.swift; sourceTree = "<group>"; };
 		192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMetalBackdrop.swift; sourceTree = "<group>"; };
 		395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalveniDiagnosticsClient.swift; sourceTree = "<group>"; };
 		491192C7D9AA8DDDC5C06AF5 /* PalveniDiagnosticUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalveniDiagnosticUpload.swift; sourceTree = "<group>"; };
 		564E8FBCA3B599DC24756490 /* NowPlayingWatchControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWatchControls.swift; sourceTree = "<group>"; };
 		5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticDirectionPolicy.swift; sourceTree = "<group>"; };
 		5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsPolicy.swift; sourceTree = "<group>"; };
+		9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMarbleRun.swift; sourceTree = "<group>"; };
+		BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticRhythmChart.swift; sourceTree = "<group>"; };
 		CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackOptionsWatchView.swift; sourceTree = "<group>"; };
 		E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsText.swift; sourceTree = "<group>"; };
 		EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkRenderingTests.swift; sourceTree = "<group>"; };
@@ -4385,9 +4391,12 @@
 			isa = PBXGroup;
 			children = (
 				261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */,
+				1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */,
 				0C35FD6FD282B62FAA4E59FA /* ImmersiveEffectRotationPolicy.swift */,
 				5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */,
 				5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */,
+				9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */,
+				BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */,
 				491192C7D9AA8DDDC5C06AF5 /* PalveniDiagnosticUpload.swift */,
 				036AA04905BA927ADD037522 /* RequestQuotaRegistry.swift */,
 				6488DA53AC9E8F4FC41DBA94 /* ServerRequestScheduler.swift */,
@@ -6792,8 +6801,11 @@
 			files = (
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */,
+				049D4134DD6831CA70BE9E36 /* ImmersiveBeatClock.swift in Sources */,
 				B54D01211CF8BE605BAB93B6 /* ImmersiveKineticDirectionPolicy.swift in Sources */,
 				28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */,
+				A242B4213BA6183AB754326E /* ImmersiveKineticMarbleRun.swift in Sources */,
+				883754878658C0948119180E /* ImmersiveKineticRhythmChart.swift in Sources */,
 				BE21C127F973A0CA735F61AC /* LibraryUserDataBackup.swift in Sources */,
 				5E18A7B101503A88AFBE8494 /* LikedSongsPodcastSplitPolicy.swift in Sources */,
 				4FCC658948028BEF55AF1754 /* PalveniDiagnosticUpload.swift in Sources */,
