@@ -18,6 +18,14 @@ final class ImmersiveKineticDirector {
         var side: Double
     }
 
+    /// 逐行歌词的每个字什么时候亮。
+    enum LineTiming {
+        /// 跟着声音里的起音亮（有频谱时）。
+        case rhythm
+        /// 整句一起亮（读不到频谱时）。
+        case wholeLine
+    }
+
     private(set) var direction = ImmersiveKineticDirectionPolicy.direction(title: "", artist: "", album: "", genre: "")
     private(set) var seedUnit = 0.0
     private var directionKey: String?
@@ -25,6 +33,9 @@ final class ImmersiveKineticDirector {
     private var drive = ImmersiveKineticDrive()
     private var lastUpdate = -Double.infinity
     private var lineMoves: [String: LineMove] = [:]
+    private var lineTimings: [String: LineTiming] = [:]
+    /// 听到起音的播放时间（升序，最近 30 秒）：逐行歌词按它定每个字什么时候亮。
+    private var onsetTimes: [TimeInterval] = []
     private let epoch = CACurrentMediaTime()
 
     /// 舞台每次重算时更新：频谱（不建立观察的那份）、播放进度、台上这几句的字头。
@@ -55,6 +66,8 @@ final class ImmersiveKineticDirector {
         // 接着上一首的里程与落点：换歌时旧场景还要淡出一会儿，不能一下跳回起点。
         conductor = ImmersiveKineticConductor(seed: seed, continuing: drive, at: sceneTime)
         lineMoves.removeAll()
+        lineTimings.removeAll()
+        onsetTimes.removeAll()
         lastUpdate = -Double.infinity
     }
 
@@ -67,13 +80,42 @@ final class ImmersiveKineticDirector {
         let now = sceneTime
         guard now - lastUpdate > 0.004 else { return drive }
         lastUpdate = now
+        let playback = playbackTime()
         drive = conductor.update(
             levels: levelsProvider().map(Double.init),
             lyricOnsets: lyricOnsets,
-            playbackTime: playbackTime(),
+            playbackTime: playback,
             at: now
         )
+        if drive.onset > 0, let playback { recordOnset(at: playback) }
         return drive
+    }
+
+    private func recordOnset(at playback: TimeInterval) {
+        // 往回拖过进度：之前记的起音不再算数。
+        if let last = onsetTimes.last, playback < last - 0.5 { onsetTimes.removeAll() }
+        onsetTimes.append(playback)
+        if let first = onsetTimes.first, first < playback - 30 {
+            onsetTimes.removeAll { $0 < playback - 30 }
+        }
+    }
+
+    /// 从 `start` 起听到的起音（播放时间，升序）。
+    func onsets(since start: TimeInterval) -> [TimeInterval] {
+        onsetTimes.filter { $0 >= start - 0.05 }
+    }
+
+    /// 这句逐行歌词的字跟节奏亮还是整句亮：快开唱时按那会儿读不读得到频谱定下来，之后不变，免得唱到一半
+    /// 亮着的字又暗回去。还没到时先按此刻的情况给，不记下（换歌后的头一下可能还没认出频谱）。
+    func lineTiming(for line: ImmersiveStageLyric, at time: TimeInterval) -> LineTiming {
+        let key = "\(line.id)|\(line.startTime ?? -1)"
+        if let known = lineTimings[key] { return known }
+        let timing: LineTiming = drive.hasSpectrum ? .rhythm : .wholeLine
+        if let start = line.startTime, time >= start - 0.3 {
+            if lineTimings.count > 64 { lineTimings.removeAll() }
+            lineTimings[key] = timing
+        }
+        return timing
     }
 
     /// 一句用哪个镜头：第一次问到它时按当时是否在副歌里定下来，之后不变，免得换到一半换了镜头。平常两个镜头

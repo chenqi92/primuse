@@ -890,9 +890,9 @@ struct ImmersiveStageView<Artwork: View>: View {
         let active = ordered.first(where: \.isActive)
         let previous = ordered.last { $0.offset < 0 }
         let upcoming = ordered.first { $0.offset > 0 }
-        let activeTokens = active.map { kineticTokens($0) } ?? []
-        let previousTokens = previous.map { kineticTokens($0) } ?? []
-        let upcomingTokens = upcoming.map { kineticTokens($0) } ?? []
+        let activeTokens = active.map { kineticTokens($0, at: time) } ?? []
+        let previousTokens = previous.map { kineticTokens($0, at: time) } ?? []
+        let upcomingTokens = upcoming.map { kineticTokens($0, at: time) } ?? []
         // 读不到频谱时背景跟着这几句的字头动。
         director.lyricOnsets = (previousTokens + activeTokens + upcomingTokens).map(\.start)
         let previousMove = previous.map { kineticMove(for: $0, motion: motion) }
@@ -1124,14 +1124,23 @@ struct ImmersiveStageView<Artwork: View>: View {
         )
     }
 
-    private func kineticTokens(_ line: ImmersiveStageLyric) -> [ImmersiveKineticLyricsPolicy.Token] {
+    /// 一句里会各自动起来的字。逐字歌词用它自己的时间；逐行歌词有频谱时跟着声音里的起音亮，读不到频谱时整句
+    /// 一起亮——按字数摊开会像固定频率一个字一个字蹦，跟唱的快慢对不上。
+    private func kineticTokens(_ line: ImmersiveStageLyric, at time: TimeInterval) -> [ImmersiveKineticLyricsPolicy.Token] {
         guard line.fillProgress == nil else { return [] }
-        return ImmersiveKineticLyricsPolicy.tokens(
+        let tokens = ImmersiveKineticLyricsPolicy.tokens(
             text: line.text,
             syllables: line.syllables,
             lineStart: line.startTime,
             lineEnd: line.endTime
         )
+        guard line.syllables?.isEmpty ?? true, let first = tokens.first else { return tokens }
+        switch kineticDirector.lineTiming(for: line, at: time) {
+        case .rhythm:
+            return ImmersiveKineticLyricsPolicy.rhythmTokens(tokens, onsets: kineticDirector.onsets(since: first.start))
+        case .wholeLine:
+            return ImmersiveKineticLyricsPolicy.wholeLineTokens(tokens)
+        }
     }
 
     /// 一句连同它的和声、译文：主唱一个字一个字动，和声按自己的时间在下面小一号地动，译文跟着整句淡入淡出。

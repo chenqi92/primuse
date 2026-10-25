@@ -211,6 +211,68 @@ public enum ImmersiveKineticLyricsPolicy {
         }
     }
 
+    // MARK: - 逐行歌词跟着节奏走
+
+    /// 逐行歌词跟节奏时，一个字最多比按字数摊开的时刻早几个字、晚几个字亮；两个字至少隔多久。
+    public static let rhythmLead = 1.0
+    public static let rhythmLag = 1.5
+    public static let rhythmMinimumGap: TimeInterval = 0.09
+
+    /// 逐行歌词没有每个字的时间，按字数摊开会像固定频率一个字一个字蹦，和唱的快慢对不上。有频谱时用声音里
+    /// 的起音（鼓点和人声那一段的起音）定每个字什么时候亮：听到一个起音亮下一个字，但不早于按字数摊开的时刻
+    /// 前 `rhythmLead` 个字、不晚于其后 `rhythmLag` 个字，整句仍在原来的时间里唱完。`tokens` 是 `tokens(...)`
+    /// 按字数摊开的那份；`onsets` 是听到起音的播放时间（升序，只含已经听到的）。还没轮到的字先排在最晚的时刻，
+    /// 听到起音时再提前；已经亮了的字不会因为后来的起音再变。
+    public static func rhythmTokens(_ tokens: [Token], onsets: [TimeInterval]) -> [Token] {
+        guard tokens.count > 1, let first = tokens.first, let last = tokens.last else { return tokens }
+        let end = last.end
+        let starts = tokens.map(\.start)
+        // 按字数摊开的时刻，字的序号可以是小数；过了最后一个字按句尾算。
+        func even(_ position: Double) -> TimeInterval {
+            guard position > 0 else { return first.start }
+            let index = Int(position.rounded(.down))
+            guard index < starts.count - 1 else {
+                let tail = position - Double(starts.count - 1)
+                return min(starts[starts.count - 1] + (end - starts[starts.count - 1]) * tail, end)
+            }
+            let fraction = position - Double(index)
+            return starts[index] + (starts[index + 1] - starts[index]) * fraction
+        }
+        var result = tokens
+        var previous = first.start
+        var cursor = onsets.firstIndex { $0 > first.start + rhythmMinimumGap } ?? onsets.count
+        for index in 1..<tokens.count {
+            let position = Double(index)
+            let earliest = max(even(position - rhythmLead), previous + rhythmMinimumGap)
+            // 后面还剩几个字，就给它们各留一个最小间隔，最后一个字也在句尾之前亮。
+            let deadline = end - rhythmMinimumGap * Double(tokens.count - index)
+            let latest = max(min(even(position + rhythmLag), deadline), earliest)
+            while cursor < onsets.count, onsets[cursor] < previous + rhythmMinimumGap { cursor += 1 }
+            var start = latest
+            if cursor < onsets.count, onsets[cursor] <= latest {
+                start = max(onsets[cursor], earliest)
+                cursor += 1
+            }
+            result[index].start = start
+            previous = start
+        }
+        for index in result.indices {
+            result[index].end = index + 1 < result.count ? max(result[index + 1].start, result[index].start) : max(end, result[index].start)
+        }
+        return result
+    }
+
+    /// 读不到频谱时逐行歌词整句一起亮：一道很快的波从头扫到尾（一个字 0.035 秒，整句不超过 0.35 秒），之后整句
+    /// 亮着唱完。不知道每个字什么时候唱，就不装作知道——按字数摊开一个字一个字地亮，看着像固定频率在蹦。
+    public static func wholeLineTokens(_ tokens: [Token]) -> [Token] {
+        guard let first = tokens.first, let end = tokens.map(\.end).max() else { return tokens }
+        let step = tokens.count > 1 ? min(0.035, 0.35 / Double(tokens.count - 1)) : 0
+        return tokens.indices.map { index in
+            let start = first.start + step * Double(index)
+            return Token(text: tokens[index].text, start: start, end: max(end, start))
+        }
+    }
+
     /// 按字切开：汉字、假名一个字一段，其余连着的字母算一个词（词中间的撇号、连字符不断开）；
     /// 空白和标点跟在前一段后面，开头的标点并进第一段。
     public static func units(in text: String) -> [String] {

@@ -743,6 +743,8 @@ public struct ImmersiveKineticDrive: Equatable, Sendable {
     public var events: [Event] = []
     /// 这一帧有没有读到频谱；没有时动静来自歌词的字头。
     public var hasSpectrum = false
+    /// 这一帧听到的起音（鼓点或人声那一段），0 是没有。只在跟着频谱时有：逐行歌词用它定每个字什么时候亮。
+    public var onset: Double = 0
 
     public init() {}
 }
@@ -799,6 +801,9 @@ public struct ImmersiveKineticConductor: Sendable {
         drive.events = previous.events
         lastEvent = previous.events.last?.time ?? -Double.infinity
         lastTime = time
+        // 上一首一直读得到频谱，这一首开头不必再等一会儿才认。
+        followsSpectrum = previous.hasSpectrum
+        drive.hasSpectrum = previous.hasSpectrum
     }
 
     /// 走一帧。`levels` 为空或几乎无声（Apple Music、电台读不到频谱）时，`playbackTime` 越过 `lyricOnsets`
@@ -826,7 +831,9 @@ public struct ImmersiveKineticConductor: Sendable {
             drive.intensity = follow(drive.intensity, toward: features.intensity, dt: dt, halfLife: 0.3)
             hit = features.beat
             accent = features.onsets[1]
+            drive.onset = max(hit, accent)
         } else {
+            drive.onset = 0
             let crossed = crossedOnsets(lyricOnsets, playbackTime: playbackTime)
             lyricPulse *= pow(0.5, dt / 0.18)
             if crossed > 0 {

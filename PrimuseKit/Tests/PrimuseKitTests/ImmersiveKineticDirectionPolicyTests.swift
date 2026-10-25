@@ -382,6 +382,26 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(drive.events.count <= ImmersiveKineticConductor.eventCapacity)
     }
 
+    @Test func onsetsAreReportedOnlyWhileFollowingTheSpectrum() {
+        var conductor = ImmersiveKineticConductor(seed: 3)
+        var time = 0.0
+        var heard = 0
+        for frame in 0..<300 {
+            let level = frame % 15 == 0 ? 0.95 : 0.3
+            let drive = conductor.update(levels: Array(repeating: level, count: 32), lyricOnsets: [], playbackTime: nil, at: time)
+            if drive.onset > 0 { heard += 1 }
+            time += 1.0 / 30
+        }
+        #expect(heard >= 10)
+        var lyricOnly = ImmersiveKineticConductor(seed: 3)
+        var playback = 0.0
+        for _ in 0..<60 {
+            let drive = lyricOnly.update(levels: [], lyricOnsets: [playback + 0.01], playbackTime: playback + 0.02, at: playback)
+            #expect(drive.onset == 0)
+            playback += 0.1
+        }
+    }
+
     @Test func aNewSongCarriesOnFromWhereTheSceneWas() {
         var conductor = ImmersiveKineticConductor(seed: 6)
         var time = 0.0
@@ -396,6 +416,8 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(carried.travel - drive.travel < 0.2)
         #expect(carried.flow >= drive.flow)
         #expect(carried.events == drive.events)
+        // 上一首读得到频谱，这一首一开始就算读得到。
+        #expect(carried.hasSpectrum == drive.hasSpectrum)
     }
 
     @Test func flashBlinksTwiceThenFades() {
@@ -467,6 +489,46 @@ struct ImmersiveKineticAccentTests {
             for: tokens, exitStart: 10.7, at: 12, motion: true, choreography: .wholeLine, accent: .glow
         )
         #expect(late.allSatisfy { $0.opacity == 1 })
+    }
+
+    @Test func lineTimedWordsFollowTheHeardOnsets() {
+        // 逐行歌词按字数摊开：十个字、每 0.3 秒一个，句尾 13 秒。
+        let even = Lyrics.tokens(text: "一二三四五六七八九十", syllables: nil, lineStart: 10, lineEnd: 10 + 3.0 / 0.85)
+        #expect(even.count == 10)
+        let end = even.map(\.end).max()!
+        // 先唱得快（0.15 秒一个），后面拖长：字跟着起音的快慢走。
+        let onsets: [TimeInterval] = [10.15, 10.3, 10.45, 10.6, 11.5, 12.4]
+        let timed = Lyrics.rhythmTokens(even, onsets: onsets)
+        #expect(timed[0].start == 10)
+        #expect(abs(timed[1].start - 10.15) < 1e-9)
+        #expect(abs(timed[2].start - 10.3) < 1e-9)
+        // 不比按字数摊开的时刻早一个字以上：第四个字的起音（10.45）太早，等到第三个字的时刻。
+        #expect(abs(timed[3].start - even[2].start) < 1e-9)
+        // 起音隔得久时字照样往下走（最晚拖一个半字），整句仍在句尾前唱完。
+        for index in timed.indices.dropFirst() {
+            #expect(timed[index].start >= timed[index - 1].start + Lyrics.rhythmMinimumGap - 1e-9)
+            #expect(timed[index].start >= even[index - 1].start - 1e-9)
+            #expect(timed[index].start <= max(even[index].start + 0.3 * Lyrics.rhythmLag, timed[index - 1].start + Lyrics.rhythmMinimumGap) + 1e-9)
+        }
+        #expect(timed.last!.start <= end - Lyrics.rhythmMinimumGap + 1e-9)
+        // 退场时刻不变（最后一个字的句尾）。
+        #expect(timed.map(\.end).max() == end)
+        // 已经亮了的字不会因为后来听到的起音再变。
+        let later = Lyrics.rhythmTokens(even, onsets: onsets + [12.6, 12.7])
+        for index in timed.indices where timed[index].start <= 12.4 {
+            #expect(later[index].start == timed[index].start)
+        }
+        // 没有起音时退回按字数摊开、最多晚一个半字。
+        let silent = Lyrics.rhythmTokens(even, onsets: [])
+        #expect(silent.last!.start <= end - Lyrics.rhythmMinimumGap + 1e-9)
+    }
+
+    @Test func withoutSpectrumALineTimedLineLightsAsOne() {
+        let even = Lyrics.tokens(text: "一二三四五六七八九十", syllables: nil, lineStart: 10, lineEnd: 14)
+        let whole = Lyrics.wholeLineTokens(even)
+        #expect(whole.first!.start == 10)
+        #expect(whole.last!.start <= 10.35 + 1e-9)
+        #expect(whole.allSatisfy { $0.end == even.map(\.end).max() })
     }
 
     @Test func shatteredWordsFlyHomeThenBurstApart() {
