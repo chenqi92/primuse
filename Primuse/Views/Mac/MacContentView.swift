@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import CoreSpotlight
+import Observation
 import PrimuseKit
 
 /// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
@@ -61,6 +62,78 @@ private struct MacServerSyncErrorAlerts: ViewModifier {
             } message: {
                 Text(library.serverRatingErrorMessage ?? "")
             }
+    }
+}
+
+/// Mac 上 Spotlight 里点开的一项与「在 Primuse 中搜索」(#346)。AppKit 交给应用代理,SwiftUI 的
+/// `onContinueUserActivity` 也可能收到同一次,都交到这里、几秒内同一项只认一次。冷启动时资料库还没装好、
+/// 主界面还没挂上,先记在 `pending` 上,主界面出来后接手(原来的处理挂在主界面上,冷启动那一次就丢了)。
+@MainActor
+@Observable
+final class MacSystemActivityRouter {
+    static let shared = MacSystemActivityRouter()
+
+    enum Request: Equatable {
+        case item(SpotlightItem)
+        case search(String)
+    }
+
+    private(set) var pending: Request?
+    @ObservationIgnored private var handledAt: [String: ContinuousClock.Instant] = [:]
+    /// 两条路送同一次点按的间隔:冷启动时 SwiftUI 那条要等窗口挂上才到。
+    private static let duplicateWindow: Duration = .seconds(10)
+
+    private init() {}
+
+    nonisolated static func handles(_ activityType: String) -> Bool {
+        activityType == CSSearchableItemActionType || activityType == CSQueryContinuationActionType
+    }
+
+    /// 认得的活动返回 true;`route` 只用来在诊断日志里分清是哪条路送来的。
+    @discardableResult
+    func handle(_ activity: NSUserActivity, route: String) -> Bool {
+        switch activity.activityType {
+        case CSSearchableItemActionType:
+            guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                  let item = SpotlightIndexService.parse(uniqueIdentifier: identifier) else {
+                plog("🔎 Spotlight activity without a known item via \(route)")
+                return false
+            }
+            guard admit("item:\(identifier)", route: route) else { return true }
+            plog("🔎 Spotlight open \(identifier.prefix(48)) via \(route)")
+            pending = .item(item)
+        case CSQueryContinuationActionType:
+            let query = (activity.userInfo?[CSSearchQueryString] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !query.isEmpty else { return false }
+            showSearch(query, route: route)
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// 带着字进搜索页:Spotlight 的「在 App 中搜索」,以及 Siri / 快捷指令的搜索意图。
+    func showSearch(_ query: String, route: String) {
+        guard admit("query:\(query)", route: route) else { return }
+        plog("🔎 Search in app via \(route)")
+        pending = .search(query)
+    }
+
+    func consume() -> Request? {
+        defer { pending = nil }
+        return pending
+    }
+
+    private func admit(_ key: String, route: String) -> Bool {
+        let now = ContinuousClock.now
+        handledAt = handledAt.filter { now - $0.value < Self.duplicateWindow }
+        guard handledAt[key] == nil else {
+            plog("🔎 Same system activity again via \(route); already handled")
+            return false
+        }
+        handledAt[key] = now
+        return true
     }
 }
 
@@ -154,13 +227,24 @@ struct MacContentView: View {
     }
 
     var body: some View {
-        // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
-        // 既不能闪 onboarding, 也不能闪"空资料库"状态。
-        if library.isReady {
-            mainContent
-        } else {
-            LibraryPreparingView()
+        Group {
+            // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
+            // 既不能闪 onboarding, 也不能闪"空资料库"状态。
+            if library.isReady {
+                mainContent
+            } else {
+                LibraryPreparingView()
+            }
         }
+        // Spotlight 送来的挂在最外层:冷启动时主界面还没挂上也接得住,先交给路由记着。
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            MacSystemActivityRouter.shared.handle(activity, route: "swiftui")
+        }
+        .onContinueUserActivity(CSQueryContinuationActionType) { activity in
+            MacSystemActivityRouter.shared.handle(activity, route: "swiftui")
+        }
+        // 开着的窗口自己接,别为一次点按另开一个窗口。
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
     }
 
     private var mainContent: some View {
@@ -487,10 +571,17 @@ struct MacContentView: View {
             guard note.object is Artist else { return }
             nowPlayingPresented = false
         }
-        // 在 Spotlight 里点开的一项:歌直接放,专辑、艺人、歌单打开详情。之前 Mac 上点了只是把窗口叫到前面。
-        .onContinueUserActivity(CSSearchableItemActionType) { activity in
-            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
-            library.onReady { openSpotlightItem(item) }
+        // 在 Spotlight 里点开的一项:歌直接放,专辑、艺人、歌单打开详情;「在 Primuse 中搜索」带着字进搜索页。
+        // 收到的时候记在路由上(见 `MacSystemActivityRouter`),主界面这时一定已经挂上。
+        .onChange(of: MacSystemActivityRouter.shared.pending, initial: true) { _, request in
+            guard request != nil, let request = MacSystemActivityRouter.shared.consume() else { return }
+            switch request {
+            case .item(let item):
+                openSpotlightItem(item)
+            case .search(let query):
+                searchText = query
+                selectRoute(.search)
+            }
         }
         .background {
             PMWindowResolver { window in

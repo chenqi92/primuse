@@ -837,6 +837,22 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         plog("☁️ push registration failed: \(error.localizedDescription)")
     }
 
+    /// Spotlight 里点开的一项与「在 Primuse 中搜索」(#346)。AppKit 这条路冷启动、热启动都到;
+    /// SwiftUI 的 `onContinueUserActivity` 收到同一次时由路由去重。
+    func application(_ application: NSApplication, willContinueUserActivityWithType userActivityType: String) -> Bool {
+        MacSystemActivityRouter.handles(userActivityType)
+    }
+
+    func application(
+        _ application: NSApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void
+    ) -> Bool {
+        MainActor.assumeIsolated {
+            MacSystemActivityRouter.shared.handle(userActivity, route: "appkit")
+        }
+    }
+
     func application(
         _ application: NSApplication,
         didReceiveRemoteNotification userInfo: [String: Any]

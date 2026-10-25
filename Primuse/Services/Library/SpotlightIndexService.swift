@@ -310,15 +310,6 @@ final class SpotlightIndexService {
         #endif
     }
 
-    /// Parses the stable identifier returned by a Spotlight user activity.
-    static func identifier(from activity: NSUserActivity) -> SpotlightItem? {
-        guard activity.activityType == CSSearchableItemActionType,
-              let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else {
-            return nil
-        }
-        return parse(uniqueIdentifier: id)
-    }
-
     static func parse(uniqueIdentifier: String) -> SpotlightItem? {
         let parts = uniqueIdentifier.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }
@@ -1151,7 +1142,7 @@ final class SpotlightIndexService {
     }
 }
 
-enum SpotlightItem: Sendable {
+enum SpotlightItem: Sendable, Equatable {
     case song(id: String)
     case album(id: String)
     case artist(id: String)
