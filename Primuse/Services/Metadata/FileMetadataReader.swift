@@ -470,9 +470,10 @@ enum FileMetadataReader {
         for _ in 0..<count {
             guard let length = readUInt32LE(block, cursor: &cursor),
                   length <= block.count - cursor,
-                  let text = String(data: block.subdata(in: cursor..<(cursor + length)), encoding: .utf8),
-                  let separator = text.firstIndex(of: "=") else { return false }
-            let key = text[..<separator].uppercased()
+                  let field = EmbeddedTagMetadataParser.vorbisCommentField(
+                    block.subdata(in: cursor..<(cursor + length))
+                  ) else { return false }
+            let key = field.key.uppercased()
             guard !key.isEmpty,
                   key != "METADATA_BLOCK_PICTURE", key != "COVERART" else { return false }
             cursor += length
@@ -2008,7 +2009,7 @@ enum FileMetadataReader {
             return
         }
 
-        var comments: [String: [String]] = [:]
+        var fields: [(key: String, value: Data)] = []
         for _ in 0..<min(commentCount, 10_000) {
             guard let length = readUInt32LE(block, cursor: &cursor),
                   cursor + length <= block.count else {
@@ -2016,14 +2017,13 @@ enum FileMetadataReader {
             }
             let raw = block.subdata(in: cursor..<(cursor + length))
             cursor += length
-
-            guard let text = String(data: raw, encoding: .utf8),
-                  let separator = text.firstIndex(of: "=") else {
-                continue
-            }
-            let key = String(text[..<separator]).uppercased()
-            let value = String(text[text.index(after: separator)...])
-            comments[key, default: []].append(value)
+            if let field = EmbeddedTagMetadataParser.vorbisCommentField(raw) { fields.append(field) }
+        }
+        // 老工具写进来的 GBK / Big5 值不再整条丢掉, 按整块注释判一次编码。
+        var comments: [String: [String]] = [:]
+        for (field, value) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
+            guard let value else { continue }
+            comments[field.key.uppercased(), default: []].append(value)
         }
 
         func first(_ keys: String...) -> String? {

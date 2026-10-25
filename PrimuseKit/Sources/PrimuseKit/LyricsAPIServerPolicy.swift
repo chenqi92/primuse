@@ -91,7 +91,7 @@ public enum LyricsAPIServerPolicy {
         if statusCode == 404 || statusCode == 204 { return .notFound }
         guard statusCode == 200 else { return .failed(statusCode: statusCode) }
         guard body.count <= maximumBodyBytes else { return .notFound }
-        guard let decoded = String(data: body, encoding: .utf8) else { return .notFound }
+        guard let decoded = decodedBody(body, contentType: contentType) else { return .notFound }
         let text = decoded.hasPrefix("\u{FEFF}") ? String(decoded.dropFirst()) : decoded
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -105,6 +105,34 @@ public enum LyricsAPIServerPolicy {
     }
 
     // MARK: - Private
+
+    /// 自建歌词服务常把本地 `.lrc` 原样回过来, 老文件是 GBK / Big5 的不少。合法 UTF-8 直接用;
+    /// 不是的话先看响应头声明的 charset, 没声明或解不开再按歌词文件的规矩认编码 —— 这一步靠打分,
+    /// 一段二进制也可能「解得出」几行字, 所以只认带时间轴的歌词。
+    private static func decodedBody(_ body: Data, contentType: String?) -> String? {
+        if let utf8 = String(data: body, encoding: .utf8) { return utf8 }
+        if let declared = declaredCharset(in: contentType),
+           let text = String(data: body, encoding: declared) {
+            return text
+        }
+        guard let detected = TextEncodingRepair.decodeTextFile(body)?.text,
+              containsTimestamp(detected) else { return nil }
+        return detected
+    }
+
+    private static func declaredCharset(in contentType: String?) -> String.Encoding? {
+        guard let contentType else { return nil }
+        for parameter in contentType.split(separator: ";").dropFirst() {
+            let pair = parameter.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2,
+                  pair[0].trimmingCharacters(in: .whitespaces).lowercased() == "charset" else { continue }
+            let name = pair[1].trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+            let encoding = CFStringConvertIANACharSetNameToEncoding(name as CFString)
+            guard encoding != kCFStringEncodingInvalidId else { return nil }
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(encoding))
+        }
+        return nil
+    }
 
     private static let lyricKeys = ["lyrics", "lrc", "syncedLyrics"]
 

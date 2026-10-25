@@ -393,6 +393,33 @@ public enum TextEncodingRepair {
         }
     }
 
+    // MARK: - 标签块
+
+    /// Vorbis 注释、APE 标签按规范都是 UTF-8, 但千千静听那一代的老工具照样往里写 GBK / Big5。
+    /// 同一块标签里不是 UTF-8 的值出自同一个工具、同一种编码: 合在一起判一次编码, 比两三个字的
+    /// 歌名各判各的可靠; 那种编码解不开的值再单独判。是 UTF-8 的原样用。解不出来的位置是 nil。
+    public static func decodeTagValues(_ values: [Data]) -> [String?] {
+        var legacy = Data()
+        for value in values where String(data: value, encoding: .utf8) == nil {
+            if !legacy.isEmpty { legacy.append(0x0A) }
+            legacy.append(value)
+        }
+        let shared = legacy.isEmpty
+            ? nil
+            : bestDecodingWithEncoding(
+                of: legacy,
+                encodings: legacyTextEncodings,
+                preservingNullSeparators: false
+            )?.encoding
+        return values.map { value in
+            if let utf8 = String(data: value, encoding: .utf8) { return utf8 }
+            if let shared, let text = String(data: value, encoding: shared) {
+                return text.replacingOccurrences(of: "\0", with: "")
+            }
+            return bestDecoding(of: value, encodings: legacyTextEncodings)
+        }
+    }
+
     // MARK: - 文本文件
 
     /// 歌词这类旁挂文本文件的解码。BOM 说了算;合法 UTF-8 直接用(只读了开头一段时,

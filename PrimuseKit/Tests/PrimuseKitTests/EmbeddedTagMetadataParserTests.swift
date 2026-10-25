@@ -297,6 +297,54 @@ struct EmbeddedTagMetadataParserTests {
         ) == nil)
     }
 
+    @Test func decodesGBKOggCommentsAndAPEItemsWrittenByLegacyTaggers() throws {
+        // 千千静听这一代工具往 Vorbis 注释、APE 标签里直接写 GBK; 以前整条丢掉, 表现为没有歌词。
+        let gbk = TextEncodingRepair.gb18030
+        let lyrics = "[00:01.00]晚风吹过旧街口\n[00:05.00]路灯照亮你回头"
+        let title = try #require("晚风".data(using: gbk))
+        let lyricBytes = try #require(lyrics.data(using: gbk))
+
+        let identification = Data("OpusHead".utf8) + Data(repeating: 0, count: 24)
+        let comment = Data("OpusTags".utf8) + makeVorbisComments(raw: [
+            Data("TITLE=".utf8) + title,
+            Data("ARTIST=Band".utf8),
+            Data("LYRICS=".utf8) + lyricBytes,
+        ])
+        let ogg = EmbeddedTagMetadataParser.parse(
+            head: makeOggPage(packets: [identification], sequence: 0)
+                + makeOggPage(packets: [comment], sequence: 1),
+            fileExtension: "opus"
+        )
+        #expect(ogg?.title == "晚风")
+        #expect(ogg?.artist == "Band")
+        #expect(ogg?.lyrics == lyrics)
+
+        let tail = makeAPEv2Tag([
+            makeAPEItem(key: "Title", value: title, flags: 0),
+            apeTextItem("Artist", "Band"),
+            makeAPEItem(key: "Lyrics", value: lyricBytes, flags: 0),
+        ]) + makeID3v1Padding()
+        let ape = EmbeddedTagMetadataParser.parse(head: Data(), tail: tail, fileExtension: "ape")
+        #expect(ape?.title == "晚风")
+        #expect(ape?.lyrics == lyrics)
+    }
+
+    @Test func legacyTagValuesShareOneEncodingAcrossTheBlock() throws {
+        // 两个字的歌名单独判, GBK 和 Big5 都「解得通」; 和同一块里的长歌词一起判才定得下来。
+        let gbk = TextEncodingRepair.gb18030
+        let values = [
+            Data("Band".utf8),
+            try #require("晚风".data(using: gbk)),
+            try #require("[00:01.00]晚风吹过旧街口\n[00:05.00]路灯照亮你回头".data(using: gbk)),
+            Data([0x42, 0x6A, 0xF6, 0x72, 0x6B]),
+        ]
+        let decoded = TextEncodingRepair.decodeTagValues(values)
+        #expect(decoded[0] == "Band")
+        #expect(decoded[1] == "晚风")
+        #expect(decoded[2]?.hasPrefix("[00:01.00]晚风吹过") == true)
+        #expect(TextEncodingRepair.decodeTagValues([values[3]]) == ["Björk"])
+    }
+
     @Test func parsesASFDescriptionsAttributesAndPicture() {
         let picture = makeASFPicture(pngFixture)
         let content = makeASFContentDescription(title: "WMA 标题", author: "WMA 歌手")
@@ -428,6 +476,20 @@ struct EmbeddedTagMetadataParserTests {
             let bytes = Data(comment.utf8)
             appendUInt32LE(bytes.count, to: &data)
             data.append(bytes)
+        }
+        data.append(1)
+        return data
+    }
+
+    private func makeVorbisComments(raw comments: [Data]) -> Data {
+        let vendor = Data("Primuse Tests".utf8)
+        var data = Data()
+        appendUInt32LE(vendor.count, to: &data)
+        data.append(vendor)
+        appendUInt32LE(comments.count, to: &data)
+        for comment in comments {
+            appendUInt32LE(comment.count, to: &data)
+            data.append(comment)
         }
         data.append(1)
         return data

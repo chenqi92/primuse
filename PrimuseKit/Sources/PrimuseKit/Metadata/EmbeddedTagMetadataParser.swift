@@ -526,24 +526,34 @@ public enum EmbeddedTagMetadataParser {
             return nil
         }
         cursor += 4
-        var comments: [String: [String]] = [:]
+        var fields: [(key: String, value: Data)] = []
         for _ in 0..<count {
             guard let length = readBoundedUInt32LE(data, at: cursor) else { return nil }
             cursor += 4
             guard length <= data.count - cursor else { return nil }
             let item = data.subdata(in: cursor..<(cursor + length))
             cursor += length
-            guard let string = String(data: item, encoding: .utf8),
-                  let separator = string.firstIndex(of: "=") else {
-                continue
-            }
-            let key = normalizedKey(String(string[..<separator]))
-            let value = String(string[string.index(after: separator)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, !value.isEmpty else { continue }
+            if let field = vorbisCommentField(item) { fields.append(field) }
+        }
+        var comments: [String: [String]] = [:]
+        for (field, decoded) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
+            let key = normalizedKey(field.key)
+            guard let value = decoded?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !key.isEmpty, !value.isEmpty else { continue }
             comments[key, default: []].append(value)
         }
         return comments
+    }
+
+    /// 一条 Vorbis 注释 `KEY=value`, 值还是原始字节, 编码交给 `TextEncodingRepair.decodeTagValues`
+    /// 按整块标签判。0x3D 不会出现在 UTF-8 多字节字符里, 也不会是 GBK / Big5 / Shift_JIS
+    /// 双字节字的后半, 按字节找第一个「=」切开是安全的。
+    public static func vorbisCommentField(_ item: Data) -> (key: String, value: Data)? {
+        guard let separator = item.firstIndex(of: 0x3D),
+              let key = String(data: item[item.startIndex..<separator], encoding: .utf8) else {
+            return nil
+        }
+        return (key, Data(item[item.index(after: separator)...]))
     }
 
     // MARK: - APEv2
@@ -567,6 +577,7 @@ public enum EmbeddedTagMetadataParser {
         }
 
         var values: [String: [String]] = [:]
+        var textItems: [(key: String, values: [Data])] = []
         var cover: Data?
         for _ in 0..<itemCount {
             guard cursor + 8 <= footer else { return nil }
@@ -583,11 +594,8 @@ public enum EmbeddedTagMetadataParser {
             let key = normalizedKey(rawKey)
             let valueType = (flags >> 1) & 0x03
             if valueType == 0 {
-                let strings = value.split(separator: 0, omittingEmptySubsequences: true)
-                    .compactMap { String(data: Data($0), encoding: .utf8) }
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                if !strings.isEmpty { values[key, default: []].append(contentsOf: strings) }
+                let pieces = value.split(separator: 0, omittingEmptySubsequences: true).map { Data($0) }
+                if !pieces.isEmpty { textItems.append((key, pieces)) }
             } else if valueType == 1,
                       ["COVER ART (FRONT)", "COVERART", "FRONT COVER"].contains(key),
                       cover == nil {
@@ -596,6 +604,16 @@ public enum EmbeddedTagMetadataParser {
                     cover = normalizedImageData(value.subdata(in: imageStart..<value.count))
                 }
             }
+        }
+
+        // 和 Vorbis 注释一样, 千千静听等老工具写的 GBK / Big5 值按整块标签判编码。
+        var decoded = TextEncodingRepair.decodeTagValues(textItems.flatMap(\.values))[...]
+        for item in textItems {
+            let strings = decoded.prefix(item.values.count)
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            decoded = decoded.dropFirst(item.values.count)
+            if !strings.isEmpty { values[item.key, default: []].append(contentsOf: strings) }
         }
 
         var metadata = metadata(from: values)

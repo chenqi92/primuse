@@ -131,6 +131,16 @@ struct LyricsAPIServerPolicyClassifyTests {
         #expect(LyricsAPIServerPolicy.classifyResponse(statusCode: 200, contentType: nil, body: bytes) == .notFound)
     }
 
+    @Test func legacyEncodedLRCFilesAreLyrics() throws {
+        // 自建歌词服务把本地 GBK `.lrc` 原样回过来, 声没声明 charset 都要认得出。
+        let lrc = "[00:01.00]晚风吹过旧街口\n[00:05.00]路灯照亮你回头"
+        let gbk = try #require(lrc.data(using: TextEncodingRepair.gb18030))
+        #expect(LyricsAPIServerPolicy.classifyResponse(statusCode: 200, contentType: "text/plain; charset=GBK", body: gbk)
+            == .lyrics(lrc: lrc, plain: nil))
+        #expect(LyricsAPIServerPolicy.classifyResponse(statusCode: 200, contentType: "text/plain", body: gbk)
+            == .lyrics(lrc: lrc, plain: nil))
+    }
+
     @Test func emptyBodyIsNotFound() {
         #expect(classify(200, "  \n ") == .notFound)
     }
