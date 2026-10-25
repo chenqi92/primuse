@@ -38,6 +38,14 @@ extension ImmersiveFrameRateMode {
         return interval
         #endif
     }
+
+    /// 按六十帧起步的层（动得快，三十帧下一格一格跳）：三十帧档——自己选的，或低电量、发热时压回来的——对它
+    /// 也是上限，不会因为「固定档只让层变快」反而跑到六十帧。
+    func minimumInterval(fastBase base: TimeInterval, televisionFloor: TimeInterval) -> TimeInterval? {
+        let interval = minimumInterval(base: base, televisionFloor: televisionFloor)
+        guard self == .fps30 else { return interval }
+        return max(interval ?? 0, 1.0 / 30)
+    }
 }
 
 // MARK: - 顶部说明

@@ -22,11 +22,12 @@ using namespace metal;
 struct KineticUniforms {
     float4 frame;    // x 宽（像素）, y 高（像素）, z 动画时钟（秒）, w 播放进度 0…1
     float4 drive;    // x 热闹程度, y 低频, z 鼓点包络, w 响度排位
-    float4 drive2;   // x 高频起音, y 闪电亮度, z 是否高潮, w 这首歌的种子 0…1
+    float4 drive2;   // x 高频起音, y 闪电亮度, z 进高潮的程度 0…1（渐变）, w 这首歌的种子 0…1
     float4 motion;   // x 曲速里程, y 闪电种子, z 动效幅度, w 保留
     float4 colorA;   // 专辑主色
     float4 colorB;   // 专辑辅色
-    float4 extra;    // x 进副歌那一下的漏光亮度, y 漏光的横向位置, z 背景变焦倍数, w 保留
+    float4 extra;    // x 副歌暖光亮度, y 保留, z 背景推近倍数, w 保留
+    float4 drive3;   // x 圆滑的鼓点（管位置、角度）, y 流动时钟, z 里程每秒走多少, w 保留
     float4 events[8];// xy 落点 0…1, z 发生时刻, w 力度（0 为空）
 };
 
@@ -84,6 +85,16 @@ static float below(float lo, float hi, float x) {
     return 1.0 - smoothstep(lo, hi, x);
 }
 
+// 每个落点自己的随机数：按发生时刻算，不按它排在第几个槽（新落点进来时旧的会挪槽，按槽算会整体变样）。
+static float eventSalt(float4 e) {
+    return hash11(e.z * 0.731 + 0.37);
+}
+
+// 落点快到寿命（4 秒）时淡到 0，被挤掉时已经看不见。
+static float eventFade(float age) {
+    return below(3.0, 4.0, age);
+}
+
 static float vignette(float2 uv, float strength) {
     float2 d = uv - 0.5;
     return 1.0 - strength * smoothstep(0.25, 0.95, dot(d, d) * 2.2);
@@ -93,18 +104,18 @@ static float3 finish(float3 color) {
     return clamp(color, 0.0, 1.0);
 }
 
-// 进副歌那一下背景往前推（希区柯克变焦：歌词不动，景在变）。
+// 副歌里背景慢慢推近一点（歌词不动，景往前靠）。
 static float2 kineticZoom(float2 uv, constant KineticUniforms& u) {
     return (uv - 0.5) / max(u.extra.z, 1.0) + 0.5;
 }
 
-// 收尾：叠上进副歌时扫过的那道暖色漏光，再夹到 0…1。
+// 收尾：副歌里右上角亮起一片暖光（位置不动，只跟着副歌慢慢亮、慢慢灭），再夹到 0…1。
 static float3 kineticFinish(float3 color, float2 uv, constant KineticUniforms& u) {
-    float leak = u.extra.x;
-    if (leak > 0.001) {
-        float band = exp(-sq((uv.x - u.extra.y) * 3.2 + (uv.y - 0.5) * 0.9));
-        float3 warm = mix(float3(1.0, 0.55, 0.25), u.colorA.rgb, 0.3);
-        color = 1.0 - (1.0 - color) * (1.0 - warm * band * leak * 0.6);
+    float glow = u.extra.x;
+    if (glow > 0.001) {
+        float spot = exp(-length((uv - float2(0.92, -0.05)) * float2(1.6, 1.0)) * 2.4);
+        float3 warm = mix(float3(1.0, 0.6, 0.3), u.colorA.rgb, 0.35);
+        color = 1.0 - (1.0 - color) * (1.0 - warm * spot * glow * 0.6);
     }
     return clamp(color, 0.0, 1.0);
 }
@@ -134,7 +145,7 @@ static float3 rainBokeh(float2 uv, float aspect, float t, constant KineticUnifor
                 float mask = below(radius - soft, radius, length(p - center));
                 float twinkle = 0.78 + 0.22 * sin(t * (0.5 + h) + h * 30.0);
                 float3 tint = mix(a, float3(1.0, 0.84, 0.60), hash21(cell + 11.0) * 0.6);
-                float lift = 0.09 + 0.10 * u.drive.x + 0.16 * u.drive.z;
+                float lift = 0.09 + 0.10 * u.drive.x + 0.14 * u.drive3.x;
                 color += tint * mask * lift * twinkle * (1.15 - 0.25 * fl);
             }
         }
@@ -157,14 +168,15 @@ static float3 rainStaticDrops(float2 q, float t) {
     return float3(normal * mask, mask);
 }
 
-// 一列一列往下滑的大水珠，滑过的地方留一道擦干净的水痕。xy 法线，z 水珠，w 水痕。
-static float4 rainSlidingDrops(float2 q, float aspect, float t, float speed) {
+// 一列一列往下滑的大水珠，滑过的地方留一道擦干净的水痕。xy 法线，z 水珠，w 水痕。`flow` 是流动时钟：
+// 越热闹滑得越快，但速度变了水珠不会跳。
+static float4 rainSlidingDrops(float2 q, float aspect, float flow) {
     const float columns = 5.0;
     float x = q.x / aspect * columns;
     float column = floor(x);
     float h = hash11(column * 3.7 + 1.0);
     float fx = (fract(x) - 0.5) * aspect / columns;
-    float y = fract(t * speed * (0.07 + 0.09 * h) + h * 7.0) * 1.3 - 0.15;
+    float y = fract(flow * (0.10 + 0.12 * h) + h * 7.0) * 1.3 - 0.15;
     float wobble = 0.03 * sin(q.y * 7.0 + h * 40.0) * sin(q.y * 2.3 + h * 9.0);
     float dx = fx - wobble;
     float dy = q.y - y;
@@ -182,9 +194,8 @@ fragment float4 kinetic_rainGlass(KineticVertexOut in [[stage_in]], constant Kin
     float aspect = u.frame.x / max(u.frame.y, 1.0);
     float t = u.frame.z;
     float2 q = float2(uv.x * aspect, uv.y);
-    float speed = 1.0 + 1.2 * u.drive.x + 0.8 * u.drive2.z;
     float3 still = rainStaticDrops(q, t);
-    float4 slide = rainSlidingDrops(q, aspect, t, speed);
+    float4 slide = rainSlidingDrops(q, aspect, u.drive3.y);
     float drop = clamp(still.z + slide.z, 0.0, 1.0);
     float2 normal = still.xy + slide.xy;
     // 玻璃起了一层雾：雾后面的光斑暗一点、发白；水珠和水痕擦过的地方是清楚的。
@@ -232,7 +243,7 @@ static float pondHeight(float2 world, float t, constant KineticUniforms& u) {
         float2 center = float2((e.x - 0.5) * 2.4, 0.7 + e.y * 2.2);
         float d = length(world - center);
         float x = d - age * 0.42;
-        float envelope = exp(-abs(x) * 7.0) * exp(-age * 0.75) * e.w;
+        float envelope = exp(-abs(x) * 7.0) * exp(-age * 0.75) * eventFade(age) * e.w;
         h += sin(x * 26.0) * envelope * 0.45;
     }
     return h;
@@ -280,7 +291,7 @@ fragment float4 kinetic_ripplePond(KineticVertexOut in [[stage_in]], constant Ki
     color += mix(float3(1.0, 0.95, 0.85), a, 0.3) * path * (0.25 + 0.75 * glitter) * 0.55 * exp(-waterDepth * 1.2);
     // 浪尖迎着月光的那一面亮一下。
     float crest = clamp(h0 * 2.2, 0.0, 1.0);
-    color += mix(float3(1.0), a, 0.4) * crest * crest * 0.22 * (0.5 + u.drive.z);
+    color += mix(float3(1.0), a, 0.4) * crest * crest * 0.22 * (0.5 + u.drive3.x);
     // 水天线上一层薄雾。
     color = mix(color, a * 0.30 + float3(0.05), exp(-waterDepth * 30.0) * 0.6);
     color *= vignette(uv, 0.5);
@@ -366,13 +377,13 @@ fragment float4 kinetic_warpTunnel(KineticVertexOut in [[stage_in]], constant Ki
     float r = length(d);
     float angle = atan2(d.y, d.x);
     float travel = u.motion.x;
-    float speed = 0.3 + 1.6 * u.drive.x + 2.2 * u.drive.z;
-    float stretch = clamp(0.18 + 0.32 * speed, 0.18, 0.95);
+    // 拖尾长短跟着里程的速度走（速度是平滑过的），不跟着鼓点一帧一帧地伸缩。
+    float stretch = clamp(0.1 + 0.26 * u.drive3.z, 0.18, 0.95);
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
     float3 color = b * 0.06 + float3(0.006, 0.008, 0.016);
     // 隧道壁：一段一段往外冲的碎环。
-    float rings = sin(log(max(r, 0.001)) * 14.0 - travel * 9.0);
+    float rings = sin(log(max(r, 0.001)) * 14.0 - travel * 6.0);
     float broken = noise2(float2(angle * 4.0, log(max(r, 0.001)) * 3.0 - travel * 1.5));
     color += a * smoothstep(0.82, 1.0, rings) * smoothstep(0.45, 0.8, broken) * 0.09 * smoothstep(0.03, 0.45, r);
     float streaks = warpLayer(d, r, angle, travel, 140.0, 0.0, stretch);
@@ -381,7 +392,7 @@ fragment float4 kinetic_warpTunnel(KineticVertexOut in [[stage_in]], constant Ki
     float3 tint = mix(a, float3(1.0), 0.45 + 0.3 * sin(angle * 3.0 + travel));
     color += tint * streaks * (0.9 + 0.8 * u.drive.z);
     // 中心的光，鼓点时一亮。
-    color += mix(a, float3(1.0), 0.5) * exp(-r * 9.0) * (0.25 + 0.6 * u.drive.z + 0.3 * u.drive2.z);
+    color += mix(a, float3(1.0), 0.5) * exp(-r * 9.0) * (0.25 + 0.6 * u.drive3.x + 0.3 * u.drive2.z);
     // 重拍冲出去的冲击波。
     for (int i = 0; i < 8; i++) {
         float4 e = u.events[i];
@@ -431,8 +442,9 @@ fragment float4 kinetic_thunderstorm(KineticVertexOut in [[stage_in]], constant 
     // 云团朝上那一面被天光勾出一点边。
     color += (b * 0.3 + 0.05) * smoothstep(0.55, 0.75, clouds) * (1.0 - smoothstep(0.55, 0.85, fbm(q * float2(1.4, 2.6) + warp * 0.8 + float2(t * 0.02, -0.03), 5))) * upper;
     // 远处云里的暗闪：没有落雷时也偶尔亮一下。
-    float distant = smoothstep(0.86, 1.0, noise2(float2(t * 2.3, 4.1))) * (0.5 + 0.5 * u.drive.z);
-    float2 distantCenter = float2((0.25 + 0.5 * noise2(float2(floor(t * 2.3), 8.0))) * aspect, 0.22);
+    float distant = smoothstep(0.86, 1.0, noise2(float2(t * 2.3, 4.1))) * (0.5 + 0.5 * u.drive3.x);
+    // 暗闪的位置慢慢挪，不会亮着亮着跳到另一处。
+    float2 distantCenter = float2((0.2 + 0.6 * noise2(float2(t * 0.17, 8.0))) * aspect, 0.22);
     color += (b * 0.5 + 0.15) * distant * billow * exp(-length(q - distantCenter) * 3.0) * 0.6;
     // 闪电：芯很亮，外面一圈光，云被从里面照亮。
     float bolt = boltDistance(q, aspect, seed);
@@ -448,7 +460,7 @@ fragment float4 kinetic_thunderstorm(KineticVertexOut in [[stage_in]], constant 
         float columns = 90.0 - 40.0 * fl;
         float column = floor(rp.x * columns);
         float h = hash11(column + fl * 31.0);
-        float fall = fract(rp.y * (1.2 - 0.4 * fl) + t * (2.4 + 1.6 * h + 1.5 * u.drive.x) + h * 9.0);
+        float fall = fract(rp.y * (1.2 - 0.4 * fl) + u.drive3.y * (3.0 + 1.8 * h) + h * 9.0);
         float streak = smoothstep(0.86, 1.0, fall) * exp(-sq((fract(rp.x * columns) - 0.5) / (0.07 + 0.05 * fl)));
         color += float3(0.55, 0.6, 0.7) * streak * step(0.3, h) * (0.10 + 0.08 * fl) * (1.0 + 2.0 * flash);
     }
@@ -474,7 +486,7 @@ fragment float4 kinetic_godRays(KineticVertexOut in [[stage_in]], constant Kinet
     rays += 0.6 * smoothstep(0.45, 1.0, noise2(float2(angle * 23.0 + 4.0, t * 0.09)));
     rays *= smoothstep(0.0, 0.25, angle + 0.75) * below(0.25, 0.75, angle);
     float fog = fbm(q * float2(2.0, 3.0) + float2(t * 0.025, t * 0.01), 4);
-    float breathe = 0.75 + 0.45 * u.drive.z + 0.2 * u.drive.x;
+    float breathe = 0.75 + 0.45 * u.drive3.x + 0.2 * u.drive.x;
     float3 color = mix(float3(0.012, 0.014, 0.02), b * 0.2 + 0.02, fog * 0.8);
     float3 beam = mix(a, float3(1.0, 0.92, 0.78), 0.55);
     color += beam * rays * (0.18 + 0.32 * fog) * exp(-dist * 0.7) * breathe;
@@ -511,7 +523,7 @@ fragment float4 kinetic_starTrails(KineticVertexOut in [[stage_in]], constant Ki
     float exposure = 0.55 + 0.9 * u.drive.x;
     for (int k = 0; k < 2; k++) {
         float h = hash11(ring * 1.7 + float(k) * 31.0);
-        float head = h * 6.28318 + t * 0.06 * (1.0 + 0.6 * u.drive2.z);
+        float head = h * 6.28318 + u.drive3.y * 0.05;
         float behind = fmod(head - angle + 12.56636, 6.28318);
         float trail = below(exposure * 0.2, exposure, behind) * step(0.55, hash11(ring * 3.1 + float(k)));
         float brightness = (0.25 + 0.75 * hash11(ring * 5.3 + float(k))) * (1.0 - behind / max(exposure, 0.01));
@@ -568,12 +580,12 @@ fragment float4 kinetic_caustics(KineticVertexOut in [[stage_in]], constant Kine
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
     float2 warp = float2(fbm(q * 1.6 + t * 0.12, 3), fbm(q * 1.6 - t * 0.10 + 7.0, 3)) - 0.5;
-    float speed = 0.7 + 0.9 * u.drive.x;
-    float first = causticLayer(q * 3.6 + warp * 1.4, t * speed);
-    float second = causticLayer(q * 5.4 - warp * 1.1 + 3.0, t * speed * 1.27);
+    float flow = u.drive3.y * 0.9;
+    float first = causticLayer(q * 3.6 + warp * 1.4, flow);
+    float second = causticLayer(q * 5.4 - warp * 1.1 + 3.0, flow * 1.27);
     float light = pow(first * 0.65 + second * 0.55, 2.2) * 1.4;
     float3 floorColor = mix(b * 0.25 + float3(0.01, 0.025, 0.035), a * 0.22 + float3(0.02, 0.04, 0.05), uv.y);
-    float3 color = floorColor + mix(a, float3(0.85, 0.98, 1.0), 0.55) * light * (0.22 + 0.25 * u.drive.z);
+    float3 color = floorColor + mix(a, float3(0.85, 0.98, 1.0), 0.55) * light * (0.22 + 0.25 * u.drive3.x);
     // 水面上一层波光的斑驳，往远处变淡。
     color *= 0.85 + 0.25 * noise2(q * 3.0 + float2(t * 0.2, 0.0));
     color *= vignette(uv, 0.6);
@@ -602,18 +614,20 @@ fragment float4 kinetic_inkBloom(KineticVertexOut in [[stage_in]], constant Kine
         if (age < 0.0 || age > 4.0) { continue; }
         float2 c = float2(e.x * aspect, e.y);
         float2 rel = q - c;
-        float2 swirl = float2(fbm(rel * 3.0 + float2(age * 0.3, float(i)), 4), fbm(rel * 3.0 + float2(float(i) * 2.0, age * 0.25), 4)) - 0.5;
+        float salt = eventSalt(e) * 40.0;
+        float2 swirl = float2(fbm(rel * 3.0 + float2(age * 0.3, salt), 4), fbm(rel * 3.0 + float2(salt * 2.0, age * 0.25), 4)) - 0.5;
         float radius = 0.04 + 0.24 * (1.0 - exp(-age * 1.0));
         float d = length(rel + swirl * 0.22 * (0.4 + age));
         // 边缘被水流扯成丝：密度按细碎的噪声起伏，越往外越稀。
         float detail = fbm(rel * 9.0 + swirl * 3.0 + float2(age * 0.4, -age * 0.3), 4);
         float density = smoothstep(0.0, 0.12, radius - d + (detail - 0.5) * 0.16);
         float filaments = 0.45 + 0.9 * smoothstep(0.35, 0.75, detail);
-        float cloud = density * filaments * exp(-age * 0.5) * e.w;
-        float3 tint = mix(a * 1.3 + 0.08, mix(b * 1.6 + 0.15, float3(1.0), 0.3), hash11(float(i) * 3.7 + e.z));
+        float life = exp(-age * 0.5) * eventFade(age) * e.w;
+        float cloud = density * filaments * life;
+        float3 tint = mix(a * 1.3 + 0.08, mix(b * 1.6 + 0.15, float3(1.0), 0.3), hash11(salt * 3.7 + 1.3));
         // 墨团的外沿迎着光，亮一圈。
         float rim = smoothstep(0.0, 0.05, radius - d + (detail - 0.5) * 0.16) - density * 0.6;
-        color += tint * (cloud * 0.85 + max(rim, 0.0) * exp(-age * 0.5) * e.w * 0.35);
+        color += tint * (cloud * 0.85 + max(rim, 0.0) * life * 0.35);
     }
     color *= vignette(uv, 0.55);
     return float4(kineticFinish(color, uv, u), 1.0);
@@ -629,26 +643,34 @@ fragment float4 kinetic_laserShow(KineticVertexOut in [[stage_in]], constant Kin
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
     float haze = fbm(q * float2(1.5, 2.5) + float2(t * 0.05, t * 0.03), 4);
-    float3 color = float3(0.01, 0.01, 0.016) + b * 0.10 * haze + a * 0.04 * haze * u.drive.z;
-    float travel = u.motion.x;
-    float fan = 0.25 + 0.5 * u.drive.z + 0.3 * u.drive2.z;
+    float3 color = float3(0.01, 0.01, 0.016) + b * 0.10 * haze + a * 0.04 * haze * u.drive3.x;
+    float flow = u.drive3.y;
+    float flowRate = 0.55 + 0.9 * u.drive.x + 0.35 * u.drive2.z;
+    // 张开的幅度跟圆滑过的鼓点走：直接跟鼓点包络，光束会一帧跳到另一个角度。
+    float fan = 0.25 + 0.5 * u.drive3.x + 0.3 * u.drive2.z;
+    float amplitude = 0.35 + fan * 0.55;
     // 台口一排光源，光束扫来扫去，鼓点时张开。
     for (int i = 0; i < 9; i++) {
         float fi = float(i);
         float2 source = float2((0.08 + 0.105 * fi) * aspect, 1.04);
-        float sweep = sin(travel * (0.35 + 0.07 * fi) + fi * 1.9) * (0.35 + fan * 0.55) + (fi - 2.5) * 0.08;
+        float rate = 0.45 + 0.08 * fi;
+        float phase = flow * rate + fi * 1.9;
+        float sweep = sin(phase) * amplitude + (fi - 4.0) * 0.07;
         float2 dir = float2(sin(sweep), -cos(sweep));
         float2 rel = q - source;
         float along = dot(rel, dir);
         float across = abs(rel.x * dir.y - rel.y * dir.x);
-        float beam = step(0.0, along) * (exp(-across * 260.0) + exp(-across * 24.0) * 0.28);
+        // 运动模糊：一帧（按 30 帧算）里光束扫过多宽，芯就摊多宽、按比例变暗，扫得快时是一片光而不是一格格跳。
+        float sweepSpeed = abs(cos(phase) * amplitude * rate * flowRate);
+        float core = 1.0 / 260.0 + sweepSpeed * max(along, 0.0) / 30.0 * 0.5;
+        float beam = step(0.0, along) * (exp(-across / core) / (core * 260.0) + exp(-across * 24.0) * 0.28);
         float3 tint = (i % 3 == 0) ? a : ((i % 3 == 1) ? mix(b * 1.8 + 0.2, float3(0.3, 0.9, 1.0), 0.5) : mix(a, float3(1.0, 0.2, 0.8), 0.5));
         color += mix(tint, float3(1.0), 0.3) * beam * (0.3 + 0.9 * haze) * (0.55 + 0.9 * u.drive.x);
         // 光源本身一个亮点。
         color += mix(tint, float3(1.0), 0.6) * exp(-length(rel) * 40.0) * 0.6;
     }
     // 重拍时台口一片横向的扫光。
-    color += mix(a, float3(1.0), 0.5) * u.drive.z * 0.12 * exp(-sq((uv.y - 0.98) * 6.0));
+    color += mix(a, float3(1.0), 0.5) * u.drive3.x * 0.12 * exp(-sq((uv.y - 0.98) * 6.0));
     color *= vignette(uv, 0.5);
     return float4(kineticFinish(color, uv, u), 1.0);
 }
@@ -662,7 +684,7 @@ fragment float4 kinetic_neonDrive(KineticVertexOut in [[stage_in]], constant Kin
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
     const float horizon = 0.52;
-    float travel = u.motion.x * 2.2;
+    float travel = u.motion.x * 1.4;
     float3 neonA = mix(a, float3(1.0, 0.3, 0.7), 0.35);
     float3 neonB = mix(b * 1.8 + 0.15, float3(0.2, 0.9, 1.0), 0.45);
     float3 color;
@@ -682,11 +704,14 @@ fragment float4 kinetic_neonDrive(KineticVertexOut in [[stage_in]], constant Kin
         float ground = uv.y - horizon;
         float depth = 0.12 / ground;
         float2 world = float2((uv.x - 0.5) * aspect * depth, depth + travel);
-        // 横线每隔两个单位一道，竖线是车道；远处线放宽一点免得闪。
-        // 线宽按屏幕像素算（fwidth），远近都是一两个像素，网格才会往消失点收拢。
-        float rowCoord = world.y * 4.0;
+        // 横线每半个单位一道，竖线是车道。线宽按屏幕像素算（fwidth），远近都是一两个像素，网格才会往消失点收拢。
+        // 冲得快时一帧（按 30 帧算）横线能挪掉小半格：按挪的距离把线拉成一道光、稍稍变暗，不然近处的
+        // 横线会一格一格地跳，看着像闪。只按平方根变暗，拉长了仍是一道亮的灯带。
+        float rowCoord = world.y * 2.0;
         float acrossLine = abs(fract(rowCoord + 0.5) - 0.5);
-        float lines = below(0.0, fwidth(rowCoord) * 1.6, acrossLine);
+        float sharp = fwidth(rowCoord) * 1.6;
+        float smear = min(sharp + u.drive3.z * 1.4 * 2.0 / 30.0 * 0.5, 0.45);
+        float lines = below(0.0, smear, acrossLine) * sqrt(sharp / max(smear, 0.0001));
         float laneCoord = world.x * 12.0;
         float laneLine = abs(fract(laneCoord + 0.5) - 0.5);
         float lanes = below(0.0, fwidth(laneCoord) * 1.4, laneLine);
@@ -699,7 +724,7 @@ fragment float4 kinetic_neonDrive(KineticVertexOut in [[stage_in]], constant Kin
         color += mix(neonA, float3(1.0), 0.5) * posts * exp(-depth * 0.04);
     }
     // 地平线上一层辉光，重拍时更亮。
-    color += neonA * exp(-abs(uv.y - horizon) * 22.0) * (0.25 + 0.5 * u.drive.z);
+    color += neonA * exp(-abs(uv.y - horizon) * 22.0) * (0.25 + 0.5 * u.drive3.x);
     color *= vignette(uv, 0.55);
     return float4(kineticFinish(color, uv, u), 1.0);
 }

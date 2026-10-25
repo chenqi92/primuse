@@ -419,28 +419,21 @@ public enum ImmersiveKineticDirectionPolicy {
         return p >= 1 ? 1 : floor(p * stepPrintSteps) / stepPrintSteps
     }
 
-    // MARK: - 进副歌那一下
+    // MARK: - 副歌
 
-    /// 进副歌那一下背景的变焦（希区柯克变焦：歌词不动，背后的景往前推一截再慢慢放回）。`sinceClimax` 是进副歌
-    /// 以来的秒数，还没进时为 nil；返回背景的放大倍数。
-    public static func dollyZoom(sinceClimax: TimeInterval?) -> Double {
-        guard let since = sinceClimax, since >= 0, since < dollyZoomSpan else { return 1 }
-        let p = since / dollyZoomSpan
-        // 很快推上去，再慢慢退回。
-        let push = p < 0.25 ? easeOutCubic(p / 0.25) : 1 - easeInOutCubic((p - 0.25) / 0.75)
-        return 1 + 0.16 * push
+    /// 副歌里背景慢慢推近一点（歌词不动，背后的景往前靠），出副歌再慢慢放回。跟着 `climaxPush` 走：起步和收尾
+    /// 都缓，副歌唱多久就推着多久。以前是进副歌那一下半秒内猛推 16% 再弹回、同时一道光从左扫到右，看着像画面
+    /// 突然被拽了一下。返回背景的放大倍数。
+    public static func backgroundZoom(climaxPush: Double) -> Double {
+        1 + climaxZoom * smoothstep(climaxPush)
     }
 
-    public static let dollyZoomSpan: TimeInterval = 2.4
+    public static let climaxZoom = 0.06
 
-    /// 进副歌那一下扫过画面的胶片漏光：(亮度 0…1, 光带横向位置 0…1)。
-    public static func lightLeak(sinceClimax: TimeInterval?) -> (amount: Double, position: Double) {
-        guard let since = sinceClimax, since >= 0, since < lightLeakSpan else { return (0, 0) }
-        let p = since / lightLeakSpan
-        return (sin(.pi * p) * 0.85, -0.2 + 1.4 * easeInOutCubic(p))
+    /// 副歌里画面一角亮起的暖光有多亮（0…1）：跟背景推近一起慢慢亮、慢慢灭，位置不动。
+    public static func warmGlow(climaxPush: Double) -> Double {
+        0.4 * smoothstep(climaxPush)
     }
-
-    public static let lightLeakSpan: TimeInterval = 1.6
 
     // MARK: - 曲线
 
@@ -495,8 +488,10 @@ public struct ImmersiveKineticDrive: Equatable, Sendable {
     /// 整体有多热闹，按零点几秒平滑。
     public var energy: Double = 0
     public var bass: Double = 0
-    /// 鼓点（没有频谱时是歌词的字头）那一下的包络。
+    /// 鼓点（没有频谱时是歌词的字头）那一下的包络：两三帧冲到顶再落回，管亮度。
     public var pulse: Double = 0
+    /// 同一下鼓点更圆滑的版本：约 0.15 秒涨上去、0.25 秒落回。管位置、角度这类东西——直接跟 `pulse` 走会一帧跳过去。
+    public var swell: Double = 0
     /// 镲片这类高频起音的包络。
     public var sparkle: Double = 0
     /// 这一刻在这首歌自己的响度范围里排在哪儿。
@@ -505,11 +500,19 @@ public struct ImmersiveKineticDrive: Equatable, Sendable {
     public var isClimax = false
     /// 这一次进高潮的时刻（与 `update` 的 `time` 同一个时钟）；不在高潮里时为 nil。
     public var climaxStart: TimeInterval?
+    /// 进高潮的程度，0…1：`isClimax` 翻过去以后约一秒渐变到位，画面不会一下子换了速度、亮度。
+    public var climaxLevel: Double = 0
+    /// 更缓的那一份：两级平滑，起步和收尾都慢，约三秒到位。背景推近、暖光跟它走——大面积的变化起步一快就显得突兀。
+    public var climaxPush: Double = 0
     /// 闪电的亮度包络（两下快闪再慢慢暗下去）；`flashSeed` 决定这一道劈在哪儿、什么形状。
     public var flash: Double = 0
     public var flashSeed: Double = 0
     /// 曲速隧道往前冲了多远：速度随能量变，按时间积分，速度变了画面也不会跳。
     public var travel: Double = 0
+    /// `travel` 此刻每秒走多少：线条快到一帧跨过一大截时着色器按它拉出拖影。
+    public var travelSpeed: Double = 0
+    /// 流动时钟：雨、焦散、星轨这类「越热闹走得越快」的东西用它，不用时间乘速度（速度一变相位就跳）。
+    public var flow: Double = 0
     /// 最近的落点，最新的在后面，最多 `ImmersiveKineticConductor.eventCapacity` 个。
     public var events: [Event] = []
     /// 这一帧有没有读到频谱；没有时动静来自歌词的字头。
@@ -523,8 +526,13 @@ public struct ImmersiveKineticConductor: Sendable {
     public static let eventCapacity = 8
     /// 一个落点留多久（涟漪散尽、冲击波出画）。
     public static let eventLifetime: TimeInterval = 4
-    /// 两道闪电至少隔多久：一秒不超过三次闪光。
-    public static let minimumFlashInterval: TimeInterval = 0.45
+    /// 两道闪电至少隔多久：上一道差不多熄了才劈下一道，不然上一道还亮着就跳到别处。
+    public static let minimumFlashInterval: TimeInterval = 0.7
+    /// 两个落点至少隔多久：`eventCapacity` 个落点正好撑满 `eventLifetime`，挤掉的那个已经散尽，不会凭空消失。
+    public static let minimumEventInterval: TimeInterval = eventLifetime / Double(eventCapacity)
+    /// 频谱有了多久才改跟频谱、没了多久才改跟歌词：安静段落里频谱时有时无，来回切换会让画面一跳一跳。
+    public static let spectrumAttach: TimeInterval = 0.3
+    public static let spectrumRelease: TimeInterval = 1.5
     /// 鼓点多重才劈闪电、才落一个点。
     public static let flashThreshold = 0.55
     public static let eventThreshold = 0.3
@@ -546,9 +554,25 @@ public struct ImmersiveKineticConductor: Sendable {
     private var aboveSince: TimeInterval?
     private var belowSince: TimeInterval?
     private var lyricPulse = 0.0
+    private var lastEvent = -Double.infinity
+    private var climaxPushStage = 0.0
+    private var followsSpectrum = false
+    private var spectrumSince: TimeInterval?
+    private var silentSince: TimeInterval?
 
     public init(seed: UInt64) {
         random = ImmersiveRandom(seed: seed)
+    }
+
+    /// 换歌时接着上一首的动静：里程、流动时钟、还没散的落点照旧，背景淡入淡出时旧场景不会突然跳回起点。
+    public init(seed: UInt64, continuing previous: ImmersiveKineticDrive, at time: TimeInterval) {
+        self.init(seed: seed)
+        drive.travel = previous.travel
+        drive.flow = previous.flow
+        drive.energy = previous.energy
+        drive.events = previous.events
+        lastEvent = previous.events.last?.time ?? -Double.infinity
+        lastTime = time
     }
 
     /// 走一帧。`levels` 为空或几乎无声（Apple Music、电台读不到频谱）时，`playbackTime` 越过 `lyricOnsets`
@@ -562,17 +586,18 @@ public struct ImmersiveKineticConductor: Sendable {
         let dt = lastTime.map { min(max(time - $0, 0), 0.25) } ?? 0
         lastTime = time
         let features = tracker.update(levels: levels, at: time)
-        let hasSpectrum = features.energy > 0.02
+        let hasSpectrum = updateSpectrumPresence(features.energy > 0.02, at: time)
         drive.hasSpectrum = hasSpectrum
 
         var hit = 0.0
         var accent = 0.0
+        var pulseTarget: Double
         if hasSpectrum {
             drive.energy = follow(drive.energy, toward: min(features.energy * 2.2, 1), dt: dt, halfLife: 0.25)
-            drive.bass = features.bass
-            drive.pulse = features.pulse
+            drive.bass = follow(drive.bass, toward: features.bass, dt: dt, halfLife: 0.08)
+            pulseTarget = features.pulse
             drive.sparkle = follow(drive.sparkle, toward: features.onsets[2], dt: dt, halfLife: 0.12)
-            drive.intensity = features.intensity
+            drive.intensity = follow(drive.intensity, toward: features.intensity, dt: dt, halfLife: 0.3)
             hit = features.beat
             accent = features.onsets[1]
         } else {
@@ -583,12 +608,22 @@ public struct ImmersiveKineticConductor: Sendable {
                 hit = 0.62
             }
             drive.energy = follow(drive.energy, toward: Self.lyricDrivenEnergy + 0.25 * lyricPulse, dt: dt, halfLife: 0.4)
-            drive.bass = 0.3 * lyricPulse
-            drive.pulse = lyricPulse
-            drive.sparkle = 0
-            drive.intensity = 0.5
+            drive.bass = follow(drive.bass, toward: 0.3 * lyricPulse, dt: dt, halfLife: 0.08)
+            pulseTarget = lyricPulse
+            drive.sparkle = follow(drive.sparkle, toward: 0, dt: dt, halfLife: 0.12)
+            drive.intensity = follow(drive.intensity, toward: 0.5, dt: dt, halfLife: 0.3)
         }
         lastPlaybackTime = playbackTime
+        // 涨的时候两三帧冲上去（不是一帧从 0 跳到 1，那是频闪），落的时候跟着包络。
+        drive.pulse = pulseTarget > drive.pulse
+            ? follow(drive.pulse, toward: pulseTarget, dt: dt, halfLife: 0.02)
+            : pulseTarget
+        drive.swell = follow(
+            drive.swell,
+            toward: drive.pulse,
+            dt: dt,
+            halfLife: drive.pulse > drive.swell ? 0.06 : 0.25
+        )
 
         if hit >= Self.eventThreshold {
             addEvent(strength: hit, at: time)
@@ -601,10 +636,33 @@ public struct ImmersiveKineticConductor: Sendable {
             drive.flashSeed = random.unit()
         }
         drive.flash = Self.flashEnvelope(age: time - flashStart)
-        drive.travel += dt * (0.25 + 1.6 * drive.energy + 2.2 * drive.pulse + (drive.isClimax ? 0.6 : 0))
-        drive.events.removeAll { time - $0.time > Self.eventLifetime }
         updateClimax(at: time)
+        drive.climaxLevel = follow(drive.climaxLevel, toward: drive.isClimax ? 1 : 0, dt: dt, halfLife: 0.35)
+        climaxPushStage = follow(climaxPushStage, toward: drive.isClimax ? 1 : 0, dt: dt, halfLife: 0.5)
+        drive.climaxPush = follow(drive.climaxPush, toward: climaxPushStage, dt: dt, halfLife: 0.5)
+        drive.travelSpeed = 0.25 + 1.4 * drive.energy + 1.2 * drive.swell + 0.5 * drive.climaxLevel
+        drive.travel += dt * drive.travelSpeed
+        drive.flow += dt * (0.55 + 0.9 * drive.energy + 0.35 * drive.climaxLevel)
+        drive.events.removeAll { time - $0.time > Self.eventLifetime }
         return drive
+    }
+
+    /// 带迟滞的「此刻有没有频谱」：有了 `spectrumAttach` 才算有，没了 `spectrumRelease` 才算没有。
+    private mutating func updateSpectrumPresence(_ audible: Bool, at time: TimeInterval) -> Bool {
+        if audible {
+            silentSince = nil
+            spectrumSince = spectrumSince ?? time
+            if !followsSpectrum, let since = spectrumSince, time - since >= Self.spectrumAttach {
+                followsSpectrum = true
+            }
+        } else {
+            spectrumSince = nil
+            silentSince = silentSince ?? time
+            if followsSpectrum, let since = silentSince, time - since >= Self.spectrumRelease {
+                followsSpectrum = false
+            }
+        }
+        return followsSpectrum
     }
 
     /// 闪电的亮度：一下全亮、暗一下、再亮一下，然后慢慢熄。
@@ -619,6 +677,8 @@ public struct ImmersiveKineticConductor: Sendable {
     }
 
     private mutating func addEvent(strength: Double, at time: TimeInterval) {
+        guard time - lastEvent >= Self.minimumEventInterval else { return }
+        lastEvent = time
         let event = ImmersiveKineticDrive.Event(
             x: 0.12 + 0.76 * random.unit(),
             y: 0.18 + 0.66 * random.unit(),

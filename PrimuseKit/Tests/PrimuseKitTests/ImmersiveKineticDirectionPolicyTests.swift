@@ -107,14 +107,32 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(a.smear > 0)
     }
 
-    @Test func climaxPushesTheBackgroundInAndBackWithALightLeak() {
-        #expect(Policy.dollyZoom(sinceClimax: nil) == 1)
-        #expect(Policy.dollyZoom(sinceClimax: Policy.dollyZoomSpan * 0.25) > 1.15)
-        #expect(Policy.dollyZoom(sinceClimax: Policy.dollyZoomSpan) == 1)
-        #expect(Policy.lightLeak(sinceClimax: nil).amount == 0)
-        let middle = Policy.lightLeak(sinceClimax: Policy.lightLeakSpan / 2)
-        #expect(middle.amount > 0.8)
-        #expect(Policy.lightLeak(sinceClimax: Policy.lightLeakSpan + 1).amount == 0)
+    @Test func chorusPushesTheBackgroundInSlowlyAndHoldsIt() throws {
+        #expect(Policy.backgroundZoom(climaxPush: 0) == 1)
+        #expect(abs(Policy.backgroundZoom(climaxPush: 1) - (1 + Policy.climaxZoom)) < 1e-9)
+        #expect(Policy.warmGlow(climaxPush: 0) == 0)
+        #expect(Policy.warmGlow(climaxPush: 1) > 0.3)
+        // 进副歌后背景是慢慢推上去的：起步那一秒推得很少，之后一直推着，不弹回来。
+        var conductor = ImmersiveKineticConductor(seed: 2)
+        var time = 0.0
+        var zooms: [Double] = []
+        var enteredAt: Int?
+        for frame in 0..<1200 {
+            let loud = frame >= 300
+            let drive = conductor.update(
+                levels: Array(repeating: loud ? 0.85 : 0.1, count: 32), lyricOnsets: [], playbackTime: nil, at: time
+            )
+            if drive.isClimax, enteredAt == nil { enteredAt = frame }
+            zooms.append(Policy.backgroundZoom(climaxPush: drive.climaxPush))
+            time += 1.0 / 30
+        }
+        let start = try #require(enteredAt)
+        #expect(zooms[start + 15] - 1 < Policy.climaxZoom * 0.2)
+        #expect(zooms.last! > 1 + Policy.climaxZoom * 0.95)
+        for (earlier, later) in zip(zooms, zooms.dropFirst()) {
+            #expect(later >= earlier - 1e-12)
+            #expect(later - earlier < 0.002)
+        }
     }
 
     @Test func climaxIsMarkedWhenTheSongStaysLoud() {
@@ -181,7 +199,8 @@ struct ImmersiveKineticDirectionPolicyTests {
             time += 1.0 / 30
         }
         #expect(sawEvent)
-        #expect(peakPulse > 0.9)
+        // 两三帧冲上去，不是一帧跳满。
+        #expect(peakPulse > 0.75)
     }
 
     @Test func seekingDoesNotCountSkippedOnsets() {
@@ -191,7 +210,7 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(drive.events.isEmpty)
     }
 
-    @Test func lightningNeverFlashesMoreThanThreeTimesASecond() {
+    @Test func lightningWaitsForThePreviousBoltToFade() {
         var conductor = ImmersiveKineticConductor(seed: 3)
         var flashes = 0
         var previous = 0.0
@@ -207,9 +226,93 @@ struct ImmersiveKineticDirectionPolicyTests {
             time += 1.0 / 30
             _ = frame
         }
-        // 十秒。
-        #expect(flashes <= 23)
+        // 十秒：每道闪电之间至少 0.7 秒，下一道劈下来时上一道已经熄了。
+        #expect(flashes <= 15)
         #expect(flashes >= 10)
+        #expect(ImmersiveKineticConductor.flashEnvelope(age: ImmersiveKineticConductor.minimumFlashInterval) < 0.03)
+    }
+
+    @Test func swellAndClimaxChangeGraduallySoNothingJumps() {
+        var conductor = ImmersiveKineticConductor(seed: 4)
+        var time = 0.0
+        var previous = ImmersiveKineticDrive()
+        var first = true
+        // 先安静十秒，再很响、每半秒一记重拍。
+        for frame in 0..<1200 {
+            let loud = frame >= 300
+            let kick = loud && frame % 15 == 0
+            let level = loud ? (kick ? 0.95 : 0.7) : 0.1
+            let drive = conductor.update(
+                levels: Array(repeating: level, count: 32), lyricOnsets: [], playbackTime: nil, at: time
+            )
+            if !first {
+                #expect(abs(drive.swell - previous.swell) < 0.5)
+                #expect(abs(drive.climaxLevel - previous.climaxLevel) < 0.1)
+                #expect(drive.flow > previous.flow)
+                #expect(drive.flow - previous.flow < 0.1)
+            }
+            first = false
+            previous = drive
+            time += 1.0 / 30
+        }
+        #expect(previous.isClimax)
+        #expect(previous.climaxLevel > 0.9)
+    }
+
+    @Test func briefSilenceDoesNotFlipBetweenSpectrumAndLyrics() {
+        var conductor = ImmersiveKineticConductor(seed: 5)
+        var time = 0.0
+        var drive = ImmersiveKineticDrive()
+        for _ in 0..<60 {
+            drive = conductor.update(levels: Array(repeating: 0.5, count: 32), lyricOnsets: [], playbackTime: nil, at: time)
+            time += 1.0 / 30
+        }
+        #expect(drive.hasSpectrum)
+        // 半秒没声音：还算有频谱。
+        for _ in 0..<15 {
+            drive = conductor.update(levels: [], lyricOnsets: [], playbackTime: nil, at: time)
+            time += 1.0 / 30
+        }
+        #expect(drive.hasSpectrum)
+        // 两秒没声音：改跟歌词。
+        for _ in 0..<60 {
+            drive = conductor.update(levels: [], lyricOnsets: [], playbackTime: nil, at: time)
+            time += 1.0 / 30
+        }
+        #expect(!drive.hasSpectrum)
+    }
+
+    @Test func eventsAreSpacedSoNoneIsPushedOutWhileVisible() {
+        var conductor = ImmersiveKineticConductor(seed: 8)
+        var playback = 0.0
+        var time = 0.0
+        var drive = ImmersiveKineticDrive()
+        for _ in 0..<200 {
+            drive = conductor.update(levels: [], lyricOnsets: [playback + 0.01], playbackTime: playback + 0.02, at: time)
+            playback += 0.05
+            time += 0.05
+        }
+        let times = drive.events.map(\.time)
+        for (earlier, later) in zip(times, times.dropFirst()) {
+            #expect(later - earlier >= ImmersiveKineticConductor.minimumEventInterval - 1e-9)
+        }
+        #expect(drive.events.count <= ImmersiveKineticConductor.eventCapacity)
+    }
+
+    @Test func aNewSongCarriesOnFromWhereTheSceneWas() {
+        var conductor = ImmersiveKineticConductor(seed: 6)
+        var time = 0.0
+        var drive = ImmersiveKineticDrive()
+        for _ in 0..<90 {
+            drive = conductor.update(levels: Array(repeating: 0.6, count: 32), lyricOnsets: [], playbackTime: nil, at: time)
+            time += 1.0 / 30
+        }
+        var next = ImmersiveKineticConductor(seed: 99, continuing: drive, at: time)
+        let carried = next.update(levels: [], lyricOnsets: [], playbackTime: nil, at: time + 1.0 / 30)
+        #expect(carried.travel >= drive.travel)
+        #expect(carried.travel - drive.travel < 0.2)
+        #expect(carried.flow >= drive.flow)
+        #expect(carried.events == drive.events)
     }
 
     @Test func flashBlinksTwiceThenFades() {

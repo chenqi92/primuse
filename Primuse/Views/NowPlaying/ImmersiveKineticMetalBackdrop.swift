@@ -52,7 +52,8 @@ final class ImmersiveKineticDirector {
         direction = chosen
         let seed = ImmersiveRandom.seed(for: key)
         seedUnit = Double(seed % 10_000) / 10_000
-        conductor = ImmersiveKineticConductor(seed: seed)
+        // 接着上一首的里程与落点：换歌时旧场景还要淡出一会儿，不能一下跳回起点。
+        conductor = ImmersiveKineticConductor(seed: seed, continuing: drive, at: sceneTime)
         lineMoves.removeAll()
         lastUpdate = -Double.infinity
     }
@@ -117,6 +118,7 @@ struct ImmersiveKineticUniforms {
     var colorA: SIMD4<Float> = .zero
     var colorB: SIMD4<Float> = .zero
     var extra: SIMD4<Float> = .zero
+    var drive3: SIMD4<Float> = .zero
     var events: (
         SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
         SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>
@@ -187,19 +189,18 @@ final class ImmersiveKineticRenderer: NSObject {
         uniforms.drive2 = SIMD4(
             Float(drive.sparkle),
             Float(drive.flash),
-            drive.isClimax ? 1 : 0,
+            Float(drive.climaxLevel),
             Float(director?.seedUnit ?? 0)
         )
+        uniforms.drive3 = SIMD4(Float(drive.swell), Float(drive.flow), Float(drive.travelSpeed), 0)
         uniforms.motion = SIMD4(Float(drive.travel), Float(drive.flashSeed), motionAmplitude, 0)
         uniforms.colorA = colorA
         uniforms.colorB = colorB
-        // 进副歌那一下：背景往前推一截、扫过一道漏光。
-        let sinceClimax = drive.climaxStart.map { Double(time) - $0 }
-        let leak = ImmersiveKineticDirectionPolicy.lightLeak(sinceClimax: sinceClimax)
+        // 副歌里背景慢慢推近一点、一角亮起暖光，出副歌再慢慢回去。
         uniforms.extra = SIMD4(
-            Float(leak.amount),
-            Float(leak.position),
-            Float(ImmersiveKineticDirectionPolicy.dollyZoom(sinceClimax: sinceClimax)),
+            Float(ImmersiveKineticDirectionPolicy.warmGlow(climaxPush: drive.climaxPush)),
+            0,
+            Float(ImmersiveKineticDirectionPolicy.backgroundZoom(climaxPush: drive.climaxPush)),
             0
         )
         uniforms.setEvents(drive.events)
@@ -243,11 +244,15 @@ final class ImmersiveKineticRenderer: NSObject {
                     let callbacks = Self.readyCallbacks
                     Self.readyCallbacks.removeAll()
                     callbacks.forEach { $0() }
+                    // 其余场景的管线也趁空建好：换歌换场景时不必等，画面不会先空一下。
+                    for other in ImmersiveKineticScene.allCases {
+                        prepare(other) {}
+                    }
                 }
             }
             return
         }
-        guard !pipelinesLoading.contains(scene) else { return }
+        guard pipelines[scene] == nil, !pipelinesLoading.contains(scene) else { return }
         pipelinesLoading.insert(scene)
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = library.makeFunction(name: ImmersiveKineticShaderSource.vertexFunction)
@@ -334,7 +339,8 @@ final class ImmersiveKineticMTKView: MTKView {
 
 // MARK: - 视图
 
-/// 「动态歌词」的背景。设备不支持 Metal、着色器编不过时退回原来那几团柔光。
+/// 「动态歌词」的背景。换歌换了场景时新旧两个场景叠着淡入淡出，不是一刀切过去。设备不支持 Metal、着色器
+/// 编不过时退回原来那几团柔光。
 struct ImmersiveKineticSceneBackdrop: View {
     @Environment(\.immersiveFrameRate) private var frameRate
     @Environment(\.immersiveMotionIntensity) private var motion
@@ -368,24 +374,32 @@ struct ImmersiveKineticSceneBackdrop: View {
     @ViewBuilder
     private var liveBackdrop: some View {
         if ImmersiveKineticRenderer.isAvailable {
-            ImmersiveKineticMetalView(
-                scene: scene,
-                colorA: palette.primary,
-                colorB: palette.secondary,
-                director: director,
-                progress: progress,
-                isAnimating: isAnimating,
-                framesPerSecond: framesPerSecond,
-                motionAmplitude: Float(motion.amplitude)
-            )
+            ZStack {
+                ImmersiveKineticMetalView(
+                    scene: scene,
+                    colorA: palette.primary,
+                    colorB: palette.secondary,
+                    director: director,
+                    progress: progress,
+                    isAnimating: isAnimating,
+                    framesPerSecond: framesPerSecond,
+                    motionAmplitude: Float(motion.amplitude)
+                )
+                .id(scene)
+                .transition(.opacity)
+            }
+            .animation(.easeInOut(duration: 1.2), value: scene)
         } else {
             ImmersiveKineticBackdrop(palette: palette, isAnimating: isAnimating)
         }
     }
 
-    /// 背景跟歌词一样一秒最多三十帧，电视也是；帧率设成更高时按设定走。
+    /// 安静的场景一秒三十帧就够；冲得快的那几个（隧道、激光、网格路面、雷雨）按六十帧画，三十帧下细线一帧
+    /// 跨一大截，看着一格一格跳。电视一律三十帧；帧率设成更高时按设定走。
     private var framesPerSecond: Int {
-        let interval = frameRate.minimumInterval(base: 1.0 / 30, televisionFloor: 1.0 / 30) ?? (1.0 / 60)
+        let interval = (scene.isEnergetic
+            ? frameRate.minimumInterval(fastBase: 1.0 / 60, televisionFloor: 1.0 / 30)
+            : frameRate.minimumInterval(base: 1.0 / 30, televisionFloor: 1.0 / 30)) ?? (1.0 / 60)
         return max(Int((1 / max(interval, 1.0 / 120)).rounded()), 1)
     }
 }
