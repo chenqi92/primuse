@@ -615,3 +615,36 @@ struct MediaFileSignatureTests {
         #expect(!MediaFileSignature.matchesDecodedText("I wrote ftyp on the board"))
     }
 }
+
+@Suite("Lyrics documents a server read as Latin-1 / Windows-1252")
+struct LyricsDocumentMojibakeRepairTests {
+    private let simplified = "[00:01.00]晚风吹过旧街口\n[00:05.00]路灯照亮你回头\n[00:09.00]说好明天一起走"
+    private let traditional = "[00:01.00]晚風吹過舊街口\n[00:05.00]路燈照亮你回頭\n[00:09.00]說好明天一起走"
+
+    @Test("GBK and Big5 documents read as Latin-1 come back byte for byte")
+    func wholeDocument() throws {
+        let gbk = try #require(mojibake(simplified, wrote: TextEncodingRepair.gb18030, read: .isoLatin1))
+        #expect(TextEncodingRepair.repairedLyricsDocument(gbk) == simplified)
+        let big5 = try #require(mojibake(traditional, wrote: TextEncodingRepair.big5, read: .isoLatin1))
+        #expect(TextEncodingRepair.repairedLyricsDocument(big5) == traditional)
+        let cp1252 = try #require(mojibake(simplified, wrote: TextEncodingRepair.gb18030, read: .windowsCP1252))
+        #expect(TextEncodingRepair.repairedLyricsDocument(cp1252) == simplified)
+    }
+
+    @Test("Only the lines that were misread are rewritten")
+    func mixedDocument() throws {
+        // 服务端逐行兜底时, 本来是 UTF-8 的行原样交出, 只有非 UTF-8 的行按 1252 解。
+        let misread = try #require(
+            mojibake("[00:05.00]路灯照亮你回头", wrote: TextEncodingRepair.gb18030, read: .windowsCP1252)
+        )
+        let document = "[00:01.00]晚风吹过旧街口\n\(misread)\n[00:09.00]说好明天一起走"
+        #expect(TextEncodingRepair.repairedLyricsDocument(document) == simplified)
+    }
+
+    @Test("Clean lyrics, accented Western lyrics included, are left alone")
+    func cleanDocuments() {
+        #expect(TextEncodingRepair.repairedLyricsDocument(simplified) == nil)
+        let french = "[00:01.00]Déjà vu, je t'ai aimée\n[00:05.00]Où es-tu à présent"
+        #expect(TextEncodingRepair.repairedLyricsDocument(french) == nil)
+    }
+}

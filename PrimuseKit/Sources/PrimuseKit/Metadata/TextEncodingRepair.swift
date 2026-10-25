@@ -73,11 +73,32 @@ public enum TextEncodingRepair {
         if let repaired = byteSwappedUTF16Candidate(for: text) {
             return repaired
         }
+        return bestRewrite(for: text)?.text
+    }
+
+    /// 整份歌词被按 Latin-1 / Windows-1252 解过: TagLib、ffmpeg 读编码字节为 0 的 USLT,
+    /// 服务端读非 UTF-8 的 `.lrc` 时按 1252 兜底。字节一个没丢, 倒回去就是原文。
+    /// 同一份歌词里看着像乱码的行合在一起定下是哪种误读, 再逐行套用; 套不上的行原样留着,
+    /// 本来就是 UTF-8 的行不碰。没有可修的返回 nil。
+    public static func repairedLyricsDocument(_ text: String) -> String? {
+        let lines = text.components(separatedBy: "\n")
+        let corrupted = lines.indices.filter { looksCorrupted(lines[$0]) }
+        guard !corrupted.isEmpty,
+              let rewrite = bestRewrite(for: corrupted.map { lines[$0] }.joined(separator: "\n"))?.rewrite
+        else { return nil }
+        var repaired = lines
+        for index in corrupted {
+            if let candidate = rewrite.apply(to: lines[index]) { repaired[index] = candidate }
+        }
+        return repaired == lines ? nil : repaired.joined(separator: "\n")
+    }
+
+    private static func bestRewrite(for text: String) -> (rewrite: Rewrite, text: String)? {
         guard looksCorrupted(text) else { return nil }
 
         let originalScore = plausibility(text)
         let originalRareHan = rareHanCount(in: text)
-        var best: (text: String, score: Int)?
+        var best: (rewrite: Rewrite, text: String, score: Int)?
 
         for rewrite in rewrites {
             guard let candidate = rewrite.apply(to: text) else { continue }
@@ -96,11 +117,11 @@ public enum TextEncodingRepair {
             }
 
             if best == nil || score > best!.score {
-                best = (candidate, score)
+                best = (rewrite, candidate, score)
             }
         }
 
-        return best?.text
+        return best.map { ($0.rewrite, $0.text) }
     }
 
     /// Cross-script rewrites are ambiguous without an independent name. In

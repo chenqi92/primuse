@@ -94,7 +94,9 @@ enum LyricsLoader {
                 guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return nil
                 }
-                let parsed = LyricsParser.parseText(raw)
+                // 服务端按 Latin-1 / 1252 解过的 GBK / Big5 字节一个没丢, 先倒回原文。
+                let text = TextEncodingRepair.repairedLyricsDocument(raw) ?? raw
+                let parsed = LyricsParser.parseText(text)
                 guard !parsed.isEmpty else { return nil }
                 return await usableServerDocument(
                     parsed,
@@ -218,7 +220,7 @@ enum LyricsLoader {
                     switch await server.readServerLyrics(for: song.filePath) {
                     case .content(let raw)
                         where !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
-                        return .content(raw)
+                        return .content(TextEncodingRepair.repairedLyricsDocument(raw) ?? raw)
                     case .absent where !capabilities.supportsSiblingSidecarLookup:
                         return .absent
                     case .unavailable where !capabilities.supportsSiblingSidecarLookup:

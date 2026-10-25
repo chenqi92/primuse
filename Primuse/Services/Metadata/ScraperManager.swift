@@ -861,11 +861,13 @@ actor ScraperManager {
 
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {
         if let lrc = result.lrcContent, !lrc.isEmpty {
-            return usableOnlineLyrics(LyricsParser.parse(lrc), source: result.source)
+            let text = TextEncodingRepair.repairedLyricsDocument(lrc) ?? lrc
+            return usableOnlineLyrics(LyricsParser.parse(text), source: result.source)
         }
         if let plain = result.plainText,
            !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return usableOnlineLyrics(LyricsParser.parseText(plain), source: result.source)
+            let text = TextEncodingRepair.repairedLyricsDocument(plain) ?? plain
+            return usableOnlineLyrics(LyricsParser.parseText(text), source: result.source)
         }
         return nil
     }

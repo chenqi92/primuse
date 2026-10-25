@@ -3061,7 +3061,7 @@ final class TVPlaybackCoordinator {
         destinationID: String,
         logSource: String
     ) async throws {
-        let parsed = LyricsParser.parseText(text)
+        let parsed = LyricsParser.parseText(TextEncodingRepair.repairedLyricsDocument(text) ?? text)
         guard !parsed.isEmpty else { return }
         guard let lines = LossyDecodedLyricsRepair.usableDocument(parsed) else {
             lossilyDecodedServerLyrics = (song.id, parsed)
