@@ -107,6 +107,9 @@ struct PlaylistDetailView: View {
             playCountsVersion: usesPlayCounts ? PlayHistoryStore.shared.playCountsVersion : 0
         )
         return sortedSongsCache.songs(for: key) {
+            if let newestFirst = addedOrderNewestFirst {
+                return newestFirst ? Array(storedSongs.reversed()) : storedSongs
+            }
             let values: SongListSortValues = usesPlayCounts
                 ? SongListSortValues(playCountsBySongID: playCountsBySongID)
                 : .empty
@@ -115,9 +118,13 @@ struct PlaylistDetailView: View {
     }
 
     /// 整张歌单的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
-    /// 值, 统一排到最后。
+    /// 值, 统一排到最后。按加入先后排时占位也有自己的先后, 跟着整张一起倒。
     private var orderedEntries: [MusicLibrary.PlaylistEntry] {
         guard displaySortOrder != nil else { return library.entries(forPlaylist: playlist.id) }
+        if let newestFirst = addedOrderNewestFirst {
+            let entries = library.entries(forPlaylist: playlist.id)
+            return newestFirst ? Array(entries.reversed()) : entries
+        }
         let pending = library.entries(forPlaylist: playlist.id).filter {
             if case .pending = $0 { return true }
             return false
@@ -170,6 +177,17 @@ struct PlaylistDetailView: View {
     /// nil = 保持歌单自己的顺序。
     private var displaySortOrder: LibrarySongSortOrder? {
         LibrarySongSortOrder(rawValue: displaySortRawValue)
+    }
+
+    /// 歌单里的「添加日期」指加进这张歌单的先后, 不是歌入库的日子。歌单没记每首是
+    /// 哪天加的, 但加歌一律接在末尾(「我喜欢」同步来的新红心、服务端歌单也一样),
+    /// 存着的顺序就是加入的先后, 最早的在前。文件夹歌单的成员按文件夹重算, 顺序与
+    /// 加入无关, 仍按入库日期排 —— 新放进文件夹的歌就是那时入库的。
+    /// 返回 nil = 不走这条, 照常按歌曲的值排。
+    private var addedOrderNewestFirst: Bool? {
+        guard let order = displaySortOrder, order.criterion == .dateAdded,
+              (currentPlaylist ?? playlist).folderBinding == nil else { return nil }
+        return !order.isAscending
     }
 
     /// 歌单菜单里放的排序维度。码率、位深、格式这些技术参数留给曲库列表 ——
