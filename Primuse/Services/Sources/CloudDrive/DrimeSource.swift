@@ -668,7 +668,11 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
-        let (responseData, response) = try await session.upload(for: request, from: body)
+        let payload = body
+        // 上传也先过这个账号的共享冷却、只发一次；连接仍用本源的 session。
+        let (responseData, response) = try await helper.sendOnce(request) { [session] _, request in
+            try await session.upload(for: request, from: payload)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -776,7 +780,9 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
                 request.httpMethod = "PUT"
                 request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = 300
-                let (_, response) = try await session.upload(for: request, from: chunk)
+                let (_, response) = try await helper.sendOnce(request) { [session] _, request in
+                    try await session.upload(for: request, from: chunk)
+                }
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),
                       let etag = http.value(forHTTPHeaderField: "ETag"),

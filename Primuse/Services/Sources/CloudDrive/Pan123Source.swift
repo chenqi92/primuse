@@ -382,7 +382,10 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             request.setValue("open_platform", forHTTPHeaderField: "Platform")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = 300
-            let (data, response) = try await session.upload(for: request, fromFile: body)
+            // 分片也先过这个账号的共享冷却、只发一次；连接仍用本源的 session。
+            let (data, response) = try await self.helper.sendOnce(request) { _, request in
+                try await session.upload(for: request, fromFile: body)
+            }
             guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
             let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             if http.statusCode == 401 || Self.intValue(json?["code"]) == 401 { throw CloudDriveError.tokenExpired }
