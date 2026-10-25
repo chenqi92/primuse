@@ -39,25 +39,39 @@ extension View {
     ///
     /// 换构图那一次强制带上动画：开合、转屏时尺寸等级是系统在自己的过渡里改的，那次更新可能标着
     /// 「不要动画」，只挂 `.animation(_:value:)` 会被它压掉，元素就硬切过去。
-    func pmLayoutSwitchAnimation<Key: Equatable>(_ key: Key, isEnabled: Bool = true) -> some View {
-        modifier(PMLayoutSwitchAnimation(key: key, isEnabled: isEnabled))
+    ///
+    /// `isInstantChange(旧, 新)` 为真的那一次反过来一下子换好、不淡入淡出：普通手机转屏时系统整页转 90 度只要
+    /// 0.3 秒左右，元素淡入（0.25 秒）正好叠在里面，转着的那一页大半是空的底色，浅色下一片白、深色下一片黑；
+    /// 元素滑动也被转屏盖住，看不出来。
+    func pmLayoutSwitchAnimation<Key: Equatable>(
+        _ key: Key,
+        isEnabled: Bool = true,
+        isInstantChange: ((Key, Key) -> Bool)? = nil
+    ) -> some View {
+        modifier(PMLayoutSwitchAnimation(key: key, isEnabled: isEnabled, isInstantChange: isInstantChange))
     }
 }
 
 private struct PMLayoutSwitchAnimation<Key: Equatable>: ViewModifier {
     let key: Key
     let isEnabled: Bool
+    let isInstantChange: ((Key, Key) -> Bool)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 出现之后构图已经定下来了：之后的变化才算「换版式」。
     @State private var hasSettled = false
     @State private var settleRequest = 0
+    /// 上一副构图：判断这一次换的是不是 `isInstantChange` 说的那种。
+    @State private var previousKey: Key?
 
     func body(content: Content) -> some View {
         let animates = hasSettled && isEnabled && !reduceMotion
         content
             .transaction(value: key) { transaction in
-                if animates {
+                if let previousKey, let isInstantChange, isInstantChange(previousKey, key), !Self.keepsFadeForDebug {
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                } else if animates {
                     transaction.animation = Self.animation
                     transaction.disablesAnimations = false
                 } else {
@@ -67,10 +81,23 @@ private struct PMLayoutSwitchAnimation<Key: Equatable>: ViewModifier {
             // 按生命周期而不是按时间认「刚出现」：出现以后、构图连续几帧没再变，才算定下来。
             // 刚出现时画布可能还在从零长到整屏（首页量出尺寸才决定分不分两栏），这期间的变化不算换版式；
             // 定下来以后哪怕视图是刚建的（开合时新插进来的分支），下一次换构图照样有动画。
-            .onAppear { scheduleSettle() }
-            .onChange(of: key) { _, _ in
+            .onAppear {
+                previousKey = key
+                scheduleSettle()
+            }
+            .onChange(of: key) { _, newKey in
+                previousKey = newKey
                 if !hasSettled { scheduleSettle() }
             }
+    }
+
+    /// 取证录屏对照用：`PRIMUSE_DEBUG_ROTATION_FADE=1` 让转屏也照旧淡入淡出。
+    private static var keepsFadeForDebug: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_ROTATION_FADE"] == "1"
+        #else
+        false
+        #endif
     }
 
     private func scheduleSettle() {

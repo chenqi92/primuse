@@ -484,6 +484,11 @@ struct NowPlayingAmbientBackdrop: View {
 
         return ZStack {
             if usesLiquid {
+                // 流动色彩整个画在 Canvas 里，没有纯色层，转屏时露出来的那块靠垫在下面的这层；颜色和播放页底色一样。
+                NowPlayingRotationTintedBase(
+                    base: appearance.backgroundBase,
+                    rotationFill: appearance.backgroundBase.mix(with: theme.accentColor, by: min(accentOpacity * 0.5, 1))
+                )
                 // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
                 LiquidArtworkBackdrop(
                     palette: theme.liquidPalette,
@@ -579,6 +584,58 @@ struct NowPlayingAmbientBackdrop: View {
     }
 }
 
+/// 播放页背景最底下那层纯色。转屏的前半程，系统转的窗口还是旧方向的大小，新版面没铺到的那一大块只露出这一层
+/// （色场、封面和按钮都不在那里），中性的浅灰或近黑看着像一侧黑了一会。横竖一翻就换成背景的大致颜色，转完再
+/// 淡回去；平时它压在背景下面，换了看不出来。得是这一层本身换色：在它上面另盖一层同样大小的颜色，转屏时露出来的
+/// 仍是它。
+struct NowPlayingRotationTintedBase: View {
+    let base: Color
+    /// 转屏时换上的颜色：背景的大致颜色。
+    let rotationFill: Color
+
+    #if os(iOS)
+    @State private var isLandscape: Bool?
+    @State private var showsRotationFill = false
+    @State private var settleTask: Task<Void, Never>?
+    #endif
+
+    var body: some View {
+        #if os(iOS)
+        (showsRotationFill ? rotationFill : base)
+            .onGeometryChange(for: Bool.self) { proxy in
+                proxy.size.width > proxy.size.height
+            } action: { landscape in
+                defer { isLandscape = landscape }
+                guard let previous = isLandscape, previous != landscape else { return }
+                // 尺寸是在系统转屏的动画里变的，这时换色会被一起做成整段转屏那么长的渐变，转完才换到位。
+                // 放到下一轮主队列，出了那段动画，一下子换过去。
+                DispatchQueue.main.async { beginRotationFill() }
+            }
+            .onDisappear { settleTask?.cancel() }
+        #else
+        base
+        #endif
+    }
+
+    #if os(iOS)
+    private func beginRotationFill() {
+        #if DEBUG
+        // 取证录屏对照用：`PRIMUSE_DEBUG_ROTATION_FILL=0` 照旧露出中性底色。
+        if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_ROTATION_FILL"] == "0" { return }
+        #endif
+        settleTask?.cancel()
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showsRotationFill = true }
+        settleTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(550))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { showsRotationFill = false }
+        }
+    }
+    #endif
+}
+
 /// A single low-frequency color field shared by the standard iOS and macOS
 /// players. The artwork palette remains visible when motion is unavailable;
 /// only the decorative timeline is suspended.
@@ -641,6 +698,7 @@ struct AdaptiveNowPlayingBackdrop: View {
         .accessibilityHidden(true)
     }
 
+
     private var motionPolicy: NowPlayingAmbientMotionPolicy {
         NowPlayingAmbientMotionPolicy(
             hasArtworkPalette: hasArtworkPalette,
@@ -678,7 +736,10 @@ struct AdaptiveNowPlayingBackdrop: View {
         let restrainedOpacity = paletteOpacityScale
 
         return ZStack {
-            baseColor
+            NowPlayingRotationTintedBase(
+                base: baseColor,
+                rotationFill: baseColor.mix(with: primaryAccent, by: min(primaryOpacity * restrainedOpacity * 0.5, 1))
+            )
 
             if !meshPalette.isEmpty {
                 MeshGradient(
@@ -3495,7 +3556,11 @@ struct NowPlayingView: View {
                     }
                     // 开合、转屏换构图(竖版 / 横屏骨架 / iPad 双栏 / Duo 内屏分栏与半折)时，封面、歌名、
                     // 进度条与传输键从旧位置滑到新位置，其余元素淡入；播放页进场途中不算。
-                    .pmLayoutSwitchAnimation(canvasKey, isEnabled: isPresentationSettled)
+                    .pmLayoutSwitchAnimation(
+                        canvasKey,
+                        isEnabled: isPresentationSettled,
+                        isInstantChange: NowPlayingCanvasKey.isRotation
+                    )
                     .contentShape(Rectangle())
                     // 横屏锁上、或者效果抽屉开着的时候，整页不再响应最小化手势：
                     // 前者是锁的语义，后者是抽屉之外的一切都只该用来收起抽屉。
@@ -17139,6 +17204,12 @@ struct NowPlayingPortraitInsets: Equatable {
 private struct NowPlayingCanvasKey: Equatable {
     var layoutMode: NowPlayingPlayerLayoutMode
     var arrangement: NowPlayingArrangement?
+
+    /// 手机竖屏 ⇄ 横屏骨架：只有转屏会这样换。这一次一下子换好，系统转的是一整页（`pmLayoutSwitchAnimation`）。
+    static func isRotation(_ old: Self, _ new: Self) -> Bool {
+        (old.layoutMode == .portrait && new.layoutMode == .compactLandscape)
+            || (old.layoutMode == .compactLandscape && new.layoutMode == .portrait)
+    }
 }
 
 /// 播放页几副构图里共有的主元素。换构图时同一个元素从旧位置滑到新位置。
