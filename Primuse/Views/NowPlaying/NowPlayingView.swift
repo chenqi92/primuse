@@ -854,6 +854,133 @@ private struct LyricsArtworkShadow {
     var opacity: Double = 0
     var radius: CGFloat = 0
     var y: CGFloat = 0
+    /// 只有有声内容封面的贴图阴影认它(书的暖色版式是褐色的);飞行封面那条按黑色画。
+    var color: Color = .black
+}
+
+/// 有声内容大封面的阴影(#349)。点封面切到文字稿时封面一路飞向顶上的小封面,`.shadow` 每一帧都要把封面
+/// 内容重画一遍再模糊;这里按封面停着时的边长画一张只有阴影的贴图(封面底下挖空),飞行和暂停缩小时
+/// 贴图跟着封面等比缩放,阴影也跟着一起变小,不再每帧重做模糊。
+private struct LyricsCoverShadowSprite: ViewModifier {
+    /// 封面停着时的边长;飞行途中的大小从这一层量。
+    let side: CGFloat
+    let cornerRadius: CGFloat
+    let shadow: LyricsArtworkShadow
+
+    private typealias Sprite = (image: CGImage, side: CGFloat)
+
+    @Environment(\.displayScale) private var displayScale
+    /// 正在用的贴图和它按多大的边长画的。
+    @State private var sprite: Sprite?
+
+    private var renderScale: CGFloat { LyricsCoverShadowSpriteCache.renderScale(for: displayScale) }
+
+    func body(content: Content) -> some View {
+        // 封面重新出现(从文字稿回来)时是新的一层,先拿画过的那张,不用等一拍才有阴影。
+        let shown = sprite ?? LyricsCoverShadowSpriteCache.cachedImage(
+            side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
+        ).map { (image: $0, side: side) }
+        content
+            .background {
+                if let shown { spriteView(shown) }
+            }
+            .task(id: side) { await refresh() }
+    }
+
+    private func spriteView(_ sprite: Sprite) -> some View {
+        GeometryReader { geometry in
+            let scale = geometry.size.width / sprite.side
+            let extent = (sprite.side + 2 * LyricsCoverShadowSpriteCache.padding(for: shadow)) * scale
+            Image(decorative: sprite.image, scale: renderScale)
+                .resizable()
+                .frame(width: extent, height: extent)
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                .opacity(shadow.opacity)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// 暂停时缩小的那一点直接缩放现有的这张;差得多(转屏、换版面)时等边长停稳再按新的重画,途中先缩放旧的。
+    private func refresh() async {
+        if let sprite, abs(side / sprite.side - 1) < 0.15 { return }
+        if sprite != nil {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+        }
+        guard let image = LyricsCoverShadowSpriteCache.image(
+            side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
+        ) else { return }
+        sprite = (image, side)
+    }
+}
+
+@MainActor
+private enum LyricsCoverShadowSpriteCache {
+    private struct Key: Hashable {
+        let side: CGFloat
+        let cornerRadius: CGFloat
+        let radius: CGFloat
+        let y: CGFloat
+        let color: Color
+        let scale: CGFloat
+    }
+
+    private static var images: [Key: CGImage] = [:]
+    /// 最近用过的在后面;同时在用的只有一两张(大封面、转屏前后)。
+    private static var recent: [Key] = []
+    private static let capacity = 4
+
+    /// 阴影是糊的,两倍分辨率就看不出差别,贴图小一半。
+    static func renderScale(for displayScale: CGFloat) -> CGFloat {
+        min(max(displayScale, 1), 2)
+    }
+
+    /// 阴影画出封面外多远:模糊半径的两倍半,再加上往下的偏移。
+    static func padding(for shadow: LyricsArtworkShadow) -> CGFloat {
+        (shadow.radius * 2.5 + abs(shadow.y)).rounded(.up)
+    }
+
+    static func cachedImage(side: CGFloat, cornerRadius: CGFloat, shadow: LyricsArtworkShadow, scale: CGFloat) -> CGImage? {
+        images[key(side: side, cornerRadius: cornerRadius, shadow: shadow, scale: scale)]
+    }
+
+    static func image(side: CGFloat, cornerRadius: CGFloat, shadow: LyricsArtworkShadow, scale: CGFloat) -> CGImage? {
+        guard side > 0, shadow.opacity > 0, shadow.radius > 0 else { return nil }
+        let key = key(side: side, cornerRadius: cornerRadius, shadow: shadow, scale: scale)
+        if let image = images[key] {
+            recent.removeAll { $0 == key }
+            recent.append(key)
+            return image
+        }
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let renderer = ImageRenderer(content: ZStack {
+            shape
+                .fill(Color.black)
+                .shadow(color: shadow.color, radius: shadow.radius, y: shadow.y)
+            // 封面底下挖空:封面淡入淡出时底下不会透出一块黑。往里缩一点挖,贴图分辨率低于屏幕时
+            // 挖口的那半个像素不会在封面边上透出一道亮线(那一圈被封面盖着)。
+            shape
+                .inset(by: 1)
+                .fill(Color.black)
+                .blendMode(.destinationOut)
+        }
+        .frame(width: side, height: side)
+        .padding(padding(for: shadow))
+        .compositingGroup())
+        renderer.scale = scale
+        guard let image = renderer.cgImage else { return nil }
+        images[key] = image
+        recent.append(key)
+        while recent.count > capacity {
+            images[recent.removeFirst()] = nil
+        }
+        return image
+    }
+
+    private static func key(side: CGFloat, cornerRadius: CGFloat, shadow: LyricsArtworkShadow, scale: CGFloat) -> Key {
+        Key(side: side, cornerRadius: cornerRadius, radius: shadow.radius, y: shadow.y, color: shadow.color, scale: scale)
+    }
 }
 
 private struct LyricsArtworkAnchor {
@@ -2818,9 +2945,9 @@ struct NowPlayingView: View {
                                 size: CGFloat(top.artworkSide),
                                 cornerRadius: 16,
                                 playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
-                                shadow: .init(opacity: 0.3, radius: 24, y: 10)
+                                shadow: .init(opacity: 0.3, radius: 24, y: 10),
+                                drawsCoverShadow: true
                             )
-                                .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
                                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                                 .onTapGesture { openTextFromArtwork() }
                             if let textWidth = top.textColumnWidth {
@@ -4555,9 +4682,9 @@ struct NowPlayingView: View {
             size: artworkSize,
             cornerRadius: 18,
             playbackScale: artworkAppearsPlaying ? 1 : 0.96,
-            shadow: .init(opacity: 0.28, radius: 20, y: 10)
+            shadow: .init(opacity: 0.28, radius: 20, y: 10),
+            drawsCoverShadow: true
         )
-            .shadow(color: .black.opacity(0.28), radius: 20, y: 10)
             .animation(
                 .spring(response: 0.5, dampingFraction: 0.75),
                 value: artworkAppearsPlaying
@@ -5339,9 +5466,9 @@ struct NowPlayingView: View {
                     size: fittedWidth,
                     cornerRadius: 16,
                     playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
-                    shadow: .init(opacity: 0.35, radius: 28, y: 12)
+                    shadow: .init(opacity: 0.35, radius: 28, y: 12),
+                    drawsCoverShadow: true
                 )
-                    .shadow(color: .black.opacity(0.35), radius: 28, y: 12)
                     .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -5539,9 +5666,9 @@ struct NowPlayingView: View {
                         size: artSize,
                         cornerRadius: 18,
                         playbackScale: artworkAppearsPlaying ? 1 : 0.96,
-                        shadow: .init(opacity: 0.34, radius: 22, y: 10)
+                        shadow: .init(opacity: 0.34, radius: 22, y: 10),
+                        drawsCoverShadow: true
                     )
-                        .shadow(color: .black.opacity(0.34), radius: 22, y: 10)
                         .animation(.spring(response: 0.5, dampingFraction: 0.76), value: artworkAppearsPlaying)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -5861,9 +5988,9 @@ struct NowPlayingView: View {
                                 cornerRadius: 12,
                                 playbackScale: player.isMusicVideoPlaybackActive
                                     ? 1.0
-                                    : (artworkAppearsPlaying ? 1.0 : 0.9)
+                                    : (artworkAppearsPlaying ? 1.0 : 0.9),
+                                drawsCoverShadow: true
                             )
-                                .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                                 .onTapGesture {
                                     guard !player.isMusicVideoPlaybackActive else { return }
@@ -6350,43 +6477,47 @@ struct NowPlayingView: View {
     /// 和文字稿顶上那张小封面是同一个匹配几何身份,切换时飞过去。点开是文字稿那一页。
     private func audiobookCover(style: AudiobookPlayerStyle) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-        return CachedArtworkView(
-            coverRef: player.currentSong?.coverArtFileName,
-            songID: player.currentSong?.id ?? "",
-            size: 420,
-            cornerRadius: 0,
-            sourceID: player.currentSong?.sourceID,
-            filePath: player.currentSong?.filePath,
-            fileFormat: player.currentSong?.fileFormat,
-            placeholderIcon: "book.closed",
-            loadsHighResolution: isPresentationSettled,
-            fillsProposedSize: true,
-            revisionToken: player.coverRevision
-        )
-        .bookCoverLayout(frameAspectRatio: 1)
-        .artworkCrossfade()
-        .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(style.hairline, lineWidth: 0.5)
+        // 外面这层量的是版面给封面的那一格,不随飞行变;阴影贴图按它画。
+        return GeometryReader { slot in
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: 420,
+                cornerRadius: 0,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                placeholderIcon: "book.closed",
+                loadsHighResolution: isPresentationSettled,
+                fillsProposedSize: true,
+                revisionToken: player.coverRevision
+            )
+            .bookCoverLayout(frameAspectRatio: 1)
+            .artworkCrossfade()
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(style.hairline, lineWidth: 0.5)
+            }
+            // 阴影挂在匹配几何里面,跟着封面一起飞、一起缩。
+            .modifier(LyricsCoverShadowSprite(
+                side: min(slot.size.width, slot.size.height),
+                cornerRadius: 4,
+                shadow: style.isNocturne
+                    ? LyricsArtworkShadow(opacity: 0.55, radius: 22, y: 12)
+                    : LyricsArtworkShadow(opacity: 0.22, radius: 16, y: 10, color: Color(red: 0.30, green: 0.22, blue: 0.12))
+            ))
+            .matchedGeometryEffect(
+                id: lyricsArtworkTransitionID,
+                in: lyricsArtworkNamespace,
+                isSource: !isLyricsCompactArtworkVisible
+            )
+            .contentShape(shape)
+            .onTapGesture { openTextFromArtwork() }
+            .accessibilityElement()
+            .accessibilityLabel(Text(verbatim: SpokenWordPlayerText.bookTitle(player)))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(Text("spoken_word_text_tab"))
         }
-        .matchedGeometryEffect(
-            id: lyricsArtworkTransitionID,
-            in: lyricsArtworkNamespace,
-            isSource: !isLyricsCompactArtworkVisible
-        )
-        .shadow(
-            color: style.isNocturne
-                ? .black.opacity(0.55)
-                : Color(red: 0.30, green: 0.22, blue: 0.12).opacity(0.22),
-            radius: style.isNocturne ? 22 : 16,
-            y: style.isNocturne ? 12 : 10
-        )
-        .contentShape(shape)
-        .onTapGesture { openTextFromArtwork() }
-        .accessibilityElement()
-        .accessibilityLabel(Text(verbatim: SpokenWordPlayerText.bookTitle(player)))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint(Text("spoken_word_text_tab"))
     }
 
     /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
@@ -7256,11 +7387,13 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
+    /// `drawsCoverShadow`:有声内容的封面和 MV 自己画阴影(`shadow`);音乐封面的阴影随飞行封面那层画,这里只交给槽位。
     private func artworkOrMusicVideo(
         size: CGFloat,
         cornerRadius: CGFloat,
         playbackScale: CGFloat = 1,
-        shadow: LyricsArtworkShadow = .init(opacity: 0.3, radius: 20, y: 8)
+        shadow: LyricsArtworkShadow = .init(opacity: 0.3, radius: 20, y: 8),
+        drawsCoverShadow: Bool = false
     ) -> some View {
         let displayedSize = size * playbackScale
         let displayedCornerRadius = cornerRadius * playbackScale
@@ -7297,6 +7430,9 @@ struct NowPlayingView: View {
                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
             }
             .scaleEffect(playbackScale)
+            .if(drawsCoverShadow) { view in
+                view.shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+            }
         } else if usesSpokenWordTransport {
             // 书封放进方形书框:方图直接铺满,竖版或横版的原图整张放进去、空出来的边用它自己的模糊放大垫上,
             // 和书架、书页是同一个零件。占的仍是原来那块方形槽位,别的布局不用跟着改。
@@ -7304,14 +7440,23 @@ struct NowPlayingView: View {
             // 那样飞向小封面的起点和终点都会被一起缩向中心, 交接时跳一下。
             // 播客的方形封面圆角跟音乐一致, 不按书缩小。
             let isPodcastEpisode = currentItemIsPodcast
+            let coverCornerRadius = isPodcastEpisode
+                ? displayedCornerRadius
+                : max(6, displayedCornerRadius * 0.6)
             SpokenWordBookCover(
                 song: player.currentSong,
                 width: SpokenWordCoverLayout.width(forHeight: displayedSize),
-                cornerRadius: isPodcastEpisode
-                    ? displayedCornerRadius
-                    : max(6, displayedCornerRadius * 0.6),
+                cornerRadius: coverCornerRadius,
                 decodeSize: size
             )
+            // 阴影挂在匹配几何里面,跟着封面一起飞、一起缩。
+            .if(drawsCoverShadow) { view in
+                view.modifier(LyricsCoverShadowSprite(
+                    side: SpokenWordCoverLayout.width(forHeight: displayedSize),
+                    cornerRadius: coverCornerRadius,
+                    shadow: shadow
+                ))
+            }
             .matchedGeometryEffect(
                 id: lyricsArtworkTransitionID,
                 in: lyricsArtworkNamespace,
