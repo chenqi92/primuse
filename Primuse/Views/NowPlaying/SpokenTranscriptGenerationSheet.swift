@@ -33,9 +33,6 @@ struct SpokenTranscriptGenerationSheet: View {
             Form {
                 headerSection
                 engineSection
-                if engine == .onDevice, onDeviceAvailable == true {
-                    languageSection
-                }
                 actionSection
             }
             .navigationTitle(Text("transcript_generation_title"))
@@ -94,82 +91,118 @@ struct SpokenTranscriptGenerationSheet: View {
         }
     }
 
+    /// 识别方式收成一行下拉:四种平铺时「开始生成」被挤到屏幕下面,要先划一下才点得到。
+    /// 选中那种的说明写在下拉下面;本机识别的语言也放在这一组里。
     private var engineSection: some View {
         Section {
-            ForEach(SpokenTranscriptEngine.allCases, id: \.self) { candidate in
-                engineRow(candidate)
+            LabeledContent {
+                engineMenu
+            } label: {
+                Text("transcript_generation_engine_section")
             }
-        } header: {
-            Text("transcript_generation_engine_section")
+            if let engine {
+                engineDetail(engine)
+            }
+            if engine == .onDevice, onDeviceAvailable == true {
+                languageRow
+            }
         } footer: {
-            if let engine, engine.uploadsAudio, engineIssue(engine) == nil {
+            if engine == .onDevice, onDeviceAvailable == true {
+                Text("transcript_generation_language_footer")
+            } else if let engine, engine.uploadsAudio, engineIssue(engine) == nil {
                 Text(uploadNoticeKey)
             }
         }
     }
 
-    /// 不可用的方式照样能选:选中后写明差在哪儿,能一键补上的给「去设置」。
-    private func engineRow(_ candidate: SpokenTranscriptEngine) -> some View {
-        let issue = engineIssue(candidate)
-        let isSelected = engine == candidate
-        return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                engine = candidate
-            } label: {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .font(.title3)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(Self.titleKey(candidate))
-                            .foregroundStyle(issue == nil ? Color.primary : Color.secondary)
-                        Text(Self.detailKey(candidate))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        if let issue {
-                            Text(issue.messageKey)
-                                .font(.footnote)
-                                .foregroundStyle(.orange)
-                        } else if candidate == .builtIn, let remaining = allowance?.remainingSegments {
-                            Text(String(format: String(localized: "transcript_generation_remaining_format"), remaining))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
+    /// 不可用的方式照样能选,菜单里那一项的副标题就写明差在哪儿。
+    private var engineMenu: some View {
+        Menu {
+            ForEach(SpokenTranscriptEngine.allCases, id: \.self) { candidate in
+                Button {
+                    engine = candidate
+                } label: {
+                    AIMenuChoiceLabel(
+                        title: Self.title(candidate),
+                        detail: engineStatus(candidate),
+                        isSelected: engine == candidate
+                    )
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(generator.activeJob != nil)
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-            if isSelected, let settingID = issue?.settingID {
+        } label: {
+            HStack(spacing: 4) {
+                if let engine {
+                    Text(verbatim: Self.title(engine))
+                        .lineLimit(1)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+        }
+        #if os(macOS)
+        // `.button` + 透明按钮样式才把上面这行字当触发器,系统补的箭头去掉(自己画了)。
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        #endif
+        .disabled(generator.activeJob != nil)
+    }
+
+    /// 菜单里每一项的副标题:差什么,或者内置 AI 还剩几段。
+    private func engineStatus(_ candidate: SpokenTranscriptEngine) -> String? {
+        if let issue = engineIssue(candidate) {
+            return String(localized: issue.message)
+        }
+        if candidate == .builtIn, let remaining = allowance?.remainingSegments {
+            return String(format: String(localized: "transcript_generation_remaining_format"), remaining)
+        }
+        return nil
+    }
+
+    /// 选中那种怎么识别;不可用时写明差在哪儿,能一键补上的给「去设置」。
+    private func engineDetail(_ engine: SpokenTranscriptEngine) -> some View {
+        let issue = engineIssue(engine)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(Self.detailKey(engine))
+                .foregroundStyle(.secondary)
+            if let issue {
+                Text(verbatim: String(localized: issue.message))
+                    .foregroundStyle(.orange)
+            } else if let status = engineStatus(engine) {
+                Text(verbatim: status)
+                    .foregroundStyle(.secondary)
+            }
+            if let settingID = issue?.settingID {
                 Button("transcript_generation_open_settings") {
                     pendingSettingID = settingID
                     dismiss()
                 }
-                .font(.footnote.weight(.semibold))
+                .fontWeight(.semibold)
                 .buttonStyle(.borderless)
-                .padding(.leading, 34)
+                .padding(.top, 2)
             }
         }
+        .font(.footnote)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
     }
 
-    private var languageSection: some View {
-        Section {
-            if supportedLocales.isEmpty {
-                Text("transcript_generation_language_loading")
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("transcript_generation_language", selection: $localeIdentifier) {
-                    ForEach(supportedLocales, id: \.self) { identifier in
-                        Text(verbatim: Self.languageName(identifier)).tag(Optional(identifier))
-                    }
+    @ViewBuilder
+    private var languageRow: some View {
+        if supportedLocales.isEmpty {
+            Text("transcript_generation_language_loading")
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("transcript_generation_language", selection: $localeIdentifier) {
+                ForEach(supportedLocales, id: \.self) { identifier in
+                    Text(verbatim: Self.languageName(identifier)).tag(Optional(identifier))
                 }
-                .disabled(generator.activeJob != nil)
             }
-        } footer: {
-            Text("transcript_generation_language_footer")
+            .disabled(generator.activeJob != nil)
         }
     }
 
@@ -251,7 +284,8 @@ struct SpokenTranscriptGenerationSheet: View {
     }
 
     private struct EngineIssue {
-        var messageKey: LocalizedStringKey
+        /// 菜单副标题只收字符串,所以存成待查的文案而不是 `LocalizedStringKey`。
+        var message: String.LocalizationValue
         var settingID: String?
     }
 
@@ -259,7 +293,7 @@ struct SpokenTranscriptGenerationSheet: View {
         switch candidate {
         case .onDevice:
             guard let onDeviceAvailable else { return nil }
-            return onDeviceAvailable ? nil : EngineIssue(messageKey: "transcript_generation_on_device_unavailable")
+            return onDeviceAvailable ? nil : EngineIssue(message: "transcript_generation_on_device_unavailable")
         case .builtIn:
             return Self.issue(for: intelligence.builtInTranscriptGenerationState)
         case .ownKey:
@@ -268,7 +302,7 @@ struct SpokenTranscriptGenerationSheet: View {
             return aliyunAccount.isConfigured
                 ? nil
                 : EngineIssue(
-                    messageKey: "transcript_generation_aliyun_not_configured",
+                    message: "transcript_generation_aliyun_not_configured",
                     settingID: Self.aliyunSettingID
                 )
         }
@@ -284,17 +318,17 @@ struct SpokenTranscriptGenerationSheet: View {
         case .ready:
             return nil
         case .builtInAIOff:
-            return EngineIssue(messageKey: "transcript_generation_built_in_off", settingID: SettingsPage.intelligence.id)
+            return EngineIssue(message: "transcript_generation_built_in_off", settingID: SettingsPage.intelligence.id)
         case .deviceUnsupported:
-            return EngineIssue(messageKey: "transcript_generation_device_unsupported")
+            return EngineIssue(message: "transcript_generation_device_unsupported")
         case .regionRestricted:
-            return EngineIssue(messageKey: "transcript_generation_region_restricted")
+            return EngineIssue(message: "transcript_generation_region_restricted")
         case .notOffered:
-            return EngineIssue(messageKey: "transcript_generation_built_in_not_offered")
+            return EngineIssue(message: "transcript_generation_built_in_not_offered")
         case .notInPlan:
-            return EngineIssue(messageKey: "transcript_generation_built_in_not_in_plan")
+            return EngineIssue(message: "transcript_generation_built_in_not_in_plan")
         case .ownKeyNotConfigured:
-            return EngineIssue(messageKey: "transcript_generation_own_key_not_configured", settingID: SettingsPage.transcription.id)
+            return EngineIssue(message: "transcript_generation_own_key_not_configured", settingID: SettingsPage.transcription.id)
         }
     }
 
@@ -358,12 +392,12 @@ struct SpokenTranscriptGenerationSheet: View {
 
     // MARK: Text
 
-    static func titleKey(_ engine: SpokenTranscriptEngine) -> LocalizedStringKey {
+    static func title(_ engine: SpokenTranscriptEngine) -> String {
         switch engine {
-        case .onDevice: "transcript_generation_engine_on_device"
-        case .builtIn: "transcript_generation_engine_built_in"
-        case .ownKey: "transcript_generation_engine_own_key"
-        case .aliyun: "transcript_generation_engine_aliyun"
+        case .onDevice: String(localized: "transcript_generation_engine_on_device")
+        case .builtIn: String(localized: "transcript_generation_engine_built_in")
+        case .ownKey: String(localized: "transcript_generation_engine_own_key")
+        case .aliyun: String(localized: "transcript_generation_engine_aliyun")
         }
     }
 
