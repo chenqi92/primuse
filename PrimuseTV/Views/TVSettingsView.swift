@@ -79,6 +79,8 @@ struct TVSettingsView: View {
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
     private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
     @AppStorage(TVStore.previousRestartsCurrentSongKey) private var previousRestartsCurrentSong = true
     @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
@@ -251,6 +253,18 @@ struct TVSettingsView: View {
                                 "photo.stack.fill",
                                 PMString("player_animated_artwork"),
                                 isOn: $animatedArtworkEnabled
+                            )
+                            settingDivider
+                            toggleRow(
+                                "square.stack",
+                                String(localized: "player_album_in_subtitle"),
+                                isOn: Binding(
+                                    get: { showsAlbumInSubtitle },
+                                    set: { shows in
+                                        showsAlbumInSubtitle = shows
+                                        CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+                                    }
+                                )
                             )
                             settingDivider
                             toggleRow(

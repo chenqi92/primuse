@@ -7288,6 +7288,8 @@ private struct MacSTThemeView: View {
     private var immersiveRotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
@@ -7608,6 +7610,13 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("player_volume_bar_description"))
                 }
                 .settingsAnchor("appearance.volumeBar")
+                MacSTRow(
+                    String(localized: "player_album_in_subtitle")
+                ) {
+                    MacSTToggle(isOn: $showsAlbumInSubtitle)
+                        .accessibilityLabel(Text("player_album_in_subtitle"))
+                }
+                .settingsAnchor("appearance.playerAlbumInSubtitle")
                 MacSTRow(
                     String(localized: "player_audio_info_title"),
                     hint: String(localized: "player_audio_info_mac_hint")

@@ -20,6 +20,8 @@ struct MacBottomBar: View {
     @Environment(\.pmAppearance) private var mode
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
 
     @State private var airPlayShown = false
     @State private var castShown = false
@@ -176,9 +178,10 @@ struct MacBottomBar: View {
                 .filter { !$0.isEmpty }
                 .joined(separator: " · ")
         }
+        // 「歌名下显示专辑名」关掉时音乐只写艺人(和播放页同一个开关);电台照旧。
         let parts = [
             player.currentSong.flatMap { library.artistDisplayName(for: $0) },
-            player.currentSong?.albumTitle,
+            showsAlbumInSubtitle || player.isLiveRadio ? player.currentSong?.albumTitle : nil,
         ]
             .compactMap { $0 }.filter { !$0.isEmpty }
         return parts.joined(separator: " · ")

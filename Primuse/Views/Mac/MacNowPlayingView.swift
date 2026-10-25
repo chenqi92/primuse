@@ -2153,6 +2153,16 @@ private struct MacNowPlayingMetadata: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @State private var podcastSheet: PodcastPlayerSheetTarget?
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
+
+    /// 「歌名下显示专辑名」关掉时音乐只写艺人(和 iPhone 同一个开关);有声书、播客这一栏是
+    /// 书名、节目名,照旧。
+    private var showsAlbumLine: Bool {
+        showsAlbumInSubtitle || podcastShowID != nil || bookID != nil
+            || PodcastPlaybackSong.isEpisode(song)
+            || (player.currentSong?.id == song.id && player.currentItemIsSpokenWord)
+    }
 
     /// 正在播的有声内容所在的书; 艺人页与专辑页只收音乐, 对它是空的。
     /// 播客单集没有书, 专辑那一栏是节目名, 点开的是节目页。
@@ -2188,7 +2198,7 @@ private struct MacNowPlayingMetadata: View {
                     }
                 }
             }
-            if let title = trimmed(song.albumTitle) {
+            if showsAlbumLine, let title = trimmed(song.albumTitle) {
                 if let podcastShowID {
                     metadataLink(title, help: "podcast_go_to_show") {
                         podcastSheet = .show(podcastShowID)

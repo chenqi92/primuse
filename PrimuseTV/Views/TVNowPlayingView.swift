@@ -62,6 +62,9 @@ struct TVNowPlayingView: View {
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
     private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
+    /// 和 iPhone、Mac 同一个键,经 iCloud 键值同步(启动时在 App 里登记)。
+    @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
+    private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     /// 展开着的那一行提示点(正在走的前奏或间奏)。跟着歌词位置变,变的时候和滚动同一次动画,
     /// 下面几句被推开、拉回也走同一条曲线。
     @State private var expandedLyricsMarker: TVLyricsAnchor?
@@ -991,7 +994,9 @@ struct TVNowPlayingView: View {
         var encoding: [String] = []
         if !np.format.isEmpty { encoding.append(np.format) }
         if np.bitrate > 0 { encoding.append("\(np.bitrate) kbps") }
-        var parts = [np.album, encoding.joined(separator: " ")]
+        // 「歌名下显示专辑名」关掉时音乐不写专辑;播客这一栏是节目名,照旧。
+        let album = showsAlbumInSubtitle || store.currentItemIsSpokenWord ? np.album : ""
+        var parts = [album, encoding.joined(separator: " ")]
         _ = outputRouteRevision
         // 输出被重采样(电视 / 功放接口跑在别的采样率)时写成「44.1 → 48 kHz」。
         if let rate = OutputSampleRateTextPolicy.text(

@@ -205,6 +205,8 @@ struct PrimuseTVApp: App {
                     // 歌词的间奏提示点跟着 iPhone / Mac 的设置走(那两端由 InterfaceLayoutSync 登记同一个键)。
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeKey) { }
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey) { }
+                    // 播放页写不写专辑名也跟着 iPhone / Mac 的「歌名下显示专辑名」走。
+                    CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsAlbumInSubtitleKey) { }
                     // 歌词字体也跟着 iPhone / Mac 选的走;在电视上换了也推回去,几台设备同一份。
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.lyricsFontKey) { }
                     _ = ArtistNameSettingsStore.shared
