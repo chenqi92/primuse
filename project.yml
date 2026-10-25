@@ -251,6 +251,7 @@ targets:
         PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
         PrimuseGoogleReversedClientID: "$(GOOGLE_REVERSED_CLIENT_ID)"
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        PrimusePalveniUploadKey: "$(PALVENI_UPLOAD_KEY)"
         PrimuseInfiniCloudAPIKey: "$(INFINICLOUD_API_KEY)"
         PrimuseU115ClientID: "$(U115_CLIENT_ID)"
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
@@ -659,6 +660,7 @@ targets:
         PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
         PrimuseGoogleReversedClientID: "$(GOOGLE_REVERSED_CLIENT_ID)"
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        PrimusePalveniUploadKey: "$(PALVENI_UPLOAD_KEY)"
         PrimuseInfiniCloudAPIKey: "$(INFINICLOUD_API_KEY)"
         PrimuseU115ClientID: "$(U115_CLIENT_ID)"
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
@@ -804,8 +806,9 @@ targets:
       - path: Primuse/Services/AI/MusicIntelligenceService.swift
       - path: Primuse/Services/AI/OpenAICompatibleProvider.swift
       - path: Primuse/Services/AI/PrimuseAIRelayClient.swift
-      # 诊断报告打包与上传:电视的「诊断报告」页走同一套中转上传,不发邮件。
+      # 诊断报告打包与上传:电视的「诊断报告」页走同一套上传(Palveni,或没带密钥时的中转),不发邮件。
       - path: Primuse/Services/DiagnosticReportMailer.swift
+      - path: Primuse/Services/PalveniDiagnosticsClient.swift
       - path: Primuse/Services/AI/LibraryInsightStore.swift
       - path: Primuse/Utilities/KeychainService.swift
       - path: Primuse/Views/Settings/AISettingsView.swift
@@ -964,6 +967,7 @@ targets:
         PrimuseDropboxClientSecret: "$(DROPBOX_CLIENT_SECRET)"
         PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        PrimusePalveniUploadKey: "$(PALVENI_UPLOAD_KEY)"
         PrimuseInfiniCloudAPIKey: "$(INFINICLOUD_API_KEY)"
         PrimuseU115ClientID: "$(U115_CLIENT_ID)"
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"

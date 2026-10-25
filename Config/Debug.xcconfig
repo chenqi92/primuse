@@ -20,6 +20,8 @@ GUANGYA_SIGN_SECRET =
 PCLOUD_CLIENT_ID =
 LASTFM_API_KEY =
 LASTFM_API_SECRET =
+// Palveni 后台「诊断上传 → 接入密钥」给 Primuse 建的上传密钥(pvk_primuse_…)。留空时诊断报告仍传到 primuse-ai。
+PALVENI_UPLOAD_KEY =
 PRIMUSE_IOS_APP_STORE_ID = 6761675450
 PRIMUSE_MAC_APP_STORE_ID =
 

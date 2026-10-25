@@ -449,11 +449,12 @@ nonisolated enum DiagnosticReportPackager {
     }
 }
 
-/// 诊断报告直接上传给作者:问中转收不收、打包、要上传位、PUT、确认。
+/// 诊断报告直接上传给作者:问服务收不收、打包、要上传位、PUT、确认。
 ///
-/// 和内置 AI 共用同一个中转客户端(同一份设备注册),但不看内置 AI 的开关和同意 ——
-/// 上传是用户在诊断页亲手点的按钮,传什么由他在页面上勾选。Apple TV 没有 `AppServices`,
-/// 由诊断页把它自己的中转客户端交进来。
+/// 构建里带了 Palveni 的上传密钥时传到 Palveni(`PalveniDiagnosticsClient`,用上传密钥和匿名
+/// 安装 ID,不需要设备注册);没带时走 primuse-ai 中转,和内置 AI 共用同一个中转客户端(同一份
+/// 设备注册)。两条路都不看内置 AI 的开关和同意 —— 上传是用户在诊断页亲手点的按钮,传什么由他
+/// 在页面上勾选。Apple TV 没有 `AppServices`,由诊断页把它自己的中转客户端交进来。
 @MainActor
 @Observable
 final class DiagnosticReportUploader {
@@ -481,6 +482,8 @@ final class DiagnosticReportUploader {
     private static let availabilityLifetime: TimeInterval = 10 * 60
 
     @ObservationIgnored private let clientProvider: @MainActor () -> PrimuseAIRelayClient
+    /// 构建里带了 Palveni 的上传密钥才有;有就不再经过中转。
+    @ObservationIgnored private let palveni = PalveniDiagnosticsClient.configured()
 
     #if os(tvOS)
     convenience init(client: PrimuseAIRelayClient) {
@@ -494,7 +497,7 @@ final class DiagnosticReportUploader {
 
     private init(clientProvider: @escaping @MainActor () -> PrimuseAIRelayClient) {
         self.clientProvider = clientProvider
-        if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+        if palveni == nil && !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
             availability = false
         } else if let cached = Self.cachedAvailability,
                   Date().timeIntervalSince(cached.checkedAt) < Self.availabilityLifetime {
@@ -508,9 +511,10 @@ final class DiagnosticReportUploader {
         clientProvider()
     }
 
-    /// 问一次中转(公开接口,不带设备标识)。这台设备连注册都做不到时直接算不收。
+    /// 问一次收不收:Palveni 用上传密钥问,中转走公开接口(不带设备标识)。走中转而这台设备
+    /// 连注册都做不到时直接算不收。
     func refreshAvailability() async {
-        guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
+        guard palveni != nil || PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
             availability = false
             return
         }
@@ -519,7 +523,12 @@ final class DiagnosticReportUploader {
             availability = cached.value
             return
         }
-        let value = await client.diagnosticsUploadAvailability()
+        let value: Bool?
+        if let palveni {
+            value = await palveni.availability()
+        } else {
+            value = await client.diagnosticsUploadAvailability()
+        }
         if let value {
             Self.cachedAvailability = (value, Date())
         }
@@ -557,7 +566,12 @@ final class DiagnosticReportUploader {
             message: selection.message
         )
         // 申请就占当天的名额,之后的失败都拿这一个上传位补救,不再重新申请。
-        let slot = try await client.requestDiagnosticsUpload(request)
+        let slot: DiagnosticUpload.Slot
+        if let palveni {
+            slot = try await palveni.requestUpload(request, channel: Bundle.main.distributionChannel)
+        } else {
+            slot = try await client.requestDiagnosticsUpload(request)
+        }
         try await transfer(archive.zipURL, slot: slot)
         return try await complete(slot, archiveURL: archive.zipURL)
     }
@@ -588,6 +602,9 @@ final class DiagnosticReportUploader {
         while true {
             phase = .confirming
             do {
+                if let palveni {
+                    return try await palveni.complete(id: slot.uploadID)
+                }
                 return try await client.completeDiagnosticsUpload(id: slot.uploadID)
             } catch let failure as DiagnosticUpload.Failure {
                 attempts += 1
@@ -687,8 +704,8 @@ final class DiagnosticReportUploader {
     }
 }
 
-/// 把压缩包 PUT 到中转给的预签名地址。不带任何身份信息:地址本身就是凭证,
-/// 只照中转要求带上它签进去的头。
+/// 把压缩包 PUT 到服务(Palveni 或中转)给的预签名地址。不带任何身份信息:地址本身就是
+/// 凭证,只照服务要求带上它签进去的头。
 nonisolated enum DiagnosticArchiveTransfer {
     /// URLSession 自己管这几个头,手动设了也可能被忽略或改写;Content-Length 由
     /// 文件大小得出,和要上传位时报的 byte_count 是同一个数(要位时已核对过)。
