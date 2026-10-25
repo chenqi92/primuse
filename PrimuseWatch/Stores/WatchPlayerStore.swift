@@ -77,6 +77,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// 收到 context 时的本地基准时刻, 用来本地外推 currentTime (100ms 一刷)。
     private var sentTimeAnchor: TimeInterval = 0
     private var sentCurrentTime: TimeInterval = 0
+    /// iPhone 那边的实际倍速 (有声书常开 1.5、2 倍), 外推进度按它走。
+    private var playbackRate: Double = 1
 
     /// 用户最近一次主动 toggle play/pause 的时刻。1 秒内收到 iPhone 推过来
     /// 跟乐观值矛盾的 isPlaying 时暂不采纳 (大概率是命令到达 iPhone 之前
@@ -135,7 +137,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 guard let self else { return }
                 if self.isPlaying, !self.isLoading {
-                    let extrapolated = self.sentCurrentTime + Date().timeIntervalSince1970 - self.sentTimeAnchor
+                    let extrapolated = self.sentCurrentTime
+                        + (Date().timeIntervalSince1970 - self.sentTimeAnchor) * self.playbackRate
                     self.currentTime = self.isLiveStream
                         ? max(0, extrapolated)
                         : min(self.duration, max(0, extrapolated))
@@ -444,6 +447,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         canSwitchStation = snap.canSwitchStation
         outputName = snap.outputName
         outputKind = snap.outputKind
+        playbackRate = snap.playbackRate
 
         // 喜欢偶尔要等 iPhone 曲库就绪才落地, 窗口放宽到 1.5 秒。
         if !(now.timeIntervalSince(lastUserLikeAt) < 1.5 && snap.isLiked != isLiked) {
@@ -491,10 +495,12 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let complicationKey = ComplicationKey(
             songID: songID, title: title, artist: artist,
             isPlaying: isPlaying, isLiveStream: isLiveStream,
-            durationSeconds: Int(duration.rounded())
+            durationSeconds: Int(duration.rounded()),
+            rateThousandths: Int((playbackRate * 1000).rounded())
         )
+        // 播放中比的是「这首从哪一刻开始放」, 倍速下要按倍速折回墙钟, 不然每次推送都像跳了进度。
         let position = isPlaying
-            ? Date().timeIntervalSince1970 - currentTime
+            ? Date().timeIntervalSince1970 - currentTime / playbackRate
             : currentTime
         let positionJumped = lastComplicationPosition.map { abs($0 - position) > 3 } ?? true
         if coverChanged {
@@ -506,7 +512,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             SharedNowPlayingState.write(
                 songID: songID, title: title, artist: artist,
                 isPlaying: isPlaying, isLiveStream: isLiveStream,
-                duration: duration, elapsed: currentTime,
+                duration: duration, elapsed: currentTime, playbackRate: playbackRate,
                 accent: (snap.accentR, snap.accentG, snap.accentB)
             )
             WidgetCenter.shared.reloadTimelines(ofKind: SharedNowPlayingState.widgetKind)
@@ -521,6 +527,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let isPlaying: Bool
         let isLiveStream: Bool
         let durationSeconds: Int
+        let rateThousandths: Int
     }
 
     /// 相对亮度超过 0.6 就算浅色 (sRGB 近似, 够用来挑图标颜色)。
@@ -631,6 +638,7 @@ struct ContextSnapshot: Sendable {
     let nextLyric: String
     let outputName: String
     let outputKind: String
+    let playbackRate: Double
 
     init(_ ctx: [String: Any]) {
         songID = ctx["songID"] as? String ?? ""

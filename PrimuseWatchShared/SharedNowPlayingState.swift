@@ -771,6 +771,7 @@ enum SharedNowPlayingState {
         isLiveStream: Bool = false,
         duration: TimeInterval = 0,
         elapsed: TimeInterval = 0,
+        playbackRate: Double = 1,
         accent: (r: Double, g: Double, b: Double)? = nil
     ) {
         guard let d = defaults else { return }
@@ -781,6 +782,7 @@ enum SharedNowPlayingState {
         d.set(isLiveStream, forKey: "wnp.isLiveStream")
         d.set(duration, forKey: "wnp.duration")
         d.set(elapsed, forKey: "wnp.elapsed")
+        d.set(playbackRate, forKey: "wnp.rate")
         if let accent {
             d.set([accent.r, accent.g, accent.b], forKey: "wnp.accent")
         }
@@ -817,6 +819,8 @@ enum SharedNowPlayingState {
             updatedAt: Date(timeIntervalSince1970: d.double(forKey: "wnp.updatedAt")),
             duration: d.double(forKey: "wnp.duration"),
             elapsed: d.double(forKey: "wnp.elapsed"),
+            // 旧版写的快照没有这项, 按 1 倍。
+            playbackRate: d.object(forKey: "wnp.rate") as? Double ?? 1,
             accentRGB: accent?.count == 3 ? accent : nil,
             coverJPEG: cover
         )
@@ -832,6 +836,8 @@ enum SharedNowPlayingState {
         var duration: TimeInterval = 0
         /// 写入那一刻播到哪 (秒)。
         var elapsed: TimeInterval = 0
+        /// iPhone 的实际倍速; elapsed / duration 都是内容时间, 换算成墙钟要除以它。
+        var playbackRate: Double = 1
         var accentRGB: [Double]?
         var coverJPEG: Data?
 
@@ -841,11 +847,27 @@ enum SharedNowPlayingState {
         )
         var hasSong: Bool { !songID.isEmpty }
 
-        /// 正在播时这首从哪一刻放到哪一刻, 给会自己走的进度条用; 暂停、电台、不知道时长时为 nil。
+        /// 正在播时这首从哪一刻放到哪一刻 (墙钟), 给会自己走的进度条用; 暂停、电台、不知道时长时为 nil。
+        /// 倍速时整段按倍速压缩, 进度圈在真正放完的那一刻走满。
         var playbackInterval: ClosedRange<Date>? {
             guard hasSong, isPlaying, !isLiveStream, duration > 0 else { return nil }
-            let start = updatedAt.addingTimeInterval(-elapsed)
-            return start...start.addingTimeInterval(duration)
+            let rate = playbackRate.isFinite && playbackRate > 0 ? playbackRate : 1
+            let start = updatedAt.addingTimeInterval(-elapsed / rate)
+            return start...start.addingTimeInterval(duration / rate)
+        }
+
+        /// 多久没收到更新就当 iPhone 那边已经不放了, 表盘换成空白。
+        static let staleInterval: TimeInterval = 15 * 60
+        /// 按进度该放完之后再留这么久, 等下一首的状态推过来。
+        static let endGrace: TimeInterval = 60
+
+        /// 这份快照到什么时候算过期。默认写入后 15 分钟; 正在放、知道时长的, 进度自己往前走
+        /// 不会触发重写 (只有换歌、暂停、拖进度才写), 所以一直撑到按进度该放完的时候,
+        /// 四五十分钟一章的有声书不会放到一半就从表盘上消失。
+        var staleDate: Date {
+            let afterUpdate = updatedAt.addingTimeInterval(Self.staleInterval)
+            guard let interval = playbackInterval else { return afterUpdate }
+            return max(afterUpdate, interval.upperBound.addingTimeInterval(Self.endGrace))
         }
 
         /// 暂停时停在的比例。

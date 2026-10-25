@@ -57,9 +57,9 @@ struct NowPlayingProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         let now = Date()
         let snapshot = SharedNowPlayingState.read()
-        let staleAfter: TimeInterval = 15 * 60
-        if snapshot.hasSong, now.timeIntervalSince(snapshot.updatedAt) < staleAfter {
-            let expiry = max(now.addingTimeInterval(1), snapshot.updatedAt.addingTimeInterval(staleAfter))
+        let staleDate = snapshot.staleDate
+        if snapshot.hasSong, now < staleDate {
+            let expiry = max(now.addingTimeInterval(1), staleDate)
             let entries = [
                 NowPlayingEntry(date: now, snapshot: snapshot),
                 NowPlayingEntry(date: expiry, snapshot: .empty)
@@ -68,7 +68,7 @@ struct NowPlayingProvider: TimelineProvider {
         } else {
             completion(Timeline(
                 entries: [NowPlayingEntry(date: now, snapshot: .empty)],
-                policy: .after(now.addingTimeInterval(staleAfter))
+                policy: .after(now.addingTimeInterval(SharedNowPlayingState.Snapshot.staleInterval))
             ))
         }
     }

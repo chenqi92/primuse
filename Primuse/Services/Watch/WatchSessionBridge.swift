@@ -520,6 +520,11 @@ final class WatchSessionBridge: NSObject {
         guard let player, let song else { return extras }
         extras.canSwitchStation = player.canSwitchRadioStation
         guard !player.isLiveRadio else { return extras }
+        // 倍速播放时手表按这个速度往前推进度, 表盘进度圈也按它算哪一刻放完。
+        // 走系统播放器时倍速不生效 (会先退回 PCM 引擎), 按 1 倍报。
+        if !player.isSystemAudioPlaybackActive {
+            extras.playbackRate = Double(player.requestedPlaybackRate)
+        }
         let like = likeState(for: song)
         extras.canLike = like.canLike
         extras.isLiked = like.isLiked
@@ -731,6 +736,7 @@ struct WatchStateExtras: Equatable {
     var nextLyric = ""
     var outputName = ""
     var outputKind = ""
+    var playbackRate = 1.0
 
     var payload: [String: Any] {
         [
@@ -748,6 +754,7 @@ struct WatchStateExtras: Equatable {
             "nextLyric": nextLyric,
             "outputName": outputName,
             "outputKind": outputKind,
+            "playbackRate": playbackRate,
         ]
     }
 }
