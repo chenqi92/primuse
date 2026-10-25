@@ -139,6 +139,9 @@ struct ImmersiveStageView<Artwork: View>: View {
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     /// 「动态歌词」的导演：每首歌的编排和此刻的动静，背景与歌词共用一个。
     @State private var kineticDirector = ImmersiveKineticDirector()
+    /// 「动态歌词」的背景：默认每首歌随机，设置里可以固定成某一个。
+    @AppStorage(ImmersiveKineticScenePreference.storageKey)
+    private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     /// 各动态层的重绘帧率；经环境传给舞台里的每一层。
     var frameRate: ImmersiveFrameRateMode = .defaultValue
     /// 动效强度：按时间走的层的速度、起伏幅度与对声音的敏感度；经环境传给舞台里的每一层。
@@ -806,7 +809,10 @@ struct ImmersiveStageView<Artwork: View>: View {
     /// 动态歌词的导演：换歌时按新歌重挑编排；频谱（不建立观察的那份）、播放进度交给它，背景和歌词每帧来取。
     private var preparedKineticDirector: ImmersiveKineticDirector {
         let director = kineticDirector
-        director.prepare(for: track)
+        director.prepare(
+            for: track,
+            fixedScene: ImmersiveKineticScenePreference.fixedScene(storedValue: kineticSceneRawValue)
+        )
         director.levelsProvider = scheduledSpectrumProvider
         let clock = playbackTime
         let elapsed = track.elapsed

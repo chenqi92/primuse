@@ -521,6 +521,8 @@ struct TVFullscreenEffectPicker: View {
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
     private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
+    @AppStorage(ImmersiveKineticScenePreference.storageKey)
+    private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 按到 60 帧时先弹说明，确认了才换。
     @State private var pendingHighRefresh: ImmersiveFrameRateMode?
@@ -531,6 +533,7 @@ struct TVFullscreenEffectPicker: View {
     @FocusState private var motionIntensityFocused: Bool
     @FocusState private var rotationFocused: Bool
     @FocusState private var rotationScopeFocused: Bool
+    @FocusState private var kineticSceneFocused: Bool
     /// 只有焦点停稳的那张卡片播放预览动画。遥控器一路按过去时不逐张启停整套舞台。
     @State private var animatedEffect: FullscreenPlayerEffect?
 
@@ -626,9 +629,16 @@ struct TVFullscreenEffectPicker: View {
                             LazyVStack(alignment: .leading, spacing: 24) {
                                 ForEach(FullscreenEffectCollection.allCases) { collection in
                                     VStack(alignment: .leading, spacing: 10) {
-                                        Text(collection.title)
-                                            .tvFont(.caption, weight: .semibold)
-                                            .foregroundStyle(.white.opacity(0.66))
+                                        HStack(alignment: .bottom, spacing: 18) {
+                                            Text(collection.title)
+                                                .tvFont(.caption, weight: .semibold)
+                                                .foregroundStyle(.white.opacity(0.66))
+                                            Spacer(minLength: 0)
+                                            // 「动态歌词」的背景放在它这一组的标题旁：顶上那排已经排满了。
+                                            if collection == FullscreenPlayerEffect.kineticLyrics.collection {
+                                                kineticSceneButton
+                                            }
+                                        }
 
                                         LazyVGrid(columns: columns, spacing: 18) {
                                             ForEach(collection.effects) { @Sendable candidate in
@@ -791,6 +801,22 @@ struct TVFullscreenEffectPicker: View {
             let scopes = ImmersiveEffectRotationScope.allCases
             let index = scopes.firstIndex(of: rotationScope) ?? 0
             rotationScopeRawValue = scopes[(index + 1) % scopes.count].rawValue
+        }
+    }
+
+    /// 「动态歌词」的背景：按一下换下一个，每首歌随机、各个背景依次循环。
+    private var kineticSceneButton: some View {
+        let options = ImmersiveKineticScenePreference.options
+        let current = ImmersiveKineticScenePreference.normalized(kineticSceneRawValue)
+        let index = options.firstIndex { $0.value == current } ?? 0
+        return headerCycleButton(
+            title: String(localized: "kinetic_scene_title"),
+            symbol: "photo.on.rectangle.angled",
+            value: options[index].title,
+            isHighlighted: current != ImmersiveKineticScenePreference.automaticValue,
+            focused: $kineticSceneFocused
+        ) {
+            kineticSceneRawValue = options[(index + 1) % options.count].value
         }
     }
 

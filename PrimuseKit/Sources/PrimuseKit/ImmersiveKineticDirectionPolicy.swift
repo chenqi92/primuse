@@ -46,6 +46,18 @@ public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
     public var playsRhythmChart: Bool { self == .noteHighway || self == .saberSlash }
 }
 
+/// 「动态歌词」的背景怎么定：默认每首歌按歌名自己挑一个（同一首歌每次都一样），也可以在设置里固定成某一个。
+public enum ImmersiveKineticScenePreference {
+    public static let storageKey = "primuse.kineticLyricsScene"
+    /// 存这个值（或者没存、存的值认不出来）时每首歌自己挑。
+    public static let automaticValue = "auto"
+
+    /// 存的值固定成哪个场景；每首歌自己挑时为 nil。
+    public static func fixedScene(storedValue: String?) -> ImmersiveKineticScene? {
+        storedValue.flatMap(ImmersiveKineticScene.init(rawValue:))
+    }
+}
+
 /// 换句时整句怎么进出，取自电影的转场。
 public enum ImmersiveKineticTransition: String, CaseIterable, Sendable {
     /// 逐字浮现：字一个接一个从下方弹上来，唱完往上飘走（最早那一版的样子）。
@@ -225,12 +237,14 @@ public enum ImmersiveKineticDirectionPolicy {
     // MARK: - 选编排
 
     /// 按歌名、歌手、专辑固定挑一套：同一首歌每次都一样，换一首就不同。流派听得出快慢时安静的歌多半挑
-    /// 安静的场景，激烈的歌多半挑激烈的；水面配涟漪字，激烈场景偏冲击字。
+    /// 安静的场景，激烈的歌多半挑激烈的；水面配涟漪字，激烈场景偏冲击字。`scene` 是设置里固定的背景：给了就用它，
+    /// 镜头、字的动法照旧按歌挑，只是跟着这个背景属于安静还是激烈那一组。
     public static func direction(
         title: String,
         artist: String,
         album: String,
-        genre: String
+        genre: String,
+        scene fixedScene: ImmersiveKineticScene? = nil
     ) -> ImmersiveKineticDirection {
         var random = ImmersiveRandom(seed: ImmersiveRandom.seed(for: "\(title)\u{1F}\(artist)\u{1F}\(album)"))
         let energeticChance: Double = switch temperament(of: genre) {
@@ -238,9 +252,11 @@ public enum ImmersiveKineticDirectionPolicy {
         case .lively: 0.8
         case .unknown: 0.4
         }
-        let energetic = random.unit() < energeticChance
-        let scenes = ImmersiveKineticScene.allCases.filter { $0.isEnergetic == energetic }
-        let scene = pick(scenes, &random)
+        // 随机数照旧一个个取，固定背景时别的几项和不固定时挑的一样。
+        let rolledEnergetic = random.unit() < energeticChance
+        let energetic = fixedScene?.isEnergetic ?? rolledEnergetic
+        let rolledScene = pick(ImmersiveKineticScene.allCases.filter { $0.isEnergetic == energetic }, &random)
+        let scene = fixedScene ?? rolledScene
 
         let accent: ImmersiveKineticAccent
         if scene == .ripplePond {

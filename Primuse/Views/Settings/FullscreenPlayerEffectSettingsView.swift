@@ -22,6 +22,8 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var rotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
     private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
+    @AppStorage(ImmersiveKineticScenePreference.storageKey)
+    private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
 
@@ -50,6 +52,7 @@ struct FullscreenPlayerEffectSettingsView: View {
                 motionIntensityCard
                 deviceConstraintNote
                 rotationCard
+                kineticSceneCard
                 landscapeFullscreenCard
 
                 ForEach(FullscreenEffectCollection.allCases) { @Sendable collection in
@@ -315,6 +318,45 @@ struct FullscreenPlayerEffectSettingsView: View {
             }
         }
         .settingsAnchor("appearance.immersiveEffectRotation")
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+    }
+
+    private var kineticSceneSelection: Binding<String> {
+        Binding(
+            get: { ImmersiveKineticScenePreference.normalized(kineticSceneRawValue) },
+            set: { kineticSceneRawValue = $0 }
+        )
+    }
+
+    /// 「动态歌词」用哪个背景：默认每首歌随机，也可以固定一个。菜单里随机单独一段，安静的背景和激烈的背景各一段。
+    private var kineticSceneCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                cardTitle("kinetic_scene_title", info: "kinetic_scene_subtitle")
+            }
+            Spacer(minLength: 8)
+            Picker(selection: kineticSceneSelection) {
+                Text("kinetic_scene_automatic").tag(ImmersiveKineticScenePreference.automaticValue)
+                Divider()
+                ForEach(ImmersiveKineticScene.menuOrder.filter { !$0.isEnergetic }, id: \.self) { scene in
+                    Text(verbatim: scene.localizedTitle).tag(scene.rawValue)
+                }
+                Divider()
+                ForEach(ImmersiveKineticScene.menuOrder.filter(\.isEnergetic), id: \.self) { scene in
+                    Text(verbatim: scene.localizedTitle).tag(scene.rawValue)
+                }
+            } label: {
+                Text("kinetic_scene_title")
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(previewPalette.primary)
+        }
+        .settingsAnchor("appearance.kineticLyricsScene")
         .padding(16)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),

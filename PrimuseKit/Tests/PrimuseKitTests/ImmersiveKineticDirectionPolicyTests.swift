@@ -38,6 +38,30 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(extruded > 60 && extruded < 240)
     }
 
+    @Test func aFixedBackgroundIsUsedForEverySongWithMovesFromItsOwnGroup() {
+        let lively: Set<ImmersiveKineticTransition> = [.whipPan, .crashZoom, .cubeFlip, .flyThrough, .spiral, .shatter]
+        var transitions = Set<ImmersiveKineticTransition>()
+        for index in 0..<100 {
+            // 安静的流派也照固定的激烈背景配激烈的镜头。
+            let direction = Policy.direction(title: "S\(index)", artist: "x", album: "y", genre: "Classical Piano", scene: .saberSlash)
+            #expect(direction.scene == .saberSlash)
+            #expect(lively.contains(direction.transition))
+            transitions.insert(direction.transition)
+        }
+        #expect(transitions.count > 2)
+        let automatic = Policy.direction(title: "夜航", artist: "柳川", album: "夜航", genre: "Pop")
+        #expect(Policy.direction(title: "夜航", artist: "柳川", album: "夜航", genre: "Pop", scene: nil) == automatic)
+        // 固定成这首歌本来就会挑的背景时，整套编排和不固定一样。
+        #expect(Policy.direction(title: "夜航", artist: "柳川", album: "夜航", genre: "Pop", scene: automatic.scene) == automatic)
+    }
+
+    @Test func storedBackgroundPreferenceFallsBackToEachSongPickingItsOwn() {
+        #expect(ImmersiveKineticScenePreference.fixedScene(storedValue: ImmersiveKineticScenePreference.automaticValue) == nil)
+        #expect(ImmersiveKineticScenePreference.fixedScene(storedValue: nil) == nil)
+        #expect(ImmersiveKineticScenePreference.fixedScene(storedValue: "noSuchScene") == nil)
+        #expect(ImmersiveKineticScenePreference.fixedScene(storedValue: "saberSlash") == .saberSlash)
+    }
+
     @Test func twoUsualMovesTakeTurnsLineByLine() {
         let direction = Policy.direction(title: "交替", artist: "A", album: "B", genre: "")
         #expect(direction.usualTransition(forLine: 4) == direction.transition)

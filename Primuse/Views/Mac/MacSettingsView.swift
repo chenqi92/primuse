@@ -7286,6 +7286,8 @@ private struct MacSTThemeView: View {
     private var immersiveRotationModeRawValue = ImmersiveEffectRotationMode.defaultValue.rawValue
     @AppStorage(ImmersiveEffectRotationScope.storageKey)
     private var immersiveRotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
+    @AppStorage(ImmersiveKineticScenePreference.storageKey)
+    private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
@@ -7555,6 +7557,20 @@ private struct MacSTThemeView: View {
                     }
                     .pmAppearFade(.contentAppear)
                 }
+                MacSTRow(
+                    String(localized: "kinetic_scene_title"),
+                    hint: String(localized: "kinetic_scene_subtitle")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ImmersiveKineticScenePreference.normalized(kineticSceneRawValue) },
+                            set: { kineticSceneRawValue = $0 }
+                        ),
+                        options: ImmersiveKineticScenePreference.options.map { ($0.value, $0.title) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("appearance.kineticLyricsScene")
             }
         }
 

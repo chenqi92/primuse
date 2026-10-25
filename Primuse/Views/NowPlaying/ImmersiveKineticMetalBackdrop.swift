@@ -59,23 +59,26 @@ final class ImmersiveKineticDirector {
     /// 场景时钟：从这个导演建起来算的秒数。着色器里用 float，开机以来的秒数太大，动画会一跳一跳。
     var sceneTime: TimeInterval { CACurrentMediaTime() - epoch }
 
-    /// 换歌时按新歌重挑编排，之前记下的每句镜头作废。
-    func prepare(for track: ImmersiveStageTrack) {
-        let key = "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)"
+    /// 换歌时按新歌重挑编排，之前记下的每句镜头作废。`fixedScene` 是设置里固定的背景（每首歌随机时为 nil），
+    /// 在设置里换了也按换歌那样重来。
+    func prepare(for track: ImmersiveStageTrack, fixedScene: ImmersiveKineticScene?) {
+        let songKey = "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)"
+        let key = "\(songKey)\u{1F}\(fixedScene?.rawValue ?? "")"
         guard key != directionKey else { return }
         directionKey = key
         var chosen = ImmersiveKineticDirectionPolicy.direction(
             title: track.title,
             artist: track.artist,
             album: track.album,
-            genre: track.genre
+            genre: track.genre,
+            scene: fixedScene
         )
         #if DEBUG
         Self.applyDebugOverride(to: &chosen)
         holdsLevelCamera = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_KINETIC"]?.contains("camera=level") == true
         #endif
         direction = chosen
-        let seed = ImmersiveRandom.seed(for: key)
+        let seed = ImmersiveRandom.seed(for: songKey)
         songSeed = seed
         seedUnit = Double(seed % 10_000) / 10_000
         // 接着上一首的里程与落点：换歌时旧场景还要淡出一会儿，不能一下跳回起点。

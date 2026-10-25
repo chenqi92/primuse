@@ -964,6 +964,43 @@ extension FullscreenPlayerEffect {
     }
 }
 
+extension ImmersiveKineticScene {
+    /// 设置里列背景的顺序：安静的一组在前，激烈的一组在后。
+    static let menuOrder = allCases.filter { !$0.isEnergetic } + allCases.filter(\.isEnergetic)
+
+    var localizedTitle: String {
+        switch self {
+        case .rainGlass: String(localized: "kinetic_scene_rain_glass")
+        case .ripplePond: String(localized: "kinetic_scene_ripple_pond")
+        case .daylight: String(localized: "kinetic_scene_daylight")
+        case .warpTunnel: String(localized: "kinetic_scene_warp_tunnel")
+        case .thunderstorm: String(localized: "kinetic_scene_thunderstorm")
+        case .godRays: String(localized: "kinetic_scene_god_rays")
+        case .starTrails: String(localized: "kinetic_scene_star_trails")
+        case .caustics: String(localized: "kinetic_scene_caustics")
+        case .inkBloom: String(localized: "kinetic_scene_ink_bloom")
+        case .laserShow: String(localized: "kinetic_scene_laser_show")
+        case .neonDrive: String(localized: "kinetic_scene_neon_drive")
+        case .marbleDrop: String(localized: "kinetic_scene_marble_drop")
+        case .noteHighway: String(localized: "kinetic_scene_note_highway")
+        case .saberSlash: String(localized: "kinetic_scene_saber_slash")
+        }
+    }
+}
+
+extension ImmersiveKineticScenePreference {
+    /// 设置里「动态歌词背景」的选项（存的值、显示的名字）：第一项是每首歌随机，后面按 `menuOrder` 排。
+    static var options: [(value: String, title: String)] {
+        [(automaticValue, String(localized: "kinetic_scene_automatic"))]
+            + ImmersiveKineticScene.menuOrder.map { ($0.rawValue, $0.localizedTitle) }
+    }
+
+    /// 存的值整理成选项里有的那一个：认不出来（更新的版本存的场景）时按每首歌随机显示。
+    static func normalized(_ storedValue: String) -> String {
+        fixedScene(storedValue: storedValue)?.rawValue ?? automaticValue
+    }
+}
+
 extension ImmersiveEffectRotationMode {
     var localizedTitle: String {
         switch self {

@@ -39,6 +39,7 @@ struct LANSettingsTransferTests {
         #expect(Policy.allowedValueKeys.contains(Policy.lyricsTranscriptionKey))
         #expect(Policy.allowedValueKeys.contains(AIRecommendationIntentStoragePolicy.storageKey))
         #expect(Policy.allowedValueKeys.contains(AIRecommendationIntentPresetVisibilityPolicy.storageKey))
+        #expect(Policy.category(forValueKey: ImmersiveKineticScenePreference.storageKey) == .playerEffect)
         #expect(!Policy.allowedValueKeys.contains("tvAutoSync"))
     }
 
