@@ -664,12 +664,14 @@ struct ContextSnapshot: Sendable {
         nextLyric = ctx["nextLyric"] as? String ?? ""
         outputName = ctx["outputName"] as? String ?? ""
         outputKind = ctx["outputKind"] as? String ?? ""
+        let rate = ctx["playbackRate"] as? Double ?? 1
+        playbackRate = rate.isFinite && rate > 0 ? rate : 1
     }
 }
 
 #if DEBUG
 extension WatchPlayerStore {
-    /// 截图用的演示状态: PRIMUSE_WATCH_DEMO = music / lyrics / audiobook / radio / offline / empty。
+    /// 截图用的演示状态: PRIMUSE_WATCH_DEMO = music / lyrics / lyricsLong / audiobook / radio / offline / empty。
     /// 不连 iPhone, 不发任何命令以外的消息 (按键照常走 send, 模拟器里没有配对的 iPhone 就丢掉)。
     fileprivate func applyDemo(_ kind: String) {
         isDemo = true
@@ -718,9 +720,11 @@ extension WatchPlayerStore {
             playbackMode = .repeatAll
             allowsShuffle = true
             hasLyrics = true
-            currentLyric = "Every street light hums along with the song we never wrote"
+            currentLyric = kind == "lyricsLong"
+                ? "Every street light hums along with the song we never wrote, and every window on the avenue answers with a chorus only the night can hear"
+                : "Every street light hums along with the song we never wrote"
             nextLyric = "And the city keeps the time for us"
-            if kind == "lyrics" {
+            if kind == "lyrics" || kind == "lyricsLong" {
                 UserDefaults.standard.set(true, forKey: "watch.nowPlaying.showsLyrics")
             } else {
                 UserDefaults.standard.removeObject(forKey: "watch.nowPlaying.showsLyrics")

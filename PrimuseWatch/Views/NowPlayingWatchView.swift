@@ -251,11 +251,15 @@ struct WatchLyricsPanel: View {
                         .symbolEffect(.variableColor.iterative, isActive: store.isPlaying)
                 } else {
                     // 小表盘上高度只够两三行: 放不下就先缩字, 再省掉下一句。
+                    // 候选里当前这句不能限行数: 限了就被截成那几行, 量出来永远「放得下」,
+                    // 长句停在大字号上被截断, 轮不到后面的小字号。
                     ViewThatFits(in: .vertical) {
-                        lines(current: .title3, currentLines: 3, nextLines: 2)
-                        lines(current: .body, currentLines: 3, nextLines: 1)
-                        lines(current: .body, currentLines: 3, nextLines: 0)
-                        lines(current: .footnote, currentLines: 3, nextLines: 0)
+                        lines(current: .title3, nextLines: 2)
+                        lines(current: .body, nextLines: 1)
+                        lines(current: .body, nextLines: 0)
+                        lines(current: .footnote, nextLines: 0)
+                        // 最小字号也放不下: 再缩一点, 还不够才截断。
+                        lines(current: .footnote, nextLines: 0, minimumScale: 0.75)
                     }
                 }
             }
@@ -270,12 +274,12 @@ struct WatchLyricsPanel: View {
         .animation(.easeOut(duration: 0.3), value: store.currentLyric)
     }
 
-    private func lines(current font: Font.TextStyle, currentLines: Int, nextLines: Int) -> some View {
+    private func lines(current font: Font.TextStyle, nextLines: Int, minimumScale: CGFloat = 1) -> some View {
         VStack(spacing: 4) {
             Text(store.currentLyric)
                 .font(.system(font, design: .rounded).weight(.semibold))
                 .foregroundStyle(.white)
-                .lineLimit(currentLines)
+                .minimumScaleFactor(minimumScale)
             if nextLines > 0, !store.nextLyric.isEmpty {
                 Text(store.nextLyric)
                     .font(.footnote)
