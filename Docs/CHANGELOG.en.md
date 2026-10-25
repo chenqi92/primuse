@@ -4,6 +4,45 @@
 
 ---
 
+## [1.12.1] (build 109-114) - 2026-10-25
+
+Dynamic lyrics and library backups join improvements to playback, music sources, transcripts and sync.
+
+### Added
+
+- Dynamic Lyrics adds song-specific scenes and camera motion, beat-responsive backgrounds, onset-driven highlighting for line-timed lyrics, and a scrolling vertical layout. Lyrics can also use a cascading spring transition.
+- Export and restore ratings, likes and personal playlists. Recover saved marks and playlist tracks after re-adding a source or renaming files.
+- Search the full library in Spotlight with artwork. Play a song directly or open an album, artist or playlist; interrupted indexing can resume.
+- Redeem promotional AI credit codes. Prompt-based AI playlists and more varied song-radio and similar-track recommendations improve discovery.
+- Upload diagnostic reports directly to the developer and receive a report ID for feedback.
+
+### Changed
+
+- iPhone, iPad and Mac gain a simple player preset, larger borderless controls, matching volume/progress styles, and lyric/transcript font selection and import. Apple TV offers fonts installed on the device.
+- Choose whether Previous restarts the current track, hide album names below song titles, and customize player controls and backgrounds. Music pitch can shift by up to six semitones in either direction.
+- Shuffle can favor familiar or less-played songs and artists. Move tracks to the top of playlists on phone and Mac; rename and sort playlists, with date-added sorting based on when each track joined the playlist.
+- Apple TV adds playlist creation and renaming, minimum-star rating playlists, and improvements to search, artwork backgrounds, full-screen exits and playback focus.
+- Refine home artwork cards, widget artwork refresh, iPhone Duo layouts and audiobook controls in narrow windows.
+- Translate transcripts on demand or as complete sentences, select sentence-wide highlighting, and choose transcription methods from a menu. Improve Japanese lyric recognition and AMLL version matching.
+
+### Fixed
+
+- Improve resuming and seeking audiobooks from cloud drives and NAS, and fix crashes with chunked public HTTP responses.
+- Repair GBK/Big5 lyric decoding in tags, custom lyric services and incorrectly decoded server text. Improve Plex artist detection and album grouping for collaborations and featured artists.
+- Play Fn Music playlist and favorite tracks that are not yet imported. Improve missing server-playlist entries, cross-device local-track playlist sync, and rate-limit handling for Drime and 123 cloud uploads.
+- Correct Play Next, crossfade and mixed Apple Music queue behavior. Show Apple Music artwork in Now Playing and improve catalog-track likes and playlist additions.
+- Retain ListenBrainz and Last.fm scrobbles when credentials are rejected, retry after recovery, and improve AI authentication recovery.
+- Pause selected automatic requests when offline or when the app is denied network access, reducing repeated system network prompts.
+
+### Performance
+
+- Reuse the player after its first expansion and reduce repeated layout and synchronous checks when opening lyrics or advancing long transcripts.
+- Reduce repeated library, playlist and iCloud writes and background refreshes; improve Spotlight indexing recovery and artwork checks.
+
+Upgrading from 1.10.2: library changes reduce memory use with very large libraries. Background processing after updating may temporarily affect responsiveness.
+
+---
+
 ## [1.10.1] (build 82-85) - 2026-09-26
 
 This release adds karaoke, audiobooks, and music medleys, expands audio/video formats and playlist import, adapts the whole app to iPhone Duo, and improves Home, Apple TV, and playback reliability.

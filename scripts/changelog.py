@@ -5,6 +5,7 @@
   version   输出 project.yml 中的 MARKETING_VERSION 与 CURRENT_PROJECT_VERSION
   versions  列出历史上的版本区间，并标出尚未写进 CHANGELOG 的版本
   is-bump   判断某个提交是否改动了版本号或构建号
+  is-current 判断该版本的更新日志是否已覆盖当前构建
   draft     按提交记录生成指定版本的更新日志草稿（Markdown 段落）
   sanitize  校正模型输出的段落格式，不可用时以非零退出码交回调用方
   apply     把段落写入 CHANGELOG.md 或 CHANGELOG.en.md，已存在则替换
@@ -27,7 +28,7 @@ CHANGELOG_EN = ROOT / "Docs" / "CHANGELOG.en.md"
 
 # 纯版本提交的前缀，例如「发布 1.9.7（74）」「更新 1.9.6 构建 72 并保留 Siri 名称识别」
 VERSION_PREFIX = re.compile(
-    r"^(?:发布|更新至|更新|升级到|bump|chore\(release\):?)\s*v?\d+[\d.]*"
+    r"^(?:准备|发布|更新至|更新|升级到|bump|chore\(release\):?)\s*v?\d+[\d.]*"
     r"\s*(?:构建\s*\d+|build\s*\d+|[（(]\s*(?:构建\s*|build\s*)?\d+\s*[)）])?\s*",
     re.IGNORECASE,
 )
@@ -36,6 +37,7 @@ ISSUE_SUFFIX = re.compile(r"\s*(?:refs?|closes?d?|fixe[sd]?)\s+((?:#\d+[\s,，]*
 ISSUE_NUMBER = re.compile(r"#\d+")
 # git 自动生成的合并与回滚提交；中文提交里的「合并」多半是功能描述，不能一并挡掉
 NOISE = re.compile(r"^(?:Merge |Revert )")
+CHANGELOG_COMMIT = re.compile(r"^补全\s+\d+(?:\.\d+)+\s+更新日志$")
 
 # 判定顺序即优先级：修复 > 新增 > 性能 > 其余归入 Changed
 CATEGORY_RULES: list[tuple[str, re.Pattern[str]]] = [
@@ -136,7 +138,7 @@ def classify(subject: str) -> str:
 def normalize(subject: str) -> tuple[str, str] | None:
     """把提交标题化为条目文本，返回 (正文, issue 后缀)；无内容时返回 None。"""
     subject = subject.strip()
-    if not subject or NOISE.match(subject):
+    if not subject or NOISE.match(subject) or CHANGELOG_COMMIT.match(subject):
         return None
 
     issues = ""
@@ -149,7 +151,7 @@ def normalize(subject: str) -> tuple[str, str] | None:
     version_match = VERSION_PREFIX.match(subject)
     if version_match:
         subject = subject[version_match.end() :].lstrip("并，,、 ").strip()
-        if len(subject) < 6:
+        if len(subject) < 6 or re.fullmatch(r"(?:TestFlight\s*)?(?:测试版本|测试构建|构建|版本)", subject, re.IGNORECASE):
             return None
 
     return (subject, issues) if subject else None
@@ -255,6 +257,27 @@ def cmd_is_bump(args: argparse.Namespace) -> None:
     print("true" if version_at(args.commit) != version_at(f"{args.commit}~1") else "false")
 
 
+def section_is_current(path: Path, version: str, build: str) -> bool:
+    """同版本的较早构建不能复用；缺少构建标记的旧段落也需要重新生成。"""
+    if not path.exists() or not build.isdigit():
+        return False
+    for name, body in split_document(path)[1]:
+        if name == version:
+            match = re.search(r"\(build (\d+)(?:-(\d+))?\)", body.splitlines()[0])
+            return bool(match and int(match.group(2) or match.group(1)) == int(build))
+    return False
+
+
+def cmd_is_current(args: argparse.Namespace) -> None:
+    path = CHANGELOG_EN if args.lang == "en" else CHANGELOG_ZH
+    if args.build:
+        build = args.build
+    else:
+        _, _, builds = version_span(args.version)
+        build = str(max(builds)) if builds else ""
+    print("true" if section_is_current(path, args.version, build) else "false")
+
+
 def cmd_sanitize(args: argparse.Namespace) -> None:
     """校正模型输出：剥掉代码围栏与前言，并以参照段落的标题行为准。"""
     raw = Path(args.file).read_text(encoding="utf-8") if Path(args.file).exists() else ""
@@ -352,6 +375,12 @@ def main() -> None:
     is_bump = sub.add_parser("is-bump", help="判断提交是否改动了版本号或构建号")
     is_bump.add_argument("commit", nargs="?", default="HEAD")
     is_bump.set_defaults(func=cmd_is_bump)
+
+    is_current = sub.add_parser("is-current", help="判断已有段落是否覆盖该版本的最新构建")
+    is_current.add_argument("version")
+    is_current.add_argument("--build", help="指定需要覆盖的构建号，默认取该版本历史的最新构建")
+    is_current.add_argument("--lang", choices=["zh", "en"], default="zh")
+    is_current.set_defaults(func=cmd_is_current)
 
     sanitize = sub.add_parser("sanitize", help="校正模型输出的段落格式")
     sanitize.add_argument("file", help="模型输出文件")

@@ -78,15 +78,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 已经写好的段落通常经过人工润色，自动草稿不该覆盖它；
-      # 同一版本要按新提交重新生成时，手动触发并勾选 overwrite。
+      - name: 验证更新日志的构建更新行为
+        run: python3 -m unittest discover -s scripts -p 'test_changelog.py'
+
+      # 同一构建保留人工润色；构建号增加时重新生成整个版本的累计改动。
       - name: 检查已有段落
         id: existing
         run: |
           if [ "${{ inputs.overwrite }}" != "true" ] \
-            && python3 scripts/changelog.py extract "$VERSION" >/dev/null 2>&1; then
+            && [ "$(python3 scripts/changelog.py is-current "$VERSION")" = "true" ]; then
             echo "reuse=true" >> "$GITHUB_OUTPUT"
-            echo "CHANGELOG 中已有 $VERSION 段落，直接用它发布"
+            echo "CHANGELOG 已覆盖 $VERSION 的最新构建，复用现有段落"
           else
             echo "reuse=false" >> "$GITHUB_OUTPUT"
           fi
@@ -187,9 +189,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/changelog.py extract "$VERSION" --without-heading --output notes.md
-          # 英文段落可能来自本次翻译，也可能是之前写好的，一律以 CHANGELOG.en.md 为准
-          if python3 scripts/changelog.py extract "$VERSION" --lang en --without-heading \
+          python3 scripts/changelog.py extract "$VERSION" --output notes.md
+          # 翻译失败时不把旧构建的英文内容冒充为本次更新。
+          if [ "$(python3 scripts/changelog.py is-current "$VERSION" --lang en)" = "true" ] \
+            && python3 scripts/changelog.py extract "$VERSION" --lang en --without-heading \
             --output notes.en.md 2>/dev/null; then
             {
               printf '\n<details>\n<summary>English</summary>\n\n'
