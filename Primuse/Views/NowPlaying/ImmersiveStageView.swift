@@ -971,9 +971,13 @@ struct ImmersiveStageView<Artwork: View>: View {
             nextLineStart: upcomingStart,
             at: time
         )
-        let shake = director.direction.accent == .slam
-            ? ImmersiveKineticLyricsPolicy.shake(for: activeTokens, at: time, motion: motion)
-            : (x: 0, y: 0)
+        // 冲击字的歌每个字砸下来整句都震一下，别的歌只有重点字震。
+        let shake = ImmersiveKineticLyricsPolicy.shake(
+            for: activeTokens,
+            strikes: director.direction.accent == .slam ? nil : active.map { director.strikes(for: $0, tokens: activeTokens) },
+            at: time,
+            motion: motion
+        )
         // 背景最近一帧的动静（不读频谱）：鼓点让镜头往前顶一下，副歌时角度更大。
         let drive = director.latestDrive
         // 卷轴上所有句子共用一个机位，整卷一起转；别的机位每句一个角度。
@@ -1245,16 +1249,20 @@ struct ImmersiveStageView<Artwork: View>: View {
             at: time,
             motion: motion
         )
+        let standsVertically = kineticDirector.direction.staging == .vertical
+            && ImmersiveKineticDirectionPolicy.suitsVerticalLayout(line.text)
+        // 每个字唱到时动得不一样（两三种动作轮着来，句尾和断句处是重点字），副歌时幅度大一些。
         let appearances = ImmersiveKineticLyricsPolicy.appearances(
             for: tokens,
             exitStart: exitStart,
             at: time,
             motion: motion,
             choreography: choreography,
-            accent: accent
+            accent: accent,
+            strikes: kineticDirector.strikes(for: line, tokens: tokens),
+            vertical: standsVertically,
+            intensity: kineticDirector.latestDrive.climaxLevel
         )
-        let standsVertically = kineticDirector.direction.staging == .vertical
-            && ImmersiveKineticDirectionPolicy.suitsVerticalLayout(line.text)
         return VStack(spacing: fontSize * 0.28) {
             Group {
                 if standsVertically {

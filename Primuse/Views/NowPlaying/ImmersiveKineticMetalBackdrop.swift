@@ -30,6 +30,7 @@ final class ImmersiveKineticDirector {
     /// 机位一直平视（取证：Mac 窗口截图拍不出 3D 变换，看版式时用 `PRIMUSE_DEBUG_KINETIC=…,camera=level`）。
     private(set) var holdsLevelCamera = false
     private(set) var seedUnit = 0.0
+    private var songSeed: UInt64 = 0
     private var directionKey: String?
     private var conductor = ImmersiveKineticConductor(seed: 1)
     private var drive = ImmersiveKineticDrive()
@@ -65,6 +66,7 @@ final class ImmersiveKineticDirector {
         #endif
         direction = chosen
         let seed = ImmersiveRandom.seed(for: key)
+        songSeed = seed
         seedUnit = Double(seed % 10_000) / 10_000
         // 接着上一首的里程与落点：换歌时旧场景还要淡出一会儿，不能一下跳回起点。
         conductor = ImmersiveKineticConductor(seed: seed, continuing: drive, at: sceneTime)
@@ -131,6 +133,15 @@ final class ImmersiveKineticDirector {
         if lineMoves.count > 64 { lineMoves.removeAll() }
         lineMoves[key] = move
         return move
+    }
+
+    /// 这句里每个字唱到时的动作（`ImmersiveKineticLyricsPolicy.strikes`）：同一首歌里同一句每次都一样。
+    func strikes(
+        for line: ImmersiveStageLyric,
+        tokens: [ImmersiveKineticLyricsPolicy.Token]
+    ) -> [ImmersiveKineticLyricsPolicy.Strike] {
+        let seed = songSeed ^ (UInt64(truncatingIfNeeded: line.id) &* 0x9E37_79B9_7F4A_7C15)
+        return ImmersiveKineticLyricsPolicy.strikes(for: tokens, accent: direction.accent, seed: seed)
     }
 
     #if DEBUG

@@ -352,16 +352,25 @@ public enum ImmersiveKineticLyricsPolicy {
         )
     }
 
-    /// 同上，按编排与强调方式算。`wholeLine` 时 `exitStart` 不起作用：退场交给整句的镜头。
+    /// 同上，按编排与强调方式算。`wholeLine` 时 `exitStart` 不起作用：退场交给整句的镜头。`strikes` 是每个字
+    /// 唱到时的动作（`strikes(for:accent:seed:)`），nil 时每个字一样只弹一下；`vertical` 时候场姿势的上下改成
+    /// 左右（竖排一列里上下挪会压到相邻的字）；`intensity`（0…1，副歌时高）让动作幅度大一些。
     public static func appearances(
         for tokens: [Token],
         exitStart: TimeInterval?,
         at time: TimeInterval,
         motion: Bool,
         choreography: Choreography,
-        accent: ImmersiveKineticAccent
+        accent: ImmersiveKineticAccent,
+        strikes: [Strike]? = nil,
+        vertical: Bool = false,
+        intensity: Double = 0
     ) -> [Appearance] {
         guard let first = tokens.first, time.isFinite else { return tokens.map { _ in .hidden } }
+        func move(_ index: Int) -> StrikeMove? {
+            guard let strikes, strikes.indices.contains(index) else { return nil }
+            return StrikeMove(strike: strikes[index], index: index, vertical: vertical, intensity: intensity)
+        }
         if choreography == .scatter {
             return tokens.indices.map { index in
                 scatterAppearance(
@@ -371,7 +380,8 @@ public enum ImmersiveKineticLyricsPolicy {
                     exitStart: exitStart,
                     time: time,
                     motion: motion,
-                    accent: accent
+                    accent: accent,
+                    move: move(index)
                 )
             }
         }
@@ -388,14 +398,17 @@ public enum ImmersiveKineticLyricsPolicy {
                 time: time,
                 motion: motion,
                 cascades: cascades,
-                accent: accent
+                accent: accent,
+                move: move(index)
             )
         }
     }
 
-    /// 冲击字砸下来时整句跟着震的位移（相对字号）。每个字砸下来都一样震，不看它唱多久。
+    /// 冲击字砸下来时整句跟着震的位移（相对字号）。每个字砸下来都一样震，不看它唱多久。给了 `strikes` 时只有
+    /// 重点字砸下来才震。
     public static func shake(
         for tokens: [Token],
+        strikes: [Strike]? = nil,
         at time: TimeInterval,
         motion: Bool
     ) -> (x: Double, y: Double) {
@@ -403,6 +416,7 @@ public enum ImmersiveKineticLyricsPolicy {
         var x = 0.0
         var y = 0.0
         for index in tokens.indices {
+            if let strikes, !(strikes.indices.contains(index) && strikes[index] == .hero) { continue }
             let sung = time - tokens[index].start
             guard sung >= 0, sung < shakeSpan else { continue }
             let amplitude = shakeAmplitude * exp(-sung * shakeDecay)
@@ -481,7 +495,8 @@ public enum ImmersiveKineticLyricsPolicy {
         time: TimeInterval,
         motion: Bool,
         cascades: Bool = true,
-        accent: ImmersiveKineticAccent = .glow
+        accent: ImmersiveKineticAccent = .glow,
+        move: StrikeMove? = nil
     ) -> Appearance {
         let entered = time - enterAt
         guard entered >= 0 else { return .hidden }
@@ -500,31 +515,40 @@ public enum ImmersiveKineticLyricsPolicy {
         let sung = time - token.start
         let lit = sung < -igniteLead ? 0 : smoothstep(min(1, (sung + igniteLead) / igniteRamp))
         result.opacity = fadeIn * (waitingOpacity + (1 - waitingOpacity) * lit)
+        if motion, let move {
+            move.apply(sung: sung, to: &result)
+        }
+        let isHero = move?.strike == .hero
         if motion {
             switch accent {
             case .glow:
                 let pulse = pulseStrength(sung: sung)
-                result.scale *= 1 + pulseSwell * pulse
-                result.offset -= pulseLift * pulse
-                result.glow = pulse
+                if move == nil {
+                    result.scale *= 1 + pulseSwell * pulse
+                    result.offset -= pulseLift * pulse
+                }
+                result.glow = max(result.glow, pulse)
             case .ripple:
                 let pulse = pulseStrength(sung: sung)
-                result.scale *= 1 + rippleSwell * pulse
-                result.offset -= rippleLift * pulse
-                result.glow = 0.55 * pulse
+                if move == nil {
+                    result.scale *= 1 + rippleSwell * pulse
+                    result.offset -= rippleLift * pulse
+                }
+                result.glow = max(result.glow, 0.55 * pulse)
                 if sung >= 0, sung < rippleDuration {
                     result.ripple = max(sung / rippleDuration, 0.0001)
                 }
             case .slam:
-                result.scale *= slamScale(sung: sung)
+                // 重点字自己会砸下来，不再叠一层。
+                if !isHero { result.scale *= slamScale(sung: sung) }
                 if sung >= 0 {
-                    result.glow = exp(-sung / slamGlowDecay)
+                    result.glow = max(result.glow, exp(-sung / slamGlowDecay))
                 }
             case .neon:
                 // 灯管通电：先闪两下，亮了就一直带着光。
                 if sung >= 0 {
                     result.opacity *= neonFlicker(sung: sung)
-                    result.glow = sung < neonIgnition ? 0.9 : neonSteadyGlow
+                    result.glow = max(result.glow, sung < neonIgnition ? 0.9 : neonSteadyGlow)
                 }
             case .glitch:
                 if sung >= 0, sung < glitchDuration {
@@ -556,7 +580,8 @@ public enum ImmersiveKineticLyricsPolicy {
         exitStart: TimeInterval?,
         time: TimeInterval,
         motion: Bool,
-        accent: ImmersiveKineticAccent
+        accent: ImmersiveKineticAccent,
+        move: StrikeMove? = nil
     ) -> Appearance {
         let shard = scatterShard(index: index)
         let assembleStart = lineStart - scatterAssemble * 0.9 + shard.delay
@@ -567,7 +592,8 @@ public enum ImmersiveKineticLyricsPolicy {
             time: time,
             motion: motion,
             cascades: false,
-            accent: accent
+            accent: accent,
+            move: move
         )
         guard motion else { return result }
         let entered = time - assembleStart
@@ -593,6 +619,159 @@ public enum ImmersiveKineticLyricsPolicy {
             result.opacity *= 1 - smoothstep((progress - 0.15) / 0.85)
         }
         return result
+    }
+
+    // MARK: - 每个字唱到时的动作
+
+    /// 一个字唱到时怎么动。没唱到的字先摆着这个动作的「候场姿势」（淡淡的，悬在上面、压在下面、斜着、大一圈），
+    /// 唱到时从那里弹回原位、越过一点再停稳，整句是一边唱一边拼起来的；同一句里两三种动作轮着来。
+    public enum Strike: Equatable, Sendable {
+        /// 候场时小一圈，唱到时放大弹一下。
+        case pop
+        /// 候场时悬在上面，唱到时落下来、压一下。
+        case drop
+        /// 候场时压在下面，唱到时顶上来。
+        case rise
+        /// 候场时斜着，唱到时转正。
+        case spin
+        /// 候场时大一圈、有点虚，唱到时收紧变清楚。
+        case zoom
+        /// 重点字（句尾、长句中间断句的地方、只有一两个字的短句）：唱到时放大砸下来、光炸开、整句一震，
+        /// 唱过以后一直带着一点光。
+        case hero
+    }
+
+    /// 候场姿势有多远（相对字号）、斜多少度、大小差多少。
+    public static let strikeReach = 0.3
+    public static let strikeTilt = 16.0
+    public static let strikeShrink = 0.86
+    public static let strikeGrow = 1.32
+    /// 弹回原位的弹簧：阻尼比 0.45 越过两成左右，角频率 20 大约 0.35 秒停稳。
+    public static let strikeDamping = 0.45
+    public static let strikeFrequency = 20.0
+    /// 放大弹一下、重点字砸下来时最大放大多少；重点字唱过以后一直带着的光。
+    public static let strikePopSwell = 0.24
+    public static let heroSwell = 0.62
+    public static let heroAttack: TimeInterval = 0.06
+    public static let heroDecay: TimeInterval = 0.3
+    public static let heroSteadyGlow = 0.42
+
+    /// 一句里每个字唱到时的动作：这一句挑两三种动作，按两三个字一组轮着来；句尾、长句中间断句的地方是重点字。
+    /// 只看字在句里的位置、标点和 `seed`（每句一个），不看字唱多久——按字的演唱时长取不同的样子是
+    /// US12592007B2 独立权利要求里的一项。
+    public static func strikes(for tokens: [Token], accent: ImmersiveKineticAccent, seed: UInt64) -> [Strike] {
+        let count = tokens.count
+        guard count > 0 else { return [] }
+        var random = ImmersiveRandom(seed: seed)
+        let pool = strikePool(accent)
+        var palette = [pool[Int(random.unit() * Double(pool.count))]]
+        let rest = pool.filter { $0 != palette[0] }
+        palette.append(rest[Int(random.unit() * Double(rest.count))])
+        if count >= 6, random.unit() < 0.5 {
+            let others = rest.filter { $0 != palette[1] }
+            if !others.isEmpty { palette.append(others[Int(random.unit() * Double(others.count))]) }
+        }
+        let group = random.unit() < 0.5 ? 2 : 3
+        var result = (0..<count).map { palette[($0 / group) % palette.count] }
+        for index in heroIndices(tokens) {
+            result[index] = .hero
+        }
+        return result
+    }
+
+    /// 重点字在哪儿：只有一两个字时是最后一个；三个字以上是句尾，六个字以上再加一个最靠中间的断句处（前一个字
+    /// 带着空格或标点），没有断句处、又有九个字以上时取正中。
+    static func heroIndices(_ tokens: [Token]) -> [Int] {
+        let count = tokens.count
+        guard count > 0 else { return [] }
+        var heroes = [count - 1]
+        guard count >= 6 else { return heroes }
+        let breaks = (1..<(count - 2)).filter { index in
+            guard let last = tokens[index - 1].text.last else { return false }
+            return last.isWhitespace || last.isPunctuation
+        }
+        let middle = Double(count - 1) / 2
+        if let nearest = breaks.min(by: { abs(Double($0) - middle) < abs(Double($1) - middle) }) {
+            heroes.insert(nearest, at: 0)
+        } else if count >= 9 {
+            heroes.insert(Int(middle.rounded()), at: 0)
+        }
+        return heroes
+    }
+
+    /// 各种强调方式配哪些动作：冲击字本身就放大砸下，只配上下的动作；其余按各自的气质。
+    static func strikePool(_ accent: ImmersiveKineticAccent) -> [Strike] {
+        switch accent {
+        case .glow: [.rise, .drop, .pop, .spin, .zoom]
+        case .ripple: [.pop, .rise, .zoom]
+        case .slam: [.drop, .rise]
+        case .neon: [.pop, .zoom, .spin]
+        case .glitch: [.pop, .zoom, .drop]
+        }
+    }
+
+    /// 一个字的动作，连同它在句里的位置（斜的方向一个字左一个字右）、竖排与否和此刻的幅度。
+    struct StrikeMove: Equatable {
+        let strike: Strike
+        let index: Int
+        let vertical: Bool
+        let intensity: Double
+
+        /// 叠到这个字此刻的样子上。`sung` 是唱到这个字以来过了多久（还没唱到时为负，摆着候场姿势）。
+        func apply(sung: TimeInterval, to appearance: inout Appearance) {
+            let amplitude = 1 + 0.35 * min(max(intensity, 0), 1)
+            let away = sung < 0 ? 1 : 1 - ImmersiveKineticLyricsPolicy.strikeSpring(sung)
+            let settled = sung < 0 ? 0 : min(1, sung / 0.18)
+            let side: Double = index.isMultiple(of: 2) ? 1 : -1
+            var shift = 0.0
+            switch strike {
+            case .pop, .hero:
+                appearance.scale *= 1 - (1 - strikeShrink) * away
+            case .drop:
+                shift = -strikeReach * amplitude * away
+            case .rise:
+                shift = strikeReach * amplitude * away
+            case .spin:
+                appearance.rotation += strikeTilt * amplitude * side * away
+                appearance.scale *= 1 - 0.1 * away
+            case .zoom:
+                appearance.scale *= 1 + (strikeGrow - 1) * amplitude * away
+                // 只虚一点：还没唱到的字要认得出来。
+                appearance.blur += 0.04 * (1 - settled)
+            }
+            // 竖排一列里上下挪会压到相邻的字，改成左右挪。
+            if vertical {
+                appearance.offsetX -= shift
+            } else {
+                appearance.offset += shift
+            }
+            guard sung >= 0 else { return }
+            switch strike {
+            case .pop:
+                appearance.scale *= 1 + strikePopSwell * amplitude * ImmersiveKineticLyricsPolicy.pulseStrength(sung: sung)
+            case .drop:
+                // 落地压一下：越过原位的那一截转成扁一点。
+                appearance.scale *= 1 - 0.07 * max(-away, 0) / 0.2
+            case .hero:
+                let burst = sung < heroAttack
+                    ? sung / heroAttack
+                    : exp(-(sung - heroAttack) / heroDecay)
+                appearance.scale *= 1 + heroSwell * amplitude * burst
+                appearance.glow = max(appearance.glow, burst, heroSteadyGlow)
+            case .rise, .spin, .zoom:
+                break
+            }
+        }
+    }
+
+    /// 弹回原位的弹簧（0 → 1，先越过一点）。
+    static func strikeSpring(_ time: TimeInterval) -> Double {
+        guard time > 0 else { return 0 }
+        let zeta = strikeDamping
+        let omega = strikeFrequency
+        let damped = omega * (1 - zeta * zeta).squareRoot()
+        let decay = exp(-zeta * omega * time)
+        return 1 - decay * (cos(damped * time) + zeta * omega / damped * sin(damped * time))
     }
 
     /// 第 `index` 个字飞的方向（单位向量，y 向下）、转多少度、比整句晚多久动。按黄金角摊开，相邻的字方向

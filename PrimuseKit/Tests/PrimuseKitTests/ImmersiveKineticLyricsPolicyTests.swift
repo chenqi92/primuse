@@ -177,4 +177,92 @@ struct ImmersiveKineticLyricsPolicyTests {
         // 拉丁字母窄：同样字数的英文不缩。
         #expect(Policy.fontSize(for: "Shape of you", base: 36, minimum: 20, availableWidth: 345, maximumLines: 1) == 36)
     }
+
+    private func line(_ text: String, start: Double = 10, step: Double = 0.3) -> [Policy.Token] {
+        Policy.units(in: text).enumerated().map { index, unit in
+            Policy.Token(text: unit, start: start + Double(index) * step, end: start + Double(index + 1) * step)
+        }
+    }
+
+    @Test func charactersInALineStrikeDifferentlyWithHeroesAtTheEndAndTheBreak() {
+        let tokens = line("让声音拥有自己，的光与形状")
+        for seed: UInt64 in [1, 7, 42, 2026] {
+            let strikes = Policy.strikes(for: tokens, accent: .glow, seed: seed)
+            #expect(strikes.count == tokens.count)
+            #expect(strikes.last == .hero)
+            // 「己，」后面那个字是断句处，也是重点字；重点字不超过两个。
+            #expect(strikes[7] == .hero)
+            #expect(strikes.filter { $0 == .hero }.count == 2)
+            // 不是每个字都一样：至少两种动作。
+            #expect(Set(strikes.filter { $0 != .hero }.map { "\($0)" }).count >= 2)
+            // 同一句同一个种子每次都一样。
+            #expect(Policy.strikes(for: tokens, accent: .glow, seed: seed) == strikes)
+        }
+        // 只有一两个字的短句：最后一个字是重点字。
+        #expect(Policy.strikes(for: line("爱"), accent: .glow, seed: 3) == [.hero])
+        // 冲击字的歌只配上下的动作。
+        let slam = Policy.strikes(for: line("我想就这样牵着你的手"), accent: .slam, seed: 9)
+        #expect(slam.allSatisfy { [.drop, .rise, .hero].contains($0) })
+    }
+
+    @Test func strikesAndTheirMotionIgnoreHowLongACharacterIsSung() {
+        // 同样的字，唱得长短不同（US12592007B2）：动作和唱到后同一时刻的样子都一样。
+        let short = line("我想就这样牵着你的手", step: 0.2)
+        let long = short.map { Policy.Token(text: $0.text, start: $0.start, end: $0.start + 2.5) }
+        let strikes = Policy.strikes(for: short, accent: .glow, seed: 5)
+        #expect(Policy.strikes(for: long, accent: .glow, seed: 5) == strikes)
+        for offset in [-0.2, 0, 0.05, 0.15, 0.4, 1.2] {
+            let time = short[3].start + offset
+            let a = Policy.appearances(for: short, exitStart: nil, at: time, motion: true, choreography: .cascade, accent: .glow, strikes: strikes)
+            let b = Policy.appearances(for: long, exitStart: nil, at: time, motion: true, choreography: .cascade, accent: .glow, strikes: strikes)
+            #expect(a[3] == b[3])
+        }
+    }
+
+    @Test func charactersWaitInTheirPoseAndSnapHomeWithoutJumping() {
+        let tokens = line("让声音拥有自己的光与形状")
+        for strike in [Policy.Strike.pop, .drop, .rise, .spin, .zoom, .hero] {
+            let strikes = Array(repeating: strike, count: tokens.count)
+            func look(_ time: Double) -> Policy.Appearance {
+                Policy.appearances(for: tokens, exitStart: nil, at: time, motion: true, choreography: .wholeLine, accent: .glow, strikes: strikes)[4]
+            }
+            let start = tokens[4].start
+            // 唱到那一刻前后两帧几乎一样：从候场姿势弹回去，不是一下跳过去。
+            let before = look(start - 0.0005), after = look(start + 0.0005)
+            #expect(abs(before.offset - after.offset) < 0.02)
+            #expect(abs(before.rotation - after.rotation) < 1)
+            #expect(abs(before.scale - after.scale) < 0.03)
+            // 候场时不在原位（pop、hero 是小一圈）。
+            #expect(abs(before.offset) > 0.1 || abs(before.rotation) > 5 || abs(before.scale - 1) > 0.1)
+            // 唱过两秒停回原位。
+            let rest = look(start + 2)
+            #expect(abs(rest.offset) < 0.01 && abs(rest.rotation) < 0.3 && abs(rest.scale - 1) < 0.01 && rest.blur < 0.001)
+            // 重点字唱过以后一直带着光。
+            if strike == .hero { #expect(rest.glow >= Policy.heroSteadyGlow - 1e-9) }
+        }
+        // 竖排：上下的候场姿势改成左右。
+        let dropped = Policy.appearances(
+            for: tokens, exitStart: nil, at: tokens[4].start - 0.5, motion: true, choreography: .wholeLine,
+            accent: .glow, strikes: Array(repeating: .drop, count: tokens.count), vertical: true
+        )[4]
+        #expect(abs(dropped.offsetX) > 0.1 && abs(dropped.offset) < 1e-9)
+        // 动效关掉时不摆姿势。
+        let still = Policy.appearances(
+            for: tokens, exitStart: nil, at: tokens[4].start - 0.5, motion: false, choreography: .wholeLine,
+            accent: .glow, strikes: Array(repeating: .spin, count: tokens.count)
+        )[4]
+        #expect(still.rotation == 0 && still.offset == 0 && still.scale == 1)
+    }
+
+    @Test func onlyHeroesShakeTheLineUnlessEveryCharacterSlams() {
+        let tokens = line("我想就这样牵着你")
+        let strikes = Policy.strikes(for: tokens, accent: .glow, seed: 11)
+        let plain = tokens.indices.first { strikes[$0] != .hero }!
+        let quiet = Policy.shake(for: tokens, strikes: strikes, at: tokens[plain].start + 0.05, motion: true)
+        #expect(quiet.x == 0 && quiet.y == 0)
+        let hit = Policy.shake(for: tokens, strikes: strikes, at: tokens[tokens.count - 1].start + 0.05, motion: true)
+        #expect(hit.x != 0 || hit.y != 0)
+        let slam = Policy.shake(for: tokens, at: tokens[plain].start + 0.05, motion: true)
+        #expect(slam.x != 0 || slam.y != 0)
+    }
 }
