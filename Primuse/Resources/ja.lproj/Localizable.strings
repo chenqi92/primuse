@@ -6847,3 +6847,5 @@
 "kinetic_scene_marble_drop" = "マーブルドロップ";
 "kinetic_scene_note_highway" = "ノーツハイウェイ";
 "kinetic_scene_saber_slash" = "セイバースラッシュ";
+"Search Library" = "ライブラリを検索";
+"Open Primuse's search with these words." = "これらの語句で Primuse の検索を開きます。";

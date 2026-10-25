@@ -6752,3 +6752,5 @@
 "kinetic_scene_marble_drop" = "Düşen Bilyeler";
 "kinetic_scene_note_highway" = "Nota Yolu";
 "kinetic_scene_saber_slash" = "Kılıç Darbesi";
+"Search Library" = "Arşivde Ara";
+"Open Primuse's search with these words." = "Primuse aramasını bu sözcüklerle açar.";

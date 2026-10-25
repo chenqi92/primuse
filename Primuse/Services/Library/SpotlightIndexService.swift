@@ -1,3 +1,4 @@
+import AppIntents
 import CoreSpotlight
 import CryptoKit
 import Foundation
@@ -1139,6 +1140,31 @@ final class SpotlightIndexService {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(manifest).write(to: url, options: .atomic)
+    }
+}
+
+/// 系统搜索、Siri 里的「在 Primuse 中搜索」(#346):带着输入的字打开 App 的搜索页。App Intents 的
+/// 搜索意图;Spotlight 结果下面那条老的 `CoreSpotlightContinuation` 照旧留着,两条路进的是同一个搜索页。
+struct PrimuseSearchInAppIntent: ShowInAppSearchResultsIntent {
+    static let title: LocalizedStringResource = "Search Library"
+    static let description = IntentDescription("Open Primuse's search with these words.")
+    static let searchScopes: [StringSearchScope] = [.general]
+
+    @Parameter(title: "Keyword")
+    var criteria: StringSearchCriteria
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        let query = criteria.term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return .result() }
+        #if os(iOS)
+        SystemActivityRouter.shared.showSearch(query, route: "intent")
+        #elseif os(macOS)
+        MacSystemActivityRouter.shared.showSearch(query, route: "intent")
+        #endif
+        return .result()
     }
 }
 

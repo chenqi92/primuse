@@ -631,6 +631,8 @@ targets:
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        # Spotlight 结果下面给「在 Primuse 中搜索」, 点了带着输入的字进 App 的搜索页。
+        CoreSpotlightContinuation: true
         NSHumanReadableCopyright: "© Welape"
         ITSAppUsesNonExemptEncryption: false
         NSAppleMusicUsageDescription: "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source."

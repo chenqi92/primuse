@@ -6846,3 +6846,5 @@
 "kinetic_scene_marble_drop" = "Chute de billes";
 "kinetic_scene_note_highway" = "Piste de notes";
 "kinetic_scene_saber_slash" = "Coup de sabre";
+"Search Library" = "Rechercher dans la bibliothèque";
+"Open Primuse's search with these words." = "Ouvre la recherche de Primuse avec ces mots.";

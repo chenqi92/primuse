@@ -6752,3 +6752,5 @@
 "kinetic_scene_marble_drop" = "Падающие шарики";
 "kinetic_scene_note_highway" = "Нотная дорожка";
 "kinetic_scene_saber_slash" = "Удар меча";
+"Search Library" = "Поиск в медиатеке";
+"Open Primuse's search with these words." = "Открывает поиск Primuse с этими словами.";

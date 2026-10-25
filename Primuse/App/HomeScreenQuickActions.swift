@@ -145,9 +145,7 @@ final class SystemActivityRouter {
             let query = (activity.userInfo?[CSSearchQueryString] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !query.isEmpty else { return false }
-            guard admit("query:\(query)", route: route) else { return true }
-            plog("🔎 Spotlight search in app via \(route)")
-            pendingDestination = .search(query)
+            showSearch(query, route: route)
         case Self.handoffActivityType:
             guard let request = HandoffRequest(activity.userInfo) else { return false }
             guard admit("handoff:\(request.songID):\(request.snapshotTime)", route: route) else { return true }
@@ -157,6 +155,13 @@ final class SystemActivityRouter {
             return false
         }
         return true
+    }
+
+    /// 带着字进搜索页:Spotlight 的「在 App 中搜索」,以及 Siri / 快捷指令的搜索意图。
+    func showSearch(_ query: String, route: String) {
+        guard admit("query:\(query)", route: route) else { return }
+        plog("🔎 Search in app via \(route)")
+        pendingDestination = .search(query)
     }
 
     func consumeDestination() {

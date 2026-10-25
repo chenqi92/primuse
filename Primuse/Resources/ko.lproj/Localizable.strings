@@ -6846,3 +6846,5 @@
 "kinetic_scene_marble_drop" = "구슬 낙하";
 "kinetic_scene_note_highway" = "노트 하이웨이";
 "kinetic_scene_saber_slash" = "세이버 슬래시";
+"Search Library" = "보관함 검색";
+"Open Primuse's search with these words." = "이 단어로 Primuse 검색을 엽니다.";
