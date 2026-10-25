@@ -611,3 +611,30 @@ public enum SpokenWordCarPlayShelfPolicy {
         return book.resumeItemID ?? book.items.first?.id
     }
 }
+
+/// What "now listening" follows. A position is only remembered after the
+/// first stretch of an item (`SpokenWordContentPolicy.minimumRememberedPosition`)
+/// while the item being left is saved the moment playback moves on, so going
+/// by stored progress alone keeps showing the previous book and chapter for a
+/// while after another one starts. The book that is playing (or paused) comes
+/// first instead, even before it has progress or while a finished one is
+/// heard again.
+public enum SpokenWordNowListeningPolicy {
+    /// The listening row (tvOS): books in progress in their given order, with
+    /// the one playing at the front.
+    /// - Parameter playingBookID: the book of the spoken-word item the player
+    ///   holds; nil when it holds music, radio or nothing.
+    public static func row(_ books: [SpokenWordBook], playingBookID: String?) -> [SpokenWordBook] {
+        let listening = books.filter(\.isInProgress)
+        guard let playingBookID,
+              let playing = books.first(where: { $0.id == playingBookID }) else { return listening }
+        return [playing] + listening.filter { $0.id != playingBookID }
+    }
+
+    /// The chapter a book's card names: the one playing when the book is
+    /// playing, else the one Continue starts from.
+    public static func chapterItemID(of book: SpokenWordBook, playingItemID: String?) -> String? {
+        if let playingItemID, book.items.contains(where: { $0.id == playingItemID }) { return playingItemID }
+        return book.resumeItemID
+    }
+}

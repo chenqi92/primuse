@@ -484,3 +484,57 @@ struct SpokenWordCarPlayShelfPolicyTests {
         #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: untouched) == "c1")
     }
 }
+
+@Suite("Spoken word now listening")
+struct SpokenWordNowListeningPolicyTests {
+    private let base = Date(timeIntervalSince1970: 10_000)
+
+    private func books() -> [SpokenWordBook] {
+        SpokenWordBookGrouping.books(from: [
+            .init(id: "a1", title: "1", albumTitle: "Older", trackNumber: 1, duration: 600,
+                  position: 100, positionUpdatedAt: base.addingTimeInterval(-3600)),
+            .init(id: "a2", title: "2", albumTitle: "Older", trackNumber: 2, duration: 600),
+            .init(id: "b1", title: "1", albumTitle: "Recent", trackNumber: 1, duration: 600,
+                  position: 30, positionUpdatedAt: base.addingTimeInterval(-60)),
+            .init(id: "b2", title: "2", albumTitle: "Recent", trackNumber: 2, duration: 600),
+            .init(id: "c1", title: "1", albumTitle: "Untouched", trackNumber: 1, duration: 600),
+            .init(id: "d1", title: "1", albumTitle: "Done", trackNumber: 1, duration: 600,
+                  finishedAt: base.addingTimeInterval(-7200)),
+        ])
+    }
+
+    private func id(_ title: String) -> String {
+        books().first { $0.title == title }!.id
+    }
+
+    @Test("Nothing spoken playing keeps the books in progress as they are")
+    func nothingPlaying() {
+        let row = SpokenWordNowListeningPolicy.row(books(), playingBookID: nil)
+        #expect(Set(row.map(\.title)) == ["Older", "Recent"])
+        #expect(SpokenWordNowListeningPolicy.row(books(), playingBookID: "missing").count == 2)
+    }
+
+    @Test("The book playing leads the row before it has any progress")
+    func playingWithoutProgress() {
+        let row = SpokenWordNowListeningPolicy.row(books(), playingBookID: id("Untouched"))
+        #expect(row.first?.title == "Untouched")
+        #expect(row.count == 3)
+    }
+
+    @Test("The book playing moves to the front once, and a finished one heard again joins")
+    func playingInProgressOrFinished() {
+        let inProgress = SpokenWordNowListeningPolicy.row(books(), playingBookID: id("Older"))
+        #expect(inProgress.map(\.title).first == "Older")
+        #expect(inProgress.filter { $0.title == "Older" }.count == 1)
+        let finished = SpokenWordNowListeningPolicy.row(books(), playingBookID: id("Done"))
+        #expect(finished.first?.title == "Done")
+    }
+
+    @Test("The card names the chapter playing, else where Continue starts")
+    func chapter() {
+        let recent = books().first { $0.title == "Recent" }!
+        #expect(SpokenWordNowListeningPolicy.chapterItemID(of: recent, playingItemID: nil) == "b1")
+        #expect(SpokenWordNowListeningPolicy.chapterItemID(of: recent, playingItemID: "b2") == "b2")
+        #expect(SpokenWordNowListeningPolicy.chapterItemID(of: recent, playingItemID: "a1") == "b1")
+    }
+}

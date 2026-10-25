@@ -217,7 +217,8 @@ struct TVSpokenWordView: View {
         let archivedIDs = spokenStore.archivedBookIDs
         let active = books.filter { !archivedIDs.contains($0.id) }
         let archived = books.filter { archivedIDs.contains($0.id) }
-        let listening = active.filter(\.isInProgress)
+        // 正在放的那本排第一,还没记下进度的也算(#349)。
+        let listening = SpokenWordNowListeningPolicy.row(active, playingBookID: store.currentSpokenWordBookID)
         let shelf = active.filter { !$0.isFinished }
         let finished = active.filter(\.isFinished)
 
@@ -570,6 +571,15 @@ struct TVSpokenWordListeningCard: View {
     var focusID: String? = nil
     var action: () -> Void
 
+    @Environment(TVStore.self) private var store
+
+    /// 正在放这本书时写正在放的那一章,否则是接着听会从哪一章起。
+    private var chapterTitle: String? {
+        let playingItemID = store.currentSpokenWordBookID == book.id ? store.nowPlaying.songID : nil
+        let itemID = SpokenWordNowListeningPolicy.chapterItemID(of: book, playingItemID: playingItemID)
+        return book.items.first { $0.id == itemID }?.title
+    }
+
     var body: some View {
         TVFocusButton(
             radius: TVRadius.card, scale: 1.04, lift: 8, action: action,
@@ -581,7 +591,7 @@ struct TVSpokenWordListeningCard: View {
                     Text(book.title).tvFont(.sectionTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2)
-                    if let chapter = book.resumeItem?.title, book.chapterCount > 1 {
+                    if let chapter = chapterTitle, book.chapterCount > 1 {
                         Text(chapter).tvFont(.body)
                             .foregroundStyle(TVColor.textMuted)
                             .lineLimit(1)

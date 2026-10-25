@@ -16,6 +16,8 @@ struct SpokenWordLibrarySnapshot: Sendable {
     /// 归档的书:书架页最下面单独一节,不进上面三节,也不进首页与「接着听」。
     let archived: [Entry]
     let isPrepared: Bool
+    /// 没归档的书,按分组的先后。
+    private let active: [Entry]
 
     /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。归档的不在里面。
     var allEntries: [Entry] {
@@ -53,7 +55,47 @@ struct SpokenWordLibrarySnapshot: Sendable {
         finished = entries.filter { $0.book.isFinished }.sorted {
             ($0.book.lastListenedAt ?? .distantPast) > ($1.book.lastListenedAt ?? .distantPast)
         }
+        active = entries
         self.isPrepared = isPrepared
+    }
+
+    private init(
+        entriesByID: [String: Entry],
+        inProgress: [(SpokenWordBook, [Song])],
+        nowListening: Entry?,
+        shelf: [Entry],
+        finished: [Entry],
+        archived: [Entry],
+        isPrepared: Bool,
+        active: [Entry]
+    ) {
+        self.entriesByID = entriesByID
+        self.inProgress = inProgress
+        self.nowListening = nowListening
+        self.shelf = shelf
+        self.finished = finished
+        self.archived = archived
+        self.isPrepared = isPrepared
+        self.active = active
+    }
+
+    /// 正在放(含暂停)的那本书算「在听」,哪怕它还没记下进度、或是听完了在重听(#349)。只看存下的进度时,
+    /// 刚点开的那章要听满一阵才记进度,切走的那章却当场记一笔,「在听」就一直停在上一本书、上一章。
+    /// 原来的那本回到书架里它原来的位置。归档的书照旧不进来。
+    func listening(to playingBookID: String?) -> SpokenWordLibrarySnapshot {
+        guard let playingBookID, playingBookID != nowListening?.id,
+              let playing = entriesByID[playingBookID],
+              !archived.contains(where: { $0.id == playingBookID }) else { return self }
+        return SpokenWordLibrarySnapshot(
+            entriesByID: entriesByID,
+            inProgress: inProgress,
+            nowListening: playing,
+            shelf: active.filter { !$0.book.isFinished && $0.id != playingBookID },
+            finished: finished.filter { $0.id != playingBookID },
+            archived: archived,
+            isPrepared: isPrepared,
+            active: active
+        )
     }
 }
 
@@ -509,7 +551,7 @@ struct SpokenWordShelfContent: View {
     }
 
     var body: some View {
-        shelfContent(snapshot)
+        shelfContent(snapshot.listening(to: player.currentBookID))
             // 整本书按目录顺序一次加进去;「我喜欢」也在可选的歌单里。
             .sheet(item: $playlistTarget) { entry in
                 BatchAddToPlaylistSheet(songs: entry.songs)
@@ -1130,7 +1172,10 @@ private struct SpokenWordNowListeningCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if let position = SpokenWordBookSupport.chapterPosition(book) {
+                if let position = SpokenWordBookSupport.chapterPosition(
+                    book,
+                    playingItemID: player.currentBookID == book.id ? player.currentSong?.id : nil
+                ) {
                     Text(position)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -2775,12 +2820,13 @@ enum SpokenWordBookSupport {
             .max { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }
     }
 
-    /// "Chapter 3 of 12" for the item Continue starts from; nil for a
-    /// single-item book or when every item is finished.
-    static func chapterPosition(_ book: SpokenWordBook) -> String? {
+    /// "Chapter 3 of 12" for the item playing (when the book is playing) or
+    /// the one Continue starts from; nil for a single-item book or when every
+    /// item is finished.
+    static func chapterPosition(_ book: SpokenWordBook, playingItemID: String? = nil) -> String? {
         guard book.chapterCount > 1,
-              let resumeID = book.resumeItemID,
-              let index = book.items.firstIndex(where: { $0.id == resumeID }) else { return nil }
+              let itemID = SpokenWordNowListeningPolicy.chapterItemID(of: book, playingItemID: playingItemID),
+              let index = book.items.firstIndex(where: { $0.id == itemID }) else { return nil }
         return String(
             format: String(localized: "spoken_word_chapter_position_format"),
             index + 1,
