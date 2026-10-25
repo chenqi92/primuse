@@ -913,7 +913,7 @@ struct TVImmersivePlayerView: View {
             title: title.isEmpty ? ImmersiveDemoContent.title : title,
             artist: meaningful(np.artist, fallback: ""),
             album: meaningful(np.album, fallback: ""),
-            format: formatLine(np),
+            format: Self.formatLine(np, store: store),
             isPlaying: store.isPlaying,
             progress: 0,
             trackNumber: 1,
@@ -983,8 +983,8 @@ struct TVImmersivePlayerView: View {
     }
 
     /// 与 iPhone 沉浸页同一套规格串:格式按读出来的编码(M4A 里的 ALAC / AAC),
-    /// hi-res 按采样率与实际位深判,不再见 FLAC 就写 hi-res。
-    private func formatLine(_ np: TVNowPlaying) -> String {
+    /// hi-res 按采样率与实际位深判,不再见 FLAC 就写 hi-res。效果选择器的预览卡片也用它。
+    static func formatLine(_ np: TVNowPlaying, store: TVStore) -> String {
         let playingSampleRate = np.sampleRate > 0 ? Int((np.sampleRate * 1_000).rounded()) : nil
         guard let song = store.library.song(id: np.songID) else {
             return ImmersiveAudioSpec.line(format: np.format, sampleRate: playingSampleRate, bitDepth: nil)

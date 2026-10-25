@@ -18,6 +18,8 @@ struct MacImmersiveEffectPicker: View {
     let onSelect: (FullscreenPlayerEffect) -> Void
     let onClose: () -> Void
 
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @State private var hoveredID: String?
 
     var body: some View {
@@ -113,7 +115,12 @@ struct MacImmersiveEffectPicker: View {
                 // 卡片一律停在静态帧,指针划过只换描边和底色:缩略图里是完整的舞台
                 // （Canvas、实时模糊），让其中一张动起来就等于指针停在面板上的整段时间
                 // 窗口都在逐帧重绘。真正在动的预览是选中效果之后的全屏本身。
-                ImmersiveEffectPreview(effect: effect, isActive: false, palette: palette)
+                ImmersiveEffectPreview(
+                    effect: effect,
+                    isActive: false,
+                    palette: palette,
+                    song: .current(player: player, library: library)
+                )
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: Self.thumbnailCornerRadius, style: .continuous))

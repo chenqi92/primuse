@@ -182,6 +182,8 @@ struct EffectPlayerPreviewScreen: View {
     let context: NowPlayingPreviewContext
 
     @Environment(ThemeService.self) private var theme
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var effectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(NowPlayingEffectPlayerControls.storageKey) private var effectStorage = ""
@@ -216,7 +218,8 @@ struct EffectPlayerPreviewScreen: View {
                 levels: ImmersiveDemoStage.baseLevels,
                 elapsed: 108,
                 animates: context.animatesStage,
-                controlsInset: metrics.s(106)
+                controlsInset: metrics.s(106),
+                song: .current(player: player, library: library)
             )
             .frame(width: canvas.size.width, height: canvas.size.height)
             .clipped()

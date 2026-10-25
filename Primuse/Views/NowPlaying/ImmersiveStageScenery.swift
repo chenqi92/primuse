@@ -503,12 +503,15 @@ enum ImmersiveDemoContent {
     }
     #endif
 
-    static var track: ImmersiveStageTrack {
+    static var track: ImmersiveStageTrack { track(showing: nil) }
+
+    /// 曲序、时长、队列照旧是演示的，歌名、艺人、专辑和规格换成 `song` 的。
+    static func track(showing song: ImmersivePreviewSong?) -> ImmersiveStageTrack {
         ImmersiveStageTrack(
-            title: title,
-            artist: artist,
-            album: album,
-            format: format,
+            title: song?.title ?? title,
+            artist: song?.artist ?? artist,
+            album: song?.album ?? album,
+            format: song?.format ?? format,
             isPlaying: true,
             progress: 0.43,
             trackNumber: 3,
@@ -524,15 +527,72 @@ enum ImmersiveDemoContent {
     }
 }
 
+/// 预览里换上的正在放的歌。没在放、或在听电台时不传，预览照旧用演示内容。
+/// 封面由各端按自己的取图视图给；歌词仍是演示的那几句。
+struct ImmersivePreviewSong {
+    var id: String
+    var title: String
+    var artist: String
+    var album: String
+    var format: String
+    var artwork: (CGFloat) -> AnyView
+
+    /// 卡片按值比较时用：同一首歌、显示的字也没变就不用重画。
+    func showsSameContent(as other: ImmersivePreviewSong) -> Bool {
+        id == other.id && title == other.title && artist == other.artist
+            && album == other.album && format == other.format
+    }
+}
+
+#if !os(tvOS)
+extension ImmersivePreviewSong {
+    /// 和播放页样式预览同一个取法：电台不算，艺人按资料库的显示名。
+    @MainActor
+    static func current(player: AudioPlayerService, library: MusicLibrary) -> ImmersivePreviewSong? {
+        guard !player.isLiveRadio, let song = player.currentSong else { return nil }
+        return ImmersivePreviewSong(
+            id: song.id,
+            title: song.title,
+            artist: library.artistDisplayName(for: song) ?? "",
+            album: song.albumTitle ?? "",
+            format: ImmersiveAudioSpec.line(
+                format: song.codecFormat.displayName,
+                sampleRate: song.sampleRate,
+                bitDepth: song.qualityBitDepth,
+                audioVariants: song.audioVariants
+            ),
+            artwork: { side in
+                // 没有封面时什么也不画，露出底下按调色板画的占位，和全屏舞台一样。
+                AnyView(
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: side,
+                        cornerRadius: 0,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat,
+                        showsPlaceholder: false
+                    )
+                    .frame(width: side, height: side)
+                )
+            }
+        )
+    }
+}
+#endif
+
 // MARK: - 设置页真实效果预览
 
 /// 设置页与效果选择器共用的真实舞台缩略图。这里直接缩放正式的
 /// `ImmersiveStageView`，避免设置页展示的示意图与最终全屏效果不一致。
 /// 只有选中或聚焦的卡片才会运行动画；其余卡片停在真实静态帧。
+/// 传了 `song` 就放正在听的这首，没传用演示内容。
 struct ImmersiveEffectPreview: View {
     var effect: FullscreenPlayerEffect
     var isActive = false
     var palette: ImmersiveArtworkPalette = .fallback
+    var song: ImmersivePreviewSong? = nil
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     /// 预览跟着设置里的动效强度走，调完马上看得出差别。
@@ -572,7 +632,8 @@ struct ImmersiveEffectPreview: View {
         if effect.isNative {
             ImmersiveNativeEffectPreview(
                 isAnimating: animates,
-                palette: palette
+                palette: palette,
+                song: song
             )
         } else if effect.usesRealtimeSpectrum {
             TimelineView(.animation(minimumInterval: 1 / 12, paused: !animates)) { context in
@@ -594,7 +655,8 @@ struct ImmersiveEffectPreview: View {
             levels: levels,
             elapsed: elapsed,
             animates: animates,
-            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue)
+            motionIntensity: ImmersiveMotionIntensity(storedValue: motionIntensityRawValue),
+            song: song
         )
     }
 
@@ -615,7 +677,7 @@ struct ImmersiveEffectPreview: View {
 }
 
 /// 设置页预览、效果抽屉缩略图与调试取证页共用的演示舞台：同一套演示曲目、
-/// 歌词与占位封面，只有视口度量和控件占位由调用方决定。
+/// 歌词与占位封面（传了正在听的歌就换上它的歌名与封面），只有视口度量和控件占位由调用方决定。
 #if DEBUG
 /// 取证用的演示时钟：从 `PRIMUSE_EVIDENCE_TIME`（秒，默认 0）起，按 `PRIMUSE_EVIDENCE_CLOCK` 倍速走（默认 0 停着；
 /// 0.1 是十倍慢动作，0.3 秒的甩镜拉成 3 秒，连拍几张就能拍到半路）。
@@ -750,6 +812,8 @@ enum ImmersiveDemoStage {
         }
     }
 
+    /// 放在主线程上：传进来的 `song` 带着封面闭包，不能再跨隔离区交给舞台视图。
+    @MainActor
     static func make(
         effect: FullscreenPlayerEffect,
         metrics: ImmersiveStageMetrics,
@@ -761,9 +825,10 @@ enum ImmersiveDemoStage {
         controlsInset: CGFloat = 0,
         isResting: Bool = false,
         sungFraction: Double? = nil,
-        motionIntensity: ImmersiveMotionIntensity = .defaultValue
+        motionIntensity: ImmersiveMotionIntensity = .defaultValue,
+        song: ImmersivePreviewSong? = nil
     ) -> some View {
-        var track = ImmersiveDemoContent.track
+        var track = ImmersiveDemoContent.track(showing: song)
         track.isPlaying = animates
         track.elapsed = elapsed
         track.progress = track.duration > 0 ? elapsed / track.duration : 0
@@ -795,7 +860,10 @@ enum ImmersiveDemoStage {
             flowBeforeCount: 4,
             flowAfterCount: 4,
             flowArtwork: { offset, side in
-                AnyView(
+                if offset == 0, let song {
+                    return AnyView(heroArtwork(song, palette: palette, side: side))
+                }
+                return AnyView(
                     ImmersivePreviewArtwork(
                         variant: offset == 0 ? 0 : (offset < 0 ? -offset : offset + 4),
                         palette: palette
@@ -812,9 +880,22 @@ enum ImmersiveDemoStage {
             showsClock: false,
             isResting: isResting
         ) { side in
-            ImmersivePreviewArtwork(variant: 0, palette: palette)
-                .frame(width: side, height: side)
+            if let song {
+                heroArtwork(song, palette: palette, side: side)
+            } else {
+                ImmersivePreviewArtwork(variant: 0, palette: palette)
+                    .frame(width: side, height: side)
+            }
         }
+    }
+
+    /// 正在听的这首的封面，取到之前和没有封面时露出占位。
+    static func heroArtwork(_ song: ImmersivePreviewSong, palette: ImmersiveArtworkPalette, side: CGFloat) -> some View {
+        ZStack {
+            ImmersiveArtworkFallback(palette: palette)
+            song.artwork(side)
+        }
+        .frame(width: side, height: side)
     }
 }
 
@@ -1040,8 +1121,10 @@ private struct ImmersiveEvidenceChromeOverlay: View {
 private struct ImmersiveNativeEffectPreview: View {
     var isAnimating: Bool
     var palette: ImmersiveArtworkPalette
+    var song: ImmersivePreviewSong?
 
     var body: some View {
+        let track = ImmersiveDemoContent.track(showing: song)
         TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
             let progress = isAnimating
                 ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 48) / 48
@@ -1058,17 +1141,23 @@ private struct ImmersiveNativeEffectPreview: View {
                 )
 
                 HStack(spacing: 54) {
-                    ImmersivePreviewArtwork(variant: 0, palette: palette)
-                        .frame(width: 286, height: 286)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .shadow(color: palette.primary.opacity(0.32), radius: 34, y: 18)
+                    Group {
+                        if let song {
+                            ImmersiveDemoStage.heroArtwork(song, palette: palette, side: 286)
+                        } else {
+                            ImmersivePreviewArtwork(variant: 0, palette: palette)
+                                .frame(width: 286, height: 286)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: palette.primary.opacity(0.32), radius: 34, y: 18)
 
                     VStack(alignment: .leading, spacing: 18) {
-                        Text(ImmersiveDemoContent.title)
+                        Text(verbatim: track.title)
                             .font(.system(size: 48, weight: .semibold))
                             .foregroundStyle(ImmersiveStagePalette.ink)
                             .lineLimit(1)
-                        Text("\(ImmersiveDemoContent.artist) · \(ImmersiveDemoContent.album)")
+                        Text(verbatim: track.subtitle)
                             .font(.system(size: 20, weight: .regular))
                             .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
                             .lineLimit(1)

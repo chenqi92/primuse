@@ -25,6 +25,8 @@ struct ImmersiveEffectDrawer: View {
     let onClose: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @State private var centeredID: String?
     @State private var settleTask: Task<Void, Never>?
 
@@ -302,7 +304,12 @@ struct ImmersiveEffectDrawer: View {
             selectCard(effect)
         } label: {
             VStack(spacing: Self.cardNameSpacing) {
-                ImmersiveEffectPreview(effect: effect, isActive: false, palette: palette)
+                ImmersiveEffectPreview(
+                    effect: effect,
+                    isActive: false,
+                    palette: palette,
+                    song: .current(player: player, library: library)
+                )
                     .frame(width: layout.cardWidth, height: layout.cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
                     .overlay {

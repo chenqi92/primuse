@@ -8344,17 +8344,23 @@ private struct MacFullscreenEffectGallery: View {
     @Binding var selection: String
     let palette: ImmersiveArtworkPalette
 
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+
     private let columns = [
         GridItem(.adaptive(minimum: 205), spacing: 10, alignment: .top),
     ]
 
     var body: some View {
+        // 有歌在放时卡片里放这首，没有才用演示内容。
+        let song = ImmersivePreviewSong.current(player: player, library: library)
         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
             ForEach(FullscreenPlayerEffect.allCases) { effect in
                 MacFullscreenEffectPreviewCard(
                     effect: effect,
                     selected: selection == effect.rawValue,
-                    palette: palette
+                    palette: palette,
+                    song: song
                 ) {
                     selection = effect.rawValue
                 }
@@ -8367,6 +8373,7 @@ private struct MacFullscreenEffectPreviewCard: View {
     let effect: FullscreenPlayerEffect
     let selected: Bool
     let palette: ImmersiveArtworkPalette
+    let song: ImmersivePreviewSong?
     let action: () -> Void
 
     @State private var hovering = false
@@ -8377,7 +8384,8 @@ private struct MacFullscreenEffectPreviewCard: View {
                 ImmersiveEffectPreview(
                     effect: effect,
                     isActive: false,
-                    palette: palette
+                    palette: palette,
+                    song: song
                 )
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

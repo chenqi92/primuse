@@ -6,6 +6,8 @@ import SwiftUI
 /// 其余卡片停在真实静态帧，避免设置页同时启动多套高频渲染。
 struct FullscreenPlayerEffectSettingsView: View {
     @Environment(ThemeService.self) private var theme
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var selectedRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
@@ -29,6 +31,11 @@ struct FullscreenPlayerEffectSettingsView: View {
 
     private var previewPalette: ImmersiveArtworkPalette {
         ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.secondaryDarkAccent)
+    }
+
+    /// 有歌在放时卡片里放这首，没有才用演示内容。
+    private var previewSong: ImmersivePreviewSong? {
+        .current(player: player, library: library)
     }
 
     private var previewColumns: [GridItem] {
@@ -334,7 +341,8 @@ struct FullscreenPlayerEffectSettingsView: View {
                 ImmersiveEffectPreview(
                     effect: effect,
                     isActive: selected,
-                    palette: previewPalette
+                    palette: previewPalette,
+                    song: previewSong
                 )
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

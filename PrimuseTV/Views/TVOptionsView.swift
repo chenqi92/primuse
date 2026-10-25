@@ -550,6 +550,21 @@ struct TVFullscreenEffectPicker: View {
         )
     }
 
+    /// 有歌在放时卡片里放这首，没有（或在听电台）才用演示内容。
+    private var previewSong: ImmersivePreviewSong? {
+        let np = store.nowPlaying
+        let title = np.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard store.hasNowPlaying, !store.isLiveRadio, !title.isEmpty else { return nil }
+        return ImmersivePreviewSong(
+            id: np.songID,
+            title: title,
+            artist: np.artist,
+            album: np.album,
+            format: TVImmersivePlayerView.formatLine(np, store: store),
+            artwork: { side in AnyView(TVEffectPreviewArtwork(nowPlaying: np, side: side)) }
+        )
+    }
+
     var body: some View {
         GeometryReader { _ in
             let columns = Array(repeating: GridItem(.flexible(), spacing: 18), count: 4)
@@ -826,7 +841,8 @@ struct TVFullscreenEffectPicker: View {
                 TVEffectPickerThumbnail(
                     effect: candidate,
                     isActive: animatedEffect == candidate,
-                    palette: previewPalette
+                    palette: previewPalette,
+                    song: previewSong
                 )
                 .equatable()
                 .overlay(alignment: .topTrailing) {
@@ -883,18 +899,52 @@ private struct TVEffectPickerThumbnail: View, @MainActor Equatable {
     let effect: FullscreenPlayerEffect
     let isActive: Bool
     let palette: ImmersiveArtworkPalette
+    let song: ImmersivePreviewSong?
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.effect == rhs.effect
             && lhs.isActive == rhs.isActive
             && lhs.palette.primary == rhs.palette.primary
             && lhs.palette.secondary == rhs.palette.secondary
+            && sameSong(lhs.song, rhs.song)
+    }
+
+    private static func sameSong(_ lhs: ImmersivePreviewSong?, _ rhs: ImmersivePreviewSong?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case let (lhs?, rhs?): lhs.showsSameContent(as: rhs)
+        default: false
+        }
     }
 
     var body: some View {
-        ImmersiveEffectPreview(effect: effect, isActive: isActive, palette: palette)
+        ImmersiveEffectPreview(effect: effect, isActive: isActive, palette: palette, song: song)
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// 卡片里正在听的这首的封面：取到之前透明，露出舞台底下的占位，和全屏舞台一样。
+private struct TVEffectPreviewArtwork: View {
+    let nowPlaying: TVNowPlaying
+    let side: CGFloat
+
+    @State private var hasResolvedArtwork = false
+
+    var body: some View {
+        TVArtworkView(
+            coverKey: nowPlaying.albumID,
+            artist: nowPlaying.artist,
+            album: nowPlaying.album,
+            songID: nowPlaying.songID,
+            coverRef: nowPlaying.coverRef,
+            tint: nowPlaying.tint,
+            tint2: nowPlaying.tint2,
+            glyph: nowPlaying.glyph,
+            size: side,
+            onResolutionChange: { hasResolvedArtwork = $0 }
+        )
+        .opacity(hasResolvedArtwork ? 1 : 0)
     }
 }
 // MARK: - 歌词翻译
