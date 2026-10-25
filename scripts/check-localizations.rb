@@ -463,6 +463,12 @@ HAN_LITERAL_ALLOWLIST = {
   ],
   "Primuse/Views/Sources/BrowserChrome.swift" => [
     /"网络"|"联网"|"连接"|"权限"|"不可达"|"超时"/
+  ],
+  # Genre words the kinetic-lyrics director matches against song tags to pick a
+  # lively or calm treatment; matching vocabulary, never shown.
+  "PrimuseKit/Sources/PrimuseKit/ImmersiveKineticDirectionPolicy.swift" => [
+    /\A\s*"摇滚", "电子", "舞曲", "说唱", "嘻哈", "金属", "朋克", "迪斯科",\s*\z/,
+    /\A\s*"古典", "钢琴", "民谣", "爵士", "轻音乐", "纯音乐", "氛围", "抒情", "古风", "摇篮曲",\s*\z/
   ]
 }.transform_values(&:freeze).freeze
 
