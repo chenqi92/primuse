@@ -769,16 +769,20 @@ static float3 rhythmHandColor(int hand, constant KineticUniforms& u) {
 }
 
 // ---- 弹珠落音 ----
-// props（float4）：[0] 球数、音条数、拖尾点数、画面在这条路上走到哪（只用来让背景的微尘跟着往上退）；
-// [1…3] 每颗球 x、y（画面里，按画面高度算，x 从 0 到宽高比）、半径、声部；[4…6] 离上次弹开多久、速度、拖尾点数；
-// [8…22] 每颗球五组拖尾点（两个点一组，最新的在前）；[24…] 每根音条两组：撞点 x、y、法线角、长度，离撞上多久、声部、力度。
+// props（float4）：[0] 音条数、拖尾点数、画面在纸上的纵向、横向位置（只用来让背景的微尘跟着退）；[1] 球 x、y（画面里，
+// 按画面高度算，x 从 0 到宽高比）、半径、自转角；[2] 离上次碰音条多久、速度、正在滚坡（1）；[3…7] 五组拖尾点（两个点
+// 一组，最新的在前）；[8…] 每根音条两组：x、y（弹开的是撞点，坡是起点）、角度（弹开的是法线，坡是往下滚的方向）、
+// 长度，离球碰到它多久（负的是还没到）、轨道 + 1 + 8 × 种类（0 弹开、1 长音坡、2 缓坡；缓坡没有轨道）、力度、坡上滚多久。
 
-static float3 marbleVoiceColor(int voice, constant KineticUniforms& u) {
+// 音条按轨道分四种颜色：主色、辅色偏青、金、紫，都掺一点专辑色。
+static float3 marbleLaneColor(int lane, constant KineticUniforms& u) {
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
-    if (voice == 0) { return mix(a * 1.15, float3(1.0, 0.55, 0.42), 0.3); }
-    if (voice == 1) { return mix(b * 1.6 + 0.12, float3(0.42, 0.86, 1.0), 0.5); }
-    return mix(float3(1.0, 0.9, 0.7), a, 0.15);
+    if (lane == 0) { return mix(a * 1.15, float3(1.0, 0.5, 0.4), 0.35); }
+    if (lane == 1) { return mix(b * 1.6 + 0.12, float3(0.35, 0.85, 1.0), 0.55); }
+    if (lane == 2) { return mix(a, float3(1.0, 0.82, 0.38), 0.6); }
+    if (lane == 3) { return mix(b * 1.4 + 0.1, float3(0.72, 0.45, 1.0), 0.55); }
+    return mix(b * 0.8 + 0.2, float3(0.7, 0.75, 0.85), 0.5);
 }
 
 fragment float4 kinetic_marbleDrop(KineticVertexOut in [[stage_in]], constant KineticUniforms& u [[buffer(0)]], constant float4* props [[buffer(1)]]) {
@@ -788,96 +792,132 @@ fragment float4 kinetic_marbleDrop(KineticVertexOut in [[stage_in]], constant Ki
     float2 q = float2(uv.x * aspect, uv.y);
     float3 a = u.colorA.rgb;
     float3 b = u.colorB.rgb;
-    int ballCount = min(int(props[0].x), 3);
-    int barCount = min(int(props[0].y), 52);
-    float camera = props[0].w;
+    int padCount = min(int(props[0].x), 60);
+    float2 camera = float2(props[0].w, props[0].z);
     float3 color = mix(b * 0.10 + float3(0.006, 0.007, 0.014), a * 0.07 + float3(0.012, 0.012, 0.022), uv.y);
-    // 远近两层微尘：画面往下走，它们往上退，越近退得越快。
+    // 远近两层微尘：画面跟着球走，它们往反方向退，越近退得越快。
     for (int layer = 0; layer < 2; layer++) {
         float fl = float(layer);
-        float2 p = float2(q.x, q.y + camera * (0.3 + 0.4 * fl)) * (34.0 - 12.0 * fl);
+        float2 p = (q + camera * (0.3 + 0.4 * fl)) * (34.0 - 12.0 * fl);
         float2 cell = floor(p);
         float h = hash21(cell + fl * 31.0);
         float2 f = fract(p) - 0.5 - (float2(hash21(cell + 2.3), hash21(cell + 7.1)) - 0.5) * 0.7;
         float mote = below(0.0, 0.07 + 0.05 * fl, length(f)) * step(0.88, h);
         color += mix(b * 1.4 + 0.1, float3(1.0), 0.5) * mote * (0.05 + 0.05 * fl) * (0.7 + 0.3 * sin(t * 1.3 + h * 40.0));
     }
-    // 音条：撞上那一下亮起来、荡开一圈，之后留着微光慢慢暗下去。
-    for (int i = 0; i < barCount; i++) {
-        float4 g = props[24 + i * 2];
-        float4 m = props[25 + i * 2];
-        float2 c = g.xy;
-        float2 rel = q - c;
-        if (abs(rel.x) > 0.2 || abs(rel.y) > 0.2) { continue; }
+    float4 ball = props[1];
+    float4 ballInfo = props[2];
+    float r = ball.z;
+    // 音条：提前出现在球要到的地方，碰到那一下亮起来、荡开一圈，之后留着微光慢慢暗下去。坡从起点铺到终点，
+    // 球滚过的那一截更亮。
+    for (int i = 0; i < padCount; i++) {
+        float4 g = props[8 + i * 2];
+        float4 m = props[9 + i * 2];
         float age = m.x;
-        float3 tint = marbleVoiceColor(int(m.y), u);
-        float2 n = float2(cos(g.z), sin(g.z));
-        float2 tangent = float2(-n.y, n.x);
-        float halfLength = g.w * 0.5;
-        // 音条贴着撞点、往背离球的一侧让出一点厚度。
-        float2 mid = c - n * 0.004;
-        float d = segmentDistance(q, mid - tangent * halfLength, mid + tangent * halfLength);
-        float flash = exp(-age * 5.0) * (0.45 + 0.55 * m.z);
-        float life = below(4.5, 7.0, age) * (0.4 + 0.6 * exp(-age * 0.6));
-        float core = below(0.0028, 0.0048, d);
-        // 顺着音条一道高光，像一根发光的琴键。
-        float along = dot(q - mid, tangent) / max(halfLength, 0.001);
-        float sheen = 0.75 + 0.25 * cos(along * 2.2);
-        color += tint * (core * (0.42 + 1.5 * flash) * sheen + exp(-d * 85.0) * (0.06 + 0.6 * flash)) * life;
-        if (age < 0.7) {
-            float ring = exp(-sq((length(rel) - age * 0.12) * 160.0)) * sq(1.0 - age / 0.7) * (0.4 + 0.6 * m.z);
+        float code = m.y;
+        int kind = int(floor(code / 8.0 + 0.001));
+        int lane = int(code - float(kind) * 8.0 + 0.5) - 1;
+        float duration = m.w;
+        float2 direction = float2(cos(g.z), sin(g.z));
+        float2 from;
+        float2 to;
+        float2 contactPoint = g.xy;
+        if (kind == 0) {
+            float2 tangent = float2(-direction.y, direction.x);
+            float2 mid = g.xy - direction * 0.004;
+            from = mid - tangent * g.w * 0.5;
+            to = mid + tangent * g.w * 0.5;
+        } else {
+            from = g.xy;
+            to = g.xy + direction * g.w;
+        }
+        float2 lo = min(from, to) - 0.2;
+        float2 hi = max(from, to) + 0.2;
+        if (q.x < lo.x || q.y < lo.y || q.x > hi.x || q.y > hi.y) { continue; }
+        float3 tint = marbleLaneColor(lane, u);
+        // 提前 0.9 秒冒出来：从细到粗、从暗到亮。
+        float appear = smoothstep(-0.9, -0.5, age);
+        float life = below(4.5, 8.0, age - max(duration, 0.0)) * appear;
+        float d = segmentDistance(q, from, to);
+        float thickness = (kind == 0 ? 0.0048 : 0.0058) * (0.4 + 0.6 * appear);
+        float core = below(thickness * 0.6, thickness, d);
+        float halo = exp(-d * 85.0);
+        float flash = age >= 0.0 ? exp(-age * 5.0) * (0.45 + 0.55 * m.z) : 0.0;
+        // 还没碰到的音条暗一些、轻轻一闪一闪地等着；碰到那一下才亮起来。
+        float waiting = age < 0.0 ? 0.45 + 0.15 * sin(t * 9.0 + float(i)) : 1.0;
+        float glow;
+        if (kind == 0) {
+            float along = dot(q - (from + to) * 0.5, normalize(to - from + 1e-5)) / max(g.w * 0.5, 0.001);
+            float sheen = 0.75 + 0.25 * cos(along * 2.2);
+            float rest = 0.35 + 0.65 * exp(-max(age, 0.0) * 0.6);
+            glow = core * (0.3 * rest + 1.5 * flash) * sheen + halo * (0.05 + 0.6 * flash);
+        } else {
+            // 滚过的那一截（按进度）亮、没滚到的暗一些；缓坡整体暗。
+            float progress = duration > 0.0 ? clamp(age / duration, 0.0, 1.0) : 0.0;
+            float along = clamp(dot(q - from, direction) / max(g.w, 0.001), 0.0, 1.0);
+            // 球离开以后整段慢慢暗回去，不会一直亮着和后面的音条叠在一起。
+            float lit = age >= 0.0 ? below(progress - 0.02, progress + 0.02, along) * below(0.0, 1.2, age - duration) : 0.0;
+            float rolling = age >= 0.0 && age <= duration ? 1.0 : 0.0;
+            float strength = kind == 2 ? 0.45 : 1.0;
+            glow = (core * (0.3 + 0.7 * lit + 0.6 * flash) + halo * (0.05 + 0.25 * lit + 0.4 * flash)) * strength;
+            contactPoint = from + direction * g.w * progress;
+            // 球正在坡上滚：贴着它的那一点一直冒细碎的光。
+            if (rolling > 0.0) {
+                float spark = exp(-length(q - contactPoint) * 160.0) * (0.6 + 0.4 * sin(t * 40.0));
+                color += mix(tint, float3(1.0), 0.6) * spark * 0.9 * strength;
+            }
+        }
+        color += tint * glow * life * waiting;
+        if (age >= 0.0 && age < 0.7 && kind != 2) {
+            float ring = exp(-sq((length(q - contactPoint) - age * 0.12) * 160.0)) * sq(1.0 - age / 0.7) * (0.4 + 0.6 * m.z);
             color += tint * ring * 0.45;
         }
     }
-    // 球和拖尾。
-    for (int i = 0; i < ballCount; i++) {
-        float4 ball = props[1 + i];
-        float4 info = props[4 + i];
-        float r = ball.z;
-        float3 tint = marbleVoiceColor(int(ball.w), u);
-        float2 previous = ball.xy;
-        int points = min(int(info.z), 10);
-        float trail = 0.0;
-        // 拖尾按走过的路长算、最长 `trailReach`：一直往下掉时十个采样能拉出小半个画面，像一道竖线。离得比这还远的
-        // 像素不必逐段量。
-        const float trailReach = 0.09;
-        if (length(q - ball.xy) > trailReach + r * 2.0) { points = 0; }
-        float travelled = 0.0;
-        for (int k = 0; k < points; k++) {
-            float4 pair = props[8 + i * 5 + k / 2];
-            float2 p = (k % 2 == 0) ? pair.xy : pair.zw;
-            float step = length(p - previous);
-            if (travelled + step > trailReach) {
-                p = previous + (p - previous) * ((trailReach - travelled) / max(step, 1e-5));
-                step = trailReach - travelled;
-            }
-            float fade = 1.0 - (travelled + step) / trailReach;
-            float d = segmentDistance(q, previous, p);
-            trail = max(trail, below(0.0, r * (0.15 + 0.7 * fade), d) * fade * fade);
-            travelled += step;
-            previous = p;
-            if (travelled >= trailReach) { break; }
+    // 球的拖尾：按走过的路长算，最长 `trailReach`。
+    float3 ballTint = mix(float3(1.0, 0.95, 0.88), a, 0.18);
+    float2 previous = ball.xy;
+    int points = min(int(props[0].y), 10);
+    float trail = 0.0;
+    const float trailReach = 0.09;
+    if (length(q - ball.xy) > trailReach + r * 2.0) { points = 0; }
+    float travelled = 0.0;
+    for (int k = 0; k < points; k++) {
+        float4 pair = props[3 + k / 2];
+        float2 p = (k % 2 == 0) ? pair.xy : pair.zw;
+        float stride = length(p - previous);
+        if (travelled + stride > trailReach) {
+            p = previous + (p - previous) * ((trailReach - travelled) / max(stride, 1e-5));
+            stride = trailReach - travelled;
         }
-        color += tint * trail * 0.4;
-        float d = length(q - ball.xy);
-        float hit = exp(-info.x * 7.0);
-        float body = below(r * 0.86, r, d);
-        float2 local = (q - ball.xy) / r;
-        float shade = 0.5 + 0.5 * clamp(1.0 - length(local - float2(-0.35, -0.45)) * 0.8, 0.0, 1.0);
-        float3 surface = tint * shade * (1.0 + 0.7 * hit) + float3(0.25) * hit;
-        // 左上一点高光。
-        surface += float3(1.0) * below(0.0, 0.32, length(local - float2(-0.38, -0.42))) * 0.5;
-        color = mix(color, surface, body);
-        color += tint * exp(-max(d - r, 0.0) / (r * (1.3 + 2.2 * hit))) * (0.22 + 0.6 * hit) * (1.0 - body);
+        float fade = 1.0 - (travelled + stride) / trailReach;
+        float d = segmentDistance(q, previous, p);
+        trail = max(trail, below(0.0, r * (0.15 + 0.7 * fade), d) * fade * fade);
+        travelled += stride;
+        previous = p;
+        if (travelled >= trailReach) { break; }
     }
+    color += ballTint * trail * 0.35;
+    // 球：左上一点高光，球面上一道浅色的带跟着自转转，滚坡时看得出在滚。
+    float d = length(q - ball.xy);
+    float hit = exp(-ballInfo.x * 7.0);
+    float body = below(r * 0.88, r, d);
+    float2 local = (q - ball.xy) / r;
+    float shade = 0.5 + 0.5 * clamp(1.0 - length(local - float2(-0.35, -0.45)) * 0.8, 0.0, 1.0);
+    float2 spun = rotate2(local, -ball.w);
+    float band = smoothstep(0.55, 0.0, abs(spun.x)) * 0.18;
+    float3 surface = ballTint * shade * (0.95 + 0.6 * hit) + band + float3(0.2) * hit;
+    surface += float3(1.0) * below(0.0, 0.3, length(local - float2(-0.38, -0.42))) * 0.5;
+    color = mix(color, surface, body);
+    color += ballTint * exp(-max(d - r, 0.0) / (r * (1.1 + 1.4 * hit))) * (0.16 + 0.34 * hit) * (1.0 - body);
     color *= vignette(uv, 0.5);
     return float4(kineticFinish(color, uv, u), 1.0);
 }
 
 // ---- 下落轨道 ----
 // props（float4）：[0] 小节里第几拍（0…4，没对上拍子时 -1）、一拍多长、拍子多可信、音符数；[1] 提前多久放上轨道、
-// 进副歌的程度、打掉了多少个；[16…] 每个音符两组：光剑用的位置 x、y，离该打还有多久（负的是已经打掉了多久）、
-// 力度，第几条轨道（小数部分乘 2 是这个音符自己的随机数）、手（+2 是歌词的字头）、劈的方向、放上轨道多久了。
+// 进副歌的程度、打掉了多少个；[16…] 每个音符三组：光剑用的位置 x、y，离该打还有多久（负的是已经打掉了多久）、
+// 力度，第几条轨道（小数部分乘 2 是这个音符自己的随机数）、手（+2 是歌词的字头）、劈的方向、放上轨道多久了，
+// 长音拖多久（0 是一下打掉的）。
 
 // 轨道在画面上的样子：地平线、判定线、判定线处半宽（按画面高度算）。
 static float3 highwayFrame(float aspect) {
@@ -952,15 +992,33 @@ fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant K
         float edge = abs(abs(xw) - 1.0) * halfWidth * s;
         color += mix(a, float3(1.0), 0.3) * exp(-edge * 380.0) * (0.45 + 0.4 * combo + 0.3 * u.drive3.x) * fog * step(-0.2, z);
 
-        // 音符：从远处顺着轨道落到判定线。
+        // 音符：从远处顺着轨道落到判定线。长音身后拖一根光条，按住时光条从判定线往里一截截被吃掉。
         for (int i = noteCount - 1; i >= 0; i--) {
-            float4 g = props[16 + i * 2];
-            float4 m = props[17 + i * 2];
+            float4 g = props[16 + i * 3];
+            float4 m = props[17 + i * 3];
+            float duration = props[18 + i * 3].x;
             float tth = g.z;
             int lane = int(m.x);
             float laneCenter = -0.75 + 0.5 * float(lane);
             float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
             bool lyric = m.y >= 2.0;
+            if (duration > 0.0 && tth + duration > 0.0) {
+                float zHead = max(tth, 0.0) * zPerSecond;
+                float zTail = (tth + duration) * zPerSecond;
+                float dx = abs(xw - laneCenter);
+                if (z >= zHead - 0.05 && z <= zTail + 0.05 && dx < 0.2) {
+                    float held = tth <= 0.0 ? 1.0 : 0.0;
+                    float appear = smoothstep(0.0, 0.25, m.w);
+                    float edgeFade = smoothstep(zTail + 0.05, zTail - 0.1, z);
+                    float barFill = below(0.11, 0.13, dx) * edgeFade;
+                    float barEdge = exp(-abs(dx - 0.12) * 60.0) * edgeFade;
+                    // 按住时光条里有一道道往判定线流的亮纹。
+                    float flowLines = held * (0.5 + 0.5 * sin((z - t * zPerSecond) * 9.0));
+                    float3 bar = mix(tint, float3(1.0), 0.2) * (0.28 + 0.35 * held + 0.15 * flowLines);
+                    color = mix(color, bar, barFill * 0.75 * appear * fog);
+                    color += tint * barEdge * (0.35 + 0.5 * held) * appear * fog;
+                }
+            }
             if (tth > -0.02) {
                 float zn = max(tth, 0.0) * zPerSecond;
                 float dz = abs(z - zn);
@@ -978,10 +1036,11 @@ fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant K
                     color += tint * rim * 0.35 * appear * fog;
                 }
             } else {
-                // 打中：判定线上炸开一圈，整条轨道亮一下，往上溅火星。
+                // 打中：判定线上炸开一圈，整条轨道亮一下，往上溅火星；长音按住的这一路一直亮着。
                 float age = -tth;
-                if (age < 0.6) {
-                    float bright = exp(-age * 7.0) * (0.6 + 0.4 * g.w);
+                float holding = duration > 0.0 && age < duration ? 1.0 : 0.0;
+                if (age < 0.6 || holding > 0.0) {
+                    float bright = max(exp(-age * 7.0), 0.35 * holding) * (0.6 + 0.4 * g.w);
                     float column = exp(-abs(xw - laneCenter) * 9.0) * step(abs(xw), 1.0) * exp(-z * 0.3) * step(-0.05, z);
                     color += tint * column * bright * 0.5;
                 }
@@ -997,10 +1056,12 @@ fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant K
         float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
         float press = 0.0;
         for (int i = 0; i < noteCount; i++) {
-            float4 g = props[16 + i * 2];
-            if (int(props[17 + i * 2].x) != lane) { continue; }
+            float4 g = props[16 + i * 3];
+            if (int(props[17 + i * 3].x) != lane) { continue; }
             float tth = g.z;
-            press = max(press, smoothstep(-0.03, 0.0, -tth + 0.0) * below(0.06, 0.16, -tth) * step(tth, 0.03));
+            // 一下的音符按下去马上松开；长音一直按到放开。
+            float held = max(props[18 + i * 3].x, 0.0);
+            press = max(press, smoothstep(-0.03, 0.0, -tth) * below(held + 0.06, held + 0.16, -tth) * step(tth, 0.03));
         }
         float keyHalf = halfWidth * 0.21;
         float2 keyCenter = float2(laneCenter, judge + 0.032 + 0.006 * press);
@@ -1012,15 +1073,32 @@ fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant K
         color += tint * exp(-max(key, 0.0) * 70.0) * (0.12 + 0.7 * press);
     }
 
-    // 打中的那一下：判定线上一圈光环、一团闪光和往上溅的火星（画在最上层）。
+    // 打中的那一下：判定线上一圈光环、一团闪光和往上溅的火星（画在最上层）。长音按着时判定线上一直往上冒火星，
+    // 放开那一下再炸一圈。
     for (int i = 0; i < noteCount; i++) {
-        float4 g = props[16 + i * 2];
-        float4 m = props[17 + i * 2];
-        float age = -g.z;
-        if (age < 0.0 || age > 0.6) { continue; }
+        float4 g = props[16 + i * 3];
+        float4 m = props[17 + i * 3];
+        float duration = props[18 + i * 3].x;
         int lane = int(m.x);
         float3 tint = (lane == 0 || lane == 3) ? laneWarm : laneCool;
         float2 burst = float2(cx + (-0.75 + 0.5 * float(lane)) * halfWidth, judge);
+        float sinceHead = -g.z;
+        if (duration > 0.0 && sinceHead >= 0.0 && sinceHead < duration) {
+            float salt = hash11(fract(m.x) * 2.0 * 37.0 + float(lane) * 1.7);
+            for (int k = 0; k < 6; k++) {
+                float fk = float(k);
+                float cycle = t * 3.0 + fk / 6.0 + salt;
+                float sparkAge = fract(cycle) * 0.35;
+                float seed = floor(cycle) * 7.13 + fk;
+                float angle = -1.5708 + (hash11(seed) - 0.5) * 1.6;
+                float2 p = burst + float2(cos(angle), sin(angle)) * (0.18 + 0.2 * hash11(seed + 3.0)) * sparkAge;
+                color += mix(tint, float3(1.0), 0.6) * exp(-length(q - p) * 480.0) * (1.0 - sparkAge / 0.35) * 1.1;
+            }
+            color += mix(tint, float3(1.0), 0.5) * exp(-length((q - burst) * float2(1.0, 2.4)) * 30.0) * (0.5 + 0.2 * sin(t * 30.0));
+        }
+        // 长音头上打中时炸一下，放开时再炸一下。
+        float age = duration > 0.0 && sinceHead >= duration ? sinceHead - duration : sinceHead;
+        if (age < 0.0 || age > 0.6) { continue; }
         float2 rel = q - burst;
         float2 squashed = rel * float2(1.0, 2.4);
         float ring = exp(-sq((length(squashed) - (0.02 + age * 0.22)) * 90.0)) * sq(1.0 - age / 0.6);
@@ -1042,7 +1120,7 @@ fragment float4 kinetic_noteHighway(KineticVertexOut in [[stage_in]], constant K
 
 // ---- 光剑劈方块 ----
 // props 与下落轨道相同，另有 [2…5]、[6…9] 两只手的光剑这一刻和之前七个采样指着哪儿（打的那个平面上，x 向右、
-// y 向上，两个点一组，最新的在前），[10] 两只手挥得多快。
+// y 向上，两个点一组，最新的在前），[10] 两只手挥得多快、两只手是不是正按着长音。
 
 constant float kSaberHitDepth = 1.5;
 constant float kSaberSpeed = 8.0;
@@ -1134,14 +1212,51 @@ fragment float4 kinetic_saberSlash(KineticVertexOut in [[stage_in]], constant Ki
         color += mix(k % 2 == 0 ? warm : cool, float3(1.0), 0.25) * exp(-square * 260.0 * ringZ / 3.0) * fade * (0.18 + 0.5 * onBeat);
     }
 
-    // 方块：从远处飞过来，远的先画、近的盖在上面。打掉以后两半往两边飞开。
+    // 方块：从远处飞过来，远的先画、近的盖在上面。打掉以后两半往两边飞开。长音的方块身后拖一条光轨一直延到远处，
+    // 剑抵住它的那一段被一路切开、冒火星，光轨尾巴过来时方块才碎开。
     for (int i = noteCount - 1; i >= 0; i--) {
-        float4 g = props[16 + i * 2];
-        float4 m = props[17 + i * 2];
+        float4 g = props[16 + i * 3];
+        float4 m = props[17 + i * 3];
+        float duration = props[18 + i * 3].x;
         float tth = g.z;
         int hand = int(fmod(m.y, 2.0));
         bool lyric = m.y >= 2.0;
         float3 tint = hand == 0 ? warm : cool;
+        if (duration > 0.0 && tth + duration > 0.0) {
+            float zHead = kSaberHitDepth + max(tth, 0.0) * kSaberSpeed;
+            float zTail = kSaberHitDepth + (tth + duration) * kSaberSpeed;
+            float2 head = saberProject(float3(g.x, g.y, zHead), center, focal);
+            float2 tail = saberProject(float3(g.x, g.y, min(zTail, 13.5)), center, focal);
+            float2 ba = tail - head;
+            float along = clamp(dot(q - head, ba) / max(dot(ba, ba), 1e-7), 0.0, 1.0);
+            float d = length(q - head - ba * along);
+            // 近处粗、远处细（按投影的长度近似）。
+            float width = mix(kSaberCube * 0.26 / zHead, kSaberCube * 0.26 / min(zTail, 13.5), along) * focal;
+            float appear = smoothstep(0.0, 0.25, m.w);
+            float held = tth <= 0.0 ? 1.0 : 0.0;
+            float pulse = 0.7 + 0.3 * sin(along * 30.0 - t * 18.0);
+            float rail = below(width * 0.45, width, d) * (0.65 + 0.35 * held * pulse);
+            color = mix(color, mix(tint, float3(1.0), 0.3), rail * appear * 0.85);
+            color += tint * exp(-d / max(width * 2.2, 0.0006)) * (0.5 + 0.5 * held) * appear;
+            if (held > 0.0) {
+                // 剑和光轨相接的地方一直往外喷火星。
+                float salt = hash11(fract(m.x) * 2.0 * 37.0 + floor(m.x) * 3.3);
+                for (int k = 0; k < 6; k++) {
+                    float fk = float(k);
+                    float cycle = t * 3.2 + fk / 6.0 + salt;
+                    float sparkAge = fract(cycle) * 0.32;
+                    float seed = floor(cycle) * 5.31 + fk;
+                    float angle = hash11(seed) * 6.28318;
+                    float2 p = head + float2(cos(angle), sin(angle)) * (0.25 + 0.3 * hash11(seed + 2.0)) * focal * sparkAge
+                        + float2(0.0, 0.8 * sparkAge * sparkAge);
+                    color += mix(tint, float3(1.0), 0.6) * exp(-length(q - p) * 420.0) * (1.0 - sparkAge / 0.32) * 1.2;
+                }
+                color += mix(tint, float3(1.0), 0.5) * exp(-length(q - head) / max(width * 2.5, 0.001)) * (0.6 + 0.3 * sin(t * 33.0));
+            }
+        }
+        // 长音按着时方块停在剑上（看得到的是光轨），放开那一下才碎：碎块从放开那一刻算。
+        if (duration > 0.0 && tth <= 0.0 && tth + duration > 0.0) { continue; }
+        if (duration > 0.0 && tth <= 0.0) { tth += duration; }
         if (tth > 0.0) {
             float z = kSaberHitDepth + tth * kSaberSpeed;
             float2 c = saberProject(float3(g.x, g.y, z), center, focal);

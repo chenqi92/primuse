@@ -919,10 +919,10 @@ struct ImmersiveStageView<Artwork: View>: View {
         let upcomingTokens = upcoming.map { kineticTokens($0, at: time) } ?? []
         // 读不到频谱时背景跟着这几句的字头动。
         director.lyricOnsets = (previousTokens + activeTokens + upcomingTokens).map(\.start)
-        // 音游场景提前把接下来几句的字头放上轨道。
+        // 跟着谱面走的场景提前把接下来几句的字排进谱面。
         if director.direction.scene.playsRhythmChart {
             let beatLocked = director.latestDrive.beatClock.isLocked
-            director.lyricCues = ordered.filter { $0.offset >= -1 }.flatMap { kineticCueTimes($0, beatLocked: beatLocked) }
+            director.lyricCues = ordered.filter { $0.offset >= -1 }.flatMap { kineticCues($0, beatLocked: beatLocked) }
         }
         let previousMove = previous.map { kineticMove(for: $0, motion: motion) }
         let activeMove = active.map { kineticMove(for: $0, motion: motion) }
@@ -1213,18 +1213,29 @@ struct ImmersiveStageView<Artwork: View>: View {
         )
     }
 
-    /// 音游场景要提前知道的字头：逐字歌词每个字都算；逐行歌词对上了拍子时只取句首（字的快慢交给拍子，按字数
-    /// 摊开的时刻和唱的对不上），读不到拍子时按字数摊开，轨道上才有东西可打。
-    private func kineticCueTimes(_ line: ImmersiveStageLyric, beatLocked: Bool) -> [TimeInterval] {
+    /// 谱面要提前知道的字：逐字歌词每个字都算，唱多久用它自己的时间（唱得长的是长音）；逐行歌词对上了拍子时只取
+    /// 句首和最后一个字（字的快慢交给拍子，按字数摊开的时刻和唱的对不上），读不到拍子时按字数摊开、轨道上才有东西
+    /// 可打。逐行歌词只有最后一个字带长短：拖到句尾，句尾常是拖长的那个字。
+    private func kineticCues(_ line: ImmersiveStageLyric, beatLocked: Bool) -> [ImmersiveKineticRhythmChart.Cue] {
         guard line.fillProgress == nil else { return [] }
-        let starts = ImmersiveKineticLyricsPolicy.tokens(
+        let tokens = ImmersiveKineticLyricsPolicy.tokens(
             text: line.text,
             syllables: line.syllables,
             lineStart: line.startTime,
             lineEnd: line.endTime
-        ).map(\.start)
-        guard line.syllables?.isEmpty ?? true, beatLocked else { return starts }
-        return Array(starts.prefix(1))
+        )
+        guard let first = tokens.first, let last = tokens.last else { return [] }
+        if !(line.syllables?.isEmpty ?? true) {
+            return tokens.map { .init(start: $0.start, duration: max($0.end - $0.start, 0)) }
+        }
+        let tail = ImmersiveKineticRhythmChart.Cue(
+            start: last.start,
+            duration: max((line.endTime ?? last.end) - last.start, 0)
+        )
+        guard !beatLocked else {
+            return tokens.count > 1 ? [.init(start: first.start), tail] : [tail]
+        }
+        return tokens.dropLast().map { .init(start: $0.start) } + [tail]
     }
 
     /// 一句里会各自动起来的字。逐字歌词用它自己的时间；逐行歌词有频谱时跟着声音里的起音亮，读不到频谱时整句

@@ -6,6 +6,8 @@ import Testing
 struct ImmersiveKineticRhythmTests {
     private typealias Chart = ImmersiveKineticRhythmChart
 
+    private func cues(_ starts: [TimeInterval]) -> [Chart.Cue] { starts.map { Chart.Cue(start: $0) } }
+
     /// 每 `period` 秒一下鼓点，按 60 帧喂给节拍钟，喂到 `until`。
     private func steadyClock(period: TimeInterval = 0.5, until end: TimeInterval = 6, offset: TimeInterval = 0.1) -> ImmersiveBeatClock {
         var clock = ImmersiveBeatClock()
@@ -86,8 +88,7 @@ struct ImmersiveKineticRhythmTests {
 
     @Test func lyricCuesBecomeNotesWithoutABeat() {
         var chart = Chart(seed: 2)
-        let cues: [TimeInterval] = [10.5, 10.62, 10.9, 11.3]
-        chart.update(clock: ImmersiveBeatClock(), cues: cues, climax: 0, at: 10)
+        chart.update(clock: ImmersiveBeatClock(), cues: cues([10.5, 10.62, 10.9, 11.3]), climax: 0, at: 10)
         // 10.62 离 10.5 太近，并掉。
         #expect(chart.notes.map(\.time) == [10.5, 10.9, 11.3])
         #expect(chart.notes.allSatisfy { $0.source == .lyric })
@@ -95,7 +96,7 @@ struct ImmersiveKineticRhythmTests {
 
     @Test func lateCuesAreSkippedAndPastNotesFadeOut() {
         var chart = Chart(seed: 2)
-        chart.update(clock: ImmersiveBeatClock(), cues: [10.1, 11], climax: 0, at: 10)
+        chart.update(clock: ImmersiveBeatClock(), cues: cues([10.1, 11]), climax: 0, at: 10)
         #expect(chart.notes.map(\.time) == [11])
         chart.update(clock: ImmersiveBeatClock(), cues: [], climax: 0, at: 11.5)
         #expect(chart.notes.count == 1)
@@ -106,11 +107,11 @@ struct ImmersiveKineticRhythmTests {
 
     @Test func notesHopBetweenLanesAndEachHandSwingsBackAndForth() {
         var chart = Chart(seed: 9)
-        let cues = (0..<60).map { 2 + Double($0) * 0.3 }
+        let starts = cues((0..<60).map { 2 + Double($0) * 0.3 })
         var time = 0.0
         var seen: [Chart.Note] = []
         while time < 20 {
-            chart.update(clock: ImmersiveBeatClock(), cues: cues, climax: 0, at: time)
+            chart.update(clock: ImmersiveBeatClock(), cues: starts, climax: 0, at: time)
             for note in chart.notes where !seen.contains(note) { seen.append(note) }
             time += 1.0 / 30
         }
@@ -153,7 +154,7 @@ struct ImmersiveKineticRhythmTests {
 
     @Test func seekingClearsTheChart() {
         var chart = Chart(seed: 1)
-        chart.update(clock: ImmersiveBeatClock(), cues: [5.5, 6], climax: 0, at: 5)
+        chart.update(clock: ImmersiveBeatClock(), cues: cues([5.5, 6]), climax: 0, at: 5)
         #expect(!chart.notes.isEmpty)
         chart.update(clock: ImmersiveBeatClock(), cues: [], climax: 0, at: 60)
         #expect(chart.notes.isEmpty)
@@ -162,16 +163,16 @@ struct ImmersiveKineticRhythmTests {
 
     @Test func saberCutsThroughTheCubeCentreAlongItsArrowWithoutJumping() throws {
         var chart = Chart(seed: 5)
-        let cues: [TimeInterval] = [3.0, 3.45, 3.9, 4.3, 5.4]
-        chart.update(clock: ImmersiveBeatClock(), cues: cues, climax: 0, at: 2)
+        let starts = cues([3.0, 3.45, 3.9, 4.3, 5.4])
+        chart.update(clock: ImmersiveBeatClock(), cues: starts, climax: 0, at: 2)
         var all: [Chart.Note] = chart.notes
-        chart.update(clock: ImmersiveBeatClock(), cues: cues, climax: 0, at: 3.5)
+        chart.update(clock: ImmersiveBeatClock(), cues: starts, climax: 0, at: 3.5)
         for note in chart.notes where !all.contains(note) { all.append(note) }
-        chart.update(clock: ImmersiveBeatClock(), cues: cues, climax: 0, at: 4.2)
+        chart.update(clock: ImmersiveBeatClock(), cues: starts, climax: 0, at: 4.2)
         for note in chart.notes where !all.contains(note) { all.append(note) }
         // 一次放全，好在同一份谱面上量整段挥剑。
         var whole = Chart(seed: 5)
-        whole.update(clock: ImmersiveBeatClock(), cues: [3.0], climax: 0, at: 2)
+        whole.update(clock: ImmersiveBeatClock(), cues: cues([3.0]), climax: 0, at: 2)
         let note = try #require(whole.notes.first)
         let cube = Chart.cubePosition(lane: note.lane, row: note.row)
         let atHit = whole.aim(hand: note.hand, at: note.time)
@@ -197,105 +198,238 @@ struct ImmersiveKineticRhythmTests {
         #expect(hypot(resting.x - rest.x, resting.y - rest.y) < 0.04)
         let later = whole.aim(hand: note.hand, at: note.time + 2.4)
         #expect(hypot(later.x - resting.x, later.y - resting.y) > 0.002)
-        #expect(all.count == cues.count)
+        #expect(all.count == starts.count)
     }
 
     @Test func packedChartCarriesNotesRelativeToNow() {
         var chart = Chart(seed: 5)
-        chart.update(clock: ImmersiveBeatClock(), cues: [3.0, 3.5], climax: 0.2, at: 2)
+        chart.update(clock: ImmersiveBeatClock(), cues: [Chart.Cue(start: 3.0), Chart.Cue(start: 3.5, duration: 0.9)], climax: 0.2, at: 2)
         let props = chart.packed(clock: ImmersiveBeatClock(), climax: 0.2, at: 2)
         #expect(props.count == Chart.propsCapacity)
         #expect(props[0].x == -1)
         #expect(props[0].w == 2)
+        // 每个音符三组：第二个音符从 19 起，长短在第三组。
         #expect(abs(props[16].z - 1.0) < 1e-5)
-        #expect(abs(props[18].z - 1.5) < 1e-5)
+        #expect(props[18].x == 0)
+        #expect(abs(props[19].z - 1.5) < 1e-5)
+        #expect(abs(props[21].x - 0.9) < 1e-5)
+    }
+
+    // MARK: 长音
+
+    @Test func longWordsBecomeHoldsThatKeepTheirHandBusy() throws {
+        var chart = Chart(seed: 11)
+        let lyric = [Chart.Cue(start: 10.5, duration: 1.2), Chart.Cue(start: 10.7), Chart.Cue(start: 10.9), Chart.Cue(start: 11.3)]
+        var time = 9.0
+        var seen: [Chart.Note] = []
+        while time < 12 {
+            chart.update(clock: ImmersiveBeatClock(), cues: lyric, climax: 0, at: time)
+            for note in chart.notes where !seen.contains(where: { $0.time == note.time && $0.lane == note.lane }) { seen.append(note) }
+            time += 1.0 / 30
+        }
+        let hold = try #require(seen.first { $0.time == 10.5 })
+        #expect(abs(hold.duration - 1.2) < 1e-9)
+        // 按着长音的那只手在放开以前不再来音符；别的音符都去了另一只手。
+        let sameHand = seen.filter { $0.hand == hold.hand && $0.time > hold.time }
+        #expect(sameHand.allSatisfy { $0.time >= hold.end + Chart.holdRelease - 1e-9 })
+        #expect(seen.contains { $0.hand != hold.hand && $0.time > hold.time && $0.time < hold.end })
+        // 短的字不算长音。
+        #expect(seen.filter { $0.time != 10.5 }.allSatisfy { !$0.isHold })
+    }
+
+    @Test func aHoldIsShortenedToEndBeforeTheNextNoteOfItsHand() {
+        var chart = Chart(seed: 2)
+        // 先放好的两个音符把两只手在 11 秒前后都占着，再来一个想拖两秒的长音。
+        chart.update(clock: ImmersiveBeatClock(), cues: [Chart.Cue(start: 11.0), Chart.Cue(start: 11.2)], climax: 0, at: 9.6)
+        chart.update(clock: ImmersiveBeatClock(), cues: [Chart.Cue(start: 11.0), Chart.Cue(start: 11.2), Chart.Cue(start: 10.0, duration: 2)], climax: 0, at: 9.62)
+        if let hold = chart.notes.first(where: { $0.time == 10.0 }), hold.isHold {
+            let next = chart.notes.filter { $0.hand == hold.hand && $0.time > hold.time }.map(\.time).min() ?? .infinity
+            #expect(hold.end + Chart.holdRelease <= next + 1e-9)
+        }
+    }
+
+    @Test func sparsePassagesHoldTheDownbeat() {
+        let clock = steadyClock()
+        var chart = Chart(seed: 3)
+        var time = 6.0
+        var seen: [Chart.Note] = []
+        while time < 10 {
+            chart.update(clock: clock, cues: [], climax: 0, sparse: true, at: time)
+            for note in chart.notes where !seen.contains(where: { $0.time == note.time && $0.lane == note.lane }) { seen.append(note) }
+            time += 1.0 / 30
+        }
+        let holds = seen.filter(\.isHold)
+        #expect(!holds.isEmpty)
+        #expect(holds.allSatisfy { abs($0.duration - clock.period * 2) < 1e-6 && $0.strength == 1 })
+    }
+
+    @Test func theSaberRestsOnAHoldThenFlicksAway() throws {
+        var chart = Chart(seed: 5)
+        chart.update(clock: ImmersiveBeatClock(), cues: [Chart.Cue(start: 3, duration: 1)], climax: 0, at: 1.8)
+        let note = try #require(chart.notes.first)
+        #expect(note.isHold)
+        let cube = Chart.cubePosition(lane: note.lane, row: note.row)
+        let atHead = chart.aim(hand: note.hand, at: 3)
+        #expect(hypot(atHead.x - cube.x, atHead.y - cube.y) < 1e-6)
+        // 按着时剑尖一直贴在方块那儿（绕一个小圈）。
+        for step in 1..<10 {
+            let point = chart.aim(hand: note.hand, at: 3 + Double(step) * 0.1)
+            #expect(hypot(point.x - cube.x, point.y - cube.y) < 0.05)
+        }
+        // 放开以后顺着箭头甩出去。
+        let flicked = chart.aim(hand: note.hand, at: 4 + 0.11)
+        #expect(hypot(flicked.x - cube.x, flicked.y - cube.y) > 0.2)
+        // 每一帧都挪得不多。
+        var time = 2.6
+        var last = chart.aim(hand: note.hand, at: time)
+        while time < 4.6 {
+            time += 1.0 / 60
+            let point = chart.aim(hand: note.hand, at: time)
+            #expect(hypot(point.x - last.x, point.y - last.y) < 0.12)
+            last = point
+        }
     }
 
     // MARK: 弹珠落音
 
-    @Test func everyNoteBouncesABallOffABarRightWhereItIs() throws {
-        var run = ImmersiveKineticMarbleRun(seed: 8)
-        var time = 0.0
-        for _ in 0..<40 {
-            run.update(hits: [0, 0, 0], followsSpectrum: true, aspect: 0.5, at: time)
+    private func note(_ time: TimeInterval, lane: Int = 0, duration: TimeInterval = 0) -> Chart.Note {
+        Chart.Note(time: time, lane: lane, row: 0, hand: lane < 2 ? 0 : 1, cut: .down, strength: 0.8, source: .beat, placed: time - 1.5, duration: duration)
+    }
+
+    /// 按 60 帧跑一段，`notes` 按谱面的样子提前 1.5 秒才给出来。
+    private func run(
+        _ marble: inout ImmersiveKineticMarbleRun,
+        notes all: [Chart.Note],
+        from start: TimeInterval,
+        to end: TimeInterval,
+        each: (inout ImmersiveKineticMarbleRun, TimeInterval) -> Void = { _, _ in }
+    ) {
+        var time = start
+        while time <= end {
+            let visible = all.filter { $0.time <= time + Chart.leadTime && $0.end >= time - Chart.afterglow }
+            marble.update(notes: visible, hits: [0, 0, 0], aspect: 0.5, at: time)
+            each(&marble, time)
             time += 1.0 / 60
         }
-        let before = run.balls[0]
-        run.update(hits: [0.8, 0, 0], followsSpectrum: true, aspect: 0.5, at: time)
-        let bar = try #require(run.bars.last)
-        let ball = run.balls[0]
-        #expect(bar.voice == 0)
-        #expect(abs(hypot(bar.x - ball.x, bar.y - ball.y) - ball.radius * 1.15) < 1e-6)
-        // 弹开以后离音条越来越远，而且是往上弹（掉下来撞的）。
-        let normal = (x: cos(bar.angle), y: sin(bar.angle))
-        #expect(ball.vx * normal.x + ball.vy * normal.y > 0)
-        #expect(before.vy > 0 && ball.vy < 0)
-        // 别的声部没有音，不弹。
-        #expect(run.bars.count == 1)
     }
 
-    @Test func aSteadyRhythmWalksTheBallDownStepByStepAndKeepsItInView() {
-        var run = ImmersiveKineticMarbleRun(seed: 3)
-        var time = 0.0
-        var nextBeat = 0.5
-        var heights: [Double] = []
-        while time < 12 {
-            var hits = [0.0, 0.0, 0.0]
-            if time >= nextBeat {
-                hits[1] = 0.6
-                nextBeat += 0.5
+    @Test func oneBallLandsOnEachNoteOnABarThatWasWaitingForIt() {
+        var marble = ImmersiveKineticMarbleRun(seed: 4)
+        let notes = (0..<30).map { note(2 + Double($0) * 0.5, lane: $0 % 4) }
+        var firstSeen: [Int: TimeInterval] = [:]
+        var contacts: Set<Int> = []
+        var lastPosition: SIMD2<Double>?
+        run(&marble, notes: notes, from: 0, to: 17) { marble, time in
+            for pad in marble.pads where pad.kind == .bounce {
+                let key = Int((pad.contact * 1000).rounded())
+                if firstSeen[key] == nil { firstSeen[key] = time }
             }
-            run.update(hits: hits, followsSpectrum: true, aspect: 0.6, at: time)
-            if hits[1] > 0 { heights.append(run.balls[1].y) }
-            let ball = run.balls[1]
-            if time > 3 {
-                #expect(ball.y - run.cameraY > -0.1 && ball.y - run.cameraY < 1.0)
-                #expect(ball.x >= 0 && ball.x <= 0.6)
+            contacts.insert(Int((marble.ball.lastContact * 1000).rounded()))
+            // 从头到尾就这一颗球：每帧挪一点点，不会凭空跳到别处；一直在画面里。
+            let position = SIMD2(marble.ball.x, marble.ball.y)
+            if let lastPosition { #expect(hypot(position.x - lastPosition.x, position.y - lastPosition.y) < 0.06) }
+            lastPosition = position
+            #expect(marble.ball.y - marble.cameraY > 0.05 && marble.ball.y - marble.cameraY < 0.9)
+            #expect(marble.ball.x - marble.cameraX > 0 && marble.ball.x - marble.cameraX < 0.5)
+        }
+        for note in notes {
+            let key = Int((note.time * 1000).rounded())
+            // 每个音都碰到了，音条提前大半秒就在那儿等着。
+            #expect(contacts.contains(key))
+            #expect((firstSeen[key].map { note.time - $0 } ?? 0) > 0.6)
+        }
+        // 音条按轨道分颜色。
+        #expect(Set(marble.pads.filter { $0.kind == .bounce }.map(\.lane)).count == 4)
+    }
+
+    @Test func aBallTouchesTheBarExactlyWhenTheNoteSounds() throws {
+        var marble = ImmersiveKineticMarbleRun(seed: 9)
+        let notes = [note(1.0), note(1.43), note(2.0)]
+        run(&marble, notes: notes, from: 0, to: 1.0 - 1.0 / 60)
+        let pad = try #require(marble.pads.first { abs($0.contact - 1.0) < 1e-9 })
+        // 走到恰好那一刻：球心离音条正好一个半径多一点，而且是朝着音条的那一面。
+        marble.update(notes: notes, hits: [0, 0, 0], aspect: 0.5, at: 1.0)
+        let normal = SIMD2(cos(pad.angle), sin(pad.angle))
+        let offset = SIMD2(marble.ball.x - pad.x, marble.ball.y - pad.y)
+        #expect(abs(hypot(offset.x, offset.y) - marble.ball.radius * 1.15) < 1e-6)
+        #expect(offset.x * normal.x + offset.y * normal.y > 0)
+    }
+
+    @Test func aLongNoteRollsTheBallDownARampForItsLength() throws {
+        var marble = ImmersiveKineticMarbleRun(seed: 5)
+        let notes = [note(1.0), note(1.5, duration: 1.2), note(3.2)]
+        var onRamp: [Double] = []
+        run(&marble, notes: notes, from: 0, to: 3.5) { marble, time in
+            guard time > 1.55, time < 2.65,
+                  let ramp = marble.pads.first(where: { $0.kind == .ramp }) else { return }
+            // 滚的时候球心一直在坡面上方一个半径。
+            let direction = SIMD2(cos(ramp.angle), sin(ramp.angle))
+            let rel = SIMD2(marble.ball.x - ramp.x, marble.ball.y - ramp.y)
+            onRamp.append(abs(rel.x * direction.y - rel.y * direction.x))
+        }
+        let ramp = try #require(marble.pads.first { $0.kind == .ramp })
+        #expect(abs(ramp.contact - 1.5) < 1e-9 && abs(ramp.duration - 1.2) < 1e-9)
+        #expect(!onRamp.isEmpty)
+        #expect(onRamp.allSatisfy { abs($0 - marble.ball.radius) < 1e-6 })
+        // 坡后面那个音照样接住。
+        #expect(abs(marble.ball.lastContact - 3.2) < 1e-9)
+    }
+
+    @Test func aLongSilenceLaysGlidesSoTheBallNeverJustPlummets() {
+        var marble = ImmersiveKineticMarbleRun(seed: 6)
+        let notes = [note(1.0), note(6.0)]
+        var flying = 0.0
+        var longestFlight = 0.0
+        var lastContact = 0.0
+        run(&marble, notes: notes, from: 0.5, to: 6.5) { marble, time in
+            if marble.ball.lastContact != lastContact {
+                lastContact = marble.ball.lastContact
+                flying = 0
             }
-            time += 1.0 / 60
+            let rolling = marble.pads.contains { $0.kind != .bounce && time >= $0.contact && time <= $0.contact + $0.duration }
+            flying = rolling ? 0 : flying + 1.0 / 60
+            if time > 1.2 { longestFlight = max(longestFlight, flying) }
         }
-        // 一个音往下一级：每一下都比上一下低，但不会一下掉一大截。
-        let steps = zip(heights.dropFirst(5), heights.dropFirst(6)).map { $1 - $0 }
-        #expect(steps.allSatisfy { $0 > 0 && $0 < 0.15 })
-        // 走过的台阶留在画面里，往上退出画面才收掉。
-        let trail = run.bars.filter { $0.voice == 1 }
-        #expect(trail.count >= 8)
-        #expect(trail.allSatisfy { $0.y - run.cameraY > -0.3 })
+        #expect(marble.pads.contains { $0.kind == .glide })
+        #expect(longestFlight < 1.0)
+        #expect(abs(marble.ball.lastContact - 6.0) < 1e-9)
     }
 
-    @Test func lyricHitsGoToTheLowestBall() throws {
-        var run = ImmersiveKineticMarbleRun(seed: 3)
-        run.update(hits: [0, 0, 0], followsSpectrum: false, aspect: 0.5, at: 0)
-        run.update(hits: [0, 0, 0], followsSpectrum: false, aspect: 0.5, at: 0.3)
-        let lowest = try #require(run.balls.indices.max { run.balls[$0].y < run.balls[$1].y })
-        run.update(hits: [0, 0.62, 0], followsSpectrum: false, aspect: 0.5, at: 0.32)
-        #expect(run.bars.last?.voice == run.balls[lowest].voice)
+    @Test func withoutAChartHeardOnsetsBounceTheBallOnTheSpot() {
+        var marble = ImmersiveKineticMarbleRun(seed: 3)
+        marble.update(notes: [], hits: [0, 0, 0], aspect: 0.5, at: 0)
+        marble.update(notes: [], hits: [0, 0, 0], aspect: 0.5, at: 0.3)
+        marble.update(notes: [], hits: [0.8, 0, 0], aspect: 0.5, at: 0.32)
+        #expect(marble.pads.contains { $0.kind == .bounce && abs($0.contact - 0.32) < 1e-9 })
+        #expect(marble.ball.vy < 0)
     }
 
-    @Test func pausingFreezesTheBallsAndSeekingStartsOver() {
-        var run = ImmersiveKineticMarbleRun(seed: 3)
-        run.update(hits: [0, 0, 0], followsSpectrum: true, aspect: 0.5, at: 1)
-        run.update(hits: [0.9, 0.9, 0.9], followsSpectrum: true, aspect: 0.5, at: 1.2)
-        let frozen = run.balls
-        run.update(hits: [0, 0, 0], followsSpectrum: true, aspect: 0.5, at: 1.2)
-        #expect(run.balls.map(\.y) == frozen.map(\.y))
-        #expect(run.bars.count == 3)
-        run.update(hits: [0, 0, 0], followsSpectrum: true, aspect: 0.5, at: 80)
-        #expect(run.bars.isEmpty)
+    @Test func pausingFreezesTheBallAndSeekingStartsOver() {
+        var marble = ImmersiveKineticMarbleRun(seed: 3)
+        let notes = [note(1.0), note(1.5)]
+        run(&marble, notes: notes, from: 0, to: 1.2)
+        let frozen = marble.ball
+        marble.update(notes: notes, hits: [0, 0, 0], aspect: 0.5, at: 1.2 - 1.0 / 60 + 1.0 / 60)
+        #expect(abs(marble.ball.y - frozen.y) < 0.02)
+        marble.update(notes: [], hits: [0, 0, 0], aspect: 0.5, at: 80)
+        // 从头来：之前的音条都没了（没有音时只会垫缓坡）。
+        #expect(marble.pads.allSatisfy { $0.kind == .glide })
+        #expect(marble.pads.allSatisfy { $0.contact > 80 })
     }
 
-    @Test func packedMarblesAreInViewCoordinates() {
-        var run = ImmersiveKineticMarbleRun(seed: 3)
-        var time = 0.0
-        while time < 4 {
-            run.update(hits: [0.5, 0.5, 0.6], followsSpectrum: true, aspect: 0.5, at: time)
-            time += 0.2
-        }
-        let props = run.packed(at: time)
+    @Test func packedMarbleIsInViewCoordinates() {
+        var marble = ImmersiveKineticMarbleRun(seed: 3)
+        let notes = (0..<8).map { note(1 + Double($0) * 0.5, lane: $0 % 4, duration: $0 == 4 ? 0.8 : 0) }
+        run(&marble, notes: notes, from: 0, to: 4)
+        let props = marble.packed(at: 4)
         #expect(props.count == ImmersiveKineticMarbleRun.propsCapacity)
-        #expect(props[0].x == 3)
-        #expect(Int(props[0].y) == min(run.bars.count, 52))
-        #expect(abs(Double(props[1].y) - (run.balls[0].y - run.cameraY)) < 1e-4)
+        #expect(Int(props[0].x) == min(marble.pads.count, 60))
+        #expect(abs(Double(props[1].x) - (marble.ball.x - marble.cameraX)) < 1e-4)
+        #expect(abs(Double(props[1].y) - (marble.ball.y - marble.cameraY)) < 1e-4)
+        // 种类和轨道拼在一个数里：轨道 + 1 + 8 × 种类。
+        let codes = (0..<Int(props[0].x)).map { Int(props[9 + $0 * 2].y) }
+        #expect(codes.contains { $0 / 8 == 1 })
+        #expect(codes.allSatisfy { $0 % 8 <= 4 })
     }
 
     // MARK: 曲速跟着鼓点

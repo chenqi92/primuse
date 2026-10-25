@@ -27,12 +27,14 @@ public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
     case laserShow
     /// 霓虹夜驰：沿着发光的网格路面往地平线上的城市冲。
     case neonDrive
-    /// 弹珠落音：发光的小球一直往下掉，每一个音都是一颗球撞上一根冒出来的音条，一路留下的音条就是这首歌
-    /// （`ImmersiveKineticMarbleRun`）。
+    /// 弹珠落音：一颗发光的小球一直往下掉，每一个音都有一根音条提前等在它要落到的地方接住它，长音是一段让它
+    /// 滚下去的坡，一路留下的音条就是这首歌（`ImmersiveKineticMarbleRun`）。
     case marbleDrop
-    /// 下落轨道：节奏大师那样的四条轨道，音符踩着拍子和字头落下来，到判定线时被自动打掉（`ImmersiveKineticRhythmChart`）。
+    /// 下落轨道：节奏大师那样的四条轨道，音符踩着拍子和字头落下来，到判定线时被自动打掉，长音一直按到放开
+    /// （`ImmersiveKineticRhythmChart`）。
     case noteHighway
-    /// 光剑劈方块：方块踩着拍子从远处飞来，两把光剑照着方块上的箭头一刀刀劈开（`ImmersiveKineticRhythmChart`）。
+    /// 光剑劈方块：方块踩着拍子从远处飞来，两把光剑照着方块上的箭头一刀刀劈开；长音是一条迎面而来的光轨，剑抵着
+    /// 它一路切到尾（`ImmersiveKineticRhythmChart`）。
     case saberSlash
 
     public var isEnergetic: Bool {
@@ -42,8 +44,8 @@ public enum ImmersiveKineticScene: String, CaseIterable, Sendable {
         }
     }
 
-    /// 音游场景：要提前知道接下来的拍子与字头（`ImmersiveKineticRhythmChart`）。
-    public var playsRhythmChart: Bool { self == .noteHighway || self == .saberSlash }
+    /// 跟着谱面走的场景（两个音游和弹珠落音）：要提前知道接下来的拍子与字头（`ImmersiveKineticRhythmChart`）。
+    public var playsRhythmChart: Bool { self == .noteHighway || self == .saberSlash || self == .marbleDrop }
 }
 
 /// 「动态歌词」的背景怎么定：默认每首歌按歌名自己挑一个（同一首歌每次都一样），也可以在设置里固定成某一个。
@@ -817,6 +819,12 @@ public struct ImmersiveKineticDrive: Equatable, Sendable {
     public var thrust: Double = 0
     /// 跟着鼓点走的节拍钟（播放时间）：音游场景靠它预报接下来的拍子。
     public var beatClock = ImmersiveBeatClock()
+    /// 最近几秒平均一秒听到几下中段起音（军鼓、人声的字头；踩镲不算，它几乎一直在响）：这种起音很少、声音拖得长
+    /// 的段落，音游在小节头出长音。
+    public var onsetRate: Double = 0
+
+    /// 声音拖得长：拍子对上了，中段一秒不到 1.2 下起音。
+    public var isSparse: Bool { beatClock.isLocked && onsetRate < 1.2 }
 
     public init() {}
 }
@@ -862,6 +870,9 @@ public struct ImmersiveKineticConductor: Sendable {
     private var spectrumSince: TimeInterval?
     private var silentSince: TimeInterval?
     private var thrustTarget = 0.0
+    /// 起音计数，按 `onsetWindow` 指数衰减：除以窗口长度就是一秒几下。
+    private var onsetTally = 0.0
+    static let onsetWindow: TimeInterval = 3
 
     public init(seed: UInt64) {
         random = ImmersiveRandom(seed: seed)
@@ -910,6 +921,9 @@ public struct ImmersiveKineticConductor: Sendable {
             accent = features.onsets[1]
             drive.onset = max(hit, accent)
             drive.registerHits = features.onsets
+            let heard = features.onsets[1] >= 0.35 ? 1.0 : 0
+            onsetTally = onsetTally * exp(-dt / Self.onsetWindow) + heard
+            drive.onsetRate = onsetTally / Self.onsetWindow
             if let playbackTime {
                 drive.beatClock.update(
                     beat: features.beat,
@@ -922,6 +936,8 @@ public struct ImmersiveKineticConductor: Sendable {
             drive.onset = 0
             let crossed = crossedOnsets(lyricOnsets, playbackTime: playbackTime)
             drive.registerHits = [0, crossed > 0 ? 0.62 : 0, 0]
+            onsetTally *= exp(-dt / Self.onsetWindow)
+            drive.onsetRate = onsetTally / Self.onsetWindow
             if let playbackTime {
                 drive.beatClock.update(beat: 0, beatsPerSecond: nil, steadiness: 0, at: playbackTime)
             }

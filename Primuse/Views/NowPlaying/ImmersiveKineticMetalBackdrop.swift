@@ -53,8 +53,8 @@ final class ImmersiveKineticDirector {
     var levelsProvider: @MainActor () -> [CGFloat] = { [] }
     var playbackTime: @MainActor () -> TimeInterval? = { nil }
     var lyricOnsets: [TimeInterval] = []
-    /// 台上和接下来几句歌词的字头（提前就知道的那份时间）：音游场景提前把它们放上轨道。
-    var lyricCues: [TimeInterval] = []
+    /// 台上和接下来几句歌词的字（提前就知道的开唱时刻和长短）：音游、弹珠场景提前把它们排进谱面。
+    var lyricCues: [ImmersiveKineticRhythmChart.Cue] = []
 
     /// 场景时钟：从这个导演建起来算的秒数。着色器里用 float，开机以来的秒数太大，动画会一跳一跳。
     var sceneTime: TimeInterval { CACurrentMediaTime() - epoch }
@@ -117,24 +117,29 @@ final class ImmersiveKineticDirector {
     /// 弹珠落音、音游场景这一帧交给着色器的那份数据（buffer 1）；别的场景给一份空的。和 `currentDrive()` 一样只在
     /// 背景的绘制回调里调。时间用播放时间：暂停时球和音符都停住，拖进度时从头来。
     func props(for scene: ImmersiveKineticScene, aspect: Double) -> [SIMD4<Float>] {
-        guard scene == .marbleDrop || scene.playsRhythmChart else { return Self.emptyProps }
+        guard scene.playsRhythmChart else { return Self.emptyProps }
         let drive = currentDrive()
         guard let playback = playbackTime() else { return Self.emptyProps }
         let now = sceneTime
-        if scene == .marbleDrop {
-            if now - marbleUpdate > 0.004 {
-                marbleUpdate = now
-                marble.update(hits: drive.registerHits, followsSpectrum: drive.hasSpectrum, aspect: aspect, at: playback)
-                marbleProps = marble.packed(at: playback)
-            }
-            return marbleProps
-        }
+        // 谱面三个场景共用一份，同一帧只走一次。
         if now - chartUpdate > 0.004 {
             chartUpdate = now
-            chart.update(clock: drive.beatClock, cues: lyricCues, climax: drive.climaxLevel, at: playback)
+            chart.update(
+                clock: drive.beatClock,
+                cues: lyricCues,
+                climax: drive.climaxLevel,
+                sparse: drive.isSparse,
+                at: playback
+            )
             chartProps = chart.packed(clock: drive.beatClock, climax: drive.climaxLevel, at: playback)
         }
-        return chartProps
+        guard scene == .marbleDrop else { return chartProps }
+        if now - marbleUpdate > 0.004 {
+            marbleUpdate = now
+            marble.update(notes: chart.notes, hits: drive.registerHits, aspect: aspect, at: playback)
+            marbleProps = marble.packed(at: playback)
+        }
+        return marbleProps
     }
 
     private func recordOnset(at playback: TimeInterval) {

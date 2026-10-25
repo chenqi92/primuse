@@ -1,262 +1,420 @@
 import Foundation
 
-/// 「动态歌词」的弹珠落音场景（`ImmersiveKineticScene.marbleDrop`）：几颗发光的小球一直往下掉，每听到一个音，
-/// 对应声部的那颗球正好在那一刻撞上一根冒出来的音条弹开——音条就长在球此刻的位置上，所以每一下都踩在音上，不用
-/// 预报。弹开的方向朝这个声部的地盘拐一点，球不会跑出画面。音条撞完留着慢慢暗下去，画面跟着球往下走，一路留下的
-/// 音条就是这首歌的样子。
+/// 「动态歌词」的弹珠落音场景（`ImmersiveKineticScene.marbleDrop`）：一颗发光的小球一直往下掉，从头到尾都是它，
+/// 画面跟着它走。谱面上的每一个音（`ImmersiveKineticRhythmChart`，提前一两秒就知道）都是一根接住它的音条：音条
+/// 提前出现在球那一刻会到的地方，球正好在音响的那一下落上去弹开；颜色按轨道分。长音是一段斜坡，球落上去顺着坡
+/// 滚到长音结束才飞出去；一阵子没有音时铺一段缓坡让它滑着，不会一直往下坠。读不到拍子、谱面上没有音时，听到的
+/// 起音当场在球底下垫一根音条。
 ///
-/// 坐标按画面高度算：x 从 0 到宽高比，y 向下；`cameraY` 是画面上沿在这条路上的位置。时间是播放时间：暂停时球停住。
+/// 坐标按画面高度算，y 向下；球和音条都在一张无限大的纸上，`cameraX`、`cameraY` 是画面左上角在纸上的位置。
+/// 时间是播放时间：暂停时球停住，拖进度从头来。弹跳、滚坡都按解析式算到该碰的那一刻，不受帧率影响。
 public struct ImmersiveKineticMarbleRun: Sendable {
     public struct Ball: Equatable, Sendable {
         public var x: Double
         public var y: Double
         public var vx: Double
         public var vy: Double
-        /// 0 低音（底鼓、贝斯），1 中段（军鼓、人声），2 高音（镲片）。
-        public var voice: Int
         public var radius: Double
-        public var lastBounce: TimeInterval
+        /// 球自己转了多少（弧度）：滚坡时按走过的路算，球面上的高光跟着转。
+        public var spin: Double
+        /// 最近碰到音条的时刻。
+        public var lastContact: TimeInterval
         /// 最近几个位置，最新的在前：画拖尾用。
         public var trail: [SIMD2<Double>]
     }
 
-    public struct Bar: Equatable, Sendable {
-        /// 撞的那一点。
+    public enum PadKind: Int, Sendable {
+        /// 一下弹开的音条。
+        case bounce
+        /// 长音的斜坡：球顺着滚到长音结束。
+        case ramp
+        /// 没有音时垫的缓坡（暗一些，不算音）。
+        case glide
+    }
+
+    public struct Pad: Equatable, Sendable {
+        /// 弹开的音条：撞点；坡：坡的起点（球心在它上方一个半径）。
         public var x: Double
         public var y: Double
-        /// 朝着球那一面的法线方向（弧度，y 向下）：音条横在跟它垂直的方向上。
+        /// 弹开的音条：朝着球那一面的法线方向；坡：顺着坡往下滚的方向（弧度，y 向下）。
         public var angle: Double
         public var length: Double
-        public var time: TimeInterval
-        public var voice: Int
+        /// 球碰到它的时刻。
+        public var contact: TimeInterval
+        /// 坡上滚多久；弹开的音条为 0。
+        public var duration: TimeInterval
+        /// 颜色按轨道分（谱面音符的轨道号，0…3）。
+        public var lane: Int
         public var strength: Double
+        public var kind: PadKind
+        /// 弹开以后球的速度（只有弹开的音条有）。
+        var outgoing: SIMD2<Double>
+    }
+
+    /// 球此刻怎么走：飞（抛物线）或滚（沿坡匀速）。都从 `since` 起算。
+    enum Motion: Equatable, Sendable {
+        case flying(from: SIMD2<Double>, velocity: SIMD2<Double>, since: TimeInterval)
+        case rolling(from: SIMD2<Double>, direction: SIMD2<Double>, speed: Double, since: TimeInterval, until: TimeInterval)
+
+        func position(at time: TimeInterval) -> SIMD2<Double> {
+            switch self {
+            case let .flying(from, velocity, since):
+                let t = max(time - since, 0)
+                return from + velocity * t + SIMD2(0, 0.5 * ImmersiveKineticMarbleRun.gravity * t * t)
+            case let .rolling(from, direction, speed, since, until):
+                let t = min(max(time - since, 0), until - since)
+                return from + direction * (speed * t)
+            }
+        }
+
+        func velocity(at time: TimeInterval) -> SIMD2<Double> {
+            switch self {
+            case let .flying(_, velocity, since):
+                return velocity + SIMD2(0, ImmersiveKineticMarbleRun.gravity * max(time - since, 0))
+            case let .rolling(_, direction, speed, _, _):
+                return direction * speed
+            }
+        }
+
+        var startTime: TimeInterval {
+            switch self {
+            case let .flying(_, _, since): since
+            case let .rolling(_, _, _, since, _): since
+            }
+        }
+
+        /// 滚坡在什么时候滚完；飞着时为 nil。
+        var rollEnd: TimeInterval? {
+            if case let .rolling(_, _, _, _, until) = self { return until }
+            return nil
+        }
     }
 
     public static let gravity = 2.4
-    /// 掉得再久也不超过这个速度（每秒几个画面高）。
-    public static let terminalSpeed = 1.05
-    public static let barLifetime: TimeInterval = 7
-    static let barCapacity = 52
+    public static let ballRadius = 0.03
+    /// 音条提前多久出现在球要到的地方。
+    public static let preview: TimeInterval = 0.9
+    /// 一个音往下走多少（画面高度）：一拍一拍地往下，像下台阶。
+    static let stepDown = 0.06
+    /// 坡有多斜（弧度），长音坡和缓坡。
+    static let rampSlope = 0.34
+    static let glideSlope = 0.24
+    /// 飞了这么久还没有下一个音，就在它底下垫一段缓坡。
+    static let longestFall: TimeInterval = 0.75
+    static let padLifetime: TimeInterval = 8
+    static let padCapacity = 60
     static let trailInterval: TimeInterval = 0.025
     static let trailLength = 10
-    /// 每个声部两次弹开至少隔多久：镲片一秒十来下，球会被弹得悬在半空。
-    static let minimumBounceInterval: [TimeInterval] = [0.16, 0.16, 0.34]
-    /// 每个声部多重的起音才算一个音。
-    static let hitThreshold = [0.3, 0.35, 0.55]
-    static let radii = [0.027, 0.021, 0.015]
-    /// 三个声部各自的地盘（占画面宽度的几成）。
-    static let homes = [0.3, 0.52, 0.72]
-    /// 球保持在画面里哪个高度附近。
-    static let cameraTarget = 0.42
-    /// 照着节奏一个音往下走多少（画面高度）。
-    static let stepDown = 0.055
+    /// 球保持在画面里哪个位置附近（占画面宽、高的几成）。
+    static let cameraAnchor = SIMD2(0.5, 0.42)
 
-    public private(set) var balls: [Ball] = []
-    public private(set) var bars: [Bar] = []
+    public private(set) var ball = Ball(x: 0, y: 0, vx: 0, vy: 0, radius: ballRadius, spin: 0, lastContact: -10, trail: [])
+    public private(set) var pads: [Pad] = []
+    public private(set) var cameraX = 0.0
     public private(set) var cameraY = 0.0
+    private var motion = Motion.flying(from: .zero, velocity: .zero, since: 0)
+    /// 最后一根已经排好的音条之后球怎么走（排下一根时从它推）。
+    private var plannedMotion = Motion.flying(from: .zero, velocity: .zero, since: 0)
+    /// 已经排了音条的谱面音符（按该打的时刻），免得一个音排两次。
+    private var scheduledNotes: Set<Int> = []
     private var random: ImmersiveRandom
     private var lastTime: TimeInterval?
     private var aspect = 0.5
     private var trailClock = 0.0
-    private var wander = [0.0, 0.0, 0.0]
-    /// 每颗球最近两个音之间大约隔多久（平滑过）。
-    private var intervals = [0.45, 0.45, 0.45]
-    /// 每颗球上一次往哪边弹：1 往右，-1 往左。
-    private var sides = [1.0, -1.0, 1.0]
+    private var side = 1.0
+    private var hasStarted = false
 
     public init(seed: UInt64) {
         random = ImmersiveRandom(seed: seed ^ 0xBA11_0F_5EED)
     }
 
-    /// 走一帧。`hits` 是低、中、高三段这一帧的起音力度；读不到频谱时（`followsSpectrum` 为 false）只有中段，是
-    /// 歌词的字头，交给画面里最靠下的那颗球。`aspect` 是画面的宽高比，`time` 是播放时间。
-    public mutating func update(hits: [Double], followsSpectrum: Bool, aspect: Double, at time: TimeInterval) {
+    /// 走一帧。`notes` 是谱面上的音符（`ImmersiveKineticRhythmChart.notes`）；`hits` 是这一帧听到的起音力度
+    /// （谱面上附近没有音时当场垫一根音条用）；`aspect` 是画面的宽高比；`time` 是播放时间。
+    public mutating func update(
+        notes: [ImmersiveKineticRhythmChart.Note],
+        hits: [Double],
+        aspect: Double,
+        at time: TimeInterval
+    ) {
         guard time.isFinite, aspect.isFinite, aspect > 0 else { return }
         self.aspect = aspect
-        if balls.isEmpty || lastTime.map({ time < $0 - 0.05 || time - $0 > 1.5 }) == true {
+        if !hasStarted || lastTime.map({ time < $0 - 0.05 || time - $0 > 1.5 }) == true {
             reset(at: time)
         }
         let dt = lastTime.map { min(max(time - $0, 0), 0.1) } ?? 0
         lastTime = time
-        var remaining = dt
-        while remaining > 1e-6 {
-            let step = min(remaining, 1.0 / 120)
-            integrate(step)
-            remaining -= step
+
+        schedule(notes: notes, at: time)
+        contactPads(through: time)
+        if let hit = hits.max(), hit >= 0.35 {
+            bounceNow(strength: hit, notes: notes, at: time)
         }
 
-        if followsSpectrum {
-            for voice in 0..<min(hits.count, balls.count)
-            where hits[voice] >= Self.hitThreshold[voice]
-                && time - balls[voice].lastBounce >= Self.minimumBounceInterval[voice] {
-                bounce(voice, strength: hits[voice], at: time)
-            }
-        } else if let hit = hits.max(), hit > 0 {
-            // 歌词的字头：给最靠下、刚才没弹过的那颗。
-            let candidates = balls.indices.filter { time - balls[$0].lastBounce >= 0.12 }
-            if let lowest = candidates.max(by: { balls[$0].y < balls[$1].y }) {
-                bounce(lowest, strength: hit, at: time)
-            }
+        let position = motion.position(at: time)
+        let velocity = motion.velocity(at: time)
+        if motion.rollEnd != nil {
+            ball.spin += hypot(velocity.x, velocity.y) * dt / ball.radius * (velocity.x >= 0 ? 1 : -1)
+        } else {
+            ball.spin += velocity.x * dt / ball.radius * 0.5
         }
+        ball.x = position.x
+        ball.y = position.y
+        ball.vx = velocity.x
+        ball.vy = velocity.y
 
         trailClock += dt
         if trailClock >= Self.trailInterval {
             trailClock = trailClock.truncatingRemainder(dividingBy: Self.trailInterval)
-            for index in balls.indices {
-                balls[index].trail.insert(SIMD2(balls[index].x, balls[index].y), at: 0)
-                if balls[index].trail.count > Self.trailLength { balls[index].trail.removeLast() }
-            }
+            ball.trail.insert(SIMD2(ball.x, ball.y), at: 0)
+            if ball.trail.count > Self.trailLength { ball.trail.removeLast() }
         }
 
-        // 画面跟着球往下走，只往下不往上：追着最近弹过的那几颗球的平均高度（都没弹过时看全部）。
-        let active = balls.filter { time - $0.lastBounce < 1.5 }
-        let followed = active.isEmpty ? balls : active
-        let target = followed.map(\.y).reduce(0, +) / Double(followed.count) - Self.cameraTarget
-        if target > cameraY {
-            cameraY = target + (cameraY - target) * pow(0.5, dt / 0.8)
-        }
+        // 画面跟着球走，横竖都跟；落得快时追得也快一点，球不会冲出画面。
+        let targetX = ball.x - Self.cameraAnchor.x * aspect
+        let targetY = ball.y - Self.cameraAnchor.y
+        let follow = 1 - pow(0.5, dt / 0.35)
+        cameraX += (targetX - cameraX) * follow
+        cameraY += (targetY - cameraY) * follow
+        cameraY = min(max(cameraY, ball.y - 0.85), ball.y - 0.1)
 
-        // 掉出画面下沿、被甩在上沿外面的球，从上沿外面重新落进来。
-        for index in balls.indices where balls[index].y - cameraY > 1.12 || balls[index].y - cameraY < -0.35 {
-            respawn(index, above: 0.08)
+        pads.removeAll { pad in
+            time - pad.contact - pad.duration > Self.padLifetime
+                || pad.y - cameraY < -0.6
+                || abs(pad.x - (cameraX + aspect / 2)) > aspect * 2 + 1
         }
-        bars.removeAll { time - $0.time > Self.barLifetime || $0.y - cameraY < -0.3 }
-        if bars.count > Self.barCapacity { bars.removeFirst(bars.count - Self.barCapacity) }
+        if pads.count > Self.padCapacity { pads.removeFirst(pads.count - Self.padCapacity) }
+        scheduledNotes = scheduledNotes.filter { Double($0) / 1000 > time - 5 }
     }
 
     private mutating func reset(at time: TimeInterval) {
-        bars.removeAll()
-        cameraY = 0
+        hasStarted = true
+        pads.removeAll()
+        scheduledNotes.removeAll()
         trailClock = 0
-        wander = [0, 0, 0]
-        intervals = [0.45, 0.45, 0.45]
-        balls = (0..<3).map { voice in
-            Ball(
-                x: Self.homes[voice] * aspect,
-                y: -0.03 - 0.09 * Double(voice),
-                vx: 0,
-                vy: 0.2,
-                voice: voice,
-                radius: Self.radii[voice],
-                lastBounce: time - 10,
-                trail: []
-            )
-        }
+        let start = SIMD2(0.5 * aspect, -0.05)
+        motion = .flying(from: start, velocity: SIMD2(0, 0.2), since: time)
+        plannedMotion = motion
+        ball = Ball(x: start.x, y: start.y, vx: 0, vy: 0.2, radius: Self.ballRadius, spin: 0, lastContact: time - 10, trail: [])
+        cameraX = 0
+        cameraY = start.y - Self.cameraAnchor.y
         lastTime = time
     }
 
-    private mutating func respawn(_ index: Int, above offset: Double) {
-        let voice = balls[index].voice
-        balls[index].x = (Self.homes[voice] + wander[voice]) * aspect
-        balls[index].y = cameraY - offset - 0.1 * random.unit()
-        balls[index].vx = random.centered() * 0.05
-        balls[index].vy = 0.15
-        balls[index].trail.removeAll()
-    }
-
-    private mutating func integrate(_ dt: TimeInterval) {
-        let drag = pow(0.7, dt)
-        for index in balls.indices {
-            var ball = balls[index]
-            ball.vy = min(ball.vy + Self.gravity * dt, Self.terminalSpeed)
-            ball.vx *= drag
-            ball.x += ball.vx * dt
-            ball.y += ball.vy * dt
-            // 画面两侧是墙，碰到就弹回来。
-            if ball.x < ball.radius {
-                ball.x = ball.radius
-                ball.vx = abs(ball.vx) * 0.8
-            } else if ball.x > aspect - ball.radius {
-                ball.x = aspect - ball.radius
-                ball.vx = -abs(ball.vx) * 0.8
+    /// 谱面上 `preview` 以内的音符，按时间一个个排上音条：音条放在球那一刻会到的地方。长音排一段坡；离上一根
+    /// 太久时先垫一段缓坡。坡上滚着的时候来的音不排（球正滚着）。
+    private mutating func schedule(notes: [ImmersiveKineticRhythmChart.Note], at time: TimeInterval) {
+        let horizon = time + Self.preview
+        let known = notes.map(\.time).sorted()
+        // 同一时刻的双押只算一下。
+        var upcoming: [ImmersiveKineticRhythmChart.Note] = []
+        for note in notes.sorted(by: { $0.time < $1.time })
+        where note.time > plannedMotion.startTime + 0.08 && note.time <= horizon && !scheduledNotes.contains(Self.key(note.time)) {
+            if let last = upcoming.last, abs(last.time - note.time) < 0.05 { continue }
+            upcoming.append(note)
+        }
+        for (index, note) in upcoming.enumerated() {
+            insertGlideIfNeeded(before: note.time, known: known)
+            let following = index + 1 < upcoming.count ? upcoming[index + 1].time : nil
+            if note.isHold {
+                placeRamp(at: note.time, duration: note.duration, lane: note.lane, strength: note.strength, kind: .ramp)
+            } else {
+                placeBounce(at: note.time, nextNote: following, lane: note.lane, strength: note.strength)
             }
-            balls[index] = ball
+            scheduledNotes.insert(Self.key(note.time))
+        }
+        // 前面没有音了：飞得太久就垫缓坡。
+        insertGlideIfNeeded(before: nil, known: known)
+    }
+
+    private static func key(_ time: TimeInterval) -> Int { Int((time * 1000).rounded()) }
+
+    /// 球从最后一根排好的音条飞出去以后，到下一个音（`next`，不知道时按谱面上已知的下一个，再没有就按大半秒）
+    /// 还要飞超过 `longestFall`：在飞到第 `longestFall`·0.8 秒那里垫一段缓坡，滑到下一个音前一点（最长一秒半）
+    /// 再接着飞。谱面上已经知道的音不会被缓坡占掉。
+    private mutating func insertGlideIfNeeded(before next: TimeInterval?, known: [TimeInterval]) {
+        let start = plannedMotion.startTime
+        let contact = start + Self.longestFall * 0.8
+        let target = next ?? known.first { $0 > contact + 0.05 }
+        if let target, target - start <= Self.longestFall { return }
+        guard next != nil || lastTime.map({ $0 + Self.preview - start > Self.longestFall }) == true else { return }
+        // 不知道下一个音时只铺到谱面看得到的范围以内（提前 `leadTime`），之后冒出来的音不会落在坡上。
+        let end = (target ?? contact + 0.9) - 0.2
+        let duration = min(max(end - contact, 0.3), 1.5)
+        if let target, contact + duration > target - 0.1 { return }
+        placeRamp(at: contact, duration: duration, lane: -1, strength: 0.3, kind: .glide)
+    }
+
+    /// 在球 `time` 那一刻的位置垫一根弹开的音条：弹开的力道按到下一个音还有多久定，下一个音来时球正好比这次低
+    /// 一级；横向一下往左一下往右。音条的朝向按速度的变化定，看着就是照着它反弹的。
+    private mutating func placeBounce(at time: TimeInterval, nextNote: TimeInterval?, lane: Int, strength: Double) {
+        let position = plannedMotion.position(at: time)
+        let incoming = plannedMotion.velocity(at: time)
+        let gap = min(max((nextNote ?? time + 0.5) - time, 0.18), 1.1)
+        side = random.unit() < 0.75 ? -side : side
+        let dx = side * (0.06 + 0.08 * random.unit()) * min(gap / 0.5, 1.6)
+        let dy = Self.stepDown * (1.3 - 0.6 * strength)
+        var outgoing = SIMD2(dx / gap, (dy - 0.5 * Self.gravity * gap * gap) / gap)
+        outgoing.y = min(max(outgoing.y, -1.5), -0.12)
+        var normal = outgoing - incoming
+        let length = (normal.x * normal.x + normal.y * normal.y).squareRoot()
+        normal = length < 1e-3 ? SIMD2(0, -1) : normal / length
+        let contact = position - normal * (Self.ballRadius * 1.15)
+        pads.append(Pad(
+            x: contact.x,
+            y: contact.y,
+            angle: atan2(normal.y, normal.x),
+            length: 0.07 + 0.05 * strength,
+            contact: time,
+            duration: 0,
+            lane: lane,
+            strength: min(max(strength, 0), 1),
+            kind: .bounce,
+            outgoing: outgoing
+        ))
+        plannedMotion = .flying(from: position, velocity: outgoing, since: time)
+    }
+
+    /// 在球 `time` 那一刻的位置铺一段坡，球贴着坡滚 `duration` 秒；坡往这一下的横向那边倾斜。
+    private mutating func placeRamp(at time: TimeInterval, duration: TimeInterval, lane: Int, strength: Double, kind: PadKind) {
+        let position = plannedMotion.position(at: time)
+        let incoming = plannedMotion.velocity(at: time)
+        // 往球本来横着走的方向倾斜，没怎么横着走时左右轮着来。
+        let heading: Double = abs(incoming.x) > 0.05 ? (incoming.x > 0 ? 1 : -1) : side
+        side = heading
+        let slope = kind == .glide ? Self.glideSlope : Self.rampSlope
+        let direction = SIMD2(heading * cos(slope), sin(slope))
+        let speed = kind == .glide ? 0.28 : 0.32 + 0.2 * strength
+        let length = speed * duration
+        // 坡面在球心下方一个半径：沿坡的法线往下挪。
+        let normal = SIMD2(direction.y * heading, -direction.x * heading)
+        let surface = position - normal * Self.ballRadius
+        pads.append(Pad(
+            x: surface.x,
+            y: surface.y,
+            angle: atan2(direction.y, direction.x),
+            length: length,
+            contact: time,
+            duration: duration,
+            lane: lane,
+            strength: min(max(strength, 0), 1),
+            kind: kind,
+            outgoing: direction * speed
+        ))
+        plannedMotion = .rolling(from: position, direction: direction, speed: speed, since: time, until: time + duration)
+        // 滚完以后顺着坡飞出去。
+        let exit = plannedMotion.position(at: time + duration)
+        plannedMotion = .flying(from: exit, velocity: direction * speed + SIMD2(0, -0.12), since: time + duration)
+        // 滚坡那一段单独记下：`motion` 走到它时照着滚。
+        rolls.append(Roll(from: position, direction: direction, speed: speed, since: time, until: time + duration))
+    }
+
+    private struct Roll: Equatable, Sendable {
+        var from: SIMD2<Double>
+        var direction: SIMD2<Double>
+        var speed: Double
+        var since: TimeInterval
+        var until: TimeInterval
+    }
+
+    private var rolls: [Roll] = []
+
+    /// 走到 `time` 为止该碰的音条一根根碰掉：弹开的照记下的速度飞出去，坡上贴着滚，滚完顺着坡飞出去。
+    private mutating func contactPads(through time: TimeInterval) {
+        while true {
+            let pending = pads.indices
+                .filter { pads[$0].contact > motion.startTime + 1e-6 && pads[$0].contact <= time }
+                .min { pads[$0].contact < pads[$1].contact }
+            let rollEnd = motion.rollEnd.flatMap { $0 <= time ? $0 : nil }
+            if let rollEnd, pending.map({ pads[$0].contact >= rollEnd }) ?? true {
+                // 滚完了：顺着坡飞出去。
+                let exit = motion.position(at: rollEnd)
+                let velocity = motion.velocity(at: rollEnd) + SIMD2(0, -0.12)
+                motion = .flying(from: exit, velocity: velocity, since: rollEnd)
+                continue
+            }
+            guard let index = pending else { return }
+            let pad = pads[index]
+            let position = motion.position(at: pad.contact)
+            ball.lastContact = pad.contact
+            switch pad.kind {
+            case .bounce:
+                motion = .flying(from: position, velocity: pad.outgoing, since: pad.contact)
+            case .ramp, .glide:
+                if let roll = rolls.first(where: { abs($0.since - pad.contact) < 1e-6 }) {
+                    motion = .rolling(from: roll.from, direction: roll.direction, speed: roll.speed, since: roll.since, until: roll.until)
+                } else {
+                    let speed = hypot(pad.outgoing.x, pad.outgoing.y)
+                    let direction = speed > 0 ? pad.outgoing / speed : SIMD2(1, 0)
+                    motion = .rolling(from: position, direction: direction, speed: speed, since: pad.contact, until: pad.contact + pad.duration)
+                }
+                rolls.removeAll { $0.until < pad.contact - 1 }
+            }
         }
     }
 
-    /// 让第 `index` 颗球此刻撞上一根音条。往下掉时音条在它下面：弹起的力道按这颗球最近两个音隔多久来定，照这个
-    /// 节奏下一个音来时它正好比这次低一点，一个音一级台阶地往下走；重的音弹得高一点。还在往上飞时（音来得比预想的早）
-    /// 音条在它上面、把它往下压。横向一下往左一下往右，偏离自己的地盘时往回拐。音条的朝向按速度的变化定，看着就是
-    /// 照着它反弹的。
-    private mutating func bounce(_ index: Int, strength: Double, at time: TimeInterval) {
-        var ball = balls[index]
-        let voice = ball.voice
-        let since = time - ball.lastBounce
-        if since < 2 {
-            intervals[index] += (min(max(since, Self.minimumBounceInterval[voice]), 0.9) - intervals[index]) * 0.3
+    /// 谱面上附近没有音、也没有排好的音条时听到一下起音：当场在球底下垫一根音条把它弹开。还没滚到的缓坡作废，
+    /// 正在缓坡上滚着就滚到这儿为止。
+    private mutating func bounceNow(strength: Double, notes: [ImmersiveKineticRhythmChart.Note], at time: TimeInterval) {
+        guard time - ball.lastContact >= 0.16,
+              !pads.contains(where: { $0.kind != .glide && $0.contact > time - 0.15 }),
+              !notes.contains(where: { $0.time > time - 0.15 && $0.time < time + Self.preview }) else { return }
+        if motion.rollEnd != nil {
+            guard let index = pads.firstIndex(where: { $0.kind == .glide && abs($0.contact - motion.startTime) < 1e-6 }) else {
+                return
+            }
+            let rolled = max(time - pads[index].contact, 0)
+            pads[index].length *= pads[index].duration > 0 ? rolled / pads[index].duration : 0
+            pads[index].duration = rolled
         }
-        let rising = ball.vy < -0.25
-        let newVy: Double
-        if rising {
-            newVy = 0.2 + 0.2 * strength
-        } else {
-            let gap = intervals[index]
-            let step = Self.stepDown * (1.3 - 0.6 * strength)
-            newVy = min(max((step - 0.5 * Self.gravity * gap * gap) / gap, -1.2), -0.1)
-        }
-        wander[voice] = min(max(wander[voice] + random.centered() * 0.06, -0.14), 0.14)
-        let home = (Self.homes[voice] + wander[voice]) * aspect
-        sides[index] = random.unit() < 0.75 ? -sides[index] : sides[index]
-        // 横向只拐一点：音条大多是平的，一路排下来像一级级台阶，不是满屏乱撒的小棍。
-        let swing = sides[index] * (0.06 + 0.1 * random.unit())
-        let newVx = min(max(swing + (home - ball.x) * 1.0, -0.3), 0.3)
-        var nx = newVx - ball.vx
-        var ny = newVy - ball.vy
-        let length = (nx * nx + ny * ny).squareRoot()
-        if length < 1e-3 {
-            nx = 0
-            ny = rising ? 1 : -1
-        } else {
-            nx /= length
-            ny /= length
-        }
-        bars.append(Bar(
-            x: ball.x - nx * ball.radius * 1.15,
-            y: ball.y - ny * ball.radius * 1.15,
-            angle: atan2(ny, nx),
-            length: 0.05 + 0.05 * strength,
-            time: time,
-            voice: voice,
-            strength: min(max(strength, 0), 1)
-        ))
-        ball.vx = newVx
-        ball.vy = newVy
-        ball.lastBounce = time
-        balls[index] = ball
+        pads.removeAll { $0.kind == .glide && $0.contact > time }
+        rolls.removeAll { $0.since > time }
+        plannedMotion = motion
+        placeBounce(at: time, nextNote: nil, lane: Int(random.unit() * 4) % 4, strength: strength)
+        motion = plannedMotion
+        ball.lastContact = time
     }
 
     // MARK: - 交给着色器
 
     public static let propsCapacity = 128
-    static let trailsOffset = 8
-    static let barsOffset = 24
+    static let trailOffset = 3
+    static let padsOffset = 8
 
-    /// 交给着色器的数据，float4 一组，y 已经换成画面里的位置（0 是上沿），格式见 `ImmersiveKineticShaderSource`
-    /// 里弹珠落音的说明。
+    /// 交给着色器的数据，float4 一组，位置已经换成画面里的（左上为原点，按画面高度算）。格式见
+    /// `ImmersiveKineticShaderSource` 里弹珠落音的说明。
     public func packed(at time: TimeInterval) -> [SIMD4<Float>] {
         var props = [SIMD4<Float>](repeating: .zero, count: Self.propsCapacity)
-        let shownBars = bars.suffix((Self.propsCapacity - Self.barsOffset) / 2)
-        props[0] = SIMD4(Float(balls.count), Float(shownBars.count), Float(Self.trailLength), 0)
-        for (index, ball) in balls.prefix(3).enumerated() {
-            props[1 + index] = SIMD4(Float(ball.x), Float(ball.y - cameraY), Float(ball.radius), Float(ball.voice))
-            props[4 + index] = SIMD4(
-                Float(time - ball.lastBounce),
-                Float((ball.vx * ball.vx + ball.vy * ball.vy).squareRoot()),
-                Float(ball.trail.count),
-                0
+        let shown = pads.suffix((Self.propsCapacity - Self.padsOffset) / 2)
+        props[0] = SIMD4(
+            Float(shown.count),
+            Float(ball.trail.count),
+            Float(cameraY.truncatingRemainder(dividingBy: 64)),
+            Float(cameraX.truncatingRemainder(dividingBy: 64))
+        )
+        props[1] = SIMD4(Float(ball.x - cameraX), Float(ball.y - cameraY), Float(ball.radius), Float(ball.spin.truncatingRemainder(dividingBy: 2 * .pi)))
+        props[2] = SIMD4(
+            Float(time - ball.lastContact),
+            Float(hypot(ball.vx, ball.vy)),
+            motion.rollEnd != nil ? 1 : 0,
+            0
+        )
+        for pair in 0..<(Self.trailLength / 2) {
+            let a = ball.trail.indices.contains(pair * 2) ? ball.trail[pair * 2] : SIMD2(ball.x, ball.y)
+            let b = ball.trail.indices.contains(pair * 2 + 1) ? ball.trail[pair * 2 + 1] : a
+            props[Self.trailOffset + pair] = SIMD4(
+                Float(a.x - cameraX), Float(a.y - cameraY), Float(b.x - cameraX), Float(b.y - cameraY)
             )
-            // 拖尾：每颗球 `trailLength` 个点，两个点一组。
-            for pair in 0..<(Self.trailLength / 2) {
-                let a = ball.trail.indices.contains(pair * 2) ? ball.trail[pair * 2] : SIMD2(ball.x, ball.y)
-                let b = ball.trail.indices.contains(pair * 2 + 1) ? ball.trail[pair * 2 + 1] : a
-                props[Self.trailsOffset + index * (Self.trailLength / 2) + pair] = SIMD4(
-                    Float(a.x), Float(a.y - cameraY), Float(b.x), Float(b.y - cameraY)
-                )
-            }
         }
-        for (offset, bar) in shownBars.enumerated() {
-            props[Self.barsOffset + offset * 2] = SIMD4(Float(bar.x), Float(bar.y - cameraY), Float(bar.angle), Float(bar.length))
-            props[Self.barsOffset + offset * 2 + 1] = SIMD4(Float(time - bar.time), Float(bar.voice), Float(bar.strength), 0)
+        for (offset, pad) in shown.enumerated() {
+            props[Self.padsOffset + offset * 2] = SIMD4(
+                Float(pad.x - cameraX), Float(pad.y - cameraY), Float(pad.angle), Float(pad.length)
+            )
+            props[Self.padsOffset + offset * 2 + 1] = SIMD4(
+                Float(time - pad.contact),
+                Float(pad.lane + 1 + 8 * pad.kind.rawValue),
+                Float(pad.strength),
+                Float(pad.duration)
+            )
         }
         return props
     }
