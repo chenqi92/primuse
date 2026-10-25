@@ -40,6 +40,10 @@ public enum ImmersiveKineticLyricsPolicy {
         public var ripple: Double
         /// 故障字红、青两色错开多少，0…1。
         public var glitch: Double
+        /// 横向位移，相对字号，向右为正（碎裂时字往四面飞）。
+        public var offsetX: Double
+        /// 绕字自己的中心转多少度（碎裂时字打着转飞）。
+        public var rotation: Double
 
         public init(
             opacity: Double,
@@ -48,7 +52,9 @@ public enum ImmersiveKineticLyricsPolicy {
             blur: Double,
             glow: Double,
             ripple: Double = 0,
-            glitch: Double = 0
+            glitch: Double = 0,
+            offsetX: Double = 0,
+            rotation: Double = 0
         ) {
             self.opacity = opacity
             self.scale = scale
@@ -57,6 +63,8 @@ public enum ImmersiveKineticLyricsPolicy {
             self.glow = glow
             self.ripple = ripple
             self.glitch = glitch
+            self.offsetX = offsetX
+            self.rotation = rotation
         }
 
         public static let hidden = Appearance(opacity: 0, scale: 1, offset: 0, blur: 0, glow: 0)
@@ -141,11 +149,22 @@ public enum ImmersiveKineticLyricsPolicy {
     public static let shakeSpan: TimeInterval = 0.35
 
     /// 一句里的字怎么进出。`cascade` 一个字接一个从下方弹上来、往上飘走；`wholeLine` 字只跟着整句一起淡入、
-    /// 唱到时点亮，进出由整句的镜头带着走（`ImmersiveKineticDirectionPolicy`）。
+    /// 唱到时点亮，进出由整句的镜头带着走（`ImmersiveKineticDirectionPolicy`）；`scatter` 字从四面八方飞回来
+    /// 拼成一句，退场时整句炸开、碎字迎面飞散。
     public enum Choreography: Sendable {
         case cascade
         case wholeLine
+        case scatter
     }
+
+    /// 碎裂：字飞回来、炸开各用多久，相邻两个字最多错开多久，飞多远（相对字号）、迎面放多大。
+    public static let scatterAssemble: TimeInterval = 0.6
+    public static let scatterBurst: TimeInterval = 0.65
+    public static let scatterJitter: TimeInterval = 0.09
+    public static let scatterReach = 2.6
+    public static let scatterApproach = 1.5
+    /// 碎裂时字会飞出字框多远（相对字号），绘制区域按它留边。
+    public static let scatterOverhangRatio = 4.2
 
     /// 整句一起动时字提前多久就位：整句的镜头比第一个字早一截开始进场（最长约 0.6 秒），进场之前由镜头把整句
     /// 藏起来（透明、在画外或收在圆里），字自己不再晚一步才出现。
@@ -281,6 +300,19 @@ public enum ImmersiveKineticLyricsPolicy {
         accent: ImmersiveKineticAccent
     ) -> [Appearance] {
         guard let first = tokens.first, time.isFinite else { return tokens.map { _ in .hidden } }
+        if choreography == .scatter {
+            return tokens.indices.map { index in
+                scatterAppearance(
+                    token: tokens[index],
+                    index: index,
+                    lineStart: first.start,
+                    exitStart: exitStart,
+                    time: time,
+                    motion: motion,
+                    accent: accent
+                )
+            }
+        }
         let cascades = choreography == .cascade
         let entranceStart = first.start - entranceLead - (cascades ? 0 : wholeLineLead)
         let count = tokens.count
@@ -451,6 +483,68 @@ public enum ImmersiveKineticLyricsPolicy {
             }
         }
         return result
+    }
+
+    /// 碎裂编排里一个字此刻的样子：整句入场时从四面八方带着旋转飞回原位（稍微冲过头再落定），唱的时候和别的
+    /// 编排一样点亮、强调，退场时沿同一个方向炸开、迎面放大、虚掉。每个字飞的方向按它在句子里的位置固定。
+    static func scatterAppearance(
+        token: Token,
+        index: Int,
+        lineStart: TimeInterval,
+        exitStart: TimeInterval?,
+        time: TimeInterval,
+        motion: Bool,
+        accent: ImmersiveKineticAccent
+    ) -> Appearance {
+        let shard = scatterShard(index: index)
+        let assembleStart = lineStart - scatterAssemble * 0.9 + shard.delay
+        var result = appearance(
+            token: token,
+            enterAt: assembleStart,
+            exitAt: motion ? nil : exitStart,
+            time: time,
+            motion: motion,
+            cascades: false,
+            accent: accent
+        )
+        guard motion else { return result }
+        let entered = time - assembleStart
+        if entered >= 0 {
+            let settle = spring(entered)
+            let away = 1 - settle
+            result.offsetX += shard.dx * scatterReach * away
+            result.offset += shard.dy * scatterReach * away
+            result.rotation += shard.spin * away
+            result.scale *= 1 + scatterApproach * max(away, 0)
+            // 只虚一点：飞着的字要认得出来。
+            result.blur += 0.12 * (1 - easeOutCubic(min(1, entered / (scatterAssemble * 0.6))))
+        }
+        if let exitStart, time >= exitStart + shard.delay {
+            let progress = min(1, (time - exitStart - shard.delay) / scatterBurst)
+            let burst = easeOutCubic(progress)
+            result.offsetX += shard.dx * scatterReach * 1.3 * burst
+            result.offset += shard.dy * scatterReach * 1.3 * burst
+            result.rotation -= shard.spin * 0.8 * burst
+            result.scale *= 1 + scatterApproach * 1.2 * burst
+            result.blur += 0.15 * progress
+            result.glow *= 1 - progress
+            result.opacity *= 1 - smoothstep((progress - 0.15) / 0.85)
+        }
+        return result
+    }
+
+    /// 第 `index` 个字飞的方向（单位向量，y 向下）、转多少度、比整句晚多久动。按黄金角摊开，相邻的字方向
+    /// 差得远，整句炸开时四面都有。
+    static func scatterShard(index: Int) -> (dx: Double, dy: Double, spin: Double, delay: TimeInterval) {
+        let angle = Double(index) * 2.399963 + 0.7
+        let reach = 0.75 + 0.5 * fraction(Double(index) * 0.618034 + 0.31)
+        let spin = (fraction(Double(index) * 0.381966 + 0.17) * 2 - 1) * 200
+        let delay = fraction(Double(index) * 0.7548777 + 0.41) * scatterJitter
+        return (cos(angle) * reach, sin(angle) * reach * 0.8, spin, delay)
+    }
+
+    private static func fraction(_ value: Double) -> Double {
+        value - value.rounded(.down)
     }
 
     /// 点亮那一下的强度：极快弹到顶再慢慢落回。每个字都一样，不看这个字唱多久——以前长音唱着时

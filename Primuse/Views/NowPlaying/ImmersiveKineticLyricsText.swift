@@ -15,6 +15,10 @@ struct ImmersiveKineticLyricText: View {
     let glowColor: Color
     /// 字与字之间插什么：竖排时是换行，一个字一行。
     var separator = ""
+    /// 字会飞出字框多远（相对字号）：碎裂时字往四面飞，要留得多。
+    var overhangRatio = ImmersiveKineticLyricsPolicy.maximumOverhangRatio
+    /// 立体字的厚度往哪边露、露多长（相对字号）；nil 时是平的字。
+    var extrusion: CGVector?
 
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
@@ -29,7 +33,9 @@ struct ImmersiveKineticLyricText: View {
             .textRenderer(ImmersiveKineticLyricRenderer(
                 appearances: appearances,
                 fontSize: fontSize,
-                glowColor: glowColor
+                glowColor: glowColor,
+                overhangRatio: overhangRatio,
+                extrusion: extrusion
             ))
     }
 
@@ -54,11 +60,14 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
     let appearances: [ImmersiveKineticLyricsPolicy.Appearance]
     let fontSize: CGFloat
     let glowColor: Color
+    let overhangRatio: Double
+    let extrusion: CGVector?
 
-    /// 入场从下方弹上来、退场往上飘、光都会画出字框，按最大幅度留边。只随字号变，不随时间变。
+    /// 入场从下方弹上来、退场往上飘、光、碎裂时飞散都会画出字框，按最大幅度留边。只随字号与编排变，不随时间变。
     var displayPadding: EdgeInsets {
-        let overhang = (fontSize * CGFloat(ImmersiveKineticLyricsPolicy.maximumOverhangRatio)).rounded(.up)
-        return EdgeInsets(top: overhang, leading: overhang / 2, bottom: overhang, trailing: overhang / 2)
+        let overhang = (fontSize * CGFloat(overhangRatio)).rounded(.up)
+        let sideways = overhangRatio > ImmersiveKineticLyricsPolicy.maximumOverhangRatio ? overhang : overhang / 2
+        return EdgeInsets(top: overhang, leading: sideways, bottom: overhang, trailing: sideways)
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
@@ -86,14 +95,22 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
         }
         var context = base
         context.opacity = appearance.opacity
-        // 绕这个字自己的中心缩放，再整体上下挪。
+        // 绕这个字自己的中心转、缩放，再整体挪开。
         let anchor = CGPoint(x: bounds.midX, y: bounds.midY)
-        context.translateBy(x: anchor.x, y: anchor.y + CGFloat(appearance.offset) * fontSize)
+        context.translateBy(
+            x: anchor.x + CGFloat(appearance.offsetX) * fontSize,
+            y: anchor.y + CGFloat(appearance.offset) * fontSize
+        )
+        if abs(appearance.rotation) > 0.05 {
+            context.rotate(by: .degrees(appearance.rotation))
+        }
         context.scaleBy(x: CGFloat(appearance.scale), y: CGFloat(appearance.scale))
         context.translateBy(x: -anchor.x, y: -anchor.y)
-        // 虚化只在入场、退场那半秒里有；停稳的字不经过模糊。
+        // 虚化只在入场、退场那半秒里有；停稳的字不经过模糊。半径量在缩放之后的坐标里，字放大几倍虚化也会跟着
+        // 大几倍（碎字迎面放大时糊成一团），所以除回去，屏幕上的虚化只看 `blur`。
         if appearance.blur > 0.004 {
-            context.addFilter(.blur(radius: CGFloat(appearance.blur) * fontSize))
+            let radius = CGFloat(appearance.blur) * fontSize / max(CGFloat(appearance.scale), 0.2)
+            context.addFilter(.blur(radius: radius))
         }
         if appearance.glitch > 0.01 {
             // 故障字：红、青两色往两边错开。
@@ -116,7 +133,34 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
             ))
             glow.draw(run)
         }
-        context.draw(run)
+        if let extrusion {
+            drawExtruded(run, extrusion: extrusion, in: context)
+        } else {
+            context.draw(run)
+        }
+    }
+
+    /// 立体字：沿厚度方向一层层叠专辑色的侧面（越往后越暗），最上面再盖字面。整块放在一个图层里按透明度合成，
+    /// 候场的半透明字也是一整块变淡，不会透出底下叠着的侧面。
+    private func drawExtruded(_ run: Text.Layout.Run, extrusion: CGVector, in context: GraphicsContext) {
+        let reach = hypot(extrusion.dx, extrusion.dy) * fontSize
+        let layers = min(max(Int((reach / 1.6).rounded(.up)), 5), 10)
+        let step = CGSize(
+            width: extrusion.dx * fontSize / CGFloat(layers),
+            height: extrusion.dy * fontSize / CGFloat(layers)
+        )
+        context.drawLayer { layer in
+            for index in stride(from: layers, through: 1, by: -1) {
+                var side = layer
+                let depth = CGFloat(index)
+                side.translateBy(x: step.width * depth, y: step.height * depth)
+                // 贴着字面的那层最亮，越往后越暗。
+                let shade = 0.08 + 0.55 * Double(index) / Double(layers)
+                side.addFilter(.colorMultiply(glowColor.mix(with: .black, by: shade)))
+                side.draw(run)
+            }
+            layer.draw(run)
+        }
     }
 
     /// 落字成纹：字脚下荡开一圈压扁的涟漪，越荡越大、越细、越淡。
@@ -180,32 +224,36 @@ struct ImmersiveKineticLineMotion: ViewModifier {
         .scaleEffect(CGFloat(transform.scale))
         .blur(radius: CGFloat(transform.blur) * fontSize)
         .opacity(transform.opacity)
+        // 立方体翻转的轴在字后面（贴在立方体的面上转），开门的轴在一侧。
+        .rotation3DEffect(
+            .degrees(transform.rotationX),
+            axis: (x: 1, y: 0, z: 0),
+            anchor: .center,
+            anchorZ: -CGFloat(transform.depth) * fontSize,
+            perspective: 0.9
+        )
+        .rotation3DEffect(
+            .degrees(transform.rotationY),
+            axis: (x: 0, y: 1, z: 0),
+            anchor: UnitPoint(x: transform.anchorX, y: 0.5),
+            perspective: 0.9
+        )
+        .rotationEffect(.degrees(transform.rotationZ))
         .offset(x: offsetX, y: CGFloat(transform.offsetY) * fontSize)
     }
 }
 
-/// 斜面透视：整块歌词排在一块向远处倾斜的平面上，机位慢慢左右摇；平视、竖排时原样。
-struct ImmersiveKineticStagingEffect: ViewModifier {
-    let staging: ImmersiveKineticStaging
-    let time: TimeInterval
-    let animates: Bool
+/// 一句歌词的机位（`ImmersiveKineticDirectionPolicy.camera`）：先跟着鼓点往前顶、唱着时推近，再按俯仰、偏航
+/// 转到这一句的角度，最后把画面歪一点。一行字只靠俯仰几乎看不出立体，要靠偏航和够强的透视。
+struct ImmersiveKineticCameraEffect: ViewModifier {
+    let pose: ImmersiveKineticCameraPose
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        switch staging {
-        case .flat, .vertical:
-            content
-        case .tilted:
-            // 一行字只靠俯仰几乎看不出斜面，要靠左右摇和够强的透视；摇到 15° 时近端放大，整句会出画。
-            content
-                .rotation3DEffect(.degrees(26), axis: (x: 1, y: 0, z: 0), anchor: .center, perspective: 1.4)
-                .rotation3DEffect(
-                    .degrees(animates ? sin(time * 0.16) * 12 : 8),
-                    axis: (x: 0, y: 1, z: 0),
-                    anchor: .center,
-                    perspective: 1.4
-                )
-        }
+        content
+            .scaleEffect(CGFloat(pose.scale))
+            .rotation3DEffect(.degrees(pose.pitch), axis: (x: 1, y: 0, z: 0), anchor: .center, perspective: 1.5)
+            .rotation3DEffect(.degrees(pose.yaw), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 1.5)
+            .rotationEffect(.degrees(pose.roll))
     }
 }
 

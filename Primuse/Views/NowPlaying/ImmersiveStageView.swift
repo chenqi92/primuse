@@ -854,7 +854,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private func kineticLyricsTimeline(width: CGFloat) -> some View {
         if #available(tvOS 18.0, *) {
             TimelineView(.animation(
-                minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
+                minimumInterval: reduceMotion ? 0.10 : kineticFrameInterval,
                 // 休憩时舞台文字已经淡出，不必再按帧画。
                 paused: !playbackClockIsActive || isResting
             )) { _ in
@@ -868,6 +868,16 @@ struct ImmersiveStageView<Artwork: View>: View {
                 availableWidth: width
             )
         }
+    }
+
+    /// 翻转、甩镜、碎字这些镜头半秒就走完，三十帧下一顿一顿的：手机、Mac 上按六十帧画（三十帧档、低电量、
+    /// 发热时仍是三十帧），电视照旧。
+    private var kineticFrameInterval: TimeInterval? {
+        #if os(tvOS)
+        frameRate.minimumInterval(base: 1 / 30)
+        #else
+        frameRate.minimumInterval(fastBase: 1 / 60, televisionFloor: 1 / 30)
+        #endif
     }
 
     /// 这一刻台上的东西：正在退场的上一句、当前这句，或者两句之间的空档里那三个点。每句按自己的镜头进出：
@@ -935,9 +945,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         let shake = director.direction.accent == .slam
             ? ImmersiveKineticLyricsPolicy.shake(for: activeTokens, at: time, motion: motion)
             : (x: 0, y: 0)
+        // 背景最近一帧的动静（不读频谱）：鼓点让镜头往前顶一下，副歌时角度更大。
+        let drive = director.latestDrive
         return ZStack {
             ForEach(entries) { entry in
                 let isActive = entry.line.id == active?.id
+                let camera = kineticCamera(for: entry, drive: drive, at: time, motion: motion)
                 kineticLine(
                     entry.line,
                     tokens: entry.tokens,
@@ -945,12 +958,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                     enterStart: entry.enterStart,
                     exitStart: entry.exitStart,
                     width: width,
-                    time: time
+                    time: time,
+                    camera: camera
                 )
                 .offset(
                     x: isActive ? CGFloat(shake.x) * kineticFontBase : 0,
                     y: isActive ? CGFloat(shake.y) * kineticFontBase : 0
                 )
+                .modifier(ImmersiveKineticCameraEffect(pose: camera))
                 .accessibilityHidden(!isActive)
             }
             if let active, activeTokens.isEmpty {
@@ -975,11 +990,41 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
         }
         .frame(width: width)
-        .modifier(ImmersiveKineticStagingEffect(
-            staging: director.direction.staging,
+    }
+
+    /// 一句此刻的机位：每句一个角度，唱着时镜头慢慢移、慢慢推近，鼓点往前顶一下。竖排的歌里不能竖排的那句
+    /// （带拉丁字母）按环绕机位走。
+    private func kineticCamera(
+        for entry: ImmersiveKineticStageEntry,
+        drive: ImmersiveKineticDrive,
+        at time: TimeInterval,
+        motion: Bool
+    ) -> ImmersiveKineticCameraPose {
+        var staging = kineticDirector.direction.staging
+        if staging == .vertical, !ImmersiveKineticDirectionPolicy.suitsVerticalLayout(entry.line.text) {
+            staging = .orbit
+        }
+        let start = entry.tokens.first?.start ?? time
+        let end = entry.tokens.map(\.end).max() ?? start
+        let sung = end > start ? (time - start) / (end - start) : 0
+        return ImmersiveKineticDirectionPolicy.camera(
+            staging: staging,
+            lineIndex: entry.line.id,
+            seed: kineticDirector.seedUnit,
             time: time,
-            animates: motion
-        ))
+            swell: drive.swell,
+            climax: drive.climaxLevel,
+            sungFraction: sung,
+            amplitude: metrics.isPortrait ? 0.6 : 1,
+            motion: motion
+        )
+    }
+
+    /// 立体字的厚度往哪边露：跟着这一句的机位角度走。动效关掉、这首歌不用立体字时是平的字。
+    private func kineticExtrusion(for camera: ImmersiveKineticCameraPose, motion: Bool) -> CGVector? {
+        guard kineticDirector.direction.extruded, motion else { return nil }
+        let vector = ImmersiveKineticDirectionPolicy.extrusion(for: camera)
+        return CGVector(dx: vector.dx, dy: vector.dy)
     }
 
     /// 一句用哪个镜头；动效关掉时一律逐字浮现（这时它退化成只淡入淡出）。
@@ -1028,7 +1073,9 @@ struct ImmersiveStageView<Artwork: View>: View {
         tokens: [ImmersiveKineticLyricsPolicy.Token],
         appearances: [ImmersiveKineticLyricsPolicy.Appearance],
         horizontalFontSize: CGFloat,
-        width: CGFloat
+        width: CGFloat,
+        overhang: Double,
+        extrusion: CGVector?
     ) -> some View {
         let availableHeight = max(metrics.size.height - topInset - bottomInset, 1) * 0.7
         var fontSize = min(horizontalFontSize, kineticFontBase * 0.88)
@@ -1044,7 +1091,9 @@ struct ImmersiveStageView<Artwork: View>: View {
                     fontSize: fontSize,
                     lineLimit: range.count,
                     glowColor: palette.primary,
-                    separator: "\n"
+                    separator: "\n",
+                    overhangRatio: overhang,
+                    extrusion: extrusion
                 )
             }
         }
@@ -1094,14 +1143,19 @@ struct ImmersiveStageView<Artwork: View>: View {
         enterStart: TimeInterval?,
         exitStart: TimeInterval?,
         width: CGFloat,
-        time: TimeInterval
+        time: TimeInterval,
+        camera: ImmersiveKineticCameraPose
     ) -> some View {
         let fontSize = kineticFontSize(for: line.text, width: width)
         let motion = syllableCrestIsAnimating
-        let choreography: ImmersiveKineticLyricsPolicy.Choreography = move.transition.movesWholeLine ? .wholeLine : .cascade
+        let choreography = move.transition.choreography
         let accent = kineticDirector.direction.accent
-        // 整句一起走时译文不自己退场：整句的镜头带着它走。
-        let companionExit = move.transition.movesWholeLine ? nil : exitStart
+        let overhang = choreography == .scatter
+            ? ImmersiveKineticLyricsPolicy.scatterOverhangRatio
+            : ImmersiveKineticLyricsPolicy.maximumOverhangRatio
+        let extrusion = kineticExtrusion(for: camera, motion: motion)
+        // 整句一起走时译文不自己退场：整句的镜头带着它走。碎裂时整句不动，译文跟着字一起淡出。
+        let companionExit = choreography == .wholeLine ? nil : exitStart
         let companion = ImmersiveKineticLyricsPolicy.companionAppearance(
             lineStart: tokens.first?.start ?? 0,
             exitStart: companionExit,
@@ -1121,14 +1175,23 @@ struct ImmersiveStageView<Artwork: View>: View {
         return VStack(spacing: fontSize * 0.28) {
             Group {
                 if standsVertically {
-                    kineticColumns(tokens: tokens, appearances: appearances, horizontalFontSize: fontSize, width: width)
+                    kineticColumns(
+                        tokens: tokens,
+                        appearances: appearances,
+                        horizontalFontSize: fontSize,
+                        width: width,
+                        overhang: overhang,
+                        extrusion: extrusion
+                    )
                 } else {
                     ImmersiveKineticLyricText(
                         tokens: tokens,
                         appearances: appearances,
                         fontSize: fontSize,
                         lineLimit: kineticMaximumLines,
-                        glowColor: palette.primary
+                        glowColor: palette.primary,
+                        overhangRatio: overhang,
+                        extrusion: extrusion
                     )
                 }
             }

@@ -58,6 +58,9 @@ final class ImmersiveKineticDirector {
         lastUpdate = -Double.infinity
     }
 
+    /// 背景最近一帧算出的动静，不重新计算、不读频谱：歌词跟着鼓点往前顶一下用它，在 body 里读也不会登记观察。
+    var latestDrive: ImmersiveKineticDrive { drive }
+
     /// 这一帧的动静；同一帧里第二次来问直接给上次的结果。会读频谱，只在背景的绘制回调里调：在 SwiftUI 的
     /// body 里读会登记观察，每发布一次频谱歌词就多画一遍。
     func currentDrive() -> ImmersiveKineticDrive {
@@ -73,21 +76,21 @@ final class ImmersiveKineticDirector {
         return drive
     }
 
-    /// 一句用哪个镜头：第一次问到它时按当时是否在副歌里定下来，之后不变，免得换到一半换了镜头。看的是背景
-    /// 最近一帧算出的动静，不在这里读频谱。
+    /// 一句用哪个镜头：第一次问到它时按当时是否在副歌里定下来，之后不变，免得换到一半换了镜头。平常两个镜头
+    /// 一句一换，甩镜、开门这类有方向的一句往左一句往右。看的是背景最近一帧算出的动静，不在这里读频谱。
     func move(for line: ImmersiveStageLyric) -> LineMove {
         let key = "\(line.id)|\(line.startTime ?? -1)"
         if let known = lineMoves[key] { return known }
-        let transition = drive.isClimax ? direction.climaxTransition : direction.transition
-        let move = LineMove(transition: transition, side: 1)
+        let transition = drive.isClimax ? direction.climaxTransition : direction.usualTransition(forLine: line.id)
+        let move = LineMove(transition: transition, side: line.id.isMultiple(of: 2) ? 1 : -1)
         if lineMoves.count > 64 { lineMoves.removeAll() }
         lineMoves[key] = move
         return move
     }
 
     #if DEBUG
-    /// 取证与实机截图用：`PRIMUSE_DEBUG_KINETIC=scene=rainGlass,transition=whipPan,climax=iris,accent=ripple,staging=tilted`，
-    /// 只写要固定的那几项。
+    /// 取证与实机截图用：`PRIMUSE_DEBUG_KINETIC=scene=rainGlass,transition=whipPan,alternate=cubeFlip,climax=iris,
+    /// accent=ripple,staging=tilted,extrude=1`，只写要固定的那几项（只写 transition 时两个平常镜头都用它）。
     private static func applyDebugOverride(to direction: inout ImmersiveKineticDirection) {
         guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_KINETIC"], !raw.isEmpty else { return }
         for pair in raw.split(separator: ",") {
@@ -95,7 +98,13 @@ final class ImmersiveKineticDirector {
             guard parts.count == 2 else { continue }
             switch parts[0] {
             case "scene": if let value = ImmersiveKineticScene(rawValue: parts[1]) { direction.scene = value }
-            case "transition": if let value = ImmersiveKineticTransition(rawValue: parts[1]) { direction.transition = value }
+            case "transition":
+                if let value = ImmersiveKineticTransition(rawValue: parts[1]) {
+                    direction.transition = value
+                    direction.alternateTransition = value
+                }
+            case "alternate": if let value = ImmersiveKineticTransition(rawValue: parts[1]) { direction.alternateTransition = value }
+            case "extrude": direction.extruded = parts[1] == "1" || parts[1] == "true"
             case "climax": if let value = ImmersiveKineticTransition(rawValue: parts[1]) { direction.climaxTransition = value }
             case "accent": if let value = ImmersiveKineticAccent(rawValue: parts[1]) { direction.accent = value }
             case "staging": if let value = ImmersiveKineticStaging(rawValue: parts[1]) { direction.staging = value }

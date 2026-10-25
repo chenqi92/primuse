@@ -17,14 +17,31 @@ struct ImmersiveKineticDirectionPolicyTests {
     @Test func differentSongsSpreadOverEveryScene() {
         var scenes = Set<ImmersiveKineticScene>()
         var transitions = Set<ImmersiveKineticTransition>()
-        for index in 0..<200 {
+        var stagings = Set<ImmersiveKineticStaging>()
+        var extruded = 0
+        for index in 0..<300 {
             let direction = Policy.direction(title: "Song \(index)", artist: "A", album: "B", genre: "")
             scenes.insert(direction.scene)
             transitions.insert(direction.transition)
+            transitions.insert(direction.alternateTransition)
+            stagings.insert(direction.staging)
+            if direction.extruded { extruded += 1 }
             #expect(direction.climaxTransition != direction.transition)
+            #expect(direction.climaxTransition != direction.alternateTransition)
+            #expect(direction.alternateTransition != direction.transition)
         }
         #expect(scenes == Set(ImmersiveKineticScene.allCases))
         #expect(transitions == Set(ImmersiveKineticTransition.allCases))
+        // 每首歌都有立体的机位，平视只留给动效关掉的时候。
+        #expect(!stagings.contains(.flat))
+        #expect(stagings == [.orbit, .tilted, .vertical, .dutch])
+        #expect(extruded > 60 && extruded < 240)
+    }
+
+    @Test func twoUsualMovesTakeTurnsLineByLine() {
+        let direction = Policy.direction(title: "交替", artist: "A", album: "B", genre: "")
+        #expect(direction.usualTransition(forLine: 4) == direction.transition)
+        #expect(direction.usualTransition(forLine: 5) == direction.alternateTransition)
     }
 
     @Test func genreLeansTheSceneCalmOrLively() {
@@ -42,27 +59,29 @@ struct ImmersiveKineticDirectionPolicyTests {
     }
 
     @Test func pondsAlwaysRippleAndLivelyScenesNeverUseTheCalmTransitions() {
+        let lively: Set<ImmersiveKineticTransition> = [.whipPan, .crashZoom, .cubeFlip, .flyThrough, .spiral, .shatter]
+        let calm: Set<ImmersiveKineticTransition> = [.cascade, .rackFocus, .iris, .stepPrint, .doorSwing, .cubeFlip, .flyThrough]
         for index in 0..<300 {
             let direction = Policy.direction(title: "S\(index)", artist: "x", album: "y", genre: "")
             if direction.scene == .ripplePond { #expect(direction.accent == .ripple) }
-            if direction.scene.isEnergetic {
-                #expect([.whipPan, .crashZoom, .cascade].contains(direction.transition))
-            } else {
-                #expect([.cascade, .rackFocus, .iris, .stepPrint].contains(direction.transition))
-            }
+            let pool = direction.scene.isEnergetic ? lively : calm
+            #expect(pool.contains(direction.transition))
+            #expect(pool.contains(direction.alternateTransition))
         }
     }
 
     // MARK: 镜头
 
     @Test func everyTransitionEndsInPlaceAndStartsOutOfSight() {
-        for transition in ImmersiveKineticTransition.allCases where transition.movesWholeLine {
+        for transition in ImmersiveKineticTransition.allCases where transition.choreography == .wholeLine {
             let settled = Policy.entering(transition, progress: 1)
             #expect(abs(settled.offsetX) < 1e-9)
+            #expect(abs(settled.offsetY) < 1e-9)
             #expect(abs(settled.scale - 1) < 1e-3)
             #expect(settled.blur < 1e-3)
             #expect(settled.opacity == 1)
             #expect((settled.iris ?? 1) == 1)
+            #expect(abs(settled.rotationX) < 1e-6 && abs(settled.rotationY) < 1e-6 && abs(settled.rotationZ) < 1e-6)
 
             let start = Policy.entering(transition, progress: 0)
             #expect(start.opacity == 0 || start.iris == 0)
@@ -150,6 +169,73 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(drive.climaxStart != nil)
     }
 
+    @Test func cubeFlipTurnsBothFacesTogetherAroundAnAxisBehindTheWords() {
+        // 新句从下面那一面翻上来、旧句往上翻走，两句同时转：旧句的出场正好在新句进场那一刻开始。
+        #expect(Policy.entering(.cubeFlip, progress: 0).rotationX == -90)
+        #expect(Policy.exiting(.cubeFlip, progress: 1).rotationX == 90)
+        #expect(Policy.entering(.cubeFlip, progress: 0.5).depth > 0)
+        let exit = Policy.exitStart(lastTokenEnd: 5, nextEnterStart: 8, transition: .cubeFlip)
+        #expect(exit == 8)
+    }
+
+    @Test func threeDimensionalMovesComeFromDepthOrTheSide() {
+        let far = Policy.entering(.flyThrough, progress: 0)
+        #expect(far.scale < 0.2)
+        #expect(far.rotationX > 30)
+        #expect(Policy.exiting(.flyThrough, progress: 0.9).scale > 3)
+        // 开门以一侧为轴：从右往左甩时左沿是轴，反过来右沿是轴。
+        #expect(Policy.entering(.doorSwing, progress: 0, side: 1).anchorX == 0)
+        #expect(Policy.entering(.doorSwing, progress: 0, side: -1).anchorX == 1)
+        #expect(abs(Policy.entering(.doorSwing, progress: 0.1, side: 1).rotationY) > 40)
+        let spiral = Policy.entering(.spiral, progress: 0.2, side: 1)
+        #expect(spiral.rotationZ < -10 && spiral.rotationY > 10 && spiral.scale < 1)
+        // 碎裂时整句不动，交给每个字。
+        #expect(Policy.entering(.shatter, progress: 0.3) == .identity)
+        #expect(ImmersiveKineticTransition.shatter.choreography == .scatter)
+    }
+
+    @Test func eachLineGetsItsOwnCameraAngleAndTheCameraKeepsMovingSmoothly() {
+        func pose(_ line: Int, _ time: Double, swell: Double = 0) -> ImmersiveKineticCameraPose {
+            Policy.camera(
+                staging: .orbit, lineIndex: line, seed: 0.3, time: time,
+                swell: swell, climax: 0, sungFraction: 0, amplitude: 1, motion: true
+            )
+        }
+        #expect(abs(pose(3, 10).yaw - pose(4, 10).yaw) > 10)
+        // 一帧之间角度只挪一点点。
+        #expect(abs(pose(3, 10).yaw - pose(3, 10 + 1.0 / 60).yaw) < 0.2)
+        #expect(pose(3, 10, swell: 1).scale > pose(3, 10).scale + 0.03)
+        let still = Policy.camera(
+            staging: .orbit, lineIndex: 3, seed: 0.3, time: 10,
+            swell: 1, climax: 1, sungFraction: 1, amplitude: 1, motion: false
+        )
+        #expect(still == .level)
+        let flat = Policy.camera(
+            staging: .flat, lineIndex: 3, seed: 0.3, time: 10,
+            swell: 0, climax: 0, sungFraction: 0, amplitude: 1, motion: true
+        )
+        #expect(flat.yaw == 0 && flat.roll == 0 && flat.pitch == 0)
+        let dutchA = Policy.camera(
+            staging: .dutch, lineIndex: 2, seed: 0.3, time: 10,
+            swell: 0, climax: 0, sungFraction: 0, amplitude: 1, motion: true
+        )
+        let dutchB = Policy.camera(
+            staging: .dutch, lineIndex: 3, seed: 0.3, time: 10,
+            swell: 0, climax: 0, sungFraction: 0, amplitude: 1, motion: true
+        )
+        #expect(dutchA.roll * dutchB.roll < 0)
+    }
+
+    @Test func extrudedWordsShowTheirSideTowardTheNearEdge() {
+        let level = Policy.extrusion(for: .level)
+        #expect(abs((level.dx * level.dx + level.dy * level.dy).squareRoot() - Policy.extrusionDepth) < 1e-9)
+        #expect(level.dy > 0)
+        let turned = Policy.extrusion(for: ImmersiveKineticCameraPose(yaw: 20))
+        #expect(turned.dx < level.dx)
+        let tilted = Policy.extrusion(for: ImmersiveKineticCameraPose(yaw: -20, pitch: 20))
+        #expect(tilted.dx > level.dx)
+    }
+
     @Test func crashZoomStartsHugeAndRackFocusStartsBlurred() {
         #expect(Policy.entering(.crashZoom, progress: 0).scale > 2)
         #expect(Policy.exiting(.crashZoom, progress: 1).scale > 2)
@@ -158,6 +244,7 @@ struct ImmersiveKineticDirectionPolicyTests {
     }
 
     @Test func linesEnterSoTheFirstWordIsSungAsTheMoveFinishes() {
+        // 碎裂时字飞回来的时间由字自己算，这里只看整句的镜头。
         for transition in ImmersiveKineticTransition.allCases where transition.movesWholeLine {
             let start = Policy.enterStart(firstTokenStart: 10, transition: transition)
             #expect(start < 10)
@@ -384,6 +471,34 @@ struct ImmersiveKineticAccentTests {
             for: tokens, exitStart: 10.7, at: 12, motion: true, choreography: .wholeLine, accent: .glow
         )
         #expect(late.allSatisfy { $0.opacity == 1 })
+    }
+
+    @Test func shatteredWordsFlyHomeThenBurstApart() {
+        let line = [
+            Lyrics.Token(text: "碎", start: 10, end: 10.3),
+            Lyrics.Token(text: "成", start: 10.3, end: 10.6),
+            Lyrics.Token(text: "光", start: 10.6, end: 11.0),
+        ]
+        func look(_ time: Double, exit: Double? = 11.2) -> [Lyrics.Appearance] {
+            Lyrics.appearances(for: line, exitStart: exit, at: time, motion: true, choreography: .scatter, accent: .glow)
+        }
+        // 飞回来的路上：离原位还远、带着转、迎面放大。
+        let flying = look(9.55)
+        #expect(flying.contains { abs($0.offsetX) + abs($0.offset) > 0.5 })
+        #expect(flying.contains { abs($0.rotation) > 20 })
+        #expect(flying.allSatisfy { $0.scale >= 1 || $0.opacity == 0 })
+        // 唱的时候都回到原位。
+        let home = look(10.65)
+        #expect(home.allSatisfy { abs($0.offsetX) < 0.02 && abs($0.offset) < 0.2 && abs($0.rotation) < 2 })
+        // 炸开：往四面飞，各不相同。
+        let burst = look(11.45)
+        #expect(burst.allSatisfy { abs($0.offsetX) + abs($0.offset) > 0.8 })
+        #expect(Set(burst.map { ($0.offsetX * 100).rounded() }).count == 3)
+        let gone = look(11.2 + Lyrics.scatterBurst + Lyrics.scatterJitter + 0.01)
+        #expect(gone.allSatisfy { $0.opacity < 1e-6 })
+        // 动效关掉时只淡入淡出，不飞。
+        let still = Lyrics.appearances(for: line, exitStart: 11.2, at: 9.6, motion: false, choreography: .scatter, accent: .glow)
+        #expect(still.allSatisfy { $0.offsetX == 0 && $0.rotation == 0 })
     }
 
     @Test func rippleRingsSpreadOnceAfterEachWord() {

@@ -50,9 +50,28 @@ public enum ImmersiveKineticTransition: String, CaseIterable, Sendable {
     case iris
     /// 抽帧：一顿一顿地挪进来，身后拖着残影，像王家卫电影里降格又补帧的镜头。
     case stepPrint
+    /// 立方体翻转：整句贴在一个立方体的面上，旧句随着立方体往上翻走，新句从下面那一面翻上来。
+    case cubeFlip
+    /// 穿越：新句从远处的纵深里冲到眼前，旧句迎面掠过镜头。
+    case flyThrough
+    /// 开门：整句像一扇门，以一侧为轴从侧面摆正，走时从另一侧摆开。
+    case doorSwing
+    /// 旋入：整句打着旋、侧着身子从远处转进来，走时转着甩向镜头。
+    case spiral
+    /// 碎裂：字从四面八方飞回来拼成一句，唱完整句炸开，碎字迎面飞散。
+    case shatter
 
-    /// 整句一起进出、字只跟着点亮（`cascade` 以外都是）。
+    /// 整句一起进出、字只跟着点亮（`cascade` 以外都是；碎裂时整句不动，进出由每个字自己飞）。
     public var movesWholeLine: Bool { self != .cascade }
+
+    /// 一句里的字怎么动。
+    public var choreography: ImmersiveKineticLyricsPolicy.Choreography {
+        switch self {
+        case .cascade: .cascade
+        case .shatter: .scatter
+        default: .wholeLine
+        }
+    }
 }
 
 /// 唱到一个字时怎么强调它。每个字都一样，不看它唱多久。
@@ -69,13 +88,40 @@ public enum ImmersiveKineticAccent: String, CaseIterable, Sendable {
     case glitch
 }
 
-/// 歌词摆在哪个平面上。
+/// 机位：歌词摆在哪个平面上、镜头怎么看它。除了平视，每一句都有自己的角度，换句像多机位剪辑那样换个
+/// 机位；同一句唱着时镜头还在慢慢移，跟着鼓点往前顶一下。
 public enum ImmersiveKineticStaging: String, CaseIterable, Sendable {
+    /// 平视：不转角度（动效关掉时都按这个）。导演不再挑它。
     case flat
     /// 斜面透视：歌词排在一块向远处倾斜的平面上，机位慢慢左右摇。
     case tilted
     /// 竖排：中日文一列一列从右往左排，像古籍的版面。一句里有拉丁字母时这句照常横排。
     case vertical
+    /// 环绕：每句从不同的侧面、俯仰角看过去，唱着时镜头绕着字慢慢转。
+    case orbit
+    /// 荷兰角：画面斜着，一句往左歪、下一句往右歪，副歌歪得更狠。
+    case dutch
+}
+
+/// 一句歌词此刻的机位（`ImmersiveKineticDirectionPolicy.camera`）：三个角度都是度，`scale` 是跟着鼓点往前顶
+/// 和唱着时慢慢推近的那一点放大。
+public struct ImmersiveKineticCameraPose: Equatable, Sendable {
+    /// 绕竖轴转（左右看）。
+    public var yaw: Double
+    /// 绕横轴转（俯仰），正值是上沿往远处倒。
+    public var pitch: Double
+    /// 绕视线转（画面歪）。
+    public var roll: Double
+    public var scale: Double
+
+    public init(yaw: Double = 0, pitch: Double = 0, roll: Double = 0, scale: Double = 1) {
+        self.yaw = yaw
+        self.pitch = pitch
+        self.roll = roll
+        self.scale = scale
+    }
+
+    public static let level = ImmersiveKineticCameraPose()
 }
 
 /// 一首歌的整套编排。
@@ -85,21 +131,34 @@ public struct ImmersiveKineticDirection: Equatable, Sendable {
     public var accent: ImmersiveKineticAccent
     /// 平常换句用的镜头。
     public var transition: ImmersiveKineticTransition
+    /// 平常换句的第二个镜头：和 `transition` 一句一换，免得整首歌都是同一个动作。
+    public var alternateTransition: ImmersiveKineticTransition
     /// 副歌换句用的镜头。
     public var climaxTransition: ImmersiveKineticTransition
+    /// 立体字：字带一截厚度，侧面是专辑色，跟着机位的角度露出来。
+    public var extruded: Bool
 
     public init(
         scene: ImmersiveKineticScene,
         staging: ImmersiveKineticStaging,
         accent: ImmersiveKineticAccent,
         transition: ImmersiveKineticTransition,
-        climaxTransition: ImmersiveKineticTransition
+        alternateTransition: ImmersiveKineticTransition? = nil,
+        climaxTransition: ImmersiveKineticTransition,
+        extruded: Bool = false
     ) {
         self.scene = scene
         self.staging = staging
         self.accent = accent
         self.transition = transition
+        self.alternateTransition = alternateTransition ?? transition
         self.climaxTransition = climaxTransition
+        self.extruded = extruded
+    }
+
+    /// 第 `lineIndex` 句平常用哪个镜头：两个镜头一句一换。
+    public func usualTransition(forLine lineIndex: Int) -> ImmersiveKineticTransition {
+        lineIndex.isMultiple(of: 2) ? transition : alternateTransition
     }
 }
 
@@ -117,6 +176,14 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
     public var smear: Double
     /// 圈入圈出那个圆有多大：1 是整句完全露出，0 是收成一个点；nil 时不加圆。
     public var iris: Double?
+    /// 绕横轴、竖轴、视线转的角度（度）。绕横轴正值是上沿往远处倒，绕竖轴正值是右侧往远处转。
+    public var rotationX: Double
+    public var rotationY: Double
+    public var rotationZ: Double
+    /// 转轴横向落在哪儿：0 左沿、0.5 正中、1 右沿（开门以一侧为轴）。
+    public var anchorX: Double
+    /// 转轴在字后面多深（相对字号）：立方体翻转时字贴在立方体的面上，轴在立方体中心。
+    public var depth: Double
 
     public init(
         offsetX: Double = 0,
@@ -125,7 +192,12 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
         blur: Double = 0,
         opacity: Double = 1,
         smear: Double = 0,
-        iris: Double? = nil
+        iris: Double? = nil,
+        rotationX: Double = 0,
+        rotationY: Double = 0,
+        rotationZ: Double = 0,
+        anchorX: Double = 0.5,
+        depth: Double = 0
     ) {
         self.offsetX = offsetX
         self.offsetY = offsetY
@@ -134,6 +206,11 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
         self.opacity = opacity
         self.smear = smear
         self.iris = iris
+        self.rotationX = rotationX
+        self.rotationY = rotationY
+        self.rotationZ = rotationZ
+        self.anchorX = anchorX
+        self.depth = depth
     }
 
     public static let identity = ImmersiveKineticLineTransform()
@@ -171,28 +248,90 @@ public enum ImmersiveKineticDirectionPolicy {
         } else {
             accent = pick([.ripple, .glow, .glow, .neon], &random)
         }
-        let stagingRoll = random.unit()
-        let staging: ImmersiveKineticStaging
-        if energetic {
-            staging = stagingRoll < 0.3 ? .tilted : .flat
-        } else {
-            staging = stagingRoll < 0.28 ? .tilted : (stagingRoll < 0.5 ? .vertical : .flat)
-        }
+        // 平视不再挑：每首歌都有立体的机位。
+        let staging: ImmersiveKineticStaging = energetic
+            ? pick([.orbit, .orbit, .dutch, .tilted], &random)
+            : pick([.orbit, .tilted, .vertical, .vertical, .dutch], &random)
 
         let usual: [ImmersiveKineticTransition] = energetic
-            ? [.whipPan, .crashZoom, .cascade]
-            : [.cascade, .rackFocus, .iris, .stepPrint]
+            ? [.whipPan, .crashZoom, .cubeFlip, .flyThrough, .spiral, .shatter]
+            : [.cascade, .rackFocus, .iris, .stepPrint, .doorSwing, .cubeFlip, .flyThrough]
         let transition = pick(usual, &random)
-        let climaxChoices: [ImmersiveKineticTransition] = (energetic ? [.crashZoom, .whipPan] : [.whipPan, .rackFocus])
-            .filter { $0 != transition }
+        let alternate = pick(usual.filter { $0 != transition }, &random)
+        let climaxPool: [ImmersiveKineticTransition] = energetic
+            ? [.shatter, .crashZoom, .flyThrough, .spiral, .cubeFlip]
+            : [.cubeFlip, .whipPan, .flyThrough, .shatter]
+        let climaxChoices = climaxPool.filter { $0 != transition && $0 != alternate }
         let climaxTransition = pick(climaxChoices.isEmpty ? [transition] : climaxChoices, &random)
+        let extruded = random.unit() < (energetic ? 0.55 : 0.3)
         return ImmersiveKineticDirection(
             scene: scene,
             staging: staging,
             accent: accent,
             transition: transition,
-            climaxTransition: climaxTransition
+            alternateTransition: alternate,
+            climaxTransition: climaxTransition,
+            extruded: extruded
         )
+    }
+
+    // MARK: - 机位
+
+    /// 每句换机位时挑的角度（偏航、俯仰、横滚，度），像多机位剪辑：左前、右下、俯拍、右侧、仰拍……一行字的
+    /// 立体感主要靠偏航（宽度方向的纵深大），俯仰只改一点点行高，所以偏航给得大。
+    static let orbitAngles: [(yaw: Double, pitch: Double, roll: Double)] = [
+        (-30, 10, -3), (28, -8, 2), (-14, 18, 0), (34, 6, 3), (-26, -12, -2), (18, 14, 0),
+    ]
+
+    /// 第 `lineIndex` 句此刻的机位。`time` 是播放时间（停住时镜头也停住），`swell` 是跟着鼓点、平滑过的那一下
+    /// （0…1），`climax` 是进副歌的程度（0…1），`amplitude` 是角度的幅度（竖屏窄，转太狠字会出画）。
+    /// `sungFraction` 是这句唱到几成：唱着时镜头慢慢推近一点。
+    public static func camera(
+        staging: ImmersiveKineticStaging,
+        lineIndex: Int,
+        seed: Double,
+        time: TimeInterval,
+        swell: Double,
+        climax: Double,
+        sungFraction: Double,
+        amplitude: Double,
+        motion: Bool
+    ) -> ImmersiveKineticCameraPose {
+        guard motion, time.isFinite else { return .level }
+        let wild = 1 + 0.6 * clamp(climax)
+        let kick = clamp(swell)
+        let phase = Double(lineIndex) * 1.37 + seed * 6.28
+        var pose = ImmersiveKineticCameraPose()
+        switch staging {
+        case .flat:
+            break
+        case .orbit:
+            let offset = Int((seed * Double(orbitAngles.count)).rounded(.down))
+            let count = orbitAngles.count
+            let angle = orbitAngles[((lineIndex + offset) % count + count) % count]
+            pose.yaw = (angle.yaw + 7 * sin(time * 0.23 + phase)) * wild
+            pose.pitch = angle.pitch + 4 * sin(time * 0.19 + phase * 0.7)
+            pose.roll = angle.roll + 2.5 * sin(time * 0.15 + phase) * wild
+        case .tilted:
+            let side: Double = lineIndex.isMultiple(of: 2) ? 1 : -1
+            pose.pitch = 30
+            pose.yaw = (side * 16 + 10 * sin(time * 0.16 + phase)) * wild
+        case .dutch:
+            let side: Double = lineIndex.isMultiple(of: 2) ? 1 : -1
+            pose.roll = (side * 9 + 1.5 * sin(time * 0.3 + phase)) * wild
+            pose.yaw = 12 * sin(time * 0.13 + phase) * wild
+            pose.pitch = 6
+        case .vertical:
+            pose.yaw = 18 * sin(time * 0.12 + phase)
+            pose.pitch = 5
+        }
+        pose.yaw *= amplitude
+        pose.pitch *= amplitude
+        pose.roll *= amplitude
+        // 鼓点往前顶一下、往下点一下头；唱着时慢慢推近。
+        pose.pitch -= 3 * kick
+        pose.scale = (1 + (0.045 + 0.03 * clamp(climax)) * kick) * (1 + 0.06 * clamp(sungFraction))
+        return pose
     }
 
     /// 这句适不适合竖排：至少两个汉字或假名，并且没有拉丁字母这类按词拼写的文字（数字、标点不算）。
@@ -254,6 +393,20 @@ public enum ImmersiveKineticDirectionPolicy {
         values[min(Int(random.unit() * Double(values.count)), values.count - 1)]
     }
 
+    /// 立体字的厚度在画面上往哪边露（相对字号的向量，y 向下）：底子是往右下（像从左上打光的立体标题），镜头
+    /// 转到哪边，靠近镜头的那一侧侧面就多露一点——偏航时右侧往远处转，左侧近，侧面往左露；俯仰时上沿往远处倒，
+    /// 下沿近，侧面往下露。
+    public static func extrusion(for pose: ImmersiveKineticCameraPose) -> (dx: Double, dy: Double) {
+        let x = 0.3 - extrusionSteer * sin(pose.yaw * .pi / 180)
+        let y = 0.7 + extrusionSteer * sin(pose.pitch * .pi / 180)
+        let length = max((x * x + y * y).squareRoot(), 0.001)
+        return (x / length * extrusionDepth, y / length * extrusionDepth)
+    }
+
+    /// 立体字有多厚（相对字号）、机位角度把它往两边带多少。
+    public static let extrusionDepth = 0.2
+    static let extrusionSteer = 1.8
+
     // MARK: - 镜头的时间
 
     /// 一句进场用多久。
@@ -265,6 +418,11 @@ public enum ImmersiveKineticDirectionPolicy {
         case .crashZoom: 0.3
         case .iris: 0.42
         case .stepPrint: 0.9
+        case .cubeFlip: 0.5
+        case .flyThrough: 0.55
+        case .doorSwing: 0.5
+        case .spiral: 0.6
+        case .shatter: 0.6
         }
     }
 
@@ -277,6 +435,11 @@ public enum ImmersiveKineticDirectionPolicy {
         case .crashZoom: 0.26
         case .iris: 0.36
         case .stepPrint: 0.7
+        case .cubeFlip: 0.5
+        case .flyThrough: 0.45
+        case .doorSwing: 0.4
+        case .spiral: 0.45
+        case .shatter: ImmersiveKineticLyricsPolicy.scatterBurst + ImmersiveKineticLyricsPolicy.scatterJitter
         }
     }
 
@@ -290,15 +453,15 @@ public enum ImmersiveKineticDirectionPolicy {
             firstTokenStart - ImmersiveKineticLyricsPolicy.entranceLead
         case .crashZoom, .iris:
             firstTokenStart - enterDuration(transition) * 0.75
-        case .whipPan, .rackFocus:
+        case .whipPan, .rackFocus, .cubeFlip, .flyThrough, .doorSwing, .spiral, .shatter:
             firstTokenStart - enterDuration(transition) * 0.9
         case .stepPrint:
             firstTokenStart - enterDuration(transition) * 0.6
         }
     }
 
-    /// 这一句什么时候开始出场（镜头带着整句走时）：赶在下一句进场前走开——甩镜、焦点转移与下一句交叠一半，
-    /// 急推与圈入圈出等这一句走完才进下一句；不早于自己最后一个字唱完，除非下一句已经要进来了。隔得久时
+    /// 这一句什么时候开始出场（镜头带着整句走时）：赶在下一句进场前走开——甩镜、焦点转移这类与下一句交叠一半，
+    /// 立方体翻转两句同时转（同一个立方体），急推与圈入圈出等这一句走完才进下一句；不早于自己最后一个字唱完，除非下一句已经要进来了。隔得久时
     /// 唱完停一会儿先走；最后一句一直留着。
     public static func exitStart(
         lastTokenEnd: TimeInterval,
@@ -310,7 +473,9 @@ public enum ImmersiveKineticDirectionPolicy {
             return lastTokenEnd + ImmersiveKineticLyricsPolicy.holdAfterLine
         }
         let overlap: Double = switch transition {
-        case .whipPan, .rackFocus, .stepPrint: 0.5
+        case .cubeFlip: 0
+        case .whipPan, .rackFocus, .stepPrint, .doorSwing, .spiral: 0.5
+        case .flyThrough, .shatter: 0.6
         case .cascade, .crashZoom, .iris: 1
         }
         let wanted = nextEnterStart - exitDuration(transition) * overlap
@@ -361,8 +526,48 @@ public enum ImmersiveKineticDirectionPolicy {
                 opacity: smoothstep(stepped / 0.45),
                 smear: 0.75 * (1 - stepped)
             )
+        case .cubeFlip:
+            // 从下面那一面翻上来：先背着光（暗一点），转正了才全亮。
+            let turn = easeInOutCubic(p)
+            return ImmersiveKineticLineTransform(
+                opacity: smoothstep(p / 0.35),
+                rotationX: -90 * (1 - turn),
+                depth: cubeDepth
+            )
+        case .flyThrough:
+            // 从纵深里冲过来，快到时稍稍冲过头再落回原位。
+            let settle = easeOutBack(p)
+            return ImmersiveKineticLineTransform(
+                offsetY: -0.6 * (1 - easeOutCubic(p)),
+                scale: 0.12 + 0.88 * settle,
+                blur: 0.45 * (1 - easeOutCubic(p)),
+                opacity: smoothstep(p / 0.4),
+                rotationX: 38 * (1 - easeOutCubic(p))
+            )
+        case .doorSwing:
+            let swing = easeOutBack(p)
+            return ImmersiveKineticLineTransform(
+                opacity: smoothstep(p / 0.3),
+                rotationY: 82 * side * (1 - swing),
+                anchorX: side > 0 ? 0 : 1
+            )
+        case .spiral:
+            let settle = easeOutCubic(p)
+            return ImmersiveKineticLineTransform(
+                scale: 0.3 + 0.7 * easeOutBack(p),
+                blur: 0.3 * (1 - settle),
+                opacity: smoothstep(p / 0.35),
+                rotationY: 55 * side * (1 - settle),
+                rotationZ: -42 * side * (1 - settle)
+            )
+        case .shatter:
+            // 整句不动，字自己飞回来（`ImmersiveKineticLyricsPolicy` 的 scatter）。
+            return .identity
         }
     }
+
+    /// 立方体翻转时转轴在字后面多深（相对字号）。
+    static let cubeDepth = 0.75
 
     /// 出场走到 `progress`（0…1）时整句的样子。`side` 与进场相同：1 时往左甩出去。
     public static func exiting(
@@ -408,6 +613,42 @@ public enum ImmersiveKineticDirectionPolicy {
                 opacity: 1 - stepped,
                 smear: 0.75 * stepped
             )
+        case .cubeFlip:
+            // 跟着立方体往上翻走，和翻上来的新句同时转。
+            let turn = easeInOutCubic(p)
+            return ImmersiveKineticLineTransform(
+                opacity: 1 - smoothstep((p - 0.65) / 0.35),
+                rotationX: 90 * turn,
+                depth: cubeDepth
+            )
+        case .flyThrough:
+            // 迎面掠过镜头：越来越快地放大，掠过时往下压、虚掉。
+            let rush = easeInCubic(p)
+            return ImmersiveKineticLineTransform(
+                offsetY: 0.5 * rush,
+                scale: 1 + 3.2 * rush,
+                blur: 0.35 * rush,
+                opacity: 1 - smoothstep((p - 0.35) / 0.65),
+                rotationX: -22 * rush
+            )
+        case .doorSwing:
+            let swing = easeInCubic(p)
+            return ImmersiveKineticLineTransform(
+                opacity: 1 - smoothstep((p - 0.55) / 0.45),
+                rotationY: -85 * side * swing,
+                anchorX: side > 0 ? 1 : 0
+            )
+        case .spiral:
+            let rush = easeInCubic(p)
+            return ImmersiveKineticLineTransform(
+                scale: 1 + 1.4 * rush,
+                blur: 0.3 * rush,
+                opacity: 1 - smoothstep((p - 0.4) / 0.6),
+                rotationY: -50 * side * rush,
+                rotationZ: 35 * side * rush
+            )
+        case .shatter:
+            return .identity
         }
     }
 
@@ -457,6 +698,13 @@ public enum ImmersiveKineticDirectionPolicy {
     static func easeInOutCubic(_ value: Double) -> Double {
         let x = clamp(value)
         return x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2
+    }
+
+    /// 缓出、末尾稍稍冲过头再落回 1。
+    static func easeOutBack(_ value: Double) -> Double {
+        let x = clamp(value) - 1
+        let overshoot = 1.4
+        return 1 + (overshoot + 1) * x * x * x + overshoot * x * x
     }
 
     static func easeOutExpo(_ value: Double) -> Double {
