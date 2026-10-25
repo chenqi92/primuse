@@ -73,6 +73,8 @@ struct KaraokeLineView: View {
     /// mask receives playback ticks, so glyph measurement and row placement do
     /// not become display-rate work.
     let isolatesAnimatedProgressFromLayout: Bool
+    /// 布局隔离时扫光遮罩最快多久刷一次;nil 跟着屏幕刷新走(减弱动态效果时另有下限)。
+    let minimumProgressInterval: TimeInterval?
     /// 超过该时间后，这一行已经让位给下一行；即使外层 active index 还没刷新，
     /// 也不要继续在旧行上扫光或弹动。
     let deactivationTime: TimeInterval?
@@ -97,6 +99,7 @@ struct KaraokeLineView: View {
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
         isolatesAnimatedProgressFromLayout: Bool = false,
+        minimumProgressInterval: TimeInterval? = nil,
         deactivationTime: TimeInterval? = nil,
         glowsSungSyllables: Bool = false
     ) {
@@ -113,6 +116,7 @@ struct KaraokeLineView: View {
         self.isAnimationEnabled = isAnimationEnabled
         self.animatesSyllableBounce = animatesSyllableBounce
         self.isolatesAnimatedProgressFromLayout = isolatesAnimatedProgressFromLayout
+        self.minimumProgressInterval = minimumProgressInterval
         self.deactivationTime = deactivationTime
         self.glowsSungSyllables = glowsSungSyllables
         self.resolvedWritingDirection = LyricWritingDirectionPolicy.resolvePresentationDirection(
@@ -136,6 +140,7 @@ struct KaraokeLineView: View {
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
         isolatesAnimatedProgressFromLayout: Bool = false,
+        minimumProgressInterval: TimeInterval? = nil,
         deactivationTime: TimeInterval? = nil,
         glowsSungSyllables: Bool = false
     ) {
@@ -153,6 +158,7 @@ struct KaraokeLineView: View {
             isAnimationEnabled: isAnimationEnabled,
             animatesSyllableBounce: animatesSyllableBounce,
             isolatesAnimatedProgressFromLayout: isolatesAnimatedProgressFromLayout,
+            minimumProgressInterval: minimumProgressInterval,
             deactivationTime: deactivationTime,
             glowsSungSyllables: glowsSungSyllables
         )
@@ -382,7 +388,7 @@ struct KaraokeLineView: View {
             }
             .mask {
                 if plan.runsTimeline {
-                    TimelineView(.animation(minimumInterval: plan.minimumInterval)) { context in
+                    TimelineView(.animation(minimumInterval: progressInterval(plan))) { context in
                         isolatedProgressMask(
                             syllables,
                             at: timeAt(context.date)
@@ -397,6 +403,11 @@ struct KaraokeLineView: View {
             }
             .accessibilityHidden(true)
             .allowsHitTesting(false)
+    }
+
+    /// 减弱动态效果的下限和调用方给的上限取慢的那个。
+    private func progressInterval(_ plan: KaraokeTimelineUpdatePlan) -> TimeInterval? {
+        [plan.minimumInterval, minimumProgressInterval].compactMap { $0 }.max()
     }
 
     private func isolatedProgressMask(

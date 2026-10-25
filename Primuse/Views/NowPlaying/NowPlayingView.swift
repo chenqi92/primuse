@@ -14321,6 +14321,12 @@ struct LyricsScrollView: View {
         lyrics.contains(where: \.containsWordLevelContent)
     }
 
+    /// 带逐字时间的行要不要一个字一个字地亮。文字稿在设置里关掉了逐字高亮时整句亮:
+    /// 外层换成按句的列表还不够,行里也得画成整句,不然正在念的那一句照样逐字扫过去。
+    private var highlightsWords: Bool {
+        !isSpokenWordTranscript || spokenWordTranscriptHighlightsWords
+    }
+
     private var hasSynchronizedLyrics: Bool {
         lyrics.contains { $0.isSynchronized }
     }
@@ -14436,7 +14442,7 @@ struct LyricsScrollView: View {
                 } else {
                     emptyLyricsView
                 }
-            } else if hasWordLevelLyrics, !isSpokenWordTranscript || spokenWordTranscriptHighlightsWords {
+            } else if hasWordLevelLyrics, highlightsWords {
                 smoothWordLyricsView
             } else {
                 lineLevelLyricsView
@@ -15543,7 +15549,7 @@ struct LyricsScrollView: View {
         timelineTime: TimeInterval? = nil,
         deactivationTime: TimeInterval? = nil
     ) -> some View {
-        if line.isWordLevel {
+        if line.isWordLevel, highlightsWords {
             let animatesWords = shouldRenderWordTimeline(
                 line: line,
                 index: index,
@@ -15579,8 +15585,13 @@ struct LyricsScrollView: View {
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
                 fixedTime: fixedPlaybackTime,
+                isPlaybackActive: usesLiveTimeline,
                 isAnimationEnabled: animatesWords,
                 animatesSyllableBounce: visualActivityPolicy.shouldRunWordTimeline,
+                // 文字稿一句动辄几十个词,逐帧重排整句(还要逐字上浮)手机会发烫、换句掉帧:
+                // 正在念的那句只让扫光那层遮罩跟着时钟走(同 Mac),每秒刷 30 次,念书用不着更细。
+                isolatesAnimatedProgressFromLayout: isSpokenWordTranscript,
+                minimumProgressInterval: isSpokenWordTranscript ? Self.spokenWordProgressInterval : nil,
                 deactivationTime: dimmedByAmbient ? deactivationTime : nil,
                 glowsSungSyllables: !appearance.isLight
             )
@@ -15724,6 +15735,7 @@ struct LyricsScrollView: View {
     /// 字级歌词 syllable 粒度精度本来就高,但行切换时也需要一点预热时间;
     /// 否则下一行会在第一个字开唱时才从普通行切成逐字 Timeline,跨行会显得顿。
     private static let lineLevelLookahead: TimeInterval = 0.25
+    private static let spokenWordProgressInterval: TimeInterval = 1.0 / 30
     private static let wordLevelLineLookahead: TimeInterval = 0.10
     /// Line-level and word-level takeovers share one curve so scrolling,
     /// highlight, and scale read as a single continuous gesture.
