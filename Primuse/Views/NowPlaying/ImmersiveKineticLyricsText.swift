@@ -67,7 +67,7 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
     var displayPadding: EdgeInsets {
         let overhang = (fontSize * CGFloat(overhangRatio)).rounded(.up)
         let sideways = overhangRatio > ImmersiveKineticLyricsPolicy.maximumOverhangRatio ? overhang : overhang / 2
-        return EdgeInsets(top: overhang, leading: sideways, bottom: overhang, trailing: sideways)
+        return .textRendererOverhang(vertical: overhang, horizontal: sideways)
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {

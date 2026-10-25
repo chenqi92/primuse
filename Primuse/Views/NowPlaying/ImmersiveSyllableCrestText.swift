@@ -48,6 +48,18 @@ struct ImmersiveSyllableCrestText: View {
     }
 }
 
+extension EdgeInsets {
+    /// `TextRenderer` 的绘制留边。macOS 上左右留边会把整段字往右挪左右留边之和的一半（居中的短句被挤出画面，
+    /// 窗口截图与 `ImageRenderer` 一样），而那里画出字框也不会被裁，所以只在 macOS 上左右不留。
+    static func textRendererOverhang(vertical: CGFloat, horizontal: CGFloat) -> EdgeInsets {
+        #if os(macOS)
+        EdgeInsets(top: vertical, leading: 0, bottom: vertical, trailing: 0)
+        #else
+        EdgeInsets(top: vertical, leading: horizontal, bottom: vertical, trailing: horizontal)
+        #endif
+    }
+}
+
 @available(tvOS 18.0, *)
 private struct ImmersiveSyllableIndex: TextAttribute {
     let index: Int
@@ -64,7 +76,7 @@ private struct ImmersiveSyllableCrestRenderer: TextRenderer {
     /// 浪尖和光会画出字框，按最大幅度留边，免得被裁掉。只随字号变，不随时间变。
     var displayPadding: EdgeInsets {
         let overhang = (fontSize * CGFloat(ImmersiveSyllableCrestPolicy.maximumOverhangRatio)).rounded(.up)
-        return EdgeInsets(top: overhang, leading: overhang, bottom: overhang, trailing: overhang)
+        return .textRendererOverhang(vertical: overhang, horizontal: overhang)
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
