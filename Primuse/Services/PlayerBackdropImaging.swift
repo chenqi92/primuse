@@ -99,7 +99,34 @@ enum PlayerBackdropImaging {
         return ciContext.createCGImage(blurred, from: extent)
     }
 
-    /// 延伸底图的宽度。模糊过的图放大到整屏宽看不出差别。
+    /// 手机横屏铺满封面右边那一截的底图：封面右沿占宽度 `fraction` 的那一条，右边接上它的左右镜像，
+    /// 缩成小图一起模糊一次。左半垫在封面渐隐那段底下，右半往右铺到屏幕边；接缝两边是封面最右边同一列像素，
+    /// 渐隐处看到的就是封面自己的颜色，歌名和控件压在模糊的封面上，左右连成一片。
+    nonisolated static func fullBleedTrailingExtension(from image: CGImage, fraction: CGFloat) -> CGImage? {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        guard width > 0, height > 0 else { return nil }
+        let stripWidth = max(1, (width * min(max(fraction, 0.05), 1)).rounded())
+        // 最右边那一条挪到原点，右边接上以接缝为轴翻过来的一份。
+        let strip = CIImage(cgImage: image)
+            .cropped(to: CGRect(x: width - stripWidth, y: 0, width: stripWidth, height: height))
+            .transformed(by: CGAffineTransform(translationX: stripWidth - width, y: 0))
+        let mirrored = strip.transformed(
+            by: CGAffineTransform(scaleX: -1, y: 1).concatenating(CGAffineTransform(translationX: stripWidth * 2, y: 0))
+        )
+        let scale = min(1, fullBleedExtensionWidth / height)
+        let combined = strip.composited(over: mirrored)
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = combined.extent.integral
+        let blurred = combined
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(extent.height * 0.06))
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.1])
+            .cropped(to: extent)
+        return ciContext.createCGImage(blurred, from: extent)
+    }
+
+    /// 延伸底图的宽度（横屏那一种是高度）。模糊过的图放大到整屏宽看不出差别。
     private nonisolated static let fullBleedExtensionWidth: CGFloat = 96
 
     /// 铺满封面顶部柔化的底图：整张封面缩成小图，重重模糊一次。播放页把它按封面同样的位置、

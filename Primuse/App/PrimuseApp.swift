@@ -62,6 +62,15 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    /// 播放页按住横屏或竖屏时(手动切换,或关了「跟随手机方向转屏」)主窗口只许那一组方向,其余时候与
+    /// Info.plist 里登记的一致(见 `PlayerOrientationControl`)。CarPlay、外接屏的窗口不受影响。
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        PlayerOrientationControl.supportedMask(for: window)
+    }
+
     /// 主窗口场景挂上 `PrimuseWindowSceneDelegate` 接主屏幕快捷菜单与 Spotlight;冷启动时点的那一项
     /// 跟着连接选项一起到,在这里交出去。CarPlay、外接屏等其它角色照 Info.plist 里登记的
     /// 配置走。

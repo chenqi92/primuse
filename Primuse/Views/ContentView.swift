@@ -3462,7 +3462,12 @@ extension ContentView {
             guard !Task.isCancelled else { return }
             landscape.toggle()
             plog("🧪 DebugLaunchAutomation: rotate to \(landscape ? "landscape" : "portrait")")
-            InterfaceOrientationLock.debugRequest(landscape: landscape)
+            // `PRIMUSE_DEBUG_ROTATE_VIA_BUTTON=1`：照播放页上的横竖屏切换键那样转（按住方向那一套）。
+            if environment["PRIMUSE_DEBUG_ROTATE_VIA_BUTTON"] == "1" {
+                PlayerOrientationControl.toggle(fromLandscape: !landscape, followsDevice: true)
+            } else {
+                InterfaceOrientationLock.debugRequest(landscape: landscape)
+            }
         }
     }
 

@@ -1158,6 +1158,41 @@ private extension View {
     }
 }
 
+/// 手机横屏右栏的排法：第一块（歌名那一块）贴上沿，其余的（进度条、传输键、音量条）从下沿往上排，整栏至少
+/// `minimumHeight` 高（卡片封面的边长），两栏的上下边对齐；内容本来就比它高时一块接一块排，和 `VStack` 一样。
+/// 每块按自己的理想高度排，宽度跟这一栏。
+private struct NowPlayingEdgeAlignedColumn: Layout {
+    var minimumHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        let natural = sizes.reduce(0) { $0 + $1.height }
+        return CGSize(
+            width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+            height: max(minimumHeight, natural)
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        let width = ProposedViewSize(width: bounds.width, height: nil)
+        let firstHeight = first.sizeThatFits(width).height
+        first.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            proposal: ProposedViewSize(width: bounds.width, height: firstHeight)
+        )
+        var bottom = bounds.maxY
+        for subview in subviews.dropFirst().reversed() {
+            let height = subview.sizeThatFits(width).height
+            bottom -= height
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: bottom),
+                proposal: ProposedViewSize(width: bounds.width, height: height)
+            )
+        }
+    }
+}
+
 /// 把一段视图的构造推迟到这一层自己的 `body` 里，由 SwiftUI 单独求值。
 ///
 /// Debug（-Onone）构建不复用栈槽：一个构造视图的闭包里，每个分支、每个中间值都各占一块栈，
@@ -1674,6 +1709,10 @@ struct NowPlayingView: View {
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
+    @AppStorage(PlayerAppearancePreferences.showsOrientationButtonKey)
+    private var showsOrientationButton = PlayerAppearancePreferences.showsOrientationButtonByDefault
+    @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
+    private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
     /// 这次全屏是转横屏带进去的：转回竖屏时只退出这一种，自己点进去的全屏不动。
     @State private var enteredFullscreenForLandscape = false
     @AppStorage(PlayerAppearancePreferences.immersiveShowsArtworkKey)
@@ -3276,6 +3315,17 @@ struct NowPlayingView: View {
                     .onChange(of: isLyricsImmersive) { _, isImmersive in
                         if !isImmersive, !isFullscreenPlayerPresented { enteredFullscreenForLandscape = false }
                     }
+
+                // 右上角的横竖屏切换键与「跟随手机方向转屏」：播放页醒着时按住手动选的方向，收起时交还
+                // (见 `PlayerOrientationControl`)。
+                PlayerOrientationHost(
+                    isActive: isVisualSceneActive && orientationControlAvailable,
+                    followsDevice: followsDeviceOrientation,
+                    isLandscape: geo.size.width > geo.size.height
+                )
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
                 #endif
 
                 // 歌词翻译由这层常驻的零尺寸视图负责，歌词面板与全屏舞台只读结果。
@@ -4457,6 +4507,11 @@ struct NowPlayingView: View {
                 .transition(lyricsHandoffArtworkTransition)
             }
         }
+        // 铺满封面右边接着往右延伸成模糊的封面，歌名、进度条和按钮压在上面：和竖屏铺满时封面下面那一截
+        // 一样，左右两半是同一张图连过去的，不是封面一块、底色一块。
+        .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
+            fullBleedArtworkTrailingExtension(anchor: fullBleedArtwork && !showLyrics ? anchors[.cover] : nil)
+        }
         .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
@@ -4663,7 +4718,8 @@ struct NowPlayingView: View {
                     compactLandscapeDetailColumn(
                         metrics: metrics,
                         lyricsMetrics: lyricsMetrics,
-                        usesToolColumn: usesToolColumn
+                        usesToolColumn: usesToolColumn,
+                        alignsToArtwork: !fullBleedArtwork
                     )
                         .transition(.opacity)
                 }
@@ -4703,11 +4759,16 @@ struct NowPlayingView: View {
             .frame(maxHeight: .infinity)
     }
 
+    /// `alignsToArtwork`：卡片封面时这一栏撑到和封面一样高，歌名的上沿对着封面上沿、传输键（或音量条）的下沿
+    /// 对着封面下沿，多出来的高度放在歌名那一块和进度条之间 —— 两栏按同一条上下边排，看着是一整块版面，
+    /// 不是一张卡片旁边浮着一组控件。按实际排出来的高度算（`NowPlayingEdgeAlignedColumn`）：右栏本来就比封面高时
+    /// （窄屏封面被宽度卡住）照旧一块接一块排。
     @ViewBuilder
     private func compactLandscapeDetailColumn(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
-        usesToolColumn: Bool
+        usesToolColumn: Bool,
+        alignsToArtwork: Bool = false
     ) -> some View {
         let showsEdgeToggles = showLyrics
             ? lyricsMetrics.showsEdgeToggles
@@ -4716,7 +4777,9 @@ struct NowPlayingView: View {
             ? lyricsMetrics.showsVolumeBar
             : metrics.showsVolumeBar
 
-        VStack(alignment: .leading, spacing: 0) {
+        NowPlayingEdgeAlignedColumn(
+            minimumHeight: alignsToArtwork && !showLyrics ? CGFloat(metrics.artworkSize) : 0
+        ) {
             // 两种模式只有这一块不同。叠在 ZStack 里换场，下面的进度条和传输键
             // 不会因为过渡期间多出一块而被顶下去。
             ZStack(alignment: .topLeading) {
@@ -5220,6 +5283,44 @@ struct NowPlayingView: View {
             : String(localized: "a11y_play"))
     }
 
+    /// 这块画布上能不能手动横竖屏：手机，不是平板或展开的折叠屏内屏(见 `PlayerOrientationControl`)。
+    private var orientationControlAvailable: Bool {
+        #if os(iOS)
+        PlayerOrientationControl.isAvailable(
+            horizontal: sizeClass,
+            vertical: heightClass.isCompact ? .compact : .regular
+        )
+        #else
+        false
+        #endif
+    }
+
+    /// 竖屏把手右边那颗横竖屏切换键。iPhone Duo 竖栏那一列排着播放页按钮时不放。
+    private func showsPortraitOrientationButton(usesToolColumn: Bool) -> Bool {
+        showsOrientationButton && orientationControlAvailable && !usesToolColumn
+    }
+
+    /// 手机横屏顶上那排圆钮里的横竖屏切换键，排在收起键前面：和竖屏一样在右上角。
+    private var showsLandscapeOrientationButton: Bool {
+        showsOrientationButton && orientationControlAvailable
+    }
+
+    /// 横竖屏切换键：竖屏时转到横屏，横屏时转回竖屏，不用等手机转过去。
+    private func playerOrientationButton(diameter: CGFloat) -> some View {
+        let isLandscape = heightClass.isCompact
+        return NowPlayingGlassActionButton(
+            symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+            label: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape",
+            appearance: appearance,
+            tint: appearance.primary,
+            diameter: diameter
+        ) {
+            #if os(iOS)
+            PlayerOrientationControl.toggle(fromLandscape: isLandscape, followsDevice: followsDeviceOrientation)
+            #endif
+        }
+    }
+
     /// `width` 是这一排可用的宽度,底栏那一串排不下时左边一组少摆几颗(见 `compactLandscapeChromeRow`)。
     @ViewBuilder
     private func compactLandscapeChromeLayer(width: CGFloat) -> some View {
@@ -5242,6 +5343,7 @@ struct NowPlayingView: View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
         // 一排里固定的:锁、全屏效果、歌名旁那一格(有时)、更多、收起;圆钮之间隔 10。
         let fixedCount = 4 + (musicControlLayout.compactLandscapeChrome().trailing != nil ? 1 : 0)
+            + (showsLandscapeOrientationButton ? 1 : 0)
         let leadingLimit = max(1, Int(((width + 10) / (diameter + 10)).rounded(.down)) - fixedCount)
         let chrome = musicControlLayout.compactLandscapeChrome(leadingLimit: leadingLimit)
         // 有声内容:传输键两侧已经摆着的键,这一排不再重复。
@@ -5336,6 +5438,10 @@ struct NowPlayingView: View {
                         leadingLimit: leadingLimit
                     )
                 )
+            }
+
+            if showsLandscapeOrientationButton {
+                playerOrientationButton(diameter: diameter)
             }
 
             // 全屏歌词时这一颗退出全屏（回到普通歌词），其它时候收起播放页；图标两者相同。
@@ -5819,6 +5925,13 @@ struct NowPlayingView: View {
                             .frame(width: 48, height: 5)
                             .frame(maxWidth: .infinity)
                             .frame(height: 5)
+                            // 横竖屏切换键和把手同一条线、右边和下面歌名那一行的「更多」对齐，不占版面的高度。
+                            .overlay(alignment: .trailing) {
+                                if showsPortraitOrientationButton(usesToolColumn: usesToolColumn) {
+                                    playerOrientationButton(diameter: 30)
+                                        .padding(.trailing, 18 + insets.rows)
+                                }
+                            }
                             .padding(.top, topSafeArea + 6)
                             .padding(.horizontal, 8)
                             .padding(.bottom, 10)
@@ -6123,6 +6236,30 @@ struct NowPlayingView: View {
                 .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
                     fullBleedArtworkExtension(anchor: fullBleedArtwork ? anchors[.cover] : nil)
                 }
+        }
+    }
+
+    /// 手机横屏铺满封面且背景选的是封面取色时，封面右沿接着往右延伸；其它背景照旧露出来。
+    @ViewBuilder
+    private func fullBleedArtworkTrailingExtension(anchor: LyricsArtworkAnchor?) -> some View {
+        if let anchor, anchor.trailingFade > 0,
+           PlayerBackdropSettingsStore.shared.effectiveSource == .coverAmbient {
+            GeometryReader { proxy in
+                FullBleedArtworkExtension(
+                    song: player.currentSong,
+                    coverRevision: player.coverRevision,
+                    artworkRect: proxy[anchor.bounds],
+                    pageSize: proxy.size,
+                    isLight: appearance.isLight,
+                    strength: AppThemePreferences.normalizedAmbientStrength(ambientStrength),
+                    usesIncreasedContrast: colorSchemeContrast == .increased,
+                    allowsLoading: isPresentationSettled,
+                    edge: .trailing,
+                    fadeFraction: anchor.trailingFade
+                )
+            }
+            .ignoresSafeArea()
+            .transition(.opacity)
         }
     }
 

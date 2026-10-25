@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "Justificar texto";
 "transcript_reader_scroll_indicator" = "Mostrar barra de desplazamiento";
 "transcript_reader_justify_footer" = "Con el texto justificado, cada línea, excepto la última de cada párrafo, llega a ambos márgenes.";
+"player_orientation_section_title" = "Orientación";
+"player_orientation_button_title" = "Botón de rotación";
+"player_orientation_button_description" = "Agrega arriba a la derecha del reproductor un botón que cambia entre horizontal y vertical sin girar el teléfono.";
+"player_follows_device_orientation_title" = "Girar con el teléfono";
+"player_follows_device_orientation_description" = "Si está desactivado, el reproductor mantiene su orientación al girar el teléfono; usa el botón para cambiarla.";
+"player_orientation_to_landscape" = "Ver en horizontal";
+"player_orientation_to_portrait" = "Ver en vertical";

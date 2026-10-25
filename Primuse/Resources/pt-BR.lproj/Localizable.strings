@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "Justificar texto";
 "transcript_reader_scroll_indicator" = "Mostrar barra de rolagem";
 "transcript_reader_justify_footer" = "Com o texto justificado, todas as linhas, exceto a última de cada parágrafo, vão até as duas margens.";
+"player_orientation_section_title" = "Orientação";
+"player_orientation_button_title" = "Botão de rotação";
+"player_orientation_button_description" = "Coloca no canto superior direito do player um botão que alterna entre horizontal e vertical sem girar o celular.";
+"player_follows_device_orientation_title" = "Girar com o celular";
+"player_follows_device_orientation_description" = "Desativado, o player mantém a orientação atual quando você gira o celular; use o botão para alternar.";
+"player_orientation_to_landscape" = "Ver na horizontal";
+"player_orientation_to_portrait" = "Ver na vertical";

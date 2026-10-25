@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "टेक्स्ट दोनों ओर संरेखित करें";
 "transcript_reader_scroll_indicator" = "स्क्रॉल बार दिखाएँ";
 "transcript_reader_justify_footer" = "दोनों ओर संरेखण में, अनुच्छेद की अंतिम पंक्ति को छोड़कर हर पंक्ति दोनों किनारों तक जाती है।";
+"player_orientation_section_title" = "स्क्रीन की दिशा";
+"player_orientation_button_title" = "घुमाने का बटन";
+"player_orientation_button_description" = "प्लेयर के ऊपर दाईं ओर एक बटन रखता है, जो फ़ोन घुमाए बिना आड़े और खड़े लेआउट के बीच बदलता है।";
+"player_follows_device_orientation_title" = "फ़ोन के साथ घुमाएँ";
+"player_follows_device_orientation_description" = "बंद होने पर फ़ोन घुमाने से प्लेयर अपनी मौजूदा दिशा में ही रहता है; दिशा बटन से बदलें।";
+"player_orientation_to_landscape" = "आड़ा दिखाएँ";
+"player_orientation_to_portrait" = "खड़ा दिखाएँ";

@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "Выравнивание по ширине";
 "transcript_reader_scroll_indicator" = "Показывать полосу прокрутки";
 "transcript_reader_justify_footer" = "При выравнивании по ширине каждая строка, кроме последней в абзаце, доходит до обоих краёв.";
+"player_orientation_section_title" = "Ориентация";
+"player_orientation_button_title" = "Кнопка поворота";
+"player_orientation_button_description" = "Добавляет в правый верхний угол плеера кнопку, которая переключает альбомную и книжную ориентацию без поворота iPhone.";
+"player_follows_device_orientation_title" = "Поворачивать вместе с iPhone";
+"player_follows_device_orientation_description" = "Если выключено, при повороте iPhone плеер сохраняет текущую ориентацию; переключайте её кнопкой.";
+"player_orientation_to_landscape" = "Альбомная ориентация";
+"player_orientation_to_portrait" = "Книжная ориентация";

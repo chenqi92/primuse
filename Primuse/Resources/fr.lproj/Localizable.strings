@@ -6864,3 +6864,10 @@
 "transcript_reader_justify" = "Justifier le texte";
 "transcript_reader_scroll_indicator" = "Afficher la barre de défilement";
 "transcript_reader_justify_footer" = "Avec le texte justifié, chaque ligne sauf la dernière d’un paragraphe s’étend jusqu’aux deux bords.";
+"player_orientation_section_title" = "Orientation";
+"player_orientation_button_title" = "Bouton de rotation";
+"player_orientation_button_description" = "Ajoute en haut à droite du lecteur un bouton qui passe du paysage au portrait, sans tourner l’iPhone.";
+"player_follows_device_orientation_title" = "Pivoter avec l’iPhone";
+"player_follows_device_orientation_description" = "Si désactivé, le lecteur garde son orientation quand vous tournez l’iPhone ; utilisez le bouton pour changer.";
+"player_orientation_to_landscape" = "Afficher en paysage";
+"player_orientation_to_portrait" = "Afficher en portrait";

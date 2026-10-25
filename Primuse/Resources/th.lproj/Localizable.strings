@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "จัดชิดขอบทั้งสองด้าน";
 "transcript_reader_scroll_indicator" = "แสดงแถบเลื่อน";
 "transcript_reader_justify_footer" = "เมื่อจัดชิดขอบทั้งสองด้าน ทุกบรรทัดยกเว้นบรรทัดสุดท้ายของย่อหน้าจะยาวถึงขอบทั้งสองข้าง";
+"player_orientation_section_title" = "การวางแนว";
+"player_orientation_button_title" = "ปุ่มหมุนจอ";
+"player_orientation_button_description" = "วางปุ่มไว้มุมขวาบนของหน้าเล่น กดเพื่อสลับแนวนอนกับแนวตั้งได้โดยไม่ต้องหมุนโทรศัพท์";
+"player_follows_device_orientation_title" = "หมุนตามโทรศัพท์";
+"player_follows_device_orientation_description" = "เมื่อปิด หน้าเล่นจะคงแนวเดิมไว้แม้หมุนโทรศัพท์ ใช้ปุ่มหมุนจอเพื่อสลับ";
+"player_orientation_to_landscape" = "แสดงแนวนอน";
+"player_orientation_to_portrait" = "แสดงแนวตั้ง";

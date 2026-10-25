@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "Wyjustuj tekst";
 "transcript_reader_scroll_indicator" = "Pokaż pasek przewijania";
 "transcript_reader_justify_footer" = "Przy wyjustowaniu każdy wiersz oprócz ostatniego w akapicie sięga obu krawędzi.";
+"player_orientation_section_title" = "Orientacja";
+"player_orientation_button_title" = "Przycisk obrotu";
+"player_orientation_button_description" = "Dodaje w prawym górnym rogu odtwarzacza przycisk, który przełącza poziomo i pionowo bez obracania telefonu.";
+"player_follows_device_orientation_title" = "Obracaj razem z telefonem";
+"player_follows_device_orientation_description" = "Gdy wyłączone, odtwarzacz zostaje w obecnej orientacji po obróceniu telefonu; zmieniaj ją przyciskiem.";
+"player_orientation_to_landscape" = "Pokaż poziomo";
+"player_orientation_to_portrait" = "Pokaż pionowo";

@@ -6624,3 +6624,10 @@
 "transcript_reader_justify" = "Justify Text";
 "transcript_reader_scroll_indicator" = "Show Scroll Bar";
 "transcript_reader_justify_footer" = "With Justify Text on, every line except the last one in a paragraph runs to both edges.";
+"player_orientation_section_title" = "Orientation";
+"player_orientation_button_title" = "Rotate Button";
+"player_orientation_button_description" = "Puts a button at the top right of the player that switches between landscape and portrait, without turning your phone.";
+"player_follows_device_orientation_title" = "Rotate with Phone";
+"player_follows_device_orientation_description" = "When off, the player stays in its current orientation when you turn your phone; use the rotate button to switch.";
+"player_orientation_to_landscape" = "Show in Landscape";
+"player_orientation_to_portrait" = "Show in Portrait";

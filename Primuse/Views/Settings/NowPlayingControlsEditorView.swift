@@ -86,6 +86,10 @@ struct NowPlayingControlsEditorView: View {
     private var skipButtonStyleRawValue = NowPlayingSkipButtonStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
+    @AppStorage(PlayerAppearancePreferences.showsOrientationButtonKey)
+    private var showsOrientationButton = PlayerAppearancePreferences.showsOrientationButtonByDefault
+    @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
+    private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     @State private var editing: NowPlayingPreviewSlot?
@@ -291,6 +295,26 @@ struct NowPlayingControlsEditorView: View {
                     }
                 }
                 .settingsAnchor("appearance.playerAlbumInSubtitle")
+            }
+
+            // 横竖屏(只有手机有横屏播放页):右上角那颗切换键,以及跟不跟着手机方向转。
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                Section {
+                    Toggle(isOn: $showsOrientationButton) {
+                        SettingsInfoLabel("player_orientation_button_title") {
+                            Text("player_orientation_button_description")
+                        }
+                    }
+                    .settingsAnchor("appearance.playerOrientationButton")
+                    Toggle(isOn: $followsDeviceOrientation) {
+                        SettingsInfoLabel("player_follows_device_orientation_title") {
+                            Text("player_follows_device_orientation_description")
+                        }
+                    }
+                    .settingsAnchor("appearance.playerFollowsDeviceOrientation")
+                } header: {
+                    Text("player_orientation_section_title")
+                }
             }
 
             NowPlayingBarSection(

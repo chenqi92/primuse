@@ -6770,3 +6770,10 @@
 "transcript_reader_justify" = "Metni İki Yana Yasla";
 "transcript_reader_scroll_indicator" = "Kaydırma Çubuğunu Göster";
 "transcript_reader_justify_footer" = "İki yana yaslamada, paragrafın son satırı dışındaki her satır iki kenara kadar uzanır.";
+"player_orientation_section_title" = "Yön";
+"player_orientation_button_title" = "Döndürme düğmesi";
+"player_orientation_button_description" = "Oynatıcının sağ üstüne, telefonu çevirmeden yatay ve dikey arasında geçiş yapan bir düğme koyar.";
+"player_follows_device_orientation_title" = "Telefonla birlikte döndür";
+"player_follows_device_orientation_description" = "Kapalıyken telefonu çevirdiğinizde oynatıcı mevcut yönünde kalır; yönü düğmeyle değiştirin.";
+"player_orientation_to_landscape" = "Yatay göster";
+"player_orientation_to_portrait" = "Dikey göster";

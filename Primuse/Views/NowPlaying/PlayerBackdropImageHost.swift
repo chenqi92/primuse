@@ -357,7 +357,16 @@ struct FullBleedTopSofteningImage: Sendable {
 }
 
 /// 只在背景选的是封面取色时铺：流动色彩、声音律动和背景图是用户特意选的，封面下面照旧露出它们。
+/// 竖屏的铺满封面往下延伸；手机横屏的铺满封面在左、歌名和控件在右，往右延伸。
 struct FullBleedArtworkExtension: View {
+    /// 往封面哪一边延伸。
+    enum Edge: Sendable {
+        /// 竖屏：封面下沿往下铺到屏幕底。
+        case bottom
+        /// 手机横屏：封面右沿往右铺到屏幕边。
+        case trailing
+    }
+
     /// 封面下沿渐隐那一截占封面高度的比例，播放页的铺满封面位用同一个值。
     nonisolated static let fadeFraction: CGFloat = 0.4
 
@@ -371,6 +380,9 @@ struct FullBleedArtworkExtension: View {
     let usesIncreasedContrast: Bool
     /// 入场动画结束前不开始取图；内存里已经有的照样立刻用。
     let allowsLoading: Bool
+    let edge: Edge
+    /// 封面靠这一边渐隐那一截占封面高度（往右延伸时是宽度）的比例，和封面位的渐隐一致。
+    let fadeFraction: CGFloat
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var shown: FullBleedArtworkExtensionImages?
@@ -383,7 +395,9 @@ struct FullBleedArtworkExtension: View {
         isLight: Bool,
         strength: Double,
         usesIncreasedContrast: Bool,
-        allowsLoading: Bool
+        allowsLoading: Bool,
+        edge: Edge = .bottom,
+        fadeFraction: CGFloat = FullBleedArtworkExtension.fadeFraction
     ) {
         self.song = song
         self.coverRevision = coverRevision
@@ -393,9 +407,11 @@ struct FullBleedArtworkExtension: View {
         self.strength = strength
         self.usesIncreasedContrast = usesIncreasedContrast
         self.allowsLoading = allowsLoading
+        self.edge = edge
+        self.fadeFraction = fadeFraction
         // 播放页每次展开都重新挂载：备好的那张直接用上，不再淡入一遍。
         _shown = State(initialValue: song.flatMap {
-            FullBleedArtworkExtensionImages.cached(song: $0, coverRevision: coverRevision)
+            FullBleedArtworkExtensionImages.cached(song: $0, coverRevision: coverRevision, edge: edge)
         })
     }
 
@@ -406,7 +422,7 @@ struct FullBleedArtworkExtension: View {
 
     var body: some View {
         let cacheKey = song.map {
-            FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: coverRevision)
+            FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: coverRevision, edge: edge)
         }
         ZStack {
             if let shown {
@@ -418,7 +434,7 @@ struct FullBleedArtworkExtension: View {
         .frame(width: pageSize.width, height: pageSize.height)
         .task(id: LoadKey(cacheKey: cacheKey, allowsLoading: allowsLoading)) {
             guard let song, let cacheKey, shown?.key != cacheKey else { return }
-            if let cached = FullBleedArtworkExtensionImages.cached(song: song, coverRevision: coverRevision) {
+            if let cached = FullBleedArtworkExtensionImages.cached(song: song, coverRevision: coverRevision, edge: edge) {
                 withAnimation(Self.crossfade) { shown = cached }
                 return
             }
@@ -427,7 +443,9 @@ struct FullBleedArtworkExtension: View {
             let loaded = await FullBleedArtworkExtensionImages.load(
                 song: song,
                 coverRevision: coverRevision,
-                sourceManager: sourceManager
+                sourceManager: sourceManager,
+                edge: edge,
+                fraction: fadeFraction
             )
             guard !Task.isCancelled else { return }
             withAnimation(Self.crossfade) { shown = loaded }
@@ -438,9 +456,17 @@ struct FullBleedArtworkExtension: View {
 
     private static let crossfade = Animation.easeInOut(duration: 0.35)
 
+    @ViewBuilder
     private func extensionLayer(_ images: FullBleedArtworkExtensionImages) -> some View {
+        switch edge {
+        case .bottom: bottomLayer(images)
+        case .trailing: trailingLayer(images)
+        }
+    }
+
+    private func bottomLayer(_ images: FullBleedArtworkExtensionImages) -> some View {
         let width = max(artworkRect.width, pageSize.width)
-        let fadeHeight = max(1, artworkRect.height * Self.fadeFraction)
+        let fadeHeight = max(1, artworkRect.height * fadeFraction)
         // 往屏幕底外多铺一截，版面比窗口略矮时底边也不露缝。
         let lowerHeight = max(1, pageSize.height - artworkRect.maxY + 40)
         let total = fadeHeight + lowerHeight
@@ -455,15 +481,38 @@ struct FullBleedArtworkExtension: View {
                 .frame(width: width, height: lowerHeight)
         }
         .overlay {
-            scrim(seam: fadeHeight / total, settle: min(1, fadeHeight * 1.6 / total))
+            scrim(seam: fadeHeight / total, settle: min(1, fadeHeight * 1.6 / total), along: .vertical)
         }
         .frame(width: width, height: total)
         .position(x: pageSize.width / 2, y: artworkRect.maxY - fadeHeight + total / 2)
     }
 
+    /// 横屏：左半垫在封面渐隐那段底下，右半一直铺到屏幕边（多铺一截，版面比窗口略窄时也不露缝）。上下铺满整页。
+    private func trailingLayer(_ images: FullBleedArtworkExtensionImages) -> some View {
+        let height = max(artworkRect.height, pageSize.height)
+        let fadeWidth = max(1, artworkRect.width * fadeFraction)
+        let farWidth = max(1, pageSize.width - artworkRect.maxX + 40)
+        let total = fadeWidth + farWidth
+        return HStack(spacing: 0) {
+            Image(decorative: images.upper, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: fadeWidth, height: height)
+            Image(decorative: images.lower, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: farWidth, height: height)
+        }
+        .overlay {
+            scrim(seam: fadeWidth / total, settle: min(1, fadeWidth * 1.6 / total), along: .horizontal)
+        }
+        .frame(width: total, height: height)
+        .position(x: artworkRect.maxX - fadeWidth + total / 2, y: pageSize.height / 2)
+    }
+
     /// 渐隐那段从无到有，封面下沿处到背景图遮罩的中段，再往下一点到底部那一档：
     /// 歌名、进度条和按钮压在上面和压在模糊封面背景上一样看得清。
-    private func scrim(seam: CGFloat, settle: CGFloat) -> some View {
+    private func scrim(seam: CGFloat, settle: CGFloat, along axis: Axis) -> some View {
         let value = PlayerBackdropScrimPolicy.scrim(
             isLight: isLight,
             strength: strength,
@@ -477,8 +526,8 @@ struct FullBleedArtworkExtension: View {
                 .init(color: base.opacity(value.bottomOpacity), location: max(seam, settle)),
                 .init(color: base.opacity(value.bottomOpacity), location: 1),
             ],
-            startPoint: .top,
-            endPoint: .bottom
+            startPoint: axis == .vertical ? .top : .leading,
+            endPoint: axis == .vertical ? .bottom : .trailing
         )
     }
 }
@@ -486,40 +535,57 @@ struct FullBleedArtworkExtension: View {
 /// 铺满封面延伸底图（`PlayerBackdropImaging.fullBleedExtension`）切成的上下两半。
 struct FullBleedArtworkExtensionImages: Sendable {
     let key: String
+    /// 垫在封面渐隐那段底下的半张（竖屏是上半，横屏是左半）。
     let upper: CGImage
+    /// 往外铺到屏幕边的半张。
     let lower: CGImage
 
-    private init?(key: String, combined: CGImage) {
-        let half = combined.height / 2
-        guard half > 0,
-              let upper = combined.cropping(to: CGRect(x: 0, y: 0, width: combined.width, height: half)),
-              let lower = combined.cropping(
-                to: CGRect(x: 0, y: half, width: combined.width, height: combined.height - half)
-              )
-        else { return nil }
+    private init?(key: String, combined: CGImage, edge: FullBleedArtworkExtension.Edge) {
+        let near: CGRect
+        let far: CGRect
+        switch edge {
+        case .bottom:
+            let half = combined.height / 2
+            guard half > 0 else { return nil }
+            near = CGRect(x: 0, y: 0, width: combined.width, height: half)
+            far = CGRect(x: 0, y: half, width: combined.width, height: combined.height - half)
+        case .trailing:
+            let half = combined.width / 2
+            guard half > 0 else { return nil }
+            near = CGRect(x: 0, y: 0, width: half, height: combined.height)
+            far = CGRect(x: half, y: 0, width: combined.width - half, height: combined.height)
+        }
+        guard let upper = combined.cropping(to: near), let lower = combined.cropping(to: far) else { return nil }
         self.key = key
         self.upper = upper
         self.lower = lower
     }
 
-    static func cacheKey(song: Song, coverRevision: Int) -> String {
-        "fullbleed|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)"
+    static func cacheKey(song: Song, coverRevision: Int, edge: FullBleedArtworkExtension.Edge = .bottom) -> String {
+        let prefix = edge == .bottom ? "fullbleed" : "fullbleed-trailing"
+        return "\(prefix)|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)"
     }
 
-    static func cached(song: Song, coverRevision: Int) -> FullBleedArtworkExtensionImages? {
-        let key = cacheKey(song: song, coverRevision: coverRevision)
+    static func cached(
+        song: Song,
+        coverRevision: Int,
+        edge: FullBleedArtworkExtension.Edge = .bottom
+    ) -> FullBleedArtworkExtensionImages? {
+        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge)
         guard let image = PlayerBackdropMemoryCache.shared.image(forKey: key) else { return nil }
-        return FullBleedArtworkExtensionImages(key: key, combined: image)
+        return FullBleedArtworkExtensionImages(key: key, combined: image, edge: edge)
     }
 
     /// 取封面小图、在后台做一次模糊，结果放进背景图的内存缓存。
     static func load(
         song: Song,
         coverRevision: Int,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        edge: FullBleedArtworkExtension.Edge = .bottom,
+        fraction: CGFloat = FullBleedArtworkExtension.fadeFraction
     ) async -> FullBleedArtworkExtensionImages? {
-        if let cached = cached(song: song, coverRevision: coverRevision) { return cached }
-        let key = cacheKey(song: song, coverRevision: coverRevision)
+        if let cached = cached(song: song, coverRevision: coverRevision, edge: edge) { return cached }
+        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge)
         let cover = await CachedArtworkView.resolveImage(
             coverRef: song.coverArtFileName,
             songID: song.id,
@@ -531,13 +597,15 @@ struct FullBleedArtworkExtensionImages: Sendable {
             cacheDiscriminator: String(coverRevision)
         )
         guard !Task.isCancelled, let image = cover?.platformCGImage else { return nil }
-        let fraction = FullBleedArtworkExtension.fadeFraction
         let combined = await Task.detached(priority: .userInitiated) {
-            PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction)
+            switch edge {
+            case .bottom: PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction)
+            case .trailing: PlayerBackdropImaging.fullBleedTrailingExtension(from: image, fraction: fraction)
+            }
         }.value
         guard let combined else { return nil }
         PlayerBackdropMemoryCache.shared.insert(combined, forKey: key)
-        return FullBleedArtworkExtensionImages(key: key, combined: combined)
+        return FullBleedArtworkExtensionImages(key: key, combined: combined, edge: edge)
     }
 }
 

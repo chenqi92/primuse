@@ -6864,3 +6864,10 @@
 "transcript_reader_justify" = "Blocksatz";
 "transcript_reader_scroll_indicator" = "Scrollleiste anzeigen";
 "transcript_reader_justify_footer" = "Im Blocksatz reicht jede Zeile außer der letzten eines Absatzes bis an beide Ränder.";
+"player_orientation_section_title" = "Ausrichtung";
+"player_orientation_button_title" = "Taste zum Drehen";
+"player_orientation_button_description" = "Zeigt oben rechts im Player eine Taste, die zwischen Quer- und Hochformat wechselt, ohne das iPhone zu drehen.";
+"player_follows_device_orientation_title" = "Mit dem iPhone drehen";
+"player_follows_device_orientation_description" = "Wenn aus, bleibt der Player beim Drehen des iPhone in seiner aktuellen Ausrichtung. Gewechselt wird mit der Taste.";
+"player_orientation_to_landscape" = "Im Querformat zeigen";
+"player_orientation_to_portrait" = "Im Hochformat zeigen";
