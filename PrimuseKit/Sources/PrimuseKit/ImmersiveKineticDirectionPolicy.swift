@@ -343,15 +343,55 @@ public enum ImmersiveKineticDirectionPolicy {
         return ideographs >= 2
     }
 
-    /// 竖排时每列放几个字、分几列：一列至少四个字，列数尽量少；`perColumn` 是放得下的上限。
-    public static func verticalColumns(tokenCount: Int, perColumn: Int) -> [Range<Int>] {
-        guard tokenCount > 0 else { return [] }
-        let capacity = max(perColumn, 4)
-        let columns = (tokenCount + capacity - 1) / capacity
-        // 平均分到每一列，免得最后一列只剩一两个字。
-        let size = (tokenCount + columns - 1) / columns
-        return stride(from: 0, to: tokenCount, by: size).map { $0..<min($0 + size, tokenCount) }
+    /// 竖排一句的版式：字号和分列。列数取最少的那个——只要每列的字高加起来放得进 `availableHeight`、字号不比
+    /// `preferredFontSize` 小两成；三列还不够时取三列（字号不低于 `minimumFontSize`）。一列字高按 `lineHeight`
+    /// 个字号算。以前一列按 0.7 倍高度、至少四个字切，横屏矮的时候一句被切成好几列、每列只有几个字。
+    public static func verticalLayout(
+        tokenCount: Int,
+        availableHeight: Double,
+        preferredFontSize: Double,
+        minimumFontSize: Double,
+        lineHeight: Double = 1.25
+    ) -> (fontSize: Double, columns: [Range<Int>]) {
+        guard tokenCount > 0, availableHeight > 0 else { return (preferredFontSize, []) }
+        let floor = min(minimumFontSize, preferredFontSize)
+        var perColumn = tokenCount
+        var fontSize = preferredFontSize
+        for columnCount in 1...3 {
+            perColumn = Int((Double(tokenCount) / Double(columnCount)).rounded(.up))
+            fontSize = min(preferredFontSize, availableHeight / (Double(perColumn) * lineHeight))
+            if fontSize >= preferredFontSize * 0.8 || perColumn <= 1 { break }
+        }
+        let columns = stride(from: 0, to: tokenCount, by: perColumn).map { $0..<min($0 + perColumn, tokenCount) }
+        return (max(fontSize, floor), columns)
     }
+
+    /// 竖排的歌像一卷展开的卷轴：当前这句在正中，唱过的那句往右退一列、变淡，再往前的淡出；新的一句从左边进来。
+    /// 返回此刻卷轴卷到第几句（可以是小数）：下一句开唱前 `scrollLead` 秒开始卷，卷到它开唱时停下。`activeID`
+    /// 是当前句，`activeFirst`、`upcomingFirst` 是当前句和下一句第一个字开唱的时刻。
+    public static func scrollPosition(
+        activeID: Int,
+        activeFirst: TimeInterval?,
+        upcomingFirst: TimeInterval?,
+        at time: TimeInterval
+    ) -> Double {
+        func rolled(_ start: TimeInterval?) -> Double {
+            guard let start else { return 1 }
+            return easeInOutCubic((time - (start - scrollLead)) / scrollLead)
+        }
+        return Double(activeID) - 1 + rolled(activeFirst) + (upcomingFirst.map { _ in rolled(upcomingFirst) } ?? 0)
+    }
+
+    /// 卷轴上一句离正中 `distance` 句（正值是唱过的、在右边）时有多显眼。
+    public static func scrollOpacity(distance: Double) -> Double {
+        if distance < 0 { return smoothstep(1 + distance) }
+        if distance <= 0.5 { return 1 - (1 - scrollRestingOpacity) * smoothstep(distance / 0.5) }
+        return scrollRestingOpacity * (1 - smoothstep((distance - 1) / 0.75))
+    }
+
+    public static let scrollLead: TimeInterval = 0.7
+    /// 唱过的那句停在右边时的透明度：比正中那句还没唱到的字（`ImmersiveKineticLyricsPolicy.waitingOpacity`）暗一档，一眼分得出哪句在唱。
+    public static let scrollRestingOpacity = 0.22
 
     enum Temperament: Equatable {
         case calm

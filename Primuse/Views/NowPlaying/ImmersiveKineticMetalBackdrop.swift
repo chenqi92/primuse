@@ -27,6 +27,8 @@ final class ImmersiveKineticDirector {
     }
 
     private(set) var direction = ImmersiveKineticDirectionPolicy.direction(title: "", artist: "", album: "", genre: "")
+    /// 机位一直平视（取证：Mac 窗口截图拍不出 3D 变换，看版式时用 `PRIMUSE_DEBUG_KINETIC=…,camera=level`）。
+    private(set) var holdsLevelCamera = false
     private(set) var seedUnit = 0.0
     private var directionKey: String?
     private var conductor = ImmersiveKineticConductor(seed: 1)
@@ -59,6 +61,7 @@ final class ImmersiveKineticDirector {
         )
         #if DEBUG
         Self.applyDebugOverride(to: &chosen)
+        holdsLevelCamera = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_KINETIC"]?.contains("camera=level") == true
         #endif
         direction = chosen
         let seed = ImmersiveRandom.seed(for: key)

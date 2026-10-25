@@ -755,13 +755,16 @@ struct ImmersiveStageView<Artwork: View>: View {
     /// 一次只放一句，压在画面正中，一个字一个字地动起来（`ImmersiveKineticLyricsPolicy`）。每首歌由导演
     /// （`ImmersiveKineticDirector`）固定挑一套背景场景、换句镜头、字的强调与机位，副歌换更激烈的镜头；背景是
     /// Metal 着色器，有频谱时跟着鼓点动，读不到频谱时跟着歌词的字头动。左上角是封面、歌手和专辑；没有带时间的
-    /// 歌词、或者第一句还没到时，正中放歌名。
+    /// 歌词、或者第一句还没到时，正中放歌名。竖排的歌按卷轴排，竖列占满页头以下（横屏是整个高度）那一段。
     private var kineticLyricsScene: some View {
         let width = kineticLyricsWidth
-        let headerSide = metrics.s(metrics.isPortrait ? 56 : (platform == .tvOS ? 96 : 62))
-        // 歌词的竖直中心：页头下沿到控件让出的那一段之间的正中。
-        let centerY = (topInset + headerSide + metrics.size.height - bottomInset) / 2
+        let headerSide = kineticHeaderSide
         let director = preparedKineticDirector
+        // 歌词的竖直中心：页头下沿到控件让出的那一段之间的正中；竖排时是竖列那一段的正中。
+        let verticalArea = kineticVerticalArea
+        let centerY = director.direction.staging == .vertical
+            ? (verticalArea.top + verticalArea.bottom) / 2
+            : (topInset + headerSide + metrics.size.height - bottomInset) / 2
         let clock = playbackTime
         let elapsed = track.elapsed
         let duration = track.duration
@@ -785,6 +788,19 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .frame(width: width)
                 .position(x: metrics.size.width / 2, y: centerY)
         }
+    }
+
+    private var kineticHeaderSide: CGFloat {
+        metrics.s(metrics.isPortrait ? 56 : (platform == .tvOS ? 96 : 62))
+    }
+
+    /// 竖列能占的那一段（上沿、下沿）：竖屏在页头下面，横屏和大屏页头在左上角、竖列在正中，占整个高度。
+    private var kineticVerticalArea: (top: CGFloat, bottom: CGFloat) {
+        let top = metrics.isPortrait
+            ? topInset + kineticHeaderSide + metrics.s(24)
+            : topInset + metrics.s(16)
+        let bottom = metrics.size.height - bottomInset - metrics.s(16)
+        return (top, max(bottom, top + 1))
     }
 
     /// 动态歌词的导演：换歌时按新歌重挑编排；频谱（不建立观察的那份）、播放进度交给它，背景和歌词每帧来取。
@@ -903,13 +919,22 @@ struct ImmersiveStageView<Artwork: View>: View {
         let upcomingEnter = kineticEnterStart(upcoming, tokens: upcomingTokens, move: upcomingMove)
         let upcomingStart = upcoming.flatMap { upcomingTokens.first?.start ?? $0.startTime }
         let activeStart = activeTokens.first?.start ?? active?.startTime
-        let activeExit = kineticExitStart(
+        // 竖排卷轴：句子不退场，往右卷开、变淡；没有空档那三个点。
+        let scroll = kineticScroll(
+            active: active,
+            activeStart: activeStart,
+            upcoming: upcoming,
+            upcomingStart: upcomingStart,
+            motion: motion,
+            at: time
+        )
+        let activeExit = scroll != nil ? nil : kineticExitStart(
             tokens: activeTokens,
             move: activeMove,
             nextEnterStart: upcomingEnter,
             nextLineStart: upcomingStart
         )
-        let previousExit = kineticExitStart(
+        let previousExit = scroll != nil ? nil : kineticExitStart(
             tokens: previousTokens,
             move: previousMove,
             nextEnterStart: activeEnter ?? upcomingEnter,
@@ -929,6 +954,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             } },
         ].compactMap { $0 }.filter { entry in
             guard !entry.tokens.isEmpty else { return false }
+            if let scroll {
+                return ImmersiveKineticDirectionPolicy.suitsVerticalLayout(entry.line.text)
+                    && scroll.opacity(for: entry.line) > 0.01
+            }
             if let enterStart = entry.enterStart, time < enterStart { return false }
             if let exitStart = entry.exitStart,
                time >= exitStart + kineticExitSpan(entry.move, tokenCount: entry.tokens.count) {
@@ -947,10 +976,12 @@ struct ImmersiveStageView<Artwork: View>: View {
             : (x: 0, y: 0)
         // 背景最近一帧的动静（不读频谱）：鼓点让镜头往前顶一下，副歌时角度更大。
         let drive = director.latestDrive
+        // 卷轴上所有句子共用一个机位，整卷一起转；别的机位每句一个角度。
+        let sharedCamera = scroll.map { _ in kineticCamera(lineIndex: 0, sungFraction: 0, drive: drive, at: time, motion: motion) }
         return ZStack {
             ForEach(entries) { entry in
                 let isActive = entry.line.id == active?.id
-                let camera = kineticCamera(for: entry, drive: drive, at: time, motion: motion)
+                let camera = sharedCamera ?? kineticCamera(for: entry, drive: drive, at: time, motion: motion)
                 kineticLine(
                     entry.line,
                     tokens: entry.tokens,
@@ -959,12 +990,14 @@ struct ImmersiveStageView<Artwork: View>: View {
                     exitStart: entry.exitStart,
                     width: width,
                     time: time,
-                    camera: camera
+                    camera: camera,
+                    scrolls: scroll != nil
                 )
                 .offset(
-                    x: isActive ? CGFloat(shake.x) * kineticFontBase : 0,
+                    x: (isActive ? CGFloat(shake.x) * kineticFontBase : 0) + (scroll?.offset(for: entry.line) ?? 0),
                     y: isActive ? CGFloat(shake.y) * kineticFontBase : 0
                 )
+                .opacity(scroll?.opacity(for: entry.line) ?? 1)
                 .modifier(ImmersiveKineticCameraEffect(pose: camera))
                 .accessibilityHidden(!isActive)
             }
@@ -1007,17 +1040,51 @@ struct ImmersiveStageView<Artwork: View>: View {
         let start = entry.tokens.first?.start ?? time
         let end = entry.tokens.map(\.end).max() ?? start
         let sung = end > start ? (time - start) / (end - start) : 0
-        return ImmersiveKineticDirectionPolicy.camera(
-            staging: staging,
-            lineIndex: entry.line.id,
+        return kineticCamera(staging: staging, lineIndex: entry.line.id, sungFraction: sung, drive: drive, at: time, motion: motion)
+    }
+
+    private func kineticCamera(
+        staging: ImmersiveKineticStaging? = nil,
+        lineIndex: Int,
+        sungFraction: Double,
+        drive: ImmersiveKineticDrive,
+        at time: TimeInterval,
+        motion: Bool
+    ) -> ImmersiveKineticCameraPose {
+        ImmersiveKineticDirectionPolicy.camera(
+            staging: staging ?? kineticDirector.direction.staging,
+            lineIndex: lineIndex,
             seed: kineticDirector.seedUnit,
             time: time,
             swell: drive.swell,
             climax: drive.climaxLevel,
-            sungFraction: sung,
+            sungFraction: sungFraction,
             amplitude: metrics.isPortrait ? 0.6 : 1,
-            motion: motion
+            motion: motion && !kineticDirector.holdsLevelCamera
         )
+    }
+
+    /// 竖排卷轴此刻卷到哪儿：只在竖排的歌、动效开着、当前这句能竖排时有。下一句带拉丁字母时不往它卷。
+    private func kineticScroll(
+        active: ImmersiveStageLyric?,
+        activeStart: TimeInterval?,
+        upcoming: ImmersiveStageLyric?,
+        upcomingStart: TimeInterval?,
+        motion: Bool,
+        at time: TimeInterval
+    ) -> ImmersiveKineticScroll? {
+        guard motion, kineticDirector.direction.staging == .vertical, let active,
+              ImmersiveKineticDirectionPolicy.suitsVerticalLayout(active.text) else { return nil }
+        let rollsOn = upcoming.map { ImmersiveKineticDirectionPolicy.suitsVerticalLayout($0.text) } ?? false
+        let position = ImmersiveKineticDirectionPolicy.scrollPosition(
+            activeID: active.id,
+            activeFirst: activeStart,
+            upcomingFirst: rollsOn ? upcomingStart : nil,
+            at: time
+        )
+        // 一句常见一两列；两句之间的空当要明显比一句里两列之间宽，不然几列等距排开分不出哪两列是一句。
+        let pitch = min(kineticFontBase * 0.88 * 5.5, kineticLyricsWidth * 0.42)
+        return ImmersiveKineticScroll(position: position, pitch: pitch)
     }
 
     /// 立体字的厚度往哪边露：跟着这一句的机位角度走。动效关掉、这首歌不用立体字时是平的字。
@@ -1067,20 +1134,25 @@ struct ImmersiveStageView<Artwork: View>: View {
         return ImmersiveKineticDirectionPolicy.exitDuration(move.transition)
     }
 
-    /// 竖排：一个字一行排成列，列从右往左；按歌词区的高度算每列放几个字，平均分列，太宽时整体缩小字号。
+    /// 竖排：一个字一行排成列，列从右往左。按竖列那一段的高度定字号和分列（`verticalLayout`）：一列放得下就一列，
+    /// 放不下再分两三列，太宽时整体缩小字号。
     @available(tvOS 18.0, *)
     private func kineticColumns(
         tokens: [ImmersiveKineticLyricsPolicy.Token],
         appearances: [ImmersiveKineticLyricsPolicy.Appearance],
-        horizontalFontSize: CGFloat,
         width: CGFloat,
         overhang: Double,
         extrusion: CGVector?
     ) -> some View {
-        let availableHeight = max(metrics.size.height - topInset - bottomInset, 1) * 0.7
-        var fontSize = min(horizontalFontSize, kineticFontBase * 0.88)
-        let perColumn = max(Int(availableHeight / (fontSize * 1.18)), 4)
-        let columns = ImmersiveKineticDirectionPolicy.verticalColumns(tokenCount: tokens.count, perColumn: perColumn)
+        let area = kineticVerticalArea
+        let layout = ImmersiveKineticDirectionPolicy.verticalLayout(
+            tokenCount: tokens.count,
+            availableHeight: Double(area.bottom - area.top),
+            preferredFontSize: Double(kineticFontBase * 0.88),
+            minimumFontSize: Double(kineticFontBase * 0.45)
+        )
+        var fontSize = CGFloat(layout.fontSize)
+        let columns = layout.columns
         let wanted = CGFloat(columns.count) * fontSize * 1.6
         if wanted > width { fontSize *= width / wanted }
         return HStack(alignment: .top, spacing: fontSize * 0.6) {
@@ -1153,11 +1225,13 @@ struct ImmersiveStageView<Artwork: View>: View {
         exitStart: TimeInterval?,
         width: CGFloat,
         time: TimeInterval,
-        camera: ImmersiveKineticCameraPose
+        camera: ImmersiveKineticCameraPose,
+        scrolls: Bool = false
     ) -> some View {
         let fontSize = kineticFontSize(for: line.text, width: width)
         let motion = syllableCrestIsAnimating
-        let choreography = move.transition.choreography
+        // 卷轴上的句子不自己进出：字跟着整句淡入、唱到时点亮，挪动和淡出交给卷轴。
+        let choreography: ImmersiveKineticLyricsPolicy.Choreography = scrolls ? .wholeLine : move.transition.choreography
         let accent = kineticDirector.direction.accent
         let overhang = choreography == .scatter
             ? ImmersiveKineticLyricsPolicy.scatterOverhangRatio
@@ -1187,7 +1261,6 @@ struct ImmersiveStageView<Artwork: View>: View {
                     kineticColumns(
                         tokens: tokens,
                         appearances: appearances,
-                        horizontalFontSize: fontSize,
                         width: width,
                         overhang: overhang,
                         extrusion: extrusion
@@ -1251,7 +1324,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: width)
         .environment(\.layoutDirection, layoutDirection(for: line))
         .modifier(ImmersiveKineticLineMotion(
-            transform: kineticLineTransform(move, enterStart: enterStart, exitStart: exitStart, at: time),
+            transform: scrolls ? .identity : kineticLineTransform(move, enterStart: enterStart, exitStart: exitStart, at: time),
             side: move.side,
             width: width,
             fontSize: fontSize
@@ -2765,6 +2838,20 @@ private extension View {
     func immersiveRestingText(_ isResting: Bool) -> some View {
         opacity(isResting ? 0 : 1)
             .accessibilityHidden(isResting)
+    }
+}
+
+/// 竖排卷轴此刻的位置：`position` 是卷到第几句（可以是小数），一句离正中多远就往右挪多少个 `pitch`、按距离变淡。
+private struct ImmersiveKineticScroll {
+    let position: Double
+    let pitch: CGFloat
+
+    func offset(for line: ImmersiveStageLyric) -> CGFloat {
+        CGFloat(position - Double(line.id)) * pitch
+    }
+
+    func opacity(for line: ImmersiveStageLyric) -> Double {
+        ImmersiveKineticDirectionPolicy.scrollOpacity(distance: position - Double(line.id))
     }
 }
 

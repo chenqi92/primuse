@@ -110,11 +110,42 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(!Policy.suitsVerticalLayout("好"))
     }
 
-    @Test func verticalColumnsAreEvenAndRightSized() {
-        #expect(Policy.verticalColumns(tokenCount: 0, perColumn: 6).isEmpty)
-        #expect(Policy.verticalColumns(tokenCount: 5, perColumn: 6) == [0..<5])
-        #expect(Policy.verticalColumns(tokenCount: 13, perColumn: 6) == [0..<5, 5..<10, 10..<13])
-        #expect(Policy.verticalColumns(tokenCount: 8, perColumn: 2) == [0..<4, 4..<8])
+    @Test func verticalLinesUseTallColumnsAndSplitOnlyWhenNeeded() {
+        // 放得下就一列，不缩字。
+        let short = Policy.verticalLayout(tokenCount: 6, availableHeight: 600, preferredFontSize: 60, minimumFontSize: 30)
+        #expect(short.columns == [0..<6])
+        #expect(short.fontSize == 60)
+        // 横屏矮：一列要缩到一半多，不如分两列。
+        let tight = Policy.verticalLayout(tokenCount: 12, availableHeight: 300, preferredFontSize: 35, minimumFontSize: 18)
+        #expect(tight.columns == [0..<6, 6..<12])
+        #expect(tight.fontSize > 35 * 0.8 - 1e-9)
+        // 一列每个字至少放得下：不会切成一列只有几个字。
+        #expect(tight.columns.allSatisfy { $0.count >= 4 })
+        // 很长的一句最多三列，字号不低于下限。
+        let long = Policy.verticalLayout(tokenCount: 40, availableHeight: 300, preferredFontSize: 35, minimumFontSize: 18)
+        #expect(long.columns.count == 3)
+        #expect(long.fontSize >= 18)
+        #expect(long.columns.flatMap { Array($0) } == Array(0..<40))
+    }
+
+    @Test func verticalSongsRollLikeAScroll() {
+        // 当前句（第 5 句）十秒开唱，下一句十四秒：十三秒多开始往下一句卷，十四秒卷到。
+        func position(_ time: Double) -> Double {
+            Policy.scrollPosition(activeID: 5, activeFirst: 10, upcomingFirst: 14, at: time)
+        }
+        #expect(position(12) == 5)
+        #expect(position(13.5) > 5 && position(13.5) < 6)
+        #expect(position(14.1) == 6)
+        // 下一句成了当前句以后接着同一个位置，不跳。
+        let handedOver = Policy.scrollPosition(activeID: 6, activeFirst: 14, upcomingFirst: 18, at: 13.8)
+        #expect(abs(handedOver - position(13.8)) < 1e-9)
+        // 正中最亮，唱过的那句停在右边变淡，再往前的淡没；新的一句从左边淡进来。
+        #expect(Policy.scrollOpacity(distance: 0) == 1)
+        #expect(abs(Policy.scrollOpacity(distance: 1) - Policy.scrollRestingOpacity) < 1e-9)
+        #expect(Policy.scrollRestingOpacity < ImmersiveKineticLyricsPolicy.waitingOpacity - 0.1)
+        #expect(Policy.scrollOpacity(distance: 1.8) == 0)
+        #expect(Policy.scrollOpacity(distance: -1) == 0)
+        #expect(Policy.scrollOpacity(distance: -0.5) > 0.3)
     }
 
     @Test func stepPrintMovesInVisibleSteps() {
