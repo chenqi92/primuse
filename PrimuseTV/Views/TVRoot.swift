@@ -1223,7 +1223,9 @@ struct TVBottomBar: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(np.title).tvFont(.rowTitle)
                             .foregroundStyle(TVColor.text).lineLimit(1)
-                        Text(store.isLiveRadio ? np.artist : "\(np.artist) · \(np.album)")
+                        Text(store.isLiveRadio
+                            ? np.artist
+                            : [np.artist, np.album].filter { !$0.isEmpty }.joined(separator: " · "))
                             .tvFont(.meta)
                             .foregroundStyle(TVColor.textMuted).lineLimit(1)
                     }

@@ -2185,7 +2185,9 @@ struct SearchView: View {
                 NavigationLink(value: album) {
                     macTopCard(
                         title: album.title,
-                        subtitle: "\(album.artistName ?? "") · \(String(localized: "tab_albums"))",
+                        subtitle: [album.artistName ?? "", String(localized: "tab_albums")]
+                            .filter { !$0.isEmpty }
+                            .joined(separator: " · "),
                         systemImage: "square.stack",
                         album: album
                     )

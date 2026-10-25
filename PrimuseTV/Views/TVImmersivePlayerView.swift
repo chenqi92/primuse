@@ -907,10 +907,12 @@ struct TVImmersivePlayerView: View {
 
     private var stageTrack: ImmersiveStageTrack {
         let np = store.nowPlaying
+        let title = np.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 缺标签就空着，和播放页一样；演示艺人、专辑只给设置里的预览用。歌名一个字都没有时才写 App 名。
         return ImmersiveStageTrack(
-            title: meaningful(np.title, fallback: ImmersiveDemoContent.title),
-            artist: meaningful(np.artist, fallback: ImmersiveDemoContent.artist),
-            album: meaningful(np.album, fallback: ImmersiveDemoContent.album),
+            title: title.isEmpty ? ImmersiveDemoContent.title : title,
+            artist: meaningful(np.artist, fallback: ""),
+            album: meaningful(np.album, fallback: ""),
             format: formatLine(np),
             isPlaying: store.isPlaying,
             progress: 0,

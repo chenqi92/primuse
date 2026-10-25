@@ -1213,14 +1213,15 @@ struct MacImmersivePlayerView: View {
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
+    // 真实歌曲缺标签时空着或退回文件名，不拿演示艺人、专辑顶上（那套只给设置里的预览和取证用）。
     private var songTitle: String {
         #if DEBUG
         if usesDemoEvidenceContent { return ImmersiveDemoContent.title }
         #endif
-        let value = player.currentSong?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value)
-            ? value
-            : ImmersiveDemoContent.title
+        guard let song = player.currentSong else { return ImmersiveDemoContent.title }
+        let value = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { return value }
+        return MediaMetadataTextRepair.fileNameTitle(from: song.filePath) ?? value
     }
 
     private var artistName: String {
@@ -1229,9 +1230,7 @@ struct MacImmersivePlayerView: View {
         #endif
         let value = player.currentSong.flatMap { library.artistDisplayName(for: $0) }?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return isPlaceholderMetadata(value, localizedKey: "unknown_artist")
-            ? ImmersiveDemoContent.artist
-            : value
+        return isPlaceholderMetadata(value, localizedKey: "unknown_artist") ? "" : value
     }
 
     private var albumName: String {
@@ -1239,9 +1238,7 @@ struct MacImmersivePlayerView: View {
         if usesDemoEvidenceContent { return ImmersiveDemoContent.album }
         #endif
         let value = player.currentSong?.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return isPlaceholderMetadata(value, localizedKey: "unknown_album")
-            ? ImmersiveDemoContent.album
-            : value
+        return isPlaceholderMetadata(value, localizedKey: "unknown_album") ? "" : value
     }
 
     private func isPlaceholderMetadata(_ value: String, localizedKey: String) -> Bool {
@@ -1255,7 +1252,12 @@ struct MacImmersivePlayerView: View {
     }
 
     private var audioMetadata: String {
-        guard let song = player.currentSong else { return ImmersiveDemoContent.format }
+        guard let song = player.currentSong else {
+            #if DEBUG
+            if usesDemoEvidenceContent { return ImmersiveDemoContent.format }
+            #endif
+            return ""
+        }
         return ImmersiveAudioSpec.line(
             format: song.codecFormat.displayName,
             sampleRate: song.sampleRate,

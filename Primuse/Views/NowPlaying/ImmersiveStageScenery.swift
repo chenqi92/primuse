@@ -433,11 +433,10 @@ struct ImmersiveStageTrack: Equatable {
         self.queueSummary = queueSummary
         self.genre = genre
         self.year = year
-        if album.isEmpty || album == "—" {
-            subtitle = artist
-        } else {
-            subtitle = "\(artist) · \(album)"
-        }
+        // 缺哪个就不写哪个，免得只有专辑时开头挂一个「 · 」。
+        subtitle = [artist, album == "—" ? "" : album]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 }
 

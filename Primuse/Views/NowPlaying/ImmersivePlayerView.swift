@@ -809,7 +809,7 @@ struct ImmersivePlayerView: View {
                         .font(.system(size: metrics.s(18), weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Text("\(artistName) · \(albumName)")
+                    Text(verbatim: [artistName, albumName].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: metrics.s(10), weight: .medium))
                         .foregroundStyle(pillInk.opacity(0.50))
                         .lineLimit(1)
@@ -1268,26 +1268,27 @@ struct ImmersivePlayerView: View {
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }
     }
 
+    // 真实歌曲缺标签时空着或退回文件名，不拿演示艺人、专辑顶上（那套只给设置里的预览用）。
+    // 没有歌的时候只写 App 名；外接屏上再提示去主屏开始播放。
     private var songTitle: String {
-        let value = player.currentSong?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value)
-            ? value
-            : ImmersiveDemoContent.title
+        guard let song = player.currentSong else { return ImmersiveDemoContent.title }
+        let value = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { return value }
+        return MediaMetadataTextRepair.fileNameTitle(from: song.filePath) ?? value
     }
 
     private var artistName: String {
-        let value = player.currentSong.flatMap { library.artistDisplayName(for: $0) }?
+        guard let song = player.currentSong else {
+            return presentsOnExternalDisplay ? String(localized: "external_display_idle") : ""
+        }
+        let value = library.artistDisplayName(for: song)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return isPlaceholderMetadata(value, localizedKey: "unknown_artist")
-            ? ImmersiveDemoContent.artist
-            : value
+        return isPlaceholderMetadata(value, localizedKey: "unknown_artist") ? "" : value
     }
 
     private var albumName: String {
         let value = player.currentSong?.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return isPlaceholderMetadata(value, localizedKey: "unknown_album")
-            ? ImmersiveDemoContent.album
-            : value
+        return isPlaceholderMetadata(value, localizedKey: "unknown_album") ? "" : value
     }
 
     private func isPlaceholderMetadata(_ value: String, localizedKey: String) -> Bool {
@@ -1301,7 +1302,7 @@ struct ImmersivePlayerView: View {
     }
 
     private var audioMetadata: String {
-        guard let song = player.currentSong else { return ImmersiveDemoContent.format }
+        guard let song = player.currentSong else { return "" }
         return ImmersiveAudioSpec.line(
             format: song.codecFormat.displayName,
             sampleRate: song.sampleRate,

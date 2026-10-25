@@ -842,7 +842,7 @@ private struct TVSearchSongRow: View {
                             .foregroundStyle(TVColor.brand.opacity(0.9))
                             .lineLimit(1)
                     } else {
-                        Text("\(song.artist) · \(album?.title ?? "")")
+                        Text([song.artist, album?.title ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                             .tvFont(.caption).foregroundStyle(TVColor.textFaint).lineLimit(1)
                     }
                     if let path = song.displayPath {
