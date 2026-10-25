@@ -224,7 +224,7 @@ struct ImmersiveKineticLineMotion: ViewModifier {
         .scaleEffect(CGFloat(transform.scale))
         .blur(radius: CGFloat(transform.blur) * fontSize)
         .opacity(transform.opacity)
-        // 立方体翻转的轴在字后面（贴在立方体的面上转），开门的轴在一侧。
+        // 立方体翻转的轴在字后面（贴在立方体的面上转）。
         .rotation3DEffect(
             .degrees(transform.rotationX),
             axis: (x: 1, y: 0, z: 0),
@@ -235,7 +235,7 @@ struct ImmersiveKineticLineMotion: ViewModifier {
         .rotation3DEffect(
             .degrees(transform.rotationY),
             axis: (x: 0, y: 1, z: 0),
-            anchor: UnitPoint(x: transform.anchorX, y: 0.5),
+            anchor: .center,
             perspective: 0.9
         )
         .rotationEffect(.degrees(transform.rotationZ))

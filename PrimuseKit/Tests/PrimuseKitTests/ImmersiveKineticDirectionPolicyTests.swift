@@ -60,7 +60,7 @@ struct ImmersiveKineticDirectionPolicyTests {
 
     @Test func pondsAlwaysRippleAndLivelyScenesNeverUseTheCalmTransitions() {
         let lively: Set<ImmersiveKineticTransition> = [.whipPan, .crashZoom, .cubeFlip, .flyThrough, .spiral, .shatter]
-        let calm: Set<ImmersiveKineticTransition> = [.cascade, .rackFocus, .iris, .stepPrint, .doorSwing, .cubeFlip, .flyThrough]
+        let calm: Set<ImmersiveKineticTransition> = [.cascade, .rackFocus, .iris, .stepPrint, .cubeFlip, .flyThrough]
         for index in 0..<300 {
             let direction = Policy.direction(title: "S\(index)", artist: "x", album: "y", genre: "")
             if direction.scene == .ripplePond { #expect(direction.accent == .ripple) }
@@ -183,10 +183,6 @@ struct ImmersiveKineticDirectionPolicyTests {
         #expect(far.scale < 0.2)
         #expect(far.rotationX > 30)
         #expect(Policy.exiting(.flyThrough, progress: 0.9).scale > 3)
-        // 开门以一侧为轴：从右往左甩时左沿是轴，反过来右沿是轴。
-        #expect(Policy.entering(.doorSwing, progress: 0, side: 1).anchorX == 0)
-        #expect(Policy.entering(.doorSwing, progress: 0, side: -1).anchorX == 1)
-        #expect(abs(Policy.entering(.doorSwing, progress: 0.1, side: 1).rotationY) > 40)
         let spiral = Policy.entering(.spiral, progress: 0.2, side: 1)
         #expect(spiral.rotationZ < -10 && spiral.rotationY > 10 && spiral.scale < 1)
         // 碎裂时整句不动，交给每个字。

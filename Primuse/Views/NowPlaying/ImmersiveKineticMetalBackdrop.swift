@@ -77,7 +77,7 @@ final class ImmersiveKineticDirector {
     }
 
     /// 一句用哪个镜头：第一次问到它时按当时是否在副歌里定下来，之后不变，免得换到一半换了镜头。平常两个镜头
-    /// 一句一换，甩镜、开门这类有方向的一句往左一句往右。看的是背景最近一帧算出的动静，不在这里读频谱。
+    /// 一句一换，甩镜、旋入这类有方向的一句往左一句往右。看的是背景最近一帧算出的动静，不在这里读频谱。
     func move(for line: ImmersiveStageLyric) -> LineMove {
         let key = "\(line.id)|\(line.startTime ?? -1)"
         if let known = lineMoves[key] { return known }

@@ -54,8 +54,6 @@ public enum ImmersiveKineticTransition: String, CaseIterable, Sendable {
     case cubeFlip
     /// 穿越：新句从远处的纵深里冲到眼前，旧句迎面掠过镜头。
     case flyThrough
-    /// 开门：整句像一扇门，以一侧为轴从侧面摆正，走时从另一侧摆开。
-    case doorSwing
     /// 旋入：整句打着旋、侧着身子从远处转进来，走时转着甩向镜头。
     case spiral
     /// 碎裂：字从四面八方飞回来拼成一句，唱完整句炸开，碎字迎面飞散。
@@ -180,8 +178,6 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
     public var rotationX: Double
     public var rotationY: Double
     public var rotationZ: Double
-    /// 转轴横向落在哪儿：0 左沿、0.5 正中、1 右沿（开门以一侧为轴）。
-    public var anchorX: Double
     /// 转轴在字后面多深（相对字号）：立方体翻转时字贴在立方体的面上，轴在立方体中心。
     public var depth: Double
 
@@ -196,7 +192,6 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
         rotationX: Double = 0,
         rotationY: Double = 0,
         rotationZ: Double = 0,
-        anchorX: Double = 0.5,
         depth: Double = 0
     ) {
         self.offsetX = offsetX
@@ -209,7 +204,6 @@ public struct ImmersiveKineticLineTransform: Equatable, Sendable {
         self.rotationX = rotationX
         self.rotationY = rotationY
         self.rotationZ = rotationZ
-        self.anchorX = anchorX
         self.depth = depth
     }
 
@@ -255,7 +249,7 @@ public enum ImmersiveKineticDirectionPolicy {
 
         let usual: [ImmersiveKineticTransition] = energetic
             ? [.whipPan, .crashZoom, .cubeFlip, .flyThrough, .spiral, .shatter]
-            : [.cascade, .rackFocus, .iris, .stepPrint, .doorSwing, .cubeFlip, .flyThrough]
+            : [.cascade, .rackFocus, .iris, .stepPrint, .cubeFlip, .flyThrough]
         let transition = pick(usual, &random)
         let alternate = pick(usual.filter { $0 != transition }, &random)
         let climaxPool: [ImmersiveKineticTransition] = energetic
@@ -420,7 +414,6 @@ public enum ImmersiveKineticDirectionPolicy {
         case .stepPrint: 0.9
         case .cubeFlip: 0.5
         case .flyThrough: 0.55
-        case .doorSwing: 0.5
         case .spiral: 0.6
         case .shatter: 0.6
         }
@@ -437,7 +430,6 @@ public enum ImmersiveKineticDirectionPolicy {
         case .stepPrint: 0.7
         case .cubeFlip: 0.5
         case .flyThrough: 0.45
-        case .doorSwing: 0.4
         case .spiral: 0.45
         case .shatter: ImmersiveKineticLyricsPolicy.scatterBurst + ImmersiveKineticLyricsPolicy.scatterJitter
         }
@@ -453,7 +445,7 @@ public enum ImmersiveKineticDirectionPolicy {
             firstTokenStart - ImmersiveKineticLyricsPolicy.entranceLead
         case .crashZoom, .iris:
             firstTokenStart - enterDuration(transition) * 0.75
-        case .whipPan, .rackFocus, .cubeFlip, .flyThrough, .doorSwing, .spiral, .shatter:
+        case .whipPan, .rackFocus, .cubeFlip, .flyThrough, .spiral, .shatter:
             firstTokenStart - enterDuration(transition) * 0.9
         case .stepPrint:
             firstTokenStart - enterDuration(transition) * 0.6
@@ -474,7 +466,7 @@ public enum ImmersiveKineticDirectionPolicy {
         }
         let overlap: Double = switch transition {
         case .cubeFlip: 0
-        case .whipPan, .rackFocus, .stepPrint, .doorSwing, .spiral: 0.5
+        case .whipPan, .rackFocus, .stepPrint, .spiral: 0.5
         case .flyThrough, .shatter: 0.6
         case .cascade, .crashZoom, .iris: 1
         }
@@ -543,13 +535,6 @@ public enum ImmersiveKineticDirectionPolicy {
                 blur: 0.45 * (1 - easeOutCubic(p)),
                 opacity: smoothstep(p / 0.4),
                 rotationX: 38 * (1 - easeOutCubic(p))
-            )
-        case .doorSwing:
-            let swing = easeOutBack(p)
-            return ImmersiveKineticLineTransform(
-                opacity: smoothstep(p / 0.3),
-                rotationY: 82 * side * (1 - swing),
-                anchorX: side > 0 ? 0 : 1
             )
         case .spiral:
             let settle = easeOutCubic(p)
@@ -630,13 +615,6 @@ public enum ImmersiveKineticDirectionPolicy {
                 blur: 0.35 * rush,
                 opacity: 1 - smoothstep((p - 0.35) / 0.65),
                 rotationX: -22 * rush
-            )
-        case .doorSwing:
-            let swing = easeInCubic(p)
-            return ImmersiveKineticLineTransform(
-                opacity: 1 - smoothstep((p - 0.55) / 0.45),
-                rotationY: -85 * side * swing,
-                anchorX: side > 0 ? 1 : 0
             )
         case .spiral:
             let rush = easeInCubic(p)
