@@ -40,10 +40,13 @@ extension ImmersiveFrameRateMode {
     }
 
     /// 按六十帧起步的层（动得快，三十帧下一格一格跳）：三十帧档——自己选的，或低电量、发热时压回来的——对它
-    /// 也是上限，不会因为「固定档只让层变快」反而跑到六十帧。
+    /// 也是上限，不会因为「固定档只让层变快」反而跑到六十帧。默认的均衡档本来不受降档管（降档只压 60 帧、跟随
+    /// 屏幕那两档），手机一热这几层照样六十帧：均衡档下只要有点热或开着低电量模式，这几层也压到三十帧。
+    @MainActor
     func minimumInterval(fastBase base: TimeInterval, televisionFloor: TimeInterval) -> TimeInterval? {
         let interval = minimumInterval(base: base, televisionFloor: televisionFloor)
-        guard self == .fps30 else { return interval }
+        let isWarm = self == .balanced && ImmersiveDeviceConditions.shared.capsFastLayers
+        guard self == .fps30 || isWarm else { return interval }
         return max(interval ?? 0, 1.0 / 30)
     }
 }

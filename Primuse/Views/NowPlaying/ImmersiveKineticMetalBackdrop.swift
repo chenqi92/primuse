@@ -419,10 +419,15 @@ final class ImmersiveKineticViewDelegate: NSObject, MTKViewDelegate {
     }
 }
 
-/// 画布的像素数：背景都是柔和的东西，用不着按屏幕的整倍率画——最多按 `maximumScale` 倍，电视上只画 1080p。
+/// 画布的像素数：背景用不着按屏幕的整倍率画——最多按 `maximumScale` 倍，总像素再不超过 `pixelBudget`
+/// （Mac 全屏在大屏上按 1.5 倍是八百多万像素），电视上只画 1080p。
 final class ImmersiveKineticMTKView: MTKView {
     var maximumScale: CGFloat = 1.5 {
-        didSet { updateDrawableSize() }
+        didSet { if maximumScale != oldValue { updateDrawableSize() } }
+    }
+
+    var pixelBudget: CGFloat = .infinity {
+        didSet { if pixelBudget != oldValue { updateDrawableSize() } }
     }
 
     private var screenScale: CGFloat {
@@ -446,7 +451,11 @@ final class ImmersiveKineticMTKView: MTKView {
     #endif
 
     func updateDrawableSize() {
-        let scale = min(screenScale, maximumScale)
+        var scale = min(screenScale, maximumScale)
+        let area = bounds.width * bounds.height
+        if area > 0, area * scale * scale > pixelBudget {
+            scale = (pixelBudget / area).squareRoot()
+        }
         let size = CGSize(
             width: max((bounds.width * scale).rounded(), 1),
             height: max((bounds.height * scale).rounded(), 1)
@@ -587,9 +596,6 @@ private struct ImmersiveKineticMetalView: UIViewRepresentable {
         configure(view, context: context)
         view.delegate = context.coordinator
         context.coordinator.renderer.view = view
-        #if os(tvOS)
-        view.maximumScale = 1
-        #endif
         view.isOpaque = true
         view.isUserInteractionEnabled = false
         return view
@@ -640,6 +646,8 @@ private enum ImmersiveKineticMetalViewSetup {
         renderer.motionAmplitude = motionAmplitude
         renderer.colorA = vector(colorA, in: environment)
         renderer.colorB = vector(colorB, in: environment)
+        view.maximumScale = renderScale(for: scene)
+        view.pixelBudget = pixelBudget
         view.colorPixelFormat = .bgra8Unorm
         view.framebufferOnly = true
         view.autoResizeDrawable = false
@@ -652,6 +660,28 @@ private enum ImmersiveKineticMetalViewSetup {
         view.enableSetNeedsDisplay = !isAnimating
         view.isPaused = !isAnimating
         view.updateDrawableSize()
+    }
+
+    /// 柔的场景（光斑、雾、墨、天色、水面）按 1 倍就看不出差别；细线多的（轨道、光剑、激光、星轨、网格、雨丝）
+    /// 手机上留 1.35 倍。电视一律 1 倍。
+    private static func renderScale(for scene: ImmersiveKineticScene) -> CGFloat {
+        #if os(tvOS)
+        1
+        #elseif os(macOS)
+        1.5
+        #else
+        scene.rendersSoftly ? 1 : 1.35
+        #endif
+    }
+
+    private static var pixelBudget: CGFloat {
+        #if os(macOS)
+        3_000_000
+        #elseif os(tvOS)
+        .infinity
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad ? 2_000_000 : 800_000
+        #endif
     }
 
     private static func vector(_ color: Color, in environment: EnvironmentValues) -> SIMD4<Float> {

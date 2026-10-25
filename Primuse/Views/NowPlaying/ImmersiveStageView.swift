@@ -498,12 +498,13 @@ struct ImmersiveStageView<Artwork: View>: View {
                     current,
                     fontSize: fonts.current,
                     lineLimit: fonts.currentLineLimit,
-                    textAlignment: .center
+                    textAlignment: .center,
+                    availableWidth: width
                 )
                 .frame(maxWidth: .infinity)
             }
             if let next {
-                lyricLine(next, fontSize: fonts.next, lineLimit: 1, textAlignment: .center)
+                lyricLine(next, fontSize: fonts.next, lineLimit: 1, textAlignment: .center, availableWidth: width)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -846,7 +847,8 @@ struct ImmersiveStageView<Artwork: View>: View {
         CGFloat(ImmersiveKineticLyricsPolicy.fontSize(
             for: text,
             base: Double(kineticFontBase),
-            minimum: Double(kineticFontBase) * 0.55,
+            // 不再靠 minimumScaleFactor 兜底（见 `ImmersiveKineticLyricText`），最小字号放到原来兜底后的那么小。
+            minimum: Double(kineticFontBase) * 0.36,
             availableWidth: Double(width),
             maximumLines: kineticMaximumLines
         ))
@@ -2048,7 +2050,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     lineLimit: line.isActive
                         ? typography.currentLineLimit
                         : typography.adjacentLineLimit,
-                    textAlignment: resolvedAlignment
+                    textAlignment: resolvedAlignment,
+                    availableWidth: width
                 )
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
@@ -2065,18 +2068,21 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     @ViewBuilder
+    /// `availableWidth` 是这一句能占多宽：逐字浪尖按它先把字号算到放得下（见 `ImmersiveSyllableCrestText`）。
     private func lyricLine(
         _ line: ImmersiveStageLyric,
         fontSize: CGFloat,
         lineLimit: Int,
-        textAlignment: TextAlignment
+        textAlignment: TextAlignment,
+        availableWidth: CGFloat? = nil
     ) -> some View {
         VStack(alignment: lyricStackAlignment(for: textAlignment), spacing: fontSize * 0.18) {
             leadLyricLine(
                 line,
                 fontSize: fontSize,
                 lineLimit: lineLimit,
-                textAlignment: textAlignment
+                textAlignment: textAlignment,
+                availableWidth: availableWidth
             )
             ForEach(line.background) { background in
                 backgroundLyricLine(
@@ -2084,7 +2090,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     isLineActive: line.isActive,
                     fontSize: fontSize * 0.7,
                     lineLimit: lineLimit,
-                    textAlignment: textAlignment
+                    textAlignment: textAlignment,
+                    availableWidth: availableWidth
                 )
             }
             ForEach(line.companions.indices, id: \.self) { slot in
@@ -2120,7 +2127,8 @@ struct ImmersiveStageView<Artwork: View>: View {
         isLineActive: Bool,
         fontSize: CGFloat,
         lineLimit: Int,
-        textAlignment: TextAlignment
+        textAlignment: TextAlignment,
+        availableWidth: CGFloat? = nil
     ) -> some View {
         let stageLyric = ImmersiveStageLyric(
             id: line.id.hashValue,
@@ -2146,7 +2154,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                         lineLimit: lineLimit,
                         textAlignment: textAlignment,
                         progress: activeLyricProgress(for: stageLyric, at: now),
-                        time: now
+                        time: now,
+                        availableWidth: availableWidth
                     )
                 }
             } else {
@@ -2172,7 +2181,8 @@ struct ImmersiveStageView<Artwork: View>: View {
         _ line: ImmersiveStageLyric,
         fontSize: CGFloat,
         lineLimit: Int,
-        textAlignment: TextAlignment
+        textAlignment: TextAlignment,
+        availableWidth: CGFloat? = nil
     ) -> some View {
         Group {
             if line.isActive, line.syllables != nil || hasLineTiming(line) {
@@ -2188,7 +2198,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                         lineLimit: lineLimit,
                         textAlignment: textAlignment,
                         progress: activeLyricProgress(for: line, at: now),
-                        time: now
+                        time: now,
+                        availableWidth: availableWidth
                     )
                 }
             } else if line.isActive {
@@ -2249,7 +2260,8 @@ struct ImmersiveStageView<Artwork: View>: View {
         lineLimit: Int,
         textAlignment: TextAlignment,
         progress: Double,
-        time: TimeInterval? = nil
+        time: TimeInterval? = nil,
+        availableWidth: CGFloat? = nil
     ) -> some View {
         if #available(tvOS 18.0, *),
            line.fillProgress == nil,
@@ -2263,7 +2275,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                 textAlignment: textAlignment,
                 isRightToLeft: writingDirection(for: line) == .rightToLeft,
                 glowColor: palette.primary,
-                showsCrest: syllableCrestIsAnimating
+                showsCrest: syllableCrestIsAnimating,
+                availableWidth: availableWidth
             )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: PMString(

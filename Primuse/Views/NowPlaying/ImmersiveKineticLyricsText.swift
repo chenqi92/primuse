@@ -3,8 +3,10 @@ import SwiftUI
 
 /// 全屏效果「动态歌词」的一句（每个字此刻的样子见 `ImmersiveKineticLyricsPolicy`）。
 ///
-/// 整句仍是一个 `Text`：换行、行数上限、放不下时缩小字号、从右往左的文字都交给系统排版；只在绘制时
-/// 按字（每个字带一个 `ImmersiveKineticTokenIndex`）各自位移、缩放、虚化、发光。`TextRenderer` 要
+/// 整句仍是一个 `Text`：换行、行数上限、从右往左的文字都交给系统排版；只在绘制时按字（每个字带一个
+/// `ImmersiveKineticTokenIndex`）各自位移、缩放、虚化、发光。字号由调用方按宽度先算好（放得下），这里不加
+/// `minimumScaleFactor`：每帧换一个 renderer 时，带着它系统会把整句按几种字号重新排一遍，一句字每秒六十次
+/// 重排，CPU 翻倍、手机发烫。`TextRenderer` 要
 /// iOS 18 / macOS 15 / tvOS 18，前两个就是最低系统；tvOS 17 由调用方退回普通的当前句。
 @available(tvOS 18.0, *)
 struct ImmersiveKineticLyricText: View {
@@ -28,7 +30,6 @@ struct ImmersiveKineticLyricText: View {
             .foregroundStyle(ImmersiveStagePalette.ink)
             .multilineTextAlignment(.center)
             .lineLimit(lineLimit)
-            .minimumScaleFactor(0.6)
             .fixedSize(horizontal: false, vertical: true)
             .textRenderer(ImmersiveKineticLyricRenderer(
                 appearances: appearances,
@@ -144,7 +145,8 @@ private struct ImmersiveKineticLyricRenderer: TextRenderer {
     /// 候场的半透明字也是一整块变淡，不会透出底下叠着的侧面。
     private func drawExtruded(_ run: Text.Layout.Run, extrusion: CGVector, in context: GraphicsContext) {
         let reach = hypot(extrusion.dx, extrusion.dy) * fontSize
-        let layers = min(max(Int((reach / 1.6).rounded(.up)), 5), 10)
+        // 每层是这个字再画一遍：层数封顶，大字也不超过六层（再多看不出差别，每帧每个字都要多画）。
+        let layers = min(max(Int((reach / 2.2).rounded(.up)), 4), 6)
         let step = CGSize(
             width: extrusion.dx * fontSize / CGFloat(layers),
             height: extrusion.dy * fontSize / CGFloat(layers)

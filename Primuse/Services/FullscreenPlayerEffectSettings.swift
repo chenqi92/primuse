@@ -965,6 +965,14 @@ extension FullscreenPlayerEffect {
 }
 
 extension ImmersiveKineticScene {
+    /// 画面都是柔和的光与雾、没有细线：手机上按 1 倍画布画就看不出差别（`ImmersiveKineticSceneBackdrop`）。
+    var rendersSoftly: Bool {
+        switch self {
+        case .rainGlass, .ripplePond, .daylight, .godRays, .inkBloom: true
+        default: false
+        }
+    }
+
     /// 设置里列背景的顺序：安静的一组在前，激烈的一组在后。
     static let menuOrder = allCases.filter { !$0.isEnergetic } + allCases.filter(\.isEnergetic)
 
@@ -1232,6 +1240,9 @@ final class ImmersiveDeviceConditions {
     static let shared = ImmersiveDeviceConditions()
 
     private(set) var constraint: ImmersiveDeviceConstraint?
+    /// 有点热（发热状态过了「正常」）或开着低电量模式：均衡档下按六十帧起步的层压到三十帧
+    /// （`ImmersiveFrameRateMode.minimumInterval(fastBase:televisionFloor:)`），不提示。
+    private(set) var capsFastLayers = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -1258,6 +1269,8 @@ final class ImmersiveDeviceConditions {
             thermalStateIsSerious: thermalIsSerious
         )
         if next != constraint { constraint = next }
+        let warm = info.thermalState != .nominal || lowPowerModeEnabled
+        if warm != capsFastLayers { capsFastLayers = warm }
     }
 
     /// 选的档位经当前设备状态封顶之后，全屏页实际用的那一组。

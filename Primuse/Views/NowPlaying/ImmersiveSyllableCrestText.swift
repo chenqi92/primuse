@@ -3,8 +3,9 @@ import SwiftUI
 
 /// 全屏效果当前句的逐字浪尖（时间曲线见 `ImmersiveSyllableCrestPolicy`）。
 ///
-/// 整句仍是一个 `Text`：换行、行数上限、放不下时缩小字号、从右往左的文字都交给系统排版，
-/// 和逐行扫光时的版面一模一样；只在绘制时按字（每个字带一个 `ImmersiveSyllableIndex`）
+/// 整句仍是一个 `Text`：换行、行数上限、从右往左的文字都交给系统排版，和逐行扫光时的版面一样；放不下时
+/// 按宽度先把字号算小（`availableWidth`），不用 `minimumScaleFactor`——每帧换 renderer 时带着它系统会把整句
+/// 按几种字号重排一遍。只在绘制时按字（每个字带一个 `ImmersiveSyllableIndex`）
 /// 加上浮起、放大、发光和字内亮起。`TextRenderer` 要 iOS 18 / macOS 15 / tvOS 18，前两个就是最低系统；
 /// tvOS 17 由调用方退回整句扫光。
 @available(tvOS 18.0, *)
@@ -18,24 +19,37 @@ struct ImmersiveSyllableCrestText: View {
     let glowColor: Color
     /// 关掉时只逐字亮起，不浮起、不放大、不发光（减弱动态效果、歌词动效关闭、省电档）。
     let showsCrest: Bool
+    /// 这一句能占多宽；给了就按它把字号算到放得下（最小到 0.72 倍）。
+    var availableWidth: CGFloat?
 
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     var body: some View {
+        let size = fittedFontSize
         indexedText
-            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
+            .font(lyricsTypeface.font(size: size, weight: .bold))
             .foregroundStyle(ImmersiveStagePalette.ink)
             .multilineTextAlignment(textAlignment)
             .lineLimit(lineLimit)
-            .minimumScaleFactor(0.72)
             .fixedSize(horizontal: false, vertical: true)
             .textRenderer(ImmersiveSyllableCrestRenderer(
                 appearances: ImmersiveSyllableCrestPolicy.appearances(for: syllables, at: time),
-                fontSize: fontSize,
+                fontSize: size,
                 glowColor: glowColor,
                 isRightToLeft: isRightToLeft,
                 showsCrest: showsCrest
             ))
+    }
+
+    private var fittedFontSize: CGFloat {
+        guard let availableWidth else { return fontSize }
+        return CGFloat(ImmersiveKineticLyricsPolicy.fontSize(
+            for: syllables.map(\.text).joined(),
+            base: Double(fontSize),
+            minimum: Double(fontSize) * 0.72,
+            availableWidth: Double(availableWidth),
+            maximumLines: lineLimit
+        ))
     }
 
     /// 逐字拼回整句（字里自带词间空格），每个字标上下标，绘制时按下标取它此刻的状态。
