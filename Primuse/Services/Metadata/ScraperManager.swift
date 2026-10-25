@@ -861,15 +861,24 @@ actor ScraperManager {
 
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {
         if let lrc = result.lrcContent, !lrc.isEmpty {
-            let parsed = LyricsParser.parse(lrc)
-            return parsed.isEmpty ? nil : parsed
+            return usableOnlineLyrics(LyricsParser.parse(lrc), source: result.source)
         }
         if let plain = result.plainText,
            !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let parsed = LyricsParser.parseText(plain)
-            return parsed.isEmpty ? nil : parsed
+            return usableOnlineLyrics(LyricsParser.parseText(plain), source: result.source)
         }
         return nil
+    }
+
+    /// 歌词源给的也可能是别人按 UTF-8 解坏了的 GBK / Big5 歌词(自建歌词服务读本地 `.lrc`、
+    /// 社区上传的歌词)。坏行少就去掉坏行, 坏得多就当这个候选没有歌词, 换下一个。
+    private func usableOnlineLyrics(_ parsed: [LyricLine], source: MusicScraperType) -> [LyricLine]? {
+        guard !parsed.isEmpty else { return nil }
+        guard let usable = LossyDecodedLyricsRepair.usableDocument(parsed) else {
+            plog("🎤 [\(source.displayName)] lyrics rejected: lossily decoded upstream")
+            return nil
+        }
+        return usable
     }
 
     /// 从云盘无标签歌曲的结构化文件名中拆出干净标题和歌手；已有可信 artist

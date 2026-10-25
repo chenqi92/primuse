@@ -318,6 +318,9 @@ final class TVPlaybackCoordinator {
     /// 歌词文件读取上限:更大的不是正常的歌词文件,不读。
     private static let maximumLyricsDocumentBytes = 512 * 1_024
     private var karaokeLyricsSource: (song: Song, playingID: String)?
+    /// 服务端按 UTF-8 解坏了的 GBK / Big5 歌词(`LossyDecodedLyricsRepair`): 先不显示,
+    /// 等在线兜底取到歌词后拿来逐行验证还原。
+    private var lossilyDecodedServerLyrics: (songID: String, lines: [LyricLine])?
     private var playbackMetadataTask: Task<Void, Never>?
     private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     private var playbackMetadataTaskToken: UUID?
@@ -2666,9 +2669,24 @@ final class TVPlaybackCoordinator {
         guard isCurrent(requestID, store: store),
               store.currentSongID == destinationID,
               store.lyrics.isEmpty else { return }
-        guard let lines = await store.metadataScraper.automaticOnlineLyrics(for: song, source: source),
+        guard var lines = await store.metadataScraper.automaticOnlineLyrics(for: song, source: source),
               isCurrent(requestID, store: store),
               store.lyrics.isEmpty else { return }
+        if let damaged = lossilyDecodedServerLyrics, damaged.songID == song.id {
+            lossilyDecodedServerLyrics = nil
+            // 逐行对得上: 留服务端那份的时间轴, 配上验证过的原文。
+            if let restored = LossyDecodedLyricsRepair.restored(damaged.lines, using: lines),
+               await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                restored,
+                forSongID: song.id,
+                expectedFingerprint: LyricsDocumentFingerprint(lines: lines),
+                force: false
+               ) {
+                guard isCurrent(requestID, store: store), store.lyrics.isEmpty else { return }
+                lines = restored
+                plog("🎬 TV restored lossily decoded server lyrics for '\(song.title)' from online lyrics")
+            }
+        }
         applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
         plog("🎬 TV online-lyrics fallback loaded \(lines.count) lines for '\(song.title)'")
     }
@@ -3043,8 +3061,13 @@ final class TVPlaybackCoordinator {
         destinationID: String,
         logSource: String
     ) async throws {
-        let lines = LyricsParser.parseText(text)
-        guard !lines.isEmpty else { return }
+        let parsed = LyricsParser.parseText(text)
+        guard !parsed.isEmpty else { return }
+        guard let lines = LossyDecodedLyricsRepair.usableDocument(parsed) else {
+            lossilyDecodedServerLyrics = (song.id, parsed)
+            plog("🎬 TV \(logSource) lyrics for '\(song.title)' are lossily decoded upstream; waiting for online lyrics")
+            return
+        }
         let wrote = await MetadataAssetStore.shared.cacheLyrics(
             lines,
             forSongID: song.id,

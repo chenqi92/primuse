@@ -365,6 +365,7 @@ actor MetadataAssetStore {
         do {
             let data = try Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName))
             let lines = try decoder.decode([LyricLine].self, from: data)
+            guard !LossyDecodedLyricsRepair.isDamaged(lines) else { return nil }
             return Self.normalizedCachedLyrics(lines)
         } catch {
             if (error as NSError).domain == NSCocoaErrorDomain,
@@ -422,6 +423,12 @@ actor MetadataAssetStore {
     @discardableResult
     func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
+        // 上游按 UTF-8 解坏了的 GBK / Big5 歌词(`LossyDecodedLyricsRepair`)一律不进缓存:
+        // 进去了播放就一直先读到它。
+        guard !LossyDecodedLyricsRepair.isDamaged(lines) else {
+            plog("📝 cacheLyrics reject lossily decoded lyrics songID=\(songID.prefix(8))")
+            return false
+        }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
         let stored = force ? nil : cachedLyrics(forSongID: songID)
@@ -547,7 +554,8 @@ actor MetadataAssetStore {
     /// 音频文件里内嵌的歌词。歌旁边有歌词文件时它不进歌词缓存(播放先读缓存, 进去就会
     /// 盖住那份文件), 单独放在这里; 歌词文件不在了才拿出来用。
     func storeEmbeddedFallbackLyrics(_ lines: [LyricLine], forSongID songID: String) {
-        guard !lines.isEmpty, let data = try? encoder.encode(lines) else { return }
+        guard !lines.isEmpty, !LossyDecodedLyricsRepair.isDamaged(lines),
+              let data = try? encoder.encode(lines) else { return }
         let fileURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: songID, pathExtension: "embedded.json")
         )
@@ -561,6 +569,10 @@ actor MetadataAssetStore {
         guard let data = try? Data(contentsOf: fileURL),
               let lines = try? decoder.decode([LyricLine].self, from: data),
               !lines.isEmpty else { return nil }
+        guard !LossyDecodedLyricsRepair.isDamaged(lines) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
         return Self.normalizedCachedLyrics(lines)
     }
 
@@ -596,6 +608,12 @@ actor MetadataAssetStore {
         if let first = lines.first(where: { !$0.text.isEmpty }),
            MediaFileSignature.matchesDecodedText(first.text) {
             plog("MetadataAssetStore: dropped lyrics cache decoded from audio bytes for song '\(songID.prefix(8))'")
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
+        // 旧版本照收了服务端按 UTF-8 解坏的 GBK / Big5 歌词, 丢掉后下次加载会重新取、能还原就还原。
+        if LossyDecodedLyricsRepair.isDamaged(lines) {
+            plog("MetadataAssetStore: dropped lossily decoded lyrics cache for song '\(songID.prefix(8))'")
             try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
@@ -662,7 +680,8 @@ actor MetadataAssetStore {
     nonisolated func cachedLyricsForSearch(songID: String, lyricsFileName: String?) -> [LyricLine]? {
         for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
             guard let data = try? Data(contentsOf: url),
-                  let lines = try? JSONDecoder().decode([LyricLine].self, from: data) else { continue }
+                  let lines = try? JSONDecoder().decode([LyricLine].self, from: data),
+                  !LossyDecodedLyricsRepair.isDamaged(lines) else { continue }
             return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
                 in: lines.map { LyricTextEntityPolicy.decoded($0) }
             )

@@ -218,6 +218,15 @@ enum LyricsWriteback {
                     sourceSnapshot: sourceSnapshot
                 )
             }
+            // 服务端把 GBK / Big5 歌词当 UTF-8 解坏了: 编辑器里放还原过的缓存, 不放乱码。
+            // 快照仍是服务端那份原文, 保存时照常核对它有没有被别处改过。
+            if LossyDecodedLyricsRepair.isDamaged(normalizedSource) {
+                return EditablePayload(
+                    text: cached.map { LyricsContentParser.serialize($0) } ?? "",
+                    structuredLines: cached,
+                    sourceSnapshot: sourceSnapshot
+                )
+            }
             // 字幕文档、毫秒逐字文档（.lys/.yrc/.qrc）和 TTML 一样不能直接进编辑器：
             // 源码是 cue 或逐字标记，必须先经共享模型转成 LRC/ELRC 文本。
             if LyricsContentParser.isTTML(normalizedSource)

@@ -1664,6 +1664,7 @@
 		C39FB15C32FF2D71E52747E0 /* TVKaraokeSeparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC8B99069FF25B8A0FF10CA /* TVKaraokeSeparationTests.swift */; };
 		C3DAE99C4208D117352DF52B /* PMSheetFitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A49AF5877E93784EC2F152 /* PMSheetFitting.swift */; };
 		C4119D1637677F5C77875054 /* TextEncodingRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6A7403C95DD899FB4F4312 /* TextEncodingRepair.swift */; };
+		DAA816F7196795011DBC1DB5 /* LossyDecodedLyricsRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E2F8688CBDBDF10763C7F1 /* LossyDecodedLyricsRepair.swift */; };
 		C421888EDDB0B7C4E667FD31 /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552EC251CB491F214F263601 /* SynologyAPI.swift */; };
 		C42A9468A3DA7E9C74416019 /* libavcodec.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E1A603AA0134C1792449BF47 /* libavcodec.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C434514F68C5E59EEC0EF1D6 /* EqualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA999555F455617E1DF9281 /* EqualizerService.swift */; };
@@ -3876,6 +3877,7 @@
 		FF37A77572DA691A9A960321 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/PlayMedia.strings; sourceTree = "<group>"; };
 		FF63E23361AAD30DB8BBCEAC /* CarPlayListRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayListRefreshPolicy.swift; sourceTree = "<group>"; };
 		FF6A7403C95DD899FB4F4312 /* TextEncodingRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEncodingRepair.swift; sourceTree = "<group>"; };
+		39E2F8688CBDBDF10763C7F1 /* LossyDecodedLyricsRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LossyDecodedLyricsRepair.swift; sourceTree = "<group>"; };
 		FF79136405E8277A347A1CA8 /* CarPlayEditorRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayEditorRenderingTests.swift; sourceTree = "<group>"; };
 		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
@@ -5310,6 +5312,7 @@
 				0BF0B29DA70243A50FD1992D /* AudioPayloadLayout.swift */,
 				40BFA9D101F08AA9A4C91F9C /* FLACForbiddenBlockRepair.swift */,
 				5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */,
+				39E2F8688CBDBDF10763C7F1 /* LossyDecodedLyricsRepair.swift */,
 				B88ECC92A8A436C82FD41972 /* M4AMetadataAtomRepair.swift */,
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
 				6B3B233454438ABE7810B89F /* MetadataTitleResolutionPolicy.swift */,
@@ -7227,6 +7230,7 @@
 				1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */,
 				07B5B73F64AE41F7F54E878C /* TagCleanupPolicy.swift in Sources */,
 				C4119D1637677F5C77875054 /* TextEncodingRepair.swift in Sources */,
+				DAA816F7196795011DBC1DB5 /* LossyDecodedLyricsRepair.swift in Sources */,
 				9EE94977CFC4B561D0559C97 /* TianyiCloudAPIProtocol.swift in Sources */,
 				4E64E573D19CAC351BD640C6 /* TopShelfShared.swift in Sources */,
 				EBC1C2F2800ADFFA511D028C /* TrailingArrayJSONEncoding.swift in Sources */,

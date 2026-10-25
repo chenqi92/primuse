@@ -95,7 +95,13 @@ enum LyricsLoader {
                     return nil
                 }
                 let parsed = LyricsParser.parseText(raw)
-                return parsed.isEmpty ? nil : parsed
+                guard !parsed.isEmpty else { return nil }
+                return await usableServerDocument(
+                    parsed,
+                    for: song,
+                    cachedDocument: currentDocument,
+                    trigger: trigger
+                )
             },
             replace: { lines in
                 let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
@@ -115,6 +121,52 @@ enum LyricsLoader {
                 return wrote
             }
         )
+    }
+
+    /// 服务端把 GBK / Big5 歌词当 UTF-8 解坏了(`LossyDecodedLyricsRepair`)时, 那份文字不能显示,
+    /// 也不能写进缓存。先拿已经存着的干净歌词验证还原 —— 之前还原过的就是它, 不用再上网; 对不上
+    /// 也留着它。没有干净的缓存才去在线歌词源取一份(条件和服务端没有歌词时的在线兜底一样):
+    /// 逐行对得上就用服务端的时间轴配上原文, 对不上就用在线那份。
+    nonisolated private static func usableServerDocument(
+        _ parsed: [LyricLine],
+        for song: Song,
+        cachedDocument: [LyricLine]?,
+        trigger: LyricsSourceRefreshTrigger
+    ) async -> [LyricLine]? {
+        guard LossyDecodedLyricsRepair.isDamaged(parsed) else { return parsed }
+        if let cachedDocument, !cachedDocument.isEmpty,
+           !LossyDecodedLyricsRepair.isDamaged(cachedDocument) {
+            if let restored = LossyDecodedLyricsRepair.restored(parsed, using: cachedDocument) {
+                return restored
+            }
+            plog("📜 server lyrics for '\(song.title)' are lossily decoded upstream; keeping the clean cache")
+            return cachedDocument
+        }
+
+        var online: [LyricLine]?
+        var asksOnline = await songAcceptsAutomaticOnlineLyrics(song)
+        if asksOnline, trigger == .automatic {
+            asksOnline = await AutomaticOnlineLyricsLedger.shared.shouldAttempt(songID: song.id)
+        }
+        if asksOnline {
+            online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+                title: song.title,
+                artist: song.artistName,
+                album: song.albumTitle,
+                duration: song.duration > 0 ? song.duration : nil
+            )
+        }
+        let references = online.map { [$0] } ?? []
+        if let usable = LossyDecodedLyricsRepair.usableDocument(parsed, references: references) {
+            plog("📜 server lyrics for '\(song.title)' are lossily decoded upstream; repaired (online reference=\(online != nil))")
+            return usable
+        }
+        if let online, !online.isEmpty {
+            plog("📜 server lyrics for '\(song.title)' are lossily decoded upstream; using online lyrics")
+            return online
+        }
+        plog("📜 server lyrics for '\(song.title)' are lossily decoded upstream; no usable copy")
+        return nil
     }
 
     /// Loads the closest available representation of the original editable
@@ -144,9 +196,10 @@ enum LyricsLoader {
     /// directly instead of accepting the local materialized fallback.
     static func loadSourceText(for song: Song, sourceManager: SourceManager) async -> String? {
         switch await readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
-        case .content(let content):
+        case .content(let content) where !LossyDecodedLyricsRepair.isDamaged(content):
             return content
-        case .absent, .unavailable:
+        case .content, .absent, .unavailable:
+            // 服务端解坏了的原文不交出去, 调用方改用缓存里还原过的那份。
             return locallyMaterializedSourceText(for: song, sourceManager: sourceManager)
         }
     }
