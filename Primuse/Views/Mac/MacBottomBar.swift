@@ -27,6 +27,7 @@ struct MacBottomBar: View {
     @State private var castShown = false
     @State private var coverMenuShown = false
     @State private var sleepTimerShown = false
+    @State private var libraryActions = NowPlayingLibraryActions()
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -73,6 +74,7 @@ struct MacBottomBar: View {
         .shadow(color: .black.opacity(mode == .glass ? 0.18 : 0), radius: 12, y: -3)
         // 设计稿: 玻璃模式左右留 10pt 浮动间距 (用户确认这个间距是要保留的)。
         .padding(.horizontal, mode == .glass ? 10 : 0)
+        .nowPlayingLibraryActionAlert(libraryActions)
     }
 
     // MARK: - Left column
@@ -111,25 +113,31 @@ struct MacBottomBar: View {
             Spacer(minLength: 4)
 
             // 有声书的每个文件也能加进「我喜欢」;播客单集记在播客自己的喜欢里。
+            // 搜索里点播的 Apple Music 歌先加进资料库、同步进曲库,再标喜欢。
             if let song = player.currentSong, !player.isLiveRadio {
                 let isEpisode = PodcastPlaybackSong.isEpisode(song)
                 let liked = isEpisode
                     ? PodcastStore.shared.isLiked(episodeID: song.id)
-                    : library.isLiked(songID: song.id)
+                    : NowPlayingLibraryActions.isLiked(song, library: library)
                 Button {
                     if isEpisode {
                         player.toggleLikeForCurrentPodcastEpisode()
                     } else {
-                        library.toggleLiked(songID: song.id)
+                        Task { await libraryActions.perform(.like(!liked), song: song, library: library) }
                     }
                 } label: {
                     Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 13))
                         .foregroundStyle(liked ? PMColor.brand : PMColor.textMuted)
+                        .opacity(libraryActions.isBusy ? 0 : 1)
+                        .overlay {
+                            if libraryActions.isBusy { ProgressView().controlSize(.mini) }
+                        }
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(libraryActions.isBusy)
                 .help(Text(liked ? "a11y_unlike" : "a11y_like"))
                 .pmAnimation(.hover, value: liked)
             }

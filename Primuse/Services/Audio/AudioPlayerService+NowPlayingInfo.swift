@@ -231,13 +231,16 @@ extension AudioPlayerService {
         #if os(iOS)
         // 播客单集不在曲库里,喜欢记在播客自己那份。
         let isPodcastEpisode = PodcastPlaybackSong.isEpisode(currentSong)
-        let canLikeCurrentSong = !isLiveRadio
-            && (isPodcastEpisode || currentSong.flatMap { library?.song(id: $0.id) } != nil)
+        // 搜索里点播的 Apple Music 歌按它同步进曲库的那一行算;还没加进资料库时锁屏不给喜欢。
+        let likeRowID = library.flatMap { library in
+            currentSong.flatMap { NowPlayingLibraryActions.libraryRowID(for: $0, library: library) }
+        }
+        let canLikeCurrentSong = !isLiveRadio && (isPodcastEpisode || likeRowID != nil)
         let likeIsActive = canLikeCurrentSong
             && (currentSong.map {
                 isPodcastEpisode
                     ? PodcastStore.shared.isLiked(episodeID: $0.id)
-                    : library?.isLiked(songID: $0.id) ?? false
+                    : likeRowID.map { library?.isLiked(songID: $0) ?? false } ?? false
             } ?? false)
         #else
         let canLikeCurrentSong = false

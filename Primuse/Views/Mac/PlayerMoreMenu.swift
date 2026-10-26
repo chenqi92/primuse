@@ -8,7 +8,7 @@ import PrimuseKit
 ///
 /// 之前 NowPlaying 顶部和 BottomBar 各有一份不一致的 more 菜单,
 /// NowPlaying 的菜单项甚至比底栏多 2/3。把所有菜单项集中到这里,两边
-/// 同样行为；状态(showAddToPlaylist / showSongInfo 等)和对应 sheet 都
+/// 同样行为；状态(加入歌单 / showSongInfo 等)和对应 sheet 都
 /// 在本组件内部,调用方只给一个 label 就行。
 struct PlayerMoreMenu<MenuLabel: View>: View {
     @ViewBuilder var label: () -> MenuLabel
@@ -32,7 +32,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
-    @State private var showAddToPlaylist = false
+    /// 「加入歌单」:搜索里点播的 Apple Music 歌要先加进资料库、同步进曲库,拿到那一行再弹歌单。
+    @State private var libraryActions = NowPlayingLibraryActions()
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
     @State private var showSongInfo = false
@@ -92,16 +93,19 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     private var baseBody: some View {
         Button { menuShown.toggle() } label: {
             label()
+                .opacity(libraryActions.isBusy ? 0 : 1)
+                .overlay {
+                    if libraryActions.isBusy { ProgressView().controlSize(.small) }
+                }
         }
         .buttonStyle(.plain)
         .popover(isPresented: $menuShown, arrowEdge: .top) {
             popoverMenuContent
         }
-        .sheet(isPresented: $showAddToPlaylist) {
-            if let song = player.currentSong {
-                AddToPlaylistSheet(song: song)
-            }
+        .sheet(item: $libraryActions.playlistSong) { song in
+            AddToPlaylistSheet(song: song)
         }
+        .nowPlayingLibraryActionAlert(libraryActions)
         // macOS 走 ScrapeWindowController 独立 NSWindow,带原生红灯。
         // showScrapeOptions 仅作为触发开关,window 自己管生命周期。
         .onChange(of: showScrapeOptions) { _, new in
@@ -284,8 +288,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if !isPodcastEpisode {
                 menuRow(title: "add_to_playlist",
                         symbol: "text.badge.plus",
-                        disabled: player.currentSong == nil) {
-                    showAddToPlaylist = true
+                        disabled: player.currentSong == nil || libraryActions.isBusy) {
+                    guard let song = player.currentSong else { return }
+                    Task { await libraryActions.perform(.addToPlaylist, song: song, library: library) }
                 }
             }
             if !isSpokenWord {

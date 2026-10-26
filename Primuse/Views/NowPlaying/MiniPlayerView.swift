@@ -141,6 +141,8 @@ struct MiniPlayerSwipeContent: View {
     @State private var feedbackOffset: CGFloat = 0
     @State private var directionHint: MiniPlayerSwipeAction?
     @State private var contentWidth: CGFloat = 0
+    /// 长按菜单收起后保存还在进行(Apple Music 歌加进资料库),所以放在迷你条上,不放在菜单里。
+    @State private var libraryActions = NowPlayingLibraryActions()
 
     var body: some View {
         ZStack {
@@ -243,7 +245,8 @@ struct MiniPlayerSwipeContent: View {
         .onTapGesture(perform: onTap)
         .simultaneousGesture(swipeGesture(containerWidth: contentWidth))
         // 长按:不点开播放页也能喜欢 / 不喜欢这首、去它的专辑或艺人、设睡眠定时。
-        .contextMenu { MiniPlayerMenuItems() }
+        .contextMenu { MiniPlayerMenuItems(libraryActions: libraryActions) }
+        .nowPlayingLibraryActionAlert(libraryActions)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
@@ -363,6 +366,7 @@ struct MiniPlayerSwipeContent: View {
 /// 迷你条的长按菜单。单独一个视图:菜单弹出时才读喜欢状态、找专辑和艺人,
 /// 迷你条平时跟着播放器刷新不用顺带算这些。
 private struct MiniPlayerMenuItems: View {
+    let libraryActions: NowPlayingLibraryActions
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(\.openLibraryDestination) private var openLibraryDestination
@@ -379,6 +383,7 @@ private struct MiniPlayerMenuItems: View {
                             Label(String(localized: "a11y_like"), systemImage: "heart")
                         }
                     }
+                    .disabled(libraryActions.isBusy)
                 }
                 if player.canDislikeCurrentSong {
                     // 不喜欢(#193):记下来并切到下一首;已经不喜欢时再点只撤销。
@@ -466,17 +471,25 @@ private struct MiniPlayerMenuItems: View {
     }
 
     /// 和播放页的心形一样:播客单集记在播客自己的喜欢里,别的进「我喜欢」。
+    /// 搜索里点播的 Apple Music 歌先加进资料库、同步进曲库,再标在那一行上。
     private func isLiked(_ song: Song) -> Bool {
         if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
-        return library.isLiked(songID: song.id)
+        return NowPlayingLibraryActions.isLiked(song, library: library)
     }
 
     private func toggleLike(_ song: Song) {
-        PMHaptics.likeToggled(isLiked: !isLiked(song))
+        let desired = !isLiked(song)
         if PodcastPlaybackSong.isEpisode(song) {
+            PMHaptics.likeToggled(isLiked: desired)
             player.toggleLikeForCurrentPodcastEpisode()
-        } else {
-            library.toggleLiked(songID: song.id)
+            return
+        }
+        let actions = libraryActions
+        let library = library
+        Task {
+            if await actions.perform(.like(desired), song: song, library: library) {
+                PMHaptics.likeToggled(isLiked: desired)
+            }
         }
     }
 }

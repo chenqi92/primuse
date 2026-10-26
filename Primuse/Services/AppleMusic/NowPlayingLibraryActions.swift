@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PrimuseKit
+import SwiftUI
 
 @MainActor
 @Observable
@@ -59,6 +60,34 @@ final class NowPlayingLibraryActions {
                 failureMessage = error.localizedDescription
             }
             return false
+        }
+    }
+
+    /// Like state of the song on screen. An Apple Music catalog song is liked through its
+    /// library row once it has one, so ask about that row rather than the projected id.
+    static func isLiked(_ song: Song, library: MusicLibrary) -> Bool {
+        let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song)
+        return library.isLiked(songID: canonical.id)
+    }
+
+    /// The library row a like can be written to right away: the song itself, or the synced
+    /// library row of an Apple Music catalog song. nil while the song still has to be saved.
+    static func libraryRowID(for song: Song, library: MusicLibrary) -> String? {
+        let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song)
+        return library.song(id: canonical.id) == nil ? nil : canonical.id
+    }
+}
+
+extension View {
+    /// 播放页、迷你条上「喜欢」「加入歌单」没做成时说明原因(Apple Music 歌加进资料库失败等)。
+    func nowPlayingLibraryActionAlert(_ actions: NowPlayingLibraryActions) -> some View {
+        alert(actions.failureTitle, isPresented: Binding(
+            get: { actions.failureMessage != nil },
+            set: { if !$0 { actions.failureMessage = nil } }
+        )) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(verbatim: actions.failureMessage ?? "")
         }
     }
 }

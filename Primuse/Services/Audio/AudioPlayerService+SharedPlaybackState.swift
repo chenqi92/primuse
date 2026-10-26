@@ -360,7 +360,7 @@ extension AudioPlayerService {
             playbackKind: playbackKind,
             radioStationID: currentRadioStation?.id,
             repeatMode: repeatMode,
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
+            isLiked: currentSong.map { song in library.map { NowPlayingLibraryActions.isLiked(song, library: $0) } ?? false },
             spokenWord: widgetSpokenWordInfo(),
             listeningSpace: currentSong.map { listeningSpace(of: $0) }
         )
@@ -493,7 +493,7 @@ extension AudioPlayerService {
             repeatMode: repeatMode,
             // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
             // 主 app 沙盒里, 必须由这里发布出去。
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
+            isLiked: currentSong.map { song in library.map { NowPlayingLibraryActions.isLiked(song, library: $0) } ?? false },
             updatedAt: sampledAt,
             spokenWord: publishedSpokenWordInfo(scope: scope)
         )

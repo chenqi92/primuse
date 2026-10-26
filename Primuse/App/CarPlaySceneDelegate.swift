@@ -252,6 +252,7 @@ final class CarPlaySceneDelegate: UIResponder {
     /// one refresh, so the main actor isn't pegged re-rendering CarPlay rows
     /// faster than anyone could read them.
     private var libraryRefreshTask: Task<Void, Never>?
+    private let libraryActions = NowPlayingLibraryActions()
 
     /// Currently visible queue page (if any). When the player advances, we
     /// patch its sections in place so the user sees the next track highlighted.
@@ -2265,10 +2266,10 @@ extension CarPlaySceneDelegate {
             buttons = [shuffleButton, repeatButton]
         }
         // 播客单集不在曲库里, 喜欢的记在播客自己那份。
-        if let songID = player.currentSong?.id, !layout.minimalNowPlaying {
-            let liked = PodcastPlaybackSong.isEpisode(player.currentSong)
-                ? PodcastStore.shared.isLiked(episodeID: songID)
-                : AppServices.shared.musicLibrary.isLiked(songID: songID)
+        if let song = player.currentSong, !layout.minimalNowPlaying {
+            let liked = PodcastPlaybackSong.isEpisode(song)
+                ? PodcastStore.shared.isLiked(episodeID: song.id)
+                : NowPlayingLibraryActions.isLiked(song, library: AppServices.shared.musicLibrary)
             let likeButton = CPNowPlayingImageButton(
                 image: Self.symbolImage(liked ? "heart.fill" : "heart")
             ) { [weak self] _ in
@@ -2303,14 +2304,24 @@ extension CarPlaySceneDelegate {
 
     /// 喜欢当前曲目。改完库以后要立刻重绘按钮 —— `playlistSongIDs` 是
     /// private 的, observePlayerState 观察不到它, 靠通知或这里手动刷新。
+    /// 搜索里点播、还不在曲库的 Apple Music 歌先加进资料库、同步进来,再标在那一行上。
     private func toggleLiked() {
         let player = AppServices.shared.playerService
-        guard let songID = player.currentSong?.id else { return }
-        if PodcastPlaybackSong.isEpisode(player.currentSong) {
+        let library = AppServices.shared.musicLibrary
+        guard let song = player.currentSong else { return }
+        if PodcastPlaybackSong.isEpisode(song) {
             player.toggleLikeForCurrentPodcastEpisode()
-        } else {
-            AppServices.shared.musicLibrary.toggleLiked(songID: songID)
+        } else if let songID = NowPlayingLibraryActions.libraryRowID(for: song, library: library) {
+            library.toggleLiked(songID: songID)
             player.republishNowPlayingSurfaces()
+        } else {
+            guard !libraryActions.isBusy else { return }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      await self.libraryActions.perform(.like(true), song: song, library: library) else { return }
+                player.republishNowPlayingSurfaces()
+                self.refreshNowPlayingButtons()
+            }
         }
         refreshNowPlayingButtons()
     }

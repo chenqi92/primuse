@@ -90,6 +90,7 @@ struct MacNowPlayingView: View {
     /// 按钮排自己多宽(拖窗口宽度时不变),用来算封面那一栏左边让多少。
     @State private var floatingControlsWidth: CGFloat = 0
     @State private var preferences = MacUIPreferences.shared
+    @State private var libraryActions = NowPlayingLibraryActions()
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -156,7 +157,7 @@ struct MacNowPlayingView: View {
     private var isCurrentLiked: Bool {
         guard let song = player.currentSong else { return false }
         if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
-        return library.isLiked(songID: song.id)
+        return NowPlayingLibraryActions.isLiked(song, library: library)
     }
 
     private var isSpokenWord: Bool {
@@ -233,6 +234,7 @@ struct MacNowPlayingView: View {
             lyrics: lyrics,
             overlay: $lyricRomanizationOverlay
         )
+        .nowPlayingLibraryActionAlert(libraryActions)
     }
 
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
@@ -1721,11 +1723,15 @@ struct MacNowPlayingView: View {
                                tint: isCurrentLiked ? theme.onAccent : nil,
                                fill: isCurrentLiked ? theme.accentColor : nil)
                         .contentTransition(.symbolEffect(.replace))
+                        .opacity(libraryActions.isBusy ? 0 : 1)
+                        .overlay {
+                            if libraryActions.isBusy { ProgressView().controlSize(.small) }
+                        }
                 }
                 .buttonStyle(.plain)
                 .pmGlassControl(Circle())
                 .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
-                .disabled(player.currentSong == nil)
+                .disabled(player.currentSong == nil || libraryActions.isBusy)
             }
 
             // 独立 MV 始终走视频管线, 模式开关对它无意义, 不显示
@@ -1903,13 +1909,15 @@ struct MacNowPlayingView: View {
         .padding(8)
     }
 
+    /// 搜索里点播的 Apple Music 歌还不在曲库里:先加进资料库、同步进来,再标在那一行上。
     private func toggleLikedCurrent() {
-        guard let song = player.currentSong else { return }
+        guard let song = player.currentSong, !libraryActions.isBusy else { return }
         if PodcastPlaybackSong.isEpisode(song) {
             player.toggleLikeForCurrentPodcastEpisode()
             return
         }
-        library.toggleLiked(songID: song.id)
+        let desired = !isCurrentLiked
+        Task { await libraryActions.perform(.like(desired), song: song, library: library) }
     }
 
     private func selectFullscreenEffect(_ value: FullscreenPlayerEffect) {

@@ -110,12 +110,13 @@ extension AudioPlayerService {
             republishNowPlayingSurfaces()
             return .success
         }
-        guard let library, library.song(id: songID) != nil else {
+        guard let library, let song = currentSong,
+              let rowID = NowPlayingLibraryActions.libraryRowID(for: song, library: library) else {
             return .noActionableNowPlayingItem
         }
 
         library.setLiked(
-            songID: songID,
+            songID: rowID,
             isLiked: !feedbackEvent.isNegative,
             propagatesServerMutation: true
         )

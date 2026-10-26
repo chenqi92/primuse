@@ -3123,7 +3123,16 @@ final class AppServices {
         }
 
         bridge.setLiked = { desired in
-            guard let songID = player.currentSong?.id else { return }
+            guard let song = player.currentSong else { return }
+            guard let songID = NowPlayingLibraryActions.libraryRowID(for: song, library: library) else {
+                // 搜索里点播、还不在曲库的 Apple Music 歌: 先加进资料库、同步进来再标。
+                guard desired, song.sourceID == AppleMusicLibraryService.systemSourceID else { return }
+                Task { @MainActor in
+                    guard await NowPlayingLibraryActions().perform(.like(true), song: song, library: library) else { return }
+                    player.republishNowPlayingSurfaces()
+                }
+                return
+            }
             // 对齐到目标状态: 已经是想要的结果就别再 toggle 一次。
             guard library.isLiked(songID: songID) != desired else { return }
             library.toggleLiked(songID: songID)
