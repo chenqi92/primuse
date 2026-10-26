@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "ऑडियोबुक और रेडियो नाटक अपनी अलग गति से चलते हैं, इसलिए तेज़ किताब से आपका संगीत तेज़ नहीं होता। स्किप बटन लॉक स्क्रीन और कार में भी दिखते हैं।";
 "spoken_word_skip_backward" = "पीछे जाएँ";
 "spoken_word_skip_forward" = "आगे जाएँ";
+"spoken_word_smart_rewind" = "स्मार्ट रिवाइंड";
+"spoken_word_smart_rewind_limit" = "अधिकतम रिवाइंड";
+"spoken_word_smart_rewind_desc" = "ऑडियोबुक या पॉडकास्ट फिर से चलाने पर, आप कितनी देर दूर रहे उसके हिसाब से थोड़ा पीछे जाता है ताकि बात का सिरा फिर से पकड़ सकें: छोटे विराम के बाद कुछ सेकंड, रात भर के बाद ज़्यादा, पर सीमा से ज़्यादा कभी नहीं।";
 "spoken_word_book_progress_format" = "%lld/%lld पूरा सुना";
 "sleep_at_chapter_end" = "अध्याय समाप्त होने पर रोकें";
 "seconds_value_format" = "%lld से.";
+"minutes_value_format" = "%lld मि.";
 "medley_title" = "मेडली";
 "medley_start_queue" = "कतार को मेडली में चलाएँ";
 "medley_play_queue_format" = "मेडली में चलाएँ (%lld से.)";

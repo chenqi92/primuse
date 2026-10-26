@@ -4896,9 +4896,13 @@
 "spoken_word_settings_footer" = "オーディオブックや朗読は音楽とは別の速度で再生されるので、本を速くしても音楽は速くなりません。スキップボタンはロック画面や車でも使えます。";
 "spoken_word_skip_backward" = "戻る秒数";
 "spoken_word_skip_forward" = "進む秒数";
+"spoken_word_smart_rewind" = "スマート巻き戻し";
+"spoken_word_smart_rewind_limit" = "最大巻き戻し";
+"spoken_word_smart_rewind_desc" = "オーディオブックやポッドキャストを再開するとき、止めていた時間に応じて少し巻き戻し、話の流れをつかみやすくします。短い一時停止なら数秒、一晩空いたらもっと長く、最大で上限まで戻ります。";
 "spoken_word_book_progress_format" = "%lld / %lld 聴き終わり";
 "sleep_at_chapter_end" = "チャプターの終わりで停止";
 "seconds_value_format" = "%lld 秒";
+"minutes_value_format" = "%lld 分";
 "medley_title" = "メドレー";
 "medley_start_queue" = "再生キューをメドレーで";
 "medley_play_queue_format" = "メドレーで再生（%lld秒）";

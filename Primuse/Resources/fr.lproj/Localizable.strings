@@ -4895,9 +4895,13 @@
 "spoken_word_settings_footer" = "Les livres audio et fictions radio ont leur propre vitesse : un livre accéléré n’accélère pas votre musique. Les boutons de saut apparaissent aussi sur l’écran verrouillé et en voiture.";
 "spoken_word_skip_backward" = "Reculer de";
 "spoken_word_skip_forward" = "Avancer de";
+"spoken_word_smart_rewind" = "Retour intelligent";
+"spoken_word_smart_rewind_limit" = "Recul maximal";
+"spoken_word_smart_rewind_desc" = "À la reprise d’un livre audio ou d’un podcast, la lecture recule un peu selon la durée de la pause pour vous aider à reprendre le fil : quelques secondes après une courte pause, davantage après une nuit, jamais au-delà du maximum.";
 "spoken_word_book_progress_format" = "%lld sur %lld terminés";
 "sleep_at_chapter_end" = "Arrêter à la fin du chapitre";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld min";
 "medley_title" = "Medley";
 "medley_start_queue" = "Lire la file en medley";
 "medley_play_queue_format" = "Lire en medley (%lld s)";

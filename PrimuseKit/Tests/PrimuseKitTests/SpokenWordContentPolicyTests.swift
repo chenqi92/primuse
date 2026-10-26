@@ -150,6 +150,64 @@ struct SpokenWordProgressPolicyTests {
         #expect(SpokenWordProgressPolicy.shouldRemember(position: 100, duration: .nan) == false)
         #expect(SpokenWordProgressPolicy.resumePosition(stored: .nan, duration: 3600) == nil)
     }
+
+    @Test("Resuming can rewind by the smart rewind's amount instead of the fixed one")
+    func resumeTakesAnotherRewind() {
+        #expect(SpokenWordProgressPolicy.resumePosition(stored: 600, duration: 3600, rewind: 30) == 570)
+        #expect(SpokenWordProgressPolicy.resumePosition(stored: 600, duration: 3600, rewind: 0) == 600)
+        #expect(SpokenWordProgressPolicy.resumePosition(stored: 25, duration: 3600, rewind: 300) == 0)
+        #expect(SpokenWordProgressPolicy.resumePosition(stored: 600, duration: 3600, rewind: .nan) == 595)
+    }
+}
+
+@Suite("Spoken word smart rewind")
+struct SpokenWordSmartRewindPolicyTests {
+    @Test("A pause of a few seconds does not rewind")
+    func shortPauseKeepsPlace() {
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 0, limit: 30) == 0)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 5, limit: 30) == 0)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: -120, limit: 30) == 0)
+    }
+
+    @Test("The longer the listener was away, the further it rewinds")
+    func growsWithTimeAway() {
+        let limit: TimeInterval = 300
+        let aways: [TimeInterval] = [10, 30, 60, 300, 1800, 3600, 4 * 3600, 8 * 3600, 24 * 3600, 3 * 86400]
+        let rewinds = aways.map { SpokenWordSmartRewindPolicy.rewind(afterAway: $0, limit: limit) }
+        for (earlier, later) in zip(rewinds, rewinds.dropFirst()) {
+            #expect(earlier <= later)
+        }
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 60, limit: limit) == 5)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 600, limit: limit) == 15)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 3600, limit: limit) == 30)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 8 * 3600, limit: limit) == 120)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 30 * 86400, limit: limit) == 300)
+    }
+
+    @Test("The rewind never passes the chosen limit")
+    func capsAtLimit() {
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 8 * 3600, limit: 30) == 30)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 30 * 86400, limit: 15) == 15)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: 3600, limit: 0) == 0)
+        #expect(SpokenWordSmartRewindPolicy.rewind(afterAway: .infinity, limit: 30) == 0)
+    }
+
+    @Test("The resume point stays inside the item")
+    func resumePositionClamps() {
+        #expect(SpokenWordSmartRewindPolicy.resumePosition(from: 600, away: 3600, limit: 30) == 570)
+        #expect(SpokenWordSmartRewindPolicy.resumePosition(from: 12, away: 3600, limit: 30) == 0)
+        #expect(SpokenWordSmartRewindPolicy.resumePosition(from: 112, away: 3600, limit: 30, floor: 100) == 100)
+        #expect(SpokenWordSmartRewindPolicy.resumePosition(from: 600, away: 2, limit: 30) == 600)
+    }
+
+    @Test("A stored limit outside the choices snaps to the nearest one")
+    func clampsStoredLimit() {
+        #expect(SpokenWordSmartRewindPolicy.clampedLimit(30) == 30)
+        #expect(SpokenWordSmartRewindPolicy.clampedLimit(0) == 15)
+        #expect(SpokenWordSmartRewindPolicy.clampedLimit(100) == 120)
+        #expect(SpokenWordSmartRewindPolicy.clampedLimit(10_000) == 300)
+        #expect(SpokenWordSmartRewindPolicy.limitChoices.contains(SpokenWordSmartRewindPolicy.defaultLimit))
+    }
 }
 
 @Suite("Spoken word skipping")

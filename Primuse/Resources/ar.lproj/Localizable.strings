@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "للكتب الصوتية والدراما الإذاعية سرعة خاصة، فتسريع الكتاب لا يسرّع موسيقاك. تظهر أزرار التخطي أيضًا في شاشة القفل وفي السيارة.";
 "spoken_word_skip_backward" = "التخطي للخلف";
 "spoken_word_skip_forward" = "التخطي للأمام";
+"spoken_word_smart_rewind" = "الترجيع الذكي";
+"spoken_word_smart_rewind_limit" = "الحد الأقصى للترجيع";
+"spoken_word_smart_rewind_desc" = "عند استئناف كتاب صوتي أو بودكاست، يرجع التشغيل قليلًا بحسب مدة توقفك لتتمكن من متابعة السياق: بضع ثوانٍ بعد توقف قصير، وأكثر بعد ليلة كاملة، دون تجاوز الحد الأقصى.";
 "spoken_word_book_progress_format" = "تم سماع %lld من %lld";
 "sleep_at_chapter_end" = "الإيقاف عند نهاية الفصل";
 "seconds_value_format" = "%lld ث";
+"minutes_value_format" = "%lld د";
 "medley_title" = "ميدلي";
 "medley_start_queue" = "تشغيل القائمة كميدلي";
 "medley_play_queue_format" = "تشغيل كميدلي (%lld ث)";

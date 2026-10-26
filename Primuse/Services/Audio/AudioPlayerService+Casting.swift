@@ -1011,6 +1011,7 @@ extension AudioPlayerService {
         reacquiringLocalRouteFocus: Bool = false
     ) {
         guard !isLiveRadio else { return }
+        noteSpokenWordSeekWhilePaused(to: time, isRecovery: isRecovery)
         if isAppleMusicMode {
             AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
             return

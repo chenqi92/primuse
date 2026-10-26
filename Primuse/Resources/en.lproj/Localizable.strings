@@ -4659,9 +4659,13 @@
 "spoken_word_settings_footer" = "Audiobooks, storytelling and radio dramas use a separate playback speed, so speeding up a book won't speed up your music. The skip buttons also work on the Lock Screen and in the car.";
 "spoken_word_skip_backward" = "Skip Back";
 "spoken_word_skip_forward" = "Skip Forward";
+"spoken_word_smart_rewind" = "Smart Rewind";
+"spoken_word_smart_rewind_limit" = "Rewind Up To";
+"spoken_word_smart_rewind_desc" = "When you resume an audiobook or podcast, it goes back a little depending on how long you were away, so you can pick up the thread: a few seconds after a short pause, more after a night away, never more than the limit.";
 "spoken_word_book_progress_format" = "%lld of %lld finished";
 "sleep_at_chapter_end" = "Stop at End of Chapter";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld min";
 "medley_title" = "Medley";
 "medley_start_queue" = "Play Queue as Medley";
 "medley_play_queue_format" = "Play as Medley (%llds)";

@@ -4988,9 +4988,13 @@
 "spoken_word_settings_footer" = "有声书、评书、广播剧使用单独的速度，调快听书不会让音乐也变快。快退、快进按钮在锁屏和车机上同样生效。";
 "spoken_word_skip_backward" = "快退";
 "spoken_word_skip_forward" = "快进";
+"spoken_word_smart_rewind" = "智能回退";
+"spoken_word_smart_rewind_limit" = "回退上限";
+"spoken_word_smart_rewind_desc" = "继续播放有声书和播客时，按停下了多久自动往回退一点，方便接上前面的内容：短暂暂停只退几秒，隔夜后退得更多，最多退到上限。";
 "spoken_word_book_progress_format" = "已听完 %lld/%lld";
 "sleep_at_chapter_end" = "本章结束后停止";
 "seconds_value_format" = "%lld 秒";
+"minutes_value_format" = "%lld 分钟";
 "medley_title" = "串烧";
 "medley_start_queue" = "把当前队列串烧播放";
 "medley_play_queue_format" = "串烧播放（%llds）";

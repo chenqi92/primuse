@@ -2507,6 +2507,19 @@ struct PlaybackSettingsView: View {
                         Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
                     }
                 }
+                Toggle(isOn: $settings.spokenWordSmartRewindEnabled) {
+                    SettingsInfoLabel("spoken_word_smart_rewind") {
+                        Text("spoken_word_smart_rewind_desc")
+                    }
+                }
+                .settingsAnchor("playback.spokenWordSmartRewind")
+                if settings.spokenWordSmartRewindEnabled {
+                    Picker("spoken_word_smart_rewind_limit", selection: $settings.spokenWordSmartRewindLimitSeconds) {
+                        ForEach(SpokenWordSmartRewindPolicy.limitChoices, id: \.self) { seconds in
+                            Text(verbatim: SpokenWordSmartRewindPolicy.limitLabel(seconds)).tag(seconds)
+                        }
+                    }
+                }
             } header: {
                 SettingsInfoHeader("spoken_word_settings_section") {
                     Text("spoken_word_settings_footer")

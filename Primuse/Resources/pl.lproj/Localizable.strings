@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "Audiobooki i słuchowiska mają własne tempo, więc przyspieszona książka nie przyspiesza muzyki. Przyciski przewijania działają też na ekranie blokady i w samochodzie.";
 "spoken_word_skip_backward" = "Cofnij o";
 "spoken_word_skip_forward" = "Przewiń o";
+"spoken_word_smart_rewind" = "Inteligentne cofanie";
+"spoken_word_smart_rewind_limit" = "Maksymalne cofnięcie";
+"spoken_word_smart_rewind_desc" = "Po wznowieniu audiobooka lub podcastu odtwarzanie cofa się trochę, zależnie od długości przerwy, żeby łatwiej było złapać wątek: po krótkiej pauzie o kilka sekund, po nocy więcej, nigdy ponad limit.";
 "spoken_word_book_progress_format" = "Wysłuchane %lld z %lld";
 "sleep_at_chapter_end" = "Zatrzymaj na końcu rozdziału";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld min";
 "medley_title" = "Składanka";
 "medley_start_queue" = "Odtwórz kolejkę jako składankę";
 "medley_play_queue_format" = "Odtwórz jako składankę (%lld s)";

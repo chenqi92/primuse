@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "Los audiolibros y radionovelas tienen su propia velocidad, así que acelerar un libro no acelera tu música. Los botones de salto también aparecen en la pantalla bloqueada y en el auto.";
 "spoken_word_skip_backward" = "Retroceder";
 "spoken_word_skip_forward" = "Adelantar";
+"spoken_word_smart_rewind" = "Retroceso inteligente";
+"spoken_word_smart_rewind_limit" = "Retroceso máximo";
+"spoken_word_smart_rewind_desc" = "Al reanudar un audiolibro o pódcast, retrocede un poco según cuánto tiempo estuviste fuera para que retomes el hilo: unos segundos tras una pausa corta, más después de una noche, nunca más que el máximo.";
 "spoken_word_book_progress_format" = "%lld de %lld terminados";
 "sleep_at_chapter_end" = "Detener al final del capítulo";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld min";
 "medley_title" = "Popurrí";
 "medley_start_queue" = "Reproducir cola como popurrí";
 "medley_play_queue_format" = "Reproducir como popurrí (%lld s)";

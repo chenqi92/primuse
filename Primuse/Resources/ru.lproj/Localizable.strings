@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "У аудиокниг и радиоспектаклей своя скорость, поэтому ускоренная книга не ускоряет музыку. Кнопки перемотки работают и на экране блокировки, и в машине.";
 "spoken_word_skip_backward" = "Назад на";
 "spoken_word_skip_forward" = "Вперёд на";
+"spoken_word_smart_rewind" = "Умная перемотка назад";
+"spoken_word_smart_rewind_limit" = "Максимум назад";
+"spoken_word_smart_rewind_desc" = "При возобновлении аудиокниги или подкаста воспроизведение немного отматывается назад в зависимости от длины паузы, чтобы было проще вспомнить, о чём шла речь: после короткой паузы — на несколько секунд, после ночи — больше, но не дальше предела.";
 "spoken_word_book_progress_format" = "Прослушано %lld из %lld";
 "sleep_at_chapter_end" = "Остановить в конце главы";
 "seconds_value_format" = "%lld с";
+"minutes_value_format" = "%lld мин";
 "medley_title" = "Попурри";
 "medley_start_queue" = "Играть очередь попурри";
 "medley_play_queue_format" = "Играть попурри (%lld с)";

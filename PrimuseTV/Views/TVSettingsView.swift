@@ -92,6 +92,10 @@ struct TVSettingsView: View {
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
     @AppStorage(TVStore.previousRestartsCurrentSongKey) private var previousRestartsCurrentSong = true
+    @AppStorage(TVStore.spokenWordSmartRewindEnabledKey)
+    private var spokenWordSmartRewind = SpokenWordSmartRewindPolicy.enabledByDefault
+    @AppStorage(TVStore.spokenWordSmartRewindLimitKey)
+    private var spokenWordSmartRewindLimit = SpokenWordSmartRewindPolicy.defaultLimit
     @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
     @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
@@ -239,6 +243,31 @@ struct TVSettingsView: View {
                                 detail: String(localized: "previous_restarts_current_song_footer"),
                                 isOn: $previousRestartsCurrentSong
                             )
+                            settingDivider
+                            // 智能回退(#363):有声书、播客停得久,继续时往回退一点。上限按一下换到下一档。
+                            toggleRow(
+                                "gobackward",
+                                String(localized: "spoken_word_smart_rewind"),
+                                detail: String(localized: "spoken_word_smart_rewind_desc"),
+                                isOn: $spokenWordSmartRewind
+                            )
+                            if spokenWordSmartRewind {
+                                settingDivider
+                                navRow(
+                                    "clock.arrow.circlepath",
+                                    String(localized: "spoken_word_smart_rewind_limit"),
+                                    SpokenWordSmartRewindPolicy.limitLabel(
+                                        SpokenWordSmartRewindPolicy.clampedLimit(spokenWordSmartRewindLimit)
+                                    ),
+                                    trailing: "arrow.triangle.2.circlepath"
+                                ) {
+                                    spokenWordSmartRewindLimit = Self.next(
+                                        after: SpokenWordSmartRewindPolicy.clampedLimit(spokenWordSmartRewindLimit),
+                                        in: SpokenWordSmartRewindPolicy.limitChoices
+                                    )
+                                }
+                                .accessibilityIdentifier("tv.playback.smartRewindLimit")
+                            }
                             settingDivider
                             toggleRow(
                                 "moon.zzz",

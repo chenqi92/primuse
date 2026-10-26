@@ -726,10 +726,30 @@ final class SpokenWordStore {
         )
     }
 
-    func resumePosition(for song: Song) -> TimeInterval? {
-        SpokenWordProgressPolicy.resumePosition(
-            stored: positions[song.id]?.position,
-            duration: resolvedDuration(for: song)
+    /// 续播时往回退多少:固定的几秒(关着智能回退时),按上次听到这里过了多久(#363),或不退
+    /// (暂停着落到这里、等真正开播时再按停了多久退)。
+    enum ResumeRewind: Equatable {
+        case fixed
+        case smart(limit: TimeInterval)
+        case unchanged
+    }
+
+    func resumePosition(for song: Song, rewind: ResumeRewind = .fixed) -> TimeInterval? {
+        let stored = positions[song.id]
+        let amount: TimeInterval
+        switch rewind {
+        case .fixed:
+            amount = SpokenWordProgressPolicy.resumeRewind
+        case .smart(let limit):
+            let away = stored.map { Date().timeIntervalSince($0.updatedAt) } ?? 0
+            amount = SpokenWordSmartRewindPolicy.rewind(afterAway: away, limit: limit)
+        case .unchanged:
+            amount = 0
+        }
+        return SpokenWordProgressPolicy.resumePosition(
+            stored: stored?.position,
+            duration: resolvedDuration(for: song),
+            rewind: amount
         )
     }
 
@@ -1211,4 +1231,13 @@ extension Notification.Name {
     /// library can re-run the music / spoken-word split.
     static let primuseSpokenWordClassificationDidChange =
         Notification.Name("primuse.spokenWordClassificationDidChange")
+}
+
+extension SpokenWordSmartRewindPolicy {
+    /// 「回退上限」各档的显示:不到一分钟按秒写,其余按分钟写。
+    static func limitLabel(_ seconds: Int) -> String {
+        seconds < 60
+            ? String(format: String(localized: "seconds_value_format"), seconds)
+            : String(format: String(localized: "minutes_value_format"), seconds / 60)
+    }
 }

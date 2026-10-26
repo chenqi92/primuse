@@ -4872,9 +4872,13 @@
 "spoken_word_settings_footer" = "有聲書、評書、廣播劇使用獨立的速度，調快聽書不會讓音樂也變快。倒轉、快轉按鈕在鎖定畫面和車機上同樣有效。";
 "spoken_word_skip_backward" = "倒轉";
 "spoken_word_skip_forward" = "快轉";
+"spoken_word_smart_rewind" = "智慧倒轉";
+"spoken_word_smart_rewind_limit" = "倒轉上限";
+"spoken_word_smart_rewind_desc" = "繼續播放有聲書和播客時，依停下多久自動往回倒轉一點，方便接上前面的內容：短暫暫停只退幾秒，隔夜後退得更多，最多退到上限。";
 "spoken_word_book_progress_format" = "已聽完 %lld/%lld";
 "sleep_at_chapter_end" = "本章結束後停止";
 "seconds_value_format" = "%lld 秒";
+"minutes_value_format" = "%lld 分鐘";
 "medley_title" = "串燒";
 "medley_start_queue" = "把目前佇列串燒播放";
 "medley_play_queue_format" = "串燒播放（%llds）";

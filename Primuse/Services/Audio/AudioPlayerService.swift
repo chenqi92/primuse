@@ -625,6 +625,7 @@ final class AudioPlayerService {
     var isPlaying = false {
         didSet {
             if isPlaying && !isLoading { schedulePlaybackMetadataReadIfNeeded() }
+            if isPlaying != oldValue { noteSpokenWordPlayingChanged() }
         }
     }
     var playbackKind: PlaybackKind = .track
@@ -1181,6 +1182,10 @@ final class AudioPlayerService {
     /// Where the next item should start instead of its remembered position:
     /// a bookmark in another item of the book, tapped in the contents.
     @ObservationIgnored var pendingSpokenWordSeekOverride: (songID: String, position: TimeInterval)?
+    /// 有声内容停下的那一刻(暂停、来电打断、出错停住都算)。继续时按停了多久往回退(智能回退,#363)。
+    @ObservationIgnored var spokenWordStoppedAt: (songID: String, at: Date)?
+    /// 停着的时候自己挪过位置(拖进度、跳章节、点书签或字幕):就从挑的地方开始,不再回退。
+    @ObservationIgnored var spokenWordRepositionedWhilePaused = false
     /// 本机最后一次动当前这一条的时间:换到它、在它上面存位置。这本书在别的设备上听到的另一条
     /// 要比它晚,才算听到了更新的地方(`spokenWordFollowTarget`)。
     @ObservationIgnored var spokenWordLocalTouchAt: Date?
@@ -7691,14 +7696,26 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
-        if currentItemIsSpokenWord, !isPlaying {
-            refreshServerSpokenWordState(for: song, resuming: true)
-        }
-        switch LocalPlaybackResumePolicy.action(
+        let resumeAction = LocalPlaybackResumePolicy.action(
             isAtTrackEnd: isAtTrackEnd,
             needsRecovery: needsPlaybackRecovery,
             hasPreparedAudio: hasPreparedLocalPlayback
-        ) {
+        )
+        // 智能回退(#363):有声内容停得久,从往回退一点的地方接着放。先定下落点,
+        // 服务端进度的锚点记的是退过之后的位置。
+        // 从头重建这一首的(播完重放、出错重试)按续播位置开,不在这里退。
+        var spokenWordRewindTarget: TimeInterval?
+        if currentItemIsSpokenWord, !isPlaying {
+            if resumeAction != .restartCurrentSong {
+                spokenWordRewindTarget = spokenWordSmartRewindTarget(
+                    for: song,
+                    from: resumeAction == .recoverFromInterruption ? pendingRecoveryTime : currentTime,
+                    seeksInPlace: resumeAction == .resumePreparedAudio
+                )
+            }
+            refreshServerSpokenWordState(for: song, resuming: true, resumingFrom: spokenWordRewindTarget)
+        }
+        switch resumeAction {
         case .restartCurrentSong:
             // Track-end replay and retries after URL/authentication failure both
             // need a fresh resolve/decode pipeline; an empty player node cannot
@@ -7715,7 +7732,7 @@ final class AudioPlayerService {
             return
         case .recoverFromInterruption:
             seek(
-                to: pendingRecoveryTime,
+                to: spokenWordRewindTarget ?? pendingRecoveryTime,
                 startPlaying: true,
                 isRecovery: true,
                 isColdSessionRestore: pendingRecoveryIsColdSessionRestore
@@ -7728,7 +7745,12 @@ final class AudioPlayerService {
                 // The buffers may still be playable, but their terminal
                 // callbacks belong to an invalidated ticket. Rebuild rather
                 // than minting a ticket those callbacks never captured.
-                seek(to: currentTime, startPlaying: true, isRecovery: true)
+                seek(to: spokenWordRewindTarget ?? currentTime, startPlaying: true, isRecovery: true)
+                return
+            }
+            if let spokenWordRewindTarget {
+                // 备好的缓冲停在原处;往回退要从退到的位置重建一次。
+                seek(to: spokenWordRewindTarget, startPlaying: true, isRecovery: true)
                 return
             }
         }

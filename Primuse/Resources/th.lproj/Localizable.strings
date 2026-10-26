@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "หนังสือเสียงและละครวิทยุใช้ความเร็วแยกต่างหาก การเร่งหนังสือจึงไม่ทำให้เพลงเร็วขึ้น ปุ่มข้ามยังใช้ได้บนหน้าจอล็อกและในรถ";
 "spoken_word_skip_backward" = "ย้อนกลับ";
 "spoken_word_skip_forward" = "ข้ามไปข้างหน้า";
+"spoken_word_smart_rewind" = "ย้อนกลับอัจฉริยะ";
+"spoken_word_smart_rewind_limit" = "ย้อนกลับสูงสุด";
+"spoken_word_smart_rewind_desc" = "เมื่อเล่นหนังสือเสียงหรือพอดแคสต์ต่อ ระบบจะย้อนกลับเล็กน้อยตามระยะเวลาที่หยุดไว้ เพื่อให้ฟังต่อได้ลื่นไหล: หยุดสั้นๆ ย้อนไม่กี่วินาที ข้ามคืนย้อนมากขึ้น แต่ไม่เกินขีดจำกัด";
 "spoken_word_book_progress_format" = "ฟังจบ %lld จาก %lld";
 "sleep_at_chapter_end" = "หยุดเมื่อจบบท";
 "seconds_value_format" = "%lld วิ";
+"minutes_value_format" = "%lld นาที";
 "medley_title" = "เมดเลย์";
 "medley_start_queue" = "เล่นคิวเป็นเมดเลย์";
 "medley_play_queue_format" = "เล่นเป็นเมดเลย์ (%lld วิ)";

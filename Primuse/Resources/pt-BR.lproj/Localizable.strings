@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "Audiolivros e radionovelas têm velocidade própria, então acelerar um livro não acelera sua música. Os botões de pular também aparecem na tela bloqueada e no carro.";
 "spoken_word_skip_backward" = "Voltar";
 "spoken_word_skip_forward" = "Avançar";
+"spoken_word_smart_rewind" = "Retrocesso inteligente";
+"spoken_word_smart_rewind_limit" = "Retrocesso máximo";
+"spoken_word_smart_rewind_desc" = "Ao retomar um audiolivro ou podcast, volta um pouco conforme o tempo que você ficou fora, para retomar o fio: alguns segundos após uma pausa curta, mais depois de uma noite, nunca além do máximo.";
 "spoken_word_book_progress_format" = "%lld de %lld concluídos";
 "sleep_at_chapter_end" = "Parar no fim do capítulo";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld min";
 "medley_title" = "Medley";
 "medley_start_queue" = "Tocar fila como medley";
 "medley_play_queue_format" = "Tocar como medley (%lld s)";

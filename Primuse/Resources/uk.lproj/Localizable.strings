@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "Аудіокниги й радіовистави мають власну швидкість, тож прискорена книга не прискорює музику. Кнопки перемотування працюють і на екрані блокування, і в авто.";
 "spoken_word_skip_backward" = "Назад на";
 "spoken_word_skip_forward" = "Вперед на";
+"spoken_word_smart_rewind" = "Розумне перемотування назад";
+"spoken_word_smart_rewind_limit" = "Максимум назад";
+"spoken_word_smart_rewind_desc" = "Під час відновлення аудіокниги чи подкасту відтворення трохи повертається назад залежно від тривалості паузи, щоб легше було згадати, про що йшлося: після короткої паузи — на кілька секунд, після ночі — більше, але не далі за межу.";
 "spoken_word_book_progress_format" = "Прослухано %lld з %lld";
 "sleep_at_chapter_end" = "Зупинити в кінці розділу";
 "seconds_value_format" = "%lld с";
+"minutes_value_format" = "%lld хв";
 "medley_title" = "Попурі";
 "medley_start_queue" = "Грати чергу попурі";
 "medley_play_queue_format" = "Грати попурі (%lld с)";

@@ -161,14 +161,73 @@ public enum SpokenWordProgressPolicy {
     }
 
     /// The position playback should actually start from, or nil to start at
-    /// the beginning.
+    /// the beginning. `rewind` is how far before the stored position to pick
+    /// up; the smart rewind passes its own amount.
     public static func resumePosition(
         stored: TimeInterval?,
-        duration: TimeInterval
+        duration: TimeInterval,
+        rewind: TimeInterval = resumeRewind
     ) -> TimeInterval? {
         guard let stored, stored.isFinite, stored > 0 else { return nil }
         guard shouldRemember(position: stored, duration: duration) else { return nil }
-        return max(0, stored - resumeRewind)
+        let rewind = rewind.isFinite ? max(0, rewind) : resumeRewind
+        return max(0, stored - rewind)
+    }
+}
+
+/// 智能回退(#363):有声内容停下来越久,继续时往回退得越多 —— 短暂停一下只退几秒,隔夜退得多,
+/// 最多退到用户选的上限。
+///
+/// 回退量按离开的时长在几个锚点之间按对数插值:离开时长翻一倍多退的秒数差不多,不会因为离开
+/// 十倍久就退十倍。几秒内的停顿(碰了一下暂停、接了句话)不退。关掉时续播照旧固定回退
+/// `SpokenWordProgressPolicy.resumeRewind`,播放中暂停再继续不退。
+public enum SpokenWordSmartRewindPolicy {
+    /// 「回退上限」的可选值(秒)。
+    public static let limitChoices: [Int] = [15, 30, 60, 120, 300]
+    public static let defaultLimit = 30
+    public static let enabledByDefault = true
+
+    /// (离开的秒数, 回退的秒数),离开时长递增。第一个锚点以内不退,最后一个以外按最后一个算。
+    static let anchors: [(away: TimeInterval, rewind: TimeInterval)] = [
+        (5, 0),
+        (15, 2),
+        (60, 5),
+        (10 * 60, 15),
+        (60 * 60, 30),
+        (8 * 60 * 60, 120),
+        (3 * 24 * 60 * 60, 300),
+    ]
+
+    /// 存下来的上限不在可选值里时取最接近的一档。
+    public static func clampedLimit(_ seconds: Int) -> Int {
+        limitChoices.min { abs($0 - seconds) < abs($1 - seconds) } ?? defaultLimit
+    }
+
+    /// 离开 `away` 秒后继续,往回退多少秒:整秒,不超过 `limit`。
+    public static func rewind(afterAway away: TimeInterval, limit: TimeInterval) -> TimeInterval {
+        guard away.isFinite, limit.isFinite, limit > 0,
+              let first = anchors.first, let last = anchors.last,
+              away > first.away else { return 0 }
+        var amount = last.rewind
+        for (lower, upper) in zip(anchors, anchors.dropFirst()) where away < upper.away {
+            let fraction = log(away / lower.away) / log(upper.away / lower.away)
+            amount = lower.rewind + (upper.rewind - lower.rewind) * fraction
+            break
+        }
+        return min(limit, amount.rounded())
+    }
+
+    /// 停在 `position`、离开 `away` 秒后,从哪里接着放。不早于 `floor`(这一条的开头)。
+    public static func resumePosition(
+        from position: TimeInterval,
+        away: TimeInterval,
+        limit: TimeInterval,
+        floor: TimeInterval = 0
+    ) -> TimeInterval {
+        guard position.isFinite else { return position }
+        let rewind = rewind(afterAway: away, limit: limit)
+        guard rewind > 0, position > floor else { return position }
+        return max(floor, position - rewind)
     }
 }
 

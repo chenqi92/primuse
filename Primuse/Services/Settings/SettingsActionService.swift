@@ -29,7 +29,7 @@ struct SettingsActionService {
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
-        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly"
+        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "playback.spokenWordSmartRewind"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -135,6 +135,7 @@ struct SettingsActionService {
         case "playback.mixWithOthers": playback.mixesWithOtherAudio
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong
+        case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled
         case "playback.gapless": playback.gaplessEnabled
         case "playback.crossfade": playback.crossfadeEnabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled
@@ -178,6 +179,7 @@ struct SettingsActionService {
         case "playback.mixWithOthers": playback.mixesWithOtherAudio = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong = enabled
+        case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled
         case "playback.crossfade": playback.crossfadeEnabled = enabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled = enabled

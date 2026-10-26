@@ -674,7 +674,8 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(player.serverSpokenWordIntroOutro(for: chapter)?.outroSeconds, 20)
         XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 30)
         SpokenWordStore.shared.rememberPosition(600, duration: 1_800, forSongID: chapter.id)
-        let resume = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter))
+        // 智能回退默认开着、上限 30 秒;刚存的位置不退。
+        let resume = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter, rewind: .smart(limit: 30)))
         XCTAssertGreaterThan(resume, 30)
         XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), resume, "a position past the intro is kept")
     }
@@ -741,7 +742,9 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertTrue(SpokenWordStore.shared.adoptServerProgress(songID: chapter.id, position: 500,
             duration: 3_600, isFinished: false, updatedAt: serverDate))
         player.applySyncedSpokenWordPosition(for: chapter)
-        let target = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter))
+        // 智能回退开着时停在同步来的原位,往回退多少等按下播放再算。
+        let target = try XCTUnwrap(SpokenWordStore.shared.resumePosition(for: chapter, rewind: .unchanged))
+        XCTAssertEqual(target, 500)
         XCTAssertEqual(player.currentTime, target)
         XCTAssertEqual(player.pendingRecoveryTime, target)
         XCTAssertTrue(player.needsPlaybackRecovery)
@@ -755,6 +758,59 @@ final class ListeningFeaturesTests: XCTestCase {
         player.rememberSpokenWordPosition(force: true)
         XCTAssertEqual(SpokenWordStore.shared.position(forSongID: chapter.id)?.position, 700,
                        "an explicit seek while reading the server must retain the local decision")
+    }
+
+    func testSmartRewindGoesBackFurtherTheLongerPlaybackWasStopped() throws {
+        let player = try makePlayer()
+        let chapter = song(UUID().uuidString, duration: 3_600, genre: "Audiobook")
+        cleanups.append { SpokenWordStore.shared.clearPosition(forSongID: chapter.id) }
+        player.currentSong = chapter
+        player.currentItemIsSpokenWord = true
+        player.duration = 3_600
+        player.currentTime = 600
+        XCTAssertTrue(player.playbackSettings.spokenWordSmartRewindEnabled, "on by default")
+
+        player.spokenWordStoppedAt = (chapter.id, Date().addingTimeInterval(-2))
+        XCTAssertNil(player.spokenWordSmartRewindTarget(for: chapter, from: 600, seeksInPlace: false),
+                     "a pause of a couple of seconds picks up where it stopped")
+        player.spokenWordStoppedAt = (chapter.id, Date().addingTimeInterval(-60))
+        XCTAssertEqual(player.spokenWordSmartRewindTarget(for: chapter, from: 600, seeksInPlace: false), 595)
+        player.spokenWordStoppedAt = (chapter.id, Date().addingTimeInterval(-8 * 3_600))
+        XCTAssertEqual(player.spokenWordSmartRewindTarget(for: chapter, from: 600, seeksInPlace: false), 570,
+                       "a night away goes back as far as the limit")
+        player.playbackSettings.spokenWordSmartRewindLimitSeconds = 300
+        XCTAssertEqual(player.spokenWordSmartRewindTarget(for: chapter, from: 600, seeksInPlace: false), 480)
+
+        player.noteSpokenWordSeekWhilePaused(to: 900, isRecovery: false)
+        XCTAssertNil(player.spokenWordSmartRewindTarget(for: chapter, from: 900, seeksInPlace: false),
+                     "a place picked while paused is where playback starts")
+        player.isPlaying = true
+        player.isPlaying = false
+        XCTAssertFalse(player.spokenWordRepositionedWhilePaused)
+        XCTAssertEqual(player.spokenWordStoppedAt?.songID, chapter.id, "stopping records the moment")
+
+        player.playbackSettings.spokenWordSmartRewindEnabled = false
+        player.spokenWordStoppedAt = (chapter.id, Date().addingTimeInterval(-8 * 3_600))
+        XCTAssertNil(player.spokenWordSmartRewindTarget(for: chapter, from: 600, seeksInPlace: false))
+    }
+
+    func testSmartRewindAfterRelaunchCountsFromTheStoredPositionAndResumingAnItemFollowsTheSetting() throws {
+        let player = try makePlayer()
+        let chapter = song(UUID().uuidString, duration: 3_600, genre: "Audiobook")
+        cleanups.append { SpokenWordStore.shared.clearPosition(forSongID: chapter.id) }
+        XCTAssertTrue(SpokenWordStore.shared.adoptServerProgress(songID: chapter.id, position: 1_000,
+            duration: 3_600, isFinished: false, updatedAt: Date().addingTimeInterval(-3_600)))
+        player.currentSong = chapter
+        player.currentItemIsSpokenWord = true
+        player.duration = 3_600
+        player.currentTime = 1_000
+        XCTAssertNil(player.spokenWordStoppedAt)
+        XCTAssertEqual(player.spokenWordSmartRewindTarget(for: chapter, from: 1_000, seeksInPlace: false), 970,
+                       "nothing stopped in this run: the stored position's time says how long it has been")
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 970)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter, rewinding: false), 1_000)
+        player.playbackSettings.spokenWordSmartRewindEnabled = false
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 995, "off keeps the fixed five seconds")
     }
 
     func testListeningAgainKeepsAFinishedItemFinishedAndRemembersWhereTheReplayIs() throws {

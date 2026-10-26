@@ -4895,9 +4895,13 @@
 "spoken_word_settings_footer" = "Hörbücher und Hörspiele haben ein eigenes Tempo – ein schnelleres Buch beschleunigt deine Musik nicht. Die Sprungtasten erscheinen auch auf dem Sperrbildschirm und im Auto.";
 "spoken_word_skip_backward" = "Zurückspringen";
 "spoken_word_skip_forward" = "Vorspringen";
+"spoken_word_smart_rewind" = "Intelligentes Zurückspulen";
+"spoken_word_smart_rewind_limit" = "Höchstens zurück";
+"spoken_word_smart_rewind_desc" = "Beim Fortsetzen eines Hörbuchs oder Podcasts wird je nach Pausenlänge ein Stück zurückgesprungen, damit du den Faden wiederfindest: nach kurzer Pause nur wenige Sekunden, nach einer Nacht mehr, höchstens bis zum Limit.";
 "spoken_word_book_progress_format" = "%lld von %lld gehört";
 "sleep_at_chapter_end" = "Am Kapitelende stoppen";
 "seconds_value_format" = "%lld s";
+"minutes_value_format" = "%lld Min.";
 "medley_title" = "Medley";
 "medley_start_queue" = "Warteschlange als Medley";
 "medley_play_queue_format" = "Als Medley abspielen (%lld s)";

@@ -4801,9 +4801,13 @@
 "spoken_word_settings_footer" = "Sesli kitaplar ve radyo tiyatroları kendi hızını kullanır; hızlandırılmış bir kitap müziğini hızlandırmaz. Atlama düğmeleri kilit ekranında ve araçta da görünür.";
 "spoken_word_skip_backward" = "Geri atla";
 "spoken_word_skip_forward" = "İleri atla";
+"spoken_word_smart_rewind" = "Akıllı geri sarma";
+"spoken_word_smart_rewind_limit" = "En fazla geri";
+"spoken_word_smart_rewind_desc" = "Sesli kitaba veya podcast'e devam ettiğinizde, ne kadar ara verdiğinize göre biraz geri sarılır; böylece konuyu kolayca yakalarsınız: kısa bir duraklamadan sonra birkaç saniye, bir geceden sonra daha fazla, ama hiçbir zaman sınırdan fazla değil.";
 "spoken_word_book_progress_format" = "%lld/%lld bitti";
 "sleep_at_chapter_end" = "Bölüm sonunda durdur";
 "seconds_value_format" = "%lld sn";
+"minutes_value_format" = "%lld dk";
 "medley_title" = "Medley";
 "medley_start_queue" = "Sırayı medley olarak çal";
 "medley_play_queue_format" = "Medley olarak çal (%lld sn)";

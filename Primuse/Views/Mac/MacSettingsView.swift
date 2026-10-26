@@ -3023,6 +3023,25 @@ private struct MacSTPlaybackView: View {
                         width: 120
                     )
                 }
+                MacSTRow(
+                    String(localized: "spoken_word_smart_rewind"),
+                    hint: String(localized: "spoken_word_smart_rewind_desc"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTToggle(isOn: $s.spokenWordSmartRewindEnabled)
+                }
+                .settingsAnchor("playback.spokenWordSmartRewind")
+                if s.spokenWordSmartRewindEnabled {
+                    MacSTRow(String(localized: "spoken_word_smart_rewind_limit")) {
+                        MacSTPicker(
+                            selection: $s.spokenWordSmartRewindLimitSeconds,
+                            options: SpokenWordSmartRewindPolicy.limitChoices.map {
+                                ($0, SpokenWordSmartRewindPolicy.limitLabel($0))
+                            },
+                            width: 120
+                        )
+                    }
+                }
             }
         }
 

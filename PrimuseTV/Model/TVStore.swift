@@ -1029,6 +1029,9 @@ final class TVStore {
     nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
     /// 「上一首」先回到这首开头(#348)。关掉后遥控器的上一首一律直接切歌。
     nonisolated static let previousRestartsCurrentSongKey = "primuse.tv.previousRestartsCurrentSong"
+    /// 智能回退(#363):有声内容停得越久,继续时往回退得越多,最多退到上限(秒)。只存在这台电视上。
+    nonisolated static let spokenWordSmartRewindEnabledKey = "primuse.tv.spokenWordSmartRewindEnabled"
+    nonisolated static let spokenWordSmartRewindLimitKey = "primuse.tv.spokenWordSmartRewindLimit"
     /// 随机播放的抽歌偏好(#332),只存在这台电视上;默认完全随机。
     nonisolated static let shufflePreferenceKey = "primuse.tv.shufflePreference"
     static var shufflePreference: ShufflePreference {
@@ -1159,6 +1162,8 @@ final class TVStore {
     @ObservationIgnored private var spokenWordPositionArmed = false
     /// 续播目标还没落地(引擎没按起点开播时,开播后再补一次定位)。
     @ObservationIgnored private var pendingSpokenWordResume: (songID: String, position: Double)?
+    /// 有声内容暂停的那一刻;继续时按停了多久往回退(智能回退)。停着时自己挪过位置就作废。
+    @ObservationIgnored private var spokenWordStoppedAt: (songID: String, at: Date)?
     @ObservationIgnored private var lastSpokenWordPositionSave: Double = 0
     /// 上一次报给服务端(Audiobookshelf、Ting Reader)的位置;本机 15 秒存一次,服务端 30 秒报一次。
     @ObservationIgnored private var lastServerSpokenWordPositionPush: Double = 0
@@ -5683,6 +5688,9 @@ final class TVStore {
             engine.downloadProgress = nil
         }
         engine.pause()
+        if currentItemIsSpokenWord, hasNowPlaying {
+            spokenWordStoppedAt = (nowPlaying.songID, Date())
+        }
     }
 
     private func resumePlayback() {
@@ -5733,22 +5741,60 @@ final class TVStore {
             needsRecovery: needsRecovery,
             hasPreparedAudio: engine.hasPreparedAudio
         )
+        // 智能回退(#363):停得久就从往回退一点的地方接着放;服务端进度的锚点记退过之后的位置。
+        let rewindTarget = isAtTrackEnd ? nil : spokenWordSmartRewindTarget(songID: id)
+        spokenWordStoppedAt = nil
         if currentItemIsSpokenWord, !isAtTrackEnd {
-            refreshServerSpokenWordPosition(songID: id, resuming: true)
+            refreshServerSpokenWordPosition(songID: id, resuming: true, anchor: rewindTarget)
         }
+        let resumeTime = rewindTarget ?? currentTime
         switch action {
         case .resumePreparedAudio:
+            if let rewindTarget {
+                pendingSpokenWordResume = nil
+                engine.seek(to: rewindTarget)
+            }
             if !engine.play() {
-                startPlaying(currentSong, resumeTime: currentTime)
+                startPlaying(currentSong, resumeTime: resumeTime)
             }
         case .recoverFromInterruption:
-            startPlaying(currentSong, resumeTime: currentTime)
+            startPlaying(currentSong, resumeTime: resumeTime)
         case .restartCurrentSong:
-            startPlaying(currentSong, resumeTime: isAtTrackEnd ? 0 : currentTime)
+            startPlaying(currentSong, resumeTime: isAtTrackEnd ? 0 : resumeTime)
         }
+    }
+
+    /// 智能回退开着时的上限秒数;关着是 nil。
+    private var spokenWordSmartRewindLimit: Double? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Self.spokenWordSmartRewindEnabledKey) as? Bool
+            ?? SpokenWordSmartRewindPolicy.enabledByDefault else { return nil }
+        let stored = defaults.object(forKey: Self.spokenWordSmartRewindLimitKey) as? Int
+            ?? SpokenWordSmartRewindPolicy.defaultLimit
+        return Double(SpokenWordSmartRewindPolicy.clampedLimit(stored))
+    }
+
+    /// 继续播放这一条有声内容时往回退到哪;不用退是 nil。停了多久按暂停的那一刻算,
+    /// 冷启动恢复出来的按这一条最后存位置的时间算。
+    private func spokenWordSmartRewindTarget(songID: String) -> Double? {
+        guard currentItemIsSpokenWord, !isLiveRadio,
+              let stopped = spokenWordStoppedAt, stopped.songID == songID,
+              let limit = spokenWordSmartRewindLimit else { return nil }
+        let position = currentTime
+        let away = Date().timeIntervalSince(stopped.at)
+        let target = SpokenWordSmartRewindPolicy.resumePosition(
+            from: position,
+            away: away,
+            limit: limit,
+            floor: currentPlaybackRange?.start ?? 0
+        )
+        guard position - target >= 1 else { return nil }
+        plog("🎧 TV spoken word: smart rewind \(Int(position - target))s after \(Int(away))s away")
+        return target
     }
     func seek(toFraction f: Double) {
         guard !isLiveRadio else { return }
+        spokenWordStoppedAt = nil
         engine.seekToFraction(f)
     }
     func skipForward() {
@@ -5794,8 +5840,9 @@ final class TVStore {
             offset: offset,
             duration: duration
         )
-        // 手动跳过就是这一条的新位置,不必再等续播定位。
+        // 手动跳过就是这一条的新位置,不必再等续播定位;停着时也不再回退。
         pendingSpokenWordResume = nil
+        spokenWordStoppedAt = nil
         engine.seek(to: target)
         rememberSpokenWordPosition(force: true)
     }
@@ -5811,6 +5858,7 @@ final class TVStore {
         currentItemIsSpokenWord = isSpokenWord
         spokenWordPositionArmed = false
         pendingSpokenWordResume = nil
+        spokenWordStoppedAt = nil
         lastSpokenWordPositionSave = 0
         lastServerSpokenWordPositionPush = 0
         spokenWordLocalTouchAt = nil
@@ -5852,12 +5900,12 @@ final class TVStore {
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):开播时把服务端的位置拿回来 —— 别的客户端听过的,
     /// 比本机新就按它续播。开播不等它:先从本机记的位置开,服务端的更新晚到时,还停在起点附近就跳过去,
     /// 已经听了一阵或自己拖过就不拉回。
-    private func refreshServerSpokenWordPosition(songID: String, resuming: Bool = false) {
+    private func refreshServerSpokenWordPosition(songID: String, resuming: Bool = false, anchor resumePoint: Double? = nil) {
         guard let raw = library.song(id: songID),
               let source = source(id: raw.sourceID),
               source.type == .audiobookshelf || source.type == .tingReader else { return }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        let anchor = resuming ? engine.currentTime : (spokenWordResumeTarget(for: raw) ?? 0)
+        let anchor = resuming ? (resumePoint ?? engine.currentTime) : (spokenWordResumeTarget(for: raw) ?? 0)
         serverSpokenWordStateTask?.cancel()
         let requestID = UUID()
         serverSpokenWordStateRequestID = requestID
@@ -6005,9 +6053,14 @@ final class TVStore {
         return SpokenWordServerIntroOutroCache.settings(sourceID: song.sourceID, bookID: reference.bookID)
     }
 
+    /// 续播位置往回退多少:开着智能回退按上次听到这里过了多久,关着固定几秒。
+    private var spokenWordResumeRewind: SpokenWordStore.ResumeRewind {
+        spokenWordSmartRewindLimit.map { SpokenWordStore.ResumeRewind.smart(limit: $0) } ?? .fixed
+    }
+
     /// 开始播一条时从哪里起:续播位置,再按这本书的片头往后挪。
     private func spokenWordResumeTarget(for song: Song) -> Double? {
-        let stored = SpokenWordStore.shared.resumePosition(for: song)
+        let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: spokenWordResumeRewind)
         guard let skip = serverSpokenWordIntroOutro(for: song) else { return stored }
         return SpokenWordIntroOutroPolicy.startPosition(resume: stored, duration: song.duration, skip: skip)
     }
@@ -6054,6 +6107,8 @@ final class TVStore {
         lastSpokenWordPositionSave = target
         pendingSpokenWordResume = nil
         pendingServerSpokenWordResume = nil
+        // 位置换成了别处听到的地方,已经按那边停下的时间退过。
+        spokenWordStoppedAt = nil
         persistPlaybackSession()
     }
 
@@ -6220,6 +6275,7 @@ final class TVStore {
         if hasNowPlaying, nowPlaying.songID == itemID {
             if let position {
                 pendingSpokenWordResume = nil
+                spokenWordStoppedAt = nil
                 engine.seek(to: position)
                 rememberSpokenWordPosition(force: true)
             }
@@ -6271,6 +6327,7 @@ final class TVStore {
 
     private func seekWithinSpokenWordItem(to position: Double) {
         pendingSpokenWordResume = nil
+        spokenWordStoppedAt = nil
         engine.seek(to: position)
         rememberSpokenWordPosition(force: true)
     }
@@ -7650,7 +7707,7 @@ final class TVStore {
 
     /// 起点:记住的位置(快听完的按有声规则回到开头);没有就跳过这档节目设的片头。
     private func podcastStartTime(song: Song, episode: PodcastEpisode, show: PodcastShow?) -> Double {
-        if let stored = SpokenWordStore.shared.resumePosition(for: song), stored > 0 {
+        if let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: spokenWordResumeRewind), stored > 0 {
             plog("🎧 TV podcast: resuming '\(episode.title)' at \(Int(stored))s")
             return stored
         }
@@ -8088,6 +8145,9 @@ final class TVStore {
                 startPlaying(selected, resumeTime: plan.currentTime, autoPlay: false, prepareWhenPaused: false)
                 // 恢复不是本机这次换到它:按上次记下的时间算;进度同步可能比恢复先到,再看一次要不要跟过去。
                 if currentItemIsSpokenWord {
+                    // 智能回退按这一条最后存位置的时间算停了多久。
+                    spokenWordStoppedAt = SpokenWordStore.shared.position(forSongID: selected.id)
+                        .map { (songID: selected.id, at: $0.updatedAt) }
                     spokenWordLocalTouchAt = restoredSpokenWordTouch(for: selected.id)
                     followSpokenWordBookIfPaused()
                 }

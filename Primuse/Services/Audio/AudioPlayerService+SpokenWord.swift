@@ -34,6 +34,8 @@ extension AudioPlayerService {
         pendingSpokenWordResumeSongID = nil
         currentSpokenWordIntroOutro = nil
         spokenWordLocalTouchAt = nil
+        spokenWordStoppedAt = nil
+        spokenWordRepositionedWhilePaused = false
         // 片尾跳过、换走时不存位置,都只对那一条;换到别的条目就作废。
         let playbackState = PodcastPlaybackState.shared
         if playbackState.outroHandledEpisodeID != song?.id { playbackState.outroHandledEpisodeID = nil }
@@ -123,11 +125,16 @@ extension AudioPlayerService {
     ///
     /// 续播(`resuming`)时整本书一起取:别的设备可能已经听到了这本书的另一条,比本机最后一次动这一条还晚,
     /// 就换到那一条接着听(`spokenWordFollowTarget`)。
-    func refreshServerSpokenWordState(for song: Song, resuming: Bool = false) {
+    /// - Parameter resumePoint: 继续播放时实际要接着放的位置(智能回退退过之后的);缺省是当前位置。
+    func refreshServerSpokenWordState(
+        for song: Song,
+        resuming: Bool = false,
+        resumingFrom resumePoint: TimeInterval? = nil
+    ) {
         guard let manager = sourceManager else { return }
         let songID = song.id
         let followsServer = pendingSpokenWordSeekOverride?.songID != songID
-        let anchor = resuming ? currentTime : (spokenWordResumeTarget(for: song) ?? 0)
+        let anchor = resuming ? (resumePoint ?? currentTime) : (spokenWordResumeTarget(for: song) ?? 0)
         serverSpokenWordStateTask?.cancel()
         let requestID = UUID()
         serverSpokenWordStateRequestID = requestID
@@ -197,10 +204,11 @@ extension AudioPlayerService {
     }
 
     /// 暂停队列也要更新恢复位置，否则下一次恢复仍会拿会话里旧的时间覆盖进度。
+    /// 开着智能回退时停在原位,等按下播放再按停了多久往回退。
     func applySyncedSpokenWordPosition(for song: Song) {
         guard currentSong?.id == song.id, currentItemIsSpokenWord,
               !isPlaying, !isLoading, pendingSpokenWordSeekOverride == nil else { return }
-        let target = spokenWordResumeTarget(for: song) ?? 0
+        let target = spokenWordResumeTarget(for: song, rewinding: spokenWordSmartRewindLimit == nil) ?? 0
         currentTime = target
         lastSpokenWordPositionSave = target
         pendingRecoveryTime = target
@@ -320,7 +328,11 @@ extension AudioPlayerService {
         lastSpokenWordPositionSave = currentTime
         stop()
         setQueue(target.songs, startAt: target.index, keepsContinuation: reusesQueue)
-        stagePausedHandoff(song: song, at: spokenWordResumeTarget(for: song) ?? 0)
+        // 停着换过去:智能回退等按下播放时再按停了多久算。
+        stagePausedHandoff(
+            song: song,
+            at: spokenWordResumeTarget(for: song, rewinding: spokenWordSmartRewindLimit == nil) ?? 0
+        )
         persistPlaybackSession()
     }
 
@@ -345,8 +357,18 @@ extension AudioPlayerService {
     }
 
     /// 开始播一条时从哪里起:续播位置,再按这本书的片头往后挪(从片头里、或从头开始的,改从片头结束处开始)。
-    func spokenWordResumeTarget(for song: Song) -> TimeInterval? {
-        let stored = SpokenWordStore.shared.resumePosition(for: song)
+    /// 续播位置按设置往回退:固定几秒,或开着智能回退时按上次听到这里过了多久。`rewinding` 为 false
+    /// 时不退 —— 暂停着落位,退多少等真正开播时再算。
+    func spokenWordResumeTarget(for song: Song, rewinding: Bool = true) -> TimeInterval? {
+        let rewind: SpokenWordStore.ResumeRewind
+        if !rewinding {
+            rewind = .unchanged
+        } else if let limit = spokenWordSmartRewindLimit {
+            rewind = .smart(limit: limit)
+        } else {
+            rewind = .fixed
+        }
+        let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: rewind)
         guard let skip = serverSpokenWordIntroOutro(for: song) else { return stored }
         return SpokenWordIntroOutroPolicy.startPosition(resume: stored, duration: song.duration, skip: skip)
     }
@@ -591,6 +613,51 @@ extension AudioPlayerService {
 
     var spokenWordSkipBackwardSymbol: String {
         SpokenWordSkipPolicy.symbolName(forward: false, interval: spokenWordSkipBackwardSeconds)
+    }
+
+    // MARK: - Smart rewind
+
+    /// 智能回退(#363)开着时的上限秒数;关着是 nil。
+    var spokenWordSmartRewindLimit: TimeInterval? {
+        guard playbackSettings.spokenWordSmartRewindEnabled else { return nil }
+        return TimeInterval(SpokenWordSmartRewindPolicy.clampedLimit(playbackSettings.spokenWordSmartRewindLimitSeconds))
+    }
+
+    /// `isPlaying` 变了:有声内容停下记下时刻,继续播放时按停了多久往回退;开播了就作废。
+    func noteSpokenWordPlayingChanged() {
+        if isPlaying {
+            spokenWordStoppedAt = nil
+            spokenWordRepositionedWhilePaused = false
+        } else if currentItemIsSpokenWord, let songID = currentSong?.id {
+            spokenWordStoppedAt = (songID, Date())
+        }
+    }
+
+    /// 停着的时候挪了位置(拖进度、跳章节、点书签或字幕):就从挑的地方开始。原地重建管线
+    /// (换输出、恢复)那几次落点不变,不算。
+    func noteSpokenWordSeekWhilePaused(to time: TimeInterval, isRecovery: Bool) {
+        guard !isRecovery, !isPlaying, currentItemIsSpokenWord,
+              time.isFinite, abs(time - currentTime) > 0.5 else { return }
+        spokenWordRepositionedWhilePaused = true
+    }
+
+    /// 继续播放有声内容时从哪里接着放:停得越久往回退得越多。nil 表示原地接着放 —— 没开智能回退、
+    /// 停了没几秒、停着时自己挪过位置,或要原地续播而这条流式解码还没下完、跳不了。
+    ///
+    /// 「停了多久」从本机停下的那一刻和这一条最后存位置的时间里取晚的:冷启动恢复出来的、别的设备
+    /// 刚听过同步过来的,都按最后一次听到这里算。
+    func spokenWordSmartRewindTarget(for song: Song, from position: TimeInterval, seeksInPlace: Bool) -> TimeInterval? {
+        guard currentItemIsSpokenWord, !isPlaying, !isAtTrackEnd, !spokenWordRepositionedWhilePaused,
+              let limit = spokenWordSmartRewindLimit, position.isFinite, position > 0 else { return nil }
+        if seeksInPlace, activeDecoderKind == .streaming, completedFullDownloadURL(for: song) == nil { return nil }
+        let stoppedAt = spokenWordStoppedAt.flatMap { $0.songID == song.id ? $0.at : nil }
+        let storedAt = SpokenWordStore.shared.position(forSongID: song.id)?.updatedAt
+        guard let lastHeard = [stoppedAt, storedAt].compactMap({ $0 }).max() else { return nil }
+        let away = Date().timeIntervalSince(lastHeard)
+        let target = SpokenWordSmartRewindPolicy.resumePosition(from: position, away: away, limit: limit)
+        guard position - target >= 1 else { return nil }
+        plog("🎧 Spoken word: smart rewind \(Int(position - target))s after \(Int(away))s away on '\(song.title)'")
+        return target
     }
 
     // MARK: - Playback rate
