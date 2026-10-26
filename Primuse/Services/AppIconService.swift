@@ -1,9 +1,6 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import SwiftUI
-#if os(iOS)
 import UIKit
-#endif
-import WidgetKit
 import PrimuseKit
 
 @MainActor
@@ -33,9 +30,7 @@ final class AppIconService {
         let supportsAppearance: Bool
     }
 
-    /// The newest design and the previous primary icon follow the current
-    /// primary icon, then the retained alternatives in their existing order.
-    private static let themeOrder = [21, 20, 19, 16, 14, 15, 12]
+    private static let themeOrder = [20, 19, 16, 15, 12]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.
@@ -66,24 +61,40 @@ final class AppIconService {
 
     /// Persisted user choice — the option's `id`. Survives launches.
     @ObservationIgnored
-    @AppStorage("primuse.appIconChoice") private var storedChoiceID: String = ""
+    private let defaults: UserDefaults
+    @ObservationIgnored private let supportsIcons: () -> Bool
+    @ObservationIgnored private let liveIconName: () -> String?
+    @ObservationIgnored private let changeIcon: (String?) async throws -> Void
+    static let storageKey = "primuse.appIconChoice"
 
     private(set) var currentIconID: String
+    private(set) var isChangingIcon = false
+    private(set) var lastError: String?
 
     var supportsAlternateIcons: Bool {
-        UIApplication.shared.supportsAlternateIcons
+        supportsIcons()
     }
 
-    private init() {
+    init(
+        defaults: UserDefaults = .standard,
+        supportsIcons: @escaping () -> Bool = { UIApplication.shared.supportsAlternateIcons },
+        liveIconName: @escaping () -> String? = { UIApplication.shared.alternateIconName },
+        changeIcon: @escaping (String?) async throws -> Void = {
+            try await UIApplication.shared.setAlternateIconName($0)
+        }
+    ) {
+        self.defaults = defaults
+        self.supportsIcons = supportsIcons
+        self.liveIconName = liveIconName
+        self.changeIcon = changeIcon
         self.currentIconID = ""
-        // Read after init so @AppStorage can resolve.
-        let persistedID = storedChoiceID
+        let persistedID = defaults.string(forKey: Self.storageKey) ?? ""
         if options.contains(where: { $0.id == persistedID }) {
             self.currentIconID = persistedID
         } else {
             // Normalize a stored selection that no longer exists in the
             // current icon catalog so UI and tint fall back together.
-            storedChoiceID = ""
+            defaults.removeObject(forKey: Self.storageKey)
         }
         // Make sure the widget extension sees the right brand color on first
         // launch — without this, fresh installs render the widget with
@@ -95,51 +106,54 @@ final class AppIconService {
     /// retired. Restore the primary icon once the app becomes active so the
     /// Home Screen and the in-app selection stay in sync after an upgrade.
     func restorePrimaryIconIfNeeded() async {
-        guard supportsAlternateIcons,
-              let live = UIApplication.shared.alternateIconName,
-              !options.contains(where: { $0.alternateName == live }) else {
-            return
-        }
-
-        do {
-            try await UIApplication.shared.setAlternateIconName(nil)
-            currentIconID = ""
-            storedChoiceID = ""
-            publishTintToWidget()
-        } catch {
-            // Retry on the next activation; UIKit can reject icon changes
-            // while the application is still transitioning to foreground.
+        guard supportsAlternateIcons, !isChangingIcon else { return }
+        let live = liveIconName()
+        if let option = options.first(where: { $0.alternateName == live }) {
+            persist(option.id)
+        } else {
+            await setIcon(options[0])
         }
     }
 
-    func setIcon(_ option: IconOption) async {
-        guard supportsAlternateIcons else { return }
-        let actual = UIApplication.shared.alternateIconName
-
-        storedChoiceID = option.id
-        currentIconID = option.id
-        publishTintToWidget()
-
-        guard option.alternateName != actual else { return }
+    @discardableResult
+    func setIcon(_ option: IconOption) async -> Bool {
+        guard supportsAlternateIcons, !isChangingIcon, options.contains(option) else { return false }
+        lastError = nil
+        guard option.alternateName != liveIconName() else {
+            persist(option.id)
+            return true
+        }
+        isChangingIcon = true
+        defer { isChangingIcon = false }
 
         do {
-            try await UIApplication.shared.setAlternateIconName(option.alternateName)
+            try await changeIcon(option.alternateName)
+            persist(option.id)
+            return true
         } catch {
             // Reconcile with whatever the system actually has, in case the
             // call partially applied.
-            let live = UIApplication.shared.alternateIconName
-            currentIconID = options.first { $0.alternateName == live }?.id ?? ""
-            storedChoiceID = currentIconID
-            publishTintToWidget()
+            let live = liveIconName()
+            persist(options.first { $0.alternateName == live }?.id ?? "")
+            lastError = error.localizedDescription
+            return false
         }
+    }
+
+    private func persist(_ id: String) {
+        currentIconID = id
+        defaults.set(id, forKey: Self.storageKey)
+        publishTintToWidget()
     }
 
     /// 图标选择和应用主题色相互独立。切换图标时仍刷新 widget，确保它立即
     /// 读取当前固定主题色，而不是把图标自身配色误写回主题。
     private func publishTintToWidget() {
+        #if os(iOS)
         ThemeColorSettings.publishBaseAccentToWidget(
             ThemeColorSettings.shared.baseAccent
         )
+        #endif
     }
 }
 

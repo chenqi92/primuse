@@ -2126,11 +2126,9 @@
 		17D2245D7FB10B4A872CE2B6 /* InfiniCloudAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8131C3277AF50B86E9C24EDD /* InfiniCloudAPIClient.swift */; };
 		8001700F4215BDDD3CC9A507 /* AppleMusicCatalogSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */; };
 		BCEDC7604E9B41A53228A773 /* DiagnosticUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */; };
-		03F3226FABF98C4719A159EC /* AppIcon21.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3146A2638475D9FF16AD0FFF /* AppIcon21.icon */; };
 		323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */ = {isa = PBXBuildFile; fileRef = AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */; };
 		35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0CB5E6F56603DB9C437C18AB /* AppIcon.icon */; };
 		3D2B105120AA7AE50379B7E1 /* LibraryBackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A276E6D88E50507E69DA5ED /* LibraryBackupService.swift */; };
-		871654C10D2D37C9C632CD4D /* AppIcon14.icon in Resources */ = {isa = PBXBuildFile; fileRef = B9890251F6597458ED9C8335 /* AppIcon14.icon */; };
 		9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */ = {isa = PBXBuildFile; fileRef = B4E678A7788F43EE2A64E071 /* AppIcon15.icon */; };
 		A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817E8CEB7A7D57D2B5841E83 /* CarriedSongMarks.swift */; };
 		A9C99479A53DBC9EB09D1692 /* LibraryBackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A276E6D88E50507E69DA5ED /* LibraryBackupService.swift */; };
@@ -2138,6 +2136,10 @@
 		BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */ = {isa = PBXBuildFile; fileRef = 689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */; };
 		D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */ = {isa = PBXBuildFile; fileRef = 328976B021ACE0B2395E2621 /* AppIcon19.icon */; };
 		FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */ = {isa = PBXBuildFile; fileRef = F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */; };
+		AB003F2996AB4F0189D38014 /* AppIconService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796306024AE3678DB56D02A /* AppIconService.swift */; };
+		2CA5681B48114712B1625C2E /* TVAppIconSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F49681B8A742988E611135 /* TVAppIconSettingsView.swift */; };
+		D6CEEE8D6A6D410AB507C6F8 /* AppIconServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */; };
+		820CA56EFE474091BE5D90F4 /* AppIconServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3940,7 +3942,6 @@
 		4ADD8D1677976A0DE18666FF /* AppleMusicCatalogSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSaveTests.swift; sourceTree = "<group>"; };
 		6646CA24C332F2C6E48B1C7C /* DiagnosticUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticUploadRegressionTests.swift; sourceTree = "<group>"; };
 		0CB5E6F56603DB9C437C18AB /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
-		3146A2638475D9FF16AD0FFF /* AppIcon21.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon21.icon; sourceTree = "<group>"; };
 		328976B021ACE0B2395E2621 /* AppIcon19.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon19.icon; sourceTree = "<group>"; };
 		54392BD1DC74A65B1B612D15 /* LibraryUserDataBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryUserDataBackup.swift; sourceTree = "<group>"; };
 		5A276E6D88E50507E69DA5ED /* LibraryBackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBackupService.swift; sourceTree = "<group>"; };
@@ -3948,8 +3949,9 @@
 		817E8CEB7A7D57D2B5841E83 /* CarriedSongMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarriedSongMarks.swift; sourceTree = "<group>"; };
 		AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon16.icon; sourceTree = "<group>"; };
 		B4E678A7788F43EE2A64E071 /* AppIcon15.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon15.icon; sourceTree = "<group>"; };
-		B9890251F6597458ED9C8335 /* AppIcon14.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon14.icon; sourceTree = "<group>"; };
 		F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon20.icon; sourceTree = "<group>"; };
+		77F49681B8A742988E611135 /* TVAppIconSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAppIconSettingsView.swift; sourceTree = "<group>"; };
+		A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5911,6 +5913,7 @@
 				AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */,
 				768DC109DF16CF8B7E056C1F /* ServerRatingSyncTests.swift */,
 				EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */,
+				A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */,
 				366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */,
 				42F091EBFBCAC0A3BC3CC1B0 /* SiriRadioIntentRoutingTests.swift */,
 				8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */,
@@ -5959,6 +5962,7 @@
 				175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */,
 				84FE88C010A4F459DC4AAEF0 /* TVSearchView.swift */,
 				FA44FA865D7C3D6FC4DFCC9E /* TVSettingsView.swift */,
+				77F49681B8A742988E611135 /* TVAppIconSettingsView.swift */,
 				D2D63B440AB3F84993308D9D /* TVSongMatchView.swift */,
 				D730FADBA5E272600C03083C /* TVSourceFormView.swift */,
 				45C509411F7A302882D944E2 /* TVSourcesView.swift */,
@@ -6145,12 +6149,10 @@
 			children = (
 				0CB5E6F56603DB9C437C18AB /* AppIcon.icon */,
 				689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */,
-				B9890251F6597458ED9C8335 /* AppIcon14.icon */,
 				B4E678A7788F43EE2A64E071 /* AppIcon15.icon */,
 				AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */,
 				328976B021ACE0B2395E2621 /* AppIcon19.icon */,
 				F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */,
-				3146A2638475D9FF16AD0FFF /* AppIcon21.icon */,
 			);
 			path = AppIcons;
 			sourceTree = "<group>";
@@ -6573,10 +6575,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				03F3226FABF98C4719A159EC /* AppIcon21.icon in Resources */,
 				323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */,
 				35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */,
-				871654C10D2D37C9C632CD4D /* AppIcon14.icon in Resources */,
 				9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */,
 				BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */,
 				D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */,
@@ -6693,6 +6693,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				820CA56EFE474091BE5D90F4 /* AppIconServiceTests.swift in Sources */,
 				B255AF67302047A49201BC14 /* ScrobbleRequestTests.swift in Sources */,
 				B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */,
 				B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */,
@@ -6724,6 +6725,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D6CEEE8D6A6D410AB507C6F8 /* AppIconServiceTests.swift in Sources */,
 				CDD26B6F53D9B0D79A4BBCA6 /* DirectoryScanCooldownTests.swift in Sources */,
 				C0A25935B3E1E30B310358B3 /* PlexSignInQuotaTests.swift in Sources */,
 				59F5082BC6EE44E3AD076002 /* CrossFeatureQuotaTests.swift in Sources */,
@@ -7965,6 +7967,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CA5681B48114712B1625C2E /* TVAppIconSettingsView.swift in Sources */,
+				AB003F2996AB4F0189D38014 /* AppIconService.swift in Sources */,
 				C7B091C75A77489229BF31ED /* ImmersiveKineticLyricsText.swift in Sources */,
 				02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */,
 				725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */,
@@ -9195,7 +9199,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIcon21";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -9656,7 +9660,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon14 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIcon21";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;

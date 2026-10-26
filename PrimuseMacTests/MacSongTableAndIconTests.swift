@@ -5,6 +5,17 @@ import XCTest
 
 @MainActor
 final class MacSongTableAndIconTests: XCTestCase {
+    func testRetiredIconsFallBackToPrimaryOnLaunch() throws {
+        let defaults = try fixtureDefaults()
+        for retired in ["AppIcon21", "AppIcon14"] {
+            defaults.set(retired, forKey: "pm.mac.appIcon")
+            let preferences = MacUIPreferences(defaults: defaults)
+            XCTAssertEqual(preferences.appIconID, "")
+            XCTAssertEqual(MacAppIcon.option(for: retired).id, "")
+            XCTAssertFalse(MacAppIcon.all.contains { $0.id == retired })
+        }
+    }
+
     func testExistingColumnPreferencesRecoverUnknownAndDuplicateValues() throws {
         let defaults = try fixtureDefaults()
         defaults.set(["artist", "removed-column"], forKey: "library.macSongTable.visibleColumns.v1")

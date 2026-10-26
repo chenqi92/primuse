@@ -30,22 +30,36 @@ final class MissingArtworkRenderingTests: XCTestCase {
         }
     }
 
-    #if !os(tvOS)
     func testOptionalCoverFollowsTheSelectedAppIcon() throws {
         try withDefaults { defaults in
             defaults.set("appIcon", forKey: MissingArtworkStyle.storageKey)
             let current = try render(missingCover, defaults: defaults)
             #if os(macOS)
-            defaults.set("AppIcon21", forKey: "pm.mac.appIcon")
+            defaults.set("AppIcon19", forKey: "pm.mac.appIcon")
             #else
-            defaults.set("AppIcon21", forKey: "primuse.appIconChoice")
+            defaults.set("AppIcon19", forKey: "primuse.appIconChoice")
             #endif
-            let classic = try render(missingCover, defaults: defaults)
-            XCTAssertNotEqual(current, classic)
-            XCTAssertGreaterThan(pinkPixels(classic), 1_000)
+            let alternative = try render(missingCover, defaults: defaults)
+            XCTAssertNotEqual(current, alternative)
         }
     }
 
+    func testRetiredIconSelectionsRenderThePrimaryArtwork() throws {
+        try withDefaults { defaults in
+            defaults.set("appIcon", forKey: MissingArtworkStyle.storageKey)
+            let primary = try render(missingCover, defaults: defaults)
+            for retired in ["AppIcon21", "AppIcon14"] {
+                #if os(macOS)
+                defaults.set(retired, forKey: "pm.mac.appIcon")
+                #else
+                defaults.set(retired, forKey: "primuse.appIconChoice")
+                #endif
+                XCTAssertEqual(primary, try render(missingCover, defaults: defaults))
+            }
+        }
+    }
+
+    #if !os(tvOS)
     func testExistingArtworkIsUnchangedByThePreference() throws {
         let cover = ImageRenderer(content: Color.blue.frame(width: 128, height: 128))
         let cg = try XCTUnwrap(cover.cgImage)

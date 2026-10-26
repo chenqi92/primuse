@@ -97,6 +97,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func sceneDidBecomeActive() {
+        Task { await AppIconService.shared.restorePrimaryIconIfNeeded() }
         playMediaHandler.refreshRadioVocabulary()
         store.applicationDidBecomeActive()
         PodcastStore.shared.refreshAllIfDue()

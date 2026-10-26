@@ -25,6 +25,7 @@ SIDE = 1024
 # The Mac sidebar draws the mark at 24 pt, the TV top bar at 50 pt (@2x on 4K).
 MAC_MARK_SIDE = 128
 TV_MARK_SIDE = 192
+SOFT_NOTE_GREEN = (7, 193, 96)
 
 _ys, _xs = np.mgrid[0:SIDE, 0:SIDE] / SIDE - 0.5
 _BASIS = np.stack(
@@ -119,13 +120,6 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
               for filename in ("00-primuse.png", "00-primuse-dark.png")]
     marks["AppIcon"] = tuple((layer[..., :3], layer[..., 3] / 255) for layer in layers)
 
-    # Classic Primuse: the Tinted plate's ground is a flat 28 grey with the note cut out, so
-    # a tight ramp keeps the whole shaded ribbon opaque. The Light plate fades the
-    # note head into the hole through near-white highlights, so both appearances
-    # take the Dark plate's saturated magenta.
-    alpha = luma_alpha(load("21-primuse-classic-tinted"), 1, 4, 14)
-    marks["AppIcon21"] = ((glyph_colour(load("21-primuse-classic-dark"), alpha), alpha), None)
-
     # Pikaqiu: the Tinted plate's star is drawn offset, so each plate keys itself.
     light_alpha = chroma_alpha(load("12-pikaqiu"), -1, 25, 70)
     dark_alpha = chroma_alpha(load("12-pikaqiu-dark"), 1, 25, 70)
@@ -134,11 +128,10 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
         (glyph_colour(load("12-pikaqiu-dark"), dark_alpha), dark_alpha),
     )
 
-    # Letter P, splash and Chris's Muse are white glyphs on a colour in Light, which
+    # NonoEnd and Chris's Muse are white glyphs on a colour in Light, which
     # would vanish on a light sidebar; their Dark plates carry the colour-tinted
     # glyph, and NonoEnd's Dark clef has no rim light or cast shadow.
     for name, stem in (
-        ("AppIcon14", "14-letter-p"),
         ("AppIcon16", "16-nonoend"),
         ("AppIcon19", "19-chris-muse"),
     ):
@@ -151,16 +144,24 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
         (glyph_colour(load("15-folded-note-dark"), alpha), alpha),
     )
 
-    # Soft note: the Tinted plate keeps the cast shadow on the glyph's side of the
-    # ground, so key the white note off the Dark plate above its teal glow. Light
-    # recolours it with the icon's aqua so it stays visible on a light sidebar.
-    dark = load("20-soft-note-dark")
-    alpha = luma_alpha(dark, 1, 100, 170)
+    alpha = soft_note_alpha()
     marks["AppIcon20"] = (
-        (tinted_colour(dark, alpha, (22, 150, 150), (64, 213, 200)), alpha),
-        (glyph_colour(dark, alpha), alpha),
+        (np.full((SIDE, SIDE, 3), SOFT_NOTE_GREEN, dtype=float), alpha),
+        (np.full((SIDE, SIDE, 3), 255, dtype=float), alpha),
     )
     return marks
+
+
+def soft_note_alpha() -> np.ndarray:
+    # Retain the original contour while removing the old plate's teal glow.
+    return clear_edges(luma_alpha(load("20-soft-note-dark"), 1, 100, 170))
+
+
+def soft_note_artwork(*, tinted: bool = False) -> Image.Image:
+    alpha = soft_note_alpha()[..., None]
+    background = np.array((0, 0, 0) if tinted else SOFT_NOTE_GREEN)
+    pixels = background * (1 - alpha) + 255 * alpha
+    return Image.fromarray(pixels.round().astype(np.uint8))
 
 
 def crop_box(alphas: list[np.ndarray]) -> tuple[int, int, int, int]:
@@ -212,9 +213,7 @@ def main() -> None:
         dark = (dark[0], clear_edges(dark[1])) if dark else None
         box = crop_box([light[1]] + ([dark[1]] if dark else []))
         targets = [(IOS_ASSETS, MAC_MARK_SIDE)]
-        if name == "AppIcon":
-            # tvOS has no alternate icons; its top bar always shows the primary mark.
-            targets.append((TV_ASSETS, TV_MARK_SIDE))
+        targets.append((TV_ASSETS, TV_MARK_SIDE))
         for folder, side in targets:
             dark_image = render(dark, box, side) if dark else None
             save_imageset(folder, f"{name}Mark", render(light, box, side), dark_image)

@@ -718,6 +718,7 @@ enum TVArtworkPlaceholderKind: Equatable {
 
 struct TVMusicPlaceholder: View {
     @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
+    @AppStorage(AppIconService.storageKey) private var iconID = ""
     private let width: CGFloat
     private let height: CGFloat
     private let radius: CGFloat
@@ -734,7 +735,7 @@ struct TVMusicPlaceholder: View {
     var body: some View {
         Group {
             if (kind == .music || kind == .playlist) && MissingArtworkStyle(storedValue: missingArtworkStyle) == .appIcon {
-                Image("DefaultArtwork")
+                Image(AppIconService.shared.options.first { $0.id == iconID }?.previewAsset ?? "AppIconPreview")
                     .resizable()
                     .scaledToFill()
                     .frame(width: width, height: height)

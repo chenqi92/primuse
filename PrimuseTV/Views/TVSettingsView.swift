@@ -103,6 +103,7 @@ struct TVSettingsView: View {
     private var ratingsAndCommentsEnabled = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
+    @State private var showsAppIconPicker = false
     @State private var showsAISettings = false
     @State private var showsDiagnostics = tvDebugShowsDiagnostics
     /// 诊断模式开着时「诊断报告」那一行写「已启用」,提醒还在多记日志。
@@ -182,6 +183,13 @@ struct TVSettingsView: View {
                         }
                         settingsSection(String(localized: "appearance")) {
                             appearanceRow()
+                            settingDivider
+                            navRow("app", String(localized: "app_icon"),
+                                   AppIconService.shared.options.first {
+                                       $0.id == AppIconService.shared.currentIconID
+                                   }?.displayName ?? String(localized: "icon_default")) {
+                                showsAppIconPicker = true
+                            }
                             settingDivider
                             navRow(
                                 "paintpalette.fill",
@@ -434,6 +442,7 @@ struct TVSettingsView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
+        .fullScreenCover(isPresented: $showsAppIconPicker) { TVAppIconSettingsView() }
         .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
         .fullScreenCover(isPresented: $showsHomeSectionsSettings) {
             TVHomeSectionsSettingsView().environment(intelligence)
@@ -470,7 +479,9 @@ struct TVSettingsView: View {
             }
         }
         .onExitCommand {
-            if showsTabBarSettings {
+            if showsAppIconPicker {
+                showsAppIconPicker = false
+            } else if showsTabBarSettings {
                 showsTabBarSettings = false
             } else if showsHomeSectionsSettings {
                 showsHomeSectionsSettings = false

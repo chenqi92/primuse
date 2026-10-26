@@ -1036,6 +1036,7 @@ extension TVTabBarItem {
 }
 
 struct TVTabBar: View {
+    @AppStorage(AppIconService.storageKey) private var iconID = ""
     let active: TVRoot.Tab
     /// 当前该出现的页(电台 / 有声按有无内容增减),顺序即显示顺序。
     var tabs: [TVRoot.Tab] = [.home, .library, .nowPlaying, .playlists, .sources, .search]
@@ -1059,10 +1060,8 @@ struct TVTabBar: View {
 
     var body: some View {
         HStack(spacing: 40) {
-            // 应用内标识用 App 图标去掉底板的图形本身（AppIconMark，从主屏幕图标原稿抠出），
-            // 跟应用名并排像 Logo；电视没有备选图标，所以固定用它。
             HStack(spacing: 14) {
-                Image("AppIconMark")
+                Image((AppIconService.shared.options.first { $0.id == iconID }?.alternateName ?? "AppIcon") + "Mark")
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)

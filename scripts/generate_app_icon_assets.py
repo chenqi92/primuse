@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the retained iOS, macOS, and watchOS app-icon assets."""
+"""Generate the retained app-icon assets for all Apple platforms."""
 
 from __future__ import annotations
 
@@ -26,14 +26,6 @@ EXACT_ICONS = [
         "00-primuse-tinted.png",
     ),
     (
-        "21-primuse-classic",
-        "AppIcon21",
-        "AppIcon21Preview",
-        "21-primuse-classic.png",
-        "21-primuse-classic-dark.png",
-        "21-primuse-classic-tinted.png",
-    ),
-    (
         "20-soft-note",
         "AppIcon20",
         "AppIcon20Preview",
@@ -58,14 +50,6 @@ EXACT_ICONS = [
         "16-nonoend-tinted.png",
     ),
     (
-        "14-letter-p",
-        "AppIcon14",
-        "AppIcon14Preview",
-        "14-letter-p.png",
-        "14-letter-p-dark.png",
-        "14-letter-p-tinted.png",
-    ),
-    (
         "15-folded-note",
         "AppIcon15",
         "AppIcon15Preview",
@@ -83,7 +67,7 @@ EXACT_ICONS = [
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon21", "AppIcon20", "AppIcon19", "AppIcon16", "AppIcon14", "AppIcon15", "AppIcon12"]
+CATALOG_ORDER = ["AppIcon", "AppIcon20", "AppIcon19", "AppIcon16", "AppIcon15", "AppIcon12"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
@@ -97,6 +81,10 @@ def save_direct_ios_assets(
     icon_name: str,
     preview_name: str,
 ) -> tuple[Image.Image, Image.Image]:
+    if icon_name == "AppIcon20":
+        from generate_brand_marks import soft_note_artwork
+        any_icon = dark_icon = soft_note_artwork()
+        tinted_icon = soft_note_artwork(tinted=True)
     any_icon = any_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
     dark_icon = dark_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
     tinted_icon = tinted_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
@@ -211,6 +199,8 @@ def main() -> None:
     save_appearance_sheet(light_icons, dark_icons)
     from generate_ios_layered_icons import main as save_ios_layered_icons
     save_ios_layered_icons()
+    from generate_tvos_app_icons import main as save_tvos_app_icons
+    save_tvos_app_icons()
 
 
 if __name__ == "__main__":
