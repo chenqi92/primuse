@@ -198,6 +198,8 @@
 		15D68850E066D89C71F3C9A4 /* PlayHistoryArchiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */; };
 		15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */; };
 		6C5DE0B469D585D3243284F5 /* NowPlayingPitchMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D573954A1D1D5056E2DDD7A0 /* NowPlayingPitchMenu.swift */; };
+		DFAA8F543063D266CF587AAC /* PlayerStatusBarAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA9F66621675FCE13F338715 /* PlayerStatusBarAppearance.swift */; };
+		E0542DC4DC9A2AE1CE7B3F2E /* PlayerStatusBarAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA9F66621675FCE13F338715 /* PlayerStatusBarAppearance.swift */; };
 		F398050B8B099D3BC51E4FB7 /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		FA472D3DE65CE9E78C7CB7C4 /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */; };
 		FE9ED2C4369C469D9F9921F5 /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0CBFEB2BF4776D91C78B63 /* SleepTimerSheet.swift */; };
@@ -2401,6 +2403,7 @@
 		BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticRhythmChart.swift; sourceTree = "<group>"; };
 		CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackOptionsWatchView.swift; sourceTree = "<group>"; };
 		E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsText.swift; sourceTree = "<group>"; };
+		EA9F66621675FCE13F338715 /* PlayerStatusBarAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerStatusBarAppearance.swift; sourceTree = "<group>"; };
 		EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkRenderingTests.swift; sourceTree = "<group>"; };
 		00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
@@ -5635,6 +5638,7 @@
 				281204C93E975E56E2AA02F1 /* MedleyDataUsageConfirmation.swift */,
 				C7F149AF186A1E8E9004E602 /* PlaybackToggleHighlight.swift */,
 				402994D356C228EBBDC6DF9C /* PlayerOrientationControl.swift */,
+				EA9F66621675FCE13F338715 /* PlayerStatusBarAppearance.swift */,
 				56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */,
 				82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */,
 				8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */,
@@ -7363,6 +7367,7 @@
 				FA472D3DE65CE9E78C7CB7C4 /* PalveniDiagnosticsClient.swift in Sources */,
 				FE37913639A21760F2774DBF /* PeerScanSeedStore.swift in Sources */,
 				A5CD346AA71AFF9D740A853C /* PlayerOrientationControl.swift in Sources */,
+				DFAA8F543063D266CF587AAC /* PlayerStatusBarAppearance.swift in Sources */,
 				44C0BD97375CA21564CD65AE /* PlayerTextFont.swift in Sources */,
 				1D3BC00D57849A1D6C476E8F /* PlayerVisualizerBackdrop.swift in Sources */,
 				1E7DE5EEA307E87FCB40455C /* SongTagEditStore.swift in Sources */,
@@ -8152,6 +8157,7 @@
 				28737F944638146B0887DFC4 /* PalveniDiagnosticsClient.swift in Sources */,
 				42FDC2B8A2D885F39996CFEA /* PeerScanSeedStore.swift in Sources */,
 				BB6FCF6F84B60067A14A679F /* PlayerOrientationControl.swift in Sources */,
+				E0542DC4DC9A2AE1CE7B3F2E /* PlayerStatusBarAppearance.swift in Sources */,
 				737EA6A79976A72525497357 /* PlayerTextFont.swift in Sources */,
 				87302559AC9D6C078915C94B /* PlayerVisualizerBackdrop.swift in Sources */,
 				8FE31629C0EA5FE2B179D453 /* SongTagEditStore.swift in Sources */,

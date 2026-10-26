@@ -2300,13 +2300,12 @@ struct PlayerOverlay: View {
             )
                 .equatable()
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
-                // 状态栏跟的是整个窗口的深浅,浅色系统里黑字会压在深色播放页上,这时在播放页里收起它。
+                // 状态栏的字色另外换(见下面的 `PlayerLightStatusBar`)。
                 .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
                 // 全屏文稿等页面「跟随系统」时看这个:播放页上面那行可能已把 colorScheme 换成深色。
                 .environment(\.appColorScheme, systemColorScheme)
                 // 播放页里弹出的页面据此整页换成深色(`playerPresentationColorScheme`),不然白字压在浅色底上。
                 .environment(\.playerForcesDarkAppearance, playerAlwaysDark)
-                .statusBarHidden(playerAlwaysDark && systemColorScheme == .light && presentationPhase != .dormant)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.
@@ -2331,6 +2330,14 @@ struct PlayerOverlay: View {
                 }
         }
         .ignoresSafeArea()
+        // 状态栏跟的是整个窗口的深浅:浅色系统里给黑字,压在始终深色的播放页上看不见。
+        // 展开着的时候换成白字,开始收起就交还给底下的 App。
+        .background {
+            PlayerLightStatusBar(
+                isActive: playerAlwaysDark && systemColorScheme == .light && presentationPhase == .visible
+            )
+            .frame(width: 0, height: 0)
+        }
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
         // 休眠时整层透明、读屏跳过;收着的那一刻卡片已经缩进胶囊、内容早已淡掉,看不出切换。
         .opacity(presentationPhase == .dormant ? 0 : 1)
