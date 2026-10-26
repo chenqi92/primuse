@@ -3134,6 +3134,12 @@
 "scrobble_lb_get_token" = "Obtener token en ListenBrainz";
 "scrobble_lb_token_placeholder" = "Token de usuario ListenBrainz";
 "scrobble_mac_browser_oauth" = "Inicio de sesión en el navegador OAuth";
+"tv_scrobble_transfer_hint" = "También puedes usar la transferencia por código QR en tu iPhone o Mac para enviar tus cuentas de Last.fm y ListenBrainz a este Apple TV y luego activar el scrobbling aquí.";
+"tv_scrobble_lastfm_scan_hint" = "Escanea este código QR con tu teléfono, inicia sesión en Last.fm y toca Permitir. El Apple TV termina de conectarse solo.";
+"tv_scrobble_lastfm_waiting" = "Esperando a que toques Permitir en tu teléfono…";
+"tv_scrobble_lastfm_expired" = "El código QR caducó. Vuelve a conectar.";
+"tv_scrobble_listenbrainz_hint" = "Escanea el código QR de la derecha para abrir la configuración de ListenBrainz, copia tu token de usuario e ingrésalo aquí con el control remoto o el teclado del iPhone.";
+"tv_scrobble_summary_no_service" = "Ningún servicio elegido";
 "scrobble_mac_confirming" = "Confirmando";
 "scrobble_mac_connecting" = "Conectando";
 "scrobble_mac_create_api_app" = "Crear aplicación API";

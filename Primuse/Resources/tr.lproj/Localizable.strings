@@ -2873,6 +2873,12 @@
 "Resume" = "Sürdür";
 "tag_editor_lyrics_edit" = "Şarkı sözlerini düzenle";
 "scrobble_mac_browser_oauth" = "Tarayıcı OAuth oturum açma";
+"tv_scrobble_transfer_hint" = "Last.fm ve ListenBrainz hesaplarınızı iPhone ya da Mac’te QR ile aktarım kullanarak bu Apple TV’ye de gönderebilir, ardından scrobble’ı buradan açabilirsiniz.";
+"tv_scrobble_lastfm_scan_hint" = "Bu QR kodunu telefonunuzla tarayın, Last.fm’e giriş yapıp İzin Ver’e dokunun. Apple TV bağlantıyı kendisi tamamlar.";
+"tv_scrobble_lastfm_waiting" = "Telefonda İzin Ver’e dokunmanız bekleniyor…";
+"tv_scrobble_lastfm_expired" = "QR kodunun süresi doldu. Yeniden bağlanın.";
+"tv_scrobble_listenbrainz_hint" = "ListenBrainz ayarlarını açmak için sağdaki QR kodunu tarayın, kullanıcı belirtecinizi kopyalayın ve uzaktan kumanda ya da iPhone klavyesiyle buraya girin.";
+"tv_scrobble_summary_no_service" = "Hizmet seçilmedi";
 "lyrics_word_level_badge" = "Sözcük";
 "lyrics_source_badge_file_format" = "%@ dosyası";
 "lyrics_source_badge_file" = "Söz dosyası";

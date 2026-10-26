@@ -1266,6 +1266,12 @@
 "scrobble_mac_session_saved" = "Session gesichert";
 "scrobble_mac_waiting_authorization" = "Warten auf Autorisierung";
 "scrobble_mac_browser_oauth" = "Anmeldung per Browser-OAuth";
+"tv_scrobble_transfer_hint" = "Du kannst deine Last.fm- und ListenBrainz-Konten auch per QR-Übertragung von iPhone oder Mac an dieses Apple TV senden und das Scrobbeln dann hier einschalten.";
+"tv_scrobble_lastfm_scan_hint" = "Scanne diesen QR-Code mit dem Telefon, melde dich bei Last.fm an und tippe auf „Zulassen“. Apple TV schließt die Verbindung selbst ab.";
+"tv_scrobble_lastfm_waiting" = "Warte darauf, dass du auf dem Telefon „Zulassen“ tippst …";
+"tv_scrobble_lastfm_expired" = "Der QR-Code ist abgelaufen. Bitte erneut verbinden.";
+"tv_scrobble_listenbrainz_hint" = "Scanne den QR-Code rechts, um die ListenBrainz-Einstellungen zu öffnen, kopiere dein Benutzertoken und gib es hier mit der Fernbedienung oder der iPhone-Tastatur ein.";
+"tv_scrobble_summary_no_service" = "Kein Dienst ausgewählt";
 "ok" = "OK";
 "lyrics_translation_title" = "Liedtextübersetzung";
 "lyrics_translation_enabled" = "Übersetzung aktivieren";

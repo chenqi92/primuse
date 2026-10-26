@@ -1021,6 +1021,12 @@
 "scrobble_mac_session_saved" = "Session 已儲存";
 "scrobble_mac_waiting_authorization" = "等待授權確認";
 "scrobble_mac_browser_oauth" = "瀏覽器 OAuth 登入";
+"tv_scrobble_transfer_hint" = "也可以在 iPhone 或 Mac 上用「掃碼直傳」，把 Last.fm 和 ListenBrainz 帳號一起傳到這台 Apple TV；傳過來以後在這裡打開就行。";
+"tv_scrobble_lastfm_scan_hint" = "用手機掃這個 QR 碼，在 Last.fm 頁面上登入並點「允許」，電視會自己完成連線。";
+"tv_scrobble_lastfm_waiting" = "等你在手機上點「允許」…";
+"tv_scrobble_lastfm_expired" = "QR 碼已經過期，請重新連線。";
+"tv_scrobble_listenbrainz_hint" = "掃右邊的 QR 碼打開 ListenBrainz 設定頁，複製使用者權杖，再用遙控器或 iPhone 鍵盤填到這裡。";
+"tv_scrobble_summary_no_service" = "還沒選服務";
 "ok" = "好";
 "lyrics_translation_title" = "歌詞翻譯";
 "lyrics_translation_enabled" = "啟用歌詞翻譯";

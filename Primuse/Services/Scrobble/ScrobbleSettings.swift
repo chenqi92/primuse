@@ -96,6 +96,14 @@ enum LastFmCredentialsStore {
     private static let sessionKeyAccount = ScrobbleProviderID.lastFm.keychainAccount
     private static let pendingAuthTokenKey = "primuse.scrobble.lastFm.pendingAuthToken"
 
+    /// 扫码直传带给 Apple TV 的账号(`LANSettingsTransferPolicy.scrobbleSecretAccounts` 写的是同一组字面值)。
+    static let transferableAccounts: Set<String> = [
+        ScrobbleProviderID.listenBrainz.keychainAccount,
+        sessionKeyAccount,
+        apiKeyAccount,
+        apiSecretAccount,
+    ]
+
     @discardableResult
     static func saveAPIKey(_ key: String) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)

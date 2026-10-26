@@ -2873,6 +2873,12 @@
 "Resume" = "Продолжить";
 "tag_editor_lyrics_edit" = "Редактировать текст песни";
 "scrobble_mac_browser_oauth" = "Вход в браузер OAuth";
+"tv_scrobble_transfer_hint" = "Можно также передать аккаунты Last.fm и ListenBrainz на эту Apple TV через передачу по QR-коду с iPhone или Mac, а потом включить скробблинг здесь.";
+"tv_scrobble_lastfm_scan_hint" = "Отсканируйте этот QR-код телефоном, войдите в Last.fm и нажмите «Разрешить». Apple TV завершит подключение сама.";
+"tv_scrobble_lastfm_waiting" = "Ждём, пока вы нажмёте «Разрешить» на телефоне…";
+"tv_scrobble_lastfm_expired" = "Срок действия QR-кода истёк. Подключитесь заново.";
+"tv_scrobble_listenbrainz_hint" = "Отсканируйте QR-код справа, чтобы открыть настройки ListenBrainz, скопируйте токен пользователя и введите его здесь с пульта или клавиатуры iPhone.";
+"tv_scrobble_summary_no_service" = "Сервис не выбран";
 "lyrics_word_level_badge" = "По словам";
 "lyrics_source_badge_file_format" = "Файл %@";
 "lyrics_source_badge_file" = "Файл текста";

@@ -3134,6 +3134,12 @@
 "scrobble_lb_get_token" = "รับโทเค็นที่ ListenBrainz";
 "scrobble_lb_token_placeholder" = "ListenBrainz โทเค็นผู้ใช้";
 "scrobble_mac_browser_oauth" = "เบราว์เซอร์ OAuth ลงชื่อเข้าใช้";
+"tv_scrobble_transfer_hint" = "คุณยังส่งบัญชี Last.fm และ ListenBrainz มายัง Apple TV เครื่องนี้ได้ด้วยการโอนผ่าน QR บน iPhone หรือ Mac แล้วเปิดการบันทึกที่นี่";
+"tv_scrobble_lastfm_scan_hint" = "สแกน QR นี้ด้วยโทรศัพท์ ลงชื่อเข้าใช้ Last.fm แล้วแตะ อนุญาต Apple TV จะเชื่อมต่อให้เสร็จเอง";
+"tv_scrobble_lastfm_waiting" = "กำลังรอให้คุณแตะ อนุญาต บนโทรศัพท์…";
+"tv_scrobble_lastfm_expired" = "QR หมดอายุแล้ว โปรดเชื่อมต่ออีกครั้ง";
+"tv_scrobble_listenbrainz_hint" = "สแกน QR ด้านขวาเพื่อเปิดการตั้งค่า ListenBrainz คัดลอกโทเค็นผู้ใช้ แล้วป้อนที่นี่ด้วยรีโมตหรือแป้นพิมพ์ iPhone";
+"tv_scrobble_summary_no_service" = "ยังไม่ได้เลือกบริการ";
 "scrobble_mac_confirming" = "ยืนยัน";
 "scrobble_mac_connecting" = "กำลังเชื่อมต่อ";
 "scrobble_mac_create_api_app" = "สร้างแอป API";

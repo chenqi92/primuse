@@ -8,7 +8,7 @@ import Foundation
 ///   属性列表字节。电视只认 `LANSettingsTransferPolicy` 放行的键。
 /// - `scraperConfigs`:自定义刮削源配置,各是一份 ScraperConfig JSON(与 CloudKit 记录同一份
 ///   字节,不含 secrets),`secrets` 是它本机旁路文件里的内容。
-/// - `secrets`:钥匙串里的秘密(刮削 Cookie、歌词服务器凭据、AI 服务商密钥),键是钥匙串账户名。
+/// - `secrets`:钥匙串里的秘密(刮削 Cookie、歌词服务器凭据、AI 服务商密钥、听歌记录账号),键是钥匙串账户名。
 /// - `backdropImages`:播放页背景「我的图片」,已缩成电视画面尺寸的 JPEG。只跟着播放背景设置
 ///   一起装:电视上的「我的图片」整份换成这一份。
 ///
@@ -112,6 +112,8 @@ public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
     case artistNames
     case playerEffect
     case playerBackdrop
+    /// Last.fm / ListenBrainz 的账号。只带账号,开不开上报留给电视自己决定。
+    case scrobble
 
     private var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 
@@ -134,6 +136,17 @@ public enum LANSettingsTransferPolicy {
     public static let playerBackdropKey = PlayerBackdropSettings.storageKey
     /// 百度翻译的 APP ID 与密钥(#320),在 App 里由 `BaiduTranslateCredentialStore` 存取。
     public static let baiduTranslateSecretAccount = "primuse.lyrics.translation.baidu"
+    /// 听歌记录的账号(ListenBrainz 令牌、Last.fm 会话,以及自己注册的 Last.fm 应用密钥),
+    /// 在 App 里由 `LastFmCredentialsStore` 与 `ScrobbleProviderID.keychainAccount` 存取。
+    /// 电视登录的 Apple ID 常常不同,iCloud 钥匙串到不了;遥控器上输令牌又费劲,所以随扫码直传带过去。
+    /// 开关(`primuse.scrobble.settings.v1`)不带:电视常是一家人共用,要不要把在电视上听的歌记进
+    /// 这个账号,得在电视上自己打开。
+    public static let scrobbleSecretAccounts: Set<String> = [
+        "scrobble.listenBrainz",
+        "scrobble.lastFm",
+        "scrobble.lastFm.apiKey",
+        "scrobble.lastFm.apiSecret",
+    ]
 
     /// 单个设置值、单份刮削配置、单条秘密的上限;配置总量另有上限。请求体整体仍受
     /// `LANTransferSizePolicy.maximumSealedBytes` 约束,这些上限让设置永远挤不掉音乐源。
@@ -168,7 +181,8 @@ public enum LANSettingsTransferPolicy {
     }
 
     /// 秘密只认这几类钥匙串账户:自定义刮削源的 Cookie、歌词 API 服务的 Authorization、
-    /// AI 服务商密钥、百度翻译的 APP ID 与密钥。源凭据走 `CredentialBundle`,本机专用的中继凭据等一概不在其列。
+    /// AI 服务商密钥、百度翻译的 APP ID 与密钥、听歌记录账号。源凭据走 `CredentialBundle`,
+    /// 本机专用的中继凭据等一概不在其列。
     public static func category(forSecretAccount account: String) -> LANSettingsCategory? {
         guard !account.isEmpty, account.utf8.count <= maximumSecretAccountLength else { return nil }
         if account.hasPrefix("scraper.cookie.config."), account.count > "scraper.cookie.config.".count {
@@ -184,6 +198,9 @@ public enum LANSettingsTransferPolicy {
         }
         if account == baiduTranslateSecretAccount {
             return .intelligence
+        }
+        if scrobbleSecretAccounts.contains(account) {
+            return .scrobble
         }
         return nil
     }

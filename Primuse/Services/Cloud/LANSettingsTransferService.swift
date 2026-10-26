@@ -55,6 +55,12 @@ enum LANSettingsExporter {
         if let baidu = KeychainService.getPassword(for: BaiduTranslateCredentialStore.account) {
             secrets[BaiduTranslateCredentialStore.account] = baidu
         }
+        // 听歌记录的账号:电视上打开上报就能用,不用在遥控器上输令牌、重新登录 Last.fm。
+        for account in LANSettingsTransferPolicy.scrobbleSecretAccounts.sorted() {
+            if let secret = KeychainService.getPassword(for: account), !secret.isEmpty {
+                secrets[account] = secret
+            }
+        }
 
         if bundle.values[LANSettingsTransferPolicy.playerBackdropKey] != nil {
             bundle.backdropImages = await backdropImages(defaults: defaults)
@@ -146,6 +152,7 @@ enum LANSettingsExporter {
         assert(LANSettingsTransferPolicy.lyricsTranscriptionKey == LyricsTranscriptionSettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.playerEffectKey == FullscreenPlayerEffect.storageKey)
         assert(LANSettingsTransferPolicy.baiduTranslateSecretAccount == BaiduTranslateCredentialStore.account)
+        assert(LANSettingsTransferPolicy.scrobbleSecretAccounts == LastFmCredentialsStore.transferableAccounts)
     }
     #endif
 }
@@ -211,6 +218,12 @@ enum LANSettingsInstaller {
             }
             CloudKVSSync.shared.applyTransferred(key: key, value: value)
             installed.insert(category)
+        }
+
+        // 听歌记录的账号换了:被拒过的旧凭据记录作废,攒着的记录用新账号补报。
+        if installed.contains(.scrobble) {
+            NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
+            ScrobbleService.shared.retryPendingNow()
         }
 
         plog("📺 LAN settings installed values=\(bundle.values.count) configs=\(bundle.scraperConfigs.count) secrets=\(bundle.secrets.count) backdropImages=\(bundle.backdropImages.count) failures=\(failures) dropped=\(dropped)")

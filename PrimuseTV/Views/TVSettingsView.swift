@@ -37,6 +37,15 @@ private var tvDebugShowsDiagnostics: Bool {
     #endif
 }
 
+/// 截图:TV_SCREEN=scrobble 直接打开「听歌记录」。
+private var tvDebugShowsScrobbleSettings: Bool {
+    #if DEBUG
+    TVDebugLaunch.screen == "scrobble"
+    #else
+    false
+    #endif
+}
+
 /// 截图 / 取证:TV_SCREEN=settings 配 TV_SCRAPE_DEBUG=settings 直接打开刮削设置。
 private var tvDebugShowsScraperSettings: Bool {
     #if DEBUG
@@ -97,6 +106,7 @@ struct TVSettingsView: View {
     @State private var siriAuthorization = TVSiriAuthorizationRuntime.status
     @State private var showsMetadata = false
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
+    @State private var showsScrobbleSettings = tvDebugShowsScrobbleSettings
     @State private var showsMedleySettings = false
     @State private var showsTabBarSettings = false
     @State private var showsHomeSectionsSettings = false
@@ -301,6 +311,12 @@ struct TVSettingsView: View {
                                 showsScraperSettings = true
                             }
                             settingDivider
+                            // Last.fm / ListenBrainz,和 iPhone、Mac 同一套上报服务。
+                            navRow("waveform.path.ecg", String(localized: "scrobble_title"), TVScrobbleSettingsView.summary) {
+                                showsScrobbleSettings = true
+                            }
+                            .accessibilityIdentifier("tv.settings.scrobble")
+                            settingDivider
                             navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                             settingDivider
                             infoRow(
@@ -415,6 +431,7 @@ struct TVSettingsView: View {
         .fullScreenCover(isPresented: $showsScraperSettings) {
             TVScraperSettingsView().environment(store)
         }
+        .fullScreenCover(isPresented: $showsScrobbleSettings) { TVScrobbleSettingsView() }
         .preferredColorScheme(appearance.colorScheme)
         .confirmationDialog(PMString("default_artwork_title"), isPresented: $showsDefaultArtworkPicker, titleVisibility: .visible) {
             ForEach(MissingArtworkStyle.allCases, id: \.self) { style in
@@ -432,6 +449,8 @@ struct TVSettingsView: View {
                 showsMetadata = false
             } else if showsScraperSettings {
                 showsScraperSettings = false
+            } else if showsScrobbleSettings {
+                showsScrobbleSettings = false
             } else if showsTranslationPanel {
                 showsTranslationPanel = false
             } else if showsAISettings {

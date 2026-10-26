@@ -1266,6 +1266,12 @@
 "scrobble_mac_session_saved" = "Session 저장됨";
 "scrobble_mac_waiting_authorization" = "인증 대기 중";
 "scrobble_mac_browser_oauth" = "브라우저 OAuth 로그인";
+"tv_scrobble_transfer_hint" = "iPhone이나 Mac에서 'QR 코드로 전송'을 사용해 Last.fm과 ListenBrainz 계정을 이 Apple TV로 보낼 수도 있습니다. 보낸 뒤 여기서 켜면 됩니다.";
+"tv_scrobble_lastfm_scan_hint" = "휴대폰으로 이 QR 코드를 스캔해 Last.fm에 로그인하고 '허용'을 누르세요. Apple TV가 알아서 연결을 마칩니다.";
+"tv_scrobble_lastfm_waiting" = "휴대폰에서 '허용'을 누르기를 기다리는 중…";
+"tv_scrobble_lastfm_expired" = "QR 코드가 만료되었습니다. 다시 연결하세요.";
+"tv_scrobble_listenbrainz_hint" = "오른쪽 QR 코드로 ListenBrainz 설정 페이지를 열어 사용자 토큰을 복사한 뒤, 리모컨이나 iPhone 키보드로 여기에 입력하세요.";
+"tv_scrobble_summary_no_service" = "선택한 서비스 없음";
 "ok" = "확인";
 "lyrics_translation_title" = "가사 번역";
 "lyrics_translation_enabled" = "번역 사용";

@@ -1060,6 +1060,12 @@
 "scrobble_mac_session_saved" = "Session saved";
 "scrobble_mac_waiting_authorization" = "Waiting for authorization";
 "scrobble_mac_browser_oauth" = "Browser OAuth sign-in";
+"tv_scrobble_transfer_hint" = "You can also use QR transfer on your iPhone or Mac to send your Last.fm and ListenBrainz accounts to this Apple TV, then turn scrobbling on here.";
+"tv_scrobble_lastfm_scan_hint" = "Scan this QR code with your phone, sign in to Last.fm and tap Allow. Apple TV finishes connecting by itself.";
+"tv_scrobble_lastfm_waiting" = "Waiting for you to tap Allow on your phone…";
+"tv_scrobble_lastfm_expired" = "The QR code has expired. Connect again.";
+"tv_scrobble_listenbrainz_hint" = "Scan the QR code on the right to open ListenBrainz settings, copy your user token, then enter it here with the remote or your iPhone keyboard.";
+"tv_scrobble_summary_no_service" = "No service selected";
 "ok" = "OK";
 
 // MARK: - Lyrics Translation

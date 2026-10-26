@@ -26,6 +26,8 @@ struct LANSettingsTransferTests {
             "primuse_ssl_trusted_fingerprints": try value(blob),
             "primuse_playback_settings_v1": try value(blob),
             "lyricsFontScale": try value(1.4),
+            // 听歌记录只带账号,开不开上报留给电视自己决定。
+            "primuse.scrobble.settings.v1": try value(blob),
         ]
         let sanitized = Policy.sanitized(bundle)
         #expect(Set(sanitized.values.keys) == [
@@ -41,6 +43,7 @@ struct LANSettingsTransferTests {
         #expect(Policy.allowedValueKeys.contains(AIRecommendationIntentPresetVisibilityPolicy.storageKey))
         #expect(Policy.category(forValueKey: ImmersiveKineticScenePreference.storageKey) == .playerEffect)
         #expect(!Policy.allowedValueKeys.contains("tvAutoSync"))
+        #expect(!Policy.allowedValueKeys.contains("primuse.scrobble.settings.v1"))
     }
 
     @Test("Secrets are limited to scraper cookies, lyrics server authorization and AI API keys")
@@ -50,6 +53,11 @@ struct LANSettingsTransferTests {
         #expect(Policy.category(forSecretAccount: "ai.provider.abc.endpoint.https://x|responses|bearer.apiKey") == .intelligence)
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu") == .intelligence)
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu.extra") == nil)
+        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.lastFm") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiKey") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiSecret") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.lastFm.pending") == nil)
         #expect(Policy.category(forSecretAccount: "scraper.cookie.config.") == nil)
         #expect(Policy.category(forSecretAccount: "scraper.cookie.source.row-id") == nil)
         #expect(Policy.category(forSecretAccount: "lyrics.apiServer.1234") == nil)

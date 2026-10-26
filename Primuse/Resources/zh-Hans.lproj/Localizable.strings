@@ -1074,6 +1074,12 @@
 "scrobble_mac_session_saved" = "Session 已保存";
 "scrobble_mac_waiting_authorization" = "等待授权确认";
 "scrobble_mac_browser_oauth" = "浏览器 OAuth 登录";
+"tv_scrobble_transfer_hint" = "也可以在 iPhone 或 Mac 上用「扫码直传」，把 Last.fm 和 ListenBrainz 账号一起传到这台 Apple TV；传过来以后在这里打开就行。";
+"tv_scrobble_lastfm_scan_hint" = "用手机扫这个二维码，在 Last.fm 页面上登录并点「允许」，电视会自己完成连接。";
+"tv_scrobble_lastfm_waiting" = "等你在手机上点「允许」…";
+"tv_scrobble_lastfm_expired" = "二维码已经过期，请重新连接。";
+"tv_scrobble_listenbrainz_hint" = "扫右边的二维码打开 ListenBrainz 设置页，复制用户令牌，再用遥控器或 iPhone 键盘填到这里。";
+"tv_scrobble_summary_no_service" = "还没选服务";
 "save" = "保存";
 "ok" = "好";
 

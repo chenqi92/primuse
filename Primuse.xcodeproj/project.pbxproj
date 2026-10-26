@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		049D4134DD6831CA70BE9E36 /* ImmersiveBeatClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */; };
+		0E23E5BD570779D25BE67AEB /* TVScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */; };
 		1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		28737F944638146B0887DFC4 /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */; };
 		28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */; };
@@ -19,6 +20,7 @@
 		725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		860A0B170B8BE7E994633978 /* PlaybackOptionsWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */; };
 		883754878658C0948119180E /* ImmersiveKineticRhythmChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */; };
+		9CF19B9D4524EC720FDDDB86 /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
 		A242B4213BA6183AB754326E /* ImmersiveKineticMarbleRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */; };
 		A5CD346AA71AFF9D740A853C /* PlayerOrientationControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 402994D356C228EBBDC6DF9C /* PlayerOrientationControl.swift */; };
 		AB0708000CBC4F108CF7DF5D /* MissingArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */; };
@@ -2392,6 +2394,7 @@
 
 /* Begin PBXFileReference section */
 		1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveBeatClock.swift; sourceTree = "<group>"; };
+		175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVScrobbleSettingsView.swift; sourceTree = "<group>"; };
 		192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMetalBackdrop.swift; sourceTree = "<group>"; };
 		395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalveniDiagnosticsClient.swift; sourceTree = "<group>"; };
 		402994D356C228EBBDC6DF9C /* PlayerOrientationControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerOrientationControl.swift; sourceTree = "<group>"; };
@@ -5924,6 +5927,7 @@
 				A838C1C1D523CAD6E766726A /* TVRoot.swift */,
 				80464460F8B6E1ACA91B21E2 /* TVScanFlowView.swift */,
 				0BE7C0BC522E862F78DC00BA /* TVScraperSettingsView.swift */,
+				175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */,
 				84FE88C010A4F459DC4AAEF0 /* TVSearchView.swift */,
 				FA44FA865D7C3D6FC4DFCC9E /* TVSettingsView.swift */,
 				D2D63B440AB3F84993308D9D /* TVSongMatchView.swift */,
@@ -7926,6 +7930,7 @@
 				02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */,
 				725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */,
 				B0F6A8FCF6EE2BB437932A11 /* PalveniDiagnosticsClient.swift in Sources */,
+				0E23E5BD570779D25BE67AEB /* TVScrobbleSettingsView.swift in Sources */,
 				03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */,
 				3CD689893E36F677189359F8 /* LibNFSSession.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
@@ -7986,6 +7991,7 @@
 				180C2D1F157716BA8EF29460 /* LANSettingsTransferService.swift in Sources */,
 				5961CDB6711D704E941D41E9 /* LRCLIBScraper.swift in Sources */,
 				93E0EC0DD60B362B80A2EBF1 /* AMLLScraper.swift in Sources */,
+				9CF19B9D4524EC720FDDDB86 /* LastFmAuthService.swift in Sources */,
 				7FDB3E517503BBDF6156BA98 /* LastFmProvider.swift in Sources */,
 				4E7C7C7061A236384A34D70C /* LibraryFavoritesStore.swift in Sources */,
 				94B2B95DBF69F6EEC6AD7B99 /* LibraryInsightStore.swift in Sources */,

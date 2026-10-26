@@ -790,6 +790,8 @@ targets:
       - path: Primuse/Services/AppleMusic/AppleMusicCatalogNeighbors.swift
       - path: Primuse/Services/Scrobble/ScrobbleProvider.swift
       - path: Primuse/Services/Scrobble/LastFmProvider.swift
+      # 电视上用二维码登录 Last.fm(手机上点「允许」,电视轮询换 session)。
+      - path: Primuse/Services/Scrobble/LastFmAuthService.swift
       - path: Primuse/Services/Scrobble/ListenBrainzProvider.swift
       - path: Primuse/Services/Scrobble/AppSecrets.swift
       - path: Primuse/Services/Library/ArtistNameSettingsStore.swift
@@ -981,6 +983,9 @@ targets:
         PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
         PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
         PrimusePCloudClientID: "$(PCLOUD_CLIENT_ID)"
+        # 听歌记录在电视上登录 Last.fm 用的内置应用密钥,与 iOS / macOS 同一组。
+        PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
+        PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent

@@ -3134,6 +3134,12 @@
 "scrobble_lb_get_token" = "ListenBrainz पर टोकन प्राप्त करें";
 "scrobble_lb_token_placeholder" = "ListenBrainz उपयोगकर्ता टोकन";
 "scrobble_mac_browser_oauth" = "ब्राउज़र OAuth साइन-इन";
+"tv_scrobble_transfer_hint" = "आप iPhone या Mac पर QR ट्रांसफ़र से अपने Last.fm और ListenBrainz अकाउंट इस Apple TV पर भी भेज सकते हैं, फिर यहाँ स्क्रॉबलिंग चालू करें।";
+"tv_scrobble_lastfm_scan_hint" = "इस QR कोड को फ़ोन से स्कैन करें, Last.fm में साइन इन करें और ‘अनुमति दें’ पर टैप करें। Apple TV ख़ुद कनेक्शन पूरा कर लेगा।";
+"tv_scrobble_lastfm_waiting" = "फ़ोन पर ‘अनुमति दें’ टैप करने का इंतज़ार है…";
+"tv_scrobble_lastfm_expired" = "QR कोड की अवधि ख़त्म हो गई। दोबारा कनेक्ट करें।";
+"tv_scrobble_listenbrainz_hint" = "ListenBrainz सेटिंग्स खोलने के लिए दाईं ओर का QR कोड स्कैन करें, अपना यूज़र टोकन कॉपी करें और रिमोट या iPhone कीबोर्ड से यहाँ डालें।";
+"tv_scrobble_summary_no_service" = "कोई सेवा नहीं चुनी";
 "scrobble_mac_confirming" = "पुष्टि कर रहा हूँ";
 "scrobble_mac_connecting" = "कनेक्ट हो रहा है";
 "scrobble_mac_create_api_app" = "API ऐप बनाएं";

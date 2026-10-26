@@ -1267,6 +1267,12 @@
 "scrobble_mac_session_saved" = "セッションを保存しました";
 "scrobble_mac_waiting_authorization" = "認証を待っています";
 "scrobble_mac_browser_oauth" = "ブラウザで OAuth サインイン";
+"tv_scrobble_transfer_hint" = "iPhone や Mac の「QR で転送」で Last.fm と ListenBrainz のアカウントをこの Apple TV に送ることもできます。送ったあとはここでオンにしてください。";
+"tv_scrobble_lastfm_scan_hint" = "このコードをスマートフォンで読み取り、Last.fm にサインインして「許可」をタップしてください。Apple TV が自動で接続を完了します。";
+"tv_scrobble_lastfm_waiting" = "スマートフォンで「許可」がタップされるのを待っています…";
+"tv_scrobble_lastfm_expired" = "QR コードの有効期限が切れました。もう一度接続してください。";
+"tv_scrobble_listenbrainz_hint" = "右の QR コードで ListenBrainz の設定ページを開き、ユーザートークンをコピーして、リモコンか iPhone のキーボードでここに入力してください。";
+"tv_scrobble_summary_no_service" = "サービスが未選択";
 "ok" = "OK";
 "lyrics_translation_title" = "歌詞の翻訳";
 "lyrics_translation_enabled" = "翻訳を有効にする";
