@@ -6,12 +6,21 @@ public struct AudioStreamHeaderInfo: Equatable, Sendable {
     public var sampleRate: Int?
     public var bitDepth: Int?
     public var channelCount: Int?
+    /// 文件头里写着总样本数时算出的时长(秒)。
+    public var duration: Double?
 
-    public init(codec: AudioFormat? = nil, sampleRate: Int? = nil, bitDepth: Int? = nil, channelCount: Int? = nil) {
+    public init(
+        codec: AudioFormat? = nil,
+        sampleRate: Int? = nil,
+        bitDepth: Int? = nil,
+        channelCount: Int? = nil,
+        duration: Double? = nil
+    ) {
         self.codec = codec
         self.sampleRate = sampleRate
         self.bitDepth = bitDepth
         self.channelCount = channelCount
+        self.duration = duration
     }
 }
 
@@ -26,6 +35,7 @@ public enum AudioStreamHeaderParser {
         case .wv: return parseWavPack(bytes)
         case .caf: return parseCAF(bytes)
         case .mka, .webm: return parseMatroska(bytes)
+        case .ape: return parseMonkeysAudio(bytes)
         default: return nil
         }
     }
@@ -129,6 +139,75 @@ public enum AudioStreamHeaderParser {
             )
         }
         return nil
+    }
+
+    // MARK: - Monkey's Audio
+
+    /// `MAC ` 文件头里的帧数、每帧样本数与采样率,够算出整首时长 —— 远端 APE 只读首尾
+    /// 两段时,AVFoundation 打不开它,原来就读不出时长。3.98 起头前面多一段描述符,
+    /// 更早的版本每帧样本数按版本号推。开头的 ID3v2 会跳过。
+    static func parseMonkeysAudio(_ b: [UInt8]) -> AudioStreamHeaderInfo? {
+        var start = 0
+        if b.count >= 10, b[0] == 0x49, b[1] == 0x44, b[2] == 0x33 {
+            guard b[6..<10].allSatisfy({ $0 & 0x80 == 0 }) else { return nil }
+            let size = b[6..<10].reduce(0) { ($0 << 7) | Int($1) }
+            start = 10 + size + (b[3] >= 4 && b[5] & 0x10 != 0 ? 10 : 0)
+        }
+        guard start + 6 <= b.count,
+              b[start] == 0x4D, b[start + 1] == 0x41, b[start + 2] == 0x43, b[start + 3] == 0x20,
+              let version = readUInt16LE(b, start + 4),
+              (3800...3990).contains(version) else { return nil }
+
+        let blocksPerFrame: UInt32
+        let finalFrameBlocks: UInt32
+        let totalFrames: UInt32
+        let bitsPerSample: Int
+        let channels: UInt16
+        let sampleRate: UInt32
+        if version >= 3980 {
+            guard let descriptorLength = readUInt32LE(b, start + 8), descriptorLength >= 52 else { return nil }
+            let header = start + Int(descriptorLength)
+            guard let perFrame = readUInt32LE(b, header + 4),
+                  let finalBlocks = readUInt32LE(b, header + 8),
+                  let frames = readUInt32LE(b, header + 12),
+                  let bits = readUInt16LE(b, header + 16),
+                  let ch = readUInt16LE(b, header + 18),
+                  let rate = readUInt32LE(b, header + 20) else { return nil }
+            (blocksPerFrame, finalFrameBlocks, totalFrames) = (perFrame, finalBlocks, frames)
+            (bitsPerSample, channels, sampleRate) = (Int(bits), ch, rate)
+        } else {
+            guard let compression = readUInt16LE(b, start + 6),
+                  let flags = readUInt16LE(b, start + 8),
+                  let ch = readUInt16LE(b, start + 10),
+                  let rate = readUInt32LE(b, start + 12),
+                  let frames = readUInt32LE(b, start + 24),
+                  let finalBlocks = readUInt32LE(b, start + 28) else { return nil }
+            (channels, sampleRate, totalFrames, finalFrameBlocks) = (ch, rate, frames, finalBlocks)
+            blocksPerFrame = if version >= 3950 {
+                73_728 * 4
+            } else if version >= 3900 || compression >= 4000 {
+                73_728
+            } else {
+                9_216
+            }
+            bitsPerSample = flags & 0x1 != 0 ? 8 : (flags & 0x8 != 0 ? 24 : 16)
+        }
+        guard (1...32).contains(channels),
+              (1_000...768_000).contains(sampleRate),
+              blocksPerFrame > 0,
+              finalFrameBlocks <= blocksPerFrame else { return nil }
+        var duration: Double?
+        if totalFrames > 0 {
+            let blocks = Double(totalFrames - 1) * Double(blocksPerFrame) + Double(finalFrameBlocks)
+            let seconds = blocks / Double(sampleRate)
+            if seconds.isFinite, seconds > 0 { duration = seconds }
+        }
+        return AudioStreamHeaderInfo(
+            sampleRate: Int(sampleRate),
+            bitDepth: (1...32).contains(bitsPerSample) ? bitsPerSample : nil,
+            channelCount: Int(channels),
+            duration: duration
+        )
     }
 
     // MARK: - CAF

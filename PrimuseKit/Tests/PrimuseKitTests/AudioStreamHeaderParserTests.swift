@@ -186,6 +186,66 @@ struct AudioStreamHeaderParserTests {
         #expect(FLACEffectiveBitDepthParser.audioOffset(in: Data("OggS0000".utf8)) == .invalid)
     }
 
+    @Test("APE 3.98 起的文件头按描述符长度找到帧信息，算出时长")
+    func monkeysAudioCurrentHeader() throws {
+        let info = try #require(AudioStreamHeaderParser.parse(
+            apeFile(version: 3990, totalFrames: 40, finalFrameBlocks: 100_000),
+            container: .ape
+        ))
+        #expect(info.sampleRate == 44_100)
+        #expect(info.bitDepth == 16)
+        #expect(info.channelCount == 2)
+        #expect(info.codec == nil)
+        #expect(info.duration == Double(39 * 294_912 + 100_000) / 44_100)
+    }
+
+    @Test("APE 开头带 ID3v2 时先跳过它")
+    func monkeysAudioAfterID3() throws {
+        var id3: [UInt8] = Array("ID3".utf8) + [3, 0, 0] + [0, 0, 0x01, 0x00]
+        id3 += [UInt8](repeating: 0, count: 128)
+        let file = Data(id3) + apeFile(version: 3990, totalFrames: 2, finalFrameBlocks: 44_100)
+        let info = try #require(AudioStreamHeaderParser.parse(file, container: .ape))
+        #expect(info.duration == Double(294_912 + 44_100) / 44_100)
+    }
+
+    @Test("老版本 APE 的每帧样本数按版本号和压缩级别推")
+    func monkeysAudioLegacyHeader() throws {
+        let cases: [(version: Int, compression: Int, perFrame: Int)] = [
+            (3970, 2000, 294_912),
+            (3900, 2000, 73_728),
+            (3890, 4000, 73_728),
+            (3810, 2000, 9_216),
+        ]
+        for item in cases {
+            let info = try #require(AudioStreamHeaderParser.parse(
+                legacyAPEFile(version: item.version, compression: item.compression, flags: 0x8),
+                container: .ape
+            ))
+            #expect(info.sampleRate == 48_000)
+            #expect(info.bitDepth == 24)
+            #expect(info.duration == Double(9 * item.perFrame + 5_000) / 48_000)
+        }
+    }
+
+    @Test("不是 APE、版本不认识或头不完整时不给结果")
+    func monkeysAudioRejectsGarbage() {
+        #expect(AudioStreamHeaderParser.parse(Data(repeating: 0, count: 200), container: .ape) == nil)
+        #expect(AudioStreamHeaderParser.parse(apeFile(version: 4100, totalFrames: 4, finalFrameBlocks: 10), container: .ape) == nil)
+        #expect(AudioStreamHeaderParser.parse(apeFile(version: 3990, totalFrames: 4, finalFrameBlocks: 10).prefix(60), container: .ape) == nil)
+        // 最后一帧比整帧还长，头坏了。
+        #expect(AudioStreamHeaderParser.parse(apeFile(version: 3990, totalFrames: 4, finalFrameBlocks: 400_000), container: .ape) == nil)
+    }
+
+    @Test("帧数为零时只给规格不给时长")
+    func monkeysAudioWithoutFrames() throws {
+        let info = try #require(AudioStreamHeaderParser.parse(
+            apeFile(version: 3990, totalFrames: 0, finalFrameBlocks: 0),
+            container: .ape
+        ))
+        #expect(info.sampleRate == 44_100)
+        #expect(info.duration == nil)
+    }
+
     // MARK: - Fixtures
 
     private func song(
@@ -199,6 +259,21 @@ struct AudioStreamHeaderParserTests {
             sampleRate: sampleRate, bitDepth: bitDepth, dateAdded: Date(timeIntervalSince1970: 0),
             audioCodec: codec
         )
+    }
+
+    private func apeFile(version: Int, totalFrames: Int, finalFrameBlocks: Int) -> Data {
+        var descriptor: [UInt8] = Array("MAC ".utf8) + le16(version) + le16(0)
+        descriptor += le32(52) + le32(24) + le32(0) + le32(44) + le32(1_000_000) + le32(0) + le32(0)
+        descriptor += [UInt8](repeating: 0xAB, count: 16)
+        var header = le16(2000) + le16(0) + le32(294_912) + le32(finalFrameBlocks) + le32(totalFrames)
+        header += le16(16) + le16(2) + le32(44_100)
+        return Data(descriptor + header + [UInt8](repeating: 0, count: 64))
+    }
+
+    private func legacyAPEFile(version: Int, compression: Int, flags: Int) -> Data {
+        var header: [UInt8] = Array("MAC ".utf8) + le16(version) + le16(compression) + le16(flags)
+        header += le16(2) + le32(48_000) + le32(44) + le32(0) + le32(10) + le32(5_000)
+        return Data(header + [UInt8](repeating: 0, count: 64))
     }
 
     private func le16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF)] }

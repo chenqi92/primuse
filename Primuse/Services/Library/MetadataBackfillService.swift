@@ -5255,6 +5255,8 @@ final class MetadataBackfillService {
                 || (Self.needsEmbeddedArtworkBackfill(song)
                     && metadata.coverArtFileName == nil && metadata.coverArtData == nil))
         var suffixMetadataUnavailable = false
+        // 尾部那段真读到了(这种格式不读尾部时只有首段): 有界窗口都看过了。
+        var boundedTailInspected = tailStrategy == .none
         if Self.metadataLooksMissing(metadata)
             || needsSecondaryArtistRange
             || needsSecondaryArtworkRange
@@ -5290,6 +5292,7 @@ final class MetadataBackfillService {
                     if needsSecondaryArtistRange, readContainerTail {
                         artistInspectionCompleted = true
                     }
+                    if readContainerTail { boundedTailInspected = true }
                 } else if tailStrategy == .mp3ID3 {
                     do {
                         let tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
@@ -5300,6 +5303,7 @@ final class MetadataBackfillService {
                             readSession: readSession
                         )
                         if needsSecondaryArtistRange { artistInspectionCompleted = true }
+                        boundedTailInspected = true
                     } catch MetadataRangeReadError.suffixRangeUnsupported {
                         throw MetadataRangeReadError.suffixRangeUnsupported
                     } catch {
@@ -5321,6 +5325,7 @@ final class MetadataBackfillService {
                         readSession: readSession
                     )
                     if needsArtistInspection { artistInspectionCompleted = true }
+                    boundedTailInspected = true
                 } else if tailStrategy == .dsfOffset,
                           let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: metadataInputData),
                           offset < song.fileSize {
@@ -5344,6 +5349,7 @@ final class MetadataBackfillService {
                         readSession: readSession
                     )
                     if needsArtistInspection { artistInspectionCompleted = true }
+                    boundedTailInspected = true
                 } else if tailStrategy == .containerID3 {
                     let tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
                     metadata = await extractMetadata(
@@ -5353,6 +5359,7 @@ final class MetadataBackfillService {
                         readSession: readSession
                     )
                     if needsArtistInspection { artistInspectionCompleted = true }
+                    boundedTailInspected = true
                 } else if tailStrategy == .genericEOF {
                     var tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
                     if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
@@ -5369,6 +5376,7 @@ final class MetadataBackfillService {
                         readSession: readSession
                     )
                     if needsArtistInspection { artistInspectionCompleted = true }
+                    boundedTailInspected = true
                 }
             } catch MetadataRangeReadError.suffixRangeUnsupported {
                 if isExplicitReread {
@@ -5510,6 +5518,15 @@ final class MetadataBackfillService {
         if Self.metadataLooksMissing(metadata) {
             let partial = mergeSong(bare: song, metadata: metadata)
             let partialKind = completionKind(for: metadata, original: song, merged: partial)
+            // 首尾两段都看过还是没有内嵌封面, 跟读出时长的那条路一样记下不再为封面重读。
+            // 以前这里只认「尾部读不了」: 读不出时长、又没有内嵌封面的歌(整轨 APE 的
+            // CUE 分轨最常见)每一轮都因为缺封面重新排队, 把同一个大文件的首尾再下一遍。
+            let artworkGivenUp = (suffixMetadataUnavailable || boundedTailInspected)
+                && Self.needsEmbeddedArtworkBackfill(song)
+                && metadata.coverArtFileName == nil && metadata.coverArtData == nil
+            if artworkGivenUp {
+                plog("📥 Backfill: '\(song.title)' has no parseable embedded artwork; skipping future artwork-only retries")
+            }
             if partial != song
                 || partialKind == .embeddedTags
                 || partialKind == .sidecarMetadata
@@ -5525,9 +5542,7 @@ final class MetadataBackfillService {
                     ),
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted,
-                    artworkGivenUp: suffixMetadataUnavailable
-                        && Self.needsEmbeddedArtworkBackfill(song)
-                        && metadata.coverArtFileName == nil && metadata.coverArtData == nil
+                    artworkGivenUp: artworkGivenUp
                 )
             }
             if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
@@ -5542,9 +5557,7 @@ final class MetadataBackfillService {
                     ),
                     titleInspected: true,
                     artistInspected: artistInspectionCompleted,
-                    artworkGivenUp: suffixMetadataUnavailable
-                        && Self.needsEmbeddedArtworkBackfill(song)
-                        && metadata.coverArtFileName == nil && metadata.coverArtData == nil
+                    artworkGivenUp: artworkGivenUp
                 )
             }
             plog("⚠️ Backfill: '\(song.title)' bytes were read but details parsing failed")
