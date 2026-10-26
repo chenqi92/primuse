@@ -25,7 +25,7 @@ SIDE = 1024
 # The Mac sidebar draws the mark at 24 pt, the TV top bar at 50 pt (@2x on 4K).
 MAC_MARK_SIDE = 128
 TV_MARK_SIDE = 192
-SOFT_NOTE_GREEN = (7, 193, 96)
+SOFT_NOTE_GREEN = (51, 217, 79)
 
 _ys, _xs = np.mgrid[0:SIDE, 0:SIDE] / SIDE - 0.5
 _BASIS = np.stack(
