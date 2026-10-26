@@ -4233,6 +4233,7 @@ struct NowPlayingView: View {
             // 播放键与上一台 / 下一台跟「播放页样式与按钮」里的样式走,和音乐页同一套(#329)。
             HStack(spacing: 38) {
                 Button {
+                    PMHaptics.transportTapped()
                     Task { await player.previous() }
                 } label: {
                     Image(systemName: skipButtonStyle.symbol(forward: false))
@@ -4242,7 +4243,10 @@ struct NowPlayingView: View {
                 .disabled(!player.canSwitchRadioStation)
                 .accessibilityLabel(Text("radio_previous_station"))
 
-                Button { player.togglePlayPause() } label: {
+                Button {
+                    PMHaptics.transportTapped()
+                    player.togglePlayPause()
+                } label: {
                     ZStack {
                         // 换样式时这颗键的大小不变,两边的键不挪位置。
                         Image(systemName: "play.circle.fill")
@@ -4260,6 +4264,7 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
 
                 Button {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 } label: {
                     Image(systemName: skipButtonStyle.symbol(forward: true))
@@ -5252,6 +5257,7 @@ struct NowPlayingView: View {
     private func transportBackward() {
         // 按住快退松手时，按钮自己的点按也会到这里，这一下不再切歌。
         guard !transportHoldScrub.consumesTap() else { return }
+        PMHaptics.transportTapped()
         if usesSpokenWordTransport {
             player.skipSpokenWordBackward()
         } else {
@@ -5261,6 +5267,7 @@ struct NowPlayingView: View {
 
     private func transportForward() {
         guard !transportHoldScrub.consumesTap() else { return }
+        PMHaptics.transportTapped()
         if usesSpokenWordTransport {
             player.skipSpokenWordForward()
         } else {
@@ -5308,6 +5315,7 @@ struct NowPlayingView: View {
         let style = playButtonStyle
         return Button {
             guard !player.isLoading else { return }
+            PMHaptics.transportTapped()
             player.togglePlayPause()
         } label: {
             ZStack {
@@ -6784,6 +6792,7 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity)
             Button {
                 guard !player.isLoading else { return }
+                PMHaptics.transportTapped()
                 player.togglePlayPause()
             } label: {
                 // 默认的实心圆是设计稿那颗(三角挖出底色);「播放页样式与按钮」里换了样式时和音乐页
@@ -7030,6 +7039,7 @@ struct NowPlayingView: View {
     private func transportPlayButton(diameter: CGFloat) -> some View {
         Button {
             guard !player.isLoading else { return }
+            PMHaptics.transportTapped()
             player.togglePlayPause()
         } label: {
             transportPlayPauseFace(diameter: diameter)
@@ -9314,6 +9324,7 @@ struct NowPlayingView: View {
             shuffleControl(style: style)
         } else if style == .edge, action == .repeatMode {
             ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                PMHaptics.playbackModeToggled()
                 cycleRepeatMode()
             }
         } else if action == .playbackSpeed, unavailableNotice(for: .playbackSpeed) == nil {
@@ -9690,8 +9701,12 @@ struct NowPlayingView: View {
         case .lyrics: toggleLyricsForLayout()
         // iPad 横屏左栏原来就是直接弹出队列;全屏效果页盖在整页上,也直接弹出。
         case .queue: if style.opensQueueSheet { showQueue = true } else { openQueue() }
-        case .shuffle: player.shuffleEnabled.toggle()
-        case .repeatMode: cycleRepeatMode()
+        case .shuffle:
+            PMHaptics.playbackModeToggled()
+            player.shuffleEnabled.toggle()
+        case .repeatMode:
+            PMHaptics.playbackModeToggled()
+            cycleRepeatMode()
         case .sleepTimer: showSleepTimer = true
         case .equalizer: openEqualizer()
         case .karaoke: showKaraoke = true
@@ -15874,6 +15889,8 @@ struct LyricsScrollView: View {
     private func seekToLyricLine(_ line: LyricLine) {
         lastLyricRowTapAt = Date()
         guard canSeekToLyricLine(line) else { return }
+        // 点一句歌词跳过去也是一次换位置,和传输键同一下轻震(#356)。
+        PMHaptics.transportTapped()
         player.seekToTappedLine(at: line.timestamp)
     }
 

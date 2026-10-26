@@ -1715,6 +1715,7 @@ struct SpokenWordTranscriptReader: View {
     private func play(from paragraph: Policy.Paragraph) {
         guard let target = searchTarget(in: paragraph) ?? paragraph.start else { return }
         followsPlayback = true
+        PMHaptics.transportTapped()
         player.seekToTappedLine(at: target)
     }
 
@@ -2913,6 +2914,7 @@ private struct SpokenWordTranscriptTransportBar<Leading: View, Trailing: View>: 
         action: @escaping () -> Void
     ) -> some View {
         Button {
+            PMHaptics.transportTapped()
             action()
             onInteraction()
         } label: {

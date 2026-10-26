@@ -847,6 +847,7 @@ private struct KaraokeTransportRow: View {
             }
             KaraokeTransportSlot(titleKey: nil) {
                 Button {
+                    PMHaptics.transportTapped()
                     player.togglePlayPause()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")

@@ -760,10 +760,12 @@ struct ImmersivePlayerView: View {
         HStack(spacing: metrics.s(18)) {
             pillEdgeControl(.pillLeading)
             transportButton("backward.fill", size: 17, diameter: 38, label: "a11y_previous_track") {
+                PMHaptics.transportTapped()
                 Task { await player.previous() }
             }
             playPauseButton(diameter: 48, outlined: outlinedPlay)
             transportButton("forward.fill", size: 17, diameter: 38, label: "a11y_next_track") {
+                PMHaptics.transportTapped()
                 Task { await player.next() }
             }
             pillEdgeControl(.pillTrailing)
@@ -819,10 +821,12 @@ struct ImmersivePlayerView: View {
             seekBar
             HStack(spacing: metrics.s(12)) {
                 transportButton("backward.fill", size: 17, diameter: 40, label: "a11y_previous_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.previous() }
                 }
                 playPauseButton(diameter: 54, outlined: true)
                 transportButton("forward.fill", size: 17, diameter: 40, label: "a11y_next_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 }
                 Spacer(minLength: metrics.s(6))
@@ -858,10 +862,12 @@ struct ImmersivePlayerView: View {
                     .foregroundStyle(artworkPalette.primary.opacity(0.82))
                 Spacer()
                 transportButton("backward.fill", size: 17, diameter: 38, label: "a11y_previous_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.previous() }
                 }
                 playPauseButton(diameter: 52, outlined: true)
                 transportButton("forward.fill", size: 17, diameter: 38, label: "a11y_next_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 }
                 Spacer()
@@ -876,18 +882,22 @@ struct ImmersivePlayerView: View {
             seekBar
             HStack(spacing: metrics.s(18)) {
                 modeButton("shuffle", active: player.shuffleEnabled) {
+                    PMHaptics.playbackModeToggled()
                     player.shuffleEnabled.toggle()
                 }
                 Spacer()
                 transportButton("backward.fill", size: 17, diameter: 38, label: "a11y_previous_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.previous() }
                 }
                 playPauseButton(diameter: 54, outlined: true)
                 transportButton("forward.fill", size: 17, diameter: 38, label: "a11y_next_track") {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 }
                 Spacer()
                 modeButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                    PMHaptics.playbackModeToggled()
                     advanceRepeatMode()
                 }
             }
@@ -933,6 +943,7 @@ struct ImmersivePlayerView: View {
         return Button {
             revealChrome()
             guard !player.isLoading else { return }
+            PMHaptics.transportTapped()
             player.togglePlayPause()
         } label: {
             ZStack {
@@ -1346,6 +1357,8 @@ struct ImmersivePlayerView: View {
 
                 exitAmbientRest()
                 if abs(horizontal) > abs(vertical) {
+                    // 横划切歌和点上一首 / 下一首是同一件事,手上也是同一下。
+                    PMHaptics.transportTapped()
                     if horizontal < 0 {
                         Task { await player.next() }
                     } else {
@@ -1466,6 +1479,7 @@ struct ImmersivePlayerView: View {
             tolerance: 8
         ) else { return false }
         if offset == 0 {
+            PMHaptics.transportTapped()
             player.togglePlayPause()
         } else {
             moveAlbumFlow(by: offset)

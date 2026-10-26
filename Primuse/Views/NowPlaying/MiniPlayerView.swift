@@ -571,6 +571,7 @@ struct MinimalDockTransportControls: View {
     private var secondaryButton: some View {
         if player.currentItemIsSpokenWord, !player.isLiveRadio {
             Button {
+                PMHaptics.transportTapped()
                 player.skipSpokenWordBackward()
             } label: {
                 icon(player.spokenWordSkipBackwardSymbol)
@@ -580,6 +581,7 @@ struct MinimalDockTransportControls: View {
         } else if player.isLiveRadio {
             if player.canSwitchRadioStation {
                 Button {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 } label: {
                     icon("forward.fill")
@@ -613,6 +615,7 @@ struct MinimalDockTransportControls: View {
     private var playButton: some View {
         Button {
             guard !(player.isLoading && !player.isLiveRadio) else { return }
+            PMHaptics.transportTapped()
             player.togglePlayPause()
         } label: {
             ZStack {
@@ -661,6 +664,7 @@ struct MiniPlayerTransportControls: View {
             // 前进与下一条目都不放 —— 下一条目是另一集甚至另一本,迷你条上误触代价太大。
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button {
+                    PMHaptics.transportTapped()
                     player.skipSpokenWordBackward()
                 } label: {
                     Image(systemName: player.spokenWordSkipBackwardSymbol)
@@ -674,6 +678,7 @@ struct MiniPlayerTransportControls: View {
 
             Button {
                 guard !(player.isLoading && !player.isLiveRadio) else { return }
+                PMHaptics.transportTapped()
                 player.togglePlayPause()
             } label: {
                 ZStack {
@@ -707,6 +712,7 @@ struct MiniPlayerTransportControls: View {
                 EmptyView()
             } else if showsNextButton && (!player.isLiveRadio || player.canSwitchRadioStation) {
                 Button {
+                    PMHaptics.transportTapped()
                     Task { await player.next() }
                 } label: {
                     Image(systemName: "forward.fill")
