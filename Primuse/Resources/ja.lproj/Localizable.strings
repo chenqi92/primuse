@@ -1582,6 +1582,15 @@
 "song_dislike" = "好みではない";
 "song_undislike" = "「好みではない」を取り消す";
 "playlist_disliked_name" = "好みではない曲";
+"shuffle_link_menu" = "シャッフル時に続けて再生";
+"shuffle_link_menu_header" = "シャッフル再生時、アルバムで隣り合う曲と続けて再生します";
+"shuffle_link_next" = "続けて次の曲を再生";
+"shuffle_link_previous" = "先に前の曲を再生";
+"shuffle_link_next_long" = "シャッフル時に続けて次の曲を再生";
+"shuffle_link_previous_long" = "シャッフル時に先に前の曲を再生";
+"shuffle_link_joined_a11y" = "シャッフル時に次の曲と続けて再生";
+"playlist_shuffle_link_next_name" = "シャッフル連続再生：次の曲";
+"playlist_shuffle_link_previous_name" = "シャッフル連続再生：前の曲";
 "disliked_songs_footer" = "好みではない曲はライブラリに残り、自分で選べばそのまま再生できますが、シャッフル、自動再生、ソングラジオ、似た曲、おすすめでは選ばれなくなります。もう一度「好き」にすると、このリストから外れます。";
 "disliked_songs_empty" = "好みではない曲はありません";
 "disliked_songs_manage" = "管理…";

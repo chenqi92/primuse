@@ -2735,6 +2735,15 @@
 "song_dislike" = "नापसंद";
 "song_undislike" = "नापसंद हटाएँ";
 "playlist_disliked_name" = "नापसंद गाने";
+"shuffle_link_menu" = "शफ़ल में साथ चलाएँ";
+"shuffle_link_menu_header" = "शफ़ल में एल्बम के पास वाले ट्रैक के साथ चलता है";
+"shuffle_link_next" = "फिर अगला ट्रैक";
+"shuffle_link_previous" = "पहले पिछला ट्रैक";
+"shuffle_link_next_long" = "शफ़ल में फिर अगला ट्रैक";
+"shuffle_link_previous_long" = "शफ़ल में पहले पिछला ट्रैक";
+"shuffle_link_joined_a11y" = "शफ़ल में अगले ट्रैक के साथ चलता है";
+"playlist_shuffle_link_next_name" = "शफ़ल लिंक: अगला ट्रैक";
+"playlist_shuffle_link_previous_name" = "शफ़ल लिंक: पिछला ट्रैक";
 "disliked_songs_footer" = "नापसंद गाने आपकी लाइब्रेरी में बने रहते हैं और खुद चुनने पर चलते हैं, लेकिन शफ़ल, ऑटोप्ले, गाना रेडियो, मिलते-जुलते गाने और सुझाव उन्हें छोड़ देते हैं। किसी गाने को फिर से पसंद करने पर वह इस सूची से हट जाता है।";
 "disliked_songs_empty" = "कोई नापसंद गाना नहीं";
 "disliked_songs_manage" = "प्रबंधित करें…";

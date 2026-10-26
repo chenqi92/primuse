@@ -2898,6 +2898,15 @@
 "song_dislike" = "Beğenmedim";
 "song_undislike" = "Beğenmemeyi Kaldır";
 "playlist_disliked_name" = "Beğenilmeyen Şarkılar";
+"shuffle_link_menu" = "Karışıkta Birlikte Çal";
+"shuffle_link_menu_header" = "Karışık çalarken albümdeki komşu parçayla birlikte çalar";
+"shuffle_link_next" = "Ardından Sonraki Parça";
+"shuffle_link_previous" = "Önce Önceki Parça";
+"shuffle_link_next_long" = "Karışıkta Ardından Sonraki Parça";
+"shuffle_link_previous_long" = "Karışıkta Önce Önceki Parça";
+"shuffle_link_joined_a11y" = "Karışıkta sonraki parçayla birlikte çalar";
+"playlist_shuffle_link_next_name" = "Karışık Bağlantılar: Sonraki Parça";
+"playlist_shuffle_link_previous_name" = "Karışık Bağlantılar: Önceki Parça";
 "disliked_songs_footer" = "Beğenmediğin şarkılar kitaplığında kalır ve kendin seçtiğinde çalar; ancak karışık çalma, otomatik oynatma, şarkı radyosu, benzer şarkılar ve öneriler onları atlar. Bir şarkıyı yeniden beğenirsen bu listeden çıkar.";
 "disliked_songs_empty" = "Beğenilmeyen şarkı yok";
 "disliked_songs_manage" = "Yönet…";

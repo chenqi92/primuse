@@ -3533,6 +3533,7 @@ final class MusicLibrary {
             materializedSourceSongs.removeAll()
             visibleSongPositionsByAlbumID = nil
             materializedAlbumSongs.removeAll()
+            shuffleLinkGraphCache = nil
         }
         songs = takeSongsForInPlaceMutation()
         return visibleShared
@@ -3605,14 +3606,14 @@ final class MusicLibrary {
     )?
 
     /// 自动隐藏只影响显示；保留歌单和完整成员，重新启用源时即可恢复。
-    /// 「不喜欢」歌单只是一份记录，不进歌单列表（见 `dislikedSongsPlaylistID`）。
+    /// 「不喜欢」「随机时连播」这几份歌单只是记录，不进歌单列表（见 `recordPlaylistIDs`）。
     var playlists: [Playlist] {
         let hidesAppleMusicMirrors = !appleMusicLibrarySyncEnabled
             || !appleMusicSourceInstalled
         let hiddenBySource = playlistIDsHiddenByDisabledSources()
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
-            guard playlist.id != Self.dislikedSongsPlaylistID else { return false }
+            guard !Self.recordPlaylistIDs.contains(playlist.id) else { return false }
             guard !isMirrorPlaylistSuppressed(playlist.id) else { return false }
             guard !hiddenBySource.contains(playlist.id) else { return false }
             return !hidesAppleMusicMirrors
@@ -3659,8 +3660,8 @@ final class MusicLibrary {
     /// Deleted" recovery panel.
     var recentlyDeletedPlaylists: [Playlist] {
         allPlaylists
-            // 「不喜欢」是系统记录,旧版本把它当普通歌单删掉了也不在这里列出、不让彻底删除。
-            .filter { $0.isDeleted && !$0.isPurged && $0.id != Self.dislikedSongsPlaylistID }
+            // 「不喜欢」这类系统记录,旧版本把它当普通歌单删掉了也不在这里列出、不让彻底删除。
+            .filter { $0.isDeleted && !$0.isPurged && !Self.recordPlaylistIDs.contains($0.id) }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
     var hiddenMirrorPlaylists: [MirrorPlaylistSuppression] {
@@ -3681,7 +3682,10 @@ final class MusicLibrary {
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
     private var playlistSongIDs: [String: [String]] = [:] {
-        didSet { playlistMembershipRevision &+= 1 }
+        didSet {
+            playlistMembershipRevision &+= 1
+            refreshShuffleLinkMembers()
+        }
     }
     /// `playlistSongIDs` 每改一次就加一。`isLiked(songID:)` 靶着它决定要不要重建
     /// 「我喜欢」的 Set —— 曲目表本身是有序数组 (顺序要保住),但列表每行都要判一次
@@ -3689,6 +3693,11 @@ final class MusicLibrary {
     @ObservationIgnored private var playlistMembershipRevision: UInt64 = 0
     @ObservationIgnored private var likedSongIDLookup: (revision: UInt64, ids: Set<String>)?
     @ObservationIgnored private var dislikedSongIDLookup: (revision: UInt64, ids: Set<String>)?
+    /// 「随机时连播」两份记录的成员(#335), 跟着 `playlistSongIDs` 抄一份不登记观察的,
+    /// 播放器在视图取值时排随机顺序要读它。
+    @ObservationIgnored private var shuffleLinkMembers: (next: Set<String>, previous: Set<String>) = ([], [])
+    /// 按成员与专辑曲序算好的连播关系; 成员、可见歌曲或有声分类一变就丢掉。
+    @ObservationIgnored private var shuffleLinkGraphCache: ShuffleLinkGraph?
     /// 每个歌单上一次与云端一致时的曲目表(远端套用后、合并后、本机保存成功后都会
     /// 更新)。冲突合并拿它当三方合并的基线: 基线里有、一边没有的, 就是那一边删掉的。
     private var playlistSyncBaseSongIDs: [String: [String]] = [:]
@@ -3960,6 +3969,7 @@ final class MusicLibrary {
             materializedSourceSongs.removeAll()
             visibleSongPositionsByAlbumID = nil
             materializedAlbumSongs.removeAll()
+            shuffleLinkGraphCache = nil
             visibleCacheGeneration &+= 1
             LibraryArrayReclaimer.release(previous)
             // 可见歌曲换了一份, 查找表里的首选封面歌曲可能跟着换了内容。
@@ -4029,6 +4039,7 @@ final class MusicLibrary {
             }
             if oldValue != spokenWordSongIDs {
                 spokenWordClassificationRevision &+= 1
+                shuffleLinkGraphCache = nil
             }
         }
     }
@@ -7827,6 +7838,11 @@ final class MusicLibrary {
 
     func songs(forAlbum albumID: String) -> [Song] {
         _ = visibleSongsReference
+        return unobservedSongs(forAlbum: albumID)
+    }
+
+    /// `songs(forAlbum:)` 不登记观察的那一半, 播放器排随机顺序时用。
+    private func unobservedSongs(forAlbum albumID: String) -> [Song] {
         if let cached = materializedAlbumSongs[albumID] { return cached }
         let visible = visibleSongsLookupReference.value
         var songs: [Song] = []
@@ -9132,7 +9148,7 @@ final class MusicLibrary {
             && playlist.folderBinding == nil
             && !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
             && playlist.id != likedSongsPlaylistID
-            && playlist.id != dislikedSongsPlaylistID
+            && !recordPlaylistIDs.contains(playlist.id)
     }
 
     /// 给自己建的歌单改名(Apple TV 上也能改,看板 PRIM-35)。曲目和顺序不动;照常记一次版本,
@@ -9458,10 +9474,10 @@ final class MusicLibrary {
         }) { return }
         // 清除后墓碑会留下(`isPurged`), 它的 deletedAt 永远早于阈值; 不排除它们,
         // 每次启动都会把同一批墓碑重清一遍、整库落盘再推给所有设备。
-        // 「不喜欢」清除后成员全丢、墓碑也恢复不了,之后的标记一条都落不下:不随回收站清理。
+        // 「不喜欢」这类记录清除后成员全丢、墓碑也恢复不了,之后的标记一条都落不下:不随回收站清理。
         let toPrune = allPlaylists.filter {
             $0.isDeleted && !$0.isPurged && ($0.deletedAt ?? .distantFuture) < threshold
-                && $0.id != Self.dislikedSongsPlaylistID
+                && !Self.recordPlaylistIDs.contains($0.id)
         }
         guard !toPrune.isEmpty else { return }
         for playlist in toPrune {
@@ -9905,26 +9921,33 @@ final class MusicLibrary {
     /// 喜欢与不喜欢互斥: 点了一个就撤掉另一个。
     nonisolated static let dislikedSongsPlaylistID = "primuse.system.disliked"
 
+    /// 只是一份记录、不进歌单列表的系统歌单: 「不喜欢」与「随机时连播」的两边(#335)。
+    nonisolated static let recordPlaylistIDs: Set<String> = [
+        dislikedSongsPlaylistID, shuffleLinkNextPlaylistID, shuffleLinkPreviousPlaylistID,
+    ]
+
     @discardableResult
-    private func ensureDislikedPlaylist() -> Playlist {
+    private func ensureRecordPlaylist(id: String, name: String) -> Playlist {
         // 旧版本把它当普通歌单列出来; 在那边删掉了的话先恢复,
         // 否则 `ensurePlaylist` 交回墓碑, 之后的标记一条也落不下。
-        if allPlaylists.contains(where: { $0.id == Self.dislikedSongsPlaylistID && $0.isDeleted }) {
-            restorePlaylist(id: Self.dislikedSongsPlaylistID)
+        if allPlaylists.contains(where: { $0.id == id && $0.isDeleted }) {
+            restorePlaylist(id: id)
         }
-        return ensurePlaylist(
-            id: Self.dislikedSongsPlaylistID,
-            name: String(localized: "playlist_disliked_name")
-        )
+        return ensurePlaylist(id: id, name: name)
     }
 
-    /// 旧版本把「不喜欢」当成普通歌单,在那边删掉后启动时恢复回来;成员还在,只是撤掉删除。
-    func restoreDislikedPlaylistIfDeleted() {
-        if deferringUntilReady({ [weak self] in self?.restoreDislikedPlaylistIfDeleted() }) { return }
-        guard allPlaylists.contains(where: {
-            $0.id == Self.dislikedSongsPlaylistID && $0.isDeleted && !$0.isPurged
-        }) else { return }
-        restorePlaylist(id: Self.dislikedSongsPlaylistID)
+    @discardableResult
+    private func ensureDislikedPlaylist() -> Playlist {
+        ensureRecordPlaylist(id: Self.dislikedSongsPlaylistID, name: String(localized: "playlist_disliked_name"))
+    }
+
+    /// 旧版本把「不喜欢」这类记录当成普通歌单,在那边删掉后启动时恢复回来;成员还在,只是撤掉删除。
+    func restoreRecordPlaylistsIfDeleted() {
+        if deferringUntilReady({ [weak self] in self?.restoreRecordPlaylistsIfDeleted() }) { return }
+        let deleted = allPlaylists.filter {
+            Self.recordPlaylistIDs.contains($0.id) && $0.isDeleted && !$0.isPurged
+        }
+        for playlist in deleted { restorePlaylist(id: playlist.id) }
     }
 
     /// 不喜欢的歌。两台设备离线时一边喜欢、一边不喜欢, 合并后两份歌单里都有它 ——
@@ -10001,6 +10024,107 @@ final class MusicLibrary {
                 fromPlaylist: Self.dislikedSongsPlaylistID,
                 propagatesLikedMutation: false
             )
+        }
+    }
+
+    // MARK: - Shuffle links (#335)
+
+    /// 「随机时连播」两边的固定 ID。和「不喜欢」一样借歌单的 iCloud 同步与跨设备对歌, 只是记录:
+    /// 设了「接着放下一首」的歌记在 next 那份, 设了「先放上一首」的记在 previous 那份。
+    /// 上一首 / 下一首不存, 每次按专辑曲序现算, 重扫换了 ID、改了曲号也连不错。
+    nonisolated static let shuffleLinkNextPlaylistID = "primuse.system.shuffleLinkNext"
+    nonisolated static let shuffleLinkPreviousPlaylistID = "primuse.system.shuffleLinkPrevious"
+
+    nonisolated static func shuffleLinkPlaylistID(_ direction: ShuffleLinkDirection) -> String {
+        switch direction {
+        case .next: shuffleLinkNextPlaylistID
+        case .previous: shuffleLinkPreviousPlaylistID
+        }
+    }
+
+    private func refreshShuffleLinkMembers() {
+        let next = playlistSongIDs[Self.shuffleLinkNextPlaylistID] ?? []
+        let previous = playlistSongIDs[Self.shuffleLinkPreviousPlaylistID] ?? []
+        guard next.count != shuffleLinkMembers.next.count
+            || previous.count != shuffleLinkMembers.previous.count
+            || !next.allSatisfy(shuffleLinkMembers.next.contains)
+            || !previous.allSatisfy(shuffleLinkMembers.previous.contains) else { return }
+        shuffleLinkMembers = (Set(next), Set(previous))
+        shuffleLinkGraphCache = nil
+    }
+
+    /// 这首歌那一边开没开(界面用, 登记观察)。
+    func isShuffleLinked(songID: String, direction: ShuffleLinkDirection) -> Bool {
+        _ = playlistSongIDs
+        switch direction {
+        case .next: return shuffleLinkMembers.next.contains(songID)
+        case .previous: return shuffleLinkMembers.previous.contains(songID)
+        }
+    }
+
+    /// 专辑曲序里紧挨着这首的上一首 / 下一首(只算音乐); 没有专辑、在专辑两头、本身是有声内容时为 nil。
+    /// 不登记观察: 每一行的歌曲菜单都会问, 扫描时可见歌曲一变不该让整张列表的菜单跟着重算。
+    func shuffleLinkNeighbor(of songID: String, direction: ShuffleLinkDirection) -> Song? {
+        unobservedShuffleLinkNeighbor(of: songID, direction: direction)
+    }
+
+    private func unobservedShuffleLinkNeighbor(of songID: String, direction: ShuffleLinkDirection) -> Song? {
+        guard !spokenWordSongIDs.contains(songID),
+              let albumID = lookupVisibleSong(songID)?.albumID else { return nil }
+        let album = unobservedSongs(forAlbum: albumID).filter { !spokenWordSongIDs.contains($0.id) }
+        guard let position = album.firstIndex(where: { $0.id == songID }) else { return nil }
+        let neighbor = direction == .next ? position + 1 : position - 1
+        return album.indices.contains(neighbor) ? album[neighbor] : nil
+    }
+
+    /// 随机时 `nextSongID` 紧跟在 `songID` 后面放(界面用, 只登记两份记录的成员变化)。
+    func isShuffleJoined(_ songID: String, to nextSongID: String) -> Bool {
+        _ = playlistSongIDs
+        return shuffleLinkGraph.isLinked(songID, to: nextSongID)
+    }
+
+    /// 随机时连着放的歌。不登记观察: 播放器在视图取值的过程中也会排下一轮随机。
+    var shuffleLinkGraph: ShuffleLinkGraph {
+        if let cached = shuffleLinkGraphCache { return cached }
+        let members = shuffleLinkMembers
+        guard !members.next.isEmpty || !members.previous.isEmpty else {
+            shuffleLinkGraphCache = .empty
+            return .empty
+        }
+        var nextLinks: [String: String] = [:]
+        for songID in members.next {
+            if let next = unobservedShuffleLinkNeighbor(of: songID, direction: .next) {
+                nextLinks[songID] = next.id
+            }
+        }
+        var previousLinks: [String: String] = [:]
+        for songID in members.previous {
+            if let previous = unobservedShuffleLinkNeighbor(of: songID, direction: .previous) {
+                previousLinks[songID] = previous.id
+            }
+        }
+        let graph = ShuffleLinkGraph(nextLinks: nextLinks, previousLinks: previousLinks)
+        shuffleLinkGraphCache = graph
+        return graph
+    }
+
+    func setShuffleLinked(songID: String, direction: ShuffleLinkDirection, isLinked desired: Bool) {
+        // S2: 目标歌曲与记录歌单都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            self?.setShuffleLinked(songID: songID, direction: direction, isLinked: desired)
+        }) { return }
+        guard song(id: songID) != nil else { return }
+        let playlistID = Self.shuffleLinkPlaylistID(direction)
+        let isRecorded = (playlistSongIDs[playlistID] ?? []).contains(songID)
+        guard isRecorded != desired else { return }
+        if desired {
+            let name = direction == .next
+                ? String(localized: "playlist_shuffle_link_next_name")
+                : String(localized: "playlist_shuffle_link_previous_name")
+            ensureRecordPlaylist(id: playlistID, name: name)
+            add(songIDs: [songID], toPlaylist: playlistID, propagatesLikedMutation: false)
+        } else {
+            remove(songIDs: [songID], fromPlaylist: playlistID, propagatesLikedMutation: false)
         }
     }
 

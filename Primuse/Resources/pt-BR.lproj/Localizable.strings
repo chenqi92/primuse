@@ -2735,6 +2735,15 @@
 "song_dislike" = "Não curti";
 "song_undislike" = "Remover “Não curti”";
 "playlist_disliked_name" = "Músicas que não curti";
+"shuffle_link_menu" = "Manter juntas no aleatório";
+"shuffle_link_menu_header" = "No modo aleatório, toca junto com a faixa vizinha do álbum";
+"shuffle_link_next" = "Depois a próxima faixa";
+"shuffle_link_previous" = "Antes a faixa anterior";
+"shuffle_link_next_long" = "Aleatório: depois a próxima faixa";
+"shuffle_link_previous_long" = "Aleatório: antes a faixa anterior";
+"shuffle_link_joined_a11y" = "Toca com a próxima faixa no modo aleatório";
+"playlist_shuffle_link_next_name" = "Ligações aleatórias: próxima faixa";
+"playlist_shuffle_link_previous_name" = "Ligações aleatórias: faixa anterior";
 "disliked_songs_footer" = "As músicas que você não curtiu continuam na biblioteca e tocam quando você as escolhe, mas a reprodução aleatória, a reprodução automática, a rádio da música, as músicas parecidas e as recomendações as pulam. Curtir a música de novo a tira desta lista.";
 "disliked_songs_empty" = "Nenhuma música marcada como não curti";
 "disliked_songs_manage" = "Gerenciar…";

@@ -665,7 +665,14 @@ struct AlbumDetailView: View {
                     }
 
                     if index < disc.songs.count - 1 {
-                        Divider().padding(.leading, 12 + songRowStyle.artworkSize + songRowStyle.artworkSpacing)
+                        Divider()
+                            .padding(.leading, 12 + songRowStyle.artworkSize + songRowStyle.artworkSpacing)
+                            .overlay(alignment: .leading) {
+                                // 随机时这两首连着放(#335):两张封面之间画个链环。
+                                AlbumShuffleLinkGlyph(songID: song.id, nextSongID: disc.songs[index + 1].id)
+                                    .frame(width: 16, height: 16)
+                                    .offset(x: 12 + songRowStyle.artworkSize / 2 - 8)
+                            }
                     }
                 }
             }
@@ -976,10 +983,11 @@ struct AlbumDetailView: View {
                     }
 
                     ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
+                        let nextSongID = index < disc.songs.count - 1 ? disc.songs[index + 1].id : nil
                         if isCatalogOnly(song) {
-                            macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
+                            macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
                         } else {
-                            macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
+                            macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
                                 .songSelectable(
                                     songID: song.id,
                                     selection: selection,
@@ -1013,7 +1021,7 @@ struct AlbumDetailView: View {
     }
 
     /// 资料库里没有、按 Apple Music 目录补上的那几首压淡一档,格式那一列换成 Apple Music 标记。
-    private func macTrackRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
+    private func macTrackRow(_ song: Song, index: Int, nextSongID: String?, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let catalogOnly = isCatalogOnly(song)
         let trackNumber = AlbumTrackOrder.displayNumber(for: song, indexInDisc: index)
@@ -1043,11 +1051,15 @@ struct AlbumDetailView: View {
                 )
                 .opacity(catalogOnly ? 0.7 : 1)
 
-                Text(song.title)
-                    .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? PMColor.brand : (catalogOnly ? PMColor.textMuted : PMColor.text))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 6) {
+                    Text(song.title)
+                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                        .foregroundStyle(isCurrent ? PMColor.brand : (catalogOnly ? PMColor.textMuted : PMColor.text))
+                        .lineLimit(1)
+                    // 随机时和下一首连着放(#335)。
+                    AlbumShuffleLinkGlyph(songID: song.id, nextSongID: nextSongID)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(library.artistDisplayName(for: song) ?? "—")
                     .font(.system(size: 12))
@@ -1128,5 +1140,22 @@ struct AlbumDetailView: View {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedShort
+    }
+}
+
+/// 随机时这首和下一首连着放(#335)的链环。单独成一个视图:只有它读那两份记录,
+/// 改了连播只重画这一个小图标,不重画整张曲目表。
+private struct AlbumShuffleLinkGlyph: View {
+    @Environment(MusicLibrary.self) private var library
+    let songID: String
+    let nextSongID: String?
+
+    var body: some View {
+        if let nextSongID, library.isShuffleJoined(songID, to: nextSongID) {
+            Image(systemName: "link")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(Text("shuffle_link_joined_a11y"))
+        }
     }
 }

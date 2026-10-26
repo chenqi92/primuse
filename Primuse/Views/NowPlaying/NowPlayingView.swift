@@ -8156,6 +8156,9 @@ struct NowPlayingView: View {
                 : player.currentSong?.withoutAppliedPlaybackRange,
             showsPlaybackRange: shows(.playbackRange),
             showsClipExport: shows(.clipExport),
+            shuffleLink: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio || !shows(.shuffleLink)
+                ? nil
+                : player.currentSong.flatMap { ShuffleLinkMenuState(songID: $0.id, library: library) },
             showsScrape: shows(.scrape),
             showsSimilarSongs: shows(.similarSongs),
             showsTagEditor: shows(.editTags),
@@ -8226,6 +8229,10 @@ struct NowPlayingView: View {
             onEditPlaybackRange: { purpose in
                 guard let song = player.currentSong?.withoutAppliedPlaybackRange else { return }
                 playbackRangeEditorRequest = .init(song: song, purpose: purpose)
+            },
+            onSetShuffleLink: { direction, isLinked in
+                guard let songID = player.currentSong?.id else { return }
+                library.setShuffleLinked(songID: songID, direction: direction, isLinked: isLinked)
             },
             onShowEffectPicker: {
                 immersiveControlsAutoHideTask?.cancel()
@@ -12686,6 +12693,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 播放时间段与「铃声与导出」在菜单设置里各有一个开关。
     let showsPlaybackRange: Bool
     let showsClipExport: Bool
+    /// 「随机时连播」(#335);有声内容、Apple Music、电台,或这首没有专辑曲序可依时为 nil。
+    let shuffleLink: ShuffleLinkMenuState?
     /// 下面几项在「播放页按钮 › 『更多』菜单」里可以关掉(#198)。
     let showsScrape: Bool
     let showsSimilarSongs: Bool
@@ -12985,6 +12994,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenUpNext: () -> Void
     let onToggleDislike: () -> Void
     let onEditPlaybackRange: (SongPlaybackRangeEditor.Purpose) -> Void
+    let onSetShuffleLink: (ShuffleLinkDirection, Bool) -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
@@ -13420,6 +13430,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         showsClipExport: snapshot.showsClipExport,
                         onEdit: onEditPlaybackRange
                     )
+                }
+
+                if let shuffleLink = snapshot.shuffleLink {
+                    ShuffleLinkMenu(state: shuffleLink, setLinked: onSetShuffleLink)
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {

@@ -1606,6 +1606,15 @@
 "song_dislike" = "不喜欢";
 "song_undislike" = "取消不喜欢";
 "playlist_disliked_name" = "不喜欢的歌曲";
+"shuffle_link_menu" = "随机时连播";
+"shuffle_link_menu_header" = "随机播放时，和专辑里相邻的那首连着放";
+"shuffle_link_next" = "接着放下一首";
+"shuffle_link_previous" = "先放上一首";
+"shuffle_link_next_long" = "随机时接着放下一首";
+"shuffle_link_previous_long" = "随机时先放上一首";
+"shuffle_link_joined_a11y" = "随机时与下一首连着放";
+"playlist_shuffle_link_next_name" = "随机连播：接着放下一首";
+"playlist_shuffle_link_previous_name" = "随机连播：先放上一首";
 "disliked_songs_footer" = "不喜欢的歌仍留在曲库里，点名播放照样能听；整库随机、自动续播、单曲电台、相似歌曲和推荐都不会再挑它。重新喜欢一首歌，它就会从这里移除。";
 "disliked_songs_empty" = "还没有不喜欢的歌曲";
 "disliked_songs_manage" = "管理…";

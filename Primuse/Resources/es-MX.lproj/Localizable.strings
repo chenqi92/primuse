@@ -2735,6 +2735,15 @@
 "song_dislike" = "No me gusta";
 "song_undislike" = "Quitar “No me gusta”";
 "playlist_disliked_name" = "Canciones que no me gustan";
+"shuffle_link_menu" = "Mantener juntas en aleatorio";
+"shuffle_link_menu_header" = "En aleatorio, se reproduce junto con la canción contigua del álbum";
+"shuffle_link_next" = "Luego la siguiente canción";
+"shuffle_link_previous" = "Primero la canción anterior";
+"shuffle_link_next_long" = "Aleatorio: luego la siguiente canción";
+"shuffle_link_previous_long" = "Aleatorio: primero la canción anterior";
+"shuffle_link_joined_a11y" = "Se reproduce con la siguiente canción en aleatorio";
+"playlist_shuffle_link_next_name" = "Enlaces aleatorios: siguiente canción";
+"playlist_shuffle_link_previous_name" = "Enlaces aleatorios: canción anterior";
 "disliked_songs_footer" = "Las canciones que no te gustan siguen en tu biblioteca y se reproducen cuando tú las eliges, pero el modo aleatorio, la reproducción automática, la radio de la canción, las canciones similares y las recomendaciones las omiten. Si vuelve a gustarte una canción, sale de esta lista.";
 "disliked_songs_empty" = "No hay canciones que no te gusten";
 "disliked_songs_manage" = "Administrar…";

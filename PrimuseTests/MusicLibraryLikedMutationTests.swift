@@ -52,6 +52,74 @@ final class MusicLibraryAlbumTrackOrderTests: XCTestCase {
 }
 
 @MainActor
+final class MusicLibraryShuffleLinkTests: XCTestCase {
+    func testSwitchesLinkAlbumNeighboursAndStayOutOfPlaylists() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseShuffleLinkTests-\(UUID().uuidString)", isDirectory: true)
+        let defaultsName = "PrimuseShuffleLinkTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { false },
+            searchIndexDefaults: defaults,
+            lyricsSearchIndexRefresh: { _, _, _ in }
+        )
+        let songs = [
+            makeSong("t3", track: 3),
+            makeSong("t1", track: 1),
+            makeSong("t2", track: 2),
+            makeSong("solo", track: 1, album: "Single"),
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["shuffle-link-source"])
+        for _ in 0..<200 where library.visibleSongs.count != songs.count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.count, songs.count)
+
+        // 上一首 / 下一首按专辑曲序取, 两头和单曲专辑没有那一边。
+        XCTAssertEqual(library.shuffleLinkNeighbor(of: "t2", direction: .next)?.id, "t3")
+        XCTAssertEqual(library.shuffleLinkNeighbor(of: "t2", direction: .previous)?.id, "t1")
+        XCTAssertNil(library.shuffleLinkNeighbor(of: "t3", direction: .next))
+        XCTAssertNil(library.shuffleLinkNeighbor(of: "solo", direction: .previous))
+        XCTAssertTrue(library.shuffleLinkGraph.isEmpty)
+
+        library.setShuffleLinked(songID: "t1", direction: .next, isLinked: true)
+        library.setShuffleLinked(songID: "t3", direction: .previous, isLinked: true)
+        XCTAssertTrue(library.isShuffleLinked(songID: "t1", direction: .next))
+        XCTAssertFalse(library.isShuffleLinked(songID: "t1", direction: .previous))
+        let graph = library.shuffleLinkGraph
+        XCTAssertTrue(graph.isLinked("t1", to: "t2"))
+        XCTAssertTrue(graph.isLinked("t2", to: "t3"))
+        XCTAssertTrue(graph.brings("t1", .next))
+        XCTAssertTrue(graph.brings("t3", .previous))
+        XCTAssertFalse(graph.brings("t2", .next))
+        XCTAssertTrue(library.isShuffleJoined("t1", to: "t2"))
+
+        // 两份记录不进歌单列表, 也不能改名。
+        XCTAssertFalse(library.playlists.contains { MusicLibrary.recordPlaylistIDs.contains($0.id) })
+        let record = try XCTUnwrap(library.playlist(id: MusicLibrary.shuffleLinkNextPlaylistID))
+        XCTAssertFalse(MusicLibrary.allowsRename(record))
+
+        library.setShuffleLinked(songID: "t1", direction: .next, isLinked: false)
+        XCTAssertFalse(library.shuffleLinkGraph.isLinked("t1", to: "t2"))
+        XCTAssertTrue(library.shuffleLinkGraph.isLinked("t2", to: "t3"))
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated shuffle-link library should persist")
+        }
+    }
+
+    private func makeSong(_ id: String, track: Int, album: String = "Live") -> Song {
+        Song(id: id, title: id, albumTitle: album, artistName: "Artist",
+             albumArtistName: "Artist", trackNumber: track, discNumber: 1,
+             fileFormat: .flac, filePath: "/\(id).flac", sourceID: "shuffle-link-source")
+    }
+}
+
+@MainActor
 final class LibraryReviewTests: XCTestCase {
     func testReviewNormalizationPersistenceAndDeletionTombstone() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -493,7 +561,7 @@ final class MusicLibraryDislikedSongsTests: XCTestCase {
         library.prunePlaylists(deletedBefore: .distantFuture)
         XCTAssertEqual(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID)?.isPurged, false)
 
-        library.restoreDislikedPlaylistIfDeleted()
+        library.restoreRecordPlaylistsIfDeleted()
         XCTAssertEqual(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID)?.isDeleted, false)
         XCTAssertTrue(library.isDisliked(songID: "song-1"))
     }

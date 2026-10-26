@@ -1590,6 +1590,15 @@
 "song_dislike" = "Dislike";
 "song_undislike" = "Remove Dislike";
 "playlist_disliked_name" = "Disliked Songs";
+"shuffle_link_menu" = "Keep Together in Shuffle";
+"shuffle_link_menu_header" = "In shuffle, play with the adjacent track on the album";
+"shuffle_link_next" = "Then Play Next Track";
+"shuffle_link_previous" = "First Play Previous Track";
+"shuffle_link_next_long" = "In Shuffle, Then Play Next Track";
+"shuffle_link_previous_long" = "In Shuffle, First Play Previous Track";
+"shuffle_link_joined_a11y" = "Plays with the next track in shuffle";
+"playlist_shuffle_link_next_name" = "Shuffle Links: Next Track";
+"playlist_shuffle_link_previous_name" = "Shuffle Links: Previous Track";
 "disliked_songs_footer" = "Disliked songs stay in your library and still play when you pick them, but shuffle, autoplay, song radio, similar songs and recommendations skip them. Liking a song takes it off this list.";
 "disliked_songs_empty" = "No Disliked Songs";
 "disliked_songs_manage" = "Manage…";

@@ -1581,6 +1581,15 @@
 "song_dislike" = "싫어요";
 "song_undislike" = "싫어요 취소";
 "playlist_disliked_name" = "싫어요 표시한 곡";
+"shuffle_link_menu" = "셔플 시 이어서 재생";
+"shuffle_link_menu_header" = "셔플 재생 시 앨범에서 인접한 곡과 이어서 재생합니다";
+"shuffle_link_next" = "다음 곡 이어서 재생";
+"shuffle_link_previous" = "이전 곡 먼저 재생";
+"shuffle_link_next_long" = "셔플 시 다음 곡 이어서 재생";
+"shuffle_link_previous_long" = "셔플 시 이전 곡 먼저 재생";
+"shuffle_link_joined_a11y" = "셔플 시 다음 곡과 이어서 재생";
+"playlist_shuffle_link_next_name" = "셔플 연결: 다음 곡";
+"playlist_shuffle_link_previous_name" = "셔플 연결: 이전 곡";
 "disliked_songs_footer" = "싫어요 표시한 곡은 보관함에 그대로 남아 직접 고르면 재생되지만, 셔플, 자동 재생, 노래 라디오, 비슷한 곡, 추천에서는 제외됩니다. 다시 좋아요를 누르면 이 목록에서 빠집니다.";
 "disliked_songs_empty" = "싫어요 표시한 곡 없음";
 "disliked_songs_manage" = "관리…";

@@ -13,6 +13,7 @@
 		1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		28737F944638146B0887DFC4 /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395769E49D02317F12D55313 /* PalveniDiagnosticsClient.swift */; };
 		28C934067C5B459CB5AD85F3 /* ImmersiveKineticLyricsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */; };
+		3182ACCA84FAA40940EABC6A /* ShuffleLinkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F463E26A65AE05C0E70B695 /* ShuffleLinkPolicy.swift */; };
 		33D1E32F333BB6855ACD7CA3 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		3B0F187D3A2F82837C1F159D /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		4FCC658948028BEF55AF1754 /* PalveniDiagnosticUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491192C7D9AA8DDDC5C06AF5 /* PalveniDiagnosticUpload.swift */; };
@@ -2404,6 +2405,7 @@
 		564E8FBCA3B599DC24756490 /* NowPlayingWatchControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWatchControls.swift; sourceTree = "<group>"; };
 		5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticDirectionPolicy.swift; sourceTree = "<group>"; };
 		5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsPolicy.swift; sourceTree = "<group>"; };
+		6F463E26A65AE05C0E70B695 /* ShuffleLinkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuffleLinkPolicy.swift; sourceTree = "<group>"; };
 		9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMarbleRun.swift; sourceTree = "<group>"; };
 		BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticRhythmChart.swift; sourceTree = "<group>"; };
 		C7F5470D332D28A4C0E0B5C9 /* HTTPDeclaredBodyLengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPDeclaredBodyLengthPolicy.swift; sourceTree = "<group>"; };
@@ -4420,6 +4422,7 @@
 				A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */,
 				40980373B716BCFA76010C17 /* FireflySwarmSimulation.swift */,
 				99C30A24BB200AF2D4BD57C9 /* FlyAuditoryCircuit.swift */,
+				6F463E26A65AE05C0E70B695 /* ShuffleLinkPolicy.swift */,
 				E48077F43523B90C9F35E6E1 /* WebDAVDirectoryRequestPolicy.swift */,
 				F9A8DF3B551183B85883E4A7 /* ImmersiveBeatTracker.swift */,
 				C161382065B391D1C54B9209 /* Import */,
@@ -6838,6 +6841,7 @@
 				59A3EF0334C25E2609A93481 /* BaiduTranslateAPI.swift in Sources */,
 				E64453887CFCBC6B16DA46E5 /* AliyunFunASR.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
+				3182ACCA84FAA40940EABC6A /* ShuffleLinkPolicy.swift in Sources */,
 				04C9FC6502E640BA51DF1190 /* SpokenTranscriptGeneration.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
 				7E3FBA7C13902D9125348C3B /* AISemanticAlbumGroupPolicy.swift in Sources */,

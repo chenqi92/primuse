@@ -2735,6 +2735,15 @@
 "song_dislike" = "Nie podoba mi się";
 "song_undislike" = "Usuń „Nie podoba mi się”";
 "playlist_disliked_name" = "Odrzucone utwory";
+"shuffle_link_menu" = "Razem w trybie losowym";
+"shuffle_link_menu_header" = "W trybie losowym odtwarza razem z sąsiednim utworem z albumu";
+"shuffle_link_next" = "Potem następny utwór";
+"shuffle_link_previous" = "Najpierw poprzedni utwór";
+"shuffle_link_next_long" = "Losowo: potem następny utwór";
+"shuffle_link_previous_long" = "Losowo: najpierw poprzedni utwór";
+"shuffle_link_joined_a11y" = "W trybie losowym gra razem z następnym utworem";
+"playlist_shuffle_link_next_name" = "Powiązania losowe: następny utwór";
+"playlist_shuffle_link_previous_name" = "Powiązania losowe: poprzedni utwór";
 "disliked_songs_footer" = "Odrzucone utwory zostają w bibliotece i grają, gdy sam je wybierzesz, ale odtwarzanie losowe, autoodtwarzanie, radio utworu, podobne utwory i rekomendacje je pomijają. Ponowne polubienie utworu usuwa go z tej listy.";
 "disliked_songs_empty" = "Brak odrzuconych utworów";
 "disliked_songs_manage" = "Zarządzaj…";

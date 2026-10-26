@@ -142,6 +142,22 @@ struct TVOptionsView: View {
                                       run: { playbackRangeTarget = TVSongMatchTarget(id: id) }))
             }
         }
+        // 随机时连播(#335):一块磁贴一边,下面写着相邻那首的歌名,就地开关。
+        if let id = store.currentSongID, !isSpokenWord, !store.isLiveRadio {
+            for direction in ShuffleLinkDirection.allCases {
+                guard let title = store.shuffleLinkNeighborTitle(id, direction) else { continue }
+                let label = direction == .next
+                    ? String(localized: "shuffle_link_next_long")
+                    : String(localized: "shuffle_link_previous_long")
+                playback.append(.init(
+                    id: "shuffleLink.\(direction.rawValue)",
+                    icon: direction == .next ? "forward.end" : "backward.end",
+                    label: label + "\n" + title,
+                    on: store.isShuffleLinked(id, direction),
+                    run: { store.toggleShuffleLink(id, direction) }
+                ))
+            }
+        }
         playback.append(.init(id: "sleep", icon: "moon.zzz.fill",
                               label: store.sleepTimerMinutes > 0
                                   ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)

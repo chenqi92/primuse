@@ -2735,6 +2735,15 @@
 "song_dislike" = "ไม่ชอบ";
 "song_undislike" = "เลิกไม่ชอบ";
 "playlist_disliked_name" = "เพลงที่ไม่ชอบ";
+"shuffle_link_menu" = "เล่นต่อกันเมื่อสุ่ม";
+"shuffle_link_menu_header" = "เมื่อเล่นแบบสุ่ม จะเล่นต่อกับเพลงที่อยู่ติดกันในอัลบั้ม";
+"shuffle_link_next" = "แล้วเล่นเพลงถัดไป";
+"shuffle_link_previous" = "เล่นเพลงก่อนหน้าก่อน";
+"shuffle_link_next_long" = "เมื่อสุ่ม แล้วเล่นเพลงถัดไป";
+"shuffle_link_previous_long" = "เมื่อสุ่ม เล่นเพลงก่อนหน้าก่อน";
+"shuffle_link_joined_a11y" = "เล่นต่อกับเพลงถัดไปเมื่อสุ่ม";
+"playlist_shuffle_link_next_name" = "ลิงก์การสุ่ม: เพลงถัดไป";
+"playlist_shuffle_link_previous_name" = "ลิงก์การสุ่ม: เพลงก่อนหน้า";
 "disliked_songs_footer" = "เพลงที่ไม่ชอบยังอยู่ในคลังและเล่นได้เมื่อคุณเลือกเอง แต่การสุ่มเล่น การเล่นอัตโนมัติ วิทยุจากเพลง เพลงที่คล้ายกัน และคำแนะนำจะข้ามเพลงเหล่านี้ไป หากกลับมากดชอบเพลงนั้น เพลงจะหายไปจากรายการนี้";
 "disliked_songs_empty" = "ยังไม่มีเพลงที่ไม่ชอบ";
 "disliked_songs_manage" = "จัดการ…";

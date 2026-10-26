@@ -209,8 +209,9 @@ extension AudioPlayerService {
         for song in library.musicSongs where song.isPlayable && !dislikedIDs.contains(song.id) {
             playableIDs.append(song.id)
         }
+        let queueIDs = queueEntries.map(\.song.id)
         let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
-            queueIDs: queueEntries.map(\.song.id),
+            queueIDs: queueIDs,
             libraryIDs: playableIDs,
             currentID: currentSong?.id
         )
@@ -218,10 +219,24 @@ extension AudioPlayerService {
 
         // 一次只续一段随机抽出的歌; 这段播完还会再续下一段, 整库仍然都轮得到,
         // 但队列不会一下子涨成整个曲库。抽哪一段跟着抽歌偏好走(#332)。
-        let orderedIDs = shuffleWeighting()?.shuffled(ids: candidateIDs, lookup: library.visibleSongLookup())
-            ?? candidateIDs.shuffled()
-        let additions = orderedIDs
-            .prefix(QueueWindowPolicy.windowLimit)
+        // 连着放的歌(#335)排在一起, 截这一段时不从中间截断。
+        let graph = shuffleLinkGraph()
+        let weighting = shuffleWeighting()
+        let lookup = library.visibleSongLookup()
+        let shuffle: ([String]) -> [String] = { ids in
+            weighting?.shuffled(ids: ids, lookup: lookup) ?? ids.shuffled()
+        }
+        let orderedIDs: [String]
+        if graph.isEmpty {
+            orderedIDs = shuffle(candidateIDs)
+        } else {
+            let brought = ShuffleLinkPolicy.bringingLinkedSongs(
+                candidateIDs, graph: graph, excluding: Set(queueIDs)
+            ) { library.unobservedVisibleSong(id: $0)?.isPlayable == true }
+            orderedIDs = ShuffleLinkPolicy.shuffled(brought, graph: graph, id: { $0 }, shuffle: shuffle)
+        }
+        let additions = ShuffleLinkPolicy
+            .prefix(orderedIDs, maxCount: QueueWindowPolicy.windowLimit, graph: graph, id: { $0 })
             .compactMap { library.unobservedVisibleSong(id: $0) }
         guard !additions.isEmpty else { return false }
 
@@ -229,8 +244,7 @@ extension AudioPlayerService {
         invalidatePreparedQueueSuccessor()
         queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
         pendingNextShuffleIndices = nil
-        shuffledIndices = [currentIndex]
-            + shuffledQueueIndices(firstNewIndex..<queueEntries.count)
+        shuffledIndices = shuffledQueueIndices(firstNewIndex..<queueEntries.count, leading: currentIndex)
         shufflePosition = 0
         plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
         return true
@@ -294,7 +308,26 @@ extension AudioPlayerService {
         let firstNewIndex = queueEntries.count
         queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
         if shuffleEnabled {
-            shuffledIndices.append(contentsOf: shuffledQueueIndices(firstNewIndex..<queueEntries.count))
+            let addition = shuffledQueueIndices(firstNewIndex..<queueEntries.count)
+            let graph = shuffleLinkGraph()
+            if graph.isEmpty {
+                shuffledIndices.append(contentsOf: addition)
+            } else {
+                // 跟本轮还没放到的歌连着的(#335), 接到那首旁边; 接到正在放的这首后面时下一首变了。
+                let entries = queueEntries
+                let anchor = shuffleAnchorPosition ?? shufflePosition
+                let previousNext = shuffledIndices.indices.contains(anchor + 1) ? shuffledIndices[anchor + 1] : nil
+                shuffledIndices = ShuffleLinkPolicy.appending(
+                    addition,
+                    to: shuffledIndices,
+                    anchor: anchor,
+                    graph: graph,
+                    id: { entries.indices.contains($0) ? entries[$0].song.id : nil }
+                )
+                if upcoming > 0, shuffledIndices.indices.contains(anchor + 1), shuffledIndices[anchor + 1] != previousNext {
+                    invalidatePreparedQueueSuccessor()
+                }
+            }
         }
         pendingNextShuffleIndices = nil
         if isAppleMusicMode {
@@ -764,17 +797,11 @@ extension AudioPlayerService {
 
     func rebuildShuffleOrder() {
         guard !queueEntries.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
-        var order = shuffledQueueIndices(0..<queueEntries.count)
         // Place current index at position 0 so current song stays first
         // when shuffle is toggled mid-playback (we don't want to jump
         // off the current track). Wrap-around uses a different builder.
-        // 挪到最前而不是和 0 号位对调: 按抽歌偏好排在最前的那首不该被换到当前这首
-        // 原来的位置上。完全随机时两种做法得到的顺序分布一样。
-        if let pos = order.firstIndex(of: currentIndex), pos != 0 {
-            order.remove(at: pos)
-            order.insert(currentIndex, at: 0)
-        }
-        shuffledIndices = order
+        // 随机时跟它连着放的歌(#335)紧跟在它后面。
+        shuffledIndices = shuffledQueueIndices(0..<queueEntries.count, leading: currentIndex)
         shufflePosition = 0
         pendingNextShuffleIndices = nil
     }
@@ -784,18 +811,76 @@ extension AudioPlayerService {
         ShufflePlayCountStore.shared.weighting(for: playbackSettings.shufflePreference, library: library)
     }
 
-    /// 各入口「随机播放」先自己排好整张列表再交给 `play(queue:)`, 第一首就是排在最前的那首;
-    /// 经这里排, 第一首也按抽歌偏好来抽。完全随机时就是 `shuffled()`。
-    func shufflePlayOrder(_ songs: [Song]) -> [Song] {
-        guard songs.count > 1, let weighting = shuffleWeighting() else { return songs.shuffled() }
-        return weighting.shuffled(songs, song: { $0 })
+    /// 随机时连着放的歌(#335)。
+    func shuffleLinkGraph() -> ShuffleLinkGraph {
+        library?.shuffleLinkGraph ?? .empty
     }
 
-    /// 队列里这一段位置按抽歌偏好排成的随机顺序。
-    func shuffledQueueIndices(_ range: Range<Int>) -> [Int] {
-        guard range.count > 1, let weighting = shuffleWeighting() else { return Array(range).shuffled() }
+    /// 各入口「随机播放」先自己排好整张列表再交给 `play(queue:)`, 第一首就是排在最前的那首;
+    /// 经这里排, 第一首也按抽歌偏好来抽。完全随机时就是 `shuffled()`。
+    /// 连着放的歌排在一起, 列表里缺的那首按设了开关的一边从曲库补进来(#335)。
+    func shufflePlayOrder(_ songs: [Song]) -> [Song] {
+        let graph = shuffleLinkGraph()
+        guard !graph.isEmpty, let library, !songs.isEmpty else {
+            guard songs.count > 1, let weighting = shuffleWeighting() else { return songs.shuffled() }
+            return weighting.shuffled(songs, song: { $0 })
+        }
+        let ids = ShuffleLinkPolicy.bringingLinkedSongs(songs.map(\.id), graph: graph) { id in
+            library.unobservedVisibleSong(id: id)?.isPlayable == true
+        }
+        // 原有的歌先后不变, 补进来的都不在原列表里: 顺着走一遍就能对回原来那份 `Song`。
+        var list: [Song] = []
+        list.reserveCapacity(ids.count)
+        var original = songs.makeIterator()
+        var pending = original.next()
+        for id in ids {
+            if let song = pending, song.id == id {
+                list.append(song)
+                pending = original.next()
+            } else if let song = library.unobservedVisibleSong(id: id) {
+                list.append(song)
+            }
+        }
+        let weighting = shuffleWeighting()
+        let order = ShuffleLinkPolicy.shuffled(Array(list.indices), graph: graph, id: { list[$0].id }) { heads in
+            guard heads.count > 1, let weighting else { return heads.shuffled() }
+            return weighting.shuffled(heads, song: { list[$0] })
+        }
+        return order.map { list[$0] }
+    }
+
+    /// 队列里这一段位置按抽歌偏好排成的随机顺序。连着放的歌排在一起(#335);
+    /// 给了 `lead` 时它打头(不在这一段里也一样), 跟它连着的紧跟在后面。
+    func shuffledQueueIndices(_ range: Range<Int>, leading lead: Int? = nil) -> [Int] {
         let entries = queueEntries
-        return weighting.shuffled(Array(range), song: { entries.indices.contains($0) ? entries[$0].song : nil })
+        let weighting = shuffleWeighting()
+        let graph = shuffleLinkGraph()
+        guard !graph.isEmpty else {
+            var order: [Int]
+            if range.count > 1, let weighting {
+                order = weighting.shuffled(Array(range), song: { entries.indices.contains($0) ? entries[$0].song : nil })
+            } else {
+                order = Array(range).shuffled()
+            }
+            // 挪到最前而不是和 0 号位对调: 按抽歌偏好排在最前的那首不该被换到当前这首
+            // 原来的位置上。完全随机时两种做法得到的顺序分布一样。
+            if let lead {
+                if let position = order.firstIndex(of: lead) { order.remove(at: position) }
+                order.insert(lead, at: 0)
+            }
+            return order
+        }
+        var elements = Array(range)
+        if let lead, !range.contains(lead) { elements.insert(lead, at: 0) }
+        return ShuffleLinkPolicy.shuffled(
+            elements,
+            graph: graph,
+            id: { entries.indices.contains($0) ? entries[$0].song.id : nil },
+            leading: lead
+        ) { heads in
+            guard heads.count > 1, let weighting else { return heads.shuffled() }
+            return weighting.shuffled(heads, song: { entries.indices.contains($0) ? entries[$0].song : nil })
+        }
     }
 
     /// Cache the first generated repeat-all round. `pendingNextShuffleIndices`
@@ -824,6 +909,19 @@ extension AudioPlayerService {
         // the boundary. Compare against the eventual last slot of this round,
         // not the song that happened to be current when the preview opened.
         let boundaryIndex = shuffledIndices.last ?? currentIndex
+        let graph = shuffleLinkGraph()
+        if !graph.isEmpty {
+            // 连着放的歌(#335)整块挪, 也不插进别的块中间。
+            let entries = queueEntries
+            var generator = SystemRandomNumberGenerator()
+            return ShuffleLinkPolicy.movingLeadingBlock(
+                awayFrom: boundaryIndex,
+                in: order,
+                graph: graph,
+                id: { entries.indices.contains($0) ? entries[$0].song.id : nil },
+                using: &generator
+            )
+        }
         if queueEntries.count > 1, order.first == boundaryIndex {
             // 只把这一首挪到后面随便一个位置, 其余的先后不动, 抽歌偏好排出的次序保留下来。
             order.removeFirst()

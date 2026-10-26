@@ -350,6 +350,13 @@ extension AudioPlayerService {
         return outcome
     }
 
+    /// 接下来这首是随机时跟正在放的这首连着放的(#335): 曲末不淡入淡出, 照无缝接上。
+    /// 串烧是截片段拼的, 不算。
+    func nextJoinsCurrentAsShuffleLink(_ next: Song?) -> Bool {
+        guard !isMedleyActive, let next, let currentID = currentSong?.id, next.id != currentID else { return false }
+        return shuffleLinkGraph().isLinked(currentID, to: next.id)
+    }
+
     /// Chapters, and a book giving way to music, change over without an
     /// overlap; crossfading is for songs.
     func crossfadeSuitsSpaces(into song: Song) -> Bool {
@@ -414,6 +421,7 @@ extension AudioPlayerService {
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = nextEntry.song
         guard nextSong.id != currentSong?.id else { return }
+        guard !nextJoinsCurrentAsShuffleLink(nextSong) else { return }
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
         guard crossfadeSuitsSpaces(into: nextSong) else { return }
         if let failed = lastFailedAutomaticCrossfade,

@@ -348,6 +348,19 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     playbackRangeEditorRequest = .init(song: rangeSong, purpose: .clip)
                 }
             }
+            if let link = shuffleLinkState, let songID = player.currentSong?.id {
+                // 随机时连播(#335):两行开关,不收起面板。
+                if link.nextTitle != nil {
+                    checkRow(title: "shuffle_link_next_long", symbol: "forward.end", isChecked: link.linksNext) {
+                        library.setShuffleLinked(songID: songID, direction: .next, isLinked: !link.linksNext)
+                    }
+                }
+                if link.previousTitle != nil {
+                    checkRow(title: "shuffle_link_previous_long", symbol: "backward.end", isChecked: link.linksPrevious) {
+                        library.setShuffleLinked(songID: songID, direction: .previous, isLinked: !link.linksPrevious)
+                    }
+                }
+            }
             if isPodcastEpisode {
                 if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
                     menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
@@ -755,6 +768,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isChecked ? [.isToggle, .isSelected] : .isToggle)
+    }
+
+    /// 「随机时连播」(#335):曲库里有专辑曲序可依的音乐才有;有声内容、Apple Music、电台没有。
+    private var shuffleLinkState: ShuffleLinkMenuState? {
+        guard !player.isAppleMusicMode, !player.isLiveRadio, !player.currentItemIsSpokenWord,
+              let songID = player.currentSong?.id else { return nil }
+        return ShuffleLinkMenuState(songID: songID, library: library)
     }
 
     /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台没有这一项。

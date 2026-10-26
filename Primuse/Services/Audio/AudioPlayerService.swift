@@ -7302,11 +7302,14 @@ final class AudioPlayerService {
         settings: PlaybackSettings,
         nextSourceSampleRate: Double?? = nil
     ) -> ContinuousTransitionPlan {
-        guard settings.gaplessEnabled,
-              !shouldUseCrossfade(settings),
+        let next = nextSongInQueue()
+        // 随机时连着放的两首(#335)照无缝接上: 没开无缝、开着淡入淡出时也一样,
+        // 淡入淡出到这一首让开(见 `checkCrossfade`)。
+        let joinsShuffleLink = nextJoinsCurrentAsShuffleLink(next)
+        guard settings.gaplessEnabled || joinsShuffleLink,
+              !shouldUseCrossfade(settings) || joinsShuffleLink,
               repeatMode != .one else { return .restart }
 
-        let next = nextSongInQueue()
         // Spoken word forces the effects graph (`outputMode(for:)`); a book
         // next to music on the bit-exact graph needs the graph rebuilt.
         if let next, outputMode(for: next) != outputMode(for: currentSong) {

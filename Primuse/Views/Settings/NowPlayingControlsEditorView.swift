@@ -1882,7 +1882,8 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_quick", [.fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
         ("player_menu_group_modes", [.karaoke, .medley]),
         ("player_menu_group_song", [
-            .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .editTags, .editLyrics,
+            .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
+            .editTags, .editLyrics,
         ]),
         ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
         ("player_menu_group_playback", [.cast, .lyricsDisplay, .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
@@ -2017,6 +2018,7 @@ extension NowPlayingMenuItem {
         case .clipExport: SongPlaybackRangeEditor.clipSymbol
         case .generateTranscript: "waveform.and.mic"
         case .immersiveFaceToggle: "photo"
+        case .shuffleLink: "link"
         }
     }
 
@@ -2054,6 +2056,7 @@ extension NowPlayingMenuItem {
         case .clipExport: "clip_export_tab"
         case .generateTranscript: "transcript_generation_title"
         case .immersiveFaceToggle: "player_menu_item_immersive_face"
+        case .shuffleLink: "shuffle_link_menu"
         }
     }
 }

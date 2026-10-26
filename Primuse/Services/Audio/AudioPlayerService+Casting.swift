@@ -1871,7 +1871,10 @@ extension AudioPlayerService {
         let token = queueRequestToken
         let lookup = library.visibleSongLookup()
         // 随机的整库请求也按抽歌偏好(#332)排, 装进窗口的那一段才是偏好想先播的歌。
-        let weighting = (order == .asGiven || order == .rotatedToStart) ? nil : shuffleWeighting()
+        let isShuffled = !(order == .asGiven || order == .rotatedToStart)
+        let weighting = isShuffled ? shuffleWeighting() : nil
+        // 随机时连着放的歌(#335)排在一起。
+        let linkGraph = isShuffled ? shuffleLinkGraph() : .empty
         let startedAt = ProcessInfo.processInfo.systemUptime
         let prepared = await Task.detached(priority: .userInitiated) {
             LargeQueueRequestPlanner.plan(
@@ -1880,6 +1883,7 @@ extension AudioPlayerService {
                 order: order,
                 includes: { id in lookup.contains(id: id, playableOnly: playableOnly) },
                 resolve: { lookup.song(id: $0) },
+                linkGraph: linkGraph,
                 shuffle: { weighting?.shuffled(ids: $0, lookup: lookup) ?? $0.shuffled() }
             )
         }.value

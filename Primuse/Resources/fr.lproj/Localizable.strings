@@ -1581,6 +1581,15 @@
 "song_dislike" = "Je n’aime pas";
 "song_undislike" = "Annuler « Je n’aime pas »";
 "playlist_disliked_name" = "Morceaux écartés";
+"shuffle_link_menu" = "Enchaîner en lecture aléatoire";
+"shuffle_link_menu_header" = "En lecture aléatoire, enchaîner avec le morceau voisin de l’album";
+"shuffle_link_next" = "Puis le morceau suivant";
+"shuffle_link_previous" = "D’abord le morceau précédent";
+"shuffle_link_next_long" = "Aléatoire : puis le morceau suivant";
+"shuffle_link_previous_long" = "Aléatoire : d’abord le morceau précédent";
+"shuffle_link_joined_a11y" = "Enchaîné avec le morceau suivant en lecture aléatoire";
+"playlist_shuffle_link_next_name" = "Enchaînements aléatoires : morceau suivant";
+"playlist_shuffle_link_previous_name" = "Enchaînements aléatoires : morceau précédent";
 "disliked_songs_footer" = "Les morceaux écartés restent dans votre bibliothèque et se lisent quand vous les choisissez, mais la lecture aléatoire, la lecture automatique, la radio du morceau, les morceaux similaires et les recommandations les ignorent. Aimer de nouveau un morceau le retire de cette liste.";
 "disliked_songs_empty" = "Aucun morceau écarté";
 "disliked_songs_manage" = "Gérer…";

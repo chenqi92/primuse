@@ -2514,6 +2514,8 @@ struct SongListView: View {
             SongPlaybackRangeMenuItems(song: latestSong(song)) { purpose in
                 contextPlaybackRangeRequest = .init(song: latestSong(song), purpose: purpose)
             }
+
+            SongShuffleLinkMenu(songID: song.id)
         }
 
         if song.sourceID != AppleMusicLibraryService.systemSourceID {

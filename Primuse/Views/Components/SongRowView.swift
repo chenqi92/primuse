@@ -810,6 +810,8 @@ struct SongRowView: View {
                 playbackRangeEditorRequest = .init(song: song, purpose: purpose)
             }
 
+            SongShuffleLinkMenu(songID: song.id)
+
             if supportsOfflineAudioCache {
                 SongOfflineActionButtons(song: song, snapshot: offline)
             }
@@ -2302,6 +2304,76 @@ struct SongFeedbackMenuButtons: View {
                     Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
                 }
             }
+        }
+    }
+}
+
+/// 单曲菜单里的「随机时连播」(#335):这首和专辑里相邻的上一首 / 下一首,随机播放时连着放。
+/// 单独成一个视图,理由同 `SongFeedbackMenuButtons`。没有专辑曲序可依的歌(散曲、有声内容)不出现。
+struct SongShuffleLinkMenu: View {
+    @Environment(MusicLibrary.self) private var library
+    let songID: String
+
+    var body: some View {
+        if let state = ShuffleLinkMenuState(songID: songID, library: library) {
+            ShuffleLinkMenu(state: state) { direction, isLinked in
+                library.setShuffleLinked(songID: songID, direction: direction, isLinked: isLinked)
+            }
+        }
+    }
+}
+
+/// 「随机时连播」那一层显示什么。按值传,播放页「更多」菜单不读环境。
+struct ShuffleLinkMenuState: Equatable {
+    /// 专辑里的下一首 / 上一首的歌名;在专辑两头时那一边为 nil,不给那一项。
+    let nextTitle: String?
+    let previousTitle: String?
+    let linksNext: Bool
+    let linksPrevious: Bool
+
+    @MainActor
+    init?(songID: String, library: MusicLibrary) {
+        let next = library.shuffleLinkNeighbor(of: songID, direction: .next)
+        let previous = library.shuffleLinkNeighbor(of: songID, direction: .previous)
+        guard next != nil || previous != nil else { return nil }
+        nextTitle = next?.title
+        previousTitle = previous?.title
+        linksNext = library.isShuffleLinked(songID: songID, direction: .next)
+        linksPrevious = library.isShuffleLinked(songID: songID, direction: .previous)
+    }
+}
+
+/// 子菜单本身:两个开关,下面写着相邻那首的歌名。
+struct ShuffleLinkMenu: View {
+    let state: ShuffleLinkMenuState
+    let setLinked: (ShuffleLinkDirection, Bool) -> Void
+
+    var body: some View {
+        Menu {
+            Section(String(localized: "shuffle_link_menu_header")) {
+                if let title = state.nextTitle {
+                    Toggle(isOn: Binding(get: { state.linksNext }, set: { setLinked(.next, $0) })) {
+                        Label {
+                            Text("shuffle_link_next")
+                            Text(verbatim: title)
+                        } icon: {
+                            Image(systemName: "forward.end")
+                        }
+                    }
+                }
+                if let title = state.previousTitle {
+                    Toggle(isOn: Binding(get: { state.linksPrevious }, set: { setLinked(.previous, $0) })) {
+                        Label {
+                            Text("shuffle_link_previous")
+                            Text(verbatim: title)
+                        } icon: {
+                            Image(systemName: "backward.end")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(String(localized: "shuffle_link_menu"), systemImage: "link")
         }
     }
 }

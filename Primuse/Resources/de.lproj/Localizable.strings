@@ -1581,6 +1581,15 @@
 "song_dislike" = "Gefällt mir nicht";
 "song_undislike" = "„Gefällt mir nicht“ entfernen";
 "playlist_disliked_name" = "Abgelehnte Titel";
+"shuffle_link_menu" = "Im Zufallsmodus zusammen";
+"shuffle_link_menu_header" = "Im Zufallsmodus zusammen mit dem benachbarten Titel des Albums abspielen";
+"shuffle_link_next" = "Danach nächsten Titel";
+"shuffle_link_previous" = "Zuerst vorherigen Titel";
+"shuffle_link_next_long" = "Zufallsmodus: danach nächsten Titel";
+"shuffle_link_previous_long" = "Zufallsmodus: zuerst vorherigen Titel";
+"shuffle_link_joined_a11y" = "Wird im Zufallsmodus mit dem nächsten Titel abgespielt";
+"playlist_shuffle_link_next_name" = "Zufallsverknüpfung: nächster Titel";
+"playlist_shuffle_link_previous_name" = "Zufallsverknüpfung: vorheriger Titel";
 "disliked_songs_footer" = "Abgelehnte Titel bleiben in deiner Mediathek und laufen, wenn du sie selbst auswählst – Zufallswiedergabe, Autoplay, Titelradio, ähnliche Titel und Empfehlungen überspringen sie aber. Gefällt dir ein Titel wieder, verschwindet er von dieser Liste.";
 "disliked_songs_empty" = "Keine abgelehnten Titel";
 "disliked_songs_manage" = "Verwalten …";

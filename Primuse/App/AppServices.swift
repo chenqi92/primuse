@@ -1779,7 +1779,7 @@ final class AppServices {
 
         let pruneThreshold = RecoverableDeletionPolicy.pruneThreshold()
         musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
-        musicLibrary.restoreDislikedPlaylistIfDeleted()
+        musicLibrary.restoreRecordPlaylistsIfDeleted()
         musicLibrary.pruneSmartPlaylists(deletedBefore: pruneThreshold)
         radioStationsStore.pruneTombstones(deletedBefore: pruneThreshold)
         LibraryFavoritesStore.shared.pruneTombstones(before: pruneThreshold)

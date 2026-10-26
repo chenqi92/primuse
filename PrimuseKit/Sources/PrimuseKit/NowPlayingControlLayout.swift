@@ -171,6 +171,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case generateTranscript
     /// 竖屏原生全屏里顶替「全屏」那一格的封面 / 歌词切换。
     case immersiveFaceToggle
+    /// 「随机时连播」(#335)。
+    case shuffleLink
 
     public var id: String { rawValue }
 }

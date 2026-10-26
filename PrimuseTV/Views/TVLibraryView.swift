@@ -1595,7 +1595,7 @@ struct TVAlbumDetailView: View {
                                 TVPagedList(
                                     tracks, alignment: .leading, spacing: 10,
                                     revealing: initialFocusSongID.flatMap { id in tracks.firstIndex { $0.id == id } }
-                                ) { _, track, onFocusChanged in
+                                ) { index, track, onFocusChanged in
                                     VStack(alignment: .leading, spacing: 10) {
                                         if let disc = track.discHeader {
                                             Text(verbatim: "\(String(localized: "disc_label")) \(disc)")
@@ -1604,7 +1604,12 @@ struct TVAlbumDetailView: View {
                                                 .padding(.top, track.id == tracks.first?.id ? 0 : 18)
                                                 .padding(.leading, 22)
                                         }
-                                        trackRow(track, albumArtist: album.artist, onFocusChanged: onFocusChanged) {
+                                        trackRow(
+                                            track,
+                                            nextTrackID: tracks.indices.contains(index + 1) ? tracks[index + 1].id : nil,
+                                            albumArtist: album.artist,
+                                            onFocusChanged: onFocusChanged
+                                        ) {
                                             guard store.play(track.song, in: songIDs) else { return }
                                             finishPlayback(songID: track.id)
                                         }
@@ -2022,6 +2027,7 @@ struct TVAlbumDetailView: View {
 
     private func trackRow(
         _ track: Track,
+        nextTrackID: String?,
         albumArtist: String,
         onFocusChanged: @escaping (Bool) -> Void,
         action: @escaping () -> Void
@@ -2057,6 +2063,12 @@ struct TVAlbumDetailView: View {
                     }
                 }
                 Spacer(minLength: 12)
+                // 随机时和下一首连着放(#335)。
+                if let nextTrackID, store.isShuffleJoined(song.id, to: nextTrackID) {
+                    Image(systemName: "link").font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(TVColor.textFaint)
+                        .accessibilityLabel(Text("shuffle_link_joined_a11y"))
+                }
                 if store.isLiked(song.id) {
                     Image(systemName: "heart.fill").font(.system(size: 22))
                         .foregroundStyle(TVColor.brand)
@@ -2224,6 +2236,21 @@ struct TVSongLikeMenuItem: View {
                 systemImage: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown"
             ) {
                 store.toggleDisliked(songID)
+            }
+        }
+        // 随机时连播(#335):和专辑里相邻的那首连着放,开着的打勾。
+        ForEach(ShuffleLinkDirection.allCases, id: \.self) { direction in
+            if store.shuffleLinkNeighborTitle(songID, direction) != nil {
+                Button(
+                    direction == .next
+                        ? String(localized: "shuffle_link_next_long")
+                        : String(localized: "shuffle_link_previous_long"),
+                    systemImage: store.isShuffleLinked(songID, direction)
+                        ? "checkmark"
+                        : (direction == .next ? "forward.end" : "backward.end")
+                ) {
+                    store.toggleShuffleLink(songID, direction)
+                }
             }
         }
         // 设过播放时间段的歌,长按就能开关它;时间段本身在播放页「更多」里编辑。

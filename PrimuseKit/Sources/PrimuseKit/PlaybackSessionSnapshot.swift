@@ -555,6 +555,8 @@ public enum LargeQueueRequestPlanner {
     ///     next kept song after it starts instead.
     ///   - includes: Whether an ID still names a song that may be queued.
     ///   - resolve: Materializes one queued song.
+    ///   - linkGraph: 随机时连着放的歌(#335)。随机的请求里连着的歌排在一起, 列表里缺的那一首
+    ///     按设了开关的一边补进来。
     ///   - shuffle: Injected for tests.
     public static func plan<Item: Sendable>(
         ids: [String],
@@ -562,6 +564,7 @@ public enum LargeQueueRequestPlanner {
         order: LargeQueueRequestOrder,
         includes: (String) -> Bool,
         resolve: (String) -> Item?,
+        linkGraph: ShuffleLinkGraph = .empty,
         shuffle: ([String]) -> [String] = { $0.shuffled() }
     ) -> PreparedQueueRequest<Item>? {
         var kept: [String] = []
@@ -591,7 +594,7 @@ public enum LargeQueueRequestPlanner {
             }
             selected = 0
         case .shuffled:
-            sequence = shuffle(kept)
+            sequence = linkedShuffle(kept, leading: nil, graph: linkGraph, includes: includes, shuffle: shuffle)
             selected = 0
         case .shuffledAfterStart:
             if keptRequestedStart, let start = startPosition {
@@ -601,10 +604,15 @@ public enum LargeQueueRequestPlanner {
                 for (position, id) in kept.enumerated() where position != start && id != first {
                     rest.append(id)
                 }
-                sequence = [first]
-                sequence.append(contentsOf: shuffle(rest))
+                if linkGraph.isEmpty {
+                    sequence = [first]
+                    sequence.append(contentsOf: shuffle(rest))
+                } else {
+                    sequence = linkedShuffle([first] + rest, leading: first, graph: linkGraph,
+                                             includes: includes, shuffle: shuffle)
+                }
             } else {
-                sequence = shuffle(kept)
+                sequence = linkedShuffle(kept, leading: nil, graph: linkGraph, includes: includes, shuffle: shuffle)
             }
             selected = 0
         }
@@ -627,6 +635,19 @@ public enum LargeQueueRequestPlanner {
             selectedIndex: itemSelected ?? items.count - 1,
             continuation: continuation
         )
+    }
+
+    /// 没有连着放的歌时就是 `shuffle(ids)`; `lead` 是点名先放的那首, 它和接在它后面的歌打头。
+    private static func linkedShuffle(
+        _ ids: [String],
+        leading lead: String?,
+        graph: ShuffleLinkGraph,
+        includes: (String) -> Bool,
+        shuffle: ([String]) -> [String]
+    ) -> [String] {
+        guard !graph.isEmpty else { return shuffle(ids) }
+        let brought = ShuffleLinkPolicy.bringingLinkedSongs(ids, graph: graph, includes: includes)
+        return ShuffleLinkPolicy.shuffled(brought, graph: graph, id: { $0 }, leading: lead, shuffle: shuffle)
     }
 }
 

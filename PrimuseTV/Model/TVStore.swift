@@ -75,7 +75,9 @@ enum TVPlaybackQueuePolicy {
         count: Int,
         selectedIndex: Int?,
         shuffled: Bool,
-        weights: [Double]? = nil
+        weights: [Double]? = nil,
+        links: ShuffleLinkGraph = .empty,
+        songIDs: [String] = []
     ) -> Plan {
         var generator = SystemRandomNumberGenerator()
         return plan(
@@ -83,15 +85,22 @@ enum TVPlaybackQueuePolicy {
             selectedIndex: selectedIndex,
             shuffled: shuffled,
             weights: weights,
+            links: links,
+            songIDs: songIDs,
             using: &generator
         )
     }
 
+    /// - Parameters:
+    ///   - links: 随机时连着放的歌(#335),按 `songIDs`(与 `count` 一样长)认歌;
+    ///     连着的排在一起,选中那首打头时跟它连着的紧跟在后面。
     nonisolated static func plan<G: RandomNumberGenerator>(
         count: Int,
         selectedIndex: Int?,
         shuffled: Bool,
         weights: [Double]? = nil,
+        links: ShuffleLinkGraph = .empty,
+        songIDs: [String] = [],
         using generator: inout G
     ) -> Plan {
         guard count > 0 else { return .empty }
@@ -99,6 +108,15 @@ enum TVPlaybackQueuePolicy {
         let selected = selectedIndex.flatMap { indices.indices.contains($0) ? $0 : nil }
         guard shuffled else {
             return Plan(canonicalIndices: indices, queueIndex: selected ?? 0)
+        }
+        if !links.isEmpty, songIDs.count == count {
+            let order = ShuffleLinkPolicy.shuffled(indices, graph: links, id: { songIDs[$0] }, leading: selected) { heads in
+                if let weights, weights.count == count {
+                    return WeightedShufflePolicy.shuffled(heads, weight: { weights[$0] }, using: &generator)
+                }
+                return heads.shuffled(using: &generator)
+            }
+            return Plan(canonicalIndices: order, queueIndex: 0)
         }
         let rest = selected.map { selected in indices.filter { $0 != selected } } ?? indices
         let order: [Int]
@@ -1839,6 +1857,26 @@ final class TVStore {
         !library.spokenWordSongIDs.contains(id) && library.song(id: id) != nil
     }
     func isDisliked(_ id: String) -> Bool { library.isDisliked(songID: id) }
+    /// 「随机时连播」(#335):和手机共用曲库里那两份记录,经 iCloud 同步。专辑里相邻那首的歌名;
+    /// 没有专辑曲序可依(散曲、有声内容)或在专辑两头时为 nil,不给那一项。
+    func shuffleLinkNeighborTitle(_ id: String, _ direction: ShuffleLinkDirection) -> String? {
+        library.shuffleLinkNeighbor(of: id, direction: direction)?.title
+    }
+    func isShuffleLinked(_ id: String, _ direction: ShuffleLinkDirection) -> Bool {
+        library.isShuffleLinked(songID: id, direction: direction)
+    }
+    /// 随机时这首和下一首连着放(专辑页的链环)。
+    func isShuffleJoined(_ id: String, to nextID: String) -> Bool {
+        library.isShuffleJoined(id, to: nextID)
+    }
+    func toggleShuffleLink(_ id: String, _ direction: ShuffleLinkDirection) {
+        guard canMutateLibrary else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return
+        }
+        library.setShuffleLinked(songID: id, direction: direction, isLinked: !isShuffleLinked(id, direction))
+    }
+
     /// 和手机一样:正在放的这首被标上「不喜欢」就切到下一首;再点一次只撤销记录。
     func toggleDisliked(_ id: String) {
         guard canMutateLibrary else {
@@ -6385,15 +6423,23 @@ final class TVStore {
         // 专辑 / 歌单 / 全部播放 / Siri 都从这里进:用户自己开始播放,挂着的深链作废。
         pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return false }
-        let resolved = songIDs.filter(isVisibleSong)
+        var resolved = songIDs.filter(isVisibleSong)
         guard !resolved.isEmpty else { return false }
         endMedley()
+        // 随机时连着放的歌(#335)排在一起;整张列表随机(没点名哪一首)时, 列表里缺的那首
+        // 按设了开关的一边补进来, 和手机上各处「随机播放」一样。
+        let links = shuffled ? library.shuffleLinkGraph : .empty
+        if shuffled, songID == nil, !links.isEmpty {
+            resolved = ShuffleLinkPolicy.bringingLinkedSongs(resolved, graph: links, includes: isVisibleSong)
+        }
         // 按 id 定位首个匹配项(与既有行为一致);随机时由 plan 把选中曲目放在队首。
         let plan = TVPlaybackQueuePolicy.plan(
             count: resolved.count,
             selectedIndex: songID.flatMap { resolved.firstIndex(of: $0) },
             shuffled: shuffled,
-            weights: shuffled ? shuffleWeights(for: resolved) : nil
+            weights: shuffled ? shuffleWeights(for: resolved) : nil,
+            links: links,
+            songIDs: resolved
         )
         install(TVQueueInstallation.make(songIDs: resolved, plan: plan))
         guard let first = song(queue[queueIndex]) else { return false }
@@ -6659,20 +6705,43 @@ final class TVStore {
     private func reshuffleUpcomingCanonicalIndices() {
         let tailStart = queueIndex + 1
         guard tailStart < queueCanonicalIndices.count else { return }
-        queueCanonicalIndices.replaceSubrange(
-            tailStart...,
-            with: shuffledPositions(Array(queueCanonicalIndices[tailStart...]), songIDs: canonicalQueue)
-        )
+        let tail = Array(queueCanonicalIndices[tailStart...])
+        if library.shuffleLinkGraph.isEmpty {
+            queueCanonicalIndices.replaceSubrange(tailStart..., with: shuffledPositions(tail, songIDs: canonicalQueue))
+        } else {
+            // 跟正在放的这首连着的(#335)紧跟在它后面。
+            let current = queueCanonicalIndices[queueIndex]
+            let order = shuffledPositions([current] + tail, songIDs: canonicalQueue, leading: current)
+            queueCanonicalIndices.replaceSubrange(tailStart..., with: order.dropFirst())
+        }
     }
 
     /// `positions` 是 `songIDs` 里的位置,按抽歌偏好打乱;完全随机时就是 `shuffled()`。
-    private func shuffledPositions(_ positions: [Int], songIDs: [String]) -> [Int] {
-        guard positions.count > 1,
-              let weighting = ShufflePlayCountStore.shared.weighting(for: Self.shufflePreference, library: library)
-        else { return positions.shuffled() }
-        return weighting.shuffled(positions, song: { position in
-            songIDs.indices.contains(position) ? library.unobservedVisibleSong(id: songIDs[position]) : nil
-        })
+    /// 随机时连着放的歌(#335)排在一起;给了 `lead` 时它打头。
+    private func shuffledPositions(_ positions: [Int], songIDs: [String], leading lead: Int? = nil) -> [Int] {
+        let weighting = ShufflePlayCountStore.shared.weighting(for: Self.shufflePreference, library: library)
+        let shuffle: ([Int]) -> [Int] = { [library] heads in
+            guard heads.count > 1, let weighting else { return heads.shuffled() }
+            return weighting.shuffled(heads, song: { position in
+                songIDs.indices.contains(position) ? library.unobservedVisibleSong(id: songIDs[position]) : nil
+            })
+        }
+        let links = library.shuffleLinkGraph
+        guard !links.isEmpty else {
+            var order = shuffle(positions)
+            if let lead, let position = order.firstIndex(of: lead) {
+                order.remove(at: position)
+                order.insert(lead, at: 0)
+            }
+            return order
+        }
+        return ShuffleLinkPolicy.shuffled(
+            positions,
+            graph: links,
+            id: { songIDs.indices.contains($0) ? songIDs[$0] : nil },
+            leading: lead,
+            shuffle: shuffle
+        )
     }
 
     /// 整张列表每个位置的抽歌权重;完全随机时为 nil,队列照原来的办法打乱。
@@ -7007,7 +7076,9 @@ final class TVStore {
             count: scope.count,
             selectedIndex: selected,
             shuffled: shuffleEnabled,
-            weights: shuffleEnabled ? shuffleWeights(for: scope) : nil
+            weights: shuffleEnabled ? shuffleWeights(for: scope) : nil,
+            links: shuffleEnabled ? library.shuffleLinkGraph : .empty,
+            songIDs: scope
         )
         install(TVQueueInstallation.make(songIDs: scope, plan: plan))
     }
@@ -7064,8 +7135,22 @@ final class TVStore {
             ? shuffledPositions(Array(additions.indices), songIDs: additions)
             : Array(additions.indices)
         canonicalQueue.append(contentsOf: additions)
-        queueCanonicalIndices.append(contentsOf: order.map { base + $0 })
-        queue.append(contentsOf: order.map { additions[$0] })
+        let links = shuffleEnabled ? library.shuffleLinkGraph : .empty
+        if links.isEmpty {
+            queueCanonicalIndices.append(contentsOf: order.map { base + $0 })
+            queue.append(contentsOf: order.map { additions[$0] })
+        } else {
+            // 跟还没放到的歌连着的(#335)接到那首旁边。
+            let canonical = canonicalQueue
+            queueCanonicalIndices = ShuffleLinkPolicy.appending(
+                order.map { base + $0 },
+                to: queueCanonicalIndices,
+                anchor: queueIndex,
+                graph: links,
+                id: { canonical.indices.contains($0) ? canonical[$0] : nil }
+            )
+            queue = queueCanonicalIndices.map { canonical[$0] }
+        }
         refreshUpNext()
         plog("🎬 TV queue continuation appended \(additions.count) songs (queue=\(queue.count))")
         persistPlaybackSession()
