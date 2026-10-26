@@ -20,6 +20,7 @@
 		725BC6C0D163F0ECA8FDCA80 /* ImmersiveKineticShaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDBEDD82FF28A9D54B2E737 /* ImmersiveKineticShaderSource.swift */; };
 		860A0B170B8BE7E994633978 /* PlaybackOptionsWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */; };
 		883754878658C0948119180E /* ImmersiveKineticRhythmChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */; };
+		9C6E47DAB65E5BA9D3312DB7 /* ArtworkAccentPixelPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8AFE7849C1E531A5F438F05 /* ArtworkAccentPixelPolicy.swift */; };
 		9CF19B9D4524EC720FDDDB86 /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
 		A242B4213BA6183AB754326E /* ImmersiveKineticMarbleRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */; };
 		A5CD346AA71AFF9D740A853C /* PlayerOrientationControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 402994D356C228EBBDC6DF9C /* PlayerOrientationControl.swift */; };
@@ -2405,6 +2406,7 @@
 		9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMarbleRun.swift; sourceTree = "<group>"; };
 		BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticRhythmChart.swift; sourceTree = "<group>"; };
 		CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackOptionsWatchView.swift; sourceTree = "<group>"; };
+		D8AFE7849C1E531A5F438F05 /* ArtworkAccentPixelPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkAccentPixelPolicy.swift; sourceTree = "<group>"; };
 		E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsText.swift; sourceTree = "<group>"; };
 		EA9F66621675FCE13F338715 /* PlayerStatusBarAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerStatusBarAppearance.swift; sourceTree = "<group>"; };
 		EDB67B3545B847E98024E35B /* MissingArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingArtworkRenderingTests.swift; sourceTree = "<group>"; };
@@ -4401,6 +4403,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				D8AFE7849C1E531A5F438F05 /* ArtworkAccentPixelPolicy.swift */,
 				261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */,
 				1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */,
 				0C35FD6FD282B62FAA4E59FA /* ImmersiveEffectRotationPolicy.swift */,
@@ -6815,6 +6818,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
+				9C6E47DAB65E5BA9D3312DB7 /* ArtworkAccentPixelPolicy.swift in Sources */,
 				A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */,
 				049D4134DD6831CA70BE9E36 /* ImmersiveBeatClock.swift in Sources */,
 				B54D01211CF8BE605BAB93B6 /* ImmersiveKineticDirectionPolicy.swift in Sources */,

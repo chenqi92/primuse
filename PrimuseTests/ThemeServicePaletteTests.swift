@@ -79,6 +79,32 @@ final class ThemeServicePaletteTests: XCTestCase {
         )
     }
 
+    func testMostlyWhiteCoverUsesItsSmallFullBrightnessColor() throws {
+        let image = splitImage(
+            primary: .white,
+            secondary: UIColor(red: 1, green: 0, blue: 0, alpha: 1),
+            primaryFraction: 0.96
+        )
+
+        let result = try XCTUnwrap(ThemeService.extractDominantColor(from: image))
+
+        XCTAssertLessThan(circularHueDistance(hue(of: result.accent), 0), 0.04)
+    }
+
+    func testPastelCoverUsesItsOwnHueInsteadOfGray() throws {
+        let image = solidImage(UIColor(hue: 0.37, saturation: 0.11, brightness: 0.93, alpha: 1))
+
+        let result = try XCTUnwrap(ThemeService.extractDominantColor(from: image))
+
+        XCTAssertLessThan(circularHueDistance(hue(of: result.accent), 0.37), 0.04)
+    }
+
+    func testGrayscaleCoverStillHasNoAccent() {
+        let image = splitImage(primary: .white, secondary: .darkGray, primaryFraction: 0.5)
+
+        XCTAssertNil(ThemeService.extractDominantColor(from: image))
+    }
+
     private func solidImage(_ color: UIColor) -> UIImage {
         splitImage(primary: color, secondary: color, primaryFraction: 1)
     }

@@ -258,19 +258,24 @@ final class ThemeService {
         ].compactMap { $0 }
 
         var candidates: [PaletteSample] = []
+        var pastels: [PaletteSample] = []
         for cgColor in colors {
             guard let hsb = hsbComponents(from: cgColor),
-                  hsb.saturation >= 0.24,
-                  hsb.brightness > 0.10,
-                  hsb.brightness < 0.95 else { continue }
+                  let kind = ArtworkAccentPixelPolicy.kind(
+                      saturation: Double(hsb.saturation),
+                      brightness: Double(hsb.brightness)
+                  ) else { continue }
             let score = hsb.saturation * hsb.saturation * (0.55 + 0.45 * hsb.brightness)
-            candidates.append(PaletteSample(
+            let sample = PaletteSample(
                 hue: hsb.hue,
                 saturation: hsb.saturation,
                 brightness: hsb.brightness,
                 score: score
-            ))
+            )
+            if kind == .vivid { candidates.append(sample) } else { pastels.append(sample) }
         }
+        // 没有鲜艳色时,浅色封面的背景色也比灰色更像它。
+        if candidates.isEmpty { candidates = pastels }
         guard let primary = candidates.max(by: { $0.score < $1.score }) else { return nil }
         let secondary = candidates
             .filter {
@@ -715,17 +720,8 @@ final class ThemeService {
         let pixelCount = Int(sampleSize.width) * Int(sampleSize.height)
         let bytesPerPixel = cgImage.bitsPerPixel / 8
 
-        // Finer hue buckets keep nearby warm tones from swallowing smaller
-        // but more characteristic cool/vivid regions in the artwork.
-        let bucketCount = 24
-        struct HSBPixel {
-            let hue: CGFloat
-            let saturation: CGFloat
-            let brightness: CGFloat
-            let weight: CGFloat
-        }
-
-        var buckets = [[HSBPixel]](repeating: [], count: bucketCount)
+        var pixels: [ArtworkAccentPixelPolicy.Pixel] = []
+        pixels.reserveCapacity(pixelCount)
         var sampledLuminances: [CGFloat] = []
         sampledLuminances.reserveCapacity(pixelCount)
 
@@ -742,50 +738,19 @@ final class ThemeService {
             #else
             NSColor(red: r, green: g, blue: b, alpha: 1).getHue(&h, saturation: &s, brightness: &br, alpha: &a)
             #endif
-
-            // Filter out near-black, near-white, and desaturated pixels
-            guard s >= 0.24, br > 0.10, br < 0.95 else { continue }
-
-            // Saturation-weighted scoring prevents large beige/skin/paper
-            // regions from making unrelated covers all resolve to brown.
-            let weight = s * s * (0.55 + 0.45 * br)
-            // Shift by half a bucket so reds near hue 0/1 stay together.
-            let bucketIndex = Int(h * CGFloat(bucketCount) + 0.5) % bucketCount
-            buckets[bucketIndex].append(
-                HSBPixel(hue: h, saturation: s, brightness: br, weight: weight)
-            )
+            pixels.append(.init(hue: Double(h), saturation: Double(s), brightness: Double(br)))
         }
 
-        let minimumBucketPixels = max(8, pixelCount / 200)
-        var candidates: [(index: Int, sample: PaletteSample)] = []
-        for index in buckets.indices where buckets[index].count >= minimumBucketPixels {
-            let bucket = buckets[index]
-            let score = bucket.reduce(CGFloat.zero) { $0 + $1.weight }
-            var hueX: CGFloat = 0
-            var hueY: CGFloat = 0
-            var averageSaturation: CGFloat = 0
-            var averageBrightness: CGFloat = 0
-            var totalWeight: CGFloat = 0
-            for pixel in bucket {
-                let angle = pixel.hue * 2 * .pi
-                hueX += cos(angle) * pixel.weight
-                hueY += sin(angle) * pixel.weight
-                averageSaturation += pixel.saturation * pixel.weight
-                averageBrightness += pixel.brightness * pixel.weight
-                totalWeight += pixel.weight
-            }
-            guard totalWeight > 0 else { continue }
-            var hue = atan2(hueY, hueX) / (2 * .pi)
-            if hue < 0 { hue += 1 }
-            candidates.append((
-                index: index,
-                sample: PaletteSample(
-                    hue: hue,
-                    saturation: averageSaturation / totalWeight,
-                    brightness: averageBrightness / totalWeight,
-                    score: score
-                )
-            ))
+        // 哪些像素算候选、哪些色相桶够格见 `ArtworkAccentPixelPolicy`(白底小块颜色、浅色封面)。
+        let buckets = ArtworkAccentPixelPolicy.candidateBuckets(pixels)
+        let candidates: [(index: Int, sample: PaletteSample)] = buckets.map { bucket in
+            let sample = PaletteSample(
+                hue: CGFloat(bucket.hue),
+                saturation: CGFloat(bucket.saturation),
+                brightness: CGFloat(bucket.brightness),
+                score: CGFloat(bucket.score)
+            )
+            return (index: bucket.index, sample: sample)
         }
 
         guard let dominant = candidates.max(by: { $0.sample.score < $1.sample.score }) else {
