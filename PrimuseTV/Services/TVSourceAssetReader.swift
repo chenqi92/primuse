@@ -491,8 +491,15 @@ actor TVSourceAssetReader {
 
 @MainActor
 extension TVStore {
-    func songArtworkData(songID: String, coverRef: String?, animationCacheKey: String? = nil) async -> Data? {
-        let source = library.song(id: songID).flatMap { self.source(id: $0.sourceID) }
+    /// `sourceID` 给不在曲库里的封面用(歌单自带的服务端封面,`songID` 是 `playlist:<id>`):
+    /// 查不到歌曲时按它找音乐源,否则服务端封面引用没有凭据可用,只能落空。
+    func songArtworkData(
+        songID: String,
+        coverRef: String?,
+        animationCacheKey: String? = nil,
+        sourceID fallbackSourceID: String? = nil
+    ) async -> Data? {
+        let source = (library.song(id: songID)?.sourceID ?? fallbackSourceID).flatMap { self.source(id: $0) }
         guard source?.isEnabled != false, source?.isDeleted != true else { return nil }
         // 凭据要查好几次钥匙串(同步跨进程调用,云盘源还要读 OAuth 令牌),而只有服务端封面
         // 接口、缓存又没命中时才用得上:交给加载器到那一步再在后台读,不在主线程上每张封面读一遍。

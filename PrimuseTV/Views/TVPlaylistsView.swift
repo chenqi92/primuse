@@ -507,12 +507,14 @@ private struct TVPlaylistArtworkView: View {
                     )
                 }
             )
+            let dedicatedSourceID = playlist.artworkCandidates.first { $0.kind == .dedicated }?.sourceID
             let resolved: PlaylistArtworkResolution<UIImage>? = await PlaylistArtworkResolver
                 .resolve(plan: corePlan) { candidate -> UIImage? in
                 guard let songID = candidate.songID else { return nil }
                 guard let data = await store.songArtworkData(
                     songID: songID,
-                    coverRef: candidate.artworkReference
+                    coverRef: candidate.artworkReference,
+                    sourceID: candidate.kind == .dedicated ? dedicatedSourceID : nil
                 ) else { return nil }
                 return await Self.decodeImage(data)
             }
