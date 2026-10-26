@@ -6328,6 +6328,7 @@
 "tv_catalog_prune_mode_menu_format" = "서버에서 삭제된 곡: %@";
 "tv_catalog_prune_held_format" = "서버에 없는 %1$d곡을 일단 유지 중 · 전체 검색을 %2$d번 더 해도 없으면 제거";
 "tv_catalog_prune_held_immediate_format" = "서버에 없는 %1$d곡을 일단 유지 중 · 전체 검색을 %2$d번 더 해도 없으면 제거 · 길게 눌러 ‘즉시 제거’로 변경";
+"tv_apple_music_like_failed_format" = "이 곡을 Apple Music 보관함에 추가하지 못해 좋아하는 곡에 넣지 않았습니다: %@";
 "icloud_sync_settings_channel_footer" = "플레이어, 레이아웃 및 색상 설정과 즐겨찾기(재생 목록, 오디오북, 폴더와 그 순서)는 설정과 함께 동기화됩니다. 이 기기의 로컬 소스에 있는 폴더와 책은 이 기기에만 남습니다. 즐겨찾는 앨범과 아티스트, 평점과 댓글은 재생 목록과 함께 동기화됩니다.";
 "icloud_sync_scan_results_footer" = "음악 소스 동기화가 켜져 있으면 같은 계정의 iPhone, iPad, Mac이 이미 읽은 곡 태그를 함께 씁니다. 한 기기가 다 읽으면 다른 기기는 새로 추가되거나 바뀐 파일만 읽습니다. 직접 편집한 태그와 바꾼 커버도 동기화되며, 한 기기에서 ‘파일 태그로 되돌리기’를 하면 다른 기기에서도 함께 되돌아갑니다.";
 "transcript_reader_menu" = "메뉴";

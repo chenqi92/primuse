@@ -6234,6 +6234,7 @@
 "tv_catalog_prune_mode_menu_format" = "Sunucuda silinen parçalar: %@";
 "tv_catalog_prune_held_format" = "Sunucuda artık olmayan %1$d parça şimdilik korunuyor · %2$d tam tarama daha bulamazsa kaldırılacak";
 "tv_catalog_prune_held_immediate_format" = "Sunucuda artık olmayan %1$d parça şimdilik korunuyor · %2$d tam tarama daha bulamazsa kaldırılacak · “Hemen kaldır”a geçmek için basılı tutun";
+"tv_apple_music_like_failed_format" = "Bu parça Apple Music arşivinize eklenemediği için Beğenilen Şarkılara eklenmedi: %@";
 "icloud_sync_settings_channel_footer" = "Oynatıcı, düzen ve renk tercihleri ile favoriler (çalma listeleri, sesli kitaplar, klasörler ve sıraları) ayarlarla birlikte senkronize edilir; bu cihazın yerel kaynaklarındaki klasörler ve kitaplar burada kalır. Favori albümler ve sanatçılar, puanlar ve yorumlar çalma listeleriyle birlikte senkronize edilir.";
 "icloud_sync_scan_results_footer" = "Müzik kaynakları eşzamanlanırken iPhone, iPad ve Mac zaten okunmuş şarkı etiketlerini paylaşır: Bir aygıt bir kaynağı okuduktan sonra diğerleri yalnızca yeni veya değişmiş dosyaları okur. Düzenlediğin etiketler ve değiştirdiğin kapaklar da eşzamanlanır; bir aygıtta “Dosya etiketlerini geri yükle” dersen diğerlerinde de geri yüklenir.";
 "transcript_reader_menu" = "Menü";

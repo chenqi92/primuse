@@ -6234,6 +6234,7 @@
 "tv_catalog_prune_mode_menu_format" = "Utwory usunięte na serwerze: %@";
 "tv_catalog_prune_held_format" = "Utwory, których nie ma już na serwerze, są na razie zachowane: %1$d · pozostałe pełne skanowania przed usunięciem: %2$d";
 "tv_catalog_prune_held_immediate_format" = "Utwory, których nie ma już na serwerze, są na razie zachowane: %1$d · pozostałe pełne skanowania przed usunięciem: %2$d · przytrzymaj, aby przełączyć na „Usuń od razu”";
+"tv_apple_music_like_failed_format" = "Nie udało się dodać tego utworu do biblioteki Apple Music, więc nie trafił do ulubionych utworów: %@";
 "icloud_sync_settings_channel_footer" = "Preferencje odtwarzacza, układu i kolorów oraz ulubione (playlisty, audiobooki, foldery i ich kolejność) synchronizują się z ustawieniami; foldery i książki ze źródeł lokalnych tego urządzenia zostają tutaj. Ulubione albumy i wykonawcy oraz oceny i komentarze synchronizują się z playlistami.";
 "icloud_sync_scan_results_footer" = "Gdy źródła muzyki są synchronizowane, iPhone, iPad i Mac współdzielą już odczytane tagi utworów: gdy jedno urządzenie odczyta źródło, pozostałe czytają tylko nowe lub zmienione pliki. Edytowane tagi i zmienione okładki też się synchronizują, a „Przywróć tagi z plików” na jednym urządzeniu przywraca je również na pozostałych.";
 "transcript_reader_menu" = "Menu";

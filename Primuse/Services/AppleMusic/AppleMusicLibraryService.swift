@@ -16,16 +16,11 @@ struct AppleMusicCatalogLibraryWriter: Sendable {
 
     func addSong(id: String) async throws {
         try Task.checkCancellation()
-        guard !id.isEmpty, id.utf8.allSatisfy({ (48...57).contains($0) }) else {
+        guard let request = AppleMusicLibraryAPI.addCatalogSongRequest(catalogID: id) else {
             throw AppleMusicLibraryService.CatalogSaveError.unavailable
         }
-        var url = URLComponents(string: "https://api.music.apple.com/v1/me/library")!
-        url.queryItems = [URLQueryItem(name: "ids[songs]", value: id)]
-        var request = URLRequest(url: url.url!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
         // 202 只表示接受请求;调用方仍需同步并确认资料库里出现了这首歌。
-        guard try await send(request) == 202 else {
+        guard try await send(request) == AppleMusicLibraryAPI.addCatalogSongAcceptedStatus else {
             throw AppleMusicLibraryService.CatalogSaveError.unavailable
         }
     }

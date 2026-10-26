@@ -61,6 +61,24 @@ public enum AppleMusicLibraryAPI {
         return candidate
     }
 
+    /// 把一首目录歌加进用户的 Apple Music 资料库(`POST /v1/me/library?ids[songs]=…`)。
+    /// 只收纯数字的目录 ID, 一次一首, 拼不进别的资源; 资料库 ID(`i.…`)也不收。
+    /// Apple 回 202 只表示接受了请求, 歌要过一会儿才出现在资料库里。
+    public static func addCatalogSongRequest(catalogID: String) -> URLRequest? {
+        guard !catalogID.isEmpty, catalogID.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        var components = URLComponents(
+            url: apiBaseURL.appendingPathComponent("/v1/me/library"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "ids[songs]", value: catalogID)]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        return request
+    }
+
+    public static let addCatalogSongAcceptedStatus = 202
+
     private struct PageEnvelope: Decodable {
         let next: String?
     }

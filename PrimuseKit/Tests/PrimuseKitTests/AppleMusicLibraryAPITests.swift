@@ -45,3 +45,22 @@ struct AppleMusicLibraryAPITests {
         }
     }
 }
+
+@Suite("Adding a catalog song to the Apple Music library")
+struct AppleMusicCatalogSongAddRequestTests {
+    @Test("One numeric catalog ID becomes a body-less POST to the library endpoint")
+    func buildsLibraryPost() throws {
+        let request = try #require(AppleMusicLibraryAPI.addCatalogSongRequest(catalogID: "1440857781"))
+        #expect(request.httpMethod == "POST")
+        #expect(request.httpBody == nil)
+        #expect(request.url?.absoluteString == "https://api.music.apple.com/v1/me/library?ids%5Bsongs%5D=1440857781"
+            || request.url?.absoluteString == "https://api.music.apple.com/v1/me/library?ids[songs]=1440857781")
+    }
+
+    @Test("Library IDs, lists and injected parameters are refused before anything is sent")
+    func refusesNonCatalogIDs() {
+        for id in ["", "i.AbCd123", "123,456", "123&ids[albums]=456", "12 3"] {
+            #expect(AppleMusicLibraryAPI.addCatalogSongRequest(catalogID: id) == nil)
+        }
+    }
+}

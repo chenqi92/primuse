@@ -6421,6 +6421,7 @@
 "tv_catalog_prune_mode_menu_format" = "服务端删掉的歌：%@";
 "tv_catalog_prune_held_format" = "服务端已不在的 %1$d 首暂时保留，再完整扫描 %2$d 次仍不在才移除";
 "tv_catalog_prune_held_immediate_format" = "服务端已不在的 %1$d 首暂时保留，再完整扫描 %2$d 次仍不在才移除；长按可改成立即移除";
+"tv_apple_music_like_failed_format" = "没能把这首歌加进 Apple Music 资料库，所以没有加入「我喜欢」：%@";
 "icloud_sync_settings_channel_footer" = "播放器、界面布局与颜色的偏好，以及收藏里的歌单、有声书、目录和收藏顺序，跟着设置一起同步；本机音乐源上的目录与书只留在这台设备。收藏的专辑与艺人、评分和评论跟着歌单同步。";
 "icloud_sync_scan_results_footer" = "音乐源同步开着时，同一账号的 iPhone、iPad 和 Mac 共用已经读好的歌曲标签：一台读完，其他设备扫描同一个音乐源时只读新加或改过的文件。手动改过的标签和换过的封面也跟着同步，在一台设备上「恢复文件标签」，其他设备一起恢复。";
 "transcript_reader_menu" = "菜单";

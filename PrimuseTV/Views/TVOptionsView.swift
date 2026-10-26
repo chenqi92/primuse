@@ -56,7 +56,10 @@ struct TVOptionsView: View {
         // 播客单集不在曲库里,喜欢的记在播客自己那份(和手机同一份,经 iCloud 同步)。
         let isSpokenWord = store.currentItemIsSpokenWord
         let podcastEpisodeID = isSpokenWord ? store.currentPodcastEpisodeID : nil
+        // 搜索或 Apple Music 专辑里点播的歌不在播放队列里,喜欢标在 iPhone 同步来的那一行上。
+        let appleMusicTarget = store.currentSongID == nil ? store.appleMusicNowPlayingLikeTarget : nil
         let liked = podcastEpisodeID.map { PodcastStore.shared.isLiked(episodeID: $0) }
+            ?? appleMusicTarget.map(store.isAppleMusicLiked)
             ?? (store.currentSongID.map(store.isLiked) ?? false)
         var song: [Action] = []
         song.append(.init(id: "love", icon: liked ? "heart.fill" : "heart",
@@ -64,6 +67,8 @@ struct TVOptionsView: View {
                           run: {
                               if let podcastEpisodeID {
                                   PodcastStore.shared.toggleLiked(episodeID: podcastEpisodeID)
+                              } else if let appleMusicTarget {
+                                  store.toggleAppleMusicLike(appleMusicTarget)
                               } else if let id = store.currentSongID {
                                   store.toggleLiked(id)
                               }

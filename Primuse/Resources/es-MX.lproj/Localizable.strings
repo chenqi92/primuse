@@ -6234,6 +6234,7 @@
 "tv_catalog_prune_mode_menu_format" = "Canciones borradas en el servidor: %@";
 "tv_catalog_prune_held_format" = "%1$d canciones que ya no están en el servidor se conservan por ahora · se quitan si %2$d análisis completos más no las encuentran";
 "tv_catalog_prune_held_immediate_format" = "%1$d canciones que ya no están en el servidor se conservan por ahora · se quitan si %2$d análisis completos más no las encuentran · mantén presionado para cambiar a “Quitar de inmediato”";
+"tv_apple_music_like_failed_format" = "No se pudo agregar esta canción a tu biblioteca de Apple Music, así que no se agregó a canciones que me gustan: %@";
 "icloud_sync_settings_channel_footer" = "Las preferencias del reproductor, del diseño y de los colores, y los favoritos (listas, audiolibros, carpetas y su orden), se sincronizan con la configuración; las carpetas y los libros de las fuentes locales de este dispositivo se quedan aquí. Los álbumes y artistas favoritos, las calificaciones y los comentarios se sincronizan con las listas de reproducción.";
 "icloud_sync_scan_results_footer" = "Mientras se sincronizan las fuentes de música, tu iPhone, iPad y Mac comparten las etiquetas de canciones ya leídas: cuando un dispositivo termina de leer una fuente, los demás solo leen los archivos nuevos o modificados. Las etiquetas que editas y las portadas que cambias también se sincronizan, y Restaurar etiquetas del archivo en un dispositivo las restaura en los demás.";
 "transcript_reader_menu" = "Menú";

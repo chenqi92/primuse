@@ -3,6 +3,8 @@ import SwiftUI
 import Observation
 import CryptoKit
 import PrimuseKit
+// 只取这一个:整个 MusicKit 进来会和曲库的 Song、Album、MusicLibrary 撞名。
+import struct MusicKit.MusicDataRequest
 
 extension Notification.Name {
     static let primuseTVSiriRadioCatalogDidChange = Notification.Name(
@@ -691,6 +693,9 @@ final class TVStore {
         catalogDeletionHolds = defaults.data(forKey: Self.catalogDeletionHoldsKey).flatMap {
             try? JSONDecoder().decode([String: TVCatalogDeletionHold].self, from: $0)
         } ?? [:]
+        pendingAppleMusicLikes = defaults.data(forKey: Self.pendingAppleMusicLikesKey).flatMap {
+            try? JSONDecoder().decode([String: PendingAppleMusicLike].self, from: $0)
+        } ?? [:]
         if let data = try? Data(contentsOf: Self.albumArtistFoldersURL(sessionStore: sessionStore)),
            let parents = try? JSONDecoder().decode([String: [String: String]].self, from: data) {
             albumArtistFolderParents = parents
@@ -974,6 +979,9 @@ final class TVStore {
     private(set) var catalogDeletionHolds: [String: TVCatalogDeletionHold] = [:]
     /// 这次完整扫描算出来的保留情况,扫描提交成功后才换上去。
     @ObservationIgnored private var scanCatalogDeletionHold: (sourceID: String, hold: TVCatalogDeletionHold?)?
+    /// 在电视上点了喜欢、已经加进 Apple Music 资料库,还在等 iPhone / Mac 同步进曲库的目录歌(按目录 ID)。
+    private(set) var pendingAppleMusicLikes: [String: PendingAppleMusicLike] = [:]
+    @ObservationIgnored private var appleMusicIdentityIndexCache: (revision: Int, index: AppleMusicTrackIdentityIndex)?
     /// 封面流两侧换图用的曲库专辑,见 `albumFlowCoverPool()`。
     @ObservationIgnored private var albumFlowCoverPoolCache: (albumCount: Int, songs: [Song]) = (-1, [])
     private var sourceAuthenticationFailures: Set<String> = []
@@ -1868,6 +1876,144 @@ final class TVStore {
         }
         library.toggleLiked(songID: id)
         rebuildLookupCaches()
+    }
+
+    // MARK: Apple Music 目录歌的「喜欢」
+
+    /// 搜索、Apple Music 专辑或歌单里点播的歌。电视自己不同步 Apple Music 资料库,曲库里的
+    /// Apple Music 歌都是 iPhone / Mac 同步过来的,所以喜欢要落在对上的那一行上。
+    struct AppleMusicLikeTarget: Codable, Equatable {
+        let itemID: String
+        let title: String
+        let artist: String
+        let album: String
+        let duration: TimeInterval?
+    }
+
+    struct PendingAppleMusicLike: Codable {
+        let target: AppleMusicLikeTarget
+        let requestedAt: Date
+    }
+
+    private static let pendingAppleMusicLikesKey = "tv.pendingAppleMusicLikes"
+    /// 等这么久 iPhone 还没把歌同步过来(多半没开同步 Apple Music 资料库),就不再等了。
+    private static let pendingAppleMusicLikeLifetime: TimeInterval = 30 * 24 * 3600
+
+    nonisolated static func appleMusicLikeTarget(_ hit: AppleMusicCatalogHit) -> AppleMusicLikeTarget {
+        AppleMusicLikeTarget(
+            itemID: hit.id, title: hit.title, artist: hit.artistName, album: hit.albumTitle,
+            duration: hit.duration > 0 ? hit.duration : nil
+        )
+    }
+
+    /// 正在放的 Apple Music 目录歌;曲库里的歌走 `currentSongID`。
+    var appleMusicNowPlayingLikeTarget: AppleMusicLikeTarget? {
+        guard hasNowPlaying, appleMusicSelection != nil, currentSongID == nil, !isLiveRadio,
+              !nowPlaying.sourcePath.isEmpty else { return nil }
+        let target = AppleMusicLikeTarget(
+            itemID: nowPlaying.sourcePath, title: nowPlaying.title, artist: nowPlaying.artist,
+            album: nowPlaying.album, duration: nowPlaying.duration > 0 ? nowPlaying.duration : nil
+        )
+        // 资料库歌单里的歌是资料库 ID,加不进资料库;对不上曲库那一行时就不给喜欢。
+        guard AppleMusicLibraryAPI.addCatalogSongRequest(catalogID: target.itemID) != nil
+                || appleMusicLibraryRowID(for: target) != nil else { return nil }
+        return target
+    }
+
+    func isAppleMusicLiked(_ target: AppleMusicLikeTarget) -> Bool {
+        if let rowID = appleMusicLibraryRowID(for: target) { return library.isLiked(songID: rowID) }
+        return pendingAppleMusicLikes[target.itemID] != nil
+    }
+
+    /// 曲库里已经有这首(iPhone 同步来的资料库歌)就直接标在那一行上;还没有就加进 Apple Music
+    /// 资料库,等它同步过来再标(`resolvePendingAppleMusicLikes`),心形先亮起来。
+    func toggleAppleMusicLike(_ target: AppleMusicLikeTarget) {
+        guard canMutateLibrary else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return
+        }
+        if let rowID = appleMusicLibraryRowID(for: target) {
+            setPendingAppleMusicLike(nil, for: target.itemID)
+            library.toggleLiked(songID: rowID)
+            rebuildLookupCaches()
+            return
+        }
+        if pendingAppleMusicLikes[target.itemID] != nil {
+            setPendingAppleMusicLike(nil, for: target.itemID)
+            return
+        }
+        guard let request = AppleMusicLibraryAPI.addCatalogSongRequest(catalogID: target.itemID) else { return }
+        setPendingAppleMusicLike(PendingAppleMusicLike(target: target, requestedAt: Date()), for: target.itemID)
+        Task { [weak self] in
+            do {
+                let status = try await MusicDataRequest(urlRequest: request).response().urlResponse.statusCode
+                guard status == AppleMusicLibraryAPI.addCatalogSongAcceptedStatus else {
+                    throw URLError(.badServerResponse)
+                }
+                plog("TVStore: Apple Music catalog song added to library, like waits for sync")
+            } catch {
+                guard let self else { return }
+                plog("TVStore: Apple Music catalog song add failed \(LogRedactionPolicy.errorSummary(error))")
+                self.setPendingAppleMusicLike(nil, for: target.itemID)
+                self.playbackIssue = .failed(String(
+                    format: String(localized: "tv_apple_music_like_failed_format"),
+                    error.localizedDescription
+                ))
+            }
+        }
+    }
+
+    /// iPhone / Mac 把加进资料库的歌同步过来之后,补上当时在电视上点的喜欢。
+    private func resolvePendingAppleMusicLikes() {
+        guard !pendingAppleMusicLikes.isEmpty, canMutateLibrary else { return }
+        let cutoff = Date().addingTimeInterval(-Self.pendingAppleMusicLikeLifetime)
+        // 刚装完快照时查找表的修订号可能还没跟上,这里现建一份,不用缓存。
+        appleMusicIdentityIndexCache = nil
+        var resolved = false
+        for (itemID, pending) in pendingAppleMusicLikes {
+            if let rowID = appleMusicLibraryRowID(for: pending.target) {
+                library.setLiked(songID: rowID, isLiked: true, propagatesServerMutation: true)
+                setPendingAppleMusicLike(nil, for: itemID)
+                resolved = true
+            } else if pending.requestedAt < cutoff {
+                setPendingAppleMusicLike(nil, for: itemID)
+            }
+        }
+        appleMusicIdentityIndexCache = nil
+        if resolved { rebuildLookupCaches() }
+    }
+
+    private func setPendingAppleMusicLike(_ pending: PendingAppleMusicLike?, for itemID: String) {
+        guard pending != nil || pendingAppleMusicLikes[itemID] != nil else { return }
+        pendingAppleMusicLikes[itemID] = pending
+        defaults.set(try? JSONEncoder().encode(pendingAppleMusicLikes), forKey: Self.pendingAppleMusicLikesKey)
+    }
+
+    /// 曲库里对应这首目录歌的 Apple Music 行。和手机播放页同一套身份比对:先认 ID,
+    /// 再按歌名、艺人、专辑、时长打分。
+    private func appleMusicLibraryRowID(for target: AppleMusicLikeTarget) -> String? {
+        let index: AppleMusicTrackIdentityIndex
+        if let cached = appleMusicIdentityIndexCache, cached.revision == libraryContentRevision {
+            index = cached.index
+        } else {
+            index = AppleMusicTrackIdentityIndex(
+                library.songs.lazy
+                    .filter { $0.sourceID == AppleMusicLibraryIdentity.sourceID }
+                    .map {
+                        AppleMusicTrackIdentity(
+                            itemID: $0.id, alternateIDs: [$0.filePath], title: $0.title,
+                            artist: $0.artistName, album: $0.albumTitle,
+                            duration: $0.duration > 0 ? $0.duration : nil
+                        )
+                    }
+            )
+            appleMusicIdentityIndexCache = (libraryContentRevision, index)
+        }
+        guard let rowID = index.canonicalID(for: AppleMusicTrackIdentity(
+            itemID: target.itemID, title: target.title, artist: target.artist,
+            album: target.album, duration: target.duration
+        )), library.song(id: rowID) != nil else { return nil }
+        return rowID
     }
 
     /// 「不喜欢」(#193):和手机共用曲库里那份记录,经 iCloud 同步。有声内容不给这一项。
@@ -2966,6 +3112,8 @@ final class TVStore {
         guard await retryPendingSnapshotImport() else { return false }
         guard !isApplyingSnapshot else { return false }
         guard sourcesStore.hasCompleteSnapshot else { return false }
+        // 装完、标志放下之后再补:在电视上点过喜欢、等 iPhone 同步来的 Apple Music 歌。
+        defer { resolvePendingAppleMusicLikes() }
         isApplyingSnapshot = true
         defer { isApplyingSnapshot = false }
         installGeneration &+= 1
@@ -3448,6 +3596,7 @@ final class TVStore {
         // 为边界裁剪。CloudKit 下载失败不会被当成空包，也不会清掉活跃源凭据。
         pruneCredentialBundlesToActiveSources()
         restorePlaybackSessionIfNeeded()
+        resolvePendingAppleMusicLikes()
         if hasPendingSnapshotImport { Task { _ = await self.retryPendingSnapshotImport() } }
     }
 

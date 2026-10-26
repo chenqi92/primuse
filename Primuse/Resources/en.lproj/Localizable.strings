@@ -6089,6 +6089,7 @@
 "tv_catalog_prune_mode_menu_format" = "Songs Deleted on the Server: %@";
 "tv_catalog_prune_held_format" = "%1$d songs no longer on the server are kept for now · removed if %2$d more full scans don’t find them";
 "tv_catalog_prune_held_immediate_format" = "%1$d songs no longer on the server are kept for now · removed if %2$d more full scans don’t find them · press and hold to switch to Remove Immediately";
+"tv_apple_music_like_failed_format" = "Couldn’t add this song to your Apple Music library, so it wasn’t added to Liked Songs: %@";
 "icloud_sync_settings_channel_footer" = "Player, layout and color preferences, plus favorites (playlists, audiobooks, folders and their order), sync with settings; folders and books on this device’s local sources stay here. Favorite albums and artists, ratings and comments sync with playlists.";
 "icloud_sync_scan_results_footer" = "While music sources sync, your iPhone, iPad and Mac share the song tags they have already read: once one device has read a source, the others only read files that are new or changed. Tags you edit and covers you change sync too, and Restore File Tags on one device restores them on the others.";
 "transcript_reader_menu" = "Menu";

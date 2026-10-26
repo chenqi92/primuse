@@ -1052,6 +1052,14 @@ struct TVNowPlayingView: View {
                            accessibilityLabel: PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
                            focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.like.rawValue,
                            onInteraction: rowInteraction(.like)) { store.toggleLiked(likedSongID) }
+            } else if let target = store.appleMusicNowPlayingLikeTarget {
+                // 搜索或 Apple Music 专辑里点播的歌:标在 iPhone 同步来的那一行上,还没有就先加进资料库。
+                let amLiked = store.isAppleMusicLiked(target)
+                TVRoundBtn(icon: amLiked ? "heart.fill" : "heart", size: 56, active: amLiked,
+                           immersiveDark: immersiveDark,
+                           accessibilityLabel: PMString(amLiked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                           focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.like.rawValue,
+                           onInteraction: rowInteraction(.like)) { store.toggleAppleMusicLike(target) }
             }
             TVRoundBtn(icon: "shuffle", size: 56, active: store.shuffleEnabled,
                        immersiveDark: immersiveDark,
@@ -2043,6 +2051,14 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
                 ) {
                     store.toggleDisliked(songID)
                 }
+            }
+        } else if let target = store.appleMusicNowPlayingLikeTarget {
+            let liked = store.isAppleMusicLiked(target)
+            Button(
+                PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                systemImage: liked ? "heart.fill" : "heart"
+            ) {
+                store.toggleAppleMusicLike(target)
             }
         }
         Menu {

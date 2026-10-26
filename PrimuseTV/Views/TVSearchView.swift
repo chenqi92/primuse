@@ -902,6 +902,18 @@ private struct TVAppleMusicSearchRow: View {
         }
         .focused($focusedResultID, equals: focusID)
         .accessibilityLabel(Text("\(hit.title) · \(hit.artistName)"))
+        // 长按喜欢:曲库里已有这首(iPhone 同步来的资料库歌)就标在那一行上,
+        // 还没有就加进 Apple Music 资料库,等同步过来再标。
+        .contextMenu {
+            let target = TVStore.appleMusicLikeTarget(hit)
+            let liked = store.isAppleMusicLiked(target)
+            Button(
+                PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                systemImage: liked ? "heart.fill" : "heart"
+            ) {
+                store.toggleAppleMusicLike(target)
+            }
+        }
     }
 
     private var artwork: some View {
