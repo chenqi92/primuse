@@ -3463,8 +3463,17 @@ struct NowPlayingView: View {
                         // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
                         // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
                         if player.isLiveRadio {
-                            NowPlayingDeferredContent {
-                                liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+                            // 手机横屏和播客、音乐同一副骨架(左台标、右栏台名与按钮);其余照竖版排。
+                            if isPhoneCanvas && playerLayoutMode == .compactLandscape {
+                                NowPlayingDeferredContent {
+                                    liveRadioCompactLandscapeLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+                                }
+                                .transition(PMLayoutSwitchTransition())
+                            } else {
+                                NowPlayingDeferredContent {
+                                    liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+                                }
+                                .transition(PMLayoutSwitchTransition())
                             }
                         } else if let arrangement {
                             NowPlayingDeferredContent {
@@ -4244,47 +4253,9 @@ struct NowPlayingView: View {
 
             // 播放键与上一台 / 下一台跟「播放页样式与按钮」里的样式走,和音乐页同一套(#329)。
             HStack(spacing: 38) {
-                Button {
-                    PMHaptics.transportTapped()
-                    Task { await player.previous() }
-                } label: {
-                    Image(systemName: skipButtonStyle.symbol(forward: false))
-                        .font(skipButtonStyle.compactFont(pairedWith: playButtonStyle))
-                        .frame(width: 44, height: 44)
-                }
-                .disabled(!player.canSwitchRadioStation)
-                .accessibilityLabel(Text("radio_previous_station"))
-
-                Button {
-                    PMHaptics.transportTapped()
-                    player.togglePlayPause()
-                } label: {
-                    ZStack {
-                        // 换样式时这颗键的大小不变,两边的键不挪位置。
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 68))
-                            .opacity(0)
-                        NowPlayingPlayPauseFace(
-                            style: playButtonStyle,
-                            showsPause: player.isPlaying || player.isLoading,
-                            diameter: 68,
-                            tint: appearance.primary,
-                            stops: true
-                        )
-                    }
-                }
-                .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
-
-                Button {
-                    PMHaptics.transportTapped()
-                    Task { await player.next() }
-                } label: {
-                    Image(systemName: skipButtonStyle.symbol(forward: true))
-                        .font(skipButtonStyle.compactFont(pairedWith: playButtonStyle))
-                        .frame(width: 44, height: 44)
-                }
-                .disabled(!player.canSwitchRadioStation)
-                .accessibilityLabel(Text("radio_next_station"))
+                radioStationSkipButton(forward: false, font: skipButtonStyle.compactFont(pairedWith: playButtonStyle), side: 44)
+                radioPlayStopButton(diameter: 68)
+                radioStationSkipButton(forward: true, font: skipButtonStyle.compactFont(pairedWith: playButtonStyle), side: 44)
             }
             .foregroundStyle(appearance.primary)
             .padding(.top, 20)
@@ -4310,11 +4281,430 @@ struct NowPlayingView: View {
             .padding(.top, showsVolumeRow ? 14 : 14 + controlGap)
             .padding(.bottom, max(bottomSafeArea, 16))
         }
+        // 横竖屏切换键和音乐页一样摆在把手那一行的右边，不占版面的高度。
+        .overlay(alignment: .topTrailing) {
+            if showsPortraitOrientationButton(usesToolColumn: false) {
+                playerOrientationButton(diameter: 30)
+                    .padding(.top, topSafeArea + 6 + 2.5 - 15)
+                    .padding(.trailing, 26)
+            }
+        }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
         // 整屏居中(iPhone Duo)时两侧都是 0,只由台标让开遮挡区。
         .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
         .padding(.trailing, centersOnFullScreen ? 0 : safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 电台的上一台 / 下一台。竖版挨着播放键用紧凑那一档字号，手机横屏和音乐横屏一样用常规那一档。
+    private func radioStationSkipButton(forward: Bool, font: Font, side: CGFloat) -> some View {
+        let label: LocalizedStringKey = forward ? "radio_next_station" : "radio_previous_station"
+        return Button {
+            PMHaptics.transportTapped()
+            Task {
+                if forward { await player.next() } else { await player.previous() }
+            }
+        } label: {
+            Image(systemName: skipButtonStyle.symbol(forward: forward))
+                .font(font)
+                .frame(width: side, height: side)
+        }
+        .disabled(!player.canSwitchRadioStation)
+        .accessibilityLabel(Text(label))
+    }
+
+    /// 电台的播放键：直播没有暂停，播着时画停止。
+    private func radioPlayStopButton(diameter: CGFloat) -> some View {
+        Button {
+            PMHaptics.transportTapped()
+            player.togglePlayPause()
+        } label: {
+            ZStack {
+                // 换样式时这颗键的大小不变,两边的键不挪位置。
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: diameter))
+                    .opacity(0)
+                NowPlayingPlayPauseFace(
+                    style: playButtonStyle,
+                    showsPause: player.isPlaying || player.isLoading,
+                    diameter: diameter,
+                    tint: appearance.primary,
+                    stops: true
+                )
+            }
+        }
+        .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+    }
+
+    // MARK: - 电台：手机横屏
+
+    /// 手机横屏的电台和播客、音乐横屏同一副骨架：顶上一排玻璃圆钮，左边大台标(卡片，或者「封面样式」选了铺满时
+    /// 从屏幕边铺到右栏起点)，右栏台名、正在播的节目、直播标签，下面上一台 / 播放 / 下一台。竖版最下面那一排
+    /// (投放、分享、听过的歌、睡眠定时)挪进顶上的圆钮排，码率那行字跟在直播标签后面。几何沿用
+    /// `NowPlayingCompactLandscapeLayoutPolicy`，两栏的位置和音乐横屏一样。
+    private func liveRadioCompactLandscapeLayout(
+        geo: GeometryProxy,
+        safeInsets windowInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region]
+    ) -> some View {
+        let safeInsets = compactLandscapeSafeInsets(geo: geo, windowInsets: windowInsets, occlusions: occlusions)
+        let metrics = NowPlayingCompactLandscapeLayoutPolicy.metrics(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            safeAreaTop: Double(safeInsets.top),
+            safeAreaBottom: Double(safeInsets.bottom),
+            safeAreaLeading: Double(safeInsets.leading),
+            safeAreaTrailing: Double(safeInsets.trailing),
+            prefersVolumeBar: showsPlayerVolumeBar && radioControlLayout.showsVolumeBar,
+            textScale: compactLandscapeTextScale,
+            isExpandedCanvas: usesExpandedLandscapeCanvas
+        )
+        // 整屏居中(iPhone Duo 外屏横握)时圆钮排单独让开遮挡区，和音乐横屏一样。
+        let chromeClearance = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: metrics.topInset,
+            bandMaxY: metrics.topInset + metrics.chromeRowHeight,
+            width: Double(geo.size.width)
+        )
+        let chromeLeading = chromeClearance.leading > 0
+            ? max(0, CGFloat(chromeClearance.leading + metrics.chromeBottomSpacing - metrics.leadingInset))
+            : 0
+        let chromeTrailing = chromeClearance.trailing > 0
+            ? max(0, CGFloat(chromeClearance.trailing + metrics.chromeBottomSpacing - metrics.trailingInset))
+            : 0
+        let fullBleedLogo = liveRadioLandscapeUsesFullBleedLogo
+
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                // 圆钮排画在上层，这里只占位；锁上之后换成解锁胶囊，下面的内容不跟着挪。
+                Color.clear
+                    .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
+
+                HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
+                    ZStack {
+                        // 铺满的台标垫在整个版面底下(`liveRadioLandscapeFullBleedLogo`)，这一栏只占宽度。
+                        if !fullBleedLogo {
+                            liveRadioLandscapeLogoCard(size: CGFloat(metrics.artworkSize))
+                        }
+                    }
+                    .frame(width: CGFloat(metrics.artworkColumnWidth))
+                    .frame(maxHeight: .infinity)
+
+                    liveRadioLandscapeDetailColumn(metrics: metrics, alignsToLogo: !fullBleedLogo)
+                        .frame(width: CGFloat(metrics.detailColumnWidth))
+                        .frame(maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(!isCompactLandscapeLocked)
+
+            liveRadioLandscapeChromeLayer()
+                .padding(.leading, chromeLeading)
+                .padding(.trailing, chromeTrailing)
+        }
+        .padding(.leading, CGFloat(metrics.leadingInset))
+        .padding(.trailing, CGFloat(metrics.trailingInset))
+        .padding(.top, CGFloat(metrics.topInset))
+        .padding(.bottom, CGFloat(metrics.bottomInset))
+        .background(alignment: .topLeading) {
+            if fullBleedLogo {
+                liveRadioLandscapeFullBleedLogo(
+                    width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
+                    height: geo.size.height
+                )
+            }
+        }
+        .overlay(alignment: .top) {
+            // 播放出错的提示压在圆钮排下面、整页居中，不挤动两栏。
+            if let error = player.lastPlaybackError {
+                Text(error)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.red.opacity(0.82), in: Capsule())
+                    .padding(.top, CGFloat(metrics.topInset + metrics.chromeRowHeight + metrics.chromeBottomSpacing))
+                    .padding(.horizontal, 24)
+                    .pmSlideTransition(edge: .top, motion: .list)
+            }
+        }
+        .onDisappear {
+            // 转回竖屏、播放页收起都会走到这里;锁只管这一副横屏骨架。
+            isCompactLandscapeLocked = false
+        }
+    }
+
+    /// 「封面样式」(电台那一页)选了铺满时，横屏的台标也铺满：判定同音乐横屏(`compactLandscapeUsesFullBleedArtwork`)，
+    /// iPhone Duo 外屏整屏居中与内屏横握照旧是卡片。
+    private var liveRadioLandscapeUsesFullBleedLogo: Bool {
+        isPhoneCanvas && !centersOnFullScreen && !usesExpandedLandscapeCanvas
+            && PlayerAppearancePreferences.artworkStyle(rawValue: radioArtworkStyleRawValue) == .fullBleed
+    }
+
+    /// 卡片台标：和音乐横屏的卡片封面一样的圆角与影子，边长就是策略给的封面边长。
+    private func liveRadioLandscapeLogoCard(size: CGFloat) -> some View {
+        ZStack {
+            if let station = player.currentRadioStation, size >= 48 {
+                RadioStationArtworkView(station: station, size: size, cornerRadius: 18)
+                    .shadow(color: .black.opacity(0.28), radius: 20, y: 10)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    /// 铺满的台标：从屏幕首侧边缘、上下边缘画到右栏起点，直角，靠右栏那一截渐隐进背景(比例和音乐横屏铺满一样)。
+    private func liveRadioLandscapeFullBleedLogo(width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            if let station = player.currentRadioStation, width >= 48, height >= 48 {
+                RadioStationArtworkContent(station: station, decodeSize: max(width, height))
+                    .frame(width: width, height: height)
+                    .clipped()
+                    .mask {
+                        FullBleedArtworkFadeMask(
+                            fadesTowardTrailing: true,
+                            fraction: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedTrailingFadeFraction)
+                        )
+                    }
+            }
+        }
+        .frame(width: width, height: height)
+        .accessibilityHidden(true)
+    }
+
+    /// 右栏：台名与正在播的节目贴上沿，直播标签、传输键(和可选的音量条)从下沿往上排；卡片台标时整栏和台标一样高，
+    /// 上下边对齐(`NowPlayingEdgeAlignedColumn`)。
+    private func liveRadioLandscapeDetailColumn(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        alignsToLogo: Bool
+    ) -> some View {
+        NowPlayingEdgeAlignedColumn(minimumHeight: alignsToLogo ? CGFloat(metrics.artworkSize) : 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(appearance.primary)
+                    .lineLimit(metrics.titleLineLimit)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(player.radioMetadataTitle ?? currentArtistDisplayName)
+                    .font(.title3)
+                    .foregroundStyle(appearance.secondary)
+                    .lineLimit(metrics.showsLyricLine ? 2 : 1)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.titleBottomSpacing))
+            }
+
+            // 进度条的位置：直播没有进度，换成直播标签和码率。
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                    Text("live_badge")
+                        .font(.caption.weight(.bold))
+                    LiveRadioElapsedTime()
+                }
+                .foregroundStyle(appearance.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(.ultraThinMaterial, in: Capsule())
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text("radio_live"))
+
+                if radioBottomRowItems.contains(.info) {
+                    Text(radioTechnicalSummary)
+                        .font(.caption)
+                        .foregroundStyle(appearance.faint)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
+
+            liveRadioLandscapeTransportRow(reservesEmptySides: metrics.showsEdgeToggles)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
+                // 只有手动锁定才隐藏播放操作；保留占位，台标和台名不随之移动。
+                .opacity(isCompactLandscapeLocked ? 0 : 1)
+                .accessibilityHidden(isCompactLandscapeLocked)
+                .pmAnimation(.control, value: isCompactLandscapeLocked)
+
+            if metrics.showsVolumeBar {
+                playerVolumeRow
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
+                    .opacity(isCompactLandscapeLocked ? 0 : 1)
+                    .accessibilityHidden(isCompactLandscapeLocked)
+                    .pmAnimation(.control, value: isCompactLandscapeLocked)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 上一台 / 播放 / 下一台，键的大小和音乐横屏一样。电台两端没有随机 / 循环那两格；右栏放得下时两头各留一个键位的
+    /// 空白，三颗键不散到右栏两边，放不下时在这一行里平均排开(同 `musicTransportRow`)。
+    private func liveRadioLandscapeTransportRow(reservesEmptySides: Bool) -> some View {
+        let font = skipButtonStyle.font(pairedWith: playButtonStyle)
+        return HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Spacer()
+                if reservesEmptySides {
+                    transportKeySpace
+                    Spacer()
+                }
+                radioStationSkipButton(forward: false, font: font, side: 56)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            radioPlayStopButton(diameter: Self.compactLandscapePlayDiameter)
+            HStack(spacing: 0) {
+                Spacer()
+                radioStationSkipButton(forward: true, font: font, side: 56)
+                Spacer()
+                if reservesEmptySides {
+                    transportKeySpace
+                    Spacer()
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .foregroundStyle(appearance.primary)
+        .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
+    }
+
+    /// 顶上那一排：锁上之后换成解锁胶囊(和音乐、播客横屏共用那一颗)。
+    @ViewBuilder
+    private func liveRadioLandscapeChromeLayer() -> some View {
+        if isCompactLandscapeLocked {
+            compactLandscapeUnlockControl
+                .pmFadeTransition(motion: .control)
+        } else {
+            liveRadioLandscapeChromeRow
+                .pmFadeTransition(motion: .control)
+        }
+    }
+
+    /// 左边一组是锁和竖版底排里那几项(照「播放页按钮 › 电台」的顺序与显隐，码率那行字不在这里)，
+    /// 右边是横竖屏切换键和收起键。
+    private var liveRadioLandscapeChromeRow: some View {
+        let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
+        return HStack(spacing: 10) {
+            NowPlayingGlassActionButton(
+                symbol: "lock",
+                label: "immersive_lock_controls",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: diameter
+            ) {
+                isCompactLandscapeLocked = true
+            }
+
+            ForEach(radioBottomRowItems.filter { $0 != .info }) { item in
+                liveRadioLandscapeChromeItem(item, diameter: diameter)
+            }
+
+            Spacer(minLength: 0)
+
+            if showsLandscapeOrientationButton {
+                playerOrientationButton(diameter: diameter)
+            }
+
+            NowPlayingGlassActionButton(
+                symbol: "arrow.down.right.and.arrow.up.left",
+                label: "mini_player",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: diameter
+            ) {
+                onMinimize?()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: diameter)
+    }
+
+    @ViewBuilder
+    private func liveRadioLandscapeChromeItem(_ item: NowPlayingRadioControlItem, diameter: CGFloat) -> some View {
+        switch item {
+        case .airPlay:
+            compactLandscapeAirPlayButton
+        case .share:
+            if let url = player.currentRadioStation?.url {
+                ShareLink(item: url) {
+                    NowPlayingGlassActionLabel(
+                        symbol: "square.and.arrow.up",
+                        appearance: appearance,
+                        tint: appearance.primary,
+                        diameter: diameter
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("share"))
+            }
+        case .history:
+            if let stationID = player.currentRadioStation?.id {
+                NowPlayingGlassActionButton(
+                    symbol: "clock.arrow.circlepath",
+                    label: "radio_detail_heard_title",
+                    appearance: appearance,
+                    tint: appearance.primary,
+                    diameter: diameter
+                ) {
+                    radioDetailStationID = stationID
+                }
+            }
+        case .sleepTimer:
+            liveRadioLandscapeSleepTimerButton(diameter: diameter)
+        case .info:
+            EmptyView()
+        }
+    }
+
+    /// 睡眠定时：没开时是一颗圆钮，开着时换成带倒计时的胶囊(和竖版底排那一颗一样)。
+    private func liveRadioLandscapeSleepTimerButton(diameter: CGFloat) -> some View {
+        Button {
+            showSleepTimer = true
+        } label: {
+            if let endDate = player.sleepTimerEndDate {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let remaining: TimeInterval = max(0, endDate.timeIntervalSince(context.date))
+                    HStack(spacing: 5) {
+                        Image(systemName: "moon.zzz.fill")
+                            .font(.system(size: diameter * 0.3, weight: .semibold))
+                        Text(remaining.formattedDuration)
+                            .font(.footnote.monospacedDigit().weight(.semibold))
+                    }
+                    .foregroundStyle(themedControlAccent)
+                    .padding(.horizontal, 14)
+                    .frame(height: diameter)
+                    .nowPlayingAdaptiveGlass(
+                        Capsule(),
+                        appearance: appearance,
+                        tint: themedControlAccent,
+                        isSelected: true
+                    )
+                }
+            } else {
+                NowPlayingGlassActionLabel(
+                    symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
+                    appearance: appearance,
+                    tint: player.isSleepTimerActive ? themedControlAccent : appearance.primary,
+                    diameter: diameter,
+                    isSelected: player.isSleepTimerActive
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(
+            player.isSleepTimerActive
+                ? String(localized: "sleep_timer_active")
+                : String(localized: "sleep_timer")
+        ))
     }
 
     /// 铺满的台标：从屏幕顶端画到这一块的下沿，整宽、直角，下沿和音乐铺满封面一样渐隐进背景；

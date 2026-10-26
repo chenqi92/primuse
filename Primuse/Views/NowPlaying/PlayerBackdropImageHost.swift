@@ -128,9 +128,13 @@ struct PlayerBackdropImageHost: View {
 ///
 /// 铺满封面下沿那一截渐隐的蒙版：smoothstep 取五个点，起止两头都是平的。电台铺满的台标与设置里的预览用它；
 /// 播放页的音乐、播客封面在 `LyricsArtworkFlight` 里按同样的点画（那边还要随飞行收到 0）。
+/// 手机横屏铺满的台标往尾侧（右栏那一边）渐隐，比例跟音乐横屏一样。
 struct FullBleedArtworkFadeMask: View {
+    var fadesTowardTrailing = false
+    var fraction: CGFloat = FullBleedArtworkExtension.fadeFraction
+
     var body: some View {
-        let fade = FullBleedArtworkExtension.fadeFraction
+        let fade = min(max(fraction, 0), 1)
         LinearGradient(
             stops: [
                 .init(color: .black, location: 0),
@@ -140,8 +144,8 @@ struct FullBleedArtworkFadeMask: View {
                 .init(color: .black.opacity(0.156), location: 1 - fade * 0.25),
                 .init(color: .clear, location: 1),
             ],
-            startPoint: .top,
-            endPoint: .bottom
+            startPoint: fadesTowardTrailing ? .leading : .top,
+            endPoint: fadesTowardTrailing ? .trailing : .bottom
         )
     }
 }
