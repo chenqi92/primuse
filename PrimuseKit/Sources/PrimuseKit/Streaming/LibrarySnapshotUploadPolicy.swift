@@ -58,6 +58,23 @@ public enum LibrarySnapshotDeviceManifestPolicy {
         server.filter { $0.deviceID != deviceID }.sorted { $0.deviceID < $1.deviceID }
     }
 
+    /// 较旧设备的曲库里这个源的歌要不要并进电视曲库。按歌曲 id 取并集时, 一台很久没上传的
+    /// 设备(换过机、重装过 App 的旧记录永远停在那一刻)会把服务端早已删掉的歌一直带回电视。
+    /// 整库型服务器源每台设备扫的都是整个服务端曲库, 所以较新的设备里有这个源的歌时, 它那份
+    /// 就是这个源的现状, 旧设备多出来的不再并进来; 别的源照旧取并集(各台设备可能扫的是不同
+    /// 的目录或网盘)。较新那份不到旧设备的一半时, 更像是那台设备还没扫完就上传了、或服务端
+    /// 资料库暂时没挂载, 照旧取并集, 不拿它删歌。
+    public static func admitsOlderDeviceSongs(
+        sourceID: String,
+        newerDeviceSongCounts: [String: Int],
+        olderDeviceSongCounts: [String: Int],
+        wholeCatalogSourceIDs: Set<String>
+    ) -> Bool {
+        guard wholeCatalogSourceIDs.contains(sourceID),
+              let newer = newerDeviceSongCounts[sourceID], newer > 0 else { return true }
+        return newer * 2 < olderDeviceSongCounts[sourceID, default: 0]
+    }
+
     /// 合并顺序: 最近上传的设备在前, 同一首歌以它的记录为准; 时间相同按设备 id 打平局。
     public static func mergeOrder(_ entries: [LibrarySnapshotDeviceEntry]) -> [LibrarySnapshotDeviceEntry] {
         entries.sorted {

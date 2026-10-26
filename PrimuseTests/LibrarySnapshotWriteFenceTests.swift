@@ -212,6 +212,41 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         XCTAssertNotNil(library.song(id: "b"))
     }
 
+    /// 整库型服务器源以最近上传、有这个源的那台设备为准: 旧设备记录里服务端已删的歌不再
+    /// 并回电视; 别的源和较新设备没有的源照旧从旧设备补上。
+    func testDeviceSnapshotMergeTakesWholeCatalogSourcesFromTheNewestDevice() throws {
+        func song(_ id: String, source: String) -> Song {
+            var song = Self.makeSong(id: id)
+            song.sourceID = source
+            return song
+        }
+        func snapshot(_ songs: [Song]) throws -> Data {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let rows = try JSONSerialization.jsonObject(with: encoder.encode(songs))
+            return try JSONSerialization.data(withJSONObject: ["songs": rows, "playlists": [Any]()])
+        }
+        let newest = try snapshot((0..<8).map { song("nd-\($0)", source: "navidrome") }
+            + [song("nas-new", source: "nas")])
+        let stale = try snapshot((0..<10).map { song("nd-\($0)", source: "navidrome") }
+            + [song("nas-old", source: "nas"), song("jf-0", source: "jellyfin")])
+
+        let merged = try MusicLibrary.mergingDeviceSnapshots(
+            [newest, stale],
+            wholeCatalogSourceIDs: ["navidrome", "jellyfin"]
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: merged.data) as? [String: Any])
+        let ids = Set(try XCTUnwrap(object["songs"] as? [[String: Any]]).compactMap { $0["id"] as? String })
+        XCTAssertEqual(ids.filter { $0.hasPrefix("nd-") }.count, 8)
+        XCTAssertFalse(ids.contains("nd-8"))
+        XCTAssertFalse(ids.contains("nd-9"))
+        XCTAssertTrue(ids.isSuperset(of: ["nas-new", "nas-old", "jf-0"]))
+
+        let union = try MusicLibrary.mergingDeviceSnapshots([newest, stale])
+        let unionObject = try XCTUnwrap(JSONSerialization.jsonObject(with: union.data) as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(unionObject["songs"] as? [[String: Any]]).count, 13)
+    }
+
     /// 远超传输上限的曲库: 快照不再带歌, 歌由增量库保存; 重开照样读回全部歌曲,
     /// 而传给其它设备的入口拒绝这种快照。
     /// 几台设备的快照各自没超上限、合起来超了：跳过放不下的那台较早的设备，接着合更早的，

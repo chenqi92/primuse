@@ -59,3 +59,55 @@ struct LibrarySnapshotDeviceManifestPolicyTests {
         #expect(merged == ["song-a.json": "new", "song-b.json": "b", "song-c.json": "c"])
     }
 }
+
+@Suite("Merging device libraries per source")
+struct LibrarySnapshotDeviceMergePolicyTests {
+    typealias Policy = LibrarySnapshotDeviceManifestPolicy
+
+    @Test("A newer device's whole-catalog source replaces what a stale device still lists")
+    func newerWholeCatalogWins() {
+        // 手机这次扫到 7930 首, 旧记录里还留着服务端已删的 2083 首。
+        #expect(!Policy.admitsOlderDeviceSongs(
+            sourceID: "navidrome",
+            newerDeviceSongCounts: ["navidrome": 7_930],
+            olderDeviceSongCounts: ["navidrome": 10_013],
+            wholeCatalogSourceIDs: ["navidrome"]
+        ))
+    }
+
+    @Test("Older devices still fill in sources the newer devices do not have")
+    func missingSourceIsFilledFromOlderDevice() {
+        #expect(Policy.admitsOlderDeviceSongs(
+            sourceID: "jellyfin",
+            newerDeviceSongCounts: ["navidrome": 7_930],
+            olderDeviceSongCounts: ["jellyfin": 300],
+            wholeCatalogSourceIDs: ["navidrome", "jellyfin"]
+        ))
+    }
+
+    @Test("File sources keep the union because devices may scan different folders")
+    func fileSourcesStayUnion() {
+        #expect(Policy.admitsOlderDeviceSongs(
+            sourceID: "webdav",
+            newerDeviceSongCounts: ["webdav": 500],
+            olderDeviceSongCounts: ["webdav": 800],
+            wholeCatalogSourceIDs: []
+        ))
+    }
+
+    @Test("A newer copy under half the older one looks unfinished and is not trusted to drop songs")
+    func partialNewerCopyKeepsUnion() {
+        #expect(Policy.admitsOlderDeviceSongs(
+            sourceID: "navidrome",
+            newerDeviceSongCounts: ["navidrome": 400],
+            olderDeviceSongCounts: ["navidrome": 10_000],
+            wholeCatalogSourceIDs: ["navidrome"]
+        ))
+        #expect(!Policy.admitsOlderDeviceSongs(
+            sourceID: "navidrome",
+            newerDeviceSongCounts: ["navidrome": 5_000],
+            olderDeviceSongCounts: ["navidrome": 10_000],
+            wholeCatalogSourceIDs: ["navidrome"]
+        ))
+    }
+}

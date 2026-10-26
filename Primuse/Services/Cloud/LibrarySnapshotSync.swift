@@ -1416,6 +1416,16 @@ final class LibrarySnapshotSync: Sendable {
         )
     }
 
+    /// 整库型服务器源(Subsonic 系、媒体服务器):每台设备扫的都是整个服务端曲库,扫完才整份落库。
+    /// 合并各设备曲库时这些源只取最近上传、而且有这个源的那台设备的歌。
+    private static func wholeCatalogSourceIDs(in sourcesData: Data?) -> Set<String> {
+        guard let sourcesData else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let sources = try? decoder.decode([MusicSource].self, from: sourcesData) else { return [] }
+        return Set(sources.filter { $0.type.usesPagedCatalogStaging }.map(\.id))
+    }
+
     private func sourcesSnapshotData(from record: CKRecord, fm: FileManager) -> Data? {
         if let gzField = record["sourcesGz"] as? Data {
             let gz = Data(gzField)
@@ -2487,7 +2497,10 @@ final class LibrarySnapshotSync: Sendable {
                 if libraries.count > 1 {
                     let merged = try MusicLibrary.mergingDeviceSnapshots(
                         libraries.map(\.library),
-                        byteLimit: Self.maxLibraryRawBytes
+                        byteLimit: Self.maxLibraryRawBytes,
+                        wholeCatalogSourceIDs: Self.wholeCatalogSourceIDs(
+                            in: sourcesSnapshotData(from: record, fm: .default)
+                        )
                     )
                     rawLibrary = merged.data
                     if merged.skippedDeviceCount > 0 {

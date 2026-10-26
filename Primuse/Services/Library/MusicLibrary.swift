@@ -15259,9 +15259,12 @@ final class MusicLibrary {
     /// 每台设备上传的快照各自不超过 `byteLimit`, 合起来却可能超过 (几台设备的曲库各不相同)。
     /// 加进某台较早的设备后超了上限, 就跳过这台、接着看更早的, 电视至少拿到最新那台的曲库,
     /// 而不是整份同步失败、什么都没有。
+    /// `wholeCatalogSourceIDs`: 整库型服务器源, 见
+    /// `LibrarySnapshotDeviceManifestPolicy.admitsOlderDeviceSong`。
     nonisolated static func mergingDeviceSnapshots(
         _ payloads: [Data],
-        byteLimit: Int = .max
+        byteLimit: Int = .max,
+        wholeCatalogSourceIDs: Set<String> = []
     ) throws -> (data: Data, skippedDeviceCount: Int) {
         guard var mergedData = payloads.first else { throw CocoaError(.fileReadCorruptFile) }
         var skippedDeviceCount = 0
@@ -15274,7 +15277,22 @@ final class MusicLibrary {
             let older = try decoder.decode(Snapshot.self, from: olderData)
 
             var songIDs = Set(merged.songs.map(\.id))
-            merged.songs.append(contentsOf: older.songs.filter { songIDs.insert($0.id).inserted })
+            var admitted: [String: Bool] = [:]
+            if !wholeCatalogSourceIDs.isEmpty {
+                let newerCounts = merged.songs.reduce(into: [String: Int]()) { $0[$1.sourceID, default: 0] += 1 }
+                let olderCounts = older.songs.reduce(into: [String: Int]()) { $0[$1.sourceID, default: 0] += 1 }
+                for sourceID in olderCounts.keys {
+                    admitted[sourceID] = LibrarySnapshotDeviceManifestPolicy.admitsOlderDeviceSongs(
+                        sourceID: sourceID,
+                        newerDeviceSongCounts: newerCounts,
+                        olderDeviceSongCounts: olderCounts,
+                        wholeCatalogSourceIDs: wholeCatalogSourceIDs
+                    )
+                }
+            }
+            merged.songs.append(contentsOf: older.songs.filter {
+                admitted[$0.sourceID, default: true] && songIDs.insert($0.id).inserted
+            })
 
             var artworkBytes = (merged.artworkAssets ?? [:]).values.reduce(0) { $0 + $1.count }
                 + (merged.cachedArtworkAssets ?? [:]).values.reduce(0) { $0 + $1.count }
