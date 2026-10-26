@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "Używasz danych komórkowych";
 "companion_assets_cellular_message_format" = "Do pobrania jest około %1$@ okładek i do sprawdzenia teksty %2$@ utworów. Zużyje to trochę danych.";
 "companion_assets_download_start" = "Pobierz";
+
+"diagnostics_crash_reports" = "Raporty awarii i zawieszeń";
+"diagnostics_metric_reports" = "Metryki działania";
+"diagnostics_category_empty" = "Brak raportów";
+"diagnostics_logs_clear" = "Wyczyść dzienniki";
+"diagnostics_logs_clear_confirm" = "Usunąć wszystkie bieżące i archiwalne dzienniki?";
+"diagnostics_delete_report_confirm" = "Usunąć ten raport?";
+"diagnostics_cleanup_failed" = "Nie udało się wyczyścić danych";

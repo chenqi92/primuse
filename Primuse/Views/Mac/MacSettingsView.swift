@@ -10040,6 +10040,9 @@ private struct MacDiagnosticsWindowView: View {
         channel: Bundle.main.distributionChannel
     ) || FileLogger.isDiagnosticModeActive
     @State private var diagnosticReportURLs: [URL] = []
+    @State private var diagnosticReportCount = 0
+    @State private var metricReportCount = 0
+    @State private var showReportManager = false
     @State private var uploadTask: Task<Void, Never>?
     @State private var uploadedCode: String?
     @State private var uploadCodeCopied = false
@@ -10060,6 +10063,10 @@ private struct MacDiagnosticsWindowView: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
                 Spacer()
+                MacSTButton(title: String(localized: "diagnostics_title"), systemImage: "doc.text") {
+                    showReportManager = true
+                }
+                .disabled(uploader.isRunning)
                 MacSTButton(title: Lz("Export Logs"), systemImage: "square.and.arrow.up") {
                     NSWorkspace.shared.activateFileViewerSelecting([FileLogger.shared.logFileURL])
                 }
@@ -10156,6 +10163,17 @@ private struct MacDiagnosticsWindowView: View {
             .padding(.bottom, 16)
         }
         .background(PMColor.bg)
+        .sheet(isPresented: $showReportManager, onDismiss: refreshDiagnosticReportURLs) {
+            NavigationStack {
+                DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { showReportManager = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 520, minHeight: 560)
+        }
         .alert(
             String(localized: "diagnostics_send_failed_title"),
             isPresented: Binding(
@@ -10342,7 +10360,10 @@ private struct MacDiagnosticsWindowView: View {
             HStack(spacing: 14) {
                 if !diagnosticReportURLs.isEmpty {
                     Toggle(isOn: $uploadIncludesReports) {
-                        Text("diagnostics_title")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: "\(String(localized: "diagnostics_crash_reports")) · \(diagnosticReportCount.formatted())")
+                            Text(verbatim: "\(String(localized: "diagnostics_metric_reports")) · \(metricReportCount.formatted())")
+                        }
                     }
                     .disabled(uploader.isRunning)
                 }
@@ -10424,7 +10445,11 @@ private struct MacDiagnosticsWindowView: View {
 
     private func refreshDiagnosticReportURLs() {
         let service = AppServices.shared.crashDiagnostics
-        diagnosticReportURLs = service.reports().map(\.url) + service.metricReports().map(\.url)
+        let reports = service.reports()
+        let metrics = service.metricReports()
+        diagnosticReportCount = reports.count
+        metricReportCount = metrics.count
+        diagnosticReportURLs = reports.map(\.url) + metrics.map(\.url)
     }
 
     private func startUpload() {

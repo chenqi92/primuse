@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "Usando dados celulares";
 "companion_assets_cellular_message_format" = "Há cerca de %1$@ capas para baixar e letras a verificar de %2$@ músicas. Isso usa alguns dados.";
 "companion_assets_download_start" = "Baixar";
+
+"diagnostics_crash_reports" = "Relatórios de falhas e travamentos";
+"diagnostics_metric_reports" = "Métricas de execução";
+"diagnostics_category_empty" = "Nenhum relatório";
+"diagnostics_logs_clear" = "Limpar logs";
+"diagnostics_logs_clear_confirm" = "Excluir todos os logs atuais e arquivados?";
+"diagnostics_delete_report_confirm" = "Excluir este relatório?";
+"diagnostics_cleanup_failed" = "Não foi possível limpar os dados";

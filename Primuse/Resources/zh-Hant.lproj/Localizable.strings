@@ -6919,3 +6919,11 @@
 "companion_assets_cellular_title" = "正在使用行動網路";
 "companion_assets_cellular_message_format" = "要下載約 %1$@ 張封面、查 %2$@ 首歌的歌詞，會用掉一些流量。";
 "companion_assets_download_start" = "下載";
+
+"diagnostics_crash_reports" = "當機與卡頓報告";
+"diagnostics_metric_reports" = "執行指標報告";
+"diagnostics_category_empty" = "暫無報告";
+"diagnostics_logs_clear" = "清除日誌";
+"diagnostics_logs_clear_confirm" = "確定要刪除目前及歷史日誌嗎？";
+"diagnostics_delete_report_confirm" = "確定要刪除這份報告嗎？";
+"diagnostics_cleanup_failed" = "清理失敗";

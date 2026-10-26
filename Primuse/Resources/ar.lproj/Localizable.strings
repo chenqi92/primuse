@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "يتم استخدام البيانات الخلوية";
 "companion_assets_cellular_message_format" = "سيُنزَّل نحو %1$@ غلاف وتُفحص كلمات %2$@ أغنية. سيستهلك ذلك بعض البيانات.";
 "companion_assets_download_start" = "تنزيل";
+
+"diagnostics_crash_reports" = "تقارير الأعطال والتوقف";
+"diagnostics_metric_reports" = "مقاييس التشغيل";
+"diagnostics_category_empty" = "لا توجد تقارير";
+"diagnostics_logs_clear" = "مسح السجلات";
+"diagnostics_logs_clear_confirm" = "هل تريد حذف جميع السجلات الحالية والمؤرشفة؟";
+"diagnostics_delete_report_confirm" = "هل تريد حذف هذا التقرير؟";
+"diagnostics_cleanup_failed" = "تعذر مسح البيانات";

@@ -6942,3 +6942,11 @@
 "companion_assets_cellular_title" = "셀룰러 데이터 사용 중";
 "companion_assets_cellular_message_format" = "아트워크 약 %1$@개를 다운로드하고 노래 %2$@곡의 가사를 확인합니다. 데이터가 일부 사용됩니다.";
 "companion_assets_download_start" = "다운로드";
+
+"diagnostics_crash_reports" = "충돌 및 멈춤 보고서";
+"diagnostics_metric_reports" = "실행 지표 보고서";
+"diagnostics_category_empty" = "보고서 없음";
+"diagnostics_logs_clear" = "로그 지우기";
+"diagnostics_logs_clear_confirm" = "현재 및 보관된 로그를 모두 삭제할까요?";
+"diagnostics_delete_report_confirm" = "이 보고서를 삭제할까요?";
+"diagnostics_cleanup_failed" = "삭제 실패";

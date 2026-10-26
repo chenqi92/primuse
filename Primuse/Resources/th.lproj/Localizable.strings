@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "กำลังใช้ข้อมูลเซลลูลาร์";
 "companion_assets_cellular_message_format" = "จะดาวน์โหลดหน้าปกประมาณ %1$@ รายการ และตรวจเนื้อเพลงของ %2$@ เพลง ซึ่งจะใช้ข้อมูลบางส่วน";
 "companion_assets_download_start" = "ดาวน์โหลด";
+
+"diagnostics_crash_reports" = "รายงานการขัดข้องและค้าง";
+"diagnostics_metric_reports" = "ตัวชี้วัดการทำงาน";
+"diagnostics_category_empty" = "ไม่มีรายงาน";
+"diagnostics_logs_clear" = "ล้างบันทึก";
+"diagnostics_logs_clear_confirm" = "ลบบันทึกปัจจุบันและบันทึกเก่าทั้งหมดหรือไม่?";
+"diagnostics_delete_report_confirm" = "ลบรายงานนี้หรือไม่?";
+"diagnostics_cleanup_failed" = "ล้างข้อมูลไม่สำเร็จ";

@@ -21,7 +21,7 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 /// 它不是崩溃报告, 但被系统按内存上限回收、watchdog 终止、非正常退出这几种
 /// "闪退"根本不产生崩溃报告, 只会计在指标载荷的 `applicationExitMetrics` 里,
 /// 内存峰值也只在这里。丢掉它, 用户报"闪退"而 Organizer 的 Crashes 一条没有
-/// 时就只剩猜。两份分开存、分开计数, 崩溃列表的空状态才仍然代表"没崩过"。
+/// 时就只剩猜。两类分开存、分开计数, 避免将日常指标误认为崩溃报告。
 ///
 /// 不要换成系统 27 的 `MetricKit.MetricManager`。它内部注册一个订阅者, 在 init
 /// 里就把指标和诊断两条序列都建好, 不读 `metricReports` 也会把每份指标载荷转成
@@ -114,8 +114,7 @@ final class CrashDiagnosticsService: NSObject {
     }
 
     /// 列出已收集的崩溃 / 卡顿报告(给 Settings 视图渲染列表用),按时间倒序。
-    /// 指标载荷不在这里 —— 它每天都来, 混进来这份列表就永远不空, 用户会
-    /// 把"每天一份的运行指标"当成"每天都崩"。
+    /// 指标载荷单独列在运行指标分类中。
     func reports() -> [DiagnosticReport] {
         collectReports { !$0.hasPrefix(Self.metricFilePrefix) }
     }
@@ -142,14 +141,22 @@ final class CrashDiagnosticsService: NSObject {
     }
 
     /// 用户在 settings 里点 "清空"。删全部本地报告。
-    func clearAll() {
-        guard let dir = reportsDirectory() else { return }
-        let fm = FileManager.default
-        let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        for url in urls {
-            try? fm.removeItem(at: url)
+    func clearAll() throws {
+        for report in reports() + metricReports() {
+            try delete(report)
         }
         crashLog.notice("Cleared all diagnostic reports")
+    }
+
+    func delete(_ report: DiagnosticReport) throws {
+        guard let directory = reportsDirectory(),
+              report.url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+              report.url.pathExtension == "json" else { return }
+        do {
+            try FileManager.default.removeItem(at: report.url)
+        } catch CocoaError.fileNoSuchFile {
+            return
+        }
     }
 
     private func reportsDirectory() -> URL? {

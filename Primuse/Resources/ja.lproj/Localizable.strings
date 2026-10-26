@@ -6943,3 +6943,11 @@
 "companion_assets_cellular_title" = "モバイルデータ通信を使用中";
 "companion_assets_cellular_message_format" = "約 %1$@ 件のアートワークのダウンロードと %2$@ 曲の歌詞の確認を行います。通信量を消費します。";
 "companion_assets_download_start" = "ダウンロード";
+
+"diagnostics_crash_reports" = "クラッシュとハングのレポート";
+"diagnostics_metric_reports" = "動作指標レポート";
+"diagnostics_category_empty" = "レポートはありません";
+"diagnostics_logs_clear" = "ログを消去";
+"diagnostics_logs_clear_confirm" = "現在および過去のログをすべて削除しますか？";
+"diagnostics_delete_report_confirm" = "このレポートを削除しますか？";
+"diagnostics_cleanup_failed" = "削除できませんでした";

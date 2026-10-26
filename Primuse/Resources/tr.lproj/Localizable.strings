@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "Hücresel Veri Kullanılıyor";
 "companion_assets_cellular_message_format" = "Yaklaşık %1$@ kapak indirilecek ve %2$@ şarkının sözleri denetlenecek. Biraz veri kullanılır.";
 "companion_assets_download_start" = "İndir";
+
+"diagnostics_crash_reports" = "Çökme ve Donma Raporları";
+"diagnostics_metric_reports" = "Çalışma Ölçümleri";
+"diagnostics_category_empty" = "Rapor yok";
+"diagnostics_logs_clear" = "Günlükleri Temizle";
+"diagnostics_logs_clear_confirm" = "Mevcut ve arşivlenmiş tüm günlükler silinsin mi?";
+"diagnostics_delete_report_confirm" = "Bu rapor silinsin mi?";
+"diagnostics_cleanup_failed" = "Veriler Temizlenemedi";

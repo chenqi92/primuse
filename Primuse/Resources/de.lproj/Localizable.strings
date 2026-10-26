@@ -6942,3 +6942,11 @@
 "companion_assets_cellular_title" = "Mobile Daten aktiv";
 "companion_assets_cellular_message_format" = "Etwa %1$@ Cover sind zu laden und Songtexte für %2$@ Titel zu prüfen. Das verbraucht etwas Datenvolumen.";
 "companion_assets_download_start" = "Laden";
+
+"diagnostics_crash_reports" = "Absturz- und Hängerberichte";
+"diagnostics_metric_reports" = "Laufzeitmetriken";
+"diagnostics_category_empty" = "Keine Berichte";
+"diagnostics_logs_clear" = "Protokolle löschen";
+"diagnostics_logs_clear_confirm" = "Alle aktuellen und archivierten Protokolle löschen?";
+"diagnostics_delete_report_confirm" = "Diesen Bericht löschen?";
+"diagnostics_cleanup_failed" = "Daten konnten nicht gelöscht werden";

@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "Используется сотовая связь";
 "companion_assets_cellular_message_format" = "Нужно загрузить около %1$@ обложек и проверить тексты %2$@ песен. Будет израсходовано немного трафика.";
 "companion_assets_download_start" = "Загрузить";
+
+"diagnostics_crash_reports" = "Отчёты о сбоях и зависаниях";
+"diagnostics_metric_reports" = "Показатели работы";
+"diagnostics_category_empty" = "Нет отчётов";
+"diagnostics_logs_clear" = "Очистить журналы";
+"diagnostics_logs_clear_confirm" = "Удалить все текущие и архивные журналы?";
+"diagnostics_delete_report_confirm" = "Удалить этот отчёт?";
+"diagnostics_cleanup_failed" = "Не удалось очистить данные";

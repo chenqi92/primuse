@@ -19,6 +19,9 @@ struct TVDiagnosticsView: View {
     /// 诊断模式开到什么时候;nil 表示没开。
     @State private var diagnosticModeExpiry: Date?
     @State private var logSize: Int?
+    @State private var showClearLogsConfirm = false
+    @State private var isClearingLogs = false
+    @State private var cleanupError: String?
     @FocusState private var messageFocused: Bool
 
     var body: some View {
@@ -55,6 +58,18 @@ struct TVDiagnosticsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDiagnosticLoggingDidChange)) { _ in
             refreshState()
+        }
+        .alert("diagnostics_logs_clear_confirm", isPresented: $showClearLogsConfirm) {
+            Button("diagnostics_logs_clear", role: .destructive, action: clearLogs)
+            Button("cancel", role: .cancel) {}
+        }
+        .alert("diagnostics_cleanup_failed", isPresented: Binding(
+            get: { cleanupError != nil },
+            set: { if !$0 { cleanupError = nil } }
+        )) {
+            Button("ok", role: .cancel) { cleanupError = nil }
+        } message: {
+            Text(cleanupError ?? "")
         }
         .onExitCommand {
             uploadTask?.cancel()
@@ -102,6 +117,13 @@ struct TVDiagnosticsView: View {
                     )
                 } ?? String(localized: "diagnostics_mode_footer")
             )
+            TVAIDivider()
+            TVAIActionRow(
+                icon: "trash",
+                title: String(localized: "diagnostics_logs_clear"),
+                action: { showClearLogsConfirm = true }
+            )
+            .disabled(isUploading || isClearingLogs)
         }
     }
 
@@ -220,11 +242,20 @@ struct TVDiagnosticsView: View {
 
     private func refreshState() {
         diagnosticModeExpiry = FileLogger.shared.diagnosticLoggingExpiresAt.flatMap { $0 > Date() ? $0 : nil }
-        logSize = try? FileLogger.shared.logFileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        Task { logSize = await FileLogger.shared.storedLogSize() }
+    }
+
+    private func clearLogs() {
+        isClearingLogs = true
+        Task {
+            defer { isClearingLogs = false }
+            do { try await FileLogger.shared.clearLogs() } catch { cleanupError = error.localizedDescription }
+            logSize = await FileLogger.shared.storedLogSize()
+        }
     }
 
     private func startUpload() {
-        guard let uploader, !uploader.isRunning else { return }
+        guard let uploader, !uploader.isRunning, !isClearingLogs else { return }
         messageFocused = false
         uploadError = nil
         let selection = DiagnosticReportUploader.Selection(

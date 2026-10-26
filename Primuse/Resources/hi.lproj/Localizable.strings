@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "सेल्युलर डेटा इस्तेमाल हो रहा है";
 "companion_assets_cellular_message_format" = "लगभग %1$@ कवर डाउनलोड होंगे और %2$@ गानों के लिरिक्स जाँचे जाएँगे। इसमें कुछ डेटा लगेगा।";
 "companion_assets_download_start" = "डाउनलोड करें";
+
+"diagnostics_crash_reports" = "क्रैश और हैंग रिपोर्ट";
+"diagnostics_metric_reports" = "रनटाइम मेट्रिक्स";
+"diagnostics_category_empty" = "कोई रिपोर्ट नहीं";
+"diagnostics_logs_clear" = "लॉग मिटाएँ";
+"diagnostics_logs_clear_confirm" = "क्या सभी मौजूदा और पुराने लॉग मिटाना चाहते हैं?";
+"diagnostics_delete_report_confirm" = "क्या यह रिपोर्ट मिटाना चाहते हैं?";
+"diagnostics_cleanup_failed" = "डेटा मिटाया नहीं जा सका";

@@ -6848,3 +6848,11 @@
 "companion_assets_cellular_title" = "Використовуються мобільні дані";
 "companion_assets_cellular_message_format" = "Треба завантажити близько %1$@ обкладинок і перевірити тексти %2$@ пісень. Буде використано трохи трафіку.";
 "companion_assets_download_start" = "Завантажити";
+
+"diagnostics_crash_reports" = "Звіти про збої та зависання";
+"diagnostics_metric_reports" = "Показники роботи";
+"diagnostics_category_empty" = "Немає звітів";
+"diagnostics_logs_clear" = "Очистити журнали";
+"diagnostics_logs_clear_confirm" = "Видалити всі поточні та архівні журнали?";
+"diagnostics_delete_report_confirm" = "Видалити цей звіт?";
+"diagnostics_cleanup_failed" = "Не вдалося очистити дані";

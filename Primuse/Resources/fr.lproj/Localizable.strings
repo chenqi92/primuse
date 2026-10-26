@@ -6942,3 +6942,11 @@
 "companion_assets_cellular_title" = "Données cellulaires en cours";
 "companion_assets_cellular_message_format" = "Environ %1$@ pochettes à télécharger et des paroles à vérifier pour %2$@ morceaux. Cela consomme un peu de données.";
 "companion_assets_download_start" = "Télécharger";
+
+"diagnostics_crash_reports" = "Rapports de plantage et de blocage";
+"diagnostics_metric_reports" = "Mesures de fonctionnement";
+"diagnostics_category_empty" = "Aucun rapport";
+"diagnostics_logs_clear" = "Effacer les journaux";
+"diagnostics_logs_clear_confirm" = "Supprimer tous les journaux actuels et archivés ?";
+"diagnostics_delete_report_confirm" = "Supprimer ce rapport ?";
+"diagnostics_cleanup_failed" = "Échec de la suppression";

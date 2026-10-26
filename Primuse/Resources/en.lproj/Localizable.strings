@@ -6703,3 +6703,11 @@
 "companion_assets_cellular_title" = "Using Cellular Data";
 "companion_assets_cellular_message_format" = "About %1$@ covers to download and lyrics to check for %2$@ songs. This uses some data.";
 "companion_assets_download_start" = "Download";
+
+"diagnostics_crash_reports" = "Crash and Hang Reports";
+"diagnostics_metric_reports" = "Runtime Metrics";
+"diagnostics_category_empty" = "No reports";
+"diagnostics_logs_clear" = "Clear Logs";
+"diagnostics_logs_clear_confirm" = "Delete all current and archived logs?";
+"diagnostics_delete_report_confirm" = "Delete this report?";
+"diagnostics_cleanup_failed" = "Couldn’t Clear Data";

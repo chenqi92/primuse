@@ -177,3 +177,105 @@ private final class UploadURLProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+
+final class DiagnosticStorageRegressionTests: XCTestCase {
+    private func temporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    @MainActor
+    func testMetricsOnlyRemainAvailableWithoutCrashReports() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory)
+        for index in 0..<3 {
+            service.persistData(Data("{\"sample\":\(index)}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        }
+        XCTAssertTrue(service.reports().isEmpty)
+        XCTAssertEqual(service.metricReports().count, 3)
+        XCTAssertTrue(service.metricReports().allSatisfy { $0.sizeBytes > 0 })
+    }
+
+    @MainActor
+    func testDeletingOneMetricPreservesOtherReports() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory)
+        service.persistData(Data("{\"crash\":1}".utf8))
+        service.persistData(Data("{\"metric\":1}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        service.persistData(Data("{\"metric\":2}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        let deleted = try XCTUnwrap(service.metricReports().first)
+        try service.delete(deleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: deleted.url.path))
+        XCTAssertEqual(service.reports().count, 1)
+        XCTAssertEqual(service.metricReports().count, 1)
+        try service.delete(deleted)
+        XCTAssertEqual(service.metricReports().count, 1)
+    }
+
+    @MainActor
+    func testClearAllRemovesBothCategoriesAndPreservesUnrelatedFiles() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let unrelated = directory.appendingPathComponent("unrelated.txt")
+        try Data("keep".utf8).write(to: unrelated)
+        let service = CrashDiagnosticsService(directory: directory)
+        service.persistData(Data("{}".utf8))
+        service.persistData(Data("{}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        try service.clearAll()
+        XCTAssertTrue(service.reports().isEmpty)
+        XCTAssertTrue(service.metricReports().isEmpty)
+        XCTAssertEqual(try String(contentsOf: unrelated, encoding: .utf8), "keep")
+    }
+
+    func testClearLogsRemovesAllGenerationsAndPendingDuplicatesBeforeExport() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logger = FileLogger(directory: directory)
+        _ = try await logger.exportData()
+        let generations = (1...DiagnosticLoggingPolicy.diagnosticLimits.rotatedGenerations).map {
+            directory.appendingPathComponent("primuse_debug.log.\($0)")
+        }
+        for url in generations { try Data("old generation\n".utf8).write(to: url) }
+        let unrelated = directory.appendingPathComponent("unrelated.log")
+        try Data("keep".utf8).write(to: unrelated)
+        for _ in 0..<3 { logger.log("repeated message", file: "fixture.swift", line: 1) }
+        let before = await logger.storedLogSize()
+        XCTAssertGreaterThan(before, 0)
+
+        try await logger.clearLogs()
+        let exported = try await logger.exportData()
+        let tail = await logger.tailData(maxBytes: 10_000)
+        let size = await logger.storedLogSize()
+        XCTAssertTrue(exported.isEmpty)
+        XCTAssertTrue(tail.isEmpty)
+        XCTAssertEqual(size, 0)
+        XCTAssertTrue(generations.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+        XCTAssertEqual(try String(contentsOf: unrelated, encoding: .utf8), "keep")
+
+        logger.log("repeated message", file: "fixture.swift", line: 1)
+        let fresh = String(decoding: try await logger.exportData(), as: UTF8.self)
+        XCTAssertTrue(fresh.contains("repeated message"))
+        XCTAssertFalse(fresh.contains("old generation"))
+        XCTAssertFalse(fresh.contains("SESSION START"))
+        let freshSize = await logger.storedLogSize()
+        XCTAssertEqual(freshSize, fresh.utf8.count)
+        try await logger.clearLogs()
+        let clearedAgain = try await logger.exportData()
+        XCTAssertTrue(clearedAgain.isEmpty)
+    }
+
+    func testClearLogsReportsFileSystemFailure() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logger = FileLogger(directory: directory.appendingPathComponent("missing-parent"))
+        do {
+            try await logger.clearLogs()
+            XCTFail("A failed cleanup must not be reported as success")
+        } catch {
+            XCTAssertTrue(error is CocoaError)
+        }
+    }
+}

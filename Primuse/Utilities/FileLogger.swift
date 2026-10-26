@@ -66,11 +66,13 @@ final class FileLogger: @unchecked Sendable {
     /// 与 `currentBytes` 一样只在 `queue` 上读写(`init` 早于任何队列作业)。
     private var handle: FileHandle?
 
-    private init() {
-        let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+    init(directory: URL? = nil) {
+        let docs = directory ?? FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         fileURL = docs.appendingPathComponent("primuse_debug.log")
         directoryURL = docs
-        let diagnosticMode = Self.resolveDiagnosticMode()
+        let diagnosticMode = directory == nil
+            ? Self.resolveDiagnosticMode()
+            : DiagnosticLoggingPolicy.resolve(request: nil, storedExpiry: nil, now: Date())
         diagnosticExpiryState = diagnosticMode.expiresAt
         limitsState = DiagnosticLoggingPolicy.limits(isActive: diagnosticMode.isActive)
         let limits = limitsState
@@ -376,6 +378,43 @@ final class FileLogger: @unchecked Sendable {
 
     /// Returns the log file URL for sharing/debugging
     var logFileURL: URL { fileURL }
+
+    /// 与写入、轮转串行，清掉历史代及尚未落盘的重复汇总；后续日志继续正常记录。
+    func clearLogs() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result {
+                    self.closeHandle()
+                    self.coalescer = LogDuplicateCoalescer()
+                    self.backlogLock.withLock { self.droppedCount = 0 }
+                    try Data().write(to: self.fileURL, options: .atomic)
+                    self.currentBytes = 0
+                    for generation in 1...DiagnosticLoggingPolicy.diagnosticLimits.rotatedGenerations {
+                        let url = self.generationURL(generation)
+                        do {
+                            try FileManager.default.removeItem(at: url)
+                        } catch CocoaError.fileNoSuchFile {
+                            continue
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    func storedLogSize() async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let urls = [self.fileURL] + (1...DiagnosticLoggingPolicy.diagnosticLimits.rotatedGenerations)
+                    .map { self.generationURL($0) }
+                let size = urls.reduce(0) { total, url in
+                    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+                    return total + (attributes?[.size] as? Int ?? 0)
+                }
+                continuation.resume(returning: size)
+            }
+        }
+    }
 
     func exportData() async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in

@@ -4,7 +4,7 @@ import PrimuseKit
 import PhotosUI
 #endif
 
-/// Settings → 关于 → 诊断报告。显示由 MetricKit 上报的 crash / hang 报告
+/// Settings → 关于 → 诊断报告。分类显示系统诊断与运行指标报告
 /// 列表,点击可以分享 (邮件 / AirDrop / 复制) 给开发者排查。报告全部本地
 /// 存放,不会自动外发 —— 顶部的「发送给作者」按钮打开反馈页,由用户勾选内容后
 /// 亲手点上传(中转开着上传时)、填好系统邮件草稿,或交给系统分享面板。
@@ -12,10 +12,12 @@ struct DiagnosticReportsView: View {
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「发送」带上标题优先留在竖栏里,「清空」并进系统溢出菜单。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var reports: [DiagnosticReport] = []
-    /// 系统每天投递的指标载荷。不进列表(它不是崩溃), 但发给开发者时一起带上 ——
-    /// 没有崩溃报告的"闪退"只能从它的退出原因统计里认出来。
     @State private var metricReports: [DiagnosticReport] = []
     @State private var showClearConfirm = false
+    @State private var showClearLogsConfirm = false
+    @State private var reportToDelete: DiagnosticReport?
+    @State private var cleanupError: String?
+    @State private var isClearingLogs = false
     @State private var showFeedback = false
     @State private var logSize: Int?
     @Environment(\.scenePhase) private var scenePhase
@@ -46,6 +48,8 @@ struct DiagnosticReportsView: View {
         .sheet(isPresented: $showFeedback, onDismiss: presentPreparedDraft) {
             DiagnosticFeedbackView(
                 reportURLs: reports.map(\.url) + metricReports.map(\.url),
+                diagnosticReportCount: reports.count,
+                metricReportCount: metricReports.count,
                 canExportLogs: canExportLogs,
                 onPrepared: { draft in
                     pendingMailDraft = draft
@@ -63,47 +67,12 @@ struct DiagnosticReportsView: View {
 
     private var reportsList: some View {
         List {
-            if reports.isEmpty {
+            reportSection(reports, title: String(localized: "diagnostics_crash_reports"))
+            reportSection(metricReports, title: String(localized: "diagnostics_metric_reports"))
+            if !reports.isEmpty || !metricReports.isEmpty {
                 Section {
-                    VStack(spacing: 8) {
-                        Image(systemName: "checkmark.shield")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.green)
-                        Text(String(localized: "diagnostics_empty_title"))
-                            .font(.headline)
-                        Text(String(localized: "diagnostics_empty_subtitle"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
+                    Button("diagnostics_clear", role: .destructive) { showClearConfirm = true }
                 }
-            } else {
-                Section {
-                    ForEach(reports) { report in
-                        ShareLink(item: report.url) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(report.displayDate)
-                                        .font(.subheadline)
-                                    Text(report.displaySize)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                } footer: {
-                    Text(String(localized: "diagnostics_footer"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
             }
             diagnosticModeSection
             logSection
@@ -141,6 +110,60 @@ struct DiagnosticReportsView: View {
             }
             .settingsAnchor("diagnostics.clearReports")
             Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .alert("diagnostics_logs_clear_confirm", isPresented: $showClearLogsConfirm) {
+            Button("diagnostics_logs_clear", role: .destructive, action: clearLogs)
+            Button("cancel", role: .cancel) {}
+        }
+        .alert("diagnostics_delete_report_confirm", isPresented: Binding(
+            get: { reportToDelete != nil },
+            set: { if !$0 { reportToDelete = nil } }
+        ), presenting: reportToDelete) { report in
+            Button("delete", role: .destructive) {
+                do { try service.delete(report) } catch { cleanupError = error.localizedDescription }
+                reportToDelete = nil
+                reload()
+            }
+            Button("cancel", role: .cancel) { reportToDelete = nil }
+        }
+        .alert("diagnostics_cleanup_failed", isPresented: Binding(
+            get: { cleanupError != nil },
+            set: { if !$0 { cleanupError = nil } }
+        )) {
+            Button("ok", role: .cancel) { cleanupError = nil }
+        } message: {
+            Text(cleanupError ?? "")
+        }
+    }
+
+    private func reportSection(_ items: [DiagnosticReport], title: String) -> some View {
+        Section {
+            if items.isEmpty {
+                Text("diagnostics_category_empty")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(items) { report in
+                ShareLink(item: report.url) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(report.displayDate).font(.subheadline)
+                            Text(report.displaySize).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "square.and.arrow.up").foregroundStyle(.secondary)
+                    }
+                }
+                .contextMenu {
+                    Button("delete", role: .destructive) { reportToDelete = report }
+                }
+                .swipeActions {
+                    Button("delete", role: .destructive) { reportToDelete = report }
+                }
+            }
+        } header: {
+            Text(verbatim: "\(title) · \(items.count.formatted())")
+        } footer: {
+            if !items.isEmpty { Text("diagnostics_footer") }
         }
     }
 
@@ -231,28 +254,39 @@ struct DiagnosticReportsView: View {
         diagnosticModeExpiry = FileLogger.shared.diagnosticLoggingExpiresAt.flatMap { $0 > Date() ? $0 : nil }
     }
 
-    @ViewBuilder private var logSection: some View {
-        #if os(iOS)
-        if canExportLogs {
-            Section {
+    private var logSection: some View {
+        Section {
+            HStack {
+                Text("diagnostics_logs_title")
+                Spacer()
+                Text(logSize.map {
+                    ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
+                } ?? "—")
+                .foregroundStyle(.secondary)
+            }
+            if canExportLogs {
                 ShareLink(item: FileLogger.shared.logFileURL) {
-                    HStack {
-                        Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
-                        Spacer()
-                        Text(logSize.map {
-                            ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
-                        } ?? "—")
-                        .foregroundStyle(.secondary)
-                    }
+                    Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
                 }
                 .settingsAnchor("storage.exportLog")
-            } header: {
-                SettingsInfoHeader("diagnostics_logs_title") {
-                    Text("storage_export_log_footer")
-                }
+            }
+            Button("diagnostics_logs_clear", role: .destructive) { showClearLogsConfirm = true }
+                .disabled(isClearingLogs)
+                .settingsAnchor("diagnostics.clearLogs")
+        } header: {
+            SettingsInfoHeader("diagnostics_logs_title") {
+                Text("storage_export_log_footer")
             }
         }
-        #endif
+    }
+
+    private func clearLogs() {
+        isClearingLogs = true
+        Task {
+            defer { isClearingLogs = false }
+            do { try await FileLogger.shared.clearLogs() } catch { cleanupError = error.localizedDescription }
+            logSize = await FileLogger.shared.storedLogSize()
+        }
     }
 
     private var canExportLogs: Bool {
@@ -273,7 +307,7 @@ struct DiagnosticReportsView: View {
     #endif
 
     private func clearAll() {
-        service.clearAll()
+        do { try service.clearAll() } catch { cleanupError = error.localizedDescription }
         reload()
     }
 
@@ -281,9 +315,7 @@ struct DiagnosticReportsView: View {
         refreshDiagnosticMode()
         reports = service.reports()
         metricReports = service.metricReports()
-        if canExportLogs {
-            logSize = try? FileLogger.shared.logFileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
-        }
+        Task { logSize = await FileLogger.shared.storedLogSize() }
     }
 }
 
@@ -314,6 +346,8 @@ private struct DiagnosticFeedbackView: View {
     @State private var sharedItem: DiagnosticShareItem?
     @State private var shareCompleted = false
     let reportURLs: [URL]
+    let diagnosticReportCount: Int
+    let metricReportCount: Int
     let canExportLogs: Bool
     let onPrepared: (DiagnosticReportMailer.Draft) -> Void
     /// 上传或分享成功,参数是带出去的报告份数。
@@ -322,15 +356,20 @@ private struct DiagnosticFeedbackView: View {
 
     init(
         reportURLs: [URL],
+        diagnosticReportCount: Int,
+        metricReportCount: Int,
         canExportLogs: Bool,
         onPrepared: @escaping (DiagnosticReportMailer.Draft) -> Void,
         onDelivered: @escaping (Int) -> Void
     ) {
         self.reportURLs = reportURLs
+        self.diagnosticReportCount = diagnosticReportCount
+        self.metricReportCount = metricReportCount
         self.canExportLogs = canExportLogs
         self.onPrepared = onPrepared
         self.onDelivered = onDelivered
         canSendMail = DiagnosticReportMailer.canSendMail
+        _includesReports = State(initialValue: !reportURLs.isEmpty)
         // 测试渠道照旧默认带日志;正式版的日志要用户自己勾,开着诊断模式时默认勾上
         // (打开它就是为了把问题记下来发给作者)。
         _includesLogs = State(initialValue: canExportLogs || FileLogger.isDiagnosticModeActive)
@@ -408,8 +447,16 @@ private struct DiagnosticFeedbackView: View {
     private var form: some View {
         Form {
             Section("diagnostics_feedback_attachments") {
-                Toggle("diagnostics_title", isOn: $includesReports)
-                    .disabled(reportURLs.isEmpty)
+                Toggle(isOn: $includesReports) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("diagnostics_title")
+                        Text(verbatim: "\(String(localized: "diagnostics_crash_reports")) · \(diagnosticReportCount.formatted())")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(verbatim: "\(String(localized: "diagnostics_metric_reports")) · \(metricReportCount.formatted())")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(reportURLs.isEmpty)
                 if logOffered {
                     Toggle(isOn: $includesLogs) {
                         SettingsInfoLabel("diagnostics_logs_title") {
