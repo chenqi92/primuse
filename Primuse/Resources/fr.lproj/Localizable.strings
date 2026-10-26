@@ -3116,6 +3116,14 @@
 
 /* MARK: - Éditeur de paroles / sélection radio */
 "lyrics_editor_menu" = "Modifier les paroles";
+"lyrics_export_menu" = "Exporter les paroles";
+"transcript_export_menu" = "Exporter la transcription";
+"lyrics_export_menu_item" = "Exporter les paroles ou la transcription";
+"lyrics_export_format_lrc" = "Paroles LRC (minutées)";
+"lyrics_export_format_srt" = "Sous-titres SRT";
+"lyrics_export_format_text" = "Texte brut";
+"lyrics_export_error_empty" = "Aucunes paroles ni transcription à exporter.";
+"lyrics_export_error_untimed" = "Ces paroles ne sont pas minutées : elles ne peuvent être exportées qu’en texte brut.";
 "radio_manage_selected %lld" = "%lld sélectionnées";
 
 /* MARK: - Barre radio */
@@ -5101,6 +5109,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Version instrumentale";
 "karaoke_backing_track_playing" = "La version instrumentale est en lecture : aucune voix à régler.";
+"karaoke_export_menu" = "Exporter les pistes séparées";
+"karaoke_export_waiting" = "Instrumental et voix exportables une fois la séparation terminée";
+"karaoke_export_part_instrumental" = "Instrumental";
+"karaoke_export_part_vocals" = "Voix";
+"karaoke_export_format_wav" = "WAV (sans perte)";
+"karaoke_export_format_m4a" = "M4A (plus léger)";
+"karaoke_export_error_not_separated" = "Ce morceau n’a pas encore été séparé. Activez la séparation vocale IA et exportez une fois terminé.";
 "karaoke_lyrics_from_format" = "Paroles de « %@ »";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

@@ -2035,6 +2035,14 @@
 "lyrics_editor_live_undo" = "التراجع عن السطر";
 "lyrics_editor_mark_line" = "تحديد توقيت هذا السطر";
 "lyrics_editor_menu" = "تحرير كلمات الأغاني";
+"lyrics_export_menu" = "تصدير كلمات الأغنية";
+"transcript_export_menu" = "تصدير النص";
+"lyrics_export_menu_item" = "تصدير الكلمات أو النص";
+"lyrics_export_format_lrc" = "كلمات LRC (مع التوقيت)";
+"lyrics_export_format_srt" = "ترجمة SRT";
+"lyrics_export_format_text" = "نص عادي";
+"lyrics_export_error_empty" = "لا توجد كلمات أو نص لتصديره.";
+"lyrics_export_error_untimed" = "هذه الكلمات بلا توقيت، لذا يمكن تصديرها كنص عادي فقط.";
 "lyrics_editor_mode_lrc_text" = "نص LRC";
 "lyrics_editor_mode_structured" = "الأسطر";
 "lyrics_editor_mode_text" = "النص";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "المسار المرافق";
 "karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
+"karaoke_export_menu" = "تصدير المسارات المفصولة";
+"karaoke_export_waiting" = "يمكن تصدير الموسيقى والغناء بعد اكتمال الفصل";
+"karaoke_export_part_instrumental" = "الموسيقى فقط";
+"karaoke_export_part_vocals" = "الغناء فقط";
+"karaoke_export_format_wav" = "WAV (بلا فقدان)";
+"karaoke_export_format_m4a" = "M4A (حجم أصغر)";
+"karaoke_export_error_not_separated" = "لم تُفصل هذه الأغنية بعد. شغّل فصل الصوت بالذكاء الاصطناعي ثم صدّرها عند الانتهاء.";
 "karaoke_lyrics_from_format" = "الكلمات من “%@”";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

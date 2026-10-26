@@ -2150,6 +2150,14 @@
 "lyrics_color" = "Колір тексту";
 "error_cloudkit_record_upload %@" = "Збій завантаження запису CloudKit: %@";
 "lyrics_editor_menu" = "Редагувати текст пісні";
+"lyrics_export_menu" = "Експортувати текст пісні";
+"transcript_export_menu" = "Експортувати текст";
+"lyrics_export_menu_item" = "Експорт тексту пісні або розшифровки";
+"lyrics_export_format_lrc" = "LRC (з таймінгом)";
+"lyrics_export_format_srt" = "Субтитри SRT";
+"lyrics_export_format_text" = "Звичайний текст";
+"lyrics_export_error_empty" = "Немає тексту пісні чи розшифровки для експорту.";
+"lyrics_export_error_untimed" = "Цей текст не має таймінгу, тому його можна експортувати лише як звичайний текст.";
 "Station" = "Станція";
 "synced_items" = "Синхронізовані елементи";
 "ai_error_public_http" = "Державні постачальники повинні використовувати HTTPS.";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Мінусовка";
 "karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
+"karaoke_export_menu" = "Експорт розділених доріжок";
+"karaoke_export_waiting" = "Мінусовку й вокал можна експортувати після розділення";
+"karaoke_export_part_instrumental" = "Мінусовка";
+"karaoke_export_part_vocals" = "Вокал";
+"karaoke_export_format_wav" = "WAV (без втрат)";
+"karaoke_export_format_m4a" = "M4A (менший розмір)";
+"karaoke_export_error_not_separated" = "Цю пісню ще не розділено. Увімкніть ШІ-відокремлення вокалу й експортуйте після завершення.";
 "karaoke_lyrics_from_format" = "Текст із «%@»";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

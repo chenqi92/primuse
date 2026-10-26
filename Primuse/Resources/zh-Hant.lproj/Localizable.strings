@@ -3102,6 +3102,14 @@
 
 /* MARK: - 歌詞編輯入口 / 電台多選 */
 "lyrics_editor_menu" = "編輯歌詞";
+"lyrics_export_menu" = "匯出歌詞";
+"transcript_export_menu" = "匯出文字稿";
+"lyrics_export_menu_item" = "匯出歌詞或文字稿";
+"lyrics_export_format_lrc" = "LRC 歌詞（含時間）";
+"lyrics_export_format_srt" = "SRT 字幕";
+"lyrics_export_format_text" = "純文字";
+"lyrics_export_error_empty" = "這一首沒有可以匯出的歌詞或文字稿。";
+"lyrics_export_error_untimed" = "這份歌詞沒有時間軸，只能匯出為純文字。";
 "radio_manage_selected %lld" = "已選 %lld 項";
 
 /* MARK: - 電台底欄 */
@@ -5078,6 +5086,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏音軌";
 "karaoke_backing_track_playing" = "正在播放伴奏音軌，沒有人聲可調。";
+"karaoke_export_menu" = "匯出 AI 分離的音軌";
+"karaoke_export_waiting" = "分離完成後可匯出伴奏和人聲";
+"karaoke_export_part_instrumental" = "伴奏";
+"karaoke_export_part_vocals" = "人聲";
+"karaoke_export_format_wav" = "WAV（無損）";
+"karaoke_export_format_m4a" = "M4A（檔案較小）";
+"karaoke_export_error_not_separated" = "這首歌還沒有用 AI 分離，開啟「AI 人聲分離」、等分離完成後再匯出。";
 "karaoke_lyrics_from_format" = "歌詞來自《%@》";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

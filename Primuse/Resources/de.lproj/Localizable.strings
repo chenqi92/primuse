@@ -3116,6 +3116,14 @@
 
 /* MARK: - Songtext-Editor / Radioauswahl */
 "lyrics_editor_menu" = "Songtext bearbeiten";
+"lyrics_export_menu" = "Songtext exportieren";
+"transcript_export_menu" = "Transkript exportieren";
+"lyrics_export_menu_item" = "Songtext oder Transkript exportieren";
+"lyrics_export_format_lrc" = "LRC-Songtext (mit Zeiten)";
+"lyrics_export_format_srt" = "SRT-Untertitel";
+"lyrics_export_format_text" = "Reiner Text";
+"lyrics_export_error_empty" = "Für diesen Titel gibt es keinen Songtext und kein Transkript zum Exportieren.";
+"lyrics_export_error_untimed" = "Dieser Songtext hat keine Zeitangaben und kann nur als reiner Text exportiert werden.";
 "radio_manage_selected %lld" = "%lld ausgewählt";
 
 /* MARK: - Radio-Leiste */
@@ -5101,6 +5109,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
+"karaoke_export_menu" = "Getrennte Spuren exportieren";
+"karaoke_export_waiting" = "Instrumental und Gesang nach der Trennung exportierbar";
+"karaoke_export_part_instrumental" = "Instrumental";
+"karaoke_export_part_vocals" = "Gesang";
+"karaoke_export_format_wav" = "WAV (verlustfrei)";
+"karaoke_export_format_m4a" = "M4A (kleiner)";
+"karaoke_export_error_not_separated" = "Dieser Song wurde noch nicht getrennt. Schalte die KI-Gesangstrennung ein und exportiere, sobald sie fertig ist.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

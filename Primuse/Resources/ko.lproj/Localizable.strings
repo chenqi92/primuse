@@ -3116,6 +3116,14 @@
 
 /* MARK: - Lyrics editor / radio selection */
 "lyrics_editor_menu" = "가사 편집";
+"lyrics_export_menu" = "가사 내보내기";
+"transcript_export_menu" = "텍스트 내보내기";
+"lyrics_export_menu_item" = "가사 또는 텍스트 내보내기";
+"lyrics_export_format_lrc" = "LRC 가사(타이밍 포함)";
+"lyrics_export_format_srt" = "SRT 자막";
+"lyrics_export_format_text" = "일반 텍스트";
+"lyrics_export_error_empty" = "내보낼 가사나 텍스트가 없습니다.";
+"lyrics_export_error_untimed" = "이 가사에는 타이밍 정보가 없어 일반 텍스트로만 내보낼 수 있습니다.";
 "radio_manage_selected %lld" = "%lld개 선택됨";
 
 /* MARK: - Radio bottom bar */
@@ -5101,6 +5109,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
+"karaoke_export_menu" = "분리된 트랙 내보내기";
+"karaoke_export_waiting" = "분리가 끝나면 반주와 보컬을 내보낼 수 있습니다";
+"karaoke_export_part_instrumental" = "반주";
+"karaoke_export_part_vocals" = "보컬";
+"karaoke_export_format_wav" = "WAV(무손실)";
+"karaoke_export_format_m4a" = "M4A(작은 용량)";
+"karaoke_export_error_not_separated" = "이 곡은 아직 분리되지 않았습니다. AI 보컬 분리를 켜고 끝난 뒤 내보내세요.";
 "karaoke_lyrics_from_format" = "가사 출처: “%@”";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

@@ -2035,6 +2035,14 @@
 "lyrics_editor_live_undo" = "Desfazer linha";
 "lyrics_editor_mark_line" = "Marcar esta linha";
 "lyrics_editor_menu" = "Editar letras";
+"lyrics_export_menu" = "Exportar letra";
+"transcript_export_menu" = "Exportar transcrição";
+"lyrics_export_menu_item" = "Exportar letra ou transcrição";
+"lyrics_export_format_lrc" = "Letra LRC (com tempos)";
+"lyrics_export_format_srt" = "Legendas SRT";
+"lyrics_export_format_text" = "Texto simples";
+"lyrics_export_error_empty" = "Não há letra nem transcrição para exportar.";
+"lyrics_export_error_untimed" = "Esta letra não tem tempos, então só pode ser exportada como texto simples.";
 "lyrics_editor_mode_lrc_text" = "Texto LRC";
 "lyrics_editor_mode_structured" = "Linhas";
 "lyrics_editor_mode_text" = "Texto";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "O playback está tocando, não há voz para ajustar.";
+"karaoke_export_menu" = "Exportar faixas separadas";
+"karaoke_export_waiting" = "Exporte o instrumental e a voz quando a separação terminar";
+"karaoke_export_part_instrumental" = "Instrumental";
+"karaoke_export_part_vocals" = "Voz";
+"karaoke_export_format_wav" = "WAV (sem perdas)";
+"karaoke_export_format_m4a" = "M4A (menor)";
+"karaoke_export_error_not_separated" = "Esta música ainda não foi separada. Ative a separação vocal com IA e exporte quando terminar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

@@ -3218,6 +3218,14 @@
 
 /* MARK: - 歌词编辑入口 / 电台多选 */
 "lyrics_editor_menu" = "编辑歌词";
+"lyrics_export_menu" = "导出歌词";
+"transcript_export_menu" = "导出文字稿";
+"lyrics_export_menu_item" = "导出歌词或文字稿";
+"lyrics_export_format_lrc" = "LRC 歌词（带时间）";
+"lyrics_export_format_srt" = "SRT 字幕";
+"lyrics_export_format_text" = "纯文本";
+"lyrics_export_error_empty" = "这一首没有可以导出的歌词或文字稿。";
+"lyrics_export_error_untimed" = "这份歌词没有时间轴，只能导出为纯文本。";
 "radio_manage_selected %lld" = "已选 %lld 项";
 
 /* MARK: - 电台底栏 */
@@ -5194,6 +5202,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏音轨";
 "karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
+"karaoke_export_menu" = "导出 AI 分离的音轨";
+"karaoke_export_waiting" = "分离完成后可导出伴奏和人声";
+"karaoke_export_part_instrumental" = "伴奏";
+"karaoke_export_part_vocals" = "人声";
+"karaoke_export_format_wav" = "WAV（无损）";
+"karaoke_export_format_m4a" = "M4A（体积小）";
+"karaoke_export_error_not_separated" = "这首歌还没有用 AI 分离，打开「AI 人声分离」、等分离完成后再导出。";
 "karaoke_lyrics_from_format" = "歌词来自《%@》";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

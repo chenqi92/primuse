@@ -3117,6 +3117,14 @@
 
 /* MARK: - Lyrics editor / radio selection */
 "lyrics_editor_menu" = "歌詞を編集";
+"lyrics_export_menu" = "歌詞を書き出す";
+"transcript_export_menu" = "テキストを書き出す";
+"lyrics_export_menu_item" = "歌詞・テキストを書き出す";
+"lyrics_export_format_lrc" = "LRC歌詞（タイミング付き）";
+"lyrics_export_format_srt" = "SRT字幕";
+"lyrics_export_format_text" = "プレーンテキスト";
+"lyrics_export_error_empty" = "書き出せる歌詞やテキストがありません。";
+"lyrics_export_error_untimed" = "この歌詞にはタイミング情報がないため、プレーンテキストでのみ書き出せます。";
 "radio_manage_selected %lld" = "%lld 件選択";
 
 /* MARK: - Radio bottom bar */
@@ -5102,6 +5110,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
+"karaoke_export_menu" = "分離したトラックを書き出す";
+"karaoke_export_waiting" = "分離が終わると伴奏とボーカルを書き出せます";
+"karaoke_export_part_instrumental" = "伴奏";
+"karaoke_export_part_vocals" = "ボーカル";
+"karaoke_export_format_wav" = "WAV（ロスレス）";
+"karaoke_export_format_m4a" = "M4A（小さいサイズ）";
+"karaoke_export_error_not_separated" = "この曲はまだ分離されていません。AIボーカル分離をオンにして、完了してから書き出してください。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

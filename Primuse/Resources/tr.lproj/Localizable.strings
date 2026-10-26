@@ -2150,6 +2150,14 @@
 "lyrics_color" = "Şarkı sözleri rengi";
 "error_cloudkit_record_upload %@" = "CloudKit kayıt yükleme başarısız oldu: %@";
 "lyrics_editor_menu" = "Şarkı sözlerini düzenle";
+"lyrics_export_menu" = "Şarkı sözlerini dışa aktar";
+"transcript_export_menu" = "Metni dışa aktar";
+"lyrics_export_menu_item" = "Şarkı sözlerini veya metni dışa aktar";
+"lyrics_export_format_lrc" = "LRC sözleri (zamanlı)";
+"lyrics_export_format_srt" = "SRT altyazı";
+"lyrics_export_format_text" = "Düz metin";
+"lyrics_export_error_empty" = "Dışa aktarılacak şarkı sözü veya metin yok.";
+"lyrics_export_error_untimed" = "Bu sözlerde zamanlama yok; yalnızca düz metin olarak dışa aktarılabilir.";
 "Station" = "İstasyon";
 "synced_items" = "Senkronize edilen öğeler";
 "ai_error_public_http" = "Kamu sağlayıcıları HTTPS kullanmalıdır.";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
+"karaoke_export_menu" = "Ayrılmış parçaları dışa aktar";
+"karaoke_export_waiting" = "Ayırma bitince altyapı ve vokal dışa aktarılabilir";
+"karaoke_export_part_instrumental" = "Altyapı";
+"karaoke_export_part_vocals" = "Vokal";
+"karaoke_export_format_wav" = "WAV (kayıpsız)";
+"karaoke_export_format_m4a" = "M4A (daha küçük)";
+"karaoke_export_error_not_separated" = "Bu şarkı henüz ayrılmadı. Yapay zekâ ile vokal ayırmayı açın ve bitince dışa aktarın.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

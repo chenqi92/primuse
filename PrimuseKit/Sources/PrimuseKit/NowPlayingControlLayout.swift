@@ -173,6 +173,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case immersiveFaceToggle
     /// 「随机时连播」(#335)。
     case shuffleLink
+    /// 把歌词、有声书或播客的文字稿存成 LRC / SRT / 纯文本(#362)。
+    case exportText
 
     public var id: String { rawValue }
 }

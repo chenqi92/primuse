@@ -66,6 +66,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 字体弹层里「导入字体…」选好或拖进来的字体文件,交给 `PlayerTextFontImportModifier` 导入。
     @State private var pendingLyricsFontURLs: [URL] = []
     @State private var translationPickerShown = false
+    /// 「导出歌词 / 文字稿」选格式的那一层,和点了之后要导出的那一份(#362)。
+    @State private var textExportPickerShown = false
+    @State private var lyricsExportRequest: LyricsExportRequest?
     @State private var equalizerPickerShown = false
     @State private var playbackRatePickerShown = false
     @State private var pitchPickerShown = false
@@ -155,7 +158,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .modifier(PlayerMoreMenuTranscriptGeneration(
             songID: player.currentSong?.id,
             transcriptGenerationSong: $transcriptGenerationSong,
-            currentHasTranscript: $currentHasTranscript
+            currentHasTranscript: $currentHasTranscript,
+            lyricsExportRequest: $lyricsExportRequest
         ))
         .sheet(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(song: song) { updated in
@@ -221,6 +225,57 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             return String(localized: "transcript_generation_regenerate")
         }
         return currentHasTranscript == false ? String(localized: "transcript_generation_action") : nil
+    }
+
+    /// 这一首有歌词(有声内容是文字稿)时才能导出成文件(#362)。
+    private var canExportText: Bool {
+        player.currentSong != nil && !player.isLiveRadio && currentHasTranscript == true
+    }
+
+    private var textExportRow: some View {
+        Button { textExportPickerShown.toggle() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.text")
+                    .frame(width: 18)
+                    .foregroundStyle(PMColor.textMuted)
+                Text(LocalizedStringKey(isSpokenWord ? "transcript_export_menu" : "lyrics_export_menu"))
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $textExportPickerShown, arrowEdge: .leading) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(LyricsExportFormat.allCases) { format in
+                    Button {
+                        textExportPickerShown = false
+                        menuShown = false
+                        guard let song = player.currentSong else { return }
+                        lyricsExportRequest = LyricsExportRequest(
+                            song: song,
+                            format: format,
+                            isTranscript: isSpokenWord
+                        )
+                    } label: {
+                        Text(verbatim: LyricsFileExporter.title(for: format))
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .pmRowBackground(cornerRadius: 6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(6)
+            .frame(minWidth: 200)
+        }
     }
 
     /// 播客单集不在曲库里: 加歌单、改标签与歌词、歌曲信息都没有落处。
@@ -413,6 +468,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 menuRow(titleText: generation, symbol: "waveform.and.mic") {
                     transcriptGenerationSong = player.currentSong
                 }
+            }
+            if canExportText {
+                textExportRow
             }
             // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
             if !isSpokenWord {
@@ -2465,9 +2523,12 @@ private struct PlayerMoreMenuTranscriptGeneration: ViewModifier {
     let songID: String?
     @Binding var transcriptGenerationSong: Song?
     @Binding var currentHasTranscript: Bool?
+    /// 「导出歌词 / 文字稿」(#362)。
+    @Binding var lyricsExportRequest: LyricsExportRequest?
 
     func body(content: Content) -> some View {
         content
+            .modifier(LyricsExportPresenter(request: $lyricsExportRequest))
             .sheet(item: $transcriptGenerationSong) { song in
                 SpokenTranscriptGenerationSheet(song: song)
                     .environment(AppServices.shared.musicIntelligence)

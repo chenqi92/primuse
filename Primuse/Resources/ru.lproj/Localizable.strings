@@ -2150,6 +2150,14 @@
 "lyrics_color" = "Цвет текста";
 "error_cloudkit_record_upload %@" = "Ошибка загрузки записи CloudKit: %@.";
 "lyrics_editor_menu" = "Редактировать текст песни";
+"lyrics_export_menu" = "Экспортировать текст песни";
+"transcript_export_menu" = "Экспортировать текст";
+"lyrics_export_menu_item" = "Экспорт текста песни или расшифровки";
+"lyrics_export_format_lrc" = "LRC (с таймингом)";
+"lyrics_export_format_srt" = "Субтитры SRT";
+"lyrics_export_format_text" = "Обычный текст";
+"lyrics_export_error_empty" = "Нет текста песни или расшифровки для экспорта.";
+"lyrics_export_error_untimed" = "У этого текста нет тайминга, поэтому его можно экспортировать только как обычный текст.";
 "Station" = "Станция";
 "synced_items" = "Синхронизированные элементы";
 "ai_error_public_http" = "Государственные провайдеры должны использовать HTTPS.";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Минусовка";
 "karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
+"karaoke_export_menu" = "Экспорт разделённых дорожек";
+"karaoke_export_waiting" = "Минусовку и вокал можно экспортировать после разделения";
+"karaoke_export_part_instrumental" = "Минусовка";
+"karaoke_export_part_vocals" = "Вокал";
+"karaoke_export_format_wav" = "WAV (без потерь)";
+"karaoke_export_format_m4a" = "M4A (меньше размер)";
+"karaoke_export_error_not_separated" = "Эта песня ещё не разделена. Включите ИИ-отделение вокала и экспортируйте после его завершения.";
 "karaoke_lyrics_from_format" = "Текст из «%@»";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

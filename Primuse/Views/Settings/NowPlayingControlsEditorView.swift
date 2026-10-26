@@ -1883,7 +1883,7 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_modes", [.karaoke, .medley]),
         ("player_menu_group_song", [
             .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
-            .editTags, .editLyrics,
+            .editTags, .editLyrics, .exportText,
         ]),
         ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
         ("player_menu_group_playback", [.cast, .lyricsDisplay, .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
@@ -1914,7 +1914,8 @@ private struct SpokenWordMenuItemsEditor: View {
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
         ("player_menu_group_book", [
-            .chaptersAndBookmarks, .goToBook, .generateTranscript, .songInfo, .editTags, .editLyrics, .reloadLyrics,
+            .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
+            .reloadLyrics,
         ]),
         ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
@@ -1923,7 +1924,8 @@ private struct SpokenWordMenuItemsEditor: View {
         ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
         ("player_menu_group_episode", [
             .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow,
-            .chaptersAndBookmarks, .goToBook, .generateTranscript, .songInfo, .editTags, .editLyrics, .reloadLyrics,
+            .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
+            .reloadLyrics,
         ]),
         ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
@@ -2019,6 +2021,7 @@ extension NowPlayingMenuItem {
         case .generateTranscript: "waveform.and.mic"
         case .immersiveFaceToggle: "photo"
         case .shuffleLink: "link"
+        case .exportText: "doc.text"
         }
     }
 
@@ -2057,6 +2060,7 @@ extension NowPlayingMenuItem {
         case .generateTranscript: "transcript_generation_title"
         case .immersiveFaceToggle: "player_menu_item_immersive_face"
         case .shuffleLink: "shuffle_link_menu"
+        case .exportText: "lyrics_export_menu_item"
         }
     }
 }

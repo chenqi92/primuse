@@ -1356,6 +1356,8 @@ struct NowPlayingView: View {
     @State private var showChapterList = false
     /// 正在给哪一集 / 哪一章打开「生成文字稿」(#314)。
     @State private var transcriptGenerationSong: Song?
+    /// 「更多」里点的「导出歌词 / 文字稿」(#362)。
+    @State private var lyricsExportRequest: LyricsExportRequest?
     /// 目录面板(sheet 或右栏)该翻到哪一页;播客的「接下来」块与队列键用它。
     @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     @State private var bookmarkFeedbackToken = 0
@@ -3811,6 +3813,7 @@ struct NowPlayingView: View {
             transcriptTranslations: { lyricTranslationsByLineID },
             onTranscriptOffsetChange: refreshTranscriptOffset,
             transcriptGenerationSong: $transcriptGenerationSong,
+            lyricsExportRequest: $lyricsExportRequest,
             intelligence: intelligence
         ))
         #if os(iOS)
@@ -5090,6 +5093,13 @@ struct NowPlayingView: View {
 
     /// 手机横屏传输键一行的播放键,和竖屏普通播放页一样大。
     private static let compactLandscapePlayDiameter: CGFloat = 56
+
+    /// 「导出歌词 / 文字稿」能给哪几种格式(#362)。只看手上这份有没有带时间的行,不逐行查字:
+    /// 菜单每次重画都要算,真没有字时导出那一步再说。
+    private func textExportFormats(showsItem: Bool) -> [LyricsExportFormat] {
+        guard showsItem, player.currentSong != nil, !player.isLiveRadio, !lyrics.isEmpty else { return [] }
+        return lyrics.contains(where: \.isSynchronized) ? LyricsExportFormat.allCases : [.plainText]
+    }
 
     // MARK: - Transport: music vs spoken word
 
@@ -8072,6 +8082,7 @@ struct NowPlayingView: View {
             transcriptGeneration: transcriptGenerationMenuItem.flatMap {
                 shows(.generateTranscript) || $0.isRunning ? $0 : nil
             },
+            textExportFormats: textExportFormats(showsItem: shows(.exportText)),
             podcastShareURL: podcastShareURL,
             canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil && shows(.goToBook),
             hasChapterList: (player.hasChapters || isSpokenWord) && shows(.chaptersAndBookmarks),
@@ -8213,6 +8224,10 @@ struct NowPlayingView: View {
             onOpenPodcastShow: { openCurrentPodcastShow?() },
             onMarkPodcastPlayed: { player.markCurrentPodcastEpisodePlayed() },
             onGenerateTranscript: { transcriptGenerationSong = player.currentSong },
+            onExportText: { format in
+                guard let song = player.currentSong else { return }
+                lyricsExportRequest = LyricsExportRequest(song: song, format: format, isTranscript: isSpokenWord)
+            },
             onShowChapterList: { openContentsPanel() },
             onOpenInAppleMusic: {
                 guard let url = appleMusicCatalogURL else { return }
@@ -12614,6 +12629,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsPodcastDownload: Bool
     /// 有声内容的「生成文字稿」;没有这一项时为 nil(#314)。
     let transcriptGeneration: SpokenTranscriptGenerationMenuItem?
+    /// 「导出歌词 / 文字稿」能存成哪几种格式;空的时候不出现(#362)。
+    let textExportFormats: [LyricsExportFormat]
     let podcastShareURL: URL?
     let canOpenBook: Bool
     let hasChapterList: Bool
@@ -12722,10 +12739,13 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
     let onTranscriptOffsetChange: () -> Void
     /// 「生成文字稿」打开给哪一集(#314)。
     @Binding var transcriptGenerationSong: Song?
+    /// 「导出歌词 / 文字稿」(#362)。
+    @Binding var lyricsExportRequest: LyricsExportRequest?
     let intelligence: MusicIntelligenceService
 
     func body(content: Content) -> some View {
         content
+            .modifier(LyricsExportPresenter(request: $lyricsExportRequest))
             .sheet(item: $transcriptGenerationSong) { song in
                 SpokenTranscriptGenerationSheet(song: song, dismissesOnStart: true)
                     .environment(intelligence)
@@ -12983,6 +13003,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenPodcastShow: () -> Void
     let onMarkPodcastPlayed: () -> Void
     let onGenerateTranscript: () -> Void
+    let onExportText: (LyricsExportFormat) -> Void
     let onShowChapterList: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
@@ -13305,17 +13326,23 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if let generation = snapshot.transcriptGeneration {
+            if snapshot.transcriptGeneration != nil
+                || (snapshot.isSpokenWord && !snapshot.textExportFormats.isEmpty) {
                 Section {
-                    Button(action: onGenerateTranscript) {
-                        Label {
-                            Text(generation.titleKey)
-                            if let detail = generation.detail {
-                                Text(verbatim: detail)
+                    if let generation = snapshot.transcriptGeneration {
+                        Button(action: onGenerateTranscript) {
+                            Label {
+                                Text(generation.titleKey)
+                                if let detail = generation.detail {
+                                    Text(verbatim: detail)
+                                }
+                            } icon: {
+                                Image(systemName: "waveform.and.mic")
                             }
-                        } icon: {
-                            Image(systemName: "waveform.and.mic")
                         }
+                    }
+                    if snapshot.isSpokenWord, !snapshot.textExportFormats.isEmpty {
+                        LyricsExportMenu(formats: snapshot.textExportFormats, isTranscript: true, onExport: onExportText)
                     }
                 }
             }
@@ -13450,6 +13477,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         }
                         .disabled(!snapshot.hasSong)
                     }
+                }
+
+                if !snapshot.isSpokenWord, !snapshot.textExportFormats.isEmpty {
+                    LyricsExportMenu(formats: snapshot.textExportFormats, isTranscript: false, onExport: onExportText)
                 }
             }
 

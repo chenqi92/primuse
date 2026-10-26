@@ -2035,6 +2035,14 @@
 "lyrics_editor_live_undo" = "Cofnij wers";
 "lyrics_editor_mark_line" = "Oznacz ten wers";
 "lyrics_editor_menu" = "Edytuj tekst";
+"lyrics_export_menu" = "Eksportuj tekst";
+"transcript_export_menu" = "Eksportuj transkrypcję";
+"lyrics_export_menu_item" = "Eksportuj tekst lub transkrypcję";
+"lyrics_export_format_lrc" = "Tekst LRC (z czasami)";
+"lyrics_export_format_srt" = "Napisy SRT";
+"lyrics_export_format_text" = "Zwykły tekst";
+"lyrics_export_error_empty" = "Brak tekstu lub transkrypcji do wyeksportowania.";
+"lyrics_export_error_untimed" = "Ten tekst nie ma czasów, więc można go wyeksportować tylko jako zwykły tekst.";
 "lyrics_editor_mode_lrc_text" = "Tekst LRC";
 "lyrics_editor_mode_structured" = "Wersy";
 "lyrics_editor_mode_text" = "Tekst";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Podkład";
 "karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
+"karaoke_export_menu" = "Eksportuj rozdzielone ścieżki";
+"karaoke_export_waiting" = "Podkład i wokal wyeksportujesz po zakończeniu separacji";
+"karaoke_export_part_instrumental" = "Podkład";
+"karaoke_export_part_vocals" = "Wokal";
+"karaoke_export_format_wav" = "WAV (bezstratny)";
+"karaoke_export_format_m4a" = "M4A (mniejszy)";
+"karaoke_export_error_not_separated" = "Ten utwór nie został jeszcze rozdzielony. Włącz separację wokalu AI i wyeksportuj po jej zakończeniu.";
 "karaoke_lyrics_from_format" = "Tekst z „%@”";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

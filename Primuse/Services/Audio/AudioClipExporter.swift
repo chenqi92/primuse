@@ -231,7 +231,7 @@ enum AudioClipExporter {
     }
 
     /// 编码器在某些采样率下不收某些码率,从高往低试。
-    private static func makeOutputFile(at url: URL, sampleRate: Double, channelCount: Int) throws -> AVAudioFile {
+    static func makeOutputFile(at url: URL, sampleRate: Double, channelCount: Int) throws -> AVAudioFile {
         var lastError: Error = Failure.unreadableAudio
         for bitRate in AudioClipExportPolicy.bitRateCandidates(channelCount: channelCount) {
             let settings: [String: Any] = [
@@ -303,7 +303,7 @@ enum AudioClipExporter {
     }
 
     /// 上一次导出留下的文件。刚导出的可能还在分享面板里用着,留一小时。
-    private static func removeStaleExports(olderThan age: TimeInterval = 3600) {
+    static func removeStaleExports(olderThan age: TimeInterval = 3600) {
         let directory = exportDirectory()
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: directory,

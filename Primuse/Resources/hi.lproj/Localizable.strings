@@ -2035,6 +2035,14 @@
 "lyrics_editor_live_undo" = "पंक्ति पूर्ववत करें";
 "lyrics_editor_mark_line" = "इस पंक्ति का समय दर्ज करें";
 "lyrics_editor_menu" = "गीत के बोल संपादित करें";
+"lyrics_export_menu" = "गीत के बोल निर्यात करें";
+"transcript_export_menu" = "ट्रांसक्रिप्ट निर्यात करें";
+"lyrics_export_menu_item" = "बोल या ट्रांसक्रिप्ट निर्यात करें";
+"lyrics_export_format_lrc" = "LRC बोल (समय सहित)";
+"lyrics_export_format_srt" = "SRT सबटाइटल";
+"lyrics_export_format_text" = "सादा टेक्स्ट";
+"lyrics_export_error_empty" = "निर्यात करने के लिए कोई बोल या ट्रांसक्रिप्ट नहीं है।";
+"lyrics_export_error_untimed" = "इन बोलों में समय नहीं है, इसलिए इन्हें केवल सादे टेक्स्ट के रूप में निर्यात किया जा सकता है।";
 "lyrics_editor_mode_lrc_text" = "LRC पाठ";
 "lyrics_editor_mode_structured" = "पंक्तियाँ";
 "lyrics_editor_mode_text" = "पाठ";
@@ -5007,6 +5015,13 @@
 "playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
+"karaoke_export_menu" = "अलग किए गए ट्रैक निर्यात करें";
+"karaoke_export_waiting" = "अलगाव पूरा होने पर इंस्ट्रुमेंटल और वोकल निर्यात कर सकते हैं";
+"karaoke_export_part_instrumental" = "इंस्ट्रुमेंटल";
+"karaoke_export_part_vocals" = "वोकल";
+"karaoke_export_format_wav" = "WAV (लॉसलेस)";
+"karaoke_export_format_m4a" = "M4A (छोटी फ़ाइल)";
+"karaoke_export_error_not_separated" = "यह गाना अभी अलग नहीं हुआ है। AI वोकल सेपरेशन चालू करें और पूरा होने पर निर्यात करें।";
 "karaoke_lyrics_from_format" = "बोल “%@” से";
 
 /* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */

@@ -1,5 +1,8 @@
 import PrimuseKit
 import SwiftUI
+#if os(macOS)
+import UniformTypeIdentifiers
+#endif
 
 /// Full-screen karaoke: large swept lyrics, vocal and key controls, and the
 /// optional microphone with live pitch, scoring and recording. The karaoke
@@ -40,6 +43,8 @@ private struct KaraokeStageContent: View {
     let onClose: () -> Void
 
     @Environment(\.pmHeightClass) private var heightClass
+    /// 「…」里点的「导出伴奏 / 人声」(#362)。
+    @State private var stemExportRequest: KaraokeStemExportRequest?
 
     private var player: AudioPlayerService { session.player }
 
@@ -50,7 +55,10 @@ private struct KaraokeStageContent: View {
             : AnyLayout(VStackLayout(spacing: 0))
 
         VStack(spacing: 0) {
-            KaraokeStageHeader(session: session, onClose: onClose)
+            KaraokeStageHeader(session: session, onClose: onClose) { part, format in
+                guard let song = player.currentSong else { return }
+                stemExportRequest = KaraokeStemExportRequest(song: song, part: part, format: format)
+            }
             layout {
                 // 歌词区只拿剩下的高度：没有 minHeight 时它的最小高度就是歌词本身的高度，
                 // 一句歌词折成两三行就把整棵树撑高、把底下的控制区往下顶——这就是「底部弹动」。
@@ -74,6 +82,7 @@ private struct KaraokeStageContent: View {
         .sheet(item: $session.completedPerformance) { performance in
             KaraokeResultView(performance: performance, session: session)
         }
+        .modifier(KaraokeStemExportPresenter(request: $stemExportRequest))
     }
 
     @ViewBuilder
@@ -132,6 +141,7 @@ private struct KaraokeStageContent: View {
 private struct KaraokeStageHeader: View {
     let session: KaraokeSession
     let onClose: () -> Void
+    let onExportStem: (KaraokeStemExportPolicy.Part, KaraokeStemExportPolicy.Format) -> Void
 
     private var player: AudioPlayerService { session.player }
 
@@ -175,7 +185,7 @@ private struct KaraokeStageHeader: View {
                 KaraokeScoreBadge(score: score)
                     .transition(.scale.combined(with: .opacity))
             }
-            KaraokeStageMenu(session: session)
+            KaraokeStageMenu(session: session, onExportStem: onExportStem)
         }
         .padding(.top, 12)
         .padding(.bottom, 4)
@@ -1129,6 +1139,7 @@ private struct KaraokeAISeparationRow: View {
 /// Stage options, and housekeeping for the AI model and its cache.
 private struct KaraokeStageMenu: View {
     @Bindable var session: KaraokeSession
+    let onExportStem: (KaraokeStemExportPolicy.Part, KaraokeStemExportPolicy.Format) -> Void
     @State private var cacheSize: Int64 = 0
 
     var body: some View {
@@ -1137,6 +1148,7 @@ private struct KaraokeStageMenu: View {
                 Text("karaoke_vocal_assist")
                 Text("karaoke_vocal_assist_detail")
             }
+            stemExport
             if session.separation.modelState != .unsupportedSystem {
                 Divider()
                 aiHousekeeping
@@ -1152,6 +1164,37 @@ private struct KaraokeStageMenu: View {
         #endif
         .accessibilityLabel(Text("more"))
         .onAppear { cacheSize = session.separation.cacheSizeBytes() }
+    }
+
+    /// AI 分离好的歌:伴奏、人声各存成一首(#362)。还在分离时给一行灰的说明。
+    @ViewBuilder
+    private var stemExport: some View {
+        switch session.currentSeparationState {
+        case .ready:
+            Divider()
+            Menu {
+                // 伴奏、人声各两种格式:无损 WAV 在前。
+                ForEach(KaraokeStemExportPolicy.Part.allCases) { part in
+                    ForEach(KaraokeStemExportPolicy.Format.allCases) { format in
+                        Button {
+                            onExportStem(part, format)
+                        } label: {
+                            Text(verbatim: "\(KaraokeStemExporter.label(for: part)) · \(KaraokeStemExporter.title(for: format))")
+                        }
+                    }
+                }
+            } label: {
+                Label("karaoke_export_menu", systemImage: "square.and.arrow.up")
+            }
+        case .separating:
+            Divider()
+            Button {} label: {
+                Label("karaoke_export_waiting", systemImage: "square.and.arrow.up")
+            }
+            .disabled(true)
+        default:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -1178,6 +1221,117 @@ private struct KaraokeStageMenu: View {
             } label: {
                 Label("karaoke_ai_remove_model", systemImage: "xmark.bin")
             }
+        }
+    }
+}
+
+// MARK: - Stem export
+
+/// 舞台「…」里点了导出哪一部分(#362)。
+private struct KaraokeStemExportRequest: Identifiable {
+    let id = UUID()
+    let song: Song
+    let part: KaraokeStemExportPolicy.Part
+    let format: KaraokeStemExportPolicy.Format
+}
+
+/// 导出伴奏或人声:顶上一枚进度胶囊(能取消),写好了弹分享面板(Mac 弹存储面板),失败说原因。
+private struct KaraokeStemExportPresenter: ViewModifier {
+    @Binding var request: KaraokeStemExportRequest?
+    @State private var phase: KaraokeStemExporter.Phase?
+    @State private var exported: ExportedFileItem?
+    @State private var failure: String?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let request, let phase {
+                    progress(part: request.part, phase: phase)
+                        .padding(.top, 64)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: phase)
+            .task(id: request?.id) { await run() }
+            .alert(
+                String(localized: "songs_export_failed"),
+                isPresented: Binding(
+                    get: { failure != nil },
+                    set: { if !$0 { failure = nil } }
+                )
+            ) {
+                Button("ok", role: .cancel) {}
+            } message: {
+                Text(verbatim: failure ?? "")
+            }
+            #if os(iOS)
+            .exportedFileShareSheet($exported)
+            #endif
+    }
+
+    private func progress(part: KaraokeStemExportPolicy.Part, phase: KaraokeStemExporter.Phase) -> some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+            Text(verbatim: "\(KaraokeStemExporter.label(for: part)) · \(phaseText(phase))")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            Button {
+                request = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("cancel"))
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: 34)
+        .background(.black.opacity(0.45), in: Capsule())
+    }
+
+    private func phaseText(_ phase: KaraokeStemExporter.Phase) -> String {
+        switch phase {
+        case .fetchingAudio: String(localized: "clip_export_phase_fetching")
+        case .writing: String(localized: "clip_export_phase_writing")
+        }
+    }
+
+    @MainActor
+    private func run() async {
+        guard let pending = request else {
+            phase = nil
+            return
+        }
+        defer {
+            phase = nil
+            if request?.id == pending.id { request = nil }
+        }
+        do {
+            let url = try await KaraokeStemExporter.export(
+                song: pending.song,
+                part: pending.part,
+                format: pending.format,
+                sourceManager: AppServices.shared.sourceManager,
+                onPhase: { phase = $0 }
+            )
+            guard !Task.isCancelled else { return }
+            phase = nil
+            #if os(macOS)
+            _ = try ExportedFileDelivery.save(url, contentTypes: [pending.format == .wav ? .wav : .mpeg4Audio])
+            #else
+            exported = ExportedFileItem(url: url)
+            #endif
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 }
