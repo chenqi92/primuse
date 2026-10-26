@@ -548,8 +548,9 @@ struct MacContentView: View {
                 }
             }
         }
+        // 播放页「更多」里的听歌记录:打开设置窗口的那一页(#358)。
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectScrobble)) { _ in
-            activeTool = .scrobble
+            SettingsWindowController.shared.show(tab: .scrobble)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectPlaylists)) { _ in
             // 歌单总览页已移除 (侧栏已直接列出全部歌单 + 智能歌单)。删除当前歌单后
@@ -616,8 +617,6 @@ struct MacContentView: View {
             LyricsFormatConverterView()
         case .duplicates:
             DuplicateSongsView()
-        case .scrobble:
-            ScrobbleSettingsView()
         case .cacheSync:
             MacAudioCacheSyncView()
         case .deviceTransfer:

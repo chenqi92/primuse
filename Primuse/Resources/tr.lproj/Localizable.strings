@@ -652,7 +652,6 @@
 "Live Radio" = "Canlı Radyo";
 "upnp_unknown_item" = "Bilinmiyor";
 "Data structures" = "Veri yapıları";
-"scrobble_mac_title" = "Skroplama";
 "delete_song_failed_message" = "Kaynak dosya silinemediği için şarkı arşivde tutuldu. Kaynağın salt okunur olup olmadığını kontrol edin ve hesap izinlerini doğrulayıp tekrar deneyin.";
 "similar_subtitle_format" = "“%@” temel alınmıştır · %@";
 "Translate Lyrics" = "Şarkı sözlerini çevir";
@@ -3419,7 +3418,6 @@
 "lyrics_translation_ai_success_format" = "%@ çevirisi aktif";
 "radio_home_visibility" = "Radyoyu Ana Sayfada Göster";
 "source_diag_directory_empty_suggestion" = "Bu boş bir klasör, filtrelenmiş bir görünüm veya izinlerle sınırlı bir hesap olabilir.";
-"Scrobble Configuration" = "Scrobble Yapılandırması";
 "playlist_import_kind_id" = "Kimlik eşleşmesi";
 "tag_editor_artist" = "Sanatçı";
 "source_connection_local_address" = "LAN Adresi";

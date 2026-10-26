@@ -652,7 +652,6 @@
 "Live Radio" = "Прямой эфир радио";
 "upnp_unknown_item" = "Неизвестно";
 "Data structures" = "Структуры данных";
-"scrobble_mac_title" = "Скробблинг";
 "delete_song_failed_message" = "Исходный файл не удалось удалить, поэтому песня осталась в медиатеке. Проверьте, доступен ли источник только для чтения, и проверьте разрешения учетной записи, а затем повторите попытку.";
 "similar_subtitle_format" = "На основе «%@» · %@";
 "Translate Lyrics" = "Перевести текст песни";
@@ -3419,7 +3418,6 @@
 "lyrics_translation_ai_success_format" = "Трансляция %@ активна";
 "radio_home_visibility" = "Показать радио на дому";
 "source_diag_directory_empty_suggestion" = "Это может быть пустая папка, отфильтрованное представление или учетная запись с ограниченными разрешениями.";
-"Scrobble Configuration" = "Конфигурация скроббла";
 "playlist_import_kind_id" = "ID совпадения";
 "tag_editor_artist" = "Исполнитель";
 "source_connection_local_address" = "Адрес локальной сети";

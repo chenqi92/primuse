@@ -345,7 +345,6 @@
 "Scrape Entire Library" = "Buscar metadados de toda a biblioteca";
 "Scrape Song" = "Buscar metadados da música";
 "Scraping Sources" = "Provedores de metadados";
-"Scrobble Configuration" = "Configuração do Scrobble";
 "Search Radio" = "Pesquisar rádio";
 "Search Radio Stations" = "Pesquisar estações de rádio";
 "Search saved radio stations in Primuse without starting playback." = "Pesquise estações de rádio salvas no Primuse sem iniciar a reprodução.";
@@ -3147,7 +3146,6 @@
 "scrobble_mac_rules_value" = "50% · 4 min";
 "scrobble_mac_session_saved" = "Sessão salva";
 "scrobble_mac_subtitle" = "Last.fm/ListenBrainz · envia após 50% or 4 minutos";
-"scrobble_mac_title" = "Rabisco";
 "scrobble_mac_token_saved" = "Token salvo";
 "scrobble_mac_user_token_login" = "Login com token de usuário";
 "scrobble_mac_validating" = "Validando";

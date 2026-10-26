@@ -169,7 +169,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         #if os(macOS)
         return [.playback, .equalizer, .effects, .lyrics, .transcription,
                 .appearance, .scraping, .artists,
-                .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .domains, .about, .keyboard, .widgets, .siri].contains(self)
+                .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .scrobble, .domains, .about, .keyboard, .widgets, .siri].contains(self)
         #else
         // Apple Music 的授权与同步都在音乐源那一行上完成, iOS 不再单开一页
         // 只有"授权 + 同步"两件事的设置页。macOS 那页有资料库同步、目录搜索

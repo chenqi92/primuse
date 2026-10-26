@@ -345,7 +345,6 @@
 "Scrape Entire Library" = "جلب بيانات المكتبة بأكملها";
 "Scrape Song" = "جلب بيانات الأغنية";
 "Scraping Sources" = "مصادر البيانات الوصفية";
-"Scrobble Configuration" = "تكوين التمرير";
 "Search Radio" = "راديو البحث";
 "Search Radio Stations" = "البحث في محطات الراديو";
 "Search saved radio stations in Primuse without starting playback." = "ابحث عن محطات الراديو المحفوظة في Primuse دون بدء التشغيل.";
@@ -3147,7 +3146,6 @@
 "scrobble_mac_rules_value" = "50% · 4 دقائق";
 "scrobble_mac_session_saved" = "تم حفظ الجلسة";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · الإرسال بعد تشغيل 50% أو 4 دقائق";
-"scrobble_mac_title" = "الخربشة";
 "scrobble_mac_token_saved" = "تم حفظ الرمز المميز";
 "scrobble_mac_user_token_login" = "تسجيل الدخول برمز المستخدم";
 "scrobble_mac_validating" = "التصديق";

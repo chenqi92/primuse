@@ -1033,7 +1033,6 @@
 "scrobble_clear_queue_confirm" = "Clear all pending listens?";
 "scrobble_mac_footer_empty" = "Tokens are stored only in the local Keychain · no recent submissions";
 "scrobble_mac_footer_success_format" = "Recent submissions · %d successful";
-"scrobble_mac_title" = "Scrobble";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · submits after 50% or 4 minutes";
 "scrobble_mac_enabled_subtitle" = "Submit local listening history; tokens stay in the local Keychain";
 "scrobble_mac_now_playing_subtitle" = "Sync the current track when playback starts; not counted as history";

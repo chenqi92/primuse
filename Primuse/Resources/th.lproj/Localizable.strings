@@ -345,7 +345,6 @@
 "Scrape Entire Library" = "ค้นหาเมทาดาทาทั้งคลังเพลง";
 "Scrape Song" = "ค้นหาเมทาดาทาเพลง";
 "Scraping Sources" = "แหล่งเมทาดาทา";
-"Scrobble Configuration" = "การกำหนดค่า Scrobble";
 "Search Radio" = "ค้นหาวิทยุ";
 "Search Radio Stations" = "ค้นหาสถานีวิทยุ";
 "Search saved radio stations in Primuse without starting playback." = "ค้นหาสถานีวิทยุที่บันทึกไว้ใน Primuse โดยไม่ต้องเริ่มเล่น";
@@ -3147,7 +3146,6 @@
 "scrobble_mac_rules_value" = "50% · 4 นาที";
 "scrobble_mac_session_saved" = "บันทึกเซสชันแล้ว";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · ส่งหลังเล่นถึง 50% หรือ 4 นาที";
-"scrobble_mac_title" = "สครอเบิ้ล";
 "scrobble_mac_token_saved" = "บันทึกโทเค็นแล้ว";
 "scrobble_mac_user_token_login" = "การลงชื่อเข้าใช้โทเค็นผู้ใช้";
 "scrobble_mac_validating" = "กำลังตรวจสอบ";

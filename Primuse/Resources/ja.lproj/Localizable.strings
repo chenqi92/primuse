@@ -1240,7 +1240,6 @@
 "scrobble_clear_queue_confirm" = "再試行待ちの再生履歴を消去しますか？";
 "scrobble_mac_footer_empty" = "トークンはこの Mac のキーチェーンにのみ保存されます · 最近の送信はありません";
 "scrobble_mac_footer_success_format" = "最近の送信 · %d 件成功";
-"scrobble_mac_title" = "Scrobble";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% または 4 分後に送信";
 "scrobble_mac_enabled_subtitle" = "ローカルの再生履歴を送信します。トークンはこの Mac のキーチェーンにのみ保存されます";
 "scrobble_mac_now_playing_subtitle" = "再生開始時に現在のトラックを同期します。履歴には記録されません";
@@ -2201,7 +2200,6 @@
 "ST-10 · Trust self-signed certificates for this domain only" = "ST-10 · このドメインのみ自己署名証明書を信頼する";
 "Scrape Entire Library" = "ライブラリ全体を取得";
 "Scraping Sources" = "取得ソース";
-"Scrobble Configuration" = "Scrobble 設定";
 "Search…" = "検索…";
 "Set Custom Timer" = "カスタムタイマーを設定";
 "Share collaborative library content via CloudKit" = "CloudKit を通じて共同利用できるライブラリの内容を共有";

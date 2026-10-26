@@ -672,6 +672,8 @@ targets:
         PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
         PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
         PrimusePCloudClientID: "$(PCLOUD_CLIENT_ID)"
+        PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
+        PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."

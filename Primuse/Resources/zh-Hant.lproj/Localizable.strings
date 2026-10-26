@@ -994,7 +994,6 @@
 "scrobble_clear_queue_confirm" = "清空待重試的聽歌記錄?";
 "scrobble_mac_footer_empty" = "Token 僅儲存在本機鑰匙圈 · 暫無最近上報";
 "scrobble_mac_footer_success_format" = "最近上報 · %d 條成功";
-"scrobble_mac_title" = "Scrobble · 播放上報";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% 或 4 分鐘後提交";
 "scrobble_mac_enabled_subtitle" = "提交本機播放歷史, Token 只儲存在本機鑰匙圈";
 "scrobble_mac_now_playing_subtitle" = "播放開始時同步目前曲目, 不計入歷史";
@@ -2097,7 +2096,6 @@
 "ST-10 · Trust self-signed certificates for this domain only" = "ST-10 · 僅信任該網域的自簽憑證";
 "Scrape Entire Library" = "全庫刮削";
 "Scraping Sources" = "刮削源";
-"Scrobble Configuration" = "Scrobble 設定";
 "Search…" = "搜尋…";
 "Set Custom Timer" = "設定自訂計時";
 "Share collaborative library content via CloudKit" = "透過 CloudKit 分享可協作的資料庫內容";

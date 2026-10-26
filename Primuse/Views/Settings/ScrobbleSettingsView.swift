@@ -10,7 +10,6 @@ import PrimuseKit
 /// Last.fm 走 desktop auth flow (in-app Safari + 内置 API key);
 /// ListenBrainz 走用户 token 直接粘贴。
 struct ScrobbleSettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var settings = ScrobbleSettingsStore.shared
     @State private var service = ScrobbleService.shared
 
@@ -157,47 +156,40 @@ struct ScrobbleSettingsView: View {
 
 
     #if os(macOS)
-    /// 工具弹框 —— 整面板铺满 `PMColor.bg` (浅色=米色 / 深色=炭色), 卡片用
-    /// 实色 `bgElev` 抬一层, 而不是之前那种半透明白面板叠白卡 (浅色下糊成
-    /// 一片白 → 设计反馈的「太白」)。结构: 顶栏 + 滚动卡片区 + 底栏。
+    /// 设置窗口里「听歌记录」那一页的内容(#358,原先是标题栏工具菜单里的弹框)。
+    /// 页名和滚动由设置窗口给,这里只排卡片:卡片用实色 `bgElev` 抬一层,
+    /// 底下一行说明 Token 存在哪、最近上报了几条。
     private var macBody: some View {
-        VStack(spacing: 0) {
-            macHeader
+        VStack(alignment: .leading, spacing: 14) {
+            Text("scrobble_mac_subtitle")
+                .font(.system(size: 12.5))
+                .foregroundStyle(PMColor.textMuted)
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            macMasterCard
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    macMasterCard
-
-                    // 成对分支：旧的一侧直接消失、新的一侧淡入。交叉淡入会让两侧
-                    // 同时留在这个 VStack 里上下叠排, 把下面的内容顶开再弹回。
-                    if settings.isEnabled {
-                        macLastFmCard
-                            .pmAppearFade(.contentAppear)
-                        macListenBrainzCard
-                            .pmAppearFade(.contentAppear)
-                        macRulesCard
-                            .pmAppearFade(.contentAppear)
-                        macQueueCard
-                            .pmAppearFade(.contentAppear)
-                        macRecentReportsCard
-                            .pmAppearFade(.contentAppear)
-                    } else {
-                        macDisabledState
-                            .pmAppearFade(.contentAppear)
-                    }
-                }
-                .padding(18)
+            // 成对分支：旧的一侧直接消失、新的一侧淡入。交叉淡入会让两侧
+            // 同时留在这个 VStack 里上下叠排, 把下面的内容顶开再弹回。
+            if settings.isEnabled {
+                macLastFmCard
+                    .pmAppearFade(.contentAppear)
+                macListenBrainzCard
+                    .pmAppearFade(.contentAppear)
+                macRulesCard
+                    .pmAppearFade(.contentAppear)
+                macQueueCard
+                    .pmAppearFade(.contentAppear)
+                macRecentReportsCard
+                    .pmAppearFade(.contentAppear)
+            } else {
+                macDisabledState
+                    .pmAppearFade(.contentAppear)
             }
 
-            macFooter
+            macFooterStatusLine
         }
-        .frame(width: 560, height: 660)
-        .background(PMColor.bg)
     }
 
-    private var macFooter: some View {
+    private var macFooterStatusLine: some View {
         HStack(spacing: 8) {
             Image(systemName: service.recentReports.isEmpty ? "lock.shield" : "checkmark.seal.fill")
                 .font(.system(size: 12, weight: .semibold))
@@ -206,23 +198,8 @@ struct ScrobbleSettingsView: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
-
-            Spacer()
-
-            Button("done") { dismiss() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(height: 28)
-                .background(PMColor.brand, in: .rect(cornerRadius: 6))
         }
-        .padding(.horizontal, 18)
-        .frame(height: 56)
-        .background(PMColor.bg)
-        .overlay(alignment: .top) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-        }
+        .padding(.top, 4)
     }
 
     private var macFooterStatus: String {
@@ -231,47 +208,12 @@ struct ScrobbleSettingsView: View {
         return String(format: String(localized: "scrobble_mac_footer_success_format"), n)
     }
 
-    private var macHeader: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PMColor.brand.opacity(0.16))
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("scrobble_mac_title")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text("scrobble_mac_subtitle")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-
-            Spacer()
-
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-                    .frame(width: 26, height: 26)
-                    .background(PMColor.glassBtn, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help(Text("close"))
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-    }
-
     private var macMasterCard: some View {
         VStack(spacing: 0) {
             macRow(icon: "dot.radiowaves.left.and.right", title: String(localized: "scrobble_enabled"), subtitle: String(localized: "scrobble_mac_enabled_subtitle")) {
                 macSwitch(isOn: $settings.isEnabled)
             }
+            .settingsAnchor("scrobble.enabled")
             // 单独的 if：开关带出来的子行, 过渡自带曲线（开关这边不包事务,
             // 免得把下面那组成对的卡片也拖进交叉淡入）。
             if settings.isEnabled {
@@ -280,6 +222,7 @@ struct ScrobbleSettingsView: View {
                 macRow(icon: "waveform.badge.magnifyingglass", title: String(localized: "scrobble_send_now_playing"), subtitle: String(localized: "scrobble_mac_now_playing_subtitle")) {
                     macSwitch(isOn: $settings.sendNowPlaying)
                 }
+                .settingsAnchor("scrobble.nowPlaying")
                 .pmFadeTransition(motion: .list)
             }
         }
@@ -350,6 +293,7 @@ struct ScrobbleSettingsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
+        .settingsAnchor("scrobble.listenBrainz")
     }
 
     private var macLastFmCard: some View {
@@ -449,6 +393,7 @@ struct ScrobbleSettingsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
+        .settingsAnchor("scrobble.lastFM")
     }
 
     private var macRulesCard: some View {
@@ -486,6 +431,7 @@ struct ScrobbleSettingsView: View {
                     }
                 }
             }
+            .settingsAnchor("scrobble.retryQueue")
         }
         .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
         .overlay {

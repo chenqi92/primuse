@@ -1239,7 +1239,6 @@
 "scrobble_clear_queue_confirm" = "Alle ausstehenden Titel löschen?";
 "scrobble_mac_footer_empty" = "Tokens werden nur im lokalen Schlüsselbund gespeichert · keine kürzlichen Übermittlungen";
 "scrobble_mac_footer_success_format" = "Kürzliche Übermittlungen · %d erfolgreich";
-"scrobble_mac_title" = "Scrobble";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · übermittelt nach 50 % oder 4 Minuten";
 "scrobble_mac_enabled_subtitle" = "Lokalen Wiedergabeverlauf übermitteln; Tokens bleiben im lokalen Schlüsselbund";
 "scrobble_mac_now_playing_subtitle" = "Aktuellen Titel beim Wiedergabestart synchronisieren; nicht als Verlauf gezählt";
@@ -2200,7 +2199,6 @@
 "ST-10 · Trust self-signed certificates for this domain only" = "ST-10 · Selbstsignierten Zertifikaten nur für diese Domain vertrauen";
 "Scrape Entire Library" = "Gesamte Mediathek abrufen";
 "Scraping Sources" = "Abrufquellen";
-"Scrobble Configuration" = "Scrobble-Konfiguration";
 "Search…" = "Suchen …";
 "Set Custom Timer" = "Eigenen Timer festlegen";
 "Share collaborative library content via CloudKit" = "Gemeinschaftliche Mediatheksinhalte über CloudKit teilen";

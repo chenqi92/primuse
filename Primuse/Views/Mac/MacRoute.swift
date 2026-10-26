@@ -97,7 +97,6 @@ enum MacTool: String, Identifiable, Hashable, CaseIterable {
     case deviceTransfer
     case lyricsConverter
     case duplicates
-    case scrobble
 
     var id: String { rawValue }
 
@@ -107,7 +106,6 @@ enum MacTool: String, Identifiable, Hashable, CaseIterable {
         case .deviceTransfer: WiFiTransferText.string("nativeTitle")
         case .lyricsConverter: String(localized: "lyrics_converter_title")
         case .duplicates: String(localized: "Duplicate Song Cleanup")
-        case .scrobble: String(localized: "Scrobble Configuration")
         }
     }
 
@@ -117,7 +115,6 @@ enum MacTool: String, Identifiable, Hashable, CaseIterable {
         case .deviceTransfer: "laptopcomputer.and.iphone"
         case .lyricsConverter: "arrow.left.arrow.right"
         case .duplicates: "arrow.triangle.2.circlepath"
-        case .scrobble: "waveform.path.ecg"
         }
     }
 }

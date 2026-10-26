@@ -1239,7 +1239,6 @@
 "scrobble_clear_queue_confirm" = "Vider toutes les écoutes en attente ?";
 "scrobble_mac_footer_empty" = "Les jetons sont conservés uniquement dans le trousseau local · aucun envoi récent";
 "scrobble_mac_footer_success_format" = "Envois récents · %d réussi(s)";
-"scrobble_mac_title" = "Scrobble";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · envoi après 50 % ou 4 minutes";
 "scrobble_mac_enabled_subtitle" = "Envoyer l'historique d'écoute local ; les jetons restent dans le trousseau local";
 "scrobble_mac_now_playing_subtitle" = "Synchroniser le morceau en cours au démarrage de la lecture ; non compté dans l'historique";
@@ -2200,7 +2199,6 @@
 "ST-10 · Trust self-signed certificates for this domain only" = "ST-10 · N'approuver les certificats auto-signés que pour ce domaine";
 "Scrape Entire Library" = "Récupérer toute la bibliothèque";
 "Scraping Sources" = "Sources de récupération";
-"Scrobble Configuration" = "Configuration du scrobble";
 "Search…" = "Rechercher…";
 "Set Custom Timer" = "Définir une minuterie personnalisée";
 "Share collaborative library content via CloudKit" = "Partager le contenu collaboratif de la bibliothèque via CloudKit";

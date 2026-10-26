@@ -652,7 +652,6 @@
 "Live Radio" = "Живе радіо";
 "upnp_unknown_item" = "Невідомо";
 "Data structures" = "Структури даних";
-"scrobble_mac_title" = "Скроблінг";
 "delete_song_failed_message" = "Вихідний файл не вдалося видалити, тому пісня зберігалася в бібліотеці. Перевірте, чи джерело доступне лише для читання, і перевірте дозволи облікового запису, а потім повторіть спробу.";
 "similar_subtitle_format" = "На основі “%@” · %@";
 "Translate Lyrics" = "Перекласти текст пісні";
@@ -3419,7 +3418,6 @@
 "lyrics_translation_ai_success_format" = "Переклад %@ активний";
 "radio_home_visibility" = "Показуйте радіо на дому";
 "source_diag_directory_empty_suggestion" = "Це може бути порожня папка, відфільтрований перегляд або обліковий запис з обмеженим доступом.";
-"Scrobble Configuration" = "Конфігурація Scrobble";
 "playlist_import_kind_id" = "ID збіг";
 "tag_editor_artist" = "Виконавець";
 "source_connection_local_address" = "Адреса LAN";

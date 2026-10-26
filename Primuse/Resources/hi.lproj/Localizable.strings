@@ -345,7 +345,6 @@
 "Scrape Entire Library" = "पूरी लाइब्रेरी का मेटाडेटा खोजें";
 "Scrape Song" = "गाने का मेटाडेटा खोजें";
 "Scraping Sources" = "मेटाडेटा स्रोत";
-"Scrobble Configuration" = "स्क्रोबल कॉन्फ़िगरेशन";
 "Search Radio" = "रेडियो खोजें";
 "Search Radio Stations" = "रेडियो स्टेशन खोजें";
 "Search saved radio stations in Primuse without starting playback." = "प्लेबैक शुरू किए बिना Primuse में सहेजे गए रेडियो स्टेशन खोजें।";
@@ -3147,7 +3146,6 @@
 "scrobble_mac_rules_value" = "50% · 4 मिनट";
 "scrobble_mac_session_saved" = "सत्र सहेजा गया";
 "scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% या 4 मिनट के बाद भेजता है";
-"scrobble_mac_title" = "स्क्रोबल";
 "scrobble_mac_token_saved" = "टोकन सहेजा गया";
 "scrobble_mac_user_token_login" = "उपयोगकर्ता टोकन साइन-इन";
 "scrobble_mac_validating" = "मान्य किया जा रहा है";
