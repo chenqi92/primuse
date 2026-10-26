@@ -17,6 +17,10 @@ Primuse is a native, multi-source music player for the Apple ecosystem. It bring
 
 The stable release is available on the App Store. Search for “Primuse” or use the download button above.
 
+## Community
+
+[Join our Telegram group](https://t.me/+YrgCCwzHfXNlOWZl) to share your experience, report issues, and suggest improvements.
+
 ## Documentation
 
 - [中文说明](README.md) · [English README](README.en.md)

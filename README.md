@@ -17,6 +17,16 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 
 正式版已在 App Store 上架。在 App Store 搜索「Primuse」（旧名「猿音」同样可以找到），或使用上方按钮下载。
 
+## 交流反馈
+
+欢迎微信扫码加入 **Palveni** 群聊，交流使用体验、反馈问题与建议。点击图片可查看原图。
+
+<p align="center">
+  <a href="Docs/community/wechat-group.jpg">
+    <img src="Docs/community/wechat-group.jpg" width="320" alt="Palveni 微信群聊二维码"/>
+  </a>
+</p>
+
 ## 文档索引
 
 - [中文说明](README.md) · [English README](README.en.md)
