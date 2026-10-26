@@ -6037,6 +6037,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Botões do player";
+"player_style_global" = "Geral";
+"player_style_global_footer" = "Estes ajustes valem para os players de música, audiolivros, podcasts e rádio.";
 "player_controls_status_header" = "Linha inferior";
 "player_controls_status_source" = "Fonte de música";
 "player_controls_status_output" = "Dispositivo de saída";

@@ -6037,6 +6037,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Çalar Düğmeleri";
+"player_style_global" = "Genel";
+"player_style_global_footer" = "Bu ayarlar müzik, sesli kitap, podcast ve radyo oynatıcılarının hepsinde geçerlidir.";
 "player_controls_status_header" = "En Alt Satır";
 "player_controls_status_source" = "Müzik Kaynağı";
 "player_controls_status_output" = "Çıkış Aygıtı";

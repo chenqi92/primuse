@@ -6131,6 +6131,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player-Tasten";
+"player_style_global" = "Allgemein";
+"player_style_global_footer" = "Diese Einstellungen gelten für die Wiedergabe von Musik, Hörbüchern, Podcasts und Radio.";
 "player_controls_status_header" = "Unterste Zeile";
 "player_controls_status_source" = "Musikquelle";
 "player_controls_status_output" = "Ausgabegerät";

@@ -6131,6 +6131,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Boutons du lecteur";
+"player_style_global" = "Général";
+"player_style_global_footer" = "Ces réglages s’appliquent aux lecteurs de musique, de livres audio, de podcasts et de radio.";
 "player_controls_status_header" = "Ligne du bas";
 "player_controls_status_source" = "Source musicale";
 "player_controls_status_output" = "Appareil de sortie";

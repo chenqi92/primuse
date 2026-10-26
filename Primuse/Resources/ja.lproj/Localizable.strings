@@ -6132,6 +6132,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "再生画面のボタン";
+"player_style_global" = "共通";
+"player_style_global_footer" = "このページの設定は、音楽・オーディオブック・ポッドキャスト・ラジオの再生画面すべてに適用されます。";
 "player_controls_status_header" = "最下行";
 "player_controls_status_source" = "ミュージックソース";
 "player_controls_status_output" = "出力デバイス";

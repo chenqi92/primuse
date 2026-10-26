@@ -6037,6 +6037,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Кнопки плеера";
+"player_style_global" = "Общие";
+"player_style_global_footer" = "Эти настройки действуют для экранов воспроизведения музыки, аудиокниг, подкастов и радио.";
 "player_controls_status_header" = "Нижняя строка";
 "player_controls_status_source" = "Источник музыки";
 "player_controls_status_output" = "Устройство вывода";

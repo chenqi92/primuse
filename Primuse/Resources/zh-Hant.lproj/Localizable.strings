@@ -6108,6 +6108,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "播放頁按鈕";
+"player_style_global" = "全域";
+"player_style_global_footer" = "此頁的設定對音樂、有聲書、播客和電台的播放頁都有效。";
 "player_controls_status_header" = "最下面一行";
 "player_controls_status_source" = "音樂來源";
 "player_controls_status_output" = "輸出裝置";

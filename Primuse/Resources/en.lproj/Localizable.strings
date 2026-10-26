@@ -5892,6 +5892,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player Buttons";
+"player_style_global" = "Global";
+"player_style_global_footer" = "These settings apply to the music, audiobook, podcast and radio players.";
 "player_controls_status_header" = "Bottom Line";
 "player_controls_status_source" = "Music Source";
 "player_controls_status_output" = "Output Device";

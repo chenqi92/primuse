@@ -2,10 +2,11 @@
 import PrimuseKit
 import SwiftUI
 
-/// 设置 › 播放器 › 播放页样式与按钮。右上角切换音乐、有声书、播客、电台;每一种都有一张按真机比例实时画的
+/// 设置 › 播放器 › 播放页样式与按钮。右上角切换全局、音乐、有声书、播客、电台;每一种都有一张按真机比例实时画的
 /// 播放页(`NowPlayingStylePreview`),像画中画一样浮在列表上,拖到哪儿停在哪儿、双指缩放大小。
+/// - 全局:几种播放页共用的横竖屏、进度条、音量条、控件颜色与深色、背景(#361),预览可以在几种播放页之间切换着看。
 /// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面在浮动预览下面那一排切换,列表跟着换成这一种界面的设置。
-///   封面那一面还管封面样式、进度条、音量条、颜色、背景、播放键图标与最底下那行状态。最下面那一排按钮
+///   封面那一面还管封面样式、播放键图标与最底下那行状态。最下面那一排按钮
 ///   颗数不固定:这台设备一排放得下几个就能加几个,按顺序平均排开。
 /// - 有声书、播客:能换按钮的几格,那一排功能块的显隐与顺序(AirPlay 也能挪进来),喜欢、文字稿键与
 ///   上一章 / 下一章,有声书最底下写不写音乐源,上滑文字稿时收不收控件。
@@ -14,6 +15,7 @@ import SwiftUI
 /// 配置经 iCloud 同步(`InterfaceLayoutSync`)。
 struct NowPlayingControlsEditorView: View {
     private enum Page: String, CaseIterable, Identifiable {
+        case global
         case music
         case audiobook
         case podcast
@@ -23,6 +25,7 @@ struct NowPlayingControlsEditorView: View {
 
         var titleKey: LocalizedStringKey {
             switch self {
+            case .global: "player_style_global"
             case .music: "listening_space_music"
             case .audiobook: "listening_space_spoken_word"
             case .podcast: "listening_space_podcast"
@@ -32,6 +35,7 @@ struct NowPlayingControlsEditorView: View {
 
         var symbol: String {
             switch self {
+            case .global: "globe"
             case .music: ListeningSpace.music.systemImage
             case .audiobook: ListeningSpace.spokenWord.systemImage
             case .podcast: ListeningSpace.podcast.systemImage
@@ -92,6 +96,9 @@ struct NowPlayingControlsEditorView: View {
     private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
+    /// 全局那一页的预览看哪一种播放页。
+    @State private var globalPreview: NowPlayingPreviewSurface = .cover
+    @Environment(\.settingsFocusedAnchor) private var focusedAnchor
     @State private var editing: NowPlayingPreviewSlot?
     @State private var showsActualSizePreview = false
     /// 浮动预览放在哪儿、多大(记在本机,下次进来还在原处)。
@@ -123,6 +130,7 @@ struct NowPlayingControlsEditorView: View {
 
     private var previewSurface: NowPlayingPreviewSurface {
         switch page {
+        case .global: globalPreview
         case .music: surface.previewSurface
         case .audiobook: .audiobook
         case .podcast: .podcast
@@ -134,13 +142,32 @@ struct NowPlayingControlsEditorView: View {
     private var previewSurfaceBinding: Binding<NowPlayingPreviewSurface> {
         Binding(
             get: { previewSurface },
-            set: { if let music = MusicSurface($0) { surface = music } }
+            set: { value in
+                if page == .global {
+                    globalPreview = value
+                } else if let music = MusicSurface(value) {
+                    surface = music
+                }
+            }
         )
     }
 
     private var switchableSurfaces: [NowPlayingPreviewSurface] {
-        page == .music ? MusicSurface.allCases.map(\.previewSurface) : [previewSurface]
+        switch page {
+        case .global: [.cover, .audiobook, .podcast, .radio]
+        case .music: MusicSurface.allCases.map(\.previewSurface)
+        case .audiobook, .podcast, .radio: [previewSurface]
+        }
     }
+
+    /// 设置搜索跳过来的几项在全局那一页,先切过去再定位。
+    private static let globalAnchors: Set<String> = [
+        "appearance.playerOrientationButton", "appearance.playerFollowsDeviceOrientation",
+        "appearance.playerProgressStyle", "appearance.playerProgressGlow",
+        "appearance.volumeBar", "appearance.playerVolumeStyle",
+        "appearance.playerControlTint", "appearance.playerAlwaysDark",
+        "appearance.playerBackdrop", "appearance.ambientStrength",
+    ]
 
     var body: some View {
         let canvas = NowPlayingPreviewCanvas.current()
@@ -196,9 +223,12 @@ struct NowPlayingControlsEditorView: View {
         .fullScreenCover(isPresented: $showsActualSizePreview) {
             NowPlayingActualSizePreview(surface: previewSurfaceBinding, surfaces: switchableSurfaces)
         }
+        .onChange(of: focusedAnchor, initial: true) { _, anchor in
+            if let anchor, Self.globalAnchors.contains(anchor) { page = .global }
+        }
     }
 
-    /// 右上角切换音乐、有声书、播客、电台。
+    /// 右上角切换全局、音乐、有声书、播客、电台。
     private var kindMenu: some View {
         Menu {
             Picker(selection: $page) {
@@ -224,6 +254,8 @@ struct NowPlayingControlsEditorView: View {
     private var form: some View {
         Form {
             switch page {
+            case .global:
+                globalSections
             case .music:
                 switch surface {
                 case .cover: coverSections
@@ -297,26 +329,6 @@ struct NowPlayingControlsEditorView: View {
                 .settingsAnchor("appearance.playerAlbumInSubtitle")
             }
 
-            // 横竖屏(只有手机有横屏播放页):右上角那颗切换键,以及跟不跟着手机方向转。
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                Section {
-                    Toggle(isOn: $showsOrientationButton) {
-                        SettingsInfoLabel("player_orientation_button_title") {
-                            Text("player_orientation_button_description")
-                        }
-                    }
-                    .settingsAnchor("appearance.playerOrientationButton")
-                    Toggle(isOn: $followsDeviceOrientation) {
-                        SettingsInfoLabel("player_follows_device_orientation_title") {
-                            Text("player_follows_device_orientation_description")
-                        }
-                    }
-                    .settingsAnchor("appearance.playerFollowsDeviceOrientation")
-                } header: {
-                    Text("player_orientation_section_title")
-                }
-            }
-
             NowPlayingBarSection(
                 bar: layout.bar,
                 capacity: Self.barCapacity,
@@ -332,7 +344,7 @@ struct NowPlayingControlsEditorView: View {
                 anchorID: "appearance.playerTransportIcons"
             )
 
-            PlayerLookSettingsSections()
+            MusicArtworkStyleSections()
 
             Section {
                 Toggle("player_controls_status_source", isOn: statusBinding(.source))
@@ -358,6 +370,42 @@ struct NowPlayingControlsEditorView: View {
             } footer: {
                 Text("player_controls_duo_footer")
             }
+    }
+
+    // MARK: 全局
+
+    /// 音乐、有声书、播客、电台几种播放页共用的设置(#361):原来都排在音乐那一页,看不出对别的播放页也生效。
+    @ViewBuilder
+    private var globalSections: some View {
+        // 说明写成一行没有底色的字,像段落说明;空的分区在有的系统上连页脚一起不画。
+        Section {
+            Text("player_style_global_footer")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
+        }
+
+        // 横竖屏(只有手机有横屏播放页):右上角那颗切换键,以及跟不跟着手机方向转。
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            Section {
+                Toggle(isOn: $showsOrientationButton) {
+                    SettingsInfoLabel("player_orientation_button_title") {
+                        Text("player_orientation_button_description")
+                    }
+                }
+                .settingsAnchor("appearance.playerOrientationButton")
+                Toggle(isOn: $followsDeviceOrientation) {
+                    SettingsInfoLabel("player_follows_device_orientation_title") {
+                        Text("player_follows_device_orientation_description")
+                    }
+                }
+                .settingsAnchor("appearance.playerFollowsDeviceOrientation")
+            } header: {
+                Text("player_orientation_section_title")
+            }
+        }
+
+        PlayerSharedLookSettingsSections()
     }
 
     private func slotRow(_ slot: NowPlayingControlSlot) -> some View {
@@ -535,9 +583,9 @@ extension NowPlayingControlsEditorView {
     }
 }
 
-/// 播放页封面那一面的样子:封面样式与封面下的歌词、进度条、音量条、控件颜色与深色、背景。
+/// 音乐播放页封面那一面的样子:封面样式与封面下的歌词。
 /// 原来在「设置 › 播放器」,挪到这里和顶上的实时预览放在一起,改了立刻看得到。
-private struct PlayerLookSettingsSections: View {
+private struct MusicArtworkStyleSections: View {
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
@@ -548,21 +596,6 @@ private struct PlayerLookSettingsSections: View {
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkLyricsFontScaleKey)
     private var artworkLyricsFontScale = PlayerAppearancePreferences.artworkLyricsFontScaleByDefault
-    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
-    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
-    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
-    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
-    @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
-    private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
-    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
-    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
-    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
-    private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
-    @AppStorage(PlayerAppearancePreferences.controlTintKey)
-    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
-    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
-    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
-    @State private var themeSettings = ThemeColorSettings.shared
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -627,7 +660,28 @@ private struct PlayerLookSettingsSections: View {
                 Text("player_artwork_style_footer")
             }
         }
+    }
+}
 
+/// 几种播放页共用的样子:进度条、音量条、控件颜色与深色、背景(在「全局」那一页)。
+private struct PlayerSharedLookSettingsSections: View {
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressGlowKey)
+    private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
+    private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
+    private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.controlTintKey)
+    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
+    private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
+    @State private var themeSettings = ThemeColorSettings.shared
+
+    var body: some View {
         Section {
             Picker(selection: Binding(
                 get: { PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) },
@@ -1773,7 +1827,7 @@ private struct FullBleedTopSofteningToggle: View {
     }
 }
 
-/// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `PlayerLookSettingsSections`。
+/// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `MusicArtworkStyleSections`。
 private struct PlayerArtworkStyleSection: View {
     @AppStorage private var rawValue: String
     @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)

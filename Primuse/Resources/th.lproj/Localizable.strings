@@ -6037,6 +6037,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "ปุ่มบนหน้าเล่น";
+"player_style_global" = "ทั่วไป";
+"player_style_global_footer" = "การตั้งค่าในหน้านี้ใช้กับหน้าเล่นเพลง หนังสือเสียง พอดแคสต์ และวิทยุทั้งหมด";
 "player_controls_status_header" = "แถวล่างสุด";
 "player_controls_status_source" = "แหล่งเพลง";
 "player_controls_status_output" = "อุปกรณ์เอาต์พุต";

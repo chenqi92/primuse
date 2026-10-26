@@ -6131,6 +6131,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "재생 화면 버튼";
+"player_style_global" = "공통";
+"player_style_global_footer" = "이 페이지의 설정은 음악, 오디오북, 팟캐스트, 라디오 재생 화면에 모두 적용됩니다.";
 "player_controls_status_header" = "맨 아래 줄";
 "player_controls_status_source" = "음악 소스";
 "player_controls_status_output" = "출력 기기";

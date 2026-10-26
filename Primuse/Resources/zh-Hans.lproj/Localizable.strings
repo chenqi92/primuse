@@ -6224,6 +6224,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "播放页按钮";
+"player_style_global" = "全局";
+"player_style_global_footer" = "这一页的设置对音乐、有声书、播客和电台的播放页都生效。";
 "player_controls_status_header" = "最底下一行";
 "player_controls_status_source" = "音乐来源";
 "player_controls_status_output" = "输出设备";

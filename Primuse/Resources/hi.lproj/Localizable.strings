@@ -6037,6 +6037,8 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "प्लेयर बटन";
+"player_style_global" = "सामान्य";
+"player_style_global_footer" = "ये सेटिंग्स संगीत, ऑडियोबुक, पॉडकास्ट और रेडियो — सभी प्लेयर पर लागू होती हैं।";
 "player_controls_status_header" = "सबसे नीचे की पंक्ति";
 "player_controls_status_source" = "संगीत स्रोत";
 "player_controls_status_output" = "आउटपुट डिवाइस";
