@@ -269,6 +269,8 @@ struct CarPlayHomeItem: Identifiable, Sendable {
         case album(String, directly: Bool)
         case folder(LibraryFolderNodeID, directly: Bool)
         case radio(String)
+        /// 「开始听」的一张卡片:点了按它的规则抽一批歌起播。
+        case listeningIntent(String)
         case unavailable
     }
     let id: String
@@ -365,7 +367,7 @@ enum CarPlayHomeContent {
             return library.songs(forAlbum: id)
         case .folder(let id, _): return CarPlayFolderLibrary.shared.songs(in: id)
         case .nowPlaying: return AppServices.shared.playerService.currentSong.map { [$0] } ?? []
-        case .radio, .unavailable: return []
+        case .radio, .listeningIntent, .unavailable: return []
         }
     }
 

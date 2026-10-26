@@ -4308,6 +4308,9 @@
 "carplay_listening_ranking" = "Найчастіше прослуховувані";
 "carplay_siri_suggestions" = "Пропозиції Siri";
 "carplay_module_ranking_detail" = "Ваша найчастіше прослуховувана музика";
+"carplay_module_forYou_detail" = "Щоденна добірка за вашим смаком";
+"carplay_module_startListening_detail" = "Настрій одним дотиком";
+"carplay_module_recentlyPlayed_detail" = "Нещодавно прослухані треки";
 "carplay_module_siri_detail" = "Попросіть Siri вибрати музику";
 "carplay_cover_wall" = "Стіна обкладинок";
 "carplay_module_hidden" = "Прихований";

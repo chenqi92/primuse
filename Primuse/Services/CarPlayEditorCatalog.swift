@@ -12,6 +12,9 @@ final class CarPlayEditorCatalog {
         var lookup: [CarPlayLayoutItem.Kind: [String: CarPlayHomeItem]] = [:]
         var recent: [CarPlayHomeItem] = []
         var ranking: [CarPlayHomeItem] = []
+        var forYou: [CarPlayHomeItem] = []
+        var startListening: [CarPlayHomeItem] = []
+        var recentlyPlayed: [CarPlayHomeItem] = []
         var memberships: [String: [String]] = [:]
         var albumSongs: [String: [String]] = [:]
         var artists: [Artist] = []
@@ -34,7 +37,7 @@ final class CarPlayEditorCatalog {
                     nowPlaying: CarPlayHomeItem? = nil) -> [CarPlayHomeBlock] {
             configuration.blocks.map { block in
                 var items: [CarPlayHomeItem]
-                if block.usesCustomContent || block.kind == .custom {
+                if (block.usesCustomContent && !block.kind.keepsLiveContent) || block.kind == .custom {
                     items = block.items.prefix(block.itemLimit).map { item in
                         if item.kind == .nowPlaying, let nowPlaying {
                             return nowPlaying.configured(id: item.id, directly: block.playsImmediately)
@@ -48,6 +51,9 @@ final class CarPlayEditorCatalog {
                     switch block.kind {
                     case .siri: items = []
                     case .ranking: items = Array(ranking.prefix(block.itemLimit))
+                    case .forYou: items = Array(forYou.prefix(block.itemLimit))
+                    case .startListening: items = Array(startListening.prefix(block.itemLimit))
+                    case .recentlyPlayed: items = Array(recentlyPlayed.prefix(block.itemLimit))
                     case .shortcuts:
                         items = nowPlaying.map { [$0] } ?? []
                         let pinned = [MusicLibrary.likedSongsPlaylistID] + configuration.pinnedPlaylistIDs.filter { $0 != MusicLibrary.likedSongsPlaylistID }
@@ -95,6 +101,12 @@ final class CarPlayEditorCatalog {
         /// Kept out of "recently added": one scanned-in audiobook would fill
         /// the whole block with its chapters.
         var spokenWordSongIDs: Set<String> = []
+        /// 下面几项只在布局里有对应模块时才取,没有就不算。
+        var recommendation: MusicDiscoveryEngine.RecommendationSnapshot?
+        /// 手机首页「为你推荐」已经拿到的智能排序,排在前面;车机自己不去问智能服务。
+        var intelligentForYouOrder: [String] = []
+        var recentlyPlayedIDs: [String] = []
+        var listeningIntents: [CarPlayHomeItem] = []
     }
 
     private(set) var snapshot = Snapshot()
@@ -135,6 +147,15 @@ final class CarPlayEditorCatalog {
             _ = library.artistNameConfiguration
             _ = AppServices.shared.radioStationsStore.stations
             _ = PlayHistoryStore.shared.entries
+            let wanted = Self.wantedLiveKinds()
+            if wanted.contains(.forYou) {
+                _ = HomeForYouAIFeed.shared.resultKey
+                _ = HomeForYouAIFeed.shared.recommendation.orderedSongIDs
+            }
+            if wanted.contains(.startListening) {
+                _ = ListeningIntentService.shared.row(player: AppServices.shared.playerService)
+            }
+            if wanted.contains(.recentlyPlayed) { _ = library.recentlyPlayedSongs(limit: 1) }
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.observing, expected == self.observationGeneration else { return }
@@ -146,17 +167,59 @@ final class CarPlayEditorCatalog {
 
     private func refresh() {
         let library = AppServices.shared.musicLibrary
+        let wanted = Self.wantedLiveKinds()
+        let now = Date()
+        let intelligentOrder = wanted.contains(.forYou) ? Self.intelligentForYouOrder() : []
+        let recentIDs = wanted.contains(.recentlyPlayed) ? library.recentlyPlayedSongs(limit: 60).map(\.id) : []
+        let intents = wanted.contains(.startListening) ? Self.listeningIntentItems(library: library) : []
         let radioVersion = AppServices.shared.radioStationsStore.stations.map { $0.id + $0.name + $0.playbackSubtitle }.joined(separator: "|")
-        let version = "\(library.visibleSongCollectionRevision):\(library.searchRevision):\(library.playlistCollectionRevision):\(PlayHistoryStore.shared.revision):\(radioVersion)"
+        // 每日推荐跨天会换一批,带上日期。
+        let liveVersion = [
+            wanted.map(\.rawValue).sorted().joined(separator: ","),
+            wanted.contains(.forYou) ? String(Int(Calendar.current.startOfDay(for: now).timeIntervalSinceReferenceDate)) : "",
+            intelligentOrder.joined(separator: ","),
+            recentIDs.joined(separator: ","),
+            intents.map { $0.id + "/" + ($0.subtitle ?? "") }.joined(separator: ","),
+        ].joined(separator: "#")
+        let version = "\(library.visibleSongCollectionRevision):\(library.searchRevision):\(library.playlistCollectionRevision):\(PlayHistoryStore.shared.revision):\(radioVersion):\(liveVersion)"
         guard version != cachedVersion else { return }
         let playlists = library.playlists
+        let musicEntries = PlayHistoryStore.shared.musicEntries
         let input = Input(songs: library.visibleSongs, albums: library.visibleAlbums,
             playlists: playlists, memberships: Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, library.rawSongIDs(forPlaylist: $0.id)) }),
             stations: AppServices.shared.radioStationsStore.stations.map {
                 CarPlayHomeItem(id: $0.id, title: $0.name, subtitle: $0.playbackSubtitle, symbol: "radio", target: .radio($0.id))
-            }, artistNames: library.artistNameConfiguration, history: PlayHistoryStore.shared.musicEntries.map(\.listeningEvent), artists: library.visibleArtists,
-            spokenWordSongIDs: library.spokenWordSongIDs)
+            }, artistNames: library.artistNameConfiguration, history: musicEntries.map(\.listeningEvent), artists: library.visibleArtists,
+            spokenWordSongIDs: library.spokenWordSongIDs,
+            // 与手机首页同一套输入,同一天里两边推荐的是同一批歌。
+            recommendation: wanted.contains(.forYou) ? MusicDiscoveryEngine.RecommendationSnapshot(
+                songs: library.musicSongs, recentSongs: library.recentlyPlayedSongs(limit: 12), historyEntries: musicEntries,
+                now: now, libraryRevision: library.musicSongsRevision, excludedSongIDs: library.dislikedSongIDs) : nil,
+            intelligentForYouOrder: intelligentOrder, recentlyPlayedIDs: recentIDs, listeningIntents: intents)
         load(input, sourceVersion: version)
+    }
+
+    /// 布局里放了哪几种要现算内容的模块。编辑器改布局后 300ms 存盘,这里跟着重算。
+    private static func wantedLiveKinds() -> Set<CarPlayLayoutBlockKind> {
+        Set(CarPlaySettingsStore.shared.configuration.blocks.map(\.kind).filter(\.keepsLiveContent))
+    }
+
+    private static func intelligentForYouOrder() -> [String] {
+        let feed = HomeForYouAIFeed.shared
+        guard feed.resultKey != nil, !feed.recommendation.isStreaming,
+              HomeForYouAIFeed.isAvailable(AppServices.shared.musicIntelligence) else { return [] }
+        return feed.recommendation.orderedSongIDs
+    }
+
+    /// 「开始听」的卡片与手机首页同一行;车机冷启动时首页还没出现过,由这里先点亮一次。
+    private static func listeningIntentItems(library: MusicLibrary) -> [CarPlayHomeItem] {
+        let service = ListeningIntentService.shared
+        service.refresh(library: library)
+        return service.row(player: AppServices.shared.playerService).map { item in
+            CarPlayHomeItem(id: "intent." + item.id, title: service.title(for: item.intent),
+                subtitle: String(format: String(localized: "carplay_playlist_song_count_format"), item.songCount),
+                symbol: item.intent.symbolName, target: .listeningIntent(item.intent.id))
+        }
     }
 
     func load(_ input: Input, sourceVersion: String? = nil) {
@@ -216,6 +279,24 @@ final class CarPlayEditorCatalog {
             result.searchItems[kind] = values.map { CarPlayLayoutItem(id: $0.id, kind: kind, targetID: $0.id, title: $0.title) }
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
+        if let recommendation = input.recommendation {
+            let local = MusicDiscoveryEngine.dailyRecommendations(from: recommendation.makeInput(), limit: 12,
+                isCancelled: { Task.isCancelled }).map(\.song.id)
+            let candidates = Set(local)
+            var seen = Set<String>()
+            let queue = (input.intelligentForYouOrder.filter(candidates.contains) + local).filter { seen.insert($0).inserted }
+            result.forYou = queue.compactMap { id in
+                result.lookup[.song]?[id].map { CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.subtitle,
+                    artwork: $0.artwork, target: .song($0.id, queue: queue)) }
+            }
+        }
+        let recentQueue = input.recentlyPlayedIDs.filter(valid.contains)
+        result.recentlyPlayed = recentQueue.compactMap { id in
+            result.lookup[.song]?[id].map { CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.subtitle,
+                artwork: $0.artwork, target: .song($0.id, queue: recentQueue)) }
+        }
+        result.startListening = input.listeningIntents
+        guard !Task.isCancelled else { return result }
         let ranked = HomeListeningRanking.ranks(events: input.history, songs: [:], folders: nil, period: .all, category: .songs)
         // 同一首歌在几个源里各有一份时取库里还在的那份。
         let rankedQueue = ranked.compactMap { $0.songGroups.first?.first(where: valid.contains) }
@@ -253,7 +334,7 @@ extension CarPlayHomeItem {
         case .album(let id, _): kind = .album; targetID = id
         case .folder(let id, _): kind = .folder; targetID = HomeFolderPinStorage.encode([id])
         case .radio(let id): kind = .radio; targetID = id
-        case .unavailable: return nil
+        case .listeningIntent, .unavailable: return nil
         }
         return CarPlayLayoutItem(id: id, kind: kind, targetID: targetID, title: title)
     }

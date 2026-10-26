@@ -4308,6 +4308,9 @@
 "carplay_listening_ranking" = "En çok dinlenenler";
 "carplay_siri_suggestions" = "Siri önerileri";
 "carplay_module_ranking_detail" = "En çok dinlediğiniz müzikler";
+"carplay_module_forYou_detail" = "Zevkine göre günlük seçimler";
+"carplay_module_startListening_detail" = "Tek dokunuşla bir ruh hâli çal";
+"carplay_module_recentlyPlayed_detail" = "Son dinlediğin şarkılar";
 "carplay_module_siri_detail" = "Siri’den müzik seçmesini isteyin";
 "carplay_cover_wall" = "Kapak duvarı";
 "carplay_module_hidden" = "Gizli";

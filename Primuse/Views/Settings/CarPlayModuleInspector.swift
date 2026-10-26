@@ -93,49 +93,52 @@ struct CarPlayModuleInspector: View {
                     }
                 }
 
-                Section("carplay_tap_action") {
-                    CarPlaySegment(values: [(true, "carplay_action_play"), (false, "carplay_action_browse")], selection: binding(\.playsImmediately))
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                }
-                .settingsAnchor("carplay.directPlay")
+                // 每天、每听一首都会换的内容不能改成固定的一组,点了也总是直接播。
+                if !block.kind.keepsLiveContent {
+                    Section("carplay_tap_action") {
+                        CarPlaySegment(values: [(true, "carplay_action_play"), (false, "carplay_action_browse")], selection: binding(\.playsImmediately))
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                    .settingsAnchor("carplay.directPlay")
 
-                Section {
-                    ForEach(items) { item in sourceRow(item) }
-                        .onMove { offsets, destination in
-                            var reordered = items
-                            reordered.move(fromOffsets: offsets, toOffset: destination)
-                            model.update(block.id) {
-                                if !$0.usesCustomContent && $0.kind != .custom {
-                                    $0.items = Array(items.compactMap(\.layoutItem).prefix(60))
+                    Section {
+                        ForEach(items) { item in sourceRow(item) }
+                            .onMove { offsets, destination in
+                                var reordered = items
+                                reordered.move(fromOffsets: offsets, toOffset: destination)
+                                model.update(block.id) {
+                                    if !$0.usesCustomContent && $0.kind != .custom {
+                                        $0.items = Array(items.compactMap(\.layoutItem).prefix(60))
+                                    }
+                                    // Preserve stored references even when their source is unavailable
+                                    // or the item limit excludes them from the current preview.
+                                    let stored = $0.items
+                                    let visibleIDs = Set(reordered.map(\.id))
+                                    $0.items = reordered.compactMap { item in stored.first { $0.id == item.id } }
+                                        + stored.filter { !visibleIDs.contains($0.id) }
+                                    $0.usesCustomContent = true
                                 }
-                                // Preserve stored references even when their source is unavailable
-                                // or the item limit excludes them from the current preview.
-                                let stored = $0.items
-                                let visibleIDs = Set(reordered.map(\.id))
-                                $0.items = reordered.compactMap { item in stored.first { $0.id == item.id } }
-                                    + stored.filter { !visibleIDs.contains($0.id) }
-                                $0.usesCustomContent = true
+                            }
+                            .dropDestination(for: String.self) { values, index in
+                                moveSources(values, before: items.indices.contains(index) ? items[index].id : nil)
+                            }
+                        Button(action: add) {
+                            Label("carplay_add", systemImage: "plus")
+                        }
+                        .disabled(block.usesCustomContent && block.items.count >= 60)
+                        .accessibilityIdentifier("carplay.addContent")
+                    } header: {
+                        HStack {
+                            Text("carplay_content_sources")
+                            Spacer()
+                            if !items.isEmpty {
+                                Text(verbatim: "\(items.count)").monospacedDigit()
                             }
                         }
-                        .dropDestination(for: String.self) { values, index in
-                            moveSources(values, before: items.indices.contains(index) ? items[index].id : nil)
-                        }
-                    Button(action: add) {
-                        Label("carplay_add", systemImage: "plus")
+                    } footer: {
+                        if items.isEmpty { Text("carplay_drop_content") }
                     }
-                    .disabled(block.usesCustomContent && block.items.count >= 60)
-                    .accessibilityIdentifier("carplay.addContent")
-                } header: {
-                    HStack {
-                        Text("carplay_content_sources")
-                        Spacer()
-                        if !items.isEmpty {
-                            Text(verbatim: "\(items.count)").monospacedDigit()
-                        }
-                    }
-                } footer: {
-                    if items.isEmpty { Text("carplay_drop_content") }
                 }
 
                 Section {

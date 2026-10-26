@@ -1100,8 +1100,40 @@ extension CarPlaySceneDelegate {
                 return
             }
             play(station: station, within: stations)
+        case .listeningIntent(let id):
+            playListeningIntent(id: id, title: item.title)
         case .unavailable:
             break
+        }
+    }
+
+    /// 和手机首页点「开始听」的卡片一样起播;等到开始加载再进正在播放,抽不出歌就提示。
+    private func playListeningIntent(id: String, title: String) {
+        let service = ListeningIntentService.shared
+        let player = AppServices.shared.playerService
+        guard let intent = service.row(player: player).first(where: { $0.intent.id == id })?.intent else {
+            presentPlayFailureAlert(songTitle: title)
+            return
+        }
+        let requestID = UUID()
+        nowPlayingPresentationTask?.cancel()
+        nowPlayingPresentationRequestID = requestID
+        nowPlayingPresentationTask = Task { @MainActor [weak self] in
+            let started = await service.play(intent, player: player, library: AppServices.shared.musicLibrary)
+            let deadline = Date().addingTimeInterval(5)
+            while started, Date() < deadline {
+                guard !Task.isCancelled else { return }
+                if player.isPlaying || player.isLoading { break }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard let self, !Task.isCancelled, self.nowPlayingPresentationRequestID == requestID else { return }
+            if started, player.isPlaying || player.isLoading {
+                if self.layout.opensNowPlayingAfterSelection { self.pushNowPlayingIfNeeded() }
+            } else {
+                self.presentPlayFailureAlert(songTitle: title)
+            }
+            self.nowPlayingPresentationTask = nil
+            self.nowPlayingPresentationRequestID = nil
         }
     }
 

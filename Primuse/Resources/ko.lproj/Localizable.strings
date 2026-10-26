@@ -4402,6 +4402,9 @@
 "carplay_listening_ranking" = "가장 많이 들은 음악";
 "carplay_siri_suggestions" = "Siri 제안";
 "carplay_module_ranking_detail" = "가장 많이 들은 음악";
+"carplay_module_forYou_detail" = "취향에 맞춘 오늘의 추천 곡";
+"carplay_module_startListening_detail" = "분위기별로 한 번에 재생";
+"carplay_module_recentlyPlayed_detail" = "최근 재생한 노래";
 "carplay_module_siri_detail" = "Siri에게 음악 선택 요청";
 "carplay_cover_wall" = "커버 월";
 "carplay_module_hidden" = "숨김";

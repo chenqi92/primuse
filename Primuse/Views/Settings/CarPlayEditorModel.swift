@@ -204,7 +204,7 @@ final class CarPlayEditorModel {
     }
 
     @discardableResult func addContent(_ item: CarPlayLayoutItem, to id: String, resolved: [CarPlayHomeItem]) -> Bool {
-        guard var block = configuration.blocks.first(where: { $0.id == id }) else { return false }
+        guard var block = configuration.blocks.first(where: { $0.id == id }), !block.kind.keepsLiveContent else { return false }
         if !block.usesCustomContent && block.kind != .custom {
             block.items = Array(resolved.compactMap(\.layoutItem).prefix(60))
         }
@@ -220,6 +220,7 @@ final class CarPlayEditorModel {
 
     func removeContent(_ item: CarPlayHomeItem, from id: String, resolved: [CarPlayHomeItem]) {
         update(id) { block in
+            guard !block.kind.keepsLiveContent else { return }
             if !block.usesCustomContent && block.kind != .custom {
                 block.items = Array(resolved.compactMap(\.layoutItem).prefix(60))
             }

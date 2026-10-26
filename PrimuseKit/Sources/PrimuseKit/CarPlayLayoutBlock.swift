@@ -2,6 +2,8 @@ import Foundation
 
 public enum CarPlayLayoutBlockKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case shortcuts, playlists, albums, recentlyAdded, custom, radio, folders, ranking, siri
+    /// 手机首页搬过来的三块:「为你推荐」的每日推荐、「开始听」的一点就播卡片、最近播放。
+    case forYou, startListening, recentlyPlayed
     public var id: String { rawValue }
     public var titleKey: String {
         switch self {
@@ -10,7 +12,17 @@ public enum CarPlayLayoutBlockKind: String, Codable, CaseIterable, Identifiable,
         case .folders: "library_browse_folder"
         case .ranking: "carplay_listening_ranking"
         case .siri: "carplay_siri_suggestions"
+        case .forYou: "home_for_you_title"
+        case .startListening: "home_section_start_listening"
+        case .recentlyPlayed: "recently_played"
         default: "carplay_section_" + rawValue
+        }
+    }
+    /// 内容每天、每听一首都会重新生成:不能在编辑器里排序、增删成一组固定内容。
+    public var keepsLiveContent: Bool {
+        switch self {
+        case .forYou, .startListening, .recentlyPlayed: true
+        default: false
         }
     }
     public var symbol: String {
@@ -24,6 +36,9 @@ public enum CarPlayLayoutBlockKind: String, Codable, CaseIterable, Identifiable,
         case .folders: "folder.fill"
         case .ranking: "chart.bar.fill"
         case .siri: "waveform"
+        case .forYou: "sparkles"
+        case .startListening: "play.square.stack"
+        case .recentlyPlayed: "clock.arrow.circlepath"
         }
     }
 }

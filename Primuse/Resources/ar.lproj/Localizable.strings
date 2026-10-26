@@ -4308,6 +4308,9 @@
 "carplay_listening_ranking" = "الأكثر استماعًا";
 "carplay_siri_suggestions" = "اقتراحات Siri";
 "carplay_module_ranking_detail" = "الموسيقى التي تستمع إليها أكثر";
+"carplay_module_forYou_detail" = "اختيارات يومية حسب ذوقك";
+"carplay_module_startListening_detail" = "شغّل أجواء معيّنة بلمسة واحدة";
+"carplay_module_recentlyPlayed_detail" = "الأغاني التي شغّلتها مؤخرًا";
 "carplay_module_siri_detail" = "اطلب من Siri اختيار الموسيقى";
 "carplay_cover_wall" = "جدار الأغلفة";
 "carplay_module_hidden" = "مخفية";

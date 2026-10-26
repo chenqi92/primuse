@@ -4403,6 +4403,9 @@
 "carplay_listening_ranking" = "よく聴く曲";
 "carplay_siri_suggestions" = "Siriの提案";
 "carplay_module_ranking_detail" = "よく聴く音楽";
+"carplay_module_forYou_detail" = "好みに合わせた毎日のおすすめ";
+"carplay_module_startListening_detail" = "気分やシーンをワンタップで再生";
+"carplay_module_recentlyPlayed_detail" = "最近再生した曲";
 "carplay_module_siri_detail" = "Siriに音楽を選んでもらう";
 "carplay_cover_wall" = "ジャケットウォール";
 "carplay_module_hidden" = "非表示";

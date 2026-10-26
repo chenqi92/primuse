@@ -13,6 +13,19 @@ struct CarPlayLayoutEditorTests {
         #expect(restored.tabs.last?.isValid == true)
     }
 
+    @Test func homeModulesKeepLiveContentAndSurviveSaving() throws {
+        let live: [CarPlayLayoutBlockKind] = [.forYou, .startListening, .recentlyPlayed]
+        #expect(CarPlayLayoutBlockKind.allCases.filter(\.keepsLiveContent) == live)
+        #expect(live.map(\.titleKey) == ["home_for_you_title", "home_section_start_listening", "recently_played"])
+        var configuration = CarPlayLayoutConfiguration()
+        configuration.blocks = live.map { CarPlayLayoutBlock(id: $0.rawValue, kind: $0) }
+        let restored = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(restored.blocks.map(\.kind) == live)
+        // 旧版本不认识的模块整块丢掉,其余照常读出来。
+        let data = Data(#"{"customBlocks":[{"id":"a","kind":"futureKind","style":"list"},{"id":"b","kind":"forYou","style":"covers"}]}"#.utf8)
+        #expect(try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: data).blocks.map(\.id) == ["b"])
+    }
+
     @Test func retiredSplitLayoutKeepsContentAndUsesSupportedPresentation() throws {
         let data = Data(#"{"visualStyle":"split","browseStyle":"list","customBlocks":[{"id":"favorite","kind":"custom","style":"list","items":[{"id":"p","kind":"playlist","targetID":"commute","title":"Commute"}]}]}"#.utf8)
         let configuration = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: data)

@@ -4308,6 +4308,9 @@
 "carplay_listening_ranking" = "सबसे ज़्यादा सुने गए";
 "carplay_siri_suggestions" = "Siri के सुझाव";
 "carplay_module_ranking_detail" = "आपका सबसे ज़्यादा सुना गया संगीत";
+"carplay_module_forYou_detail" = "आपकी पसंद के हिसाब से रोज़ के गाने";
+"carplay_module_startListening_detail" = "एक टैप में मूड के गाने चलाएँ";
+"carplay_module_recentlyPlayed_detail" = "हाल में चलाए गए गाने";
 "carplay_module_siri_detail" = "Siri से संगीत चुनने को कहें";
 "carplay_cover_wall" = "कवर वॉल";
 "carplay_module_hidden" = "छिपा हुआ";

@@ -468,8 +468,10 @@ struct CarPlayModulePicker: View {
     let close: () -> Void
     @State private var query = ""
 
-    private var playbackKinds: [CarPlayLayoutBlockKind] { [.shortcuts, .custom].filter(matches) }
-    private var libraryKinds: [CarPlayLayoutBlockKind] { [.folders, .playlists, .albums, .ranking, .recentlyAdded, .radio, .siri].filter(matches) }
+    private var playbackKinds: [CarPlayLayoutBlockKind] { [.shortcuts, .startListening, .forYou, .custom].filter(matches) }
+    private var libraryKinds: [CarPlayLayoutBlockKind] {
+        [.folders, .playlists, .albums, .recentlyPlayed, .ranking, .recentlyAdded, .radio, .siri].filter(matches)
+    }
     private var atLimit: Bool { model.configuration.blocks.count >= CarPlayLayoutConfiguration.maximumBlockCount }
 
     var body: some View {
@@ -549,9 +551,9 @@ struct CarPlayModulePicker: View {
                     }
                 }.frame(maxHeight: .infinity)
             }
-        case .shortcuts, .playlists, .recentlyAdded:
+        case .shortcuts, .playlists, .recentlyAdded, .recentlyPlayed:
             CarPlayLayoutGlyph(columns: 1, rows: 3)
-        case .folders:
+        case .folders, .forYou, .startListening:
             CarPlayLayoutGlyph(columns: 3, rows: 1)
         case .albums:
             CarPlayLayoutGlyph(columns: 3, rows: 2)

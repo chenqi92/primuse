@@ -4308,6 +4308,9 @@
 "carplay_listening_ranking" = "ฟังบ่อยที่สุด";
 "carplay_siri_suggestions" = "คำแนะนำจาก Siri";
 "carplay_module_ranking_detail" = "เพลงที่คุณฟังบ่อยที่สุด";
+"carplay_module_forYou_detail" = "เพลงแนะนำรายวันตามรสนิยมของคุณ";
+"carplay_module_startListening_detail" = "แตะครั้งเดียวเพื่อเล่นตามอารมณ์";
+"carplay_module_recentlyPlayed_detail" = "เพลงที่เล่นล่าสุด";
 "carplay_module_siri_detail" = "ขอให้ Siri เลือกเพลง";
 "carplay_cover_wall" = "ผนังปก";
 "carplay_module_hidden" = "ซ่อนอยู่";

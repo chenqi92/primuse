@@ -4504,6 +4504,9 @@
 "carplay_listening_ranking" = "听歌排行";
 "carplay_siri_suggestions" = "Siri 建议";
 "carplay_module_ranking_detail" = "最常听的音乐";
+"carplay_module_forYou_detail" = "按你的口味每天挑的歌";
+"carplay_module_startListening_detail" = "按场景一点就播";
+"carplay_module_recentlyPlayed_detail" = "最近听过的歌";
 "carplay_module_siri_detail" = "用 Siri 选择音乐";
 "carplay_cover_wall" = "封面墙";
 "carplay_module_hidden" = "已隐藏";
