@@ -391,7 +391,7 @@ struct HomeBookCard: View {
                 isPlaying: isPlaying,
                 isLoading: isCurrent && player.isLoading,
                 size: playButtonSize,
-                tint: .white,
+                tint: SpokenWordProgressPlayGlyph.overArtworkTint,
                 trackOpacity: SpokenWordProgressPlayGlyph.overArtworkTrackOpacity
             )
             .contentShape(Circle())

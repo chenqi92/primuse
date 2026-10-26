@@ -62,7 +62,7 @@ struct PodcastPlayButton: View {
     let episode: PodcastEpisode
     var continuing: [PodcastEpisode] = []
     var size: CGFloat = 34
-    /// 压在封面角上时是白色(配 `overArtworkKeyBackground`);列表行里跟播客的颜色。
+    /// 压在封面角上时传 `SpokenWordProgressPlayGlyph.overArtworkTint`(配 `overArtworkKeyBackground`);列表行里跟播客的颜色。
     var keyTint: Color? = nil
 
     @Environment(AudioPlayerService.self) private var player
@@ -728,8 +728,10 @@ struct SpokenWordProgressPlayGlyph: View {
     /// 外圈底色的浓淡;白色键压在深色毛玻璃上时要浓一点才看得出圈。
     var trackOpacity = 0.18
 
-    /// 封面角上那颗白色键的外圈底色。
-    static let overArtworkTrackOpacity = 0.3
+    /// 封面角上那颗键:白里透一点,压在毛玻璃上不刺眼(#361)。
+    static let overArtworkTint = Color.white.opacity(0.86)
+    /// 封面角上那颗键的外圈底色。
+    static let overArtworkTrackOpacity = 0.28
 
     var body: some View {
         ZStack {
@@ -757,13 +759,17 @@ struct SpokenWordProgressPlayGlyph: View {
 
 extension View {
     /// 首页卡片封面角上那颗播放键的底:深色毛玻璃配白色键(同屏幕小组件),不跟着各张封面或收听空间的颜色变,
-    /// 一排封面颜色各不相同时也是一个样子(#349)。
+    /// 一排封面颜色各不相同时也是一个样子(#349)。压暗只留薄薄一层,透出底下的封面;
+    /// 上亮下暗的细边是玻璃的高光(#361)。
     func overArtworkKeyBackground() -> some View {
         background {
             Circle()
                 .fill(.ultraThinMaterial)
-                .overlay(Circle().fill(Color.black.opacity(0.38)))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
+                .overlay(Circle().fill(Color.black.opacity(0.2)))
+                .overlay(Circle().strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.08)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.6
+                ))
         }
         .environment(\.colorScheme, .dark)
     }

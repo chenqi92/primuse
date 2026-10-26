@@ -90,7 +90,8 @@ struct HomePodcastEpisodeCard: View {
             }
             .buttonStyle(.plain)
             .overlay(alignment: .bottomTrailing) {
-                PodcastPlayButton(episode: episode, continuing: continuing, size: playButtonSize, keyTint: .white)
+                PodcastPlayButton(episode: episode, continuing: continuing, size: playButtonSize,
+                                  keyTint: SpokenWordProgressPlayGlyph.overArtworkTint)
                     .overArtworkKeyBackground()
                     .padding(8)
             }
