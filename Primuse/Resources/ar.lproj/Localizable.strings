@@ -6856,3 +6856,11 @@
 "diagnostics_logs_clear_confirm" = "هل تريد حذف جميع السجلات الحالية والمؤرشفة؟";
 "diagnostics_delete_report_confirm" = "هل تريد حذف هذا التقرير؟";
 "diagnostics_cleanup_failed" = "تعذر مسح البيانات";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "لا يمكن العرض حسب المجلدات أثناء تشغيل «تم التحميل»";
+"library_browse_folder_blocked_downloaded_message" = "يعرض مرشح «تم التحميل» الأغاني في قائمة مسطحة.";
+"library_browse_folder_blocked_downloaded_action" = "إيقاف «تم التحميل» وعرض المجلدات";
+"library_browse_folder_blocked_search_title" = "لا يمكن العرض حسب المجلدات أثناء التصفية";
+"library_browse_folder_blocked_search_message" = "تُعرض نتائج التصفية في قائمة مسطحة.";
+"library_browse_folder_blocked_search_action" = "مسح التصفية وعرض المجلدات";

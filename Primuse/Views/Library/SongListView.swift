@@ -884,6 +884,8 @@ struct SongListView: View {
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
     @State private var showViewOptions = false
+    @State private var explainsFolderBlocker = false
+    @State private var explainedFolderBlocker = LibraryFolderBrowseBlocker.downloadedFilter
     @State private var showAddVisibleToPlaylist = false
     // Bind context-menu sheets to the selected value itself.  A separate
     // `songID` + `isPresented` pair can publish in either order when a menu
@@ -1493,9 +1495,21 @@ struct SongListView: View {
     }
 
     private var showsFolderBrowser: Bool {
-        browseMode == .folder
-            && songFilter == .all
-            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        browseMode == .folder && folderBrowseBlocker == nil
+    }
+
+    /// 开着「已下载」或页内查找有字时目录出不来，歌照平铺列出。
+    private var folderBrowseBlocker: LibraryFolderBrowseBlocker? {
+        if songFilter == .downloaded { return .downloadedFilter }
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .search }
+        return nil
+    }
+
+    /// 版式键说明框里的一键解决：关掉「已下载」、清空查找，切到目录。
+    private func resolveFolderBrowseBlocker() {
+        searchText = ""
+        songFilter = .all
+        browseMode = .folder
     }
 
     private var folderRootSourceID: String? {
@@ -1619,6 +1633,8 @@ struct SongListView: View {
                 canPlay: !showsFolderBrowser && filteredProjection.playableCount > 0,
                 canShuffle: !showsFolderBrowser && filteredProjection.playableCount > 1,
                 browseMode: $browseMode,
+                folderBlocker: folderBrowseBlocker,
+                resolveFolderBlocker: resolveFolderBrowseBlocker,
                 sortOrder: sortOrderBinding,
                 filter: $songFilter,
                 manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
@@ -1660,9 +1676,7 @@ struct SongListView: View {
     }
 
     private var presentedShowsFolderBrowser: Bool {
-        presentedBrowseMode == .folder
-            && songFilter == .all
-            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        presentedBrowseMode == .folder && folderBrowseBlocker == nil
     }
 
     private func scheduleBrowseModeTransition(to mode: LibrarySongBrowseMode) {
@@ -2162,11 +2176,11 @@ struct SongListView: View {
             Menu {
                 SongSortMenuOptions(
                     sortOrder: sortOrderBinding,
-                    followsListSort: browseMode == .folder ? $folderFollowsListSort : nil
+                    followsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
                 )
             } label: {
                 HStack(spacing: 4) {
-                    if browseMode == .folder, !folderFollowsListSort {
+                    if showsFolderBrowser, !folderFollowsListSort {
                         Text("sort_track_order")
                     } else {
                         Text(verbatim: sortOrder.label)
@@ -2212,10 +2226,18 @@ struct SongListView: View {
     }
 
     private var browseModeSegment: some View {
-        HStack(spacing: 1) {
+        // 目录被「已下载」或查找挡住时眼前是平铺：亮「平铺」，「目录」画灰但可点，点了说明原因。
+        let displayedMode: LibrarySongBrowseMode = showsFolderBrowser ? .folder : .flat
+        return HStack(spacing: 1) {
             ForEach(LibrarySongBrowseMode.allCases, id: \.self) { mode in
+                let blocker = mode == .folder ? folderBrowseBlocker : nil
                 Button {
-                    browseMode = mode
+                    if let blocker {
+                        explainedFolderBlocker = blocker
+                        explainsFolderBlocker = true
+                    } else if mode != displayedMode {
+                        browseMode = mode
+                    }
                 } label: {
                     Label(
                         mode == .folder ? "library_browse_folder" : "library_browse_flat",
@@ -2223,23 +2245,30 @@ struct SongListView: View {
                     )
                     .labelStyle(.titleAndIcon)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(browseMode == mode ? PMColor.brand : PMColor.textMuted)
+                    .foregroundStyle(displayedMode == mode ? PMColor.brand : PMColor.textMuted)
+                    .opacity(blocker == nil ? 1 : 0.45)
                     .padding(.horizontal, 8)
                     .frame(minHeight: 22)
                     .background(
-                        browseMode == mode ? PMColor.bgElev : .clear,
+                        displayedMode == mode ? PMColor.bgElev : .clear,
                         in: .rect(cornerRadius: 5)
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(selection.isActive)
+                .accessibilityHint(blocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
                 .accessibilityIdentifier("libraryBrowseMode.\(mode.rawValue)")
             }
         }
         .padding(2)
         .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
         .accessibilityElement(children: .contain)
+        .folderBrowseBlockerAlert(
+            isPresented: $explainsFolderBlocker,
+            blocker: explainedFolderBlocker,
+            resolve: resolveFolderBrowseBlocker
+        )
     }
 
     private var viewModeSegment: some View {
@@ -2277,7 +2306,7 @@ struct SongListView: View {
 
     private func tableHeader(ordinalWidth: CGFloat) -> some View {
         MacSongTableHeader(layout: tableLayout, ordinalWidth: ordinalWidth, sortOrder: sortOrder.libraryOrder) { criterion in
-            if browseMode == .folder { folderFollowsListSort = true }
+            if showsFolderBrowser { folderFollowsListSort = true }
             sortOrderBinding.wrappedValue = sortOrder.selecting(criterion)
         }
     }
@@ -2814,7 +2843,13 @@ struct SongListView: View {
                 titled: true,
                 action: shuffleVisibleSongs
             )
-            SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode, titled: true)
+            SongListBrowseModeToolbarButton(
+                selection: selection,
+                browseMode: $browseMode,
+                folderBlocker: folderBrowseBlocker,
+                resolveFolderBlocker: resolveFolderBrowseBlocker,
+                titled: true
+            )
         }
         .pmHighVisibilityPriority()
         ToolbarItem(placement: .topBarTrailing) {
@@ -2855,7 +2890,12 @@ struct SongListView: View {
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
-            SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+            SongListBrowseModeToolbarButton(
+                selection: selection,
+                browseMode: $browseMode,
+                folderBlocker: folderBrowseBlocker,
+                resolveFolderBlocker: resolveFolderBrowseBlocker
+            )
         }
         ToolbarItem(placement: .topBarTrailing) {
             SongListNormalToolbarMenu(
@@ -5487,27 +5527,100 @@ private struct SongListShuffleToolbarButton: View {
 private struct SongListBrowseModeToolbarButton: View {
     let selection: SongSelectionModel
     @Binding var browseMode: LibrarySongBrowseMode
+    /// 目录被挡住时眼前其实是平铺：键换成画灰的「目录」，仍可点，点了说明原因。
+    var folderBlocker: LibraryFolderBrowseBlocker? = nil
+    var resolveFolderBlocker: () -> Void = {}
     /// 系统竖栏里带上标题,其它时候仍是原来的纯图标。
     var titled = false
+    @State private var explainsBlocker = false
+    @State private var explainedBlocker = LibraryFolderBrowseBlocker.downloadedFilter
+
+    /// 点下去去目录：正在平铺，或目录被挡住。
+    private var offersFolder: Bool {
+        browseMode != .folder || folderBlocker != nil
+    }
+
+    private var label: PMToolbarItemLabel {
+        PMToolbarItemLabel(
+            LocalizedStringKey(offersFolder ? "library_browse_folder" : "library_browse_flat"),
+            systemImage: offersFolder ? "folder" : "list.bullet",
+            titled: titled
+        )
+    }
 
     var body: some View {
         if !selection.isActive {
             Button {
-                browseMode = browseMode == .folder ? .flat : .folder
+                if let folderBlocker {
+                    explainedBlocker = folderBlocker
+                    explainsBlocker = true
+                } else {
+                    browseMode = browseMode == .folder ? .flat : .folder
+                }
             } label: {
-                PMToolbarItemLabel(
-                    LocalizedStringKey(browseMode == .folder ? "library_browse_flat" : "library_browse_folder"),
-                    systemImage: browseMode == .folder ? "list.bullet" : "folder",
-                    titled: titled
-                )
+                // 只在挡住时换色，平时不碰工具栏自己的着色(同 SourcesView 的读标签速度键)。
+                if folderBlocker == nil {
+                    label
+                } else {
+                    label.foregroundStyle(Color.secondary)
+                }
             }
             .accessibilityLabel(Text(LocalizedStringKey(
-                browseMode == .folder ? "library_browse_flat" : "library_browse_folder"
+                offersFolder ? "library_browse_folder" : "library_browse_flat"
             )))
             .accessibilityValue(Text(LocalizedStringKey(
-                browseMode == .folder ? "library_browse_folder" : "library_browse_flat"
+                offersFolder ? "library_browse_flat" : "library_browse_folder"
             )))
+            .accessibilityHint(folderBlocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
             .accessibilityIdentifier("libraryBrowseMode.toggle")
+            .folderBrowseBlockerAlert(
+                isPresented: $explainsBlocker,
+                blocker: explainedBlocker,
+                resolve: resolveFolderBlocker
+            )
+        }
+    }
+}
+
+/// 目录浏览只在「全部」而且没在页内查找时出现；挡住它的是哪一个，说明与一键解决就写哪一个。
+private enum LibraryFolderBrowseBlocker: Hashable {
+    case downloadedFilter
+    case search
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .downloadedFilter: "library_browse_folder_blocked_downloaded_title"
+        case .search: "library_browse_folder_blocked_search_title"
+        }
+    }
+
+    var messageKey: LocalizedStringKey {
+        switch self {
+        case .downloadedFilter: "library_browse_folder_blocked_downloaded_message"
+        case .search: "library_browse_folder_blocked_search_message"
+        }
+    }
+
+    var actionKey: LocalizedStringKey {
+        switch self {
+        case .downloadedFilter: "library_browse_folder_blocked_downloaded_action"
+        case .search: "library_browse_folder_blocked_search_action"
+        }
+    }
+}
+
+private extension View {
+    /// 标题、说明与按钮跟着 `blocker` 走；收起时 `blocker` 不清空，免得淡出那一下标题变空。
+    func folderBrowseBlockerAlert(
+        isPresented: Binding<Bool>,
+        blocker: LibraryFolderBrowseBlocker,
+        resolve: @escaping () -> Void
+    ) -> some View {
+        alert(blocker.titleKey, isPresented: isPresented) {
+            Button(blocker.actionKey, action: resolve)
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(blocker.messageKey)
         }
     }
 }
@@ -5582,6 +5695,8 @@ private struct SongListMinimalHeader: View {
     let canPlay: Bool
     let canShuffle: Bool
     @Binding var browseMode: LibrarySongBrowseMode
+    let folderBlocker: LibraryFolderBrowseBlocker?
+    let resolveFolderBlocker: () -> Void
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
     var manageHomeFolders: (() -> Void)?
@@ -5599,7 +5714,12 @@ private struct SongListMinimalHeader: View {
                     .disabled(!canPlay)
                 MinimalHeaderActions {
                     SongListShuffleToolbarButton(selection: selection, isEnabled: canShuffle, action: onShuffle)
-                    SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+                    SongListBrowseModeToolbarButton(
+                        selection: selection,
+                        browseMode: $browseMode,
+                        folderBlocker: folderBlocker,
+                        resolveFolderBlocker: resolveFolderBlocker
+                    )
                 }
                 Spacer(minLength: 4)
                 SongListSortProgressIndicator(progress: progress)

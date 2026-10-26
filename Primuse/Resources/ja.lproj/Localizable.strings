@@ -6951,3 +6951,11 @@
 "diagnostics_logs_clear_confirm" = "現在および過去のログをすべて削除しますか？";
 "diagnostics_delete_report_confirm" = "このレポートを削除しますか？";
 "diagnostics_cleanup_failed" = "削除できませんでした";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "「ダウンロード済み」がオンのときはフォルダ表示できません";
+"library_browse_folder_blocked_downloaded_message" = "「ダウンロード済み」はダウンロードした曲をフラットに一覧表示します。";
+"library_browse_folder_blocked_downloaded_action" = "「ダウンロード済み」をオフにしてフォルダ表示";
+"library_browse_folder_blocked_search_title" = "絞り込み中はフォルダ表示できません";
+"library_browse_folder_blocked_search_message" = "絞り込みの結果はフラットに一覧表示します。";
+"library_browse_folder_blocked_search_action" = "絞り込みを消去してフォルダ表示";

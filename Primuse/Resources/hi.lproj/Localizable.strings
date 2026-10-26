@@ -6856,3 +6856,11 @@
 "diagnostics_logs_clear_confirm" = "क्या सभी मौजूदा और पुराने लॉग मिटाना चाहते हैं?";
 "diagnostics_delete_report_confirm" = "क्या यह रिपोर्ट मिटाना चाहते हैं?";
 "diagnostics_cleanup_failed" = "डेटा मिटाया नहीं जा सका";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "“डाउनलोड किया गया” चालू होने पर फ़ोल्डर्स में नहीं देख सकते";
+"library_browse_folder_blocked_downloaded_message" = "“डाउनलोड किया गया” फ़िल्टर गानों को सपाट सूची में दिखाता है।";
+"library_browse_folder_blocked_downloaded_action" = "“डाउनलोड किया गया” बंद करें और फ़ोल्डर्स देखें";
+"library_browse_folder_blocked_search_title" = "फ़िल्टर करते समय फ़ोल्डर्स में नहीं देख सकते";
+"library_browse_folder_blocked_search_message" = "फ़िल्टर के नतीजे सपाट सूची में दिखते हैं।";
+"library_browse_folder_blocked_search_action" = "फ़िल्टर साफ़ करें और फ़ोल्डर्स देखें";

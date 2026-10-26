@@ -6856,3 +6856,11 @@
 "diagnostics_logs_clear_confirm" = "Excluir todos os logs atuais e arquivados?";
 "diagnostics_delete_report_confirm" = "Excluir este relatório?";
 "diagnostics_cleanup_failed" = "Não foi possível limpar os dados";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "As pastas não ficam disponíveis com “Baixado” ativado";
+"library_browse_folder_blocked_downloaded_message" = "O filtro “Baixado” mostra as músicas em lista plana.";
+"library_browse_folder_blocked_downloaded_action" = "Desativar “Baixado” e ver pastas";
+"library_browse_folder_blocked_search_title" = "As pastas não ficam disponíveis durante o filtro";
+"library_browse_folder_blocked_search_message" = "Os resultados do filtro aparecem em lista plana.";
+"library_browse_folder_blocked_search_action" = "Limpar filtro e ver pastas";

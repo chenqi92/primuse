@@ -6950,3 +6950,11 @@
 "diagnostics_logs_clear_confirm" = "Alle aktuellen und archivierten Protokolle löschen?";
 "diagnostics_delete_report_confirm" = "Diesen Bericht löschen?";
 "diagnostics_cleanup_failed" = "Daten konnten nicht gelöscht werden";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "Ordner sind bei „Heruntergeladen“ nicht verfügbar";
+"library_browse_folder_blocked_downloaded_message" = "Der Filter „Heruntergeladen“ zeigt Titel als flache Liste.";
+"library_browse_folder_blocked_downloaded_action" = "„Heruntergeladen“ ausschalten und Ordner zeigen";
+"library_browse_folder_blocked_search_title" = "Ordner sind beim Filtern nicht verfügbar";
+"library_browse_folder_blocked_search_message" = "Filterergebnisse werden als flache Liste gezeigt.";
+"library_browse_folder_blocked_search_action" = "Filter löschen und Ordner zeigen";

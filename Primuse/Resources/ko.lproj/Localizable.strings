@@ -6950,3 +6950,11 @@
 "diagnostics_logs_clear_confirm" = "현재 및 보관된 로그를 모두 삭제할까요?";
 "diagnostics_delete_report_confirm" = "이 보고서를 삭제할까요?";
 "diagnostics_cleanup_failed" = "삭제 실패";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "‘다운로드됨’이 켜져 있으면 폴더로 볼 수 없습니다";
+"library_browse_folder_blocked_downloaded_message" = "‘다운로드됨’ 필터는 다운로드한 곡을 평면 목록으로 보여 줍니다.";
+"library_browse_folder_blocked_downloaded_action" = "‘다운로드됨’ 끄고 폴더로 보기";
+"library_browse_folder_blocked_search_title" = "필터 중에는 폴더로 볼 수 없습니다";
+"library_browse_folder_blocked_search_message" = "필터 결과는 평면 목록으로 표시됩니다.";
+"library_browse_folder_blocked_search_action" = "필터 지우고 폴더로 보기";

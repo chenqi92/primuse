@@ -6711,3 +6711,11 @@
 "diagnostics_logs_clear_confirm" = "Delete all current and archived logs?";
 "diagnostics_delete_report_confirm" = "Delete this report?";
 "diagnostics_cleanup_failed" = "Couldn’t Clear Data";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "Folders aren't available with Downloaded on";
+"library_browse_folder_blocked_downloaded_message" = "The Downloaded filter lists songs flat.";
+"library_browse_folder_blocked_downloaded_action" = "Turn Off Downloaded and Show Folders";
+"library_browse_folder_blocked_search_title" = "Folders aren't available while filtering";
+"library_browse_folder_blocked_search_message" = "Filter results are listed flat.";
+"library_browse_folder_blocked_search_action" = "Clear Filter and Show Folders";

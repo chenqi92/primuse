@@ -6927,3 +6927,11 @@
 "diagnostics_logs_clear_confirm" = "確定要刪除目前及歷史日誌嗎？";
 "diagnostics_delete_report_confirm" = "確定要刪除這份報告嗎？";
 "diagnostics_cleanup_failed" = "清理失敗";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "開著「已下載」時無法依目錄瀏覽";
+"library_browse_folder_blocked_downloaded_message" = "「已下載」只以平鋪列出下載好的歌曲。";
+"library_browse_folder_blocked_downloaded_action" = "關閉「已下載」並依目錄瀏覽";
+"library_browse_folder_blocked_search_title" = "篩選歌曲時無法依目錄瀏覽";
+"library_browse_folder_blocked_search_message" = "篩選結果以平鋪列出。";
+"library_browse_folder_blocked_search_action" = "清除篩選並依目錄瀏覽";

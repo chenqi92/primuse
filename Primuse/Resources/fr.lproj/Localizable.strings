@@ -6950,3 +6950,11 @@
 "diagnostics_logs_clear_confirm" = "Supprimer tous les journaux actuels et archivés ?";
 "diagnostics_delete_report_confirm" = "Supprimer ce rapport ?";
 "diagnostics_cleanup_failed" = "Échec de la suppression";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "Dossiers indisponibles avec « Téléchargés »";
+"library_browse_folder_blocked_downloaded_message" = "Le filtre « Téléchargés » affiche les titres en liste à plat.";
+"library_browse_folder_blocked_downloaded_action" = "Désactiver « Téléchargés » et afficher les dossiers";
+"library_browse_folder_blocked_search_title" = "Dossiers indisponibles pendant le filtrage";
+"library_browse_folder_blocked_search_message" = "Les résultats du filtre s’affichent en liste à plat.";
+"library_browse_folder_blocked_search_action" = "Effacer le filtre et afficher les dossiers";

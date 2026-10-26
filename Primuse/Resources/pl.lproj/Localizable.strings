@@ -6856,3 +6856,11 @@
 "diagnostics_logs_clear_confirm" = "Usunąć wszystkie bieżące i archiwalne dzienniki?";
 "diagnostics_delete_report_confirm" = "Usunąć ten raport?";
 "diagnostics_cleanup_failed" = "Nie udało się wyczyścić danych";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "Foldery są niedostępne, gdy włączony jest filtr „Pobrano”";
+"library_browse_folder_blocked_downloaded_message" = "Filtr „Pobrano” pokazuje utwory jako płaską listę.";
+"library_browse_folder_blocked_downloaded_action" = "Wyłącz „Pobrano” i pokaż foldery";
+"library_browse_folder_blocked_search_title" = "Foldery są niedostępne podczas filtrowania";
+"library_browse_folder_blocked_search_message" = "Wyniki filtrowania są pokazywane jako płaska lista.";
+"library_browse_folder_blocked_search_action" = "Wyczyść filtr i pokaż foldery";

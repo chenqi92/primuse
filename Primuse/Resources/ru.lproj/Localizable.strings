@@ -6856,3 +6856,11 @@
 "diagnostics_logs_clear_confirm" = "Удалить все текущие и архивные журналы?";
 "diagnostics_delete_report_confirm" = "Удалить этот отчёт?";
 "diagnostics_cleanup_failed" = "Не удалось очистить данные";
+
+/* 歌曲页：开着「已下载」或过滤时点「目录」的说明 */
+"library_browse_folder_blocked_downloaded_title" = "Папки недоступны, пока включён фильтр «Загружено»";
+"library_browse_folder_blocked_downloaded_message" = "Фильтр «Загружено» показывает песни списком.";
+"library_browse_folder_blocked_downloaded_action" = "Выключить «Загружено» и показать папки";
+"library_browse_folder_blocked_search_title" = "Папки недоступны во время фильтрации";
+"library_browse_folder_blocked_search_message" = "Результаты фильтра показываются списком.";
+"library_browse_folder_blocked_search_action" = "Очистить фильтр и показать папки";
