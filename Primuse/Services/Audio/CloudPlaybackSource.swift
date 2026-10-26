@@ -1243,6 +1243,9 @@ private final class State: @unchecked Sendable {
     /// what its decoder asks for, so it does not compete with the song that
     /// is playing, until playback takes it over.
     private var readAheadSuspended: Bool
+    /// 缓存文件写不进去了(多半是盘满)。预读、顺序填充和补尾都只能经缓存把字节交给
+    /// 解码器, 再跑只是白下载, 等着它的读取还要空等到超时; 之后每次读取直接向源要。
+    private var cacheUnwritable = false
     /// When this session started serving playback: its creation, or for a
     /// prepared session the moment playback took it over. nil while it waits.
     private var playbackStartedAt: TimeInterval?
@@ -1829,7 +1832,13 @@ private final class State: @unchecked Sendable {
     private func isReadAheadSuspended() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return readAheadSuspended
+        return readAheadSuspended || cacheUnwritable
+    }
+
+    private func isCacheUnwritable() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cacheUnwritable
     }
 
     /// Opened ahead of playback and not taken over yet.
@@ -1964,6 +1973,7 @@ private final class State: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return !closed
+            && !cacheUnwritable
             && sequentialFillActive
             && offset >= sequentialFillStart
             && offset <= sequentialFillCursor + Self.sequentialFillReachBytes
@@ -1975,6 +1985,7 @@ private final class State: @unchecked Sendable {
     private func ensureSequentialFill(covering offset: Int64) -> Bool {
         lock.lock()
         guard !closed,
+              !cacheUnwritable,
               sequentialFetch != nil,
               sequentialFillFailures < Self.maximumSequentialFillFailures else {
             lock.unlock()
@@ -2020,6 +2031,7 @@ private final class State: @unchecked Sendable {
                 // is ahead.
                 guard pending.count >= 256 * 1_024 || sequentialFillHasWaiters() else { continue }
                 let reachedCachedBytes = flushSequentialFill(id: id, cursor: &cursor, pending: &pending)
+                if isCacheUnwritable() { break }
                 if reachedCachedBytes || cursor >= totalLength {
                     finishedCleanly = true
                     break
@@ -2081,6 +2093,10 @@ private final class State: @unchecked Sendable {
         if !alreadyCovered, !data.isEmpty {
             CloudPlaybackSource.noteTransferSucceeded(sourceID: sourceID)
             writeToCache(offset: cursor, data: Data(data))
+            guard !isCacheUnwritable() else {
+                pending.removeAll(keepingCapacity: true)
+                return false
+            }
             cursor += Int64(data.count)
             lock.lock()
             if sequentialFillID == id { sequentialFillCursor = cursor }
@@ -2343,6 +2359,13 @@ private final class State: @unchecked Sendable {
             try? handle.close()
         } catch {
             try? handle.close()
+            lock.lock()
+            let firstFailure = !cacheUnwritable
+            cacheUnwritable = true
+            lock.unlock()
+            if firstFailure {
+                plog("⚠️ Cloud stream '\(label)' cache write failed at \(offset): \(error.localizedDescription); read-ahead stops, reads go straight to the source")
+            }
             return .noChange
         }
 
@@ -2391,6 +2414,7 @@ private final class State: @unchecked Sendable {
                   allowsTrailingFill,
                   prefetchAhead == 0,
                   !readAheadSuspended,
+                  !cacheUnwritable,
                   !trailingFillScheduled,
                   cachedRanges.first?.lowerBound == 0 {
             // Streaming prefetch already owns future chunks. Let those writes
