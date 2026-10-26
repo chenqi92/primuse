@@ -331,6 +331,8 @@ final class MetadataBackfillService {
     /// Repeated snapshots indicate a state-application problem rather than a
     /// transport problem and must not be unparked by a network transition.
     @ObservationIgnored private var sessionStallParkedIDs: Set<String> = []
+    /// 本会话里已经记过「有文件不在本机、等网络」的源，日志每个源只写一次。
+    @ObservationIgnored private var awaitingNetworkLoggedSourceIDs: Set<String> = []
 
     /// 上一个 worker 最后真正处理过的那一批 ID。
     ///
@@ -1833,17 +1835,19 @@ final class MetadataBackfillService {
         }
 
         // Cellular gate. Backfill on a 2200-song cloud library is ~550MB, but
-        // the managed iOS import source reads only sandbox files. When both
-        // kinds are pending, drain the offline rows first and defer only the
+        // the managed iOS import source reads only sandbox files and a local
+        // folder reads files already on this device. When both kinds are
+        // pending, drain the offline rows first and defer only the
         // connector/File Provider rows.
         let networkBlocked = shouldBlockForCellular()
         let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
             networkIsBlocked: networkBlocked,
-            offlineReadableSourceIDs: offlineReadableSourceIDs()
+            offlineReadableSourceIDs: networkGateExemptSourceIDs()
         )
         if networkBlocked, allowedSourceIDs?.isEmpty != false {
             updateWaitingForWiFiState(presentPrompt: true)
-            plog("📥 Backfill: deferred (cellular + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
+            let path = NetworkMonitor.shared.isOnMeteredNetwork ? "metered" : "no usable network"
+            plog("📥 Backfill: deferred (\(path) + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
             return
         }
         isWaitingForWiFi = networkBlocked && hasPendingNetworkReadableWork
@@ -3897,7 +3901,7 @@ final class MetadataBackfillService {
                 let limits = executionLimits
                 let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
                     networkIsBlocked: shouldBlockForCellular(),
-                    offlineReadableSourceIDs: offlineReadableSourceIDs()
+                    offlineReadableSourceIDs: networkGateExemptSourceIDs()
                 )
                 return (limits, allowedSourceIDs)
             }
@@ -4153,6 +4157,15 @@ final class MetadataBackfillService {
                     let exhausted = MetadataBackfillRetryPolicy.hasExhaustedAutomaticAttempts(count)
                     plog("⚠️ Backfill: '\(result.song.title)' deferred after transient failure (attempt \(count), exhausted=\(exhausted))")
                 }
+                if result.outcome.awaitingNetwork, canRecordOutcome {
+                    // 只停这一轮，不记失败也不耗重试次数：换到能用的网络时
+                    // `resumeNetworkParkedWork` 会把它放回队列。
+                    sessionGivenUpIDs.insert(songID)
+                    sessionNetworkParkedIDs.insert(songID)
+                    if awaitingNetworkLoggedSourceIDs.insert(result.song.sourceID).inserted {
+                        plog("📥 Backfill: source \(result.song.sourceID) has files not on this device; they wait for a usable network")
+                    }
+                }
                 if result.outcome.artworkGivenUp {
                     // Stop re-fetching this song for artwork, but DON'T fail it —
                     // its duration update below still flushes and it stays playable.
@@ -4366,19 +4379,39 @@ final class MetadataBackfillService {
         return wifiOnly && !cellularAllowedThisSession && !NetworkMonitor.shared.isOnUnmeteredNetwork
     }
 
+    /// 网络策略拦着（仅 Wi-Fi 遇上蜂窝，或者根本没网）时还能读的源：沙盒里的导入副本，加上
+    /// 本机文件夹这类直接读文件的源。后者不是每首都在本机，开读前一首首看，见
+    /// `localFileAwaitsNetwork`。
+    private func networkGateExemptSourceIDs() -> Set<String> {
+        offlineReadableSourceIDs().union(directFileSourceIDs())
+    }
+
+    /// 直接读文件的源里，这一首眼下读不了：网络策略拦着，而文件还在 iCloud 云盘里没下到本机、
+    /// 或者放在网络卷上，一读就要联网。沙盒副本不用看；解析不出路径时按能读算，交给真正的
+    /// 读取去报错。
+    private func localFileAwaitsNetwork(_ song: Song) async -> Bool {
+        let sourceID = song.sourceID
+        guard shouldBlockForCellular(),
+              directFileSourceIDs().contains(sourceID),
+              !offlineReadableSourceIDs().contains(sourceID),
+              let connector = try? await sourceManager.auxiliaryConnector(for: song),
+              let url = try? await connector.localURL(for: song.filePath) else { return false }
+        return await UbiquitousPlaybackFile.readingNeedsNetwork(url)
+    }
+
     private func canDispatchUnderCurrentNetworkPolicy(_ song: Song) -> Bool {
-        !shouldBlockForCellular() || offlineReadableSourceIDs().contains(song.sourceID)
+        !shouldBlockForCellular() || networkGateExemptSourceIDs().contains(song.sourceID)
     }
 
     private var hasPendingOfflineReadableWork: Bool {
-        let offlineIDs = offlineReadableSourceIDs()
+        let offlineIDs = networkGateExemptSourceIDs()
         return remainingCountBySourceID.contains { sourceID, count in
             count > 0 && offlineIDs.contains(sourceID)
         }
     }
 
     private var hasPendingNetworkReadableWork: Bool {
-        let offlineIDs = offlineReadableSourceIDs()
+        let offlineIDs = networkGateExemptSourceIDs()
         return remainingCountBySourceID.contains { sourceID, count in
             count > 0 && !offlineIDs.contains(sourceID)
         }
@@ -4418,7 +4451,7 @@ final class MetadataBackfillService {
             hasPendingWork: hasPendingWork,
             pendingSourceIDs: pendingSourceIDs,
             backfillableSourceIDs: backfillableSourceIDs(),
-            offlineReadableSourceIDs: offlineReadableSourceIDs()
+            offlineReadableSourceIDs: networkGateExemptSourceIDs()
         )
     }
 
@@ -4428,7 +4461,10 @@ final class MetadataBackfillService {
             isWaitingForWiFi = waiting
         }
         if presentPrompt {
+            // 只在真连着计流量的网时问。没网、不让这个 App 联网时「本次允许」也发不出请求，
+            // 弹「当前为蜂窝网络」既不对也没用 —— 只能安静等网络。
             let shouldPresent = waiting
+                && NetworkMonitor.shared.isOnMeteredNetwork
                 && !hasPendingOfflineReadableWork
                 && !isRunning
                 && !cellularPromptDismissedThisSession
@@ -4575,6 +4611,9 @@ final class MetadataBackfillService {
         /// permanently failed — its duration update is still saved and it stays
         /// playable & recoverable.
         var artworkGivenUp: Bool = false
+        /// 文件还没在这台设备上（iCloud 云盘里没下载、放在网络卷上），而网络策略眼下不让读。
+        /// 不算失败、不耗重试次数，先停到能用的网络回来。
+        var awaitingNetwork: Bool = false
     }
 
     private struct BackfillHardTimeoutError: LocalizedError, Sendable {
@@ -4806,6 +4845,9 @@ final class MetadataBackfillService {
             return BackfillOutcome(song: nil, markFailed: false)
         }
         defer { activeReadSongIDs.remove(song.id) }
+        if !isExplicitReread, await localFileAwaitsNetwork(song) {
+            return BackfillOutcome(song: nil, markFailed: false, awaitingNetwork: true)
+        }
         // 刚连着回 5xx 的源先退让再读 —— 理由见 RemoteGatewayBackoffPolicy。
         // 用户点下去的重读不排队也不退让: 那是一次有限的、他自己发起的操作,
         // 让它当场就走。

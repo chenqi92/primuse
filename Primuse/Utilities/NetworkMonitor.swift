@@ -125,6 +125,13 @@ final class NetworkMonitor {
             && !routePathCondition.underlyingCellularOnly
     }
 
+    /// 连着网、而且这条路计流量（蜂窝、个人热点、低数据模式）。没网、不让这个 App 联网、
+    /// 路径还没回来时都是 false：那时什么也发不出去，谈不上费流量，不能拿「当前为蜂窝网络」
+    /// 去问用户。
+    var isOnMeteredNetwork: Bool {
+        hasDeterminedPath && isReachable && !isOnUnmeteredNetwork
+    }
+
     /// LAN addresses are worth probing whenever the active route could plausibly
     /// reach them. Wi-Fi and Ethernet obviously qualify; so does a tunnel, since
     /// Tailscale/WireGuard/VPN paths appear as `NWInterface` type `.other` and

@@ -1350,6 +1350,16 @@ enum UbiquitousPlaybackFile {
         return UbiquitousPlaybackDownloadPolicy.needsDownload(snapshot(of: url).status)
     }
 
+    /// 读这个文件要不要走网络:还没下到本机的 iCloud 云盘文件,或者放在网络卷上(Mac 上
+    /// 挂载的 SMB 之类)。后台补资料在不能联网时先问这里。读不到属性时按本机文件算。
+    @concurrent
+    nonisolated static func readingNeedsNetwork(_ url: URL) async -> Bool {
+        guard url.isFileURL else { return false }
+        if UbiquitousPlaybackDownloadPolicy.needsDownload(snapshot(of: url).status) { return true }
+        let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.volumeIsLocalKey])
+        return values?.volumeIsLocal == false
+    }
+
     /// 请求下载并等到文件可读。`isCurrent` 为 false(已经换了别的歌)时以取消结束。
     @concurrent
     nonisolated static func download(

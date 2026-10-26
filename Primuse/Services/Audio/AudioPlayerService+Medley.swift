@@ -47,7 +47,8 @@ extension AudioPlayerService {
     func medleyNeedsDataUsageConfirmation(for songs: [Song]) -> Bool {
         let network = NetworkMonitor.shared
         let promptDisabled = UserDefaults.standard.bool(forKey: MedleyDataUsagePolicy.promptDisabledKey)
-        guard network.hasDeterminedPath, !network.isOnUnmeteredNetwork, !promptDisabled else { return false }
+        // 没网、不让这个 App 联网时谈不上费流量:那时下不了歌,不该先问流量。
+        guard network.isOnMeteredNetwork, !promptDisabled else { return false }
         let hasSongToDownload = songs.prefix(MedleyDataUsagePolicy.inspectedSongCount).contains { song in
             canIncludeInMedley(song)
                 && playbackMetadataSourceType?(song.sourceID) != .local
