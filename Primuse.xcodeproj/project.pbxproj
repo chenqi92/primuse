@@ -170,6 +170,7 @@
 		BB6FCF6F84B60067A14A679F /* PlayerOrientationControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 402994D356C228EBBDC6DF9C /* PlayerOrientationControl.swift */; };
 		C7B091C75A77489229BF31ED /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
 		D29712AB5F6AB7ECD686014B /* ImmersiveKineticLyricsText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47C580BEFACEF09BCE48BFE /* ImmersiveKineticLyricsText.swift */; };
+		DDB7FD97E2DF2B4C4BCE424E /* SharedFileRangeMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E2BB74F91E64F16124BD08 /* SharedFileRangeMemo.swift */; };
 		DE2B46B43B7D49957F37FFC5 /* AppleMusicCatalogArtistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F5E568CDE8A250C881F921 /* AppleMusicCatalogArtistView.swift */; };
 		111AAA31B19C1FD2C0FEFE3D /* NavidromeListeningHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F579AEDA6EF32BED675916 /* NavidromeListeningHistory.swift */; };
 		1145534C778D8681097C1BE3 /* SynologyAudioStationStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 418DF069725BBCFDBEABA12A /* SynologyAudioStationStreamResolver.swift */; };
@@ -2406,6 +2407,7 @@
 		5838204DB05BF11B7DD8929A /* ImmersiveKineticDirectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticDirectionPolicy.swift; sourceTree = "<group>"; };
 		5FA11CB2611ABE71858F8227 /* ImmersiveKineticLyricsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticLyricsPolicy.swift; sourceTree = "<group>"; };
 		6F463E26A65AE05C0E70B695 /* ShuffleLinkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuffleLinkPolicy.swift; sourceTree = "<group>"; };
+		88E2BB74F91E64F16124BD08 /* SharedFileRangeMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedFileRangeMemo.swift; sourceTree = "<group>"; };
 		9D128A7740574E15560EA910 /* ImmersiveKineticMarbleRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMarbleRun.swift; sourceTree = "<group>"; };
 		BC542BC9EDD6CBFAB2EF7B1A /* ImmersiveKineticRhythmChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticRhythmChart.swift; sourceTree = "<group>"; };
 		C7F5470D332D28A4C0E0B5C9 /* HTTPDeclaredBodyLengthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPDeclaredBodyLengthPolicy.swift; sourceTree = "<group>"; };
@@ -5358,6 +5360,7 @@
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
 				6B3B233454438ABE7810B89F /* MetadataTitleResolutionPolicy.swift */,
 				A5397B46E995B8933B64D4CE /* MP4IndexPairAtom.swift */,
+				88E2BB74F91E64F16124BD08 /* SharedFileRangeMemo.swift */,
 				01BC4CFCF25A1014937BDF84 /* SubtitleLyricsParser.swift */,
 				FF6A7403C95DD899FB4F4312 /* TextEncodingRepair.swift */,
 				C91AEEF06A98409B623ED637 /* WordTimedLyricsParser.swift */,
@@ -7201,6 +7204,7 @@
 				3C4428640B01E67A1C097726 /* SessionStableSnapshotCache.swift in Sources */,
 				F352BC46B53156D1E4C9B924 /* SettingsSearchIndex.swift in Sources */,
 				C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */,
+				DDB7FD97E2DF2B4C4BCE424E /* SharedFileRangeMemo.swift in Sources */,
 				58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */,
 				73B6C372A8A78B8A33E5B01C /* SingleSongScrapeGatePolicy.swift in Sources */,
 				237F061DC577C556E4BCFF6C /* SiriListeningCatalog.swift in Sources */,

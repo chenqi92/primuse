@@ -436,6 +436,8 @@ final class MetadataBackfillService {
     private let pooledHTTPRangeSourceIDs: () -> Set<String>
     private let sourceFileName: (Song) -> String?
     private let metadataService = MetadataService()
+    /// 整轨文件的几条 CUE 分轨补读时共用读到的首尾段, 见 `SharedFileRangeMemo`。
+    private let cueTrackRanges = SharedFileRangeMemo()
     private let failedURL: URL
     private let incompleteURL: URL
     private let sourceIssueURL: URL
@@ -1923,6 +1925,7 @@ final class MetadataBackfillService {
                 self.activeSourceIDs.removeAll()
                 self.readingProgress.removeAll()
                 self.pendingCount = 0
+                self.cueTrackRanges.removeAll()
                 if self.statePersistenceTask != nil {
                     self.scheduleStatePersistence(immediate: true)
                 }
@@ -2028,6 +2031,7 @@ final class MetadataBackfillService {
         activeSourceIDs.removeAll()
         readingProgress.removeAll()
         pendingCount = 0
+        cueTrackRanges.removeAll()
         updateWaitingForWiFiState(presentPrompt: false)
         if statePersistenceTask != nil {
             scheduleStatePersistence(immediate: true)
@@ -4963,6 +4967,9 @@ final class MetadataBackfillService {
         let storedSong: Song?
         /// 这个源正在 5xx 退让: 读到字节就回主线程把退让撤掉。
         let gatewayRecovered: (@MainActor @Sendable () -> Void)?
+        /// CUE 分轨按整轨文件共用读过的段; 别的歌为 nil, 各读各的。
+        let sharedRangeFile: SharedFileRangeMemo.FileKey?
+        let sharedRanges: SharedFileRangeMemo
     }
 
     private struct TagReadAttempt: Sendable {
@@ -4974,6 +4981,8 @@ final class MetadataBackfillService {
     private final class RangeReadTally {
         var elapsed: TimeInterval = 0
         var count = 0
+        /// 直接用了同一整轨文件别的分轨刚读过的段, 没走网络。
+        var shared = 0
     }
 
     private func tagReadRequest(
@@ -5010,7 +5019,18 @@ final class MetadataBackfillService {
             artistChecked: artistCheckedIDs.contains(song.id),
             sourceFileName: sourceFileName(song),
             storedSong: containerCodecOnly ? library.storedSong(id: song.id) : nil,
-            gatewayRecovered: gatewayRecovered
+            gatewayRecovered: gatewayRecovered,
+            // 手动重读要看文件此刻的内容, 不拿别的分轨留下的字节。
+            sharedRangeFile: song.isCueTrack && !isExplicitReread
+                ? SharedFileRangeMemo.FileKey(
+                    sourceID: song.sourceID,
+                    path: song.filePath,
+                    fileSize: song.fileSize,
+                    revision: song.revision,
+                    modifiedAt: song.lastModified
+                )
+                : nil,
+            sharedRanges: cueTrackRanges
         )
     }
 
@@ -5043,6 +5063,12 @@ final class MetadataBackfillService {
             : .bulkBounded
         var gatewayRecovered = request.gatewayRecovered
         func fetchRange(offset: Int64, length: Int64) async throws -> Data {
+            // 同一个整轨文件的上一条分轨刚读过这一段: 直接解析, 不再下载一遍。
+            if let file = request.sharedRangeFile,
+               let shared = request.sharedRanges.data(for: file, offset: offset, length: length) {
+                tally.shared += 1
+                return shared
+            }
             let rangeStarted = Date()
             defer {
                 tally.elapsed += Date().timeIntervalSince(rangeStarted)
@@ -5053,6 +5079,9 @@ final class MetadataBackfillService {
             if let recovered = gatewayRecovered {
                 gatewayRecovered = nil
                 await recovered()
+            }
+            if let file = request.sharedRangeFile {
+                request.sharedRanges.store(data, for: file, offset: offset, length: length)
             }
             return data
         }
@@ -5531,7 +5560,8 @@ final class MetadataBackfillService {
                 || partialKind == .embeddedTags
                 || partialKind == .sidecarMetadata
                 || partialKind == .filenameInference {
-                plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving verified partial tags as '\(partial.title)'")
+                plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving verified partial tags as '\(partial.title)'"
+                    + (tally.shared > 0 ? " sharedRanges=\(tally.shared)" : ""))
                 return BackfillOutcome(
                     song: partial,
                     markFailed: false,
@@ -5628,7 +5658,8 @@ final class MetadataBackfillService {
         // duration=0 in the log means mergeSong didn't actually
         // capture a usable duration despite metadataLooksMissing
         // returning false → bug in the parser or the gate.
-        plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs, ranges %d in %.2fs) format=%@ duration=%.1fs", song.title, totalElapsed, fetchElapsed, tally.count, tally.elapsed, parserExtension, merged.duration))
+        plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs, ranges %d in %.2fs) format=%@ duration=%.1fs", song.title, totalElapsed, fetchElapsed, tally.count, tally.elapsed, parserExtension, merged.duration)
+            + (tally.shared > 0 ? " sharedRanges=\(tally.shared)" : ""))
         if artworkStillMissing {
             plog("📥 Backfill: '\(song.title)' has no parseable embedded artwork; skipping future artwork-only retries")
         }
