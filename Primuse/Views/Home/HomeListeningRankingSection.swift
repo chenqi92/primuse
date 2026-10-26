@@ -361,15 +361,17 @@ struct HomeListeningRankingSection: View {
             } label: { label() }
         } else if rankedCategory == .songs {
             Button {
+                // 歌曲榜一名就是一首歌：在几个源里各有一份时只放能播的那份，不连放两遍。
                 HomeDiscoveryPlayback.play(
-                    ids: ranks.flatMap(\.songIDs), startingAt: rank.songIDs.first,
+                    ids: ranks.compactMap { playableSongIDs($0).first },
+                    startingAt: playableSongIDs(rank).first,
                     library: library, player: player
                 )
             } label: { label() }
             .disabled(!canPlay(rank))
         } else {
             NavigationLink {
-                HomeRankedSongsView(title: rank.title, songIDs: rank.songIDs)
+                HomeRankedSongsView(title: rank.title, songIDs: playableSongIDs(rank))
             } label: { label() }
             .disabled(!canPlay(rank))
         }
@@ -431,12 +433,21 @@ struct HomeListeningRankingSection: View {
         if let folderID = rank.folderID {
             HomeDiscoveryPlayback.playFolder(folderID, shuffle: false, model: model, library: library, player: player)
         } else {
-            HomeDiscoveryPlayback.play(ids: rank.songIDs, library: library, player: player)
+            HomeDiscoveryPlayback.play(ids: playableSongIDs(rank), library: library, player: player)
         }
     }
 
     private func canPlay(_ rank: HomeListeningRank) -> Bool {
-        rank.songIDs.contains { library.unobservedVisibleSong(id: $0)?.isPlayable == true }
+        rank.songIDs.contains { isPlayable($0) }
+    }
+
+    private func isPlayable(_ id: String) -> Bool {
+        library.unobservedVisibleSong(id: id)?.isPlayable == true
+    }
+
+    /// 这一名里的歌，每首一份：同一首歌在几个源里各有一份时取能播的那份。
+    private func playableSongIDs(_ rank: HomeListeningRank) -> [String] {
+        rank.distinctSongIDs { isPlayable($0) }
     }
 
     private var cardSurface: Color {

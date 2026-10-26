@@ -494,12 +494,16 @@ struct TVRankingBrowser: View {
             } else {
                 TVPagedList(ranks, alignment: .leading, spacing: 24) { offset, rank, onFocusChanged in
                     TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: {
-                        onOpen(TVBrowseDestination(id: rank.id, title: rank.title, songIDs: rank.songIDs))
+                        // 同一首歌在几个源里各有一份时只列一份（库里还在的那份）。
+                        onOpen(TVBrowseDestination(id: rank.id, title: rank.title,
+                                                   songIDs: rank.distinctSongIDs { store.library.visibleSong(id: $0) != nil }))
                     }, onFocusChanged: onFocusChanged) { focused in
                         HStack(spacing: 20) {
                             Text(String(offset + 1)).tvFont(.sectionTitle).monospacedDigit().frame(width: 50)
                                 .foregroundStyle(offset < 3 ? TVColor.brand : TVColor.textMuted)
-                            if let id = rank.artworkSongID ?? rank.songIDs.first, let song = store.song(id) { TVBrowseSongArtwork(song: song, size: 74) }
+                            if let song = rank.artworkSongID.flatMap({ store.song($0) }) ?? rank.songGroups.flatMap({ $0 }).lazy.compactMap({ store.song($0) }).first {
+                                TVBrowseSongArtwork(song: song, size: 74)
+                            }
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(rank.title).tvFont(.cardTitle).lineLimit(2)
                                 Text(rank.subtitle).tvFont(.caption).foregroundStyle(TVColor.textMuted).lineLimit(1)

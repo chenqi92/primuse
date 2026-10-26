@@ -2227,7 +2227,8 @@ enum MusicDiscoveryEngine {
                 return historyEntries.filter { $0.playedAt >= cutoff && $0.playedAt <= now }
             }
             let monthEntries = entries(in: .month)
-            let topSongs = PlayHistoryStore.rankedItems(from: entries(in: .year), category: .songs, limit: 12)
+            // 种子不必先认同一首歌（几处在主线程上取），两份各当一个种子也无妨。
+            let topSongs = PlayHistoryStore.rankedItems(from: entries(in: .year), category: .songs, limit: 12, songKeys: [:])
             let topArtists = PlayHistoryStore.rankedItems(from: monthEntries, category: .artists, limit: 6)
             // 种子只能是库里可播放的歌。候选最多二十几首, 只为它们查一遍,
             // 不为整库建 id 集合、也不复制一份只含可播放歌曲的数组。

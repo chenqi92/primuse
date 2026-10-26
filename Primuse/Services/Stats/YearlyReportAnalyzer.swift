@@ -16,7 +16,7 @@ enum YearlyReportAnalyzer {
         var traits: [String: ListeningRecapSongTraits] = [:]
         for songID in Set(entries.map(\.songID)) {
             guard let song = library.song(id: songID) else { continue }
-            traits[songID] = ListeningRecapSongTraits(genre: song.genre, year: song.year)
+            traits[songID] = ListeningRecapSongTraits(genre: song.genre, year: song.year, duration: song.duration)
         }
         return traits
     }
@@ -51,6 +51,8 @@ enum YearlyReportAnalyzer {
             referenceYear: year
         )
         let scoped = music.filter { interval.contains($0.playedAt) }
+        let durations = traits.compactMapValues(\.duration)
+        let songKeys = PlayHistoryStore.songIdentityKeys(scoped, durations: durations)
 
         var sources: [String: (plays: Int, seconds: TimeInterval)] = [:]
         for entry in scoped {
@@ -64,9 +66,9 @@ enum YearlyReportAnalyzer {
             isInProgress: ListeningYearReportPolicy.isInProgress(interval, year: year, calendar: calendar),
             recap: recap,
             highlights: ListeningYearHighlights.build(events: events, interval: interval, calendar: calendar),
-            songs: PlayHistoryStore.rankedItems(from: scoped, category: .songs, limit: rankingLimit),
-            artists: PlayHistoryStore.rankedItems(from: scoped, category: .artists, limit: rankingLimit),
-            albums: PlayHistoryStore.rankedItems(from: scoped, category: .albums, limit: rankingLimit),
+            songs: PlayHistoryStore.rankedItems(from: scoped, category: .songs, limit: rankingLimit, songKeys: songKeys),
+            artists: PlayHistoryStore.rankedItems(from: scoped, category: .artists, limit: rankingLimit, songKeys: songKeys),
+            albums: PlayHistoryStore.rankedItems(from: scoped, category: .albums, limit: rankingLimit, songKeys: songKeys),
             sources: sources
                 .map { .init(sourceID: $0.key, plays: $0.value.plays, seconds: $0.value.seconds) }
                 .sorted { $0.seconds > $1.seconds }

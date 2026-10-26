@@ -538,6 +538,6 @@ struct ListeningStatsRankList: View {
     }
 
     private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
-        item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) }
+        item.artworkSong(in: library)
     }
 }

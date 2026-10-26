@@ -125,14 +125,7 @@ struct PlaylistEntryMatcher: Sendable {
 
     /// 源给了多值歌手字段就用它，否则用歌手文本；都没有才退到专辑艺术家。
     static func artists(of song: Song) -> [String] {
-        if let names = song.sourceArtistNames, !names.isEmpty { return names }
-        if let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
-            return [artist]
-        }
-        if let albumArtist = song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines), !albumArtist.isEmpty {
-            return [albumArtist]
-        }
-        return []
+        ExternalTrackMatchPolicy.artists(of: song)
     }
 }
 

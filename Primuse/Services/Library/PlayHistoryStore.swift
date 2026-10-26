@@ -32,10 +32,13 @@ final class PlayHistoryStore {
         let listenedSec: TimeInterval
         let sourceID: String
 
-        var listeningEvent: HomeListeningEvent {
+        var listeningEvent: HomeListeningEvent { event(songDuration: nil) }
+
+        func event(songDuration: TimeInterval?) -> HomeListeningEvent {
             HomeListeningEvent(
                 songID: songID, playedAt: playedAt, listenedSeconds: listenedSec,
-                songTitle: songTitle, artistName: artistName, albumTitle: albumTitle
+                songTitle: songTitle, artistName: artistName, albumTitle: albumTitle,
+                songDuration: songDuration
             )
         }
 
@@ -343,6 +346,16 @@ final class PlayHistoryStore {
         let totalSec: TimeInterval
         /// 封面取哪首歌的：这一项里听得最多的那首。
         var artworkSongID: String? = nil
+        /// 这一项里的全部歌曲 ID，同一首歌的几份挨在一起、听得多的在前；
+        /// `artworkSongID` 那份已经不在曲库里时，封面按这个次序往后找。
+        var songIDs: [String] = []
+
+        /// 封面用的那首：听得最多的那份已经不在曲库里时，换同一首歌（或这一项里别的歌）还在的一份。
+        @MainActor func artworkSong(in library: MusicLibrary?) -> Song? {
+            guard let library else { return nil }
+            if let id = artworkSongID, let song = library.unobservedVisibleSong(id: id) { return song }
+            return songIDs.lazy.compactMap { library.unobservedVisibleSong(id: $0) }.first
+        }
     }
 
     // Rankings and summaries are music only; see `spokenWordSongIDs`.
@@ -362,20 +375,31 @@ final class PlayHistoryStore {
         Self.musicEntries(entries(in: range, now: now), excluding: spokenWordSongIDs)
     }
 
-    nonisolated static func rankedItems(from entries: [Entry], category: HomeListeningCategory, limit: Int) -> [RankedItem] {
+    /// - Parameters:
+    ///   - durations: 曲库里查到的歌曲长度。同一首歌在几个源里各有一份时合成一项，
+    ///     有长度才能把歌名歌手相同、长度差得多的版本分开（见 `ListeningSongIdentity`）。
+    ///   - songKeys: 同一首歌的分组（`songIdentityKeys`），同一份记录排好几张榜时算一次传进来。
+    ///     不传时歌曲榜自己算；艺人、专辑榜的分组只影响「几首歌」，不传就按歌曲 ID 数 ——
+    ///     首页在主线程上取艺人榜只要名字，不必为此认一遍歌。
+    nonisolated static func rankedItems(
+        from entries: [Entry], category: HomeListeningCategory, limit: Int,
+        durations: [String: TimeInterval] = [:], songKeys: [String: String]? = nil
+    ) -> [RankedItem] {
         HomeListeningRanking.ranks(
-            events: entries.map(\.listeningEvent), songs: [:], folders: nil,
-            period: .all, category: category
+            events: entries.map { $0.event(songDuration: durations[$0.songID]) }, songs: [:], folders: nil,
+            period: .all, category: category, songKeys: songKeys ?? (category == .songs ? nil : [:])
         ).prefix(limit).map { rank in
             RankedItem(
-                id: category == .songs ? (rank.songIDs.first ?? rank.id) : rank.id,
+                // 歌曲榜一项就是一首歌：用听得最多的那份。
+                id: category == .songs ? (rank.songGroups.first?.first ?? rank.id) : rank.id,
                 title: rank.title,
                 subtitle: category == .artists
-                    ? String(format: String(localized: "stats_unique_songs_format"), rank.songIDs.count)
+                    ? String(format: String(localized: "stats_unique_songs_format"), rank.songGroups.count)
                     : rank.subtitle,
                 playCount: rank.playCount,
                 totalSec: rank.listenedSeconds,
-                artworkSongID: rank.artworkSongID
+                artworkSongID: rank.artworkSongID,
+                songIDs: rank.songGroups.flatMap { $0 }
             )
         }
     }
@@ -424,12 +448,25 @@ final class PlayHistoryStore {
         Self.summary(for: Self.musicEntries(statisticsEntries(in: range), excluding: spokenWordSongIDs))
     }
 
-    nonisolated static func summary(for entries: [Entry], calendar: Calendar = ListeningCalendar.current) -> Summary {
+    /// - Parameter songKeys: 同一首歌的分组（`songIdentityKeys`）。只有统计页显示「听过几首」，
+    ///   它传进来；首页、小组件只用次数和时长，不传时 `uniqueSongs` 按歌曲 ID 数。
+    nonisolated static func summary(
+        for entries: [Entry], calendar: Calendar = ListeningCalendar.current, songKeys: [String: String] = [:]
+    ) -> Summary {
         Summary(
             totalPlays: entries.count,
             totalSec: listenedSeconds(entries),
             activeDays: Set(entries.map { calendar.startOfDay(for: $0.playedAt) }).count,
-            uniqueSongs: Set(entries.map(\.songID)).count
+            uniqueSongs: Set(entries.map { songKeys[$0.songID] ?? $0.songID }).count
+        )
+    }
+
+    /// 同一首歌在几个源里各有一份时的组键（`keys[id] ?? id`）；`durations` 见 `rankedItems`。
+    nonisolated static func songIdentityKeys(
+        _ entries: [Entry], durations: [String: TimeInterval] = [:]
+    ) -> [String: String] {
+        ListeningSongIdentity.groupKeys(
+            events: entries.map { $0.event(songDuration: durations[$0.songID]) }, songs: [:]
         )
     }
 

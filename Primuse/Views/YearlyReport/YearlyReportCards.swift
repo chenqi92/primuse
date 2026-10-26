@@ -346,7 +346,7 @@ struct YearlyRankRows: View {
     }
 
     private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
-        item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) }
+        item.artworkSong(in: library)
     }
 }
 
@@ -360,7 +360,7 @@ struct YearlyLeaderArtwork: View {
 
     var body: some View {
         ListeningRankArtwork(
-            song: item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) },
+            song: item.artworkSong(in: library),
             size: size,
             isArtist: isArtist,
             cornerRadius: 18
@@ -391,7 +391,7 @@ struct YearlyAlbumShelf: View {
                     ForEach(items) { item in
                         VStack(alignment: .leading, spacing: 6) {
                             ListeningRankArtwork(
-                                song: item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) },
+                                song: item.artworkSong(in: library),
                                 size: Self.cover,
                                 cornerRadius: 12
                             )

@@ -60,6 +60,18 @@ public enum ExternalTrackMatchPolicy {
             }
         }
 
+        /// 歌名、歌手已经拆好（调用方按字符串缓存了 `splitTitle` 与 `artistTokens` 的结果）时直接拼。
+        init(coreTitle: String, versionMarkers: Set<VersionMarker>, artistTokens: Set<String>, duration: Double?) {
+            self.coreTitle = coreTitle
+            self.versionMarkers = versionMarkers
+            self.artistTokens = artistTokens
+            if let duration, duration.isFinite, duration > 0 {
+                self.duration = duration
+            } else {
+                self.duration = nil
+            }
+        }
+
         public var isMatchable: Bool { !coreTitle.isEmpty }
     }
 

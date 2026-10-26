@@ -31,10 +31,13 @@ public struct ListeningRecapEvent: Sendable, Equatable {
 public struct ListeningRecapSongTraits: Sendable, Equatable {
     public var genre: String?
     public var year: Int?
+    /// 歌曲长度，认「同一首歌」时防误并（见 `ListeningSongIdentity`）。
+    public var duration: TimeInterval?
 
-    public init(genre: String? = nil, year: Int? = nil) {
+    public init(genre: String? = nil, year: Int? = nil, duration: TimeInterval? = nil) {
         self.genre = genre
         self.year = year
+        self.duration = duration
     }
 }
 
@@ -231,7 +234,9 @@ public enum ListeningRecapBuilder {
         var totals = ListeningRecap.Totals()
         totals.plays = scoped.count
         totals.seconds = scoped.reduce(0) { $0 + $1.seconds }
-        totals.uniqueSongs = Set(scoped.map(\.songID)).count
+        // 同一首歌在几个源里各有一份时算一首。
+        let songKeys = ListeningSongIdentity.groupKeys(events: events, traits: traits)
+        totals.uniqueSongs = Set(scoped.map { songKeys[$0.songID] ?? $0.songID }).count
         var artistKeys = ArtistKeyMemo()
         totals.uniqueArtists = Set(scoped.compactMap { artistKeys.key($0.artist) }).count
         totals.uniqueAlbums = Set(scoped.compactMap { event -> String? in
@@ -271,7 +276,7 @@ public enum ListeningRecapBuilder {
         }
 
         recap.longestSession = longestSession(scoped)
-        recap.discoveries = discoveries(events: events, scoped: scoped, interval: interval)
+        recap.discoveries = discoveries(events: events, scoped: scoped, interval: interval, songKeys: songKeys)
 
         // 艺人集中度
         var artistPlays: [String: Int] = [:]
@@ -383,21 +388,24 @@ public enum ListeningRecapBuilder {
         return best
     }
 
+    /// 换了个源再听不算「第一次听到」：按同一首歌的组算最早一次。
     private static func discoveries(
         events: [ListeningRecapEvent],
         scoped: [ListeningRecapEvent],
-        interval: DateInterval?
+        interval: DateInterval?,
+        songKeys: [String: String]
     ) -> Int? {
         guard let interval,
               let earliest = events.lazy.map(\.playedAt).min(),
               earliest < interval.start else { return nil }
         var firstPlay: [String: Date] = [:]
         for event in events {
-            if let known = firstPlay[event.songID], known <= event.playedAt { continue }
-            firstPlay[event.songID] = event.playedAt
+            let key = songKeys[event.songID] ?? event.songID
+            if let known = firstPlay[key], known <= event.playedAt { continue }
+            firstPlay[key] = event.playedAt
         }
-        return Set(scoped.map(\.songID)).filter { songID in
-            (firstPlay[songID] ?? .distantPast) >= interval.start
+        return Set(scoped.map { songKeys[$0.songID] ?? $0.songID }).filter { key in
+            (firstPlay[key] ?? .distantPast) >= interval.start
         }.count
     }
 

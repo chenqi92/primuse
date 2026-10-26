@@ -217,7 +217,8 @@ final class CarPlayEditorCatalog {
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
         let ranked = HomeListeningRanking.ranks(events: input.history, songs: [:], folders: nil, period: .all, category: .songs)
-        let rankedQueue = ranked.compactMap { $0.songIDs.first }.filter { valid.contains($0) }
+        // 同一首歌在几个源里各有一份时取库里还在的那份。
+        let rankedQueue = ranked.compactMap { $0.songGroups.first?.first(where: valid.contains) }
         result.ranking = rankedQueue.prefix(60).compactMap { id in
             guard let entry = result.lookup[.song]?[id] else { return nil }
             return CarPlayHomeItem(id: entry.id, title: entry.title, subtitle: entry.subtitle,

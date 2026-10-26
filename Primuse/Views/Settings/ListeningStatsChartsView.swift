@@ -1051,8 +1051,10 @@ struct ListeningStatsChartsView: View {
             now: now,
             calendar: calendar
         )
-        let playsBySong = Dictionary(grouping: scopedEntries, by: \.songID)
-        let summary = PlayHistoryStore.summary(for: scopedEntries, calendar: calendar)
+        // 同一首歌在几个源里各有一份时算一首；摘要、常听和三张榜共用一次分组。
+        let songKeys = PlayHistoryStore.songIdentityKeys(scopedEntries)
+        let playsBySong = Dictionary(grouping: scopedEntries) { songKeys[$0.songID] ?? $0.songID }
+        let summary = PlayHistoryStore.summary(for: scopedEntries, calendar: calendar, songKeys: songKeys)
 
         var snapshot = StatsSnapshot(
             hasHistory: !allEntries.isEmpty,
@@ -1060,9 +1062,9 @@ struct ListeningStatsChartsView: View {
             timeline: timeline,
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
-            topSongs: PlayHistoryStore.rankedItems(from: scopedEntries, category: .songs, limit: rankLimit),
-            topArtists: PlayHistoryStore.rankedItems(from: scopedEntries, category: .artists, limit: rankLimit),
-            topAlbums: PlayHistoryStore.rankedItems(from: scopedEntries, category: .albums, limit: rankLimit),
+            topSongs: PlayHistoryStore.rankedItems(from: scopedEntries, category: .songs, limit: rankLimit, songKeys: songKeys),
+            topArtists: PlayHistoryStore.rankedItems(from: scopedEntries, category: .artists, limit: rankLimit, songKeys: songKeys),
+            topAlbums: PlayHistoryStore.rankedItems(from: scopedEntries, category: .albums, limit: rankLimit, songKeys: songKeys),
             spokenWordSec: spokenWordSec
         )
         #if os(macOS)

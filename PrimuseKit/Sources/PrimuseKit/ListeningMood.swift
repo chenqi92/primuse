@@ -97,11 +97,14 @@ public struct ListeningMoodSignals: Sendable, Equatable {
             signals.longestSessionMinutes = ((sessions.max() ?? 0) / 60).rounded()
         }
 
+        // 同一首歌在几个源里各有一份时合成一首，与听歌排行一致。
+        let songKeys = ListeningSongIdentity.groupKeys(events: events, traits: traits)
         var songPlays: [String: (count: Int, title: String, artist: String, last: Date)] = [:]
         var artistPlays: [String: (count: Int, name: String)] = [:]
         for event in scoped {
-            let song = songPlays[event.songID]
-            songPlays[event.songID] = ((song?.count ?? 0) + 1, event.title, event.artist, event.playedAt)
+            let songKey = songKeys[event.songID] ?? event.songID
+            let song = songPlays[songKey]
+            songPlays[songKey] = ((song?.count ?? 0) + 1, event.title, event.artist, event.playedAt)
             let artist = event.artist.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !artist.isEmpty, !PlaceholderArtistPolicy.isPlaceholder(artist) else { continue }
             let key = artist.lowercased()
