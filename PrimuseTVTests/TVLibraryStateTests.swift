@@ -1339,6 +1339,71 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(store.song(songID))
     }
 
+    func testMassDisappearanceIsHeldAndReportedUntilLaterFullScansConfirm() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Hold QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let wave = waveFixture()
+        for index in 0..<60 {
+            try wave.write(to: folder.appendingPathComponent("Track \(index).wav"))
+        }
+        func scan() async -> Bool {
+            await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        }
+        func count() -> Int { fixture.library.songs.filter { $0.sourceID == source.id }.count }
+
+        let added = await scan()
+        XCTAssertTrue(added)
+        let scanned = count()
+        XCTAssertGreaterThanOrEqual(scanned, 60)
+        XCTAssertNil(store.catalogDeletionHolds[source.id])
+
+        for index in 0..<50 {
+            try FileManager.default.removeItem(at: folder.appendingPathComponent("Track \(index).wav"))
+        }
+        // 一次少了一大批:先留着,源页写明留了几首、还要再完整扫描几次。
+        let first = await scan()
+        XCTAssertTrue(first)
+        XCTAssertEqual(count(), scanned)
+        XCTAssertEqual(store.catalogDeletionHolds[source.id], TVCatalogDeletionHold(songCount: 50, remainingScans: 2))
+        let second = await scan()
+        XCTAssertTrue(second)
+        XCTAssertEqual(store.catalogDeletionHolds[source.id], TVCatalogDeletionHold(songCount: 50, remainingScans: 1))
+        let third = await scan()
+        XCTAssertTrue(third)
+        XCTAssertEqual(count(), scanned - 50)
+        XCTAssertNil(store.catalogDeletionHolds[source.id])
+    }
+
+    func testCatalogRemovalModeIsOfferedOnlyForServerCatalogsAndPersists() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let server = MusicSource(id: UUID().uuidString, name: "Navidrome", type: .navidrome)
+        try fixture.sources.addDurably(server)
+        let store = fixture.store()
+        XCTAssertTrue(store.supportsCatalogRemovalModeChoice(sourceID: server.id))
+        XCTAssertFalse(store.supportsCatalogRemovalModeChoice(sourceID: fixture.source.id))
+        XCTAssertEqual(store.catalogRemovalMode(for: server.id), .confirmFirst)
+
+        store.setCatalogRemovalMode(.immediate, for: server.id)
+        store.setCatalogRemovalMode(.immediate, for: fixture.source.id)
+        XCTAssertEqual(store.catalogRemovalMode(for: server.id), .immediate)
+        // 文件型源没有这个选择,扫描照旧先留着大批消失的歌。
+        XCTAssertEqual(store.catalogRemovalMode(for: fixture.source.id), .confirmFirst)
+        XCTAssertTrue(
+            fixture.defaults.stringArray(forKey: "tv.immediateCatalogRemovalSourceIDs")?.contains(server.id) == true
+        )
+
+        store.setCatalogRemovalMode(.confirmFirst, for: server.id)
+        XCTAssertEqual(store.catalogRemovalMode(for: server.id), .confirmFirst)
+    }
+
     func testFolderRescanReconcilesOnlyThatFolderAndItsSubfolders() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

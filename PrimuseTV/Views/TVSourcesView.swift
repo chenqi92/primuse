@@ -18,6 +18,8 @@ struct TVSourcesView: View {
     @State private var hiddenPlaylistSource: TVSource?
     /// 「从本机移除」的恢复页:只在这个源确实有记录时才能从长按菜单打开。
     @State private var localRemovalsSource: TVSource?
+    /// 长按菜单里点了「服务端删掉的歌」:弹框说明两种做法再选。
+    @State private var catalogRemovalModeSource: TVSource?
     @State private var testingSourceIDs: Set<String> = []
     @State private var testResult: TVTestResult?
     @State private var queuedTestResults: [TVTestResult] = []
@@ -106,6 +108,9 @@ struct TVSourcesView: View {
                                                 } ?? false,
                                                 hiddenPlaylistCount: store.library.hiddenMirrorPlaylists(forSourceID: s.id).count,
                                                 localRemovalCount: localRemovalCounts[s.id] ?? 0,
+                                                catalogRemovalMode: store.supportsCatalogRemovalModeChoice(sourceID: s.id)
+                                                    ? store.catalogRemovalMode(for: s.id) : nil,
+                                                catalogDeletionHold: store.catalogDeletionHolds[s.id],
                                                 onSelect: {
                                                     if s.status == .disabled {
                                                         store.setSourceEnabled(s.id, true)
@@ -141,7 +146,8 @@ struct TVSourcesView: View {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
                                                 },
                                                 onShowHiddenPlaylists: { hiddenPlaylistSource = s },
-                                                onShowLocalRemovals: { localRemovalsSource = s })
+                                                onShowLocalRemovals: { localRemovalsSource = s },
+                                                onChooseCatalogRemovalMode: { catalogRemovalModeSource = s })
                                     if let source = store.source(id: s.id), source.type == .tingReader {
                                         let sync = store.tingReaderProgressSync
                                         Toggle(PMString("ting_reader_progress_auto_sync"), isOn: Binding(
@@ -269,6 +275,20 @@ struct TVSourcesView: View {
             }
         } message: { source in
             Text(PMString("ext.tv.sources.removeBody", source.name))
+        }
+        .alert(String(localized: "catalog_prune_mode_title"), isPresented: Binding(
+            get: { catalogRemovalModeSource != nil },
+            set: { if !$0 { catalogRemovalModeSource = nil } }
+        ), presenting: catalogRemovalModeSource) { source in
+            Button(String(localized: "catalog_prune_mode_confirm")) {
+                store.setCatalogRemovalMode(.confirmFirst, for: source.id)
+            }
+            Button(String(localized: "catalog_prune_mode_immediate")) {
+                store.setCatalogRemovalMode(.immediate, for: source.id)
+            }
+            Button(PMString("ext.tv.sources.cancel"), role: .cancel) {}
+        } message: { _ in
+            Text(String(localized: "catalog_prune_mode_description"))
         }
         .alert(PMString("ext.tv.sources.testConnection"), isPresented: Binding(
             get: { testResult != nil },
@@ -796,6 +816,8 @@ private struct TVSourceRow: View {
     var canIncrementalScan = false
     var hiddenPlaylistCount = 0
     var localRemovalCount = 0                // 这台 Apple TV 上「从本机移除」的歌数
+    var catalogRemovalMode: ServerCatalogRemovalMode?   // 「服务端删掉的歌」;nil 表示这个源不给选
+    var catalogDeletionHold: TVCatalogDeletionHold?     // 服务端少了一大批、先留着等确认的歌
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
     var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
@@ -807,6 +829,7 @@ private struct TVSourceRow: View {
     var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
     var onShowHiddenPlaylists: () -> Void = {}
     var onShowLocalRemovals: () -> Void = {}  // 长按菜单:查看并恢复本机移除的歌
+    var onChooseCatalogRemovalMode: () -> Void = {}  // 长按菜单:服务端删掉的歌怎么处理
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -837,6 +860,21 @@ private struct TVSourceRow: View {
                         Label(
                             PMString("ext.tv.sources.continueInitialScan"),
                             systemImage: "arrow.triangle.2.circlepath"
+                        )
+                        .tvFont(.meta, weight: .semibold)
+                        .foregroundStyle(TVColor.warn)
+                    }
+                    // 服务端少了的歌为什么还在、还要扫几次;能改成立即移除的写明在长按菜单里。
+                    if let hold = catalogDeletionHold {
+                        Label(
+                            String(
+                                format: catalogRemovalMode == nil
+                                    ? String(localized: "tv_catalog_prune_held_format")
+                                    : String(localized: "tv_catalog_prune_held_immediate_format"),
+                                hold.songCount,
+                                hold.remainingScans
+                            ),
+                            systemImage: "clock.arrow.circlepath"
                         )
                         .tvFont(.meta, weight: .semibold)
                         .foregroundStyle(TVColor.warn)
@@ -909,6 +947,19 @@ private struct TVSourceRow: View {
                 }
                 Button { onRereadTags() } label: {
                     Label(PMString("ext.tv.sources.rereadTags"), systemImage: "arrow.clockwise")
+                }
+            }
+            if let catalogRemovalMode {
+                Button(action: onChooseCatalogRemovalMode) {
+                    Label(
+                        String(
+                            format: String(localized: "tv_catalog_prune_mode_menu_format"),
+                            catalogRemovalMode == .immediate
+                                ? String(localized: "catalog_prune_mode_immediate")
+                                : String(localized: "catalog_prune_mode_confirm")
+                        ),
+                        systemImage: "trash.slash"
+                    )
                 }
             }
             if hiddenPlaylistCount > 0 {

@@ -418,6 +418,12 @@ struct TVSource: Identifiable, Hashable {
     func hash(into h: inout Hasher) { h.combine(id) }
 }
 
+/// 完整扫描时服务端一下少了一大批,先留着等后面几次完整扫描确认:留着几首、还要再扫几次。
+struct TVCatalogDeletionHold: Codable, Hashable {
+    let songCount: Int
+    let remainingScans: Int
+}
+
 struct TVSyllable: Hashable {
     let w: String
     let start: TimeInterval
@@ -679,6 +685,12 @@ final class TVStore {
         hasPendingSnapshotRecovery = pendingSnapshotRecovery
         locallyRemovedSourceIDs = Set(defaults.stringArray(forKey: "tv.removedSourceIDs") ?? [])
         locallyScannedSourceIDs = Set(defaults.stringArray(forKey: "tv.scannedSourceIDs") ?? [])
+        immediateCatalogRemovalSourceIDs = Set(
+            defaults.stringArray(forKey: Self.immediateCatalogRemovalKey) ?? []
+        )
+        catalogDeletionHolds = defaults.data(forKey: Self.catalogDeletionHoldsKey).flatMap {
+            try? JSONDecoder().decode([String: TVCatalogDeletionHold].self, from: $0)
+        } ?? [:]
         if let data = try? Data(contentsOf: Self.albumArtistFoldersURL(sessionStore: sessionStore)),
            let parents = try? JSONDecoder().decode([String: [String: String]].self, from: data) {
             albumArtistFolderParents = parents
@@ -956,6 +968,12 @@ final class TVStore {
     @ObservationIgnored private var syncTask: Task<TVSyncOutcome, Never>?
     private var locallyRemovedSourceIDs: Set<String>
     private var locallyScannedSourceIDs: Set<String>
+    /// 「服务端删掉的歌」选了「立即移除」的源。和手机、Mac 一样按源记在本机。
+    private(set) var immediateCatalogRemovalSourceIDs: Set<String> = []
+    /// 上一次完整扫描后还先留着的服务端已删歌曲(见 `TVCatalogDeletionHold`),源页上写出来。
+    private(set) var catalogDeletionHolds: [String: TVCatalogDeletionHold] = [:]
+    /// 这次完整扫描算出来的保留情况,扫描提交成功后才换上去。
+    @ObservationIgnored private var scanCatalogDeletionHold: (sourceID: String, hold: TVCatalogDeletionHold?)?
     /// 封面流两侧换图用的曲库专辑,见 `albumFlowCoverPool()`。
     @ObservationIgnored private var albumFlowCoverPoolCache: (albumCount: Int, songs: [Song]) = (-1, [])
     private var sourceAuthenticationFailures: Set<String> = []
@@ -4905,6 +4923,7 @@ final class TVStore {
             uniquingKeysWith: { first, _ in first }
         )
         lastScanFlush = .distantPast
+        scanCatalogDeletionHold = nil
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         let checkpointURL = sessionStore.url.deletingLastPathComponent()
             .appendingPathComponent("scan-checkpoints", isDirectory: true)
@@ -5008,6 +5027,10 @@ final class TVStore {
             }
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
+            if let held = scanCatalogDeletionHold, held.sourceID == source.id {
+                setCatalogDeletionHold(held.hold, for: source.id)
+            }
+            scanCatalogDeletionHold = nil
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
                 && source.type != .audiobookshelf && source.type != .synologyAudioStation
                 && source.type != .tingReader {
@@ -5091,8 +5114,18 @@ final class TVStore {
             previousMissingCounts: carried,
             previousEvidenceRevision: nil,
             currentRevision: nil,
-            authority: .authoritative
+            authority: .authoritative,
+            removalMode: catalogRemovalMode(for: source.id)
         )
+        scanCatalogDeletionHold = (source.id, plan.hasPendingConfirmations
+            ? TVCatalogDeletionHold(
+                songCount: plan.pendingSongIDs.count,
+                remainingScans: ServerCatalogDeletionConfirmationPolicy.remainingMassDisappearanceWitnesses(
+                    unresolvedSongIDs: Array(plan.pendingSongIDs),
+                    missingCounts: plan.missingCounts
+                )
+            )
+            : nil)
         let evidence = ScanDeletionEvidence(
             connectionIdentity: connection,
             roots: roots,
@@ -5107,6 +5140,42 @@ final class TVStore {
         guard plan.hasPendingConfirmations else { return listed + collectionOnly }
         plog("⏸ TV scan \(source.name): keeping \(plan.pendingSongIDs.count) song(s) missing from the listing until another complete scan confirms (mass=\(plan.isMassDisappearance))")
         return listed + collectionOnly + existing.filter { plan.pendingSongIDs.contains($0.id) }
+    }
+
+    // MARK: 服务端删掉的歌
+
+    private static let immediateCatalogRemovalKey = "tv.immediateCatalogRemovalSourceIDs"
+    private static let catalogDeletionHoldsKey = "tv.catalogDeletionHolds"
+
+    /// 源页上给不给「服务端删掉的歌」这个选择:和手机一样,只有删歌走证词模型的服务器源。
+    func supportsCatalogRemovalModeChoice(sourceID: String) -> Bool {
+        sourcesStore.source(id: sourceID)?.type.holdsServerDeletionsForConfirmation == true
+    }
+
+    /// 完整扫描里服务端少了的歌怎么处理。没给选择的源照旧先留着、凑够几次扫描再删。
+    func catalogRemovalMode(for sourceID: String) -> ServerCatalogRemovalMode {
+        guard supportsCatalogRemovalModeChoice(sourceID: sourceID) else { return .confirmFirst }
+        return immediateCatalogRemovalSourceIDs.contains(sourceID) ? .immediate : .confirmFirst
+    }
+
+    /// 改成「立即移除」时,源上正挂着「先保留」的说明就马上完整扫一次把那些歌清掉,
+    /// 不用再手动扫几遍(和手机一致)。
+    func setCatalogRemovalMode(_ mode: ServerCatalogRemovalMode, for sourceID: String) {
+        switch mode {
+        case .immediate: immediateCatalogRemovalSourceIDs.insert(sourceID)
+        case .confirmFirst: immediateCatalogRemovalSourceIDs.remove(sourceID)
+        }
+        defaults.set(Array(immediateCatalogRemovalSourceIDs), forKey: Self.immediateCatalogRemovalKey)
+        guard mode == .immediate, catalogDeletionHolds[sourceID] != nil,
+              let source = sourcesStore.source(id: sourceID), source.isEnabled, !source.isDeleted,
+              !locallyRemovedSourceIDs.contains(sourceID), canScanOnTV(source) else { return }
+        Task { _ = await runServerCatalogScan(source: source) }
+    }
+
+    private func setCatalogDeletionHold(_ hold: TVCatalogDeletionHold?, for sourceID: String) {
+        guard catalogDeletionHolds[sourceID] != hold else { return }
+        catalogDeletionHolds[sourceID] = hold
+        defaults.set(try? JSONEncoder().encode(catalogDeletionHolds), forKey: Self.catalogDeletionHoldsKey)
     }
 
     /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。
