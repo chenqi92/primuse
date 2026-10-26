@@ -11598,6 +11598,9 @@ struct SystemVolumeSlider: UIViewRepresentable {
 ///
 /// 两段轨道图在同一状态下一样高(发光、波浪的余量都算进去),滑块把它们竖着居中摆,粗细只按画进去的那条线变。
 /// 不画圆钮的样式也留一颗透明的圆钮:系统滑块要从圆钮那里拖起。
+///
+/// 系统滑块的填充段画到圆钮中心就被竖着截平,有圆钮时盖得住;胶囊条没有圆钮,那一刀就露在外面,
+/// 和进度条圆头的填充段对不上。所以这时透明圆钮正中画一个和轨道一样粗的圆,替填充段补上圆头。
 struct SystemVolumeTrackImages {
     struct State {
         let minimumTrack: UIImage?
@@ -11631,7 +11634,10 @@ struct SystemVolumeTrackImages {
                 maximumTrack: useSystemTrack ? nil
                     : Self.capsuleImage(height: height, canvasHeight: canvasHeight, color: track, glows: false),
                 thumb: knob.map { Self.circleImage(diameter: $0, color: fill, glows: style.glows) }
-                    ?? Self.clearImage(side: 24)
+                    ?? (style.isWave
+                        // 波浪在截断处不一定在中线上,补一个圆反而像多出来的点。
+                        ? Self.clearImage(side: Self.clearThumbSide)
+                        : Self.capThumbImage(lineHeight: height, color: fill, glows: style.glows))
             )
         }
         resting = state(isActive: false)
@@ -11640,6 +11646,8 @@ struct SystemVolumeTrackImages {
 
     static let waveAmplitude: CGFloat = 3
     static let waveLength: CGFloat = 26
+    /// 不画圆钮时那颗透明圆钮的边长:够手指按住,圆头画在正中。
+    static let clearThumbSide: CGFloat = 24
 
     /// 一条居中的胶囊,两头按半径留出不拉伸的部分。
     @MainActor
@@ -11697,6 +11705,24 @@ struct SystemVolumeTrackImages {
             }
             color.setFill()
             context.cgContext.fillEllipse(in: CGRect(x: pad, y: pad, width: diameter, height: diameter))
+        }
+    }
+
+    /// 透明圆钮正中一个直径等于轨道粗细的圆:左半边落在填充段上看不出,右半边就是填充段的圆头。
+    @MainActor
+    private static func capThumbImage(lineHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
+        let side = clearThumbSide
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { context in
+            if glows {
+                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
+            }
+            color.setFill()
+            context.cgContext.fillEllipse(in: CGRect(
+                x: (side - lineHeight) / 2,
+                y: (side - lineHeight) / 2,
+                width: lineHeight,
+                height: lineHeight
+            ))
         }
     }
 
