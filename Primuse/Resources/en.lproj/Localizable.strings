@@ -6680,6 +6680,13 @@
 "player_follows_device_orientation_description" = "When off, the player stays in its current orientation when you turn your phone; use the rotate button to switch.";
 "player_orientation_to_landscape" = "Show in Landscape";
 "player_orientation_to_portrait" = "Show in Portrait";
+"interface_orientation_title" = "Screen Orientation";
+"interface_orientation_description" = "Choose Portrait or Landscape to keep the whole app in that orientation when you turn your phone. The system rotation lock only locks portrait, so use this to lock landscape when your phone sits sideways in a mount. The rotate button on the player still switches temporarily; closing the player returns to the orientation chosen here.";
+"interface_orientation_automatic" = "Automatic";
+"interface_orientation_portrait" = "Portrait";
+"interface_orientation_landscape" = "Landscape";
+"interface_orientation_use_automatic" = "Switch to Automatic";
+"player_follows_device_orientation_fixed_message" = "Screen Orientation is fixed, so the app doesn't turn with your phone and this setting has no effect. To let the player follow your phone, set Screen Orientation back to Automatic.";
 "artwork_store_limit" = "Artwork & Lyrics Space Limit";
 "artwork_store_limit_footer" = "When covers go over the limit, the daily file cleanup removes the least recently used ones first (embedded covers from local sources are kept). Lyrics are small and don't count.";
 "companion_assets_download" = "Download All Artwork and Lyrics";

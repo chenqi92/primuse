@@ -6919,6 +6919,13 @@
 "player_follows_device_orientation_description" = "Wenn aus, bleibt der Player beim Drehen des iPhone in seiner aktuellen Ausrichtung. Gewechselt wird mit der Taste.";
 "player_orientation_to_landscape" = "Im Querformat zeigen";
 "player_orientation_to_portrait" = "Im Hochformat zeigen";
+"interface_orientation_title" = "Bildschirmausrichtung";
+"interface_orientation_description" = "Mit Hochformat oder Querformat bleibt die ganze App in dieser Ausrichtung, auch wenn du das iPhone drehst. Die Ausrichtungssperre des Systems sperrt nur das Hochformat – liegt das iPhone quer in einer Halterung, kannst du hier das Querformat sperren. Die Drehtaste im Player wechselt weiterhin vorübergehend; nach dem Schließen des Players gilt wieder die hier gewählte Ausrichtung.";
+"interface_orientation_automatic" = "Automatisch";
+"interface_orientation_portrait" = "Hochformat";
+"interface_orientation_landscape" = "Querformat";
+"interface_orientation_use_automatic" = "Auf Automatisch stellen";
+"player_follows_device_orientation_fixed_message" = "Die Bildschirmausrichtung ist festgelegt. Die App dreht sich nicht mit dem iPhone, daher wirkt diese Einstellung nicht. Damit der Player dem iPhone folgt, stelle die Bildschirmausrichtung wieder auf Automatisch.";
 "artwork_store_limit" = "Speicherlimit für Cover & Songtexte";
 "artwork_store_limit_footer" = "Überschreiten die Cover das Limit, entfernt die tägliche Dateibereinigung zuerst die am längsten nicht genutzten (eingebettete Cover lokaler Quellen bleiben). Songtexte sind klein und zählen nicht.";
 "companion_assets_download" = "Alle Cover und Songtexte laden";

@@ -7012,6 +7012,13 @@
 "player_follows_device_orientation_description" = "关掉后播放页停在当前的方向，转动手机也不跟着转，横竖屏用切换键换。";
 "player_orientation_to_landscape" = "横屏显示";
 "player_orientation_to_portrait" = "竖屏显示";
+"interface_orientation_title" = "屏幕方向";
+"interface_orientation_description" = "选「竖屏」或「横屏」后整个 App 停在这个方向，转动手机也不跟着转；系统的方向锁定只能锁竖屏，手机横放在支架上时可以在这里锁横屏。播放页右上角的切换键照样能临时换方向，收起播放页回到这里选的方向。";
+"interface_orientation_automatic" = "自动";
+"interface_orientation_portrait" = "竖屏";
+"interface_orientation_landscape" = "横屏";
+"interface_orientation_use_automatic" = "改回自动";
+"player_follows_device_orientation_fixed_message" = "「屏幕方向」已经固定，App 不跟着手机转，这一项不起作用。想让播放页跟着手机转，把屏幕方向改回自动。";
 "artwork_store_limit" = "封面与歌词空间上限";
 "artwork_store_limit_footer" = "封面超过上限时，每天整理文件时先删掉最久没用的封面（本机音乐源的内嵌封面不删）；歌词很小，不算在内。";
 "companion_assets_download" = "下载全部封面和歌词";

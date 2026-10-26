@@ -1,4 +1,5 @@
 #if os(iOS)
+import PrimuseKit
 import SwiftUI
 import UIKit
 
@@ -7,27 +8,78 @@ import UIKit
 /// - 播放页顶上那颗切换键手动转：不用等手机转过去，手机放着不动也换得了方向。手动转过去以后先按住这个方向，
 ///   手机也转到这个方向了再交还给手机（「跟随手机方向转屏」开着时）；收起播放页一律交还。
 /// - 「跟随手机方向转屏」关掉时，播放页开着就停在当时的方向，只按那颗键转。
+/// - 设置 › 界面里的「屏幕方向」固定竖屏或横屏时，整个 App 停在那个方向（`InterfaceOrientationPreference`），
+///   「跟随手机方向转屏」不起作用；播放页的切换键照样能临时转过去，收起播放页回到固定的方向。MV 全屏横着看，盖过这几样。
 /// - 转屏本身是系统的整页旋转：在应用之外转整个窗口，`UIView.setAnimationsEnabled` 关不掉；四角露出来的黑在
 ///   应用的窗口外面。转的前半程一侧那一大块是播放页色场最底下那层纯色，见 `AdaptiveNowPlayingBackdrop`。
 ///
 /// 只在手机上起作用：平板与展开的折叠屏内屏不接受方向请求，也没有手机那副横屏播放页。
 @MainActor
 enum PlayerOrientationControl {
-    /// 播放页开着时只许这些方向；nil 时不管，按 Info.plist 里的方向走。
-    private static var lockedMask: UIInterfaceOrientationMask?
+    /// 播放页开着时只许这一组方向；nil 时不管，按设置里的「屏幕方向」走。
+    private static var playerAllowance: InterfaceOrientationAllowance?
+    /// MV 全屏这类内容进场时临时要的方向（见 `beginContentOrientation`）。
+    private static var contentAllowance: InterfaceOrientationAllowance?
+    /// 设置里的「屏幕方向」：启动时从本机偏好读一次，设置页改了经 `preferenceChanged` 更新。
+    private static var preference = InterfaceOrientationPreference(
+        storedValue: UserDefaults.standard.string(forKey: InterfaceOrientationPreference.storageKey)
+    )
     /// 手动转过去的这一次：手机也转到同一个方向时交还给手机。
     private static var releasesWhenDeviceAgrees = false
     private static var deviceObserver: NSObjectProtocol?
 
-    /// App 代理回给系统的方向：播放页按住方向时主窗口只有那一组，其它时候（以及 CarPlay、外接屏的窗口）
-    /// 和 Info.plist 一致。
+    /// App 代理回给系统的方向：MV 全屏、播放页按住方向、设置里固定了方向时主窗口只有那一组，其它时候
+    /// （以及 CarPlay、外接屏的窗口）和 Info.plist 一致。
     static func supportedMask(for window: UIWindow?) -> UIInterfaceOrientationMask {
-        guard let lockedMask, window?.windowScene?.session.role == .windowApplication else { return defaultMask }
-        return lockedMask
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let window, window.windowScene?.session.role == .windowApplication else { return defaultMask }
+        // 展开的折叠屏内屏不接受方向请求，固定的方向也不往那块画布上套。
+        let allowance = InterfaceOrientationLockPolicy.allowance(
+            content: contentAllowance,
+            player: playerAllowance,
+            preference: isRegularCanvas(window.traitCollection) ? .automatic : preference
+        )
+        switch allowance {
+        case .any: return defaultMask
+        case .portrait: return .portrait
+        case .landscape: return .landscape
+        }
     }
 
     private static var defaultMask: UIInterfaceOrientationMask {
         UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+    }
+
+    private static func isRegularCanvas(_ traits: UITraitCollection) -> Bool {
+        traits.horizontalSizeClass == .regular && traits.verticalSizeClass == .regular
+    }
+
+    /// 设置里改了「屏幕方向」：固定成另一个方向时马上转过去，不用等手机动；改回自动时交给手机此刻的方向。
+    static func preferenceChanged(_ newValue: InterfaceOrientationPreference) {
+        guard newValue != preference else { return }
+        preference = newValue
+        refreshSupportedOrientations()
+        guard newValue != .automatic,
+              UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = foregroundWindowScene,
+              !isRegularCanvas(scene.traitCollection) else { return }
+        let target: UIInterfaceOrientationMask = newValue == .landscape ? preferredLandscape : .portrait
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { @Sendable error in
+            plog("⚠️ Interface orientation preference request failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// MV 全屏进场：先放开横屏（盖过播放页按住的方向和固定的「屏幕方向」），请求才不会被系统拒掉。
+    static func beginContentOrientation(landscape: Bool) {
+        contentAllowance = landscape ? .landscape : .portrait
+        refreshSupportedOrientations()
+    }
+
+    /// MV 全屏退场：收回，回到播放页或设置里的方向。
+    static func endContentOrientation() {
+        guard contentAllowance != nil else { return }
+        contentAllowance = nil
+        refreshSupportedOrientations()
     }
 
     /// 这块画布上播放页能不能手动转：手机，并且不是宽高都常规的画布（展开的折叠屏内屏）。
@@ -35,14 +87,15 @@ enum PlayerOrientationControl {
         UIDevice.current.userInterfaceIdiom == .phone && !(horizontal == .regular && vertical == .regular)
     }
 
-    /// 播放页醒来：不跟随手机方向时停在当前方向。
+    /// 播放页醒来：不跟随手机方向时停在当前方向。屏幕方向固定时本来就不跟着手机转，不用另外按住。
     static func playerBecameActive(followsDevice: Bool, isLandscape: Bool) {
-        guard !followsDevice else { return }
+        guard preference == .automatic, !followsDevice else { return }
         lock(isLandscape ? .landscape : .portrait, releasesWhenDeviceAgrees: false)
     }
 
     /// 设置在播放页开着时被改了（多半是从别的设备同步过来的）。
     static func followsDeviceChanged(_ followsDevice: Bool, isLandscape: Bool) {
+        guard preference == .automatic else { return }
         if followsDevice {
             release()
         } else {
@@ -50,9 +103,9 @@ enum PlayerOrientationControl {
         }
     }
 
-    /// 播放页收起、切到后台、进了平板那样的画布：交还给手机，系统会按手机此刻的方向转回来。
+    /// 播放页收起、切到后台、进了平板那样的画布：交还给手机（屏幕方向固定时交还给那个方向），系统会转回来。
     static func playerBecameInactive() {
-        guard lockedMask != nil else { return }
+        guard playerAllowance != nil else { return }
         release()
     }
 
@@ -60,7 +113,10 @@ enum PlayerOrientationControl {
     static func toggle(fromLandscape isLandscape: Bool, followsDevice: Bool) {
         guard let scene = foregroundWindowScene else { return }
         let toLandscape = !isLandscape
-        lock(toLandscape ? .landscape : .portrait, releasesWhenDeviceAgrees: followsDevice)
+        lock(
+            toLandscape ? .landscape : .portrait,
+            releasesWhenDeviceAgrees: InterfaceOrientationLockPolicy.followsDevice(followsDevice, preference: preference)
+        )
         let target: UIInterfaceOrientationMask = toLandscape ? preferredLandscape : .portrait
         // 系统拒绝请求时在后台队列回调：闭包不能沿用外面的主线程隔离，否则运行时的隔离检查当场崩溃。
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { @Sendable error in
@@ -77,8 +133,8 @@ enum PlayerOrientationControl {
         }
     }
 
-    private static func lock(_ mask: UIInterfaceOrientationMask, releasesWhenDeviceAgrees releases: Bool) {
-        lockedMask = mask
+    private static func lock(_ allowance: InterfaceOrientationAllowance, releasesWhenDeviceAgrees releases: Bool) {
+        playerAllowance = allowance
         releasesWhenDeviceAgrees = releases
         if releases {
             observeDevice()
@@ -89,7 +145,7 @@ enum PlayerOrientationControl {
     }
 
     private static func release() {
-        lockedMask = nil
+        playerAllowance = nil
         releasesWhenDeviceAgrees = false
         stopObservingDevice()
         refreshSupportedOrientations()
@@ -116,10 +172,10 @@ enum PlayerOrientationControl {
 
     /// 手机转到了手动选的那个方向：从这儿起又跟着手机走（界面已经在这个方向上，不会再转一次）。
     private static func deviceOrientationChanged() {
-        guard releasesWhenDeviceAgrees, let lockedMask else { return }
+        guard releasesWhenDeviceAgrees, let playerAllowance else { return }
         let agrees: Bool = switch UIDevice.current.orientation {
-        case .portrait: lockedMask.contains(.portrait)
-        case .landscapeLeft, .landscapeRight: lockedMask.contains(.landscapeLeft) || lockedMask.contains(.landscapeRight)
+        case .portrait: playerAllowance != .landscape
+        case .landscapeLeft, .landscapeRight: playerAllowance != .portrait
         default: false
         }
         if agrees { release() }

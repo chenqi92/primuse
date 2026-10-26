@@ -6920,6 +6920,13 @@
 "player_follows_device_orientation_description" = "オフにすると、iPhone を回しても再生画面は今の向きのままです。向きは切り替えボタンで変えます。";
 "player_orientation_to_landscape" = "横向きで表示";
 "player_orientation_to_portrait" = "縦向きで表示";
+"interface_orientation_title" = "画面の向き";
+"interface_orientation_description" = "「縦向き」か「横向き」を選ぶと、iPhone を回してもアプリ全体がその向きのままになります。システムの画面縦向きのロックは縦向きしか固定できないので、スタンドに横置きするときはここで横向きに固定できます。再生画面右上の切り替えボタンで一時的に向きを変えられ、再生画面を閉じるとここで選んだ向きに戻ります。";
+"interface_orientation_automatic" = "自動";
+"interface_orientation_portrait" = "縦向き";
+"interface_orientation_landscape" = "横向き";
+"interface_orientation_use_automatic" = "自動に戻す";
+"player_follows_device_orientation_fixed_message" = "「画面の向き」が固定されているため、アプリは iPhone の向きに合わせて回らず、この設定は効きません。再生画面を iPhone の向きに合わせるには、画面の向きを自動に戻してください。";
 "artwork_store_limit" = "アートワークと歌詞の容量上限";
 "artwork_store_limit_footer" = "アートワークが上限を超えると、毎日のファイル整理で長く使われていないものから削除します（ローカルソースの埋め込みアートワークは残します）。歌詞は小さいので含みません。";
 "companion_assets_download" = "すべてのアートワークと歌詞をダウンロード";

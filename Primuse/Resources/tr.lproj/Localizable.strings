@@ -6825,6 +6825,13 @@
 "player_follows_device_orientation_description" = "Kapalıyken telefonu çevirdiğinizde oynatıcı mevcut yönünde kalır; yönü düğmeyle değiştirin.";
 "player_orientation_to_landscape" = "Yatay göster";
 "player_orientation_to_portrait" = "Dikey göster";
+"interface_orientation_title" = "Ekran Yönü";
+"interface_orientation_description" = "Dikey veya Yatay seçildiğinde iPhone’u çevirseniz de uygulamanın tamamı o yönde kalır. Sistemin yön kilidi yalnızca dikeyi kilitler; iPhone bir tutucuda yan duruyorsa yatayı buradan kilitleyebilirsiniz. Oynatıcıdaki döndürme düğmesi yönü yine geçici olarak değiştirir; oynatıcı kapanınca burada seçilen yöne dönülür.";
+"interface_orientation_automatic" = "Otomatik";
+"interface_orientation_portrait" = "Dikey";
+"interface_orientation_landscape" = "Yatay";
+"interface_orientation_use_automatic" = "Otomatiğe Al";
+"player_follows_device_orientation_fixed_message" = "Ekran Yönü sabitlendiği için uygulama iPhone ile birlikte dönmüyor ve bu ayarın etkisi yok. Oynatıcının iPhone’u izlemesi için Ekran Yönü’nü yeniden Otomatik yapın.";
 "artwork_store_limit" = "Kapak ve Şarkı Sözü Alan Sınırı";
 "artwork_store_limit_footer" = "Kapaklar sınırı aşınca günlük dosya temizliği önce en uzun süredir kullanılmayanları siler (yerel kaynakların gömülü kapakları kalır). Şarkı sözleri küçüktür ve sayılmaz.";
 "companion_assets_download" = "Tüm Kapakları ve Şarkı Sözlerini İndir";

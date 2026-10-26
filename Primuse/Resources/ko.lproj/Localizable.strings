@@ -6919,6 +6919,13 @@
 "player_follows_device_orientation_description" = "끄면 휴대폰을 돌려도 재생 화면이 지금 방향을 유지하고, 방향은 전환 버튼으로 바꿉니다.";
 "player_orientation_to_landscape" = "가로로 보기";
 "player_orientation_to_portrait" = "세로로 보기";
+"interface_orientation_title" = "화면 방향";
+"interface_orientation_description" = "'세로' 또는 '가로'를 선택하면 iPhone을 돌려도 앱 전체가 그 방향으로 유지됩니다. 시스템의 화면 방향 잠금은 세로로만 고정되므로, 거치대에 가로로 놓을 때는 여기서 가로로 고정할 수 있습니다. 재생 화면 오른쪽 위의 전환 버튼으로 잠시 방향을 바꿀 수 있고, 재생 화면을 닫으면 여기서 고른 방향으로 돌아갑니다.";
+"interface_orientation_automatic" = "자동";
+"interface_orientation_portrait" = "세로";
+"interface_orientation_landscape" = "가로";
+"interface_orientation_use_automatic" = "자동으로 변경";
+"player_follows_device_orientation_fixed_message" = "'화면 방향'이 고정되어 있어 앱이 iPhone 방향을 따라 돌지 않으므로 이 설정은 적용되지 않습니다. 재생 화면이 iPhone 방향을 따르게 하려면 화면 방향을 자동으로 되돌리세요.";
 "artwork_store_limit" = "아트워크 및 가사 저장 공간 한도";
 "artwork_store_limit_footer" = "아트워크가 한도를 넘으면 매일 파일을 정리할 때 가장 오래 쓰지 않은 것부터 지웁니다(로컬 소스에 포함된 아트워크는 남깁니다). 가사는 작아서 포함하지 않습니다.";
 "companion_assets_download" = "모든 아트워크 및 가사 다운로드";

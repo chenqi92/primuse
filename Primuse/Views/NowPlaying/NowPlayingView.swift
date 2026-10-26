@@ -11172,6 +11172,8 @@ private enum MusicVideoOrientationController {
         if restoreMask == nil {
             restoreMask = mask(for: scene.interfaceOrientation)
         }
+        // 设置里固定了竖屏、或者播放页按住了竖屏时，先放开横屏，否则这次请求会被系统拒掉。
+        PlayerOrientationControl.beginContentOrientation(landscape: true)
         request([.landscapeLeft, .landscapeRight], in: scene)
     }
 
@@ -11181,6 +11183,7 @@ private enum MusicVideoOrientationController {
     }
 
     static func restorePreviousOrientation() {
+        PlayerOrientationControl.endContentOrientation()
         guard let restoreMask,
               UIDevice.current.userInterfaceIdiom == .phone,
               let scene = foregroundWindowScene,

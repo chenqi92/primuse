@@ -6919,6 +6919,13 @@
 "player_follows_device_orientation_description" = "Si désactivé, le lecteur garde son orientation quand vous tournez l’iPhone ; utilisez le bouton pour changer.";
 "player_orientation_to_landscape" = "Afficher en paysage";
 "player_orientation_to_portrait" = "Afficher en portrait";
+"interface_orientation_title" = "Orientation de l’écran";
+"interface_orientation_description" = "Choisissez Portrait ou Paysage pour garder toute l’app dans cette orientation quand vous tournez l’iPhone. Le verrouillage de l’orientation du système ne bloque que le mode portrait : quand l’iPhone est posé de côté sur un support, verrouillez le mode paysage ici. Le bouton de rotation du lecteur change encore l’orientation temporairement ; en fermant le lecteur, l’app revient à l’orientation choisie ici.";
+"interface_orientation_automatic" = "Automatique";
+"interface_orientation_portrait" = "Portrait";
+"interface_orientation_landscape" = "Paysage";
+"interface_orientation_use_automatic" = "Passer en automatique";
+"player_follows_device_orientation_fixed_message" = "L’orientation de l’écran est fixée : l’app ne tourne pas avec l’iPhone et ce réglage n’a aucun effet. Pour que le lecteur suive l’iPhone, remettez l’orientation de l’écran sur Automatique.";
 "artwork_store_limit" = "Limite d’espace pour pochettes et paroles";
 "artwork_store_limit_footer" = "Quand les pochettes dépassent la limite, le nettoyage quotidien des fichiers supprime d’abord les moins utilisées (les pochettes intégrées des sources locales sont conservées). Les paroles prennent peu de place et ne comptent pas.";
 "companion_assets_download" = "Télécharger toutes les pochettes et paroles";

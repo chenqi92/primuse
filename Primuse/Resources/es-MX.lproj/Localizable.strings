@@ -6825,6 +6825,13 @@
 "player_follows_device_orientation_description" = "Si está desactivado, el reproductor mantiene su orientación al girar el teléfono; usa el botón para cambiarla.";
 "player_orientation_to_landscape" = "Ver en horizontal";
 "player_orientation_to_portrait" = "Ver en vertical";
+"interface_orientation_title" = "Orientación de la pantalla";
+"interface_orientation_description" = "Elige Vertical u Horizontal para que toda la app se quede en esa orientación aunque gires el iPhone. El bloqueo de orientación del sistema solo bloquea la vertical; si el iPhone está de lado en un soporte, bloquea aquí la horizontal. El botón de girar del reproductor sigue cambiando la orientación por un momento; al cerrar el reproductor se vuelve a la orientación elegida aquí.";
+"interface_orientation_automatic" = "Automática";
+"interface_orientation_portrait" = "Vertical";
+"interface_orientation_landscape" = "Horizontal";
+"interface_orientation_use_automatic" = "Cambiar a automática";
+"player_follows_device_orientation_fixed_message" = "La orientación de la pantalla está fija: la app no gira con el iPhone y este ajuste no tiene efecto. Para que el reproductor siga al iPhone, vuelve a poner la orientación de la pantalla en Automática.";
 "artwork_store_limit" = "Límite de espacio para portadas y letras";
 "artwork_store_limit_footer" = "Cuando las portadas superan el límite, la limpieza diaria de archivos borra primero las menos usadas (se conservan las portadas incrustadas de fuentes locales). Las letras ocupan poco y no cuentan.";
 "companion_assets_download" = "Descargar todas las portadas y letras";

@@ -32,6 +32,16 @@ enum IOSAppearancePreference: String, CaseIterable, Sendable {
     }
 }
 
+extension InterfaceOrientationPreference {
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .automatic: "interface_orientation_automatic"
+        case .portrait: "interface_orientation_portrait"
+        case .landscape: "interface_orientation_landscape"
+        }
+    }
+}
+
 struct AppearanceSettingsView: View {
     @AppStorage(AppThemePreferences.iOSAppearanceKey)
     private var appearanceRawValue = IOSAppearancePreference.system.rawValue
@@ -41,6 +51,8 @@ struct AppearanceSettingsView: View {
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
     #endif
     @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
+    @AppStorage(InterfaceOrientationPreference.storageKey)
+    private var interfaceOrientationRawValue = InterfaceOrientationPreference.automatic.rawValue
 
     private var selection: IOSAppearancePreference {
         IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
@@ -108,6 +120,26 @@ struct AppearanceSettingsView: View {
                 }
             }
             .settingsAnchor("appearance.minimalNavigation")
+
+            // 屏幕方向(只有手机能转):系统的方向锁定只锁得了竖屏,横放在支架上听电台时要在这里锁横屏。
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                Section {
+                    Picker(selection: $interfaceOrientationRawValue) {
+                        ForEach(InterfaceOrientationPreference.allCases, id: \.self) { option in
+                            Text(option.titleKey).tag(option.rawValue)
+                        }
+                    } label: {
+                        SettingsInfoLabel("interface_orientation_title") {
+                            Text("interface_orientation_description")
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .settingsAnchor("appearance.interfaceOrientation")
+                }
+                .onChange(of: interfaceOrientationRawValue) { _, rawValue in
+                    PlayerOrientationControl.preferenceChanged(InterfaceOrientationPreference(storedValue: rawValue))
+                }
+            }
 
             // 音乐(就是 App 的主题色)和电台、有声书、播客一样，一类一行，点进去再挑。
             ListeningSpaceColorSections(includesMusic: true)

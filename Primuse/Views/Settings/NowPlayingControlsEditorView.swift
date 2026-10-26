@@ -94,6 +94,9 @@ struct NowPlayingControlsEditorView: View {
     private var showsOrientationButton = PlayerAppearancePreferences.showsOrientationButtonByDefault
     @AppStorage(PlayerAppearancePreferences.followsDeviceOrientationKey)
     private var followsDeviceOrientation = PlayerAppearancePreferences.followsDeviceOrientationByDefault
+    @AppStorage(InterfaceOrientationPreference.storageKey)
+    private var interfaceOrientationRawValue = InterfaceOrientationPreference.automatic.rawValue
+    @State private var showsFixedOrientationNote = false
     @State private var page: Page = Self.initialPage
     @State private var surface: MusicSurface = Self.initialSurface
     /// 全局那一页的预览看哪一种播放页。
@@ -394,14 +397,41 @@ struct NowPlayingControlsEditorView: View {
                     }
                 }
                 .settingsAnchor("appearance.playerOrientationButton")
-                Toggle(isOn: $followsDeviceOrientation) {
-                    SettingsInfoLabel("player_follows_device_orientation_title") {
-                        Text("player_follows_device_orientation_description")
+                let fixedOrientation = InterfaceOrientationPreference(storedValue: interfaceOrientationRawValue)
+                if fixedOrientation == .automatic {
+                    Toggle(isOn: $followsDeviceOrientation) {
+                        SettingsInfoLabel("player_follows_device_orientation_title") {
+                            Text("player_follows_device_orientation_description")
+                        }
                     }
+                    .settingsAnchor("appearance.playerFollowsDeviceOrientation")
+                } else {
+                    // 「屏幕方向」固定了竖屏或横屏时这一项不起作用:照样点得到,点了说为什么,并给一键改回自动。
+                    Button {
+                        showsFixedOrientationNote = true
+                    } label: {
+                        LabeledContent {
+                            Text(fixedOrientation.titleKey)
+                        } label: {
+                            Text("player_follows_device_orientation_title")
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .settingsAnchor("appearance.playerFollowsDeviceOrientation")
                 }
-                .settingsAnchor("appearance.playerFollowsDeviceOrientation")
             } header: {
                 Text("player_orientation_section_title")
+            }
+            .alert(Text("player_follows_device_orientation_title"), isPresented: $showsFixedOrientationNote) {
+                Button("interface_orientation_use_automatic") {
+                    interfaceOrientationRawValue = InterfaceOrientationPreference.automatic.rawValue
+                    PlayerOrientationControl.preferenceChanged(.automatic)
+                }
+                Button("cancel", role: .cancel) {}
+            } message: {
+                Text("player_follows_device_orientation_fixed_message")
             }
         }
 

@@ -6825,6 +6825,13 @@
 "player_follows_device_orientation_description" = "Gdy wyłączone, odtwarzacz zostaje w obecnej orientacji po obróceniu telefonu; zmieniaj ją przyciskiem.";
 "player_orientation_to_landscape" = "Pokaż poziomo";
 "player_orientation_to_portrait" = "Pokaż pionowo";
+"interface_orientation_title" = "Orientacja ekranu";
+"interface_orientation_description" = "Wybierz Pionowo lub Poziomo, a cała aplikacja zostanie w tej orientacji, nawet gdy obrócisz iPhone’a. Systemowa blokada orientacji blokuje tylko pion; gdy iPhone leży bokiem w uchwycie, zablokuj tu poziom. Przycisk obracania w odtwarzaczu nadal zmienia orientację tymczasowo; po zamknięciu odtwarzacza wraca orientacja wybrana tutaj.";
+"interface_orientation_automatic" = "Automatycznie";
+"interface_orientation_portrait" = "Pionowo";
+"interface_orientation_landscape" = "Poziomo";
+"interface_orientation_use_automatic" = "Przełącz na automatyczną";
+"player_follows_device_orientation_fixed_message" = "Orientacja ekranu jest ustalona: aplikacja nie obraca się razem z iPhone’em, więc to ustawienie nie działa. Aby odtwarzacz podążał za iPhone’em, przywróć automatyczną orientację ekranu.";
 "artwork_store_limit" = "Limit miejsca na okładki i teksty";
 "artwork_store_limit_footer" = "Gdy okładki przekroczą limit, codzienne porządkowanie plików najpierw usuwa najdłużej nieużywane (osadzone okładki ze źródeł lokalnych zostają). Teksty są małe i się nie liczą.";
 "companion_assets_download" = "Pobierz wszystkie okładki i teksty";

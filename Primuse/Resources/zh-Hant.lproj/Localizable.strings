@@ -6896,6 +6896,13 @@
 "player_follows_device_orientation_description" = "關閉後播放頁停在目前的方向，轉動手機也不跟著轉，橫豎螢幕用切換鍵換。";
 "player_orientation_to_landscape" = "橫向顯示";
 "player_orientation_to_portrait" = "直向顯示";
+"interface_orientation_title" = "螢幕方向";
+"interface_orientation_description" = "選「直式」或「橫式」後整個 App 停在這個方向，轉動手機也不跟著轉；系統的方向鎖定只能鎖直式，手機橫放在支架上時可以在這裡鎖橫式。播放頁右上角的切換鍵照樣能暫時換方向，收起播放頁回到這裡選的方向。";
+"interface_orientation_automatic" = "自動";
+"interface_orientation_portrait" = "直式";
+"interface_orientation_landscape" = "橫式";
+"interface_orientation_use_automatic" = "改回自動";
+"player_follows_device_orientation_fixed_message" = "「螢幕方向」已經固定，App 不跟著手機轉，這一項不起作用。想讓播放頁跟著手機轉，把螢幕方向改回自動。";
 "artwork_store_limit" = "封面與歌詞空間上限";
 "artwork_store_limit_footer" = "封面超過上限時，每天整理檔案時先刪掉最久沒用的封面（本機音樂來源的內嵌封面不刪）；歌詞很小，不算在內。";
 "companion_assets_download" = "下載全部封面和歌詞";
