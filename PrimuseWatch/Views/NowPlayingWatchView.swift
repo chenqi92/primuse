@@ -82,15 +82,20 @@ struct NowPlayingWatchView: View {
     }
 
     private var playerLayout: some View {
-        VStack(spacing: 4) {
-            stage
-            titleBlock
-            WatchTransportControls()
-                .padding(.top, 2)
-                .opacity(store.isReachable ? 1 : 0.45)
+        // 量一下顶上那一行 (时间和两颗按钮) 占了多高, 封面往上伸进两颗按钮中间。
+        GeometryReader { proxy in
+            VStack(spacing: 4) {
+                stage(topReach: WatchNowPlayingMetrics.artworkTopReach(
+                    navigationBarHeight: proxy.safeAreaInsets.top
+                ))
+                titleBlock
+                WatchTransportControls()
+                    .padding(.top, 2)
+                    .opacity(store.isReachable ? 1 : 0.45)
+            }
+            .padding(.horizontal, 2)
+            .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
         }
-        .padding(.horizontal, 2)
-        .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
         // 底部安全区留给系统的底栏, 这页没有底栏: 播放键往下放, 封面多出这一截高度。
         .ignoresSafeArea(.container, edges: .bottom)
     }
@@ -100,11 +105,14 @@ struct NowPlayingWatchView: View {
     }
 
     /// 封面 / 歌词那一块吃掉标题和播放键剩下的高度, 所以各种表盘尺寸、各档字号都放得下。
-    private var stage: some View {
+    /// 封面上沿再往上伸 `topReach`, 到时间下面、两颗按钮中间那块空地 (和 Apple Music 一样);
+    /// 歌词一行行很宽, 仍待在按钮下面。
+    private func stage(topReach: CGFloat) -> some View {
         ZStack {
             if showsLyricsFace {
                 WatchLyricsPanel()
                     .padding(.horizontal, 4)
+                    .padding(.top, topReach)
                     .transition(.opacity)
             } else {
                 WatchArtworkView()
@@ -114,6 +122,7 @@ struct NowPlayingWatchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, -topReach)
         .contentShape(Rectangle())
         .onTapGesture {
             guard store.hasLyrics, !store.isLiveStream else { return }
@@ -125,11 +134,17 @@ struct NowPlayingWatchView: View {
             ? WatchString(showsLyricsFace ? "ext.watch.lyrics.hide" : "ext.watch.lyrics.show")
             : "")
         // 音量控件贴在表冠这一侧, 平时藏着不占地方, 转表冠时才亮出来、盖在封面或歌词上。
+        // 系统按自己的尺寸画这个圆环, 不跟外面给的框走 (41mm 上调音量时约 47pt, 右边一截跑到屏外),
+        // 所以按它最大的样子留框、整体缩小, 再从屏幕边上收进来一点。
         .overlay(alignment: .trailing) {
             WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest)
+                .frame(width: WatchNowPlayingMetrics.volumeControlNativeSide,
+                       height: WatchNowPlayingMetrics.volumeControlNativeSide)
+                .background(.black.opacity(0.45), in: Circle().inset(by: 4))
+                .scaleEffect(WatchNowPlayingMetrics.volumeControlScale)
                 .frame(width: WatchNowPlayingMetrics.volumeControlSide,
                        height: WatchNowPlayingMetrics.volumeControlSide)
-                .background(.black.opacity(0.4), in: Circle())
+                .padding(.trailing, 2)
                 .opacity(showsVolume ? 1 : WatchNowPlayingMetrics.hiddenVolumeOpacity)
         }
         .overlay(alignment: .top) {
@@ -198,14 +213,22 @@ struct NowPlayingWatchView: View {
 /// 几种表盘尺寸共用的比例 (40mm 宽 162pt 到 Ultra / 46mm 宽 205–208pt)。
 enum WatchNowPlayingMetrics {
     static var screenWidth: CGFloat { WKInterfaceDevice.current().screenBounds.width }
-    /// 播放暂停键连外圈进度的直径。
-    static var playDiameter: CGFloat { min(62, max(46, (screenWidth * 0.3).rounded())) }
+    /// 播放暂停键连外圈进度的直径。比封面小一截, 封面才是这一页的主角。
+    static var playDiameter: CGFloat { min(58, max(44, (screenWidth * 0.28).rounded())) }
     static var sideDiameter: CGFloat { (playDiameter * 0.76).rounded() }
-    static let volumeControlSide: CGFloat = 30
+    /// 系统音量圆环自己画多大: 模拟器上约 38pt, 真机调音量时约 47pt。按大的留。
+    static let volumeControlNativeSide: CGFloat = 48
+    static let volumeControlScale: CGFloat = 0.7
+    static var volumeControlSide: CGFloat { (volumeControlNativeSide * volumeControlScale).rounded() }
     /// 音量控件藏起来时不设成 0: 完全透明的控件有可能被系统当成看不见, 表冠就交不到它手上。
     /// 留这一点点肉眼看不出来。
     static let hiddenVolumeOpacity: Double = 0.02
-    static var maxArtworkSide: CGFloat { screenWidth - 16 }
+    /// 封面伸进顶上那一行之后两边是按钮, 宽度不能超过两颗按钮之间的空地。
+    static var maxArtworkSide: CGFloat { (screenWidth * 0.56).rounded() }
+    /// 封面往顶上那一行里伸多少: 时间在这一行上半截, 下半截两颗按钮之间是空的。
+    static func artworkTopReach(navigationBarHeight: CGFloat) -> CGFloat {
+        (navigationBarHeight * 0.2).rounded()
+    }
     /// 播放键离屏幕下沿的距离, 圆角处两侧键不被切到。
     static var bottomInset: CGFloat { screenWidth >= 190 ? 10 : 6 }
 }
