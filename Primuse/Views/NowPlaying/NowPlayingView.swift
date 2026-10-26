@@ -962,17 +962,26 @@ private struct LyricsCoverShadowSprite: ViewModifier {
         .accessibilityHidden(true)
     }
 
-    /// 暂停时缩小的那一点直接缩放现有的这张;差得多(转屏、换版面)时等边长停稳再按新的重画,途中先缩放旧的。
+    /// 边长差得不多时直接缩放现有的这张;差得多(转屏、换版面)时等边长停稳再按新的重画,途中先缩放旧的。
+    /// 画一张要做一次大半径模糊,在主线程上要几十毫秒:封面刚出现(展开播放页、从文字稿飞回来)
+    /// 又没有画过的时,等飞行停下再画,画好淡入,不在动画中途卡一下(#361)。
     private func refresh() async {
         if let sprite, abs(side / sprite.side - 1) < 0.15 { return }
-        if sprite != nil {
-            try? await Task.sleep(for: .milliseconds(250))
+        let cached = LyricsCoverShadowSpriteCache.cachedImage(
+            side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
+        )
+        if cached == nil {
+            try? await Task.sleep(for: .milliseconds(sprite == nil ? 450 : 250))
             guard !Task.isCancelled else { return }
         }
         guard let image = LyricsCoverShadowSpriteCache.image(
             side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
         ) else { return }
-        sprite = (image, side)
+        if sprite == nil, cached == nil {
+            withAnimation(.easeOut(duration: 0.25)) { sprite = (image, side) }
+        } else {
+            sprite = (image, side)
+        }
     }
 }
 
@@ -7661,11 +7670,12 @@ struct NowPlayingView: View {
                 cornerRadius: coverCornerRadius,
                 decodeSize: size
             )
-            // 阴影挂在匹配几何里面,跟着封面一起飞、一起缩。
+            // 阴影挂在匹配几何里面,跟着封面一起飞、一起缩。贴图按播放时(没缩小)的尺寸画:
+            // 暂停缩小时等比缩放同一张,暂停着从文字稿飞回来也能直接拿到画过的那张(#361)。
             .if(drawsCoverShadow) { view in
                 view.modifier(LyricsCoverShadowSprite(
-                    side: SpokenWordCoverLayout.width(forHeight: displayedSize),
-                    cornerRadius: coverCornerRadius,
+                    side: SpokenWordCoverLayout.width(forHeight: size),
+                    cornerRadius: isPodcastEpisode ? cornerRadius : max(6, cornerRadius * 0.6),
                     shadow: shadow
                 ))
             }
