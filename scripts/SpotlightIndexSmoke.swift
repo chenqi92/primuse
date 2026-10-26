@@ -63,6 +63,13 @@ final class AppServices {
     static let shared = AppServices()
     var spotlightIndex = SpotlightIndexService()
 }
+/// 「在 Primuse 中搜索」意图打开搜索页的路由;探针只编译它,不会走到。
+@MainActor
+final class SystemActivityRouter {
+    static let shared = SystemActivityRouter()
+    func showSearch(_ query: String, route: String) {}
+}
+typealias MacSystemActivityRouter = SystemActivityRouter
 @MainActor
 final class SmokeScanService {
     var backgroundPlaybackActive = true
@@ -159,7 +166,8 @@ extension SpotlightIndexService {
         let succeeded = await performSynchronization(
             snapshot: service.makeLibrarySnapshot(library: library),
             manifestURL: service.manifestURL,
-            thumbnailDirectoryURL: service.thumbnailDirectoryURL
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: SpotlightIndexStatus()
         )
         try require(succeeded, "Full rebuild failed")
         var expected = ["control": "Unrelated control", "song:one": "Green spotlight smoke",
@@ -257,7 +265,8 @@ extension SpotlightIndexService {
             await performSynchronization(
                 snapshot: snapshot,
                 manifestURL: manifestURL,
-                thumbnailDirectoryURL: thumbnailDirectoryURL
+                thumbnailDirectoryURL: thumbnailDirectoryURL,
+                status: SpotlightIndexStatus()
             )
         }
         var sawFirstBatch = false
@@ -301,12 +310,49 @@ extension SpotlightIndexService {
         let finished = await performSynchronization(
             snapshot: snapshot,
             manifestURL: manifestURL,
-            thumbnailDirectoryURL: thumbnailDirectoryURL
+            thumbnailDirectoryURL: thumbnailDirectoryURL,
+            status: SpotlightIndexStatus()
         )
         try require(finished, "Resumed synchronization failed")
         var expected = ["control": "Unrelated control"]
         for song in library.visibleSongs { expected["song:\(song.id)"] = song.title }
         try await expectRows(expected, label: "resumed rebuild completes the library without starting over")
+
+        try await missingItemsAreRewritten(library: library, service: service, expected: expected)
+    }
+
+    /// #346: the manifest said every song was in, yet some could not be found.
+    /// Items the system index lost behind the manifest's back must show up as
+    /// not indexed when the settings page measures, and be written again.
+    private static func missingItemsAreRewritten(
+        library: MusicLibrary,
+        service: SpotlightIndexService,
+        expected: [String: String]
+    ) async throws {
+        let lost = ["song:bulk-0003", "song:bulk-0500"]
+        try await CSSearchableIndex(name: kSpotlightIndexName).deleteSearchableItems(withIdentifiers: lost)
+        var trimmed = expected
+        for identifier in lost { trimmed.removeValue(forKey: identifier) }
+        try await expectRows(trimmed, label: "fixture drops two items from the system index only")
+
+        service.refreshStatus(library: library)
+        for _ in 0..<100 where service.status.activity != .idle {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try require(service.status.coverage?.remaining == lost.count,
+                    "Status reports \(String(describing: service.status.coverage)) after losing \(lost.count) items")
+        try require(service.identifiersMissingFromIndex == Set(lost), "Lost items were not queued for rewriting")
+        print("PASS: settings measurement finds items missing from the system index")
+
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try await expectRows(expected, label: "next synchronization writes the lost items again")
+        service.refreshStatus(library: library)
+        for _ in 0..<100 where service.status.activity != .idle {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try require(service.status.coverage?.isComplete == true, "Coverage not complete after rewriting")
+        try require(service.identifiersMissingFromIndex.isEmpty, "Rewritten items still queued")
     }
 }
 

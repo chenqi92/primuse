@@ -204,3 +204,44 @@ public struct SpotlightIndexCoverage: Equatable, Sendable {
         )
     }
 }
+
+/// 清单记着已经写进去、系统索引里却查不到的条目 (#346)。进度原来只拿 App 自己的清单算,
+/// 系统那边丢了一部分时照样显示「都能搜到」。设置页打开时把 App 自己的条目从索引里查一遍,
+/// 跟清单对上。
+public enum SpotlightIndexVerification {
+    public enum Outcome: Equatable, Sendable {
+        case consistent
+        /// 清单里有真签名、索引里查不到的条目。
+        case missing(Set<String>)
+        /// 清单里有东西却一条都没查到: 更像是这次查询本身没成, 不据此改清单。
+        case inconclusive
+    }
+
+    public static func compare(
+        manifest: SpotlightIndexManifest,
+        found: Set<String>
+    ) -> Outcome {
+        let confirmed = manifest.signaturesByIdentifier.compactMap { identifier, signature in
+            signature.isEmpty ? nil : identifier
+        }
+        guard !confirmed.isEmpty else { return .consistent }
+        guard !found.isEmpty else { return .inconclusive }
+        let missing = Set(confirmed).subtracting(found)
+        return missing.isEmpty ? .consistent : .missing(missing)
+    }
+
+    /// 查不到的条目改回未确认, 下一轮计划会重新写它们。清单里没有的标识不加进去。
+    public static func manifest(
+        _ manifest: SpotlightIndexManifest,
+        markingUnconfirmed identifiers: Set<String>
+    ) -> SpotlightIndexManifest {
+        var signatures = manifest.signaturesByIdentifier
+        for identifier in identifiers where signatures[identifier] != nil {
+            signatures[identifier] = SpotlightIndexCheckpoint.unconfirmedSignature
+        }
+        return SpotlightIndexManifest(
+            schemaVersion: manifest.schemaVersion,
+            signaturesByIdentifier: signatures
+        )
+    }
+}

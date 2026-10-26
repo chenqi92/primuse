@@ -224,3 +224,55 @@ struct SpotlightIndexCoverageTests {
         #expect(coverage.awaitingArtwork == 0)
     }
 }
+
+@Suite("Spotlight index verification against the system index")
+struct SpotlightIndexVerificationTests {
+    private let stored = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [
+        "song:a": "1",
+        "song:b": "2~text",
+        "song:pending": "",
+        "album:x": "3",
+    ])
+
+    @Test("Confirmed items the index does not return are missing; unconfirmed ones are not")
+    func missingItems() {
+        let outcome = SpotlightIndexVerification.compare(manifest: stored, found: ["song:a", "album:x"])
+        #expect(outcome == .missing(["song:b"]))
+    }
+
+    @Test("Every confirmed item found, extra index items ignored")
+    func consistent() {
+        let outcome = SpotlightIndexVerification.compare(
+            manifest: stored,
+            found: ["song:a", "song:b", "album:x", "song:legacy"]
+        )
+        #expect(outcome == .consistent)
+        let empty = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: ["song:p": ""])
+        #expect(SpotlightIndexVerification.compare(manifest: empty, found: []) == .consistent)
+    }
+
+    @Test("An empty result for a non-empty manifest is not taken as evidence")
+    func inconclusive() {
+        #expect(SpotlightIndexVerification.compare(manifest: stored, found: []) == .inconclusive)
+    }
+
+    @Test("Marked items become unconfirmed, so the next plan writes them again and coverage drops")
+    func markedManifest() {
+        let marked = SpotlightIndexVerification.manifest(stored, markingUnconfirmed: ["song:b", "song:unknown"])
+        #expect(marked.schemaVersion == 3)
+        #expect(marked.signaturesByIdentifier["song:b"] == SpotlightIndexCheckpoint.unconfirmedSignature)
+        #expect(marked.signaturesByIdentifier["song:unknown"] == nil)
+        #expect(marked.signaturesByIdentifier["song:a"] == "1")
+
+        let records = [
+            SpotlightIndexRecord(identifier: "song:a", signature: "1"),
+            SpotlightIndexRecord(identifier: "song:b", signature: "2"),
+            SpotlightIndexRecord(identifier: "album:x", signature: "3"),
+        ]
+        let plan = SpotlightIndexPlanner.makePlan(currentRecords: records, previousManifest: marked, schemaVersion: 3)
+        #expect(plan.identifiersToUpsert == ["song:b"])
+        #expect(!plan.requiresFullRebuild)
+        let coverage = SpotlightIndexCoverage.measure(wanted: plan.nextManifest, stored: marked, textOnlySuffix: "~text")
+        #expect(coverage == SpotlightIndexCoverage(total: 3, indexed: 2, awaitingArtwork: 0))
+    }
+}

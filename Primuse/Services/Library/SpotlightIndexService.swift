@@ -139,6 +139,8 @@ final class SpotlightIndexService {
     private var pendingTask: Task<Void, Never>?
     private var pendingGeneration: UUID?
     private var queuedSnapshot: LibrarySnapshot?
+    /// 设置页核对时清单记着、系统索引里却查不到的条目,交给下一轮同步当作未确认重写。
+    private var identifiersMissingFromIndex: Set<String> = []
     private var needsSynchronization = true
     #if os(iOS)
     /// Keep opportunistic full-library indexing out of the interactive
@@ -321,16 +323,38 @@ final class SpotlightIndexService {
         #endif
     }
 
-    /// 打开设置页时量一次收录进度:没在建时拿本机记下的清单比对这份曲库,不碰索引本身。
+    /// 打开设置页时量一次收录进度:没在建时拿本机记下的清单比对这份曲库,再到系统索引里查一遍
+    /// App 自己的条目 —— 清单说写进去了、索引里却没有的,按没收录算,交给下一轮重写(#346)。
     func refreshStatus(library: MusicLibrary) {
         guard library.isReady, workPhase != .running, status.beginMeasuring() else { return }
         let snapshot = makeLibrarySnapshot(library: library)
         let manifestURL = self.manifestURL
         let status = self.status
-        Task.detached(priority: .utility) {
-            let coverage = Self.measureCoverage(snapshot: snapshot, manifestURL: manifestURL)
+        Task.detached(priority: .utility) { [weak self] in
+            var stored = Self.loadManifest(from: manifestURL)
+            var missing: Set<String> = []
+            if let manifest = stored, let found = await Self.indexedIdentifiers() {
+                switch SpotlightIndexVerification.compare(manifest: manifest, found: found) {
+                case .consistent:
+                    spotlightLog.notice("Spotlight index verified: \(found.count) items")
+                case .missing(let identifiers):
+                    missing = identifiers
+                    stored = SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: identifiers)
+                    let sample = identifiers.sorted().prefix(5).joined(separator: ",")
+                    spotlightLog.error("Spotlight index is missing \(identifiers.count) of its items (found \(found.count)); e.g. \(sample, privacy: .public)")
+                case .inconclusive:
+                    spotlightLog.notice("Spotlight index query returned nothing; keeping the manifest")
+                }
+            }
+            let coverage = Self.measureCoverage(snapshot: snapshot, stored: stored)
             await status.finishMeasuring(coverage, exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs)
+            if !missing.isEmpty { await self?.scheduleRewrite(of: missing) }
         }
+    }
+
+    private func scheduleRewrite(of identifiers: Set<String>) {
+        identifiersMissingFromIndex.formUnion(identifiers)
+        persistSynchronizationPending()
     }
 
     /// 设置页里的「现在建立」。iOS 平时只在退到后台、没在播放时建;点了就在这一页前台接着建,
@@ -354,7 +378,7 @@ final class SpotlightIndexService {
 
     private nonisolated static func measureCoverage(
         snapshot: LibrarySnapshot,
-        manifestURL: URL
+        stored: SpotlightIndexManifest?
     ) -> SpotlightIndexCoverage? {
         guard let prepared = prepareSnapshot(snapshot) else { return nil }
         let wanted = SpotlightIndexPlanner.makePlan(
@@ -364,9 +388,34 @@ final class SpotlightIndexService {
         ).nextManifest
         return SpotlightIndexCoverage.measure(
             wanted: wanted,
-            stored: loadManifest(from: manifestURL),
+            stored: stored,
             textOnlySuffix: textOnlySignatureSuffix
         )
+    }
+
+    /// App 写进系统索引的全部条目标识(每条都有 title)。查询出错、或者平台没有这个查询时是 nil。
+    private nonisolated static func indexedIdentifiers() async -> Set<String>? {
+        #if os(tvOS)
+        return nil
+        #else
+        return await withCheckedContinuation { continuation in
+            let context = CSSearchQueryContext()
+            context.fetchAttributes = ["title"]
+            let query = CSSearchQuery(queryString: "title == \"*\"", queryContext: context)
+            let collector = IndexedIdentifierCollector()
+            query.foundItemsHandler = { collector.append($0) }
+            query.completionHandler = { error in
+                _ = query
+                if let error {
+                    spotlightLog.error("Spotlight index query failed: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                } else {
+                    continuation.resume(returning: collector.identifiers())
+                }
+            }
+            query.start()
+        }
+        #endif
     }
 
     static func parse(uniqueIdentifier: String) -> SpotlightItem? {
@@ -409,6 +458,8 @@ final class SpotlightIndexService {
         let manifestURL = self.manifestURL
         let thumbnailDirectoryURL = self.thumbnailDirectoryURL
         let status = self.status
+        let missingFromIndex = identifiersMissingFromIndex
+        identifiersMissingFromIndex = []
         pendingGeneration = generation
         workPhase = .debouncing
 
@@ -420,6 +471,7 @@ final class SpotlightIndexService {
             }
             guard !Task.isCancelled,
                   await self?.transitionToRunning(generation: generation) == true else {
+                await self?.returnMissingIdentifiers(missingFromIndex)
                 return
             }
 
@@ -427,14 +479,21 @@ final class SpotlightIndexService {
                 snapshot: snapshot,
                 manifestURL: manifestURL,
                 thumbnailDirectoryURL: thumbnailDirectoryURL,
-                status: status
+                status: status,
+                missingFromIndex: missingFromIndex
             )
+            // 没跑完的那一轮可能还没把它们记成未确认,留给下一轮;已经重写过的再写一次也无妨。
+            if !succeeded { await self?.returnMissingIdentifiers(missingFromIndex) }
             await self?.finishSynchronization(
                 generation: generation,
                 synchronizationRevision: synchronizationRevision,
                 succeeded: succeeded
             )
         }
+    }
+
+    private func returnMissingIdentifiers(_ identifiers: Set<String>) {
+        identifiersMissingFromIndex.formUnion(identifiers)
     }
 
     private func transitionToRunning(generation: UUID) -> Bool {
@@ -493,7 +552,8 @@ final class SpotlightIndexService {
         snapshot: LibrarySnapshot,
         manifestURL: URL,
         thumbnailDirectoryURL: URL,
-        status: SpotlightIndexStatus
+        status: SpotlightIndexStatus,
+        missingFromIndex: Set<String> = []
     ) async -> Bool {
         let exceedsSongLimit = snapshot.songs.count > maxIndexedSongs
         guard canPerformIndexing, !Task.isCancelled else {
@@ -517,7 +577,7 @@ final class SpotlightIndexService {
         }
 
         guard let prepared = prepareSnapshot(snapshot), !Task.isCancelled else { return false }
-        let previousManifest = loadManifest(from: manifestURL)
+        let storedManifest = loadManifest(from: manifestURL)
         let index = CSSearchableIndex(name: kSpotlightIndexName)
         let clientStateResult = await fetchClientState(from: index)
         if let error = clientStateResult.error {
@@ -526,9 +586,18 @@ final class SpotlightIndexService {
             spotlightLog.error("Spotlight client-state fetch failed: \(error.localizedDescription)")
             return false
         }
-        let expectedClientState = previousManifest.map(clientState(for:))
+        let expectedClientState = storedManifest.map(clientState(for:))
         let clientStateMatches = clientStateResult.data == expectedClientState
-        let forceFullRebuild = previousManifest != nil && !clientStateMatches
+        let forceFullRebuild = storedManifest != nil && !clientStateMatches
+        // 系统索引里查不到的条目按未确认算,这一轮把它们重新写进去(#346)。
+        let previousManifest = storedManifest.map { manifest in
+            missingFromIndex.isEmpty || forceFullRebuild
+                ? manifest
+                : SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: missingFromIndex)
+        }
+        if !missingFromIndex.isEmpty {
+            spotlightLog.notice("Spotlight rewriting \(missingFromIndex.count) items missing from the system index")
+        }
         let plan = SpotlightIndexPlanner.makePlan(
             currentRecords: prepared.records,
             previousManifest: previousManifest,
@@ -1305,6 +1374,26 @@ struct PrimuseSearchInAppIntent: ShowInAppSearchResultsIntent {
         return .result()
     }
 }
+
+#if !os(tvOS)
+/// 查询结果分批从别的线程回来,收在这里。
+private final class IndexedIdentifierCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var found: Set<String> = []
+
+    func append(_ items: [CSSearchableItem]) {
+        lock.lock()
+        defer { lock.unlock() }
+        for item in items { found.insert(item.uniqueIdentifier) }
+    }
+
+    func identifiers() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return found
+    }
+}
+#endif
 
 enum SpotlightItem: Sendable, Equatable {
     case song(id: String)
