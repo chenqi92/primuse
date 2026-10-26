@@ -891,6 +891,36 @@ struct AppleMusicPlaybackEndPolicyTests {
         ))
     }
 
+    @Test("A known duration still ends on a clock reset near the end")
+    func recognizesEndWithKnownDuration() {
+        // 资料库与目录的时长差几秒、轮询没赶上最后几拍。
+        #expect(AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 255,
+            hasCurrentEntry: true,
+            duration: 262.43
+        ))
+        #expect(AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 238,
+            hasCurrentEntry: false,
+            duration: 262.43
+        ))
+        // 短歌按 20 秒容差算。
+        #expect(AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 41,
+            hasCurrentEntry: true,
+            duration: 60
+        ))
+        #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 39,
+            hasCurrentEntry: true,
+            duration: 60
+        ))
+    }
+
     @Test("A pause held mid-track is not a terminal clock reset")
     func rejectsMidTrackPauseAsEnd() {
         #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
@@ -903,6 +933,19 @@ struct AppleMusicPlaybackEndPolicyTests {
             playbackTime: 0,
             furthestObservedTime: 2,
             hasCurrentEntry: false
+        ))
+        // 时长已知、播到一半暂停且时钟归零(外部打断): 不是播完。
+        #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 112.3,
+            hasCurrentEntry: true,
+            duration: 262.43
+        ))
+        #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 112.3,
+            furthestObservedTime: 112.3,
+            hasCurrentEntry: false,
+            duration: 262.43
         ))
         #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
             hasObservedActivePlayback: true,

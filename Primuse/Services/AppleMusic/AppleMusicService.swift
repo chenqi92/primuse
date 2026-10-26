@@ -1064,7 +1064,8 @@ final class AppleMusicService {
          let clockReset = AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
              playbackTime: playbackTime,
              furthestObservedTime: furthestObservedPlaybackTime,
-             hasCurrentEntry: player.queue.currentEntry != nil
+             hasCurrentEntry: player.queue.currentEntry != nil,
+             duration: currentDuration
          )
          let endedAfterPlaying = !hasNativeContinuation && AppleMusicPlaybackEndPolicy.shouldAdvance(
              hasObservedActivePlayback: hasObservedActivePlayback,

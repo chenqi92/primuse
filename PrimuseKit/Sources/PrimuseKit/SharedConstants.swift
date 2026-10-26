@@ -3135,12 +3135,21 @@ public enum AppleMusicPlaybackEndPolicy {
     /// `Song.duration` 可能是 nil, 此时 `isNearEnd` 永远为 false,
     /// 光靠近尾判定就再也认不出曲末。用户在控制中心手动暂停时时钟停在
     /// 原地而不是归零, 所以这个信号不会把暂停误当成播完。
+    ///
+    /// 时长已知时还要播到过离结尾不远的地方: 播到一半被外部打断时 MusicKit 也会
+    /// 暂停并把时钟归零, 那不是播完。容差比 `isNearEnd` 宽得多, 资料库与目录给的
+    /// 时长差几秒、轮询漏掉最后几拍时照样认得出曲末。
     public static func clockResetAfterPlayback(
         playbackTime: TimeInterval,
         furthestObservedTime: TimeInterval,
-        hasCurrentEntry: Bool
+        hasCurrentEntry: Bool,
+        duration: TimeInterval = 0
     ) -> Bool {
         guard furthestObservedTime > 5 else { return false }
+        if duration.isFinite, duration > 0,
+           furthestObservedTime < duration - max(20, duration * 0.1) {
+            return false
+        }
         return !hasCurrentEntry || playbackTime <= 0.05
     }
 
