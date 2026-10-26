@@ -2269,6 +2269,11 @@
 "lyrics_translation_unavailable" = "Tłumaczenie tekstów piosenek jest niedostępne";
 "lyrics_word" = "Tekst utworu";
 "lyrics_word_level_badge" = "Słowo";
+"lyrics_source_badge_file_format" = "Plik %@";
+"lyrics_source_badge_file" = "Plik z tekstem";
+"lyrics_source_badge_embedded" = "Osadzony";
+"lyrics_source_badge_local_edit" = "Edytowano na tym urządzeniu";
+"lyrics_source_badge_a11y_format" = "Źródło tekstu: %@";
 "lyrics_word_level_hint" = "Obsługuje teksty na poziomie słów";
 "mac_launch_aborted_title" = "Poprzednie uruchomienie nie zostało ukończone";
 "mac_launch_aborted_hint" = "Wyślij poniższe informacje do dewelopera, aby pomóc ustalić przyczynę.";
@@ -2633,6 +2638,8 @@
 "player_tap_lyrics_to_seek_description" = "Dotknij zsynchronizowanego wersu, aby przejść do tego momentu. Przewijanie tekstu nie zmienia pozycji odtwarzania.";
 "player_lyrics_browse_timeline" = "Linijka podczas przeciągania tekstu";
 "player_lyrics_browse_timeline_description" = "Podczas przeciągania tekstu pokazuje linię pomocniczą z czasem wersu i pozwala odtworzyć od niego.";
+"player_lyrics_source_badge" = "Pokazuj źródło tekstu";
+"player_lyrics_source_badge_description" = "Nad tekstem piosenki widać, skąd pochodzi: plik z tekstem, osadzone tagi, Twój serwer muzyczny lub internetowe źródło tekstów.";
 "lyrics_play_from_line" = "Odtwarzaj od tego wiersza";
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";

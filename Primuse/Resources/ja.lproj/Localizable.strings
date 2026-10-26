@@ -887,6 +887,11 @@
 "cookie_placeholder" = "ここに Cookie を貼り付け";
 "cookie_config_message" = "任意: Cookie を入力するとアクセスが改善されます。空欄の場合は匿名でアクセスします。";
 "lyrics_word_level_badge" = "ワード";
+"lyrics_source_badge_file_format" = "%@ ファイル";
+"lyrics_source_badge_file" = "歌詞ファイル";
+"lyrics_source_badge_embedded" = "埋め込み歌詞";
+"lyrics_source_badge_local_edit" = "この端末で編集";
+"lyrics_source_badge_a11y_format" = "歌詞のソース：%@";
 "search_limit_per_source" = "ソースごとの結果数";
 "lyrics_word_level_hint" = "ワード単位の歌詞に対応";
 "lyrics_offset" = "歌詞オフセット";
@@ -3361,6 +3366,8 @@
 "player_tap_lyrics_to_seek_description" = "同期歌詞の行をタップすると、その位置へ移動します。スクロールではシークしません。";
 "player_lyrics_browse_timeline" = "歌詞ドラッグ時にルーラーを表示";
 "player_lyrics_browse_timeline_description" = "歌詞をドラッグ中にガイド線とその行の時間を表示し、その行から再生できます。";
+"player_lyrics_source_badge" = "歌詞のソースを表示";
+"player_lyrics_source_badge_description" = "歌詞の先頭に、取得元（歌詞ファイル、埋め込み歌詞、音楽サーバ、オンライン歌詞ソース）を表示します。";
 "lyrics_play_from_line" = "この行から再生";
 "server_favorite_unsupported" = "このソースはサーバー側のお気に入りに対応していません。";
 "server_favorite_refresh_mismatch" = "サーバーから返されたお気に入り状態がリクエストと一致しませんでした。";

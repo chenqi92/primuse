@@ -886,6 +886,11 @@
 "cookie_placeholder" = "Cookie hier einfügen";
 "cookie_config_message" = "Optional: Gib ein Cookie an, um den Zugriff zu verbessern. Leer lassen für anonymen Zugriff.";
 "lyrics_word_level_badge" = "Wort";
+"lyrics_source_badge_file_format" = "%@-Datei";
+"lyrics_source_badge_file" = "Liedtextdatei";
+"lyrics_source_badge_embedded" = "Eingebettet";
+"lyrics_source_badge_local_edit" = "Lokal bearbeitet";
+"lyrics_source_badge_a11y_format" = "Liedtextquelle: %@";
 "search_limit_per_source" = "Ergebnisse pro Quelle";
 "lyrics_word_level_hint" = "Unterstützt wortgenaue Liedtexte";
 "lyrics_offset" = "Liedtext-Versatz";
@@ -3360,6 +3365,8 @@
 "player_tap_lyrics_to_seek_description" = "Tippe auf eine synchronisierte Zeile, um zu dieser Stelle zu springen. Scrollen spult nicht.";
 "player_lyrics_browse_timeline" = "Lineal beim Ziehen des Liedtexts";
 "player_lyrics_browse_timeline_description" = "Zeigt beim Ziehen des Liedtexts eine Hilfslinie mit der Zeit der Zeile und spielt auf Wunsch ab dieser Zeile ab.";
+"player_lyrics_source_badge" = "Liedtextquelle anzeigen";
+"player_lyrics_source_badge_description" = "Zeigt über dem Liedtext, woher er stammt: Liedtextdatei, eingebettete Tags, dein Musikserver oder eine Online-Liedtextquelle.";
 "lyrics_play_from_line" = "Ab dieser Zeile abspielen";
 "server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";
 "server_favorite_refresh_mismatch" = "Der vom Server gemeldete Favoritenstatus entspricht nicht der Anfrage.";

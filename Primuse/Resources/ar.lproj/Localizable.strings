@@ -2269,6 +2269,11 @@
 "lyrics_translation_unavailable" = "ترجمة الكلمات غير متوفرة";
 "lyrics_word" = "كلمات الأغاني";
 "lyrics_word_level_badge" = "كلمة";
+"lyrics_source_badge_file_format" = "ملف %@";
+"lyrics_source_badge_file" = "ملف كلمات";
+"lyrics_source_badge_embedded" = "مضمّنة";
+"lyrics_source_badge_local_edit" = "عُدّلت على هذا الجهاز";
+"lyrics_source_badge_a11y_format" = "مصدر الكلمات: %@";
 "lyrics_word_level_hint" = "يدعم كلمات الأغاني المتزامنة كلمة بكلمة";
 "mac_launch_aborted_title" = "لم يكتمل تشغيل Primuse في المرة الماضية";
 "mac_launch_aborted_hint" = "أرسل التفاصيل أدناه إلى المطوّر للمساعدة في تحديد السبب.";
@@ -2633,6 +2638,8 @@
 "player_tap_lyrics_to_seek_description" = "اضغط على سطر كلمات متزامن للانتقال إلى توقيته. تمرير الكلمات لا يغيّر موضع التشغيل.";
 "player_lyrics_browse_timeline" = "مسطرة عند سحب الكلمات";
 "player_lyrics_browse_timeline_description" = "يعرض خطًا إرشاديًا مع توقيت السطر أثناء سحب الكلمات، ويتيح التشغيل من ذلك السطر.";
+"player_lyrics_source_badge" = "عرض مصدر الكلمات";
+"player_lyrics_source_badge_description" = "يظهر أعلى الكلمات مصدرها: ملف كلمات، أو وسوم مضمّنة، أو خادم الموسيقى، أو مصدر كلمات عبر الإنترنت.";
 "lyrics_play_from_line" = "التشغيل من هذا السطر";
 "player_volume_bar" = "منزلق الصوت";
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";

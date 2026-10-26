@@ -5596,6 +5596,8 @@ private struct MacSTLyricsView: View {
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
+    private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -5840,6 +5842,16 @@ private struct MacSTLyricsView: View {
                             ))
                     }
                     .settingsAnchor("lyrics.tapToSeek")
+                    MacSTRow(
+                        String(localized: "player_lyrics_source_badge"),
+                        hint: String(localized: "player_lyrics_source_badge_description"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTToggle(isOn: $showsLyricsSource)
+                            .accessibilityLabel(Text("player_lyrics_source_badge"))
+                            .accessibilityHint(Text("player_lyrics_source_badge_description"))
+                    }
+                    .settingsAnchor("lyrics.sourceBadge")
                     MacSTRow(
                         String(localized: "player_lyrics_interlude_dots"),
                         hint: String(localized: "player_lyrics_interlude_dots_description"),

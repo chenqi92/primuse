@@ -269,9 +269,12 @@ public actor LyricsSourceRefreshCoordinator {
                 } else {
                     refreshed = fetched
                 }
+                // 内容没变,但这次多知道了歌词来自哪台服务器(旧缓存没记来源)时照样写一次,
+                // 播放页才标得出来源(#357)。
                 if let currentDocument,
                    LyricsDocumentFingerprint(lines: currentDocument)
-                    == LyricsDocumentFingerprint(lines: refreshed) {
+                    == LyricsDocumentFingerprint(lines: refreshed),
+                   !LyricsDocumentSource.adds(to: currentDocument, from: refreshed) {
                     return .unchanged
                 }
                 return await replace(refreshed)

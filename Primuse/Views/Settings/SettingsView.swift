@@ -361,6 +361,8 @@ struct LyricsAppearanceSections: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
+    private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -566,6 +568,13 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.browseTimeline")
                 .accessibilityHint(Text("player_lyrics_browse_timeline_description"))
                 .accessibilityIdentifier("playerLyricsBrowseTimelineToggle")
+
+            Toggle(isOn: $showsLyricsSource) {
+                SettingsInfoLabel("player_lyrics_source_badge") {
+                    Text("player_lyrics_source_badge_description")
+                }
+            }
+            .settingsAnchor("lyrics.sourceBadge")
 
             Toggle(isOn: $showsLyricsInterlude) {
                 SettingsInfoLabel("player_lyrics_interlude_dots") {

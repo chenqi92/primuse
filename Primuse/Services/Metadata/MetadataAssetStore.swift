@@ -584,7 +584,8 @@ actor MetadataAssetStore {
             try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
-        return Self.normalizedCachedLyrics(lines)
+        // 这份备用只存读标签时的内嵌歌词;早先存下的没有来源记号,读出来补上(#357)。
+        return LyricsDocumentSource.embedded.stamped(Self.normalizedCachedLyrics(lines))
     }
 
     /// 缓存命中后回源核对过歌词文件时, 歌上记的歌词引用是什么。引用没变(扫描没发现

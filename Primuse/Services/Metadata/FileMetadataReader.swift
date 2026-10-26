@@ -237,7 +237,8 @@ enum FileMetadataReader {
                 makePreferred: document.makePreferred
             )
         }
-        return lines
+        // 播放页的来源标签按这一笔写「内嵌歌词」(#357)。
+        return LyricsDocumentSource.embedded.stamped(lines)
     }
 
     /// Reads metadata from an audio file using AVFoundation.

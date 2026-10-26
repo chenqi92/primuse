@@ -886,6 +886,11 @@
 "cookie_placeholder" = "여기에 Cookie 붙여넣기";
 "cookie_config_message" = "선택 사항: Cookie를 제공하면 접근이 개선됩니다. 익명으로 접근하려면 비워 두세요.";
 "lyrics_word_level_badge" = "한 글자씩";
+"lyrics_source_badge_file_format" = "%@ 파일";
+"lyrics_source_badge_file" = "가사 파일";
+"lyrics_source_badge_embedded" = "내장 가사";
+"lyrics_source_badge_local_edit" = "이 기기에서 수정";
+"lyrics_source_badge_a11y_format" = "가사 출처: %@";
 "search_limit_per_source" = "소스당 결과 수";
 "lyrics_word_level_hint" = "한 글자씩 표시되는 가사 지원";
 "lyrics_offset" = "가사 오프셋";
@@ -3360,6 +3365,8 @@
 "player_tap_lyrics_to_seek_description" = "동기화된 가사 줄을 탭하면 해당 위치로 이동합니다. 가사를 스크롤해도 재생 위치는 바뀌지 않습니다.";
 "player_lyrics_browse_timeline" = "가사를 드래그할 때 눈금 표시";
 "player_lyrics_browse_timeline_description" = "가사를 드래그하는 동안 안내선과 해당 줄의 시간을 표시하고, 그 줄부터 재생할 수 있습니다.";
+"player_lyrics_source_badge" = "가사 출처 표시";
+"player_lyrics_source_badge_description" = "가사 맨 위에 가사를 가져온 곳(가사 파일, 내장 가사, 음악 서버, 온라인 가사 소스)을 표시합니다.";
 "lyrics_play_from_line" = "이 가사부터 재생";
 "server_favorite_unsupported" = "이 소스는 서버 즐겨찾기를 지원하지 않습니다.";
 "server_favorite_refresh_mismatch" = "서버가 반환한 즐겨찾기 상태가 요청과 일치하지 않습니다.";

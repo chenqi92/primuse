@@ -880,6 +880,115 @@ public struct LyricManualTranslation: Identifiable, Codable, Hashable, Sendable 
     }
 }
 
+/// 这份歌词是从哪儿读来的(#357):播放页歌词顶上那枚来源标签按它写。
+///
+/// 和 `documentIsLocalOverride` 一样只记在第一行上,随歌词缓存一起存。旧缓存没有这一项,
+/// 读出来是 nil,界面上就不标来源;更新的版本写下的、这里认不出的来源同样读成 nil,
+/// 不会让整份歌词读不出来。来源不进 `LyricsDocumentFingerprint`:同一份歌词换个来源记法不算改了内容。
+public struct LyricsDocumentSource: Codable, Hashable, Sendable {
+    public enum Kind: String, Codable, Hashable, Sendable {
+        /// 歌曲旁边的歌词文件。`identifier` 是小写、不带点的扩展名。
+        case file
+        /// 音频文件标签里的歌词。
+        case embedded
+        /// 音乐服务器给的歌词。`identifier` 是 `MusicSourceType.rawValue`。
+        case server
+        /// 在线歌词源。`identifier` 是刮削源的 rawValue,`name` 是取到那一刻它的名字
+        /// (自定义源后来被删了,还能照这个名字写)。
+        case online
+        /// 导入「音乐」App 的本机文件里的歌词。
+        case appleMusic
+    }
+
+    public var kind: Kind
+    public var identifier: String?
+    public var name: String?
+
+    public init(kind: Kind, identifier: String? = nil, name: String? = nil) {
+        self.kind = kind
+        self.identifier = identifier
+        self.name = name
+    }
+
+    /// 歌词文件。`pathOrName` 给文件名或路径都行,只取扩展名。
+    public static func file(_ pathOrName: String?) -> LyricsDocumentSource {
+        let ext = (pathOrName ?? "")
+            .split(separator: "/").last
+            .map { String($0) }
+            .flatMap { name -> String? in
+                guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return nil }
+                return String(name[name.index(after: dot)...]).lowercased()
+            }
+        return LyricsDocumentSource(kind: .file, identifier: ext?.isEmpty == false ? ext : nil)
+    }
+
+    public static let embedded = LyricsDocumentSource(kind: .embedded)
+    public static let appleMusic = LyricsDocumentSource(kind: .appleMusic)
+
+    public static func server(_ sourceType: String) -> LyricsDocumentSource {
+        LyricsDocumentSource(kind: .server, identifier: sourceType)
+    }
+
+    public static func online(identifier: String, name: String) -> LyricsDocumentSource {
+        LyricsDocumentSource(kind: .online, identifier: identifier, name: name)
+    }
+
+    /// 一份歌词记着的来源。记在第一行上;读缓存时双语配对、对唱分组可能把第一行并进别的行
+    /// 或挪进和声,所以往后多看几行、连同和声一起找。
+    public static func of(_ lines: [LyricLine]) -> LyricsDocumentSource? {
+        for line in lines.prefix(4) {
+            if let source = line.documentSource { return source }
+            if let source = line.background?.lazy.compactMap(\.documentSource).first { return source }
+        }
+        return nil
+    }
+
+    /// 同一份歌词重读一遍后,新的那份是否记下了旧的那份没有(或不同)的来源。
+    public static func adds(to current: [LyricLine], from refreshed: [LyricLine]) -> Bool {
+        guard let source = of(refreshed) else { return false }
+        return of(current) != source
+    }
+
+    /// 把来源记到第一行上;空歌词原样返回。产出歌词的地方(读文件、读标签、问服务器、在线取)调它。
+    public func stamped(_ lines: [LyricLine]) -> [LyricLine] {
+        guard !lines.isEmpty else { return lines }
+        var stamped = lines
+        stamped[0].documentSource = self
+        return stamped
+    }
+}
+
+/// 歌词顶上那枚来源标签写什么(#357)。本机改过的歌词不论原来从哪儿来,都标成本机修改。
+public enum LyricsSourceBadge: Hashable, Sendable {
+    case localEdit
+    /// `format` 是大写的扩展名(TTML、LRC…),不知道扩展名时为 nil。
+    case file(format: String?)
+    case embedded
+    case server(sourceType: String)
+    case online(identifier: String, name: String)
+    case appleMusic
+
+    public static func resolve(_ lines: [LyricLine]) -> LyricsSourceBadge? {
+        guard let first = lines.first else { return nil }
+        if first.documentIsLocalOverride { return .localEdit }
+        guard let source = LyricsDocumentSource.of(lines) else { return nil }
+        switch source.kind {
+        case .file:
+            return .file(format: source.identifier.map { $0.uppercased() })
+        case .embedded:
+            return .embedded
+        case .server:
+            guard let type = source.identifier, !type.isEmpty else { return nil }
+            return .server(sourceType: type)
+        case .online:
+            guard let identifier = source.identifier, !identifier.isEmpty else { return nil }
+            return .online(identifier: identifier, name: source.name ?? "")
+        case .appleMusic:
+            return .appleMusic
+        }
+    }
+}
+
 public struct LyricLine: Identifiable, Hashable, Sendable {
     public var id: String
     public var timestamp: TimeInterval
@@ -910,6 +1019,8 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     /// must not be replaced by automatic source revalidation until an explicit
     /// conflict-resolution workflow writes a new authoritative document.
     public var documentIsLocalOverride: Bool
+    /// 这份歌词从哪儿来,同样只记在第一行上(见 `LyricsDocumentSource`)。
+    public var documentSource: LyricsDocumentSource?
     /// An authoritative human translation paired with this source line. Old
     /// caches omit this key and continue to decode with a nil value.
     public var manualTranslation: LyricManualTranslation?
@@ -937,7 +1048,8 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         documentIsLocalOverride: Bool = false,
         manualTranslation: LyricManualTranslation? = nil,
         alternateManualTranslations: [LyricManualTranslation] = [],
-        romanization: String? = nil
+        romanization: String? = nil,
+        documentSource: LyricsDocumentSource? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -953,6 +1065,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.manualTranslation = manualTranslation
         self.alternateManualTranslations = alternateManualTranslations
         self.romanization = romanization
+        self.documentSource = documentSource
     }
 
     /// 行结束时间。结构化行末与最后一字取较晚者；普通 LRC 无信息，外部仍需靠下一行推断。
@@ -1085,6 +1198,7 @@ extension LyricLine: Codable {
         case id, timestamp, text, isSynchronized, syllables, endTimestamp
         case voice, background, metadataLines, languageCode, documentIsLocalOverride
         case manualTranslation, alternateManualTranslations, romanization
+        case documentSource
     }
 
     public init(from decoder: Decoder) throws {
@@ -1113,6 +1227,11 @@ extension LyricLine: Codable {
             forKey: .alternateManualTranslations
         ) ?? []
         self.romanization = try c.decodeIfPresent(String.self, forKey: .romanization)
+        // 认不出的来源(更新的版本写的)当作没记,不让整份歌词解码失败。
+        self.documentSource = try? c.decodeIfPresent(
+            LyricsDocumentSource.self,
+            forKey: .documentSource
+        )
 
         // Older parsers cached square-bracket word lyrics as unsynchronized
         // source text. Recover only that lossless shape, retaining row identity
@@ -1151,6 +1270,7 @@ extension LyricLine: Codable {
             try c.encode(alternateManualTranslations, forKey: .alternateManualTranslations)
         }
         try c.encodeIfPresent(romanization, forKey: .romanization)
+        try c.encodeIfPresent(documentSource, forKey: .documentSource)
     }
 }
 

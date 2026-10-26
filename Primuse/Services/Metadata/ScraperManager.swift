@@ -859,17 +859,25 @@ actor ScraperManager {
         return data
     }
 
+    /// 在线歌词源取回的歌词都从这里解析,顺手记下是哪个源(#357):自动取、手动挑候选都一样。
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {
+        let parsed: [LyricLine]?
         if let lrc = result.lrcContent, !lrc.isEmpty {
             let text = TextEncodingRepair.repairedLyricsDocument(lrc) ?? lrc
-            return usableOnlineLyrics(LyricsParser.parse(text), source: result.source)
-        }
-        if let plain = result.plainText,
-           !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parsed = usableOnlineLyrics(LyricsParser.parse(text), source: result.source)
+        } else if let plain = result.plainText,
+                  !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let text = TextEncodingRepair.repairedLyricsDocument(plain) ?? plain
-            return usableOnlineLyrics(LyricsParser.parseText(text), source: result.source)
+            parsed = usableOnlineLyrics(LyricsParser.parseText(text), source: result.source)
+        } else {
+            parsed = nil
         }
-        return nil
+        return parsed.map {
+            LyricsDocumentSource.online(
+                identifier: result.source.rawValue,
+                name: result.source.displayName
+            ).stamped($0)
+        }
     }
 
     /// 歌词源给的也可能是别人按 UTF-8 解坏了的 GBK / Big5 歌词(自建歌词服务读本地 `.lrc`、

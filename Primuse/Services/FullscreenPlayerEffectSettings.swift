@@ -191,6 +191,10 @@ enum PlayerAppearancePreferences {
     /// 拖动歌词时显示定位标尺（时间与从该句播放）。
     static let showsLyricsBrowseTimelineKey = "primuse.player.showsLyricsBrowseTimeline"
     static let showsLyricsBrowseTimelineByDefault = false
+    /// 歌词最上面标出这份歌词从哪儿来(歌词文件、内嵌、音乐服务器、在线歌词源,#357)。
+    /// 键名不带点号(见 #344 的教训)。
+    static let showsLyricsSourceKey = "playerShowsLyricsSource"
+    static let showsLyricsSourceByDefault = true
 
     /// 播放页控件(进度条、开着的随机与循环、功能块里的强调色)跟主题色,还是单色(#189)。
     static let controlTintKey = "primuse.player.controlTint"

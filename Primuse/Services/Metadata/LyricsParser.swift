@@ -6,12 +6,18 @@ enum LyricsParser {
         LyricsContentParser.parseText(content)
     }
 
+    /// 读一个歌词文件,并记下歌词来自这个文件(#357)。
     static func parse(from url: URL) throws -> [LyricLine] {
         let data = try Data(contentsOf: url)
         guard let content = decodeText(data, label: url.lastPathComponent) else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }
-        return parse(content)
+        return parseDocument(content, fileName: url.lastPathComponent)
+    }
+
+    /// 歌曲旁边那个歌词文件的内容 → 歌词,并记下来源是这个文件(按扩展名标 TTML、LRC…)。
+    static func parseDocument(_ content: String, fileName: String) -> [LyricLine] {
+        LyricsDocumentSource.file(fileName).stamped(parse(content))
     }
 
     /// 歌词文件的字节 → 文本。不只认 UTF-8:GBK / Big5 / Shift_JIS / 无 BOM 的 UTF-16

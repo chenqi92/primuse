@@ -70,8 +70,9 @@ enum AppleMusicLocalFileReader {
         let metadata = file.assetURL.isFileURL
             ? await FileMetadataReader.read(from: file.assetURL)
             : await FileMetadataReader.readAssetMetadata(at: file.assetURL)
+        // 导进「音乐」App 的文件:来源标签写 Apple Music,而不是笼统的内嵌歌词(#357)。
         if let lines = FileMetadataReader.parsedEmbeddedLyrics(from: metadata), !lines.isEmpty {
-            return lines
+            return LyricsDocumentSource.appleMusic.stamped(lines)
         }
         #if os(iOS)
         // MPMediaQuery off the main thread queues behind every other media
@@ -81,7 +82,7 @@ enum AppleMusicLocalFileReader {
         }
         if let text {
             let lines = LyricsParser.parse(text)
-            if !lines.isEmpty { return lines }
+            if !lines.isEmpty { return LyricsDocumentSource.appleMusic.stamped(lines) }
         }
         #endif
         return nil

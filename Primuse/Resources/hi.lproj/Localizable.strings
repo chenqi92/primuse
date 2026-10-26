@@ -2269,6 +2269,11 @@
 "lyrics_translation_unavailable" = "गीत के बोल का अनुवाद उपलब्ध नहीं है";
 "lyrics_word" = "गीत के बोल";
 "lyrics_word_level_badge" = "शब्द";
+"lyrics_source_badge_file_format" = "%@ फ़ाइल";
+"lyrics_source_badge_file" = "बोल फ़ाइल";
+"lyrics_source_badge_embedded" = "एम्बेड किए गए";
+"lyrics_source_badge_local_edit" = "इस डिवाइस पर बदले गए";
+"lyrics_source_badge_a11y_format" = "बोल का स्रोत: %@";
 "lyrics_word_level_hint" = "शब्द-दर-शब्द बोल का समर्थन";
 "mac_launch_aborted_title" = "पिछली बार Primuse पूरी तरह शुरू नहीं हो पाया";
 "mac_launch_aborted_hint" = "कारण पता लगाने में मदद के लिए नीचे दी गई जानकारी डेवलपर को भेजें।";
@@ -2633,6 +2638,8 @@
 "player_tap_lyrics_to_seek_description" = "सिंक की गई पंक्ति पर टैप करके उसके समय पर जाएँ। बोल स्क्रॉल करने से प्लेबैक का समय नहीं बदलता।";
 "player_lyrics_browse_timeline" = "बोल खींचते समय रूलर दिखाएँ";
 "player_lyrics_browse_timeline_description" = "बोल खींचते समय पंक्ति के समय के साथ एक गाइड लाइन दिखाएँ और उसी पंक्ति से चलाएँ।";
+"player_lyrics_source_badge" = "बोल का स्रोत दिखाएँ";
+"player_lyrics_source_badge_description" = "बोल के ऊपर दिखता है कि वे कहाँ से आए: बोल फ़ाइल, एम्बेड किए गए टैग, आपका म्यूज़िक सर्वर या कोई ऑनलाइन बोल स्रोत।";
 "lyrics_play_from_line" = "इस पंक्ति से चलाएं";
 "player_volume_bar" = "वॉल्यूम स्लाइडर";
 "player_volume_bar_description" = "प्लेयर में वॉल्यूम स्लाइडर दिखाएँ। जब यह छिपा होता है तो अन्य नियंत्रण स्वाभाविक रूप से उपलब्ध स्थान को भर देते हैं।";

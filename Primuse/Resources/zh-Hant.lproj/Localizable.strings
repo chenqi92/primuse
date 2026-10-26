@@ -635,6 +635,11 @@
 "cookie_placeholder" = "貼上 Cookie";
 "cookie_config_message" = "選用：提供 Cookie 可改善存取效果。留空則使用匿名存取。";
 "lyrics_word_level_badge" = "逐字";
+"lyrics_source_badge_file_format" = "%@ 檔案";
+"lyrics_source_badge_file" = "歌詞檔案";
+"lyrics_source_badge_embedded" = "內嵌歌詞";
+"lyrics_source_badge_local_edit" = "本機修改";
+"lyrics_source_badge_a11y_format" = "歌詞來源：%@";
 "search_limit_per_source" = "每個來源結果上限";
 "lyrics_word_level_hint" = "支援逐字歌詞";
 "lyrics_offset" = "歌詞偏移";
@@ -3346,6 +3351,8 @@
 "player_tap_lyrics_to_seek_description" = "輕點同步歌詞可跳至對應位置；捲動歌詞不會跳轉。";
 "player_lyrics_browse_timeline" = "拖動歌詞時顯示標尺";
 "player_lyrics_browse_timeline_description" = "拖動歌詞時顯示定位線與該句時間，可從該句開始播放。";
+"player_lyrics_source_badge" = "顯示歌詞來源";
+"player_lyrics_source_badge_description" = "在歌詞最上方標出這份歌詞從哪裡來：歌詞檔案、內嵌歌詞、音樂伺服器或線上歌詞來源。";
 "lyrics_play_from_line" = "從這句開始播放";
 "server_favorite_unsupported" = "此來源不支援伺服器收藏。";
 "server_favorite_refresh_mismatch" = "伺服器傳回的收藏狀態與要求不一致。";

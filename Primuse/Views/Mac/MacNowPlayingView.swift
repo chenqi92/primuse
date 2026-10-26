@@ -98,6 +98,8 @@ struct MacNowPlayingView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
+    private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -1038,6 +1040,24 @@ struct MacNowPlayingView: View {
         .frame(width: width, alignment: frameAlignment)
     }
 
+    /// 歌词最上面的「逐字」与来源标签,和手机播放页同一套(#357)。来源看读到的原文档:
+    /// 显示用的那份按设置去过译文、换过罗马音。文字稿不标来源。
+    @ViewBuilder
+    private var lyricsInfoBadges: some View {
+        let showsWordLevel = lyrics.contains(where: \.containsWordLevelContent)
+        let source = showsLyricsSource && !isSpokenWord ? LyricsSourceBadge.resolve(loadedLyrics) : nil
+        if showsWordLevel || source != nil {
+            LyricsInfoBadges(
+                showsWordLevel: showsWordLevel,
+                source: source,
+                foreground: playerSecondaryColor,
+                fill: playerGlassFill
+            )
+            .padding(.top, lyricsRowSpacing)
+            .padding(.bottom, 4)
+        }
+    }
+
     private var lyricsPane: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
@@ -1115,6 +1135,7 @@ struct MacNowPlayingView: View {
                             .padding(.top, lyricsRowSpacing)
                         }
                     } else {
+                        lyricsInfoBadges
                         let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
                         // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
                         // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。

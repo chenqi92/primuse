@@ -255,7 +255,7 @@ enum LyricsDocumentCatalog {
         sourceManager: SourceManager
     ) async throws {
         let content = try await read(entry.document, for: song, sourceManager: sourceManager)
-        let lines = LyricsParser.parse(content.text)
+        let lines = LyricsParser.parseDocument(content.text, fileName: entry.name)
         guard !lines.isEmpty else { throw CatalogError.noLyrics(entry.name) }
         try await show(lines, from: entry, for: song, sourceManager: sourceManager)
         LyricsDocumentPinStore.shared.pin(entry.name, forSongID: song.id)

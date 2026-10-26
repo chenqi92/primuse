@@ -84,6 +84,46 @@ struct LyricsSourceRefreshCoordinatorTests {
         #expect(await replacementCount.value == 0)
     }
 
+    /// 旧缓存没记来源:内容一样也写一次,播放页才标得出歌词来自哪台服务器(#357)。
+    @Test func unchangedDocumentStillRecordsANewlyKnownSource() async {
+        let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
+        let original = Self.document(lineIDs: ["a", "b", "c"])
+        let replacementCount = Counter()
+        let server = LyricsDocumentSource.server("navidrome")
+
+        let result = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "song"),
+            currentDocument: original,
+            trigger: .explicit,
+            fetch: { server.stamped(Self.document(lineIDs: ["x", "y", "z"])) },
+            replace: { _ in
+                await replacementCount.increment()
+                return true
+            }
+        )
+
+        guard case .updated(let refreshed) = result else {
+            Issue.record("expected the stamped document to be written, got \(result)")
+            return
+        }
+        #expect(LyricsDocumentSource.of(refreshed) == server)
+        #expect(await replacementCount.value == 1)
+
+        // 已经记着同一个来源,就和以前一样不写。
+        let again = await coordinator.refresh(
+            key: .init(sourceID: "source", songID: "song"),
+            currentDocument: refreshed,
+            trigger: .explicit,
+            fetch: { server.stamped(Self.document(lineIDs: ["p", "q", "r"])) },
+            replace: { _ in
+                await replacementCount.increment()
+                return true
+            }
+        )
+        #expect(again == .unchanged)
+        #expect(await replacementCount.value == 1)
+    }
+
     @Test func sourceWordTimingAuthoritativelyReplacesLineOnlyCache() async throws {
         let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 0)
         let cached = [LyricLine(timestamp: 1, text: "whole line")]

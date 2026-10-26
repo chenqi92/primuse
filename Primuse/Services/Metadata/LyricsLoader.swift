@@ -100,6 +100,9 @@ enum LyricsLoader {
         let capturedFingerprint = currentDocument.map {
             LyricsDocumentFingerprint(lines: $0)
         }
+        // 来源标签写这台服务器的类型(Navidrome、Jellyfin、飞牛…)(#357)。
+        let serverSource = AppServices.shared.sourcesStore.source(id: song.sourceID)
+            .map { LyricsDocumentSource.server($0.type.rawValue) }
 
         return await sourceRefreshCoordinator.refresh(
             key: LyricsSourceRefreshKey(sourceID: song.sourceID, songID: songID),
@@ -122,12 +125,15 @@ enum LyricsLoader {
                 let text = TextEncodingRepair.repairedLyricsDocument(raw) ?? raw
                 let parsed = LyricsParser.parseText(text)
                 guard !parsed.isEmpty else { return nil }
-                return await usableServerDocument(
-                    parsed,
+                guard let usable = await usableServerDocument(
+                    serverSource?.stamped(parsed) ?? parsed,
                     for: song,
                     cachedDocument: currentDocument,
                     trigger: trigger
-                )
+                ) else { return nil }
+                // 修乱码时换成了在线那份就留着在线的来源;修复时丢了记号的补回服务器。
+                guard LyricsDocumentSource.of(usable) == nil, let serverSource else { return usable }
+                return serverSource.stamped(usable)
             },
             replace: { lines in
                 let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
@@ -505,7 +511,7 @@ enum LyricsLoader {
                 if isPlainSource { return await automaticOnlineFallback(for: song) }
                 return []
             }
-            var parsed = LyricsParser.parse(lyricsContent)
+            var parsed = LyricsParser.parseDocument(lyricsContent, fileName: lyricsFile.fileName)
             if !parsed.isEmpty {
                 if let translation = lyricsFile.translation {
                     // The `-orig` track stays the sung line; its companion
@@ -678,7 +684,7 @@ enum LyricsLoader {
                         data,
                         label: (lyricsFile.path as NSString).lastPathComponent
                       ) else { return nil }
-                var parsed = LyricsParser.parse(text)
+                var parsed = LyricsParser.parseDocument(text, fileName: lyricsFile.fileName)
                 let link = EmbeddedLyricsPrecedencePolicy.sourceDocumentLink(
                     reference: song.lyricsFileName,
                     isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
@@ -887,7 +893,7 @@ enum LyricsLoader {
                 priority: .background
               ),
               let text = LyricsParser.decodeText(data, label: document.name) else { return nil }
-        let lines = LyricsParser.parse(text)
+        let lines = LyricsParser.parseDocument(text, fileName: document.name)
         return lines.isEmpty ? nil : lines
     }
 

@@ -729,6 +729,14 @@ enum LyricsWriteback {
             for index in writebackLines.indices {
                 writebackLines[index].documentIsLocalOverride = savesLocally && index == 0
             }
+            // 存进了哪个文件,播放页的来源标签就照它写(#357);只存在本机时标「本机修改」,不用另记。
+            if !savesLocally {
+                if skipsLyricsFile {
+                    writebackLines = LyricsDocumentSource.embedded.stamped(writebackLines)
+                } else if case .sidecar(let target) = mode {
+                    writebackLines = LyricsDocumentSource.file(target.fileName).stamped(writebackLines)
+                }
+            }
             var externalMutationToken: UUID?
             if !staysLocal {
                 externalMutationToken = await MetadataAssetStore.shared.beginLyricsMutation(

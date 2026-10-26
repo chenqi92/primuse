@@ -10184,7 +10184,7 @@ struct NowPlayingView: View {
                     }
                     return
                 }
-                var parsed = LyricsParser.parse(lyricsContent)
+                var parsed = LyricsParser.parseDocument(lyricsContent, fileName: documentName)
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     if !isRefresh {
@@ -14610,6 +14610,8 @@ struct LyricsScrollView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
+    private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -15011,6 +15013,8 @@ struct LyricsScrollView: View {
                         // reach the same visual anchor as every middle row.
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
+                        lyricsInfoBadges(showsWordLevel: false)
+
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             lineLevelRowVisualActivity(index: index)
                         }
@@ -15138,7 +15142,7 @@ struct LyricsScrollView: View {
                     LyricsRowStack(isLazy: usesLazyRows, spacing: Self.lyricsRowSpacing) {
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-                        wordLevelBadge
+                        lyricsInfoBadges(showsWordLevel: true)
 
                         lyricRowCells(isDuet: isDuet, textWidth: textWidth) { index in
                             rowVisualActivity(index: index)
@@ -15739,17 +15743,20 @@ struct LyricsScrollView: View {
         }
     }
 
-    private var wordLevelBadge: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "waveform")
-                .font(.caption2)
-            Text("lyrics_word_level_badge")
-                .font(.caption2.weight(.semibold))
+    /// 歌词最上面那一排小标签:逐字歌词标「逐字」,知道这份歌词从哪儿来时再标来源(#357)。
+    /// 文字稿不标来源:它来自节目源或本机转写,不是歌词源。
+    @ViewBuilder
+    private func lyricsInfoBadges(showsWordLevel: Bool) -> some View {
+        let source = showsLyricsSource && !isSpokenWordTranscript ? LyricsSourceBadge.resolve(lyrics) : nil
+        if showsWordLevel || source != nil {
+            LyricsInfoBadges(
+                showsWordLevel: showsWordLevel,
+                source: source,
+                foreground: appearance.secondary,
+                fill: appearance.primary.opacity(0.10)
+            )
+            .padding(.bottom, 4)
         }
-        .foregroundStyle(appearance.secondary)
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(appearance.primary.opacity(0.10)))
-        .padding(.bottom, 4)
     }
 
     /// 一句歌词下面要显示的附属文本, 顺序与歌词文件里写的一致。
@@ -17288,4 +17295,81 @@ enum NowPlayingArrangement: Equatable {
     case split(canSplit: Bool)
     /// 桌面半折:折痕的上下沿(播放页自己的坐标)。
     case tabletop(foldMinY: CGFloat, foldMaxY: CGFloat)
+}
+
+// MARK: - Lyrics info badges
+
+/// 歌词最上面那一排小标签(iOS 与 Mac 播放页共用):逐字歌词标「逐字」,知道来源时再标来源(#357)。
+struct LyricsInfoBadges: View {
+    let showsWordLevel: Bool
+    let source: LyricsSourceBadge?
+    let foreground: Color
+    let fill: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if showsWordLevel {
+                capsule(symbol: "waveform", text: Text("lyrics_word_level_badge"))
+            }
+            if let source {
+                let title = source.displayTitle
+                capsule(symbol: source.symbolName, text: Text(verbatim: title))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: String(
+                        format: String(localized: "lyrics_source_badge_a11y_format"),
+                        title
+                    )))
+            }
+        }
+    }
+
+    private func capsule(symbol: String, text: Text) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.caption2)
+            text
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill(fill))
+    }
+}
+
+extension LyricsSourceBadge {
+    /// 标签上写的字。服务器写它的类型,在线歌词源写源的名字;自定义源删掉了就用取到时记下的名字。
+    var displayTitle: String {
+        switch self {
+        case .localEdit:
+            return String(localized: "lyrics_source_badge_local_edit")
+        case .file(let format?):
+            return String(format: String(localized: "lyrics_source_badge_file_format"), format)
+        case .file(.none):
+            return String(localized: "lyrics_source_badge_file")
+        case .embedded:
+            return String(localized: "lyrics_source_badge_embedded")
+        case .server(let sourceType):
+            return MusicSourceType(rawValue: sourceType)?.displayName ?? sourceType
+        case .online(let identifier, let name):
+            let type = MusicScraperType(rawValue: identifier)
+            if case .custom(let configID) = type, ScraperConfigStore.shared.config(for: configID) == nil {
+                return name.isEmpty ? configID : name
+            }
+            return type.displayName
+        case .appleMusic:
+            return "Apple Music"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .localEdit: "pencil"
+        case .file: "doc.text"
+        case .embedded: "tag"
+        case .server: "server.rack"
+        case .online: "globe"
+        case .appleMusic: "music.note"
+        }
+    }
 }
