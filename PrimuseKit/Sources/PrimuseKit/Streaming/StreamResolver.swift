@@ -299,11 +299,15 @@ public enum StreamResolverHTTPTransport {
             switch event {
             case .response(let value):
                 response = value
-                let expected = value.expectedContentLength
-                guard expected <= 0 || expected <= Int64(maximumBytes) else {
-                    throw URLError(.dataLengthExceedsMaximum)
+                if let declared = HTTPDeclaredBodyLengthPolicy.declaredBodyLength(
+                    method: request.httpMethod,
+                    expectedContentLength: value.expectedContentLength
+                ) {
+                    guard declared <= Int64(maximumBytes) else {
+                        throw URLError(.dataLengthExceedsMaximum)
+                    }
+                    body.reserveCapacity(Int(declared))
                 }
-                if expected > 0 { body.reserveCapacity(Int(expected)) }
             case .data(let value):
                 guard value.count <= maximumBytes - body.count else {
                     throw URLError(.dataLengthExceedsMaximum)
