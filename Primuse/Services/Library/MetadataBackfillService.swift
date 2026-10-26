@@ -288,6 +288,9 @@ final class MetadataBackfillService {
     @ObservationIgnored var readingProgressHandler: ((Int) -> Void)?
     /// 每批读好的行写进曲库之后报出 id。别的设备手改的标签在等这些行读完(见 `SongTagEditStore`)。
     @ObservationIgnored var tagReadsPublishedHandler: ((Set<String>) -> Void)?
+    /// 这些歌读标签这边不会再去读了:读好写进了曲库,或者读不出、文件不在。后台在线补全在等它们
+    /// (见 `willReadTags(of:)`)。
+    @ObservationIgnored var tagReadsConcludedHandler: ((Set<String>) -> Void)?
     @ObservationIgnored private var peerCoverSweepTask: Task<Void, Never>?
 
     private struct PeerCoverGroup: Codable, Sendable {
@@ -2621,6 +2624,16 @@ final class MetadataBackfillService {
         song.duration <= 0
     }
 
+    /// 这首歌的标签还没读,而且这边还会去读它:网盘、NAS 扫描入库时只有文件名,歌手、时长都是空的。
+    /// 读不出、文件不在、时长读不全而停下的不算,那几首不会再等来更多信息。
+    func willReadTags(of song: Song) -> Bool {
+        Self.isBareSong(song)
+            && !failedSongIDs.contains(song.id)
+            && !incompleteSongIDs.contains(song.id)
+            && !sourceIssueSongIDs.contains(song.id)
+            && backfillableSourceIDs().contains(song.sourceID)
+    }
+
     /// True if there are bare songs in the library that backfill could
     /// process. Reflects queue state, not just whether a worker is
     /// currently running — a cellular-paused service shows
@@ -3864,6 +3877,10 @@ final class MetadataBackfillService {
         } else {
             refreshRemainingCounts(force: true)
         }
+        if applied || verifiedWithoutMutation
+            || outcome.markFailed || outcome.detailsIncomplete || outcome.sourceIssue {
+            tagReadsConcludedHandler?([songID])
+        }
         if applied || verifiedWithoutMutation {
             return .completed(outcome.completionKind)
         }
@@ -4135,6 +4152,10 @@ final class MetadataBackfillService {
                     saveFailed()
                     saveDeferredRetries()
                 }
+                if canRecordOutcome,
+                   result.outcome.markFailed || result.outcome.detailsIncomplete || result.outcome.sourceIssue {
+                    tagReadsConcludedHandler?([songID])
+                }
                 if result.outcome.transientFailure,
                    MetadataBackfillRetryPolicy.shouldCountTransientFailure(
                     isCancellation: result.outcome.cancelled,
@@ -4327,7 +4348,10 @@ final class MetadataBackfillService {
         artistInspectionIDsRequiringReplacement.subtract(batchIDs)
         markMetadataInspected(songIDs: pendingMetadataInspectionIDs)
         pendingMetadataInspectionIDs.removeAll(keepingCapacity: true)
-        if !batchIDs.isEmpty { tagReadsPublishedHandler?(batchIDs) }
+        if !batchIDs.isEmpty {
+            tagReadsPublishedHandler?(batchIDs)
+            tagReadsConcludedHandler?(batchIDs)
+        }
         PrimuseSignposts.hitch.endInterval("backfill.flushApply", flushSignpost)
         await refreshRemainingCountsOffMain(force: isFinal)
     }

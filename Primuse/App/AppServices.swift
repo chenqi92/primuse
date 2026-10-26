@@ -1358,6 +1358,14 @@ final class AppServices {
         metadataBackfill.tagReadsPublishedHandler = { songIDs in
             SongTagEditStore.shared.libraryRowsMayHaveChanged(songIDs: songIDs)
         }
+        // 后台在线补全等扫描时只有文件名的歌读完标签再搜,读完(或读不出)再交回去。
+        scraper.awaitsTagRead = { [weak metadataBackfill] song in
+            metadataBackfill?.willReadTags(of: song) ?? false
+        }
+        metadataBackfill.tagReadsConcludedHandler = { [weak scraper, weak library] songIDs in
+            guard let scraper, let library else { return }
+            scraper.tagReadsConcluded(songIDs: songIDs, in: library)
+        }
         scanService.successfulSourceScanHandler = {
             [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds]
             sourceID,

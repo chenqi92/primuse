@@ -147,7 +147,8 @@ actor ScraperManager {
                             $0,
                             title: cleanedTitle,
                             artist: effectiveArtist,
-                            durationMs: durationMs(duration)
+                            durationMs: durationMs(duration),
+                            writtenTitle: title
                         )
                     }
                     let rankedItems = Self.topMatches(
@@ -182,7 +183,8 @@ actor ScraperManager {
                             primaryCandidate,
                             title: cleanedTitle,
                             artist: effectiveArtist,
-                            durationMs: durationMs(duration)
+                            durationMs: durationMs(duration),
+                            writtenTitle: title
                         ) {
                             selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
                             if Self.isSufficientMetadata(selectedDetail?.rank) {
@@ -218,7 +220,8 @@ actor ScraperManager {
                             candidate,
                             title: cleanedTitle,
                             artist: effectiveArtist,
-                            durationMs: durationMs(duration)
+                            durationMs: durationMs(duration),
+                            writtenTitle: title
                         ) {
                             selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
                             if Self.isSufficientMetadata(selectedDetail?.rank) { break }
@@ -256,7 +259,13 @@ actor ScraperManager {
                         query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                     )
                     registerSuccess(config)
-                    if let best = Self.bestMatch(in: searchResult.items, title: cleanedTitle, artist: effectiveArtist, durationMs: durationMs(duration)) {
+                    if let best = Self.bestMatch(
+                        in: searchResult.items,
+                        title: cleanedTitle,
+                        artist: effectiveArtist,
+                        durationMs: durationMs(duration),
+                        writtenTitle: title
+                    ) {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
                         registerSuccess(config)
                         if let coverUrl = covers.first?.coverUrl,
@@ -413,14 +422,16 @@ actor ScraperManager {
         in items: [ScraperSearchItem],
         title: String,
         artist: String?,
-        durationMs targetMs: Int?
+        durationMs targetMs: Int?,
+        writtenTitle: String? = nil
     ) -> ScraperSearchItem? {
         let safeItems = items.filter {
             isConfidentAutoMatch(
                 $0,
                 title: title,
                 artist: artist,
-                durationMs: targetMs
+                durationMs: targetMs,
+                writtenTitle: writtenTitle
             )
         }
         return topMatches(
@@ -432,11 +443,13 @@ actor ScraperManager {
         ).first
     }
 
+    /// `writtenTitle` 是这首歌原来写的歌名(去括号之前):只剩歌名可比时,括号里的版本说明也要对上。
     static func isConfidentAutoMatch(
         _ item: ScraperSearchItem,
         title: String,
         artist: String?,
-        durationMs targetMs: Int?
+        durationMs targetMs: Int?,
+        writtenTitle: String? = nil
     ) -> Bool {
         let requestedTitle = normalizeComparableText(title)
         let candidateTitle = normalizeComparableText(item.title)
@@ -493,7 +506,13 @@ actor ScraperManager {
         if let targetMs, targetMs > 0 {
             return candidateTitle == requestedTitle && durationMatches
         }
-        return candidateTitle == requestedTitle
+        guard candidateTitle == requestedTitle else { return false }
+        // Title is the only evidence left, so it has to match as written:
+        // bracketed notes ("(X ver.)", "(feat. …)", "(Live)") were stripped only
+        // so the search could find something, and "Song (X ver.)" is not the
+        // original "Song".
+        guard let writtenTitle else { return true }
+        return writtenComparableText(item.title) == writtenComparableText(writtenTitle)
     }
 
     /// Rank candidates with the same policy used by manual scraping. Provider
@@ -549,7 +568,8 @@ actor ScraperManager {
         _ candidate: PendingMetadataCandidate,
         title: String,
         artist: String?,
-        durationMs: Int?
+        durationMs: Int?,
+        writtenTitle: String?
     ) async throws -> RankedMetadataDetail? {
         guard await !isBackingOff(candidate.config), !isCircuitOpen(candidate.config) else {
             return nil
@@ -563,7 +583,8 @@ actor ScraperManager {
             detailItem,
             title: title,
             artist: artist,
-            durationMs: durationMs
+            durationMs: durationMs,
+            writtenTitle: writtenTitle
         ) else { return nil }
 
         return RankedMetadataDetail(
@@ -949,6 +970,13 @@ actor ScraperManager {
         result = result.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 照写的样子比歌名:只去掉开头的轨号、大小写、全半角与空白分隔,括号和里面的字照留。
+    private static func writtenComparableText(_ text: String) -> String {
+        text.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+            .replacingOccurrences(of: "[\\s·•・_\\-–—]+", with: "", options: .regularExpression)
     }
 
     private static func normalizeComparableText(_ text: String?) -> String {

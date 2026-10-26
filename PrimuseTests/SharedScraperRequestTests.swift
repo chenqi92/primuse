@@ -822,3 +822,48 @@ private actor StubDirectLyricsScraper: MusicScraper, DirectLyricsLookup {
         return try reply.get().map { ScraperLyricsResult(source: .lrclib, lrcContent: $0) }
     }
 }
+
+/// 只剩歌名可比(没有歌手、也没有时长)时,括号里的版本说明要照写对上。
+final class ScraperTitleOnlyMatchTests: XCTestCase {
+    private func item(_ title: String, artist: String? = nil, durationMs: Int? = nil) -> ScraperSearchItem {
+        ScraperSearchItem(externalId: title, source: .itunes, title: title, artist: artist, durationMs: durationMs)
+    }
+
+    func testVersionNoteKeepsTheOriginalSongFromMatching() {
+        let written = "The Final Countdown (&TEAM ver.)"
+        let cleaned = ScraperManager.cleanTitle(written)
+        XCTAssertFalse(ScraperManager.isConfidentAutoMatch(
+            item("The Final Countdown"), title: cleaned, artist: nil, durationMs: nil, writtenTitle: written
+        ))
+        XCTAssertNil(ScraperManager.bestMatch(
+            in: [item("The Final Countdown")], title: cleaned, artist: nil, durationMs: nil, writtenTitle: written
+        ))
+    }
+
+    func testSameVersionNoteStillMatches() {
+        let written = "04. The Final Countdown（&TEAM Ver.）"
+        let cleaned = ScraperManager.cleanTitle(written)
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(
+            item("The Final Countdown (&TEAM ver.)"), title: cleaned, artist: nil, durationMs: nil, writtenTitle: written
+        ))
+    }
+
+    func testPlainTitleWithoutNotesStillMatches() {
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(
+            item("Hello"), title: "Hello", artist: nil, durationMs: nil, writtenTitle: "Hello"
+        ))
+    }
+
+    func testArtistEvidenceStillDecidesWhenPresent() {
+        let written = "The Final Countdown (&TEAM ver.)"
+        let cleaned = ScraperManager.cleanTitle(written)
+        XCTAssertFalse(ScraperManager.isConfidentAutoMatch(
+            item("The Final Countdown", artist: "Europe"), title: cleaned, artist: "&TEAM", durationMs: nil,
+            writtenTitle: written
+        ))
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(
+            item("The Final Countdown (&TEAM ver.)", artist: "&TEAM"), title: cleaned, artist: "&TEAM",
+            durationMs: nil, writtenTitle: written
+        ))
+    }
+}

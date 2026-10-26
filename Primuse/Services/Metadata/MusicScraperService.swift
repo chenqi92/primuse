@@ -160,6 +160,11 @@ final class MusicScraperService {
     @ObservationIgnored private var pendingEnrichmentSongIDs: [String] = []
     @ObservationIgnored private var pendingEnrichmentHead = 0
     @ObservationIgnored private var pendingEnrichmentSongIDSet: Set<String> = []
+    /// 这首歌的标签还没读、读标签那边还会去读它时为真(网盘、NAS 扫描入库时只有文件名,歌手、时长都是空的)。
+    /// 后台补全先放着,等读完由 `tagReadsConcluded` 交回来:只凭文件名去搜,同名的别人的歌会被当成它,
+    /// 封面、歌手、专辑一起配错。由 AppServices 接到 `MetadataBackfillService.willReadTags(of:)`。
+    @ObservationIgnored var awaitsTagRead: ((Song) -> Bool)?
+    @ObservationIgnored private var enrichmentAwaitingTagReadIDs: Set<String> = []
     /// 补全因为网络不通停下后, 正在等网络回来。
     @ObservationIgnored private var isWaitingForNetworkToEnrich = false
 
@@ -879,6 +884,14 @@ final class MusicScraperService {
         }
 
         startBackgroundEnrichmentIfNeeded(in: library)
+    }
+
+    /// 读标签那边不会再去读这些歌了(读好了、读不出、文件不在):在等它们的那几首放回补全队列。
+    func tagReadsConcluded(songIDs: Set<String>, in library: MusicLibrary) {
+        let concluded = enrichmentAwaitingTagReadIDs.intersection(songIDs)
+        guard !concluded.isEmpty else { return }
+        enrichmentAwaitingTagReadIDs.subtract(concluded)
+        enqueueBackgroundEnrichment(for: concluded.compactMap { library.visibleSong(id: $0) }, in: library)
     }
 
     private func startBackgroundEnrichmentIfNeeded(in library: MusicLibrary) {
@@ -1986,6 +1999,7 @@ final class MusicScraperService {
         }
 
         await NetworkMonitor.shared.waitForInitialPath()
+        var deferredSinceYield = 0
         while !Task.isCancelled {
             if isScraping {
                 // Don't leave completed enrichment results task-local while a
@@ -2008,6 +2022,16 @@ final class MusicScraperService {
             guard let song = nextSongForBackgroundEnrichment(in: library) else {
                 publishPendingSongUpdates()
                 return
+            }
+            if awaitsTagRead?(song) == true {
+                enrichmentAwaitingTagReadIDs.insert(song.id)
+                // 刚扫完的网盘源整批都在等标签:逐首放过去不发请求,隔一阵让出主线程。
+                deferredSinceYield += 1
+                if deferredSinceYield >= 256 {
+                    deferredSinceYield = 0
+                    await Task.yield()
+                }
+                continue
             }
 
             do {
