@@ -420,11 +420,18 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(fixture.sources.source(id: fixture.source.id)?.isDeleted, false)
         XCTAssertNotNil(fixture.library.song(id: "kept"))
         XCTAssertNil(store.song("kept"))
-        let restarted = fixture.store()
+        // 重启会重新读取曲库,旧实例的显隐观察者不应参与新实例的恢复。
+        let restartedLibrary = MusicLibrary(storageDirectory: fixture.directory)
+        let restarted = TVStore(
+            sourcesStore: SourcesStore(storageDirectoryURL: fixture.directory),
+            library: restartedLibrary,
+            defaults: fixture.defaults,
+            sessionStore: PlaybackSessionStore(url: fixture.directory.appendingPathComponent("session.json"))
+        )
         restarted.reload()
         XCTAssertFalse(restarted.sources.contains { $0.id == fixture.source.id })
         restarted.restoreSource(fixture.source.id)
-        await fixture.library.waitForPendingIndex()
+        await restartedLibrary.waitForPendingIndex()
         XCTAssertNotNil(restarted.song("kept"))
     }
 
