@@ -30,6 +30,21 @@ public enum RadioSnapshotUploadPolicy {
         return remaining < debounce ? max(remaining, .zero) : debounce
     }
 
+    /// 两次电台快照上传之间至少隔这么久。电台清单带着用户选的台标数据，可能有好几 MB，
+    /// 每上传一次都要整份暂存成附件；隔着几十秒逐台编辑时，以前每改一台就整份暂存、上传一遍。
+    /// 间隔内的改动并成一次，到点再传。
+    public static let minimumSpacing: Duration = .seconds(600)
+
+    /// 在上面的去抖之外，再等到离上一次上传满 `minimumSpacing`。
+    public static func delay(
+        sinceFirstPendingChange elapsed: Duration?,
+        sinceLastUpload: Duration?
+    ) -> Duration {
+        let pending = delay(sinceFirstPendingChange: elapsed)
+        guard let sinceLastUpload else { return pending }
+        return max(pending, minimumSpacing - sinceLastUpload)
+    }
+
     /// Whether a station change should arm (or re-arm) the debounced upload.
     /// A service that is not started has no business writing to the account.
     public static func shouldSchedule(isStarted: Bool, isChannelEnabled: Bool) -> Bool {

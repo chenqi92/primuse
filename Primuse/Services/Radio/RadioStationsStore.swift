@@ -104,6 +104,10 @@ final class RadioStationsStore {
     /// 最近收听时间攒着还没写盘（见 `markPlayed`）。
     @ObservationIgnored private var playedPersistPending = false
     @ObservationIgnored private var playedPersistTask: Task<Void, Never>?
+    /// 最近收听时间的单独账本（`radio-stations-played.json`，id → 时间）。
+    /// 每切一次台就变、又只属于本机，为它把整份清单（含台标数据）重写一遍不划算；
+    /// 读清单时两边取较晚的那个，整份写盘时清单里也带着同样的值。
+    private let playedURL: URL
 
     /// 待上传账本：本机改过、还没交给 CloudKit 引擎的电台 id。
     ///
@@ -130,6 +134,9 @@ final class RadioStationsStore {
         self.storeURL = resolvedStoreURL
         self.cloudPendingURL = resolvedStoreURL.deletingLastPathComponent().appendingPathComponent(
             resolvedStoreURL.deletingPathExtension().lastPathComponent + "-cloud-pending.json"
+        )
+        self.playedURL = resolvedStoreURL.deletingLastPathComponent().appendingPathComponent(
+            resolvedStoreURL.deletingPathExtension().lastPathComponent + "-played.json"
         )
         self.folderPlaceholdersURL = directory.appendingPathComponent("radio-folders.json")
         self.allStations = []
@@ -440,9 +447,8 @@ final class RadioStationsStore {
 
     /// Device-local recency is intentionally not pushed through CloudKit.
     ///
-    /// 不立刻写盘：整份清单（含台标数据）每切一次台就重写一遍不划算，
-    /// 攒 2 秒合并成一次；期间任何一次 `persist()` 都会把它一起写掉。
-    /// 生命周期落盘时由 `flushPendingPersist()` 兜底。
+    /// 只写最近收听时间的小账本（见 `playedURL`），不重写整份清单；攒 2 秒合并成一次，
+    /// 期间任何一次 `persist()` 都会把它一起写进清单。生命周期落盘时由 `flushPendingPersist()` 兜底。
     func markPlayed(_ id: String, at date: Date = Date()) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         allStations[index].lastPlayedAt = date
@@ -451,8 +457,8 @@ final class RadioStationsStore {
 
     /// 攒着没写盘的（最近收听时间、远端改动）现在写掉。进后台、退出前调。
     func flushPendingPersist() {
-        guard playedPersistPending || remotePersistPending else { return }
-        persist()
+        if remotePersistPending { persist() }
+        if playedPersistPending { persistPlayedTimes() }
     }
 
     private func schedulePlayedPersist() {
@@ -461,8 +467,36 @@ final class RadioStationsStore {
         playedPersistTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
-            self?.flushPendingPersist()
+            self?.persistPlayedTimes()
         }
+    }
+
+    private func persistPlayedTimes() {
+        playedPersistTask?.cancel()
+        playedPersistTask = nil
+        playedPersistPending = false
+        var played: [String: Date] = [:]
+        for station in allStations {
+            if let date = station.lastPlayedAt { played[station.id] = date }
+        }
+        guard let data = try? encoder.encode(played) else { return }
+        try? data.write(to: playedURL, options: .atomic)
+    }
+
+    /// 把小账本里的最近收听时间盖回清单，两边取较晚的。
+    private func applyRecordedPlayTimes() {
+        guard let data = try? Data(contentsOf: playedURL),
+              let played = try? decoder.decode([String: Date].self, from: data),
+              !played.isEmpty else { return }
+        var stations = allStations
+        var changed = false
+        for index in stations.indices {
+            guard let date = played[stations[index].id],
+                  stations[index].lastPlayedAt.map({ $0 < date }) ?? true else { continue }
+            stations[index].lastPlayedAt = date
+            changed = true
+        }
+        if changed { allStations = stations }
     }
 
     func moveStations(from offsets: IndexSet, to destination: Int) {
@@ -556,33 +590,53 @@ final class RadioStationsStore {
     }
 
     func remove(id: String) {
-        guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
-        guard !allStations[index].isServerMirror else { return }
-        if allStations[index].isSubscribed {
-            // 订阅电台删掉之后要一直挡着清单里那一条，所以变成排除标记，
-            // 作为一条普通的保存同步出去。这里**不能**发
-            // `primuseRadioStationDidDelete`：CloudKitSyncService 收到它会把这条
-            // 记录从 CloudKit 删掉，别的设备上的排除就丢了，下次刷新又加回来。
-            guard !allStations[index].isDeleted else { return }
-            allStations[index] = RadioSubscriptionMergePolicy.excluding(allStations[index])
-            persist()
-            notifyChanged(ids: [id])
-            #if !os(tvOS)
-            // 台标发现的退避记录照样清掉，免得状态文件随「加了又删」无限长大。
-            RadioLogoDiscoveryService.shared.forget(stationIDs: [id])
-            #endif
-            return
+        remove(ids: [id])
+    }
+
+    /// 删掉一批电台。整批只落一次盘、只发一次改动通知 —— 多选删除逐个 `remove(id:)`
+    /// 的话，每删一台就把整份清单（含台标数据）重写一遍。
+    func remove(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let targets = Set(ids)
+        let now = Date()
+        var changedIDs: [String] = []
+        var deletedIDs: [String] = []
+        var excludedIDs: [String] = []
+        for index in allStations.indices where targets.contains(allStations[index].id) {
+            guard !allStations[index].isServerMirror else { continue }
+            let id = allStations[index].id
+            if allStations[index].isSubscribed {
+                // 订阅电台删掉之后要一直挡着清单里那一条，所以变成排除标记，
+                // 作为一条普通的保存同步出去。这里**不能**发
+                // `primuseRadioStationDidDelete`：CloudKitSyncService 收到它会把这条
+                // 记录从 CloudKit 删掉，别的设备上的排除就丢了，下次刷新又加回来。
+                guard !allStations[index].isDeleted else { continue }
+                allStations[index] = RadioSubscriptionMergePolicy.excluding(allStations[index])
+                excludedIDs.append(id)
+            } else {
+                allStations[index].isDeleted = true
+                allStations[index].deletedAt = now
+                allStations[index].modifiedAt = now
+                deletedIDs.append(id)
+            }
+            changedIDs.append(id)
         }
-        allStations[index].isDeleted = true
-        allStations[index].deletedAt = Date()
-        allStations[index].modifiedAt = Date()
+        guard !changedIDs.isEmpty else { return }
         persist()
-        notifyChanged(ids: [id])
-        NotificationCenter.default.post(
-            name: .primuseRadioStationDidDelete,
-            object: nil,
-            userInfo: ["id": id]
-        )
+        notifyChanged(ids: changedIDs)
+        #if !os(tvOS)
+        // 台标发现的退避记录照样清掉，免得状态文件随「加了又删」无限长大。
+        if !excludedIDs.isEmpty {
+            RadioLogoDiscoveryService.shared.forget(stationIDs: excludedIDs)
+        }
+        #endif
+        for id in deletedIDs {
+            NotificationCenter.default.post(
+                name: .primuseRadioStationDidDelete,
+                object: nil,
+                userInfo: ["id": id]
+            )
+        }
     }
 
     /// 过了保留期的普通墓碑: 行删掉, CloudKit 记录也在这时才真正删除。墓碑在保留期
@@ -988,6 +1042,8 @@ final class RadioStationsStore {
     /// - 待上传账本里的本机改动。它们还没交给 CloudKit，文件里的是别的设备的版本。
     /// 先回放远端、再放回本机改动，两边都按修改时间取新；有变化只整份写一次。
     func reloadFromDisk() {
+        // 攒着的最近收听时间先记进小账本，重读之后再盖回来。
+        if playedPersistPending { persistPlayedTimes() }
         let remoteChanges = remotePersistPending ? pendingRemoteChanges : []
         var pendingLocal = cloudPendingStationIDs.isEmpty
             ? []
@@ -1042,6 +1098,7 @@ final class RadioStationsStore {
             allStations = []
             plog("RadioStationsStore: invalid snapshot backed up as \(backupURL.lastPathComponent): \(error.localizedDescription)")
         }
+        applyRecordedPlayTimes()
     }
 
     private func persist() {

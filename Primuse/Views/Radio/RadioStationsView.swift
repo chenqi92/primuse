@@ -1053,9 +1053,7 @@ struct RadioStationsView: View {
                 .onMove(perform: moveVisible)
                 .onDelete { offsets in
                     let ordered = visibleStations
-                    for index in offsets where ordered.indices.contains(index) {
-                        store.remove(id: ordered[index].id)
-                    }
+                    store.remove(ids: offsets.filter { ordered.indices.contains($0) }.map { ordered[$0].id })
                 }
             } footer: {
                 Text("radio_manage_footer")
@@ -1113,7 +1111,7 @@ struct RadioStationsView: View {
     }
 
     private func deleteSelected() {
-        for station in selectedStations { store.remove(id: station.id) }
+        store.remove(ids: selectedStations.map(\.id))
         selection = []
     }
 

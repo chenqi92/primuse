@@ -72,6 +72,47 @@ struct RadioSnapshotUploadPolicyTests {
         #expect(RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: RadioSnapshotUploadPolicy.maximumDelay) == .zero)
         #expect(RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: .seconds(600)) == .zero)
     }
+
+    @Test("没传过或上一次已经隔够了，照常去抖")
+    func spacingDoesNotDelayFirstUpload() {
+        let spacing = RadioSnapshotUploadPolicy.minimumSpacing
+        #expect(
+            RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: nil, sinceLastUpload: nil)
+                == RadioSnapshotUploadPolicy.debounce
+        )
+        #expect(
+            RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: nil, sinceLastUpload: spacing)
+                == RadioSnapshotUploadPolicy.debounce
+        )
+        #expect(
+            RadioSnapshotUploadPolicy.delay(
+                sinceFirstPendingChange: RadioSnapshotUploadPolicy.maximumDelay,
+                sinceLastUpload: spacing + .seconds(60)
+            ) == .zero
+        )
+    }
+
+    @Test("刚传过一次，后面的改动等到离上一次满间隔再传")
+    func uploadsAreSpacedApart() {
+        let spacing = RadioSnapshotUploadPolicy.minimumSpacing
+        #expect(spacing >= .seconds(60))
+        #expect(
+            RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: nil, sinceLastUpload: .seconds(30))
+                == spacing - .seconds(30)
+        )
+        // 连续编辑越过了去抖上限，也仍然等间隔。
+        #expect(
+            RadioSnapshotUploadPolicy.delay(
+                sinceFirstPendingChange: RadioSnapshotUploadPolicy.maximumDelay,
+                sinceLastUpload: .seconds(100)
+            ) == spacing - .seconds(100)
+        )
+        // 间隔只剩不到一个去抖窗口时，按去抖算。
+        #expect(
+            RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: nil, sinceLastUpload: spacing - .seconds(1))
+                == RadioSnapshotUploadPolicy.debounce
+        )
+    }
 }
 
 @Suite("外部改写电台文件后放回待上传的本机改动")

@@ -230,6 +230,8 @@ final class CloudKitSyncService {
     private var pendingRadioSnapshotUpload: Task<Void, Never>?
     private var radioSnapshotToken: UUID?
     private var radioSnapshotFirstPendingAt: ContinuousClock.Instant?
+    /// 上一次电台快照传成功的时刻，下一次至少隔 `RadioSnapshotUploadPolicy.minimumSpacing`。
+    private var radioSnapshotLastUploadAt: ContinuousClock.Instant?
     /// 补传了待上传账本里的电台（见 `flushDeferredRadioStationChanges`），快照要等
     /// 下一次拉取成功、本机 radio-stations.json 已含拉到的记录之后再传。
     private var radioSnapshotAfterFetch = false
@@ -1327,6 +1329,7 @@ final class CloudKitSyncService {
     /// Collapse a burst of station edits into one snapshot write. Re-arming
     /// cancels the previous task, so the last change is always the one that
     /// uploads, and the task stays owned so `stop()` can take it down.
+    /// 离上一次上传不满 `RadioSnapshotUploadPolicy.minimumSpacing` 时等到满为止。
     private func scheduleRadioSnapshotUpload() {
         guard RadioSnapshotUploadPolicy.shouldSchedule(
             isStarted: isStarted,
@@ -1338,7 +1341,10 @@ final class CloudKitSyncService {
         // 会被无限推后, 所以超过上限就不再等下一次改动了。
         let firstPending = radioSnapshotFirstPendingAt ?? now
         radioSnapshotFirstPendingAt = firstPending
-        let delay = RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: firstPending.duration(to: now))
+        let delay = RadioSnapshotUploadPolicy.delay(
+            sinceFirstPendingChange: firstPending.duration(to: now),
+            sinceLastUpload: radioSnapshotLastUploadAt.map { $0.duration(to: now) }
+        )
         radioSnapshotToken = token
         pendingRadioSnapshotUpload?.cancel()
         pendingRadioSnapshotUpload = Task { [weak self] in
@@ -1351,7 +1357,9 @@ final class CloudKitSyncService {
                 taskToken: token
             ) else { return }
             self.radioSnapshotFirstPendingAt = nil
-            _ = await LibrarySnapshotSync.shared.uploadRadioStationsOnly()
+            if await LibrarySnapshotSync.shared.uploadRadioStationsOnly() {
+                self.radioSnapshotLastUploadAt = ContinuousClock.now
+            }
             guard self.radioSnapshotToken == token else { return }
             self.radioSnapshotToken = nil
             self.pendingRadioSnapshotUpload = nil
