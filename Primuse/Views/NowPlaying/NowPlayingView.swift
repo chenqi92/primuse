@@ -2468,6 +2468,18 @@ struct NowPlayingView: View {
         min(max(0, height - 700) * 0.12, 30)
     }
 
+    /// 竖屏底排下面那一截的高度(`nowPlayingStatusBand`),放得下一行状态。
+    static func portraitStatusBandHeight(bottomSafeArea: CGFloat) -> CGFloat {
+        max(bottomSafeArea - 8, statusBandMinimumHeight)
+    }
+
+    /// 竖屏底排往上抬多少:有 Home 指示条的 iPhone 上,底排那一格 44 高的点按区有一截压在指示条那一带里,
+    /// 离屏幕下沿太近不好点。抬到整格都在底部安全区上面,抬的高度从底排上面那段空白里扣,
+    /// 上面几行与下面那行状态都不挪。iPad、没有指示条的机型这一截本来就够,不抬。
+    static func portraitBottomBarLift(bottomSafeArea: CGFloat) -> CGFloat {
+        max(0, bottomSafeArea - portraitStatusBandHeight(bottomSafeArea: bottomSafeArea))
+    }
+
     /// 高画布上歌名(或下面那两句歌词)与进度条之间至少留的空白;进度条自己另有 8 的上边距。
     static let portraitTallCanvasHeadingGap: CGFloat = 40
 
@@ -6694,22 +6706,24 @@ struct NowPlayingView: View {
                         // Bottom bar —— 每颗都是 44×44,按颗数排开(见 `musicBottomBar`)。
                         // 竖栏里排着那一列按钮时(iPhone Duo)这一排的键都在那一列里,这里不再重复。
                         if !usesToolColumn {
+                            let barLift = Self.portraitBottomBarLift(bottomSafeArea: bottomSafeArea)
                             portraitBottomBar(spokenControls: spokenPortraitControls)
-                            .padding(.top, controlGap * 0.75 + volumeSlack * 0.3)
+                            .padding(.top, max(0, controlGap * 0.75 + volumeSlack * 0.3 - barLift))
+                            .padding(.bottom, barLift)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
                         }
 
-                        // 这套版面铺满整屏、不经安全区。底排停在原来那行音质小字还在时的高度,
-                        // 下面那一截正是 Home 指示条那一带;没有指示条的机型也留出一行字的高度。
+                        // 这套版面铺满整屏、不经安全区。下面那一截正是 Home 指示条那一带,
+                        // 没有指示条的机型也留出一行字的高度。
                         nowPlayingStatusBand(
-                            height: max(bottomSafeArea - 8, Self.statusBandMinimumHeight),
+                            height: Self.portraitStatusBandHeight(bottomSafeArea: bottomSafeArea),
                             horizontalPadding: 26 + insets.rows
                         )
                     } else if isLyricsChromeCollapsed {
                         // 控件收起后歌词铺到底，只让开 Home 指示条那一带。
                         Color.clear
-                            .frame(height: max(bottomSafeArea - 8, Self.statusBandMinimumHeight))
+                            .frame(height: Self.portraitStatusBandHeight(bottomSafeArea: bottomSafeArea))
                     }
                 }
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
@@ -9979,17 +9993,23 @@ struct NowPlayingView: View {
     private func controlLabel(_ face: NowPlayingControlFace, style: NowPlayingControlStyle) -> some View {
         let activeTint = face.activeTint ?? themedControlAccent
         switch style {
+        // 这几种的按钮在外面套了 44×44,但那一圈空白不接点按,点到的只有图标本身那一小块;
+        // 整格的点按区要在标签里铺出来。
         case .bar, .wideBar:
             Image(systemName: face.symbol)
                 .foregroundStyle(face.isActive
                     ? activeTint
                     : (style == .wideBar ? appearance.secondary : appearance.tertiary))
                 .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         case .edge:
             Image(systemName: face.symbol).font(.body)
                 .foregroundStyle(face.isActive ? activeTint : appearance.tertiary)
                 .contentTransition(.symbolEffect(.replace))
                 .playbackToggleHighlight(isActive: face.isActive, tint: activeTint, diameter: 32)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         case .header:
             nowPlayingActionIcon(
                 symbol: face.symbol,
@@ -10237,6 +10257,8 @@ struct NowPlayingView: View {
                     tint: themedControlAccent,
                     diameter: 32
                 )
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel(Self.iconA11yLabel(icon))

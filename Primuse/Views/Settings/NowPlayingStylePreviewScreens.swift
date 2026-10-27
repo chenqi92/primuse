@@ -893,6 +893,7 @@ struct PodcastPreviewScreen: View {
         let artSize = NowPlayingView.portraitArtworkSize(in: size)
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let volumeSlack: CGFloat = showsVolumeBar ? 0 : NowPlayingView.portraitVolumeRowHeight + 10 + gap
+        let barLift = NowPlayingView.portraitBottomBarLift(bottomSafeArea: canvas.bottomSafeArea)
         let controls = self.controls
         let accent = nowPlayingPreviewAccent(
             appearance: appearance,
@@ -966,7 +967,7 @@ struct PodcastPreviewScreen: View {
                     .padding(.top, 8)
 
                 transportRow(controls: controls)
-                    .padding(.top, 12 + gap + volumeSlack * 0.3)
+                    .padding(.top, 12 + gap * 0.75 + volumeSlack * 0.3)
 
                 if showsVolumeBar {
                     PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary, fillTint: accent)
@@ -983,10 +984,11 @@ struct PodcastPreviewScreen: View {
                     secondary: appearance.secondary
                 )
                 .padding(.horizontal, 22)
-                .padding(.top, 12 + gap / 2 + volumeSlack * 0.3)
+                .padding(.top, 12 + max(0, gap * 0.75 + volumeSlack * 0.3 - barLift))
+                .padding(.bottom, barLift)
 
                 Color.clear
-                    .frame(height: max(canvas.bottomSafeArea - 8, 20))
+                    .frame(height: NowPlayingView.portraitStatusBandHeight(bottomSafeArea: canvas.bottomSafeArea))
             }
         }
         .frame(width: size.width, height: size.height)

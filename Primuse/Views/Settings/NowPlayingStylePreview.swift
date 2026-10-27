@@ -651,6 +651,7 @@ private struct MusicPortraitPreviewScreen: View {
         let volumeSlack: CGFloat = showsVolumeBar || artworkLyricsFill
             ? 0
             : NowPlayingView.portraitVolumeRowHeight + 10 + controlGap
+        let barLift = NowPlayingView.portraitBottomBarLift(bottomSafeArea: canvas.bottomSafeArea)
         let grabberBand = canvas.topSafeArea + 21
         let accent = nowPlayingPreviewAccent(
             appearance: appearance,
@@ -745,7 +746,7 @@ private struct MusicPortraitPreviewScreen: View {
                     .padding(.top, 8)
 
                 transportRow
-                    .padding(.top, 12 + controlGap + volumeSlack * 0.3)
+                    .padding(.top, 12 + controlGap * 0.75 + volumeSlack * 0.3)
 
                 if showsVolumeBar {
                     PreviewVolumeRow(primary: appearance.primary, iconTint: appearance.tertiary, fillTint: accent)
@@ -756,10 +757,11 @@ private struct MusicPortraitPreviewScreen: View {
                 bottomBar
                 .font(.body)
                 .padding(.top, 12)
-                .padding(.top, controlGap / 2 + volumeSlack * 0.3)
+                .padding(.top, max(0, controlGap * 0.75 + volumeSlack * 0.3 - barLift))
+                .padding(.bottom, barLift)
 
                 statusLine
-                    .frame(height: max(canvas.bottomSafeArea - 8, 20), alignment: .top)
+                    .frame(height: NowPlayingView.portraitStatusBandHeight(bottomSafeArea: canvas.bottomSafeArea), alignment: .top)
                     .offset(y: -4)
             }
             // 铺满封面下面那一截垫在歌名和控件底下,和播放页一样只在背景是封面取色时铺。
