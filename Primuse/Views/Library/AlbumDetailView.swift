@@ -43,6 +43,30 @@ struct AlbumDetailView: View {
         library.songs(forAlbum: album.id)
     }
 
+    private var albumArtist: Artist? {
+        library.linkedArtist(for: album)
+    }
+
+    @ViewBuilder
+    private var albumArtistLink: some View {
+        if let artist = albumArtist {
+            NavigationLink(value: artist) {
+                HStack(spacing: 4) {
+                    Text(verbatim: album.artistName ?? artist.name)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(Text("go_to_artist"))
+            .accessibilityIdentifier("albumArtistLink")
+        } else {
+            Text(verbatim: album.artistName ?? String(localized: "unknown_artist"))
+        }
+    }
+
     /// 列表里显示、播放用的整张专辑:Apple Music 专辑补上资料库里没有的曲目,其余专辑就是 `songs`。
     /// 资料库那几首每次按 ID 重新取,改过的标签、删掉的歌马上反映出来。
     private var albumSongs: [Song] {
@@ -595,7 +619,7 @@ struct AlbumDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
 
-            Text(album.artistName ?? String(localized: "unknown_artist"))
+            albumArtistLink
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
@@ -769,7 +793,8 @@ struct AlbumDetailView: View {
                         details: insightDetails,
                         songs: { songs }
                     )),
-                    artworkBackdrop: true
+                    artworkBackdrop: true,
+                    subtitleContent: AnyView(macAlbumSubtitle)
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
@@ -905,20 +930,21 @@ struct AlbumDetailView: View {
         ]))
     }
 
-    /// 专辑艺人对应的艺人页。「群星」这类只当过专辑艺人的人只在「专辑艺术家」列表里有。
-    private var albumArtist: Artist? {
-        if let id = album.artistID,
-           let artist = library.visibleArtist(id: id) ?? library.visibleAlbumArtist(id: id) {
-            return artist
+    private var macAlbumSubtitle: some View {
+        HStack(spacing: 4) {
+            if let name = album.artistName, !name.isEmpty {
+                albumArtistLink
+                    .layoutPriority(1)
+                if !albumSubtitle.isEmpty {
+                    Text(verbatim: "·")
+                }
+            }
+            Text(verbatim: albumSubtitle)
         }
-        return library.visibleArtists.first { $0.name == album.artistName }
     }
 
     private var albumSubtitle: String {
         var parts: [String] = []
-        if let artist = album.artistName, !artist.isEmpty {
-            parts.append(artist)
-        }
         if let year = album.year {
             parts.append("\(year)")
         }
@@ -1140,6 +1166,20 @@ struct AlbumDetailView: View {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedShort
+    }
+}
+
+extension MusicLibrary {
+    /// 专辑署名优先，合辑的「群星」等只存在于专辑艺人索引中。
+    func linkedArtist(for album: Album) -> Artist? {
+        if let id = album.artistID,
+           let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) {
+            return artist
+        }
+        guard let name = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        let id = Self.hashID(ArtistIdentityPolicy.groupingKey(name))
+        return visibleArtist(id: id) ?? visibleAlbumArtist(id: id) ?? visibleArtist(named: name)
     }
 }
 

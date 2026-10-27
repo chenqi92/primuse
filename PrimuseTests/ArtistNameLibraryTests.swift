@@ -957,6 +957,58 @@ final class ArtistNameLibraryTests: XCTestCase {
         _ = await library.persistNowAndWait()
     }
 
+    @MainActor
+    func testAlbumArtistLinksResolveAlbumCreditsAndLegacyNames() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AlbumArtistLinkTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let solo = makeSong(id: "solo", artistName: "Beyoncé", albumTitle: "Solo")
+        let compilation = makeSong(
+            id: "compilation", artistName: "Guest", albumArtistName: "Various Artists", albumTitle: "Collection"
+        )
+        library.addSongs([solo, compilation], affectedSourceIDs: [solo.sourceID])
+        for _ in 0..<200 where library.visibleAlbums.count < 2 || library.visibleAlbumArtists.count < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let soloAlbum = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Solo" })
+        let compilationAlbum = try XCTUnwrap(library.visibleAlbums.first { $0.title == "Collection" })
+        XCTAssertEqual(library.linkedArtist(for: soloAlbum)?.name, "Beyoncé")
+        let compilationArtist = try XCTUnwrap(library.linkedArtist(for: compilationAlbum))
+        XCTAssertEqual(compilationArtist.name, "Various Artists")
+        XCTAssertEqual(library.songs(forArtist: compilationArtist.id).map(\.id), [compilation.id])
+
+        var legacyAlbum = soloAlbum
+        legacyAlbum.artistID = "obsolete-id"
+        legacyAlbum.artistName = "  BEYONCE  "
+        XCTAssertEqual(library.linkedArtist(for: legacyAlbum)?.id, soloAlbum.artistID)
+        legacyAlbum = compilationAlbum
+        legacyAlbum.artistID = nil
+        legacyAlbum.artistName = "  VARIOUS   ARTISTS  "
+        XCTAssertEqual(library.linkedArtist(for: legacyAlbum)?.id, compilationArtist.id)
+
+        var mismatchedName = soloAlbum
+        mismatchedName.artistName = "Guest"
+        XCTAssertEqual(library.linkedArtist(for: mismatchedName)?.id, soloAlbum.artistID)
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
+    func testAlbumArtistLinksDoNotInventUnavailableArtists() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MissingAlbumArtistLinkTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        for name in [nil, "", "  \n ", "Unavailable Artist"] as [String?] {
+            let album = Album(id: "missing", title: "Album", artistID: "missing", artistName: name)
+            XCTAssertNil(library.linkedArtist(for: album))
+        }
+        _ = await library.persistNowAndWait()
+    }
+
     private func makeSong(
         id: String = UUID().uuidString,
         artistName: String,

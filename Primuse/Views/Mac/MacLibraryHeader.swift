@@ -34,6 +34,7 @@ struct MacLibraryHeader: View {
     var cover: AnyView? = nil
     /// 底图用这首歌的封面虚化(风格这种没有专辑封面、也没有艺人照的集合)。
     var backdropSong: Song? = nil
+    var subtitleContent: AnyView? = nil
 
     @State private var showMoreMenu = false
 
@@ -58,10 +59,16 @@ struct MacLibraryHeader: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(verbatim: subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
+                Group {
+                    if let subtitleContent {
+                        subtitleContent
+                    } else {
+                        Text(verbatim: subtitle)
+                    }
+                }
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
 
                 if let synopsis {
                     synopsis
