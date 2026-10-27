@@ -15106,7 +15106,7 @@ final class SourceManager {
         return (try? await provider.fetchServerChapters(songPath: song.filePath)) ?? []
     }
 
-    private func source(withID id: String) async -> MusicSource? {
+    func source(withID id: String) async -> MusicSource? {
         guard let sources = try? await sourcesProvider() else { return nil }
         return sources.first { $0.id == id }
     }

@@ -1503,6 +1503,8 @@ struct TVAlbumDetailView: View {
     @State private var appleMusicRemainder: TVAppleMusicPlayer.AlbumRemainder?
     /// 专辑文件夹里的封底(见 `TVAlbumBackArtwork`),没有就是 nil、背景照旧是封面取色。
     @State private var backCover: BackCover?
+    /// 专辑文件夹里的盘面图,画在封面后面那张盘上。
+    @State private var discFace: CGImage?
     /// 「更多」里选了串烧,等流量确认(见 `TVMedleyConfirmation`)。
     @State private var pendingMedleyIDs: [String]?
     /// 「更多」按钮与确认面板里的「取消」,值见 `RestoreFocus`。
@@ -1713,13 +1715,14 @@ struct TVAlbumDetailView: View {
         .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }
         .task(id: songIDs) { await loadAppleMusicRemainder(album: album, songIDs: songIDs) }
         .task(id: albumID) { await loadBackCover() }
+        .task(id: discFaceSongID) { await loadDiscFace() }
         .accessibilityIdentifier("tv.album.detail")
     }
 
     /// 左栏:封面(后面探出半张盘)、专辑名、艺人、年份 · 首数 · 时长、一排按钮,剩下的高度都给简介。
     private func leftColumn(album: TVAlbum, songs: [TVSong], songIDs: [String], hasEditedSongs: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            TVAlbumCaseArtwork(album: album, size: Self.coverSize, spinning: isPlayingThisAlbum) {
+            TVAlbumCaseArtwork(album: album, size: Self.coverSize, spinning: isPlayingThisAlbum, discFace: discFace) {
                 TVArtworkView(album: album, size: Self.coverSize, radius: 14)
                     .modifier(TVArtworkGentleFloat())
             }
@@ -1830,6 +1833,22 @@ struct TVAlbumDetailView: View {
         .focusEffectDisabled()
         .accessibilityLabel(Text("more"))
         .accessibilityIdentifier("tv.album.more")
+    }
+
+    /// 盘面图跟着这张专辑里正在放的那首(分碟专辑放到第二张就换第二张的盘面),没在放就看第一首。
+    private var discFaceSongID: String? {
+        if let current = store.currentSongID, store.song(current)?.albumID == albumID { return current }
+        return store.songIDs(forAlbum: albumID).first
+    }
+
+    private func loadDiscFace() async {
+        guard let songID = discFaceSongID, let song = store.library.song(id: songID) else {
+            discFace = nil
+            return
+        }
+        let found = await TVAlbumDiscArtwork.face(for: song, store: store)
+        guard !Task.isCancelled else { return }
+        discFace = found?.image
     }
 
     /// 专辑文件夹里有封底就铺成背景;专辑换了 id(补全改了专辑名)跟着重找。

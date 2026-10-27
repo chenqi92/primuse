@@ -457,8 +457,10 @@ struct ImmersiveBreathingHalo: View {
 
 /// 静态唱片本体：径向渐变胶面、几十圈音槽、固定光源的两道反光与外缘描边。
 /// 绘制一次即可，旋转部分由 ImmersiveVinylRecord 单独驱动。
+/// 画胶唱片（盘面图）不要胶面，只留音槽和反光盖在图上。
 private struct ImmersiveVinylDisc: View, Equatable {
     var diameter: CGFloat
+    var showsSurface = true
 
     var body: some View {
         Canvas(rendersAsynchronously: true) { canvas, size in
@@ -470,7 +472,7 @@ private struct ImmersiveVinylDisc: View, Equatable {
                 width: radius * 2,
                 height: radius * 2
             ))
-            canvas.fill(disc, with: .radialGradient(
+            if showsSurface { canvas.fill(disc, with: .radialGradient(
                 Gradient(stops: [
                     .init(color: Color(white: 0.17), location: 0),
                     .init(color: Color(white: 0.09), location: 0.40),
@@ -481,7 +483,7 @@ private struct ImmersiveVinylDisc: View, Equatable {
                 center: center,
                 startRadius: 0,
                 endRadius: radius
-            ))
+            )) }
 
             var grooves = Path()
             var brightGrooves = Path()
@@ -557,6 +559,7 @@ private struct ImmersiveVinylScratches: View, Equatable {
 }
 
 /// 黑胶唱片：静态胶面 + 随播放旋转的圆标(封面)、划痕与中轴。
+/// 专辑文件夹里有盘面图时画成画胶唱片：整张盘面是那张图，不再贴封面圆标。
 /// 旋转角始终取自同一时钟，暂停时停在当前角度而不是跳回起点。
 struct ImmersiveVinylRecord<Label: View>: View {
     @Environment(\.immersiveFrameRate) private var frameRate
@@ -565,28 +568,46 @@ struct ImmersiveVinylRecord<Label: View>: View {
     var reduceMotion: Bool
     var diameter: CGFloat
     var spinPeriod: Double = 4.8
+    var face: CGImage?
     @ViewBuilder var label: (CGFloat) -> Label
 
     var body: some View {
         let labelDiameter = diameter * 0.37
         ZStack {
-            ImmersiveVinylDisc(diameter: diameter)
-                .equatable()
-                .shadow(color: palette.primary.opacity(0.42), radius: diameter * 0.10, y: diameter * 0.04)
-                .shadow(color: .black.opacity(0.62), radius: diameter * 0.05, y: diameter * 0.03)
+            Group {
+                if face == nil {
+                    ImmersiveVinylDisc(diameter: diameter)
+                        .equatable()
+                } else {
+                    Circle()
+                        .fill(Color(white: 0.05))
+                        .frame(width: diameter, height: diameter)
+                }
+            }
+            .shadow(color: palette.primary.opacity(0.42), radius: diameter * 0.10, y: diameter * 0.04)
+            .shadow(color: .black.opacity(0.62), radius: diameter * 0.05, y: diameter * 0.03)
 
             TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isSpinning || reduceMotion)) { context in
                 let seconds = context.date.timeIntervalSinceReferenceDate
                 let angle = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: spinPeriod) / spinPeriod * 360
                 ZStack {
+                    if let face {
+                        Image(decorative: face, scale: 1)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: diameter, height: diameter)
+                            .clipShape(Circle())
+                    }
                     ImmersiveVinylScratches(diameter: diameter)
                         .equatable()
-                    label(labelDiameter)
-                        .frame(width: labelDiameter, height: labelDiameter)
-                        .clipShape(Circle())
-                        .overlay {
-                            Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
-                        }
+                    if face == nil {
+                        label(labelDiameter)
+                            .frame(width: labelDiameter, height: labelDiameter)
+                            .clipShape(Circle())
+                            .overlay {
+                                Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
+                            }
+                    }
                     Circle()
                         .fill(Color(white: 0.05))
                         .frame(width: diameter * 0.028, height: diameter * 0.028)
@@ -595,6 +616,11 @@ struct ImmersiveVinylRecord<Label: View>: View {
                         }
                 }
                 .rotationEffect(.degrees(angle))
+            }
+            if face != nil {
+                ImmersiveVinylDisc(diameter: diameter, showsSurface: false)
+                    .equatable()
+                    .allowsHitTesting(false)
             }
         }
         .frame(width: diameter, height: diameter)

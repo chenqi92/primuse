@@ -108,3 +108,90 @@ struct DiscFolderPolicyTests {
         #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "0AbCdEf123") == nil)
     }
 }
+
+@Suite("Disc face artwork")
+struct DiscArtworkPolicyTests {
+    @Test("Disc face names", arguments: [
+        "disc.jpg", "CD.png", "cdart.png", "Disc Art.jpg", "disc1.png", "CD 2.jpg", "disc-02.jpg", "vinyl.webp", "disk_3.jpeg",
+    ])
+    func candidates(_ name: String) {
+        #expect(DiscArtworkPolicy.isCandidate(name))
+    }
+
+    @Test("Other pictures are not disc faces", arguments: [
+        "cover.jpg", "folder.png", "back.jpg", "Discography.jpg", "disc1 front.jpg", "disc.txt", "cd1.cue",
+    ])
+    func nonCandidates(_ name: String) {
+        #expect(!DiscArtworkPolicy.isCandidate(name))
+    }
+
+    @Test("A disc subfolder prefers its own picture, then the album folder's numbered one")
+    func discSubfolder() {
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac", "disc.jpg"],
+            albumFolderNames: ["cover.jpg", "disc2.png"],
+            songFolderName: "CD2",
+            discNumber: 2
+        ) == .songFolder(1))
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac"],
+            albumFolderNames: ["cover.jpg", "disc1.png", "disc2.png", "disc.png"],
+            songFolderName: "CD2",
+            discNumber: 2
+        ) == .albumFolder(2))
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac"],
+            albumFolderNames: ["cover.jpg", "disc1.png", "disc.png"],
+            songFolderName: "CD2",
+            discNumber: 2
+        ) == .albumFolder(2))
+    }
+
+    @Test("Another disc's numbered picture is never used")
+    func otherDiscIsSkipped() {
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac", "disc1.jpg"],
+            albumFolderNames: nil,
+            songFolderName: "Album",
+            discNumber: 2
+        ) == nil)
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac", "disc1.jpg", "disc2.jpg"],
+            albumFolderNames: nil,
+            songFolderName: "Album",
+            discNumber: 2
+        ) == .songFolder(2))
+    }
+
+    @Test("A picture named after its disc folder is that disc's cover, not its face")
+    func folderNamedPictureIsTheCover() {
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac", "CD1.jpg"],
+            albumFolderNames: [],
+            songFolderName: "CD1",
+            discNumber: 1
+        ) == nil)
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["01.flac"],
+            albumFolderNames: ["CD1.jpg"],
+            songFolderName: "CD1",
+            discNumber: 1
+        ) == .albumFolder(0))
+    }
+
+    @Test("Unknown disc numbers count as the first disc; name and extension order break ties")
+    func tieBreaks() {
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["vinyl.jpg", "cd.png", "disc.png", "disc.jpg"],
+            albumFolderNames: nil,
+            songFolderName: "Album",
+            discNumber: nil
+        ) == .songFolder(3))
+        #expect(DiscArtworkPolicy.choose(
+            songFolderNames: ["disc.jpg", "disc1.jpg"],
+            albumFolderNames: nil,
+            songFolderName: "Album",
+            discNumber: nil
+        ) == .songFolder(1))
+    }
+}

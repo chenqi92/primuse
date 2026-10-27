@@ -28,6 +28,7 @@ struct MacImmersivePlayerView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(CoverTintProvider.self) private var coverTintProvider
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,6 +54,7 @@ struct MacImmersivePlayerView: View {
     @State private var isStageReady = false
     @State private var chromeTask: Task<Void, Never>?
     @State private var hasResolvedArtwork = true
+    @State private var discFace: CGImage?
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
     /// 封面流(#191)整排挪了几格：点两侧某张时先滑过去，换歌落地后归零。
@@ -142,6 +144,12 @@ struct MacImmersivePlayerView: View {
             displayedEffect: displayedEffect.rawValue,
             isRunning: isRenderingActive && isStageReady && player.isPlaying && !isLowPower && !showsEffectPicker
         )
+    }
+
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    private var discFaceSongID: String? {
+        guard presentationEffect.scene == .vinylDeck else { return nil }
+        return player.currentSong?.id
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -302,6 +310,15 @@ struct MacImmersivePlayerView: View {
             scheduleChromeHide()
             scheduleLowPower()
         }
+        .task(id: discFaceSongID) {
+            guard let songID = discFaceSongID, let song = library.song(id: songID) else {
+                discFace = nil
+                return
+            }
+            let face = await AlbumFolderImages.discFace(for: song, sourceManager: sourceManager)
+            guard !Task.isCancelled else { return }
+            discFace = face
+        }
         .task(id: lyricObservationIdentity) {
             await observeLyricPlayback()
         }
@@ -446,7 +463,8 @@ struct MacImmersivePlayerView: View {
             isResting: isLowPower,
             isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
-            chromeBlurRadius: 52
+            chromeBlurRadius: 52,
+            discFace: discFace
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)

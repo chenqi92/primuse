@@ -158,6 +158,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     /// 底部细进度条跟随容器的浮动控件一起出现、一起隐去。
     var showsPlaybackProgress = true
     var chromeBlurRadius: CGFloat = 52
+    /// 专辑文件夹里的盘面图:黑胶唱机画成画胶唱片。
+    var discFace: CGImage?
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
@@ -1716,7 +1718,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                 palette: palette,
                 isSpinning: decorativeClockIsActive,
                 reduceMotion: reduceMotion,
-                diameter: diameter
+                diameter: diameter,
+                face: discFace
             ) { side in
                 artwork(side)
             }

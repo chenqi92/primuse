@@ -37,6 +37,7 @@ struct ImmersivePlayerView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(CoverTintProvider.self) private var coverTintProvider
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -65,6 +66,7 @@ struct ImmersivePlayerView: View {
     @State private var isSeeking = false
     @State private var seekPreviewTime: TimeInterval?
     @State private var hasResolvedArtwork = true
+    @State private var discFace: CGImage?
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
@@ -153,6 +155,12 @@ struct ImmersivePlayerView: View {
                 effect = value
             }
         )
+    }
+
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    private var discFaceSongID: String? {
+        guard presentationEffect.scene == .vinylDeck else { return nil }
+        return player.currentSong?.id
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -301,6 +309,15 @@ struct ImmersivePlayerView: View {
             } else {
                 hasEntered = true
             }
+        }
+        .task(id: discFaceSongID) {
+            guard let songID = discFaceSongID, let song = library.song(id: songID) else {
+                discFace = nil
+                return
+            }
+            let face = await AlbumFolderImages.discFace(for: song, sourceManager: sourceManager)
+            guard !Task.isCancelled else { return }
+            discFace = face
         }
         .task(id: lyricObservationIdentity) {
             await observeLyricPlayback()
@@ -481,7 +498,8 @@ struct ImmersivePlayerView: View {
             controlsInset: controlsInset(metrics),
             isResting: isAmbientRest,
             isLowPower: isLowPower,
-            showsPlaybackProgress: showsChrome && !isAmbientRest && !presentsOnExternalDisplay
+            showsPlaybackProgress: showsChrome && !isAmbientRest && !presentsOnExternalDisplay,
+            discFace: discFace
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)

@@ -223,6 +223,7 @@
 		D7A7EA03FA81FA5A7025A100 /* AppleMusicCatalogNeighbors.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14FA3CC70A73BA07888136F /* AppleMusicCatalogNeighbors.swift */; };
 		16838983E4D9B322BCDFB2D7 /* SourceAddressInputPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14EF60E0BB79FBBE31FE5AA /* SourceAddressInputPolicy.swift */; };
 		16CEE442312B539A663C93CB /* PlayerBackdropResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C877D68222688CEEBA5183 /* PlayerBackdropResolver.swift */; };
+		9B43BBFC694DB9232BE8DC5B /* AlbumFolderImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF962C298A38573EB3332D65 /* AlbumFolderImages.swift */; };
 		1704FF3236FFF8B84A0B00A9 /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
@@ -1101,6 +1102,7 @@
 		790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25D3D08BB0FD71403FAFD2 /* AISettingsStore.swift */; };
 		792835F98B1AABE297CC5D22 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
 		79904ED2013B55FFFD1A531E /* PlayerBackdropResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C877D68222688CEEBA5183 /* PlayerBackdropResolver.swift */; };
+		D1568890B85F941F1F3B1B26 /* AlbumFolderImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF962C298A38573EB3332D65 /* AlbumFolderImages.swift */; };
 		79E2E4EE00D50F18EEDF9B01 /* WiFiTransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758577225D4912E66F9AA8CE /* WiFiTransferView.swift */; };
 		79F0E9CB426C2AF921C0FBA3 /* ServerMediaSharingConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */; };
 		7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */; };
@@ -3489,6 +3491,7 @@
 		A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMetadataReader.swift; sourceTree = "<group>"; };
 		A86E05F2143FF7A15E29948C /* NFSSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSSource.swift; sourceTree = "<group>"; };
 		A8C877D68222688CEEBA5183 /* PlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropResolver.swift; sourceTree = "<group>"; };
+		BF962C298A38573EB3332D65 /* AlbumFolderImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumFolderImages.swift; sourceTree = "<group>"; };
 		A928C8793AEC4F951472486E /* ExclusiveOutputDeviceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExclusiveOutputDeviceController.swift; sourceTree = "<group>"; };
 		A9863FECE24F63BA0CF8C13A /* AppleMusicCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogPicker.swift; sourceTree = "<group>"; };
 		AA13225ACFB141A6E34EB815 /* EQPresetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQPresetLibrary.swift; sourceTree = "<group>"; };
@@ -5148,6 +5151,7 @@
 				674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */,
 				EEF0659DA68B1F4CF8BEE05A /* PlayerBackdropImaging.swift */,
 				A8C877D68222688CEEBA5183 /* PlayerBackdropResolver.swift */,
+				BF962C298A38573EB3332D65 /* AlbumFolderImages.swift */,
 				96CE75F0A073BB8CD03ED6A1 /* PlayerBackdropSettingsStore.swift */,
 				2AB10836AF9263CA5866DCE4 /* ThemeColorSettings.swift */,
 				74134D8D32D016D927D59D77 /* ThemeService.swift */,
@@ -7784,6 +7788,7 @@
 				90616AD51327A5244208E6F8 /* NowPlayingTransportFaces.swift in Sources */,
 				532A78DFF4638E1922FE9A74 /* PlayerBackdropImaging.swift in Sources */,
 				16CEE442312B539A663C93CB /* PlayerBackdropResolver.swift in Sources */,
+				9B43BBFC694DB9232BE8DC5B /* AlbumFolderImages.swift in Sources */,
 				21277BB9EEBB8B2F6071AA1C /* PlayerBackdropSettingsStore.swift in Sources */,
 				C6A1D751FF7FAC20FA35A361 /* PlayerBackdropSettingsViews.swift in Sources */,
 				541C2DAFF2509005F4CABC11 /* PlayerMoreMenu.swift in Sources */,
@@ -8582,6 +8587,7 @@
 				D2CDF6AD8BCF5ADFCF4DBFD9 /* NowPlayingTransportFaces.swift in Sources */,
 				3906C45F2B88F97B9523CDF6 /* PlayerBackdropImaging.swift in Sources */,
 				79904ED2013B55FFFD1A531E /* PlayerBackdropResolver.swift in Sources */,
+				D1568890B85F941F1F3B1B26 /* AlbumFolderImages.swift in Sources */,
 				38ED7837BDE8F85373AB2AE0 /* PlayerBackdropSettingsStore.swift in Sources */,
 				1E0E1A2021CBC312C1129932 /* PlayerBackdropSettingsViews.swift in Sources */,
 				4B2098C9DD74C22E28E0B3F4 /* PlayerMoreMenu.swift in Sources */,

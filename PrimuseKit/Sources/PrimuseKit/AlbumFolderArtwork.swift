@@ -135,3 +135,88 @@ public enum DiscFolderPolicy {
         return Int(text)
     }
 }
+
+// MARK: - Disc face artwork
+
+/// 盘面图:专辑文件夹里拍下或做好的光盘 / 黑胶盘面,画在专辑页那张盘和全屏黑胶上,不当封面用。
+/// 认 `disc` `cd` `discart` `cdart` `disk` `vinyl`,后面可以跟碟号(`disc1.png`、`CD 2.jpg`、
+/// `disc-02.jpg`)。歌在分碟子文件夹里时先找子文件夹里的(不带碟号或碟号对得上),再找上一层
+/// 专辑文件夹里碟号对得上的、不带碟号的。和所在文件夹同名的图(`CD1/CD1.jpg`)是那张碟的封面,不算。
+public enum DiscArtworkPolicy {
+    public enum Location: Sendable, Equatable {
+        case songFolder(Int)
+        case albumFolder(Int)
+    }
+
+    /// 前面的优先;`discart` 要排在 `disc` 前面匹配。
+    static let stems = ["disc", "cd", "discart", "cdart", "disk", "vinyl"]
+    private static let matchOrder = ["discart", "cdart", "disc", "disk", "vinyl", "cd"]
+
+    public static func isCandidate(_ fileName: String) -> Bool {
+        match(fileName) != nil
+    }
+
+    /// - Parameters:
+    ///   - songFolderNames: 歌所在文件夹里的文件名。
+    ///   - albumFolderNames: 歌在分碟子文件夹里时上一层的文件名,否则 nil。
+    ///   - songFolderName: 歌所在文件夹的名字。
+    ///   - discNumber: 这首歌是第几张碟;不知道时按第 1 张。
+    public static func choose(
+        songFolderNames: [String],
+        albumFolderNames: [String]?,
+        songFolderName: String?,
+        discNumber: Int?
+    ) -> Location? {
+        let disc = discNumber ?? 1
+        let folderStem = songFolderName.map { normalizedStem($0) }
+        var best: (rank: Int, stemRank: Int, extensionRank: Int, location: Location)?
+        func consider(_ name: String, rank: Int, location: Location) {
+            guard let found = match(name) else { return }
+            let candidate = (rank, found.stemRank, found.extensionRank, location)
+            if let current = best,
+               (current.rank, current.stemRank, current.extensionRank)
+                <= (candidate.0, candidate.1, candidate.2) { return }
+            best = candidate
+        }
+        for (index, name) in songFolderNames.enumerated() {
+            guard let found = match(name), normalizedStem(of: name) != folderStem else { continue }
+            if found.number == nil {
+                consider(name, rank: 1, location: .songFolder(index))
+            } else if found.number == disc {
+                consider(name, rank: 0, location: .songFolder(index))
+            }
+        }
+        for (index, name) in (albumFolderNames ?? []).enumerated() {
+            guard let found = match(name) else { continue }
+            if found.number == disc {
+                consider(name, rank: 2, location: .albumFolder(index))
+            } else if found.number == nil {
+                consider(name, rank: 3, location: .albumFolder(index))
+            }
+        }
+        return best?.location
+    }
+
+    private static func match(_ fileName: String) -> (stemRank: Int, number: Int?, extensionRank: Int)? {
+        let file = (fileName as NSString).lastPathComponent as NSString
+        guard let extensionRank = PrimuseConstants.supportedCoverExtensions
+            .firstIndex(of: file.pathExtension.lowercased()) else { return nil }
+        let stem = normalizedStem(file.deletingPathExtension)
+        for prefix in matchOrder where stem.hasPrefix(prefix) {
+            let rest = stem.dropFirst(prefix.count)
+            guard let stemRank = stems.firstIndex(of: prefix) else { return nil }
+            if rest.isEmpty { return (stemRank, nil, extensionRank) }
+            guard rest.allSatisfy({ ("0"..."9").contains($0) }), let number = Int(rest) else { return nil }
+            return (stemRank, number, extensionRank)
+        }
+        return nil
+    }
+
+    private static func normalizedStem(of fileName: String) -> String {
+        normalizedStem(((fileName as NSString).lastPathComponent as NSString).deletingPathExtension)
+    }
+
+    private static func normalizedStem(_ stem: String) -> String {
+        String(stem.lowercased().filter { !$0.isWhitespace && $0 != "-" && $0 != "_" && $0 != "." })
+    }
+}

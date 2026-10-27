@@ -37,12 +37,14 @@ private struct TVDiscRing: Shape {
     }
 }
 
-/// 一张印着专辑封面的 CD。印刷面(封面)和内环跟着转;上面那层彩虹反光固定不动,
-/// 光源不会随盘转。
+/// 一张印着专辑封面的 CD。印刷面(封面,专辑文件夹里有盘面图时用盘面图)和内环跟着转;
+/// 上面那层彩虹反光固定不动,光源不会随盘转。
 struct TVCompactDisc: View {
     let album: TVAlbum
     let size: CGFloat
     var spinning = false
+    /// 专辑文件夹里的盘面图(`TVAlbumDiscArtwork`)。
+    var faceImage: CGImage?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 停着时的角度;转起来以后从这里接着转,停下就停在当时的角度,不跳回原位。
@@ -57,8 +59,18 @@ struct TVCompactDisc: View {
 
     var body: some View {
         // 印刷面在时间线外面建好,每一帧只改转角,封面视图不跟着重算。
-        let face = TVArtworkView(album: album, size: size, radius: 0)
-            .mask(TVDiscRing(innerRatio: Self.printRatio).fill(style: FillStyle(eoFill: true)))
+        let face = Group {
+            if let faceImage {
+                Image(decorative: faceImage, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                TVArtworkView(album: album, size: size, radius: 0)
+            }
+        }
+        .mask(TVDiscRing(innerRatio: Self.printRatio).fill(style: FillStyle(eoFill: true)))
         ZStack {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !spins)) { context in
                 face.rotationEffect(.degrees(angle(at: context.date)))
@@ -145,6 +157,7 @@ struct TVJewelCaseInterior: View {
     var radius: CGFloat = TVRadius.cover
     /// 盘滑出来了没有:先在盖子底下建好,再滑出来。
     var discOut: Bool
+    var discFace: CGImage?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -165,7 +178,7 @@ struct TVJewelCaseInterior: View {
                 .fill(Color.white.opacity(0.08))
                 .frame(width: size * 0.05)
                 .clipShape(shape)
-            TVCompactDisc(album: album, size: size * 0.9)
+            TVCompactDisc(album: album, size: size * 0.9, faceImage: discFace)
                 .rotationEffect(.degrees(discOut ? 30 : 0))
                 .offset(x: size * 0.05 + (discOut ? size * 0.16 : 0))
                 .animation(TVJewelCaseMotion.disc, value: discOut)
@@ -180,6 +193,7 @@ struct TVAlbumCaseArtwork<Cover: View>: View {
     let album: TVAlbum
     let size: CGFloat
     var spinning = false
+    var discFace: CGImage?
     @ViewBuilder var cover: () -> Cover
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -191,7 +205,7 @@ struct TVAlbumCaseArtwork<Cover: View>: View {
     var body: some View {
         let disc = size * 0.92
         ZStack(alignment: .leading) {
-            TVCompactDisc(album: album, size: disc, spinning: spinning && discOut)
+            TVCompactDisc(album: album, size: disc, spinning: spinning && discOut, faceImage: discFace)
                 .offset(x: (size - disc) / 2 + (discOut ? size * Self.peekRatio : 0))
             cover()
         }

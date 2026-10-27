@@ -430,7 +430,12 @@ struct TVAlbumCard: View {
                     .animation(TVJewelCaseMotion.lid, value: casePhase)
                     .background {
                         if casePhase != .closed {
-                            TVJewelCaseInterior(album: album, size: width, discOut: casePhase == .open)
+                            TVJewelCaseInterior(
+                                album: album,
+                                size: width,
+                                discOut: casePhase == .open,
+                                discFace: TVAlbumDiscArtwork.cachedFace(forAlbumID: album.id)
+                            )
                         }
                     }
                 VStack(alignment: .leading, spacing: 6) {

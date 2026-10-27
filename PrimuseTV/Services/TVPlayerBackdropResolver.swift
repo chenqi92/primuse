@@ -388,4 +388,75 @@ enum TVAlbumBackArtwork {
         return (softKey, softened)
     }
 }
+/// 专辑文件夹里的盘面图(`DiscArtworkPolicy`):专辑页、开盒动画里那张盘和全屏黑胶的盘面。
+/// 列过的文件夹记在内存里(没有盘面图也记,列失败不记);读图、缩图和磁盘缓存与封底共用。
+@MainActor
+enum TVAlbumDiscArtwork {
+    private static var choices: [String: TVAlbumBackArtwork.File?] = [:]
+    /// 专辑 → 读好的盘面在内存缓存里的键。开盒动画等不及列目录,只用现成的。
+    private static var albumFaceKeys: [String: String] = [:]
+
+    static func cachedFace(forAlbumID albumID: String) -> CGImage? {
+        albumFaceKeys[albumID].flatMap { PlayerBackdropMemoryCache.shared.image(forKey: $0) }
+    }
+
+    /// 这首歌那张碟的盘面图;没有、源列不了目录或读失败都是 nil。
+    static func face(for song: Song, store: TVStore) async -> (id: String, image: CGImage)? {
+        guard let file = await file(for: song, store: store), !Task.isCancelled else { return nil }
+        let key = "disc|" + TVAlbumBackArtwork.memoryKey(sourceID: song.sourceID, file: file)
+        var image = PlayerBackdropMemoryCache.shared.image(forKey: key)
+        if image == nil {
+            let load = TVAlbumBackArtwork.loader(file: file, sourceID: song.sourceID, store: store)
+            image = await Task.detached(priority: .userInitiated) { await load() }.value
+            guard let image, !Task.isCancelled else { return nil }
+            PlayerBackdropMemoryCache.shared.insert(image, forKey: key)
+        }
+        guard let image else { return nil }
+        if let albumID = song.albumID, !albumID.isEmpty { albumFaceKeys[albumID] = key }
+        return (key, image)
+    }
+
+    private static func file(for song: Song, store: TVStore) async -> TVAlbumBackArtwork.File? {
+        let directory = TVFolderRescanPolicy.directory(containingFilePath: song.filePath, levelsAbove: 0)
+        let folderName = directory.map { ($0 as NSString).lastPathComponent }
+        let discNumber = folderName.flatMap(DiscFolderPolicy.discNumber(fromFolderName:)) ?? song.discNumber
+        let key = "\(TVAlbumBackArtwork.directoryKey(for: song))|\(discNumber ?? 1)"
+        if let cached = choices[key] { return cached }
+        guard let source = store.sourcesStore.source(id: song.sourceID),
+              source.isEnabled, !source.isDeleted,
+              TVFolderRescanPolicy.supports(source.type),
+              TVMetadataReaderPool.canRead(source),
+              let lister = store.makeLister(for: source),
+              let directory
+        else { return nil }
+        do {
+            let own = try await lister.list(directory).filter { !$0.isDir }
+            var album: [TVDirEntry]?
+            if let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: directory) {
+                album = try await lister.list(parent).filter { !$0.isDir }
+            }
+            let entry: TVDirEntry?
+            switch DiscArtworkPolicy.choose(
+                songFolderNames: own.map(\.name),
+                albumFolderNames: album?.map(\.name),
+                songFolderName: folderName,
+                discNumber: discNumber
+            ) {
+            case .songFolder(let index): entry = own[index]
+            case .albumFolder(let index): entry = album?[index]
+            case nil: entry = nil
+            }
+            let file = entry.map {
+                TVAlbumBackArtwork.File(path: $0.path, size: $0.size, modified: $0.modifiedDate)
+            }
+            choices[key] = .some(file)
+            return file
+        } catch {
+            if !(error is CancellationError) {
+                plog("🖼 TV disc face lookup failed source=\(source.type.rawValue): \(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
+}
 #endif

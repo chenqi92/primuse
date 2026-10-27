@@ -194,6 +194,8 @@ struct TVImmersivePlayerView: View {
     @State private var modePickerYieldsFocus = false
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    @State private var discFace: CGImage?
     @State private var gallerySongs: [TVSong] = []
     /// 封面流(#191)两侧：队列里刚放过的与接下来的几首；画的时候再转成界面值。
     @State private var flowNeighbors = AlbumFlowNeighbors()
@@ -464,6 +466,15 @@ struct TVImmersivePlayerView: View {
         .onChange(of: rotationModeRawValue) { _, _ in
             if !rotationMode.isEnabled { rotator.reset() }
         }
+        .task(id: discFaceSongID) {
+            guard let songID = discFaceSongID, let song = store.library.song(id: songID) else {
+                discFace = nil
+                return
+            }
+            let found = await TVAlbumDiscArtwork.face(for: song, store: store)
+            guard !Task.isCancelled else { return }
+            discFace = found?.image
+        }
         .task(id: rotationSchedule) {
             guard let interval = rotationSchedule.interval else { return }
             try? await Task.sleep(for: .seconds(interval))
@@ -518,6 +529,12 @@ struct TVImmersivePlayerView: View {
     }
 
     // MARK: - 画面
+
+    private var discFaceSongID: String? {
+        guard presentationEffect.scene == .vinylDeck else { return nil }
+        let songID = store.nowPlaying.songID
+        return songID.isEmpty ? nil : songID
+    }
 
     private func stage(metrics: ImmersiveStageMetrics) -> some View {
         let np = store.nowPlaying
@@ -603,7 +620,8 @@ struct TVImmersivePlayerView: View {
             isResting: isLowPower,
             isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
-            chromeBlurRadius: 60
+            chromeBlurRadius: 60,
+            discFace: discFace
         ) { side in
             if np.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ImmersiveArtworkFallback(
