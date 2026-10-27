@@ -60,6 +60,7 @@ extension AudioPlayerService {
     /// 和队列里的那一项,拖动进度、断流恢复都按它来。
     func preparePodcastEpisodeForPlayback(_ song: Song) async -> Song {
         guard PodcastPlaybackSong.isEpisode(song) else { return song }
+        let song = withPodcastVideoReference(song)
         if let local = PodcastDownloadStore.shared.localURL(for: song.id) {
             let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int64) ?? song.fileSize
             return replacingPodcastFileSize(song, with: size)
@@ -83,8 +84,24 @@ extension AudioPlayerService {
         guard song.fileSize != size else { return song }
         var updated = song
         updated.fileSize = size
-        if currentSong?.id == song.id { currentSong = updated }
-        for index in queueEntries.indices where queueEntries[index].song.id == song.id {
+        return replacingPodcastSong(updated)
+    }
+
+    /// 升级前存下的队列(冷启动恢复、播客队列记忆)里,视频单集还没带 `mvPath`;
+    /// 按单集现在的样子补上,放画面还是只放声音才有得选(#365)。
+    private func withPodcastVideoReference(_ song: Song) -> Song {
+        guard song.mvPath == nil,
+              let found = PodcastStore.shared.episode(id: song.id),
+              found.episode.playsAsVideo,
+              found.episode.enclosureURL.absoluteString == song.filePath else { return song }
+        var updated = song
+        updated.mvPath = song.filePath
+        return replacingPodcastSong(updated)
+    }
+
+    private func replacingPodcastSong(_ updated: Song) -> Song {
+        if currentSong?.id == updated.id { currentSong = updated }
+        for index in queueEntries.indices where queueEntries[index].song.id == updated.id {
             queueEntries[index].song = updated
         }
         return updated

@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "As pastas não ficam disponíveis durante o filtro";
 "library_browse_folder_blocked_search_message" = "Os resultados do filtro aparecem em lista plana.";
 "library_browse_folder_blocked_search_action" = "Limpar filtro e ver pastas";
+"spoken_word_video_show" = "Mostrar vídeo";
+"spoken_word_video_hide" = "Somente áudio";

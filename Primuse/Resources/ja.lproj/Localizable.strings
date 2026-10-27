@@ -6959,3 +6959,5 @@
 "library_browse_folder_blocked_search_title" = "絞り込み中はフォルダ表示できません";
 "library_browse_folder_blocked_search_message" = "絞り込みの結果はフラットに一覧表示します。";
 "library_browse_folder_blocked_search_action" = "絞り込みを消去してフォルダ表示";
+"spoken_word_video_show" = "ビデオを表示";
+"spoken_word_video_hide" = "音声のみ";

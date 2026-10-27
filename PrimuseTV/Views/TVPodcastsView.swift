@@ -833,10 +833,11 @@ struct TVPodcastProgressBar: View {
 
 @MainActor
 private enum TVPodcastText {
-    /// 「星期二 · 48 分钟」;听到一半的换成剩余时间,听完的说已播放。
+    /// 「星期二 · 视频 · 48 分钟」;听到一半的换成剩余时间,听完的说已播放。
     static func meta(_ episode: PodcastEpisode, state: PodcastEpisodeState) -> String {
         var parts: [String] = []
         if let date = PodcastFormat.date(episode.publishedAt) { parts.append(date) }
+        if episode.isVideo { parts.append(String(localized: "podcast_video_episode")) }
         if state.isFinished {
             parts.append(String(localized: "podcast_played"))
         } else if let position = state.position, let total = episode.duration, total > position, position > 0 {

@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "Filtrelerken klasörler kullanılamaz";
 "library_browse_folder_blocked_search_message" = "Filtre sonuçları düz liste olarak gösterilir.";
 "library_browse_folder_blocked_search_action" = "Filtreyi temizle ve klasörleri göster";
+"spoken_word_video_show" = "Videoyu göster";
+"spoken_word_video_hide" = "Yalnızca ses";

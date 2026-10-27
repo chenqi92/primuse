@@ -1748,6 +1748,22 @@ struct MacNowPlayingView: View {
                 .disabled(player.isLoading)
             }
 
+            // 视频播客单集、当节目听的视频(#365):放画面还是只放声音。
+            if player.offersSpokenWordVideoToggle {
+                let videoShown = player.isSpokenWordVideoShown
+                Button { player.setShowsSpokenWordVideo(!videoShown) } label: {
+                    circleIcon(videoShown ? "play.rectangle.fill" : "play.rectangle",
+                               tint: videoShown ? theme.onAccent : nil,
+                               fill: videoShown ? theme.accentColor.opacity(0.9) : nil)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .pmGlassControl(Circle())
+                .help(Text(videoShown ? "spoken_word_video_hide" : "spoken_word_video_show"))
+                .accessibilityLabel(Text(videoShown ? "spoken_word_video_hide" : "spoken_word_video_show"))
+                .disabled(player.isLoading)
+            }
+
             // This filled icon represents the lyrics view that is already
             // active. A second click toggles it off, just like the down button.
             Button {

@@ -36,7 +36,8 @@ extension AudioPlayerService {
         spokenWordLocalTouchAt = nil
         spokenWordStoppedAt = nil
         spokenWordRepositionedWhilePaused = false
-        // 片尾跳过、换走时不存位置,都只对那一条;换到别的条目就作废。
+        // 片尾跳过、换走时不存位置、视频没放起来,都只对那一条;换到别的条目就作废。
+        if spokenWordVideoFailedSongID != song?.id { spokenWordVideoFailedSongID = nil }
         let playbackState = PodcastPlaybackState.shared
         if playbackState.outroHandledEpisodeID != song?.id { playbackState.outroHandledEpisodeID = nil }
         if playbackState.positionSaveSuppressedEpisodeID != song?.id { playbackState.positionSaveSuppressedEpisodeID = nil }

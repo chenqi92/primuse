@@ -654,7 +654,12 @@ struct TVNowPlayingView: View {
 
                 scrubber(immersiveDark: true)
                     .padding(.bottom, 20)
-                transport(immersiveDark: true)
+                // 放画面的有声内容(#365)用有声那排:倍速、睡眠、书签和「只听声音」都在。
+                if store.currentItemIsSpokenWord {
+                    spokenWordTransport
+                } else {
+                    transport(immersiveDark: true)
+                }
             }
             .focusScope(playerFocus)
             .focusSection()
@@ -937,6 +942,18 @@ struct TVNowPlayingView: View {
                     ? String(localized: "sleep_timer_active")
                     : String(localized: "sleep_timer")
             ) { showSpokenWordSleep = true }
+            if store.offersSpokenWordVideoToggle {
+                let videoShown = store.isSpokenWordVideoShown
+                TVRoundBtn(icon: videoShown ? "play.rectangle.fill" : "play.rectangle", size: 64,
+                           active: videoShown,
+                           accessibilityLabel: String(
+                               localized: videoShown ? "spoken_word_video_hide" : "spoken_word_video_show"
+                           ),
+                           onInteraction: registerInteraction) {
+                    store.setShowsSpokenWordVideo(!videoShown)
+                }
+                .disabled(store.isLoading)
+            }
             TVRoundBtn(icon: "bookmark", size: 64,
                        accessibilityLabel: String(localized: "spoken_word_add_bookmark"),
                        onInteraction: registerInteraction) {

@@ -6958,3 +6958,5 @@
 "library_browse_folder_blocked_search_title" = "Dossiers indisponibles pendant le filtrage";
 "library_browse_folder_blocked_search_message" = "Les résultats du filtre s’affichent en liste à plat.";
 "library_browse_folder_blocked_search_action" = "Effacer le filtre et afficher les dossiers";
+"spoken_word_video_show" = "Afficher la vidéo";
+"spoken_word_video_hide" = "Audio seulement";

@@ -1141,6 +1141,10 @@ final class TVStore {
         didSet { syncTrackNavigationCommands() }
     }
     var isMusicVideoModeEnabled = false
+    /// 有声内容里的视频(视频播客单集、当节目听的视频文件,#365)放画面还是只放声音。这台电视自己记着,
+    /// 播放页上切;规则见 `SpokenWordVideoPolicy`,和 iPhone 同一套。
+    private(set) var showsSpokenWordVideo = UserDefaults.standard
+        .object(forKey: SpokenWordVideoPolicy.preferenceKey) as? Bool ?? SpokenWordVideoPolicy.defaultShowsVideo
     var sleepTimerMinutes = 0   // 0 = 关闭
     /// 按分钟定时的到点时刻,正在播放页据此倒数。
     private(set) var sleepTimerEndDate: Date?
@@ -1236,6 +1240,51 @@ final class TVStore {
     }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
     var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
+
+    /// 正在放的有声内容本身是视频(视频播客单集,或当节目听的视频文件)时就是它。
+    private var currentSpokenWordVideoSong: Song? {
+        guard currentItemIsSpokenWord, !isLiveRadio, !isMedleyActive else { return nil }
+        let song = currentPodcastEpisodeID != nil
+            ? currentPodcastSong
+            : currentSongID.flatMap { library.song(id: $0) }
+        guard let song, song.isStandaloneMusicVideo else { return nil }
+        return song
+    }
+
+    /// 播放页上给不给「显示视频 / 只听声音」。
+    var offersSpokenWordVideoToggle: Bool {
+        guard let song = currentSpokenWordVideoSong else { return false }
+        return SpokenWordVideoPolicy.offersToggle(
+            isStandaloneVideo: true,
+            isSpokenWord: true,
+            supportsAudioOnly: SpokenWordVideoPolicy.supportsAudioOnly(
+                path: song.filePath,
+                fallbackExtension: song.fileFormat.rawValue
+            ),
+            forcesAudioOnly: false,
+            isCasting: false
+        )
+    }
+
+    var isSpokenWordVideoShown: Bool { isMusicVideoPlaybackActive }
+
+    /// 这一集播客放画面吗。
+    private func podcastUsesVideo(_ episode: PodcastEpisode) -> Bool {
+        guard episode.playsAsVideo else { return false }
+        let song = PodcastPlaybackSong.song(for: episode, show: nil)
+        return SpokenWordVideoPolicy.usesVideoPipeline(
+            isStandaloneVideo: true,
+            hasSidecarVideo: false,
+            isSpokenWord: true,
+            showsSpokenWordVideo: showsSpokenWordVideo,
+            musicVideoModeEnabled: false,
+            forcesAudioOnly: false,
+            supportsAudioOnly: SpokenWordVideoPolicy.supportsAudioOnly(
+                path: song.filePath,
+                fallbackExtension: song.fileFormat.rawValue
+            )
+        )
+    }
     var currentRadioStation: RadioStation? {
         guard let currentRadioStationID else { return nil }
         return radioStations.first { $0.id == currentRadioStationID }
@@ -7048,6 +7097,20 @@ final class TVStore {
         startPlaying(song, resumeTime: resumeTime, autoPlay: shouldPlay)
     }
 
+    /// 播放页上点了「显示视频 / 只听声音」:记下选择,这一条从现在的位置换管线,放着的照放、停着的停着。
+    func setShowsSpokenWordVideo(_ shows: Bool) {
+        showsSpokenWordVideo = shows
+        UserDefaults.standard.set(shows, forKey: SpokenWordVideoPolicy.preferenceKey)
+        guard offersSpokenWordVideoToggle, shows != isMusicVideoPlaybackActive else { return }
+        let resumeTime = currentTime
+        let shouldPlay = isPlaying
+        if currentPodcastEpisodeID != nil {
+            reloadCurrentPodcastEpisode(at: resumeTime, autoPlay: shouldPlay)
+        } else if let id = currentSongID, let song = song(id) {
+            startPlaying(song, resumeTime: resumeTime, autoPlay: shouldPlay)
+        }
+    }
+
     /// 睡眠定时:关→15→30→60→关 分钟。到点停止播放。
     func cycleSleepTimer() {
         let presets = [0, 15, 30, 60]
@@ -7705,6 +7768,36 @@ final class TVStore {
         }
     }
 
+    /// 同一集换管线(放画面 ⇄ 只放声音):不动队列与播放页,从 `time` 重开这一集。
+    private func reloadCurrentPodcastEpisode(at time: Double, autoPlay: Bool) {
+        guard let id = currentPodcastEpisodeID, let found = PodcastStore.shared.episode(id: id) else { return }
+        rememberSpokenWordPosition(force: true)
+        playbackTask?.cancel()
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        engine.prepareForSelection(startAt: time)
+        spokenWordPositionArmed = false
+        lastSpokenWordPositionSave = 0
+        pendingSpokenWordResume = time > 2 ? (id, time) : nil
+        engine.wantsChapters = true
+        engine.setSpokenWordRate(Double(spokenWordRate(forBookID: spokenWordBookID(forSongID: id))))
+        let showTitle = found.show.title
+        plog("🎙️ TV podcast: '\(found.episode.title)' video=\(podcastUsesVideo(found.episode)) at \(Int(time))s")
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadPodcastEpisode(
+                found.episode,
+                showTitle: showTitle,
+                startAt: time,
+                autoPlay: autoPlay,
+                requestID: requestID
+            )
+            guard self.isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+            self.playbackTask = nil
+        }
+    }
+
     /// 起点:记住的位置(快听完的按有声规则回到开头);没有就跳过这档节目设的片头。
     private func podcastStartTime(song: Song, episode: PodcastEpisode, show: PodcastShow?) -> Double {
         if let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: spokenWordResumeRewind), stored > 0 {
@@ -7719,7 +7812,13 @@ final class TVStore {
 
     /// 取真实地址再交给引擎:先探一次(记下跳转后的 CDN 地址,之后的分段请求不再每次经过统计跳转),
     /// 明文 http 先试 https,不行再按这台设备的明文许可问一次。
-    private func loadPodcastEpisode(_ episode: PodcastEpisode, showTitle: String, startAt: Double, requestID: UUID) async {
+    private func loadPodcastEpisode(
+        _ episode: PodcastEpisode,
+        showTitle: String,
+        startAt: Double,
+        autoPlay: Bool = true,
+        requestID: UUID
+    ) async {
         var url = episode.enclosureURL
         let cache = PodcastEnclosureProbeCache.shared
         if let probe = cache.probe(forEpisodeID: episode.id) {
@@ -7749,6 +7848,7 @@ final class TVStore {
             }
         }
         guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+        // 视频单集按播放页上的选择放画面(#365);只放声音时 AVPlayer 照样只出声。
         engine.load(
             url: url,
             headers: ["User-Agent": PodcastNetwork.userAgent],
@@ -7756,9 +7856,10 @@ final class TVStore {
             title: episode.title,
             artist: showTitle,
             album: showTitle,
-            duration: episode.duration ?? 0
+            duration: episode.duration ?? 0,
+            isVideo: podcastUsesVideo(episode)
         )
-        engine.startPlayback(at: startAt, autoPlay: true)
+        engine.startPlayback(at: startAt, autoPlay: autoPlay)
     }
 
     /// 播放页「接下来」里点了一集:从它放起,它后面的照旧接着放。

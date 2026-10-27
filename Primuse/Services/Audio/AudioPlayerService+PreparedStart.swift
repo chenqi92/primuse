@@ -195,9 +195,7 @@ extension AudioPlayerService {
         }
         let song = songApplyingPlaybackRange(entry.song)
         guard let manager = sourceManager, isStillPreparing(entry, ownerID: ownerID) else { return }
-        let hasMusicVideo = song.isStandaloneMusicVideo
-            || (song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                && isMusicVideoModeEnabled)
+        let hasMusicVideo = usesVideoPipeline(for: song)
         let startsMidFile = song.appliedPlaybackRange != nil
             || song.cueStartTime != nil
             || spokenWordOpeningPosition(for: song) != nil

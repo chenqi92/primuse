@@ -6719,3 +6719,5 @@
 "library_browse_folder_blocked_search_title" = "Folders aren't available while filtering";
 "library_browse_folder_blocked_search_message" = "Filter results are listed flat.";
 "library_browse_folder_blocked_search_action" = "Clear Filter and Show Folders";
+"spoken_word_video_show" = "Show Video";
+"spoken_word_video_hide" = "Audio Only";

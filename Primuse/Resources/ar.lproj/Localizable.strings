@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "لا يمكن العرض حسب المجلدات أثناء التصفية";
 "library_browse_folder_blocked_search_message" = "تُعرض نتائج التصفية في قائمة مسطحة.";
 "library_browse_folder_blocked_search_action" = "مسح التصفية وعرض المجلدات";
+"spoken_word_video_show" = "عرض الفيديو";
+"spoken_word_video_hide" = "الصوت فقط";

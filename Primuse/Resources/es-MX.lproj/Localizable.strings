@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "Las carpetas no están disponibles al filtrar";
 "library_browse_folder_blocked_search_message" = "Los resultados del filtro se muestran en una lista plana.";
 "library_browse_folder_blocked_search_action" = "Borrar filtro y ver carpetas";
+"spoken_word_video_show" = "Mostrar video";
+"spoken_word_video_hide" = "Solo audio";

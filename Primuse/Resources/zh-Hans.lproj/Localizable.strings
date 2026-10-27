@@ -7051,3 +7051,5 @@
 "library_browse_folder_blocked_search_title" = "过滤歌曲时不能按目录浏览";
 "library_browse_folder_blocked_search_message" = "过滤结果按平铺列出。";
 "library_browse_folder_blocked_search_action" = "清空过滤并按目录浏览";
+"spoken_word_video_show" = "显示视频";
+"spoken_word_video_hide" = "只听声音";

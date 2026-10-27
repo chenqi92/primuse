@@ -6958,3 +6958,5 @@
 "library_browse_folder_blocked_search_title" = "Ordner sind beim Filtern nicht verfügbar";
 "library_browse_folder_blocked_search_message" = "Filterergebnisse werden als flache Liste gezeigt.";
 "library_browse_folder_blocked_search_action" = "Filter löschen und Ordner zeigen";
+"spoken_word_video_show" = "Video anzeigen";
+"spoken_word_video_hide" = "Nur Audio";

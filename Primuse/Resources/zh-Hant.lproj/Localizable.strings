@@ -6935,3 +6935,5 @@
 "library_browse_folder_blocked_search_title" = "篩選歌曲時無法依目錄瀏覽";
 "library_browse_folder_blocked_search_message" = "篩選結果以平鋪列出。";
 "library_browse_folder_blocked_search_action" = "清除篩選並依目錄瀏覽";
+"spoken_word_video_show" = "顯示影片";
+"spoken_word_video_hide" = "只聽聲音";

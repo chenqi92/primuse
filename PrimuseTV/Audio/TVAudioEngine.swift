@@ -250,7 +250,8 @@ final class TVAudioEngine {
     private func loadChapters(from asset: AVAsset, expectedItemID: ObjectIdentifier) {
         chapterTask?.cancel()
         chapters = []
-        guard wantsChapters, !isVideoMode, playbackSegment.physicalStart == 0 else { return }
+        // 只有有声内容要章节;当节目听的视频(#365)放画面时照样读。
+        guard wantsChapters, playbackSegment.physicalStart == 0 else { return }
         // AVAsset 的 async load 接口本身是线程安全的,只是类型没标 Sendable。
         nonisolated(unsafe) let chapterAsset = asset
         chapterTask = Task { [weak self] in

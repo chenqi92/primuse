@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "Папки недоступны во время фильтрации";
 "library_browse_folder_blocked_search_message" = "Результаты фильтра показываются списком.";
 "library_browse_folder_blocked_search_action" = "Очистить фильтр и показать папки";
+"spoken_word_video_show" = "Показать видео";
+"spoken_word_video_hide" = "Только звук";

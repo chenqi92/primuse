@@ -430,15 +430,26 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
         case "audio/flac", "audio/x-flac": return "flac"
         case "audio/wav", "audio/x-wav": return "wav"
         case "video/mp4": return "mp4"
+        case "video/x-m4v": return "m4v"
+        case "video/quicktime": return "mov"
         default: return "mp3"
         }
     }
 
-    /// 视频播客(enclosure 是视频)。目前只放声音,列表上标出来。
+    /// 视频播客(enclosure 是视频),列表上标出来。
     public var isVideo: Bool {
         if let type = enclosureType?.lowercased(), type.hasPrefix("video/") { return true }
         return ["mp4", "m4v", "mov"].contains(enclosureURL.pathExtension.lowercased())
             && enclosureType?.lowercased().hasPrefix("audio/") != true
+    }
+
+    /// 能放画面的视频单集:MP4/M4V/MOV,放画面和只放声音都行(`SpokenWordVideoPolicy`)。
+    /// 别的视频格式照旧只放声音。
+    public var playsAsVideo: Bool {
+        isVideo && SpokenWordVideoPolicy.supportsAudioOnly(
+            path: enclosureURL.absoluteString,
+            fallbackExtension: audioFileExtension
+        )
     }
 }
 

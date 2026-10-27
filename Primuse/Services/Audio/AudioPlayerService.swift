@@ -721,6 +721,12 @@ final class AudioPlayerService {
     private(set) var isMusicVideoModeEnabled = false
     private(set) var isMusicVideoPlaybackActive = false
     private(set) var musicVideoAudioFallbackToken = UUID()
+    /// 有声内容里的视频(视频播客单集、当节目听的网盘视频,#365)放画面还是只放声音。本机记着,
+    /// 播放页上切;规则见 `SpokenWordVideoPolicy`。
+    private(set) var showsSpokenWordVideo = UserDefaults.standard
+        .object(forKey: SpokenWordVideoPolicy.preferenceKey) as? Bool ?? SpokenWordVideoPolicy.defaultShowsVideo
+    /// 这一条的视频这次没放起来(打不开、断流):先只放声音,换条目或重新切到放画面时再试。
+    @ObservationIgnored var spokenWordVideoFailedSongID: String?
 
     /// Timeline-driven lyric views read this value while rendering, but they
     /// already own their own clocks. Publishing an additional Observation
@@ -1051,6 +1057,72 @@ final class AudioPlayerService {
         #else
         return false
         #endif
+    }
+
+    /// 这条视频能不能只放声音:音频管线打得开的容器才行(`SpokenWordVideoPolicy`)。
+    func spokenWordVideoSupportsAudioOnly(_ song: Song) -> Bool {
+        guard let mvPath = song.mvPath, !mvPath.isEmpty else { return false }
+        return SpokenWordVideoPolicy.supportsAudioOnly(path: mvPath, fallbackExtension: song.fileFormat.rawValue)
+    }
+
+    /// 这一条开播时走视频管线(AVPlayer 放画面)还是音频管线。音乐 MV 照旧,有声内容的视频听播放页上的选择。
+    func usesVideoPipeline(for song: Song) -> Bool {
+        guard let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !mvPath.isEmpty else { return false }
+        return SpokenWordVideoPolicy.usesVideoPipeline(
+            isStandaloneVideo: song.isStandaloneMusicVideo,
+            hasSidecarVideo: !song.isStandaloneMusicVideo,
+            isSpokenWord: SpokenWordStore.shared.isSpokenWord(song),
+            showsSpokenWordVideo: showsSpokenWordVideo,
+            musicVideoModeEnabled: isMusicVideoModeEnabled,
+            forcesAudioOnly: shouldForceAudioOnly,
+            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
+            videoFailed: spokenWordVideoFailedSongID == song.id
+        )
+    }
+
+    /// 播放页上给不给「显示视频 / 只听声音」。
+    var offersSpokenWordVideoToggle: Bool {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio, !isAppleMusicMode else { return false }
+        return SpokenWordVideoPolicy.offersToggle(
+            isStandaloneVideo: song.isStandaloneMusicVideo,
+            isSpokenWord: true,
+            supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
+            forcesAudioOnly: shouldForceAudioOnly,
+            isCasting: isCastingMode
+        )
+    }
+
+    /// 播放页那颗键现在该说「只听声音」(画面开着)还是「显示视频」。
+    var isSpokenWordVideoShown: Bool {
+        isMusicVideoPlaybackActive && musicVideoPlayer != nil
+    }
+
+    /// 播放页上点了「显示视频 / 只听声音」。记下选择,这一条马上换管线、从现在的位置接着:
+    /// 放着的照放;停着切到只听声音就收起画面、原地备好音频;停着要看画面就从这里接着放。
+    func setShowsSpokenWordVideo(_ shows: Bool) {
+        showsSpokenWordVideo = shows
+        UserDefaults.standard.set(shows, forKey: SpokenWordVideoPolicy.preferenceKey)
+        guard let song = currentSong else { return }
+        if spokenWordVideoFailedSongID == song.id { spokenWordVideoFailedSongID = nil }
+        guard offersSpokenWordVideoToggle, usesVideoPipeline(for: song) != isMusicVideoPlaybackActive else { return }
+        if isPlaying || isLoading {
+            let position = currentTime
+            Task { await replayCurrentSpokenWordItem(at: position) }
+        } else if isMusicVideoPlaybackActive {
+            Task { await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: true) }
+        } else {
+            resume()
+        }
+    }
+
+    /// 有声视频换管线(放画面 ⇄ 只放声音):同一条从 `position` 重开,开在那儿,不先放开头再跳。
+    private func replayCurrentSpokenWordItem(at position: TimeInterval) async {
+        guard let song = currentSong else { return }
+        rememberSpokenWordPosition(force: true)
+        pendingSpokenWordSeekOverride = (song.id, position)
+        pendingSpokenWordResumeSongID = song.id
+        await play(song: song)
     }
 
     #if os(iOS)
@@ -1851,6 +1923,11 @@ final class AudioPlayerService {
         }
         audioEngine.applyPlaybackRate(requestedRate)
         audioEngine.applyUserPitch(cents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch))
+        // 视频管线自己变速(升降调做不了,和以前一样不管)。
+        if isMusicVideoPlaybackActive, let player = musicVideoPlayer {
+            player.defaultRate = requestedRate
+            if player.rate != 0 { player.rate = requestedRate }
+        }
     }
 
     /// 卡拉OK舞台打开/关闭。打开时正在走系统播放器的歌切回 PCM 引擎。
@@ -3180,6 +3257,12 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
+        if currentItemIsSpokenWord {
+            // 有声内容直接开在原处,不先放开头再跳回来。
+            rememberSpokenWordPosition(force: true)
+            pendingSpokenWordSeekOverride = (song.id, resumeTime)
+            pendingSpokenWordResumeSongID = song.id
+        }
         await play(song: song)
         if restoreMusicVideoModeAfterPlay {
             isMusicVideoModeEnabled = previousMode
@@ -3559,6 +3642,16 @@ final class AudioPlayerService {
         }
     }
 
+    /// 起播前就把播放器放到续播位置。用不带回调的那个 seek:带回调的在条目还没就绪时会直接抛异常;
+    /// 放在同步函数里调,免得在 async 上下文里被解析成要 await 的那个版本。
+    private static func seekBeforeStart(_ player: AVPlayer, to seconds: TimeInterval) {
+        player.seek(
+            to: CMTime(seconds: seconds, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
     private enum MusicVideoStartResult {
         case started
         case skipped
@@ -3570,12 +3663,14 @@ final class AudioPlayerService {
         // 独立 MV(媒体本体是视频)不受全局 MV 模式 / 车机强制音频约束 ——
         // 它没有独立音频可回落; AVPlayer 播它的音轨在车机路由下同样出声,
         // 强行走音频管线反而要 SFB 硬解视频容器(不可靠)。
+        // 有声内容的视频(#365)听播放页上的选择,见 `usesVideoPipeline(for:)`。
+        let isPodcastEpisode = PodcastPlaybackSong.isEpisode(song)
         guard !isAppleMusicMode,
               !isCastingMode,
-              let sourceManager,
+              isPodcastEpisode || sourceManager != nil,
               let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               mvPath.isEmpty == false,
-              song.isStandaloneMusicVideo || (isMusicVideoModeEnabled && !shouldForceAudioOnly) else {
+              usesVideoPipeline(for: song) else {
             return .skipped
         }
 
@@ -3589,12 +3684,19 @@ final class AudioPlayerService {
             }
         }
         do {
-            let resolved = try await sourceManager.resolveVideoAsset(for: song)
+            let resolved: MusicVideoPlaybackAsset?
+            if isPodcastEpisode {
+                // 播客单集不在音乐源里:和音频一样,下载了放本机文件,否则放探到的最终地址。
+                resolved = resolvedPodcastURL(for: song).map { MusicVideoPlaybackAsset.url($0) }
+            } else if let sourceManager {
+                resolved = try await sourceManager.resolveVideoAsset(for: song)
+            } else {
+                resolved = nil
+            }
             guard pendingMusicVideoPlayID == id else { return .cancelled }
             guard let resolved else { return .needsAudioFallback }
             guard playID == id else { return .started }
-            guard song.isStandaloneMusicVideo
-                    || (isMusicVideoModeEnabled && !shouldForceAudioOnly) else {
+            guard usesVideoPipeline(for: song) else {
                 return .needsAudioFallback
             }
             guard isLocalTransportStartAuthorized(
@@ -3631,10 +3733,20 @@ final class AudioPlayerService {
             }
             player.automaticallyWaitsToMinimizeStalling = true
             player.volume = audioEngine.userVolume
+            // 倍速跟着播放页走:人声用时域算法(和电视端一样),音乐 MV 用频域。
+            // `play()` 按 `defaultRate` 起播,暂停再继续、拖动后接着放都不会掉回原速。
+            let isSpokenWordVideo = SpokenWordStore.shared.isSpokenWord(song)
+            player.currentItem?.audioTimePitchAlgorithm = isSpokenWordVideo ? .timeDomain : .spectral
+            player.defaultRate = requestedPlaybackRate(for: song)
+            // 有声内容开在续播位置。这一下要是没落地,第一拍的 `applyPendingSpokenWordResumeIfNeeded` 再跳一次。
+            let openingPosition = isSpokenWordVideo ? spokenWordOpeningPosition(for: song) : nil
+            if let openingPosition {
+                Self.seekBeforeStart(player, to: openingPosition)
+            }
             musicVideoPlayer = player
             isMusicVideoPlaybackActive = true
             isAtTrackEnd = false
-            currentTime = 0
+            currentTime = openingPosition ?? 0
             duration = song.duration.sanitizedDuration
             isLoading = false
             isPlaying = true
@@ -3707,6 +3819,8 @@ final class AudioPlayerService {
                         self.applyResolvedMusicVideoDuration(itemDuration, playID: id)
                     }
                 }
+                // 放画面的有声内容和音频引擎那边一样每拍记位置、跳片尾、更新章节。
+                self.runSpokenWordClockTick()
             }
         }
 
@@ -3807,6 +3921,16 @@ final class AudioPlayerService {
             if isMissingMusicVideoPlaybackError(error, item: item) {
                 clearStaleMusicVideoReference(for: song)
             }
+        }
+        // 有声内容的视频放不起来时只放声音接着听(这一条先不再试画面),不报错也不跳走。
+        if let song = currentSong,
+           song.isStandaloneMusicVideo,
+           SpokenWordStore.shared.isSpokenWord(song),
+           spokenWordVideoSupportsAudioOnly(song) {
+            plog("🎞️ Spoken word video failed for '\(song.title)'; continuing with audio only")
+            spokenWordVideoFailedSongID = song.id
+            await replayCurrentSongAsAudio(restoreMusicVideoModeAfterPlay: true)
+            return
         }
         showPlaybackError(String(localized: "playback_error_decode"))
         // 独立 MV 没有独立音频可回落, 单个文件坏也不该连坐关掉全局
@@ -4314,6 +4438,12 @@ final class AudioPlayerService {
                 return
             }
             if case .cancelled = musicVideoStartResult { return }
+            if case .needsAudioFallback = musicVideoStartResult,
+               song.isStandaloneMusicVideo,
+               SpokenWordStore.shared.isSpokenWord(song) {
+                // 有声内容的视频这次放不了:先只放声音,继续播放时别每次都再去试画面。
+                spokenWordVideoFailedSongID = song.id
+            }
             logPlayStage("mv-checked", playID: id)
 
             let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
@@ -7370,9 +7500,8 @@ final class AudioPlayerService {
         guard song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
-        // 独立 MV 始终走视频管线, 无论模式开关 / 车机路由都不该做 gapless 预取。
-        if song.isStandaloneMusicVideo { return true }
-        return isMusicVideoModeEnabled && !shouldForceAudioOnly
+        // 走视频管线的不做 gapless 预取:独立 MV 一直是,有声内容的视频看播放页上的选择。
+        return usesVideoPipeline(for: song)
     }
 
     /// Schedule the final buffer of a track with the appropriate completion callback
@@ -7654,8 +7783,10 @@ final class AudioPlayerService {
             return
         }
         guard !isLoading, let song = currentSong else { return }
+        // 有声内容的视频不看 MV 开关,走下面那一支。
         if isMusicVideoModeEnabled,
            canPlayMusicVideo,
+           !(currentItemIsSpokenWord && song.isStandaloneMusicVideo),
            !isSystemMediaPlaybackActive {
             let resumeTime = currentTime
             let resumeGeneration = playbackAdvancePolicy.generation
@@ -7674,7 +7805,38 @@ final class AudioPlayerService {
             }
             return
         }
+        // 有声内容要放画面、手上却是音频管线(停着时切到了放画面、冷启动恢复出来的):
+        // 换成视频管线从这里接着,和音频那边一样先按停了多久往回退。
+        if currentItemIsSpokenWord,
+           offersSpokenWordVideoToggle,
+           usesVideoPipeline(for: song),
+           !isSystemMediaPlaybackActive {
+            var position = needsPlaybackRecovery ? pendingRecoveryTime : currentTime
+            if !isPlaying,
+               let rewind = spokenWordSmartRewindTarget(for: song, from: position, seeksInPlace: false) {
+                position = rewind
+            }
+            refreshServerSpokenWordState(for: song, resuming: true, resumingFrom: position)
+            let resumeGeneration = playbackAdvancePolicy.generation
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playbackAdvancePolicy.generation == resumeGeneration,
+                      self.interruptionResumePolicy.playbackIsIntended,
+                      self.currentSong?.id == song.id else { return }
+                await self.replayCurrentSpokenWordItem(at: position)
+            }
+            return
+        }
         if isSystemMediaPlaybackActive {
+            // 放画面的有声内容停得久了,同样往回退一点再接着放(#363)。
+            if isMusicVideoPlaybackActive, currentItemIsSpokenWord, !isPlaying {
+                let rewind = spokenWordSmartRewindTarget(for: song, from: currentTime, seeksInPlace: true)
+                refreshServerSpokenWordState(for: song, resuming: true, resumingFrom: rewind)
+                if let rewind {
+                    seek(to: rewind, startPlaying: true)
+                    return
+                }
+            }
             _ = beginAutomaticAdvanceTransport(
                 itemID: song.id,
                 reason: registeringUserIntent ? "music-video-manual-resume" : "music-video-system-resume"

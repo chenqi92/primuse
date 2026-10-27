@@ -6958,3 +6958,5 @@
 "library_browse_folder_blocked_search_title" = "필터 중에는 폴더로 볼 수 없습니다";
 "library_browse_folder_blocked_search_message" = "필터 결과는 평면 목록으로 표시됩니다.";
 "library_browse_folder_blocked_search_action" = "필터 지우고 폴더로 보기";
+"spoken_word_video_show" = "비디오 보기";
+"spoken_word_video_hide" = "오디오만";

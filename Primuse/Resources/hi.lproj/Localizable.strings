@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "फ़िल्टर करते समय फ़ोल्डर्स में नहीं देख सकते";
 "library_browse_folder_blocked_search_message" = "फ़िल्टर के नतीजे सपाट सूची में दिखते हैं।";
 "library_browse_folder_blocked_search_action" = "फ़िल्टर साफ़ करें और फ़ोल्डर्स देखें";
+"spoken_word_video_show" = "वीडियो दिखाएँ";
+"spoken_word_video_hide" = "केवल ऑडियो";

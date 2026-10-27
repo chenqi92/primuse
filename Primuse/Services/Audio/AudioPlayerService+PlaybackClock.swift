@@ -98,22 +98,7 @@ extension AudioPlayerService {
                         )
                     }
 
-                    // Spoken word: land the resume seek as soon as audio is
-                    // really running, then keep the position and the chapter
-                    // readout current. All three no-op for music.
-                    if self.currentItemIsSpokenWord {
-                        self.applyPendingSpokenWordResumeIfNeeded()
-                        self.applyPendingServerSpokenWordResumeIfNeeded()
-                        self.rememberSpokenWordPosition()
-                        self.applyPodcastOutroSkipIfNeeded()
-                        self.applyServerSpokenWordOutroSkipIfNeeded()
-                    }
-                    if !self.spokenWordChapters.isEmpty {
-                        self.refreshCurrentChapter()
-                    }
-                    if self.sleepStopAfterChapter != nil {
-                        self.enforceChapterSleepLockIfNeeded()
-                    }
+                    self.runSpokenWordClockTick()
                 }
                 if !transitionWasActive {
                     await self.sampleDecodedBufferHealth(clockTicket: clockTicket)
@@ -130,6 +115,26 @@ extension AudioPlayerService {
         // while the render thread continues producing audio.
         RunLoop.main.add(timer, forMode: .common)
         displayLink = timer
+    }
+
+    /// Spoken word: land the resume seek as soon as audio is really running,
+    /// then keep the position and the chapter readout current. All of it
+    /// no-ops for music. The engine clock and the video pipeline's time
+    /// observer both call this every tick.
+    func runSpokenWordClockTick() {
+        if currentItemIsSpokenWord {
+            applyPendingSpokenWordResumeIfNeeded()
+            applyPendingServerSpokenWordResumeIfNeeded()
+            rememberSpokenWordPosition()
+            applyPodcastOutroSkipIfNeeded()
+            applyServerSpokenWordOutroSkipIfNeeded()
+        }
+        if !spokenWordChapters.isEmpty {
+            refreshCurrentChapter()
+        }
+        if sleepStopAfterChapter != nil {
+            enforceChapterSleepLockIfNeeded()
+        }
     }
 
     func stopTimeUpdater() {

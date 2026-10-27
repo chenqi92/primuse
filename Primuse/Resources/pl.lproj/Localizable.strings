@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "Foldery są niedostępne podczas filtrowania";
 "library_browse_folder_blocked_search_message" = "Wyniki filtrowania są pokazywane jako płaska lista.";
 "library_browse_folder_blocked_search_action" = "Wyczyść filtr i pokaż foldery";
+"spoken_word_video_show" = "Pokaż wideo";
+"spoken_word_video_hide" = "Tylko dźwięk";

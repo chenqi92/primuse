@@ -6864,3 +6864,5 @@
 "library_browse_folder_blocked_search_title" = "ดูตามโฟลเดอร์ไม่ได้ขณะกรอง";
 "library_browse_folder_blocked_search_message" = "ผลการกรองแสดงเป็นรายการแบบแบน";
 "library_browse_folder_blocked_search_action" = "ล้างตัวกรองแล้วดูตามโฟลเดอร์";
+"spoken_word_video_show" = "แสดงวิดีโอ";
+"spoken_word_video_hide" = "เสียงเท่านั้น";

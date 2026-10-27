@@ -737,7 +737,21 @@ final class TVPlaybackCoordinator {
 
     private func playbackAsset(for song: Song, preferMusicVideo: Bool) -> PlaybackAsset {
         // 独立 MV(媒体本体是视频)不看 preferMusicVideo —— 没有独立音频可回落。
-        guard preferMusicVideo || song.isStandaloneMusicVideo,
+        // 当节目听的视频(#365)能只放声音时,听播放页上的选择,和 iPhone 同一套规则。
+        let isStandaloneVideo = song.isStandaloneMusicVideo
+        let wantsVideo = SpokenWordVideoPolicy.usesVideoPipeline(
+            isStandaloneVideo: isStandaloneVideo,
+            hasSidecarVideo: !isStandaloneVideo,
+            isSpokenWord: isStandaloneVideo && SpokenWordStore.shared.isSpokenWord(song),
+            showsSpokenWordVideo: store?.showsSpokenWordVideo ?? SpokenWordVideoPolicy.defaultShowsVideo,
+            musicVideoModeEnabled: preferMusicVideo,
+            forcesAudioOnly: false,
+            supportsAudioOnly: isStandaloneVideo && SpokenWordVideoPolicy.supportsAudioOnly(
+                path: song.filePath,
+                fallbackExtension: song.fileFormat.rawValue
+            )
+        )
+        guard wantsVideo,
               let path = normalizedMusicVideoPath(for: song) else {
             return PlaybackAsset(
                 song: song,

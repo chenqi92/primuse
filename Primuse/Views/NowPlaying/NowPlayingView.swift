@@ -8045,6 +8045,7 @@ struct NowPlayingView: View {
                 #endif
             }
             .frame(width: size, height: size * 9 / 16)
+            .overlay(alignment: .topLeading) { spokenWordVideoToggleButton(showsVideo: true, compact: size < 220) }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -8070,6 +8071,9 @@ struct NowPlayingView: View {
                 cornerRadius: coverCornerRadius,
                 decodeSize: size
             )
+            .overlay(alignment: .topLeading) {
+                spokenWordVideoToggleButton(showsVideo: false, compact: displayedSize < 220)
+            }
             // 阴影挂在匹配几何里面,跟着封面一起飞、一起缩。贴图按播放时(没缩小)的尺寸画:
             // 暂停缩小时等比缩放同一张,暂停着从文字稿飞回来也能直接拿到画过的那张(#361)。
             .if(drawsCoverShadow) { view in
@@ -8110,6 +8114,36 @@ struct NowPlayingView: View {
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel(Text("karaoke_title"))
+    }
+
+    /// 视频播客单集、当节目听的视频(#365):封面或画面左上角那颗「显示视频 / 只听声音」。
+    /// 封面小(横屏紧凑版式)时只留图标,不压住大半张封面。
+    @ViewBuilder
+    private func spokenWordVideoToggleButton(showsVideo: Bool, compact: Bool) -> some View {
+        if player.offersSpokenWordVideoToggle {
+            let title = showsVideo
+                ? String(localized: "spoken_word_video_hide")
+                : String(localized: "spoken_word_video_show")
+            Button {
+                player.setShowsSpokenWordVideo(!showsVideo)
+            } label: {
+                Label(title, systemImage: showsVideo ? "headphones" : "play.rectangle")
+                .labelStyle(SpokenWordVideoToggleLabelStyle(iconOnly: compact))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, compact ? 0 : 11)
+                .frame(minWidth: 30, minHeight: 30)
+                .background(.black.opacity(0.44), in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                }
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.isLoading)
+            .padding(10)
+            .accessibilityLabel(Text(title))
+        }
     }
 
     @ViewBuilder
@@ -8468,6 +8502,7 @@ struct NowPlayingView: View {
                 && shows(.podcastGoToShow),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
+            spokenWordVideoShown: player.offersSpokenWordVideoToggle ? player.isSpokenWordVideoShown : nil,
             // 关掉的是入口;正在生成时那一行是进度,照样显示。
             transcriptGeneration: transcriptGenerationMenuItem.flatMap {
                 shows(.generateTranscript) || $0.isRunning ? $0 : nil
@@ -8613,6 +8648,7 @@ struct NowPlayingView: View {
             onOpenBook: { presentCurrentBook() },
             onOpenPodcastShow: { openCurrentPodcastShow?() },
             onMarkPodcastPlayed: { player.markCurrentPodcastEpisodePlayed() },
+            onSetShowsSpokenWordVideo: { player.setShowsSpokenWordVideo($0) },
             onGenerateTranscript: { transcriptGenerationSong = player.currentSong },
             onExportText: { format in
                 guard let song = player.currentSong else { return }
@@ -13020,6 +13056,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 播客单集的「标为已播放」与「下载」,「播放页按钮 › 『更多』菜单」里能关。
     let showsPodcastMarkPlayed: Bool
     let showsPodcastDownload: Bool
+    /// 有声内容的视频现在放着画面吗;这一条不能切(不是视频、只能放画面)时为 nil(#365)。
+    let spokenWordVideoShown: Bool?
     /// 有声内容的「生成文字稿」;没有这一项时为 nil(#314)。
     let transcriptGeneration: SpokenTranscriptGenerationMenuItem?
     /// 「导出歌词 / 文字稿」能存成哪几种格式;空的时候不出现(#362)。
@@ -13395,6 +13433,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenBook: () -> Void
     let onOpenPodcastShow: () -> Void
     let onMarkPodcastPlayed: () -> Void
+    let onSetShowsSpokenWordVideo: (Bool) -> Void
     let onGenerateTranscript: () -> Void
     let onExportText: (LyricsExportFormat) -> Void
     let onShowChapterList: () -> Void
@@ -13702,6 +13741,19 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if let videoShown = snapshot.spokenWordVideoShown {
+                Section {
+                    Button { onSetShowsSpokenWordVideo(!videoShown) } label: {
+                        Label(
+                            videoShown
+                                ? String(localized: "spoken_word_video_hide")
+                                : String(localized: "spoken_word_video_show"),
+                            systemImage: videoShown ? "headphones" : "play.rectangle"
+                        )
+                    }
                 }
             }
 
@@ -17818,6 +17870,23 @@ extension LyricsSourceBadge {
         case .server: "server.rack"
         case .online: "globe"
         case .appleMusic: "music.note"
+        }
+    }
+}
+
+/// 有声视频切换键:有地方时图标加字,封面小时只留图标。
+private struct SpokenWordVideoToggleLabelStyle: LabelStyle {
+    let iconOnly: Bool
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if iconOnly {
+            configuration.icon
+        } else {
+            HStack(spacing: 5) {
+                configuration.icon
+                configuration.title
+            }
         }
     }
 }
