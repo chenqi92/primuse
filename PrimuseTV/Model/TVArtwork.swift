@@ -1160,6 +1160,32 @@ actor TVArtworkLoader {
     }
 }
 
+/// 缓存的封面被换掉之后(文件夹里的封面图原地换了内容),已经显示着的封面要重读。
+/// 按歌曲 id / 专辑 id 记次数,只有点到的格子身份变了、重新取图。
+@MainActor
+@Observable
+final class TVArtworkRefresh {
+    static let shared = TVArtworkRefresh()
+
+    private(set) var revision = 0
+    @ObservationIgnored private var counts: [String: Int] = [:]
+
+    func count(for id: String?) -> Int {
+        _ = revision
+        guard let id, !id.isEmpty else { return 0 }
+        return counts[id] ?? 0
+    }
+
+    func refresh(_ ids: some Sequence<String>) {
+        var touched = false
+        for id in ids where !id.isEmpty {
+            counts[id, default: 0] &+= 1
+            touched = true
+        }
+        if touched { revision &+= 1 }
+    }
+}
+
 /// 封面视图:加载到真实封面就显示,否则用程序化封面占位/兜底。
 struct TVArtworkView: View {
     @Environment(TVStore.self) private var store
@@ -1215,12 +1241,19 @@ struct TVArtworkView: View {
 
     private var artworkIdentity: String {
         let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
+        let refreshSuffix = self.refreshSuffix
         if !coverKey.isEmpty {
-            guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)" }
-            return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")\(overrideSuffix)"
+            guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)\(refreshSuffix)" }
+            return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")\(overrideSuffix)\(refreshSuffix)"
         }
         guard let songID, !songID.isEmpty else { return "" }
-        return "song:\(songID)|\(coverRef ?? "")"
+        return "song:\(songID)|\(coverRef ?? "")\(refreshSuffix)"
+    }
+
+    private var refreshSuffix: String {
+        let refresh = TVArtworkRefresh.shared
+        let count = refresh.count(for: songID) &+ refresh.count(for: coverKey)
+        return count == 0 ? "" : "|refresh:\(count)"
     }
 
     private var animationPlaybackPolicy: ArtworkAnimationPolicy {

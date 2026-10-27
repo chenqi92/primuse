@@ -1241,6 +1241,15 @@ final class TVSourceScanner {
         let sidecars: SidecarDirectoryIndex<TVDirEntry>
     }
 
+    /// 一次扫描里对文件夹封面图版本的核对(见 `SidecarCoverRevisionTracker`)。
+    private struct CoverRevisionPass {
+        let sourceID: String
+        var tracker: SidecarCoverRevisionTracker?
+        /// 丢掉了缓存封面的歌和专辑,扫完让在屏封面重读。
+        var refreshedIDs: Set<String> = []
+        var checkedAlbumIDs: Set<String> = []
+    }
+
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
         /// Listed name of the sheet. On ID-addressed providers `cuePath` is an
@@ -1710,6 +1719,9 @@ final class TVSourceScanner {
         var lastCheckpointAt = Date()
         let readerPool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: rereadMetadata)
         let cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: source.id))
+        var coverRevisions = CoverRevisionPass(sourceID: source.id)
+        // 读标签也在这次扫描里做完,在屏封面等新图存好再重读。
+        defer { Self.finishCoverRevisions(coverRevisions) }
 
         // A resumed walk already published completed directories. Seed the
         // final authoritative result without emitting the same skeletons again.
@@ -1866,6 +1878,18 @@ final class TVSourceScanner {
                         }
                         let existing = existingByID[candidate.id]
                             ?? existingByLocation[Self.locationKey(candidate)]
+                        // 手动改过封面的歌读标签时不会重读封面,缓存丢了就补不回来。
+                        if let existing,
+                           existing.userMetadataEditedAt == nil,
+                           let coverPath = candidate.coverArtFileName,
+                           let cover = sidecars.item(atPath: coverPath) {
+                            Self.dropCachedCoversIfReplaced(
+                                existing: existing,
+                                candidate: candidate,
+                                cover: cover,
+                                pass: &coverRevisions
+                            )
+                        }
                         let song = TVScanPipelinePolicy.reconciledSkeleton(
                             existing: existing,
                             candidate: candidate
@@ -2902,6 +2926,52 @@ final class TVSourceScanner {
             mvPath: video,
             revision: Self.revision(for: e, source: source)
         )
+    }
+
+    /// 文件夹里的封面图原地换了内容(路径不变)时,丢掉这首歌和它专辑缓存的封面:后面读标签
+    /// 那一步看到缓存没了会重读这张图,专辑封面也重新存成新图。不丢的话封面先读缓存,
+    /// 重扫、重读标签都一直是旧图。
+    private static func dropCachedCoversIfReplaced(
+        existing: Song,
+        candidate: Song,
+        cover: TVDirEntry,
+        pass: inout CoverRevisionPass
+    ) {
+        let store = MetadataAssetStore.shared
+        var tracker = pass.tracker
+            ?? SidecarCoverRevisionTracker(signatures: store.sidecarCoverRevisions(sourceID: pass.sourceID))
+        let observation = tracker.observe(coverPath: cover.path, signature: cover.sidecarRevisionSignature)
+        pass.tracker = tracker
+        guard observation != .unchanged else { return }
+        // 服务端不给修改时间时只能凭签名变了来判断。
+        func isStale(_ cachedAt: Date?) -> Bool {
+            guard cachedAt != nil else { return false }
+            guard cover.modifiedDate != nil else { return observation == .changed }
+            return SidecarCoverRevisionTracker.cacheIsStale(
+                cachedAt: cachedAt,
+                fileModifiedAt: cover.modifiedDate
+            )
+        }
+        let songCachedAt = store.coverCacheDate(forSongID: existing.id)
+        if songCachedAt != nil, observation == .changed || isStale(songCachedAt) {
+            store.invalidateCoverCacheSync(forSongID: existing.id)
+            pass.refreshedIDs.insert(existing.id)
+        }
+        for albumID in Set([existing.albumID, candidate.albumID].compactMap { $0 })
+        where !albumID.isEmpty && pass.checkedAlbumIDs.insert(albumID).inserted {
+            guard isStale(store.albumCoverCacheDate(forAlbumID: albumID)) else { continue }
+            store.removeAlbumCoverSync(forAlbumID: albumID)
+            pass.refreshedIDs.insert(albumID)
+        }
+    }
+
+    private static func finishCoverRevisions(_ pass: CoverRevisionPass) {
+        if let tracker = pass.tracker, tracker.hasChanges {
+            MetadataAssetStore.shared.storeSidecarCoverRevisions(tracker.signatures, sourceID: pass.sourceID)
+        }
+        guard !pass.refreshedIDs.isEmpty else { return }
+        plog("🖼️ TV folder cover replaced, dropped cached covers items=\(pass.refreshedIDs.count)")
+        TVArtworkRefresh.shared.refresh(pass.refreshedIDs)
     }
 
     private static func makeCueSongs(

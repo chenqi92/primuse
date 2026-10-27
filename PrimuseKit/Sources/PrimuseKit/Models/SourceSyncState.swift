@@ -603,6 +603,18 @@ public protocol SidecarDirectoryItem: Sendable {
     var sidecarProviderID: String? { get }
 }
 
+extension SidecarDirectoryItem {
+    /// 这张图的版本签名(`SidecarCoverRevisionTracker`):内容换了它就变。
+    public var sidecarRevisionSignature: String {
+        SidecarCoverRevisionTracker.signature(
+            providerID: sidecarProviderID,
+            revision: sidecarRevision,
+            size: sidecarSize,
+            modifiedDate: sidecarModifiedDate
+        )
+    }
+}
+
 /// Immutable per-directory lookup data. It is built once per sibling listing;
 /// every song in that directory then performs only a bounded number of
 /// dictionary/set lookups instead of repeatedly filtering and scanning the

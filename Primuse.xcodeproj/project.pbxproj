@@ -109,6 +109,7 @@
 		0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
 		0A18CCDD67F005E9D83F5B18 /* LibrarySnapshotSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */; };
 		0A1CD5E4BBF774E6C6E2B293 /* PlayerBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */; };
+		CA45BB50852D9B57AA0F1CCF /* AlbumFolderArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C9E870608F570F8E8862FF /* AlbumFolderArtwork.swift */; };
 		0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
 		0A6519792957182F0B026F08 /* SFBAudioEngine in Frameworks */ = {isa = PBXBuildFile; productRef = F018F7A8A3643BE3A12DF666 /* SFBAudioEngine */; };
 		0A7502E27B419FCFBD15D42E /* CarPlayLayoutBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */; };
@@ -2615,6 +2616,7 @@
 		15461A9C861821AB6600B6B3 /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		1576FEA02472EAE01D3B8952 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdrop.swift; sourceTree = "<group>"; };
+		34C9E870608F570F8E8862FF /* AlbumFolderArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumFolderArtwork.swift; sourceTree = "<group>"; };
 		1604A05D29B43EA0C4926D6E /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		167E5D2805B4063521ACA960 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
 		168C6B81EE64484922B6765E /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/CacheSync.strings; sourceTree = "<group>"; };
@@ -4655,6 +4657,7 @@
 				653ADF21EB30AEA6033B16D7 /* PlaybackSourceAvailabilityPolicy.swift */,
 				CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */,
 				15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */,
+				34C9E870608F570F8E8862FF /* AlbumFolderArtwork.swift */,
 				4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */,
 				65E19BC1D3A821170931D905 /* PlexAccount.swift */,
 				BCCF013D8E0B66E09EA22637 /* PrimuseSignposts.swift */,
@@ -7161,6 +7164,7 @@
 				574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */,
 				8BE415B91722F03217B013F0 /* PlaybackVolumeControlPolicy.swift in Sources */,
 				0A1CD5E4BBF774E6C6E2B293 /* PlayerBackdrop.swift in Sources */,
+				CA45BB50852D9B57AA0F1CCF /* AlbumFolderArtwork.swift in Sources */,
 				5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */,
 				E1E6E2746C97E7523587FBF4 /* Playlist.swift in Sources */,
 				4281F357464488B1E4CC9C04 /* PlaylistOperationAvailability.swift in Sources */,

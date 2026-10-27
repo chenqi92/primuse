@@ -37,6 +37,10 @@ actor ConnectorScanner {
     private let peerCoverLinker: (@Sendable (_ songID: String, _ contentKey: String) -> String?)?
     /// 这次扫描用上的别的设备的行,ScanService 随扫描快照一起交给补读服务。
     private var pendingPeerSeedAdoptions: [PeerScanSeedAdoption] = []
+    /// 文件夹封面图的版本账本,这次扫描第一次用到时才从盘上读。
+    private var coverRevisions: SidecarCoverRevisionTracker?
+    /// 封面图换过、这次扫描丢掉了缓存封面的歌,扫完一起让在屏封面重读。
+    private var coverRefreshedSongs: [Song] = []
 
     init(
         connector: any MusicSourceConnector,
@@ -196,6 +200,7 @@ actor ConnectorScanner {
             _ currentDirectory: String
         ) async -> Void)? = nil
     ) async throws -> IncrementalResult {
+        defer { finishCoverRevisions() }
         try await connector.connect()
         var songsByID = Dictionary(
             existingSongs.map { ($0.id, $0) },
@@ -524,6 +529,7 @@ actor ConnectorScanner {
         // `.bufferingNewest(1)` 丢掉中间更新也不会丢行。
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
+                defer { finishCoverRevisions() }
                 do {
                     plog("🔍 ConnectorScanner.scan source=\(sourceID) dirs=\(directories)")
                     try await connector.connect()
@@ -1719,6 +1725,47 @@ actor ConnectorScanner {
             currentParentPath: parent,
             authoritative: hints.isAuthoritative
         )
+        observeCoverRevision(hints: hints, song: song)
+    }
+
+    /// 封面直接指着文件夹里那张图的歌:图原地换了内容(路径不变)时丢掉本机缓存的封面,
+    /// 否则界面先读缓存,会一直显示换之前的图。
+    private func observeCoverRevision(hints: SidecarHints, song: Song) {
+        guard let coverPath = hints.coverPath,
+              song.coverArtFileName == coverPath,
+              let signature = hints.coverSignature else { return }
+        let store = MetadataAssetStore.shared
+        var tracker = coverRevisions
+            ?? SidecarCoverRevisionTracker(signatures: store.sidecarCoverRevisions(sourceID: sourceID))
+        let observation = tracker.observe(coverPath: coverPath, signature: signature)
+        coverRevisions = tracker
+        let isStale: Bool
+        switch observation {
+        case .unchanged:
+            return
+        case .changed:
+            isStale = true
+        case .firstSeen:
+            isStale = SidecarCoverRevisionTracker.cacheIsStale(
+                cachedAt: store.coverCacheDate(forSongID: song.id),
+                fileModifiedAt: hints.coverModifiedDate
+            )
+        }
+        guard isStale else { return }
+        store.invalidateCoverCacheSync(forSongID: song.id)
+        coverRefreshedSongs.append(song)
+    }
+
+    private func finishCoverRevisions() {
+        if let tracker = coverRevisions, tracker.hasChanges {
+            MetadataAssetStore.shared.storeSidecarCoverRevisions(tracker.signatures, sourceID: sourceID)
+        }
+        coverRevisions = nil
+        let songs = coverRefreshedSongs
+        coverRefreshedSongs = []
+        guard !songs.isEmpty else { return }
+        plog("🖼️ folder cover replaced, dropped cached covers songs=\(songs.count) source=\(sourceID)")
+        Task { @MainActor in CachedArtworkView.invalidateCache(forSongs: songs) }
     }
 
     private struct SidecarRefs {

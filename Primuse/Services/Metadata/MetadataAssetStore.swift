@@ -967,6 +967,51 @@ actor MetadataAssetStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
+    // MARK: - Folder cover revisions
+
+    /// 这首歌的封面缓存最后一次写入的时间;没有缓存时为 nil。
+    nonisolated func coverCacheDate(forSongID songID: String) -> Date? {
+        let fileURL = artworkDirectoryURL.appendingPathComponent(expectedCoverFileName(for: songID))
+        return Self.modificationDate(of: fileURL)
+    }
+
+    nonisolated func albumCoverCacheDate(forAlbumID albumID: String) -> Date? {
+        let fileName = hashedFileName(for: "album_\(albumID)", pathExtension: "jpg")
+        return Self.modificationDate(of: albumArtworkDirectory.appendingPathComponent(fileName))
+    }
+
+    /// 专辑封面是从文件夹里的图读来的、那张图又换了的时候丢掉,下次读到新图再存。
+    nonisolated func removeAlbumCoverSync(forAlbumID albumID: String) {
+        let fileName = hashedFileName(for: "album_\(albumID)", pathExtension: "jpg")
+        try? FileManager.default.removeItem(at: albumArtworkDirectory.appendingPathComponent(fileName))
+    }
+
+    /// 一个音乐源里文件夹封面图的版本账本(`SidecarCoverRevisionTracker`)。
+    nonisolated func sidecarCoverRevisions(sourceID: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: sidecarCoverRevisionURL(sourceID: sourceID)) else { return [:] }
+        return SidecarCoverRevisionLedger.decode(data)
+    }
+
+    nonisolated func storeSidecarCoverRevisions(_ signatures: [String: String], sourceID: String) {
+        let url = sidecarCoverRevisionURL(sourceID: sourceID)
+        guard let data = SidecarCoverRevisionLedger.encode(signatures) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
+    }
+
+    nonisolated private func sidecarCoverRevisionURL(sourceID: String) -> URL {
+        artworkDirectoryURL.deletingLastPathComponent()
+            .appendingPathComponent("sidecar-cover-revisions", isDirectory: true)
+            .appendingPathComponent(hashedFileName(for: sourceID, pathExtension: "json"))
+    }
+
+    nonisolated private static func modificationDate(of url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    }
+
     /// 本机已经存着这份封面内容(同一张内嵌封面别的歌读到过)时,让 `songID` 的封面
     /// 直接指过去,不必再读这首歌的文件。返回封面引用名;本机没有这份内容就返回 nil。
     nonisolated func linkCoverContentIfPresent(_ contentKey: String, forSongID songID: String) -> String? {

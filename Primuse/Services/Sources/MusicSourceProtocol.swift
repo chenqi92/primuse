@@ -111,19 +111,27 @@ struct SidecarHints: Sendable {
     /// This distinguishes "the connector did not inspect sidecars" from an
     /// authoritative observation that a previously referenced sidecar vanished.
     let isAuthoritative: Bool
+    /// 列目录看到的封面图版本签名与修改时间。扫描拿它判断这张图有没有原地换过
+    /// (`SidecarCoverRevisionTracker`)。
+    let coverSignature: String?
+    let coverModifiedDate: Date?
 
     init(
         coverPath: String? = nil,
         lyricsPath: String? = nil,
         mvPath: String? = nil,
         snapshotFingerprint: String? = nil,
-        isAuthoritative: Bool = false
+        isAuthoritative: Bool = false,
+        coverSignature: String? = nil,
+        coverModifiedDate: Date? = nil
     ) {
         self.coverPath = coverPath
         self.lyricsPath = lyricsPath
         self.mvPath = mvPath
         self.snapshotFingerprint = snapshotFingerprint
         self.isAuthoritative = isAuthoritative
+        self.coverSignature = coverSignature
+        self.coverModifiedDate = coverModifiedDate
     }
 
     var isEmpty: Bool {
@@ -613,19 +621,19 @@ enum SidecarHintResolver {
         let basename = (item.name as NSString).deletingPathExtension
         guard !index.containsAudioOrStream(basename: basename) else { return nil }
 
-        let coverPath = item.sidecarHints?.coverPath
-                ?? index.sameNameCover(basename: basename)?.path
-                ?? index.folderCover()?.path
+        let cover = resolvedCover(for: item, basename: basename, index: index)
         let lyricsPath = item.sidecarHints?.lyricsPath
                 ?? index.sameNameLyrics(basename: basename)?.path
         let hints = SidecarHints(
-            coverPath: coverPath,
+            coverPath: cover.path,
             lyricsPath: lyricsPath,
             mvPath: item.path,
             snapshotFingerprint: index.snapshotFingerprint(
-                selectedPaths: [coverPath, lyricsPath]
+                selectedPaths: [cover.path, lyricsPath]
             ),
-            isAuthoritative: true
+            isAuthoritative: true,
+            coverSignature: cover.signature,
+            coverModifiedDate: cover.modifiedDate
         )
         return RemoteFileItem(
             name: item.name,
@@ -660,12 +668,29 @@ enum SidecarHintResolver {
                     selectedPaths: [hints?.coverPath, hints?.lyricsPath, hints?.mvPath],
                     includingCueTrackLyrics: true
                 ),
-                isAuthoritative: hints?.isAuthoritative ?? true
+                isAuthoritative: hints?.isAuthoritative ?? true,
+                coverSignature: hints?.coverSignature,
+                coverModifiedDate: hints?.coverModifiedDate
             ),
             revision: item.revision,
             providerID: item.providerID,
             parentPath: item.parentPath
         )
+    }
+
+    /// 这首歌的封面图:连接器自己给的优先,其次同名图、文件夹封面。
+    private static func resolvedCover(
+        for item: RemoteFileItem,
+        basename: String,
+        index: DirectoryIndex
+    ) -> (path: String?, signature: String?, modifiedDate: Date?) {
+        if let hints = item.sidecarHints, let path = hints.coverPath {
+            return (path, hints.coverSignature, hints.coverModifiedDate)
+        }
+        guard let cover = index.sameNameCover(basename: basename) ?? index.folderCover() else {
+            return (nil, nil, nil)
+        }
+        return (cover.path, cover.sidecarRevisionSignature, cover.modifiedDate)
     }
 
     private static func decoratedAudioItem(
@@ -675,21 +700,21 @@ enum SidecarHintResolver {
         guard item.isDirectory == false else { return item }
 
         let basename = (item.name as NSString).deletingPathExtension
-        let coverPath = item.sidecarHints?.coverPath
-                ?? index.sameNameCover(basename: basename)?.path
-                ?? index.folderCover()?.path
+        let cover = resolvedCover(for: item, basename: basename, index: index)
         let lyricsPath = item.sidecarHints?.lyricsPath
                 ?? index.sameNameLyrics(basename: basename)?.path
         let mvPath = item.sidecarHints?.mvPath
                 ?? index.sameNameMusicVideo(basename: basename)?.path
         let hints = SidecarHints(
-            coverPath: coverPath,
+            coverPath: cover.path,
             lyricsPath: lyricsPath,
             mvPath: mvPath,
             snapshotFingerprint: index.snapshotFingerprint(
-                selectedPaths: [coverPath, lyricsPath, mvPath]
+                selectedPaths: [cover.path, lyricsPath, mvPath]
             ),
-            isAuthoritative: true
+            isAuthoritative: true,
+            coverSignature: cover.signature,
+            coverModifiedDate: cover.modifiedDate
         )
         guard hints.isEmpty == false else { return item }
 
