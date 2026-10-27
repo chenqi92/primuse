@@ -261,7 +261,8 @@ struct MacSourcesView: View {
                 Text(String(format: String(localized: "sources_attention_banner_title"), attentionSources.count))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text("source_auth_failed_message_generic")
+                // 写第一个源真实的失败原因：连不上、限流也会进这里，一律说「登录失败」是误导。
+                Text(first.flatMap { scanService.scanStates[$0.id]?.failureMessage } ?? "")
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(2)

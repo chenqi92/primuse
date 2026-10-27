@@ -3672,7 +3672,6 @@
 "songs_export_failed" = "Dışa Aktarma Başarısız";
 "Copied" = "Kopyalandı";
 "yearly_month_2" = "Şubat";
-"baidu_snapshot_reconciliation_required" = "Bazı eşleşmeyen Baidu dosyaları güvenli bir şekilde saklandı. Herhangi bir şey kaldırılmadan önce anlık görüntüyü onaylamak için Tarama'yı ön planda yeniden çalıştırın.";
 "share_method_primuse_relay" = "Primuse paylaşım hizmeti";
 "onboarding_welcome_title" = "Müziğiniz, sunucularınız";
 "radio_batch_entry_file" = "m3u / pls";

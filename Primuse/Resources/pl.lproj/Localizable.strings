@@ -934,7 +934,6 @@
 "baidu_error_rate_limited" = "Zbyt wiele żądań API (errno 31034).";
 "baidu_error_token_expired" = "Token_dostępu wygasł (errno 111).";
 "baidu_snapshot_deep_scan_required" = "Zmiany wykryte przez to lekkie odświeżenie przekroczyły budżet bezpieczeństwa, więc bibliotekę pozostawiono bez zmian. Uruchom Głębokie Skanowanie na pierwszym planie, aby je bezpiecznie pogodzić.";
-"baidu_snapshot_reconciliation_required" = "Niektóre niedopasowane pliki Baidu zostały bezpiecznie zapisane. Uruchom ponownie skanowanie na pierwszym planie, aby potwierdzić migawkę, zanim cokolwiek zostanie usunięte.";
 "base_path" = "Ścieżka bazowa";
 "base_path_hint" = "Ścieżka podstawowa (np. /dav)";
 "batch_delete_failed_format" = "Niepowodzenie %d";

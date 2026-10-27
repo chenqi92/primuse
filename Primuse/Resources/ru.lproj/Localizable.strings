@@ -3672,7 +3672,6 @@
 "songs_export_failed" = "Ошибка экспорта";
 "Copied" = "Скопировано";
 "yearly_month_2" = "февраль";
-"baidu_snapshot_reconciliation_required" = "Некоторые несовпадающие файлы Baidu были сохранены в безопасности. Запустите сканирование еще раз на переднем плане, чтобы подтвердить снимок, прежде чем что-либо будет удалено.";
 "share_method_primuse_relay" = "Сервис обмена Primuse";
 "onboarding_welcome_title" = "Ваша музыка, ваши серверы";
 "radio_batch_entry_file" = "m3u / пожалуйста";

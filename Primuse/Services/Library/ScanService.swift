@@ -5495,13 +5495,16 @@ final class ScanService {
         syncState: SourceSyncState?
     ) -> ScanState? {
         guard let syncState, let reconciliation = syncState.reconciliation else { return nil }
-        let message = switch reconciliation.kind {
+        let message: String
+        switch reconciliation.kind {
         case .baiduIdentityAndDeletionConfirmation:
-            String(localized: "baidu_snapshot_reconciliation_required")
+            // 百度快照的两次确认自己会在下一轮刷新里收尾，用户不必做什么，也不影响
+            // 播放和浏览，不在源卡片上挂提示。
+            return nil
         case .serverCatalogMassDisappearance:
             // 说清还要再完整扫描几次、在哪里改成不保留（#155）。只有服务端目录的走查
             // 记目录标记，也只有它有「服务端删掉的歌」那个设置；SMB 这类目录走查换一句。
-            String(
+            message = String(
                 format: syncState.catalogSyncMarker == nil
                     ? String(localized: "scan_prune_held_format")
                     : String(localized: "catalog_prune_held_format"),

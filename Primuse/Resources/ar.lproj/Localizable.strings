@@ -934,7 +934,6 @@
 "baidu_error_rate_limited" = "طلبات كثيرة جدا API (errno 31034).";
 "baidu_error_token_expired" = "انتهت صلاحية رمز الوصول (errno 111).";
 "baidu_snapshot_deep_scan_required" = "التغييرات التي تم العثور عليها من خلال هذا التحديث الخفيف تجاوزت ميزانية الأمان الخاصة بها، لذلك تركت المكتبة دون تغيير. قم بتشغيل Deep Scan في المقدمة للتوفيق بينها بأمان.";
-"baidu_snapshot_reconciliation_required" = "تم الاحتفاظ ببعض ملفات بايدو غير المتطابقة بشكل آمن. قم بتشغيل المسح مرة أخرى في المقدمة لتأكيد اللقطة قبل إزالة أي شيء.";
 "base_path" = "المسار الأساسي";
 "base_path_hint" = "المسار الأساسي (على سبيل المثال /dav)";
 "batch_delete_failed_format" = "%d فشل";

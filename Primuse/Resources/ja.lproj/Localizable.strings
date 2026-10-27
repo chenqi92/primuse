@@ -3318,7 +3318,6 @@
 "artwork_processing" = "アートワークを準備しています…";
 "artwork_upload_failed" = "アートワークを更新できませんでした";
 "artwork_invalid_image" = "Primuse で処理できる有効な画像を選択してください。";
-"baidu_snapshot_reconciliation_required" = "一致しない一部の Baidu ファイルは安全のため保持されました。削除を行う前に、前面で再度スキャンしてスナップショットを確認してください。";
 "baidu_snapshot_deep_scan_required" = "簡易更新で検出した変更が安全上限を超えたため、ライブラリは変更されませんでした。前面でディープスキャンを実行し、安全に整合させてください。";
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
