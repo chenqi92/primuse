@@ -5621,6 +5621,8 @@
 "home_cover_size_title" = "Tamanho das capas";
 "home_cover_size_large" = "Grande";
 "home_cover_size_small" = "Pequeno";
+"home_cover_size_large_label" = "Capas grandes";
+"home_cover_size_small_label" = "Capas pequenas";
 "home_podcasts_open_all" = "Todos os podcasts";
 "podcast_add" = "Adicionar";
 "podcast_add_by_url" = "Adicionar por endereço RSS";

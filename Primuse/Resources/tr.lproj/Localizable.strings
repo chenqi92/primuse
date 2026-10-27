@@ -5621,6 +5621,8 @@
 "home_cover_size_title" = "Kapak boyutu";
 "home_cover_size_large" = "Büyük";
 "home_cover_size_small" = "Küçük";
+"home_cover_size_large_label" = "Büyük kapaklar";
+"home_cover_size_small_label" = "Küçük kapaklar";
 "home_podcasts_open_all" = "Tüm podcast'ler";
 "podcast_add" = "Ekle";
 "podcast_add_by_url" = "RSS adresiyle ekle";

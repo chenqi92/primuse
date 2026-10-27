@@ -82,6 +82,46 @@ struct HomeSectionLayoutTests {
         configuration.setItemCount(0, for: .albumPick)
         #expect(configuration.itemCount(for: .albumPick) == 1)
     }
+
+    @Test("封面大小按块存,没调过的块跟着老版本的全局大小")
+    func coverSizePerSection() {
+        var configuration = HomeSectionLayoutConfiguration()
+        #expect(configuration.coverSize(for: .playlists) == .large)
+        #expect(configuration.coverSize(for: .playlists, following: .small) == .small)
+
+        configuration.setCoverSize(.small, for: .radio)
+        #expect(configuration.coverSize(for: .radio) == .small)
+        #expect(configuration.coverSize(for: .podcasts) == .large)
+        configuration.setCoverSize(.large, for: .radio)
+        #expect(configuration.coverSizes.isEmpty)
+
+        // 老版本调成过「小」:单独调回「大」的块要记下来,其余跟着「小」。
+        configuration.setCoverSize(.large, for: .audiobooks, following: .small)
+        #expect(configuration.coverSize(for: .audiobooks, following: .small) == .large)
+        #expect(configuration.coverSize(for: .radio, following: .small) == .small)
+        configuration.setCoverSize(.small, for: .audiobooks, following: .small)
+        #expect(configuration.coverSizes.isEmpty)
+    }
+
+    @Test("只有封面卡边长固定的排布才给封面大小")
+    func coverSizeSupport() {
+        for section in [HomeSectionKind.continueSpaces, .radio, .booksInProgress, .audiobooks, .podcasts] {
+            #expect(HomeSectionLayoutPolicy.supportsCoverSize(section, style: HomeSectionLayoutPolicy.defaultStyle(for: section)))
+        }
+        #expect(HomeSectionLayoutPolicy.supportsCoverSize(.playlists, style: .carousel))
+        #expect(HomeSectionLayoutPolicy.supportsCoverSize(.playlists, style: .grid))
+        #expect(!HomeSectionLayoutPolicy.supportsCoverSize(.playlists, style: .list))
+        #expect(HomeSectionLayoutPolicy.supportsCoverSize(.folders, style: .grid))
+        #expect(!HomeSectionLayoutPolicy.supportsCoverSize(.folders, style: .list))
+        #expect(HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .carousel))
+        #expect(!HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .grid))
+        for section in [HomeSectionKind.startListening, .albumPick, .continueListening, .quickAccess,
+                        .forYou, .listeningRanking, .topArtists, .stats] {
+            for style in HomeSectionLayoutStyle.allCases {
+                #expect(!HomeSectionLayoutPolicy.supportsCoverSize(section, style: style))
+            }
+        }
+    }
 }
 
 @Suite("Home quick access carousel")

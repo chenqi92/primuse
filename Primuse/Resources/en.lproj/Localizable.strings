@@ -5479,6 +5479,8 @@
 "home_cover_size_title" = "Cover Size";
 "home_cover_size_large" = "Large";
 "home_cover_size_small" = "Small";
+"home_cover_size_large_label" = "Large covers";
+"home_cover_size_small_label" = "Small covers";
 "home_podcasts_open_all" = "All Podcasts";
 "podcast_add" = "Add";
 "podcast_add_by_url" = "Add by RSS Address";

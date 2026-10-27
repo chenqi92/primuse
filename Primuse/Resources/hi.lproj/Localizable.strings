@@ -5621,6 +5621,8 @@
 "home_cover_size_title" = "कवर का आकार";
 "home_cover_size_large" = "बड़ा";
 "home_cover_size_small" = "छोटा";
+"home_cover_size_large_label" = "बड़े कवर";
+"home_cover_size_small_label" = "छोटे कवर";
 "home_podcasts_open_all" = "सभी पॉडकास्ट";
 "podcast_add" = "जोड़ें";
 "podcast_add_by_url" = "RSS पते से जोड़ें";

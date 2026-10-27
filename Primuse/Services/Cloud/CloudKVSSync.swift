@@ -665,7 +665,7 @@ final class InterfaceLayoutSync {
         HomeSectionLayoutConfiguration.storageKey,
         HomeFilterBarConfiguration.storageKey,
         "primuse.home.showHero",
-        HomeCoverSize.storageKey,
+        HomeCoverSize.legacyStorageKey,
         "primuse.home.showContinueSpaces",
         AlbumRecommendationService.homeVisibilityKey,
         ListeningIntentService.homeVisibilityKey,

@@ -205,6 +205,22 @@ public enum HomeSectionLayoutPolicy {
         }
     }
 
+    /// 这块此刻的排布里有没有能调大小的封面卡。
+    ///
+    /// 只算边长固定、各块共用一套尺寸(`HomeCoverCardMetrics`)的封面卡:接着听、电台、书、播客
+    /// 一直是横排卡片;歌单、文件夹的横排与网格都按卡片边长排(网格的列宽就是卡片宽)。
+    /// 列表没有封面卡;「最近添加」的网格按列宽铺满;开始听是色块;排行、艺人、收藏、为你推荐
+    /// 各有自己的尺寸 —— 这些都不给选项,编辑态据此不显示封面大小按钮。
+    public static func supportsCoverSize(_ section: HomeSectionKind, style: HomeSectionLayoutStyle) -> Bool {
+        switch section {
+        case .continueSpaces, .radio, .booksInProgress, .audiobooks, .podcasts: true
+        case .playlists, .folders: style != .list
+        case .recentlyAdded: style == .carousel
+        case .startListening, .albumPick, .continueListening, .quickAccess, .forYou,
+             .listeningRanking, .topArtists, .stats: false
+        }
+    }
+
     /// 把存下来的值夹回该区域真正支持的范围。
     ///
     /// 存盘的是字符串,后续版本删掉某个方案、或某块不再支持某个方案时,旧值必须
@@ -324,6 +340,14 @@ public struct HomeQuickAccessCarouselMetrics: Equatable, Sendable {
     }
 }
 
+/// 首页封面卡大一档还是小一档。按 rawValue 存盘,case 名不能改。
+public enum HomeCoverSize: String, CaseIterable, Codable, Identifiable, Sendable {
+    case large
+    case small
+
+    public var id: String { rawValue }
+}
+
 /// 每块区域选定的方案。整体作为一个 JSON 字符串存进 AppStorage。
 public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     public static let storageKey = "primuse.home.sectionLayout.v1"
@@ -339,14 +363,38 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     /// 横排的行数,同样只存改过的。
     public var rows: [String: Int]
 
+    /// 各块的封面大小(`HomeCoverSize.rawValue`),同样只存和跟随值不同的。
+    public var coverSizes: [String: String]
+
     public init(
         styles: [String: String] = [:],
         itemCounts: [String: Int] = [:],
-        rows: [String: Int] = [:]
+        rows: [String: Int] = [:],
+        coverSizes: [String: String] = [:]
     ) {
         self.styles = styles
         self.itemCounts = itemCounts
         self.rows = rows
+        self.coverSizes = coverSizes
+    }
+
+    /// 这块的封面大小。没单独调过的块跟着 `following`:老版本整个首页只有一个大小,
+    /// 调过的人升级之后各块仍是那个大小。
+    public func coverSize(for section: HomeSectionKind, following: HomeCoverSize = .large) -> HomeCoverSize {
+        coverSizes[section.rawValue].flatMap(HomeCoverSize.init(rawValue:)) ?? following
+    }
+
+    /// 选成跟随值时删掉条目,只存这块与众不同的那一份。
+    public mutating func setCoverSize(
+        _ size: HomeCoverSize,
+        for section: HomeSectionKind,
+        following: HomeCoverSize = .large
+    ) {
+        if size == following {
+            coverSizes.removeValue(forKey: section.rawValue)
+        } else {
+            coverSizes[section.rawValue] = size.rawValue
+        }
     }
 
     public func rowCount(for section: HomeSectionKind) -> Int {
@@ -408,13 +456,15 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
         setStyle(next, for: section)
     }
 
-    // 老版本存下来的 JSON 没有 itemCounts 字段,缺省解成空字典而不是整份作废。
-    private enum CodingKeys: String, CodingKey { case styles, itemCounts, rows }
+    // 老版本存下来的 JSON 没有 itemCounts、coverSizes 字段,缺省解成空字典而不是整份作废;
+    // 老版本读到新加的字段时直接忽略,方案、行数、条目数照常认。
+    private enum CodingKeys: String, CodingKey { case styles, itemCounts, rows, coverSizes }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let storedStyles = try container.decodeIfPresent([String: String].self, forKey: .styles) ?? [:]
         itemCounts = try container.decodeIfPresent([String: Int].self, forKey: .itemCounts) ?? [:]
+        coverSizes = try container.decodeIfPresent([String: String].self, forKey: .coverSizes) ?? [:]
         var migratedRows = try container.decodeIfPresent([String: Int].self, forKey: .rows) ?? [:]
         // 把老的「双行横排」就地迁成横排 + 2 行,之后写回去的就是新格式。
         var migratedStyles: [String: String] = [:]

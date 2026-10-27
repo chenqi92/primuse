@@ -5621,6 +5621,8 @@
 "home_cover_size_title" = "حجم الأغلفة";
 "home_cover_size_large" = "كبير";
 "home_cover_size_small" = "صغير";
+"home_cover_size_large_label" = "أغلفة كبيرة";
+"home_cover_size_small_label" = "أغلفة صغيرة";
 "home_podcasts_open_all" = "كل البودكاست";
 "podcast_add" = "إضافة";
 "podcast_add_by_url" = "إضافة عبر عنوان RSS";

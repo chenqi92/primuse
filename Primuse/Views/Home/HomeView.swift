@@ -1975,7 +1975,8 @@ struct HomeView: View {
 
     // Section toggles. 顶部欢迎卡片不参与排序,但同样可以在首页编辑里隐藏。
     @AppStorage("primuse.home.showHero") private var showHero = true
-    @AppStorage(HomeCoverSize.storageKey) private var coverSize: HomeCoverSize = .large
+    /// 老版本全首页一个封面大小;没单独调过的块跟着它,见 `HomeCoverSize.legacyStorageKey`。
+    @AppStorage(HomeCoverSize.legacyStorageKey) private var legacyCoverSize: HomeCoverSize = .large
     @AppStorage("primuse.home.showStatsGlimpse") private var showStatsGlimpse: Bool = true
     @AppStorage("primuse.home.showForYou") private var showForYou: Bool = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
@@ -2169,7 +2170,6 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
                     filterBarEditorRow
-                    coverSizeEditorRow
                     heroEditorRow
                 } else if model.snapshot.hasContent, showHero {
                     libraryHeroSection
@@ -2186,16 +2186,18 @@ struct HomeView: View {
     /// 从原位置滑到新位置,横滑区块滚到的位置、长按菜单的宿主都留着。
     private func homeSections(_ books: SpokenWordLibrarySnapshot) -> some View {
         let twoColumns = usesTwoColumnHome
+        let sectionLayout = homeLayout
         let layout = twoColumns
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
             : AnyLayout(HomeSingleColumnSectionsLayout(spacing: editorMode ? 12 : 24))
         return layout {
             ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
                 homeSectionRow(section, books: books)
+                    // 每块的封面大小各调各的:接着听、书、播客、电台、文件夹几块从环境里读边长。
+                    .environment(\.homeCoverCardWidth, coverCardWidth(for: section, in: sectionLayout))
             }
         }
         .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
-        .environment(\.homeCoverCardWidth, homeAlbumCardWidth)
         // 两栏时左栏的网格不贴着竖栏,铺过去会压到右栏上:两栏都不铺,封面网格停在竖栏左侧。
         .transformEnvironment(\.pmVerticalBarOverlap) { overlap in
             if twoColumns { overlap = 0 }
@@ -2384,6 +2386,12 @@ struct HomeView: View {
         homeSectionLayoutRawValue = configuration.encoded()
     }
 
+    private func setCoverSize(_ size: HomeCoverSize, for section: HomeSectionKind) {
+        var configuration = homeLayout
+        configuration.setCoverSize(size, for: section, following: legacyCoverSize)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
     private func advanceSectionLayout(_ section: HomeSectionKind) {
         var configuration = homeLayout
         configuration.advanceStyle(for: section)
@@ -2492,35 +2500,6 @@ struct HomeView: View {
         #endif
     }
 
-    /// 横排封面卡大一档还是小一档(#349):专辑、歌单、电台、有声书、播客那几排一起变。
-    private var coverSizeEditorRow: some View {
-        editorBlockFrame(visible: true) {
-            HStack(spacing: 10) {
-                Image(systemName: "square.resize")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-
-                Text("home_cover_size_title")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Picker("home_cover_size_title", selection: $coverSize) {
-                    ForEach(HomeCoverSize.allCases) { size in
-                        Text(size.titleKey).tag(size)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .accessibilityIdentifier("home.edit.coverSize")
-            }
-            .padding(.horizontal, 20)
-        }
-        .settingsAnchor("home.coverSize")
-    }
-
     /// 顶部欢迎卡片钉在所有区块之上,不参与排序,编辑态只给显隐。
     private var heroEditorRow: some View {
         editorBlockFrame(visible: showHero) {
@@ -2600,6 +2579,7 @@ struct HomeView: View {
         let range = HomeSectionLayoutPolicy.itemCountRange(for: section)
         let count = homeLayout.itemCount(for: section)
             ?? HomeSectionLayoutPolicy.defaultItemCount(for: section)
+        let showsCoverSize = HomeSectionLayoutPolicy.supportsCoverSize(section, style: style)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "line.3.horizontal")
@@ -2662,7 +2642,7 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.edit.visibility." + section.rawValue)
             }
 
-            if visible, HomeSectionLayoutPolicy.isConfigurable(section) || range != nil {
+            if visible, HomeSectionLayoutPolicy.isConfigurable(section) || range != nil || showsCoverSize {
                 // 13 mini 这类 375 点宽的手机上一排挤不下时,先省掉「条目数」那几个字,再把方案按钮
                 // 收成只剩图标,按钮里的字不折成两行。放得下的屏幕与原来一致。
                 ViewThatFits(in: .horizontal) {
@@ -2676,9 +2656,20 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, 20)
+        // 设置搜索「封面大小」落在排在最前、能调封面的那一块上(每块各调各的,不再有单独一行)。
+        .settingsAnchor(section == firstCoverSizedSection ? "home.coverSize" : "home.edit.section." + section.rawValue)
     }
 
-    /// 编辑条第二排:方案、行数、条目数。文字一律单行;放不下时由调用处换更省地方的一种。
+    /// 编辑态里排在最前、此刻能调封面大小的那一块。
+    private var firstCoverSizedSection: HomeSectionKind? {
+        let layout = homeLayout
+        return editableHomeSections.first { section in
+            isSectionVisible(section)
+                && HomeSectionLayoutPolicy.supportsCoverSize(section, style: layout.style(for: section))
+        }
+    }
+
+    /// 编辑条第二排:方案、行数、封面大小、条目数。文字一律单行;放不下时由调用处换更省地方的一种。
     private func sectionLayoutControls(
         _ section: HomeSectionKind,
         style: HomeSectionLayoutStyle,
@@ -2725,6 +2716,27 @@ struct HomeView: View {
                 .buttonBorderShape(.capsule)
                 .controlSize(.small)
                 .accessibilityIdentifier("home.edit.rows." + section.rawValue)
+            }
+
+            if HomeSectionLayoutPolicy.supportsCoverSize(section, style: style) {
+                let size = coverSize(for: section)
+                Button {
+                    pmWithAnimation(.list) { setCoverSize(size.toggled, for: section) }
+                } label: {
+                    Label {
+                        Text(showsLayoutTitle ? size.labelKey : size.shortLabelKey)
+                    } icon: {
+                        Image(systemName: "square.resize")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityLabel(Text("home_cover_size_title"))
+                .accessibilityValue(Text(size.shortLabelKey))
+                .accessibilityIdentifier("home.edit.coverSize." + section.rawValue)
             }
 
             if let range {
@@ -3235,9 +3247,9 @@ struct HomeView: View {
             configured: homeLayout.rowCount(for: section),
             isCompactHeight: heightClass.isCompact
         )
-        let album = homeAlbumCardWidth
+        let album = coverCardWidth(for: section)
         let albumRow = HomeLoadingSkeletonBlock.Body.row(
-            card: CGSize(width: album, height: homeAlbumCardHeight),
+            card: CGSize(width: album, height: Self.coverCardHeight(width: album)),
             artwork: album, circular: false, rows: rows, spacing: 14, inset: 20
         )
         // 网格的列数:按各区块自己的最小列宽在这一栏里排得下几列,手机上通常两列。
@@ -3270,7 +3282,7 @@ struct HomeView: View {
             if radioStationsStore.stations.isEmpty {
                 return .init(.card(height: 130), hasHeader: false)
             }
-            return .init(.row(card: CGSize(width: 104, height: 126), artwork: 104, circular: false, rows: 1, spacing: 12, inset: 20))
+            return .init(.row(card: CGSize(width: album, height: album + 22), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .booksInProgress, .audiobooks:
             return .init(.row(card: CGSize(width: album, height: album + 46), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .podcasts:
@@ -4340,6 +4352,7 @@ struct HomeView: View {
     @ViewBuilder
     private func playlistsSection(_ style: HomeSectionLayoutStyle) -> some View {
         let tiles = model.snapshot.playlists
+        let cardWidth = coverCardWidth(for: .playlists)
 
         VStack(alignment: .leading, spacing: 10) {
             Text("home_section_playlists")
@@ -4350,10 +4363,10 @@ struct HomeView: View {
             case .carousel:
                 let shownTiles = tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 16 : 12))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.playlists, height: homeAlbumCardHeight, itemCount: shownTiles.count), spacing: 14) {
+                    LazyHGrid(rows: carouselRows(.playlists, height: Self.coverCardHeight(width: cardWidth), itemCount: shownTiles.count), spacing: 14) {
                         ForEach(shownTiles) { tile in
                             NavigationLink(value: tile.playlist) {
-                                playlistCard(tile)
+                                playlistCard(tile, width: cardWidth)
                             }
                             .buttonStyle(.pmPressable)
                             .mediaZoomSource(.playlist, id: tile.playlist.id)
@@ -4366,12 +4379,12 @@ struct HomeView: View {
                 // 歌单封面是固定尺寸视图,撑不满自适应列宽,所以列宽直接按卡片宽
                 // 来定 —— 否则窄屏两列会在卡片之间裂开一道空隙。
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: homeAlbumCardWidth), spacing: 16, alignment: .top)],
+                    columns: [GridItem(.adaptive(minimum: cardWidth), spacing: 16, alignment: .top)],
                     spacing: 20
                 ) {
                     ForEach(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 12 : 6))) { tile in
                         NavigationLink(value: tile.playlist) {
-                            playlistCard(tile)
+                            playlistCard(tile, width: cardWidth)
                         }
                         .buttonStyle(.pmPressable)
                         .mediaZoomSource(.playlist, id: tile.playlist.id)
@@ -4403,9 +4416,9 @@ struct HomeView: View {
 
     /// 横排与网格共用一张卡,宽度固定 —— 否则 LazyHStack 会按内容自适应,
     /// 长短不一的歌单名把这一行撑得参差不齐。
-    private func playlistCard(_ tile: HomePlaylistTile) -> some View {
+    private func playlistCard(_ tile: HomePlaylistTile, width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            homePlaylistArtwork(tile, size: homeAlbumCardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
+            homePlaylistArtwork(tile, size: width, cornerRadius: HomeCoverCardMetrics.cornerRadius)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(tile.playlist.name)
@@ -4418,7 +4431,7 @@ struct HomeView: View {
                     .lineLimit(1)
             }
         }
-        .frame(width: homeAlbumCardWidth, alignment: .leading)
+        .frame(width: width, alignment: .leading)
     }
 
     @ViewBuilder
@@ -4589,14 +4602,24 @@ struct HomeView: View {
 
     // MARK: - Recently Added Albums
 
-    /// 横排卡片的宽度,取值见 `HomeCoverCardMetrics`。经环境下发给接着听、书、播客、文件夹几个区块,
-    /// 各区块的封面和这里的专辑、歌单卡一样大。
-    private var homeAlbumCardWidth: CGFloat {
-        HomeCoverCardMetrics.width(usesPadMetrics: usesPadMetrics, isCompactHeight: heightClass.isCompact, size: coverSize)
+    /// 这块的封面大小:首页编辑里单独调过的照它,没调过的跟着老版本的全局大小。
+    private func coverSize(for section: HomeSectionKind, in layout: HomeSectionLayoutConfiguration? = nil) -> HomeCoverSize {
+        (layout ?? homeLayout).coverSize(for: section, following: legacyCoverSize)
+    }
+
+    /// 这块封面卡的边长,取值见 `HomeCoverCardMetrics`。经环境下发给接着听、书、播客、电台、文件夹几个区块,
+    /// 专辑、歌单两块在这里直接用。大小相同的几块,封面照样对得齐。
+    /// 一次排好几块时把解好的 `layout` 传进来,不必每块都重新解一遍存档。
+    private func coverCardWidth(for section: HomeSectionKind, in layout: HomeSectionLayoutConfiguration? = nil) -> CGFloat {
+        HomeCoverCardMetrics.width(
+            usesPadMetrics: usesPadMetrics,
+            isCompactHeight: heightClass.isCompact,
+            size: coverSize(for: section, in: layout)
+        )
     }
 
     /// 封面 + 两行说明文字。多行横排要用 LazyHGrid,而它要求行高固定。
-    private var homeAlbumCardHeight: CGFloat { homeAlbumCardWidth + 42 }
+    private static func coverCardHeight(width: CGFloat) -> CGFloat { width + 42 }
 
     /// 横排的行数由用户配置,1 行时等价于原来的 LazyHStack。
     /// 手机横屏只渲染一行 —— 存档里的行数不动,设置页仍显示用户选的值。
@@ -4651,12 +4674,13 @@ struct HomeView: View {
                 // 横排一次只占一张卡的高度,这正是 issue #106 想要的:同样的内容
                 // 不再吃掉整屏,后面的「继续听」还留在首屏里。
                 let shownAlbums = albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 16 : 12))
+                let cardWidth = coverCardWidth(for: .recentlyAdded)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.recentlyAdded, height: homeAlbumCardHeight, itemCount: shownAlbums.count), spacing: 14) {
+                    LazyHGrid(rows: carouselRows(.recentlyAdded, height: Self.coverCardHeight(width: cardWidth), itemCount: shownAlbums.count), spacing: 14) {
                         ForEach(shownAlbums) { tile in
                             NavigationLink(value: tile.album) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
-                                    .frame(width: homeAlbumCardWidth)
+                                    .frame(width: cardWidth)
                             }
                             .buttonStyle(.pmPressable)
                             .mediaZoomSource(.album, id: tile.album.id)

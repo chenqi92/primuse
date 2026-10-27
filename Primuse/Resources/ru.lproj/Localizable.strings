@@ -5621,6 +5621,8 @@
 "home_cover_size_title" = "Размер обложек";
 "home_cover_size_large" = "Крупные";
 "home_cover_size_small" = "Мелкие";
+"home_cover_size_large_label" = "Крупные обложки";
+"home_cover_size_small_label" = "Мелкие обложки";
 "home_podcasts_open_all" = "Все подкасты";
 "podcast_add" = "Добавить";
 "podcast_add_by_url" = "Добавить по RSS-адресу";

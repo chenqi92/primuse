@@ -421,22 +421,29 @@ enum HomeCoverCardMetrics {
     }
 }
 
-/// 首页横排封面卡大一档还是小一档(首页编辑里选,随 iCloud 同步)。专辑、歌单、文件夹、接着听、电台、
-/// 有声书、播客都跟着变;「收藏」是一排快捷图标,不跟。
-enum HomeCoverSize: String, CaseIterable, Identifiable {
-    case large
-    case small
+/// 首页封面卡大一档还是小一档,首页编辑里每块各调各的(存在 `HomeSectionLayoutConfiguration`,
+/// 随 iCloud 同步);哪几块、哪种排布能调见 `HomeSectionLayoutPolicy.supportsCoverSize`。
+extension HomeCoverSize {
+    /// 老版本整个首页一个大小时存的键。没单独调过的块跟着它,所以调成过「小」的人升级后各块仍是小的;
+    /// 还没升级的设备也照旧读写它。
+    static let legacyStorageKey = "primuse.home.coverSize"
 
-    static let storageKey = "primuse.home.coverSize"
+    /// 编辑条上按钮的字:「大封面」「小封面」;挤不下时只留「大」「小」。
+    var labelKey: LocalizedStringKey {
+        switch self {
+        case .large: "home_cover_size_large_label"
+        case .small: "home_cover_size_small_label"
+        }
+    }
 
-    var id: String { rawValue }
-
-    var titleKey: LocalizedStringKey {
+    var shortLabelKey: LocalizedStringKey {
         switch self {
         case .large: "home_cover_size_large"
         case .small: "home_cover_size_small"
         }
     }
+
+    var toggled: HomeCoverSize { self == .large ? .small : .large }
 }
 
 extension EnvironmentValues {

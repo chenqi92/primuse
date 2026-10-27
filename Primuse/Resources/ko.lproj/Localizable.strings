@@ -5715,6 +5715,8 @@
 "home_cover_size_title" = "커버 크기";
 "home_cover_size_large" = "크게";
 "home_cover_size_small" = "작게";
+"home_cover_size_large_label" = "큰 커버";
+"home_cover_size_small_label" = "작은 커버";
 "home_podcasts_open_all" = "모든 팟캐스트";
 "podcast_add" = "추가";
 "podcast_add_by_url" = "RSS 주소로 추가";

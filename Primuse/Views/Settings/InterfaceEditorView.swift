@@ -13,6 +13,7 @@ struct HomeInterfaceEditor: View {
     @Environment(MusicLibrary.self) private var library
     @AppStorage(HomeSectionConfiguration.orderKey) private var sectionOrderRawValue = ""
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var sectionLayoutRawValue = ""
+    @AppStorage(HomeCoverSize.legacyStorageKey) private var legacyCoverSize: HomeCoverSize = .large
     @State private var showsRestoreConfirm = false
 
     var body: some View {
@@ -46,6 +47,8 @@ struct HomeInterfaceEditor: View {
                                 HomeSectionConfiguration.defaultOrder
                             )
                             sectionLayoutRawValue = ""
+                            // 各块的封面大小在上面那份布局里;老版本的全局大小也放回「大」,否则没单独调过的块还跟着它。
+                            legacyCoverSize = .large
                             // 关掉的区块重新显示,收藏里拿掉的「我喜欢」放回来:只恢复顺序和样式的话,
                             // 删过东西的人点了这里什么也看不出变化。
                             HomeView.restoreDefaultSectionVisibility()

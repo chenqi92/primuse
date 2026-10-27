@@ -5692,6 +5692,8 @@
 "home_cover_size_title" = "封面大小";
 "home_cover_size_large" = "大";
 "home_cover_size_small" = "小";
+"home_cover_size_large_label" = "大封面";
+"home_cover_size_small_label" = "小封面";
 "home_podcasts_open_all" = "全部播客";
 "podcast_add" = "加入";
 "podcast_add_by_url" = "透過 RSS 位址加入";
