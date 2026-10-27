@@ -6820,7 +6820,7 @@ struct NowPlayingView: View {
         let isShort = geo.size.height < 760
         let chapterColumnWidth = min(max((contentWidth * 0.23).rounded(), 72), 120)
         // 进度条(连同「本章还剩约」)、传输键、功能块之间别挤在一起(#283):矮屏也留出一截,
-        // 高屏按通用播放页那把尺再拉开一些。多出来的高度从封面与当前章节之间的空白里出。
+        // 高屏按通用播放页那把尺再拉开一些。
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
         let controls = spokenWordControlLayout.resolved(
             in: audiobookPortraitControlContext(usesToolColumn: usesToolColumn)
@@ -6837,6 +6837,31 @@ struct NowPlayingView: View {
         } else {
             footerGap = showsPlayerVolumeBar ? 4 : 0
         }
+        // 封面那一面上,传输键上下两段空白能伸缩、一样高,屏幕高出来的先给它们(`AudiobookPortraitRhythm`,#367)。
+        // 文字稿那一页不拉:那里多出来的高度归文字稿。两段的最小值就是原来的固定边距,
+        // 下面那段取的是传输键下面第一样东西原来的上边距,那样东西自己的边距跟着让掉。
+        let spreadsControls = !showsText
+        let transportTopGap = (isShort ? 10 : 16) + controlGap * 0.5
+        let belowTransportGap: CGFloat
+        if style.isNocturne {
+            if showsPlayerVolumeBar {
+                belowTransportGap = isShort ? 10 : 16
+            } else if showsActionRow {
+                belowTransportGap = (isShort ? 6 : 12) + controlGap * 0.3
+            } else {
+                belowTransportGap = footerGap
+            }
+        } else {
+            belowTransportGap = showsActionRow || showsPlayerVolumeBar
+                ? (isShort ? 12 : 20) + controlGap * 0.3
+                : footerGap
+        }
+        let transportCentering = AudiobookPortraitRhythm.transportCentering(
+            style: style,
+            belowIsActionRow: showsActionRow && !showsPlayerVolumeBar,
+            showsCaptions: spokenWordControlLayout.tileLabelStyle == .iconAndText
+        )
+        let footerFollowsTransport = !showsActionRow && !showsPlayerVolumeBar
 
         return VStack(spacing: 0) {
             audiobookTopBar(style: style, usesToolColumn: usesToolColumn, controls: controls)
@@ -6869,9 +6894,10 @@ struct NowPlayingView: View {
                         .transition(lyricsPanelTransition)
                         .onDisappear { isLyricsChromeCollapsed = false }
                 } else if style.isNocturne {
-                    // 书名到封面这一块上下的空白平分:书名离顶上、封面离当前章节一样远(#329)。
-                    // 只剩把手时也一样,不再把多出来的高度都堆到封面下面。
-                    Spacer(minLength: isShort ? 8 : 16)
+                    // 书名离顶上、封面离章节那一行各自只长到一个上限,多出来的高度先给下面控件之间的空白
+                    // (`AudiobookPortraitRhythm`,#367);都长满了才在这两处平分,书名离顶上、封面离章节一样远(#329)。
+                    Spacer(minLength: 0)
+                    AudiobookPortraitRhythm.gap(minimum: isShort ? 8 : 16, limit: AudiobookPortraitRhythm.framingLimit)
                     AudiobookTitleBlock(style: style) { presentCurrentBook() }
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     AudiobookHeroRowLayout(
@@ -6885,11 +6911,13 @@ struct NowPlayingView: View {
                     }
                     // 封面顶边和左边「CHAPTER」对齐,离作者也就宽一些(#320)。
                     .padding(.top, isShort ? 24 : 32)
-                    .layoutPriority(1)
+                    .layoutPriority(2)
                     .transition(lyricsHandoffArtworkTransition)
-                    Spacer(minLength: isShort ? 16 : 28)
+                    AudiobookPortraitRhythm.gap(minimum: isShort ? 16 : 28, limit: AudiobookPortraitRhythm.framingLimit)
+                    Spacer(minLength: 0)
                 } else {
-                    Spacer(minLength: isShort ? 8 : 14)
+                    Spacer(minLength: 0)
+                    AudiobookPortraitRhythm.gap(minimum: isShort ? 8 : 14, limit: AudiobookPortraitRhythm.framingLimit)
                     HStack(spacing: 12) {
                         AudiobookPlayerEyebrow(key: "spoken_word_player_now_listening", style: style)
                         Rectangle()
@@ -6907,12 +6935,13 @@ struct NowPlayingView: View {
                         audiobookCover(style: style)
                     }
                     .padding(.top, isShort ? 14 : 22)
-                    .layoutPriority(1)
+                    .layoutPriority(2)
                     .transition(lyricsHandoffArtworkTransition)
                     AudiobookTitleBlock(style: style) { presentCurrentBook() }
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
                         .padding(.top, isShort ? 16 : 26)
-                    Spacer(minLength: isShort ? 12 : 22)
+                    AudiobookPortraitRhythm.gap(minimum: isShort ? 12 : 22, limit: AudiobookPortraitRhythm.framingLimit)
+                    Spacer(minLength: 0)
                 }
 
                 if !showsText || !isLyricsChromeCollapsed {
@@ -6937,25 +6966,34 @@ struct NowPlayingView: View {
                     AudiobookProgressBar(style: style)
                         .matchedLayoutElement(.progress, in: layoutNamespace)
 
+                    if spreadsControls {
+                        AudiobookPortraitRhythm.gap(minimum: transportTopGap, limit: AudiobookPortraitRhythm.controlLimit)
+                    }
                     audiobookTransportRow(
                         style: style,
                         isShort: isShort,
                         controls: controls
                     )
                         .matchedLayoutElement(.transport, in: layoutNamespace)
-                        .padding(.top, (isShort ? 10 : 16) + controlGap * 0.5)
+                        .padding(.top, spreadsControls ? max(0, transportCentering) : transportTopGap)
+                        .padding(.bottom, spreadsControls ? max(0, -transportCentering) : 0)
+                    if spreadsControls {
+                        AudiobookPortraitRhythm.gap(minimum: belowTransportGap, limit: AudiobookPortraitRhythm.controlLimit)
+                    }
 
                     Group {
                         if style.isNocturne {
                             if showsPlayerVolumeBar {
                                 audiobookVolumeRow(style: style)
                                     .padding(.horizontal, 12)
-                                    .padding(.top, isShort ? 10 : 16)
+                                    .padding(.top, spreadsControls ? 0 : belowTransportGap)
                             }
                             // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
                             if showsActionRow {
                                 audiobookActionRow(style: style, layout: .stacked, tiles: controls.tiles)
-                                    .padding(.top, (isShort ? 6 : 12) + controlGap * 0.3)
+                                    .padding(.top, spreadsControls && !showsPlayerVolumeBar
+                                        ? 0
+                                        : (isShort ? 6 : 12) + controlGap * 0.3)
                             }
                         } else {
                             // 细线只为隔开下面那一排,下面什么都不剩时不画。
@@ -6963,7 +7001,7 @@ struct NowPlayingView: View {
                                 Rectangle()
                                     .fill(style.hairline)
                                     .frame(height: 0.5)
-                                    .padding(.top, (isShort ? 12 : 20) + controlGap * 0.3)
+                                    .padding(.top, spreadsControls ? 0 : belowTransportGap)
                             }
                             if showsActionRow {
                                 audiobookActionRow(style: style, layout: .inline, tiles: controls.tiles)
@@ -6990,7 +7028,7 @@ struct NowPlayingView: View {
                         if footer.hasContent {
                             footer
                                 .tracking(0.6)
-                                .padding(.top, footerGap)
+                                .padding(.top, spreadsControls && footerFollowsTransport ? 0 : footerGap)
                                 .pmLayoutSwitchFade()
                         }
                     }

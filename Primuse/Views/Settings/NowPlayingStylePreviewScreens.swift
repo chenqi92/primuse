@@ -506,16 +506,20 @@ struct AudiobookPreviewScreen: View {
                 }
 
                 VStack(spacing: 0) {
+                    // 上下几段空白和播放页一样分(`AudiobookPortraitRhythm`,#367)。
                     if style.isNocturne {
-                        Spacer(minLength: isShort ? 8 : 16)
+                        Spacer(minLength: 0)
+                        AudiobookPortraitRhythm.gap(minimum: isShort ? 8 : 16, limit: AudiobookPortraitRhythm.framingLimit)
                         titleBlock
                         // 封面顶边和左边「CHAPTER」对齐。
                         heroRow(columnLeading: true, columnWidth: columnWidth, spacing: 24)
                             .padding(.top, isShort ? 24 : 32)
-                            .layoutPriority(1)
-                        Spacer(minLength: isShort ? 16 : 28)
+                            .layoutPriority(2)
+                        AudiobookPortraitRhythm.gap(minimum: isShort ? 16 : 28, limit: AudiobookPortraitRhythm.framingLimit)
+                        Spacer(minLength: 0)
                     } else {
-                        Spacer(minLength: isShort ? 8 : 14)
+                        Spacer(minLength: 0)
+                        AudiobookPortraitRhythm.gap(minimum: isShort ? 8 : 14, limit: AudiobookPortraitRhythm.framingLimit)
                         HStack(spacing: 12) {
                             AudiobookPlayerEyebrow(key: "spoken_word_player_now_listening", style: style)
                             Rectangle()
@@ -524,10 +528,11 @@ struct AudiobookPreviewScreen: View {
                         }
                         heroRow(columnLeading: false, columnWidth: columnWidth, spacing: 28)
                             .padding(.top, isShort ? 14 : 22)
-                            .layoutPriority(1)
+                            .layoutPriority(2)
                         titleBlock
                             .padding(.top, isShort ? 16 : 26)
-                        Spacer(minLength: isShort ? 12 : 22)
+                        AudiobookPortraitRhythm.gap(minimum: isShort ? 12 : 22, limit: AudiobookPortraitRhythm.framingLimit)
+                        Spacer(minLength: 0)
                     }
 
                     partRow(controls: controls)
@@ -539,8 +544,24 @@ struct AudiobookPreviewScreen: View {
                     )
                         .padding(.top, 4)
 
+                    let centering = AudiobookPortraitRhythm.transportCentering(
+                        style: style,
+                        belowIsActionRow: !showsVolumeBar,
+                        showsCaptions: layout.tileLabelStyle == .iconAndText
+                    )
+                    AudiobookPortraitRhythm.gap(
+                        minimum: (isShort ? 10 : 16) + gap * 0.5,
+                        limit: AudiobookPortraitRhythm.controlLimit
+                    )
                     transportRow(controls: controls, isShort: isShort)
-                        .padding(.top, (isShort ? 10 : 16) + gap * 0.5)
+                        .padding(.top, max(0, centering))
+                        .padding(.bottom, max(0, -centering))
+                    AudiobookPortraitRhythm.gap(
+                        minimum: style.isNocturne
+                            ? (showsVolumeBar ? (isShort ? 10 : 16) : (isShort ? 6 : 12) + gap * 0.3)
+                            : (isShort ? 12 : 20) + gap * 0.3,
+                        limit: AudiobookPortraitRhythm.controlLimit
+                    )
 
                     if style.isNocturne {
                         if showsVolumeBar {
@@ -551,7 +572,6 @@ struct AudiobookPreviewScreen: View {
                                 matchedTrack: trackStyle
                             )
                                 .padding(.horizontal, 12)
-                                .padding(.top, isShort ? 10 : 16)
                         }
                         PreviewSpokenTiles(
                             kind: .audiobook,
@@ -561,12 +581,11 @@ struct AudiobookPreviewScreen: View {
                             primary: style.control(paper: style.primary),
                             secondary: style.control(paper: style.secondary)
                         )
-                        .padding(.top, (isShort ? 6 : 12) + gap * 0.3)
+                        .padding(.top, showsVolumeBar ? (isShort ? 6 : 12) + gap * 0.3 : 0)
                     } else {
                         Rectangle()
                             .fill(style.hairline)
                             .frame(height: 0.5)
-                            .padding(.top, (isShort ? 12 : 20) + gap * 0.3)
                         PreviewSpokenTiles(
                             kind: .audiobook,
                             tiles: controls.tiles,
@@ -714,47 +733,42 @@ struct AudiobookPreviewScreen: View {
 
     /// 当前章节那一行:章号 | 章名,右边上一章 / 下一章或「章节那一行」那一格。
     private func partRow(controls: SpokenWordResolvedControls) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if style.isNocturne {
-                AudiobookPlayerEyebrow(key: "spoken_word_player_current_part", style: style)
-            }
-            HStack(spacing: 10) {
-                Text(verbatim: "03")
-                    .font(.body.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(style.primary)
-                Rectangle()
-                    .fill(style.tertiary)
-                    .frame(width: 1, height: 14)
-                Text("player_preview_sample_chapter")
-                    .font(style.isNocturne ? .body.weight(.medium) : .body)
-                    .foregroundStyle(style.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if controls.partRow != nil || context.showsPlaceholder(for: .spoken(.audiobook, .partRow)) {
-                    PreviewSpokenSlotKey(
-                        kind: .audiobook,
-                        slot: .partRow,
-                        action: controls.partRow,
-                        context: context,
-                        font: .system(size: 18),
-                        tint: style.control(paper: style.primary),
-                        faint: style.faint
-                    )
-                } else if layout.showsChapterButtons {
-                    HStack(spacing: 0) {
-                        Image(systemName: "backward.end.fill")
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "forward.end.fill")
-                            .frame(width: 44, height: 44)
-                    }
-                    .font(.callout)
-                    .foregroundStyle(style.control(paper: style.primary))
-                    .padding(.trailing, -13)
-                    .accessibilityHidden(true)
+        HStack(spacing: 10) {
+            Text(verbatim: "03")
+                .font(.body.weight(.semibold).monospacedDigit())
+                .foregroundStyle(style.primary)
+            Rectangle()
+                .fill(style.tertiary)
+                .frame(width: 1, height: 14)
+            Text("player_preview_sample_chapter")
+                .font(style.isNocturne ? .body.weight(.medium) : .body)
+                .foregroundStyle(style.primary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if controls.partRow != nil || context.showsPlaceholder(for: .spoken(.audiobook, .partRow)) {
+                PreviewSpokenSlotKey(
+                    kind: .audiobook,
+                    slot: .partRow,
+                    action: controls.partRow,
+                    context: context,
+                    font: .system(size: 18),
+                    tint: style.control(paper: style.primary),
+                    faint: style.faint
+                )
+            } else if layout.showsChapterButtons {
+                HStack(spacing: 0) {
+                    Image(systemName: "backward.end.fill")
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "forward.end.fill")
+                        .frame(width: 44, height: 44)
                 }
+                .font(.callout)
+                .foregroundStyle(style.control(paper: style.primary))
+                .padding(.trailing, -13)
+                .accessibilityHidden(true)
             }
-            .frame(minHeight: 44)
         }
+        .frame(minHeight: 44)
     }
 
     /// 和播放页一样左右两半各自排开,空着的那一边不留空位;编辑时两格都画出虚线框好点。

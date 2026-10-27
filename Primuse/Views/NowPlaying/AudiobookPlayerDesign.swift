@@ -92,9 +92,44 @@ struct AudiobookPlayerStyle: Equatable {
     private var foreground: Color { isNocturne ? .white : ink }
 }
 
+// MARK: - Vertical rhythm
+
+/// 竖版上下几段空白怎么分(#367):屏幕高出来的那一截先给进度条与传输键、传输键与下面那一排,
+/// 让控件之间松开;书名离顶上、封面离章节那一行只长到 `framingLimit`。这几段都长满了还有多的
+/// (iPad 竖屏、大窗口),才照旧平分到书名上面和封面下面(#329)。播放页和设置里的预览共用。
+enum AudiobookPortraitRhythm {
+    /// 书名离顶上(暖白是「正在收听」那一行)、封面(暖白是书名)离章节那一行,最多长到这么高。
+    static let framingLimit: CGFloat = 44
+    /// 进度条到传输键、传输键到下面那一排,最多长到这么高。
+    static let controlLimit: CGFloat = 72
+
+    /// 一段能伸缩的空白。比书名上面、封面下面那两段不封顶的空白先分到高度,
+    /// 封面那一行(`layoutPriority(2)`)又比它们更先,屏幕矮时让的仍只是封面。
+    static func gap(minimum: CGFloat, limit: CGFloat) -> some View {
+        Spacer(minLength: minimum)
+            .frame(maxHeight: max(minimum, limit))
+            .layoutPriority(1)
+    }
+
+    /// 传输键排在进度条下面那行时间与下面那一排之间看着居中:两段空白一样高,差的是两头的字和图标
+    /// 不在各自那块的边上。时间那行的中线在进度条那一块底边上面约 8;墨黑下面那一排图标的中线在那一排
+    /// 顶边下面 16(图标下有说明)或 27(只有图标);暖白下面是一道细线,就在边上。
+    /// 正数加在传输键上面,负数(暖白)加在传输键下面。
+    static func transportCentering(
+        style: AudiobookPlayerStyle,
+        belowIsActionRow: Bool,
+        showsCaptions: Bool
+    ) -> CGFloat {
+        let timesCenter: CGFloat = 8
+        guard style.isNocturne else { return -timesCenter }
+        guard belowIsActionRow else { return 0 }
+        return (showsCaptions ? 16 : 27) - timesCenter
+    }
+}
+
 // MARK: - Chrome
 
-/// 字距放开的小标签:「CHAPTER」「当前章节」「正在收听」。
+/// 字距放开的小标签:「CHAPTER」、暖白章号栏的「当前章节」、「正在收听」。
 struct AudiobookPlayerEyebrow: View {
     let key: LocalizedStringKey
     let style: AudiobookPlayerStyle
@@ -352,48 +387,44 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
         let label = SpokenWordPartTitleLabel(
             SpokenWordPlayerText.partTitle(player) ?? player.currentSong?.title ?? ""
         )
-        VStack(alignment: .leading, spacing: 6) {
-            if style.isNocturne {
-                AudiobookPlayerEyebrow(key: "spoken_word_player_current_part", style: style)
+        // 墨黑上面原来还有一行「当前章节」,和章号栏的「CHAPTER」重复,去掉了(#367)。
+        HStack(spacing: 0) {
+            Button(action: onOpenContents) {
+                HStack(spacing: 10) {
+                    if let number = label.number {
+                        Text(verbatim: number)
+                            .font(.body.weight(.semibold).monospacedDigit())
+                            .fixedSize()
+                        Rectangle()
+                            .fill(style.tertiary)
+                            .frame(width: 1, height: 14)
+                            .accessibilityHidden(true)
+                    }
+                    Text(verbatim: label.title)
+                        .font(.body.weight(style.isNocturne ? .medium : .regular))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(style.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
-            HStack(spacing: 0) {
-                Button(action: onOpenContents) {
-                    HStack(spacing: 10) {
-                        if let number = label.number {
-                            Text(verbatim: number)
-                                .font(.body.weight(.semibold).monospacedDigit())
-                                .fixedSize()
-                            Rectangle()
-                                .fill(style.tertiary)
-                                .frame(width: 1, height: 14)
-                                .accessibilityHidden(true)
-                        }
-                        Text(verbatim: label.title)
-                            .font(.body.weight(style.isNocturne ? .medium : .regular))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(style.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .combine)
-                .accessibilityHint(Text("spoken_word_contents_title"))
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint(Text("spoken_word_contents_title"))
 
-                if showsPartButtons || showsAccessory {
-                    HStack(spacing: 0) {
-                        if showsPartButtons {
-                            SpokenWordPartButton(forward: false, color: style.control(paper: style.primary), font: .callout)
-                            SpokenWordPartButton(forward: true, color: style.control(paper: style.primary), font: .callout)
-                        }
-                        if showsAccessory {
-                            accessory()
-                        }
+            if showsPartButtons || showsAccessory {
+                HStack(spacing: 0) {
+                    if showsPartButtons {
+                        SpokenWordPartButton(forward: false, color: style.control(paper: style.primary), font: .callout)
+                        SpokenWordPartButton(forward: true, color: style.control(paper: style.primary), font: .callout)
                     }
-                    // 图标贴着右边距,点按范围仍是整块 44pt。
-                    .padding(.trailing, -13)
+                    if showsAccessory {
+                        accessory()
+                    }
                 }
+                // 图标贴着右边距,点按范围仍是整块 44pt。
+                .padding(.trailing, -13)
             }
         }
         .contentTransition(.opacity)
