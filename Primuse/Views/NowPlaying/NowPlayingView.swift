@@ -3807,7 +3807,8 @@ struct NowPlayingView: View {
             perform: lyricsDidChange
         )
         // 这里弹出的面板都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
-        // 专辑、书、播客节目、电台这几张资料库页面套 `playerLibraryPagePresentation`,照 App 的外观画。
+        // 专辑、书、播客节目、电台这几张资料库页面和有声内容的目录面板套 `playerLibraryPagePresentation`,
+        // 照 App 的外观画。
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .queueSheetPresentation()
@@ -13190,10 +13191,12 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
                 onTranscriptOffsetChange()
             }
             .sheet(isPresented: $showChapterList) {
+                // 目录、书签、节目说明、接下来这几页列的是这本书 / 这一集自己的内容,和书、单集的详情页
+                // 是一类:「播放页始终用深色」时也照 App 的外观画,浅色外观下白底黑字(#367)。
                 SpokenWordContentsView(requestedTab: $contentsRequestedTab)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
-                    .playerPresentationColorScheme()
+                    .playerLibraryPagePresentation()
             }
             #if os(iOS)
             .fullScreenCover(isPresented: $showsTranscriptReader) {

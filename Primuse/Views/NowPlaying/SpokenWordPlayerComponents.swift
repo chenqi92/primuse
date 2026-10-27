@@ -1044,6 +1044,7 @@ private struct PlayerPresentationColorScheme: ViewModifier {
 
 /// 从播放页打开的资料库页面(专辑、书、播客节目与单集、电台详情)套上它。这些是 App 里的页面,
 /// 不是播放页的面板:「播放页始终用深色」开着时也照 App 本来的外观画,浅色外观下白底黑字(#329)。
+/// 有声内容的目录面板(目录、书签、节目说明、接下来)列的是书和单集自己的内容,也算这一类(#367)。
 /// 弹出页的底本来就跟着窗口,这里只把播放页换掉的环境换回来;页面里再弹出的东西也不再跟着换深色。
 private struct PlayerLibraryPagePresentation: ViewModifier {
     @Environment(\.playerForcesDarkAppearance) private var forcesDark
