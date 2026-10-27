@@ -952,7 +952,7 @@ enum LyricsWriteback {
     ) async -> EmbeddedCopyResult {
         // 事务按库里记的文件身份做冲突判断，编辑器手里的快照可能已经旧了。
         var target = song
-        if let latest = library.song(id: song.id) {
+        if let latest = library.storedSong(id: song.id) {
             target.filePath = latest.filePath
             target.fileSize = latest.fileSize
             target.lastModified = latest.lastModified

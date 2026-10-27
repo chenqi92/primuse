@@ -1582,7 +1582,16 @@ struct TagEditorView: View {
         isSaving = true
         defer { isSaving = false }
 
-        var updated = song
+        // 冲突判断按库里记的文件身份做：从正在播放或列表打开时拿到的那份可能是
+        // 重扫前的旧行，拿它去写回会一直判成「编辑期间已发生变化」。
+        var original = song
+        if let stored = library.storedSong(id: song.id) {
+            original.filePath = stored.filePath
+            original.fileSize = stored.fileSize
+            original.lastModified = stored.lastModified
+            original.revision = stored.revision
+        }
+        var updated = original
         updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if updated.title.isEmpty {
             // 不允许空标题,fallback 回 filename(最后一段)
@@ -1619,7 +1628,7 @@ struct TagEditorView: View {
         if tagOrCoverChanged {
             do {
                 let report = try await sourceManager.writeTagMetadata(
-                    original: song,
+                    original: original,
                     updated: updated,
                     coverData: pickedCoverData
                 )

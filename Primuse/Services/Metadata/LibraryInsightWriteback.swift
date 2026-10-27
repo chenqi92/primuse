@@ -147,7 +147,7 @@ enum LibraryInsightWriteback {
             guard await sourceManager.supportsEmbeddedTagWrite(for: song) else { continue }
             // 冲突判断按库里记的文件身份做。
             var target = song
-            if let latest = library.song(id: song.id) {
+            if let latest = library.storedSong(id: song.id) {
                 target.filePath = latest.filePath
                 target.fileSize = latest.fileSize
                 target.lastModified = latest.lastModified

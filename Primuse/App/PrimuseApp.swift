@@ -1330,7 +1330,7 @@ private struct LibraryReplacementObserver: View {
             .onChange(of: musicLibrary.songReplacementToken) { _, _ in
                 guard let currentID = playerService.currentSong?.id,
                       musicLibrary.lastReplacedSongIDs.contains(currentID),
-                      let updated = musicLibrary.song(id: currentID)
+                      let updated = musicLibrary.storedSong(id: currentID)
                 else { return }
                 let previousArtwork = playerService.currentSong.map(PrimuseApp.nowPlayingArtworkIdentity)
                 playerService.syncSongMetadata(updated)

@@ -584,6 +584,14 @@ final class MusicScraperService {
             if await !sourceManager.isServerLibrarySource(for: song) {
                 updatedSong = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: updatedSong)
             }
+            // 文件身份以库里那一行为准：拿来刮削的可能是重扫前的旧行（正在播放那份），
+            // 整行写回会把库里的版本倒回去，之后的写回都判成「编辑期间已发生变化」。
+            if let stored = library.storedSong(id: updatedSong.id) {
+                updatedSong.filePath = stored.filePath
+                updatedSong.fileSize = stored.fileSize
+                updatedSong.lastModified = stored.lastModified
+                updatedSong.revision = stored.revision
+            }
             library.replaceSong(Self.rebasedOntoLatestUserEdits([updatedSong], in: library)[0])
             // 单曲重新刮削是用户亲手做的,刮到的封面在其它设备上也换;整张专辑、整库的补全不传图。
             if coverData != nil {
@@ -2523,7 +2531,7 @@ final class MusicScraperService {
         // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
         let target = await MainActor.run { () -> Song in
             var target = song
-            if let latest = library.song(id: song.id) {
+            if let latest = library.storedSong(id: song.id) {
                 target.filePath = latest.filePath
                 target.fileSize = latest.fileSize
                 target.lastModified = latest.lastModified
