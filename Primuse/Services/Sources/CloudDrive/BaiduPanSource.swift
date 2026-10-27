@@ -1618,10 +1618,19 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             directoryItems[stableKey] = snapshotIndexedItem(item, seenEpoch: seenEpoch)
         }
         for rawItem in siblings where !rawItem.isDirectory {
-            guard let item = SidecarHintResolver.scannableItem(
+            // 歌手图候选和扫描器记进索引的一样收进快照(自动歌手封面用),
+            // 否则对账会把它们当成消失了的文件, 每次刷新都挂出待确认提示。
+            let item: RemoteFileItem
+            if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                item = rawItem
+            } else if let scannable = SidecarHintResolver.scannableItem(
                 rawItem,
                 index: sidecarIndex
-            ) else { continue }
+            ) {
+                item = scannable
+            } else {
+                continue
+            }
             guard let stableKey = item.providerID else {
                 throw BaiduSnapshotDiffError.missingStableIdentity(item.path)
             }

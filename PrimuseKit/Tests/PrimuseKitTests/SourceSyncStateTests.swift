@@ -812,6 +812,74 @@ struct BaiduSnapshotReconciliationTests {
         #expect(second.changedParentPaths == ["/Music"])
     }
 
+    @Test("A listed artist image settles the snapshot and clears an earlier hold")
+    func listedArtistImageSettlesSnapshot() throws {
+        let audio = baiduIndexedItem(
+            key: "baidu:42",
+            path: "/Music/5566/A.flac",
+            parent: "/Music/5566",
+            songIDs: ["song-a"]
+        )
+        let image = baiduIndexedItem(
+            key: "baidu:43",
+            path: "/Music/5566/5566.jpg",
+            parent: "/Music/5566",
+            revision: "md5-image"
+        )
+
+        let result = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: [audio.stableKey: audio, image.stableKey: image],
+            currentItems: [
+                baiduIndexedItem(key: "baidu:42", path: audio.path, parent: "/Music/5566"),
+                baiduIndexedItem(
+                    key: "baidu:43",
+                    path: image.path,
+                    parent: "/Music/5566",
+                    revision: "md5-image"
+                ),
+            ],
+            liveDirectories: ["/Music", "/Music/5566"],
+            missingStableKeys: [image.stableKey: 1]
+        )
+
+        #expect(result.reconciliation == nil)
+        #expect(result.missingStableKeys.isEmpty)
+        #expect(result.changedParentPaths.isEmpty)
+        #expect(result.deletedStableKeys.isEmpty)
+        #expect(result.reconciledIndex[image.stableKey] != nil)
+    }
+
+    @Test("A vanished artist image is dropped at once and re-lists its folder")
+    func vanishedArtistImageNeedsNoConfirmation() throws {
+        let audio = baiduIndexedItem(
+            key: "baidu:42",
+            path: "/Music/5566/A.flac",
+            parent: "/Music/5566",
+            songIDs: ["song-a"]
+        )
+        let image = baiduIndexedItem(
+            key: "baidu:43",
+            path: "/Music/5566/5566.jpg",
+            parent: "/Music/5566",
+            revision: "md5-image"
+        )
+
+        let result = try BaiduSnapshotDiffPolicy.plan(
+            previousIndex: [audio.stableKey: audio, image.stableKey: image],
+            currentItems: [
+                baiduIndexedItem(key: "baidu:42", path: audio.path, parent: "/Music/5566"),
+            ],
+            liveDirectories: ["/Music", "/Music/5566"]
+        )
+
+        #expect(result.reconciliation == nil)
+        #expect(result.missingStableKeys.isEmpty)
+        #expect(result.deletedStableKeys.isEmpty)
+        #expect(result.reconciledIndex[image.stableKey] == nil)
+        #expect(result.reconciledIndex[audio.stableKey]?.songIDs == ["song-a"])
+        #expect(result.changedParentPaths == ["/Music/5566"])
+    }
+
     @Test("A post-snapshot directory omission cannot prune an unconfirmed item")
     func reconciliationListingMustContainUnconfirmedItems() {
         #expect(BaiduSnapshotDirectoryReconciliationPolicy.unconfirmedMissingKeys(

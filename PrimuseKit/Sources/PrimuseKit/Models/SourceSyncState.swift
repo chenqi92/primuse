@@ -1109,12 +1109,18 @@ public enum BaiduSnapshotDiffPolicy {
                 continue
             }
 
-            // Directory rows have no user-owned song identity. Their children
-            // are independently keyed, so stale path-only topology can be
-            // dropped immediately without risking playlists or history.
-            if previous.isDirectory, previous.songIDs.isEmpty {
+            // Rows without a Song ID — directories (whose children are keyed
+            // independently) and the artist-image files indexed for automatic
+            // artist artwork — carry no user-owned identity. They are dropped
+            // immediately without risking playlists or history, and never
+            // held behind the song-deletion confirmation. A vanished image
+            // re-lists its parent so the artwork catalogue follows.
+            if previous.songIDs.isEmpty {
                 reconciledIndex[key] = nil
                 nextMissing[key] = nil
+                if !previous.isDirectory {
+                    insertLiveParent(previous.parentPath, into: &changedParents, live: liveDirectories)
+                }
                 continue
             }
 
