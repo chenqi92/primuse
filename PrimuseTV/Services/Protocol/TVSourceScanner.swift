@@ -1720,6 +1720,8 @@ final class TVSourceScanner {
         let readerPool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: rereadMetadata)
         let cueSheetCache = CueSheetScanCache(directory: CueSheetScanCache.directory(sourceID: source.id))
         var coverRevisions = CoverRevisionPass(sourceID: source.id)
+        // 分碟子文件夹 → 上一层专辑文件夹的封面图(没有封面也记下)。
+        var discFolderParentCovers: [String: TVDirEntry?] = [:]
         // 读标签也在这次扫描里做完,在屏封面等新图存好再重读。
         defer { Self.finishCoverRevisions(coverRevisions) }
 
@@ -1771,7 +1773,27 @@ final class TVSourceScanner {
                     continue
                 }
                 try Task.checkCancellation()
-                let sidecars = SidecarDirectoryIndex(entries)
+                // 分碟子文件夹(CD1、Disc 2)自己没有封面图时用上一层专辑文件夹的;上一层这次
+                // 已经列过就直接用,续扫时按路径列一次。「音乐」这类曲库根目录里的图不算。
+                var directorySidecars = SidecarDirectoryIndex(entries)
+                let ownCover = directorySidecars.folderCover()
+                if !FolderCoverNamePolicy.isGenericDirectory(named: (work.path as NSString).lastPathComponent) {
+                    for entry in entries where entry.isDir && DiscFolderPolicy.isDiscFolderName(entry.name) {
+                        discFolderParentCovers[entry.path] = .some(ownCover)
+                    }
+                }
+                if ownCover == nil {
+                    if let known = discFolderParentCovers[work.path] {
+                        directorySidecars = directorySidecars.inheriting(folderCover: known)
+                    } else if let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: work.path),
+                              !FolderCoverNamePolicy.isGenericDirectory(named: (parent as NSString).lastPathComponent) {
+                        let parentCover = (try? await lister.list(parent))
+                            .flatMap { SidecarDirectoryIndex($0).folderCover() }
+                        discFolderParentCovers[work.path] = .some(parentCover)
+                        directorySidecars = directorySidecars.inheriting(folderCover: parentCover)
+                    }
+                }
+                let sidecars = directorySidecars
                 let cueLoad = try await loadCueTracks(
                     from: entries,
                     using: readerPool,

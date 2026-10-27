@@ -642,7 +642,9 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     private let imageNames: [String]
     /// The picture named after the directory itself, worked out once.
     private let folderNamedCoverName: String?
-    private let firstItemByPath: [String: Item]
+    private var firstItemByPath: [String: Item]
+    /// 分碟子文件夹自己没有封面图时,上一层专辑文件夹的那张(`inheriting(folderCover:)`)。
+    private var inheritedFolderCover: Item?
     private let audioBasenames: Set<String>
     private let languageTaggedLyricsByBasename: [String: [TaggedItem]]
     private let preferredLanguages: [String]
@@ -729,6 +731,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             folderName: resolvedFolderName
         )
         self.firstItemByPath = firstItemByPath
+        inheritedFolderCover = nil
         self.audioBasenames = audioBasenames
         self.languageTaggedLyricsByBasename = languageTaggedLyricsByBasename
         self.preferredLanguages = preferredLanguages
@@ -772,6 +775,18 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
 
     public func item(atPath path: String) -> Item? {
         firstItemByPath[path]
+    }
+
+    /// 这个目录自己没有封面图时,把 `cover`(上一层专辑文件夹的封面)当作它的文件夹封面。
+    /// 指纹和按路径取项都认得它,所以那张图换了,这个目录里的歌照样会重读。
+    public func inheriting(folderCover cover: Item?) -> Self {
+        guard let cover, folderCover() == nil else { return self }
+        var copy = self
+        copy.inheritedFolderCover = cover
+        if copy.firstItemByPath[cover.sidecarPath] == nil {
+            copy.firstItemByPath[cover.sidecarPath] = cover
+        }
+        return copy
     }
 
     /// Each CUE virtual track's own lyric document in this directory, keyed by
@@ -821,7 +836,8 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     }
 
     /// The picture standing for the whole directory: one of the fixed names
-    /// (cover, folder…), else one named after the directory itself.
+    /// (cover, folder…), else one named after the directory itself, else the
+    /// album folder's one for a disc subfolder (`inheriting(folderCover:)`).
     public func folderCover() -> Item? {
         for name in PrimuseConstants.folderCoverNames {
             for fileExtension in PrimuseConstants.supportedCoverExtensions {
@@ -830,7 +846,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
                 }
             }
         }
-        return namedFolderCover()
+        return namedFolderCover() ?? inheritedFolderCover
     }
 
     /// A picture named after the directory or, when given, the album or book

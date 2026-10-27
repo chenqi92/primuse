@@ -78,3 +78,33 @@ struct SidecarCoverRevisionTrackerTests {
         #expect(SidecarCoverRevisionLedger.decode(Data("junk".utf8)).isEmpty)
     }
 }
+
+@Suite("Disc folders")
+struct DiscFolderPolicyTests {
+    @Test("Disc folder names and their numbers", arguments: [
+        ("CD1", 1), ("cd 2", 2), ("Disc 02", 2), ("disk-3", 3), ("CD.4", 4), ("Disc_5", 5),
+        ("第2张", 2), ("第 3 碟", 3), ("第10盘", 10),
+    ])
+    func discNumbers(_ name: String, _ number: Int) {
+        #expect(DiscFolderPolicy.discNumber(fromFolderName: name) == number)
+        #expect(DiscFolderPolicy.isDiscFolderName(name))
+    }
+
+    @Test("Ordinary folders are not disc folders", arguments: [
+        "CD", "Discography", "第二张", "Disc A", "Album", "CD1 Bonus",
+    ])
+    func ordinaryFolders(_ name: String) {
+        #expect(DiscFolderPolicy.discNumber(fromFolderName: name) == nil)
+    }
+
+    @Test("The album folder above a disc folder")
+    func parentOfDiscFolder() {
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "/Music/Album/CD1") == "/Music/Album")
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "/Music/Album/Disc 2/") == "/Music/Album")
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "Music/Album/CD1") == "Music/Album")
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "/CD1") == "/")
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "/Music/Album") == nil)
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "CD1") == nil)
+        #expect(DiscFolderPolicy.parentDirectory(ofDiscFolder: "0AbCdEf123") == nil)
+    }
+}

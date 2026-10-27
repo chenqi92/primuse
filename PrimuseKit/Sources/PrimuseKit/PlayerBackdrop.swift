@@ -266,24 +266,7 @@ public enum AlbumBackArtworkPolicy {
     }
 
     public static func isDiscFolderName(_ name: String) -> Bool {
-        let value = name.trimmingCharacters(in: .whitespaces).lowercased()
-        for prefix in ["cd", "disc", "disk"] where value.hasPrefix(prefix) {
-            var rest = Substring(value.dropFirst(prefix.count))
-            while let first = rest.first, first == " " || first == "-" || first == "_" || first == "." {
-                rest = rest.dropFirst()
-            }
-            return !rest.isEmpty && rest.allSatisfy(isDigit)
-        }
-        // 第2张 / 第2碟 / 第2盘
-        guard value.hasPrefix("\u{7B2C}"), let last = value.last, "\u{5F20}\u{789F}\u{76D8}".contains(last) else {
-            return false
-        }
-        let digits = value.dropFirst().dropLast().trimmingCharacters(in: .whitespaces)
-        return !digits.isEmpty && digits.allSatisfy(isDigit)
-    }
-
-    private static func isDigit(_ character: Character) -> Bool {
-        ("0"..."9").contains(character)
+        DiscFolderPolicy.isDiscFolderName(name)
     }
 
     private static func prefixRank(of fileName: String) -> Int? {

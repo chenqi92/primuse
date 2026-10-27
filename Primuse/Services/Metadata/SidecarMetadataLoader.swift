@@ -52,6 +52,23 @@ enum SidecarMetadataLoader {
             }
         }
 
+        // Priority 5: a disc subfolder (CD1, Disc 2) borrows the album folder's cover.
+        let album = directory.deletingLastPathComponent()
+        guard DiscFolderPolicy.isDiscFolderName(directory.lastPathComponent),
+              album.path != directory.path,
+              !FolderCoverNamePolicy.isGenericDirectory(named: album.lastPathComponent) else { return nil }
+        let albumStems = PrimuseConstants.folderCoverNames + FolderCoverNamePolicy.probeStems(
+            folderName: album.lastPathComponent,
+            albumTitle: albumTitle
+        )
+        for stem in albumStems {
+            for ext in PrimuseConstants.supportedCoverExtensions {
+                let coverURL = album.appendingPathComponent("\(stem).\(ext)")
+                if FileManager.default.fileExists(atPath: coverURL.path) {
+                    return coverURL
+                }
+            }
+        }
         return nil
     }
 

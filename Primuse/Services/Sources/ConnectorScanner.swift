@@ -41,6 +41,8 @@ actor ConnectorScanner {
     private var coverRevisions: SidecarCoverRevisionTracker?
     /// 封面图换过、这次扫描丢掉了缓存封面的歌,扫完一起让在屏封面重读。
     private var coverRefreshedSongs: [Song] = []
+    /// 分碟子文件夹 → 上一层专辑文件夹的封面图(没有封面也记下,不再重复列目录)。
+    private var discFolderParentCovers: [String: RemoteFileItem?] = [:]
 
     init(
         connector: any MusicSourceConnector,
@@ -272,7 +274,7 @@ actor ConnectorScanner {
                let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
                 try await budgeted.checkSnapshotReconciliationBudget()
             }
-            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
+            let sidecarIndex = await directoryIndex(siblings, of: directory)
             var rebuiltStableKeys: Set<String> = []
             for (key, entry) in oldEntries {
                 // If another changed directory already moved this stable key,
@@ -832,7 +834,7 @@ actor ConnectorScanner {
                             } else {
                                 siblings = try await connector.listFiles(at: directory)
                             }
-                            let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
+                            let sidecarIndex = await directoryIndex(siblings, of: directory)
                             for directoryItem in siblings where directoryItem.isDirectory {
                                 try validateStableIdentity(
                                     for: directoryItem,
@@ -1756,11 +1758,39 @@ actor ConnectorScanner {
         coverRefreshedSongs.append(song)
     }
 
+    /// 一个目录的旁挂文件索引。分碟子文件夹(CD1、Disc 2)自己没有封面图时带上上一层专辑
+    /// 文件夹的那张;上一层这次已经列过就直接用,否则(续扫、只同步变了的目录)按路径列一次。
+    private func directoryIndex(
+        _ siblings: [RemoteFileItem],
+        of directory: String
+    ) async -> SidecarHintResolver.DirectoryIndex {
+        let index = SidecarHintResolver.DirectoryIndex(siblings)
+        let ownCover = index.folderCover()
+        // 「音乐」这类整个曲库的根目录里那张图不是哪张专辑的封面。
+        if !FolderCoverNamePolicy.isGenericDirectory(named: (directory as NSString).lastPathComponent) {
+            for child in siblings where child.isDirectory && DiscFolderPolicy.isDiscFolderName(child.name) {
+                discFolderParentCovers[child.path] = .some(ownCover)
+            }
+        }
+        guard ownCover == nil else { return index }
+        if let known = discFolderParentCovers[directory] {
+            return index.inheriting(folderCover: known)
+        }
+        guard let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: directory),
+              !FolderCoverNamePolicy.isGenericDirectory(named: (parent as NSString).lastPathComponent)
+        else { return index }
+        let parentCover = (try? await connector.listFiles(at: parent))
+            .flatMap { SidecarHintResolver.DirectoryIndex($0).folderCover() }
+        discFolderParentCovers[directory] = .some(parentCover)
+        return index.inheriting(folderCover: parentCover)
+    }
+
     private func finishCoverRevisions() {
         if let tracker = coverRevisions, tracker.hasChanges {
             MetadataAssetStore.shared.storeSidecarCoverRevisions(tracker.signatures, sourceID: sourceID)
         }
         coverRevisions = nil
+        discFolderParentCovers = [:]
         let songs = coverRefreshedSongs
         coverRefreshedSongs = []
         guard !songs.isEmpty else { return }
@@ -1779,7 +1809,9 @@ actor ConnectorScanner {
         var refs = SidecarRefs()
 
         // Cover art sidecar
-        if let coverURL = SidecarMetadataLoader.findCoverArt(for: localURL) {
+        // 引用按「源里同一目录」拼出来,只认和音频同目录的那张。
+        if let coverURL = SidecarMetadataLoader.findCoverArt(for: localURL),
+           coverURL.deletingLastPathComponent().path == localURL.deletingLastPathComponent().path {
             let parentDir = (item.path as NSString).deletingLastPathComponent
             refs.coverPath = (parentDir as NSString).appendingPathComponent(coverURL.lastPathComponent)
         }

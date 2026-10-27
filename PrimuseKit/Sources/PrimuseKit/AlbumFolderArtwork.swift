@@ -92,3 +92,46 @@ public struct SidecarCoverRevisionLedger: Codable, Sendable, Equatable {
         try? JSONEncoder().encode(Self(signatures: signatures))
     }
 }
+
+// MARK: - Disc folders
+
+/// 一张专辑按碟分开放的子文件夹:`CD1`、`Disc 2`、`disk-3`、`CD.2`、`第2张` / `第2碟` / `第2盘`。
+/// 封面图常常只放在上一层的专辑文件夹里。
+public enum DiscFolderPolicy {
+    public static func isDiscFolderName(_ name: String) -> Bool {
+        discNumber(fromFolderName: name) != nil
+    }
+
+    /// 文件夹名里的碟号;不是分碟文件夹时为 nil。
+    public static func discNumber(fromFolderName name: String) -> Int? {
+        let value = name.trimmingCharacters(in: .whitespaces).lowercased()
+        for prefix in ["cd", "disc", "disk"] where value.hasPrefix(prefix) {
+            var rest = Substring(value.dropFirst(prefix.count))
+            while let first = rest.first, first == " " || first == "-" || first == "_" || first == "." {
+                rest = rest.dropFirst()
+            }
+            return digits(rest)
+        }
+        // 第2张 / 第2碟 / 第2盘
+        guard value.hasPrefix("\u{7B2C}"), let last = value.last, "\u{5F20}\u{789F}\u{76D8}".contains(last) else {
+            return nil
+        }
+        return digits(Substring(value.dropFirst().dropLast().trimmingCharacters(in: .whitespaces)))
+    }
+
+    /// 路径最后一段是分碟文件夹时,它上一层的专辑文件夹。只对按路径寻址的源算得出来。
+    public static func parentDirectory(ofDiscFolder path: String) -> String? {
+        var trimmed = path
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        guard trimmed.contains("/"),
+              isDiscFolderName((trimmed as NSString).lastPathComponent) else { return nil }
+        let parent = (trimmed as NSString).deletingLastPathComponent
+        guard !parent.isEmpty, parent != trimmed else { return nil }
+        return parent
+    }
+
+    private static func digits(_ text: Substring) -> Int? {
+        guard !text.isEmpty, text.allSatisfy({ ("0"..."9").contains($0) }) else { return nil }
+        return Int(text)
+    }
+}

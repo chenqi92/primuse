@@ -711,9 +711,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
         var scannable: [RemoteFileItem] = []
         var cueDirectoryIndexes: [String: SidecarHintResolver.DirectoryIndex] = [:]
-        for siblings in filesByParent.values {
+        for (parentPath, siblings) in filesByParent {
             let byPath = Dictionary(siblings.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
             let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
+                .inheriting(folderCover: Self.albumFolderCover(aboveDiscFolder: parentPath, in: filesByParent))
             if let first = siblings.first,
                siblings.contains(where: {
                    PrimuseConstants.supportedCueSheetExtensions.contains(
@@ -731,7 +732,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     decorated.sidecarHints?.coverPath,
                     decorated.sidecarHints?.lyricsPath,
                     decorated.sidecarHints?.mvPath,
-                ].compactMap { $0 }.compactMap { byPath[$0]?.revision }
+                ].compactMap { $0 }.compactMap { (byPath[$0] ?? sidecarIndex.item(atPath: $0))?.revision }
                 let revision = Self.compositeRevision([decorated.revision].compactMap { $0 } + sidecarRevisions)
                 scannable.append(RemoteFileItem(
                     name: decorated.name,
@@ -1276,6 +1277,17 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private nonisolated static func localRevision(size: Int64, modifiedDate: Date?) -> String {
         let milliseconds = modifiedDate.map { Int64($0.timeIntervalSince1970 * 1_000) } ?? -1
         return "local:\(size):\(milliseconds)"
+    }
+
+    /// 分碟子文件夹(CD1、Disc 2)自己没有封面图时用的上一层专辑文件夹的封面图。
+    private static func albumFolderCover(
+        aboveDiscFolder directory: String,
+        in filesByParent: [String: [RemoteFileItem]]
+    ) -> RemoteFileItem? {
+        guard let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: directory),
+              !FolderCoverNamePolicy.isGenericDirectory(named: (parent as NSString).lastPathComponent),
+              let siblings = filesByParent[parent] else { return nil }
+        return SidecarHintResolver.DirectoryIndex(siblings).folderCover()
     }
 
     private nonisolated static func compositeRevision(_ parts: [String]) -> String {
