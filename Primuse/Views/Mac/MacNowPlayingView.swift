@@ -1247,7 +1247,9 @@ struct MacNowPlayingView: View {
             case .systemUnavailable:
                 Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
             case .intelligentNotReady(let readiness):
-                Label(readiness.systemFallbackNotice, systemImage: "sparkles")
+                if let notice = readiness.systemFallbackNotice {
+                    Label(notice, systemImage: "sparkles")
+                }
             case .baiduNotReady(let issue):
                 Label(issue.notice, systemImage: "character.bubble")
             case .spokenWordTranslationRequestable(let itemID):

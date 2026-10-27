@@ -2819,42 +2819,21 @@ struct StorageManagementView: View {
                         backfill.refreshQueue()
                     }
                 if backfill.statusCount > 0 {
+                    // 只说在读还是在等、还剩多少。重试、暂停这些后台自己会接着做的状态不摆出来；
+                    // 真读不出来的由下面的「重试」按钮交给用户。
                     HStack {
                         switch backfill.activityState {
-                        case .running:
+                        case .running, .retrying:
                             Text("backfill_in_progress")
-                        case .retrying:
-                            Text("backfill_retry_in_progress")
                         case .waitingForWiFi:
                             Label("backfill_waiting_for_wifi", systemImage: "wifi.exclamationmark")
-                        case .retryPending:
-                            Label("backfill_retry_pending", systemImage: "arrow.clockwise.circle")
-                        case .pending, .idle:
+                        case .retryPending, .pending, .idle:
                             Text("home_pending_details")
                         }
                         Spacer()
                         Text(String(format: String(localized: "backfill_remaining"), backfill.statusCount))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
-                    }
-                    if backfill.deferredRetryCount(forSource: nil) > 0 {
-                        Text(
-                            String(
-                                format: String(localized: "backfill_retry_count_format"),
-                                backfill.deferredRetryCount(forSource: nil)
-                            )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                    }
-                    if backfill.activityState == .retryPending {
-                        Text(String(
-                            format: String(localized: "backfill_retry_pending_hint"),
-                            MetadataBackfillRetryPolicy.maximumAutomaticAttempts
-                        ))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
                 if backfill.failedCount > 0 {

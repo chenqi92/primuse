@@ -377,7 +377,6 @@
 "remember_device_desc" = "下次登录时跳过验证码";
 "scan_needs_connect" = "请先连接（需要验证码）";
 "resume_scan" = "继续扫描";
-"scan_resume_hint" = "上次扫描已中断，点击继续";
 "search_empty_library" = "还没有音乐";
 "search_empty_library_desc" = "添加音乐源并扫描后即可搜索";
 "scrape_song" = "刮削元数据";
@@ -538,13 +537,10 @@
 "cloud_scan_wifi_only_footer" = "扫描云盘时只读取文件名，详情（歌手/专辑/封面/时长）会在后台分批加载。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
 "backfill_in_progress" = "读取标签中…";
 "backfill_retry_in_progress" = "读取标签中（含重试）…";
-"backfill_retry_pending" = "部分标签读取已暂停";
-"backfill_retry_pending_hint" = "网络变化或下次启动会触发下一轮检查；同一歌曲或来源连续失败时，最多自动尝试 %d 次，之后需手动重试。";
 "backfill_waiting_for_wifi" = "等待 Wi-Fi";
 "new_songs_added" = "新增 %d 首";
 "no_new_songs" = "暂无新歌";
 "backfill_remaining" = "待检查 %d 首";
-"backfill_retry_count_format" = "由 %d 首读取失败触发暂停";
 "backfill_retry_failed" = "重新检查 %d 首已暂停歌曲";
 "song_details_loading" = "正在读取曲目信息";
 "song_details_loading_message" = "正在从云盘下载这首歌的标签头（约 256 KB），用来解析时长、封面和艺术家。读完后即可加入播放队列。";
@@ -3577,7 +3573,6 @@
 "ai_recommendation_status_loading" = "正在生成场景推荐…";
 "ai_recommendation_status_needs_consent" = "需要允许发送听歌偏好";
 "ai_recommendation_status_success_format" = "%@ · 已按“%@”重排";
-"ai_recommendation_status_fallback_format" = "主服务不可用，%@ 已按“%@”接管";
 "ai_recommendation_status_failed_local" = "智能服务不可用，已保留现有推荐";
 "ai_recommendation_status_busy_local" = "智能服务繁忙，已保留现有推荐";
 "ai_recommendation_status_minute_limit_local" = "请求过于频繁，请稍后再试；已保留现有推荐";
@@ -3711,14 +3706,10 @@
 "ai_provider_enabled" = "启用此服务";
 "ai_primuse_relay_ready" = "内置 AI 体验已就绪";
 "search_ai_success_format" = "%@ 已生效，找到 %d 个智能匹配";
-"search_ai_success_fallback_format" = "已自动降级到 %@，找到 %d 个智能匹配";
 "search_ai_no_matches_format" = "%@ 已响应，但曲库中没有对应歌曲";
-"search_ai_no_matches_fallback_format" = "已降级到 %@，但曲库中没有对应歌曲";
 "search_ai_failed" = "智能搜索未能完成，普通搜索结果不受影响";
 "ext.tv.search.aiSuccess" = "%@ 已生效";
-"ext.tv.search.aiSuccessFallback" = "已降级到 %@";
 "ext.tv.search.aiNoMatch" = "%@ 未找到曲库匹配";
-"ext.tv.search.aiNoMatchFallback" = "降级到 %@ 后仍无匹配";
 "ext.tv.search.aiFailed" = "智能搜索失败，普通结果不受影响";
 "lyrics_translation_mode" = "翻译方式";
 "lyrics_translation_mode_system" = "系统翻译";
@@ -3780,8 +3771,6 @@
 "lyrics_translation_ai_loading" = "正在智能翻译";
 "lyrics_translation_ai_cached" = "已恢复缓存的智能翻译";
 "lyrics_translation_ai_success_format" = "%@ 翻译已生效";
-"lyrics_translation_ai_fallback_success_format" = "已降级到 %@ 完成翻译";
-"lyrics_translation_ai_system_fallback" = "智能翻译不可用，已回退系统翻译";
 "lyrics_translation_unavailable" = "歌词翻译不可用";
 "stats_data_source" = "数据来源";
 "stats_source_local" = "本机";
@@ -3936,12 +3925,8 @@
 "metadata_status_stalled_reason" = "完整一轮后同一批歌曲仍没有变化，本次会话已停止重复请求以避免循环。";
 "metadata_status_reason_unknown" = "标签读取失败，但来源未返回更具体的错误。";
 "metadata_status_open" = "查看详情";
-"metadata_status_card_pending_format" = "待检查 %d";
-"metadata_status_card_retry_format" = "需重试 %d";
 "metadata_status_card_source_problem_format" = "来源/文件问题 %d";
 "metadata_status_card_unreadable_format" = "无法读取 %d";
-"metadata_status_card_incomplete_format" = "不完整 %d";
-"metadata_status_card_stalled_format" = "无进展 %d";
 "recently_deleted_smart_playlists" = "智能歌单";
 "recently_deleted_clear_all_confirm_title" = "清除全部最近删除项目？";
 "recently_deleted_clear_all_confirm_message_format" = "将从 Primuse 中永久清除 %d 个项目及其关联的本地凭据，此操作无法撤销。不会删除来源中的原始媒体，也不会清空云盘废纸篓。";

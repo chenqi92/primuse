@@ -164,7 +164,6 @@
 "ai_models_footer" = "Modeller URL tabanının /models uç noktasından getirilir. Sağlayıcı uyumluluğu açısından tüm seçimler düzenlenebilir durumda kalır.";
 "onboarding_mac_skip" = "Girişi atla";
 "drime_token_hint" = "Drime Ayarları → Geliştirici'de bir jeton oluşturun ve buraya yapıştırın. Jeton, Anahtarlık'ta güvenli bir şekilde saklanır.";
-"lyrics_translation_ai_fallback_success_format" = "%@'ye geri döndükten sonra çeviri tamamlandı";
 "Lyrics · Medium" = "Şarkı Sözleri · Medium";
 "Push Now Playing to Widget" = "Şimdi Widget'a Oynatmaya Bas";
 "immersive_track_position_total_format" = "PARÇA %02d / %02d";
@@ -343,7 +342,6 @@
 "source_diag_advice_timeout_title" = "Bağlantı zaman aşımı";
 "Apple Music · Denied" = "Apple Music · Reddedildi";
 "cloud_authorizing_step2" = "Oturum açın ve müzik dosyalarını okuma iznini onaylayın";
-"search_ai_success_fallback_format" = "%@'ye geri dönüldü — %d akıllı eşleşmeler bulundu";
 "restore_hidden_playlist" = "Tekrar Göster";
 "dup_none_title" = "Kopya Bulunamadı";
 "scrape_lyrics_preview" = "Şarkı sözü önizlemesi";
@@ -523,7 +521,6 @@
 "settings_apple_music_connect" = "Apple Music'yi bağlayın";
 "log_filter_warning" = "Uyarılar";
 "crossfade_mode" = "Geçiş Modu";
-"search_ai_no_matches_fallback_format" = "%@'ye geri döndüm ancak arşivinizde eşleşen şarkı yok";
 "When on, keeps existing title, artist, album, and cover" = "Açık olduğunda mevcut başlığı, sanatçıyı, albümü ve kapağı korur";
 "fullscreen_effect_native_motion" = "Yerel geçiş · Varsayılan";
 "server_share_kind_song" = "Şarkı";
@@ -601,7 +598,6 @@
 "welcome_desc" = "Dinlemeye başlamak için bir müzik kaynağı (NAS, WebDAV veya yerel dosyalarınız) ekleyin";
 "ai_fallback_enabled" = "Hata olursa başka hizmet kullan";
 "source_diag_auth_title" = "Kimlik Bilgileri";
-"backfill_retry_pending" = "Bazı etiket okumaları duraklatıldı";
 "Diagnostics" = "Teşhis";
 "yearly_personality_lfvm_description" = "Birkaç sanatçıya, bir klasik tarza ve hava karardıktan sonra eski favorilere adanmış.";
 "debug" = "Hata ayıklama";
@@ -1025,7 +1021,6 @@
 "share_path" = "Yolu Paylaş";
 "player_lyrics_color_custom" = "Özel";
 "ai_provider_preset_openrouter" = "OpenRouter";
-"ai_recommendation_status_fallback_format" = "Birincil mevcut değil; %@, %@'nin yerini aldı";
 "radio_batch_directory_hint" = "Radio-browser.info adresindeki topluluk istasyonu dizinini arayın.";
 "lyrics_source_reload_success" = "Şarkı sözleri müzik kaynağından yenilendi.";
 "library_browse" = "Arşive göz at";
@@ -1330,7 +1325,6 @@
 "server_share_checking" = "Sunucu paylaşım desteği kontrol ediliyor…";
 "carplay_playlists_title" = "Çalma Listelerim";
 "stats_heatmap_less" = "Daha Az";
-"metadata_status_card_stalled_format" = "İlerleme yok %d";
 "albums_count" = "albümler";
 "keyboard_shortcuts_recording_format" = "%@ Kaydediliyor";
 "artwork_choose_photo" = "Fotoğraflardan Seçin";
@@ -1763,7 +1757,6 @@
 "family_sharing_scope_footer" = "✓ aile tarafından görülebilir ve düzenlenebilir; — yerel kalır, asla aile paketine yüklenmez";
 "error_range_connection %@" = "Akış bağlantısı başarısız oldu: %@";
 "reread_song_tags_failed_detail_format" = "“%1$@” için etiketler okunamıyor (format: %2$@, kaynak: %3$@): %4$@";
-"metadata_status_card_pending_format" = "Beklemede %d";
 "lyrics_converter_format_invalid" = "Geçersiz";
 "backfill_retry_in_progress" = "Etiketler okunuyor (yeniden denemeler dahil)…";
 "stats_coverage" = "kapsama alanı";
@@ -2008,7 +2001,6 @@
 "ai_provider_preset_kimi" = "Kimi";
 "metadata_backfill_performance" = "Etiket Okuma Performansı";
 "smart_field_fileFormat" = "Biçim";
-"backfill_retry_pending_hint" = "Bir ağ değişikliği veya bir sonraki başlatma kontrolleri sürdürür; aynı şarkı veya kaynak, manuel yeniden deneme gerekmeden önce %d'ye kadar art arda otomatik denemeler yapar.";
 "source_diag_auth_missing_secret" = "Şifre, anahtar veya jeton eksik.";
 "onboarding_mac_group_media_server" = "Medya sunucuları";
 "crossfade_desc" = "Bir parçanın sonunu bir sonraki parçanın başlangıcıyla yumuşak bir şekilde harmanlayın.";
@@ -2368,7 +2360,6 @@
 "ai_primuse_relay_consent_required" = "İstediğiniz AI özelliklerini seçin ve ilgili veri iznini verin";
 "ai_api_style_anthropic_messages" = "Anthropic Mesajlar";
 "update_policy_macos_app_store_id" = "macOS ve iOS güncellemeleri ayrı ayrı kontrol edilir. Mac App Store kimliği, yerel Mac sürüm satırı için kullanılır, bu nedenle iOS sürümleri, macOS güncelleme bildirimlerini tetiklemez.";
-"ext.tv.search.aiSuccessFallback" = "%@'ye geri döndü";
 "radio_next_station" = "Sonraki İstasyon";
 "library_recommendations_eyebrow" = "Arşivinizden oluşturuldu";
 "metadata_status_attempt_format" = "%d denemeleri";
@@ -2548,7 +2539,6 @@
 "Import Playlist (M3U8/JSON)" = "Çalma Listesini İçe Aktar (M3U8/JSON)";
 "no_subdirectories_desc" = "Bu dizinin alt dizini yok";
 "ai_api_style" = "API stili";
-"lyrics_translation_ai_system_fallback" = "Akıllı çeviri mevcut değil — sistem çevirisini kullanıyor";
 "ai_audio_transcription_capability_detail" = "Geçerli şarkıyı tanıyın ve incelenebilir, zamanlı şarkı sözleri oluşturun";
 "yearly_month_n_format" = "Ay %d";
 "relay_share_service_builtin" = "Dahili";
@@ -3134,7 +3124,6 @@
 "smart_mac_header_new" = "Yeni Akıllı Çalma Listesi";
 "insecure_http_domains_footer" = "Yalnızca bu genel ana bilgisayarlar, şifresiz metin HTTP'yi kullanabilir. Bağlantı şifrelenmediğinden hesap kimlik bilgileri, oturumlar ve medya ele geçirilebilir. HTTPS'yi tercih edin.";
 "smart_sort_field_albumTitle" = "Albüm";
-"scan_resume_hint" = "Önceki tarama kesintiye uğradı. Devam etmek için dokunun";
 "carplay_tab_artists" = "Sanatçılar";
 "scrobble_lastfm_err_not_authorized_format" = "Yetkilendirme tamamlanmadı — Safari'de İzin Ver'e dokunun ve tekrar deneyin: %@";
 "artist_name_settings_preview_example" = "Sanatçı A; Sanatçı B";
@@ -3420,7 +3409,6 @@
 "tag_editor_reset" = "Orijinale Dön";
 "auth_login_failed" = "Oturum açma başarısız oldu.";
 "stats_section_label" = "İstatistikler";
-"backfill_retry_count_format" = "%d kaydedilen okuma hatalarından sonra duraklatıldı";
 "metadata_status_empty_description" = "Geçerli filtreyle eşleşen üst veri durumu yok.";
 "metadata_status_open" = "Detayları Görüntüle";
 "metadata_writeback_error_invalid_state" = "Müzik kaynağı doğrulanabilir bir dosya durumu döndürmedi.";
@@ -3444,7 +3432,6 @@
 "auto_connect" = "Otomatik Bağlantı";
 "new_songs_added" = "%d yeni şarkılar";
 "tv_remote_tv" = "televizyon";
-"ext.tv.search.aiNoMatchFallback" = "%@'ye geri döndükten sonra eşleşme yok";
 "lyrics_translation_ai_success_format" = "%@ çevirisi aktif";
 "radio_home_visibility" = "Radyoyu Ana Sayfada Göster";
 "source_diag_directory_empty_suggestion" = "Bu boş bir klasör, filtrelenmiş bir görünüm veya izinlerle sınırlı bir hesap olabilir.";
@@ -3541,7 +3528,6 @@
 "reread_song_tags_completed_filename" = "Kullanılabilir gömülü veya yan dosya kimlik etiketi bulunamadı; sanatçı ya da başlık dosya adından çıkarıldı.";
 "source_connection_public_address" = "Genel Adres veya Ters Proxy URL";
 "Remote Manifest" = "Uzaktan Bildirim";
-"metadata_status_card_incomplete_format" = "Eksik %d";
 "The radio station's source is disabled." = "Radyo istasyonunun kaynağı devre dışı bırakıldı.";
 "cellular_backfill_allow_always" = "Hücresel Ağda Her Zaman İzin Ver";
 "lang_zh_hant" = "Çince (Geleneksel)";
@@ -3563,7 +3549,6 @@
 "no_playlists" = "Çalma listesi Yok";
 "custom_credentials_advanced" = "Özel Kimlik Bilgilerini Kullan (Gelişmiş)";
 "ai_recommendation_custom_add" = "Odak Ekle";
-"metadata_status_card_retry_format" = "%d'yi yeniden deneyin";
 "Restore" = "Geri yükle";
 "scrobble_mac_user_token_login" = "Kullanıcı belirteci oturum açma";
 "radio_logo_invalid" = "750 KB'tan küçük bir resim seçin.";

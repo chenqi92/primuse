@@ -1954,23 +1954,15 @@ private struct MacHomeSourceStatusCard: View {
         } else if backfill.isRunning || backfill.statusCount > 0 {
             let processed = backfill.processedCount
             let total = processed + backfill.statusCount
-            let remainingDetail = String(
+            // 和 iOS 设置页一样只说在读还是在等、还剩多少，不摆重试与暂停。
+            let detail = String(
                 format: String(localized: "backfill_remaining"),
                 backfill.statusCount
             )
-            let retryCount = backfill.deferredRetryCount(forSource: nil)
-            let detail = retryCount > 0
-                ? remainingDetail + " · " + String(
-                    format: String(localized: "backfill_retry_count_format"),
-                    retryCount
-                )
-                : remainingDetail
             let phase = switch backfill.activityState {
-            case .running: Lz("Reading tags")
-            case .retrying: String(localized: "backfill_retry_in_progress")
+            case .running, .retrying: Lz("Reading tags")
             case .waitingForWiFi: String(localized: "backfill_waiting_for_wifi")
-            case .retryPending: String(localized: "backfill_retry_pending")
-            case .pending, .idle: String(localized: "home_pending_details")
+            case .retryPending, .pending, .idle: String(localized: "home_pending_details")
             }
             taskBox(
                 title: Lz("Metadata backfill"),

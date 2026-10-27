@@ -3385,26 +3385,23 @@ struct SearchView: View {
                     .foregroundStyle(.secondary)
             }
             .pmAppearFade(.control)
-        case .success(let provider, let resultCount, let fallbackDepth):
+        case .success(let provider, let resultCount, _):
+            // 后备服务答的也是搜到了，照成功写，不另说「已降级」。
             Label(
                 String(
-                    format: String(localized: fallbackDepth > 0
-                                   ? "search_ai_success_fallback_format"
-                                   : "search_ai_success_format"),
+                    format: String(localized: "search_ai_success_format"),
                     provider.isEmpty ? String(localized: "ai_provider_default_name") : provider,
                     resultCount
                 ),
-                systemImage: fallbackDepth > 0 ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
+                systemImage: "checkmark.circle.fill"
             )
             .font(.caption)
             .foregroundStyle(.green)
             .pmAppearFade(.control)
-        case .noMatches(let provider, let fallbackDepth):
+        case .noMatches(let provider, _):
             Label(
                 String(
-                    format: String(localized: fallbackDepth > 0
-                                   ? "search_ai_no_matches_fallback_format"
-                                   : "search_ai_no_matches_format"),
+                    format: String(localized: "search_ai_no_matches_format"),
                     provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
                 ),
                 systemImage: "sparkles"

@@ -145,6 +145,27 @@ struct MetadataBackfillPresentationTests {
         #expect(summary.count(for: .incomplete) == 17)
     }
 
+    @Test("The source card only counts problems the user can see")
+    func sourceCardIgnoresSelfResolvingWork() {
+        let backgroundOnly = MetadataBackfillSourceSummary(
+            pendingInspectionCount: 2,
+            waitingForWiFiCount: 3,
+            retryPendingCount: 5,
+            playableIncompleteCount: 17,
+            stalledCount: 19
+        )
+        #expect(backgroundOnly.affectedCount > 0)
+        #expect(backgroundOnly.cardProblemCount == 0)
+
+        let visible = MetadataBackfillSourceSummary(
+            pendingInspectionCount: 2,
+            sourceUnavailableCount: 7,
+            fileUnavailableCount: 11,
+            unreadableTagsCount: 13
+        )
+        #expect(visible.cardProblemCount == 31)
+    }
+
     @Test("Diagnostic display removes signed URL and credential material")
     func diagnosticDisplayRedactsCredentials() {
         let signedURL = "GET https://alice:secret@example.com/song.flac?token=abc&sig=def#preview Authorization: Bearer xyz"

@@ -757,7 +757,6 @@
 "ai_recommendation_status_monthly_limit_local" = "Limit usług inteligentnych na ten miesiąc został wyczerpany; dotychczasowe zalecenia zachowane";
 "ai_recommendation_status_device_registration_local" = "Rejestracja urządzenia nie powiodła się; dotychczasowe zalecenia zachowane";
 "ai_recommendation_status_failed_local" = "Inteligentna usługa niedostępna; dotychczasowe zalecenia zachowane";
-"ai_recommendation_status_fallback_format" = "Podstawowy niedostępny; %@ przejął kontrolę nad %@";
 "ai_recommendation_status_loading" = "Tworzenie rekomendacji scen…";
 "ai_recommendation_status_local" = "Zalecenia lokalne";
 "ai_recommendation_status_minute_limit_local" = "Zbyt wiele żądań. Spróbuj ponownie później; dotychczasowe zalecenia zachowane";
@@ -919,11 +918,8 @@
 "backfill_in_progress" = "Odczytywanie tagów…";
 "backfill_keep_app_alive_hint" = "Odtwórz dowolny utwór, aby odczytanie tagów nadal działało";
 "backfill_remaining" = "%d do sprawdzenia";
-"backfill_retry_count_format" = "Wstrzymano po zarejestrowaniu błędów odczytu %d";
 "backfill_retry_failed" = "Sprawdź ponownie wstrzymane utwory %d";
 "backfill_retry_in_progress" = "Odczytywanie tagów, w tym ponowne próby…";
-"backfill_retry_pending" = "Niektóre odczyty tagów są wstrzymane";
-"backfill_retry_pending_hint" = "Zmiana sieci lub kolejne uruchomienie wznawia sprawdzanie; ten sam utwór lub źródło wykonuje do %d kolejnych automatycznych prób, zanim konieczne będzie ręczne ponowienie.";
 "backfill_runs_in_background_hint" = "Tagi ładują się w tle. Nie ma to wpływu na odtwarzanie i przeglądanie.";
 "backfill_waiting_for_wifi" = "Oczekiwanie na Wi-Fi";
 "baidu_error_code_format" = "Baidu Błąd dysku sieciowego %d.";
@@ -1355,9 +1351,7 @@
 "ext.tv.certificate.trust" = "Zaufaj i kontynuuj";
 "ext.tv.search.aiFailed" = "Inteligentne wyszukiwanie nie powiodło się; regularne wyniki pozostają dostępne";
 "ext.tv.search.aiNoMatch" = "%@ nie znalazł żadnych pasujących bibliotek";
-"ext.tv.search.aiNoMatchFallback" = "Brak dopasowań po powrocie do %@";
 "ext.tv.search.aiSuccess" = "%@ jest aktywny";
-"ext.tv.search.aiSuccessFallback" = "Wróciłem do %@";
 "external_display_idle" = "Rozpocznij grę z ekranu głównego";
 "external_display_label" = "Wyświetlacz zewnętrzny · Drugi ekran";
 "failed" = "nie powiodło się";
@@ -2140,10 +2134,8 @@
 "lyrics_transcription_status_needs_setup" = "Konfiguracja";
 "lyrics_transcription_status_ready" = "Gotowe";
 "lyrics_translation_ai_cached" = "Inteligentne tłumaczenie przywrócone z pamięci podręcznej";
-"lyrics_translation_ai_fallback_success_format" = "Tłumaczenie zakończone po powrocie do %@";
 "lyrics_translation_ai_loading" = "Inteligentne tłumaczenie";
 "lyrics_translation_ai_success_format" = "Translacja %@ jest aktywna";
-"lyrics_translation_ai_system_fallback" = "Inteligentne tłumaczenie niedostępne — używa tłumaczenia systemowego";
 "lyrics_translation_cache_footer" = "Przetłumaczone linie są zapisywane lokalnie w pamięci podręcznej w celu natychmiastowego pobrania następnym razem.";
 "lyrics_translation_cache_section" = "Pamięć podręczna tłumaczeń";
 "lyrics_translation_cached" = "Wpisy w pamięci podręcznej";
@@ -2313,11 +2305,7 @@
 "metadata_scraping_desc" = "Uzupełnij okładki, teksty oraz dane albumów i wykonawców dla utworów w bibliotece. Wybierz dostawców; po nieudanym pobraniu automatycznie zostanie wypróbowany kolejny.";
 "metadata_status_actions" = "Czytanie akcji";
 "metadata_status_attempt_format" = "Próby %d";
-"metadata_status_card_incomplete_format" = "Niekompletny %d";
-"metadata_status_card_pending_format" = "Oczekuje %d";
-"metadata_status_card_retry_format" = "Ponów próbę %d";
 "metadata_status_card_source_problem_format" = "Problem ze źródłem/plikiem %d";
-"metadata_status_card_stalled_format" = "Brak postępu %d";
 "metadata_status_card_unreadable_format" = "Nieczytelny %d";
 "metadata_status_continue" = "Kontynuuj czytanie oczekujących utworów";
 "metadata_status_continue_started" = "Odczyt jest kontynuowany. Utwory nieczytelne zostaną nagrane i pominięte.";
@@ -3029,7 +3017,6 @@
 "scan_directories_hint" = "Połącz i wybierz katalogi, aby wyszukać pliki muzyczne";
 "scan_in_progress" = "Skanowanie plików muzycznych...";
 "scan_needs_connect" = "Najpierw połącz się (wymagane OTP)";
-"scan_resume_hint" = "Poprzednie skanowanie zostało przerwane. Kliknij, aby kontynuować";
 "scan_runs_in_background_hint" = "Możesz opuścić tę stronę; skanowanie jest kontynuowane w tle.";
 "scanning" = "Skanowanie";
 "scrape_accuracy_notice" = "Wyniki automatyczne mogą być niedokładne. Jeśli nie pasują, użyj wyszukiwania ręcznego i porównaj czasy trwania utworów.";
@@ -3194,11 +3181,9 @@
 "scrobble_validate" = "Zatwierdź";
 "search_ai_failed" = "Inteligentne wyszukiwanie nie powiodło się. Nie ma to wpływu na zwykłe wyniki wyszukiwania.";
 "search_ai_loading" = "Znajdowanie powiązanych pojęć…";
-"search_ai_no_matches_fallback_format" = "Wróciłem do %@, ale żaden utwór w Twojej bibliotece nie pasował";
 "search_ai_no_matches_format" = "%@ odpowiedział, ale żaden utwór w Twojej bibliotece nie pasował";
 "search_ai_reason_format" = "Związane z „%@”";
 "search_ai_section" = "Inteligentne wyniki uzupełniające";
-"search_ai_success_fallback_format" = "Wróć do %@ — znaleziono inteligentne dopasowania %d";
 "search_ai_success_format" = "%@ jest aktywny — znaleziono inteligentne dopasowania %d";
 "search_apple_music_catalog_disabled" = "Apple Music · Wyszukiwanie w katalogu jest wyłączone";
 "search_apple_music_catalog_section" = "Apple Music · Katalog";

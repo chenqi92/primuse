@@ -2242,7 +2242,8 @@ final class ScanService {
                 plog("⏳ Synology scan deferred: credential temporarily unavailable status=\(status)")
                 recordScanFailure(
                     sourceID: source.id,
-                    message: String(localized: "credential_temporarily_unavailable")
+                    message: String(localized: "credential_temporarily_unavailable"),
+                    error: CloudDriveError.credentialTemporarilyUnavailable(status)
                 )
                 return
             case .failed(let status):
@@ -2579,7 +2580,8 @@ final class ScanService {
             }
             recordScanFailure(
                 sourceID: source.id,
-                message: sourceManager.scanFailureMessage(for: error, source: source)
+                message: sourceManager.scanFailureMessage(for: error, source: source),
+                error: error
             )
             notifyScanFailed(
                 for: source,
@@ -2743,7 +2745,8 @@ final class ScanService {
                 guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error
                 )
                 return
             }
@@ -2844,7 +2847,8 @@ final class ScanService {
                 guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error
                 )
                 return
             }
@@ -2882,7 +2886,8 @@ final class ScanService {
                     guard scanFenceIsValid() else { return }
                     recordScanFailure(
                         sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                        message: sourceManager.scanFailureMessage(for: error, source: source),
+                        error: error
                     )
                     return
                 }
@@ -2960,7 +2965,8 @@ final class ScanService {
                         guard scanFenceIsValid() else { return }
                         recordScanFailure(
                             sourceID: source.id,
-                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                            message: sourceManager.scanFailureMessage(for: error, source: source),
+                            error: error
                         )
                         return
                     }
@@ -3009,7 +3015,8 @@ final class ScanService {
                         guard isCurrentScan(source.id, generation: generation) else { return }
                         recordScanFailure(
                             sourceID: source.id,
-                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                            message: sourceManager.scanFailureMessage(for: error, source: source),
+                            error: error
                         )
                         return
                     }
@@ -3031,7 +3038,8 @@ final class ScanService {
                         guard scanFenceIsValid() else { return }
                         recordScanFailure(
                             sourceID: source.id,
-                            message: sourceManager.scanFailureMessage(for: error, source: source)
+                            message: sourceManager.scanFailureMessage(for: error, source: source),
+                            error: error
                         )
                         return
                     }
@@ -3056,7 +3064,8 @@ final class ScanService {
                     plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
                     recordScanFailure(
                         sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                        message: sourceManager.scanFailureMessage(for: error, source: source),
+                        error: error
                     )
                     return
                 }
@@ -3077,7 +3086,8 @@ final class ScanService {
                 guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error
                 )
             }
             return
@@ -3093,7 +3103,8 @@ final class ScanService {
             guard scanFenceIsValid() else { return }
             recordScanFailure(
                 sourceID: source.id,
-                message: sourceManager.scanFailureMessage(for: error, source: source)
+                message: sourceManager.scanFailureMessage(for: error, source: source),
+                error: error
             )
             return
         }
@@ -3140,7 +3151,8 @@ final class ScanService {
                 guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error
                 )
                 return
             }
@@ -3484,7 +3496,8 @@ final class ScanService {
                 guard scanFenceIsValid() else { return }
                 recordScanFailure(
                     sourceID: source.id,
-                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                    message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error
                 )
                 notifyScanFailed(
                     for: source,
@@ -3529,7 +3542,8 @@ final class ScanService {
             guard scanFenceIsValid() else { return }
             recordScanFailure(
                 sourceID: source.id,
-                message: sourceManager.scanFailureMessage(for: error, source: source)
+                message: sourceManager.scanFailureMessage(for: error, source: source),
+                error: error
             )
             notifyScanFailed(
                 for: source,
@@ -4490,7 +4504,8 @@ final class ScanService {
                     }
                     recordScanFailure(
                         sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                        message: sourceManager.scanFailureMessage(for: error, source: source),
+                        error: error
                     )
                     return true
                 }
@@ -4544,7 +4559,8 @@ final class ScanService {
                     }
                     recordScanFailure(
                         sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                        message: sourceManager.scanFailureMessage(for: error, source: source),
+                        error: error
                     )
                     return true
                 }
@@ -4555,7 +4571,8 @@ final class ScanService {
                     )
                     recordScanFailure(
                         sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                        message: sourceManager.scanFailureMessage(for: error, source: source),
+                        error: error
                     )
                     return true
                 }
@@ -4609,6 +4626,7 @@ final class ScanService {
                 recordScanFailure(
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source),
+                    error: error,
                     scannedCount: 0
                 )
                 notifyScanFailed(
@@ -5379,6 +5397,7 @@ final class ScanService {
     private func recordScanFailure(
         sourceID: String,
         message: String,
+        error: Error? = nil,
         scannedCount: Int? = nil,
         totalCount: Int? = nil
     ) {
@@ -5388,7 +5407,16 @@ final class ScanService {
         }
         var state = scanStates[sourceID] ?? ScanState()
         state.isScanning = false
-        state.failureMessage = message
+        // 自动扫描(启动续扫、目录维护、后台唤醒)碰上连不上、限流这类过一会儿自己会好的
+        // 问题，不在源卡片上挂红框：下一次自动扫描照常重来，用户此刻也做不了什么。
+        // 用户自己点的扫描、登录失效这类要人处理的失败照旧显示。
+        if !userInitiatedScanSourceIDs.contains(sourceID),
+           let error, SourceManager.isTransientScanFailure(error) {
+            plog("⏸ Automatic scan of \(sourceID) stopped on a transient failure; not surfacing it: \(error.localizedDescription)")
+            state.failureMessage = nil
+        } else {
+            state.failureMessage = message
+        }
         state.reconciliationMessage = nil
         state.hasPendingWork = checkpoints[sourceID] != nil
         if let scannedCount {
@@ -5426,7 +5454,6 @@ final class ScanService {
             }
             scanStates[sourceID] = ScanState(
                 isScanning: false,
-                currentFile: String(localized: "scan_resume_hint"),
                 scannedCount: snapshotProgress?.completedCount ?? checkpoint.songs.count,
                 totalCount: snapshotProgress?.totalCount ?? checkpoint.totalCount,
                 hasPendingWork: true

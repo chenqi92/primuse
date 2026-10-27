@@ -570,7 +570,8 @@ struct MacSourcesView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.orange.opacity(0.06), in: .rect(cornerRadius: 9))
             .pmAppearFade(.contentAppear)
-        } else if let scan = scanning, scan.isScanning || scan.canResume {
+        } else if let scan = scanning, scan.isScanning {
+            // 和 iOS 一样只在扫描时显示进度；没扫完的由「继续扫描」按钮和自动续扫接着做。
             scanBox(scan)
                 .pmAppearFade(.contentAppear)
         } else if source.type == .appleMusic {
@@ -579,7 +580,7 @@ struct MacSourcesView: View {
                 .pmAppearFade(.contentAppear)
         } else {
             let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
-            if metadataSummary.affectedCount > 0 {
+            if metadataSummary.cardProblemCount > 0 {
                 macMetadataStatusButton(source, summary: metadataSummary)
                     .pmAppearFade(.contentAppear)
             } else {
@@ -658,18 +659,18 @@ struct MacSourcesView: View {
         }
     }
 
+    /// 和 iOS 一样只为看得出来的问题露面，后台排队、重试与降速只在详情页。
     private func macMetadataStatusButton(
         _ source: MusicSource,
         summary: MetadataBackfillSourceSummary
     ) -> some View {
-        let activityState = backfill.activityState(forSource: source.id)
-        return Button {
+        Button {
             inspectingMetadataSource = source
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
-                    macMetadataActivityIndicator(activityState)
-                    Text(macMetadataActivityTitle(activityState))
+                    Image(systemName: "exclamationmark.circle")
+                    Text("metadata_status_title")
                         .font(.system(size: 11, weight: .semibold))
                     Spacer(minLength: 8)
                     Text("metadata_status_open")
@@ -681,7 +682,6 @@ struct MacSourcesView: View {
                     .font(.system(size: 10.5))
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                MetadataReadingStatusView(sourceID: source.id)
             }
             .foregroundStyle(PMColor.textMuted)
             .padding(10)
@@ -695,48 +695,8 @@ struct MacSourcesView: View {
         .accessibilityIdentifier("sources.metadataStatus.\(source.id)")
     }
 
-    @ViewBuilder
-    private func macMetadataActivityIndicator(_ state: MetadataBackfillActivityState) -> some View {
-        switch state {
-        case .running, .retrying:
-            ProgressView().controlSize(.small).scaleEffect(0.8)
-        case .waitingForWiFi:
-            Image(systemName: "wifi.exclamationmark")
-        case .retryPending:
-            Image(systemName: "arrow.clockwise.circle")
-        case .pending:
-            Image(systemName: "clock")
-        case .idle:
-            Image(systemName: "exclamationmark.circle")
-        }
-    }
-
-    private func macMetadataActivityTitle(
-        _ state: MetadataBackfillActivityState
-    ) -> LocalizedStringKey {
-        switch state {
-        case .running: "backfill_in_progress"
-        case .retrying: "backfill_retry_in_progress"
-        case .waitingForWiFi: "backfill_waiting_for_wifi"
-        case .retryPending: "metadata_status_state_retry"
-        case .pending, .idle: "metadata_status_title"
-        }
-    }
-
     private func macMetadataSummaryText(_ summary: MetadataBackfillSourceSummary) -> String {
         var parts: [String] = []
-        if summary.activeQueueCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_pending_format"),
-                summary.activeQueueCount
-            ))
-        }
-        if summary.retryPendingCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_retry_format"),
-                summary.retryPendingCount
-            ))
-        }
         let sourceProblems = summary.sourceUnavailableCount + summary.fileUnavailableCount
         if sourceProblems > 0 {
             parts.append(String(
@@ -750,24 +710,12 @@ struct MacSourcesView: View {
                 summary.unreadableTagsCount
             ))
         }
-        if summary.playableIncompleteCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_incomplete_format"),
-                summary.playableIncompleteCount
-            ))
-        }
-        if summary.stalledCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_stalled_format"),
-                summary.stalledCount
-            ))
-        }
         return parts.joined(separator: " · ")
     }
 
     private func scanBox(_ scan: ScanService.ScanState) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if scan.isScanning, !scan.currentFile.isEmpty {
+            if !scan.currentFile.isEmpty {
                 Text(scan.currentFile)
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
@@ -781,7 +729,7 @@ struct MacSourcesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
-                Text(scan.isScanning ? "scanning" : "scan_resume_hint")
+                Text("scanning")
                 Spacer()
                 if scan.totalCount > 0 {
                     Text(verbatim: "\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()

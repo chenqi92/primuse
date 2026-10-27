@@ -698,23 +698,22 @@ struct TVSearchView: View {
         switch semanticFeedback {
         case .idle, .loading:
             EmptyView()
-        case .success(let provider, let fallbackDepth):
+        case .success(let provider, _):
+            // 后备服务答的也是搜到了，照成功写，不另说「已降级」。
+            // 这句只在 App 表里(电视端也带这张表)，PMString 只查 Kit 表会露出键名。
             Label(
-                PMString(
-                    fallbackDepth > 0
-                        ? "ext.tv.search.aiSuccessFallback" : "ext.tv.search.aiSuccess",
+                String(
+                    format: String(localized: "ext.tv.search.aiSuccess"),
                     provider.isEmpty ? PMString("ai_provider_default_name") : provider
                 ),
-                systemImage: fallbackDepth > 0
-                    ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
+                systemImage: "checkmark.circle.fill"
             )
             .tvFont(.meta, weight: .medium)
             .foregroundStyle(TVColor.brand)
-        case .noMatches(let provider, let fallbackDepth):
+        case .noMatches(let provider, _):
             Label(
-                PMString(
-                    fallbackDepth > 0
-                        ? "ext.tv.search.aiNoMatchFallback" : "ext.tv.search.aiNoMatch",
+                String(
+                    format: String(localized: "ext.tv.search.aiNoMatch"),
                     provider.isEmpty ? PMString("ai_provider_default_name") : provider
                 ),
                 systemImage: "sparkles"

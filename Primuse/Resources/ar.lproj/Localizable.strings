@@ -757,7 +757,6 @@
 "ai_recommendation_status_monthly_limit_local" = "تم استنفاد حصة الخدمة الذكية لهذا الشهر؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_device_registration_local" = "فشل تسجيل الجهاز؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_failed_local" = "الخدمة الذكية غير متوفرة؛ تم الحفاظ على التوصيات الحالية";
-"ai_recommendation_status_fallback_format" = "الابتدائي غير متاح؛ %@ استحوذ على %@";
 "ai_recommendation_status_loading" = "إنشاء توصيات المشهد…";
 "ai_recommendation_status_local" = "التوصيات المحلية";
 "ai_recommendation_status_minute_limit_local" = "كثرة الطلبات. حاول مرة أخرى لاحقًا؛ تم الحفاظ على التوصيات الحالية";
@@ -919,11 +918,8 @@
 "backfill_in_progress" = "قراءة العلامات…";
 "backfill_keep_app_alive_hint" = "قم بتشغيل أي أغنية لمواصلة قراءة العلامة";
 "backfill_remaining" = "%d للمعاينة";
-"backfill_retry_count_format" = "تم الإيقاف مؤقتًا بعد تسجيل %d فشل (إخفاقات) القراءة";
 "backfill_retry_failed" = "إعادة فحص %d أغنية متوقفة مؤقتًا";
 "backfill_retry_in_progress" = "قراءة العلامات (بما في ذلك إعادة المحاولة)…";
-"backfill_retry_pending" = "تم إيقاف بعض قراءة العلامات مؤقتًا";
-"backfill_retry_pending_hint" = "تغيير الشبكة أو استئناف عمليات الإطلاق التالية؛ تحصل نفس الأغنية أو المصدر على ما يصل إلى %d محاولات تلقائية متتالية قبل الحاجة إلى إعادة المحاولة اليدوية.";
 "backfill_runs_in_background_hint" = "يتم تحميل العلامات في الخلفية. لا يتأثر التشغيل والتصفح.";
 "backfill_waiting_for_wifi" = "في انتظار Wi-Fi";
 "baidu_error_code_format" = "Baidu Netdisk خطأ %d.";
@@ -1355,9 +1351,7 @@
 "ext.tv.certificate.trust" = "الثقة والمتابعة";
 "ext.tv.search.aiFailed" = "فشل البحث الذكي؛ تظل النتائج المنتظمة متاحة";
 "ext.tv.search.aiNoMatch" = "%@ لم يجد أي تطابقات بالمكتبة";
-"ext.tv.search.aiNoMatchFallback" = "لا يوجد مباريات بعد التراجع إلى %@";
 "ext.tv.search.aiSuccess" = "%@ مفعل";
-"ext.tv.search.aiSuccessFallback" = "تراجع إلى %@";
 "external_display_idle" = "ابدأ التشغيل من الشاشة الرئيسية";
 "external_display_label" = "شاشة خارجية · شاشة ثانية";
 "failed" = "فشل";
@@ -2140,10 +2134,8 @@
 "lyrics_transcription_status_needs_setup" = "إعداد";
 "lyrics_transcription_status_ready" = "جاهز";
 "lyrics_translation_ai_cached" = "تمت استعادة الترجمة الذكية من ذاكرة التخزين المؤقت";
-"lyrics_translation_ai_fallback_success_format" = "تمت الترجمة بعد التراجع إلى %@";
 "lyrics_translation_ai_loading" = "الترجمة الذكية";
 "lyrics_translation_ai_success_format" = "%@ الترجمة نشطة";
-"lyrics_translation_ai_system_fallback" = "الترجمة الذكية غير متوفرة — باستخدام ترجمة النظام";
 "lyrics_translation_cache_footer" = "يتم تخزين الأسطر المترجمة مؤقتًا محليًا لاسترجاعها الفوري في المرة القادمة.";
 "lyrics_translation_cache_section" = "ذاكرة التخزين المؤقت للترجمة";
 "lyrics_translation_cached" = "الإدخالات المخزنة مؤقتًا";
@@ -2313,11 +2305,7 @@
 "metadata_scraping_desc" = "املأ الأغلفة وكلمات الأغاني والألبوم ومعلومات الفنان للأغاني الموجودة في مكتبتك. اختر مقدمي الخدمة الخاصين بك؛ تتراجع عمليات الجلب الفاشلة تلقائيًا.";
 "metadata_status_actions" = "أعمال القراءة";
 "metadata_status_attempt_format" = "%d محاولات";
-"metadata_status_card_incomplete_format" = "غير مكتمل %d";
-"metadata_status_card_pending_format" = "معلق %d";
-"metadata_status_card_retry_format" = "إعادة المحاولة %d";
 "metadata_status_card_source_problem_format" = "مشكلة المصدر/الملف %d";
-"metadata_status_card_stalled_format" = "لا يوجد تقدم %d";
 "metadata_status_card_unreadable_format" = "غير مقروء %d";
 "metadata_status_continue" = "متابعة قراءة الأغاني المعلقة";
 "metadata_status_continue_started" = "تستمر القراءة. سيتم تسجيل الأغاني غير القابلة للقراءة وتخطيها.";
@@ -3029,7 +3017,6 @@
 "scan_directories_hint" = "قم بتوصيل واختيار الدلائل للبحث عن ملفات الموسيقى";
 "scan_in_progress" = "فحص ملفات الموسيقى...";
 "scan_needs_connect" = "برجاء الاتصال أولا (يلزم كلمة المرور لمرة واحدة)";
-"scan_resume_hint" = "تمت مقاطعة الفحص السابق. انقر للمتابعة";
 "scan_runs_in_background_hint" = "يمكنك مغادرة هذه الصفحة؛ يستمر المسح في الخلفية.";
 "scanning" = "المسح";
 "scrape_accuracy_notice" = "قد تكون النتائج التلقائية غير دقيقة. إذا لم تكن متطابقة، استخدم البحث اليدوي وقارن فترات المسار.";
@@ -3194,11 +3181,9 @@
 "scrobble_validate" = "التصديق";
 "search_ai_failed" = "فشل البحث الذكي. نتائج البحث العادية لا تتأثر.";
 "search_ai_loading" = "إيجاد المفاهيم ذات الصلة…";
-"search_ai_no_matches_fallback_format" = "تراجعت إلى %@، ولكن لا توجد أغاني متطابقة في مكتبتك";
 "search_ai_no_matches_format" = "استجاب %@، لكن لا توجد أغاني متطابقة في مكتبتك";
 "search_ai_reason_format" = "متعلق بـ “%@”";
 "search_ai_section" = "النتائج التكميلية الذكية";
-"search_ai_success_fallback_format" = "عاد إلى %@ — %d تم العثور على تطابقات ذكية";
 "search_ai_success_format" = "%@ نشط — %d تم العثور على تطابقات ذكية";
 "search_apple_music_catalog_disabled" = "Apple Music · البحث في الكتالوج متوقف";
 "search_apple_music_catalog_section" = "Apple Music · الكتالوج";

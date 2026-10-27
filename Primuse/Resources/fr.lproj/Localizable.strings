@@ -619,7 +619,6 @@
 "remember_device_desc" = "Ignorer la vérification OTP lors de la prochaine connexion";
 "scan_needs_connect" = "Veuillez d'abord vous connecter (OTP requis)";
 "resume_scan" = "Reprendre l'analyse";
-"scan_resume_hint" = "L'analyse précédente a été interrompue. Touchez pour continuer";
 "search_empty_library" = "Aucune musique pour l'instant";
 "search_empty_library_desc" = "Ajoutez une source de musique et lancez une analyse pour commencer à rechercher";
 "tap_to_scrape" = "Touchez le menu pour récupérer les paroles";
@@ -778,13 +777,10 @@
 "cloud_scan_wifi_only_footer" = "Les analyses du cloud ne récupèrent d'abord que les noms de fichiers. Les détails des morceaux (artiste, album, pochette, durée) sont chargés en arrière-plan, soit environ 256 Ko par morceau. Avec cette option activée, le chargement s'interrompt sur le réseau cellulaire et reprend lorsque vous vous reconnectez au Wi-Fi.";
 "backfill_in_progress" = "Lecture des tags…";
 "backfill_retry_in_progress" = "Lecture des tags (nouvelles tentatives incluses)…";
-"backfill_retry_pending" = "Certaines lectures de tags sont en pause";
-"backfill_retry_pending_hint" = "Un changement de réseau ou le prochain lancement reprend les vérifications ; un même morceau ou une même source dispose de %d tentatives automatiques consécutives avant un nouvel essai manuel.";
 "backfill_waiting_for_wifi" = "En attente du Wi-Fi";
 "new_songs_added" = "%d nouveaux morceaux";
 "no_new_songs" = "Aucun nouveau morceau";
 "backfill_remaining" = "%d à vérifier";
-"backfill_retry_count_format" = "Pause après %d échec(s) de lecture enregistré(s)";
 "backfill_retry_failed" = "Réexaminer %d morceau(x) en pause";
 "song_details_loading" = "Lecture des infos du morceau";
 "song_details_loading_message" = "Téléchargement de l'en-tête de tags de ce morceau (~256 Ko) depuis le cloud pour en extraire la durée, la pochette et l'artiste. Une fois terminé, il peut être ajouté à la file de lecture.";
@@ -3475,7 +3471,6 @@
 "ai_recommendation_status_loading" = "Création des recommandations…";
 "ai_recommendation_status_needs_consent" = "Autorisation des préférences d’écoute requise";
 "ai_recommendation_status_success_format" = "%@ · réorganisé pour %@";
-"ai_recommendation_status_fallback_format" = "Service principal indisponible ; %@ prend le relais pour %@";
 "ai_recommendation_status_failed_local" = "Service intelligent indisponible ; recommandations existantes conservées";
 "ai_recommendation_status_busy_local" = "Service intelligent occupé ; recommandations existantes conservées";
 "ai_recommendation_status_minute_limit_local" = "Trop de requêtes. Réessayez plus tard ; recommandations existantes conservées";
@@ -3609,14 +3604,10 @@
 "ai_provider_enabled" = "Utiliser ce service";
 "ai_primuse_relay_ready" = "L’expérience d’IA intégrée est prête";
 "search_ai_success_format" = "%@ est actif — %d correspondances intelligentes";
-"search_ai_success_fallback_format" = "Repli sur %@ — %d correspondances intelligentes";
 "search_ai_no_matches_format" = "%@ a répondu, mais aucun titre ne correspond";
-"search_ai_no_matches_fallback_format" = "Repli sur %@, mais aucun titre ne correspond";
 "search_ai_failed" = "La recherche intelligente a échoué. La recherche normale reste disponible.";
 "ext.tv.search.aiSuccess" = "%@ est actif";
-"ext.tv.search.aiSuccessFallback" = "Repli sur %@";
 "ext.tv.search.aiNoMatch" = "%@ n’a trouvé aucun titre";
-"ext.tv.search.aiNoMatchFallback" = "Aucun titre après repli sur %@";
 "ext.tv.search.aiFailed" = "La recherche intelligente a échoué ; les résultats normaux restent disponibles";
 "lyrics_translation_mode" = "Méthode de traduction";
 "lyrics_translation_mode_system" = "Traduction système";
@@ -3678,8 +3669,6 @@
 "lyrics_translation_ai_loading" = "Traduction intelligente en cours";
 "lyrics_translation_ai_cached" = "Traduction intelligente restaurée depuis le cache";
 "lyrics_translation_ai_success_format" = "La traduction %@ est active";
-"lyrics_translation_ai_fallback_success_format" = "Traduction terminée après repli sur %@";
-"lyrics_translation_ai_system_fallback" = "Traduction intelligente indisponible — traduction système utilisée";
 "lyrics_translation_unavailable" = "La traduction des paroles est indisponible";
 "stats_data_source" = "Source des données";
 "stats_source_local" = "Cet appareil";
@@ -3834,12 +3823,8 @@
 "metadata_status_stalled_reason" = "Les mêmes morceaux sont restés inchangés après un passage complet. Les requêtes répétées sont arrêtées pour cette session afin d’éviter une boucle.";
 "metadata_status_reason_unknown" = "La lecture des métadonnées a échoué, mais la source n’a pas renvoyé d’erreur plus précise.";
 "metadata_status_open" = "Voir les détails";
-"metadata_status_card_pending_format" = "En attente %d";
-"metadata_status_card_retry_format" = "Nouvel essai %d";
 "metadata_status_card_source_problem_format" = "Problème source/fichier %d";
 "metadata_status_card_unreadable_format" = "Illisible %d";
-"metadata_status_card_incomplete_format" = "Incomplet %d";
-"metadata_status_card_stalled_format" = "Aucun progrès %d";
 "recently_deleted_smart_playlists" = "Playlists intelligentes";
 "recently_deleted_clear_all_confirm_title" = "Vider les suppressions récentes ?";
 "recently_deleted_clear_all_confirm_message_format" = "%d éléments et les identifiants locaux associés seront supprimés définitivement de Primuse. Cette action est irréversible. Les médias d’origine et les corbeilles cloud ne seront pas supprimés.";

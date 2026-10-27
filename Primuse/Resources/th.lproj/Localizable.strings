@@ -757,7 +757,6 @@
 "ai_recommendation_status_monthly_limit_local" = "โควต้าบริการอัจฉริยะของเดือนนี้หมดแล้ว คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_device_registration_local" = "การลงทะเบียนอุปกรณ์ล้มเหลว คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_failed_local" = "บริการอัจฉริยะไม่พร้อมใช้งาน คำแนะนำที่มีอยู่ยังคงอยู่";
-"ai_recommendation_status_fallback_format" = "หลักไม่พร้อมใช้งาน %@ เข้ามาแทนที่ %@";
 "ai_recommendation_status_loading" = "กำลังสร้างคำแนะนำฉาก...";
 "ai_recommendation_status_local" = "คำแนะนำในท้องถิ่น";
 "ai_recommendation_status_minute_limit_local" = "มีคำขอมากเกินไป ลองอีกครั้งในภายหลัง คำแนะนำที่มีอยู่ยังคงอยู่";
@@ -919,11 +918,8 @@
 "backfill_in_progress" = "กำลังอ่านแท็ก...";
 "backfill_keep_app_alive_hint" = "เล่นเพลงใดก็ได้เพื่อให้การอ่านแท็กทำงานต่อไป";
 "backfill_remaining" = "%d เพื่อตรวจสอบ";
-"backfill_retry_count_format" = "หยุดชั่วคราวหลังจาก %d บันทึกการอ่านล้มเหลว";
 "backfill_retry_failed" = "ตรวจสอบอีกครั้ง %d เพลงที่หยุดชั่วคราว";
 "backfill_retry_in_progress" = "กำลังอ่านแท็ก (รวมถึงการลองใหม่)...";
-"backfill_retry_pending" = "การอ่านแท็กบางรายการถูกหยุดชั่วคราว";
-"backfill_retry_pending_hint" = "การเปลี่ยนแปลงเครือข่ายหรือการเปิดตัวครั้งถัดไปจะดำเนินการตรวจสอบต่อ เพลงหรือแหล่งที่มาเดียวกันจะพยายามอัตโนมัติสูงสุด %d ติดต่อกันก่อนที่จะต้องลองอีกครั้งด้วยตนเอง";
 "backfill_runs_in_background_hint" = "แท็กโหลดในพื้นหลัง การเล่นและการเรียกดูจะไม่ได้รับผลกระทบ";
 "backfill_waiting_for_wifi" = "รอ Wi-Fi";
 "baidu_error_code_format" = "Baidu Netdisk ข้อผิดพลาด %d";
@@ -1355,9 +1351,7 @@
 "ext.tv.certificate.trust" = "ไว้วางใจและดำเนินการต่อ";
 "ext.tv.search.aiFailed" = "การค้นหาอัจฉริยะล้มเหลว ผลลัพธ์ปกติยังคงมีอยู่";
 "ext.tv.search.aiNoMatch" = "%@ ไม่พบรายการที่ตรงกันในคลังเพลง";
-"ext.tv.search.aiNoMatchFallback" = "ไม่มีการแข่งขันหลังจากตกลงไปที่ %@";
 "ext.tv.search.aiSuccess" = "%@ ใช้งานอยู่";
-"ext.tv.search.aiSuccessFallback" = "ตกลงไปที่ %@";
 "external_display_idle" = "เริ่มเล่นจากหน้าหลัก";
 "external_display_label" = "จอแสดงผลภายนอก · หน้าจอที่สอง";
 "failed" = "ล้มเหลว";
@@ -2140,10 +2134,8 @@
 "lyrics_transcription_status_needs_setup" = "ตั้งค่า";
 "lyrics_transcription_status_ready" = "พร้อมแล้ว";
 "lyrics_translation_ai_cached" = "กู้คืนการแปลอัจฉริยะจากแคช";
-"lyrics_translation_ai_fallback_success_format" = "การแปลเสร็จสมบูรณ์หลังจากตกลงไปที่ %@";
 "lyrics_translation_ai_loading" = "แปลอย่างชาญฉลาด";
 "lyrics_translation_ai_success_format" = "%@ การแปลเปิดใช้งานอยู่";
-"lyrics_translation_ai_system_fallback" = "ไม่สามารถแปลอัจฉริยะได้ — ใช้การแปลของระบบ";
 "lyrics_translation_cache_footer" = "บรรทัดที่แปลจะถูกแคชไว้ในเครื่องเพื่อการดึงข้อมูลทันทีในครั้งถัดไป";
 "lyrics_translation_cache_section" = "แคชการแปล";
 "lyrics_translation_cached" = "รายการแคช";
@@ -2313,11 +2305,7 @@
 "metadata_scraping_desc" = "กรอกข้อมูลปก เนื้อเพลง อัลบั้ม และข้อมูลศิลปินสำหรับเพลงในคลังเพลงของคุณ เลือกผู้ให้บริการของคุณ การดึงข้อมูลล้มเหลวจะถอยกลับโดยอัตโนมัติ";
 "metadata_status_actions" = "การดำเนินการอ่าน";
 "metadata_status_attempt_format" = "%d พยายาม";
-"metadata_status_card_incomplete_format" = "ไม่สมบูรณ์ %d";
-"metadata_status_card_pending_format" = "รอดำเนินการ %d";
-"metadata_status_card_retry_format" = "ลองอีกครั้ง %d";
 "metadata_status_card_source_problem_format" = "ปัญหาแหล่งที่มา/ไฟล์ %d";
-"metadata_status_card_stalled_format" = "ไม่มีความคืบหน้า %d";
 "metadata_status_card_unreadable_format" = "อ่านไม่ได้ %d";
 "metadata_status_continue" = "อ่านเพลงที่รอดำเนินการต่อไป";
 "metadata_status_continue_started" = "อ่านต่อ เพลงที่อ่านไม่ได้จะถูกบันทึกและข้ามไป";
@@ -3029,7 +3017,6 @@
 "scan_directories_hint" = "เชื่อมต่อและเลือกไดเร็กทอรีเพื่อสแกนหาไฟล์เพลง";
 "scan_in_progress" = "กำลังสแกนไฟล์เพลง...";
 "scan_needs_connect" = "กรุณาเชื่อมต่อก่อน (ต้องใช้ OTP)";
-"scan_resume_hint" = "การสแกนครั้งก่อนถูกขัดจังหวะ แตะเพื่อดำเนินการต่อ";
 "scan_runs_in_background_hint" = "คุณสามารถออกจากหน้านี้ได้ การสแกนจะดำเนินต่อไปในเบื้องหลัง";
 "scanning" = "กำลังสแกน";
 "scrape_accuracy_notice" = "ผลลัพธ์อัตโนมัติอาจคลาดเคลื่อน หากไม่ตรงกัน ให้ใช้การค้นหาด้วยตนเองและเปรียบเทียบระยะเวลาของแทร็ก";
@@ -3194,11 +3181,9 @@
 "scrobble_validate" = "ตรวจสอบ";
 "search_ai_failed" = "การค้นหาอัจฉริยะล้มเหลว ผลการค้นหาปกติจะไม่ได้รับผลกระทบ";
 "search_ai_loading" = "ค้นหาแนวคิดที่เกี่ยวข้อง...";
-"search_ai_no_matches_fallback_format" = "ลดลงเหลือ %@ แต่ไม่มีเพลงในคลังของคุณที่ตรงกัน";
 "search_ai_no_matches_format" = "%@ ตอบกลับแล้ว แต่ไม่มีเพลงในคลังเพลงของคุณที่ตรงกัน";
 "search_ai_reason_format" = "เกี่ยวข้องกับ “%@”";
 "search_ai_section" = "ผลลัพธ์เสริมอัจฉริยะ";
-"search_ai_success_fallback_format" = "ตกลงไปที่ %@ — %d พบการแข่งขันที่ชาญฉลาด";
 "search_ai_success_format" = "%@ เปิดใช้งานอยู่ — %d พบการจับคู่ที่ชาญฉลาด";
 "search_apple_music_catalog_disabled" = "Apple Music · การค้นหาแคตตาล็อกปิดอยู่";
 "search_apple_music_catalog_section" = "Apple Music · แคตตาล็อก";

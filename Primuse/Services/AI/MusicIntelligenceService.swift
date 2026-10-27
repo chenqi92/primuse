@@ -3358,13 +3358,16 @@ final class AIRecommendationViewModel {
             return false
         }
         isStreaming = false
+        // 自动刷新没成功、手里还有上次的推荐时，状态照旧停在上次：用户照样有歌可看，
+        // 「智能服务繁忙，已保留现有推荐」只会让人以为坏了。用户自己点的刷新照实说原因。
+        let keepsPreviousStatus = !forceRefresh && !appending && !startingSongIDs.isEmpty
         switch outcome {
         case .unavailable:
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
             orderedAlbumKeys = startingAlbumKeys
             reasonsByAlbumKey = startingAlbumReasons
-            feedback = .localFallback(
+            feedback = keepsPreviousStatus ? previousFeedback : .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
                 reason: .unavailable
@@ -3416,7 +3419,7 @@ final class AIRecommendationViewModel {
             reasonsBySongID = startingReasons
             orderedAlbumKeys = startingAlbumKeys
             reasonsByAlbumKey = startingAlbumReasons
-            feedback = .localFallback(
+            feedback = keepsPreviousStatus ? previousFeedback : .localFallback(
                 providerName: providerName,
                 fallbackDepth: fallbackDepth,
                 reason: .empty
@@ -3428,7 +3431,7 @@ final class AIRecommendationViewModel {
             reasonsBySongID = startingReasons
             orderedAlbumKeys = startingAlbumKeys
             reasonsByAlbumKey = startingAlbumReasons
-            feedback = .localFallback(
+            feedback = keepsPreviousStatus ? previousFeedback : .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
                 reason: reason
@@ -3514,7 +3517,7 @@ final class AIRecommendationViewModel {
             return String(localized: "ai_recommendation_status_loading")
         case .needsConsent:
             return String(localized: "ai_recommendation_status_needs_consent")
-        case .success(_, let providerName, let fallbackDepth, let scene, let isCached):
+        case .success(_, let providerName, _, let scene, let isCached):
             if isCached {
                 return String(
                     format: String(localized: "ai_recommendation_status_cached_format"),
@@ -3522,11 +3525,9 @@ final class AIRecommendationViewModel {
                     scene.localizedName
                 )
             }
-            let key = fallbackDepth > 0
-                ? "ai_recommendation_status_fallback_format"
-                : "ai_recommendation_status_success_format"
+            // 主服务没回、由后备服务答的也照常写是谁按什么场景排的，不另说「主服务不可用」。
             return String(
-                format: String(localized: String.LocalizationValue(key)),
+                format: String(localized: "ai_recommendation_status_success_format"),
                 providerName,
                 scene.localizedName
             )

@@ -757,7 +757,6 @@
 "ai_recommendation_status_monthly_limit_local" = "इस महीने का बुद्धिमान सेवा कोटा समाप्त हो गया है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_device_registration_local" = "डिवाइस पंजीकरण विफल; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_failed_local" = "इंटेलिजेंट सेवा अनुपलब्ध है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
-"ai_recommendation_status_fallback_format" = "प्राथमिक अनुपलब्ध; %@ ने %@ के लिए पदभार संभाला";
 "ai_recommendation_status_loading" = "दृश्य अनुशंसाएं बनाई जा रही हैं...";
 "ai_recommendation_status_local" = "स्थानीय सिफ़ारिशें";
 "ai_recommendation_status_minute_limit_local" = "बहुत सारे अनुरोध। बाद में पुन: प्रयास; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
@@ -919,11 +918,8 @@
 "backfill_in_progress" = "टैग पढ़ रहे हैं...";
 "backfill_keep_app_alive_hint" = "टैग रीडिंग चालू रखने के लिए कोई भी गाना बजाएं";
 "backfill_remaining" = "%d निरीक्षण करने के लिए";
-"backfill_retry_count_format" = "%d दर्ज की गई पठन विफलता(ओं) के बाद रुका हुआ";
 "backfill_retry_failed" = "%d रुके हुए गाने दोबारा जांचें";
 "backfill_retry_in_progress" = "टैग पढ़ना (पुनः प्रयास सहित)…";
-"backfill_retry_pending" = "कुछ टैग रीड रोक दिए गए हैं";
-"backfill_retry_pending_hint" = "नेटवर्क परिवर्तन या अगला लॉन्च फिर से शुरू होने पर जाँच करता है; मैन्युअल पुनः प्रयास की आवश्यकता से पहले एक ही गीत या स्रोत को %d तक लगातार स्वचालित प्रयास मिलते हैं।";
 "backfill_runs_in_background_hint" = "टैग पृष्ठभूमि में लोड होते हैं। प्लेबैक और ब्राउज़िंग अप्रभावित हैं.";
 "backfill_waiting_for_wifi" = "Wi-Fi की प्रतीक्षा में";
 "baidu_error_code_format" = "Baidu Netdisk त्रुटि %d।";
@@ -1355,9 +1351,7 @@
 "ext.tv.certificate.trust" = "भरोसा करें और जारी रखें";
 "ext.tv.search.aiFailed" = "बुद्धिमान खोज विफल रही; नियमित परिणाम उपलब्ध रहते हैं";
 "ext.tv.search.aiNoMatch" = "%@ को कोई लाइब्रेरी मिलान नहीं मिला";
-"ext.tv.search.aiNoMatchFallback" = "%@ पर वापस आने के बाद कोई मिलान नहीं";
 "ext.tv.search.aiSuccess" = "%@ सक्रिय है";
-"ext.tv.search.aiSuccessFallback" = "वापस %@ पर आ गया";
 "external_display_idle" = "मुख्य स्क्रीन से प्लेबैक शुरू करें";
 "external_display_label" = "बाहरी डिस्प्ले · दूसरी स्क्रीन";
 "failed" = "विफल रहा";
@@ -2140,10 +2134,8 @@
 "lyrics_transcription_status_needs_setup" = "सेट अप";
 "lyrics_transcription_status_ready" = "तैयार";
 "lyrics_translation_ai_cached" = "कैश से बुद्धिमान अनुवाद बहाल किया गया";
-"lyrics_translation_ai_fallback_success_format" = "%@ पर वापस आने के बाद अनुवाद पूरा हुआ";
 "lyrics_translation_ai_loading" = "समझदारी से अनुवाद करना";
 "lyrics_translation_ai_success_format" = "%@ अनुवाद सक्रिय है";
-"lyrics_translation_ai_system_fallback" = "इंटेलिजेंट अनुवाद अनुपलब्ध है - सिस्टम अनुवाद का उपयोग किया जा रहा है";
 "lyrics_translation_cache_footer" = "अगली बार तत्काल पुनर्प्राप्ति के लिए अनुवादित पंक्तियों को स्थानीय रूप से कैश किया जाता है।";
 "lyrics_translation_cache_section" = "अनुवाद कैश";
 "lyrics_translation_cached" = "कैश्ड प्रविष्टियाँ";
@@ -2313,11 +2305,7 @@
 "metadata_scraping_desc" = "अपनी लाइब्रेरी में गानों के कवर, गीत, एल्बम और कलाकार की जानकारी भरें। अपने प्रदाता चुनें; विफल फ़ेच स्वचालित रूप से वापस आ जाते हैं।";
 "metadata_status_actions" = "पढ़ने की क्रियाएँ";
 "metadata_status_attempt_format" = "%d प्रयास";
-"metadata_status_card_incomplete_format" = "अधूरा %d";
-"metadata_status_card_pending_format" = "लंबित %d";
-"metadata_status_card_retry_format" = "पुनः प्रयास करें %d";
 "metadata_status_card_source_problem_format" = "स्रोत/फ़ाइल अंक %d";
-"metadata_status_card_stalled_format" = "कोई प्रगति नहीं %d";
 "metadata_status_card_unreadable_format" = "अपठनीय %d";
 "metadata_status_continue" = "लंबित गीतों को पढ़ना जारी रखें";
 "metadata_status_continue_started" = "पढ़ना जारी है। अपठनीय गाने रिकॉर्ड करके छोड़ दिए जाएंगे.";
@@ -3029,7 +3017,6 @@
 "scan_directories_hint" = "संगीत फ़ाइलों को स्कैन करने के लिए निर्देशिकाओं को कनेक्ट करें और चुनें";
 "scan_in_progress" = "संगीत फ़ाइलें स्कैन कर रहा है...";
 "scan_needs_connect" = "कृपया पहले कनेक्ट करें (ओटीपी आवश्यक)";
-"scan_resume_hint" = "पिछला स्कैन बाधित हो गया था। जारी रखने के लिए टैप करें";
 "scan_runs_in_background_hint" = "आप इस पेज को छोड़ सकते हैं; पृष्ठभूमि में स्कैनिंग जारी है.";
 "scanning" = "स्कैनिंग";
 "scrape_accuracy_notice" = "स्वचालित परिणाम ग़लत हो सकते हैं। यदि वे मेल नहीं खाते हैं, तो मैन्युअल खोज का उपयोग करें और ट्रैक अवधि की तुलना करें।";
@@ -3194,11 +3181,9 @@
 "scrobble_validate" = "मान्य करें";
 "search_ai_failed" = "बुद्धिमान खोज विफल रही। नियमित खोज परिणाम अप्रभावित रहते हैं.";
 "search_ai_loading" = "संबंधित अवधारणाएँ ढूँढना...";
-"search_ai_no_matches_fallback_format" = "%@ पर वापस आ गया, लेकिन आपकी लाइब्रेरी में कोई भी गाना मेल नहीं खाता";
 "search_ai_no_matches_format" = "%@ ने जवाब दिया, लेकिन आपकी लाइब्रेरी में कोई भी गाना मेल नहीं खाता";
 "search_ai_reason_format" = "\"%@\" से संबंधित";
 "search_ai_section" = "बुद्धिमान पूरक परिणाम";
-"search_ai_success_fallback_format" = "%@ पर वापस आ गया - %d बुद्धिमान मिलान मिले";
 "search_ai_success_format" = "%@ सक्रिय है - %d बुद्धिमान मिलान मिले";
 "search_apple_music_catalog_disabled" = "Apple Music · कैटलॉग खोज बंद है";
 "search_apple_music_catalog_section" = "Apple Music · कैटलॉग";

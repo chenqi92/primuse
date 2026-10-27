@@ -620,7 +620,6 @@
 "remember_device_desc" = "次回ログイン時に OTP 認証をスキップします";
 "scan_needs_connect" = "先に接続してください（OTP が必要です）";
 "resume_scan" = "スキャンを再開";
-"scan_resume_hint" = "前回のスキャンが中断されました。タップして続行";
 "search_empty_library" = "音楽がありません";
 "search_empty_library_desc" = "音楽ソースを追加してスキャンすると検索できます";
 "tap_to_scrape" = "メニューをタップして歌詞を取得";
@@ -779,13 +778,10 @@
 "cloud_scan_wifi_only_footer" = "クラウドのスキャンでは最初にファイル名のみを取得します。曲の詳細（アーティスト、アルバム、カバー、再生時間）はバックグラウンドで読み込まれ、1 曲あたり約 256KB です。これをオンにすると、モバイルデータ通信中は読み込みが一時停止し、Wi-Fi に再接続すると再開します。";
 "backfill_in_progress" = "タグを読み込み中…";
 "backfill_retry_in_progress" = "タグを読み込み中（再試行を含む）…";
-"backfill_retry_pending" = "一部のタグ読み込みは一時停止中";
-"backfill_retry_pending_hint" = "ネットワーク変更または次回起動時に再確認します。同じ曲またはソースの連続自動試行は %d 回までで、その後は手動再試行が必要です。";
 "backfill_waiting_for_wifi" = "Wi-Fi 接続待ち";
 "new_songs_added" = "新着 %d 曲";
 "no_new_songs" = "新しい曲はありません";
 "backfill_remaining" = "確認待ち %d 曲";
-"backfill_retry_count_format" = "%d 件の読み込み失敗により一時停止";
 "backfill_retry_failed" = "一時停止中の %d 曲を再確認";
 "song_details_loading" = "曲情報を読み込み中";
 "song_details_loading_message" = "再生時間、カバー、アーティストを抽出するため、この曲のタグヘッダ（約 256 KB）をクラウドからダウンロードしています。完了すると再生キューに追加できます。";
@@ -3476,7 +3472,6 @@
 "ai_recommendation_status_loading" = "シーン別おすすめを作成中…";
 "ai_recommendation_status_needs_consent" = "再生傾向の送信許可が必要です";
 "ai_recommendation_status_success_format" = "%@ · 「%@」向けに並べ替え済み";
-"ai_recommendation_status_fallback_format" = "優先サービスを利用できないため、%@ が「%@」向けに引き継ぎました";
 "ai_recommendation_status_failed_local" = "スマートサービスを利用できないため、現在のおすすめを維持しました";
 "ai_recommendation_status_busy_local" = "スマートサービスが混み合っているため、現在のおすすめを維持しました";
 "ai_recommendation_status_minute_limit_local" = "リクエストが多すぎます。しばらくしてから再試行してください。現在のおすすめを維持しました";
@@ -3610,14 +3605,10 @@
 "ai_provider_enabled" = "このサービスを使用";
 "ai_primuse_relay_ready" = "内蔵 AI の体験版を利用できます";
 "search_ai_success_format" = "%@ が有効です — %d 件の候補";
-"search_ai_success_fallback_format" = "%@ に切り替えました — %d 件の候補";
 "search_ai_no_matches_format" = "%@ は応答しましたが、ライブラリに候補がありません";
-"search_ai_no_matches_fallback_format" = "%@ に切り替えましたが、候補がありません";
 "search_ai_failed" = "検索を完了できませんでした。通常の検索結果は利用できます。";
 "ext.tv.search.aiSuccess" = "%@ が有効です";
-"ext.tv.search.aiSuccessFallback" = "%@ に切り替えました";
 "ext.tv.search.aiNoMatch" = "%@ に候補がありません";
-"ext.tv.search.aiNoMatchFallback" = "%@ に切り替えても候補がありません";
 "ext.tv.search.aiFailed" = "検索に失敗しました。通常の結果は利用できます";
 "lyrics_translation_mode" = "翻訳方法";
 "lyrics_translation_mode_system" = "システム翻訳";
@@ -3679,8 +3670,6 @@
 "lyrics_translation_ai_loading" = "インテリジェント翻訳中";
 "lyrics_translation_ai_cached" = "キャッシュからインテリジェント翻訳を復元しました";
 "lyrics_translation_ai_success_format" = "%@ の翻訳が有効です";
-"lyrics_translation_ai_fallback_success_format" = "%@ に切り替えて翻訳しました";
-"lyrics_translation_ai_system_fallback" = "インテリジェント翻訳を利用できないため、システム翻訳を使用中";
 "lyrics_translation_unavailable" = "歌詞翻訳を利用できません";
 "stats_data_source" = "データソース";
 "stats_source_local" = "このデバイス";
@@ -3835,12 +3824,8 @@
 "metadata_status_stalled_reason" = "一巡後も同じ曲が変化しなかったため、ループを防ぐ目的でこのセッションの重複リクエストを停止しました。";
 "metadata_status_reason_unknown" = "メタデータの読み取りに失敗しましたが、ソースから具体的なエラーが返されませんでした。";
 "metadata_status_open" = "詳細を表示";
-"metadata_status_card_pending_format" = "保留 %d";
-"metadata_status_card_retry_format" = "再試行 %d";
 "metadata_status_card_source_problem_format" = "ソース/ファイルの問題 %d";
 "metadata_status_card_unreadable_format" = "読み取り不可 %d";
-"metadata_status_card_incomplete_format" = "不完全 %d";
-"metadata_status_card_stalled_format" = "進行なし %d";
 "recently_deleted_smart_playlists" = "スマートプレイリスト";
 "recently_deleted_clear_all_confirm_title" = "最近削除した項目をすべて消去しますか？";
 "recently_deleted_clear_all_confirm_message_format" = "Primuse から %d 件の項目と関連するローカル認証情報を完全に消去します。この操作は取り消せません。配信元のオリジナルメディアやクラウドのゴミ箱は削除されません。";

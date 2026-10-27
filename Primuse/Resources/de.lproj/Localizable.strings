@@ -619,7 +619,6 @@
 "remember_device_desc" = "OTP-Verifizierung bei der nächsten Anmeldung überspringen";
 "scan_needs_connect" = "Bitte zuerst verbinden (OTP erforderlich)";
 "resume_scan" = "Scan fortsetzen";
-"scan_resume_hint" = "Der vorherige Scan wurde unterbrochen. Zum Fortsetzen tippen";
 "search_empty_library" = "Noch keine Musik";
 "search_empty_library_desc" = "Füge eine Musikquelle hinzu und scanne sie, um die Suche zu starten";
 "tap_to_scrape" = "Tippe auf das Menü, um Liedtexte abzurufen";
@@ -778,13 +777,10 @@
 "cloud_scan_wifi_only_footer" = "Beim Scannen von Cloud-Speichern werden zunächst nur Dateinamen erfasst. Titeldetails (Künstler, Album, Cover, Dauer) werden im Hintergrund geladen – etwa 256 KB pro Titel. Ist diese Option aktiviert, pausiert das Laden im Mobilfunknetz und wird fortgesetzt, sobald du wieder mit dem WLAN verbunden bist.";
 "backfill_in_progress" = "Tags werden gelesen…";
 "backfill_retry_in_progress" = "Tags werden gelesen (einschließlich Wiederholungen)…";
-"backfill_retry_pending" = "Einige Tag-Lesevorgänge sind pausiert";
-"backfill_retry_pending_hint" = "Ein Netzwerkwechsel oder der nächste Start setzt die Prüfung fort; derselbe Titel oder dieselbe Quelle erhält höchstens %d aufeinanderfolgende automatische Versuche, danach ist ein manueller Versuch nötig.";
 "backfill_waiting_for_wifi" = "Warten auf WLAN";
 "new_songs_added" = "%d neue Titel";
 "no_new_songs" = "Keine neuen Titel";
 "backfill_remaining" = "%d zu prüfen";
-"backfill_retry_count_format" = "Pausiert nach %d erfassten Lesefehler(n)";
 "backfill_retry_failed" = "%d pausierte Titel erneut prüfen";
 "song_details_loading" = "Titelinformationen werden gelesen";
 "song_details_loading_message" = "Der Tag-Header dieses Titels (~256 KB) wird aus der Cloud geladen, um Dauer, Cover und Künstler zu ermitteln. Danach kann der Titel zur Wiedergabeliste hinzugefügt werden.";
@@ -3475,7 +3471,6 @@
 "ai_recommendation_status_loading" = "Szenenempfehlungen werden erstellt…";
 "ai_recommendation_status_needs_consent" = "Zustimmung für Hörvorlieben erforderlich";
 "ai_recommendation_status_success_format" = "%@ · für %@ neu sortiert";
-"ai_recommendation_status_fallback_format" = "Hauptdienst nicht verfügbar; %@ übernimmt für %@";
 "ai_recommendation_status_failed_local" = "Intelligenter Dienst nicht verfügbar; vorhandene Empfehlungen bleiben erhalten";
 "ai_recommendation_status_busy_local" = "Intelligenter Dienst ist ausgelastet; vorhandene Empfehlungen bleiben erhalten";
 "ai_recommendation_status_minute_limit_local" = "Zu viele Anfragen. Bitte später erneut versuchen; vorhandene Empfehlungen bleiben erhalten";
@@ -3609,14 +3604,10 @@
 "ai_provider_enabled" = "Diesen Dienst verwenden";
 "ai_primuse_relay_ready" = "Die integrierte KI ist einsatzbereit";
 "search_ai_success_format" = "%@ ist aktiv – %d intelligente Treffer";
-"search_ai_success_fallback_format" = "Auf %@ ausgewichen – %d intelligente Treffer";
 "search_ai_no_matches_format" = "%@ hat geantwortet, aber keine Titel passten";
-"search_ai_no_matches_fallback_format" = "Auf %@ ausgewichen, aber keine Titel passten";
 "search_ai_failed" = "Intelligente Suche fehlgeschlagen. Die normale Suche bleibt verfügbar.";
 "ext.tv.search.aiSuccess" = "%@ ist aktiv";
-"ext.tv.search.aiSuccessFallback" = "Auf %@ ausgewichen";
 "ext.tv.search.aiNoMatch" = "%@ fand keine Treffer";
-"ext.tv.search.aiNoMatchFallback" = "Keine Treffer nach Wechsel zu %@";
 "ext.tv.search.aiFailed" = "Intelligente Suche fehlgeschlagen; normale Ergebnisse bleiben verfügbar";
 "lyrics_translation_mode" = "Übersetzungsmethode";
 "lyrics_translation_mode_system" = "Systemübersetzung";
@@ -3678,8 +3669,6 @@
 "lyrics_translation_ai_loading" = "Intelligente Übersetzung läuft";
 "lyrics_translation_ai_cached" = "Intelligente Übersetzung aus dem Cache wiederhergestellt";
 "lyrics_translation_ai_success_format" = "Übersetzung von %@ ist aktiv";
-"lyrics_translation_ai_fallback_success_format" = "Übersetzung nach Wechsel zu %@ abgeschlossen";
-"lyrics_translation_ai_system_fallback" = "Intelligente Übersetzung nicht verfügbar – Systemübersetzung wird verwendet";
 "lyrics_translation_unavailable" = "Liedtextübersetzung ist nicht verfügbar";
 "stats_data_source" = "Datenquelle";
 "stats_source_local" = "Dieses Gerät";
@@ -3834,12 +3823,8 @@
 "metadata_status_stalled_reason" = "Nach einem vollständigen Durchlauf blieben dieselben Titel unverändert. Wiederholte Anfragen wurden für diese Sitzung gestoppt, um eine Schleife zu vermeiden.";
 "metadata_status_reason_unknown" = "Das Lesen der Metadaten ist fehlgeschlagen, aber die Quelle lieferte keinen genaueren Fehler.";
 "metadata_status_open" = "Details anzeigen";
-"metadata_status_card_pending_format" = "Ausstehend %d";
-"metadata_status_card_retry_format" = "Wiederholung %d";
 "metadata_status_card_source_problem_format" = "Quellen-/Dateiproblem %d";
 "metadata_status_card_unreadable_format" = "Nicht lesbar %d";
-"metadata_status_card_incomplete_format" = "Unvollständig %d";
-"metadata_status_card_stalled_format" = "Kein Fortschritt %d";
 "recently_deleted_smart_playlists" = "Intelligente Playlists";
 "recently_deleted_clear_all_confirm_title" = "Zuletzt gelöscht leeren?";
 "recently_deleted_clear_all_confirm_message_format" = "%d Elemente und zugehörige lokale Zugangsdaten werden dauerhaft aus Primuse entfernt. Dies kann nicht rückgängig gemacht werden. Originalmedien an den Quellen und Cloud-Papierkörbe werden nicht gelöscht.";

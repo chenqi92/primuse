@@ -14496,8 +14496,9 @@ enum LyricsTranslationActivity: Equatable {
 }
 
 extension LyricsAITranslationReadiness {
-    /// 歌词页提示用的一句:智能翻译差哪一步,这次改用了系统翻译。
-    var systemFallbackNotice: String {
+    /// 歌词页提示用的一句:智能翻译差哪一步、用户去哪里补上。用户做不了什么的
+    /// (所在地区没有、其实已就绪)返回 nil:系统翻译照样给了译文,不必说。
+    var systemFallbackNotice: String? {
         switch self {
         case .needsBuiltInConsent:
             String(localized: "lyrics_translation_ai_notice_builtin_consent")
@@ -14506,7 +14507,7 @@ extension LyricsAITranslationReadiness {
         case .noService:
             String(localized: "lyrics_translation_ai_notice_no_service")
         case .ready, .regionUnavailable:
-            String(localized: "lyrics_translation_ai_system_fallback")
+            nil
         }
     }
 }
@@ -16839,26 +16840,25 @@ private struct LyricsTranslationStatusChip: View {
                           title: String(localized: "lyrics_translation_ai_cached"),
                           systemImage: "checkmark.circle.fill", tone: .success, action: nil)
         case .intelligentSuccess(let provider, let fallbackDepth):
+            // 后备服务译出来的也是译好了，照成功写，不另挂「已降级」。
             let name = provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
             return Status(
                 key: "aiSuccess|\(provider)|\(fallbackDepth)",
                 title: String(
-                    format: String(localized: fallbackDepth > 0
-                                   ? "lyrics_translation_ai_fallback_success_format"
-                                   : "lyrics_translation_ai_success_format"),
+                    format: String(localized: "lyrics_translation_ai_success_format"),
                     name
                 ),
-                systemImage: fallbackDepth > 0 ? "arrow.trianglehead.branch" : "checkmark.circle.fill",
-                tone: fallbackDepth > 0 ? .warning : .success,
+                systemImage: "checkmark.circle.fill",
+                tone: .success,
                 action: nil
             )
         case .systemFallback:
-            return Status(key: "systemFallback",
-                          title: String(localized: "lyrics_translation_ai_system_fallback"),
-                          systemImage: "arrow.uturn.backward.circle.fill", tone: .warning, action: nil)
+            // 系统翻译照样给了译文，不提智能翻译没成。
+            return nil
         case .intelligentNotReady(let readiness):
+            guard let notice = readiness.systemFallbackNotice else { return nil }
             return Status(key: "intelligentNotReady|\(readiness)",
-                          title: readiness.systemFallbackNotice,
+                          title: notice,
                           systemImage: "sparkles", tone: .warning, action: nil)
         case .systemPreparationRequired:
             return Status(key: "systemPreparation",

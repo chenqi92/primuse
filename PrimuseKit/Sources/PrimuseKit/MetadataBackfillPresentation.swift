@@ -352,6 +352,12 @@ public struct MetadataBackfillSourceSummary: Equatable, Sendable {
         activeQueueCount + problemCount
     }
 
+    /// 源卡片只为用户自己看得出来的问题露面：标签读不出来、来源或文件出了问题。
+    /// 排队、等 Wi-Fi、等重试、无进展都由后台自己收尾，只留在详情页。
+    public var cardProblemCount: Int {
+        sourceUnavailableCount + fileUnavailableCount + unreadableTagsCount
+    }
+
     public func count(for filter: MetadataBackfillStatusFilter) -> Int {
         switch filter {
         case .all:

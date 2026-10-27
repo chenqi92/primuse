@@ -4584,6 +4584,30 @@ final class SourceManager {
         return "\(advice.title): \(message) · \(advice.suggestion)"
     }
 
+    /// 这次扫描失败是不是过一会儿自己会好的：连不上、超时、限流、钥匙串在首次解锁前
+    /// 读不到。登录失效、没有权限、配置不对这类要用户处理的都不算。
+    nonisolated static func isTransientScanFailure(_ error: Error) -> Bool {
+        if SourceNetworkFailurePolicy.isNetworkFailure(error) { return true }
+        if let failure = error as? HTTPResponseFailure {
+            return failure.isRateLimited || failure.retryAfter != nil
+                || [429, 503].contains(failure.statusCode)
+        }
+        if let status = error as? RemoteDirectoryHTTPStatusError { return status.isRateLimited }
+        if let fnError = error as? FnConnectError {
+            switch fnError {
+            case .unreachable, .discoveryUnavailable: return true
+            default: return false
+            }
+        }
+        switch error {
+        case SourceError.timeout, CloudDriveError.rateLimited,
+             CloudDriveError.credentialTemporarilyUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
+
     func scanFailureMessage(for report: SourceDiagnosticReport) -> String {
         guard let failure = report.blockingFailure else {
             return String(localized: "source_diag_scan_ready_warning")
