@@ -3309,6 +3309,8 @@
 "artwork_choose_photo" = "写真から選択";
 "artwork_choose_file" = "アップロード";
 "artwork_choose_song" = "曲から選択";
+"artwork_choose_folder_image" = "アルバムフォルダから選択";
+"artwork_folder_images_empty" = "アルバムフォルダに画像がありません。";
 "artwork_no_songs" = "選択できる曲がありません。";
 "artwork_storage_hint" = "曲を選ぶと、デバイス間で参照できる情報として保存されます。アップロードした画像は Primuse に保存され、ライブラリ同期を有効にすると同期対象になります。";
 "artwork_processing" = "アートワークを準備しています…";

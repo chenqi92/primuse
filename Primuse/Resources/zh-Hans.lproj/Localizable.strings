@@ -3410,6 +3410,8 @@
 "artwork_choose_photo" = "从照片中选择";
 "artwork_choose_file" = "上传";
 "artwork_choose_song" = "从歌曲中选择";
+"artwork_choose_folder_image" = "从专辑文件夹中选择";
+"artwork_folder_images_empty" = "专辑文件夹里没有图片。";
 "artwork_no_songs" = "没有可供选择的歌曲。";
 "artwork_storage_hint" = "选择歌曲时保存可跨设备解析的歌曲标识；上传的图片保存在 Primuse 持久资源目录中，开启资料库同步时会一并传输。";
 "artwork_processing" = "正在处理封面…";

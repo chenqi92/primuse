@@ -870,6 +870,8 @@
 "artwork_choose_file" = "อัปโหลด";
 "artwork_choose_photo" = "เลือกจากรูปภาพ";
 "artwork_choose_song" = "เลือกจากเพลง";
+"artwork_choose_folder_image" = "เลือกจากโฟลเดอร์อัลบั้ม";
+"artwork_folder_images_empty" = "ไม่มีรูปภาพในโฟลเดอร์อัลบั้ม";
 "artwork_edit" = "เปลี่ยนอาร์ตเวิร์ก";
 "artwork_editor_title" = "เลือกอาร์ตเวิร์ก";
 "artwork_invalid_image" = "เลือกรูปภาพที่ถูกต้องที่ Primuse สามารถประมวลผลได้";

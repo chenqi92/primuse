@@ -1491,6 +1491,7 @@ struct TVAlbumDetailView: View {
     /// 当前显示的专辑。补全专辑信息改了专辑名时专辑会换 id,跟着它的歌走过去。
     @State private var albumID: String
     @State private var showsAlbumScrape = false
+    @State private var showsCoverPicker = false
     @State private var songIDsBeforeScrape: [String] = []
     @State private var showsRestoreConfirmation = false
     /// 长按曲目选了「从本机移除」,等确认。
@@ -1712,6 +1713,9 @@ struct TVAlbumDetailView: View {
         .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: albumScrapeDismissed) {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
+        .fullScreenCover(isPresented: $showsCoverPicker) {
+            TVAlbumCoverPicker(albumID: albumID).environment(store)
+        }
         .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }
         .task(id: songIDs) { await loadAppleMusicRemainder(album: album, songIDs: songIDs) }
         .task(id: albumID) { await loadBackCover() }
@@ -1804,6 +1808,9 @@ struct TVAlbumDetailView: View {
                     songIDsBeforeScrape = songIDs
                     showsAlbumScrape = true
                 }
+            }
+            Button(String(localized: "artwork_edit"), systemImage: "photo.on.rectangle") {
+                TVModalHandoff.afterFocusSettles { showsCoverPicker = true }
             }
             // 有手动编辑或刮削改过、不再跟随文件标签的歌时才有。
             if hasEditedSongs {
@@ -2332,6 +2339,248 @@ struct TVPagedSongIDList: View {
                     focusID: focusBinding == nil ? nil : focusIDPrefix + songID
                 )
             }
+        }
+    }
+}
+/// 专辑页「更多」→「更换封面」:恢复自动,或从专辑文件夹(分碟专辑连同各碟的子文件夹)里的图片
+/// 挑一张存成这张专辑的封面。和 iPhone、Mac 的「更换封面」是同一份专辑封面设置,会同步到别的设备。
+struct TVAlbumCoverPicker: View {
+    let albumID: String
+
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedID: String?
+
+    struct Picture: Identifiable, Sendable {
+        let entry: TVDirEntry
+        let sourceID: String
+
+        var id: String { "\(sourceID)|\(entry.path)" }
+    }
+
+    private enum Phase: Equatable { case loading, ready, saving, failed }
+
+    @State private var pictures: [Picture] = []
+    @State private var phase: Phase = .loading
+
+    private static let automaticID = "automatic"
+    private static let cardSize: CGFloat = 220
+    /// 分碟专辑每张碟一个文件夹;列这么多个就够把专辑里的图找全。
+    private static let maximumFolders = 8
+
+    private var owner: LibraryArtworkOwner { LibraryArtworkOwner(kind: .album, id: albumID) }
+
+    private var isAutomatic: Bool {
+        store.library.artworkPresentation(for: owner).resolution == .automatic
+    }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            panel
+                .padding(.horizontal, 90)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .task { await load() }
+        .onExitCommand { dismiss() }
+        .accessibilityIdentifier("tv.album.cover-picker")
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "artwork_edit"))
+                    .tvFont(.pageTitle)
+                    .foregroundStyle(TVColor.text)
+                if let album = store.album(albumID) {
+                    Text(verbatim: [album.title, album.artist].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .tvFont(.cardTitle)
+                        .foregroundStyle(TVColor.textMuted)
+                        .lineLimit(1)
+                }
+            }
+            Text(String(localized: "artwork_choose_folder_image"))
+                .tvFont(.eyebrow)
+                .foregroundStyle(TVColor.textMuted)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 36) {
+                    automaticCard
+                    ForEach(pictures) { picture in
+                        pictureCard(picture)
+                    }
+                }
+                .padding(.vertical, 24)
+                .padding(.horizontal, 12)
+            }
+            .scrollClipDisabled()
+            .focusSection()
+            status
+        }
+        .padding(.horizontal, 60).padding(.vertical, 46)
+        .frame(maxWidth: 1500, alignment: .leading)
+        .tvPanel(radius: 26)
+        .disabled(phase == .saving)
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch phase {
+        case .loading, .saving:
+            ProgressView()
+        case .failed:
+            Text(String(localized: "artwork_invalid_image"))
+                .tvFont(.caption)
+                .foregroundStyle(TVColor.textMuted)
+        case .ready:
+            if pictures.isEmpty {
+                Text(String(localized: "artwork_folder_images_empty"))
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+            }
+        }
+    }
+
+    private var automaticCard: some View {
+        let focused = focusedID == Self.automaticID
+        return Button {
+            _ = store.library.setAutomaticArtwork(for: owner)
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous)
+                        .fill(TVColor.surfaceStrong)
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 56, weight: .light))
+                        .foregroundStyle(TVColor.textMuted)
+                }
+                .frame(width: Self.cardSize, height: Self.cardSize)
+                .overlay(alignment: .topTrailing) { if isAutomatic { selectedBadge } }
+                .tvFocusRing(focused, radius: TVRadius.cover)
+                Text(String(localized: "artwork_mode_automatic"))
+                    .tvFont(.rowTitle)
+                    .foregroundStyle(TVColor.text)
+                    .lineLimit(1)
+                    .frame(width: Self.cardSize, alignment: .leading)
+            }
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedID, equals: Self.automaticID)
+        .focusEffectDisabled()
+    }
+
+    private func pictureCard(_ picture: Picture) -> some View {
+        let focused = focusedID == picture.id
+        return Button {
+            choose(picture)
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                TVAlbumFolderPictureThumbnail(picture: picture, size: Self.cardSize)
+                    .clipShape(RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous))
+                    .tvFocusRing(focused, radius: TVRadius.cover)
+                Text(verbatim: picture.entry.name)
+                    .tvFont(.meta)
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: Self.cardSize, alignment: .leading)
+            }
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedID, equals: picture.id)
+        .focusEffectDisabled()
+    }
+
+    private var selectedBadge: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 34))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, TVColor.brand)
+            .padding(12)
+    }
+
+    private func load() async {
+        var seenFolders: Set<String> = []
+        var seenPictures: Set<String> = []
+        var found: [Picture] = []
+        for songID in store.songIDs(forAlbum: albumID) {
+            guard seenFolders.count < Self.maximumFolders,
+                  let song = store.library.song(id: songID),
+                  seenFolders.insert(TVAlbumBackArtwork.directoryKey(for: song)).inserted,
+                  let listing = await TVAlbumFolderPictures.listing(for: song, store: store) else { continue }
+            guard !Task.isCancelled else { return }
+            // 专辑文件夹里的排在前面,各碟子文件夹里的跟在后面。
+            for entry in (listing.albumFolder ?? []) + listing.songFolder {
+                let picture = Picture(entry: entry, sourceID: song.sourceID)
+                if seenPictures.insert(picture.id).inserted { found.append(picture) }
+            }
+        }
+        pictures = found
+        phase = .ready
+    }
+
+    private func choose(_ picture: Picture) {
+        guard phase != .saving else { return }
+        phase = .saving
+        Task {
+            if await save(picture) {
+                dismiss()
+            } else {
+                phase = .failed
+            }
+        }
+    }
+
+    private func save(_ picture: Picture) async -> Bool {
+        guard let data = await TVAlbumFolderPictures.originalData(
+            of: picture.entry,
+            sourceID: picture.sourceID,
+            store: store
+        ) else { return false }
+        let processed = await Task.detached(priority: .userInitiated) {
+            LibraryArtworkImageProcessor.process(data)
+        }.value
+        guard let processed,
+              let contentID = await MetadataAssetStore.shared.storeCustomArtwork(processed) else { return false }
+        return store.library.setUploadedArtwork(contentID: contentID, for: owner)
+    }
+}
+
+/// 「更换封面」里一张文件夹图片的缩略图;读图、缩图和缓存与专辑封底共用。
+private struct TVAlbumFolderPictureThumbnail: View {
+    let picture: TVAlbumCoverPicker.Picture
+    let size: CGFloat
+
+    @Environment(TVStore.self) private var store
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            TVColor.surfaceStrong
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(TVColor.textFaint)
+            }
+        }
+        .frame(width: size, height: size)
+        .task(id: picture.id) {
+            let file = TVAlbumFolderPictures.file(picture.entry)
+            let key = TVAlbumBackArtwork.memoryKey(sourceID: picture.sourceID, file: file)
+            if let cached = PlayerBackdropMemoryCache.shared.image(forKey: key) {
+                image = cached
+                return
+            }
+            let load = TVAlbumBackArtwork.loader(file: file, sourceID: picture.sourceID, store: store)
+            let loaded = await Task.detached(priority: .userInitiated) { await load() }.value
+            guard let loaded, !Task.isCancelled else { return }
+            PlayerBackdropMemoryCache.shared.insert(loaded, forKey: key)
+            image = loaded
         }
     }
 }

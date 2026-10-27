@@ -3257,6 +3257,8 @@
 "smart_combinator_section" = "Комбінуйте";
 "ai_provider_actions" = "Управління послугами";
 "artwork_choose_song" = "Виберіть із пісень";
+"artwork_choose_folder_image" = "Вибрати з теки альбому";
+"artwork_folder_images_empty" = "У теці альбому немає зображень.";
 "metadata_status_retry_reason" = "Останнє зчитування виявило тимчасову помилку та було збережено для повторної спроби вручну або пізніше.";
 "tag_editor_lyrics_add" = "Додати текст";
 "home_recently_added_subtitle" = "Найновіше у вашій бібліотеці";

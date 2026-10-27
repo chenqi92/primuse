@@ -3308,6 +3308,8 @@
 "artwork_choose_photo" = "Aus Fotos auswählen";
 "artwork_choose_file" = "Hochladen";
 "artwork_choose_song" = "Aus Titeln auswählen";
+"artwork_choose_folder_image" = "Aus dem Albumordner wählen";
+"artwork_folder_images_empty" = "Im Albumordner gibt es keine Bilder.";
 "artwork_no_songs" = "Es sind keine Titel zur Auswahl vorhanden.";
 "artwork_storage_hint" = "Ein ausgewählter Titel wird als geräteübergreifender Verweis gespeichert. Hochgeladene Bilder werden in Primuse gespeichert und bei aktivierter Mediatheksynchronisierung übertragen.";
 "artwork_processing" = "Cover wird vorbereitet…";

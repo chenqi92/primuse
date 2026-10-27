@@ -3257,6 +3257,8 @@
 "smart_combinator_section" = "Объединить";
 "ai_provider_actions" = "Управление услугами";
 "artwork_choose_song" = "Выбор песен";
+"artwork_choose_folder_image" = "Выбрать из папки альбома";
+"artwork_folder_images_empty" = "В папке альбома нет изображений.";
 "metadata_status_retry_reason" = "Последнее чтение привело к временной ошибке и было сохранено для ручного или последующего повторения.";
 "tag_editor_lyrics_add" = "Добавить текст";
 "home_recently_added_subtitle" = "Новейшее в вашей медиатеке.";

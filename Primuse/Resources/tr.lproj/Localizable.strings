@@ -3257,6 +3257,8 @@
 "smart_combinator_section" = "Birleştir";
 "ai_provider_actions" = "Hizmet Yönetimi";
 "artwork_choose_song" = "Şarkılardan Seç";
+"artwork_choose_folder_image" = "Albüm klasöründen seç";
+"artwork_folder_images_empty" = "Albüm klasöründe görsel yok.";
 "metadata_status_retry_reason" = "En son okumada geçici bir hata oluştu ve manuel olarak veya daha sonra yeniden deneme için saklandı.";
 "tag_editor_lyrics_add" = "Şarkı Sözleri Ekle";
 "home_recently_added_subtitle" = "Arşivinizdeki en yeniler";

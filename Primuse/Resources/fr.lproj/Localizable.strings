@@ -3308,6 +3308,8 @@
 "artwork_choose_photo" = "Choisir dans Photos";
 "artwork_choose_file" = "Importer";
 "artwork_choose_song" = "Choisir parmi les morceaux";
+"artwork_choose_folder_image" = "Choisir dans le dossier de l’album";
+"artwork_folder_images_empty" = "Le dossier de l’album ne contient aucune image.";
 "artwork_no_songs" = "Aucun morceau n’est disponible.";
 "artwork_storage_hint" = "Un morceau choisi est enregistré comme référence multiappareil. Les images importées sont stockées dans Primuse et transférées lorsque la synchronisation de la bibliothèque est activée.";
 "artwork_processing" = "Préparation de l’illustration…";

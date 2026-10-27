@@ -1077,12 +1077,16 @@ struct LibraryArtworkEditorSheet: View {
     @State private var songCoverProgress: (done: Int, total: Int)?
     /// 写给歌曲时有几首没写成;关掉提示框就收起编辑页(专辑封面本身已经换好)。
     @State private var songCoverFailure: String?
+    /// 专辑文件夹(分碟专辑连同各碟的子文件夹)里的图片,选一张存成这张专辑的封面。
+    @State private var folderPictures: [AlbumFolderImages.Picture] = []
     #if os(iOS)
     @State private var selectedPhoto: PhotosPickerItem?
     #else
     @State private var macDraftChoice: MacArtworkChoice?
     @State private var macPendingUploadData: Data?
     @State private var macUploadedPreview: PlatformImage?
+    /// 待保存的那张来自文件夹里的哪张图(勾选标记用)。
+    @State private var chosenFolderPictureID: String?
     #endif
 
     private var resolution: LibraryArtworkOverrideResolution {
@@ -1127,6 +1131,19 @@ struct LibraryArtworkEditorSheet: View {
                     Text("artwork_storage_hint")
                 }
 
+                if !folderPictures.isEmpty {
+                    Section("artwork_choose_folder_image") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(folderPictures) { picture in
+                                    folderPictureChoice(picture, size: 76, isSelected: false)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+
                 Section("artwork_choose_song") {
                     if songs.isEmpty {
                         Text("artwork_no_songs")
@@ -1153,6 +1170,7 @@ struct LibraryArtworkEditorSheet: View {
             }
             .disabled(isProcessing)
             .interactiveDismissDisabled(isProcessing)
+            .task { await loadFolderPictures() }
             .overlay {
                 if let songCoverProgress {
                     songCoverProgressView(songCoverProgress)
@@ -1308,6 +1326,25 @@ struct LibraryArtworkEditorSheet: View {
                 .frame(width: 176)
 
                 VStack(alignment: .leading, spacing: 12) {
+                    if !folderPictures.isEmpty {
+                        Text("artwork_choose_folder_image")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(folderPictures) { picture in
+                                    folderPictureChoice(
+                                        picture,
+                                        size: 86,
+                                        isSelected: macChoice == .pendingUpload && chosenFolderPictureID == picture.id
+                                    )
+                                }
+                            }
+                            .padding(1)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     HStack {
                         Text("artwork_choose_song")
                             .font(.system(size: 13, weight: .semibold))
@@ -1392,6 +1429,7 @@ struct LibraryArtworkEditorSheet: View {
             Text(errorMessage ?? "")
         }
         .modifier(songCoverFailureAlert)
+        .task { await loadFolderPictures() }
         .onAppear {
             macDraftChoice = resolvedMacChoice
             if case .uploaded(let contentID) = resolvedMacChoice,
@@ -1706,6 +1744,9 @@ struct LibraryArtworkEditorSheet: View {
                 errorMessage = String(localized: "artwork_invalid_image")
                 return
             }
+            #if os(macOS)
+            chosenFolderPictureID = nil
+            #endif
             processUpload(data)
         case .failure(let error):
             guard !isUserCancellation(error) else { return }
@@ -1765,6 +1806,78 @@ struct LibraryArtworkEditorSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(!isAvailable)
+    }
+
+    // MARK: 专辑文件夹里的图片
+
+    /// 专辑里的歌所在的文件夹(分碟专辑每张碟一个)都列一遍;专辑文件夹里的排在前面。
+    private func loadFolderPictures() async {
+        guard owner.kind == .album else { return }
+        var seenFolders: Set<String> = []
+        var seenPictures: Set<String> = []
+        var found: [AlbumFolderImages.Picture] = []
+        for song in songsForCoverSync where seenFolders.count < 8 {
+            let folder = "\(song.sourceID)|\((song.filePath as NSString).deletingLastPathComponent)"
+            guard seenFolders.insert(folder).inserted,
+                  let listing = await AlbumFolderImages.listing(for: song, sourceManager: sourceManager)
+            else { continue }
+            guard !Task.isCancelled else { return }
+            for picture in (listing.albumFolder ?? []) + listing.songFolder
+            where seenPictures.insert(picture.id).inserted {
+                found.append(picture)
+            }
+        }
+        folderPictures = found
+    }
+
+    private func folderPictureChoice(
+        _ picture: AlbumFolderImages.Picture,
+        size: CGFloat,
+        isSelected: Bool
+    ) -> some View {
+        Button {
+            chooseFolderPicture(picture)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    AlbumFolderPictureThumbnail(picture: picture, size: size)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 17))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.accentColor)
+                            .padding(6)
+                    }
+                }
+                Text(verbatim: picture.name)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: size, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: picture.name))
+    }
+
+    /// 读原图,再和上传的图片走同一条路(压到可同步的大小、存进 Primuse、设为这张专辑的封面)。
+    private func chooseFolderPicture(_ picture: AlbumFolderImages.Picture) {
+        isProcessing = true
+        errorMessage = nil
+        Task {
+            let data = await AlbumFolderImages.originalData(of: picture, sourceManager: sourceManager)
+            isProcessing = false
+            guard let data else {
+                errorMessage = String(localized: "artwork_invalid_image")
+                return
+            }
+            #if os(macOS)
+            chosenFolderPictureID = picture.id
+            #endif
+            processUpload(data)
+        }
     }
 
     private func processUpload(_ data: Data) {
@@ -1899,6 +2012,38 @@ struct LibraryArtworkEditorSheet: View {
 
     private var songCoverFailureAlert: SongCoverFailureAlert {
         SongCoverFailureAlert(message: $songCoverFailure) { dismiss() }
+    }
+}
+
+/// 「更换封面」里一张文件夹图片的缩略图。
+private struct AlbumFolderPictureThumbnail: View {
+    let picture: AlbumFolderImages.Picture
+    let size: CGFloat
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.12)
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .task(id: picture.id) {
+            image = await AlbumFolderImages.image(
+                of: picture,
+                maxPixel: Int(size * 3),
+                sourceManager: sourceManager
+            )
+        }
     }
 }
 

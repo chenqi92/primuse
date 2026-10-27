@@ -870,6 +870,8 @@
 "artwork_choose_file" = "Enviar";
 "artwork_choose_photo" = "Escolha entre fotos";
 "artwork_choose_song" = "Escolha entre músicas";
+"artwork_choose_folder_image" = "Escolher da pasta do álbum";
+"artwork_folder_images_empty" = "Não há imagens na pasta do álbum.";
 "artwork_edit" = "Alterar capa";
 "artwork_editor_title" = "Escolher capa";
 "artwork_invalid_image" = "Escolha uma imagem válida que o Primuse possa processar.";

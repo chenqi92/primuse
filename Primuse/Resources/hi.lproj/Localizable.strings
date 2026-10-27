@@ -870,6 +870,8 @@
 "artwork_choose_file" = "अपलोड करें";
 "artwork_choose_photo" = "फ़ोटो में से चुनें";
 "artwork_choose_song" = "गानों में से चुनें";
+"artwork_choose_folder_image" = "एल्बम फ़ोल्डर से चुनें";
+"artwork_folder_images_empty" = "एल्बम फ़ोल्डर में कोई तस्वीर नहीं है।";
 "artwork_edit" = "कलाकृति बदलें";
 "artwork_editor_title" = "कलाकृति चुनें";
 "artwork_invalid_image" = "एक वैध छवि चुनें जिसे Primuse प्रोसेस कर सके।";

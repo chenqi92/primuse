@@ -870,6 +870,8 @@
 "artwork_choose_file" = "رفع";
 "artwork_choose_photo" = "اختر من الصور";
 "artwork_choose_song" = "اختر من الاغاني";
+"artwork_choose_folder_image" = "الاختيار من مجلد الألبوم";
+"artwork_folder_images_empty" = "لا توجد صور في مجلد الألبوم.";
 "artwork_edit" = "تغيير العمل الفني";
 "artwork_editor_title" = "اختر العمل الفني";
 "artwork_invalid_image" = "اختر صورة صالحة يستطيع Primuse معالجتها.";

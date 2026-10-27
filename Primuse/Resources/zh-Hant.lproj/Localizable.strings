@@ -3294,6 +3294,8 @@
 "artwork_choose_photo" = "從照片中選擇";
 "artwork_choose_file" = "上傳";
 "artwork_choose_song" = "從歌曲中選擇";
+"artwork_choose_folder_image" = "從專輯資料夾中選擇";
+"artwork_folder_images_empty" = "專輯資料夾裡沒有圖片。";
 "artwork_no_songs" = "沒有可供選擇的歌曲。";
 "artwork_storage_hint" = "選擇歌曲時儲存可跨裝置解析的歌曲識別碼；上傳的圖片儲存在 Primuse 持久資源目錄中，啟用資料庫同步時會一併傳輸。";
 "artwork_processing" = "正在處理封面…";
