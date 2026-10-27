@@ -2144,6 +2144,9 @@
 		2CA5681B48114712B1625C2E /* TVAppIconSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F49681B8A742988E611135 /* TVAppIconSettingsView.swift */; };
 		D6CEEE8D6A6D410AB507C6F8 /* AppIconServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */; };
 		820CA56EFE474091BE5D90F4 /* AppIconServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */; };
+		57941D380B1FCCF02E5B1457 /* HomeSpaceFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */; };
+		88DEFB7912EB3E5E91619DD8 /* HomeSpaceFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */; };
+		88BD619F1B7D69E77B643F58 /* HomeTopSwitchingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3959,6 +3962,8 @@
 		F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon20.icon; sourceTree = "<group>"; };
 		77F49681B8A742988E611135 /* TVAppIconSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAppIconSettingsView.swift; sourceTree = "<group>"; };
 		A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconServiceTests.swift; sourceTree = "<group>"; };
+		D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSpaceFilterBar.swift; sourceTree = "<group>"; };
+		7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTopSwitchingUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4251,6 +4256,7 @@
 				8AFBA8DC0C727712FFE7F7B1 /* HomeListeningSpaces.swift */,
 				81119E6E832DAD7DC7750C0F /* HomeStartListeningSection.swift */,
 				56FB421EEBD96C4651F28FD5 /* HomeView.swift */,
+				D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */,
 				428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */,
 			);
 			path = Home;
@@ -4834,6 +4840,7 @@
 				CC751DB281538ACD1BD13986 /* CarPlayEditorUITests.swift */,
 				8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */,
 				6C86FC1DC1CC2F835DF793A2 /* SettingsInfoButtonUITests.swift */,
+				7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */,
 			);
 			path = CarPlayEditorUITests;
 			sourceTree = "<group>";
@@ -6835,6 +6842,7 @@
 				DE548F712D4D5F4D04A332BD /* CarPlayEditorUITests.swift in Sources */,
 				953F0A17E59BDE10CD67684E /* SearchExperienceUITests.swift in Sources */,
 				9746A3EB6A17B27E11E1A23D /* SettingsInfoButtonUITests.swift in Sources */,
+				88BD619F1B7D69E77B643F58 /* HomeTopSwitchingUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7600,6 +7608,7 @@
 				47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */,
 				B62364C685F911FBDFB2B603 /* HomeStartListeningSection.swift in Sources */,
 				7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */,
+				57941D380B1FCCF02E5B1457 /* HomeSpaceFilterBar.swift in Sources */,
 				0F0414E3CB10628E6DE25AF7 /* ImmersiveSimulationRenderers.swift in Sources */,
 				9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */,
 				B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */,
@@ -8398,6 +8407,7 @@
 				632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */,
 				43EAB92367D069296EBEB44E /* HomeStartListeningSection.swift in Sources */,
 				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,
+				88DEFB7912EB3E5E91619DD8 /* HomeSpaceFilterBar.swift in Sources */,
 				CDB95C832EBEA9799029DFAD /* ImmersiveSimulationRenderers.swift in Sources */,
 				ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */,
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,

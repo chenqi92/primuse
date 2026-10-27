@@ -572,17 +572,23 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public private(set) var followsSections: Bool
     /// 胶囊怎么写:自动(按宽度退让)或固定一种写法。和显隐、顺序无关。
     public var labelStyle: HomeFilterBarLabelStyle
+    public var appearance: HomeFilterBarAppearance
+    public var swipeEnabled: Bool
 
     public init(
         order: [ListeningSpace],
         hidden: Set<ListeningSpace>,
         followsSections: Bool = false,
-        labelStyle: HomeFilterBarLabelStyle = .automatic
+        labelStyle: HomeFilterBarLabelStyle = .automatic,
+        appearance: HomeFilterBarAppearance = .classic,
+        swipeEnabled: Bool = true
     ) {
         self.order = Self.completedOrder(order)
         self.hidden = followsSections ? [] : hidden
         self.followsSections = followsSections
         self.labelStyle = labelStyle
+        self.appearance = appearance
+        self.swipeEnabled = swipeEnabled
     }
 
     // MARK: 存取
@@ -595,19 +601,25 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         }
         // 认不出的显示方式(新版本加的)按自动算,不连累顺序与显隐。
         let labelStyle = stored.labelStyle.flatMap(HomeFilterBarLabelStyle.init(rawValue:)) ?? .automatic
+        let appearance = stored.appearance.flatMap(HomeFilterBarAppearance.init(rawValue:)) ?? .classic
+        let swipeEnabled = stored.swipeEnabled ?? true
         // 没有 order:只改过显示方式,显隐仍跟着区块走。
         guard let storedOrder = stored.order else {
             return HomeFilterBarConfiguration(
                 order: defaultOrder,
                 hidden: [],
                 followsSections: true,
-                labelStyle: labelStyle
+                labelStyle: labelStyle,
+                appearance: appearance,
+                swipeEnabled: swipeEnabled
             )
         }
         return HomeFilterBarConfiguration(
             order: storedOrder.compactMap(ListeningSpace.init(rawValue:)),
             hidden: Set((stored.hidden ?? []).compactMap(ListeningSpace.init(rawValue:))),
-            labelStyle: labelStyle
+            labelStyle: labelStyle,
+            appearance: appearance,
+            swipeEnabled: swipeEnabled
         )
     }
 
@@ -615,15 +627,20 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
     /// 显示方式是自动时不写这个字段,调过顺序的老数据存回去不多出东西。
     public func encoded() -> String {
         let storedLabelStyle = labelStyle == .automatic ? nil : labelStyle.rawValue
+        let storedAppearance = appearance == .classic ? nil : appearance.rawValue
+        let storedSwipeEnabled: Bool? = swipeEnabled ? nil : false
         let stored: Stored
         if followsSections {
-            guard let storedLabelStyle else { return "" }
-            stored = Stored(order: nil, hidden: nil, labelStyle: storedLabelStyle)
+            guard storedLabelStyle != nil || storedAppearance != nil || storedSwipeEnabled != nil else { return "" }
+            stored = Stored(order: nil, hidden: nil, labelStyle: storedLabelStyle,
+                            appearance: storedAppearance, swipeEnabled: storedSwipeEnabled)
         } else {
             stored = Stored(
                 order: order.map(\.rawValue),
                 hidden: order.filter { hidden.contains($0) }.map(\.rawValue),
-                labelStyle: storedLabelStyle
+                labelStyle: storedLabelStyle,
+                appearance: storedAppearance,
+                swipeEnabled: storedSwipeEnabled
             )
         }
         guard let data = try? JSONEncoder().encode(stored) else { return "" }
@@ -635,6 +652,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         var order: [String]?
         var hidden: [String]?
         var labelStyle: String?
+        var appearance: String?
+        var swipeEnabled: Bool?
     }
 
     // MARK: 查询
@@ -662,7 +681,9 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         return HomeFilterBarConfiguration(
             order: order,
             hidden: Set(order.filter { !sectionShown($0) }),
-            labelStyle: labelStyle
+            labelStyle: labelStyle,
+            appearance: appearance,
+            swipeEnabled: swipeEnabled
         )
     }
 
@@ -672,7 +693,9 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
             order: Self.defaultOrder,
             hidden: [],
             followsSections: true,
-            labelStyle: labelStyle
+            labelStyle: labelStyle,
+            appearance: appearance,
+            swipeEnabled: swipeEnabled
         )
     }
 
@@ -722,6 +745,28 @@ public enum HomeFilterBarLabelStyle: String, CaseIterable, Sendable {
     case iconAndTitle
     case iconOnly
     case titleOnly
+}
+
+public enum HomeFilterBarAppearance: String, CaseIterable, Sendable {
+    case classic, underline, segmented, icons, kinetic, tuner, sleeves
+}
+
+public enum HomeFilterPagingPolicy {
+    /// 综合首页没有选中项，从两侧分别进入可见序列的首尾；栏目之间不循环。
+    public static func neighbor(
+        in spaces: [ListeningSpace], selection: ListeningSpace?, forward: Bool
+    ) -> ListeningSpace? {
+        guard let selection, let index = spaces.firstIndex(of: selection) else {
+            return forward ? spaces.first : spaces.last
+        }
+        let next = index + (forward ? 1 : -1)
+        return spaces.indices.contains(next) ? spaces[next] : nil
+    }
+
+    public static func progress(translation: Double, width: Double) -> Double {
+        guard width.isFinite, width > 0, translation.isFinite else { return 0 }
+        return min(abs(translation) / width, 1)
+    }
 }
 
 /// 一颗胶囊此刻画成什么样。

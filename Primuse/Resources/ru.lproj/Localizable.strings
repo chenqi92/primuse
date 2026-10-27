@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "Очистить фильтр и показать папки";
 "spoken_word_video_show" = "Показать видео";
 "spoken_word_video_hide" = "Только звук";
+
+"home_filter_bar_appearance" = "Стиль верхней области";
+"home_filter_bar_swipe" = "Переключать категории смахиванием";
+"home_filter_style_classic" = "Классические капсулы (по умолчанию)";
+"home_filter_style_underline" = "Текст с подчёркиванием";
+"home_filter_style_segmented" = "Сегменты";
+"home_filter_style_icons" = "Значки";
+"home_filter_style_kinetic" = "Динамические заголовки";
+"home_filter_style_tuner" = "Шкала настройки";
+"home_filter_style_sleeves" = "Конверты пластинок";

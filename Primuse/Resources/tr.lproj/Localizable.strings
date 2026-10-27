@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "Filtreyi temizle ve klasörleri göster";
 "spoken_word_video_show" = "Videoyu göster";
 "spoken_word_video_hide" = "Yalnızca ses";
+
+"home_filter_bar_appearance" = "Üst alan stili";
+"home_filter_bar_swipe" = "Kategoriler arasında kaydır";
+"home_filter_style_classic" = "Klasik kapsüller (varsayılan)";
+"home_filter_style_underline" = "Altı çizili metin";
+"home_filter_style_segmented" = "Bölümlü çubuk";
+"home_filter_style_icons" = "Simgeyle gezinme";
+"home_filter_style_kinetic" = "Dinamik başlıklar";
+"home_filter_style_tuner" = "Frekans göstergesi";
+"home_filter_style_sleeves" = "Plak kılıfları";

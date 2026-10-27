@@ -6950,3 +6950,13 @@
 "library_browse_folder_blocked_search_action" = "絞り込みを消去してフォルダ表示";
 "spoken_word_video_show" = "ビデオを表示";
 "spoken_word_video_hide" = "音声のみ";
+
+"home_filter_bar_appearance" = "上部エリアのスタイル";
+"home_filter_bar_swipe" = "スワイプでカテゴリを切り替える";
+"home_filter_style_classic" = "クラシックカプセル（デフォルト）";
+"home_filter_style_underline" = "下線付きテキスト";
+"home_filter_style_segmented" = "セグメントバー";
+"home_filter_style_icons" = "アイコンナビゲーション";
+"home_filter_style_kinetic" = "動きのある見出し";
+"home_filter_style_tuner" = "チューニングダイヤル";
+"home_filter_style_sleeves" = "レコードジャケット";

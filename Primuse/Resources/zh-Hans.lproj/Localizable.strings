@@ -7042,3 +7042,13 @@
 "library_browse_folder_blocked_search_action" = "清空过滤并按目录浏览";
 "spoken_word_video_show" = "显示视频";
 "spoken_word_video_hide" = "只听声音";
+
+"home_filter_bar_appearance" = "顶部区域样式";
+"home_filter_bar_swipe" = "左右滑动切换";
+"home_filter_style_classic" = "经典胶囊（默认）";
+"home_filter_style_underline" = "文字下划线";
+"home_filter_style_segmented" = "一体分段";
+"home_filter_style_icons" = "图标导航";
+"home_filter_style_kinetic" = "变奏标题";
+"home_filter_style_tuner" = "调频游标";
+"home_filter_style_sleeves" = "唱片抽屉";

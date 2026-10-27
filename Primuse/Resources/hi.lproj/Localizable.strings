@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "फ़िल्टर साफ़ करें और फ़ोल्डर्स देखें";
 "spoken_word_video_show" = "वीडियो दिखाएँ";
 "spoken_word_video_hide" = "केवल ऑडियो";
+
+"home_filter_bar_appearance" = "ऊपरी क्षेत्र की शैली";
+"home_filter_bar_swipe" = "स्वाइप करके श्रेणी बदलें";
+"home_filter_style_classic" = "क्लासिक कैप्सूल (डिफ़ॉल्ट)";
+"home_filter_style_underline" = "रेखांकित पाठ";
+"home_filter_style_segmented" = "खंडित पट्टी";
+"home_filter_style_icons" = "आइकन नेविगेशन";
+"home_filter_style_kinetic" = "गतिशील शीर्षक";
+"home_filter_style_tuner" = "ट्यूनिंग डायल";
+"home_filter_style_sleeves" = "रिकॉर्ड कवर";

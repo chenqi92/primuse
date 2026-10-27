@@ -6710,3 +6710,13 @@
 "library_browse_folder_blocked_search_action" = "Clear Filter and Show Folders";
 "spoken_word_video_show" = "Show Video";
 "spoken_word_video_hide" = "Audio Only";
+
+"home_filter_bar_appearance" = "Top Area Style";
+"home_filter_bar_swipe" = "Swipe Between Categories";
+"home_filter_style_classic" = "Classic Pills (Default)";
+"home_filter_style_underline" = "Underlined Text";
+"home_filter_style_segmented" = "Segmented";
+"home_filter_style_icons" = "Icon Navigation";
+"home_filter_style_kinetic" = "Kinetic Titles";
+"home_filter_style_tuner" = "Tuning Dial";
+"home_filter_style_sleeves" = "Record Sleeves";

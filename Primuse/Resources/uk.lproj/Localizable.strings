@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "Очистити фільтр і показати папки";
 "spoken_word_video_show" = "Показати відео";
 "spoken_word_video_hide" = "Лише звук";
+
+"home_filter_bar_appearance" = "Стиль верхньої області";
+"home_filter_bar_swipe" = "Перемикати категорії гортанням";
+"home_filter_style_classic" = "Класичні капсули (типово)";
+"home_filter_style_underline" = "Підкреслений текст";
+"home_filter_style_segmented" = "Сегменти";
+"home_filter_style_icons" = "Навігація значками";
+"home_filter_style_kinetic" = "Динамічні заголовки";
+"home_filter_style_tuner" = "Шкала налаштування";
+"home_filter_style_sleeves" = "Конверти платівок";

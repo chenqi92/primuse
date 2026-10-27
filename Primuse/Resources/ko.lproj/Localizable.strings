@@ -6949,3 +6949,13 @@
 "library_browse_folder_blocked_search_action" = "필터 지우고 폴더로 보기";
 "spoken_word_video_show" = "비디오 보기";
 "spoken_word_video_hide" = "오디오만";
+
+"home_filter_bar_appearance" = "상단 영역 스타일";
+"home_filter_bar_swipe" = "쓸어서 카테고리 전환";
+"home_filter_style_classic" = "기본 캡슐 (기본값)";
+"home_filter_style_underline" = "밑줄 텍스트";
+"home_filter_style_segmented" = "분할 막대";
+"home_filter_style_icons" = "아이콘 탐색";
+"home_filter_style_kinetic" = "움직이는 제목";
+"home_filter_style_tuner" = "튜닝 다이얼";
+"home_filter_style_sleeves" = "레코드 슬리브";

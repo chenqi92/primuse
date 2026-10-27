@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "Wyczyść filtr i pokaż foldery";
 "spoken_word_video_show" = "Pokaż wideo";
 "spoken_word_video_hide" = "Tylko dźwięk";
+
+"home_filter_bar_appearance" = "Styl górnego obszaru";
+"home_filter_bar_swipe" = "Przesuwaj, aby zmieniać kategorie";
+"home_filter_style_classic" = "Klasyczne kapsułki (domyślnie)";
+"home_filter_style_underline" = "Podkreślony tekst";
+"home_filter_style_segmented" = "Pasek segmentowy";
+"home_filter_style_icons" = "Nawigacja ikonami";
+"home_filter_style_kinetic" = "Dynamiczne tytuły";
+"home_filter_style_tuner" = "Skala strojenia";
+"home_filter_style_sleeves" = "Okładki płyt";

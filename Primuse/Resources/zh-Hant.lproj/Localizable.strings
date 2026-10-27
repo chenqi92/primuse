@@ -6926,3 +6926,13 @@
 "library_browse_folder_blocked_search_action" = "清除篩選並依目錄瀏覽";
 "spoken_word_video_show" = "顯示影片";
 "spoken_word_video_hide" = "只聽聲音";
+
+"home_filter_bar_appearance" = "頂部區域樣式";
+"home_filter_bar_swipe" = "左右滑動切換";
+"home_filter_style_classic" = "經典膠囊（預設）";
+"home_filter_style_underline" = "文字底線";
+"home_filter_style_segmented" = "一體分段";
+"home_filter_style_icons" = "圖示導覽";
+"home_filter_style_kinetic" = "變奏標題";
+"home_filter_style_tuner" = "調頻游標";
+"home_filter_style_sleeves" = "唱片抽屜";

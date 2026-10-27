@@ -33,6 +33,12 @@ private final class HomeRefreshCoordinator {
     }
 }
 
+@MainActor
+private final class HomeScrollMemory {
+    var currentY: CGFloat = 0
+    var offsets: [String: CGFloat] = [:]
+}
+
 struct PersistedHomeAlbumTile: Codable, Sendable {
     let albumID: String
     let artworkSongID: String?
@@ -670,6 +676,7 @@ private struct HomeFilterBarEditor: View {
 
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var rawValue = ""
     @Environment(\.dismiss) private var dismiss
+    @State private var showsStylePicker = false
 
     private var configuration: HomeFilterBarConfiguration {
         .decode(rawValue)
@@ -678,6 +685,24 @@ private struct HomeFilterBarEditor: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Button { showsStylePicker = true } label: {
+                        HStack {
+                            Text("home_filter_bar_appearance")
+                            Spacer()
+                            Text(configuration.appearance.titleKey).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .foregroundStyle(.primary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.filterBar.appearance")
+                    Toggle("home_filter_bar_swipe", isOn: swipeBinding)
+                        .accessibilityIdentifier("home.filterBar.swipe")
+                }
+
                 Section {
                     ForEach(configuration.order, id: \.self) { space in
                         Toggle(isOn: shownBinding(for: space)) {
@@ -699,15 +724,19 @@ private struct HomeFilterBarEditor: View {
                     )
                 }
 
-                Section {
-                    Picker("home_filter_bar_label_style", selection: labelStyleBinding) {
-                        ForEach(HomeFilterBarLabelStyle.allCases, id: \.self) { style in
-                            Text(style.titleKey).tag(style)
+                if configuration.appearance.supportsLabelStyle {
+                    Section {
+                        Picker("home_filter_bar_label_style", selection: labelStyleBinding) {
+                            ForEach(HomeFilterBarLabelStyle.allCases, id: \.self) { style in
+                                Text(style.titleKey).tag(style)
+                            }
+                        }
+                        .accessibilityIdentifier("home.filterBar.labelStyle")
+                    } footer: {
+                        if configuration.appearance == .classic {
+                            Text("home_filter_bar_label_style_footer")
                         }
                     }
-                    .accessibilityIdentifier("home.filterBar.labelStyle")
-                } footer: {
-                    Text("home_filter_bar_label_style_footer")
                 }
 
                 if !configuration.followsSections {
@@ -723,6 +752,9 @@ private struct HomeFilterBarEditor: View {
             .environment(\.editMode, .constant(.active))
             .navigationTitle("home_filter_bar_title")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showsStylePicker) {
+                HomeFilterBarStylePicker(selection: appearanceBinding)
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("done") { dismiss() }
@@ -758,6 +790,26 @@ private struct HomeFilterBarEditor: View {
             rawValue = updated.encoded()
         }
     }
+
+    private var appearanceBinding: Binding<HomeFilterBarAppearance> {
+        Binding {
+            configuration.appearance
+        } set: { appearance in
+            var updated = configuration
+            updated.appearance = appearance
+            rawValue = updated.encoded()
+        }
+    }
+
+    private var swipeBinding: Binding<Bool> {
+        Binding {
+            configuration.swipeEnabled
+        } set: { enabled in
+            var updated = configuration
+            updated.swipeEnabled = enabled
+            rawValue = updated.encoded()
+        }
+    }
 }
 
 private extension HomeFilterBarLabelStyle {
@@ -772,14 +824,7 @@ private extension HomeFilterBarLabelStyle {
 }
 #endif
 
-/// 首页顶上的筛选胶囊。
-///
-/// 每颗胶囊按自己不折行、不截字时的宽度摆,一排挤不下时横向滚动,文字永远不出省略号。
-/// 显示方式是自动时先在一层不显示的背景里量出每颗胶囊各种写法的宽度,再按这一排实际有多宽
-/// 挑写法(`HomeFilterBarFitPolicy`):放得下就全部图标加文字;放不下时选中的那颗仍图标加文字,
-/// 其余先只留文字、再只留图标。写法只随选中与宽度变,切换时跟着筛选的弹簧动画一起过渡。
-/// 首页那几面上不该触发「划回全部」的地方(电台大卡左右是切台),量出来的位置记在这里。
-/// 是个普通的引用:位置随滚动每帧都在变,记下来不该引起重画,手势起手时才读。
+/// 自带横向手势的电台大卡按屏幕坐标登记范围，起手时才读取，避免滚动触发重画。
 @MainActor
 final class HomeFaceSwipeExclusion {
     var frame: CGRect?
@@ -790,12 +835,12 @@ extension EnvironmentValues {
 }
 
 #if os(iOS)
-/// 首页筛到电台、有声、播客那一面时,左右划一下回到「全部」(#320):这一面跟着手指走,
-/// 松手过了门槛(`HomeFaceSwipePolicy`)就退出,不够就弹回去。筛选条留在原处不动。
-/// 退出时这一面和「全部」一起横着滑过去(转场在外面,见 `homeFaceTransition`),拖动途中不变淡:
-/// 原来边拖边淡、「全部」再在原处淡入,两层叠着看着发虚(#336)。
+/// 横向翻页与纵向滚动同时识别，内部的横向内容由它自己的手势接管。
 private struct HomeFaceSwipeContainer<Content: View>: View {
-    let onExit: () -> Void
+    let enabled: Bool
+    let canMove: (CGFloat) -> Bool
+    let onMove: (CGFloat) -> Void
+    let onProgress: (CGFloat, CGFloat) -> Void
     /// 正往哪边划(-1 左、1 右,没在划是 nil)。外面据此提前备好滑出去的转场:
     /// 被拿掉的视图用的是它最后一次画出来时挂着的转场,等松手再定就来不及了。
     let onDirectionChange: (CGFloat?) -> Void
@@ -816,18 +861,19 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
             } action: { newWidth in
                 width = newWidth
             }
-            .gesture(HomeFaceSwipeGesture(exclusion: exclusion, onEvent: handle))
+            .gesture(HomeFaceSwipeGesture(enabled: enabled, exclusion: exclusion, onEvent: handle))
     }
 
     private func handle(_ event: HomeFaceSwipeGesture.Event) {
         switch event {
         case .changed(let translation):
-            guard !reduceMotion else { return }
-            offset = translation
+            offset = reduceMotion ? 0 : translation * (canMove(translation) ? 1 : 0.16)
+            onProgress(canMove(translation) ? translation : 0, width)
             if translation != 0 { report(translation < 0 ? -1 : 1) }
         case .ended(let translation, let velocity):
-            if HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) {
-                onExit()
+            if canMove(translation),
+               HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) {
+                onMove(translation)
             } else {
                 settle()
             }
@@ -844,8 +890,10 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
 
     private func settle() {
         report(nil)
-        guard offset != 0 else { return }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { offset = 0 }
+        withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86)) {
+            offset = 0
+            onProgress(0, width)
+        }
     }
 }
 
@@ -858,6 +906,7 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
         case cancelled
     }
 
+    var enabled = true
     let exclusion: HomeFaceSwipeExclusion
     let onEvent: (Event) -> Void
 
@@ -873,11 +922,13 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
         recognizer.delaysTouchesBegan = false
         recognizer.delaysTouchesEnded = false
         recognizer.delegate = context.coordinator
+        recognizer.isEnabled = enabled
         return recognizer
     }
 
     func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
         context.coordinator.exclusion = exclusion
+        recognizer.isEnabled = enabled
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
@@ -943,162 +994,6 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
     }
 }
 #endif
-
-private struct HomeSpaceFilterBar: View {
-    let spaces: [ListeningSpace]
-    let selection: ListeningSpace?
-    var labelStyle: HomeFilterBarLabelStyle = .automatic
-    let onSelect: (ListeningSpace) -> Void
-
-    /// 两侧留白与胶囊间距。
-    private static let inset: CGFloat = 16
-    private static let spacing: CGFloat = 8
-
-    /// 这一排能用的宽度(已扣掉两侧留白)。
-    @State private var availableWidth: CGFloat?
-    /// 每颗胶囊各写法、选中与否时不折行的宽度。
-    @State private var chipWidths: [ChipMeasureKey: CGFloat] = [:]
-
-    private struct ChipMeasureKey: Hashable {
-        let space: ListeningSpace
-        let content: HomeFilterBarChipContent
-        let isSelected: Bool
-    }
-
-    private var contents: [ListeningSpace: HomeFilterBarChipContent] {
-        let widths = chipWidths
-        return HomeFilterBarFitPolicy.contents(
-            spaces: spaces,
-            selection: selection,
-            labelStyle: labelStyle,
-            availableWidth: availableWidth.map { Double($0) },
-            spacing: Double(Self.spacing)
-        ) { space, content, isSelected in
-            widths[ChipMeasureKey(space: space, content: content, isSelected: isSelected)].map { Double($0) }
-        }
-    }
-
-    var body: some View {
-        let contents = contents
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: Self.spacing) {
-                    ForEach(spaces, id: \.self) { space in
-                        chip(space, content: contents[space] ?? .iconAndTitle)
-                            .id(space)
-                    }
-                }
-            }
-            .contentMargins(.horizontal, Self.inset, for: .scrollContent)
-            .scrollIndicators(.hidden)
-            // 放得下时不让这一排被拖得来回弹。
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .onGeometryChange(for: CGFloat.self) { geometry in
-                geometry.size.width
-            } action: { width in
-                availableWidth = max(width - Self.inset * 2, 0)
-            }
-            .onChange(of: selection) { _, selection in
-                // 一排挤不下在滚动时,选中后变宽的那颗整个露出来(✕ 不落在屏幕外)。
-                guard let selection else { return }
-                pmWithAnimation(.selection) {
-                    proxy.scrollTo(selection)
-                }
-            }
-        }
-        .padding(.top, 2)
-        .background {
-            if labelStyle == .automatic {
-                measurements
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("home.spaceFilter")
-    }
-
-    /// 不显示的一层:每颗胶囊各写法、选中与否时不折行的宽度。
-    private var measurements: some View {
-        ZStack {
-            ForEach(spaces, id: \.self) { space in
-                ForEach(HomeFilterBarChipContent.allCases, id: \.self) { content in
-                    ForEach([false, true], id: \.self) { isSelected in
-                        chipFace(space, content: content, isSelected: isSelected)
-                            .fixedSize()
-                            .onGeometryChange(for: CGFloat.self) { geometry in
-                                geometry.size.width
-                            } action: { width in
-                                chipWidths[ChipMeasureKey(space: space, content: content, isSelected: isSelected)] = width
-                            }
-                    }
-                }
-            }
-        }
-        .hidden()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func chip(_ space: ListeningSpace, content: HomeFilterBarChipContent) -> some View {
-        let isSelected = space == selection
-        return Button {
-            onSelect(space)
-        } label: {
-            chipFace(space, content: content, isSelected: isSelected)
-        }
-        .buttonStyle(HomeSpaceChipButtonStyle())
-        // 只留图标时旁白照样念出名字。
-        .accessibilityLabel(Text(space.titleKey))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(isSelected ? String(localized: "home_filter_clear_hint") : "")
-        .accessibilityIdentifier("home.spaceFilter.\(space.rawValue)")
-    }
-
-    private func chipFace(
-        _ space: ListeningSpace,
-        content: HomeFilterBarChipContent,
-        isSelected: Bool
-    ) -> some View {
-        HStack(spacing: 0) {
-            if content.showsIcon {
-                Image(systemName: space.systemImage)
-                    .symbolVariant(isSelected ? .fill : .none)
-                    .font(.footnote.weight(.semibold))
-                    .transition(.scale.combined(with: .opacity))
-            }
-            if content.showsTitle {
-                Text(space.titleKey)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .padding(.leading, content.showsIcon ? 6 : 0)
-                    .transition(.opacity)
-            }
-            if isSelected {
-                Image(systemName: "xmark")
-                    .font(.caption2.weight(.bold))
-                    .padding(.leading, 5)
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .font(.subheadline.weight(isSelected ? .semibold : .medium))
-        .foregroundStyle(isSelected ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 14)
-        .frame(minHeight: 36)
-        .background {
-            Capsule()
-                .fill(isSelected ? AnyShapeStyle(space.tint.gradient) : AnyShapeStyle(.quaternary.opacity(0.7)))
-        }
-        .contentShape(Capsule())
-    }
-}
-
-private struct HomeSpaceChipButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.58 : 1)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(PMMotion.press.animation, value: configuration.isPressed)
-    }
-}
 
 private struct HomeRadioStationsPage: View {
     var body: some View {
@@ -1594,6 +1489,7 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
     /// iPhone 才在宽画布(Duo 内屏横握)上把区块排成两栏,iPad 保持原样。
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
     /// 首页滚动区的尺寸,决定要不要排成两栏。
@@ -1708,7 +1604,7 @@ struct HomeView: View {
     }
 
     private var observedHomeContent: some View {
-        ScrollViewReader { proxy in
+        ScrollViewReader { _ in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     let spaces = homeFilterSpaces
@@ -1716,7 +1612,9 @@ struct HomeView: View {
                         HomeSpaceFilterBar(
                             spaces: spaces,
                             selection: activeHomeFilter,
-                            labelStyle: HomeFilterBarConfiguration.decode(homeFilterBarRawValue).labelStyle
+                            labelStyle: homeFilterConfiguration.labelStyle,
+                            appearance: homeFilterConfiguration.appearance,
+                            motion: homeSwipeMotion
                         ) { space in
                             // 再点一次选中的那颗(或它上面的 ✕)回到全部。
                             setHomeFilter(activeHomeFilter == space ? nil : space)
@@ -1729,32 +1627,12 @@ struct HomeView: View {
                     // 换场时新旧两面叠在同一处:直接放在 VStack 里,被拿掉的那一面换场途中还占着位置,
                     // 新的一面先被挤到它下面,滑进来时就不是并排的了。
                     ZStack(alignment: .topLeading) {
-                        if activeHomeFilter == .radio {
-                            homeFace { radioModeContent }
-                                .transition(homeFaceTransition)
-                        } else if activeHomeFilter == .spokenWord {
-                            homeFace {
-                                SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
-                                    .padding(.horizontal, 16)
-                            }
-                            .transition(homeFaceTransition)
-                        } else if activeHomeFilter == .podcast {
-                            homeFace {
-                                PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
-                            }
-                            .transition(homeFaceTransition)
-                        } else if !model.isPrepared {
-                            initialLoadingView
-                                .transition(homeFaceTransition)
-                        } else if hasContent {
-                            contentView
-                                // 从加载骨架换过来时原地淡入:骨架与内容同形状,带位移会叠出两层错开的卡片。
-                                .transition(hasShownHomeContent ? homeFaceTransition : .opacity)
-                                .onAppear { hasShownHomeContent = true }
-                        } else {
-                            emptyView
-                                .transition(homeFaceTransition)
+                        homeFace {
+                            homePageContent
+                                .frame(minHeight: max(homeCanvasSize.height - 120, 200), alignment: .topLeading)
                         }
+                        .id(activeHomeFilter?.rawValue ?? "overview")
+                        .transition(homeFaceTransition)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1765,9 +1643,14 @@ struct HomeView: View {
             .serverCatalogPullToRefresh(isEnabled: !editorMode)
             // iPhone Duo 竖栏：文字行和按钮停在竖栏左侧，横滑卡片和封面网格铺到屏幕右缘，系统的玻璃胶囊浮在上面。
             .pmExtendsUnderVerticalBar()
-            .onChange(of: activeHomeFilter) { _, _ in
-                // 从全部中段的「全部」「书架」筛过去时,筛出来的内容从顶上开始看。
-                proxy.scrollTo(Self.homeTopAnchor, anchor: .top)
+            .scrollPosition($homeScrollPosition)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, value in
+                homeScrollMemory.currentY = value
+            }
+            .onChange(of: activeHomeFilter) { _, filter in
+                homeScrollPosition.scrollTo(y: homeScrollMemory.offsets[filter?.rawValue ?? "overview"] ?? 0)
             }
         }
         .onGeometryChange(for: CGSize.self) { proxy in
@@ -2038,8 +1921,11 @@ struct HomeView: View {
     /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
     @State private var isSceneActive = false
     @State private var hasShownHomeContent = false
-    /// 首页那一面正被往哪边划(-1 左、1 右)。有值时「全部」与那一面换场用横滑,见 `homeFaceTransition`。
+    /// 当前翻页方向；拖动时提前写入，让被移除页面使用正确的退出方向。
     @State private var homeFaceSwipeDirection: CGFloat?
+    @State private var homeSwipeMotion = HomeFilterSwipeMotion()
+    @State private var homeScrollPosition = ScrollPosition(edge: .top)
+    @State private var homeScrollMemory = HomeScrollMemory()
     /// 书架分好的组。顶部切到电台、有声书时「全部」那一面整块卸下,分组结果放在这一层才留得住,
     /// 切回来书相关的区块不再先空着再弹出来;「有声书」那一面也用同一份(#283)。
     @State private var spokenWordBooks = SpokenWordBooksModel()
@@ -2496,7 +2382,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
 
                 if shown.count > 1 {
-                    HomeSpaceFilterBar(spaces: shown, selection: nil, labelStyle: configuration.labelStyle) { _ in }
+                    HomeSpaceFilterBar(spaces: shown, selection: nil, labelStyle: configuration.labelStyle, appearance: configuration.appearance) { _ in }
                         .allowsHitTesting(false)
                 } else {
                     Text("home_filter_bar_none")
@@ -2828,7 +2714,7 @@ struct HomeView: View {
     private var homeFaceTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
         if let direction = homeFaceSwipeDirection {
-            // 划回「全部」:那一面顺着手指滑出去,「全部」从另一侧跟着滑进来,不叠着淡入淡出。
+            // 旧页面顺着手指退出，下一页从另一侧进入。
             let distance = max(homeCanvas.width, 320)
             return .asymmetric(
                 insertion: .offset(x: -direction * distance),
@@ -2841,13 +2727,47 @@ struct HomeView: View {
         )
     }
 
-    /// 筛出来的电台、有声、播客那一面:手机上左右划一下回到「全部」。
+    private var homeFilterConfiguration: HomeFilterBarConfiguration {
+        .decode(homeFilterBarRawValue)
+    }
+
+    @ViewBuilder
+    private var homePageContent: some View {
+        if activeHomeFilter == .radio {
+            radioModeContent
+        } else if activeHomeFilter == .spokenWord {
+            SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
+                .padding(.horizontal, 16)
+        } else if activeHomeFilter == .podcast {
+            PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
+        } else if !model.isPrepared {
+            initialLoadingView
+        } else if hasContent {
+            contentView.onAppear { hasShownHomeContent = true }
+        } else {
+            emptyView
+        }
+    }
+
+    private func swipeNeighbor(_ translation: CGFloat) -> ListeningSpace? {
+        guard translation != 0 else { return nil }
+        let forward = layoutDirection == .rightToLeft ? translation > 0 : translation < 0
+        return HomeFilterPagingPolicy.neighbor(in: homeFilterSpaces, selection: activeHomeFilter, forward: forward)
+    }
+
     @ViewBuilder
     private func homeFace<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         #if os(iOS)
         HomeFaceSwipeContainer(
-            onExit: {
-                setHomeFilter(nil) { homeFaceSwipeDirection = nil }
+            enabled: !editorMode && homeFilterConfiguration.swipeEnabled && homeFilterSpaces.count > 1,
+            canMove: { swipeNeighbor($0) != nil },
+            onMove: { translation in
+                guard let next = swipeNeighbor(translation) else { return }
+                setHomeFilter(next) { homeFaceSwipeDirection = nil }
+            },
+            onProgress: { translation, width in
+                homeSwipeMotion.target = swipeNeighbor(translation)
+                homeSwipeMotion.progress = CGFloat(HomeFilterPagingPolicy.progress(translation: Double(translation), width: Double(width)))
             },
             onDirectionChange: { homeFaceSwipeDirection = $0 },
             content: content
@@ -2863,12 +2783,17 @@ struct HomeView: View {
             completion()
             return
         }
+        homeScrollMemory.offsets[activeHomeFilter?.rawValue ?? "overview"] = homeScrollMemory.currentY
         if reduceMotion {
             homeFilter = space
+            homeSwipeMotion.target = nil
+            homeSwipeMotion.progress = 0
             completion()
         } else {
             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                 homeFilter = space
+                homeSwipeMotion.target = nil
+                homeSwipeMotion.progress = 0
             } completion: {
                 completion()
             }

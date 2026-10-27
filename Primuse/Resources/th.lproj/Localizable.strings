@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "ล้างตัวกรองแล้วดูตามโฟลเดอร์";
 "spoken_word_video_show" = "แสดงวิดีโอ";
 "spoken_word_video_hide" = "เสียงเท่านั้น";
+
+"home_filter_bar_appearance" = "รูปแบบพื้นที่ด้านบน";
+"home_filter_bar_swipe" = "ปัดเพื่อสลับหมวดหมู่";
+"home_filter_style_classic" = "แคปซูลคลาสสิก (ค่าเริ่มต้น)";
+"home_filter_style_underline" = "ข้อความขีดเส้นใต้";
+"home_filter_style_segmented" = "แถบแบ่งส่วน";
+"home_filter_style_icons" = "การนำทางด้วยไอคอน";
+"home_filter_style_kinetic" = "หัวเรื่องเคลื่อนไหว";
+"home_filter_style_tuner" = "หน้าปัดปรับคลื่น";
+"home_filter_style_sleeves" = "ซองแผ่นเสียง";

@@ -6949,3 +6949,13 @@
 "library_browse_folder_blocked_search_action" = "Filter löschen und Ordner zeigen";
 "spoken_word_video_show" = "Video anzeigen";
 "spoken_word_video_hide" = "Nur Audio";
+
+"home_filter_bar_appearance" = "Stil des oberen Bereichs";
+"home_filter_bar_swipe" = "Kategorien durch Wischen wechseln";
+"home_filter_style_classic" = "Klassische Kapseln (Standard)";
+"home_filter_style_underline" = "Unterstrichener Text";
+"home_filter_style_segmented" = "Segmentleiste";
+"home_filter_style_icons" = "Symbolnavigation";
+"home_filter_style_kinetic" = "Dynamische Titel";
+"home_filter_style_tuner" = "Abstimmskala";
+"home_filter_style_sleeves" = "Plattenhüllen";

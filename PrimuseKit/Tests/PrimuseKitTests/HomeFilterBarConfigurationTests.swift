@@ -286,6 +286,65 @@ struct HomeFilterBarConfigurationTests {
 
 @Suite("Home face swipe")
 struct HomeFaceSwipePolicyTests {
+    @Test("旧偏好仍采用经典胶囊，新样式与手势开关独立持久化")
+    func appearanceMigrationAndRoundTrip() {
+        let legacy = #"{"order":["podcast","music","radio","spokenWord"],"hidden":["radio"],"labelStyle":"iconOnly"}"#
+        let old = HomeFilterBarConfiguration.decode(legacy)
+        #expect(old.appearance == .classic)
+        #expect(old.swipeEnabled)
+        #expect(HomeFilterBarConfiguration.followingSections.encoded().isEmpty)
+        for style in HomeFilterBarAppearance.allCases {
+            var configuration = old
+            configuration.appearance = style
+            configuration.swipeEnabled = false
+            let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
+            #expect(decoded == configuration)
+            #expect(decoded.order == old.order)
+            #expect(decoded.hidden == [.radio])
+            #expect(decoded.labelStyle == .iconOnly)
+            let following = decoded.followingSectionsAgain()
+            #expect(following.appearance == style)
+            #expect(!following.swipeEnabled)
+            #expect(following.customized(sectionShown: { _ in true }).appearance == style)
+        }
+    }
+
+    @Test("只改样式仍跟随首页区块，未知样式保留原来的排序和显隐")
+    func appearanceOnlyAndUnknownValues() {
+        var configuration = HomeFilterBarConfiguration.followingSections
+        configuration.appearance = .tuner
+        let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
+        #expect(decoded.followsSections)
+        #expect(decoded.appearance == .tuner)
+        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast])
+        let unknown = HomeFilterBarConfiguration.decode(#"{"order":["podcast","music","radio","spokenWord"],"hidden":["radio"],"appearance":"future","swipeEnabled":false}"#)
+        #expect(unknown.appearance == .classic)
+        #expect(unknown.order.first == .podcast)
+        #expect(unknown.hidden == [.radio])
+        #expect(!unknown.swipeEnabled)
+    }
+
+    @Test("翻页遵循可见顺序、跳过隐藏项且不首尾循环")
+    func pagesFollowVisibleOrder() {
+        let spaces: [ListeningSpace] = [.podcast, .music, .radio]
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: nil, forward: true) == .podcast)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: nil, forward: false) == .radio)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .podcast, forward: true) == .music)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .radio, forward: false) == .music)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .podcast, forward: false) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .radio, forward: true) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: [], selection: .music, forward: true) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .spokenWord, forward: true) == .podcast)
+    }
+
+    @Test("拖动进度在尺寸未就绪或越界时仍有界")
+    func pagingProgressIsBounded() {
+        #expect(HomeFilterPagingPolicy.progress(translation: -100, width: 400) == 0.25)
+        #expect(HomeFilterPagingPolicy.progress(translation: 800, width: 400) == 1)
+        #expect(HomeFilterPagingPolicy.progress(translation: 100, width: 0) == 0)
+        #expect(HomeFilterPagingPolicy.progress(translation: .infinity, width: 400) == 0)
+    }
+
     @Test("横着起手才接,竖着走留给滚动")
     func beginsOnlyOnHorizontalIntent() {
         #expect(HomeFaceSwipePolicy.shouldBegin(translationX: 14, translationY: 3, velocityX: 0, velocityY: 0, heldBeforeMove: 0.05))

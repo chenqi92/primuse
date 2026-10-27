@@ -6949,3 +6949,13 @@
 "library_browse_folder_blocked_search_action" = "Effacer le filtre et afficher les dossiers";
 "spoken_word_video_show" = "Afficher la vidéo";
 "spoken_word_video_hide" = "Audio seulement";
+
+"home_filter_bar_appearance" = "Style de la zone supérieure";
+"home_filter_bar_swipe" = "Balayer pour changer de catégorie";
+"home_filter_style_classic" = "Pastilles classiques (par défaut)";
+"home_filter_style_underline" = "Texte souligné";
+"home_filter_style_segmented" = "Barre segmentée";
+"home_filter_style_icons" = "Navigation par icônes";
+"home_filter_style_kinetic" = "Titres animés";
+"home_filter_style_tuner" = "Cadran de réglage";
+"home_filter_style_sleeves" = "Pochettes de disques";

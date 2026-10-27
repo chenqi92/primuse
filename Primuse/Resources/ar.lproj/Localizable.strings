@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "مسح التصفية وعرض المجلدات";
 "spoken_word_video_show" = "عرض الفيديو";
 "spoken_word_video_hide" = "الصوت فقط";
+
+"home_filter_bar_appearance" = "نمط المنطقة العلوية";
+"home_filter_bar_swipe" = "السحب للتبديل بين الفئات";
+"home_filter_style_classic" = "كبسولات كلاسيكية (افتراضي)";
+"home_filter_style_underline" = "نص تحته خط";
+"home_filter_style_segmented" = "شريط مقسّم";
+"home_filter_style_icons" = "التنقل بالأيقونات";
+"home_filter_style_kinetic" = "عناوين متحركة";
+"home_filter_style_tuner" = "مؤشر التوليف";
+"home_filter_style_sleeves" = "أغلفة الأسطوانات";

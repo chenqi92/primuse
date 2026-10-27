@@ -6855,3 +6855,13 @@
 "library_browse_folder_blocked_search_action" = "Borrar filtro y ver carpetas";
 "spoken_word_video_show" = "Mostrar video";
 "spoken_word_video_hide" = "Solo audio";
+
+"home_filter_bar_appearance" = "Estilo del área superior";
+"home_filter_bar_swipe" = "Deslizar entre categorías";
+"home_filter_style_classic" = "Cápsulas clásicas (predeterminado)";
+"home_filter_style_underline" = "Texto subrayado";
+"home_filter_style_segmented" = "Barra segmentada";
+"home_filter_style_icons" = "Navegación con íconos";
+"home_filter_style_kinetic" = "Títulos dinámicos";
+"home_filter_style_tuner" = "Dial de sintonía";
+"home_filter_style_sleeves" = "Fundas de discos";
