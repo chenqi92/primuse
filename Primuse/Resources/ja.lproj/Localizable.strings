@@ -5718,6 +5718,7 @@
 "home_cover_size_small" = "小";
 "home_cover_size_large_label" = "カバー大";
 "home_cover_size_small_label" = "カバー小";
+"home_columns_format" = "%d 列";
 "home_podcasts_open_all" = "すべてのポッドキャスト";
 "podcast_add" = "追加";
 "podcast_add_by_url" = "RSSアドレスで追加";

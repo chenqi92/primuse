@@ -5623,6 +5623,7 @@
 "home_cover_size_small" = "Малі";
 "home_cover_size_large_label" = "Великі обкладинки";
 "home_cover_size_small_label" = "Малі обкладинки";
+"home_columns_format" = "%d стовпці";
 "home_podcasts_open_all" = "Усі подкасти";
 "podcast_add" = "Додати";
 "podcast_add_by_url" = "Додати за RSS-адресою";

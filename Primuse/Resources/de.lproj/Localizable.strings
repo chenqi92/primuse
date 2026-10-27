@@ -5717,6 +5717,7 @@
 "home_cover_size_small" = "Klein";
 "home_cover_size_large_label" = "Große Cover";
 "home_cover_size_small_label" = "Kleine Cover";
+"home_columns_format" = "%d Spalten";
 "home_podcasts_open_all" = "Alle Podcasts";
 "podcast_add" = "Hinzufügen";
 "podcast_add_by_url" = "Per RSS-Adresse hinzufügen";

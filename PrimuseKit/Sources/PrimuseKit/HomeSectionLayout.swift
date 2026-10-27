@@ -221,6 +221,21 @@ public enum HomeSectionLayoutPolicy {
         }
     }
 
+    /// 铺开网格的列数范围。只有「开始听」的网格:手机竖着拿时可选 1–4 列;
+    /// 更宽的画布(iPad、横屏、Mac)照旧按宽度分列,见 `ListeningIntentShelfPolicy.gridColumns`。
+    public static func columnsRange(
+        for section: HomeSectionKind,
+        style: HomeSectionLayoutStyle
+    ) -> ClosedRange<Int>? {
+        guard section == .startListening, style == .grid else { return nil }
+        return ListeningIntentShelfPolicy.narrowGridColumnRange
+    }
+
+    /// 没调过列数时的列数,就是原来手机上按宽度分出来的两列。
+    public static func defaultColumns(for section: HomeSectionKind) -> Int {
+        ListeningIntentShelfPolicy.gridColumnRange.lowerBound
+    }
+
     /// 把存下来的值夹回该区域真正支持的范围。
     ///
     /// 存盘的是字符串,后续版本删掉某个方案、或某块不再支持某个方案时,旧值必须
@@ -363,6 +378,9 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     /// 横排的行数,同样只存改过的。
     public var rows: [String: Int]
 
+    /// 铺开网格的列数(手机竖着拿时用),同样只存改过的。
+    public var columns: [String: Int]
+
     /// 各块的封面大小(`HomeCoverSize.rawValue`),同样只存和跟随值不同的。
     public var coverSizes: [String: String]
 
@@ -370,12 +388,42 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
         styles: [String: String] = [:],
         itemCounts: [String: Int] = [:],
         rows: [String: Int] = [:],
+        columns: [String: Int] = [:],
         coverSizes: [String: String] = [:]
     ) {
         self.styles = styles
         self.itemCounts = itemCounts
         self.rows = rows
+        self.columns = columns
         self.coverSizes = coverSizes
+    }
+
+    public func columnCount(for section: HomeSectionKind) -> Int {
+        let style = style(for: section)
+        let fallback = HomeSectionLayoutPolicy.defaultColumns(for: section)
+        guard let range = HomeSectionLayoutPolicy.columnsRange(for: section, style: style) else { return fallback }
+        let stored = columns[section.rawValue] ?? fallback
+        return min(max(stored, range.lowerBound), range.upperBound)
+    }
+
+    /// 选回默认列数时删掉条目,以后调整默认值,没主动改过的人跟着走。
+    public mutating func setColumnCount(_ count: Int, for section: HomeSectionKind) {
+        let style = style(for: section)
+        guard let range = HomeSectionLayoutPolicy.columnsRange(for: section, style: style) else { return }
+        let clamped = min(max(count, range.lowerBound), range.upperBound)
+        if clamped == HomeSectionLayoutPolicy.defaultColumns(for: section) {
+            columns.removeValue(forKey: section.rawValue)
+        } else {
+            columns[section.rawValue] = clamped
+        }
+    }
+
+    /// 编辑态点一下列数按钮就换下一档,到头回到最少。
+    public mutating func advanceColumnCount(for section: HomeSectionKind) {
+        let style = style(for: section)
+        guard let range = HomeSectionLayoutPolicy.columnsRange(for: section, style: style) else { return }
+        let current = columnCount(for: section)
+        setColumnCount(current >= range.upperBound ? range.lowerBound : current + 1, for: section)
     }
 
     /// 这块的封面大小。没单独调过的块跟着 `following`:老版本整个首页只有一个大小,
@@ -456,14 +504,15 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
         setStyle(next, for: section)
     }
 
-    // 老版本存下来的 JSON 没有 itemCounts、coverSizes 字段,缺省解成空字典而不是整份作废;
+    // 老版本存下来的 JSON 没有 itemCounts、columns、coverSizes 字段,缺省解成空字典而不是整份作废;
     // 老版本读到新加的字段时直接忽略,方案、行数、条目数照常认。
-    private enum CodingKeys: String, CodingKey { case styles, itemCounts, rows, coverSizes }
+    private enum CodingKeys: String, CodingKey { case styles, itemCounts, rows, columns, coverSizes }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let storedStyles = try container.decodeIfPresent([String: String].self, forKey: .styles) ?? [:]
         itemCounts = try container.decodeIfPresent([String: Int].self, forKey: .itemCounts) ?? [:]
+        columns = try container.decodeIfPresent([String: Int].self, forKey: .columns) ?? [:]
         coverSizes = try container.decodeIfPresent([String: String].self, forKey: .coverSizes) ?? [:]
         var migratedRows = try container.decodeIfPresent([String: Int].self, forKey: .rows) ?? [:]
         // 把老的「双行横排」就地迁成横排 + 2 行,之后写回去的就是新格式。

@@ -332,8 +332,8 @@ private struct HomeLoadingSkeletonBlock {
         case list(rows: Int, rowHeight: CGFloat, artwork: CGFloat, spacing: CGFloat, filled: Bool)
         /// 整宽的一张卡片。
         case card(height: CGFloat)
-        /// 「开始听」的网格:一张整宽的大卡片,下面两行各两张。
-        case tiles
+        /// 「开始听」的网格:首卡(整行,或宽网格里左边两列两行)与收起时的色块。
+        case tiles(columns: Int, lead: ListeningIntentLeadPlacement, count: Int)
     }
 
     var body: Body
@@ -369,8 +369,16 @@ private struct HomeLoadingSkeletonBlock {
             content = CGFloat(rows) * rowHeight + CGFloat(max(rows - 1, 0)) * spacing
         case .card(let height):
             content = height
-        case .tiles:
-            content = 78 + 8 + 64 * 2 + 8
+        case .tiles(let columns, let lead, let count):
+            content = CGFloat(ListeningIntentShelfPolicy.gridFrames(
+                width: Double(contentWidth),
+                columns: columns,
+                spacing: Double(StartListeningShelf.gridSpacing),
+                lead: lead,
+                tileCount: count,
+                leadHeight: { _ in Double(ListeningIntentHeroTile.minHeight) },
+                tileHeight: { _, _ in Double(ListeningIntentTile.minHeight) }
+            ).height)
         }
         return header + content
     }
@@ -470,19 +478,15 @@ private struct HomeLoadingSkeletonSection: View {
                 .fill(surface)
                 .frame(height: height)
                 .padding(.horizontal, 16)
-        case .tiles:
-            VStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+        case .tiles(let columns, let lead, let count):
+            ListeningIntentShelfGridLayout(columns: columns, spacing: StartListeningShelf.gridSpacing, lead: lead) {
+                RoundedRectangle(cornerRadius: ListeningIntentHeroTile.cornerRadius, style: .continuous)
                     .fill(surface)
-                    .frame(height: 78)
-                ForEach(0..<2, id: \.self) { _ in
-                    HStack(spacing: 8) {
-                        ForEach(0..<2, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(surface)
-                                .frame(height: 64)
-                        }
-                    }
+                    .frame(minHeight: lead == .block ? 0 : ListeningIntentHeroTile.minHeight)
+                ForEach(0..<count, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
+                        .fill(surface)
+                        .frame(height: ListeningIntentTile.minHeight)
                 }
             }
             .padding(.horizontal, 20)
@@ -2314,7 +2318,9 @@ struct HomeView: View {
     /// 所以默认张数各尺寸都一样:手机三行两列,iPad 两行四列。
     private func startListeningArrangement(_ style: HomeSectionLayoutStyle) -> StartListeningShelf.Arrangement {
         let limit = sectionItemCount(.startListening, HomeSectionLayoutPolicy.defaultItemCount(for: .startListening))
-        guard style == .carousel else { return .grid(limit: limit) }
+        guard style == .carousel else {
+            return .grid(limit: limit, narrowColumns: homeLayout.columnCount(for: .startListening))
+        }
         return .carousel(
             rows: HomeSectionLayoutPolicy.renderedRowCount(
                 configured: homeLayout.rowCount(for: .startListening),
@@ -2383,6 +2389,12 @@ struct HomeView: View {
             ? range.lowerBound
             : homeLayout.rowCount(for: section) + 1
         configuration.setRowCount(next, for: section)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    private func advanceSectionColumns(_ section: HomeSectionKind) {
+        var configuration = homeLayout
+        configuration.advanceColumnCount(for: section)
         homeSectionLayoutRawValue = configuration.encoded()
     }
 
@@ -2669,7 +2681,17 @@ struct HomeView: View {
         }
     }
 
-    /// 编辑条第二排:方案、行数、封面大小、条目数。文字一律单行;放不下时由调用处换更省地方的一种。
+    /// 「开始听」的列数只管手机竖着拿这种窄网格;iPad、横屏按宽度分列,编辑条上不给这个按钮。
+    /// 编辑态是单栏,网格宽度是画布减去外框与左右留白。
+    private var startListeningFollowsPickedColumns: Bool {
+        let width = homeCanvas.width > 0 ? homeCanvas.width - 24 - 40 : 0
+        return ListeningIntentShelfPolicy.followsPickedColumns(
+            width: Double(width),
+            spacing: Double(StartListeningShelf.gridSpacing)
+        )
+    }
+
+    /// 编辑条第二排:方案、行数或列数、封面大小、条目数。文字一律单行;放不下时由调用处换更省地方的一种。
     private func sectionLayoutControls(
         _ section: HomeSectionKind,
         style: HomeSectionLayoutStyle,
@@ -2716,6 +2738,26 @@ struct HomeView: View {
                 .buttonBorderShape(.capsule)
                 .controlSize(.small)
                 .accessibilityIdentifier("home.edit.rows." + section.rawValue)
+            }
+
+            if HomeSectionLayoutPolicy.columnsRange(for: section, style: style) != nil,
+               startListeningFollowsPickedColumns {
+                Button {
+                    pmWithAnimation(.list) { advanceSectionColumns(section) }
+                } label: {
+                    Text(
+                        String(
+                            format: String(localized: "home_columns_format"),
+                            homeLayout.columnCount(for: section)
+                        )
+                    )
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityIdentifier("home.edit.columns." + section.rawValue)
             }
 
             if HomeSectionLayoutPolicy.supportsCoverSize(section, style: style) {
@@ -3267,7 +3309,20 @@ struct HomeView: View {
             if style == .carousel {
                 return .init(.row(card: CGSize(width: 120, height: 88), artwork: nil, circular: false, rows: rows, spacing: 10, inset: 20))
             }
-            return .init(.tiles)
+            // 列数、首卡摆法和收起的张数都和真网格同一套算法,换上真卡片时高度不跳。
+            let columns = ListeningIntentShelfPolicy.gridColumns(
+                width: Double(contentWidth),
+                spacing: Double(StartListeningShelf.gridSpacing),
+                narrowColumns: homeLayout.columnCount(for: .startListening)
+            )
+            let lead = ListeningIntentShelfPolicy.leadPlacement(columns: columns, otherTiles: .max)
+            let tiles = ListeningIntentShelfPolicy.collapsedGridCount(
+                limit: sectionItemCount(.startListening, HomeSectionLayoutPolicy.defaultItemCount(for: .startListening)),
+                columns: columns,
+                available: .max,
+                lead: lead
+            )
+            return .init(.tiles(columns: columns, lead: lead, count: tiles))
         case .albumPick:
             return .init(.card(height: 152))
         case .continueListening:

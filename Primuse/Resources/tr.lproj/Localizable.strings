@@ -5623,6 +5623,7 @@
 "home_cover_size_small" = "Küçük";
 "home_cover_size_large_label" = "Büyük kapaklar";
 "home_cover_size_small_label" = "Küçük kapaklar";
+"home_columns_format" = "%d sütun";
 "home_podcasts_open_all" = "Tüm podcast'ler";
 "podcast_add" = "Ekle";
 "podcast_add_by_url" = "RSS adresiyle ekle";

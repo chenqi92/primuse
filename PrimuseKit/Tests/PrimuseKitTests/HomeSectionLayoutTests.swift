@@ -83,6 +83,37 @@ struct HomeSectionLayoutTests {
         #expect(configuration.itemCount(for: .albumPick) == 1)
     }
 
+    @Test("开始听铺开时可选 1–4 列,默认两列;横排没有列数")
+    func startListeningColumns() {
+        #expect(HomeSectionLayoutPolicy.columnsRange(for: .startListening, style: .grid) == 1...4)
+        #expect(HomeSectionLayoutPolicy.columnsRange(for: .startListening, style: .carousel) == nil)
+        #expect(HomeSectionLayoutPolicy.columnsRange(for: .recentlyAdded, style: .grid) == nil)
+        #expect(HomeSectionLayoutPolicy.defaultColumns(for: .startListening) == 2)
+
+        var configuration = HomeSectionLayoutConfiguration()
+        #expect(configuration.columnCount(for: .startListening) == 2)
+        configuration.advanceColumnCount(for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 3)
+        configuration.advanceColumnCount(for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 4)
+        configuration.advanceColumnCount(for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 1)
+        configuration.advanceColumnCount(for: .startListening)
+        // 回到默认两列时不留记录。
+        #expect(configuration.columnCount(for: .startListening) == 2)
+        #expect(configuration.columns.isEmpty)
+        configuration.setColumnCount(9, for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 4)
+
+        // 换成横排时列数不起作用,换回网格还是原来那个数。
+        configuration.advanceStyle(for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 2)
+        configuration.setColumnCount(3, for: .startListening)
+        #expect(configuration.columns[HomeSectionKind.startListening.rawValue] == 4)
+        configuration.advanceStyle(for: .startListening)
+        #expect(configuration.columnCount(for: .startListening) == 4)
+    }
+
     @Test("封面大小按块存,没调过的块跟着老版本的全局大小")
     func coverSizePerSection() {
         var configuration = HomeSectionLayoutConfiguration()
@@ -121,6 +152,24 @@ struct HomeSectionLayoutTests {
                 #expect(!HomeSectionLayoutPolicy.supportsCoverSize(section, style: style))
             }
         }
+    }
+
+    @Test("列数与封面大小随整份配置存取;老存档没有这两项照常解出来")
+    func columnsAndCoverSizesRoundTrip() throws {
+        var configuration = HomeSectionLayoutConfiguration()
+        configuration.setColumnCount(3, for: .startListening)
+        configuration.setCoverSize(.small, for: .playlists)
+        configuration.setItemCount(8, for: .radio)
+        let decoded = HomeSectionLayoutConfiguration.decode(configuration.encoded())
+        #expect(decoded == configuration)
+        #expect(decoded.columnCount(for: .startListening) == 3)
+        #expect(decoded.coverSize(for: .playlists) == .small)
+
+        let legacy = HomeSectionLayoutConfiguration.decode(#"{"styles":{"startListening":"carousel"},"itemCounts":{"radio":8},"rows":{}}"#)
+        #expect(legacy.style(for: .startListening) == .carousel)
+        #expect(legacy.itemCount(for: .radio) == 8)
+        #expect(legacy.columns.isEmpty)
+        #expect(legacy.coverSizes.isEmpty)
     }
 }
 

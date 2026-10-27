@@ -207,6 +207,11 @@ public enum ListeningIntentShelfPolicy {
             return []
         }
         used.insert(items[0].id)
+        // Pausing turns the lead into "resume" and playing turns it back.
+        // Unless the listener pinned it, "anything" never takes a suggestion's
+        // place: it waits behind the others while "resume" leads, so the
+        // cards after the lead stay where they are either way.
+        let holdsBackAnything = items[0].intent.habit == .resume && !configuration.isPinned(anything.id)
 
         let catalog = Dictionary(
             (builtInCatalog + personal).map { ($0.id, $0) },
@@ -235,6 +240,7 @@ public enum ListeningIntentShelfPolicy {
         guard let availability else { return Array(items.prefix(limit)) }
         for intent in ordered(availability.litIntents(personal + builtInCatalog), by: order) where items.count < limit {
             guard !used.contains(intent.id), !configuration.isHidden(intent.id) else { continue }
+            if holdsBackAnything, intent.id == anything.id { continue }
             let count = availability.songCount(for: intent)
             // An intent that matches the whole library ("newly added" right
             // after the first import, a library of nothing but jazz) is just
@@ -243,7 +249,21 @@ public enum ListeningIntentShelfPolicy {
             items.append(ListeningIntentShelfItem(intent: intent, songCount: count, role: .suggested))
             used.insert(intent.id)
         }
+        if holdsBackAnything, items.count < limit,
+           !configuration.isHidden(anything.id), availability.isLit(anything) {
+            items.append(ListeningIntentShelfItem(intent: anything, songCount: anythingCount, role: .suggested))
+        }
         return items
+    }
+
+    /// Cards after the lead that are there whichever card leads: "anything"
+    /// waiting at the end while "resume" leads does not count, so pausing
+    /// does not flip the lead between a block and a row.
+    public static func steadyTileCount(_ items: [ListeningIntentShelfItem]) -> Int {
+        let tiles = items.filter { $0.role != .lead }
+        let waiting = items.first?.intent.habit == .resume
+            && tiles.last.map { $0.intent == .builtIn(.anything) && !$0.isPinned } == true
+        return tiles.count - (waiting ? 1 : 0)
     }
 
     /// The full intent page: pins first (in order), then every built-in by
@@ -371,16 +391,43 @@ public extension ListeningIntentShelfPolicy {
     /// single thin strip.
     static let gridColumnRange: ClosedRange<Int> = 2...6
 
+    /// Columns a listener can pick for a narrow grid (a phone held upright).
+    static let narrowGridColumnRange: ClosedRange<Int> = 1...4
+    /// The narrowest a tile gets at a picked column count: four columns fit
+    /// on any phone held upright; a small phone with the display zoomed in
+    /// drops to three.
+    static let pickedColumnsMinimumTileWidth: Double = 72
+
     /// Columns for the spread-out grid at this width: two on a phone, four or
     /// five on iPad, in landscape and on the Mac.
+    /// - Parameter narrowColumns: the listener's pick for a grid that would
+    ///   otherwise get the two-column minimum (a phone held upright, a narrow
+    ///   iPad window); wider grids keep following the width. Fewer columns are
+    ///   used when the pick does not fit. While the width is unknown the pick
+    ///   is used as it is.
     static func gridColumns(
         width: Double,
         spacing: Double,
-        minimumTileWidth: Double = gridMinimumTileWidth
+        minimumTileWidth: Double = gridMinimumTileWidth,
+        narrowColumns: Int? = nil
     ) -> Int {
-        guard width.isFinite, width > 0, minimumTileWidth > 0 else { return gridColumnRange.lowerBound }
-        let fitting = Int(((width + max(0, spacing)) / (minimumTileWidth + max(0, spacing))).rounded(.down))
-        return min(max(fitting, gridColumnRange.lowerBound), gridColumnRange.upperBound)
+        let spacing = max(0, spacing)
+        let picked = narrowColumns.map {
+            min(max($0, narrowGridColumnRange.lowerBound), narrowGridColumnRange.upperBound)
+        }
+        guard width.isFinite, width > 0, minimumTileWidth > 0 else { return picked ?? gridColumnRange.lowerBound }
+        let fitting = Int(((width + spacing) / (minimumTileWidth + spacing)).rounded(.down))
+        let automatic = min(max(fitting, gridColumnRange.lowerBound), gridColumnRange.upperBound)
+        guard let picked, automatic == gridColumnRange.lowerBound else { return automatic }
+        let fittingPicked = Int(((width + spacing) / (pickedColumnsMinimumTileWidth + spacing)).rounded(.down))
+        return max(narrowGridColumnRange.lowerBound, min(picked, fittingPicked))
+    }
+
+    /// Whether a grid this wide follows the listener's column pick rather
+    /// than the width. Unknown widths count as narrow.
+    static func followsPickedColumns(width: Double, spacing: Double) -> Bool {
+        guard width.isFinite, width > 0 else { return true }
+        return gridColumns(width: width, spacing: spacing) == gridColumnRange.lowerBound
     }
 
     /// Tiles the collapsed grid shows: the chosen count rounded up to whole

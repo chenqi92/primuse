@@ -41,9 +41,67 @@ struct ListeningIntentShelfTests {
         )
         #expect(resuming.first?.intent == .builtIn(.resume))
         #expect(resuming.first?.songCount == 37)
-        // "Anything" is still on the shelf, as the strongest suggestion.
-        #expect(resuming.dropFirst().first?.intent == .builtIn(.anything))
         #expect(!fresh.dropFirst().contains { $0.intent == .builtIn(.anything) })
+        // "Anything" is still on the spread-out grid, behind the cards that were there before.
+        let resumingGrid = ListeningIntentShelfPolicy.row(
+            availability: availability, configuration: .init(), resumeSongCount: 37, limit: .max
+        )
+        #expect(resumingGrid.last?.intent == .builtIn(.anything))
+        #expect(resumingGrid.last?.role == .suggested)
+    }
+
+    @Test("Pausing and playing swap only the first card; the others keep their places")
+    func tilesStayWhenTheLeadSwaps() throws {
+        let availability = try availability()
+        let order = ["builtin:rock", "builtin:anything", "builtin:pop", "builtin:jazz", "builtin:nineties"]
+        for limit in [ListeningIntentShelfPolicy.rowLimit, .max] {
+            let playing = ListeningIntentShelfPolicy.row(
+                availability: availability, configuration: .init(), resumeSongCount: nil, order: order, limit: limit
+            )
+            let paused = ListeningIntentShelfPolicy.row(
+                availability: availability, configuration: .init(), resumeSongCount: 12, order: order, limit: limit
+            )
+            let playingTiles = playing.dropFirst().map(\.id)
+            let pausedTiles = paused.dropFirst().map(\.id)
+            #expect(Array(pausedTiles.prefix(playingTiles.count)) == playingTiles)
+            #expect(pausedTiles.dropFirst(playingTiles.count).allSatisfy { $0 == "builtin:anything" })
+            #expect(ListeningIntentShelfPolicy.steadyTileCount(paused) == ListeningIntentShelfPolicy.steadyTileCount(playing))
+        }
+
+        // A full ten-card row has no room left at the end: "anything" stays off rather than pushing a card out.
+        var big: [ListeningTestSong] = []
+        for (offset, genre) in ["Jazz", "Pop", "Rock", "Electronic", "Classical", "Folk", "Rap", "Ambient", "Soundtrack"].enumerated() {
+            for index in 0..<30 {
+                big.append(ListeningTestSong(id: "\(genre)\(index)", genre: genre, year: 1980 + offset * 4, duration: 200))
+            }
+        }
+        let crowded = try self.availability(big)
+        let playing = ListeningIntentShelfPolicy.row(availability: crowded, configuration: .init(), resumeSongCount: nil)
+        let paused = ListeningIntentShelfPolicy.row(availability: crowded, configuration: .init(), resumeSongCount: 12)
+        #expect(Array(paused.dropFirst().map(\.id)) == Array(playing.dropFirst().map(\.id)))
+        #expect(!paused.contains { $0.id == "builtin:anything" })
+
+        // Hidden stays hidden.
+        var hiding = ListeningIntentShelfConfiguration()
+        hiding.setHidden(true, intentID: "builtin:anything")
+        let hidden = ListeningIntentShelfPolicy.row(
+            availability: availability, configuration: hiding, resumeSongCount: 12, limit: .max
+        )
+        #expect(!hidden.contains { $0.id == "builtin:anything" })
+    }
+
+    @Test("A pinned \"anything\" keeps its pinned place while \"resume\" leads")
+    func pinnedAnythingWhileResuming() throws {
+        var configuration = ListeningIntentShelfConfiguration()
+        configuration.setPinned(true, intentID: "builtin:rock")
+        configuration.setPinned(true, intentID: "builtin:anything")
+        let paused = ListeningIntentShelfPolicy.row(
+            availability: try availability(), configuration: configuration, resumeSongCount: 12, limit: .max
+        )
+        #expect(Array(paused.map(\.id).prefix(3)) == ["builtin:resume", "builtin:rock", "builtin:anything"])
+        #expect(paused[2].isPinned)
+        #expect(paused.filter { $0.id == "builtin:anything" }.count == 1)
+        #expect(ListeningIntentShelfPolicy.steadyTileCount(paused) == paused.count - 1)
     }
 
     @Test("Suggestions follow lighting strength, skip dark and whole-library intents, and stop at ten")
@@ -262,6 +320,31 @@ struct ListeningIntentShelfTests {
         #expect(ListeningIntentShelfPolicy.gridColumns(width: 200, spacing: 8) == 2)
         #expect(ListeningIntentShelfPolicy.gridColumns(width: 0, spacing: 8) == 2)
         #expect(ListeningIntentShelfPolicy.gridColumns(width: .nan, spacing: 8) == 2)
+    }
+
+    @Test("A column pick applies where the grid would get two columns, and gives way when it does not fit")
+    func pickedColumns() {
+        // Phones held upright: 335–400 wide after the margins.
+        for width in [335.0, 353, 400] {
+            for picked in 1...4 {
+                #expect(ListeningIntentShelfPolicy.gridColumns(width: width, spacing: 8, narrowColumns: picked) == picked)
+            }
+        }
+        // Out-of-range picks are clamped.
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 353, spacing: 8, narrowColumns: 9) == 4)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 353, spacing: 8, narrowColumns: 0) == 1)
+        // A zoomed-in small phone (280 wide) has room for three columns of at least 72.
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 280, spacing: 8, narrowColumns: 4) == 3)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 280, spacing: 8, narrowColumns: 2) == 2)
+        // Wider grids keep following the width.
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 728, spacing: 8, narrowColumns: 1) == 4)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 1_400, spacing: 8, narrowColumns: 3) == 6)
+        // Before the width is known the pick stands.
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 0, spacing: 8, narrowColumns: 3) == 3)
+
+        #expect(ListeningIntentShelfPolicy.followsPickedColumns(width: 353, spacing: 8))
+        #expect(ListeningIntentShelfPolicy.followsPickedColumns(width: 0, spacing: 8))
+        #expect(!ListeningIntentShelfPolicy.followsPickedColumns(width: 728, spacing: 8))
     }
 
     @Test("The collapsed grid rounds the chosen count up to whole rows and never invents tiles")

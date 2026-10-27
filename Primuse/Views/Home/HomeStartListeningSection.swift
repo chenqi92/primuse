@@ -11,8 +11,9 @@ struct StartListeningShelf: View {
     /// 卡片怎么摆。
     enum Arrangement: Equatable {
         /// 铺开:等宽色块,列数随宽度(手机两列,iPad、横屏、Mac 更多),
-        /// 收起时放 `limit` 张并凑满整行,其余由「展开」铺出来。
-        case grid(limit: Int)
+        /// 收起时放 `limit` 张并凑满整行,其余由「展开」铺出来。`narrowColumns` 是首页编辑里
+        /// 选的列数,只在窄网格(手机竖着拿)上用,更宽时仍按宽度分列;nil 是按宽度。
+        case grid(limit: Int, narrowColumns: Int? = nil)
         /// 横排:卡片横着滑,一行或几行,一共 `limit` 张。
         case carousel(rows: Int, limit: Int)
 
@@ -40,7 +41,9 @@ struct StartListeningShelf: View {
     /// 展开过就一直展开,直到再点「收起」。只记在本机。
     @AppStorage(ListeningIntentService.gridExpandedKey) private var isGridExpanded = false
 
-    private static let gridSpacing: CGFloat = 8
+    static let gridSpacing: CGFloat = 8
+    /// 色块窄于这个宽度(手机上选了三四列)时换成紧凑的一格:名字可折两行,留白收窄。
+    private static let compactTileWidth: CGFloat = 100
     /// 上次量到的网格宽度:首页区块重建时先按它分列,不会在 iPad 上先排两列再跳成四列。
     @MainActor private static var lastGridWidth: CGFloat = 0
     private var service: ListeningIntentService { .shared }
@@ -55,8 +58,8 @@ struct StartListeningShelf: View {
                             .padding(.horizontal, horizontalInset)
                     }
                     switch arrangement {
-                    case .grid(let limit):
-                        grid(items, limit: limit)
+                    case .grid(let limit, let narrowColumns):
+                        grid(items, limit: limit, narrowColumns: narrowColumns)
                     case .carousel(let rows, _):
                         carousel(items, rows: rows)
                     }
@@ -147,15 +150,24 @@ struct StartListeningShelf: View {
     /// 第一张(接着上次 / 随便听听)在手机上占满一整行;更宽的网格里占左边两列、两行高,
     /// 旁边先放色块,不再拉成一条细长的横栏。收起时首卡占掉它那一份张数,其余按列铺开。
     @ViewBuilder
-    private func grid(_ items: [ListeningIntentShelfItem], limit: Int) -> some View {
+    private func grid(_ items: [ListeningIntentShelfItem], limit: Int, narrowColumns: Int?) -> some View {
+        let width = gridWidth > 0 ? gridWidth : Self.lastGridWidth
         let columns = ListeningIntentShelfPolicy.gridColumns(
-            width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
-            spacing: Double(Self.gridSpacing)
+            width: Double(width),
+            spacing: Double(Self.gridSpacing),
+            narrowColumns: narrowColumns
         )
+        let cellWidth = (width - CGFloat(columns - 1) * Self.gridSpacing) / CGFloat(columns)
+        let compact = width > 0 && cellWidth < Self.compactTileWidth
         let lead = items.first { $0.role == .lead }
         let rest = items.filter { $0.role != .lead }
+        // 暂停时首卡换成「接着上次」,「随便听听」排到最后;摆法按两种情况都在的那些卡定,
+        // 首卡不会因为多出这一张在整行和左边方块之间来回换。
         let placement = lead.map { _ in
-            ListeningIntentShelfPolicy.leadPlacement(columns: columns, otherTiles: rest.count)
+            ListeningIntentShelfPolicy.leadPlacement(
+                columns: columns,
+                otherTiles: ListeningIntentShelfPolicy.steadyTileCount(items)
+            )
         }
         let collapsed = ListeningIntentShelfPolicy.collapsedGridCount(
             limit: limit,
@@ -169,7 +181,7 @@ struct StartListeningShelf: View {
             ListeningIntentShelfGridLayout(columns: columns, spacing: Self.gridSpacing, lead: placement) {
                 if let lead { heroTile(lead, isBlock: placement == .block) }
                 ForEach(shown) { item in
-                    tile(item)
+                    tile(item, isCompact: compact)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
@@ -224,7 +236,7 @@ struct StartListeningShelf: View {
             .compactMap { library.unobservedVisibleSong(id: $0) }
     }
 
-    private func tile(_ item: ListeningIntentShelfItem) -> some View {
+    private func tile(_ item: ListeningIntentShelfItem, isCompact: Bool) -> some View {
         let title = service.title(for: item.intent)
         let detail = ListeningIntentText.songCount(item.songCount)
         return Button {
@@ -237,7 +249,8 @@ struct StartListeningShelf: View {
                 tint: item.intent.tint,
                 badgeSymbol: item.badgeSymbol,
                 isWorking: startingIntentID == item.id,
-                decade: item.decade
+                decade: item.decade,
+                isCompact: isCompact
             )
         }
         .buttonStyle(.pmPressable)
@@ -413,12 +426,13 @@ struct StartListeningShelf: View {
                     .redacted(reason: .placeholder)
             }
             switch arrangement {
-            case .grid(let limit):
+            case .grid(let limit, let narrowColumns):
                 // 首卡的摆法与收起时的行数、列数都和真网格一致,换上真卡片时下面的区块不被顶开;
                 // 宽度在占位上就量,iPad 不会先排两列再跳成四列。
                 let columns = ListeningIntentShelfPolicy.gridColumns(
                     width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
-                    spacing: Double(Self.gridSpacing)
+                    spacing: Double(Self.gridSpacing),
+                    narrowColumns: narrowColumns
                 )
                 // 还不知道有几张,按够用算:宽网格里首卡就是左边那一块。
                 let placement = ListeningIntentShelfPolicy.leadPlacement(columns: columns, otherTiles: .max)
@@ -776,21 +790,25 @@ struct ListeningIntentTile: View {
     var isWorking = false
     /// 年代意图用大号的「80s」代替符号。
     var decade: ListeningDecade? = nil
+    /// 手机上排三四列时一格只有八九十点宽:名字小一号、可以折成两行,留白和水印都收一点,
+    /// 「轻音乐」「Easy Listening」这种长名字不会被截成几个字母。
+    var isCompact = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-        HStack(spacing: 6) {
+        HStack(alignment: isCompact ? .top : .center, spacing: isCompact ? 2 : 6) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: title)
-                    .font(.subheadline.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .font(isCompact ? .footnote.weight(.bold) : .subheadline.weight(.bold))
+                    .lineLimit(isCompact ? 2 : 1)
+                    .minimumScaleFactor(isCompact ? 0.8 : 0.75)
                 if let detail {
                     Text(verbatim: detail)
                         .font(.caption2)
                         .monospacedDigit()
                         .opacity(0.82)
                         .lineLimit(1)
+                        .minimumScaleFactor(isCompact ? 0.85 : 1)
                 }
             }
             Spacer(minLength: 0)
@@ -805,13 +823,13 @@ struct ListeningIntentTile: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, isCompact ? 8 : 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background {
             ZStack(alignment: .bottomTrailing) {
                 ListeningIntentCard.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
-                ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: 50)
+                ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: isCompact ? 40 : 50)
             }
         }
         .clipShape(shape)

@@ -5623,6 +5623,7 @@
 "home_cover_size_small" = "เล็ก";
 "home_cover_size_large_label" = "ปกใหญ่";
 "home_cover_size_small_label" = "ปกเล็ก";
+"home_columns_format" = "%d คอลัมน์";
 "home_podcasts_open_all" = "พอดแคสต์ทั้งหมด";
 "podcast_add" = "เพิ่ม";
 "podcast_add_by_url" = "เพิ่มด้วยที่อยู่ RSS";

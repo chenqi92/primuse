@@ -5717,6 +5717,7 @@
 "home_cover_size_small" = "Petite";
 "home_cover_size_large_label" = "Grandes pochettes";
 "home_cover_size_small_label" = "Petites pochettes";
+"home_columns_format" = "%d colonnes";
 "home_podcasts_open_all" = "Tous les podcasts";
 "podcast_add" = "Ajouter";
 "podcast_add_by_url" = "Ajouter par adresse RSS";

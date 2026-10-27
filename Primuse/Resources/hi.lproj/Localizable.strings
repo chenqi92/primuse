@@ -5623,6 +5623,7 @@
 "home_cover_size_small" = "छोटा";
 "home_cover_size_large_label" = "बड़े कवर";
 "home_cover_size_small_label" = "छोटे कवर";
+"home_columns_format" = "%d कॉलम";
 "home_podcasts_open_all" = "सभी पॉडकास्ट";
 "podcast_add" = "जोड़ें";
 "podcast_add_by_url" = "RSS पते से जोड़ें";
