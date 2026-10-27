@@ -11911,40 +11911,91 @@ struct PlayerVolumeTrackStyle: Equatable {
 }
 
 #if os(iOS)
-/// iOS exposes output volume as read-only on `AVAudioSession`; `MPVolumeView`
-/// is the supported interactive control. Its slider observes hardware-button,
-/// Control Center, Bluetooth and AirPlay volume changes, so the value rendered
-/// here always describes the route that is actually producing sound. This also
-/// works for MusicKit playback, which bypasses Primuse's `AVAudioEngine`.
-///
-/// 只换系统滑块的外观(轨道图、圆钮图),数值、拖动、旁白调节仍是系统那一个滑块自己管,
-/// 硬件音量键、控制中心、隔空播放改的音量照样同步过来。
+/// 系统滑块负责音量与交互，轨道单独绘制，避免系统切换控件状态时替换轨道图片。
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
     static let verticalOffset: CGFloat = 1.5
 
     var trackStyle: PlayerVolumeTrackStyle = .system
-    /// 填充与圆钮的颜色;nil 时用前景色(深色白、浅色黑)。
     var fillTint: Color? = nil
 
-    /// 按住时换上加粗的轨道与放大的圆钮,开始拖、拖到一头时震一下。
     @MainActor
     final class Coordinator: NSObject {
-        var styleKey: StyleKey?
-        weak var slider: UISlider?
-        var images: SystemVolumeTrackImages?
+        private(set) var styleKey: StyleKey?
+        private(set) weak var slider: UISlider?
+        private weak var volumeView: PlayerSystemVolumeView?
+        private var volumeObservation: NSKeyValueObservation?
+        private var isActive = false
         private var edge: SliderScrubFeedbackPolicy.Edge = .none
-        /// 这一次按下之后已经震过「开始拖」了。只点一下圆钮不拖,不震。
         private var playedDragFeedback = false
         private let dragFeedback = UIImpactFeedbackGenerator(style: .light)
         private let edgeFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
-        func attach(to slider: UISlider) {
-            guard self.slider !== slider else { return }
-            self.slider = slider
-            slider.addTarget(self, action: #selector(touchDown(_:)), for: .touchDown)
-            slider.addTarget(self, action: #selector(valueChanged(_:)), for: .valueChanged)
-            slider.addTarget(self, action: #selector(touchEnded(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        private static let clearTrack = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
+            .image { _ in }.resizableImage(withCapInsets: .zero)
+        // 固定圆钮的布局尺寸，按住时只改变画法，不改变音量两端对应的手指位置。
+        private static let clearThumb = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24))
+            .image { _ in }
+
+        func configure(in volumeView: PlayerSystemVolumeView, styleKey: StyleKey) {
+            let appearanceChanged = self.styleKey != styleKey || self.volumeView !== volumeView
+            self.volumeView = volumeView
+            self.styleKey = styleKey
+            volumeView.onLayout = { [weak self] in self?.synchronizeSlider() }
+            if appearanceChanged {
+                let appearance = NowPlayingAppearance(
+                    colorScheme: styleKey.isLight ? .light : .dark,
+                    contrast: styleKey.usesIncreasedContrast ? .increased : .standard
+                )
+                volumeView.trackView.style = styleKey.trackStyle
+                volumeView.trackView.fill = UIColor(styleKey.fillTint ?? appearance.primary)
+                volumeView.trackView.track = UIColor(styleKey.trackStyle.trackColor ?? appearance.track)
+                volumeView.trackView.reduceMotion = styleKey.reduceMotion
+            }
+            if volumeObservation == nil {
+                volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume) { [weak self] _, _ in
+                    // 硬件键、控制中心和输出线路的更新由系统滑块接收，下一次布局读取它的最新值。
+                    DispatchQueue.main.async { self?.volumeView?.setNeedsLayout() }
+                }
+            }
+            synchronizeSlider(forceAppearance: appearanceChanged)
+        }
+
+        func synchronizeSlider(forceAppearance: Bool = false) {
+            guard let volumeView else { return }
+            guard let slider = volumeView.volumeSlider else {
+                volumeView.trackView.isHidden = true
+                return
+            }
+            let sliderChanged = self.slider !== slider
+            if sliderChanged {
+                self.slider?.removeTarget(self, action: nil, for: .allEvents)
+                self.slider = slider
+                isActive = false
+                edge = .none
+                slider.addTarget(self, action: #selector(touchDown(_:)), for: .touchDown)
+                slider.addTarget(self, action: #selector(valueChanged(_:)), for: .valueChanged)
+                slider.addTarget(self, action: #selector(touchEnded(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+            }
+            if sliderChanged || forceAppearance {
+                slider.accessibilityLabel = String(localized: "volume")
+                UIView.performWithoutAnimation {
+                    // 通过 MPVolumeView 保留配置，系统重建内部滑块后也能沿用。
+                    for state: UIControl.State in [.normal, .highlighted, .disabled] {
+                        volumeView.setMinimumVolumeSliderImage(Self.clearTrack, for: state)
+                        volumeView.setMaximumVolumeSliderImage(Self.clearTrack, for: state)
+                        volumeView.setVolumeThumbImage(Self.clearThumb, for: state)
+                    }
+                }
+            }
+            updateTrack(animated: false)
+        }
+
+        func detach() {
+            slider?.removeTarget(self, action: nil, for: .allEvents)
+            volumeObservation?.invalidate()
+            volumeObservation = nil
+            volumeView?.onLayout = nil
         }
 
         @objc private func touchDown(_ slider: UISlider) {
@@ -11952,11 +12003,12 @@ struct SystemVolumeSlider: UIViewRepresentable {
             playedDragFeedback = false
             dragFeedback.prepare()
             edgeFeedback.prepare()
-            apply(isActive: true, animated: true)
+            isActive = true
+            updateTrack(animated: true)
         }
 
         @objc private func valueChanged(_ slider: UISlider) {
-            // 系统自己同步过来的音量(音量键、控制中心)不走这里,只有手指拖动才会震。
+            updateTrack(animated: false)
             guard slider.isTracking else { return }
             if !playedDragFeedback {
                 playedDragFeedback = true
@@ -11971,26 +12023,19 @@ struct SystemVolumeSlider: UIViewRepresentable {
 
         @objc private func touchEnded(_ slider: UISlider) {
             edge = .none
-            apply(isActive: false, animated: true)
+            isActive = false
+            updateTrack(animated: true)
         }
 
-        /// 平时 / 按住两套图之间换。系统样式平时不铺自己的轨道图,和一直以来的系统滑块一模一样。
-        func apply(isActive: Bool, animated: Bool) {
-            guard let slider, let images else { return }
-            let state = isActive ? images.active : images.resting
-            if animated, !UIAccessibility.isReduceMotionEnabled {
-                // 两套图之间淡过去,不是一下跳粗。
+        private func updateTrack(animated: Bool) {
+            guard let slider, let trackView = volumeView?.trackView else { return }
+            if animated, !trackView.reduceMotion {
                 let fade = CATransition()
                 fade.type = .fade
                 fade.duration = isActive ? 0.16 : 0.24
-                slider.layer.add(fade, forKey: "primuse.volumeTrackState")
+                trackView.layer.add(fade, forKey: "primuse.volumeTrackState")
             }
-            UIView.performWithoutAnimation {
-                slider.setMinimumTrackImage(state.minimumTrack, for: .normal)
-                slider.setMaximumTrackImage(state.maximumTrack, for: .normal)
-                slider.setThumbImage(state.thumb, for: .normal)
-                slider.setThumbImage(state.thumb, for: .highlighted)
-            }
+            trackView.update(from: slider, isActive: isActive)
         }
 
         private static func edge(of slider: UISlider) -> SliderScrubFeedbackPolicy.Edge {
@@ -12012,85 +12057,33 @@ struct SystemVolumeSlider: UIViewRepresentable {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView(frame: .zero)
-        UIView.performWithoutAnimation {
-            view.showsVolumeSlider = true
-            // The row owns the compact height, while MPVolumeView remains free
-            // to lay out its private slider hierarchy. Forcing the internal
-            // UISlider's frame can make the track disappear on newer iOS.
-            view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            styleSlider(in: view, coordinator: context.coordinator)
-            view.layoutIfNeeded()
-        }
-        context.coordinator.styleKey = currentStyleKey
+    func makeUIView(context: Context) -> PlayerSystemVolumeView {
+        let view = PlayerSystemVolumeView(frame: .zero)
+        view.showsVolumeSlider = true
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        context.coordinator.configure(in: view, styleKey: currentStyleKey)
         return view
     }
 
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {
-        let styleKey = currentStyleKey
-        guard context.coordinator.styleKey != styleKey || findSlider(in: uiView) == nil else {
-            return
-        }
-        UIView.performWithoutAnimation {
-            styleSlider(in: uiView, coordinator: context.coordinator)
-            uiView.setNeedsLayout()
-            uiView.layoutIfNeeded()
-        }
-        context.coordinator.styleKey = styleKey
+    func updateUIView(_ uiView: PlayerSystemVolumeView, context: Context) {
+        context.coordinator.configure(in: uiView, styleKey: currentStyleKey)
+    }
+
+    static func dismantleUIView(_ uiView: PlayerSystemVolumeView, coordinator: Coordinator) {
+        coordinator.detach()
     }
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        uiView: MPVolumeView,
+        uiView: PlayerSystemVolumeView,
         context: Context
     ) -> CGSize? {
-        // SwiftUI first asks an HStack child for an unspecified ideal width.
-        // Returning no intrinsic width here collapsed the actual UIKit view to
-        // zero even though the outer `.frame(maxWidth: .infinity)` still filled
-        // the row, leaving only the speaker icons visible.
-        let intrinsicWidth = uiView.intrinsicContentSize.width
-        let width = proposal.width ?? max(intrinsicWidth, 1)
+        // HStack 首次询问理想宽度时也要给非零尺寸，否则只剩两端的扬声器图标。
+        let width = proposal.width ?? max(uiView.intrinsicContentSize.width, 1)
         return CGSize(width: width, height: Self.compactHeight)
-    }
-
-    private func styleSlider(in volumeView: MPVolumeView, coordinator: Coordinator) {
-        volumeView.backgroundColor = .clear
-        volumeView.subviews
-            .compactMap { $0 as? UIButton }
-            .forEach { $0.isHidden = true }
-
-        guard let slider = findSlider(in: volumeView) else {
-            return
-        }
-        let foreground = playerUIColor
-        let fill = fillTint.map { UIColor($0) } ?? foreground
-        let track = trackStyle.trackColor.map { UIColor($0) }
-            ?? foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.30 : 0.20)
-        slider.minimumTrackTintColor = fill
-        slider.maximumTrackTintColor = track
-        slider.thumbTintColor = fill
-        slider.accessibilityLabel = String(localized: "volume")
-        coordinator.attach(to: slider)
-        coordinator.images = SystemVolumeTrackImages(
-            style: trackStyle,
-            fill: fill,
-            track: track,
-            usesSystemTrackAtRest: trackStyle == .system,
-            reduceMotion: reduceMotion
-        )
-        coordinator.apply(isActive: slider.isTracking, animated: false)
-    }
-
-    private var playerUIColor: UIColor {
-        colorScheme == .light
-            ? UIColor.black.withAlphaComponent(colorSchemeContrast == .increased ? 0.96 : 0.88)
-            : UIColor.white
     }
 
     private var currentStyleKey: StyleKey {
@@ -12102,155 +12095,124 @@ struct SystemVolumeSlider: UIViewRepresentable {
             reduceMotion: reduceMotion
         )
     }
+}
 
-    private func findSlider(in view: UIView) -> UISlider? {
-        if let slider = view as? UISlider {
-            return slider
+class PlayerSystemVolumeView: MPVolumeView {
+    let trackView = SystemVolumeTrackView(frame: .zero)
+    var onLayout: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        trackView.isUserInteractionEnabled = false
+        trackView.accessibilityElementsHidden = true
+        addSubview(trackView)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var volumeSlider: UISlider? {
+        func find(in view: UIView) -> UISlider? {
+            if let slider = view as? UISlider { return slider }
+            return view.subviews.lazy.compactMap { find(in: $0) }.first
         }
-        for subview in view.subviews {
-            if let slider = findSlider(in: subview) {
-                return slider
-            }
-        }
-        return nil
+        return find(in: self)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        subviews.compactMap { $0 as? UIButton }.forEach { $0.isHidden = true }
+        // 发光和放大的圆钮允许越出紧凑音量行，不在绘图画布边缘截断。
+        trackView.frame = bounds.insetBy(dx: -12, dy: -12)
+        bringSubviewToFront(trackView)
+        // 内部滑块可能晚于 makeUIView 创建，也可能在输出线路变化后被系统替换。
+        onLayout?()
     }
 }
 
-/// 系统音量滑块平时与按住时的两套图:轨道(填充段、剩余段)与圆钮。
-///
-/// 两段轨道图在同一状态下一样高(发光、波浪的余量都算进去),滑块把它们竖着居中摆,粗细只按画进去的那条线变。
-/// 不画圆钮的样式也留一颗透明的圆钮:系统滑块要从圆钮那里拖起。
-///
-/// 系统滑块的填充段画到圆钮中心就被竖着截平,有圆钮时盖得住;胶囊条没有圆钮,那一刀就露在外面,
-/// 和进度条圆头的填充段对不上。所以这时透明圆钮正中画一个和轨道一样粗的圆,替填充段补上圆头。
-struct SystemVolumeTrackImages {
-    struct State {
-        let minimumTrack: UIImage?
-        let maximumTrack: UIImage?
-        let thumb: UIImage
+/// 与进度条使用相同的完整 Capsule 路径，不在滑块中点截断后拼一个圆头。
+final class SystemVolumeTrackView: UIView {
+    var style: PlayerVolumeTrackStyle = .system
+    var fill: UIColor = .white
+    var track: UIColor = .white.withAlphaComponent(0.18)
+    var reduceMotion = false
+    private(set) var isActive = false
+    private var start = CGPoint.zero
+    private var end = CGPoint.zero
+    private var fraction: CGFloat = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        contentMode = .redraw
     }
 
-    let resting: State
-    let active: State
+    required init?(coder: NSCoder) { nil }
 
-    /// - Parameter usesSystemTrackAtRest: 系统样式平时不换轨道图(nil 即系统自己画的那条),只在按住时换成加粗的。
-    @MainActor
-    init(
-        style: PlayerVolumeTrackStyle,
-        fill: UIColor,
-        track: UIColor,
-        usesSystemTrackAtRest: Bool,
-        reduceMotion: Bool
-    ) {
-        func state(isActive: Bool) -> State {
-            let height = style.height(isActive: isActive, reduceMotion: reduceMotion)
-            let knob = style.knob(isActive: isActive, reduceMotion: reduceMotion)
-            let glowPad: CGFloat = style.glows ? 8 : 0
-            let wavePad: CGFloat = style.isWave ? Self.waveAmplitude : 0
-            let canvasHeight = height + 2 * (glowPad + wavePad)
-            let useSystemTrack = usesSystemTrackAtRest && !isActive
-            return State(
-                minimumTrack: useSystemTrack ? nil : (style.isWave
-                    ? Self.waveImage(lineWidth: height, canvasHeight: canvasHeight, color: fill, glows: style.glows)
-                    : Self.capsuleImage(height: height, canvasHeight: canvasHeight, color: fill, glows: style.glows)),
-                maximumTrack: useSystemTrack ? nil
-                    : Self.capsuleImage(height: height, canvasHeight: canvasHeight, color: track, glows: false),
-                thumb: knob.map { Self.circleImage(diameter: $0, color: fill, glows: style.glows) }
-                    ?? (style.isWave
-                        // 波浪在截断处不一定在中线上,补一个圆反而像多出来的点。
-                        ? Self.clearImage(side: Self.clearThumbSide)
-                        : Self.capThumbImage(lineHeight: height, color: fill, glows: style.glows))
-            )
-        }
-        resting = state(isActive: false)
-        active = state(isActive: true)
+    func update(from slider: UISlider, isActive: Bool) {
+        self.isActive = isActive
+        let rect = slider.trackRect(forBounds: slider.bounds)
+        let minimum = slider.thumbRect(forBounds: slider.bounds, trackRect: rect, value: slider.minimumValue)
+        let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: rect, value: slider.maximumValue)
+        start = slider.convert(CGPoint(x: minimum.midX, y: minimum.midY), to: self)
+        end = slider.convert(CGPoint(x: maximum.midX, y: maximum.midY), to: self)
+        let span = slider.maximumValue - slider.minimumValue
+        let value = span > 0 ? (slider.value - slider.minimumValue) / span : 0
+        fraction = value.isFinite ? CGFloat(max(0, min(1, value))) : 0
+        isHidden = slider.isHidden || abs(end.x - start.x) <= 0
+        alpha = slider.alpha * (slider.isEnabled ? 1 : 0.5)
+        setNeedsDisplay()
     }
 
-    static let waveAmplitude: CGFloat = 3
-    static let waveLength: CGFloat = 26
-    /// 不画圆钮时那颗透明圆钮的边长:够手指按住,圆头画在正中。
-    static let clearThumbSide: CGFloat = 24
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let width = abs(end.x - start.x)
+        guard width > 0 else { return }
+        let height = style.height(isActive: isActive, reduceMotion: reduceMotion)
+        let filledWidth = width * fraction
+        let direction: CGFloat = end.x >= start.x ? 1 : -1
+        let scale = contentScaleFactor
+        context.translateBy(x: start.x, y: start.y)
+        context.scaleBy(x: direction, y: 1)
 
-    /// 一条居中的胶囊,两头按半径留出不拉伸的部分。
-    @MainActor
-    private static func capsuleImage(height: CGFloat, canvasHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
-        let inset = (canvasHeight - height) / 2
-        let width = height + 2 * inset + 2
-        let size = CGSize(width: width, height: canvasHeight)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
-            let rect = CGRect(x: inset, y: inset, width: width - 2 * inset, height: height)
-            if glows {
-                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
+        // SwiftUI 的 Shape 布局会对齐像素边界，细轨道也按相同规则避免半像素的淡边。
+        func alignedRect(_ rect: CGRect) -> CGRect {
+            func x(_ value: CGFloat) -> CGFloat {
+                (((start.x + direction * value) * scale).rounded() / scale - start.x) * direction
             }
-            color.setFill()
-            UIBezierPath(roundedRect: rect, cornerRadius: height / 2).fill()
+            let minY = ((start.y + rect.minY) * scale).rounded() / scale - start.y
+            let maxY = ((start.y + rect.maxY) * scale).rounded() / scale - start.y
+            return CGRect(x: x(rect.minX), y: minY, width: x(rect.maxX) - x(rect.minX), height: maxY - minY)
         }
-        let cap = inset + height / 2
-        return image.resizableImage(
-            withCapInsets: UIEdgeInsets(top: 0, left: cap, bottom: 0, right: cap),
-            resizingMode: .stretch
-        )
-    }
 
-    /// 一个波长的正弦线,横着平铺成填充那一段。
-    @MainActor
-    private static func waveImage(lineWidth: CGFloat, canvasHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
-        let size = CGSize(width: waveLength, height: canvasHeight)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
-            let path = UIBezierPath()
-            let midY = canvasHeight / 2
-            var x: CGFloat = 0
-            path.move(to: CGPoint(x: 0, y: midY))
-            while x < waveLength {
-                x = min(x + 1, waveLength)
-                path.addLine(to: CGPoint(x: x, y: midY + waveAmplitude * sin(2 * .pi * x / waveLength)))
-            }
-            if glows {
-                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
-            }
-            color.setStroke()
-            path.lineWidth = lineWidth
-            path.lineCapStyle = .butt
-            path.lineJoinStyle = .round
-            path.stroke()
+        func capsule(x: CGFloat, width: CGFloat, color: UIColor) {
+            guard width > 0 else { return }
+            context.setFillColor(color.cgColor)
+            let rect = alignedRect(CGRect(x: x, y: -height / 2, width: width, height: height))
+            context.addPath(Capsule().path(in: rect).cgPath)
+            context.fillPath()
         }
-        return image.resizableImage(withCapInsets: .zero, resizingMode: .tile)
-    }
+        capsule(x: style.isWave ? filledWidth : 0, width: style.isWave ? width - filledWidth : width, color: track)
 
-    @MainActor
-    private static func circleImage(diameter: CGFloat, color: UIColor, glows: Bool) -> UIImage {
-        let pad: CGFloat = glows ? 6 : 0
-        let size = CGSize(width: diameter + 2 * pad, height: diameter + 2 * pad)
-        return UIGraphicsImageRenderer(size: size).image { context in
-            if glows {
-                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
-            }
-            color.setFill()
-            context.cgContext.fillEllipse(in: CGRect(x: pad, y: pad, width: diameter, height: diameter))
+        if style.glows {
+            context.setShadow(offset: .zero, blur: 6, color: fill.withAlphaComponent(0.85).cgColor)
         }
-    }
-
-    /// 透明圆钮正中一个直径等于轨道粗细的圆:左半边落在填充段上看不出,右半边就是填充段的圆头。
-    @MainActor
-    private static func capThumbImage(lineHeight: CGFloat, color: UIColor, glows: Bool) -> UIImage {
-        let side = clearThumbSide
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { context in
-            if glows {
-                context.cgContext.setShadow(offset: .zero, blur: 6, color: color.withAlphaComponent(0.85).cgColor)
-            }
-            color.setFill()
-            context.cgContext.fillEllipse(in: CGRect(
-                x: (side - lineHeight) / 2,
-                y: (side - lineHeight) / 2,
-                width: lineHeight,
-                height: lineHeight
-            ))
+        if style.isWave, filledWidth > 0 {
+            let wave = ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
+            context.addPath(wave.path(in: CGRect(x: 0, y: -height / 2, width: filledWidth, height: height)).cgPath)
+            context.setStrokeColor(fill.cgColor)
+            context.setLineWidth(height)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.strokePath()
+        } else {
+            capsule(x: 0, width: filledWidth, color: fill)
         }
-    }
-
-    @MainActor
-    private static func clearImage(side: CGFloat) -> UIImage {
-        UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in }
+        if let knob = style.knob(isActive: isActive, reduceMotion: reduceMotion) {
+            context.setFillColor(fill.cgColor)
+            context.fillEllipse(in: alignedRect(CGRect(x: filledWidth - knob / 2, y: -knob / 2, width: knob, height: knob)))
+        }
     }
 }
 #endif

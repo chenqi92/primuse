@@ -567,3 +567,247 @@ final class NowPlayingStylePresetTests: XCTestCase {
         XCTAssertEqual(Set(NowPlayingStylePreset.concise.values.keys), Set(NowPlayingStylePreset.defaultValues.keys))
     }
 }
+
+@MainActor
+final class SystemVolumeSliderTests: XCTestCase {
+    private final class VolumeView: PlayerSystemVolumeView {
+        var testSlider: UISlider?
+        override var volumeSlider: UISlider? { testSlider }
+
+        func installSlider(value: Float = 0.25) -> UISlider {
+            testSlider?.removeFromSuperview()
+            let slider = UISlider(frame: bounds)
+            slider.value = value
+            let thumb = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { _ in }
+            slider.setThumbImage(thumb, for: .normal)
+            slider.setThumbImage(thumb, for: .highlighted)
+            addSubview(slider)
+            testSlider = slider
+            setNeedsLayout()
+            return slider
+        }
+    }
+
+    private func key(
+        style: PlayerVolumeTrackStyle = .matching(.standard), reduceMotion: Bool = true
+    ) -> SystemVolumeSlider.StyleKey {
+        SystemVolumeSlider.StyleKey(
+            isLight: false, usesIncreasedContrast: false, trackStyle: style,
+            fillTint: .white, reduceMotion: reduceMotion
+        )
+    }
+
+    func testRealSystemVolumeViewKeepsItsNativeSliderAndTransparentImages() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let view = PlayerSystemVolumeView(frame: CGRect(x: 24, y: 200, width: 300, height: 24))
+        view.showsVolumeSlider = true
+        controller.view.addSubview(view)
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer {
+            coordinator.detach()
+            window.isHidden = true
+            originalWindow?.makeKeyAndVisible()
+        }
+        coordinator.configure(in: view, styleKey: key())
+        window.makeKeyAndVisible()
+        for _ in 0..<30 {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            if view.volumeSlider != nil { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        #if targetEnvironment(simulator)
+        try XCTSkipIf(view.volumeSlider == nil, "iOS 模拟器不提供真实系统音量滑块；保留真机回归用例。")
+        #endif
+        let slider = try XCTUnwrap(view.volumeSlider,
+            "window=\(window.bounds), view=\(view.frame), showsVolumeSlider=\(view.showsVolumeSlider), children=\(view.subviews.map { String(describing: type(of: $0)) })")
+        XCTAssertTrue(coordinator.slider === slider)
+        XCTAssertTrue(slider.isUserInteractionEnabled)
+        XCTAssertFalse(view.trackView.isUserInteractionEnabled)
+        XCTAssertFalse(view.trackView.isHidden)
+        XCTAssertGreaterThan(view.trackView.bounds.height, view.bounds.height)
+        for state: UIControl.State in [.normal, .highlighted, .disabled] {
+            let track = try XCTUnwrap(view.maximumVolumeSliderImage(for: state))
+            XCTAssertTrue(try pixels(of: track).allSatisfy { $0 == 0 })
+        }
+    }
+
+    func testSliderCreatedAfterInitialConfigurationIsStyledOnLayout() throws {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key())
+        XCTAssertNil(coordinator.slider)
+        XCTAssertTrue(view.trackView.isHidden)
+
+        let slider = view.installSlider()
+        view.layoutIfNeeded()
+
+        XCTAssertTrue(coordinator.slider === slider)
+        XCTAssertFalse(view.trackView.isHidden)
+        for state: UIControl.State in [.normal, .highlighted, .disabled] {
+            XCTAssertNotNil(view.minimumVolumeSliderImage(for: state))
+            XCTAssertNotNil(view.maximumVolumeSliderImage(for: state))
+            XCTAssertNotNil(view.volumeThumbImage(for: state))
+        }
+        XCTAssertTrue(try pixels(of: render(view.trackView)).contains { $0 > 0 })
+    }
+
+    func testReplacingSliderMovesInteractionToTheNewControlWithoutAStyleChange() {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let oldSlider = view.installSlider()
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key())
+        view.layoutIfNeeded()
+
+        let replacement = view.installSlider(value: 0.7)
+        view.layoutIfNeeded()
+        XCTAssertTrue(coordinator.slider === replacement)
+        oldSlider.sendActions(for: .touchDown)
+        XCTAssertFalse(view.trackView.isActive)
+        replacement.sendActions(for: .touchDown)
+        XCTAssertTrue(view.trackView.isActive)
+        replacement.sendActions(for: .touchCancel)
+        XCTAssertFalse(view.trackView.isActive)
+    }
+
+    func testEmptyTrackSurvivesNativeTrackResetAndPressReleaseCycles() throws {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider()
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key())
+        view.layoutIfNeeded()
+        let nativeTrack = slider.trackRect(forBounds: slider.bounds)
+        let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: nativeTrack, value: 1)
+        let sampleX = Int(maximum.midX - 30)
+        let sampleY = Int(maximum.midY)
+
+        for _ in 0..<3 {
+            slider.setMaximumTrackImage(nil, for: .normal)
+            slider.setMaximumTrackImage(nil, for: .highlighted)
+            slider.maximumTrackTintColor = .clear
+            for event: UIControl.Event in [.touchDown, .touchUpInside, .touchDown, .touchCancel] {
+                slider.sendActions(for: event)
+                let image = render(view.trackView)
+                let bytes = try pixels(of: image)
+                XCTAssertGreaterThan(bytes[(sampleY * 300 + sampleX) * 4 + 3], 30)
+            }
+        }
+    }
+
+    func testVolumeCapsulesMatchProgressRenderingAtZeroLowMiddleAndFullValues() throws {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider()
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        var style = PlayerVolumeTrackStyle.matching(.standard)
+        style.trackColor = .blue.opacity(0.3)
+        coordinator.configure(in: view, styleKey: key(style: style))
+        view.layoutIfNeeded()
+        let nativeTrack = slider.trackRect(forBounds: slider.bounds)
+        let minimum = slider.thumbRect(forBounds: slider.bounds, trackRect: nativeTrack, value: 0)
+        let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: nativeTrack, value: 1)
+        let width = maximum.midX - minimum.midX
+
+        for reduceMotion in [false, true] {
+            coordinator.configure(in: view, styleKey: key(style: style, reduceMotion: reduceMotion))
+            for scale: CGFloat in [1, 3] {
+                for active in [false, true] {
+                    slider.sendActions(for: active ? .touchDown : .touchCancel)
+                    let height = style.height(isActive: active, reduceMotion: reduceMotion)
+                    for fraction: Float in [0, 0.01, 0.5, 1] {
+                        slider.value = fraction
+                        coordinator.synchronizeSlider()
+                        let actual = render(view.trackView, scale: scale)
+                        let reference = ImageRenderer(content:
+                            ZStack(alignment: .topLeading) {
+                                Capsule().fill(Color.blue.opacity(0.3))
+                                    .frame(width: width, height: height)
+                                Capsule().fill(Color.white)
+                                    .frame(width: width * CGFloat(fraction), height: height)
+                            }
+                            .offset(x: minimum.midX, y: minimum.midY - height / 2)
+                            .frame(width: 300, height: 24, alignment: .topLeading)
+                        )
+                        reference.scale = scale
+                        let expected = try XCTUnwrap(reference.uiImage)
+                        let actualPixels = try pixels(of: actual)
+                        let expectedPixels = try pixels(of: expected)
+                        XCTAssertEqual(actualPixels.count, expectedPixels.count)
+                        let totalDifference = zip(actualPixels, expectedPixels).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+                        let paintedPixels = stride(from: 3, to: expectedPixels.count, by: 4).filter { expectedPixels[$0] > 0 }.count
+                        XCTAssertLessThan(Double(totalDifference) / Double(max(1, paintedPixels * 4)), 3,
+                                          "scale=\(scale), reduceMotion=\(reduceMotion), active=\(active), volume=\(fraction)")
+                        if fraction == 0.5, scale == 3, !reduceMotion {
+                            for (name, image) in [("volume", actual), ("progress-reference", expected)] {
+                                let attachment = XCTAttachment(image: image)
+                                attachment.name = "\(name)-capsule-\(active ? "pressed" : "resting")"
+                                attachment.lifetime = .keepAlways
+                                add(attachment)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testAllStylesKeepTheirEmptyTrackWhenResizedAndReturnFromCancelledDrag() throws {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider(value: 0.2)
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        let styles: [PlayerVolumeTrackStyle] = [
+            .system, .matching(.standard), .matching(.forProgressStyle(.dot, glows: true)),
+            .matching(.forProgressStyle(.wave, glows: true))
+        ]
+        for style in styles {
+            coordinator.configure(in: view, styleKey: key(style: style))
+            for width: CGFloat in [180, 420] {
+                view.frame.size.width = width
+                slider.frame = view.bounds
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+                slider.sendActions(for: .touchDown)
+                slider.sendActions(for: .touchCancel)
+                XCTAssertFalse(view.trackView.isActive)
+                let rect = slider.trackRect(forBounds: slider.bounds)
+                let end = slider.thumbRect(forBounds: slider.bounds, trackRect: rect, value: 1)
+                let bytes = try pixels(of: render(view.trackView))
+                XCTAssertGreaterThan(bytes[(Int(end.midY) * Int(width) + Int(end.midX - 30)) * 4 + 3], 30)
+            }
+        }
+    }
+
+    private func render(_ view: UIView, scale: CGFloat = 1) -> UIImage {
+        view.contentScaleFactor = scale
+        view.layer.displayIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let size = view.superview?.bounds.size ?? view.bounds.size
+        return UIGraphicsImageRenderer(size: size, format: format).image {
+            $0.cgContext.translateBy(x: view.frame.minX, y: view.frame.minY)
+            view.layer.render(in: $0.cgContext)
+        }
+    }
+
+    private func pixels(of image: UIImage) throws -> [UInt8] {
+        let image = try XCTUnwrap(image.cgImage)
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try XCTUnwrap(CGContext(
+            data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return bytes
+    }
+}
