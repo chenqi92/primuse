@@ -63,6 +63,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// 艺术家; 服务端按专辑名并起来的专辑要靠这张表认回同一张, 见
     /// `AlbumGroupingPolicy.serverCatalogAlbumArtistName`。
     private var serverAlbumArtists: [String: String]?
+    private var serverAlbumCreatedDates: [String: Date] = [:]
     private var serverAlbumArtistsFetchedAt: Date?
 
     private struct LibraryScope {
@@ -911,10 +912,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         if libraryScope?.includedLibraryIDs?.isEmpty == true {
             serverAlbumArtists = [:]
+            serverAlbumCreatedDates = [:]
             serverAlbumArtistsFetchedAt = Date()
             return
         }
         var artists: [String: String] = [:]
+        var createdDates: [String: Date] = [:]
         var offset = 0
         do {
             while true {
@@ -931,6 +934,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 )
                 let albums = container.albumList2?.album ?? []
                 for album in albums {
+                    createdDates[album.id] = album.created.flatMap(Self.parseCatalogDate)
                     guard let artist = Self.cleaned(album.artist, unknown: "[Unknown Artist]") else { continue }
                     artists[album.id] = artist
                 }
@@ -948,6 +952,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             return
         }
         serverAlbumArtists = artists
+        serverAlbumCreatedDates = createdDates
         serverAlbumArtistsFetchedAt = Date()
     }
 
@@ -1728,6 +1733,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
         let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
         let coverArtID = child.coverArt ?? album?.coverArt
+        let created = child.created.flatMap(Self.parseDate)
+        let added = created.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
+        let albumCreated = album?.created.flatMap(Self.parseCatalogDate)
+            ?? (child.albumId ?? album?.id).flatMap { serverAlbumCreatedDates[$0] }
 
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
@@ -1786,7 +1795,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             bitDepth: child.bitDepth,
             genre: child.genres?.genre(fallback: child.genre) ?? child.genre,
             year: child.year,
-            lastModified: child.created.flatMap(Self.parseDate),
+            lastModified: created,
+            dateAdded: added ?? Date(),
             serverPlayCount: child.playCount,
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
             artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
@@ -1802,7 +1812,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 sampleRate: child.samplingRate,
                 channelCount: child.channelCount,
                 container: format
-            )
+            ),
+            serverDateAdded: added,
+            serverAlbumDateAdded: albumCreated
         )
     }
 
@@ -2163,6 +2175,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return plain.date(from: value)
     }
 
+    private static func parseCatalogDate(_ value: String) -> Date? {
+        parseDate(value).map(ServerSongCatalogMergePolicy.normalizedAddedDate)
+    }
+
     private static func scanStatus(from container: ScanStatusContainer) -> ServerCatalogScanStatus {
         ServerCatalogScanStatus(
             isScanning: container.scanStatus?.scanning ?? false,
@@ -2393,6 +2409,7 @@ private struct AlbumSummary: Decodable, Sendable {
     let name: String?
     let artist: String?
     let coverArt: String?
+    let created: String?
 }
 
 /// 专辑评分只解这两个字段,不动整库走查用的 `AlbumSummary`:哪个服务器把评分写成了

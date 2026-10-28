@@ -4052,7 +4052,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let fileSize = audioFileSize(for: item)
         let bitRate = audioStream?.bitRate.map { Int($0 / 1000) }
         let genre = genres.flatMap { GenreTagValues.joined($0) }
-        let dateAdded = item.dateCreated ?? dateAddedFallback
+        let serverDateAdded = item.dateCreated.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
+        let dateAdded = serverDateAdded ?? dateAddedFallback
         let coverArtFileName = coverArtURL(for: item)?.absoluteString
         let artistArtworkFileName = artistArtworkReference(
             for: item,
@@ -4088,11 +4089,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             serverLibraryID: library.id,
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: audioStream?.codec), container: format
-            )
+            ),
+            serverDateAdded: serverDateAdded
         )
     }
 
     private func buildSong(from item: PlexAudioItem, library: Library) -> Song {
+        let serverDateAdded = item.addedAt.flatMap { timestamp -> Date? in
+            guard timestamp > 0 else { return nil }
+            return Date(timeIntervalSince1970: TimeInterval(timestamp))
+        }
         let part = item.media?.first?.parts?.first
         let audioStream = part?.streams?.first(where: { $0.streamType == 2 }) ?? part?.streams?.first
         let fileExtension = plexAudioFileExtension(for: item)
@@ -4133,6 +4139,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             bitDepth: audioStream?.bitDepth,
             genre: genres.flatMap { GenreTagValues.joined($0) },
             year: item.year,
+            dateAdded: serverDateAdded ?? Date(),
             serverPlayCount: item.viewCount,
             coverArtFileName: coverArtURL(for: item)?.absoluteString,
             artistArtworkFileName: artistArtworkReference(for: item, artistName: artist),
@@ -4140,7 +4147,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: audioStream?.codec ?? item.media?.first?.audioCodec),
                 container: format
-            )
+            ),
+            serverDateAdded: serverDateAdded
         )
     }
 

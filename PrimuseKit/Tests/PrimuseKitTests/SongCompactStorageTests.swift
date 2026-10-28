@@ -12,7 +12,7 @@ struct SongCompactStorageTests {
         "replayGainTrackGain", "replayGainTrackPeak", "replayGainAlbumGain", "replayGainAlbumPeak",
         "cueSheetPath", "cueStartTime", "cueEndTime", "revision", "titlePinyin", "artistPinyin", "albumPinyin",
         "lyricsText", "userMetadataEditedAt", "audioVariants", "serverLibraryID", "audioCodec",
-        "effectiveBitDepth",
+        "effectiveBitDepth", "serverDateAdded", "serverAlbumDateAdded",
     ]
 
     private func full() -> Song {
@@ -27,7 +27,9 @@ struct SongCompactStorageTests {
             cueSheetPath: "a.cue", cueStartTime: 12, cueEndTime: 99, revision: "etag", titlePinyin: "biao ti",
             artistPinyin: "ge shou", albumPinyin: "zhuan ji", lyricsText: "歌词", userMetadataEditedAt: Date(timeIntervalSince1970: 1_700_000_200),
             audioVariants: [.lossless], serverLibraryID: "library-1", audioCodec: .alac,
-            effectiveBitDepth: 16
+            effectiveBitDepth: 16,
+            serverDateAdded: Date(timeIntervalSince1970: 1_600_000_100),
+            serverAlbumDateAdded: Date(timeIntervalSince1970: 1_600_000_000)
         )
     }
 
@@ -52,6 +54,9 @@ struct SongCompactStorageTests {
                          dateAdded: Date(timeIntervalSince1970: 0))
         let emptyObject = try #require(try JSONSerialization.jsonObject(with: try encoder.encode(empty)) as? [String: Any])
         #expect(Set(emptyObject.keys) == ["id", "title", "duration", "fileFormat", "filePath", "sourceID", "fileSize", "dateAdded"])
+        let legacy = try decoder.decode(Song.self, from: try encoder.encode(empty))
+        #expect(legacy.serverDateAdded == nil)
+        #expect(legacy.serverAlbumDateAdded == nil)
     }
 
     @Test("Integers beyond 32 bits and the packing markers survive")
@@ -82,9 +87,11 @@ struct SongCompactStorageTests {
         var b = full()
         a.mvPath = nil; a.cueSheetPath = nil; a.cueStartTime = nil; a.cueEndTime = nil
         a.lyricsText = nil; a.userMetadataEditedAt = nil; a.audioVariants = nil
+        a.serverDateAdded = nil; a.serverAlbumDateAdded = nil
         b.lyricsText = "其它"; b.lyricsText = nil
         b.mvPath = nil; b.cueSheetPath = nil; b.cueStartTime = nil; b.cueEndTime = nil
         b.userMetadataEditedAt = nil; b.audioVariants = nil
+        b.serverDateAdded = nil; b.serverAlbumDateAdded = nil
         #expect(a == b)
         #expect(a.hashValue == b.hashValue)
         #expect(Set([a, b]).count == 1)

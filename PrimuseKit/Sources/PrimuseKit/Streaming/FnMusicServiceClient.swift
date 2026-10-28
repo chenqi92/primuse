@@ -202,6 +202,7 @@ public struct FnMusicCatalogTrack: Sendable {
         let artistName = artistNames.isEmpty ? nil : artistNames.joined(separator: ", ")
         let genreName = GenreTagValues.joined(genreNames)
         let revisionTimestamp = updatedAt ?? createdAt
+        let addedDate = Self.date(fromUnixTimestamp: createdAt).map(ServerSongCatalogMergePolicy.normalizedAddedDate)
         let coverReference = coverID.map {
             FnMusicAPIProtocol.coverReference(coverID: $0, revision: revisionTimestamp)
         }
@@ -233,7 +234,7 @@ public struct FnMusicCatalogTrack: Sendable {
             genre: genreName,
             year: year,
             lastModified: Self.date(fromUnixTimestamp: revisionTimestamp),
-            dateAdded: Self.date(fromUnixTimestamp: createdAt) ?? Date(),
+            dateAdded: addedDate ?? Date(),
             coverArtFileName: coverReference,
             cueSheetPath: hasValidCueRange ? "/fnmusic/cue/\(guid).cue" : nil,
             cueStartTime: hasValidCueRange ? cueStartTime : nil,
@@ -241,7 +242,8 @@ public struct FnMusicCatalogTrack: Sendable {
             revision: "fnmusic:\(updatedAt ?? 0):\(fileSize)",
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: codecName), container: format
-            )
+            ),
+            serverDateAdded: addedDate
         )
     }
 

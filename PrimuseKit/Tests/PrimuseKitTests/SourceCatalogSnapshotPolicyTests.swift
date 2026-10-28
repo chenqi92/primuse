@@ -107,6 +107,48 @@ struct SynologyFileRevisionPolicyTests {
 }
 
 struct ServerSongCatalogMergePolicyTests {
+    @Test func serverDatesRepairLegacyImportsWithoutDiscardingEnrichment() {
+        var existing = song(revision: "r1")
+        existing.lyricsText = "Local lyrics"
+        existing.userMetadataEditedAt = Date(timeIntervalSince1970: 100)
+        var incoming = song(revision: "r1")
+        incoming.serverDateAdded = Date(timeIntervalSince1970: 10)
+        incoming.serverAlbumDateAdded = Date(timeIntervalSince1970: 5)
+
+        let merged = ServerSongCatalogMergePolicy.mergedSnapshot(existing: [existing], candidate: [incoming])
+        #expect(merged[0].dateAdded == incoming.serverDateAdded)
+        #expect(merged[0].serverAlbumDateAdded == incoming.serverAlbumDateAdded)
+        #expect(merged[0].lyricsText == existing.lyricsText)
+        #expect(merged[0].userMetadataEditedAt == existing.userMetadataEditedAt)
+        #expect(SourceCatalogSnapshotPolicy.hasChanges(existing: [existing], candidate: merged))
+        #expect(ServerSongCatalogMergePolicy.mergedSnapshot(existing: merged, candidate: [incoming]) == merged)
+    }
+
+    @Test func absentServerDatesRetainThePriorAddedDatesEvenOnReplacement() {
+        var existing = song(revision: "r1")
+        var incoming = song(revision: "r2")
+        incoming.dateAdded = Date(timeIntervalSince1970: 2_000_000_000)
+        #expect(ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming).dateAdded == existing.dateAdded)
+
+        existing.serverDateAdded = Date(timeIntervalSince1970: 10)
+        existing.serverAlbumDateAdded = Date(timeIntervalSince1970: 5)
+        let merged = ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+        #expect(merged.dateAdded == existing.serverDateAdded)
+        #expect(merged.serverAlbumDateAdded == existing.serverAlbumDateAdded)
+    }
+
+    @Test func replacementCanCorrectAuthoritativeDatesInEitherDirection() {
+        var existing = song(revision: "r1")
+        existing.serverDateAdded = Date(timeIntervalSince1970: 10)
+        existing.serverAlbumDateAdded = Date(timeIntervalSince1970: 5)
+        var incoming = song(revision: "r2")
+        incoming.serverDateAdded = Date(timeIntervalSince1970: 20)
+        incoming.serverAlbumDateAdded = Date(timeIntervalSince1970: 2)
+        let merged = ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+        #expect(merged.dateAdded == incoming.serverDateAdded)
+        #expect(merged.serverAlbumDateAdded == incoming.serverAlbumDateAdded)
+    }
+
     @Test func stableServerRowsPreserveDeviceEnrichmentAndProviderDerivedIDs() {
         var existing = song(revision: "r1")
         existing.albumID = "local-album-id"
@@ -734,5 +776,59 @@ struct AutomaticOfflineDownloadPolicyTests {
             attemptCount: 16,
             authenticationRequired: true
         ) == 3_600)
+    }
+}
+
+struct ServerAddedDateMappingTests {
+    @Test(arguments: ["fnmusic", "daoliyu", "songloft"])
+    func serverDatesRepairOldRowsAndSurviveSnapshots(provider: String) throws {
+        let incoming = try song(provider: provider, dated: true)
+        let expected = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(incoming.dateAdded == expected)
+        #expect(incoming.serverDateAdded == expected)
+        var existing = incoming
+        existing.serverDateAdded = nil
+        existing.dateAdded = Date(timeIntervalSince1970: 2_000_000_000)
+        existing.lyricsText = "Cached lyrics"
+        let repaired = ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+        #expect(repaired.dateAdded == expected)
+        #expect(repaired.lyricsText == existing.lyricsText)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let reopened = try decoder.decode(Song.self, from: encoder.encode(repaired))
+        #expect(reopened.serverDateAdded == incoming.serverDateAdded)
+        #expect(reopened.dateAdded == incoming.dateAdded)
+        let withoutDate = try song(provider: provider, dated: false)
+        #expect(withoutDate.serverDateAdded == nil)
+        let retained = ServerSongCatalogMergePolicy.merged(existing: reopened, incoming: withoutDate)
+        #expect(retained.dateAdded == expected)
+        #expect(retained.serverDateAdded == expected)
+    }
+
+    private func song(provider: String, dated: Bool) throws -> Song {
+        let value = dated ? "2023-11-14T22:13:20.123Z" : "invalid"
+        switch provider {
+        case "fnmusic":
+            let track = try #require(FnMusicCatalogTrack(json: [
+                "guid": "one", "title": "One", "audioSpec": ["format": "mp3"],
+                "createdAt": dated ? 1_700_000_000_123 : -1
+            ]))
+            return try #require(track.makeSong(sourceID: provider))
+        case "daoliyu":
+            let track = try #require(DaoLiYuCatalogTrack(json: [
+                "id": "one", "title": "One", "fileFormat": "mp3", "createdAt": value
+            ]))
+            return try #require(track.makeSong(sourceID: provider, serverBaseURL: URL(string: "https://music.invalid")!))
+        default:
+            let data = try JSONSerialization.data(withJSONObject: [
+                "id": 1, "type": "local", "title": "One", "format": "mp3", "added_at": value
+            ])
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let track = try decoder.decode(SongloftTrack.self, from: data)
+            return try #require(track.makeSong(sourceID: provider))
+        }
     }
 }

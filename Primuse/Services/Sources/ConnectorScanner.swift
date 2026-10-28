@@ -679,10 +679,15 @@ actor ConnectorScanner {
                                         // allSongs so the next library flush sees the
                                         // fresh size/mtime/sidecars instead of merging
                                         // back to stale metadata.
-                                        let replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                        var replacement = SongUserMetadataPolicy.preservingUserEdits(
                                             from: existing,
                                             in: scannedSong.song
                                         )
+                                        if connector is any RefreshingMetadataSongConnector {
+                                            replacement = ServerSongCatalogMergePolicy.mergingAddedDates(
+                                                existing: existing, incoming: scannedSong.song, into: replacement
+                                            )
+                                        }
                                         if let idx = allSongIndexByID[scannedSong.song.id] {
                                             allSongs[idx] = replacement
                                         }
@@ -1642,7 +1647,9 @@ actor ConnectorScanner {
             if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
             if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
             if refreshed.audioCodec == nil { refreshed.audioCodec = existing.audioCodec }
-            return refreshed
+            return ServerSongCatalogMergePolicy.mergingAddedDates(
+                existing: existing, incoming: incoming, into: refreshed
+            )
         }
 
         var refreshed = existing
@@ -1697,7 +1704,9 @@ actor ConnectorScanner {
         if refreshed.audioCodec == nil { refreshed.audioCodec = incoming.audioCodec }
         if refreshed.coverArtFileName == nil { refreshed.coverArtFileName = incoming.coverArtFileName }
 
-        return refreshed
+        return ServerSongCatalogMergePolicy.mergingAddedDates(
+            existing: existing, incoming: incoming, into: refreshed
+        )
     }
 
     /// Applies the three-state sidecar result from a complete directory

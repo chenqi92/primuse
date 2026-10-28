@@ -218,13 +218,29 @@ public enum ServerSongCatalogMergePolicy {
         )
         return candidate.map { incoming in
             guard let existing = existingByID[incoming.id] else { return incoming }
-            var merged = merged(existing: existing, incoming: incoming)
-            merged.dateAdded = existing.dateAdded
-            return merged
+            return merged(existing: existing, incoming: incoming)
         }
     }
 
     public static func merged(existing: Song, incoming: Song) -> Song {
+        mergingAddedDates(existing: existing, incoming: incoming,
+                          into: mergedMetadata(existing: existing, incoming: incoming))
+    }
+
+    public static func normalizedAddedDate(_ date: Date) -> Date {
+        // Library snapshots encode ISO 8601 dates with whole-second precision.
+        Date(timeIntervalSince1970: floor(date.timeIntervalSince1970))
+    }
+
+    public static func mergingAddedDates(existing: Song, incoming: Song, into song: Song) -> Song {
+        var refreshed = song
+        refreshed.serverDateAdded = incoming.serverDateAdded ?? existing.serverDateAdded
+        refreshed.serverAlbumDateAdded = incoming.serverAlbumDateAdded ?? existing.serverAlbumDateAdded
+        refreshed.dateAdded = refreshed.serverDateAdded ?? existing.dateAdded
+        return refreshed
+    }
+
+    private static func mergedMetadata(existing: Song, incoming: Song) -> Song {
         guard !contentChanged(existing: existing, incoming: incoming) else {
             return SongUserMetadataPolicy.preservingUserEdits(
                 from: existing,

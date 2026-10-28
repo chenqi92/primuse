@@ -257,13 +257,17 @@ public enum LibraryFolderTrackOrder {
 }
 
 public enum RecentlyAddedAlbumPolicy {
+    public static func date(for song: Song) -> Date {
+        song.serverAlbumDateAdded ?? song.serverDateAdded ?? song.dateAdded
+    }
+
     public static func sorted(
         albums: [Album], songs: [Song], limit: Int? = nil
     ) -> [Album] {
         var latestDates: [String: Date] = [:]
         for song in songs {
             guard let albumID = song.albumID, !albumID.isEmpty else { continue }
-            latestDates[albumID] = max(latestDates[albumID] ?? .distantPast, song.dateAdded)
+            latestDates[albumID] = max(latestDates[albumID] ?? .distantPast, date(for: song))
         }
         return sorted(albums: albums, latestDates: latestDates, limit: limit)
     }

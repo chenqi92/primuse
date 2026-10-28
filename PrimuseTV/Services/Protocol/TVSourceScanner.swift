@@ -1661,7 +1661,9 @@ final class TVSourceScanner {
                 if song.duration <= 0 { song.duration = existing.duration }
             }
             song = SongUserMetadataPolicy.preservingUserEdits(from: existing, in: song)
-            song.dateAdded = existing.dateAdded
+            song = ServerSongCatalogMergePolicy.mergingAddedDates(
+                existing: existing, incoming: incoming, into: song
+            )
         }
         MusicLibrary.fillDerivedIDs(&song)
         return song

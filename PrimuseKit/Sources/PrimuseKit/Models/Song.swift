@@ -39,6 +39,16 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// to recover individual labels without splitting punctuation in names.
     public var genre: String?
     public var dateAdded: Date
+    /// Authoritative catalogue dates, separate from device import time and
+    /// file modification time. Albums may predate tracks added to them later.
+    public var serverDateAdded: Date? {
+        get { rare.values.serverDateAdded }
+        set { updateRare { $0.serverDateAdded = newValue } }
+    }
+    public var serverAlbumDateAdded: Date? {
+        get { rare.values.serverAlbumDateAdded }
+        set { updateRare { $0.serverAlbumDateAdded = newValue } }
+    }
     public var coverArtFileName: String?
     /// Source-owned artist artwork reference captured from a server catalogue.
     /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
@@ -230,7 +240,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         audioVariants: [AudioVariant]? = nil,
         serverLibraryID: String? = nil,
         audioCodec: AudioFormat? = nil,
-        effectiveBitDepth: Int? = nil
+        effectiveBitDepth: Int? = nil,
+        serverDateAdded: Date? = nil,
+        serverAlbumDateAdded: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -270,7 +282,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainAlbumGain = replayGainAlbumGain
         self.replayGainAlbumPeak = replayGainAlbumPeak
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil
-            || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil {
+            || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
+            || serverDateAdded != nil || serverAlbumDateAdded != nil {
             var values = SongRareFields.Values()
             values.mvPath = mvPath
             values.cueSheetPath = cueSheetPath
@@ -279,6 +292,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             values.lyricsText = lyricsText
             values.userMetadataEditedAt = userMetadataEditedAt
             values.audioVariants = audioVariants
+            values.serverDateAdded = serverDateAdded
+            values.serverAlbumDateAdded = serverAlbumDateAdded
             values.overflowNumbers = rare.values.overflowNumbers
             rare = SongRareFields.make(values)
         }
@@ -295,6 +310,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case cueSheetPath, cueStartTime, cueEndTime, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
         case effectiveBitDepth
+        case serverDateAdded, serverAlbumDateAdded
     }
 
     public init(from decoder: Decoder) throws {
@@ -344,7 +360,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             serverLibraryID: try container.decodeIfPresent(String.self, forKey: .serverLibraryID),
             // 不认识的值（更新版本加的编码）当作不知道，别让整首歌解不出来。
             audioCodec: try? container.decodeIfPresent(AudioFormat.self, forKey: .audioCodec),
-            effectiveBitDepth: try container.decodeIfPresent(Int.self, forKey: .effectiveBitDepth)
+            effectiveBitDepth: try container.decodeIfPresent(Int.self, forKey: .effectiveBitDepth),
+            serverDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverDateAdded),
+            serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded)
         )
     }
 
@@ -372,6 +390,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(year, forKey: .year)
         try container.encodeIfPresent(lastModified, forKey: .lastModified)
         try container.encode(dateAdded, forKey: .dateAdded)
+        try container.encodeIfPresent(serverDateAdded, forKey: .serverDateAdded)
+        try container.encodeIfPresent(serverAlbumDateAdded, forKey: .serverAlbumDateAdded)
         try container.encodeIfPresent(serverPlayCount, forKey: .serverPlayCount)
         try container.encodeIfPresent(coverArtFileName, forKey: .coverArtFileName)
         try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
@@ -469,6 +489,8 @@ private enum SongOptionalDouble {
 /// Immutable: a change makes a new box, and all-empty values share `empty`.
 private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
+        var serverDateAdded: Date?
+        var serverAlbumDateAdded: Date?
         var mvPath: String?
         var cueSheetPath: String?
         var cueStartTime: TimeInterval?

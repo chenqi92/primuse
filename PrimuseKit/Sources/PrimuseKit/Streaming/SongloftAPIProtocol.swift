@@ -145,6 +145,7 @@ public struct SongloftTrack: Decodable, Sendable {
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = cleanTitle?.isEmpty == false ? cleanTitle! : filePath.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? "Songloft"
         let modified = SongloftAPIProtocol.date(fileModifiedAt) ?? SongloftAPIProtocol.date(updatedAt)
+        let addedDate = SongloftAPIProtocol.date(addedAt).map(ServerSongCatalogMergePolicy.normalizedAddedDate)
         let cover = coverUrl?.isEmpty == false
             ? SongloftAPIProtocol.coverReference(id: id, revision: "\(coverUrl ?? "")|\(updatedAt ?? "")") : nil
         return Song(
@@ -165,9 +166,10 @@ public struct SongloftTrack: Decodable, Sendable {
             genre: genre?.isEmpty == false ? genre : nil,
             year: year.flatMap { $0 > 0 ? $0 : nil },
             lastModified: modified,
-            dateAdded: SongloftAPIProtocol.date(addedAt) ?? .distantPast,
+            dateAdded: addedDate ?? .distantPast,
             coverArtFileName: cover,
-            revision: "songloft:\(updatedAt ?? ""):\(fileModifiedAt ?? ""):\(fileSize ?? 0)"
+            revision: "songloft:\(updatedAt ?? ""):\(fileModifiedAt ?? ""):\(fileSize ?? 0)",
+            serverDateAdded: addedDate
         )
     }
 }

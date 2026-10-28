@@ -3687,10 +3687,11 @@ struct HomeView: View {
         for song in songs {
             guard let albumID = song.albumID, !albumID.isEmpty else { continue }
             let hasCover = song.coverArtFileName?.isEmpty == false
+            let dateAdded = RecentlyAddedAlbumPolicy.date(for: song)
 
             if var accumulator = accumulators[albumID] {
-                if song.dateAdded > accumulator.latestDate {
-                    accumulator.latestDate = song.dateAdded
+                if dateAdded > accumulator.latestDate {
+                    accumulator.latestDate = dateAdded
                 }
                 if Self.homeAlbumSongPrecedes(song, accumulator.firstSong) {
                     accumulator.firstSong = song
@@ -3707,7 +3708,7 @@ struct HomeView: View {
                 accumulators[albumID] = accumulator
             } else {
                 accumulators[albumID] = HomeAlbumAccumulator(
-                    latestDate: song.dateAdded,
+                    latestDate: dateAdded,
                     firstSong: song,
                     firstCoveredSong: hasCover ? song : nil
                 )

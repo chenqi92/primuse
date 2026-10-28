@@ -6191,7 +6191,6 @@ final class MusicLibrary {
                     existing: existing,
                     incoming: newSong
                 )
-                newSong.dateAdded = existing.dateAdded
                 if Self.serverReplacedArtwork(from: existing, to: newSong) {
                     // Covers read the song-ID mirror before the reference, so
                     // it has to go before the new reference is published.
@@ -6542,6 +6541,8 @@ final class MusicLibrary {
             || old.genre != new.genre
             || old.year != new.year
             || old.dateAdded != new.dateAdded
+            || old.serverDateAdded != new.serverDateAdded
+            || old.serverAlbumDateAdded != new.serverAlbumDateAdded
             || old.lastModified != new.lastModified
             || old.coverArtFileName != new.coverArtFileName
             || old.artistArtworkFileName != new.artistArtworkFileName

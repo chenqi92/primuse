@@ -3771,7 +3771,6 @@ final class ScanService {
             let upserts = changes.upserts.map { scanned -> Song in
                 var incoming = scanned.song
                 if let existing = existingByID[incoming.id] {
-                    incoming.dateAdded = existing.dateAdded
                     incoming = ServerSongCatalogMergePolicy.merged(
                         existing: existing,
                         incoming: incoming
@@ -4232,7 +4231,6 @@ final class ScanService {
                     let stagedPageSongs = pageSongs.map { scannedSong -> Song in
                         var incoming = scannedSong.song
                         if let existing = existingByID[incoming.id] {
-                            incoming.dateAdded = existing.dateAdded
                             incoming = ServerSongCatalogMergePolicy.merged(
                                 existing: existing,
                                 incoming: incoming

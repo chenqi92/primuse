@@ -141,6 +141,7 @@ public struct DaoLiYuCatalogTrack: Sendable {
         guard let format = AudioFormat.from(fileExtension: suffix) else { return nil }
         let path = DaoLiYuAPIProtocol.trackPath(id: id, fileExtension: suffix)
         let revisionDate = updatedAt ?? createdAt
+        let addedDate = createdAt.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
         let coverURL = DaoLiYuAPIProtocol.coverURL(
             serverBaseURL: serverBaseURL,
             reference: coverReference
@@ -169,9 +170,10 @@ public struct DaoLiYuCatalogTrack: Sendable {
             genre: genre,
             year: year,
             lastModified: revisionDate,
-            dateAdded: createdAt ?? Date(),
+            dateAdded: addedDate ?? Date(),
             coverArtFileName: coverURL?.absoluteString,
-            revision: "daoliyu:\(Self.revisionValue(revisionDate)):\(fileSize)"
+            revision: "daoliyu:\(Self.revisionValue(revisionDate)):\(fileSize)",
+            serverDateAdded: addedDate
         )
     }
 

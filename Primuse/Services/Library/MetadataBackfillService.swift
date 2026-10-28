@@ -6104,7 +6104,9 @@ final class MetadataBackfillService {
             effectiveBitDepth: metadata.effectiveBitDepth ?? bare.effectiveBitDepth
                 ?? (mergedFormat == .flac
                     ? FLACEffectiveBitDepthParser.inspectedBitDepth(nil, declared: metadata.bitDepth ?? bare.bitDepth)
-                    : nil)
+                    : nil),
+            serverDateAdded: bare.serverDateAdded,
+            serverAlbumDateAdded: bare.serverAlbumDateAdded
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,

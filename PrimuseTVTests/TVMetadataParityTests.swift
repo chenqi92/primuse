@@ -632,6 +632,29 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertEqual(preserved.artistName, original.artistName)
     }
 
+    func testServerRereadCorrectsAddedDatesAndKeepsUndatedImportTime() {
+        var original = song()
+        original.userMetadataEditedAt = Date()
+        var incoming = original
+        incoming.title = "Remote title"
+        incoming.serverDateAdded = Date(timeIntervalSince1970: 1_600_000_000)
+        incoming.serverAlbumDateAdded = Date(timeIntervalSince1970: 1_500_000_000)
+        for replaced in [false, true] {
+            if replaced { incoming.fileSize += 1 }
+            let repaired = TVSourceScanner.rereadServerSong(existing: original, incoming: incoming)
+            XCTAssertEqual(repaired.dateAdded, incoming.serverDateAdded)
+            XCTAssertEqual(repaired.serverAlbumDateAdded, incoming.serverAlbumDateAdded)
+            XCTAssertEqual(repaired.title, original.title)
+            var undated = incoming
+            undated.serverDateAdded = nil
+            undated.serverAlbumDateAdded = nil
+            undated.dateAdded = Date()
+            let retained = TVSourceScanner.rereadServerSong(existing: repaired, incoming: undated)
+            XCTAssertEqual(retained.dateAdded, repaired.dateAdded)
+            XCTAssertEqual(retained.serverAlbumDateAdded, repaired.serverAlbumDateAdded)
+        }
+    }
+
     private func taggedWave(title: String, genre: String, album: String) -> Data {
         func le<T: FixedWidthInteger>(_ value: T) -> Data {
             var encoded = value.littleEndian

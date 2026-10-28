@@ -524,7 +524,6 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     let payload: Data = row["payload"]
                     var song = try decoder.decode(Song.self, from: payload)
                     if let existing = existingByID[song.id] {
-                        song.dateAdded = existing.dateAdded
                         song = ServerSongCatalogMergePolicy.merged(
                             existing: existing,
                             incoming: song

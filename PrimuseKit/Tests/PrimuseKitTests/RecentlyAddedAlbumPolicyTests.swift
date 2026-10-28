@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Recently added albums")
 struct RecentlyAddedAlbumPolicyTests {
+    @Test func serverAlbumDatesOverrideScanOrderAndLaterTrackAdditions() {
+        let albums = [Album(id: "old", title: "Old"), Album(id: "new", title: "New")]
+        var old = song("later-track", albumID: "old", added: 1_000)
+        old.serverDateAdded = Date(timeIntervalSince1970: 100)
+        old.serverAlbumDateAdded = Date(timeIntervalSince1970: 10)
+        var new = song("new-track", albumID: "new", added: 500)
+        new.serverDateAdded = Date(timeIntervalSince1970: 50)
+        new.serverAlbumDateAdded = Date(timeIntervalSince1970: 50)
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: [old, new]).map(\.id) == ["new", "old"])
+        old.serverAlbumDateAdded = nil
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: [new, old]).map(\.id) == ["old", "new"])
+    }
+
     @Test func sortsWholeAlbumsByTheirNewestTrack() {
         let albums = [Album(id: "older", title: "Older"), Album(id: "newer", title: "Newer")]
         let songs = [song("one", albumID: "newer", added: 1),

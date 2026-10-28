@@ -391,3 +391,278 @@ private final class DescriptionMediaServer: @unchecked Sendable {
         }
     }
 }
+
+@MainActor
+final class SubsonicAddedDateTests: XCTestCase {
+    func testPagedCatalogUsesServerTrackAndAlbumDates() async throws {
+        let (connector, session, host) = makeConnector()
+        defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        let page = try await connector.songCatalogPage(from: "/", offset: 0)
+        try assertDates(page.songs.map(\.song))
+    }
+
+    func testLegacyAlbumWalkUsesAlbumCreatedDate() async throws {
+        let (connector, session, host) = makeConnector(legacy: true)
+        defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        var songs: [Song] = []
+        for try await scanned in try await connector.scanSongs(from: "/") {
+            songs.append(scanned.song)
+        }
+        try assertDates(songs)
+    }
+
+    func testMissingAndInvalidDatesFallBackWithoutInventingServerDates() async throws {
+        let (connector, session, host) = makeConnector(invalidDates: true)
+        defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        let started = Date()
+        let page = try await connector.songCatalogPage(from: "/", offset: 0)
+        XCTAssertEqual(page.songs.count, 2)
+        for scanned in page.songs {
+            XCTAssertNil(scanned.song.serverDateAdded)
+            XCTAssertNil(scanned.song.serverAlbumDateAdded)
+            XCTAssertGreaterThanOrEqual(scanned.song.dateAdded, started)
+            XCTAssertLessThanOrEqual(scanned.song.dateAdded, Date())
+        }
+    }
+
+    func testRescanRepairsExistingLibraryAndPersistsAlbumOrder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SubsonicAddedDates-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (connector, session, host) = makeConnector()
+        defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        let page = try await connector.songCatalogPage(from: "/", offset: 0)
+        let incoming = page.songs.map(\.song)
+        let library = MusicLibrary(storageDirectory: root, deferredMaintenanceAllowed: { false })
+        let oldRows = incoming.enumerated().map { index, row in
+            var old = row
+            old.serverDateAdded = nil
+            old.serverAlbumDateAdded = nil
+            old.dateAdded = Date(timeIntervalSince1970: Double(2_000_000_000 - index))
+            old.lyricsText = "Local lyrics"
+            return old
+        }
+        library.addSongs(oldRows, affectedSourceIDs: [host])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.recentlyAddedAlbums().first?.title, "Old album")
+        let staging = try PagedSongCatalogStagingStore(path: root.appendingPathComponent("staging.sqlite").path)
+        try staging.reset(sourceID: host, stageSessionID: "session", ownerGeneration: 1,
+                          replacingStageSessionID: nil, scopeFingerprint: "scope", catalogRevision: "revision")
+        _ = try staging.stagePage(sourceID: host, stageSessionID: "session", scopeFingerprint: "scope",
+                                  catalogRevision: "revision", offset: 0, nextOffset: nil,
+                                  itemIDs: page.itemIDs, songs: incoming, metadataInspectedSongIDs: [],
+                                  hierarchyItems: [], addedSongCount: 0)
+        let delta = try staging.delta(sourceID: host, existingByID: Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0) }))
+        XCTAssertEqual(delta.upserts.count, 2)
+        library.addSongs(delta.upserts, affectedSourceIDs: [host], mergeServerCatalogRows: true)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.recentlyAddedAlbums().map(\.title), ["New album", "Old album"])
+        for row in incoming {
+            XCTAssertEqual(library.song(id: row.id)?.dateAdded, row.serverDateAdded)
+            XCTAssertEqual(library.song(id: row.id)?.lyricsText, "Local lyrics")
+        }
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Library did not persist")
+        }
+        let prepared = await MusicLibrary.prepareStartup(disabledSourceIDs: [], storageDirectory: root)
+        let reopened = MusicLibrary(storageDirectory: root, preparedStartup: prepared, deferredMaintenanceAllowed: { false })
+        XCTAssertEqual(reopened.recentlyAddedAlbums().map(\.title), ["New album", "Old album"])
+        let stored = reopened.songs
+        reopened.addSongs(incoming, affectedSourceIDs: [host], mergeServerCatalogRows: true)
+        await reopened.waitForPendingIndex()
+        XCTAssertEqual(reopened.songs, stored, "Reopening then rescanning must be a no-op")
+        guard case .success = await reopened.persistNowAndWait() else {
+            return XCTFail("Reopened library did not persist")
+        }
+    }
+
+    private func assertDates(_ songs: [Song]) throws {
+        XCTAssertEqual(songs.count, 2)
+        let old = try XCTUnwrap(songs.first { $0.title == "Later track" })
+        XCTAssertEqual(old.dateAdded, Date(timeIntervalSince1970: 1_704_067_200))
+        XCTAssertEqual(old.serverDateAdded, old.dateAdded)
+        XCTAssertEqual(old.lastModified?.timeIntervalSince1970 ?? 0, 1_704_067_200.875, accuracy: 0.001)
+        XCTAssertEqual(old.serverAlbumDateAdded, Date(timeIntervalSince1970: 1_577_836_800))
+        let new = try XCTUnwrap(songs.first { $0.title == "New track" })
+        XCTAssertEqual(new.serverDateAdded, Date(timeIntervalSince1970: 1_609_459_200))
+        XCTAssertEqual(new.serverAlbumDateAdded, new.serverDateAdded)
+    }
+
+    private func makeConnector(legacy: Bool = false, invalidDates: Bool = false) -> (SubsonicSource, URLSession, String) {
+        let host = "added-dates-\(UUID().uuidString.lowercased()).invalid"
+        AddedDateURLProtocol.register(host, legacy: legacy, invalidDates: invalidDates)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AddedDateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let connector = SubsonicSource(sourceID: host, sourceType: .subsonic, host: host, port: nil,
+                                       useSsl: true, basePath: nil, username: "qa", password: "qa", session: session)
+        return (connector, session, host)
+    }
+}
+
+private final class AddedDateURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: (legacy: Bool, invalidDates: Bool)] = [:]
+    static func register(_ host: String, legacy: Bool, invalidDates: Bool) {
+        lock.withLock { fixtures[host] = (legacy, invalidDates) }
+    }
+    static func remove(_ host: String) { _ = lock.withLock { fixtures.removeValue(forKey: host) } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let params = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func param(_ name: String) -> String? { params.first { $0.name == name }?.value }
+        var albums: [[String: Any]] = [
+            ["id": "old", "name": "Old album", "created": "2020-01-01T00:00:00Z"],
+            ["id": "new", "name": "New album", "created": "2021-01-01T00:00:00Z"]
+        ]
+        var songs: [[String: Any]] = [
+            ["id": "old-track", "title": "Later track", "albumId": "old", "album": "Old album",
+             "artist": "Artist", "duration": 180, "suffix": "flac", "created": "2024-01-01T00:00:00.875Z"],
+            ["id": "new-track", "title": "New track", "albumId": "new", "album": "New album",
+             "artist": "Artist", "duration": 180, "suffix": "flac", "created": "2021-01-01T08:00:00+08:00"]
+        ]
+        if fixture.invalidDates {
+            albums[0]["created"] = nil; albums[1]["created"] = "invalid"
+            songs[0]["created"] = nil; songs[1]["created"] = "invalid"
+        }
+        var body: [String: Any] = ["status": "ok"]
+        switch url.lastPathComponent {
+        case "ping.view":
+            body["type"] = fixture.legacy ? "subsonic" : "navidrome"
+            body["openSubsonic"] = !fixture.legacy
+        case "getAlbumList2.view":
+            body["albumList2"] = ["album": param("offset") == "0" ? albums : []]
+        case "search3.view":
+            body["searchResult3"] = ["song": param("songOffset") == "0" ? songs : []]
+        case "getAlbum.view":
+            body["album"] = ["id": param("id") ?? "", "song": songs.filter { $0["albumId"] as? String == param("id") }]
+        default:
+            body = ["status": "failed", "error": ["code": 70, "message": "Unsupported fixture method"]]
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: ["subsonic-response": body])
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}
+
+final class MediaServerAddedDateTests: XCTestCase {
+    func testFullAndPagedCatalogsUseServerAddedDates() async throws {
+        for kind: MediaServerSource.Kind in [.jellyfin, .emby, .plex] {
+            let source = AddedDateMediaServer.makeSource(kind: kind)
+            var full: [Song] = []
+            for try await row in try await source.scanSongs(from: "/") { full.append(row.song) }
+            let paged = try await source.songCatalogPage(from: "/", offset: 0).songs.map(\.song)
+            for songs in [full, paged] {
+                XCTAssertEqual(songs.count, 3)
+                XCTAssertEqual(songs[0].serverDateAdded, Date(timeIntervalSince1970: 1_600_000_000))
+                XCTAssertEqual(songs[1].serverDateAdded, Date(timeIntervalSince1970: 1_700_000_000))
+                XCTAssertEqual(songs[0].dateAdded, songs[0].serverDateAdded)
+                XCTAssertEqual(songs[1].dateAdded, songs[1].serverDateAdded)
+                XCTAssertNil(songs[2].serverDateAdded)
+                XCTAssertGreaterThan(songs[2].dateAdded, Date(timeIntervalSince1970: 1_700_000_000))
+            }
+            await source.disconnect()
+        }
+    }
+
+    func testScannerRepairsDatesForUnchangedAndReplacedRowsIncludingManualEdits() async throws {
+        for edited in [false, true] {
+            for replaced in [false, true] {
+                let source = AddedDateMediaServer.makeSource(kind: .plex)
+                let rows = try await source.songCatalogPage(from: "/", offset: 0).songs.map(\.song)
+                let firstImport = Date(timeIntervalSince1970: 1_800_000_000)
+                let existing = rows.map { incoming -> Song in
+                    var row = incoming
+                    row.serverDateAdded = nil
+                    row.dateAdded = firstImport
+                    if edited {
+                        row.title = "My title"
+                        row.userMetadataEditedAt = firstImport
+                    }
+                    if replaced { row.fileSize = 999 }
+                    row.lyricsText = "Cached lyrics"
+                    return row
+                }
+                let scanner = ConnectorScanner(connector: source, sourceID: "added-dates")
+                var final: ConnectorScanner.ScanUpdate?
+                for try await update in await scanner.scan(directories: ["/"], existingSongs: existing) {
+                    final = update
+                }
+                let songs = try XCTUnwrap(final?.songs)
+                XCTAssertEqual(songs.count, 3)
+                for (index, incoming) in rows.enumerated() {
+                    let song = try XCTUnwrap(songs.first { $0.id == incoming.id })
+                    XCTAssertEqual(song.dateAdded, incoming.serverDateAdded ?? firstImport)
+                    XCTAssertEqual(song.serverDateAdded, incoming.serverDateAdded)
+                    if edited { XCTAssertEqual(song.title, "My title") }
+                    if !edited && !replaced { XCTAssertEqual(song.lyricsText, existing[index].lyricsText) }
+                }
+                let changed = await scanner.takePendingChangedSongs()
+                XCTAssertTrue(changed.contains { $0.id == rows[0].id })
+                await source.disconnect()
+            }
+        }
+    }
+}
+
+private enum AddedDateMediaServer {
+    static func makeSource(kind: MediaServerSource.Kind) -> MediaServerSource {
+        MediaServerSource(sourceID: "added-dates", kind: kind, host: "added-dates.invalid",
+                          port: nil, useSsl: true, basePath: nil, username: "user", secret: "fixture",
+                          authType: .apiKey, requestDataLoader: { request in
+            let url = try XCTUnwrap(request.url)
+            let query = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
+            let body: Any
+            switch url.path {
+            case "", "/":
+                body = ["MediaContainer": ["machineIdentifier": "fixture"]]
+            case "/library/sections":
+                body = ["MediaContainer": ["Directory": [["key": "music", "title": "Music", "type": "artist"]]]]
+            case "/Users/Me":
+                body = ["Id": "user"]
+            case "/Users/user/Views":
+                body = ["Items": [["Id": "music", "Name": "Music", "CollectionType": "music"]]]
+            case "/Library/VirtualFolders", "/Library/VirtualFolders/Query":
+                body = [["ItemId": "music", "Locations": ["/music"]]]
+            case "/library/sections/music/all", "/Users/user/Items":
+                let start = Int(query["StartIndex"] ?? query["X-Plex-Container-Start"] ?? "0") ?? 0
+                let limit = Int(query["Limit"] ?? query["X-Plex-Container-Size"] ?? "500") ?? 500
+                let rows: [[String: Any]] = (0..<3).map { index in
+                    let name = "Track \(index)"
+                    if kind == .plex {
+                        var row: [String: Any] = ["ratingKey": String(index), "title": name, "type": "track",
+                            "parentTitle": "Album \(index)", "grandparentTitle": "Artist",
+                            "Media": [["container": "mp3", "Part": [["key": "/audio/\(index).mp3", "file": "/music/\(index).mp3", "size": 100]]]]]
+                        if index < 2 { row["addedAt"] = String(1_600_000_000 + index * 100_000_000) }
+                        else { row["addedAt"] = 0 }
+                        return row
+                    }
+                    var row: [String: Any] = ["Id": String(index), "Name": name, "Path": "/music/\(index).mp3", "Size": 100]
+                    if index < 2 {
+                        row["DateCreated"] = index == 0 ? "2020-09-13T12:26:40.123Z" : "2023-11-15T06:13:20+08:00"
+                    }
+                    return row
+                }
+                let page = Array(rows.dropFirst(start).prefix(limit))
+                if kind == .plex {
+                    body = ["MediaContainer": ["Metadata": page, "totalSize": 3, "size": page.count, "offset": start]]
+                } else { body = ["Items": page, "TotalRecordCount": 3] }
+            default:
+                throw URLError(.unsupportedURL)
+            }
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                                       headerFields: ["Content-Type": "application/json"]))
+            return (try JSONSerialization.data(withJSONObject: body), response)
+        })
+    }
+}
