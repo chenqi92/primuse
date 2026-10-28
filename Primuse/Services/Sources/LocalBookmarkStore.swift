@@ -325,8 +325,8 @@ private actor LocalReferenceResolutionWorker {
 
 /// Keeps user-selected local references synchronized while the application is
 /// running. File presenter callbacks cover coordinated changes made by Files,
-/// Finder and File Provider extensions; a foreground reconciliation covers the
-/// interval where iOS requires presenters to be unregistered in the background.
+/// Finder and File Provider extensions. The source refresh coordinator handles
+/// foreground reconciliation using the user's selected interval.
 @MainActor
 final class LocalReferenceRefreshService {
     private let sourcesStore: SourcesStore
@@ -334,6 +334,8 @@ final class LocalReferenceRefreshService {
     private let library: MusicLibrary
     private let scanService: ScanService
     private let scraperService: MusicScraperService
+    private let automaticRefreshEnabled: (String) -> Bool
+    private let automaticWorkAllowed: () -> Bool
 
     private var presentersBySourceID: [String: [LocalReferenceFilePresenter]] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
@@ -342,7 +344,6 @@ final class LocalReferenceRefreshService {
     private var presenterReconciliationTask: Task<Void, Never>?
     private var presenterRevision: UInt64 = 0
     private var pendingPresenterSourceIDs: Set<String> = []
-    private var needsForegroundReconciliation = false
     private var isPresenting = false
     private var hasStarted = false
 
@@ -351,13 +352,21 @@ final class LocalReferenceRefreshService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         scanService: ScanService,
-        scraperService: MusicScraperService
+        scraperService: MusicScraperService,
+        automaticRefreshEnabled: @escaping (String) -> Bool,
+        automaticWorkAllowed: @escaping () -> Bool
     ) {
         self.sourcesStore = sourcesStore
         self.sourceManager = sourceManager
         self.library = library
         self.scanService = scanService
         self.scraperService = scraperService
+        self.automaticRefreshEnabled = automaticRefreshEnabled
+        self.automaticWorkAllowed = automaticWorkAllowed
+    }
+
+    func refreshPreferences() {
+        reconcilePresenters()
     }
 
     func start() {
@@ -391,24 +400,18 @@ final class LocalReferenceRefreshService {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.activate(reconcileAfterInactiveInterval: true)
+                self?.activate()
             }
         })
         guard UIApplication.shared.applicationState != .background else { return }
         #endif
 
-        activate(reconcileAfterInactiveInterval: true)
+        activate()
     }
 
-    private func activate(reconcileAfterInactiveInterval: Bool) {
-        guard !isPresenting else {
-            if reconcileAfterInactiveInterval {
-                scheduleForegroundReconciliation()
-            }
-            return
-        }
+    private func activate() {
+        guard !isPresenting else { return }
         isPresenting = true
-        needsForegroundReconciliation = reconcileAfterInactiveInterval
         reconcilePresenters()
     }
 
@@ -428,7 +431,10 @@ final class LocalReferenceRefreshService {
 
         let monitoredSourceIDs = LocalReferenceRefreshPolicy.monitoredSourceIDs(
             in: sourcesStore.sources,
-            bookmarkedSourceIDs: LocalBookmarkStore.storedSourceIDs
+            bookmarkedSourceIDs: LocalBookmarkStore.storedSourceIDs,
+            automaticRefreshEnabledSourceIDs: Set(sourcesStore.sources.compactMap {
+                automaticRefreshEnabled($0.id) ? $0.id : nil
+            })
         )
         let unmonitoredSourceIDs = refreshTasks.keys.filter {
             !monitoredSourceIDs.contains($0)
@@ -465,10 +471,6 @@ final class LocalReferenceRefreshService {
                         return presenter
                     }
                 }
-                if needsForegroundReconciliation {
-                    needsForegroundReconciliation = false
-                    scheduleForegroundReconciliation()
-                }
                 return
             }
         }
@@ -481,20 +483,11 @@ final class LocalReferenceRefreshService {
         presentersBySourceID.removeAll()
     }
 
-    private func scheduleForegroundReconciliation() {
-        for sourceID in presentersBySourceID.keys {
-            scheduleRefresh(
-                sourceID: sourceID,
-                delay: LocalReferenceRefreshPolicy.foregroundReconciliationDelay
-            )
-        }
-    }
-
     private func scheduleRefresh(
         sourceID: String,
         delay: TimeInterval = LocalReferenceRefreshPolicy.changeDebounce
     ) {
-        guard isPresenting, presentersBySourceID[sourceID] != nil else { return }
+        guard isPresenting, automaticRefreshEnabled(sourceID), presentersBySourceID[sourceID] != nil else { return }
         refreshTasks[sourceID]?.cancel()
         refreshTasks[sourceID] = Task { @MainActor [weak self] in
             do {
@@ -510,13 +503,14 @@ final class LocalReferenceRefreshService {
 
     private func refreshWhenIdle(sourceID: String) {
         guard let source = sourcesStore.source(id: sourceID),
+              automaticRefreshEnabled(sourceID),
               source.type == .local,
               source.isEnabled,
               !source.isDeleted,
               presentersBySourceID[sourceID] != nil else {
             return
         }
-        if scanService.scanStates[sourceID]?.isScanning == true {
+        if scanService.scanStates[sourceID]?.isScanning == true || !automaticWorkAllowed() {
             scheduleRefresh(
                 sourceID: sourceID,
                 delay: LocalReferenceRefreshPolicy.busyRetryDelay
@@ -530,7 +524,15 @@ final class LocalReferenceRefreshService {
             sourceManager: sourceManager,
             library: library,
             sourceStore: sourcesStore,
-            scraperService: scraperService
+            scraperService: scraperService,
+            automaticRefreshIsAllowed: { [weak self] in
+                guard let self, self.isPresenting, self.automaticRefreshEnabled(sourceID) else { return false }
+                guard self.automaticWorkAllowed() else {
+                    self.scheduleRefresh(sourceID: sourceID, delay: LocalReferenceRefreshPolicy.busyRetryDelay)
+                    return false
+                }
+                return true
+            }
         )
     }
 }

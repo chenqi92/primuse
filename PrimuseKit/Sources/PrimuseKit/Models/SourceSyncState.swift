@@ -431,9 +431,8 @@ public enum SourceScanLifecyclePolicy {
     }
 }
 
-/// Energy-conscious cadence for provider-native change feeds. Directory-walk
-/// sources deliberately do not use this policy because a background wake must
-/// never turn into an unrequested NAS-wide traversal.
+/// Background cadence for opted-in provider-native change feeds. Directory
+/// walks use the foreground refresh coordinator instead of background wakes.
 public enum SourcePeriodicSyncPolicy {
     public static let interval: TimeInterval = 6 * 60 * 60
 
@@ -451,18 +450,20 @@ public enum SourcePeriodicSyncPolicy {
 
     public static func nextSyncDate(
         for state: SourceSyncState,
+        interval: SourceAutomaticRefreshInterval = .sixHours,
         now: Date = Date()
     ) -> Date? {
         guard !state.requiresDeepScan, !state.cursors.isEmpty else { return nil }
         let baseline = state.lastSuccessfulSyncAt ?? state.lastFullScanAt ?? now
-        return baseline.addingTimeInterval(interval)
+        return baseline.addingTimeInterval(interval.timeInterval)
     }
 
     public static func isDue(
         _ state: SourceSyncState,
+        interval: SourceAutomaticRefreshInterval = .sixHours,
         now: Date = Date()
     ) -> Bool {
-        guard let next = nextSyncDate(for: state, now: now) else { return false }
+        guard let next = nextSyncDate(for: state, interval: interval, now: now) else { return false }
         return next <= now
     }
 }
@@ -474,16 +475,17 @@ public enum SourcePeriodicSyncPolicy {
 public enum LocalReferenceRefreshPolicy {
     public static let changeDebounce: TimeInterval = 1.5
     public static let busyRetryDelay: TimeInterval = 2
-    public static let foregroundReconciliationDelay: TimeInterval = 2
 
     public static func monitoredSourceIDs(
         in sources: [MusicSource],
-        bookmarkedSourceIDs: Set<String>
+        bookmarkedSourceIDs: Set<String>,
+        automaticRefreshEnabledSourceIDs: Set<String>
     ) -> Set<String> {
         Set(sources.lazy.compactMap { source in
             guard source.type == .local,
                   source.isEnabled,
                   !source.isDeleted,
+                  automaticRefreshEnabledSourceIDs.contains(source.id),
                   bookmarkedSourceIDs.contains(source.id) else {
                 return nil
             }

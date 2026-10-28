@@ -424,9 +424,30 @@ struct MacSourcesView: View {
         VStack(alignment: .leading, spacing: 9) {
             serverCatalogOptionRow(
                 title: "server_auto_refresh",
-                description: "server_auto_refresh_description",
+                description: source.type.isServerLibrary
+                    ? "server_auto_refresh_description" : "source_auto_refresh_description",
                 isOn: serverCatalogAutoRefreshBinding(for: source.id)
             )
+            if !source.type.isServerLibrary,
+               AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                HStack(spacing: 12) {
+                    Text("source_auto_refresh_interval")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Spacer(minLength: 10)
+                    Picker("source_auto_refresh_interval", selection: automaticRefreshIntervalBinding(for: source.id)) {
+                        ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
+                            Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
+                                .tag(interval)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+            }
             if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 serverCatalogOptionRow(
@@ -460,6 +481,13 @@ struct MacSourcesView: View {
         }
         .padding(10)
         .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+    }
+
+    private func automaticRefreshIntervalBinding(for sourceID: String) -> Binding<SourceAutomaticRefreshInterval> {
+        Binding(
+            get: { AppServices.shared.serverCatalogAutoRefresh.refreshInterval(for: sourceID) },
+            set: { AppServices.shared.serverCatalogAutoRefresh.setRefreshInterval($0, for: sourceID) }
+        )
     }
 
     private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {

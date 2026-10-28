@@ -2,6 +2,73 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+struct SourceAutomaticRefreshPolicyTests {
+    @Test func intervalDefaultsAndInvalidStoredValuesAreConservative() {
+        #expect(SourceAutomaticRefreshInterval.storedValue(nil) == .sixHours)
+        #expect(SourceAutomaticRefreshInterval.storedValue(0) == .sixHours)
+        #expect(SourceAutomaticRefreshInterval.storedValue(-1) == .sixHours)
+        #expect(SourceAutomaticRefreshInterval.storedValue(2) == .sixHours)
+        #expect(SourceAutomaticRefreshInterval.allCases.map(\.rawValue) == [1, 6, 12, 24])
+    }
+
+    @Test func selectedIntervalStartsAfterCompletionEvenIfTheScanTookLonger() throws {
+        let started = Date(timeIntervalSince1970: 100_000)
+        let completed = started.addingTimeInterval(30 * 60 * 60)
+        for interval in SourceAutomaticRefreshInterval.allCases {
+            let roundTrip = try JSONDecoder().decode(SourceAutomaticRefreshInterval.self, from: JSONEncoder().encode(interval))
+            #expect(roundTrip == interval)
+            #expect(SourceAutomaticRefreshInterval.storedValue(interval.rawValue) == interval)
+            #expect(!SourceAutomaticRefreshPolicy.shouldRefreshFiles(
+                lastScannedAt: completed, lastAttemptAt: started, interval: interval,
+                now: completed.addingTimeInterval(interval.timeInterval - 1)
+            ))
+            #expect(SourceAutomaticRefreshPolicy.shouldRefreshFiles(
+                lastScannedAt: completed, lastAttemptAt: started, interval: interval,
+                now: completed.addingTimeInterval(interval.timeInterval)
+            ))
+        }
+    }
+
+    @Test func newAndExistingFileSourcesDefaultToOff() {
+        for type in MusicSourceType.allCases {
+            #expect(SourceAutomaticRefreshPolicy.isEnabled(
+                for: type, sourceID: "source", disabledSourceIDs: [], optedInSourceIDs: []
+            ) == type.isServerLibrary)
+        }
+    }
+
+    @Test func fileSourcesCanOptInWithoutEnablingOtherSources() {
+        for type in MusicSourceType.allCases where !type.isServerLibrary {
+            let supported = type != .appleMusic && type != .appleMusicLibrary && !type.isAwaitingPublicAPI
+            #expect(SourceAutomaticRefreshPolicy.supportsAutomaticRefresh(type) == supported)
+            #expect(SourceAutomaticRefreshPolicy.isEnabled(
+                for: type, sourceID: "source", disabledSourceIDs: [], optedInSourceIDs: ["source"]
+            ) == supported)
+            #expect(!SourceAutomaticRefreshPolicy.isEnabled(
+                for: type, sourceID: "other", disabledSourceIDs: [], optedInSourceIDs: ["source"]
+            ))
+        }
+    }
+
+    @Test func existingDisabledServerPreferencesRemainDisabled() {
+        for type in MusicSourceType.allCases {
+            #expect(!SourceAutomaticRefreshPolicy.isEnabled(
+                for: type, sourceID: "source", disabledSourceIDs: ["source"], optedInSourceIDs: ["source"]
+            ))
+        }
+    }
+
+    @Test func fileRefreshRequiresAnInitialScanAndSixHoursSinceScanOrAttempt() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let due = now.addingTimeInterval(-6 * 60 * 60)
+        #expect(!SourceAutomaticRefreshPolicy.shouldRefreshFiles(lastScannedAt: nil, lastAttemptAt: nil, now: now))
+        #expect(SourceAutomaticRefreshPolicy.shouldRefreshFiles(lastScannedAt: due, lastAttemptAt: nil, now: now))
+        #expect(!SourceAutomaticRefreshPolicy.shouldRefreshFiles(lastScannedAt: due.addingTimeInterval(1), lastAttemptAt: nil, now: now))
+        #expect(!SourceAutomaticRefreshPolicy.shouldRefreshFiles(lastScannedAt: due, lastAttemptAt: now.addingTimeInterval(-60), now: now))
+        #expect(SourceAutomaticRefreshPolicy.shouldRefreshFiles(lastScannedAt: due, lastAttemptAt: due, now: now))
+    }
+}
+
 struct ServerCatalogAutoRefreshPolicyTests {
     @Test func everySubsonicFamilyMemberGetsTheStatusProbe() {
         // All four are served by the same connector, which implements
@@ -98,7 +165,8 @@ struct ServerCatalogRefreshWorkPolicyTests {
         lowPower: Bool = false,
         hot: Bool = false,
         disk: Int64 = 10 * 1_024 * 1_024 * 1_024,
-        playing: Bool = false
+        playing: Bool = false,
+        requiresNetwork: Bool = true
     ) -> ServerCatalogRefreshEligibility {
         ServerCatalogRefreshWorkPolicy.eligibility(
             trigger: trigger,
@@ -109,7 +177,8 @@ struct ServerCatalogRefreshWorkPolicyTests {
             isLowPowerModeEnabled: lowPower,
             hasSeriousThermalPressure: hot,
             availableDiskBytes: disk,
-            isPlaybackBusy: playing
+            isPlaybackBusy: playing,
+            requiresNetwork: requiresNetwork
         )
     }
 
@@ -129,6 +198,14 @@ struct ServerCatalogRefreshWorkPolicyTests {
         #expect(eligibility(.userRequest, determined: false) == .deferred(.networkUndetermined))
         #expect(eligibility(.userRequest, disk: 1_024) == .deferred(.insufficientDiskSpace))
         #expect(eligibility(.userRequest, active: false) == .deferred(.applicationInactive))
+    }
+
+    @Test func localFoldersCanRefreshOfflineButStillRespectResourcePressure() {
+        #expect(eligibility(.foreground, determined: false, reachable: false, unmetered: false, requiresNetwork: false) == .allowed)
+        #expect(eligibility(.foreground, lowPower: true, requiresNetwork: false) == .deferred(.lowPower))
+        #expect(eligibility(.foreground, hot: true, requiresNetwork: false) == .deferred(.thermalPressure))
+        #expect(eligibility(.foreground, playing: true, requiresNetwork: false) == .deferred(.playbackActive))
+        #expect(eligibility(.foreground, active: false, requiresNetwork: false) == .deferred(.applicationInactive))
     }
 }
 

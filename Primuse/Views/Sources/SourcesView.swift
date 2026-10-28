@@ -1397,7 +1397,25 @@ struct SourcesContentView: View {
             }
             .toggleStyle(.switch)
             .accessibilityLabel(Text("server_auto_refresh"))
-            .accessibilityHint(Text("server_auto_refresh_description"))
+            .accessibilityHint(Text(LocalizedStringKey(source.type.isServerLibrary
+                ? "server_auto_refresh_description" : "source_auto_refresh_description")))
+
+            if !source.type.isServerLibrary,
+               AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
+                Divider()
+                HStack {
+                    Text("source_auto_refresh_interval").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Picker("source_auto_refresh_interval", selection: automaticRefreshIntervalBinding(for: source.id)) {
+                        ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
+                            Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
+                                .tag(interval)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            }
 
             if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
                 Divider()
@@ -1435,6 +1453,13 @@ struct SourcesContentView: View {
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func automaticRefreshIntervalBinding(for sourceID: String) -> Binding<SourceAutomaticRefreshInterval> {
+        Binding(
+            get: { AppServices.shared.serverCatalogAutoRefresh.refreshInterval(for: sourceID) },
+            set: { AppServices.shared.serverCatalogAutoRefresh.setRefreshInterval($0, for: sourceID) }
+        )
     }
 
     private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {

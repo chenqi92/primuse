@@ -429,6 +429,9 @@ final class ScanService {
     /// AppServices supplies live playback/network/power pressure for automatic
     /// paged server catalogues. Explicit user scans keep their existing policy.
     @ObservationIgnored var automaticServerCatalogWorkAllowedHandler: (() -> Bool)?
+    @ObservationIgnored var automaticRefreshEnabledHandler: ((String) -> Bool)?
+    @ObservationIgnored var automaticRefreshIntervalHandler: ((String) -> SourceAutomaticRefreshInterval)?
+    @ObservationIgnored var automaticRefreshDidStartHandler: ((String) -> Void)?
     /// 用户给这个源选的「服务端删掉的歌」移除方式（来源卡片上的选项，AppServices 接到
     /// `ServerCatalogAutoRefreshCoordinator`）。没接上时按默认的「确认后移除」。
     @ObservationIgnored var serverCatalogRemovalModeHandler: ((String) -> ServerCatalogRemovalMode)?
@@ -494,6 +497,40 @@ final class ScanService {
     }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
+    private struct QueuedAutomaticScan {
+        let isRefresh: Bool
+        let start: () -> Void
+    }
+    @ObservationIgnored private var queuedAutomaticScans: [String: QueuedAutomaticScan] = [:]
+    @ObservationIgnored private var automaticScanOrder: [String] = []
+    @ObservationIgnored private var automaticScanDrainTask: Task<Void, Never>?
+
+    func cancelQueuedAutomaticRefresh(for sourceID: String) {
+        guard queuedAutomaticScans[sourceID]?.isRefresh == true else { return }
+        discardQueuedAutomaticScan(for: sourceID)
+    }
+
+    private func discardQueuedAutomaticScan(for sourceID: String) {
+        queuedAutomaticScans.removeValue(forKey: sourceID)
+        automaticScanOrder.removeAll { $0 == sourceID }
+    }
+
+    private func drainAutomaticScansIfIdle() {
+        while activeTasks.isEmpty, !automaticScanOrder.isEmpty {
+            let sourceID = automaticScanOrder.removeFirst()
+            queuedAutomaticScans.removeValue(forKey: sourceID)?.start()
+        }
+    }
+
+    private func scheduleAutomaticScanDrain() {
+        guard automaticScanDrainTask == nil, !automaticScanOrder.isEmpty else { return }
+        automaticScanDrainTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.automaticScanDrainTask = nil
+            guard !Task.isCancelled else { return }
+            self.drainAutomaticScansIfIdle()
+        }
+    }
     /// Monotonic token bumped on every `scanSource` launch and every
     /// `cancelScan`. A scan task captures its generation at registration
     /// and checks it before any terminal write (defer cleanup, final
@@ -1107,7 +1144,8 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService? = nil,
         folderRescan: SourceFolderRescanRequest? = nil,
-        requestsContinuedProcessing: Bool = true
+        requestsContinuedProcessing: Bool = true,
+        automaticRefreshIsAllowed: (() -> Bool)? = nil
     ) -> Bool {
         let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
@@ -1117,6 +1155,32 @@ final class ScanService {
             return false
         }
         guard source.isEnabled else { return false }
+        if snapshotExecutionContext != .userInitiatedForeground {
+            guard automaticRefreshIsAllowed?() ?? true else { return false }
+            if !activeTasks.isEmpty {
+                if queuedAutomaticScans[source.id] == nil {
+                    let expectedScope = MusicSourceScopeFingerprint.make(for: source)
+                    automaticScanOrder.append(source.id)
+                    queuedAutomaticScans[source.id] = QueuedAutomaticScan(
+                        isRefresh: automaticRefreshIsAllowed != nil,
+                        start: { [weak self] in
+                            guard let self, let current = sourceStore.source(id: source.id),
+                                  MusicSourceScopeFingerprint.make(for: current) == expectedScope else { return }
+                            self.scanSource(
+                                current, mode: mode, snapshotExecutionContext: snapshotExecutionContext,
+                                sourceManager: sourceManager, library: library, sourceStore: sourceStore,
+                                scraperService: scraperService, folderRescan: folderRescan,
+                                requestsContinuedProcessing: requestsContinuedProcessing,
+                                automaticRefreshIsAllowed: automaticRefreshIsAllowed
+                            )
+                        }
+                    )
+                }
+                return false
+            }
+        }
+        // 手动扫描或已经轮到的请求接管同一来源，不能在它完成后再补跑旧请求。
+        discardQueuedAutomaticScan(for: source.id)
         if Self.requiresAutomaticServerCatalogResourceGate(source.type),
            Self.shouldDeferAutomaticServerCatalogWork(
                context: snapshotExecutionContext,
@@ -1267,6 +1331,7 @@ final class ScanService {
                     let completed = state?.canResume != true && state?.failureMessage == nil
                     if completed { forgetUserInitiatedScanIntent(for: source.id) }
                     finishContinuedProcessing(for: source.id, success: completed)
+                    drainAutomaticScansIfIdle()
                 }
                 if localImportScanRevisions[source.id]?.generation == generation {
                     localImportScanRevisions[source.id] = nil
@@ -1402,6 +1467,9 @@ final class ScanService {
             }
         }
         activeTasks[source.id] = task
+        if automaticRefreshIsAllowed != nil {
+            automaticRefreshDidStartHandler?(source.id)
+        }
         requestContinuedProcessing(
             for: source,
             context: snapshotExecutionContext,
@@ -1760,20 +1828,7 @@ final class ScanService {
         let now = Date()
         for source in sourceStore.sources {
             guard activeTasks[source.id] == nil,
-                  source.isEnabled,
-                  !source.isDeleted,
-                  Self.supportsPeriodicNativeSync(source.type),
-                  let directories = periodicDirectories(for: source),
-                  let state = syncStates[source.id],
-                  state.isUsable(
-                      sourceID: source.id,
-                      scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
-                  ),
-                  !SourceSyncFolderTopologyPolicy.requiresRebuild(
-                      sourceType: source.type,
-                      state: state
-                  ),
-                  SourcePeriodicSyncPolicy.isDue(state, now: now) else {
+                  let next = nextPeriodicSyncDate(for: source), next <= now else {
                 continue
             }
             scanSource(
@@ -1783,7 +1838,12 @@ final class ScanService {
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourceStore,
-                scraperService: scraperService
+                scraperService: scraperService,
+                automaticRefreshIsAllowed: { [weak self] in
+                    guard let self, let current = sourceStore.source(id: source.id),
+                          let next = self.nextPeriodicSyncDate(for: current) else { return false }
+                    return next <= Date()
+                }
             )
         }
     }
@@ -1791,24 +1851,28 @@ final class ScanService {
     /// Earliest native-cursor refresh due date, used to submit the next iOS
     /// BGProcessing request even when there is no interrupted work.
     func nextPeriodicSyncDate(sourceStore: SourcesStore) -> Date? {
-        sourceStore.sources.compactMap { source -> Date? in
-            guard source.isEnabled,
-                  !source.isDeleted,
-                  Self.supportsPeriodicNativeSync(source.type),
-                  let directories = periodicDirectories(for: source),
-                  let state = syncStates[source.id],
-                  state.isUsable(
-                      sourceID: source.id,
-                      scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
-                  ),
-                  !SourceSyncFolderTopologyPolicy.requiresRebuild(
-                      sourceType: source.type,
-                      state: state
-                  ) else {
-                return nil
-            }
-            return SourcePeriodicSyncPolicy.nextSyncDate(for: state)
-        }.min()
+        sourceStore.sources.compactMap { nextPeriodicSyncDate(for: $0) }.min()
+    }
+
+    private func nextPeriodicSyncDate(for source: MusicSource) -> Date? {
+        guard source.isEnabled,
+              !source.isDeleted,
+              Self.supportsPeriodicNativeSync(source.type),
+              automaticRefreshEnabledHandler?(source.id) == true,
+              let directories = periodicDirectories(for: source),
+              let state = syncStates[source.id],
+              state.isUsable(
+                  sourceID: source.id,
+                  scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
+              ),
+              !SourceSyncFolderTopologyPolicy.requiresRebuild(
+                  sourceType: source.type,
+                  state: state
+              ) else { return nil }
+        let interval = automaticRefreshIntervalHandler?(source.id) ?? .sixHours
+        guard let next = SourcePeriodicSyncPolicy.nextSyncDate(for: state, interval: interval) else { return nil }
+        // 游标提交之后还可能保存目录和资料库，以最终完成时间作为下一轮的下限。
+        return max(next, source.lastScannedAt?.addingTimeInterval(interval.timeInterval) ?? .distantPast)
     }
 
     private nonisolated static func supportsPeriodicNativeSync(_ type: MusicSourceType) -> Bool {
@@ -1963,6 +2027,7 @@ final class ScanService {
     }
 
     func cancelScan(for sourceID: String) {
+        discardQueuedAutomaticScan(for: sourceID)
         activeTasks[sourceID]?.cancel()
         activeTasks[sourceID] = nil
         // Invalidate the cancelled task's generation so its still-suspended
@@ -1982,11 +2047,16 @@ final class ScanService {
         // 这条记录已经从 activeTasks 摘掉了。任何正挂在它上面的等待现在等的
         // 都是一个不再属于本服务的任务, 放它们回去重新判断。
         releaseScanWaits()
+        scheduleAutomaticScanDrain()
     }
 
     /// Cancel every in-flight scan. Used by the BGProcessingTask expiration
     /// handler so iOS doesn't kill us mid-write.
     func cancelAllActiveScans() {
+        queuedAutomaticScans.removeAll()
+        automaticScanOrder.removeAll()
+        automaticScanDrainTask?.cancel()
+        automaticScanDrainTask = nil
         deferredSceneTransitionCancelTask?.cancel()
         deferredSceneTransitionCancelTask = nil
         deferredForegroundResumeTask?.cancel()
@@ -2114,7 +2184,9 @@ final class ScanService {
         // 没被它自己的 defer 摘掉, 也不会在一个已完成的任务上空转; 同一个源
         // 换了新任务仍然会被等到。
         var settled: [String: Task<Void, Never>] = [:]
-        while let pending = activeTasks.first(where: { settled[$0.key] != $0.value }) {
+        while true {
+            drainAutomaticScansIfIdle()
+            guard let pending = activeTasks.first(where: { settled[$0.key] != $0.value }) else { break }
             switch await awaitScanTask(pending.value) {
             case .taskFinished:
                 settled[pending.key] = pending.value
@@ -2159,6 +2231,7 @@ final class ScanService {
     }
 
     func removeCheckpoint(for sourceID: String) {
+        discardQueuedAutomaticScan(for: sourceID)
         // 检查点没了就没有"未完成的扫描"可言, 用户那次操作的意图跟着结束。
         forgetUserInitiatedScanIntent(for: sourceID)
         let stageSessionID = checkpoints[sourceID]?.subsonicCatalogState?.stageSessionID

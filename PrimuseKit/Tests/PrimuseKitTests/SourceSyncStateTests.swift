@@ -338,6 +338,14 @@ struct SourceSyncStateTests {
             SourcePeriodicSyncPolicy.nextSyncDate(for: state)
                 == committedAt.addingTimeInterval(SourcePeriodicSyncPolicy.interval)
         )
+        for interval in SourceAutomaticRefreshInterval.allCases {
+            #expect(SourcePeriodicSyncPolicy.nextSyncDate(for: state, interval: interval)
+                == committedAt.addingTimeInterval(interval.timeInterval))
+            #expect(!SourcePeriodicSyncPolicy.isDue(state, interval: interval,
+                now: committedAt.addingTimeInterval(interval.timeInterval - 1)))
+            #expect(SourcePeriodicSyncPolicy.isDue(state, interval: interval,
+                now: committedAt.addingTimeInterval(interval.timeInterval)))
+        }
     }
 
     @Test("Automatic refresh requires a native changes feed")
@@ -476,8 +484,18 @@ struct LocalReferenceRefreshPolicyTests {
 
         #expect(LocalReferenceRefreshPolicy.monitoredSourceIDs(
             in: [active, copied, disabled, deleted, remote],
-            bookmarkedSourceIDs: ["active", "disabled", "deleted", "remote"]
+            bookmarkedSourceIDs: ["active", "disabled", "deleted", "remote"],
+            automaticRefreshEnabledSourceIDs: ["active", "disabled", "deleted", "remote"]
         ) == ["active"])
+    }
+
+    @Test func automaticRefreshOffDoesNotMonitorBookmarkedFolders() {
+        let source = MusicSource(id: "local", name: "Local", type: .local)
+        #expect(LocalReferenceRefreshPolicy.monitoredSourceIDs(
+            in: [source],
+            bookmarkedSourceIDs: [source.id],
+            automaticRefreshEnabledSourceIDs: []
+        ).isEmpty)
     }
 }
 

@@ -61,14 +61,55 @@ public enum ServerCatalogRefreshPolicy {
     }
 }
 
-/// Which sources can be checked for server-side changes without behaving like
-/// a scan.
-///
-/// The bar is a read-only answer to "did anything change?" whose cost does not
-/// grow with the catalogue: a scan-status call, or one small request per music
-/// library. A source that can only answer by re-listing its catalogue is
-/// performing a scan, however incrementally it reconciles afterwards, and must
-/// stay behind an explicit user action.
+/// File sources require an explicit opt-in because checking for changes can
+/// involve walking every selected directory. Existing server preferences keep
+/// their default-on behavior when upgrading.
+public enum SourceAutomaticRefreshInterval: Int, CaseIterable, Codable, Sendable {
+    case oneHour = 1
+    case sixHours = 6
+    case twelveHours = 12
+    case twentyFourHours = 24
+
+    public var timeInterval: TimeInterval { TimeInterval(rawValue * 60 * 60) }
+
+    public static func storedValue(_ hours: Int?) -> Self {
+        hours.flatMap(Self.init(rawValue:)) ?? .sixHours
+    }
+}
+
+public enum SourceAutomaticRefreshPolicy {
+    public static func supportsAutomaticRefresh(_ type: MusicSourceType) -> Bool {
+        if type.isAwaitingPublicAPI { return false }
+        switch type {
+        case .appleMusic, .appleMusicLibrary: return false
+        default: return true
+        }
+    }
+
+    public static func isEnabled(
+        for type: MusicSourceType,
+        sourceID: String,
+        disabledSourceIDs: Set<String>,
+        optedInSourceIDs: Set<String>
+    ) -> Bool {
+        guard supportsAutomaticRefresh(type), !disabledSourceIDs.contains(sourceID) else { return false }
+        return type.isServerLibrary || optedInSourceIDs.contains(sourceID)
+    }
+
+    public static func shouldRefreshFiles(
+        lastScannedAt: Date?,
+        lastAttemptAt: Date?,
+        interval: SourceAutomaticRefreshInterval = .sixHours,
+        now: Date = Date()
+    ) -> Bool {
+        // 首次建库仍由用户选择范围并扫描，自动刷新只维护已有目录。
+        guard let lastScannedAt else { return false }
+        let baseline = max(lastScannedAt, lastAttemptAt ?? .distantPast)
+        return now.timeIntervalSince(baseline) >= interval.timeInterval
+    }
+}
+
+/// Server catalogues can use a small status request before starting a scan.
 public enum ServerCatalogAutoRefreshPolicy {
     /// Minimum spacing between two automatic checks of one source.
     public static let checkCooldown: TimeInterval = 15 * 60
@@ -161,16 +202,17 @@ public enum ServerCatalogRefreshWorkPolicy {
         isLowPowerModeEnabled: Bool,
         hasSeriousThermalPressure: Bool,
         availableDiskBytes: Int64,
-        isPlaybackBusy: Bool
+        isPlaybackBusy: Bool,
+        requiresNetwork: Bool = true
     ) -> ServerCatalogRefreshEligibility {
         guard applicationIsActive else { return .deferred(.applicationInactive) }
-        guard hasDeterminedNetwork else { return .deferred(.networkUndetermined) }
-        guard isReachable else { return .deferred(.networkUnavailable) }
+        guard !requiresNetwork || hasDeterminedNetwork else { return .deferred(.networkUndetermined) }
+        guard !requiresNetwork || isReachable else { return .deferred(.networkUnavailable) }
         guard availableDiskBytes >= minimumFreeDiskBytes else {
             return .deferred(.insufficientDiskSpace)
         }
         if trigger.isUserInitiated { return .allowed }
-        guard isOnUnmeteredNetwork else { return .deferred(.meteredNetwork) }
+        guard !requiresNetwork || isOnUnmeteredNetwork else { return .deferred(.meteredNetwork) }
         guard !isLowPowerModeEnabled else { return .deferred(.lowPower) }
         guard !hasSeriousThermalPressure else { return .deferred(.thermalPressure) }
         guard !isPlaybackBusy else { return .deferred(.playbackActive) }

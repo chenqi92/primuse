@@ -95,13 +95,8 @@ private enum DeviceLocalSongFilePresence {
 }
 #endif
 
-/// Cheap change detection for server catalogues: a few seconds after launch,
-/// on every return to the foreground, and whenever the person pulls to refresh.
-///
-/// It never transfers a catalogue to decide. A scan-status call, or a handful
-/// of one-row requests, answers whether anything moved, and only then does a
-/// normal scan start — incremental where the server supports it. Which sources
-/// qualify is `ServerCatalogAutoRefreshPolicy.supportsStatusProbe`.
+/// Server catalogues probe for changes before scanning. File sources require
+/// opt-in and use a configurable cooldown because a refresh may walk directories.
 @MainActor
 @Observable
 final class ServerCatalogAutoRefreshCoordinator {
@@ -119,6 +114,9 @@ final class ServerCatalogAutoRefreshCoordinator {
 
     private struct PersistedState: Codable, Sendable {
         var disabledSourceIDs: Set<String> = []
+        var optedInSourceIDs: Set<String>?
+        var lastFileRefreshAttemptAt: [String: Date]?
+        var fileRefreshIntervalHours: [String: Int]?
         var serverScanOnLaunchSourceIDs: Set<String>?
         var markers: [String: SourceMarker] = [:]
         /// 「服务端删掉的歌」选了「立即移除」的源。可选：旧版本存下的没有这个键。
@@ -189,6 +187,7 @@ final class ServerCatalogAutoRefreshCoordinator {
     /// triggers space themselves out from this, so a failed or deferred check
     /// does not turn every foreground return into another round trip.
     @ObservationIgnored private var lastProbeStartedAt: [String: Date] = [:]
+    @ObservationIgnored private var lastFileRefreshAttemptAt: [String: Date]
     @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
     @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
     @ObservationIgnored private var userRequestedRefreshes: [String: UserRequestedRefresh] = [:]
@@ -197,6 +196,9 @@ final class ServerCatalogAutoRefreshCoordinator {
     @ObservationIgnored private var didRunColdLaunch = false
     @ObservationIgnored private var applicationIsActive = false
     private var disabledSourceIDs: Set<String>
+    private var optedInSourceIDs: Set<String>
+    private var fileRefreshIntervalHours: [String: Int]
+    @ObservationIgnored var automaticRefreshPreferencesDidChangeHandler: (() -> Void)?
     private var serverScanOnLaunchSourceIDs: Set<String>
     /// 和上面两个开关一样按源、只存在本机：它们在来源卡片的同一块里，删源时一起清掉。
     /// 删除证词（`SourceSyncState`）本来就是每台设备各记各的。
@@ -222,25 +224,38 @@ final class ServerCatalogAutoRefreshCoordinator {
         self.defaults = defaults
         let state = Self.loadState(from: defaults)
         disabledSourceIDs = state.disabledSourceIDs
+        optedInSourceIDs = state.optedInSourceIDs ?? []
+        fileRefreshIntervalHours = state.fileRefreshIntervalHours ?? [:]
+        lastFileRefreshAttemptAt = state.lastFileRefreshAttemptAt ?? [:]
         serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
         immediateCatalogRemovalSourceIDs = state.immediateCatalogRemovalSourceIDs ?? []
         markers = state.markers
     }
 
     func isEnabled(for sourceID: String) -> Bool {
-        !disabledSourceIDs.contains(sourceID)
+        guard let source = sourcesStore.source(id: sourceID) else { return false }
+        return SourceAutomaticRefreshPolicy.isEnabled(
+            for: source.type,
+            sourceID: sourceID,
+            disabledSourceIDs: disabledSourceIDs,
+            optedInSourceIDs: optedInSourceIDs
+        )
     }
 
     func setEnabled(_ enabled: Bool, for sourceID: String) {
         if enabled {
             disabledSourceIDs.remove(sourceID)
+            optedInSourceIDs.insert(sourceID)
         } else {
             disabledSourceIDs.insert(sourceID)
+            optedInSourceIDs.remove(sourceID)
             retryTasks.removeValue(forKey: sourceID)?.cancel()
             deferredSourceIDs.remove(sourceID)
             pendingMarkers.removeValue(forKey: sourceID)
+            scanService.cancelQueuedAutomaticRefresh(for: sourceID)
         }
         persistState()
+        automaticRefreshPreferencesDidChangeHandler?()
         guard enabled, let source = sourcesStore.source(id: sourceID) else { return }
         Task { @MainActor [weak self] in
             await self?.checkSource(source, trigger: .retry, retryCount: 0)
@@ -251,10 +266,27 @@ final class ServerCatalogAutoRefreshCoordinator {
         serverScanOnLaunchSourceIDs.contains(sourceID)
     }
 
-    /// Whether this source has a cheap change marker at all. The Sources UI
-    /// uses it to decide if the switches belong on the card.
+    func refreshInterval(for sourceID: String) -> SourceAutomaticRefreshInterval {
+        .storedValue(fileRefreshIntervalHours[sourceID])
+    }
+
+    func setRefreshInterval(_ interval: SourceAutomaticRefreshInterval, for sourceID: String) {
+        fileRefreshIntervalHours[sourceID] = interval.rawValue
+        persistState()
+        guard isEnabled(for: sourceID), let source = sourcesStore.source(id: sourceID) else { return }
+        Task { @MainActor [weak self] in
+            await self?.checkSource(source, trigger: .retry, retryCount: 0)
+        }
+    }
+
+    func automaticRefreshDidStart(sourceID: String) {
+        guard let source = sourcesStore.source(id: sourceID), !source.type.isServerLibrary else { return }
+        lastFileRefreshAttemptAt[sourceID] = Date()
+        persistState()
+    }
+
     nonisolated func supportsAutomaticRefresh(_ source: MusicSource) -> Bool {
-        ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+        SourceAutomaticRefreshPolicy.supportsAutomaticRefresh(source.type)
     }
 
     nonisolated func supportsServerScanRequest(_ source: MusicSource) -> Bool {
@@ -420,6 +452,8 @@ final class ServerCatalogAutoRefreshCoordinator {
 
     func sourceWasDeleted(_ sourceID: String) {
         disabledSourceIDs.remove(sourceID)
+        optedInSourceIDs.remove(sourceID)
+        fileRefreshIntervalHours.removeValue(forKey: sourceID)
         serverScanOnLaunchSourceIDs.remove(sourceID)
         immediateCatalogRemovalSourceIDs.remove(sourceID)
         serverScanRequestFingerprints.removeValue(forKey: sourceID)
@@ -428,13 +462,14 @@ final class ServerCatalogAutoRefreshCoordinator {
         pendingMarkers.removeValue(forKey: sourceID)
         deferredSourceIDs.remove(sourceID)
         lastProbeStartedAt.removeValue(forKey: sourceID)
+        lastFileRefreshAttemptAt.removeValue(forKey: sourceID)
         userRequestedRefreshes.removeValue(forKey: sourceID)
         retryTasks.removeValue(forKey: sourceID)?.cancel()
         persistState()
     }
 
     private func isCheckable(_ source: MusicSource) -> Bool {
-        ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+        supportsAutomaticRefresh(source)
             && source.isEnabled
             && !source.isDeleted
             && isEnabled(for: source.id)
@@ -475,6 +510,10 @@ final class ServerCatalogAutoRefreshCoordinator {
             return .checking
         }
         defer { checkInFlightSourceIDs.remove(source.id) }
+
+        if !ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type) {
+            return refreshFileSource(source, trigger: trigger, retryCount: retryCount)
+        }
 
         let identityFingerprint = Self.identityFingerprint(for: source)
         let identityChanged = markers[source.id].map {
@@ -684,7 +723,9 @@ final class ServerCatalogAutoRefreshCoordinator {
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourcesStore,
-                scraperService: scraperService
+                scraperService: scraperService,
+                automaticRefreshIsAllowed: trigger.isUserInitiated ? nil
+                    : automaticRefreshEligibility(for: source.id, checksInterval: false)
             )
             if didStart {
                 // A catalogue transfer can fail after the read-only status
@@ -727,6 +768,66 @@ final class ServerCatalogAutoRefreshCoordinator {
         }
     }
 
+    private func refreshFileSource(
+        _ source: MusicSource,
+        trigger: ServerCatalogRefreshTrigger,
+        retryCount: Int
+    ) -> CheckOutcome {
+        guard source.lastScannedAt != nil else { return .notChecked }
+        if !trigger.isUserInitiated,
+           !SourceAutomaticRefreshPolicy.shouldRefreshFiles(
+               lastScannedAt: source.lastScannedAt,
+               lastAttemptAt: lastFileRefreshAttemptAt[source.id],
+               interval: refreshInterval(for: source.id)
+           ) {
+            return .upToDate
+        }
+        guard workEligibility(for: trigger, requiresNetwork: source.type != .local) == .allowed else {
+            scheduleRetry(sourceID: source.id, retryCount: retryCount)
+            return .postponed
+        }
+        let didStart = scanService.scanSource(
+            source,
+            mode: .automatic,
+            snapshotExecutionContext: trigger.isUserInitiated ? .userInitiatedForeground : .foregroundResume,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourcesStore,
+            scraperService: scraperService,
+            automaticRefreshIsAllowed: trigger.isUserInitiated ? nil
+                : automaticRefreshEligibility(for: source.id, checksInterval: true)
+        )
+        guard didStart else { return .notChecked }
+        if trigger.isUserInitiated {
+            lastFileRefreshAttemptAt[source.id] = Date()
+            persistState()
+            userRequestedRefreshes[source.id] = UserRequestedRefresh(
+                identityFingerprint: Self.identityFingerprint(for: source),
+                songCountBefore: source.songCount,
+                requestedAt: Date()
+            )
+        }
+        return .refreshing
+    }
+
+    private func automaticRefreshEligibility(for sourceID: String, checksInterval: Bool) -> () -> Bool {
+        { [weak self] in
+            guard let self, let source = self.sourcesStore.source(id: sourceID), self.isCheckable(source) else {
+                return false
+            }
+            if checksInterval, !SourceAutomaticRefreshPolicy.shouldRefreshFiles(
+                lastScannedAt: source.lastScannedAt,
+                lastAttemptAt: self.lastFileRefreshAttemptAt[sourceID],
+                interval: self.refreshInterval(for: sourceID)
+            ) { return false }
+            guard self.workEligibility(for: .retry, requiresNetwork: source.type != .local) == .allowed else {
+                self.scheduleRetry(sourceID: sourceID, retryCount: 0)
+                return false
+            }
+            return true
+        }
+    }
+
     /// 只有用户重新登录才能解决的失败: `SourceError.authenticationFailed`, 以及各家
     /// 服务端自己的认证类错误(群晖的两步验证、密码过期、账号停用等)。
     static func requiresReauthentication(_ error: Error) -> Bool {
@@ -734,12 +835,13 @@ final class ServerCatalogAutoRefreshCoordinator {
         return AutomaticOfflineFailureClassifier.classify(error) == .authentication
     }
 
-    func automaticWorkIsAllowed() -> Bool {
-        workEligibility(for: .retry) == .allowed
+    func automaticWorkIsAllowed(requiresNetwork: Bool = true) -> Bool {
+        workEligibility(for: .retry, requiresNetwork: requiresNetwork) == .allowed
     }
 
     private func workEligibility(
-        for trigger: ServerCatalogRefreshTrigger
+        for trigger: ServerCatalogRefreshTrigger,
+        requiresNetwork: Bool = true
     ) -> ServerCatalogRefreshEligibility {
         let network = NetworkMonitor.shared
         return ServerCatalogRefreshWorkPolicy.eligibility(
@@ -751,7 +853,8 @@ final class ServerCatalogAutoRefreshCoordinator {
             isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
             hasSeriousThermalPressure: Self.hasSeriousThermalPressure,
             availableDiskBytes: Self.availableDiskBytes(),
-            isPlaybackBusy: player.isPlaybackActive || player.isLoading
+            isPlaybackBusy: player.isPlaybackActive || player.isLoading,
+            requiresNetwork: requiresNetwork
         )
     }
 
@@ -884,6 +987,9 @@ final class ServerCatalogAutoRefreshCoordinator {
     private func persistState() {
         let state = PersistedState(
             disabledSourceIDs: disabledSourceIDs,
+            optedInSourceIDs: optedInSourceIDs,
+            lastFileRefreshAttemptAt: lastFileRefreshAttemptAt,
+            fileRefreshIntervalHours: fileRefreshIntervalHours,
             serverScanOnLaunchSourceIDs: serverScanOnLaunchSourceIDs,
             markers: markers,
             immediateCatalogRemovalSourceIDs: immediateCatalogRemovalSourceIDs
@@ -1315,6 +1421,15 @@ final class AppServices {
             [weak serverCatalogAutoRefresh] in
             serverCatalogAutoRefresh?.automaticWorkIsAllowed() ?? false
         }
+        scanService.automaticRefreshEnabledHandler = { [weak serverCatalogAutoRefresh] sourceID in
+            serverCatalogAutoRefresh?.isEnabled(for: sourceID) ?? false
+        }
+        scanService.automaticRefreshIntervalHandler = { [weak serverCatalogAutoRefresh] sourceID in
+            serverCatalogAutoRefresh?.refreshInterval(for: sourceID) ?? .sixHours
+        }
+        scanService.automaticRefreshDidStartHandler = { [weak serverCatalogAutoRefresh] sourceID in
+            serverCatalogAutoRefresh?.automaticRefreshDidStart(sourceID: sourceID)
+        }
         scanService.serverCatalogRemovalModeHandler = {
             [weak serverCatalogAutoRefresh] sourceID in
             serverCatalogAutoRefresh?.catalogRemovalMode(for: sourceID) ?? .confirmFirst
@@ -1532,13 +1647,23 @@ final class AppServices {
         self.serverMirrorRefresh = serverMirrorRefresh
         self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
-        self.localReferenceRefresh = LocalReferenceRefreshService(
+        let localReferenceRefresh = LocalReferenceRefreshService(
             sourcesStore: store,
             sourceManager: manager,
             library: library,
             scanService: scanService,
-            scraperService: scraper
+            scraperService: scraper,
+            automaticRefreshEnabled: { [weak serverCatalogAutoRefresh] sourceID in
+                serverCatalogAutoRefresh?.isEnabled(for: sourceID) ?? false
+            },
+            automaticWorkAllowed: { [weak serverCatalogAutoRefresh] in
+                serverCatalogAutoRefresh?.automaticWorkIsAllowed(requiresNetwork: false) ?? false
+            }
         )
+        self.localReferenceRefresh = localReferenceRefresh
+        serverCatalogAutoRefresh.automaticRefreshPreferencesDidChangeHandler = { [weak localReferenceRefresh] in
+            localReferenceRefresh?.refreshPreferences()
+        }
         let audioCacheSync = AudioCacheSyncService()
         audioCacheSync.attach(
             sourceManager: manager,
