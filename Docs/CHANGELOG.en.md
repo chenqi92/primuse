@@ -4,6 +4,63 @@
 
 ---
 
+## [1.12.2] (build 116-117) - 2026-10-27
+
+Updates across builds 116–117: video podcasts, Home layouts, album artwork and disc images, plus improvements to playback and music sources.
+
+### Added
+
+- Watch video podcasts or switch to audio-only playback. (#365)
+- Choose a new style for the tabs at the top of Home and browse Home sections horizontally.
+- Tap an artist's name on an album page to open their details.
+- Choose album artwork from images in the album folder. Disc subfolders can use artwork from the parent album folder, and album discs and full-screen vinyl can use the folder's disc image.
+- Export lyrics and transcripts as LRC, SRT or plain text, and export AI-separated vocals and instrumentals individually. (#362)
+- Audiobooks and podcasts can rewind automatically when playback resumes, with a longer rewind after a longer pause. (#363)
+- Add For You, Start Listening and Recently Played to CarPlay Home. (#360)
+- Set storage limits for artwork and lyrics, and download all artwork and lyrics at once. (#346)
+- Group diagnostic reports by category and clear reports and older logs.
+
+### Changed
+
+- Choose artwork sizes separately for each Home section. Start Listening supports one to four columns on iPhone and keeps its tiles in place when playback pauses.
+- Use a consistent set of app icon options across iPhone, Mac and Apple TV, with icon switching on Apple TV and a brighter Fresh Note icon.
+- Enlarge Apple Watch artwork and keep the volume ring inside the screen. (#353)
+- Sign in to Last.fm directly on Mac and find scrobbling preferences in Settings. Apple TV also supports Last.fm and ListenBrainz. (#358)
+- Show the lyrics source above the lyrics, with an option to hide it. (#357)
+- Keep shared player settings in a Global section. Softer play buttons and clearer glass effects refine audiobook and podcast cards on Home. (#361)
+- Add light haptic feedback to Play, Pause, Previous and Next. Match the rounded ends of volume and progress bars, and give the bottom row of player buttons more space and larger hit areas. (#356)
+- Keep the status bar visible when the player is always dark. Contents, show notes and Up Next panels follow the app's appearance setting. (#367)
+- Give audiobook controls more room in taller layouts and remove the extra label above the chapter name. (#367)
+- Use a two-column radio player in landscape, with an option for the station artwork to fill its area. Lock the app to portrait or landscape in Settings.
+- Keep neighboring tracks from an album together when shuffling. (#335)
+- Combine the same song from different music sources into one listening-chart entry.
+- Like Apple Music tracks opened from search or an album on Apple TV. Search playback on Mac and CarPlay also supports likes and adding tracks to playlists.
+- On Apple TV, choose whether to remove tracks deleted from the server immediately, and see why retained tracks remain in the library.
+- Explain why the folder view is unavailable while filtering songs or showing downloaded tracks, and offer a direct switch to it.
+- Simplify music-source messages and hide status notices for background work that resolves automatically.
+
+### Fixed
+
+- Refresh changed folder artwork on rescan. Wait for newly scanned cloud-drive and NAS tracks to finish reading tags before matching artwork online.
+- Stop repeatedly warning about unidentified files after refreshing Baidu Netdisk, and avoid incorrect file-change warnings when writing tags, artwork or lyrics after a rescan.
+- Keep the empty part of the volume slider visible and use consistent rounded corners.
+- Avoid large black or white areas around the player when rotating the screen.
+- Preserve small accent colors on white or pale artwork instead of reducing them to grey. (#361)
+- Avoid cellular-access prompts when the app is denied network access, while continuing to read local-folder track details.
+- Check Spotlight progress against the system index and restore missing entries.
+- Keep interrupted Apple Music playback from skipping to the next track.
+- Play larger Songloft tracks on Apple TV and load artwork supplied by music-server playlists.
+- Keep remote playback from getting stuck when storage is full.
+- Prevent Apple TV's iCloud library sync from restoring server-deleted tracks from older device records.
+
+### Performance
+
+- Reduce repeated full-file writes and snapshot uploads for radio lists.
+- Avoid rereading the same tracks repeatedly during tag completion, and share a single tag read across tracks in a full-album CUE sheet.
+- Reduce stutter from shadows during podcast and audiobook artwork animations. (#361)
+
+---
+
 ## [1.12.1] (build 109-114) - 2026-10-25
 
 Dynamic lyrics and library backups join improvements to playback, music sources, transcripts and sync.

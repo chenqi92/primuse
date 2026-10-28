@@ -4,7 +4,7 @@
 子命令：
   version   输出 project.yml 中的 MARKETING_VERSION 与 CURRENT_PROJECT_VERSION
   versions  列出历史上的版本区间，并标出尚未写进 CHANGELOG 的版本
-  is-bump   判断某个提交是否改动了版本号或构建号
+  is-bump   判断某个提交或推送范围是否改动了版本号或构建号
   is-current 判断该版本的更新日志是否已覆盖当前构建
   draft     按提交记录生成指定版本的更新日志草稿（Markdown 段落）
   sanitize  校正模型输出的段落格式，不可用时以非零退出码交回调用方
@@ -114,7 +114,7 @@ def version_span(version: str, head: str = "HEAD") -> tuple[str | None, str, set
     index = indexes[-1]
     # 区间语义是「上一次发布之后到本次发布」，两端都以该版本最后一次版本号变更为界
     start = groups[index - 1]["last"] if index > 0 else None
-    end = groups[index]["last"] if index + 1 < len(groups) else head
+    end = groups[index]["last"]
     builds: set[int] = set()
     for position in indexes:
         builds |= groups[position]["builds"]
@@ -253,8 +253,15 @@ def cmd_versions(args: argparse.Namespace) -> None:
 
 
 def cmd_is_bump(args: argparse.Namespace) -> None:
-    """判断某个提交是否改动了版本号或构建号，供发布流程决定是否继续。"""
-    print("true" if version_at(args.commit) != version_at(f"{args.commit}~1") else "false")
+    """比较推送两端的版本；未指定基线时仍只检查单个提交。"""
+    current = version_at(args.commit)
+    if not all(current):
+        sys.exit(f"无法读取 {args.commit} 的版本号和构建号")
+    base = args.base if args.base is not None else f"{args.commit}~1"
+    previous = (None, None) if base == "0" * 40 else version_at(base)
+    if args.base is not None and base != "0" * 40 and not all(previous):
+        sys.exit(f"无法读取推送基线 {base} 的版本号和构建号")
+    print("true" if current != previous else "false")
 
 
 def section_is_current(path: Path, version: str, build: str) -> bool:
@@ -372,8 +379,9 @@ def main() -> None:
     apply_cmd.add_argument("--version", help="版本号，默认从段落标题解析")
     apply_cmd.set_defaults(func=cmd_apply)
 
-    is_bump = sub.add_parser("is-bump", help="判断提交是否改动了版本号或构建号")
+    is_bump = sub.add_parser("is-bump", help="判断提交或推送范围是否改动了版本号或构建号")
     is_bump.add_argument("commit", nargs="?", default="HEAD")
+    is_bump.add_argument("--base", help="推送前的提交，默认取目标提交的父提交")
     is_bump.set_defaults(func=cmd_is_bump)
 
     is_current = sub.add_parser("is-current", help="判断已有段落是否覆盖该版本的最新构建")

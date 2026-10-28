@@ -82,6 +82,53 @@ class ChangelogReleaseTests(unittest.TestCase):
         self.assertEqual(self.cli("is-current", "1.12.1", "--build", "114", "--lang", "en"), "false")
         self.assertEqual(self.cli("is-current", "1.12.1", "--build", "113"), "false")
 
+    def test_push_detects_build_bump_before_last_commit(self):
+        before = self.git("rev-parse", "HEAD")
+        self.version("1.12.1", 114)
+        self.commit("准备 1.12.1（114）TestFlight 构建")
+        (self.root / "feature.txt").write_text("after the build")
+        self.commit("修复后续播放问题")
+        self.assertEqual(self.cli("is-bump"), "false")
+        self.assertEqual(self.cli("is-bump", "HEAD", "--base", before), "true")
+
+    def test_push_without_version_change_is_skipped(self):
+        before = self.git("rev-parse", "HEAD")
+        with (self.root / "project.yml").open("a") as project:
+            project.write("targets:\n  App:\n    sources: [Sources]\n")
+        self.commit("新增源文件")
+        (self.root / "feature.txt").write_text("another change")
+        self.commit("调整界面")
+        self.assertEqual(self.cli("is-bump", "--base", before), "false")
+
+    def test_push_detects_marketing_version_change(self):
+        before = self.git("rev-parse", "HEAD")
+        self.version("1.12.2", 109)
+        self.commit("准备下一版本")
+        (self.root / "feature.txt").write_text("after the version change")
+        self.commit("调整界面")
+        self.assertEqual(self.cli("is-bump", "--base", before), "true")
+
+    def test_new_branch_has_no_previous_version(self):
+        self.assertEqual(self.cli("is-bump", "--base", "0" * 40), "true")
+
+    def test_missing_push_base_fails_instead_of_releasing(self):
+        result = subprocess.run(
+            ["python3", str(self.root / "scripts/changelog.py"), "is-bump", "--base", "missing-ref"],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("无法读取推送基线", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_notes_stop_at_latest_build_even_with_later_project_changes(self):
+        with (self.root / "project.yml").open("a") as project:
+            project.write("targets:\n  App:\n    sources: [Sources]\n")
+        self.commit("新增尚未构建的功能")
+        draft = self.cli("draft", "--version", "1.12.1")
+        self.assertIn("本版本首项功能", draft)
+        self.assertNotIn("尚未构建的功能", draft)
+        self.assertIn("build 109", draft)
+
     def test_missing_or_unversioned_sections_require_refresh(self):
         path = self.root / "Docs/CHANGELOG.md"
         for text in ["# Changelog\n", "## [1.12.1]\n\nOld notes.\n", "## [1.12.0] (build 114)\n"]:

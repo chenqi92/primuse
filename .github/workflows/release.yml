@@ -30,8 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 新增源文件同样会改动 project.yml，只有版本号或构建号真的变了才算一次发布。
-  # 这样每个版本的改动区间首尾相接，同一条提交不会既进上个版本又进下个版本。
+  # 一次 push 可能包含升号后的其他提交，按推送前后比较版本，避免漏掉中间的升号。
   gate:
     runs-on: ubuntu-latest
     outputs:
@@ -41,10 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: 判断是否需要发布
         id: check
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           eval "$(python3 scripts/changelog.py version)"
           version="${{ inputs.version }}"
@@ -52,7 +53,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             proceed=true
           else
-            proceed="$(python3 scripts/changelog.py is-bump HEAD)"
+            proceed="$(python3 scripts/changelog.py is-bump HEAD --base "$PUSH_BEFORE")"
           fi
           {
             echo "proceed=$proceed"
@@ -62,7 +63,7 @@ jobs:
           if [ "$proceed" = "true" ]; then
             echo "发布 $version（build $build）"
           else
-            echo "本次提交没有改动版本号或构建号，跳过发布"
+            echo "本次推送没有改动版本号或构建号，跳过发布"
           fi
 
   release:
