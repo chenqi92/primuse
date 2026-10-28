@@ -3220,6 +3220,7 @@ final class ScanService {
             // `SourceCatalogSnapshotPolicy.hasChanges` 因此会把首次扫描误判成
             // 空操作, 连带跳过后台刮削入队。
             var publishedIntermediateRows = false
+            var changedCatalogSongIDs: Set<String> = []
             var commitHeldForScrollSince: Date?
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
@@ -3246,7 +3247,11 @@ final class ScanService {
                 )
                 let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
                 let peerSeedAdoptions = await scanner.takePeerSeedAdoptions()
-                unpublishedRows.append(contentsOf: await scanner.takePendingChangedSongs())
+                let changedRows = await scanner.takePendingChangedSongs()
+                unpublishedRows.append(contentsOf: changedRows)
+                if source.type == .fnMusic {
+                    changedCatalogSongIDs.formUnion(changedRows.map(\.id))
+                }
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,
@@ -3465,6 +3470,7 @@ final class ScanService {
                 authoritativeSongIDs: prunableSongIDs,
                 pruneMissingSongs: allowsAuthoritativeCatalogPrune,
                 forcesCatalogCommit: publishedIntermediateRows,
+                changedCatalogSongIDs: source.type == .fnMusic ? changedCatalogSongIDs : nil,
                 expectedScopeFingerprint: scopeFingerprint,
                 expectedScopeDirectories: directories,
                 library: library,
@@ -5031,6 +5037,34 @@ final class ScanService {
         return true
     }
 
+    struct FnMusicCatalogCommitPlan: Sendable {
+        let songs: [Song]
+        let enrichmentSongs: [Song]
+        let authoritativeSongIDs: Set<String>
+        let hasRemovals: Bool
+    }
+
+    nonisolated static func fnMusicCatalogCommitPlan(
+        existing: [Song],
+        candidate: [Song],
+        changedSongIDs: Set<String>?,
+        authoritativeSongIDs: Set<String>?,
+        pruneMissingSongs: Bool
+    ) -> FnMusicCatalogCommitPlan {
+        let existingByID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let authoritativeIDs = authoritativeSongIDs ?? Set(candidate.map(\.id))
+        // 已分批入库的变化仍要补全; 未变化的旧行不能覆盖扫描期间刚读好的标签。
+        let changed = candidate.filter {
+            changedSongIDs?.contains($0.id) != false || existingByID[$0.id] == nil
+        }
+        return FnMusicCatalogCommitPlan(
+            songs: changed.filter { existingByID[$0.id] != $0 },
+            enrichmentSongs: changed,
+            authoritativeSongIDs: authoritativeIDs,
+            hasRemovals: pruneMissingSongs && existing.contains { !authoritativeIDs.contains($0.id) }
+        )
+    }
+
     private func completeScan(
         sourceID: String,
         generation: Int,
@@ -5041,6 +5075,7 @@ final class ScanService {
         // terminal snapshot then equals what is already stored, so the change
         // detection below would otherwise read a first scan as a no-op.
         forcesCatalogCommit: Bool = false,
+        changedCatalogSongIDs: Set<String>? = nil,
         expectedScopeFingerprint: String? = nil,
         expectedScopeDirectories: [String] = [],
         library: MusicLibrary,
@@ -5062,6 +5097,8 @@ final class ScanService {
             )
         }
         var catalogSongs = songs
+        var catalogAuthoritativeSongIDs = authoritativeSongIDs
+        var enrichmentSongs: [Song]?
         // 只在服务端歌单里的歌不在走查里, 整源替换时照留; 走查列出来的那些已经是曲库里的歌,
         // 不再算仅歌单, 目录没别的变化、下面不提交时也要放回歌曲列表。
         let walkedSongIDs = Set(songs.map(\.id))
@@ -5112,9 +5149,20 @@ final class ScanService {
             let existingSongs = library.songs.filter {
                 $0.sourceID == sourceID && !collectionOnlySongIDs.contains($0.id)
             }
-            detectedCatalogChanges = await Task.detached(priority: .utility) {
-                SourceCatalogSnapshotPolicy.hasChanges(existing: existingSongs, candidate: songs)
+            let plan = await Task.detached(priority: .utility) {
+                Self.fnMusicCatalogCommitPlan(
+                    existing: existingSongs,
+                    candidate: songs,
+                    changedSongIDs: changedCatalogSongIDs,
+                    authoritativeSongIDs: authoritativeSongIDs,
+                    pruneMissingSongs: pruneMissingSongs
+                )
             }.value
+            catalogSongs = plan.songs
+            enrichmentSongs = plan.enrichmentSongs
+            catalogAuthoritativeSongIDs = plan.authoritativeSongIDs
+            detectedCatalogChanges = !plan.songs.isEmpty || plan.hasRemovals
+            plog("source=\(LogRedactionPolicy.digest(sourceID)) FN catalog commit walked=\(songs.count) changed=\(plan.enrichmentSongs.count) upserts=\(plan.songs.count) prune=\(pruneMissingSongs) removals=\(plan.hasRemovals)")
         } else if source?.type == .local {
             // A referenced folder is reconciled on every launch and every
             // return to the foreground. With nothing changed on disk, a full
@@ -5186,8 +5234,8 @@ final class ScanService {
         }
         // 没给权威集合时剪枝按这次交上来的歌算, 仅歌单的行要并进去才留得下。
         let prunedAgainstIDs: Set<String>? = pruneMissingSongs && !collectionOnlySongIDs.isEmpty
-            ? (authoritativeSongIDs ?? Set(catalogSongs.map(\.id))).union(collectionOnlySongIDs)
-            : authoritativeSongIDs
+            ? (catalogAuthoritativeSongIDs ?? Set(catalogSongs.map(\.id))).union(collectionOnlySongIDs)
+            : catalogAuthoritativeSongIDs
         if let preparedCatalog {
             library.addSongs(
                 preparedCatalog,
@@ -5251,7 +5299,7 @@ final class ScanService {
             $0.lastScannedAt = Date()
         }
         if commitsCatalogSnapshot {
-            scraperService?.enqueueBackgroundEnrichment(for: catalogSongs, in: library)
+            scraperService?.enqueueBackgroundEnrichment(for: enrichmentSongs ?? catalogSongs, in: library)
         }
         // 注意: 这里不做整库 prewarm。之前会一首歌拉 1MB head + 256KB tail,
         // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm

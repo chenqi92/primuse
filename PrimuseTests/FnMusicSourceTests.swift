@@ -241,6 +241,109 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(fixture.library.rawSongIDs(forPlaylist: "saved"), [old.id])
     }
 
+    func testFnMusicCommitOnlyProcessesChangedRowsInLargeCatalog() {
+        let existing = (0..<20_000).map { index in
+            Song(id: "track-\(index)", title: "Track \(index)", fileFormat: .flac,
+                 filePath: "/fnmusic/tracks/\(index).flac", sourceID: "fn")
+        }
+        var candidate = existing
+        candidate[7].title = "Retagged"
+        let added = Song(id: "added", title: "New song", fileFormat: .flac,
+                         filePath: "/fnmusic/tracks/added.flac", sourceID: "fn")
+        candidate.append(added)
+        var live = existing
+        live[9].lyricsFileName = "newly-read.lrc"
+        let plan = ScanService.fnMusicCatalogCommitPlan(
+            existing: live, candidate: candidate, changedSongIDs: ["track-7", "added"],
+            authoritativeSongIDs: nil, pruneMissingSongs: true
+        )
+        XCTAssertEqual(plan.songs.map(\.id), ["track-7", "added"])
+        XCTAssertEqual(plan.enrichmentSongs.map(\.id), ["track-7", "added"])
+        XCTAssertEqual(plan.authoritativeSongIDs.count, 20_001)
+        XCTAssertFalse(plan.hasRemovals)
+    }
+
+    func testFnMusicCommitKeepsAlreadyPublishedChangesForEnrichment() {
+        let song = Song(id: "new", title: "New song", fileFormat: .flac,
+                        filePath: "/fnmusic/tracks/new.flac", sourceID: "fn")
+        let plan = ScanService.fnMusicCatalogCommitPlan(
+            existing: [song], candidate: [song], changedSongIDs: [song.id],
+            authoritativeSongIDs: nil, pruneMissingSongs: true
+        )
+        XCTAssertTrue(plan.songs.isEmpty)
+        XCTAssertEqual(plan.enrichmentSongs, [song])
+        XCTAssertEqual(plan.authoritativeSongIDs, [song.id])
+        XCTAssertFalse(plan.hasRemovals)
+    }
+
+    func testFnMusicCommitHonorsDeletionConfirmationAndCatalogDrift() {
+        let song = Song(id: "missing", title: "Missing", fileFormat: .flac,
+                        filePath: "/fnmusic/tracks/missing.flac", sourceID: "fn")
+        for (authoritativeIDs, prune, removes) in [
+            (Set<String>?.none, true, true),
+            (Set([song.id]), true, false),
+            (Set<String>?.none, false, false),
+        ] {
+            let plan = ScanService.fnMusicCatalogCommitPlan(
+                existing: [song], candidate: [], changedSongIDs: [],
+                authoritativeSongIDs: authoritativeIDs, pruneMissingSongs: prune
+            )
+            XCTAssertEqual(plan.hasRemovals, removes)
+            XCTAssertTrue(plan.songs.isEmpty)
+            XCTAssertTrue(plan.enrichmentSongs.isEmpty)
+        }
+    }
+
+    func testFnMusicRescanAppliesAddUpdateAndRemovalWithoutDroppingUnchangedRows() async throws {
+        let fixture = try makeScanFixture(count: 100, failAfterPage: false)
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+        let unchanged = try XCTUnwrap(fixture.library.storedSong(id: "track-50"))
+
+        await fixture.connector.setCatalog(count: 101, omitted: [2], titles: [1: "Retagged"])
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.failureMessage)
+        XCTAssertEqual(fixture.library.songs.count, 100)
+        XCTAssertEqual(fixture.store.source(id: fixture.source.id)?.songCount, 100)
+        XCTAssertEqual(fixture.library.storedSong(id: "track-1")?.title, "Retagged")
+        XCTAssertNotNil(fixture.library.storedSong(id: "track-100"))
+        XCTAssertNil(fixture.library.storedSong(id: "track-2"))
+        XCTAssertEqual(fixture.library.storedSong(id: unchanged.id), unchanged)
+    }
+
+    func testFnMusicDriftingRescanKeepsMissingSongs() async throws {
+        let fixture = try makeScanFixture(count: 100, failAfterPage: false)
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.connector.setCatalog(count: 101, omitted: [2], drift: true)
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.failureMessage)
+        XCTAssertEqual(fixture.library.songs.count, 101)
+        XCTAssertNotNil(fixture.library.storedSong(id: "track-2"))
+        XCTAssertNotNil(fixture.library.storedSong(id: "track-100"))
+    }
+
+    func testFnMusicMassDisappearanceStillWaitsForConfirmation() async throws {
+        let fixture = try makeScanFixture(count: 100, failAfterPage: false)
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.connector.setCatalog(count: 1)
+        XCTAssertTrue(fixture.start())
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.failureMessage)
+        XCTAssertEqual(fixture.library.songs.count, 100)
+        XCTAssertEqual(fixture.store.source(id: fixture.source.id)?.songCount, 100)
+    }
+
     func testUnchangedFnMusicRescanDoesNotInvalidateLibrary() async throws {
         let fixture = try makeScanFixture(count: 500, failAfterPage: false)
         XCTAssertTrue(fixture.start())
@@ -1333,9 +1436,12 @@ private final class FnMusicScanFileManager: FileManager, @unchecked Sendable {
                        in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
 }
 
-private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector {
+private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector, CatalogDriftReportingConnector {
     let sourceID: String
-    let count: Int
+    private var count: Int
+    private var omitted: Set<Int> = []
+    private var titles: [Int: String] = [:]
+    private var drift = false
     let failAfterPage: Bool
     private(set) var isWaiting = false
     private(set) var scanCount = 0
@@ -1345,6 +1451,16 @@ private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector {
         self.sourceID = sourceID; self.count = count; self.failAfterPage = failAfterPage
     }
     func release() { released = true }
+    func setCatalog(count: Int, omitted: Set<Int> = [], titles: [Int: String] = [:], drift: Bool = false) {
+        self.count = count
+        self.omitted = omitted
+        self.titles = titles
+        self.drift = drift
+    }
+    func takeCatalogDriftObservation() -> Bool {
+        defer { drift = false }
+        return drift
+    }
     func connect() async throws {}
     func disconnect() async {}
     func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
@@ -1358,9 +1474,9 @@ private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    for index in 0..<count {
+                    for index in 0..<count where !omitted.contains(index) {
                         try Task.checkCancellation()
-                        var song = Song(id: "track-\(index)", title: "Track \(index)", fileFormat: .flac,
+                        var song = Song(id: "track-\(index)", title: titles[index] ?? "Track \(index)", fileFormat: .flac,
                                         filePath: "/fnmusic/tracks/\(index).flac", sourceID: sourceID)
                         song.dateAdded = Date(timeIntervalSince1970: 1_000)
                         continuation.yield(ConnectorScannedSong(song: song, displayName: song.title,
