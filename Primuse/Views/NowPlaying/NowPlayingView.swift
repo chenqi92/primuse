@@ -3311,6 +3311,9 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             let safeInsets = resolvedSafeAreaInsets(for: geo)
+            #if DEBUG && os(iOS)
+            let _ = PlayerUIUpdateDiagnostics.body("player")
+            #endif
             // 系统竖栏的设备(iPhone Duo)上播放页整屏居中,只让开遮挡区;其它设备这里恒为空。
             let occlusions = playerOcclusions(in: geo)
             let verticalDismissStartMaximumY = showLyrics
@@ -5689,6 +5692,9 @@ struct NowPlayingView: View {
 
     private func transportForward() {
         guard !transportHoldScrub.consumesTap() else { return }
+        #if DEBUG && os(iOS)
+        PlayerUIUpdateDiagnostics.begin("next")
+        #endif
         PMHaptics.transportTapped()
         if usesSpokenWordTransport {
             player.skipSpokenWordForward()
@@ -8929,27 +8935,28 @@ struct NowPlayingView: View {
         }
     }
 
-    @ViewBuilder
+    // Keep unused spoken-word/header control branches out of the portrait
+    // layout's generic type; resolving that type delays the first player frame.
     private func nowPlayingSongHeader(
         titleFont: Font,
         metadataFont: Font,
         inlineActions: Bool = true,
         controlSurface: NowPlayingControlSurface = .portrait
-    ) -> some View {
+    ) -> AnyView {
         if usesSpokenWordTransport {
-            spokenWordHeading(
+            return AnyView(spokenWordHeading(
                 titleFont: titleFont,
                 partFont: metadataFont,
                 inlineActions: inlineActions,
                 controlSurface: controlSurface
-            )
+            ))
         } else {
-            musicSongHeader(
+            return AnyView(musicSongHeader(
                 titleFont: titleFont,
                 metadataFont: metadataFont,
                 inlineActions: inlineActions,
                 controlSurface: controlSurface
-            )
+            ))
         }
     }
 
@@ -9823,25 +9830,24 @@ struct NowPlayingView: View {
         }
     }
 
-    @ViewBuilder
-    private func controlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> some View {
+    private func controlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> AnyView {
         if action == .airPlay {
-            airPlayControl(style: style)
+            return AnyView(airPlayControl(style: style))
         } else if case .column(let itemSize) = style, action == .lyrics {
-            barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize)
+            return AnyView(barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize))
         } else if case .column(let itemSize) = style, action == .queue {
-            barColumnQueueButton(itemSize: itemSize)
+            return AnyView(barColumnQueueButton(itemSize: itemSize))
         } else if action == .shuffle, unavailableNotice(for: .shuffle) == nil {
-            shuffleControl(style: style)
+            return AnyView(shuffleControl(style: style))
         } else if style == .edge, action == .repeatMode {
-            ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+            return AnyView(ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                 PMHaptics.playbackModeToggled()
                 cycleRepeatMode()
-            }
+            })
         } else if action == .playbackSpeed, unavailableNotice(for: .playbackSpeed) == nil {
-            playbackSpeedControl(style: style)
+            return AnyView(playbackSpeedControl(style: style))
         } else {
-            standardControl(action, style: style)
+            return AnyView(standardControl(action, style: style))
         }
     }
 

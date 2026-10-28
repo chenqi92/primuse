@@ -161,7 +161,13 @@ final class AppleMusicService {
     /// 显示。Apple Music 是 ApplicationMusicPlayer 系统侧播放, 跟我们自己的
     /// AudioPlayerService.currentSong 是两套, 但 AudioPlayerService 会做镜像把这
     /// 个值同步到自己的 currentSong, 让 NowPlayingView 复用同一个 player。
-    private(set) var nowPlayingSong: MusicKit.Song?
+    private(set) var hasNowPlayingSong = false
+    private(set) var nowPlayingSong: MusicKit.Song? {
+        didSet {
+            let hasSong = nowPlayingSong != nil
+            if hasNowPlayingSong != hasSong { hasNowPlayingSong = hasSong }
+        }
+    }
     /// Primuse song ID projected directly from MusicKit's raw current entry.
     /// When it differs from the canonical library projection,
     /// AudioPlayerService uses it once to rescue metadata cached by older
@@ -186,6 +192,7 @@ final class AppleMusicService {
         let identities: AppleMusicTrackIdentityIndex
     }
     @ObservationIgnored private var managedQueueProjection: ManagedQueueProjection?
+    @ObservationIgnored private var installedManagedQueue = AppleMusicQueueInstallationCache()
     @ObservationIgnored private var managedQueueUpdateID: UUID?
     @ObservationIgnored private var lastObservedEntryID: String?
     @ObservationIgnored private var recoveredWithSingleItem = false
@@ -221,9 +228,7 @@ final class AppleMusicService {
     @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
     @ObservationIgnored private var nearEndStallSampleCount = 0
     private static let playbackEndStallSampleThreshold = 6
-    /// 上个 tick 的 queue 轻量指纹 (entry id 列表) ── 只有指纹变化才重做
-    /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
-    private var lastQueueSignature: [String] = []
+    @ObservationIgnored private var nativeQueueSnapshot = AppleMusicQueueSnapshotCache()
     private let playbackSettings: PlaybackSettingsStore
     /// 只读:判断 Apple Music 是否还是一个已添加且启用的音乐源。
     @ObservationIgnored private let library: MusicLibrary
@@ -441,6 +446,7 @@ final class AppleMusicService {
         let index = startingIndex ?? songs.firstIndex(where: { $0.id == starting.id }) ?? 0
         let entries = songs.map { MusicPlayer.Queue.Entry($0) }
         setManagedQueueProjection(songs: songs, entryIDs: queueEntryIDs, entries: entries)
+        let installationID = installedManagedQueue.begin()
         nowPlayingQueueEntryID = managedQueueEntryIDs[entries[index].id]
         lastObservedEntryID = entries[index].id
         ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
@@ -484,6 +490,9 @@ final class AppleMusicService {
             try await ApplicationMusicPlayer.shared.play()
         } catch {
             throw QueueStartFailure.playing(error)
+        }
+        if isPlaybackRequestActive(requestID) {
+            rememberInstalledManagedQueue(attemptID: installationID)
         }
     }
 
@@ -948,6 +957,7 @@ final class AppleMusicService {
         nowPlayingQueueEntryID = nil
         managedQueueEntryIDs = [:]
         managedQueueProjection = nil
+        installedManagedQueue.reset()
         managedQueueUpdateID = nil
         lastObservedEntryID = nil
         recoveredWithSingleItem = false
@@ -955,7 +965,7 @@ final class AppleMusicService {
         currentPlaybackTime = 0
         currentDuration = 0
         queueSongs = []
-        lastQueueSignature = []
+        nativeQueueSnapshot = AppleMusicQueueSnapshotCache()
         lastPlaybackError = nil
     }
 
@@ -990,12 +1000,18 @@ final class AppleMusicService {
          let playbackTime = player.playbackTime
          let nowPlaying = status == .playing
          refreshManagedQueueEntryIDs()
+         let currentEntry = player.queue.currentEntry
+         let rawSong: MusicKit.Song? = {
+             guard status != .stopped, case .song(let song) = currentEntry?.item else { return nil }
+             return song
+         }()
+         let canonicalSong = rawSong.map { AppServices.shared.appleMusicLibrary.canonicalForNowPlaying($0) }
          // 换 entry 通常是换了一首, 观测窗口要重开。但 MusicKit 收摊一条
          // 播完的 queue 时也会重建 currentEntry ── 如果在那一拍把观测清零,
          // 曲末判定就永远等不到 hasObservedActivePlayback, 整段 Apple Music
          // 播完后卡在原地不跳下一首。已经播了一段却不在出声的那一拍先留着
          // 观测, 让曲末判定有机会成立; 真的是换曲, 下一拍出声时照常重开。
-         if let entry = player.queue.currentEntry,
+         if let entry = currentEntry,
             entry.id != lastObservedEntryID,
             nowPlaying || furthestObservedPlaybackTime <= 5 {
              lastObservedEntryID = entry.id
@@ -1004,17 +1020,14 @@ final class AppleMusicService {
              furthestObservedPlaybackTime = 0
              nearEndStallSampleCount = 0
          }
-         let entryID = player.queue.currentEntry.flatMap { managedQueueEntryIDs[$0.id] }
+         let entryID = currentEntry.flatMap { managedQueueEntryIDs[$0.id] }
          if nowPlayingQueueEntryID != entryID { nowPlayingQueueEntryID = entryID }
 
          // Refresh duration before evaluating the end state. MusicKit can
          // publish the first useful duration and the terminal status in
          // adjacent polling ticks.
-         if status != .stopped,
-            let entry = player.queue.currentEntry,
-            case .song(let song) = entry.item {
-             let canonical = AppServices.shared.appleMusicLibrary.canonicalForNowPlaying(song)
-             currentDuration = canonical.duration ?? song.duration ?? currentDuration
+         if let canonicalSong {
+             currentDuration = canonicalSong.duration ?? rawSong?.duration ?? currentDuration
          }
 
          if nowPlaying {
@@ -1056,7 +1069,7 @@ final class AppleMusicService {
              playbackTime: playbackTime,
              furthestObservedTime: furthestObservedPlaybackTime
          )
-         let nativePosition = player.queue.currentEntry.flatMap { current in
+         let nativePosition = currentEntry.flatMap { current in
              player.queue.entries.firstIndex(where: { $0.id == current.id })
          }
          let hasNativeContinuation = nativePosition.map { $0 + 1 < player.queue.entries.count } == true
@@ -1064,7 +1077,7 @@ final class AppleMusicService {
          let clockReset = AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
              playbackTime: playbackTime,
              furthestObservedTime: furthestObservedPlaybackTime,
-             hasCurrentEntry: player.queue.currentEntry != nil,
+             hasCurrentEntry: currentEntry != nil,
              duration: currentDuration
          )
          let endedAfterPlaying = !hasNativeContinuation && AppleMusicPlaybackEndPolicy.shouldAdvance(
@@ -1115,23 +1128,13 @@ final class AppleMusicService {
          // 自动跳下一首 / skipToNextEntry。entry.item 在 user library / catalog 都
          // 是 .song case。其它类型 (musicVideo 等) 我们 user library 拉的时候 filter
          // 过, 这里默认走 .song 分支。
-         if let entry = player.queue.currentEntry {
-             switch entry.item {
-             case .song(let s):
-                 // ApplicationMusicPlayer 返回的常常是 catalog Song (数字 id),
-                 // 反查 cache 拿 user library 版本 (i.* id), 保证下游 CachedArtworkView
-                 // / catalogURL 等按 id 查 cache 的逻辑能命中。
-                 let canonical = AppServices.shared.appleMusicLibrary.canonicalForNowPlaying(s)
-                 let rawSongID = AppleMusicLibraryService.toPrimuseSong(s).id
-                 if nowPlayingRawSongID != rawSongID {
-                     nowPlayingRawSongID = rawSongID
-                 }
-                 if nowPlayingSong?.id != canonical.id {
-                     nowPlayingSong = canonical
-                 }
-                 currentDuration = canonical.duration ?? s.duration ?? currentDuration
-             default:
-                 break
+         if let rawSong, let canonical = canonicalSong {
+             let rawSongID = AppleMusicLibraryService.primuseSongID(forItemID: rawSong.id.rawValue)
+             if nowPlayingRawSongID != rawSongID {
+                 nowPlayingRawSongID = rawSongID
+             }
+             if nowPlayingSong?.id != canonical.id {
+                 nowPlayingSong = canonical
              }
          }
          let pt = playbackTime
@@ -1139,19 +1142,19 @@ final class AppleMusicService {
          if abs(pt - currentPlaybackTime) > 0.05 {
              currentPlaybackTime = pt
          }
-         // queueSongs: 把 entry list 投影成 PrimuseKit.Song, 给 NowPlayingView 的
-         // 队列视图直接渲染。先用轻量指纹 (entry.id 列表) 判断 queue 有没有变,
-         // 没变就跳过 ── 否则每 0.5s 对几千首 queue 做 SHA256 + 结构体构造, 持续
-         // 烧主线程。指纹变化时才做一次全量投影。
-         let signature = player.queue.entries.map(\.id)
-         if signature != lastQueueSignature {
-             lastQueueSignature = signature
-             let snapshot = player.queue.entries.compactMap { entry -> MusicKit.Song? in
-                 if case .song(let s) = entry.item { return s }
-                 return nil
+         // 托管队列由 Primuse 持有，消费者不会采用系统快照。读取全部 entry.item
+         // 会同步查询 MediaLibrary，所以要在解析条目之前跳过这份无效投影。
+         if let projected = nativeQueueSnapshot.snapshotIfChanged(
+             primuseOwnsCanonicalQueue: managedQueueProjection != nil,
+             entryIDs: { player.queue.entries.map(\.id) },
+             project: {
+                 let libraryService = AppServices.shared.appleMusicLibrary
+                 return player.queue.entries.compactMap { entry -> PrimuseKit.Song? in
+                     guard case .song(let song) = entry.item else { return nil }
+                     return libraryService.canonicalPrimuseSong(for: song)
+                 }
              }
-             let libraryService = AppServices.shared.appleMusicLibrary
-             let projected = snapshot.map { libraryService.canonicalPrimuseSong(for: $0) }
+         ) {
              if projected.map(\.id) != queueSongs.map(\.id) {
                  queueSongs = projected
              }
@@ -1218,6 +1221,7 @@ final class AppleMusicService {
          nowPlayingQueueEntryID = nil
          managedQueueEntryIDs = [:]
          managedQueueProjection = nil
+         installedManagedQueue.reset()
          managedQueueUpdateID = nil
          lastObservedEntryID = nil
          recoveredWithSingleItem = false
@@ -1225,7 +1229,7 @@ final class AppleMusicService {
          currentPlaybackTime = 0
          currentDuration = 0
          queueSongs = []
-         lastQueueSignature = []
+         nativeQueueSnapshot = AppleMusicQueueSnapshotCache()
          lastPlaybackError = nil
          return requestID
      }
@@ -1303,6 +1307,7 @@ final class AppleMusicService {
          entryIDs: [UUID]?,
          entries: [MusicKit.MusicPlayer.Queue.Entry]
      ) {
+         installedManagedQueue.reset()
          guard let entryIDs, entryIDs.count == songs.count,
                entries.count == songs.count,
                Set(entryIDs).count == entryIDs.count,
@@ -1319,11 +1324,43 @@ final class AppleMusicService {
          managedQueueEntryIDs = Dictionary(uniqueKeysWithValues: zip(entries.map(\.id), entryIDs))
      }
 
+     private func rememberInstalledManagedQueue(attemptID: UUID) {
+         guard let projection = managedQueueProjection else { return }
+         let nativeEntryIDs = ApplicationMusicPlayer.shared.queue.entries.map(\.id)
+         installedManagedQueue.complete(
+             attemptID: attemptID, songIDs: projection.songIDs, entryIDs: projection.entryIDs,
+             nativeEntryIDs: nativeEntryIDs
+         )
+         #if DEBUG && os(iOS)
+         if PlayerUIUpdateDiagnostics.isEnabled {
+             plog("UIProbe managedQueue installed requested=\(projection.entryIDs.count) accepted=\(nativeEntryIDs.count)")
+         }
+         #endif
+     }
+
      private func refreshManagedQueueEntryIDs() {
          guard let projection = managedQueueProjection else { return }
          let entries = ApplicationMusicPlayer.shared.queue.entries
-         guard entries.count == projection.entryIDs.count,
-               entries.contains(where: { managedQueueEntryIDs[$0.id] == nil }) else { return }
+         guard entries.count == projection.entryIDs.count else {
+             guard let current = ApplicationMusicPlayer.shared.queue.currentEntry,
+                   managedQueueEntryIDs[current.id] == nil else { return }
+             let song: MusicKit.Song?
+             if case .song(let resolved) = current.item {
+                 song = resolved
+             } else {
+                 song = current.transientItem as? MusicKit.Song
+             }
+             let songID = song.flatMap {
+                 projection.identities.canonicalID(for: AppleMusicLibraryService.trackIdentity($0))
+             }
+             if let entryID = AppleMusicQueueMirrorPolicy.uniqueEntryID(
+                 songID: songID, expectedSongIDs: projection.songIDs, queueEntryIDs: projection.entryIDs
+             ) {
+                 managedQueueEntryIDs[current.id] = entryID
+             }
+             return
+         }
+         guard entries.contains(where: { managedQueueEntryIDs[$0.id] == nil }) else { return }
          let songIDs = entries.map { entry -> String? in
              let song: MusicKit.Song?
              if case .song(let resolved) = entry.item {
@@ -1357,11 +1394,33 @@ final class AppleMusicService {
                Set(entryIDs).count == entryIDs.count,
                let selectedIndex = entryIDs.firstIndex(of: currentEntryID),
                nowPlayingQueueEntryID == currentEntryID else { return }
+         let requestedSongIDs = songs.map { $0.id.rawValue }
+         let nativeEntryIDs = ApplicationMusicPlayer.shared.queue.entries.map(\.id)
+         if managedQueueUpdateID == nil,
+            installedManagedQueue.matches(
+                songIDs: requestedSongIDs,
+                entryIDs: entryIDs,
+                nativeEntryIDs: nativeEntryIDs
+            ) == true {
+             setAppleMusicRepeat(repeatMode == .all && nativeEntryIDs.count != entryIDs.count ? .off : repeatMode)
+             ApplicationMusicPlayer.shared.state.shuffleMode = .off
+             #if DEBUG && os(iOS)
+             if PlayerUIUpdateDiagnostics.isEnabled {
+                 plog("UIProbe managedQueue reuse count=\(entryIDs.count)")
+             }
+             #endif
+             return
+         }
          refreshManagedQueueEntryIDs()
          if managedQueueUpdateID == nil,
             ApplicationMusicPlayer.shared.queue.entries.map({ managedQueueEntryIDs[$0.id] }) == entryIDs {
              setAppleMusicRepeat(repeatMode)
              ApplicationMusicPlayer.shared.state.shuffleMode = .off
+             let installationID = installedManagedQueue.begin()
+             installedManagedQueue.complete(
+                 attemptID: installationID, songIDs: requestedSongIDs, entryIDs: entryIDs,
+                 nativeEntryIDs: nativeEntryIDs
+             )
              return
          }
          let updateID = UUID()
@@ -1379,6 +1438,12 @@ final class AppleMusicService {
          // incremental mutation and restores its playback position explicitly.
          let entries = songs.map { MusicKit.MusicPlayer.Queue.Entry($0) }
          setManagedQueueProjection(songs: songs, entryIDs: entryIDs, entries: entries)
+         let installationID = installedManagedQueue.begin()
+         #if DEBUG && os(iOS)
+         if PlayerUIUpdateDiagnostics.isEnabled {
+             plog("UIProbe managedQueue replace count=\(entryIDs.count)")
+         }
+         #endif
          ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
              entries, startingAt: entries[selectedIndex]
          )
@@ -1412,6 +1477,7 @@ final class AppleMusicService {
              // The mirror is suspended during the edit, but an explicit seek
              // still updates this value and takes precedence over the snapshot.
              ApplicationMusicPlayer.shared.playbackTime = currentPlaybackTime
+             rememberInstalledManagedQueue(attemptID: installationID)
          } catch {
              guard isPlaybackRequestActive(requestID), managedQueueUpdateID == updateID,
                    !Task.isCancelled else { return }
@@ -1420,6 +1486,7 @@ final class AppleMusicService {
      }
 
      func retainCurrentManagedQueueEntry() {
+         installedManagedQueue.reset()
          refreshManagedQueueEntryIDs()
          guard let current = ApplicationMusicPlayer.shared.queue.currentEntry,
                let entryID = managedQueueEntryIDs[current.id],

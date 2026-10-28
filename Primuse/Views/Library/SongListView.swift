@@ -4929,6 +4929,9 @@ private struct LibraryFolderNodeView: View {
     }
 
     var body: some View {
+        #if DEBUG && os(iOS)
+        let _ = PlayerUIUpdateDiagnostics.body("folder")
+        #endif
         content
             .navigationTitle(Text(verbatim: navigationTitle))
             #if os(iOS)
@@ -5222,6 +5225,9 @@ private struct LibraryFolderNodeView: View {
     private func playSong(_ song: Song) {
         let ids = visibleSongIDs
         guard let index = ids.firstIndex(of: song.id) else { return }
+        #if DEBUG && os(iOS)
+        PlayerUIUpdateDiagnostics.begin("play")
+        #endif
         SiriMediaInteractionDonor.donate(song: song)
         Task { await player.play(queueIDs: ids, startingAt: index) }
     }

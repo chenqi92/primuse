@@ -2587,6 +2587,17 @@ public enum AppleMusicLibraryPreferences {
 /// Pure policy for deciding whether a MusicKit queue snapshot may replace
 /// Primuse's canonical playback queue.
 public enum AppleMusicQueueMirrorPolicy {
+    /// A filtered native queue can identify a unique song without resolving
+    /// every entry. Repeated occurrences still require the full order mapping.
+    public static func uniqueEntryID(
+        songID: String?, expectedSongIDs: [String], queueEntryIDs: [UUID]
+    ) -> UUID? {
+        guard let songID, expectedSongIDs.count == queueEntryIDs.count,
+              let index = expectedSongIDs.firstIndex(of: songID),
+              !expectedSongIDs[(index + 1)...].contains(songID) else { return nil }
+        return queueEntryIDs[index]
+    }
+
     /// MusicKit resolves transient entries into new native IDs. Bind by
     /// occurrence only after the complete, canonicalized song order matches.
     public static func resolvedEntryIDs(
@@ -2627,6 +2638,84 @@ public enum AppleMusicQueueMirrorPolicy {
         )
             && !primuseOwnsCanonicalQueue
             && snapshotCount > 0
+    }
+}
+
+/// The semantic identity of a queue that MusicKit successfully prepared.
+public struct AppleMusicInstalledQueue: Sendable {
+    private let songIDs: [String]
+    private let entryIDs: [UUID]
+    private let nativeEntryIDs: [String]
+
+    public init?(songIDs: [String], entryIDs: [UUID], nativeEntryIDs: [String]) {
+        guard !entryIDs.isEmpty, songIDs.count == entryIDs.count,
+              Set(entryIDs).count == entryIDs.count,
+              !nativeEntryIDs.isEmpty, nativeEntryIDs.count <= entryIDs.count,
+              Set(nativeEntryIDs).count == nativeEntryIDs.count else { return nil }
+        self.songIDs = songIDs
+        self.entryIDs = entryIDs
+        self.nativeEntryIDs = nativeEntryIDs
+    }
+
+    /// Native entry IDs can change during MusicKit resolution without changing
+    /// the successfully installed songs or their Primuse queue occurrences.
+    public func matches(songIDs: [String], entryIDs: [UUID], nativeEntryIDs: [String]) -> Bool {
+        nativeEntryIDs == self.nativeEntryIDs
+            && self.entryIDs == entryIDs
+            && self.songIDs == songIDs
+    }
+}
+
+public struct AppleMusicQueueInstallationCache: Sendable {
+    private var attemptID: UUID?
+    private var installed: AppleMusicInstalledQueue?
+
+    public init() {}
+
+    @discardableResult
+    public mutating func begin() -> UUID {
+        let id = UUID()
+        attemptID = id
+        installed = nil
+        return id
+    }
+
+    public mutating func complete(attemptID: UUID, songIDs: [String], entryIDs: [UUID], nativeEntryIDs: [String]) {
+        guard self.attemptID == attemptID else { return }
+        installed = AppleMusicInstalledQueue(songIDs: songIDs, entryIDs: entryIDs, nativeEntryIDs: nativeEntryIDs)
+    }
+
+    public mutating func reset() {
+        attemptID = nil
+        installed = nil
+    }
+
+    public func matches(songIDs: [String], entryIDs: [UUID], nativeEntryIDs: [String]) -> Bool {
+        installed?.matches(songIDs: songIDs, entryIDs: entryIDs, nativeEntryIDs: nativeEntryIDs) == true
+    }
+}
+
+/// Avoid resolving MusicKit entries when Primuse owns the queue or the native
+/// order is unchanged. Resolving an entry can synchronously query MediaLibrary.
+public struct AppleMusicQueueSnapshotCache {
+    private var previousEntryIDs: [String]?
+
+    public init() {}
+
+    public mutating func snapshotIfChanged<Song>(
+        primuseOwnsCanonicalQueue: Bool,
+        entryIDs: () -> [String],
+        project: () -> [Song]
+    ) -> [Song]? {
+        guard !primuseOwnsCanonicalQueue else {
+            previousEntryIDs = nil
+            return nil
+        }
+        let ids = entryIDs()
+        guard ids != previousEntryIDs else { return nil }
+        let songs = project()
+        previousEntryIDs = ids
+        return songs
     }
 }
 

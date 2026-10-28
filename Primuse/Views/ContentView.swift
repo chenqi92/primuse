@@ -966,7 +966,7 @@ struct ContentView: View {
     /// Mini player 是否应该显示 — Primuse 自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
     private var miniPlayerActive: Bool {
-        player.currentSong != nil || appleMusic.nowPlayingSong != nil
+        player.hasCurrentSong || appleMusic.hasNowPlayingSong
     }
     /// Batch selection temporarily owns the bottom safe area. Playback keeps
     /// running, but its accessory stays hidden until selection ends.
@@ -1546,6 +1546,9 @@ struct ContentView: View {
         // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
         // 既不能闪 onboarding (它由 SourcesStore 驱动, 但入口在下面这棵树的
         // `.task` 里), 也不能闪"空资料库"状态。
+        #if DEBUG
+        let _ = PlayerUIUpdateDiagnostics.body("root")
+        #endif
         Group {
             if LaunchDiagnostics.isSafeModeActive {
                 // 连续两次启动没跑完。这一支完全不碰首页、迷你播放条与入场
@@ -1996,6 +1999,9 @@ struct ContentView: View {
     /// fresh identity remounts the overlay instead of turning `true` into a
     /// no-op, so the mini player remains a reliable recovery entry point.
     private func presentNowPlaying() {
+        #if DEBUG
+        PlayerUIUpdateDiagnostics.begin("expand")
+        #endif
         nowPlayingPresentationID = UUID()
         showNowPlaying = true
     }
@@ -2170,7 +2176,7 @@ private struct PlayerOverlayMount: View {
 
     private var allowsResidency: Bool {
         PlayerOverlayResidencyPolicy.allowsResidency(
-            hasCurrentItem: player.currentSong != nil,
+            hasCurrentItem: player.hasCurrentSong,
             isMusicVideoActive: player.isMusicVideoPlaybackActive
         )
     }

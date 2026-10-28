@@ -1307,6 +1307,51 @@ private struct NetworkPathChangeObserver: View {
     }
 }
 
+private struct PlaybackArtworkThemeObserver: View {
+    let player: AudioPlayerService
+    let theme: ThemeService
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .task(id: player.currentSong?.id) {
+                let song = player.currentSong
+                theme.updateFromCoverArt(
+                    fileName: song?.coverArtFileName,
+                    songID: song?.id,
+                    appleMusicID: song?.sourceID == AppleMusicLibraryService.systemSourceID
+                        ? song?.filePath
+                        : nil
+                )
+            }
+    }
+}
+
+private struct PlaybackActivityObserver: View {
+    let player: AudioPlayerService
+    let onChange: (Bool) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: player.isPlaybackActive) { _, isActive in
+                onChange(isActive)
+            }
+    }
+}
+
+/// Observe tint at its modifier boundary so artwork changes do not rebuild
+/// the scene's navigation content before propagating the new color.
+private struct AppThemeTintModifier: ViewModifier {
+    let theme: ThemeService
+
+    func body(content: Content) -> some View {
+        content.tint(theme.uiAccentColor)
+    }
+}
+
 /// 场景根上原来的资料库与封面监听, 挪进一个零尺寸视图, 理由见 `NetworkPathChangeObserver`:
 /// 扫描、补读标签每写回一次都会改 `songs` / `songReplacementToken`、发封面通知, 挂在场景根上
 /// 就是每次都从根上重算整棵视图树。
@@ -1523,10 +1568,6 @@ struct PrimuseApp: App {
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     /// DLNA 接收器持久开关。打开后启动时自动 start, 不需要进 Settings 触发。
     @AppStorage("dlna.rendererEnabled") private var dlnaRendererEnabled: Bool = false
-    #if os(iOS)
-    @AppStorage(AppThemePreferences.iOSAppearanceKey)
-    private var iOSAppearanceRawValue = IOSAppearancePreference.system.rawValue
-    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     /// 后台认证失败后，由来源类型选择对应的凭据恢复界面。
@@ -1633,14 +1674,8 @@ struct PrimuseApp: App {
             .environment(audioCacheSync)
             #endif
             .modifier(LyricsTypefaceProvider())
-        return injected.tint(themeService.uiAccentColor)
+        return injected.modifier(AppThemeTintModifier(theme: themeService))
     }
-
-    #if os(iOS)
-    private var iOSAppearance: IOSAppearancePreference {
-        IOSAppearancePreference(rawValue: iOSAppearanceRawValue) ?? .system
-    }
-    #endif
 
     @ViewBuilder
     private var platformRootContent: some View {
@@ -1684,11 +1719,7 @@ struct PrimuseApp: App {
     }
 
     private var iosAppContent: some View {
-        ContentView()
-            .environment(\.pmIsPhoneIdiom, UIDevice.current.userInterfaceIdiom == .phone)
-            .preferredColorScheme(iOSAppearance.colorScheme)
-            .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
-            .modifier(ExternalDisplaySceneAccessoryModifier())
+        IOSAppRootContent()
     }
     #else
     @ViewBuilder private var macPlatformRootContent: some View {
@@ -1927,19 +1958,10 @@ struct PrimuseApp: App {
                         }
                     }
                 }
-                // `.task(id:)` runs once when this scene is mounted as well as
-                // on later song changes. A plain `onChange` misses the case
-                // where a scene is recreated while the shared player already
-                // has a current song, leaving the player on the fallback tint.
-                .task(id: playerService.currentSong?.id) {
-                    let song = playerService.currentSong
-                    themeService.updateFromCoverArt(
-                        fileName: song?.coverArtFileName,
-                        songID: song?.id,
-                        appleMusicID: song?.sourceID == AppleMusicLibraryService.systemSourceID
-                            ? song?.filePath
-                            : nil
-                    )
+                // Keep song observation out of the scene root; this observer
+                // also refreshes artwork when a scene mounts with a restored song.
+                .background {
+                    PlaybackArtworkThemeObserver(player: playerService, theme: themeService)
                 }
                 // 别的设备把某条改成了有声或音乐:重新分一次,标签页和列表跟着变。
                 .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordClassificationDidChange)) { _ in
@@ -2275,60 +2297,62 @@ struct PrimuseApp: App {
                         break
                     }
                 }
-                .onChange(of: playerService.isPlaybackActive) { _, isActive in
-                    metadataBackfill.readingConfigurationChanged()
-                    #if os(iOS)
-                    guard scenePhase == .background else { return }
-                    metadataBackfill.setExecutionMode(
-                        isActive ? .backgroundDuringPlayback : .background
-                    )
-                    if isActive {
-                        // A remote-control play command can arrive after the
-                        // scene already entered background. Scraping, indexing
-                        // and lyrics are quiesced with their durable
-                        // checkpoints intact; scanning instead moves to the
-                        // reduced playback profile, which releases the UIKit
-                        // assertions that would otherwise expire under it.
-                        scanService.setBackgroundPlaybackActive(true)
-                        scraperService.cancelPreservingCheckpoint()
-                        AppServices.shared.spotlightIndex.suspendSynchronization()
-                        AppServices.shared.lyricsTextBackfill.stop()
-                        // Playback postpones maintenance, but the pending scene
-                        // settlement must still release publications and persist.
-                        BackgroundLibraryMaintenanceCoordinator.shared.cancelMaintenance()
-                        // Stage 2: 远程播控可能在冷启动还没发布时就到, 续扫
-                        // 同样要等发布。
-                        musicLibrary.onReady {
-                            guard scanService.hasResumableScanWork,
-                                  !scanService.hasActiveScans else { return }
-                            scanService.resumePendingScans(
-                                context: .background,
-                                sourceManager: sourceManager,
-                                library: musicLibrary,
-                                sourceStore: sourcesStore,
-                                scraperService: scraperService
+                .background {
+                    PlaybackActivityObserver(player: playerService) { isActive in
+                        metadataBackfill.readingConfigurationChanged()
+                        #if os(iOS)
+                        guard scenePhase == .background else { return }
+                        metadataBackfill.setExecutionMode(
+                            isActive ? .backgroundDuringPlayback : .background
+                        )
+                        if isActive {
+                            // A remote-control play command can arrive after the
+                            // scene already entered background. Scraping, indexing
+                            // and lyrics are quiesced with their durable
+                            // checkpoints intact; scanning instead moves to the
+                            // reduced playback profile, which releases the UIKit
+                            // assertions that would otherwise expire under it.
+                            scanService.setBackgroundPlaybackActive(true)
+                            scraperService.cancelPreservingCheckpoint()
+                            AppServices.shared.spotlightIndex.suspendSynchronization()
+                            AppServices.shared.lyricsTextBackfill.stop()
+                            // Playback postpones maintenance, but the pending scene
+                            // settlement must still release publications and persist.
+                            BackgroundLibraryMaintenanceCoordinator.shared.cancelMaintenance()
+                            // Stage 2: 远程播控可能在冷启动还没发布时就到, 续扫
+                            // 同样要等发布。
+                            musicLibrary.onReady {
+                                guard scanService.hasResumableScanWork,
+                                      !scanService.hasActiveScans else { return }
+                                scanService.resumePendingScans(
+                                    context: .background,
+                                    sourceManager: sourceManager,
+                                    library: musicLibrary,
+                                    sourceStore: sourcesStore,
+                                    scraperService: scraperService
+                                )
+                            }
+                        } else {
+                            // Still backgrounded without audio: re-arm the finite
+                            // UIKit window so its expiration persists checkpoints
+                            // and cancels the scans before iOS suspends us.
+                            scanService.setBackgroundPlaybackActive(false)
+                            AppServices.shared.spotlightIndex.resumePendingSynchronization(
+                                library: musicLibrary
                             )
                         }
-                    } else {
-                        // Still backgrounded without audio: re-arm the finite
-                        // UIKit window so its expiration persists checkpoints
-                        // and cancels the scans before iOS suspends us.
-                        scanService.setBackgroundPlaybackActive(false)
-                        AppServices.shared.spotlightIndex.resumePendingSynchronization(
-                            library: musicLibrary
+                        if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
+                            metadataBackfill.start()
+                        }
+                        scanService.scheduleBackgroundResumeIfNeeded(
+                            backfillPending: metadataBackfill.hasPendingWork,
+                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
+                            scrapePending: scraperService.hasPendingBackgroundContinuation,
+                            localImportPending: LocalImportService.hasPendingScan,
+                            sourceStore: sourcesStore
                         )
+                        #endif
                     }
-                    if metadataBackfill.hasPendingWork, !metadataBackfill.isRunning {
-                        metadataBackfill.start()
-                    }
-                    scanService.scheduleBackgroundResumeIfNeeded(
-                        backfillPending: metadataBackfill.hasPendingWork,
-                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
-                        scrapePending: scraperService.hasPendingBackgroundContinuation,
-                        localImportPending: LocalImportService.hasPendingScan,
-                        sourceStore: sourcesStore
-                    )
-                    #endif
                 }
                 // Network changes are observed in a separate, zero-size view.
                 // Keeping them on this scene root made every path callback
@@ -2504,6 +2528,21 @@ struct PrimuseApp: App {
 }
 
 #if os(iOS)
+/// Keep scene-side service and preference updates from recreating the navigation root.
+private struct IOSAppRootContent: View {
+    @AppStorage(AppThemePreferences.iOSAppearanceKey)
+    private var appearanceRawValue = IOSAppearancePreference.system.rawValue
+
+    var body: some View {
+        let appearance = IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
+        ContentView()
+            .environment(\.pmIsPhoneIdiom, UIDevice.current.userInterfaceIdiom == .phone)
+            .preferredColorScheme(appearance.colorScheme)
+            .modifier(IOSWindowAppearanceModifier(preference: appearance))
+            .modifier(ExternalDisplaySceneAccessoryModifier())
+    }
+}
+
 /// SwiftUI 的 preferredColorScheme 负责环境值；同步覆盖 UIWindow，确保 UIKit
 /// 控件、sheet 和外接显示窗口也在同一帧切换外观。
 private struct IOSWindowAppearanceModifier: ViewModifier {

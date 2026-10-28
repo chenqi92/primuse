@@ -590,6 +590,40 @@ final class DebugFrameGapProbe: NSObject {
         overBudget += max(0, gap - budget)
     }
 }
+
+/// Opt-in interaction windows correlate view updates, frame gaps and sampled
+/// main-thread stacks without logging song metadata or every rendered frame.
+@MainActor
+enum PlayerUIUpdateDiagnostics {
+    static let isEnabled = ProcessInfo.processInfo.environment["PRIMUSE_UI_UPDATE_DIAGNOSTICS"] == "1"
+    private static var bodyCounts: [String: Int] = [:]
+    private static var nextInteraction = 0
+
+    static func body(_ name: String) {
+        guard isEnabled else { return }
+        bodyCounts[name, default: 0] += 1
+    }
+
+    static func begin(_ action: String) {
+        guard isEnabled else { return }
+        RuntimeDiagnosticsSampler.shared.start(probeInterval: 0.1)
+        nextInteraction += 1
+        let interaction = nextInteraction
+        let before = bodyCounts
+        let probe = DebugFrameGapProbe()
+        probe.start()
+        plog("UIProbe begin id=\(interaction) action=\(action)")
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            let gaps = probe.finish()
+            let updates = bodyCounts.keys.sorted().compactMap { name -> String? in
+                let count = bodyCounts[name, default: 0] - before[name, default: 0]
+                return count > 0 ? "\(name)=\(count)" : nil
+            }.joined(separator: ",")
+            plog("UIProbe end id=\(interaction) action=\(action) worstFrame=\(gaps.worst)ms overBudget=\(gaps.over)ms bodies=[\(updates)]")
+        }
+    }
+}
 #endif
 
 /// 诊断日志模式下的运行状态采样, 只在 Debug 构建里存在。

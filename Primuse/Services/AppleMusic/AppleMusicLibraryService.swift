@@ -545,7 +545,7 @@ final class AppleMusicLibraryService {
             && ApplicationMusicPlayer.shared.queue.entries.count != resolved.songs.count
             ? .off : resolved.repeatMode
         appleMusic.setAppleMusicRepeat(repeatMode)
-        plog("Apple Music managed queue started items=\(ApplicationMusicPlayer.shared.queue.entries.count) selected=\(resolved.startIndex)")
+        plog("Apple Music managed queue started requested=\(resolved.songs.count) items=\(ApplicationMusicPlayer.shared.queue.entries.count) selected=\(resolved.startIndex)")
     }
 
     func updateManagedQueue(_ queue: ManagedQueue, requestID: UUID) async {
@@ -1106,8 +1106,12 @@ final class AppleMusicLibraryService {
     /// Returning the current MusicLibrary row preserves locally-added fields
     /// such as `lyricsFileName` instead of rebuilding a bare MusicKit value.
     func canonicalPrimuseSong(for s: MusicKit.Song) -> PrimuseKit.Song {
-        let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
-        return library.song(id: projected.id) ?? canonicalLibrarySong(for: projected)
+        let canonical = canonicalForNowPlaying(s)
+        let id = Self.primuseSongID(forItemID: canonical.id.rawValue)
+        // MusicKit 的封面等属性会懒加载媒体库；已有曲库行时只计算 ID，
+        // 不要先读完全部元数据、构造一份随后马上丢弃的 Song。
+        if let existing = library.song(id: id) { return existing }
+        return canonicalLibrarySong(for: Self.toPrimuseSong(canonical))
     }
 
     /// Defense-in-depth for callers that only have a projected Primuse song

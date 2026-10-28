@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -47,6 +49,40 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackPresenceDoesNotInvalidateChromeOnTrackOrMetadataChanges() async throws {
+        let player = try await makePlayer(librarySongs: [])
+        let changes = OSAllocatedUnfairLock(initialState: 0)
+        func observePresence() {
+            withObservationTracking {
+                _ = player.hasCurrentSong
+            } onChange: {
+                changes.withLock { $0 += 1 }
+            }
+        }
+
+        XCTAssertFalse(player.hasCurrentSong)
+        observePresence()
+        player.currentSong = songs(2)[0]
+        XCTAssertTrue(player.hasCurrentSong)
+        XCTAssertEqual(changes.withLock { $0 }, 1)
+
+        observePresence()
+        player.currentSong = songs(2)[1]
+        var updated = try XCTUnwrap(player.currentSong)
+        updated.title = "Updated title"
+        player.currentSong = updated
+        XCTAssertTrue(player.hasCurrentSong)
+        XCTAssertEqual(changes.withLock { $0 }, 1)
+
+        player.currentSong = nil
+        XCTAssertFalse(player.hasCurrentSong)
+        XCTAssertEqual(changes.withLock { $0 }, 2)
+        observePresence()
+        player.currentSong = nil
+        XCTAssertEqual(changes.withLock { $0 }, 2)
+    }
+
+    @MainActor
     func testRestoringPausedSessionReplacesStalePlayingWidgetSnapshot() async throws {
         let shared = try XCTUnwrap(UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
         let keys = [PrimuseConstants.widgetSyncEnabledKey, PrimuseConstants.widgetNowPlayingEnabledKey,
@@ -86,6 +122,7 @@ final class QueueWindowPlayerTests: XCTestCase {
 
         XCTAssertFalse(player.isPlaybackActive)
         XCTAssertEqual(player.currentSong?.id, song.id)
+        XCTAssertTrue(player.hasCurrentSong)
         XCTAssertEqual(player.currentTime, 47)
         let widget = try XCTUnwrap(PlaybackState.load())
         XCTAssertEqual(widget.currentSongID, song.id)

@@ -607,8 +607,12 @@ final class AudioPlayerService {
     var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
     var isRestoringPlaybackSession = false
 
+    /// Navigation chrome needs presence, not every track's metadata changes.
+    private(set) var hasCurrentSong = false
     var currentSong: Song? {
         didSet {
+            let hasSong = currentSong != nil
+            if hasCurrentSong != hasSong { hasCurrentSong = hasSong }
             #if os(iOS)
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
