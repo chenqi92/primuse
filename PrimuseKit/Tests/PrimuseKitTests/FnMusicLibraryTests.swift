@@ -76,6 +76,57 @@ struct FnMusicLibraryTests {
         #expect(decoded.title == entry.title)
     }
 
+    @Test(arguments: [true, false])
+    func largePlaylistPagesKeepEveryMembership(withTotal: Bool) async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1,
+                        list: [["guid": "p", "name": "List", "trackCount": 4_001]], total: 1)
+        let ids = (0..<4_001).map { "s\($0)" }
+        for page in 1...3 {
+            var data: [String: Any] = ["list": ids.dropFirst((page - 1) * 2_000).prefix(2_000).map { ["guid": $0] }]
+            if withTotal { data["total"] = ids.count }
+            fixture.setRawPage("/track/playlist-detail/list", playlist: "p", page: page, data: data)
+        }
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.first?.trackIDs == ids)
+        let requests = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
+        #expect(requests.count == 3)
+        #expect(requests.allSatisfy { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "size" })?.value == "2000" })
+    }
+
+    @Test func catalogClientAcceptsServerMaximumAndRejectsSilentFallbackRange() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/track/list", page: 1,
+                        list: (0..<2_000).map { ["guid": "s\($0)", "title": "Song \($0)"] }, total: 2_001)
+        let (client, _, _) = fixture.clients()
+        let page = try await client.trackPage(page: 1, size: 2_000)
+        #expect(page.rawCount == 2_000)
+        #expect(page.tracks.last?.guid == "s1999")
+        do {
+            _ = try await client.trackPage(page: 2, size: 2_001)
+            Issue.record("A size above the server maximum must not be sent")
+        } catch let error as FnMusicServiceError {
+            guard case .invalidResponse = error else { throw error }
+        }
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/list") == true }.count == 1)
+    }
+
+    @Test func aShortPageAfterTheFirstPageDoesNotChangePageWidth() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1,
+                        list: (0..<2_000).map { ["guid": "s\($0)"] }, total: 3_000)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 2,
+                        list: (2_000..<2_050).map { ["guid": "s\($0)"] }, total: 3_000)
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs == ["p"])
+        #expect(snapshot.playlists.isEmpty)
+    }
+
     /// 歌单索引照网页端那样一次请求、不带分页参数；歌单内曲目仍按页翻。
     @Test func playlistIndexIsFetchedOnceAndTracksArePaged() async throws {
         let fixture = FnMusicLibraryFixture()
@@ -106,6 +157,13 @@ struct FnMusicLibraryTests {
         #expect((indexRequests.first?.url?.query ?? "").isEmpty, "索引请求不带 page/size")
         // p1 每次都读不全：第一轮失败后补读一次，仍失败才记进 failedPlaylistIDs。
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
+        let legacyPages = fixture.requests.filter { request in
+            guard request.url?.path.hasSuffix("/track/playlist-detail/list") == true else { return false }
+            return URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .contains(URLQueryItem(name: "playlistGUID", value: "p0")) == true
+        }
+        #expect(legacyPages.map { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "size" })?.value } == ["2000", "50"])
     }
 
     @Test(arguments: [(677, 680), (860, 863), (55, 51), (20, 0), (0, 1)])
@@ -641,6 +699,15 @@ struct FnMusicLibraryTests {
         json.removeValue(forKey: "year")
         json["album"] = ["guid": "a0", "name": "Album"]
         #expect(FnMusicCatalogTrack(json: json)?.year == nil)
+    }
+
+    @Test func favoritesThatIgnorePaginationStillReturnTheWholeList() async throws {
+        let fixture = FnMusicLibraryFixture()
+        let ids = (0..<2_001).map { "s\($0)" }
+        fixture.setRawPage("/favorite-track/list", page: 1, data: ["list": ids.map { ["guid": $0] }])
+        let (client, _, _) = fixture.clients()
+        #expect(try await client.library.favorites() == ids)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/favorite-track/list") == true }.count == 1)
     }
 
     @Test func favoriteWritesAreIdempotentAndConfirmedAcrossAllPages() async throws {

@@ -59,7 +59,6 @@ public struct FnMusicPlaylistSnapshot: Sendable {
 /// may become authoritative mirrors or replace a user's favorite state.
 public struct FnMusicLibraryClient: Sendable {
     private let load: @Sendable (FnMusicLibraryRequest) async throws -> Data
-    private static let pageSize = 50
     /// 没有 `total` 时靠短页判尾，这条上限只防"服务端不分页、每页都满"的死循环。
     private static let pageLimit = 1_000
 
@@ -295,6 +294,7 @@ public struct FnMusicLibraryClient: Sendable {
         parse: ([String: Any]) throws -> Item
     ) async throws -> Rows<Item> {
         var page = 1
+        var pageSize = FnMusicPagingPolicy.pageSize
         // 歌单清单的 trackCount 与明细 total 可能不同；分页只以明细自身的总数为准。
         var total: Int?
         var result: [Item] = []
@@ -309,11 +309,14 @@ public struct FnMusicLibraryClient: Sendable {
                 method: "GET", path: path,
                 queryItems: query + [
                     URLQueryItem(name: "page", value: String(page)),
-                    URLQueryItem(name: "size", value: String(Self.pageSize)),
+                    URLQueryItem(name: "size", value: String(pageSize)),
                 ], body: nil
             ))
             try Task.checkCancellation()
             let current = try Self.page(path: path, data: data)
+            if page == 1 {
+                pageSize = FnMusicPagingPolicy.pageSize(firstPageCount: current.list.count, total: current.total)
+            }
             diagnosticLogger?("page=\(page) received=\(current.list.count) accumulated=\(received) reported_total=\(current.total.map(String.init) ?? "unknown")")
             if let pageTotal = current.total {
                 guard total == nil || total == pageTotal else {
@@ -347,12 +350,12 @@ public struct FnMusicLibraryClient: Sendable {
                     throw Self.invalidResponse("\(path): \(received) items exceed total \(total)")
                 }
                 finished = received == total
-                guard finished || current.list.count == Self.pageSize else {
+                guard finished || current.list.count == pageSize else {
                     throw Self.invalidResponse("\(path): page \(page) is short (\(current.list.count)) with total \(total)")
                 }
             } else {
                 // 没有 total 时短页就是末页；不分页、一次全给的清单也从这里返回。
-                finished = current.list.count != Self.pageSize
+                finished = current.list.count != pageSize
             }
             if finished {
                 if skipped > 0 { diagnosticLogger?("result=skipped-items skipped=\(skipped) kept=\(result.count)") }

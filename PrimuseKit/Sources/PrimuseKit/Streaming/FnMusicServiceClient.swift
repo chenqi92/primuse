@@ -392,7 +392,7 @@ public actor FnMusicServiceClient {
     }
 
     public func trackPage(page: Int, size: Int) async throws -> FnMusicCatalogPage {
-        guard page > 0, size > 0, size <= 500 else {
+        guard page > 0, size > 0, size <= FnMusicPagingPolicy.pageSize else {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidPagination"))
         }
         let payload = try await authenticatedJSON(

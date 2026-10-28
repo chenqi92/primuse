@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Audiobookshelf")
 struct AudiobookshelfServiceTests {
+    @Test func catalogUsesBoundedLargePagesAndPreservesThePartialLastPage() async throws {
+        let requests = AudiobookshelfPageRequests()
+        let transport = AudiobookshelfRequestTransport(data: { request in
+            let url = try #require(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let limit = try #require(Int(query.first { $0.name == "limit" }?.value ?? ""))
+            let page = try #require(Int(query.first { $0.name == "page" }?.value ?? ""))
+            await requests.append(page: page, limit: limit)
+            let start = page * limit
+            let rows = (start..<min(start + limit, 501)).map { index -> [String: Any] in
+                var book = Self.bookJSON
+                book["id"] = "book-\(index)"
+                return book
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["results": rows, "total": 501, "page": page])
+            return (data, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }, download: { _ in throw URLError(.unsupportedURL) })
+        let client = AudiobookshelfServiceClient(sourceID: UUID().uuidString, host: "books.invalid",
+            port: nil, useSSL: true, basePath: nil, username: "", secret: "fixture", authType: .apiKey, transport: transport)
+        let first = try await client.libraryItemsPage(libraryID: "books", page: 0)
+        let last = try await client.libraryItemsPage(libraryID: "books", page: 1)
+        #expect(first.rawCount == 500)
+        #expect(last.rawCount == 1)
+        #expect((first.items + last.items).map(\.id) == (0..<501).map { "book-\($0)" })
+        #expect(await requests.pages == [0, 1])
+        #expect(await requests.limits == [500, 500])
+    }
+
     @Test("Server endpoints keep the prefix; track and cover references round-trip")
     func protocolReferences() throws {
         let base = try #require(AudiobookshelfAPIProtocol.serverBaseURL(
@@ -244,5 +272,14 @@ struct AudiobookshelfServiceTests {
         #expect(legacy.token == "legacy")
         #expect(legacy.isLegacy)
         #expect(AudiobookshelfServiceClient.bearerToken(fromLoginPayload: ["user": ["id": "u"]]) == nil)
+    }
+}
+
+private actor AudiobookshelfPageRequests {
+    var pages: [Int] = []
+    var limits: [Int] = []
+    func append(page: Int, limit: Int) {
+        pages.append(page)
+        limits.append(limit)
     }
 }

@@ -29,14 +29,12 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         var errorDescription: String? { SourceError.timeout.localizedDescription }
     }
 
-    private static let pageSize = 50
     /// 飞牛的曲目接口不返回专辑艺术家, 只有 `album/detail` 的 `artists` 有。
     /// 少了它同一张专辑会按每首歌各自的艺术家散成多张同名专辑, 所以扫描时
     /// 按专辑补一次。一张专辑只问一次, 整次扫描共用这两张表。
     private var albumArtistByGUID: [String: String] = [:]
     private var albumsWithoutArtist: Set<String> = []
     private static let albumDetailConcurrency = 6
-    private static let albumPageSize = 100
     /// 整个源的专辑最多翻这么多页, 防住 total 不实时时的空转。
     private static let albumPageLimit = 500
     private var albumListPrimed = false
@@ -224,13 +222,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             let producer = Task {
                 do {
                     var page = 1
+                    var pageSize = FnMusicPagingPolicy.pageSize
                     var received = 0
                     // A NAS still indexing new uploads moves the total and the
                     // rows under the walk; see `CatalogWalkDriftTracker`.
                     var walk = CatalogWalkDriftTracker()
                     while true {
                         try Task.checkCancellation()
-                        let result = try await self.trackPage(page: page, size: Self.pageSize)
+                        let result = try await self.trackPage(page: page, size: pageSize)
                         plog("source=\(LogRedactionPolicy.digest(self.sourceID)) FN catalog page=\(page) received=\(result.rawCount) parsed=\(result.tracks.count) accumulated=\(received) reported_total=\(result.total.map(String.init) ?? "unknown")")
 
                         guard let pageTotal = result.total else {
@@ -238,11 +237,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         }
                         walk.observeTotal(pageTotal)
 
-                        guard result.rawCount <= Self.pageSize else {
+                        guard result.rawCount <= pageSize else {
                             throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
                         }
+                        if page == 1 {
+                            pageSize = FnMusicPagingPolicy.pageSize(firstPageCount: result.rawCount, total: pageTotal)
+                        }
                         if result.rawCount == 0 {
-                            _ = walk.isFinished(offset: received, rawCount: 0, pageSize: Self.pageSize)
+                            _ = walk.isFinished(offset: received, rawCount: 0, pageSize: pageSize)
                             break
                         }
 
@@ -262,7 +264,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                             continuation.yield(scanned)
                         }
 
-                        if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: Self.pageSize) {
+                        if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: pageSize) {
                             break
                         }
                         page += 1
@@ -333,16 +335,20 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         guard !albumListPrimed else { return }
         albumListPrimed = true
         var page = 1
+        var pageSize = FnMusicPagingPolicy.pageSize
         var received = 0
         var expectedTotal: Int?
         while page <= Self.albumPageLimit, !Task.isCancelled {
             let result: FnMusicAlbumPage
             do {
-                result = try await api.albumPage(page: page, size: Self.albumPageSize)
+                result = try await api.albumPage(page: page, size: pageSize)
             } catch {
                 return
             }
-            guard result.rawCount > 0, result.rawCount <= Self.albumPageSize else { return }
+            guard result.rawCount > 0, result.rawCount <= pageSize else { return }
+            if page == 1 {
+                pageSize = FnMusicPagingPolicy.pageSize(firstPageCount: result.rawCount, total: result.total)
+            }
             if let expectedTotal, expectedTotal != result.total { return }
             expectedTotal = result.total
             // 只记有名字的。列表项万一根本不带 artists(端点变了、或者这一版
@@ -354,7 +360,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             }
             received += result.rawCount
             if let total = result.total, received >= total { return }
-            guard result.rawCount == Self.albumPageSize else { return }
+            guard result.rawCount == pageSize else { return }
             page += 1
         }
     }

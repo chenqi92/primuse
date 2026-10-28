@@ -1226,7 +1226,6 @@ final class TVSourceScanner {
         .subsonic, .navidrome, .airsonic, .gonic,
     ]
 
-    private static let fnMusicPageSize = 50
     private static let daoLiYuPageSize = 100
 
     private struct DirectoryWork: Sendable {
@@ -2499,6 +2498,7 @@ final class TVSourceScanner {
     ) async throws -> [Song] {
         let client = fnMusicClient(source: source, credential: credential)
         var page = 1
+        var pageSize = FnMusicPagingPolicy.pageSize
         var received = 0
         var walk = CatalogWalkDriftTracker()
         var songs: [Song] = []
@@ -2506,7 +2506,7 @@ final class TVSourceScanner {
 
         while true {
             try Task.checkCancellation()
-            let result = try await client.trackPage(page: page, size: Self.fnMusicPageSize)
+            let result = try await client.trackPage(page: page, size: pageSize)
             try Task.checkCancellation()
 
             guard let pageTotal = result.total else {
@@ -2515,11 +2515,14 @@ final class TVSourceScanner {
             walk.observeTotal(pageTotal)
 
             guard result.rawCount == result.tracks.count,
-                  result.rawCount <= Self.fnMusicPageSize else {
+                  result.rawCount <= pageSize else {
                 throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
             }
+            if page == 1 {
+                pageSize = FnMusicPagingPolicy.pageSize(firstPageCount: result.rawCount, total: pageTotal)
+            }
             if result.rawCount == 0 {
-                _ = walk.isFinished(offset: received, rawCount: 0, pageSize: Self.fnMusicPageSize)
+                _ = walk.isFinished(offset: received, rawCount: 0, pageSize: pageSize)
                 break
             }
 
@@ -2536,7 +2539,7 @@ final class TVSourceScanner {
             }
 
             received += result.rawCount
-            if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: Self.fnMusicPageSize) {
+            if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: pageSize) {
                 break
             }
             guard page < Int.max, SubsonicCatalogPagingPolicy.isWithinSongLimit(received) else {
@@ -2739,6 +2742,7 @@ final class TVSourceScanner {
         var songIDsByPath: [String: String] = [:]
         for library in libraries {
             var page = 0
+            var received = 0
             var walk = CatalogWalkDriftTracker()
             defer { if walk.driftObserved { catalogDriftObserved = true } }
             while true {
@@ -2750,7 +2754,7 @@ final class TVSourceScanner {
                     throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
                 }
                 if result.rawCount == 0 {
-                    _ = walk.isFinished(offset: page * pageSize, rawCount: 0, pageSize: pageSize)
+                    _ = walk.isFinished(offset: received, rawCount: 0, pageSize: pageSize)
                     break
                 }
                 for item in result.items {
@@ -2765,11 +2769,11 @@ final class TVSourceScanner {
                         currentFile = song.title
                     }
                 }
-                let offset = (page + 1) * pageSize
-                guard SubsonicCatalogPagingPolicy.isWithinSongLimit(offset) else {
+                received += result.rawCount
+                guard SubsonicCatalogPagingPolicy.isWithinSongLimit(received) else {
                     throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
                 }
-                if walk.isFinished(offset: offset, rawCount: result.rawCount, pageSize: pageSize) { break }
+                if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: pageSize) { break }
                 page += 1
             }
         }

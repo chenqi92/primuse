@@ -6,6 +6,26 @@ import XCTest
 
 @MainActor
 final class FnMusicSourceTests: XCTestCase {
+    func testCatalogAndAlbumPagingReadAllRowsWithLargePagesAndLegacyFallback() async throws {
+        for (count, serverPageSize) in [(2_001, 2_000), (121, 50)] {
+            let source = makeSource()
+            let host = await source.sourceID
+            FnMusicSourceURLProtocol.setCatalog(count: count, maximumPageSize: serverPageSize, host: host)
+            var scanned: [ConnectorScannedSong] = []
+            for try await item in try await source.scanSongs(from: "/") { scanned.append(item) }
+            XCTAssertEqual(scanned.count, count)
+            XCTAssertEqual(Set(scanned.map { $0.song.id }).count, count)
+            XCTAssertEqual(scanned.last?.song.title, "Song \(count - 1)")
+            XCTAssertEqual(scanned.last?.song.albumArtistName, "Album artist \(count - 1)")
+            let drift = await source.takeCatalogDriftObservation()
+            XCTAssertFalse(drift)
+            let expected = serverPageSize == 2_000 ? [2_000, 2_000] : [2_000, 50, 50]
+            XCTAssertEqual(FnMusicSourceURLProtocol.pageSizes(path: "/track/list", host: host), expected)
+            XCTAssertEqual(FnMusicSourceURLProtocol.pageSizes(path: "/album/list", host: host), expected)
+            await source.disconnect()
+        }
+    }
+
     func testInteractiveDiagnosticsPublishStepsAndContinueAfterFailedRoute() async {
         let source = diagnosticSource(type: .fnMusic)
         let local = InteractiveDiagnosticConnector(sourceID: source.id)
@@ -1518,6 +1538,9 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var playlistTrackRows: [String: [[String: Any]]] = [:]
         var favoriteRows: [[String: Any]]?
         var addTrackBodies: [Data] = []
+        var catalogCount = 0
+        var maximumPageSize = 2_000
+        var catalogPageSizes: [String: [Int]] = [:]
     }
     nonisolated(unsafe) private static var states: [String: State] = [:]
     private let responseLock = NSLock()
@@ -1546,6 +1569,15 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     }
     static func setFavoriteRows(_ rows: [[String: Any]], host: String) {
         lock.withLock { states[host]?.favoriteRows = rows }
+    }
+    static func setCatalog(count: Int, maximumPageSize: Int, host: String) {
+        lock.withLock {
+            states[host]?.catalogCount = count
+            states[host]?.maximumPageSize = maximumPageSize
+        }
+    }
+    static func pageSizes(path: String, host: String) -> [Int] {
+        lock.withLock { states[host]?.catalogPageSizes[path] ?? [] }
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -1591,8 +1623,23 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 return (204, [:], Data())
             case "config":
                 return (200, jsonHeaders, json(["code": 0, "data": [:]]))
-            case "list" where url.path.contains("/track/list"):
-                return (200, jsonHeaders, page([]))
+            case "list" where url.path.contains("/track/list") || url.path.contains("/album/list"):
+                let isAlbum = url.path.contains("/album/list")
+                let path = isAlbum ? "/album/list" : "/track/list"
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let requestedSize = Int(query.first { $0.name == "size" }?.value ?? "") ?? 50
+                let pageNumber = Int(query.first { $0.name == "page" }?.value ?? "") ?? 1
+                state.catalogPageSizes[path, default: []].append(requestedSize)
+                let size = requestedSize > state.maximumPageSize ? 50 : requestedSize
+                let start = min((pageNumber - 1) * size, state.catalogCount)
+                let rows = (start..<min(start + size, state.catalogCount)).map { index -> [String: Any] in
+                    if isAlbum {
+                        return ["guid": "album-\(index)", "artists": [["name": "Album artist \(index)"]]]
+                    }
+                    return ["guid": "s\(index)", "title": "Song \(index)", "extension": "flac",
+                            "album": ["guid": "album-\(index)", "name": "Album \(index)"]]
+                }
+                return (200, jsonHeaders, json(["code": 0, "data": ["list": rows, "total": state.catalogCount]]))
             case "password-login":
                 state.logins += 1
                 return (200, jsonHeaders, json(["code": 200, "data": ["userToken": "token-\(state.logins)"]]))

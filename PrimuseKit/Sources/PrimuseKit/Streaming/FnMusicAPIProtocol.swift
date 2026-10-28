@@ -2,6 +2,22 @@ import CryptoKit
 import Foundation
 import Network
 
+/// 飞牛曲目、专辑和歌单明细接口的分页约束。
+public enum FnMusicPagingPolicy {
+    /// 服务端接受 2,000；超过上限会静默使用默认的 50，而不是截到上限。
+    public static let pageSize = 2_000
+    private static let fallbackPageSize = 50
+
+    /// 仅在第一页识别服务端回退，随后固定页宽，避免 page × size 变化漏掉曲目。
+    public static func pageSize(firstPageCount: Int, total: Int?) -> Int {
+        if firstPageCount == fallbackPageSize,
+           total.map({ $0 > firstPageCount }) ?? true {
+            return fallbackPageSize
+        }
+        return pageSize
+    }
+}
+
 public enum FnMusicConnectionMode: String, Codable, CaseIterable, Sendable {
     case fnConnect
     case address

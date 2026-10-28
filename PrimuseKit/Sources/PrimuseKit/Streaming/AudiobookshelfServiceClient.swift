@@ -616,7 +616,8 @@ public actor AudiobookshelfServiceClient {
         }
     }
 
-    public static let pageSize = 50
+    /// API 允许 limit=0 一次返回整库；客户端分成 500 条，约束展开条目的内存占用。
+    public static let pageSize = 500
 
     private let sourceID: String
     public let baseURL: URL?
@@ -712,7 +713,7 @@ public actor AudiobookshelfServiceClient {
 
     /// 一页条目。列表给的是完整条目时直接用;只给了精简 media 的,逐条取展开形态。
     public func libraryItemsPage(libraryID: String, page: Int, limit: Int = pageSize) async throws -> AudiobookshelfCatalogPage {
-        guard page >= 0, limit > 0, limit <= 500 else {
+        guard page >= 0, limit > 0, limit <= Self.pageSize else {
             throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPagination"))
         }
         let payload = try await authorizedJSON(

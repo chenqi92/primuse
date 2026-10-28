@@ -176,6 +176,7 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
     ) async throws {
         let pageSize = AudiobookshelfServiceClient.pageSize
         var page = 0
+        var received = 0
         // The server keeps scanning while the walk pages; see `CatalogWalkDriftTracker`.
         var walk = CatalogWalkDriftTracker()
         defer {
@@ -193,7 +194,7 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
                 throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
             }
             if result.rawCount == 0 {
-                _ = walk.isFinished(offset: page * pageSize, rawCount: 0, pageSize: pageSize)
+                _ = walk.isFinished(offset: received, rawCount: 0, pageSize: pageSize)
                 break
             }
             for item in result.items {
@@ -213,11 +214,11 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
                     )
                 }
             }
-            let offset = (page + 1) * pageSize
-            guard SubsonicCatalogPagingPolicy.isWithinSongLimit(offset) else {
+            received += result.rawCount
+            guard SubsonicCatalogPagingPolicy.isWithinSongLimit(received) else {
                 throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
             }
-            if walk.isFinished(offset: offset, rawCount: result.rawCount, pageSize: pageSize) { break }
+            if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: pageSize) { break }
             page += 1
         }
     }
