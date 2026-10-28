@@ -365,22 +365,27 @@ struct SpokenWordIntroOutroMenu: View {
     private func secondsPicker(_ title: LocalizedStringKey, intro: Bool) -> some View {
         let value = intro ? settings.introSeconds : settings.outroSeconds
         let choices = Array(Set(SpokenWordIntroOutroPolicy.choices + [value])).sorted()
-        return Picker(title, selection: Binding(
-            get: { intro ? settings.introSeconds : settings.outroSeconds },
-            set: { seconds in
-                preferences.set(SpokenWordIntroOutro(
-                    introSeconds: intro ? seconds : settings.introSeconds,
-                    outroSeconds: intro ? settings.outroSeconds : seconds
-                ), forBookID: bookID)
-            }
-        )) {
-            ForEach(choices, id: \.self) { seconds in
-                if seconds == 0 {
-                    Text("podcast_skip_off").tag(seconds)
-                } else {
-                    Text("podcast_seconds_format \(seconds)").tag(seconds)
+        return Menu {
+            Picker(title, selection: Binding(
+                get: { intro ? settings.introSeconds : settings.outroSeconds },
+                set: { seconds in
+                    preferences.set(SpokenWordIntroOutro(
+                        introSeconds: intro ? seconds : settings.introSeconds,
+                        outroSeconds: intro ? settings.outroSeconds : seconds
+                    ), forBookID: bookID)
+                }
+            )) {
+                ForEach(choices, id: \.self) { seconds in
+                    if seconds == 0 {
+                        Text("podcast_skip_off").tag(seconds)
+                    } else {
+                        Text("podcast_seconds_format \(seconds)").tag(seconds)
+                    }
                 }
             }
+            .pickerStyle(.inline)
+        } label: {
+            Text(title)
         }
     }
 }
