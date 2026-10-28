@@ -344,6 +344,7 @@ struct PlaylistDetailView: View {
         let message: String
         let systemImage: String
         let color: Color
+        var isCompact = false
     }
 
     @ViewBuilder
@@ -812,13 +813,13 @@ struct PlaylistDetailView: View {
     }
 
     private func playlistRows(_ entries: [MusicLibrary.PlaylistEntry]) -> some View {
-        // 已经排在歌单最前面的那首不给「置顶」。
+        // 歌单顺序下，已经在最前面的歌曲不再显示「置顶」。
         let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
         return LazyVStack(spacing: 0) {
             ForEach(entries) { entry in
                 switch entry {
                 case .song(let song):
-                    songRow(song, canMoveToTop: topSongID != nil && song.id != topSongID)
+                    songRow(song, canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil))
                 case .pending(let pending):
                     PlaylistPendingEntryRow(
                         entry: pending,
@@ -1310,28 +1311,15 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     private var scrapeFeedbackToast: some View {
         if let scrapeFeedback {
-            HStack(spacing: 10) {
-                Image(systemName: scrapeFeedback.systemImage)
-                    .foregroundStyle(scrapeFeedback.color)
-                Text(scrapeFeedback.message)
-                    .font(.subheadline.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
-            .frame(maxWidth: 560)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+            PlaylistFeedbackToast(
+                message: scrapeFeedback.message,
+                systemImage: scrapeFeedback.systemImage,
+                color: scrapeFeedback.color,
+                isCompact: scrapeFeedback.isCompact
+            )
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .allowsHitTesting(false)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(scrapeFeedback.message))
         }
     }
 
@@ -1799,7 +1787,7 @@ struct PlaylistDetailView: View {
                                     index: row.songIndex,
                                     indexColumnWidth: indexColumnWidth,
                                     playCount: playCounts[song.id, default: 0],
-                                    canMoveToTop: topSongID != nil && song.id != topSongID
+                                    canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil)
                                 )
                                     .songSelectable(
                                         songID: song.id,
@@ -1955,8 +1943,7 @@ struct PlaylistDetailView: View {
     }
     #endif
 
-    /// 置顶：长按菜单、Mac 右键菜单和多选栏都走这里。列表正按别的维度排着时置顶看不出来，
-    /// 所以顺手换回歌单顺序（和「重新排序」一样），底部提示一句。
+    /// 置顶同时恢复歌单顺序，让刚移动的歌曲立即出现在顶部。
     private func moveSongsToTop(_ songIDs: [String]) {
         let resetsDisplayOrder = displaySortOrder != nil
         let moved = library.moveSongsToTop(songIDs, inPlaylist: playlist.id)
@@ -1964,13 +1951,10 @@ struct PlaylistDetailView: View {
         if resetsDisplayOrder {
             displaySortRawValue = ""
         }
-        var message = songIDs.count == 1
+        let message = songIDs.count == 1
             ? String(localized: "playlist_moved_to_top_one")
             : String(format: String(localized: "playlist_moved_to_top_format"), songIDs.count)
-        if resetsDisplayOrder {
-            message += "\n" + String(localized: "playlist_moved_to_top_order_reset")
-        }
-        showScrapeFeedback(message, systemImage: "arrow.up.to.line", color: .accentColor)
+        showScrapeFeedback(message, systemImage: "checkmark", color: .accentColor, isCompact: true)
     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
@@ -2062,19 +2046,21 @@ struct PlaylistDetailView: View {
     private func showScrapeFeedback(
         _ message: String,
         systemImage: String,
-        color: Color
+        color: Color,
+        isCompact: Bool = false
     ) {
         let feedback = ScrapeFeedback(
             message: message,
             systemImage: systemImage,
-            color: color
+            color: color,
+            isCompact: isCompact
         )
         pmWithAnimation(.list) {
             scrapeFeedback = feedback
         }
         announceScrapeFeedback(message)
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(isCompact ? 2 : 4))
             guard scrapeFeedback?.id == feedback.id else { return }
             pmWithAnimation(.list) {
                 scrapeFeedback = nil
@@ -2690,6 +2676,36 @@ private final class PlaylistSortedSongsCache {
         cachedDuration = make()
         durationKey = key
         return cachedDuration
+    }
+}
+
+struct PlaylistFeedbackToast: View {
+    let message: String
+    let systemImage: String
+    let color: Color
+    var isCompact = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+            Text(message)
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .frame(maxWidth: isCompact ? nil : 560)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: isCompact ? 24 : 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: isCompact ? 24 : 12)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(isCompact ? 0.08 : 0.12), radius: 10, y: 3)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(message))
     }
 }
 

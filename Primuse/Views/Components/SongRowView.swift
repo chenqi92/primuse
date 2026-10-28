@@ -50,14 +50,13 @@ struct SongRowView: View {
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
 
-    /// 非 nil 时这一行能多选：长按菜单第一项是「选择」，选中这一行进入多选。
+    /// 非 nil 时这一行能多选：菜单中的「选择」选中这一行并进入多选。
     var selection: SongSelectionModel? = nil
 
     /// 歌单页专属：非 nil 时单曲菜单多一项「移出歌单」。行自己不知道它属于
     /// 哪个歌单，也不该知道镜像 / 智能歌单能不能改成员，所以由歌单页决定传不传。
     var onRemoveFromPlaylist: (() -> Void)? = nil
-    /// 歌单页专属：非 nil 时单曲菜单多一项「置顶」（移到歌单最前面）。同上，由歌单页决定传不传；
-    /// 已经排在最前面的那首不传。
+    /// 歌单页专属：需要移动歌曲或恢复歌单顺序时，单曲菜单显示「置顶」。
     var onMoveToTop: (() -> Void)? = nil
 
     /// Resolved by the parent so rows do not individually observe every
@@ -100,7 +99,10 @@ struct SongRowView: View {
     private var isReadingDetails: Bool { detailsState == .reading }
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
-        return sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+        return OfflineAudioCacheSnapshot(
+            state: sourceManager.offlineAudioSnapshotEntry(for: song).state,
+            progress: nil, byteCount: nil, errorMessage: nil
+        )
     }
 
     /// Nothing can start this song right now: no address of its source
@@ -130,18 +132,7 @@ struct SongRowView: View {
             if actionRequest != nil {
                 Color.clear.frame(width: 0, height: 0)
             } else if actionsOnly {
-                Menu {
-                    songActionMenuContent(entryPoint: .songRowActionMenu, offline: offlineSnapshot)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .accessibilityLabel("a11y_more_actions")
-                .accessibilityIdentifier("song.actions.\(song.id)")
+                songActionMenu(offline: offlineSnapshot)
             } else {
                 rowContent
             }
@@ -150,22 +141,13 @@ struct SongRowView: View {
         // 按开关拆掉修饰符会替换承载菜单的子树，正是 77906e03 修过的崩溃形态。
         .songRowContextMenu(isEnabled: actionRequest == nil && !actionsOnly) {
             if !hidesContextMenuDuringSelection {
-                if let selection {
-                    Section {
-                        Button {
-                            activateSelectionAfterMenuDismissal(selection)
-                        } label: {
-                            Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
-                        }
-                    }
-                }
-
                 songActionMenuContent(
                     entryPoint: .songRowContextMenu,
                     offline: offlineSnapshot
                 )
             }
         }
+        .menuOrder(.fixed)
         #if os(macOS)
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         #endif
@@ -566,24 +548,11 @@ struct SongRowView: View {
                     .accessibilityHidden(true)
             }
 
-            OfflineAudioStatusBadge(snapshot: offline, reservesSpace: columns.isActive)
+            SongRowOfflineStatusBadge(song: song, reservesSpace: columns.isActive)
 
             #if !os(macOS)
             if showsActions {
-                Menu {
-                    songActionMenuContent(
-                        entryPoint: .songRowActionMenu,
-                        offline: offline
-                    )
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("a11y_more_actions")
-                .accessibilityIdentifier("song.actions.\(song.id)")
+                songActionMenu(offline: offline)
             }
             #endif
         }
@@ -709,6 +678,22 @@ struct SongRowView: View {
         player.insertNextInQueue([song])
     }
 
+    private func songActionMenu(offline: OfflineAudioCacheSnapshot) -> some View {
+        Menu {
+            songActionMenuContent(entryPoint: .songRowActionMenu, offline: offline)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuOrder(.fixed)
+        .accessibilityLabel("a11y_more_actions")
+        .accessibilityIdentifier("song.actions.\(song.id)")
+    }
+
     /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
     /// 不该有哪个少一项。`entryPoint` 只区分刮削的来路统计，内容两边一样。
     ///
@@ -760,13 +745,19 @@ struct SongRowView: View {
             }
         }
 
-        // 歌单页里排在快捷行下面：置顶是在歌单里整理歌的那一下，不该沉到菜单底部。
-        if let onMoveToTop {
+        if selection != nil || onMoveToTop != nil {
             Section {
-                Button {
-                    onMoveToTop()
-                } label: {
-                    Label(String(localized: "radio_manage_pin_top"), systemImage: "arrow.up.to.line")
+                if let selection {
+                    Button {
+                        activateSelectionAfterMenuDismissal(selection)
+                    } label: {
+                        Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
+                    }
+                }
+                if let onMoveToTop {
+                    Button(action: onMoveToTop) {
+                        Label(String(localized: "radio_manage_pin_top"), systemImage: "arrow.up.to.line")
+                    }
                 }
             }
         }
@@ -1478,6 +1469,20 @@ private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
     }
 }
 #endif
+
+/// 进度更新留在徽标内，避免让承载已展开菜单的整行重新构建。
+private struct SongRowOfflineStatusBadge: View {
+    @Environment(SourceManager.self) private var sourceManager
+    let song: Song
+    let reservesSpace: Bool
+
+    var body: some View {
+        let snapshot = song.sourceID == AppleMusicLibraryService.systemSourceID
+            ? OfflineAudioCacheSnapshot.notCached
+            : sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+        OfflineAudioStatusBadge(snapshot: snapshot, reservesSpace: reservesSpace)
+    }
+}
 
 private extension View {
     @ViewBuilder

@@ -952,14 +952,20 @@ private struct OfflineSourceCacheBatchRun: KeyedRunCancellable {
 @Observable
 final class OfflineAudioSnapshotEntry {
     private(set) var snapshot: OfflineAudioCacheSnapshot
+    /// 菜单与可播放状态只观察这个值，不订阅下载进度和字节数。
+    private(set) var state: OfflineAudioCacheState
 
     init(snapshot: OfflineAudioCacheSnapshot) {
         self.snapshot = snapshot
+        self.state = snapshot.state
     }
 
-    fileprivate func update(_ snapshot: OfflineAudioCacheSnapshot) {
+    func update(_ snapshot: OfflineAudioCacheSnapshot) {
         guard self.snapshot != snapshot else { return }
         self.snapshot = snapshot
+        if state != snapshot.state {
+            state = snapshot.state
+        }
     }
 }
 

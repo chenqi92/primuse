@@ -404,6 +404,45 @@ final class MusicLibraryLikedLocalPodcastTests: XCTestCase {
 /// 「我喜欢」里的本地节目)留着。重排面板和服务器收藏同步也不再挤掉它们、不再打乱置顶。
 @MainActor
 final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
+    func testSameSongCanBeMovedToTopIndependentlyInLikedAndOtherPlaylists() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseIndependentPlaylistOrder-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs([makeSong("one"), makeSong("two"), makeSong("three")], affectedSourceIDs: ["source-1"])
+        await library.waitForPendingIndex()
+
+        let liked = MusicLibrary.likedSongsPlaylistID
+        library.ensurePlaylist(id: liked, name: "Liked")
+        library.add(songIDs: ["one", "two", "three"], toPlaylist: liked)
+        let first = library.createPlaylist(name: "First", members: [.song("two"), .song("one"), .song("three")])
+        let second = library.createPlaylist(name: "Second", members: [.song("one"), .song("three"), .song("two")])
+
+        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: liked))
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: first.id), ["two", "one", "three"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["one", "three", "two"])
+
+        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: first.id))
+        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: second.id))
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: first.id), ["three", "two", "one"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+
+        XCTAssertTrue(library.moveSongsToTop(["two"], inPlaylist: first.id))
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+        XCTAssertTrue(library.isLiked(songID: "three"))
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Independent playlist orders should persist")
+        }
+        let restored = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        await restored.waitForPendingIndex()
+        XCTAssertEqual(restored.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(restored.rawSongIDs(forPlaylist: first.id), ["two", "three", "one"])
+        XCTAssertEqual(restored.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+    }
+
     func testMovingSongsToTopKeepsHiddenMembers() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimuseMoveToTopTests-\(UUID().uuidString)", isDirectory: true)

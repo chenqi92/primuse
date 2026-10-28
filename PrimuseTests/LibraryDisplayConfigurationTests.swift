@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Observation
+import os
 import PrimuseKit
 import XCTest
 import SwiftUI
@@ -651,6 +652,87 @@ final class SongSelectionViewIdentityTests: XCTestCase {
             XCTAssertEqual(probe.createdViews.count, 1, "Leaving selection must preserve row identity")
             XCTAssertNotNil(originalView.window)
         }
+    }
+}
+
+@MainActor
+final class SongMenuPresentationTests: XCTestCase {
+    func testDownloadProgressOnlyInvalidatesBadgeAndStateChangesInvalidateMenu() {
+        let entry = OfflineAudioSnapshotEntry(snapshot: OfflineAudioCacheSnapshot(
+            state: .downloading, progress: 0, byteCount: 0, errorMessage: nil
+        ))
+        let menuUpdates = OSAllocatedUnfairLock(initialState: 0)
+        let badgeUpdates = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking {
+            _ = entry.state
+        } onChange: {
+            menuUpdates.withLock { $0 += 1 }
+        }
+
+        for progress in 1...5 {
+            withObservationTracking {
+                _ = entry.snapshot
+            } onChange: {
+                badgeUpdates.withLock { $0 += 1 }
+            }
+            entry.update(OfflineAudioCacheSnapshot(
+                state: .downloading, progress: Double(progress) / 10,
+                byteCount: Int64(progress * 100), errorMessage: nil
+            ))
+            XCTAssertEqual(menuUpdates.withLock { $0 }, 0)
+            XCTAssertEqual(badgeUpdates.withLock { $0 }, progress)
+        }
+
+        entry.update(OfflineAudioCacheSnapshot(
+            state: .pinned, progress: nil, byteCount: 1000, errorMessage: nil
+        ))
+        XCTAssertEqual(menuUpdates.withLock { $0 }, 1)
+        XCTAssertEqual(entry.state, .pinned)
+        XCTAssertTrue(entry.snapshot.isDownloaded)
+
+        withObservationTracking {
+            _ = entry.state
+        } onChange: {
+            menuUpdates.withLock { $0 += 1 }
+        }
+        entry.update(OfflineAudioCacheSnapshot(
+            state: .pinned, progress: nil, byteCount: 1200, errorMessage: nil
+        ))
+        XCTAssertEqual(menuUpdates.withLock { $0 }, 1, "Cache bookkeeping must not rebuild an open menu")
+    }
+
+    func testPinFeedbackFitsContentAndSupportsLargeText() async throws {
+        let host = UIHostingController(rootView: PlaylistFeedbackToast(
+            message: "已置顶", systemImage: "checkmark", color: .red, isCompact: true
+        ))
+        let size = host.sizeThatFits(in: CGSize(width: 350, height: 200))
+        XCTAssertLessThan(size.width, 180, "A short confirmation should not stretch across the screen")
+        XCTAssertGreaterThan(size.height, 30)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.overrideUserInterfaceStyle = .light
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.backgroundColor = .systemBackground
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "compact-pin-feedback"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let large = UIHostingController(rootView: PlaylistFeedbackToast(
+            message: "Moved 123 songs to the top", systemImage: "checkmark", color: .red, isCompact: true
+        ).environment(\.dynamicTypeSize, .accessibility3))
+        let largeSize = large.sizeThatFits(in: CGSize(width: 280, height: 500))
+        XCTAssertLessThanOrEqual(largeSize.width, 280)
+        XCTAssertGreaterThan(largeSize.height, size.height)
     }
 }
 
