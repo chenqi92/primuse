@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "शुरुआत और अंत छोड़ें";
 "spoken_word_skip_use_server" = "सर्वर सेटिंग्स का उपयोग करें";
+
+"player_pin_mini_player_title" = "मिनी प्लेयर पिन करें";
+"player_pin_mini_player_description" = "स्क्रॉल करते समय नीचे के मिनी प्लेयर को टैब बार के ऊपर खुला रखें।";

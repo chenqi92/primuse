@@ -89,6 +89,16 @@ final class AnimatedArtworkPreferences {
 }
 
 enum PlayerAppearancePreferences {
+    static let pinsMiniPlayerKey = "primuse.player.pinsMiniPlayer"
+    static let pinsMiniPlayerByDefault = false
+
+    static var supportsMiniPlayerPinning: Bool {
+        #if os(iOS)
+        if #available(iOS 26.1, *) { return true }
+        #endif
+        return false
+    }
+
     /// 手机播放页转成横屏时直接进入所选的全屏效果，转回竖屏时退出(#191)。默认关：
     /// 横屏另有自己的双栏播放页(封面与控件在左、歌词在右)。
     static let entersFullscreenInLandscapeKey = "primuse.player.entersFullscreenInLandscape"

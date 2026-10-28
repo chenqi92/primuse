@@ -984,6 +984,8 @@ struct ContentView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
+    @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
+    private var pinsMiniPlayer = PlayerAppearancePreferences.pinsMiniPlayerByDefault
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
     /// 保持联动 (sidebar 改 → selectedTab 也改; selectedTab 改 → sidebar
     /// 跟到对应顶级项, 但子项不自动猜测)。
@@ -1355,7 +1357,7 @@ struct ContentView: View {
                 // Without a player accessory that leaves a large empty gap at
                 // the bottom and looks like the other tabs disappeared. Only
                 // minimize when Now Playing can occupy that compact space.
-                .tabBarMinimizeBehavior(miniPlayerVisible ? .onScrollDown : .never)
+                .tabBarMinimizeBehavior(miniPlayerVisible && !pinsMiniPlayer ? .onScrollDown : .never)
                 .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
                     NowPlayingAccessory(onTap: presentNowPlaying)
                 }

@@ -6727,3 +6727,6 @@
 
 "spoken_word_skip_title" = "Skip Intro and Ending";
 "spoken_word_skip_use_server" = "Use Server Settings";
+
+"player_pin_mini_player_title" = "Pin Mini Player";
+"player_pin_mini_player_description" = "Keep the bottom mini player expanded above the tab bar while scrolling.";

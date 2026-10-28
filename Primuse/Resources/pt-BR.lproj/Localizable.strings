@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "Pular introdução e final";
 "spoken_word_skip_use_server" = "Usar ajustes do servidor";
+
+"player_pin_mini_player_title" = "Fixar miniplayer";
+"player_pin_mini_player_description" = "Mantenha o miniplayer expandido acima da barra de abas ao rolar a página.";

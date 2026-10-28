@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "ข้ามช่วงเริ่มต้นและช่วงท้าย";
 "spoken_word_skip_use_server" = "ใช้การตั้งค่าเซิร์ฟเวอร์";
+
+"player_pin_mini_player_title" = "ตรึงเครื่องเล่นขนาดเล็ก";
+"player_pin_mini_player_description" = "แสดงเครื่องเล่นขนาดเล็กเหนือแถบแท็บโดยไม่ย่อขณะเลื่อนหน้า";

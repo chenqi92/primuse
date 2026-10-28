@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "Pomiń początek i zakończenie";
 "spoken_word_skip_use_server" = "Użyj ustawień serwera";
+
+"player_pin_mini_player_title" = "Przypnij miniodtwarzacz";
+"player_pin_mini_player_description" = "Podczas przewijania miniodtwarzacz pozostaje rozwinięty nad paskiem kart.";

@@ -2,6 +2,29 @@ import XCTest
 @testable import Primuse
 
 final class SettingsDiscoveryTests: XCTestCase {
+    @MainActor
+    func testMiniPlayerPinningIsDiscoverableAndPersistsBothStates() throws {
+        let id = "player.pinMiniPlayer"
+        guard PlayerAppearancePreferences.supportsMiniPlayerPinning else {
+            XCTAssertNil(SettingsCatalog.byID[id])
+            return
+        }
+        XCTAssertEqual(SettingsCatalog.byID[id]?.page, .player)
+        for query in ["胶囊", "小播放器", "mini player"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == id }, query)
+        }
+        try withService { service, playback, defaults in
+            XCTAssertEqual(service.booleanValue(for: id), false)
+            try service.setEnabled(true, for: id)
+            let restored = SettingsActionService(playback: playback, defaults: defaults)
+            XCTAssertEqual(restored.booleanValue(for: id), true)
+            XCTAssertTrue(defaults.bool(forKey: PlayerAppearancePreferences.pinsMiniPlayerKey))
+            try restored.setEnabled(false, for: id)
+            XCTAssertEqual(service.booleanValue(for: id), false)
+            XCTAssertFalse(defaults.bool(forKey: PlayerAppearancePreferences.pinsMiniPlayerKey))
+        }
+    }
+
     func testCatalogHasUniqueStableIDsAndPlatformAppropriateDestinations() {
         let all = SettingsCatalog.definitions
         XCTAssertEqual(Set(all.map(\.id)).count, all.count)

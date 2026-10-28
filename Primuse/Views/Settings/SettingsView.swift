@@ -637,6 +637,8 @@ struct LyricsAppearanceSections: View {
 }
 
 private struct PlayerAppearanceSettingsView: View {
+    @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
+    private var pinsMiniPlayer = PlayerAppearancePreferences.pinsMiniPlayerByDefault
     @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
@@ -683,6 +685,18 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.playerControls")
+            }
+
+            if PlayerAppearancePreferences.supportsMiniPlayerPinning {
+                Section {
+                    Toggle(isOn: $pinsMiniPlayer) {
+                        SettingsInfoLabel("player_pin_mini_player_title") {
+                            Text("player_pin_mini_player_description")
+                        }
+                    }
+                    .settingsAnchor("player.pinMiniPlayer")
+                    .accessibilityIdentifier("playerPinMiniPlayerToggle")
+                }
             }
 
             Section {

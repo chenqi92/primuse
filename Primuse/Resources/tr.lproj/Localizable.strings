@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "Girişi ve sonu atla";
 "spoken_word_skip_use_server" = "Sunucu ayarlarını kullan";
+
+"player_pin_mini_player_title" = "Mini Oynatıcıyı Sabitle";
+"player_pin_mini_player_description" = "Kaydırırken mini oynatıcıyı sekme çubuğunun üzerinde genişletilmiş olarak tutun.";

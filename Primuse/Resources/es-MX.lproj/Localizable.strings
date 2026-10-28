@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "Omitir introducción y final";
 "spoken_word_skip_use_server" = "Usar ajustes del servidor";
+
+"player_pin_mini_player_title" = "Fijar minirreproductor";
+"player_pin_mini_player_description" = "Mantén el minirreproductor expandido sobre la barra de pestañas al desplazarte.";

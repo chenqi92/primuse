@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "تخطي المقدمة والنهاية";
 "spoken_word_skip_use_server" = "استخدام إعدادات الخادم";
+
+"player_pin_mini_player_title" = "تثبيت المشغّل المصغّر";
+"player_pin_mini_player_description" = "إبقاء المشغّل المصغّر موسّعًا فوق شريط علامات التبويب أثناء التمرير.";

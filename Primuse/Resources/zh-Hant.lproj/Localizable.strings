@@ -6943,3 +6943,6 @@
 
 "spoken_word_skip_title" = "略過片頭片尾";
 "spoken_word_skip_use_server" = "使用伺服器設定";
+
+"player_pin_mini_player_title" = "固定底部迷你播放器";
+"player_pin_mini_player_description" = "捲動頁面時，迷你播放器保持在底部分頁列上方，不再收合。";

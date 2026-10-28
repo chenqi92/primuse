@@ -6872,3 +6872,6 @@
 
 "spoken_word_skip_title" = "Пропуск початку й кінця";
 "spoken_word_skip_use_server" = "Використовувати налаштування сервера";
+
+"player_pin_mini_player_title" = "Закріпити мініплеєр";
+"player_pin_mini_player_description" = "Під час прокручування мініплеєр залишається розгорнутим над панеллю вкладок.";

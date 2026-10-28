@@ -29,7 +29,7 @@ struct SettingsActionService {
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
-        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "playback.spokenWordSmartRewind"
+        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -157,6 +157,7 @@ struct SettingsActionService {
         case "appearance.playerAlbumInSubtitle": preference(PlayerAppearancePreferences.showsAlbumInSubtitleKey, fallback: PlayerAppearancePreferences.showsAlbumInSubtitleByDefault)
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
+        case "player.pinMiniPlayer": preference(PlayerAppearancePreferences.pinsMiniPlayerKey, fallback: PlayerAppearancePreferences.pinsMiniPlayerByDefault)
         case "player.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
         case "player.tapArtworkOpensLyrics": preference(PlayerAppearancePreferences.tapArtworkOpensLyricsKey, fallback: PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault)
         case "player.keepScreenAwakeChargingOnly": preference(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey, fallback: PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault)
@@ -200,6 +201,7 @@ struct SettingsActionService {
         case "appearance.playerAlbumInSubtitle": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)
+        case "player.pinMiniPlayer": defaults.set(enabled, forKey: PlayerAppearancePreferences.pinsMiniPlayerKey)
         case "player.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
         case "player.tapArtworkOpensLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
         case "player.keepScreenAwakeChargingOnly": defaults.set(enabled, forKey: PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)

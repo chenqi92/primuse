@@ -6966,3 +6966,6 @@
 
 "spoken_word_skip_title" = "Ignorer le début et la fin";
 "spoken_word_skip_use_server" = "Utiliser les réglages du serveur";
+
+"player_pin_mini_player_title" = "Épingler le mini-lecteur";
+"player_pin_mini_player_description" = "Le mini-lecteur reste déployé au-dessus de la barre d’onglets pendant le défilement.";

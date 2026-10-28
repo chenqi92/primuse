@@ -7059,3 +7059,6 @@
 
 "spoken_word_skip_title" = "跳过片头片尾";
 "spoken_word_skip_use_server" = "使用服务端设置";
+
+"player_pin_mini_player_title" = "固定底部小播放器";
+"player_pin_mini_player_description" = "滚动页面时，小播放器保持在底部标签栏上方，不再收起。";
