@@ -88,11 +88,11 @@ struct AlbumDetailView: View {
     }
 
     private var albumSongCount: Int {
-        appleMusicCompletion == nil ? album.songCount : albumSongs.count
+        albumSongs.count
     }
 
     private var albumDuration: TimeInterval {
-        appleMusicCompletion == nil ? album.totalDuration : albumSongs.reduce(0) { $0 + $1.duration }
+        albumSongs.reduce(0) { $0 + $1.duration.sanitizedDuration }
     }
 
     private func loadAppleMusicCompletion() async {

@@ -44,6 +44,92 @@ final class MusicLibraryAlbumTrackOrderTests: XCTestCase {
         }
     }
 
+    func testAlbumSummaryAndRecommendationFollowSourceVisibility() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseAlbumSummaryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let songs = ["navidrome", "local"].flatMap { source in
+            (1...4).map { track in
+                var song = makeSong("\(source)-\(track)", disc: 1, track: track)
+                song.sourceID = source
+                song.title = "Track \(track)"
+                song.duration = 300
+                song.serverPlayCount = source == "navidrome" ? 100 : nil
+                return song
+            }
+        }
+        library.addSongs(songs, affectedSourceIDs: ["navidrome", "local"])
+        await library.waitForPendingIndex()
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        XCTAssertEqual(album.songCount, 8)
+        XCTAssertEqual(album.totalDuration, 2_400)
+
+        library.updateDisabledSourceIDs(["local"])
+        try assertAlbumSummary(library, albumID: album.id, count: 4, duration: 1_200)
+        XCTAssertEqual(Set(library.songs(forAlbum: album.id).map(\.sourceID)), ["navidrome"])
+
+        var updated = try XCTUnwrap(library.song(id: "navidrome-1"))
+        updated.duration = 390
+        library.replaceSongs([updated], maintenance: .immediate)
+        await library.waitForPendingIndex()
+        try assertAlbumSummary(library, albumID: album.id, count: 4, duration: 1_290)
+
+        await library.updateDisabledSourceIDsInBackground([])
+        try assertAlbumSummary(library, albumID: album.id, count: 8, duration: 2_490)
+        XCTAssertEqual(library.songs.count, 8)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated album library should persist")
+        }
+    }
+
+    func testAlbumSummaryExcludesDisabledCopiesAfterPreparedStartup() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseAlbumStartupTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seed = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        var visible = makeSong("visible", disc: 1, track: 1)
+        visible.sourceID = "navidrome"
+        visible.duration = 180
+        var hidden = visible
+        hidden.id = "hidden"
+        hidden.sourceID = "local"
+        seed.addSongs([visible, hidden], affectedSourceIDs: ["navidrome", "local"])
+        await seed.waitForPendingIndex()
+        guard case .success = await seed.persistNowAndWait() else {
+            return XCTFail("The isolated album library should persist")
+        }
+
+        let prepared = await MusicLibrary.prepareStartup(
+            disabledSourceIDs: ["local"], storageDirectory: directory
+        )
+        let library = MusicLibrary(
+            disabledSourceIDs: ["local"], storageDirectory: directory,
+            preparedStartup: prepared, deferredMaintenanceAllowed: { false }
+        )
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        XCTAssertEqual(album.songCount, 1)
+        XCTAssertEqual(album.totalDuration, 180)
+        XCTAssertEqual(library.songs(forAlbum: album.id).map(\.id), ["visible"])
+        XCTAssertEqual(library.songs.count, 2)
+    }
+
+    private func assertAlbumSummary(
+        _ library: MusicLibrary, albumID: String, count: Int, duration: TimeInterval,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let album = try XCTUnwrap(library.visibleAlbum(id: albumID), file: file, line: line)
+        XCTAssertEqual(album.songCount, count, file: file, line: line)
+        XCTAssertEqual(album.totalDuration, duration, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(library.songs(forAlbum: albumID).count, count, file: file, line: line)
+        let index = try XCTUnwrap(AlbumCandidateIndex.build(
+            librarySongs: library.musicSongs, libraryGeneration: library.musicSongsRevision
+        ), file: file, line: line)
+        let candidate = try XCTUnwrap(index.candidates.first { $0.albumID == albumID }, file: file, line: line)
+        XCTAssertEqual(candidate.trackCount, count, file: file, line: line)
+        XCTAssertEqual(candidate.totalDuration, duration, accuracy: 0.001, file: file, line: line)
+    }
+
     private func makeSong(_ id: String, disc: Int?, track: Int, album: String = "Two discs") -> Song {
         Song(id: id, title: id, albumTitle: album, artistName: "Artist",
              albumArtistName: "Artist", trackNumber: track, discNumber: disc,

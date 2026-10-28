@@ -4977,7 +4977,23 @@ final class MusicLibrary {
             candidateVisibleArtists = artists
         } else {
             let visibleAlbumIDs = Set(musicSongs.compactMap(\.albumID))
-            nextVisibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
+            // An album can span sources. Its summary must use the same visible
+            // tracks as songs(forAlbum:), including after a source is disabled.
+            var totals: [String: (count: Int, duration: TimeInterval)] = [:]
+            for song in nextVisibleSongs {
+                guard let albumID = song.albumID, visibleAlbumIDs.contains(albumID) else { continue }
+                var total = totals[albumID] ?? (0, 0)
+                total.count += 1
+                total.duration += song.duration.sanitizedDuration
+                totals[albumID] = total
+            }
+            nextVisibleAlbums = albums.compactMap { album in
+                guard let total = totals[album.id] else { return nil }
+                var visible = album
+                visible.songCount = total.count
+                visible.totalDuration = total.duration
+                return visible
+            }
             candidateVisibleArtists = artists.filter { lookups.musicArtistIDs.contains($0.id) }
         }
         // Older derived-index caches may contain two display-name variants
