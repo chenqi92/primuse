@@ -42,6 +42,7 @@ struct HomeSpaceFilterBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(ThemeService.self) private var theme
     @ScaledMetric(relativeTo: .body) private var typeScale = 1.0
     @State private var viewportWidth: CGFloat = 390
     @State private var tuningIndex: CGFloat?
@@ -254,7 +255,7 @@ struct HomeSpaceFilterBar: View {
                         .foregroundStyle(amount > 0.5
                             ? AnyShapeStyle(LinearGradient(stops: [
                                 .init(color: .primary, location: 0.55),
-                                .init(color: space.tint, location: 1)
+                                .init(color: theme.uiAccentColor, location: 1)
                             ], startPoint: .top, endPoint: .bottom))
                             : AnyShapeStyle(Color.secondary))
                         .fixedSize()
@@ -266,11 +267,19 @@ struct HomeSpaceFilterBar: View {
         .frame(minWidth: viewportWidth - 32, alignment: .leading)
         .frame(height: 108 * typeScale, alignment: .center)
         .background(alignment: .topLeading) {
-            Image("HomeFilterSilk")
-                .resizable()
-                .scaledToFill()
+            theme.uiAccentColor
+                .mask {
+                    Image("HomeFilterSilk")
+                        .resizable()
+                        .scaledToFill()
+                        // 先合成到白底，避免反相把原图的透明区域变成可见遮罩。
+                        .background(.white)
+                        .compositingGroup()
+                        .colorInvert()
+                        .luminanceToAlpha()
+                }
                 .frame(width: viewportWidth, height: 172 * typeScale)
-                .opacity(colorScheme == .dark ? 0.38 : 0.82)
+                .opacity(colorScheme == .dark ? 0.70 : 0.82)
                 .mask {
                     LinearGradient(stops: [
                         .init(color: .clear, location: 0),

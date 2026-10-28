@@ -4866,7 +4866,6 @@ struct NowPlayingView: View {
             SystemVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint)
                 .frame(maxWidth: .infinity)
                 .frame(height: SystemVolumeSlider.compactHeight)
-                .offset(y: SystemVolumeSlider.verticalOffset)
             #elseif os(macOS)
             // 和底栏、迷你播放器共用同一套音量语义：高保真直通时交给输出设备
             // 硬件音量，其余情况走应用增益。各处各写一份曾让这里在高保真下
@@ -11920,7 +11919,6 @@ struct PlayerVolumeTrackStyle: Equatable {
 /// 系统滑块负责音量与交互，轨道单独绘制，避免系统切换控件状态时替换轨道图片。
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
-    static let verticalOffset: CGFloat = 1.5
 
     var trackStyle: PlayerVolumeTrackStyle = .system
     var fillTint: Color? = nil
@@ -12163,6 +12161,9 @@ final class SystemVolumeTrackView: UIView {
         let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: rect, value: slider.maximumValue)
         start = slider.convert(CGPoint(x: minimum.midX, y: minimum.midY), to: self)
         end = slider.convert(CGPoint(x: maximum.midX, y: maximum.midY), to: self)
+        // 系统滑块的轨道不一定在控件中线；只沿用横向触点，绘制与两侧图标居中对齐。
+        start.y = bounds.midY
+        end.y = bounds.midY
         let span = slider.maximumValue - slider.minimumValue
         let value = span > 0 ? (slider.value - slider.minimumValue) / span : 0
         fraction = value.isFinite ? CGFloat(max(0, min(1, value))) : 0

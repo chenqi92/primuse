@@ -169,12 +169,14 @@ struct WatchCompanionVolumeControl: WKInterfaceObjectRepresentable {
     /// 变一次就重新要一次表冠。
     let focusRequest: Int
     var isLocal = false
+    var isActive = true
 
     @MainActor
     final class Coordinator {
         weak var control: WKInterfaceVolumeControl?
         var appliedFocusRequest: Int?
         var appliedTint: Color?
+        var isActive = false
         private var focusTask: Task<Void, Never>?
 
         /// 刚放进界面、或弹出页刚收起时立刻要表冠会被系统忽略, 晚一拍再要。
@@ -182,9 +184,16 @@ struct WatchCompanionVolumeControl: WKInterfaceObjectRepresentable {
             focusTask?.cancel()
             focusTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(250))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self?.isActive == true else { return }
                 self?.control?.focus()
             }
+        }
+
+        func resignFocus() {
+            isActive = false
+            focusTask?.cancel()
+            focusTask = nil
+            control?.resignFocus()
         }
     }
 
@@ -205,9 +214,18 @@ struct WatchCompanionVolumeControl: WKInterfaceObjectRepresentable {
             coordinator.appliedTint = tint
             control.setTintColor(UIColor(tint))
         }
-        if coordinator.appliedFocusRequest != focusRequest {
+        guard isActive else {
+            if coordinator.isActive { coordinator.resignFocus() }
+            return
+        }
+        if !coordinator.isActive || coordinator.appliedFocusRequest != focusRequest {
+            coordinator.isActive = true
             coordinator.appliedFocusRequest = focusRequest
             coordinator.requestFocus()
         }
+    }
+
+    static func dismantleWKInterfaceObject(_ control: WKInterfaceVolumeControl, coordinator: Coordinator) {
+        coordinator.resignFocus()
     }
 }

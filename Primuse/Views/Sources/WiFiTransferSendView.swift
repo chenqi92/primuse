@@ -659,7 +659,7 @@ struct WiFiTransferSendView: View {
             HStack(spacing: 10) {
                 Image(systemName: "applewatch").font(.title2).foregroundStyle(TransferAppearance.accent)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Apple Watch").font(.subheadline.weight(.medium))
+                    Text(verbatim: "Apple Watch").font(.subheadline.weight(.medium))
                     Text(WiFiTransferText.string(WatchFileTransferService.shared.isAvailable ? "watchDestinationHint" : "watchUnavailable"))
                         .font(.caption).foregroundStyle(.secondary)
                 }

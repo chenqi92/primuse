@@ -3,8 +3,8 @@ import WatchKit
 
 /// 正在播放右上角「更多」: 喜欢、播放方式、调整进度, 以及声音现在从哪里放出来。
 struct WatchPlaybackOptionsView: View {
+    let onShowSeek: () -> Void
     @Environment(WatchPlayerStore.self) private var store
-    @State private var showsSeek = false
 
     var body: some View {
         NavigationStack {
@@ -22,9 +22,7 @@ struct WatchPlaybackOptionsView: View {
                     playbackModeRow
                 }
                 if !store.isLiveStream, store.duration > 0 {
-                    Button {
-                        showsSeek = true
-                    } label: {
+                    Button(action: onShowSeek) {
                         Label(WatchString("ext.watch.seek.title"), systemImage: "timeline.selection")
                     }
                 }
@@ -35,14 +33,6 @@ struct WatchPlaybackOptionsView: View {
                 }
             }
             .navigationTitle(WatchString("ext.watch.more.title"))
-            .navigationDestination(isPresented: $showsSeek) {
-                WatchSeekView()
-            }
-        }
-        .onAppear {
-            #if DEBUG
-            if store.demoScreen == "seek" { showsSeek = true }
-            #endif
         }
     }
 
@@ -102,11 +92,15 @@ struct WatchPlaybackOptionsView: View {
 /// 调整进度。正在播放页的表冠管音量, 进度在这里调: 转表冠挪时间, 停转 0.4 秒后才真正跳过去,
 /// 两侧键一次挪一小段 (有声内容按 iPhone 设置的快退 / 快进秒数)。
 struct WatchSeekView: View {
+    let isActive: Bool
     @Environment(WatchPlayerStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
     /// 表冠绑定的目标时间 (秒)。进页时对齐当前进度, 转表冠改它, 停转后交给 store.seek。
     @State private var crownTime: Double = 0
     /// 停转 0.4 秒后才发 seek, 连转时不每一格都发一条消息。
     @State private var seekDebounceTask: Task<Void, Never>?
+    @State private var pendingSeekSongID: String?
     /// 程序化改写 crownTime 时置 true, 让 .onChange 跳过这一次, 不当成用户转动。
     @State private var programmaticCrownUpdate = false
     @FocusState private var isCrownFocused: Bool
@@ -117,6 +111,7 @@ struct WatchSeekView: View {
     private var forwardStep: Int { store.usesSkipIntervals ? store.skipForwardSeconds : 15 }
     /// 很长的有声书一格 1 秒转不动, 半小时以上改成一格 10 秒。
     private var crownStep: Double { store.duration > 1800 ? 10 : 1 }
+    private var acceptsInput: Bool { isActive && isVisible && scenePhase == .active }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -149,7 +144,7 @@ struct WatchSeekView: View {
         }
         .padding(.horizontal, 4)
         .navigationTitle(WatchString("ext.watch.seek.title"))
-        .focusable()
+        .focusable(acceptsInput)
         .focused($isCrownFocused)
         .focusEffectDisabled()
         .digitalCrownRotation(
@@ -162,37 +157,58 @@ struct WatchSeekView: View {
             isHapticFeedbackEnabled: true
         )
         .onAppear {
-            syncCrown(to: store.currentTime)
-            isCrownFocused = true
+            isVisible = true
+        }
+        .onChange(of: acceptsInput) { _, active in
+            if active {
+                syncCrown(to: store.currentTime)
+                isCrownFocused = true
+            } else {
+                isCrownFocused = false
+                finishPendingSeek()
+            }
         }
         .onChange(of: crownTime) { _, newValue in
             if programmaticCrownUpdate {
                 programmaticCrownUpdate = false
                 return
             }
+            guard acceptsInput else { return }
             seekDebounceTask?.cancel()
+            pendingSeekSongID = store.songID
             seekDebounceTask = Task { @MainActor [newValue] in
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
                 store.seek(to: newValue)
                 // 被新一次转动取消时不清 (新任务接管), 免得空闲跟随把用户正在调的值盖掉。
                 seekDebounceTask = nil
+                pendingSeekSongID = nil
             }
         }
         // 换歌或空闲时让表冠跟着播放进度走, 否则轻转一格会从几分钟前的旧值起跳。
-        .onChange(of: store.songID) { _, _ in syncCrown(to: store.currentTime) }
+        .onChange(of: store.songID) { _, _ in
+            seekDebounceTask?.cancel()
+            seekDebounceTask = nil
+            pendingSeekSongID = nil
+            syncCrown(to: store.currentTime)
+        }
         .onChange(of: store.currentTime) { _, newTime in
             guard seekDebounceTask == nil else { return }
             if abs(newTime - crownTime) > crownStep { syncCrown(to: newTime) }
         }
         .onDisappear {
-            // 还没到 0.4 秒就退出了: 用户转到的位置照样生效。
-            if let task = seekDebounceTask {
-                task.cancel()
-                seekDebounceTask = nil
-                store.seek(to: crownTime)
-            }
+            isVisible = false
+            isCrownFocused = false
+            finishPendingSeek()
         }
+    }
+
+    private func finishPendingSeek() {
+        guard let task = seekDebounceTask else { return }
+        task.cancel()
+        seekDebounceTask = nil
+        if pendingSeekSongID == store.songID { store.seek(to: crownTime) }
+        pendingSeekSongID = nil
     }
 
     /// 点哪跳哪的进度条。
@@ -228,8 +244,10 @@ struct WatchSeekView: View {
     }
 
     private func seekImmediately(to time: Double) {
+        guard acceptsInput else { return }
         seekDebounceTask?.cancel()
         seekDebounceTask = nil
+        pendingSeekSongID = nil
         let clamped = min(max(0, time), store.duration)
         store.seek(to: clamped)
         syncCrown(to: clamped)

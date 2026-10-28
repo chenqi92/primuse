@@ -1,7 +1,7 @@
 import SwiftUI
 import WatchKit
 
-/// Watch 端的正在播放, 一屏放下, 不用滚动 (#353)。
+/// Watch 端的正在播放, 一屏放下, 不用滚动。
 ///
 /// 布局: 左上播放列表、右上更多; 中间封面 (有歌词时点一下换成歌词); 歌名 / 艺人;
 /// 底部上一首 · 播放暂停 (外圈是进度) · 下一首。有声内容两侧换成快退 / 快进,
@@ -9,14 +9,18 @@ import WatchKit
 ///
 /// 数字表冠调 iPhone 的音量 (系统音量控件, 和 Apple Music 一样, 戴着 AirPods 时就是
 /// AirPods 的音量)。控件平时藏着, 转表冠时才在表冠一侧亮出来, 停下后淡出。
-/// 拖进度挪到「更多 → 调整进度」, 在那一页里表冠调进度。
+/// 左滑或从「更多 → 调整进度」进入进度页, 在那一页里表冠调进度。
 struct NowPlayingWatchView: View {
+    let isActive: Bool
+    let onShowQueue: () -> Void
+    let onShowSeek: () -> Void
     @Environment(WatchPlayerStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
     /// 封面和歌词两面, 记住上次停在哪一面。
     @AppStorage("watch.nowPlaying.showsLyrics") private var prefersLyrics = false
-    @State private var showsQueue = false
     @State private var showsOptions = false
+    @State private var opensSeekOnDismiss = false
+    @State private var isVisible = false
     /// 每加一次, 音量控件就重新要一次表冠: 回到这页、从后台回来、关掉弹出页之后
     /// 表冠都被别的页面拿走过。
     @State private var volumeFocusRequest = 0
@@ -38,7 +42,7 @@ struct NowPlayingWatchView: View {
         .toolbar {
             if !store.isLiveStream {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showsQueue = true } label: { Image(systemName: "list.bullet") }
+                    Button(action: onShowQueue) { Image(systemName: "list.bullet") }
                     .accessibilityLabel(WatchString("ext.watch.queue.title"))
                 }
             }
@@ -53,18 +57,33 @@ struct NowPlayingWatchView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $showsQueue) {
-            LibraryWatchView()
-        }
-        .sheet(isPresented: $showsOptions, onDismiss: requestVolumeFocus) {
-            WatchPlaybackOptionsView()
+        .sheet(isPresented: $showsOptions, onDismiss: optionsDismissed) {
+            WatchPlaybackOptionsView {
+                opensSeekOnDismiss = true
+                showsOptions = false
+            }
         }
         .onAppear {
-            store.requestCurrentState()
+            isVisible = true
+            if isActive { store.requestCurrentState() }
             requestVolumeFocus()
             #if DEBUG
             openDemoScreenIfNeeded()
             #endif
+        }
+        .onDisappear {
+            isVisible = false
+            volumeHideTask?.cancel()
+            showsVolume = false
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                store.requestCurrentState()
+                requestVolumeFocus()
+            } else {
+                volumeHideTask?.cancel()
+                showsVolume = false
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { requestVolumeFocus() }
@@ -73,7 +92,7 @@ struct NowPlayingWatchView: View {
             if hasSong { requestVolumeFocus() }
         }
         .onChange(of: store.volumeActivity) { _, _ in
-            revealVolume()
+            if acceptsVolumeInput { revealVolume() }
         }
     }
 
@@ -133,7 +152,8 @@ struct NowPlayingWatchView: View {
         // 系统按自己的尺寸画这个圆环, 不跟外面给的框走 (41mm 上调音量时约 47pt, 右边一截跑到屏外),
         // 所以按它最大的样子留框、整体缩小, 再从屏幕边上收进来一点。
         .overlay(alignment: .trailing) {
-            WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest, isLocal: store.isOfflinePlayback)
+            WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest,
+                                        isLocal: store.isOfflinePlayback, isActive: acceptsVolumeInput)
                 .id(store.isOfflinePlayback)
                 .frame(width: WatchNowPlayingMetrics.volumeControlNativeSide,
                        height: WatchNowPlayingMetrics.volumeControlNativeSide)
@@ -181,7 +201,21 @@ struct NowPlayingWatchView: View {
     }
 
     private func requestVolumeFocus() {
+        guard isActive else { return }
         volumeFocusRequest &+= 1
+    }
+
+    private var acceptsVolumeInput: Bool {
+        isActive && isVisible && !showsOptions && scenePhase == .active
+    }
+
+    private func optionsDismissed() {
+        if opensSeekOnDismiss {
+            opensSeekOnDismiss = false
+            onShowSeek()
+        } else {
+            requestVolumeFocus()
+        }
     }
 
     /// 音量变了: 亮出音量控件, 停下 1.5 秒再淡出; 连着调时一直顺延。
@@ -199,8 +233,7 @@ struct NowPlayingWatchView: View {
     /// 截图用: PRIMUSE_WATCH_DEMO_SCREEN=queue / options 直接打开那一页, volume 让音量控件一直亮着。
     private func openDemoScreenIfNeeded() {
         switch store.demoScreen {
-        case "queue": showsQueue = true
-        case "options", "seek": showsOptions = true
+        case "options": showsOptions = true
         case "volume": showsVolume = true
         default: break
         }

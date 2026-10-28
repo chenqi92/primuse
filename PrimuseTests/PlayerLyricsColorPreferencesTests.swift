@@ -688,7 +688,7 @@ final class SystemVolumeSliderTests: XCTestCase {
         let nativeTrack = slider.trackRect(forBounds: slider.bounds)
         let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: nativeTrack, value: 1)
         let sampleX = Int(maximum.midX - 30)
-        let sampleY = Int(maximum.midY)
+        let sampleY = Int(view.bounds.midY)
 
         for _ in 0..<3 {
             slider.setMaximumTrackImage(nil, for: .normal)
@@ -734,7 +734,7 @@ final class SystemVolumeSliderTests: XCTestCase {
                                 Capsule().fill(Color.white)
                                     .frame(width: width * CGFloat(fraction), height: height)
                             }
-                            .offset(x: minimum.midX, y: minimum.midY - height / 2)
+                            .offset(x: minimum.midX, y: view.bounds.midY - height / 2)
                             .frame(width: 300, height: 24, alignment: .topLeading)
                         )
                         reference.scale = scale
@@ -782,7 +782,40 @@ final class SystemVolumeSliderTests: XCTestCase {
                 let rect = slider.trackRect(forBounds: slider.bounds)
                 let end = slider.thumbRect(forBounds: slider.bounds, trackRect: rect, value: 1)
                 let bytes = try pixels(of: render(view.trackView))
-                XCTAssertGreaterThan(bytes[(Int(end.midY) * Int(width) + Int(end.midX - 30)) * 4 + 3], 30)
+                XCTAssertGreaterThan(bytes[(Int(view.bounds.midY) * Int(width) + Int(end.midX - 30)) * 4 + 3], 30)
+            }
+        }
+    }
+
+    func testTrackAndKnobStayCenteredWhenNativeSliderLayoutChanges() throws {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider(value: 0.5)
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key(style: .system))
+        view.layoutIfNeeded()
+
+        for width: CGFloat in [180, 300, 420] {
+            view.frame.size.width = width
+            for nativeFrame in [
+                CGRect(x: 0, y: -6, width: width, height: 31),
+                CGRect(x: 0, y: 3, width: width, height: 24)
+            ] {
+                slider.frame = nativeFrame
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+                for event: UIControl.Event in [.touchDown, .touchUpInside, .touchCancel] {
+                    slider.sendActions(for: event)
+                    let bytes = try pixels(of: render(view.trackView))
+                    let paintedRows = (0..<24).filter { y in
+                        (0..<Int(width)).contains { x in bytes[(y * Int(width) + x) * 4 + 3] > 30 }
+                    }
+                    let top = try XCTUnwrap(paintedRows.first)
+                    let bottom = try XCTUnwrap(paintedRows.last)
+                    XCTAssertEqual(CGFloat(top + bottom + 1) / 2, view.bounds.midY, accuracy: 0.5)
+                    XCTAssertEqual(slider.frame, nativeFrame)
+                    XCTAssertEqual(slider.value, 0.5)
+                }
             }
         }
     }
