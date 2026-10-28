@@ -2147,6 +2147,8 @@
 		57941D380B1FCCF02E5B1457 /* HomeSpaceFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */; };
 		88DEFB7912EB3E5E91619DD8 /* HomeSpaceFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */; };
 		88BD619F1B7D69E77B643F58 /* HomeTopSwitchingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */; };
+		9FA4EC58A526389EE4578AA2 /* WatchConnectionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */; };
+		F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3964,6 +3966,7 @@
 		A8C85896472B4024A8E23440 /* AppIconServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconServiceTests.swift; sourceTree = "<group>"; };
 		D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSpaceFilterBar.swift; sourceTree = "<group>"; };
 		7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTopSwitchingUITests.swift; sourceTree = "<group>"; };
+		3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectionPresentation.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5660,6 +5663,7 @@
 			isa = PBXGroup;
 			children = (
 				136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */,
+				3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */,
 			);
 			path = PrimuseWatchShared;
 			sourceTree = "<group>";
@@ -6857,6 +6861,7 @@
 				18D9115DD587058F8DADE067 /* PrimuseWatchApp.swift in Sources */,
 				F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */,
 				B4919DB98A38031DE3CB8C9E /* WatchPlayerStore.swift in Sources */,
+				F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7381,6 +7386,7 @@
 				383675FCA0F8CA7DB0BD5F32 /* NowPlayingComplication.swift in Sources */,
 				AFB973435BA9B6C543BC8E6D /* PrimuseWatchWidgetsBundle.swift in Sources */,
 				C5DA9BC12C2530019948D296 /* SharedNowPlayingState.swift in Sources */,
+				9FA4EC58A526389EE4578AA2 /* WatchConnectionPresentation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

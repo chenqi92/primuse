@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct PrimuseWatchApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = WatchPlayerStore()
 
     var body: some Scene {
@@ -12,6 +13,9 @@ struct PrimuseWatchApp: App {
                 NowPlayingWatchView()
             }
             .environment(store)
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                store.setActive(phase == .active)
+            }
         }
     }
 }

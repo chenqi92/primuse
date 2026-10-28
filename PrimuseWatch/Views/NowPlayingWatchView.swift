@@ -91,7 +91,7 @@ struct NowPlayingWatchView: View {
                 titleBlock
                 WatchTransportControls()
                     .padding(.top, 2)
-                    .opacity(store.isReachable ? 1 : 0.45)
+                    .opacity(store.showsDisconnected ? 0.45 : 1)
             }
             .padding(.horizontal, 2)
             .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
@@ -148,7 +148,7 @@ struct NowPlayingWatchView: View {
                 .opacity(showsVolume ? 1 : WatchNowPlayingMetrics.hiddenVolumeOpacity)
         }
         .overlay(alignment: .top) {
-            if !store.isReachable {
+            if store.showsDisconnected {
                 WatchUnreachableBadge()
             }
         }
@@ -389,20 +389,20 @@ struct WatchEmptyStateView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                Image(systemName: store.isReachable ? "music.note" : "iphone.slash")
+                Image(systemName: !store.showsDisconnected ? "music.note" : "iphone.slash")
                     .font(.system(size: 34))
-                    .foregroundStyle(store.isReachable ? store.accent : .secondary)
+                    .foregroundStyle(!store.showsDisconnected ? store.accent : .secondary)
                     .padding(.top, 8)
-                Text(WatchString(store.isReachable
+                Text(WatchString(!store.showsDisconnected
                                  ? "ext.watch.nowPlaying.empty.title"
                                  : "ext.watch.nowPlaying.empty.unreachableTitle"))
                     .font(.headline)
-                Text(WatchString(store.isReachable
+                Text(WatchString(!store.showsDisconnected
                                  ? "ext.watch.nowPlaying.empty.reachable"
                                  : "ext.watch.nowPlaying.empty.unreachable"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                if !store.isReachable {
+                if store.showsDisconnected {
                     Button(WatchString("ext.watch.retry")) {
                         store.requestCurrentState()
                     }

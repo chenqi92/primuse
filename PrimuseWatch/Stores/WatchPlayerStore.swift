@@ -29,6 +29,9 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     var coverImage: UIImage?
     /// iPhone 是否在线 (paired + reachable)。不在线时 UI 显示提示。
     var isReachable: Bool = false
+    private(set) var showsDisconnected = false
+    private var connectionPresentation = WatchConnectionPresentation()
+    private var connectionRecoveryTask: Task<Void, Never>?
     /// 当前播放队列 ── iPhone 端推过来, 跟 iPhone 上"播放列表"一致。
     var queue: [WatchLibrarySong] = []
     /// iPhone 端队列的真实总长度。超大队列被 WatchSessionBridge 按字节截断后,
@@ -277,7 +280,34 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             self?.playbackMode = previous
         }
     }
-    func requestCurrentState() { send(["command": "requestState"]) }
+    func requestCurrentState() {
+        guard let session, session.activationState == .activated else { return }
+        // 从手表主动查询可以唤醒 iPhone；抬腕时不要先用瞬时可达性挡住恢复。
+        session.sendMessage(["command": "requestState"], replyHandler: nil,
+                            errorHandler: Self.makeStateRequestErrorHandler(store: self))
+    }
+
+    nonisolated private static func makeStateRequestErrorHandler(store: WatchPlayerStore) -> @Sendable (Error) -> Void {
+        { [weak store] _ in
+            Task { @MainActor in
+                guard let session = store?.session, session.activationState == .activated else { return }
+                if !session.outstandingUserInfoTransfers.contains(where: {
+                    $0.userInfo["command"] as? String == "requestState"
+                }) {
+                    session.transferUserInfo(["command": "requestState"])
+                }
+            }
+        }
+    }
+
+    func setActive(_ active: Bool) {
+        #if DEBUG
+        if isDemo { return }
+        #endif
+        connectionPresentation.setActive(active, reachable: canSendRealtimeCommand, now: Date())
+        refreshConnectionPresentation()
+        if active { requestCurrentState() }
+    }
     func play(songID: String) { send(["command": "playSong", "songID": songID]) }
 
     private var canSendRealtimeCommand: Bool {
@@ -335,9 +365,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              activationDidCompleteWith activationState: WCSessionActivationState,
                              error: Error?) {
-        let reachable = session.isReachable
         Task { @MainActor in
-            self.setReachable(reachable)
+            self.setReachable(self.canSendRealtimeCommand)
             // 启动后立刻问 iPhone 拿一次最新状态。
             self.requestCurrentState()
         }
@@ -398,8 +427,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
-        let reachable = session.isReachable
         Task { @MainActor in
+            let reachable = self.canSendRealtimeCommand
             self.setReachable(reachable)
             // 跟 iPhone 重新接通, 主动拉一次最新状态。
             if reachable { self.requestCurrentState() }
@@ -411,6 +440,22 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         if isDemo { return }
         #endif
         isReachable = reachable
+        connectionPresentation.update(reachable: reachable, now: Date())
+        refreshConnectionPresentation()
+    }
+
+    private func refreshConnectionPresentation() {
+        connectionRecoveryTask?.cancel()
+        isReachable = connectionPresentation.isReachable
+        showsDisconnected = connectionPresentation.showsDisconnected(at: Date())
+        guard connectionPresentation.isActive, !isReachable, !showsDisconnected,
+              let since = connectionPresentation.unreachableSince else { return }
+        let remaining = max(0, WatchConnectionPresentation.recoveryInterval - Date().timeIntervalSince(since))
+        connectionRecoveryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled, let self else { return }
+            self.setReachable(self.canSendRealtimeCommand)
+        }
     }
 
     @MainActor
@@ -698,6 +743,7 @@ extension WatchPlayerStore {
     fileprivate func applyDemo(_ kind: String) {
         isDemo = true
         isReachable = kind != "offline"
+        showsDisconnected = !isReachable
         guard kind != "empty", kind != "offline" else { return }
 
         songID = "demo-current"
