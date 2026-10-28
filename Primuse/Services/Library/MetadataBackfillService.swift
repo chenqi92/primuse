@@ -5161,8 +5161,25 @@ final class MetadataBackfillService {
         // demand through SourceManager.
 
         var metadataInputData = headData
+        let initialParserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: song.fileFormat.rawValue,
+            signature: AudioFileSignaturePolicy.inspect(headData)
+        )
+        var completeISOBaseMediaMetadata = false
+        if RemoteMetadataInspectionPolicy.tailStrategy(
+            fileExtension: initialParserExtension,
+            isExplicitReread: isExplicitReread
+        ) == .isoBaseMedia,
+           let metadataFile = try await ISOBaseMediaRangeReader.read(
+            head: headData,
+            fileSize: song.fileSize,
+            fetch: { try await fetchRange(offset: $0, length: $1) }
+           ) {
+            metadataInputData = metadataFile
+            completeISOBaseMediaMetadata = true
+        }
         var metadata = await extractMetadata(
-            from: headData,
+            from: metadataInputData,
             song: song,
             readSession: readSession
         )
@@ -5260,7 +5277,7 @@ final class MetadataBackfillService {
                 )
             }
             if needsArtistInspection { artistInspectionCompleted = true }
-        } else if RemoteMetadataInspectionPolicy.tailStrategy(
+        } else if !completeISOBaseMediaMetadata, RemoteMetadataInspectionPolicy.tailStrategy(
             fileExtension: parserExtension,
             isExplicitReread: isExplicitReread
         ) == .isoBaseMedia {
@@ -5292,7 +5309,7 @@ final class MetadataBackfillService {
             declaredFileExtension: declaredExtension,
             signature: metadata.detectedFileSignature
         )
-        let tailStrategy = RemoteMetadataInspectionPolicy.tailStrategy(
+        let tailStrategy: RemoteMetadataTailStrategy = completeISOBaseMediaMetadata ? .none : RemoteMetadataInspectionPolicy.tailStrategy(
             fileExtension: parserExtension,
             isExplicitReread: isExplicitReread
         )
@@ -5467,7 +5484,7 @@ final class MetadataBackfillService {
            (song.fileFormat.requiresFFmpeg
                 || metadata.detectedFileSignature == .unknown
                 || Self.metadataLooksMissing(metadata)
-                || boundedReadMissedArtwork) {
+                || (boundedReadMissedArtwork && !completeISOBaseMediaMetadata)) {
             metadata = try await Self.loadCompleteFileMetadata(for: song, request: request)
             artistInspectionCompleted = true
         } else if boundedReadMissedArtwork,

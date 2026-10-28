@@ -6,6 +6,153 @@ import PrimuseKit
 @testable import Primuse
 
 @MainActor
+final class LargeVideoMetadataIntegrationTests: XCTestCase {
+    private struct Manifest: Decodable {
+        struct File: Decodable {
+            let path: String
+            let size: Int64
+            let duration: Double
+        }
+        let httpPort: Int
+        let ftpPort: Int
+        let scratchDirectory: String
+        let files: [File]
+    }
+
+    func testRealLargeVideosOverHTTPRange() async throws {
+        try await scanRealVideos(usesFTP: false)
+    }
+
+    func testRealLargeVideosOverFTP() async throws {
+        try await scanRealVideos(usesFTP: true)
+    }
+
+    private func scanRealVideos(usesFTP: Bool) async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_LARGE_VIDEO_MANIFEST"] else {
+            throw XCTSkip("Set PRIMUSE_LARGE_VIDEO_MANIFEST using large-video-metadata-server.py")
+        }
+        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        XCTAssertFalse(manifest.files.isEmpty)
+        // SQLite connections can outlive an XCTest method. The fixture server
+        // owns this directory and removes it only after the test host exits.
+        let directory = URL(fileURLWithPath: manifest.scratchDirectory).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let sourceID = "large-video-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Large video fixture", type: usesFTP ? .ftp : .googleDrive)
+        let connector = LargeVideoRangeConnector(
+            sourceID: sourceID, httpPort: manifest.httpPort, ftpPort: usesFTP ? manifest.ftpPort : nil
+        )
+        addTeardownBlock { await connector.disconnect() }
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let songs = manifest.files.enumerated().map { index, file in
+            Song(id: "\(sourceID)-\(index)", title: "Video \(index + 1)", fileFormat: .mp4,
+                 filePath: file.path, sourceID: sourceID, fileSize: file.size)
+        }
+        library.addSongs(songs, affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        let defaults = UserDefaults.standard
+        let key = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previous = defaults.object(forKey: key)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            offlineReadableSourceIDs: { [sourceID] }
+        )
+        defer { backfill.stop() }
+        let started = Date()
+        backfill.refreshStatusSnapshot()
+        backfill.start()
+        await backfill.waitUntilIdle()
+        await library.waitForPendingIndex()
+        for (song, file) in zip(songs, manifest.files) {
+            XCTAssertGreaterThanOrEqual(file.size, 4_000_000_000)
+            let scanned = try XCTUnwrap(library.song(id: song.id))
+            XCTAssertEqual(scanned.duration, file.duration, accuracy: 0.1)
+            XCTAssertEqual(scanned.fileSize, file.size)
+            let backgroundBytes = await connector.byteCount(for: file.path)
+            XCTAssertLessThan(backgroundBytes, 65 * 1024 * 1024)
+            let result = await backfill.rereadTags(songID: song.id, expectedSourceID: sourceID)
+            guard case .completed = result else { return XCTFail("Reread failed: \(result)") }
+            XCTAssertEqual(library.song(id: song.id)?.duration ?? 0, file.duration, accuracy: 0.1)
+            let totalBytes = await connector.byteCount(for: file.path)
+            XCTAssertLessThan(totalBytes, 130 * 1024 * 1024)
+            print("LARGE_VIDEO transport=\(usesFTP ? "FTP" : "HTTP") size=\(file.size) duration=\(scanned.duration) scanBytes=\(backgroundBytes) rereadBytes=\(totalBytes - backgroundBytes)")
+        }
+        let requestsBefore = await connector.requestCount
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+        backfill.start()
+        await backfill.waitUntilIdle()
+        let requestsAfter = await connector.requestCount
+        let completeDownloads = await connector.completeDownloads
+        XCTAssertEqual(requestsBefore, requestsAfter, "Completed metadata must not be read repeatedly")
+        XCTAssertEqual(completeDownloads, 0, "A missing cover in a complete moov must not download the video")
+        print("LARGE_VIDEO completed transport=\(usesFTP ? "FTP" : "HTTP") seconds=\(Date().timeIntervalSince(started)) requests=\(requestsAfter) downloads=\(completeDownloads)")
+        await connector.disconnect()
+        await library.waitForPendingIndex()
+        _ = await library.persistNowAndWait()
+    }
+}
+
+private actor LargeVideoRangeConnector: MusicSourceConnector {
+    let sourceID: String
+    private let httpPort: Int
+    private let ftp: FTPSessionPool?
+    private let cloud: CloudDriveHelper
+    private var bytes: [String: Int] = [:]
+    private(set) var requestCount = 0
+    private(set) var completeDownloads = 0
+
+    init(sourceID: String, httpPort: Int, ftpPort: Int?) {
+        self.sourceID = sourceID
+        self.httpPort = httpPort
+        cloud = CloudDriveHelper(sourceID: sourceID)
+        ftp = ftpPort.map {
+            FTPSessionPool(configuration: .init(host: "127.0.0.1", port: $0, username: "", password: "",
+                                           encryption: .none, dataConnectionMode: .passive,
+                                           log: { print("LARGE_VIDEO \($0)") }))
+        }
+    }
+    func connect() async throws {}
+    func disconnect() async { await ftp?.shutdown() }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        completeDownloads += 1
+        throw SourceError.fileNotFound(path)
+    }
+    func localURL(for path: String) async throws -> URL {
+        completeDownloads += 1
+        throw SourceError.fileNotFound(path)
+    }
+    func fetchRange(path: String, offset: Int64, length: Int64, priority: RangeFetchPriority) async throws -> Data {
+        requestCount += 1
+        let data: Data
+        if let ftp {
+            data = try await ftp.withSession { session in
+                let size = try await session.size(path) ?? 0
+                let plan = FTPTransferPolicy.rangePlan(fileSize: size, requestedOffset: offset, requestedLength: length)
+                return try await session.retrieve(path, offset: plan.offset, length: plan.expectedLength)
+            }
+        } else {
+            let url = URL(string: "http://127.0.0.1:\(httpPort)\(path)")!
+            data = try await cloud.rangeRequest(url: url, offset: offset, length: length)
+        }
+        bytes[path, default: 0] += data.count
+        return data
+    }
+    func byteCount(for path: String) -> Int { bytes[path, default: 0] }
+}
+
+@MainActor
 final class SourceAutomaticScanSchedulingTests: XCTestCase {
     func testAutomaticScansRunSeriallyAndCoalesceRepeatedRequests() async throws {
         let fixture = try Fixture()

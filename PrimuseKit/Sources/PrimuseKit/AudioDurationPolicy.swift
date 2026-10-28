@@ -855,3 +855,83 @@ public enum MPEGFrameHeaderParser {
         return 10 + size + ((data[5] & 0x10) != 0 ? 10 : 0)
     }
 }
+
+
+/// Locates metadata by top-level atom boundaries, without reading media payloads.
+public enum ISOBaseMediaRangeReader {
+    public static let maximumMetadataByteCount = 64 * 1024 * 1024
+    public static let chunkByteCount = 1024 * 1024
+    private static let maximumAtomCount = 128
+
+    public enum ReadError: Error, Sendable {
+        case incompleteRange
+    }
+
+    /// Returns a complete `ftyp` + `moov` file, or nil for unsupported layouts.
+    /// The supplied prefix is reused, including a partially available fast-start
+    /// moov. All subsequent reads use absolute offsets, including past 4 GiB.
+    public static func read(
+        head: Data,
+        fileSize: Int64,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> Data? {
+        guard fileSize >= 8, head.count >= 8 else { return nil }
+
+        func bytes(at offset: Int64, count: Int) async throws -> Data {
+            var result = Data()
+            if offset < Int64(head.count) {
+                let start = Int(offset)
+                let end = start + min(count, head.count - start)
+                result.append(head[head.startIndex + start..<head.startIndex + end])
+            }
+            while result.count < count {
+                try Task.checkCancellation()
+                let length = min(chunkByteCount, count - result.count)
+                let part = try await fetch(offset + Int64(result.count), Int64(length))
+                guard part.count == length else { throw ReadError.incompleteRange }
+                result.append(part)
+            }
+            return result
+        }
+
+        func unsigned(_ data: Data, _ range: Range<Int>) -> UInt64 {
+            data[range].reduce(0) { ($0 << 8) | UInt64($1) }
+        }
+
+        var offset: Int64 = 0
+        var ftyp: Data?
+        for _ in 0..<maximumAtomCount {
+            try Task.checkCancellation()
+            guard fileSize - offset >= 8 else { return nil }
+            let header = try await bytes(at: offset, count: 8)
+            let type = String(decoding: header[4..<8], as: UTF8.self)
+            let size32 = unsigned(header, 0..<4)
+            let headerSize: Int64 = size32 == 1 ? 16 : 8
+            let size: UInt64
+            if size32 == 1 {
+                guard fileSize - offset >= 16 else { return nil }
+                size = unsigned(try await bytes(at: offset + 8, count: 8), 0..<8)
+            } else {
+                size = size32 == 0 ? UInt64(fileSize - offset) : size32
+            }
+            guard size >= UInt64(headerSize), size <= UInt64(fileSize - offset) else {
+                return nil
+            }
+
+            switch type {
+            case "ftyp":
+                guard ftyp == nil, size <= 64 * 1024 else { return nil }
+                ftyp = try await bytes(at: offset, count: Int(size))
+            case "moov":
+                guard let ftyp, size <= maximumMetadataByteCount else { return nil }
+                let moov = try await bytes(at: offset, count: Int(size))
+                return ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(head: ftyp, tail: moov)
+            default:
+                break
+            }
+            // The remaining-file check above also proves this addition cannot overflow.
+            offset += Int64(size)
+        }
+        return nil
+    }
+}
