@@ -1541,6 +1541,86 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testSynologyBackfillRecoversEmbeddedCoverForDurationCompleteChapter() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceID = "synology-artwork-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Synology artwork fixture", type: .synology)
+        let coverData = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        var payload = Self.duplicatedArtistTitleFixture()
+        let oldTagSize = payload[6..<10].reduce(0) { ($0 << 7) | Int($1) }
+        let picture = Data([0]) + Data("image/png".utf8) + Data([0, 3, 0]) + coverData
+        let frame = Data("APIC".utf8)
+            + Data([24, 16, 8, 0].map { UInt8((picture.count >> $0) & 0xFF) })
+            + Data([0, 0]) + picture
+        payload.insert(contentsOf: frame, at: 10)
+        let tagSize = oldTagSize + frame.count
+        payload.replaceSubrange(6..<10, with: [21, 14, 7, 0].map { UInt8((tagSize >> $0) & 0x7F) })
+        let path = "/audiobook/Book/01.mp3"
+        let connector = CompleteArtworkFixtureConnector(
+            sourceID: sourceID, payloads: [path: payload], localURLs: [:]
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let song = Song(
+            id: sourceID + "-chapter", title: "Chapter", artistName: "Narrator", duration: 1_275,
+            fileFormat: .mp3, filePath: path, sourceID: sourceID, fileSize: Int64(payload.count),
+            bitRate: 128
+        )
+        library.addSongs([song], affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        let defaults = UserDefaults.standard
+        let modeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousMode = defaults.object(forKey: modeKey)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: modeKey)
+        defer {
+            if let previousMode { defaults.set(previousMode, forKey: modeKey) }
+            else { defaults.removeObject(forKey: modeKey) }
+        }
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            bareOnlySourceIDs: { [sourceID] }, offlineReadableSourceIDs: { [sourceID] },
+            storageDirectory: directory.appendingPathComponent("backfill")
+        )
+        defer { backfill.stop() }
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 1)
+        XCTAssertFalse(backfill.isReadyForSyncedTagEdit(song, includesCover: false, sourceReadsTags: true))
+        backfill.start()
+        await backfill.waitUntilIdle()
+        await library.waitForPendingIndex()
+        let recovered = try XCTUnwrap(library.song(id: song.id))
+        XCTAssertNotNil(recovered.coverArtFileName)
+        let cachedCover = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id)
+        XCTAssertEqual(cachedCover, coverData)
+        XCTAssertTrue(backfill.isReadyForSyncedTagEdit(recovered, includesCover: false, sourceReadsTags: true))
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+        let fullDownloads = await connector.localURLRequestCount(for: path)
+        XCTAssertEqual(fullDownloads, 0)
+        let initialRangeRequests = await connector.rangeRequestCount(for: path)
+        XCTAssertGreaterThan(initialRangeRequests, 0)
+        backfill.stop()
+        let restarted = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            bareOnlySourceIDs: { [sourceID] }, offlineReadableSourceIDs: { [sourceID] },
+            storageDirectory: directory.appendingPathComponent("backfill")
+        )
+        defer { restarted.stop() }
+        for _ in 0..<3 {
+            restarted.refreshStatusSnapshot()
+            XCTAssertEqual(restarted.remainingCount(forSource: sourceID), 0)
+            restarted.start()
+            await restarted.waitUntilIdle()
+        }
+        let finalRangeRequests = await connector.rangeRequestCount(for: path)
+        XCTAssertEqual(finalRangeRequests, initialRangeRequests)
+    }
+
+    @MainActor
     func testLocalBackfillRecoversMiddleArtworkAndDoesNotRepeatACompleteMiss() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1599,6 +1679,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         let defaults = UserDefaults.standard
         let readingModeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
         let previousReadingMode = defaults.object(forKey: readingModeKey)
+        let repairKey = "primuse.backfillState.v2026_10_bareSourceArtwork"
+        let previousRepair = defaults.object(forKey: repairKey)
         defaults.set(MetadataReadingMode.automatic.rawValue, forKey: readingModeKey)
         defer {
             if let previousReadingMode {
@@ -1606,14 +1688,18 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             } else {
                 defaults.removeObject(forKey: readingModeKey)
             }
+            if let previousRepair { defaults.set(previousRepair, forKey: repairKey) }
+            else { defaults.removeObject(forKey: repairKey) }
         }
         let backfill = MetadataBackfillService(
             library: library,
             sourceManager: manager,
             backfillableSourceIDs: { [sourceID] },
+            bareOnlySourceIDs: { [sourceID] },
             offlineReadableSourceIDs: { [sourceID] },
             localFileSourceIDs: { [sourceID] },
-            directFileSourceIDs: { [sourceID] }
+            directFileSourceIDs: { [sourceID] },
+            storageDirectory: directory.appendingPathComponent("backfill")
         )
         defer { backfill.stop() }
         backfill.refreshStatusSnapshot()
@@ -1635,6 +1721,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
 
         backfill.refreshStatusSnapshot()
         XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+        XCTAssertTrue(backfill.isReadyForSyncedTagEdit(uncoveredSong, includesCover: false, sourceReadsTags: true))
         backfill.start()
         await backfill.waitUntilIdle()
         let finalCoveredRequestCount = await connector.localURLRequestCount(for: coveredPath)
@@ -1645,6 +1732,128 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             1,
             "A confirmed complete-file artwork miss must remain in artworkGivenUpIDs"
         )
+        backfill.stop()
+        let stateDirectory = directory.appendingPathComponent("backfill")
+        try await waitForBackfillState(
+            songID: uncoveredSong.id,
+            files: ["backfill-artwork-givenup.json", "backfill-title-checked.json"],
+            directory: stateDirectory
+        )
+        defaults.removeObject(forKey: repairKey)
+        let restarted = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            bareOnlySourceIDs: { [sourceID] }, offlineReadableSourceIDs: { [sourceID] },
+            localFileSourceIDs: { [sourceID] }, directFileSourceIDs: { [sourceID] },
+            storageDirectory: stateDirectory
+        )
+        defer { restarted.stop() }
+        XCTAssertTrue(defaults.bool(forKey: repairKey))
+        let rangeRequestsBeforeRestart = await connector.rangeRequestCount(for: uncoveredPath)
+        for _ in 0..<3 {
+            restarted.refreshStatusSnapshot()
+            XCTAssertEqual(restarted.remainingCount(forSource: sourceID), 0)
+            restarted.start()
+            await restarted.waitUntilIdle()
+        }
+        let requestsAfterRestart = await connector.localURLRequestCount(for: uncoveredPath)
+        let rangesAfterRestart = await connector.rangeRequestCount(for: uncoveredPath)
+        XCTAssertEqual(requestsAfterRestart, 1, "The upgrade must preserve a persisted artwork miss")
+        XCTAssertEqual(rangesAfterRestart, rangeRequestsBeforeRestart)
+    }
+
+    @MainActor
+    func testRemoteAPEWithoutDurationOrArtworkDoesNotRepeatAfterRestart() async throws {
+        let defaults = UserDefaults.standard
+        let modeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousMode = defaults.object(forKey: modeKey)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: modeKey)
+        defer {
+            if let previousMode { defaults.set(previousMode, forKey: modeKey) }
+            else { defaults.removeObject(forKey: modeKey) }
+        }
+        for sourceType in [MusicSourceType.webdav, .synology] {
+            let directory = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let sourceID = "ape-no-artwork-\(UUID().uuidString)"
+            let source = MusicSource(id: sourceID, name: "APE fixture", type: sourceType)
+            let path = "/Album/Track.ape"
+            func le16(_ value: Int) -> [UInt8] {
+                (0..<2).map { UInt8((value >> (8 * $0)) & 0xFF) }
+            }
+            func le32(_ value: Int) -> [UInt8] {
+                (0..<4).map { UInt8((value >> (8 * $0)) & 0xFF) }
+            }
+            var descriptor = Array("MAC ".utf8) + le16(3990) + le16(0)
+            descriptor += le32(52) + le32(24) + le32(0) + le32(44)
+            descriptor += le32(1_000_000) + le32(0) + le32(0)
+            descriptor += [UInt8](repeating: 0xAB, count: 16)
+            var header = le16(2000) + le16(0) + le32(294_912) + le32(0) + le32(0)
+            header += le16(16) + le16(2) + le32(44_100)
+            let payload = Data(descriptor + header + [UInt8](repeating: 0, count: 64))
+            let connector = CompleteArtworkFixtureConnector(
+                sourceID: sourceID, payloads: [path: payload], localURLs: [:]
+            )
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+            await library.whenReady()
+            let song = Song(
+                id: sourceID + "-track", title: "Track", artistName: "Artist", duration: 0,
+                fileFormat: .ape, filePath: path, sourceID: sourceID, fileSize: Int64(payload.count)
+            )
+            library.addSongs([song], affectedSourceIDs: [sourceID])
+            await library.waitForPendingIndex()
+            let stateDirectory = directory.appendingPathComponent("backfill")
+            let bareIDs: Set<String> = sourceType == .synology ? [sourceID] : []
+            let backfill = MetadataBackfillService(
+                library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+                bareOnlySourceIDs: { bareIDs }, offlineReadableSourceIDs: { [sourceID] },
+                storageDirectory: stateDirectory
+            )
+            defer { backfill.stop() }
+            backfill.start()
+            await backfill.waitUntilIdle()
+            await library.waitForPendingIndex()
+            XCTAssertEqual(library.song(id: song.id)?.duration, 0)
+            XCTAssertNil(library.song(id: song.id)?.coverArtFileName)
+            backfill.refreshStatusSnapshot()
+            XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+            let initialRequests = await connector.rangeRequestCount(for: path)
+            XCTAssertGreaterThan(initialRequests, 0)
+            backfill.stop()
+            try await waitForBackfillState(
+                songID: song.id,
+                files: ["backfill-artwork-givenup.json", "backfill-incomplete.json", "backfill-title-checked.json"],
+                directory: stateDirectory
+            )
+            let restarted = MetadataBackfillService(
+                library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+                bareOnlySourceIDs: { bareIDs }, offlineReadableSourceIDs: { [sourceID] },
+                storageDirectory: stateDirectory
+            )
+            defer { restarted.stop() }
+            for _ in 0..<3 {
+                restarted.refreshStatusSnapshot()
+                XCTAssertEqual(restarted.remainingCount(forSource: sourceID), 0)
+                restarted.start()
+                await restarted.waitUntilIdle()
+            }
+            let finalRequests = await connector.rangeRequestCount(for: path)
+            XCTAssertEqual(finalRequests, initialRequests, "An incomplete APE must stay inspected after restart")
+        }
+    }
+
+    @MainActor
+    private func waitForBackfillState(songID: String, files: [String], directory: URL) async throws {
+        for _ in 0..<200 {
+            let saved = files.allSatisfy { name in
+                guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)),
+                      let ids = try? JSONDecoder().decode([String].self, from: data) else { return false }
+                return ids.contains(songID)
+            }
+            if saved { return }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTFail("Backfill inspection state was not persisted: \(files)")
     }
 
     @MainActor
@@ -2411,7 +2620,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                     duration: 200,
                     fileFormat: .flac,
                     filePath: "/recheck-\(index).flac",
-                    sourceID: "remote"
+                    sourceID: "remote",
+                    coverArtFileName: "/covers/compilation.jpg"
                 )
             )
         }
@@ -2459,7 +2669,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                     duration: 200,
                     fileFormat: .flac,
                     filePath: "/recheck-\(index).flac",
-                    sourceID: "remote"
+                    sourceID: "remote",
+                    coverArtFileName: "/covers/compilation.jpg"
                 )
             )
         }
@@ -2505,7 +2716,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                 duration: 200,
                 fileFormat: .flac,
                 filePath: "/recheck-0.flac",
-                sourceID: "remote"
+                sourceID: "remote",
+                coverArtFileName: "/covers/compilation.jpg"
             )
         )
         for index in 0..<3 {
@@ -2822,6 +3034,7 @@ private actor CompleteArtworkFixtureConnector: MusicSourceConnector {
     private let payloads: [String: Data]
     private let localURLs: [String: URL]
     private var localURLRequests: [String: Int] = [:]
+    private var rangeRequests: [String: Int] = [:]
 
     init(sourceID: String, payloads: [String: Data], localURLs: [String: URL]) {
         self.sourceID = sourceID
@@ -2835,8 +3048,8 @@ private actor CompleteArtworkFixtureConnector: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
 
     func localURL(for path: String) async throws -> URL {
-        guard let url = localURLs[path] else { throw SourceError.fileNotFound(path) }
         localURLRequests[path, default: 0] += 1
+        guard let url = localURLs[path] else { throw SourceError.fileNotFound(path) }
         return url
     }
 
@@ -2858,6 +3071,7 @@ private actor CompleteArtworkFixtureConnector: MusicSourceConnector {
         length: Int64,
         priority _: RangeFetchPriority
     ) async throws -> Data {
+        rangeRequests[path, default: 0] += 1
         guard let payload = payloads[path] else { throw SourceError.fileNotFound(path) }
         let start = offset >= 0 ? offset : Int64(payload.count) + offset
         guard start >= 0,
@@ -2872,6 +3086,10 @@ private actor CompleteArtworkFixtureConnector: MusicSourceConnector {
 
     func localURLRequestCount(for path: String) -> Int {
         localURLRequests[path, default: 0]
+    }
+
+    func rangeRequestCount(for path: String) -> Int {
+        rangeRequests[path, default: 0]
     }
 }
 

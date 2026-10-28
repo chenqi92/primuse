@@ -207,6 +207,59 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("Bare inventory rows with duration still recover missing embedded artwork")
+    func bareInventoryArtworkStillBackfills() {
+        for format in MetadataBackfillEligibilityPolicy.embeddedArtworkFormats {
+            for titleChecked in [false, true] {
+                #expect(MetadataBackfillEligibilityPolicy.reasons(
+                    duration: 1_275,
+                    format: format,
+                    hasCoverArt: false,
+                    artworkGivenUp: false,
+                    titleChecked: titleChecked,
+                    restrictToBareRows: true
+                ) == [.artwork])
+            }
+        }
+    }
+
+    @Test("A completed duration inspection does not suppress missing artwork")
+    func completedDurationInspectionStillAllowsArtwork() {
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 0,
+            format: .mp3,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: true,
+            restrictToBareRows: true,
+            durationInspectionComplete: true
+        ) == [.artwork])
+    }
+
+    @Test("Bare inventory artwork recovery stops after a cover or a confirmed miss")
+    func bareInventoryArtworkDoesNotLoop() {
+        for format in MetadataBackfillEligibilityPolicy.embeddedArtworkFormats {
+            for (hasCover, givenUp) in [(true, false), (false, true)] {
+                #expect(MetadataBackfillEligibilityPolicy.reasons(
+                    duration: 1_275,
+                    format: format,
+                    hasCoverArt: hasCover,
+                    artworkGivenUp: givenUp,
+                    titleChecked: false,
+                    restrictToBareRows: true
+                ).isEmpty)
+            }
+        }
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 1_275,
+            format: .dts,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            restrictToBareRows: true
+        ).isEmpty)
+    }
+
     @Test("FLAC and MPEG-4 audio get one embedded artwork attempt")
     func containerArtworkStillBackfills() {
         for format in [AudioFormat.flac, .m4a, .alac] {
@@ -450,12 +503,12 @@ struct MetadataBackfillEligibilityPolicyTests {
             albumArtistUnconfirmed: true
         ) == [.albumArtist])
 
-        // 判定不成立时, 裸行源照旧一行都不重读。
+        // 专辑艺术家无需复查、封面也已确认缺失时, 不再补读裸行源。
         #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
             duration: 180,
             format: .mp3,
             hasCoverArt: false,
-            artworkGivenUp: false,
+            artworkGivenUp: true,
             titleChecked: false,
             restrictToBareRows: true,
             hasAlbumTitle: true,

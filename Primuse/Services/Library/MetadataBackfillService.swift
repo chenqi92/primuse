@@ -1750,6 +1750,14 @@ final class MetadataBackfillService {
             markQueueDirty()
             UserDefaults.standard.set(true, forKey: artworkCompleteReadKey)
         }
+
+        // 旧队列可能已把「有时长但缺封面」的本地/群晖条目记为完成。
+        // 只重算待办, 保留实际读过却没有封面的记录, 避免整库重复读取。
+        let bareSourceArtworkKey = "primuse.backfillState.v2026_10_bareSourceArtwork"
+        if !defaults.bool(forKey: bareSourceArtworkKey) {
+            markQueueDirty()
+            defaults.set(true, forKey: bareSourceArtworkKey)
+        }
     }
 
     static func observeReadingConfigurationChanges(
@@ -6938,8 +6946,7 @@ final class MetadataBackfillService {
         guard !includesCover, song.coverArtFileName?.isEmpty ?? true else { return true }
         // 在等同组那首读封面的(别的设备读好的同一张内嵌封面)也算在等。
         if peerCoverKeyBySongID[song.id] != nil { return false }
-        // 只读裸行的源不会为已经有时长的行再去读封面,等也等不来。
-        if !restrictsToBareRows(song), Self.needsEmbeddedArtworkBackfill(song),
+        if Self.needsEmbeddedArtworkBackfill(song),
            !artworkGivenUpIDs.contains(song.id) {
             return false
         }
@@ -7022,8 +7029,8 @@ final class MetadataBackfillService {
                 case .unknown:
                     cover = .unknown
                 }
-                // 补读不会再单独为这一行读封面(只读裸行的源、或补读不读封面的格式):
-                // 本机还指不到封面就别用,照常读一次文件。
+                // 裸行源在封面未落地时仍保留首次本机读取;不支持内嵌封面的格式
+                // 也不能靠后续补读恢复。
                 if cover != .resolved,
                    bareOnly.contains(song.sourceID)
                     || !MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat) {

@@ -4007,8 +4007,9 @@ public enum MetadataBackfillEligibilityPolicy {
         .wav, .aiff, .aif,
     ]
 
-    /// Bare inventory sources normally stop after the first bounded metadata
-    /// read. STRM rows are descriptors rather than audio files, so they keep
+    /// Bare inventory sources stop refreshing text after the first metadata
+    /// read; missing artwork and technical fields retain their own inspection.
+    /// STRM rows are descriptors rather than audio files, so they keep
     /// their existing enrichment path instead of inheriting that shortcut.
     public static func restrictsToBareRows(
         sourceUsesBareInventory: Bool,
@@ -4040,11 +4041,13 @@ public enum MetadataBackfillEligibilityPolicy {
             return audioCodecUnread ? [.audioCodec] : []
         }
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
-            // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
-            // 案时例外。那一笔带自己的一次性登记, 不会把裸行源拖回每轮重读。
-            // 编码同理: 读过一次就记在歌上(`ContainerAudioCodecPolicy.inspectedCodec`)。
+            // 时长已知不代表封面读过。封面、专辑艺术家和技术信息各自完成后
+            // 才停止补读, 不重新打开已经结束的标题/艺术家检查。
             var reasons: MetadataBackfillWorkReasons = hasAlbumTitle && albumArtistUnconfirmed
                 ? [.albumArtist] : []
+            if embeddedArtworkFormats.contains(format) && !hasCoverArt && !artworkGivenUp {
+                reasons.insert(.artwork)
+            }
             if audioCodecUnread { reasons.insert(.audioCodec) }
             if effectiveBitDepthUnread { reasons.insert(.effectiveBitDepth) }
             return reasons
