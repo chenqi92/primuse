@@ -20,7 +20,7 @@ struct ArtistNameConfiguration: Sendable { let cacheSignature = "smoke" }
 final class MusicLibrary {
     static let likedSongsPlaylistID = "liked"
     var isReady = true
-    var visibleSongs = [Song(id: "one", title: "Green spotlight smoke")]
+    var visibleSongs = [Song(id: "one", title: "Green spotlight smoke"), Song(id: "emoji", title: "🎵")]
     var visibleAlbums = [Album(id: "one", title: "Smoke album")]
     var visibleArtists = [Artist(id: "one", name: "Smoke artist")]
     var playlists = [Playlist(id: "one", name: "Smoke playlist")]
@@ -87,6 +87,16 @@ private func require(_ value: Bool, _ message: String) throws {
     if !value { throw SmokeFailure(description: message) }
 }
 
+private actor QueryVisibilityFixture {
+    private var replies: [Set<String>?]
+    private(set) var reads = 0
+    init(_ replies: [Set<String>?]) { self.replies = replies }
+    func next() -> Set<String>? {
+        reads += 1
+        return replies.isEmpty ? nil : replies.removeFirst()
+    }
+}
+
 private final class QueryRows: @unchecked Sendable {
     private let lock = NSLock()
     private var rows: [String: String] = [:]
@@ -107,7 +117,7 @@ extension SpotlightIndexService {
         try await withCheckedThrowingContinuation { continuation in
             let context = CSSearchQueryContext()
             context.fetchAttributes = ["title"]
-            let query = CSSearchQuery(queryString: "title == \"*\"", queryContext: context)
+            let query = CSSearchQuery(queryString: "contentType == \"public.audio\" || contentType == \"public.text\"", queryContext: context)
             let rows = QueryRows()
             query.foundItemsHandler = { rows.append($0) }
             query.completionHandler = { error in
@@ -170,9 +180,11 @@ extension SpotlightIndexService {
             status: SpotlightIndexStatus()
         )
         try require(succeeded, "Full rebuild failed")
-        var expected = ["control": "Unrelated control", "song:one": "Green spotlight smoke",
+        var expected = ["control": "Unrelated control", "song:one": "Green spotlight smoke", "song:emoji": "🎵",
                         "album:one": "Smoke album", "artist:one": "Smoke artist", "playlist:one": "Smoke playlist"]
         try await expectRows(expected, label: "full rebuild preserves all four content kinds and removes only stale library items")
+        try require(await indexedIdentifiers()?.contains("song:emoji") == true, "Enumeration omitted an emoji-only title")
+        print("PASS: production enumeration includes emoji-only titles")
 
         // Recreate a clean v1 manifest whose system items were already erased.
         let prepared = prepareSnapshot(service.makeLibrarySnapshot(library: library))!
@@ -198,6 +210,9 @@ extension SpotlightIndexService {
         relaunched.synchronizeIfNeeded(library: library)
         try require(relaunched.workPhase == .idle, "Clean recovered index rebuilt again on launch")
         print("PASS: recovered index stays clean across launches")
+
+        try await artworkChangesPreserveCoverage(library: library, service: migrated)
+        try await committedWritesNeedVerification(library: library, service: migrated)
 
         library.visibleSongs[0].title = "Updated spotlight smoke"
         library.visibleAlbums = []
@@ -344,6 +359,12 @@ extension SpotlightIndexService {
         try require(service.identifiersMissingFromIndex == Set(lost), "Lost items were not queued for rewriting")
         print("PASS: settings measurement finds items missing from the system index")
 
+        service.synchronizeIfNeeded(library: library, delay: .seconds(30))
+        service.synchronizeIfNeeded(library: library, delay: .seconds(30))
+        service.cancelPendingSynchronization()
+        try require(service.identifiersMissingFromIndex == Set(lost), "Cancelling debounced work lost the rewrite queue")
+        print("PASS: replacement and cancellation during debounce preserve missing identifiers")
+
         service.synchronizeNow(library: library)
         try await service.waitForCompletion()
         try await expectRows(expected, label: "next synchronization writes the lost items again")
@@ -353,6 +374,77 @@ extension SpotlightIndexService {
         }
         try require(service.status.coverage?.isComplete == true, "Coverage not complete after rewriting")
         try require(service.identifiersMissingFromIndex.isEmpty, "Rewritten items still queued")
+    }
+
+    private static func artworkChangesPreserveCoverage(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        service.refreshStatus(library: library)
+        for _ in 0..<100 where service.status.activity != .idle {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let artwork = MetadataAssetStore.shared.artworkDirectoryURL.appendingPathComponent("one.jpg")
+        try Data([1]).write(to: artwork)
+        defer { try? FileManager.default.removeItem(at: artwork) }
+        library.visibleSongs[0].coverArtFileName = "one.jpg"
+        service.suspendSynchronization()
+        service.artworkPreferenceChanged(library: library)
+        for _ in 0..<100 where service.status.activity != .idle {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try require(service.status.coverage?.remaining == 0, "Cover change was counted as missing from search")
+        try require(service.status.coverage?.awaitingUpdate == 1, "Cover update was not reported immediately")
+        try require(service.status.coverage?.isComplete == false, "Cover change retained stale completion status")
+        library.visibleSongs[0].coverArtFileName = nil
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        print("PASS: cover change refreshes status immediately and keeps existing search coverage")
+    }
+
+    private static func committedWritesNeedVerification(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        let realFound = await indexedIdentifiers()!
+        let withheld = realFound.subtracting(["song:emoji"])
+        let status = SpotlightIndexStatus()
+        let result = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: status,
+            queryIdentifiers: { withheld }
+        )
+        try require(!result, "Batch acknowledgment was mistaken for query visibility")
+        try require(status.coverage?.remaining == 1 && status.coverage?.isComplete == false, "Missing query result was shown as complete")
+        let checkpoint = loadManifest(from: service.manifestURL)!
+        try require(checkpoint.signaturesByIdentifier["song:emoji"] == "", "Unverified write was not persisted for retry")
+        let client = await fetchClientState(from: CSSearchableIndex(name: kSpotlightIndexName))
+        try require(client.data == clientState(for: checkpoint), "Verification checkpoint and client state differ")
+        let repaired = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: status
+        )
+        try require(repaired && status.coverage?.isComplete == true, "Persisted retry did not converge after query visibility recovered")
+        let unavailable = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: status,
+            queryIdentifiers: { nil }
+        )
+        try require(!unavailable && status.coverage?.isVerified == false && status.coverage?.isComplete == false,
+                    "Unavailable query was shown as confirmed")
+        let delayed = QueryVisibilityFixture([realFound, withheld, realFound])
+        let converged = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: status,
+            missingFromIndex: ["song:emoji"],
+            queryIdentifiers: { await delayed.next() }
+        )
+        let queryCount = await delayed.reads
+        try require(converged && status.coverage?.isComplete == true && queryCount == 3,
+                    "Delayed visibility did not converge through verification retries")
+        print("PASS: committed writes await query visibility, persist missing items, and recover without rebuilding")
     }
 }
 

@@ -136,6 +136,7 @@ final class SpotlightIndexService {
     let status = SpotlightIndexStatus()
     /// 设置页里点了「现在建立」:离开那一页时把前台建的这一轮交回后台。
     private var isForegroundSynchronizationRequested = false
+    private var isStatusVisible = false
     private var pendingTask: Task<Void, Never>?
     private var pendingGeneration: UUID?
     private var queuedSnapshot: LibrarySnapshot?
@@ -183,12 +184,13 @@ final class SpotlightIndexService {
         UserDefaults.standard.object(forKey: showsArtworkKey) as? Bool ?? true
     }
 
-    /// The cover switch changes every item's signature, so the next
-    /// synchronization re-indexes the library with or without thumbnails.
+    /// The cover switch changes signatures for items with cached artwork, so
+    /// the next synchronization adds or removes their thumbnails.
     func artworkPreferenceChanged(library: MusicLibrary) {
         Self.persistLibraryChangePending()
         needsSynchronization = true
         scheduleSynchronization(library: library)
+        if isStatusVisible { refreshStatus(library: library) }
     }
 
     /// 本机新存下了一批封面(存储管理里「下载全部封面和歌词」)。带封面的条目签名变了,
@@ -326,30 +328,49 @@ final class SpotlightIndexService {
     /// 打开设置页时量一次收录进度:没在建时拿本机记下的清单比对这份曲库,再到系统索引里查一遍
     /// App 自己的条目 —— 清单说写进去了、索引里却没有的,按没收录算,交给下一轮重写(#346)。
     func refreshStatus(library: MusicLibrary) {
+        isStatusVisible = true
         guard library.isReady, workPhase != .running, status.beginMeasuring() else { return }
         let snapshot = makeLibrarySnapshot(library: library)
         let manifestURL = self.manifestURL
-        let status = self.status
+        let revision = Self.synchronizationGeneration
         Task.detached(priority: .utility) { [weak self] in
-            var stored = Self.loadManifest(from: manifestURL)
+            let stored = Self.loadManifest(from: manifestURL)
             var missing: Set<String> = []
+            var verifiedIdentifiers: Set<String>?
             if let manifest = stored, let found = await Self.indexedIdentifiers() {
                 switch SpotlightIndexVerification.compare(manifest: manifest, found: found) {
                 case .consistent:
+                    verifiedIdentifiers = found
                     spotlightLog.notice("Spotlight index verified: \(found.count) items")
                 case .missing(let identifiers):
                     missing = identifiers
-                    stored = SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: identifiers)
+                    verifiedIdentifiers = found
                     let sample = identifiers.sorted().prefix(5).joined(separator: ",")
                     spotlightLog.error("Spotlight index is missing \(identifiers.count) of its items (found \(found.count)); e.g. \(sample, privacy: .public)")
                 case .inconclusive:
                     spotlightLog.notice("Spotlight index query returned nothing; keeping the manifest")
                 }
             }
-            let coverage = Self.measureCoverage(snapshot: snapshot, stored: stored)
-            await status.finishMeasuring(coverage, exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs)
-            if !missing.isEmpty { await self?.scheduleRewrite(of: missing) }
+            let coverage = Self.measureCoverage(snapshot: snapshot, stored: stored, foundIdentifiers: verifiedIdentifiers)
+            await self?.finishStatusMeasurement(
+                coverage, missing: missing, revision: revision, library: library,
+                exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs
+            )
         }
+    }
+
+    private func finishStatusMeasurement(
+        _ coverage: SpotlightIndexCoverage?, missing: Set<String>, revision: Int,
+        library: MusicLibrary, exceedsSongLimit: Bool
+    ) {
+        guard workPhase != .running, status.activity == .measuring else { return }
+        guard revision == Self.synchronizationGeneration else {
+            status.finishMeasuring(nil, exceedsSongLimit: exceedsSongLimit)
+            if isStatusVisible { refreshStatus(library: library) }
+            return
+        }
+        if !missing.isEmpty { scheduleRewrite(of: missing) }
+        status.finishMeasuring(coverage, exceedsSongLimit: exceedsSongLimit)
     }
 
     private func scheduleRewrite(of identifiers: Set<String>) {
@@ -367,6 +388,7 @@ final class SpotlightIndexService {
     }
 
     func endForegroundSynchronization() {
+        isStatusVisible = false
         guard isForegroundSynchronizationRequested else { return }
         isForegroundSynchronizationRequested = false
         #if os(iOS)
@@ -378,7 +400,8 @@ final class SpotlightIndexService {
 
     private nonisolated static func measureCoverage(
         snapshot: LibrarySnapshot,
-        stored: SpotlightIndexManifest?
+        stored: SpotlightIndexManifest?,
+        foundIdentifiers: Set<String>? = nil
     ) -> SpotlightIndexCoverage? {
         guard let prepared = prepareSnapshot(snapshot) else { return nil }
         let wanted = SpotlightIndexPlanner.makePlan(
@@ -389,19 +412,20 @@ final class SpotlightIndexService {
         return SpotlightIndexCoverage.measure(
             wanted: wanted,
             stored: stored,
-            textOnlySuffix: textOnlySignatureSuffix
+            textOnlySuffix: textOnlySignatureSuffix,
+            foundIdentifiers: foundIdentifiers
         )
     }
 
-    /// App 写进系统索引的全部条目标识(每条都有 title)。查询出错、或者平台没有这个查询时是 nil。
+    /// 所有条目统一使用 audio 类型；title 通配符会漏掉没有可分词标题的条目。
     private nonisolated static func indexedIdentifiers() async -> Set<String>? {
         #if os(tvOS)
         return nil
         #else
         return await withCheckedContinuation { continuation in
             let context = CSSearchQueryContext()
-            context.fetchAttributes = ["title"]
-            let query = CSSearchQuery(queryString: "title == \"*\"", queryContext: context)
+            context.fetchAttributes = []
+            let query = CSSearchQuery(queryString: "contentType == \"public.audio\"", queryContext: context)
             let collector = IndexedIdentifierCollector()
             query.foundItemsHandler = { collector.append($0) }
             query.completionHandler = { error in
@@ -458,8 +482,6 @@ final class SpotlightIndexService {
         let manifestURL = self.manifestURL
         let thumbnailDirectoryURL = self.thumbnailDirectoryURL
         let status = self.status
-        let missingFromIndex = identifiersMissingFromIndex
-        identifiersMissingFromIndex = []
         pendingGeneration = generation
         workPhase = .debouncing
 
@@ -470,10 +492,7 @@ final class SpotlightIndexService {
                 return
             }
             guard !Task.isCancelled,
-                  await self?.transitionToRunning(generation: generation) == true else {
-                await self?.returnMissingIdentifiers(missingFromIndex)
-                return
-            }
+                  let missingFromIndex = await self?.transitionToRunning(generation: generation) else { return }
 
             let succeeded = await Self.performSynchronization(
                 snapshot: snapshot,
@@ -496,10 +515,13 @@ final class SpotlightIndexService {
         identifiersMissingFromIndex.formUnion(identifiers)
     }
 
-    private func transitionToRunning(generation: UUID) -> Bool {
-        guard pendingGeneration == generation, workPhase == .debouncing else { return false }
+    private func transitionToRunning(generation: UUID) -> Set<String>? {
+        guard pendingGeneration == generation, workPhase == .debouncing else { return nil }
         workPhase = .running
-        return true
+        status.beginIndexing()
+        let missing = identifiersMissingFromIndex
+        identifiersMissingFromIndex = []
+        return missing
     }
 
     private func finishSynchronization(
@@ -553,7 +575,8 @@ final class SpotlightIndexService {
         manifestURL: URL,
         thumbnailDirectoryURL: URL,
         status: SpotlightIndexStatus,
-        missingFromIndex: Set<String> = []
+        missingFromIndex: Set<String> = [],
+        queryIdentifiers: @Sendable () async -> Set<String>? = { await indexedIdentifiers() }
     ) async -> Bool {
         let exceedsSongLimit = snapshot.songs.count > maxIndexedSongs
         guard canPerformIndexing, !Task.isCancelled else {
@@ -589,14 +612,21 @@ final class SpotlightIndexService {
         let expectedClientState = storedManifest.map(clientState(for:))
         let clientStateMatches = clientStateResult.data == expectedClientState
         let forceFullRebuild = storedManifest != nil && !clientStateMatches
+        let initiallyFound = await queryIdentifiers()
+        guard !Task.isCancelled else { return false }
+        var missingIdentifiers = missingFromIndex
+        if let storedManifest, let initiallyFound,
+           case .missing(let missing) = SpotlightIndexVerification.compare(manifest: storedManifest, found: initiallyFound) {
+            missingIdentifiers.formUnion(missing)
+        }
         // 系统索引里查不到的条目按未确认算,这一轮把它们重新写进去(#346)。
         let previousManifest = storedManifest.map { manifest in
-            missingFromIndex.isEmpty || forceFullRebuild
+            missingIdentifiers.isEmpty || forceFullRebuild
                 ? manifest
-                : SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: missingFromIndex)
+                : SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: missingIdentifiers)
         }
-        if !missingFromIndex.isEmpty {
-            spotlightLog.notice("Spotlight rewriting \(missingFromIndex.count) items missing from the system index")
+        if !missingIdentifiers.isEmpty {
+            spotlightLog.notice("Spotlight rewriting \(missingIdentifiers.count) items missing from the system index")
         }
         let plan = SpotlightIndexPlanner.makePlan(
             currentRecords: prepared.records,
@@ -610,22 +640,35 @@ final class SpotlightIndexService {
         func report(
             _ stored: SpotlightIndexManifest?,
             indexing: Bool,
-            force: Bool = false
+            force: Bool = false,
+            found: Set<String>? = nil
         ) async {
             guard force || ContinuousClock.now - lastReport >= .milliseconds(500) else { return }
             lastReport = .now
+            var available = found
+            if available == nil {
+                available = Set((stored?.signaturesByIdentifier ?? [:]).compactMap {
+                    $0.value.isEmpty ? nil : $0.key
+                })
+                if !plan.requiresFullRebuild { available?.formUnion(initiallyFound ?? []) }
+            }
             let coverage = SpotlightIndexCoverage.measure(
                 wanted: plan.nextManifest,
                 stored: stored,
-                textOnlySuffix: textOnlySignatureSuffix
+                textOnlySuffix: textOnlySignatureSuffix,
+                foundIdentifiers: available,
+                isVerified: found != nil
             )
             await status.report(coverage, isIndexing: indexing, exceedsSongLimit: exceedsSongLimit)
         }
 
         if plan.isEmpty, !plan.requiresFullRebuild {
             spotlightLog.debug("Spotlight index already matches the library")
-            await report(previousManifest, indexing: false, force: true)
-            return true
+            let verified = initiallyFound.map {
+                SpotlightIndexVerification.compare(manifest: plan.nextManifest, found: $0) == .consistent
+            } ?? false
+            await report(previousManifest, indexing: false, force: true, found: verified ? initiallyFound : nil)
+            return verified
         }
         await report(plan.requiresFullRebuild ? nil : previousManifest, indexing: true, force: true)
 
@@ -778,10 +821,37 @@ final class SpotlightIndexService {
 
             guard canPerformIndexing, !Task.isCancelled else { return await stop() }
             try await saveCheckpoint()
-            await report(progress.manifest, indexing: false, force: true)
             guard progress.manifest == plan.nextManifest else {
                 // Still a truthful checkpoint: the next run plans the rest.
                 spotlightLog.error("Spotlight progress diverged from the plan; continuing next run")
+                return false
+            }
+            // 批次提交并不代表查询已可见。只等待查询收敛，不在等待期间重复写入。
+            var found: Set<String>?
+            for attempt in 0..<3 {
+                guard !Task.isCancelled else { return await stop() }
+                found = await queryIdentifiers()
+                if let found,
+                   SpotlightIndexVerification.compare(manifest: progress.manifest, found: found) == .consistent {
+                    await report(progress.manifest, indexing: false, force: true, found: found)
+                    spotlightLog.notice("Spotlight write verified: \(found.count) items")
+                    break
+                }
+                if attempt < 2 { try await Task.sleep(for: .milliseconds(400 * (attempt + 1))) }
+            }
+            guard !Task.isCancelled else { return await stop() }
+            if let found,
+               case .missing(let missing) = SpotlightIndexVerification.compare(manifest: progress.manifest, found: found) {
+                progress.confirmIndexed(Dictionary(uniqueKeysWithValues: missing.map { ($0, SpotlightIndexCheckpoint.unconfirmedSignature) }))
+                try await saveCheckpoint()
+                await report(progress.manifest, indexing: false, force: true, found: found)
+                spotlightLog.error("Spotlight write still missing \(missing.count) items after verification; checkpoint retained for retry")
+                return false
+            }
+            guard let found,
+                  SpotlightIndexVerification.compare(manifest: progress.manifest, found: found) == .consistent else {
+                await report(progress.manifest, indexing: false, force: true)
+                spotlightLog.notice("Spotlight write awaits system verification")
                 return false
             }
             spotlightLog.notice(
@@ -1300,8 +1370,7 @@ final class SpotlightIndexService {
     }
 }
 
-/// 设置页上看的 Spotlight 索引状态(#346):收录到哪儿了、在不在建、为什么停着。
-/// 建的时候每写完一批更新一次;没在建时打开设置页按本机记下的清单量一次。
+/// 写入进度与系统查询确认分开保存，待更新的封面不会算作搜索缺项。
 @MainActor
 @Observable
 final class SpotlightIndexStatus {
@@ -1328,6 +1397,11 @@ final class SpotlightIndexStatus {
     func holdByDevice() {
         isHeldByDevice = true
         if activity == .indexing { activity = .idle }
+    }
+
+    func beginIndexing() {
+        activity = .indexing
+        isHeldByDevice = false
     }
 
     func finishIndexing() {

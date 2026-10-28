@@ -200,21 +200,70 @@ struct SpotlightIndexCoverageTests {
             "song:gone": "9",
         ])
         let coverage = SpotlightIndexCoverage.measure(wanted: wanted, stored: stored, textOnlySuffix: "~text")
-        #expect(coverage == SpotlightIndexCoverage(total: 4, indexed: 1, awaitingArtwork: 1))
-        #expect(coverage.searchable == 2)
-        #expect(coverage.remaining == 2)
-        #expect(coverage.fraction == 0.5)
+        #expect(coverage == SpotlightIndexCoverage(total: 4, indexed: 1, awaitingArtwork: 1, awaitingUpdate: 1))
+        #expect(coverage.searchable == 3)
+        #expect(coverage.remaining == 1)
+        #expect(coverage.fraction == 0.75)
     }
 
     @Test("Complete only when every item holds its wanted signature")
     func complete() {
-        let full = SpotlightIndexCoverage.measure(wanted: wanted, stored: wanted, textOnlySuffix: "~text")
+        let full = SpotlightIndexCoverage.measure(
+            wanted: wanted, stored: wanted, textOnlySuffix: "~text",
+            foundIdentifiers: Set(wanted.signaturesByIdentifier.keys)
+        )
         #expect(full.isComplete)
         #expect(full.remaining == 0)
         let empty = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [:])
         let nothingWanted = SpotlightIndexCoverage.measure(wanted: empty, stored: nil, textOnlySuffix: "~text")
         #expect(nothingWanted.isComplete)
         #expect(nothingWanted.fraction == 1)
+    }
+
+    @Test("A committed manifest cannot claim search visibility without a query")
+    func committedButNotVerified() {
+        let pending = SpotlightIndexCoverage.measure(wanted: wanted, stored: wanted, textOnlySuffix: "~text")
+        #expect(pending.searchable == 4)
+        #expect(!pending.isVerified)
+        #expect(!pending.isComplete)
+        let estimated = SpotlightIndexCoverage.measure(
+            wanted: wanted, stored: wanted, textOnlySuffix: "~text",
+            foundIdentifiers: Set(wanted.signaturesByIdentifier.keys), isVerified: false
+        )
+        #expect(!estimated.isComplete)
+        let missing = SpotlightIndexCoverage.measure(
+            wanted: wanted, stored: wanted, textOnlySuffix: "~text",
+            foundIdentifiers: ["song:a", "song:b", "album:x"]
+        )
+        #expect(missing.isVerified)
+        #expect(missing.remaining == 1)
+        #expect(!missing.isComplete)
+    }
+
+    @Test("Changing artwork preserves search coverage while requiring an update")
+    func existingItemsAwaitUpdate() {
+        let changed = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: [
+            "song:a": "new-cover", "song:b": "2", "song:c": "3", "album:x": "4",
+        ])
+        let coverage = SpotlightIndexCoverage.measure(
+            wanted: changed, stored: wanted, textOnlySuffix: "~text",
+            foundIdentifiers: Set(wanted.signaturesByIdentifier.keys)
+        )
+        #expect(coverage.searchable == 4)
+        #expect(coverage.remaining == 0)
+        #expect(coverage.awaitingUpdate == 1)
+        #expect(!coverage.isComplete)
+    }
+
+    @Test("A system item remains searchable even when its interrupted update is unconfirmed")
+    func interruptedUpdateStillVisible() {
+        let stored = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: ["song:a": ""])
+        let coverage = SpotlightIndexCoverage.measure(
+            wanted: wanted, stored: stored, textOnlySuffix: "~text", foundIdentifiers: ["song:a"]
+        )
+        #expect(coverage.searchable == 1)
+        #expect(coverage.awaitingUpdate == 1)
+        #expect(coverage.remaining == 3)
     }
 
     @Test("Counts stay inside the total")

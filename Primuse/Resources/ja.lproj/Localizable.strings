@@ -6893,6 +6893,8 @@
 "spotlight_index_remaining_background_format" = "残り %@ 件。Primuse がバックグラウンドにあり、再生していないときに続けます。";
 "spotlight_index_remaining_format" = "残り %@ 件。";
 "spotlight_index_awaiting_artwork_format" = "うち %@ 件は当面デフォルトのアイコンで表示され、アートワークは後から追加されます。";
+"spotlight_index_awaiting_verification" = "インデックスの結果はシステムによる確認待ちです。";
+"spotlight_index_awaiting_update_format" = "%@ 件は詳細やアートワークの更新中も検索できます。";
 "spotlight_index_song_limit_format" = "曲数が %1$@ 曲を超える場合、最近再生した曲、お気に入り、新しく追加した曲の %1$@ 曲だけをインデックスします。";
 "spotlight_index_build_now" = "今すぐ作成";
 "spotlight_index_build_now_footer" = "作成中はこのページを開いたままにしてください。離れるとバックグラウンドで続けます。";

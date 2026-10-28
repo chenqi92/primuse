@@ -6798,6 +6798,8 @@
 "spotlight_index_remaining_background_format" = "เหลืออีก %@ รายการ จะทำต่อเมื่อ Primuse อยู่เบื้องหลังและไม่ได้เล่นเพลงอยู่";
 "spotlight_index_remaining_format" = "เหลืออีก %@ รายการ";
 "spotlight_index_awaiting_artwork_format" = "ในนั้นมี %@ รายการที่ยังแสดงไอคอนเริ่มต้นไปก่อน แล้วจะเพิ่มหน้าปกตามมา";
+"spotlight_index_awaiting_verification" = "ผลการจัดทำดัชนีกำลังรอการยืนยันจากระบบ";
+"spotlight_index_awaiting_update_format" = "ค้นหาได้ %@ รายการในระหว่างที่อัปเดตรายละเอียดหรือภาพปก";
 "spotlight_index_song_limit_format" = "หากมีเพลงเกิน %1$@ เพลง จะทำดัชนีเฉพาะ %1$@ เพลงที่เล่นล่าสุด ชื่นชอบ และเพิ่มใหม่ล่าสุด";
 "spotlight_index_build_now" = "สร้างเดี๋ยวนี้";
 "spotlight_index_build_now_footer" = "อยู่ในหน้านี้ระหว่างสร้าง เมื่อออกจากหน้านี้จะทำต่อในเบื้องหลัง";

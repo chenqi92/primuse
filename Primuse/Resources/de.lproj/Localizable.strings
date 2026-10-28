@@ -6892,6 +6892,8 @@
 "spotlight_index_remaining_background_format" = "Noch %@ Einträge offen. Es geht weiter, wenn Primuse im Hintergrund ist und nichts abgespielt wird.";
 "spotlight_index_remaining_format" = "Noch %@ Einträge offen.";
 "spotlight_index_awaiting_artwork_format" = "%@ davon zeigen vorerst das Standardsymbol; die Cover folgen.";
+"spotlight_index_awaiting_verification" = "Die Bestätigung der Indexergebnisse durch das System steht noch aus.";
+"spotlight_index_awaiting_update_format" = "%@ Einträge sind durchsuchbar, während ihre Details oder Cover aktualisiert werden.";
 "spotlight_index_song_limit_format" = "Bei mehr als %1$@ Titeln werden nur die %1$@ zuletzt gespielten, favorisierten und neuesten Titel indexiert.";
 "spotlight_index_build_now" = "Jetzt erstellen";
 "spotlight_index_build_now_footer" = "Bleib währenddessen auf dieser Seite; danach geht es im Hintergrund weiter.";

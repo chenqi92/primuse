@@ -6798,6 +6798,8 @@
 "spotlight_index_remaining_background_format" = "Faltam %@ itens. Continua quando o Primuse está em segundo plano e nada está tocando.";
 "spotlight_index_remaining_format" = "Faltam %@ itens.";
 "spotlight_index_awaiting_artwork_format" = "%@ deles mostram o ícone padrão por enquanto; as capas vêm depois.";
+"spotlight_index_awaiting_verification" = "Os resultados do índice aguardam confirmação do sistema.";
+"spotlight_index_awaiting_update_format" = "%@ itens podem ser encontrados enquanto seus dados ou capas são atualizados.";
 "spotlight_index_song_limit_format" = "Com mais de %1$@ músicas, só as %1$@ tocadas recentemente, favoritas e mais novas são indexadas.";
 "spotlight_index_build_now" = "Criar agora";
 "spotlight_index_build_now_footer" = "Fique nesta página enquanto cria; ao sair, continua em segundo plano.";

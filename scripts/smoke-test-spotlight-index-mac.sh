@@ -5,6 +5,7 @@ SPOTLIGHT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPOTLIGHT_OUTPUT="$SPOTLIGHT_ROOT/build/DeveloperWorkflow/SpotlightIndexSmoke"
 SPOTLIGHT_SOURCE="${SPOTLIGHT_SOURCE:-$SPOTLIGHT_ROOT/Primuse/Services/Library/SpotlightIndexService.swift}"
 SPOTLIGHT_APP="$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.app"
+SPOTLIGHT_MODULE_CACHE="${SPOTLIGHT_MODULE_CACHE:-$SPOTLIGHT_ROOT/build/DeveloperWorkflow/macOS/ModuleCache.noindex}"
 mkdir -p "$SPOTLIGHT_APP/Contents/MacOS"
 
 # Compile the complete service and planner with small library fixtures. The
@@ -38,7 +39,7 @@ with (output / 'SpotlightIndexSmoke.app/Contents/Info.plist').open('wb') as stre
 PY
 
 xcrun swiftc -swift-version 6 -parse-as-library \
-    -module-cache-path "$SPOTLIGHT_ROOT/build/DeveloperWorkflow/macOS/ModuleCache.noindex" \
+    -module-cache-path "$SPOTLIGHT_MODULE_CACHE" \
     "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
     "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
     "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift" \
@@ -48,7 +49,7 @@ if [[ "${SPOTLIGHT_TYPECHECK_IOS:-0}" == "1" ]]; then
     SPOTLIGHT_IOS_SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
     xcrun swiftc -swift-version 6 -parse-as-library -typecheck \
         -target arm64-apple-ios18.0-simulator -sdk "$SPOTLIGHT_IOS_SDK" \
-        -module-cache-path "$SPOTLIGHT_ROOT/build/DeveloperWorkflow/iOSSimulator/ModuleCache.noindex" \
+        -module-cache-path "${SPOTLIGHT_IOS_MODULE_CACHE:-$SPOTLIGHT_ROOT/build/DeveloperWorkflow/iOSSimulator/ModuleCache.noindex}" \
         "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
         "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
         "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift"

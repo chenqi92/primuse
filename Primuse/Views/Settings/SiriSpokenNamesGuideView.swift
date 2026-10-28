@@ -32,7 +32,7 @@ struct SiriSpokenNamesView: View {
 }
 
 /// Spotlight 搜索结果里的封面(#346)。关掉后结果只显示默认图标,索引更小、建得更快;
-/// 翻动时整库重新写一遍索引(每一项的签名都带着这个开关)。
+/// 切换时更新有本地封面的条目。
 struct SpotlightArtworkToggle: View {
     @Environment(MusicLibrary.self) private var library
     @AppStorage(SpotlightIndexService.showsArtworkKey) private var showsArtwork = true
@@ -107,7 +107,7 @@ struct SpotlightIndexStatusRow: View {
     private func details(_ status: SpotlightIndexStatus) -> [String] {
         var lines: [String] = []
         switch status.activity {
-        case .measuring where status.coverage == nil:
+        case .measuring:
             lines.append(String(localized: "spotlight_index_measuring"))
         case .indexing:
             lines.append(String(localized: "spotlight_index_indexing"))
@@ -117,6 +117,8 @@ struct SpotlightIndexStatusRow: View {
             } else if let coverage = status.coverage {
                 if coverage.isComplete {
                     lines.append(String(localized: "spotlight_index_complete"))
+                } else if !coverage.isVerified {
+                    lines.append(String(localized: "spotlight_index_awaiting_verification"))
                 } else if coverage.remaining > 0 {
                     #if os(iOS)
                     let format = String(localized: "spotlight_index_remaining_background_format")
@@ -131,6 +133,12 @@ struct SpotlightIndexStatusRow: View {
             lines.append(String(
                 format: String(localized: "spotlight_index_awaiting_artwork_format"),
                 coverage.awaitingArtwork.formatted()
+            ))
+        }
+        if let coverage = status.coverage, coverage.isVerified, coverage.awaitingUpdate > 0 {
+            lines.append(String(
+                format: String(localized: "spotlight_index_awaiting_update_format"),
+                coverage.awaitingUpdate.formatted()
             ))
         }
         if status.exceedsSongLimit {

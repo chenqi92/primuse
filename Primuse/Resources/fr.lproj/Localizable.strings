@@ -6892,6 +6892,8 @@
 "spotlight_index_remaining_background_format" = "Encore %@ éléments à ajouter. La création reprend quand Primuse est en arrière-plan et que rien n’est lu.";
 "spotlight_index_remaining_format" = "Encore %@ éléments à ajouter.";
 "spotlight_index_awaiting_artwork_format" = "%@ d’entre eux affichent l’icône par défaut pour l’instant ; les pochettes suivront.";
+"spotlight_index_awaiting_verification" = "Les résultats de l’index attendent la confirmation du système.";
+"spotlight_index_awaiting_update_format" = "%@ éléments restent accessibles dans la recherche pendant la mise à jour de leurs informations ou pochettes.";
 "spotlight_index_song_limit_format" = "Au-delà de %1$@ morceaux, seuls les %1$@ morceaux écoutés récemment, favoris et les plus récents sont indexés.";
 "spotlight_index_build_now" = "Créer maintenant";
 "spotlight_index_build_now_footer" = "Restez sur cette page pendant la création ; une fois que vous la quittez, elle continue en arrière-plan.";
