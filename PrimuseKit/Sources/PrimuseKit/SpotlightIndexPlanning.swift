@@ -228,23 +228,30 @@ public struct SpotlightIndexCoverage: Equatable, Sendable {
 public enum SpotlightIndexVerification {
     public enum Outcome: Equatable, Sendable {
         case consistent
-        /// 清单里有真签名、索引里查不到的条目。
-        case missing(Set<String>)
-        /// 清单里有东西却一条都没查到: 更像是这次查询本身没成, 不据此改清单。
-        case inconclusive
+        case needsRewrite(missing: Set<String>, outdated: Set<String>)
+        case unavailable
+
+        public var identifiersToRewrite: Set<String> {
+            if case let .needsRewrite(missing, outdated) = self { return missing.union(outdated) }
+            return []
+        }
     }
 
     public static func compare(
         manifest: SpotlightIndexManifest,
-        found: Set<String>
+        found: [String: String]?
     ) -> Outcome {
-        let confirmed = manifest.signaturesByIdentifier.compactMap { identifier, signature in
-            signature.isEmpty ? nil : identifier
+        guard let found else { return .unavailable }
+        var missing: Set<String> = []
+        var outdated: Set<String> = []
+        for (identifier, signature) in manifest.signaturesByIdentifier where !signature.isEmpty {
+            guard let actual = found[identifier] else {
+                missing.insert(identifier)
+                continue
+            }
+            if actual != signature { outdated.insert(identifier) }
         }
-        guard !confirmed.isEmpty else { return .consistent }
-        guard !found.isEmpty else { return .inconclusive }
-        let missing = Set(confirmed).subtracting(found)
-        return missing.isEmpty ? .consistent : .missing(missing)
+        return missing.isEmpty && outdated.isEmpty ? .consistent : .needsRewrite(missing: missing, outdated: outdated)
     }
 
     /// 查不到的条目改回未确认, 下一轮计划会重新写它们。清单里没有的标识不加进去。

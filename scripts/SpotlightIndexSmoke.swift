@@ -1,5 +1,7 @@
 import UniformTypeIdentifiers
 
+nonisolated func plog(_ message: String) { print(message) }
+
 // Library and artwork dependencies are fixtures; the service, planner and
 // Core Spotlight writes/queries are production code and the real framework.
 struct Song: Sendable {
@@ -88,10 +90,10 @@ private func require(_ value: Bool, _ message: String) throws {
 }
 
 private actor QueryVisibilityFixture {
-    private var replies: [Set<String>?]
+    private var replies: [[String: String]?]
     private(set) var reads = 0
-    init(_ replies: [Set<String>?]) { self.replies = replies }
-    func next() -> Set<String>? {
+    init(_ replies: [[String: String]?]) { self.replies = replies }
+    func next() -> [String: String]? {
         reads += 1
         return replies.isEmpty ? nil : replies.removeFirst()
     }
@@ -183,7 +185,7 @@ extension SpotlightIndexService {
         var expected = ["control": "Unrelated control", "song:one": "Green spotlight smoke", "song:emoji": "🎵",
                         "album:one": "Smoke album", "artist:one": "Smoke artist", "playlist:one": "Smoke playlist"]
         try await expectRows(expected, label: "full rebuild preserves all four content kinds and removes only stale library items")
-        try require(await indexedIdentifiers()?.contains("song:emoji") == true, "Enumeration omitted an emoji-only title")
+        try require(await indexedSignatures()?["song:emoji"] != nil, "Enumeration omitted an emoji-only title")
         print("PASS: production enumeration includes emoji-only titles")
 
         // Recreate a clean v1 manifest whose system items were already erased.
@@ -213,6 +215,9 @@ extension SpotlightIndexService {
 
         try await artworkChangesPreserveCoverage(library: library, service: migrated)
         try await committedWritesNeedVerification(library: library, service: migrated)
+        try await staleAndEmptyIndexRepair(library: library, service: migrated)
+        try await systemReindexRequests(library: library, service: migrated)
+        try await deletionNeedsVerification(library: library, service: migrated)
 
         library.visibleSongs[0].title = "Updated spotlight smoke"
         library.visibleAlbums = []
@@ -394,21 +399,124 @@ extension SpotlightIndexService {
         try require(service.status.coverage?.awaitingUpdate == 1, "Cover update was not reported immediately")
         try require(service.status.coverage?.isComplete == false, "Cover change retained stale completion status")
         library.visibleSongs[0].coverArtFileName = nil
+        try FileManager.default.removeItem(at: artwork)
         service.synchronizeNow(library: library)
         try await service.waitForCompletion()
         print("PASS: cover change refreshes status immediately and keeps existing search coverage")
     }
 
+    private static func staleAndEmptyIndexRepair(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        let index = CSSearchableIndex(name: kSpotlightIndexName)
+        let baseline = loadManifest(from: service.manifestURL)!
+        let stale = CSSearchableItemAttributeSet(contentType: .audio)
+        stale.title = "Outdated fixture title"
+        stale.setValue("old-version" as NSString, forCustomKey: spotlightContentVersionKey())
+        try await index.indexSearchableItems([CSSearchableItem(uniqueIdentifier: "song:one", domainIdentifier: kSongDomain, attributeSet: stale)])
+        for _ in 0..<30 {
+            if await indexedSignatures()?["song:one"] == "old-version" { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(try await indexedRows()["song:one"] == "Outdated fixture title", "Stale fixture not visible")
+        service.refreshStatus(library: library)
+        for _ in 0..<100 where service.status.activity != .idle { try await Task.sleep(for: .milliseconds(50)) }
+        try require(service.status.coverage?.awaitingUpdate == 1 && service.status.coverage?.isComplete == false,
+                    "Stale content with the same identifier was marked current")
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(try await indexedRows()["song:one"] == library.visibleSongs[0].title, "Manual build left stale content")
+        print("PASS: actual stored version detects and repairs stale content with an unchanged ID")
+
+        // An older app's item has no version attribute. It is present but needs one upgrade write.
+        stale.title = "Legacy fixture title"
+        stale.setValue(nil, forCustomKey: spotlightContentVersionKey())
+        try await index.indexSearchableItems([CSSearchableItem(uniqueIdentifier: "song:one", domainIdentifier: kSongDomain, attributeSet: stale)])
+        for _ in 0..<30 {
+            if await indexedSignatures()?["song:one"] == "" { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(await indexedSignatures()?["song:one"] == "", "Legacy item not found without its marker")
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(await indexedSignatures()?["song:one"] == baseline.signaturesByIdentifier["song:one"], "Legacy item not upgraded")
+        print("PASS: legacy records without a version marker receive an incremental upgrade")
+
+        try await index.deleteSearchableItems(withIdentifiers: Array(baseline.signaturesByIdentifier.keys))
+        for _ in 0..<30 {
+            if await indexedSignatures()?.isEmpty == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(await indexedSignatures()?.isEmpty == true, "Empty-index injection failed")
+        let client = await fetchClientState(from: index)
+        try require(client.data == clientState(for: baseline), "Deletion unexpectedly changed client state")
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(await indexedSignatures() == baseline.signaturesByIdentifier && service.status.coverage?.isComplete == true,
+                    "Manual build failed to recover a fully empty index")
+        print("PASS: a fully empty index repairs itself even when its client state matches the manifest")
+    }
+
+    private static func systemReindexRequests(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        service.suspendSynchronization()
+        let connection = service.indexConnection!
+        var acknowledged = false
+        connection.delegate.searchableIndex(connection.index, reindexSearchableItemsWithIdentifiers: ["song:one", "song:removed"]) {
+            acknowledged = service.recoveryJournal.request?.identifiers == ["song:one", "song:removed"]
+        }
+        try require(acknowledged, "System request was acknowledged before it was persisted")
+        let relaunched = SpotlightIndexService()
+        try require(relaunched.needsSynchronization && relaunched.recoveryJournal.request != nil, "Restart lost the system request")
+        let removed = CSSearchableItemAttributeSet(contentType: .audio)
+        removed.title = "Removed fixture"
+        try await connection.index.indexSearchableItems([CSSearchableItem(uniqueIdentifier: "song:removed", domainIdentifier: kSongDomain, attributeSet: removed)])
+        // Let the callback reach the main actor before starting the manual run.
+        await Task.yield()
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(service.recoveryJournal.request == nil, "Completed recovery was not cleared")
+        try require(await indexedSignatures()?["song:removed"] == nil, "Requested deleted item survived recovery")
+        connection.delegate.searchableIndex(connection.index, reindexAllSearchableItemsWithAcknowledgementHandler: {})
+        await Task.yield()
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(service.recoveryJournal.request == nil && service.status.coverage?.isComplete == true, "Full system recovery did not complete")
+        print("PASS: system requests persist before acknowledgment, survive relaunch, and repair or delete requested items")
+    }
+
+    private static func deletionNeedsVerification(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        let recovery = try service.recoveryJournal.record(identifiers: ["song:removed"])
+        var actual = await indexedSignatures()!
+        actual["song:removed"] = "stale"
+        let delayed = actual
+        let deletionStatus = SpotlightIndexStatus()
+        let succeeded = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library), manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: deletionStatus,
+            recovery: recovery, querySignatures: { delayed })
+        try require(!succeeded && deletionStatus.coverage?.isComplete == false, "An acknowledged deletion was treated as query-confirmed")
+        let saved = loadManifest(from: service.manifestURL)!
+        try require(saved.signaturesByIdentifier["song:removed"] == "", "Unverified deletion was not retained for retry")
+        let unavailable = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library), manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: deletionStatus,
+            querySignatures: { nil })
+        try require(!unavailable && loadManifest(from: service.manifestURL)?.signaturesByIdentifier["song:removed"] == "",
+                    "A query failure lost the unconfirmed deletion")
+        service.synchronizeNow(library: library)
+        try await service.waitForCompletion()
+        try require(service.recoveryJournal.request == nil, "Retried deletion left recovery pending")
+        print("PASS: deletions also wait for query visibility and survive interruption in the manifest")
+    }
+
     private static func committedWritesNeedVerification(library: MusicLibrary, service: SpotlightIndexService) async throws {
-        let realFound = await indexedIdentifiers()!
-        let withheld = realFound.subtracting(["song:emoji"])
+        let realFound = await indexedSignatures()!
+        let withheld = realFound.filter { $0.key != "song:emoji" }
         let status = SpotlightIndexStatus()
         let result = await performSynchronization(
             snapshot: service.makeLibrarySnapshot(library: library),
             manifestURL: service.manifestURL,
             thumbnailDirectoryURL: service.thumbnailDirectoryURL,
             status: status,
-            queryIdentifiers: { withheld }
+            querySignatures: { withheld }
         )
         try require(!result, "Batch acknowledgment was mistaken for query visibility")
         try require(status.coverage?.remaining == 1 && status.coverage?.isComplete == false, "Missing query result was shown as complete")
@@ -428,7 +536,7 @@ extension SpotlightIndexService {
             manifestURL: service.manifestURL,
             thumbnailDirectoryURL: service.thumbnailDirectoryURL,
             status: status,
-            queryIdentifiers: { nil }
+            querySignatures: { nil }
         )
         try require(!unavailable && status.coverage?.isVerified == false && status.coverage?.isComplete == false,
                     "Unavailable query was shown as confirmed")
@@ -439,7 +547,7 @@ extension SpotlightIndexService {
             thumbnailDirectoryURL: service.thumbnailDirectoryURL,
             status: status,
             missingFromIndex: ["song:emoji"],
-            queryIdentifiers: { await delayed.next() }
+            querySignatures: { await delayed.next() }
         )
         let queryCount = await delayed.reads
         try require(converged && status.coverage?.isComplete == true && queryCount == 3,

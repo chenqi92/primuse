@@ -285,24 +285,34 @@ struct SpotlightIndexVerificationTests {
 
     @Test("Confirmed items the index does not return are missing; unconfirmed ones are not")
     func missingItems() {
-        let outcome = SpotlightIndexVerification.compare(manifest: stored, found: ["song:a", "album:x"])
-        #expect(outcome == .missing(["song:b"]))
+        let outcome = SpotlightIndexVerification.compare(manifest: stored, found: ["song:a": "1", "album:x": "3"])
+        #expect(outcome == .needsRewrite(missing: ["song:b"], outdated: []))
     }
 
     @Test("Every confirmed item found, extra index items ignored")
     func consistent() {
         let outcome = SpotlightIndexVerification.compare(
             manifest: stored,
-            found: ["song:a", "song:b", "album:x", "song:legacy"]
+            found: ["song:a": "1", "song:b": "2~text", "album:x": "3", "song:legacy": "x"]
         )
         #expect(outcome == .consistent)
         let empty = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: ["song:p": ""])
-        #expect(SpotlightIndexVerification.compare(manifest: empty, found: []) == .consistent)
+        #expect(SpotlightIndexVerification.compare(manifest: empty, found: [:]) == .consistent)
     }
 
-    @Test("An empty result for a non-empty manifest is not taken as evidence")
-    func inconclusive() {
-        #expect(SpotlightIndexVerification.compare(manifest: stored, found: []) == .inconclusive)
+    @Test("A successful empty query repairs all confirmed items; a query failure does not")
+    func emptyVersusUnavailable() {
+        #expect(SpotlightIndexVerification.compare(manifest: stored, found: [:]) ==
+                .needsRewrite(missing: ["song:a", "song:b", "album:x"], outdated: []))
+        #expect(SpotlightIndexVerification.compare(manifest: stored, found: nil) == .unavailable)
+    }
+
+    @Test("Same IDs with stale or absent versions must be rewritten")
+    func staleContents() {
+        let result = SpotlightIndexVerification.compare(manifest: stored,
+            found: ["song:a": "old", "song:b": "", "album:x": "3"])
+        #expect(result == .needsRewrite(missing: [], outdated: ["song:a", "song:b"]))
+        #expect(result.identifiersToRewrite == ["song:a", "song:b"])
     }
 
     @Test("Marked items become unconfirmed, so the next plan writes them again and coverage drops")

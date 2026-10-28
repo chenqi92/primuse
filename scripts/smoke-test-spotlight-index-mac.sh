@@ -19,10 +19,17 @@ root, source_path, output = map(Path, sys.argv[1:])
 service = source_path.read_text().replace('import PrimuseKit\n', '')
 service = service.replace('com.welape.yuanyin', 'org.primuse.tests.spotlight-index-smoke')
 app = (root / 'Primuse/App/PrimuseApp.swift').read_text()
-observer = app.index('.onChange(of: playerService.isPlaybackActive)')
-pause = app.index('                    } else {', observer)
-end = app.index('\n                    }', pause + 30)
-pause_body = app[app.index('\n', pause) + 1:end]
+anchor = ('PlaybackActivityObserver(player: playerService)' if 'PlaybackActivityObserver(player: playerService)' in app
+          else '.onChange(of: playerService.isPlaybackActive)')
+observer = app.index(anchor)
+pause = app.index('} else {', observer)
+start = app.index('{', pause) + 1
+end = start
+balance = 1
+while balance:
+    balance += (app[end] == '{') - (app[end] == '}')
+    end += 1
+pause_body = app[start:end - 1]
 fixture = (root / 'scripts/SpotlightIndexSmoke.swift').read_text()
 fixture = fixture.replace('/* PRODUCTION_PLAYBACK_PAUSE */', pause_body)
 (output / 'SpotlightIndexSmoke.swift').write_text(service + '\n' + fixture)
@@ -41,6 +48,7 @@ PY
 xcrun swiftc -swift-version 6 -parse-as-library \
     -module-cache-path "$SPOTLIGHT_MODULE_CACHE" \
     "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
+    "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexRecovery.swift" \
     "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
     "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift" \
     -o "$SPOTLIGHT_APP/Contents/MacOS/SpotlightIndexSmoke"
@@ -51,6 +59,7 @@ if [[ "${SPOTLIGHT_TYPECHECK_IOS:-0}" == "1" ]]; then
         -target arm64-apple-ios18.0-simulator -sdk "$SPOTLIGHT_IOS_SDK" \
         -module-cache-path "${SPOTLIGHT_IOS_MODULE_CACHE:-$SPOTLIGHT_ROOT/build/DeveloperWorkflow/iOSSimulator/ModuleCache.noindex}" \
         "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexPlanning.swift" \
+        "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/SpotlightIndexRecovery.swift" \
         "$SPOTLIGHT_ROOT/PrimuseKit/Sources/PrimuseKit/CarPlayListRefreshPolicy.swift" \
         "$SPOTLIGHT_OUTPUT/SpotlightIndexSmoke.swift"
     echo "PASS: iOS service and background-task APIs typecheck with an iOS 18 deployment target"
