@@ -36,13 +36,9 @@ struct NowPlayingWatchView: View {
             WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
         }
         .toolbar {
-            if store.hasSong, !store.isLiveStream {
+            if !store.isLiveStream {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showsQueue = true
-                    } label: {
-                        Image(systemName: "list.bullet")
-                    }
+                    Button { showsQueue = true } label: { Image(systemName: "list.bullet") }
                     .accessibilityLabel(WatchString("ext.watch.queue.title"))
                 }
             }
@@ -91,7 +87,7 @@ struct NowPlayingWatchView: View {
                 titleBlock
                 WatchTransportControls()
                     .padding(.top, 2)
-                    .opacity(store.showsDisconnected ? 0.45 : 1)
+                    .opacity(store.showsPhoneDisconnected ? 0.45 : 1)
             }
             .padding(.horizontal, 2)
             .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
@@ -137,7 +133,8 @@ struct NowPlayingWatchView: View {
         // 系统按自己的尺寸画这个圆环, 不跟外面给的框走 (41mm 上调音量时约 47pt, 右边一截跑到屏外),
         // 所以按它最大的样子留框、整体缩小, 再从屏幕边上收进来一点。
         .overlay(alignment: .trailing) {
-            WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest)
+            WatchCompanionVolumeControl(tint: store.accent, focusRequest: volumeFocusRequest, isLocal: store.isOfflinePlayback)
+                .id(store.isOfflinePlayback)
                 .frame(width: WatchNowPlayingMetrics.volumeControlNativeSide,
                        height: WatchNowPlayingMetrics.volumeControlNativeSide)
                 .background(.black.opacity(0.45), in: Circle().inset(by: 4))
@@ -148,7 +145,7 @@ struct NowPlayingWatchView: View {
                 .opacity(showsVolume ? 1 : WatchNowPlayingMetrics.hiddenVolumeOpacity)
         }
         .overlay(alignment: .top) {
-            if store.showsDisconnected {
+            if store.showsPhoneDisconnected {
                 WatchUnreachableBadge()
             }
         }
@@ -169,9 +166,10 @@ struct NowPlayingWatchView: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            } else if !store.artist.isEmpty, !showsLyricsFace {
-                // 歌词面把艺人这一行的高度让给歌词。
-                Text(store.artist)
+            } else {
+                Text(!showsLyricsFace && !store.currentLyric.isEmpty
+                     ? store.currentLyric.replacingOccurrences(of: "\n", with: " ")
+                     : store.artist.isEmpty ? " " : store.artist)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -389,20 +387,23 @@ struct WatchEmptyStateView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                Image(systemName: !store.showsDisconnected ? "music.note" : "iphone.slash")
+                Image(systemName: !store.showsPhoneDisconnected ? "music.note" : "iphone.slash")
                     .font(.system(size: 34))
-                    .foregroundStyle(!store.showsDisconnected ? store.accent : .secondary)
+                    .foregroundStyle(!store.showsPhoneDisconnected ? store.accent : .secondary)
                     .padding(.top, 8)
-                Text(WatchString(!store.showsDisconnected
+                Text(WatchString(!store.showsPhoneDisconnected
                                  ? "ext.watch.nowPlaying.empty.title"
                                  : "ext.watch.nowPlaying.empty.unreachableTitle"))
                     .font(.headline)
-                Text(WatchString(!store.showsDisconnected
+                Text(WatchString(!store.showsPhoneDisconnected
                                  ? "ext.watch.nowPlaying.empty.reachable"
                                  : "ext.watch.nowPlaying.empty.unreachable"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                if store.showsDisconnected {
+                NavigationLink { OfflineLibraryWatchView() } label: {
+                    Label(WatchString("ext.watch.offline.title"), systemImage: "applewatch")
+                }
+                if store.showsPhoneDisconnected {
                     Button(WatchString("ext.watch.retry")) {
                         store.requestCurrentState()
                     }

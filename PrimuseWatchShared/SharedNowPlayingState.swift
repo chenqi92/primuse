@@ -10,7 +10,7 @@ import UIKit
 /// 一致，便于将来两边对照。
 func WatchString(_ key: String, _ args: CVarArg...) -> String {
     let table = WatchLoc.table(for: WatchLoc.preferredCode)
-    let value = table[key] ?? WatchLoc.english[key] ?? key
+    let value = WatchOfflineLocalization.string(key, language: WatchLoc.preferredCode) ?? table[key] ?? WatchLoc.english[key] ?? key
     guard !args.isEmpty else { return value }
     return String(format: value, arguments: args)
 }

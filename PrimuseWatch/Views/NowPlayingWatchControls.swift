@@ -168,6 +168,7 @@ struct WatchCompanionVolumeControl: WKInterfaceObjectRepresentable {
     let tint: Color
     /// 变一次就重新要一次表冠。
     let focusRequest: Int
+    var isLocal = false
 
     @MainActor
     final class Coordinator {
@@ -192,7 +193,7 @@ struct WatchCompanionVolumeControl: WKInterfaceObjectRepresentable {
     }
 
     func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
-        let control = WKInterfaceVolumeControl(origin: .companion)
+        let control = WKInterfaceVolumeControl(origin: isLocal ? .local : .companion)
         context.coordinator.control = control
         return control
     }

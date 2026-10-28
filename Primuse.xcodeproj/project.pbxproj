@@ -2149,6 +2149,17 @@
 		88BD619F1B7D69E77B643F58 /* HomeTopSwitchingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */; };
 		9FA4EC58A526389EE4578AA2 /* WatchConnectionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */; };
 		F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */; };
+		13634D89E919EBB65E6AA37A /* WatchOfflineLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */; };
+		18FAA957B504123DF596C3C9 /* WatchOfflinePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3348B436BFF62FC99E649F /* WatchOfflinePlayer.swift */; };
+		19D71EE11967694ED835972F /* WatchOfflineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */; };
+		6C02AAE54BA462336400CE7D /* WatchOfflineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */; };
+		89072781A9BD6098D66B57AC /* WatchFileTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1949B8417ED490628653C570 /* WatchFileTransferService.swift */; };
+		B83A9BC75E671956EB906311 /* WatchOfflineLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */; };
+		C990FCB0107093483DF9521D /* WatchOfflineLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */; };
+		C9D20B390B8FBE049BC9ED3D /* WatchOfflineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */; };
+		EA0FE145A9DCEAAEC3AB360C /* OfflineLibraryWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2F1834CBAC982130D005BC /* OfflineLibraryWatchView.swift */; };
+		FA3D0D432FDFD3CBEFF22BCC /* WatchFileTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1949B8417ED490628653C570 /* WatchFileTransferService.swift */; };
+		CA55B96EE25ACCD3CACD0D85 /* WatchOfflineLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3967,6 +3978,12 @@
 		D912476C9E5410EBD7E8E619 /* HomeSpaceFilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSpaceFilterBar.swift; sourceTree = "<group>"; };
 		7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTopSwitchingUITests.swift; sourceTree = "<group>"; };
 		3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectionPresentation.swift; sourceTree = "<group>"; };
+		0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchOfflineMedia.swift; sourceTree = "<group>"; };
+		1949B8417ED490628653C570 /* WatchFileTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFileTransferService.swift; sourceTree = "<group>"; };
+		1F3348B436BFF62FC99E649F /* WatchOfflinePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchOfflinePlayer.swift; sourceTree = "<group>"; };
+		4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchOfflineLocalization.swift; sourceTree = "<group>"; };
+		BA2F1834CBAC982130D005BC /* OfflineLibraryWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineLibraryWatchView.swift; sourceTree = "<group>"; };
+
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4229,6 +4246,7 @@
 			isa = PBXGroup;
 			children = (
 				9FE14B295320AA20C02A9BB3 /* WatchPlayerStore.swift */,
+				1F3348B436BFF62FC99E649F /* WatchOfflinePlayer.swift */,
 			);
 			path = Stores;
 			sourceTree = "<group>";
@@ -4852,6 +4870,7 @@
 			isa = PBXGroup;
 			children = (
 				1729792F7E0AC649901171B8 /* WatchSessionBridge.swift */,
+				1949B8417ED490628653C570 /* WatchFileTransferService.swift */,
 			);
 			path = Watch;
 			sourceTree = "<group>";
@@ -5664,6 +5683,8 @@
 			children = (
 				136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */,
 				3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */,
+				4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */,
+				0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */,
 			);
 			path = PrimuseWatchShared;
 			sourceTree = "<group>";
@@ -5810,6 +5831,7 @@
 				564E8FBCA3B599DC24756490 /* NowPlayingWatchControls.swift */,
 				21957BB2BE1463BE4D9884FB /* NowPlayingWatchView.swift */,
 				CBB0BA16022AD763A28D01A8 /* PlaybackOptionsWatchView.swift */,
+				BA2F1834CBAC982130D005BC /* OfflineLibraryWatchView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -6862,6 +6884,10 @@
 				F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */,
 				B4919DB98A38031DE3CB8C9E /* WatchPlayerStore.swift in Sources */,
 				F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */,
+				EA0FE145A9DCEAAEC3AB360C /* OfflineLibraryWatchView.swift in Sources */,
+				13634D89E919EBB65E6AA37A /* WatchOfflineLocalization.swift in Sources */,
+				C9D20B390B8FBE049BC9ED3D /* WatchOfflineMedia.swift in Sources */,
+				18FAA957B504123DF596C3C9 /* WatchOfflinePlayer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7387,6 +7413,8 @@
 				AFB973435BA9B6C543BC8E6D /* PrimuseWatchWidgetsBundle.swift in Sources */,
 				C5DA9BC12C2530019948D296 /* SharedNowPlayingState.swift in Sources */,
 				9FA4EC58A526389EE4578AA2 /* WatchConnectionPresentation.swift in Sources */,
+				B83A9BC75E671956EB906311 /* WatchOfflineLocalization.swift in Sources */,
+				6C02AAE54BA462336400CE7D /* WatchOfflineMedia.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7988,6 +8016,8 @@
 				026E0A03DA06D528333B41DA /* YearlyReportAutoTrigger.swift in Sources */,
 				CF8FE7DEF4EC78D3DB7B3790 /* YearlyReportCards.swift in Sources */,
 				B3E5D00D30E6E58CFBBC8264 /* YearlyReportView.swift in Sources */,
+				FA3D0D432FDFD3CBEFF22BCC /* WatchFileTransferService.swift in Sources */,
+				CA55B96EE25ACCD3CACD0D85 /* WatchOfflineLocalization.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -8788,6 +8818,9 @@
 				07C43E3A486DD629EE8D3046 /* YearlyReportAutoTrigger.swift in Sources */,
 				3019EBD9771AABB8DA917F66 /* YearlyReportCards.swift in Sources */,
 				BC53E5E30B35D77C07890833 /* YearlyReportView.swift in Sources */,
+				89072781A9BD6098D66B57AC /* WatchFileTransferService.swift in Sources */,
+				C990FCB0107093483DF9521D /* WatchOfflineLocalization.swift in Sources */,
+				19D71EE11967694ED835972F /* WatchOfflineMedia.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -84,6 +84,7 @@ final class WatchSessionBridge: NSObject {
     /// 所以预读到 bridge 自己的内存里。
     private var cachedLyricsForSongID: String?
     private var cachedLyrics: [LyricLine] = []
+    private var lyricsLoadTask: Task<Void, Never>?
     private var stateTickerTask: Task<Void, Never>?
 
     private override init() {
@@ -654,31 +655,27 @@ final class WatchSessionBridge: NSObject {
         return ([line.text] + activeBackground.map(\.text)).joined(separator: "\n")
     }
 
-    /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后播放中的 0.5s
-    /// tick 直接 sync 用。读 lyrics 文件 IO 走 detached Task 避开 main
-    /// actor 阻塞。
+    /// 与播放页共用歌词加载路径，包含按歌曲 ID 缓存及来源侧车歌词。
     private func refreshLyricsCache(for song: Song?) {
+        lyricsLoadTask?.cancel()
+        lyricsLoadTask = nil
+        if song?.id != cachedLyricsForSongID {
+            cachedLyrics = []
+            cachedLyricsForSongID = nil
+        }
         guard let song else {
             cachedLyricsForSongID = nil
             cachedLyrics = []
             return
         }
         let songID = song.id
-        let ref = song.lyricsFileName
-        Task.detached(priority: .utility) {
-            let lines: [LyricLine] = await {
-                guard let ref else { return [] }
-                return await MetadataAssetStore.shared.lyrics(named: ref) ?? []
-            }()
-            await MainActor.run {
-                // 期间用户又切歌就忽略本次结果。
-                guard Self.shared.player?.currentSong?.id == songID else { return }
-                Self.shared.cachedLyricsForSongID = songID
-                Self.shared.cachedLyrics = lines
-                // 歌词是异步读进来的, 暂停时 ticker 已挂起, 这里补推一次
-                // (内部有 hash 去重, 行没变就不发)。
-                Self.shared.pushIfMeaningfulChange()
-            }
+        lyricsLoadTask = Task { [weak self] in
+            let lines = await LyricsLoader.loadForDisplay(for: song, sourceManager: AppServices.shared.sourceManager)
+            guard !Task.isCancelled, let self, self.player?.currentSong?.id == songID else { return }
+            self.cachedLyricsForSongID = songID
+            self.cachedLyrics = lines
+            self.lyricsLoadTask = nil
+            self.pushIfMeaningfulChange()
         }
     }
 
@@ -799,12 +796,14 @@ extension WatchSessionBridge: WCSessionDelegate {
         }
         Task { @MainActor in
             Self.shared.refreshStateTicker()
+            WatchFileTransferService.shared.refresh()
         }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {
         Task { @MainActor in
             Self.shared.refreshStateTicker()
+            WatchFileTransferService.shared.refresh()
         }
     }
 
@@ -849,6 +848,7 @@ extension WatchSessionBridge: WCSessionDelegate {
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
         Task { @MainActor in
             Self.shared.refreshStateTicker()
+            WatchFileTransferService.shared.refresh()
             Self.shared.pushIfMeaningfulChange(force: true)
             Self.shared.pushLibraryDigest()
         }
@@ -872,8 +872,19 @@ extension WatchSessionBridge: WCSessionDelegate {
         }
     }
 
+    nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        guard let metadata = WatchFileTransferService.metadata(fileTransfer.file.metadata) else { return }
+        let failure = error?.localizedDescription
+        Task { @MainActor in WatchFileTransferService.shared.finished(id: metadata.id, error: failure) }
+    }
+
     nonisolated func session(_ session: WCSession,
                              didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let id = userInfo["watchFileReceipt"] as? String {
+            let error = userInfo["error"] as? String
+            Task { @MainActor in WatchFileTransferService.shared.acknowledge(id: id, error: error) }
+            return
+        }
         // 防御 ── transferUserInfo 是排队投递, 一条命令可能在 watch 离线
         // 几小时后才到达 iPhone。控制类指令 (next/pause/seek/playSong) 此时
         // 执行只会让用户惊吓, 直接丢弃; 只接受幂等的 requestState (无副作用,
@@ -933,6 +944,9 @@ extension WatchSessionBridge: WCSessionDelegate {
                 self.stateRequestResponseTask = nil
                 self.lastSentCoverSongID = nil
                 self.lastLibraryHash = 0
+                if self.lyricsLoadTask == nil {
+                    self.refreshLyricsCache(for: self.player?.currentSong)
+                }
                 self.pushIfMeaningfulChange(force: true)
                 self.pushLibraryDigest()
             }

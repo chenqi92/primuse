@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import WatchConnectivity
 import SwiftUI
 import WidgetKit
+import AVFoundation
 
 /// Watch 端的播放状态镜像。
 ///
@@ -114,14 +115,38 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     private var lastComplicationPosition: TimeInterval?
 
     private let session: WCSession?
+    nonisolated let offlineStorage: WatchOfflineStorage?
+    let offlinePlayer = WatchOfflinePlayer()
+    private(set) var offlineFiles: [WatchOfflineFile] = []
+    var offlineError: String?
+    var isOfflinePlayback: Bool { offlinePlayer.current != nil }
+    var showsPhoneDisconnected: Bool { showsDisconnected && !isOfflinePlayback }
+    private var latestPhoneState: (snapshot: ContextSnapshot, cover: Data?)?
+    private var phoneQueue: [WatchLibrarySong] = []
+    private var phoneQueueTotal = 0
+    private var phoneQueueTruncated = false
+
 
     override init() {
+        do {
+            let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("OfflineMusic", isDirectory: true)
+            offlineStorage = try WatchOfflineStorage(root: root)
+            var values = URLResourceValues(); values.isExcludedFromBackup = true
+            var directory = root; try? directory.setResourceValues(values)
+        } catch {
+            offlineStorage = nil
+            offlineError = error.localizedDescription
+        }
         if WCSession.isSupported() {
             session = WCSession.default
         } else {
             session = nil
         }
         super.init()
+        reloadOfflineFiles()
+        offlinePlayer.onChange = { [weak self] in self?.updateOfflineState(includeCover: true) }
+        offlinePlayer.onVolumeChange = { [weak self] in self?.volumeActivity &+= 1 }
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment
         if let demo = environment["PRIMUSE_WATCH_DEMO"] {
@@ -144,6 +169,10 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 guard let self else { return }
+                if self.isOfflinePlayback {
+                    self.updateOfflineState()
+                    continue
+                }
                 if self.isPlaying, !self.isLoading {
                     let extrapolated = self.sentCurrentTime
                         + (Date().timeIntervalSince1970 - self.sentTimeAnchor) * self.playbackRate
@@ -169,6 +198,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// 立刻响应。iPhone 处理完命令后会回推真实状态, 200ms 内对齐;
     /// 万一命令失败, 1 秒窗口期过后 iPhone 推送会自动校正。
     func togglePlayPause() {
+        if isOfflinePlayback { offlinePlayer.toggle(); return }
         guard canSendRealtimeCommand else {
             requestCurrentState()
             return
@@ -201,14 +231,17 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
     func next() {
+        if isOfflinePlayback { offlinePlayer.advance(); return }
         guard showsSideTransport else { return }
         send(["command": "next"])
     }
     func previous() {
+        if isOfflinePlayback { offlinePlayer.advance(backwards: true); return }
         guard showsSideTransport else { return }
         send(["command": "previous"])
     }
     func seek(to time: TimeInterval) {
+        if isOfflinePlayback { offlinePlayer.seek(time); return }
         guard !isLiveStream else { return }
         guard canSendRealtimeCommand else {
             requestCurrentState()
@@ -267,6 +300,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
 
     /// 和 iPhone 队列页「播放方式」键一样轮换: 顺序 → 列表循环 → 单曲循环 → 随机。
     func cyclePlaybackMode() {
+        if isOfflinePlayback {
+            offlinePlayer.mode = offlinePlayer.mode.next(allowsShuffle: offlinePlayer.queue.count > 1)
+            updateOfflineState()
+            return
+        }
         guard offersPlaybackModes else { return }
         guard canSendRealtimeCommand else {
             requestCurrentState()
@@ -308,7 +346,62 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         refreshConnectionPresentation()
         if active { requestCurrentState() }
     }
-    func play(songID: String) { send(["command": "playSong", "songID": songID]) }
+    func play(songID: String) {
+        if isOfflinePlayback, let file = offlineFiles.first(where: { $0.id == songID }) { playOffline(file); return }
+        send(["command": "playSong", "songID": songID])
+    }
+
+    func playOffline(_ file: WatchOfflineFile) {
+        guard file.isAudio, let offlineStorage else { return }
+        offlinePlayer.play(file, in: offlineFiles.filter(\.isAudio), storage: offlineStorage)
+    }
+
+    func returnToPhone() {
+        offlinePlayer.stop()
+        queue = phoneQueue; queueTotalCount = phoneQueueTotal; queueTruncated = phoneQueueTruncated
+        coverImage = nil
+        let state = latestPhoneState
+        applyContext(state?.snapshot ?? ContextSnapshot([:]), cover: state?.cover)
+        requestCurrentState()
+    }
+
+    func reloadOfflineFiles() {
+        offlineFiles = offlineStorage?.files() ?? []
+        if isOfflinePlayback {
+            offlinePlayer.updateQueue(offlineFiles.filter(\.isAudio))
+            offlinePlayer.reloadCompanions()
+        }
+    }
+
+    func removeOffline(_ file: WatchOfflineFile) {
+        do {
+            if offlinePlayer.current?.id == file.id { returnToPhone() }
+            try offlineStorage?.remove(file.path)
+            reloadOfflineFiles()
+        } catch { offlineError = WatchString("ext.watch.offline.fileFailed") + "\n" + error.localizedDescription }
+    }
+
+    private func updateOfflineState(includeCover: Bool = false) {
+        guard let file = offlinePlayer.current else { return }
+        let lines = WatchOfflineLyric.visibleLines(offlinePlayer.lyrics, at: offlinePlayer.currentTime)
+        let output = AVAudioSession.sharedInstance().currentRoute.outputs.first
+        let snapshot = ContextSnapshot([
+            "songID": file.id, "title": file.title, "artist": file.artist, "album": file.album,
+            "isPlaying": offlinePlayer.isPlaying, "isLoading": offlinePlayer.isLoading,
+            "duration": offlinePlayer.duration, "currentTime": offlinePlayer.currentTime,
+            "currentTimeAnchor": Date().timeIntervalSince1970, "queueCount": offlinePlayer.queue.count,
+            "hasLyrics": !offlinePlayer.lyrics.isEmpty, "currentLyric": lines.current, "nextLyric": lines.next,
+            "offersPlaybackModes": true, "playbackMode": offlinePlayer.mode.rawValue,
+            "allowsShuffle": offlinePlayer.queue.count > 1,
+            "outputName": output?.portName ?? "Apple Watch",
+            "outputKind": output?.portType == .builtInSpeaker ? "watch" : "bluetooth",
+            "accentR": 0.078, "accentG": 0.490, "accentB": 0.541,
+        ])
+        applyContext(snapshot, cover: includeCover ? offlinePlayer.cover?.jpegData(compressionQuality: 0.7) ?? Data() : nil, isOffline: true)
+        queue = offlinePlayer.queue.map { WatchLibrarySong(id: $0.id, title: $0.title, artist: $0.artist) }
+        queueTotalCount = queue.count; queueTruncated = false
+    }
+
 
     private var canSendRealtimeCommand: Bool {
         guard let session else { return false }
@@ -401,6 +494,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let truncated = message["truncated"] as? Bool ?? false
         Task { @MainActor in
             if kind == "queue" {
+                self.phoneQueue = songs; self.phoneQueueTotal = total; self.phoneQueueTruncated = truncated
+                guard !self.isOfflinePlayback else { return }
                 self.queue = songs
                 self.queueTotalCount = total
                 self.queueTruncated = truncated
@@ -415,6 +510,26 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let cover = applicationContext["coverJPEG"] as? Data
         Task { @MainActor in
             self.applyContext(snap, cover: cover)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard let data = file.metadata?[WatchOfflineFileMetadata.messageKey] as? Data,
+              let metadata = try? JSONDecoder().decode(WatchOfflineFileMetadata.self, from: data) else { return }
+        var failure: String?
+        do {
+            guard let offlineStorage else { throw WatchOfflineStorageError.invalidFile }
+            try offlineStorage.receive(file.fileURL, metadata: metadata)
+        } catch {
+            failure = (error as? WatchOfflineStorageError)?.rawValue ?? "invalidFile"
+        }
+        var receipt: [String: Any] = ["watchFileReceipt": metadata.id]
+        if let failure { receipt["error"] = failure }
+        session.transferUserInfo(receipt)
+        let result = failure
+        Task { @MainActor in
+            self.reloadOfflineFiles()
+            if result != nil { self.offlineError = WatchString("ext.watch.offline.fileFailed") }
         }
     }
 
@@ -459,7 +574,12 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     }
 
     @MainActor
-    private func applyContext(_ snap: ContextSnapshot, cover: Data?) {
+    private func applyContext(_ snap: ContextSnapshot, cover: Data?, isOffline: Bool = false) {
+        if !isOffline {
+            let previousCover = latestPhoneState?.snapshot.songID == snap.songID ? latestPhoneState?.cover : nil
+            latestPhoneState = (snap, cover ?? previousCover)
+            if isOfflinePlayback { return }
+        }
         #if DEBUG
         if isDemo { return }
         #endif
@@ -597,6 +717,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let name = outputName.lowercased()
         switch outputKind {
         case "iphone": return "iphone"
+        case "watch": return "applewatch"
         case "headphones": return "headphones"
         case "bluetooth":
             if name.contains("airpods max") { return "airpodsmax" }

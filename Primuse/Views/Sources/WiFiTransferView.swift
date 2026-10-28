@@ -10,7 +10,8 @@ import AppKit
 enum WiFiTransferText {
     static func string(_ key: String) -> String {
         NSLocalizedString(key, tableName: "WiFiTransfer", bundle: .main,
-                          value: WiFiTransferPage.english[key] ?? key, comment: "")
+                          value: WatchOfflineLocalization.string(key, language: Bundle.main.preferredLocalizations.first ?? "en")
+                            ?? WiFiTransferPage.english[key] ?? key, comment: "")
     }
 
     /// "1.2 MB/s" in the user's locale.

@@ -130,8 +130,14 @@ final class WiFiTransferSender {
     func remove(_ id: String) { excluded.insert(id) }
 
     func send(address: String, code: String, expectedPeerID: String?,
-              library: MusicLibrary, sources: SourcesStore, sourceManager: SourceManager, retry: Bool = false) {
+              library: MusicLibrary, sources: SourcesStore, sourceManager: SourceManager, retry: Bool = false, toWatch: Bool = false) {
         guard !busy else { return }
+        #if os(iOS)
+        if toWatch {
+            sendToWatch(library: library, sources: sources, sourceManager: sourceManager, retry: retry)
+            return
+        }
+        #endif
         let retryFiles = failed
         guard !files.isEmpty || !selectedSongIDs.isEmpty else { return }
         let generation = UUID()
@@ -279,6 +285,55 @@ final class WiFiTransferSender {
         sentBytes = batch.sentBytes
     }
 
+    #if os(iOS)
+    private func sendToWatch(library: MusicLibrary, sources: SourcesStore, sourceManager: SourceManager, retry: Bool) {
+        let retryIDs = Set(failed.map(\.id))
+        guard !files.isEmpty || !selectedSongIDs.isEmpty else { return }
+        busy = true; error = nil; status = "preparing"; completed = 0; failed = []; failures = []
+        destinationName = "Apple Watch"
+        progress = 0; currentFile = ""
+        task = Task {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-watch-send-\(UUID().uuidString)")
+            defer { busy = false; task = nil; currentFile = ""; try? FileManager.default.removeItem(at: directory) }
+            do {
+                if !retry { try await prepareSongs(library: library, sources: sources, sourceManager: sourceManager) }
+                guard preparationFailures.isEmpty else { status = "failed"; return }
+                guard preparedMusicIsCurrent(library: library, sources: sources) else {
+                    throw WiFiTransferLibraryPreparation.PreparationError.sourceChanged
+                }
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let outgoing = files.filter { !retry || retryIDs.contains($0.id) }
+                WatchFileTransferService.shared.refresh()
+                for (index, file) in outgoing.enumerated() {
+                    try Task.checkCancellation()
+                    currentFile = file.path
+                    status = "watchPreparing"
+                    do {
+                        guard preparedMusicIsCurrent(library: library, sources: sources) else {
+                            throw WiFiTransferLibraryPreparation.PreparationError.sourceChanged
+                        }
+                        let staged = try await WiFiTransferSelection.stage(file, in: directory)
+                        defer { try? FileManager.default.removeItem(at: staged) }
+                        try Task.checkCancellation()
+                        let song = songByFileID[file.id].flatMap { library.visibleSong(id: $0) }
+                        try await WatchFileTransferService.shared.enqueue(staged: staged, path: file.path, size: file.size, song: song)
+                        completed += 1
+                    } catch {
+                        if Task.isCancelled { throw CancellationError() }
+                        failed.append(file)
+                        failures.append(file.path + ": " + WiFiTransferText.error(error))
+                    }
+                    progress = Double(index + 1) / Double(max(1, outgoing.count))
+                }
+                status = failed.isEmpty ? "watchQueued" : "failed"
+            } catch {
+                status = Task.isCancelled ? "cancelled" : "failed"
+                self.error = WiFiTransferText.error(error)
+            }
+        }
+    }
+    #endif
+
     func cancel() { task?.cancel() }
 }
 
@@ -331,6 +386,7 @@ struct WiFiTransferSendView: View {
     @State private var address = ""
     @State private var code = ""
     @State private var expectedPeerID: String?
+    @State private var selectedWatch = false
     @State private var showImporter = false
     @State private var pickFolder = false
     @State private var showConnection = false
@@ -338,7 +394,7 @@ struct WiFiTransferSendView: View {
     @State private var dropTargeted = false
     @State private var isSearching = false
 
-    private var canSend: Bool { (!sender.files.isEmpty || !sender.selectedSongIDs.isEmpty) && code.count == 6 && !address.isEmpty && !sender.busy }
+    private var canSend: Bool { (!sender.files.isEmpty || !sender.selectedSongIDs.isEmpty) && (selectedWatch || (code.count == 6 && !address.isEmpty)) && !sender.busy }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -377,11 +433,17 @@ struct WiFiTransferSendView: View {
         .sheet(isPresented: $showConnection) { connectionSheet }
         #endif
         .onChange(of: address) { _, value in
+            if !value.isEmpty { selectedWatch = false }
             if !discovery.peers.contains(where: { $0.address == value && $0.id == expectedPeerID }) {
                 expectedPeerID = nil
             }
         }
-        .onAppear { discovery.start() }
+        .onAppear {
+            discovery.start()
+            #if os(iOS)
+            WatchFileTransferService.shared.refresh()
+            #endif
+        }
         .onDisappear { discovery.stop() }
     }
 
@@ -430,6 +492,9 @@ struct WiFiTransferSendView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if !sender.status.isEmpty { progressSummary }
+            #if os(iOS)
+            if selectedWatch { watchTransfers }
+            #endif
             if let failure = sender.preparationFailures.values.sorted().first {
                 TransferFeedback(text: failure, isError: true)
             }
@@ -485,6 +550,9 @@ struct WiFiTransferSendView: View {
                 Spacer()
                 refreshButton
             }
+            #if os(iOS)
+            watchDestination
+            #endif
             VStack(spacing: 0) {
                 if discovery.peers.isEmpty {
                     Label(WiFiTransferText.string("noDevices"), systemImage: "laptopcomputer.and.iphone")
@@ -533,6 +601,7 @@ struct WiFiTransferSendView: View {
 
     private func peerButton(_ peer: WiFiTransferPeer) -> some View {
         Button {
+            selectedWatch = false
             address = peer.address
             expectedPeerID = peer.id
         } label: {
@@ -582,15 +651,60 @@ struct WiFiTransferSendView: View {
     }
 
     #if os(iOS)
+    private var watchDestination: some View {
+        Button {
+            selectedWatch = true
+            showConnection = false
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "applewatch").font(.title2).foregroundStyle(TransferAppearance.accent)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Apple Watch").font(.subheadline.weight(.medium))
+                    Text(WiFiTransferText.string(WatchFileTransferService.shared.isAvailable ? "watchDestinationHint" : "watchUnavailable"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if selectedWatch { Image(systemName: "checkmark").foregroundStyle(TransferAppearance.accent) }
+            }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        }.buttonStyle(.plain).disabled(sender.busy || !WatchFileTransferService.shared.isAvailable)
+    }
+
+    private var watchTransfers: some View {
+        let service = WatchFileTransferService.shared
+        return DisclosureGroup(WiFiTransferText.string("watchTransfers")) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(service.entries) { entry in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.metadata.displayPath).font(.caption).lineLimit(1).truncationMode(.middle)
+                                Text(entry.error ?? WiFiTransferText.string(entry.state)).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if entry.state == "failed" || entry.state == "watchAwaitingReceipt" {
+                                Button { service.retry(entry.id) } label: { Image(systemName: "arrow.clockwise") }
+                                    .accessibilityLabel(WiFiTransferText.string("retry"))
+                                    .disabled(!service.isAvailable)
+                            }
+                            Button { service.cancel(entry.id) } label: { Image(systemName: "xmark.circle") }
+                                .accessibilityLabel(WiFiTransferText.string("remove"))
+                        }
+                    }
+                    if let error = service.persistenceError { TransferFeedback(text: error, isError: true) }
+                }
+            }.frame(maxHeight: 160)
+        }.font(.callout)
+    }
+
     private var connectionSummary: some View {
         Button { showConnection = true } label: {
             HStack(spacing: 12) {
-                Image(systemName: selectedPeer.map { TransferAppearance.deviceIcon($0.identity.platform) } ?? "laptopcomputer.and.iphone")
+                Image(systemName: selectedWatch ? "applewatch" : selectedPeer.map { TransferAppearance.deviceIcon($0.identity.platform) } ?? "laptopcomputer.and.iphone")
                     .font(.title3).foregroundStyle(TransferAppearance.accent).frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(address.isEmpty ? WiFiTransferText.string("chooseReceiver") : selectedPeer?.identity.name ?? address)
+                    Text(selectedWatch ? "Apple Watch" : address.isEmpty ? WiFiTransferText.string("chooseReceiver") : selectedPeer?.identity.name ?? address)
                         .font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                    Text(address.isEmpty ? WiFiTransferText.string("sameNetwork") : code.count == 6 ? WiFiTransferText.string("receivingDevice") : WiFiTransferText.string("codeHint"))
+                    Text(selectedWatch ? WiFiTransferText.string("watchDestinationHint") : address.isEmpty ? WiFiTransferText.string("sameNetwork") : code.count == 6 ? WiFiTransferText.string("receivingDevice") : WiFiTransferText.string("codeHint"))
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 4)
@@ -608,6 +722,7 @@ struct WiFiTransferSendView: View {
     private var connectionSheet: some View {
         NavigationStack {
             Form {
+                Section { watchDestination }
                 Section {
                     if discovery.peers.isEmpty {
                         Label(WiFiTransferText.string("noDevices"), systemImage: "laptopcomputer.and.iphone")
@@ -686,8 +801,8 @@ struct WiFiTransferSendView: View {
             if !sender.busy && !sender.failed.isEmpty {
                 Button(WiFiTransferText.string("retry"), systemImage: "arrow.clockwise") {
                     sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
-                                library: library, sources: sources, sourceManager: sourceManager, retry: true)
-                }.buttonStyle(TransferButtonStyle(compact: true)).disabled(code.count != 6 || address.isEmpty)
+                                library: library, sources: sources, sourceManager: sourceManager, retry: true, toWatch: selectedWatch)
+                }.buttonStyle(TransferButtonStyle(compact: true)).disabled(!selectedWatch && (code.count != 6 || address.isEmpty))
                     .pmFadeTransition(motion: .contentAppear)
             }
         }.modifier(TransferSurface(padding: 14))
@@ -711,7 +826,7 @@ struct WiFiTransferSendView: View {
             } else {
                 Button {
                     sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
-                                library: library, sources: sources, sourceManager: sourceManager)
+                                library: library, sources: sources, sourceManager: sourceManager, toWatch: selectedWatch)
                 } label: {
                     Label(WiFiTransferText.string("sendNow"), systemImage: "paperplane.fill")
                 }.buttonStyle(TransferButtonStyle(prominent: true))
@@ -738,7 +853,7 @@ struct WiFiTransferSendView: View {
             } else {
                 Button(WiFiTransferText.string("sendNow")) {
                     sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
-                                library: library, sources: sources, sourceManager: sourceManager)
+                                library: library, sources: sources, sourceManager: sourceManager, toWatch: selectedWatch)
                 }
                 .fontWeight(.semibold)
                 .disabled(!canSend)

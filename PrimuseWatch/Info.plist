@@ -40,6 +40,8 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array><string>audio</string></array>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>

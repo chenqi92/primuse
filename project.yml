@@ -137,6 +137,8 @@ targets:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
     sources:
+      - path: PrimuseWatchShared/WatchOfflineMedia.swift
+      - path: PrimuseWatchShared/WatchOfflineLocalization.swift
       - path: Primuse
         excludes:
           - "**/.DS_Store"
@@ -499,6 +501,7 @@ targets:
         CFBundleDisplayName: "Primuse"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UIBackgroundModes: [audio]
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.welape.yuanyin
         UISupportedInterfaceOrientations:
@@ -563,6 +566,7 @@ targets:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
     sources:
+      - path: PrimuseWatchShared/WatchOfflineLocalization.swift
       - path: Primuse
         excludes:
           - "**/.DS_Store"

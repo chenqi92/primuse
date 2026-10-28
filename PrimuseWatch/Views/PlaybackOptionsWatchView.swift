@@ -9,6 +9,12 @@ struct WatchPlaybackOptionsView: View {
     var body: some View {
         NavigationStack {
             List {
+                NavigationLink { OfflineLibraryWatchView() } label: {
+                    Label(WatchString("ext.watch.offline.title"), systemImage: "applewatch")
+                }
+                if store.isOfflinePlayback {
+                    Button(WatchString("ext.watch.offline.phone"), systemImage: "iphone") { store.returnToPhone() }
+                }
                 if store.canLike {
                     likeRow
                 }
@@ -25,7 +31,7 @@ struct WatchPlaybackOptionsView: View {
                 Section {
                     outputRow
                 } footer: {
-                    Text(WatchString("ext.watch.volume.hint"))
+                    Text(WatchString(store.isOfflinePlayback ? "ext.watch.offline.volume" : "ext.watch.volume.hint"))
                 }
             }
             .navigationTitle(WatchString("ext.watch.more.title"))

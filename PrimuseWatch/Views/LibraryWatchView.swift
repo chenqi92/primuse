@@ -1,10 +1,6 @@
 import SwiftUI
 
-/// 当前播放队列 ── 跟 iPhone 端 NowPlayingView 看到的"播放列表"一致,
-/// 顺序由 iPhone 端 player.queue 决定。点行直接发 playSong 命令到 iPhone,
-/// 让 iPhone 实际播放; Watch 自己不持有音频文件, 也不参与解码。
-///
-/// 打开时滚到正在播的那首; 已经播过的几首淡一些。
+/// 当前播放设备的队列，点选后在该设备播放。
 struct LibraryWatchView: View {
     @Environment(WatchPlayerStore.self) private var store
 
@@ -17,6 +13,12 @@ struct LibraryWatchView: View {
             }
         }
         .navigationTitle(WatchString("ext.watch.queue.title"))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { OfflineLibraryWatchView() } label: { Image(systemName: "applewatch") }
+                    .accessibilityLabel(WatchString("ext.watch.offline.title"))
+            }
+        }
         .containerBackground(for: .navigation) {
             LinearGradient(
                 colors: [store.accent.opacity(0.45), .black],
