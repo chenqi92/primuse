@@ -34,6 +34,51 @@ struct SpokenWordIntroOutroTests {
         #expect(SpokenWordIntroOutro(introSeconds: -5, outroSeconds: -1).isEmpty)
     }
 
+    @Test("Short chapters keep their body and invalid clocks cannot finish a chapter")
+    func shortChapterAndInvalidClock() {
+        #expect(SpokenWordIntroOutroPolicy.startPosition(resume: nil, duration: 60, skip: skip) == nil)
+        #expect(SpokenWordIntroOutroPolicy.startPosition(resume: 12, duration: 60, skip: skip) == 12)
+        #expect(SpokenWordIntroOutroPolicy.startPosition(resume: nil, duration: 61, skip: skip) == 30)
+        for position in [Double.nan, .infinity, -.infinity, -1] {
+            #expect(!SpokenWordIntroOutroPolicy.shouldSkipOutro(position: position, duration: 1800, skip: skip))
+        }
+        #expect(!SpokenWordIntroOutroPolicy.shouldSkipOutro(position: 1780, duration: .nan, skip: skip))
+        #expect(SpokenWordIntroOutroPolicy.shouldSkipOutro(position: 1780, duration: 1800, skip: skip))
+    }
+
+    @Test("Local overrides survive relaunch and explicitly disabling beats the server")
+    @MainActor
+    func localOverrides() throws {
+        let suite = "SpokenWordIntroOutroPreferencesTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = SpokenWordIntroOutroPreferences(defaults: defaults)
+        #expect(preferences.settings(forBookID: "book", server: skip) == skip)
+        preferences.set(.off, forBookID: "book")
+        let reloaded = SpokenWordIntroOutroPreferences(defaults: defaults)
+        #expect(reloaded.settings(forBookID: "book", server: skip) == .off)
+        #expect(reloaded.settings(forBookID: "another-book", server: skip) == skip)
+        #expect(reloaded.settings(forBookID: "another-book", server: nil) == nil)
+        reloaded.set(nil, forBookID: "book")
+        #expect(reloaded.settings(forBookID: "book", server: skip) == skip)
+        #expect(defaults.object(forKey: SpokenWordIntroOutroPreferences.storageKey) == nil)
+    }
+
+    @Test("Book regrouping carries local settings without replacing a destination decision")
+    @MainActor
+    func renamedBooks() throws {
+        let suite = "SpokenWordIntroOutroRenamesTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = SpokenWordIntroOutroPreferences(defaults: defaults)
+        preferences.set(skip, forBookID: "folder")
+        preferences.set(.off, forBookID: "other")
+        preferences.carryBookState(renames: ["folder": "album"])
+        #expect(preferences.override(forBookID: "album") == skip)
+        preferences.carryBookState(renames: ["album": "other"])
+        #expect(preferences.override(forBookID: "other") == .off)
+    }
+
     @Test("The cache keeps non-zero books per source and reports changes")
     func cache() throws {
         let suite = "SpokenWordServerIntroOutroCacheTests.\(UUID().uuidString)"

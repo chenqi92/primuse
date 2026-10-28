@@ -6963,3 +6963,6 @@
 "home_filter_style_kinetic" = "Titres animés";
 "home_filter_style_tuner" = "Cadran de réglage";
 "home_filter_style_sleeves" = "Pochettes de disques";
+
+"spoken_word_skip_title" = "Ignorer le début et la fin";
+"spoken_word_skip_use_server" = "Utiliser les réglages du serveur";

@@ -327,6 +327,64 @@ struct SpokenWordBookmarkTicks: View {
 
 // MARK: - Action tiles
 
+struct SpokenWordIntroOutroMenu: View {
+    let bookID: String
+    let song: Song
+
+    private var preferences: SpokenWordIntroOutroPreferences { .shared }
+    private var server: SpokenWordIntroOutro? {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+        return SpokenWordServerIntroOutroCache.settings(sourceID: song.sourceID, bookID: reference.bookID)
+    }
+    private var settings: SpokenWordIntroOutro {
+        preferences.settings(forBookID: bookID, server: server) ?? .off
+    }
+
+    var body: some View {
+        Menu {
+            secondsPicker("podcast_skip_intro", intro: true)
+            secondsPicker("podcast_skip_outro", intro: false)
+            if TingReaderAPIProtocol.trackReference(from: song.filePath) != nil {
+                Divider()
+                Button {
+                    preferences.set(nil, forBookID: bookID)
+                } label: {
+                    if preferences.override(forBookID: bookID) == nil {
+                        Label("spoken_word_skip_use_server", systemImage: "checkmark")
+                    } else {
+                        Text("spoken_word_skip_use_server")
+                    }
+                }
+            }
+        } label: {
+            Label("spoken_word_skip_title", systemImage: "forward.end")
+        }
+        .accessibilityIdentifier("spokenWord.introOutro." + bookID)
+    }
+
+    private func secondsPicker(_ title: LocalizedStringKey, intro: Bool) -> some View {
+        let value = intro ? settings.introSeconds : settings.outroSeconds
+        let choices = Array(Set(SpokenWordIntroOutroPolicy.choices + [value])).sorted()
+        return Picker(title, selection: Binding(
+            get: { intro ? settings.introSeconds : settings.outroSeconds },
+            set: { seconds in
+                preferences.set(SpokenWordIntroOutro(
+                    introSeconds: intro ? seconds : settings.introSeconds,
+                    outroSeconds: intro ? settings.outroSeconds : seconds
+                ), forBookID: bookID)
+            }
+        )) {
+            ForEach(choices, id: \.self) { seconds in
+                if seconds == 0 {
+                    Text("podcast_skip_off").tag(seconds)
+                } else {
+                    Text("podcast_seconds_format \(seconds)").tag(seconds)
+                }
+            }
+        }
+    }
+}
+
 /// The row of tiles under the spoken-word transport: speed, sleep timer,
 /// bookmark and contents. They are on the page rather than in the menu
 /// because a book is listened to with them.
@@ -454,6 +512,11 @@ struct SpokenWordActionTiles: View {
                 }
             } label: {
                 Text(SpokenWordPlayerText.rateTitleKey(player))
+            }
+            if !SpokenWordPlayerText.isPodcastEpisode(player),
+               let bookID = player.currentBookID, let song = player.currentSong {
+                Divider()
+                SpokenWordIntroOutroMenu(bookID: bookID, song: song)
             }
         } label: {
             tile {

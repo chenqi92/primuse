@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "Dinamik başlıklar";
 "home_filter_style_tuner" = "Frekans göstergesi";
 "home_filter_style_sleeves" = "Plak kılıfları";
+
+"spoken_word_skip_title" = "Girişi ve sonu atla";
+"spoken_word_skip_use_server" = "Sunucu ayarlarını kullan";

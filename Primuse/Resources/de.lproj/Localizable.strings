@@ -6963,3 +6963,6 @@
 "home_filter_style_kinetic" = "Dynamische Titel";
 "home_filter_style_tuner" = "Abstimmskala";
 "home_filter_style_sleeves" = "Plattenhüllen";
+
+"spoken_word_skip_title" = "Intro und Abspann überspringen";
+"spoken_word_skip_use_server" = "Servereinstellungen verwenden";

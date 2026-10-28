@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "หัวเรื่องเคลื่อนไหว";
 "home_filter_style_tuner" = "หน้าปัดปรับคลื่น";
 "home_filter_style_sleeves" = "ซองแผ่นเสียง";
+
+"spoken_word_skip_title" = "ข้ามช่วงเริ่มต้นและช่วงท้าย";
+"spoken_word_skip_use_server" = "ใช้การตั้งค่าเซิร์ฟเวอร์";

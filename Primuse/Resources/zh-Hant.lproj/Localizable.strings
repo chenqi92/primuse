@@ -6940,3 +6940,6 @@
 "home_filter_style_kinetic" = "變奏標題";
 "home_filter_style_tuner" = "調頻游標";
 "home_filter_style_sleeves" = "唱片抽屜";
+
+"spoken_word_skip_title" = "略過片頭片尾";
+"spoken_word_skip_use_server" = "使用伺服器設定";

@@ -127,7 +127,7 @@ extension AudioPlayerService {
             applyPendingServerSpokenWordResumeIfNeeded()
             rememberSpokenWordPosition()
             applyPodcastOutroSkipIfNeeded()
-            applyServerSpokenWordOutroSkipIfNeeded()
+            applySpokenWordOutroSkipIfNeeded()
         }
         if !spokenWordChapters.isEmpty {
             refreshCurrentChapter()

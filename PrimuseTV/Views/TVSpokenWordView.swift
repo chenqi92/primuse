@@ -645,6 +645,7 @@ struct TVSpokenWordBookDetailView: View {
     var openPlayer: () -> Void = {}
 
     @FocusState private var focusedItemID: String?
+    @State private var showsIntroOutro = false
 
     private var isLocalPodcast: Bool {
         store.library.localPodcastBookIDs.values.contains(bookID)
@@ -709,6 +710,15 @@ struct TVSpokenWordBookDetailView: View {
                     }
                     if isPodcast {
                         podcastListControls(settings)
+                    } else {
+                        TVPillButton(title: String(localized: "spoken_word_skip_title"), systemImage: "forward.end") {
+                            showsIntroOutro = true
+                        }
+                        .fullScreenCover(isPresented: $showsIntroOutro) {
+                            if let song = book.items.first.flatMap({ store.library.song(id: $0.id) }) {
+                                TVSpokenWordIntroOutroPicker(bookID: book.id, song: song)
+                            }
+                        }
                     }
                     Spacer(minLength: 0)
                 }

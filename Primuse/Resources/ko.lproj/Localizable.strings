@@ -6963,3 +6963,6 @@
 "home_filter_style_kinetic" = "움직이는 제목";
 "home_filter_style_tuner" = "튜닝 다이얼";
 "home_filter_style_sleeves" = "레코드 슬리브";
+
+"spoken_word_skip_title" = "도입부 및 엔딩 건너뛰기";
+"spoken_word_skip_use_server" = "서버 설정 사용";

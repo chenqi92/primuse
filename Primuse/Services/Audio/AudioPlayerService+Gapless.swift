@@ -115,6 +115,7 @@ extension AudioPlayerService {
               queueGeneration == transition.queueGeneration,
               !transition.shouldCancelPreparation,
               let prepared = transition.prepared,
+              !spokenWordRequiresOpeningSeek(for: prepared.song),
               nextQueueEntryInQueue()?.id == prepared.queueEntryID,
               prepared.sampleRateHandoff == nil || plan.isSampleRateHandoff else {
             transition.shouldCancelPreparation = true
@@ -504,7 +505,7 @@ extension AudioPlayerService {
         let nextSong = songApplyingPlaybackRange(nextEntry.song)
         guard nextSong.id != currentSong?.id else { return }
         // 播客单集换集时要先探音频文件的真实大小,走正常起播,不提前接续。
-        guard !PodcastPlaybackSong.isEpisode(nextSong) else { return }
+        guard !PodcastPlaybackSong.isEpisode(nextSong), !spokenWordRequiresOpeningSeek(for: nextSong) else { return }
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
             sourceID: nextSong.sourceID
         )

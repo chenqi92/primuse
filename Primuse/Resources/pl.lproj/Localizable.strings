@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "Dynamiczne tytuły";
 "home_filter_style_tuner" = "Skala strojenia";
 "home_filter_style_sleeves" = "Okładki płyt";
+
+"spoken_word_skip_title" = "Pomiń początek i zakończenie";
+"spoken_word_skip_use_server" = "Użyj ustawień serwera";

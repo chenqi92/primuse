@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "गतिशील शीर्षक";
 "home_filter_style_tuner" = "ट्यूनिंग डायल";
 "home_filter_style_sleeves" = "रिकॉर्ड कवर";
+
+"spoken_word_skip_title" = "शुरुआत और अंत छोड़ें";
+"spoken_word_skip_use_server" = "सर्वर सेटिंग्स का उपयोग करें";

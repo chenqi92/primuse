@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "عناوين متحركة";
 "home_filter_style_tuner" = "مؤشر التوليف";
 "home_filter_style_sleeves" = "أغلفة الأسطوانات";
+
+"spoken_word_skip_title" = "تخطي المقدمة والنهاية";
+"spoken_word_skip_use_server" = "استخدام إعدادات الخادم";

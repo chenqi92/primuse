@@ -163,6 +163,10 @@ extension AudioPlayerService {
         preparingStartSongID = nil
         guard let prepared = preparedStart else { return nil }
         preparedStart = nil
+        guard !spokenWordRequiresOpeningSeek(for: song) else {
+            releasePreparedStart(prepared, reason: "spoken-word opening position changed")
+            return nil
+        }
         let verdict = PreparedPlaybackStartPolicy.verdict(
             prepared: PreparedPlaybackStartPolicy.Identity(prepared.song),
             requested: PreparedPlaybackStartPolicy.Identity(song),
@@ -198,7 +202,7 @@ extension AudioPlayerService {
         let hasMusicVideo = usesVideoPipeline(for: song)
         let startsMidFile = song.appliedPlaybackRange != nil
             || song.cueStartTime != nil
-            || spokenWordOpeningPosition(for: song) != nil
+            || spokenWordRequiresOpeningSeek(for: song)
             || decoderStartTime(for: song) > 0
         guard castingController == nil,
               !isLiveRadio,

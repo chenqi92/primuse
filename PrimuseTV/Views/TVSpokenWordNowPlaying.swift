@@ -446,6 +446,59 @@ private struct TVSpokenWordChoiceRow: View {
     }
 }
 
+struct TVSpokenWordIntroOutroPicker: View {
+    let bookID: String
+    let song: Song
+    @State private var choosingIntro: Bool?
+
+    private var preferences: SpokenWordIntroOutroPreferences { .shared }
+    private var settings: SpokenWordIntroOutro {
+        let server = TingReaderAPIProtocol.trackReference(from: song.filePath).flatMap {
+            SpokenWordServerIntroOutroCache.settings(sourceID: song.sourceID, bookID: $0.bookID)
+        }
+        return preferences.settings(forBookID: bookID, server: server) ?? .off
+    }
+
+    var body: some View {
+        TVSpokenWordChoicePanel(title: String(localized: "spoken_word_skip_title")) {
+            if let intro = choosingIntro {
+                let current = intro ? settings.introSeconds : settings.outroSeconds
+                Text(intro ? "podcast_skip_intro" : "podcast_skip_outro")
+                    .tvFont(.body)
+                ForEach(Array(Set(SpokenWordIntroOutroPolicy.choices + [current])).sorted(), id: \.self) { seconds in
+                    TVSpokenWordChoiceRow(title: secondsLabel(seconds), isSelected: current == seconds) {
+                        preferences.set(SpokenWordIntroOutro(
+                            introSeconds: intro ? seconds : settings.introSeconds,
+                            outroSeconds: intro ? settings.outroSeconds : seconds
+                        ), forBookID: bookID)
+                        choosingIntro = nil
+                    }
+                }
+            } else {
+                TVSpokenWordChoiceRow(
+                    title: String(localized: "podcast_skip_intro") + " · " + secondsLabel(settings.introSeconds),
+                    isSelected: false
+                ) { choosingIntro = true }
+                TVSpokenWordChoiceRow(
+                    title: String(localized: "podcast_skip_outro") + " · " + secondsLabel(settings.outroSeconds),
+                    isSelected: false
+                ) { choosingIntro = false }
+                if TingReaderAPIProtocol.trackReference(from: song.filePath) != nil {
+                    TVSpokenWordChoiceRow(title: String(localized: "spoken_word_skip_use_server"),
+                                         isSelected: preferences.override(forBookID: bookID) == nil) {
+                        preferences.set(nil, forBookID: bookID)
+                    }
+                }
+            }
+        }
+    }
+
+    private func secondsLabel(_ seconds: Int) -> String {
+        seconds == 0 ? String(localized: "podcast_skip_off")
+            : String(format: String(localized: "podcast_seconds_format %lld"), seconds)
+    }
+}
+
 /// 这本书的语速。按书记,和 iPhone / Mac 通过 iCloud 同一份。
 struct TVSpokenWordRatePicker: View {
     @Environment(TVStore.self) private var store

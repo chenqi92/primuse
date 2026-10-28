@@ -991,6 +991,7 @@ final class SpokenWordStore {
     /// device carrying the same renames reaches the same state, so nothing
     /// bounces between them (`SpokenWordSyncPolicy.carryingBookState`).
     func carryBookState(renames: [String: String]) {
+        SpokenWordIntroOutroPreferences.shared.carryBookState(renames: renames)
         let affected = renames.keys.contains { bookID in
             bookRates[bookID] != nil || archivedAt[bookID] != nil
                 || ledger.rateChangedAt[bookID] != nil || ledger.unarchivedAt[bookID] != nil

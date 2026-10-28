@@ -6964,3 +6964,6 @@
 "home_filter_style_kinetic" = "動きのある見出し";
 "home_filter_style_tuner" = "チューニングダイヤル";
 "home_filter_style_sleeves" = "レコードジャケット";
+
+"spoken_word_skip_title" = "冒頭と末尾をスキップ";
+"spoken_word_skip_use_server" = "サーバーの設定を使用";

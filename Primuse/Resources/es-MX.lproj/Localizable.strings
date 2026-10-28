@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "Títulos dinámicos";
 "home_filter_style_tuner" = "Dial de sintonía";
 "home_filter_style_sleeves" = "Fundas de discos";
+
+"spoken_word_skip_title" = "Omitir introducción y final";
+"spoken_word_skip_use_server" = "Usar ajustes del servidor";

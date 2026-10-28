@@ -6724,3 +6724,6 @@
 "home_filter_style_kinetic" = "Kinetic Titles";
 "home_filter_style_tuner" = "Tuning Dial";
 "home_filter_style_sleeves" = "Record Sleeves";
+
+"spoken_word_skip_title" = "Skip Intro and Ending";
+"spoken_word_skip_use_server" = "Use Server Settings";

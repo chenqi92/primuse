@@ -7056,3 +7056,6 @@
 "home_filter_style_kinetic" = "变奏标题";
 "home_filter_style_tuner" = "调频游标";
 "home_filter_style_sleeves" = "唱片抽屉";
+
+"spoken_word_skip_title" = "跳过片头片尾";
+"spoken_word_skip_use_server" = "使用服务端设置";

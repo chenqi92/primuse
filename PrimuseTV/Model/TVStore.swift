@@ -754,6 +754,15 @@ final class TVStore {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.library.refreshContentClassification() }
         }
+        spokenWordIntroOutroObserver = NotificationCenter.default.addObserver(
+            forName: SpokenWordIntroOutroPreferences.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentSpokenWordIntroOutro = self.library.song(id: self.nowPlaying.songID)
+                    .flatMap { self.spokenWordIntroOutro(for: $0) }
+            }
+        }
         if library == nil {
             let target = self.library
             let knownSourceIDs = Set(initialSources.allSources.map(\.id))
@@ -1096,6 +1105,7 @@ final class TVStore {
     /// 之后扫描、同步引起的重建不会让首页退回「加载中」。
     @ObservationIgnored private var hasBuiltLookupSinceLibraryReady = false
     @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
+    @ObservationIgnored private var spokenWordIntroOutroObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeRefreshTask: Task<Void, Never>?
     /// The playback range the current selection plays, if any.
@@ -1204,7 +1214,7 @@ final class TVStore {
     /// 本机最后一次动当前这一条的时间:换到它、在它上面存位置。这本书在别的设备上听到的另一条
     /// 要比它晚,才算听到了更新的地方(`spokenWordFollowTarget`)。
     @ObservationIgnored private var spokenWordLocalTouchAt: Date?
-    /// 当前这一条所在那本书在服务端设的片头 / 片尾秒数(Ting Reader)。
+    /// 当前书的本机设置优先，否则跟随服务端。
     @ObservationIgnored private var currentSpokenWordIntroOutro: SpokenWordIntroOutro?
     /// 片尾已经跳过的那一条:每条只跳一次。
     @ObservationIgnored private var serverOutroHandledSongID: String?
@@ -5779,7 +5789,10 @@ final class TVStore {
             engine.play()
             return
         }
-        let isAtTrackEnd = duration > 0 && currentTime >= max(0, duration - 0.5)
+        let skippedOutro = serverOutroHandledSongID == id && currentSpokenWordIntroOutro.map {
+            SpokenWordIntroOutroPolicy.shouldSkipOutro(position: currentTime, duration: duration, skip: $0)
+        } == true
+        let isAtTrackEnd = skippedOutro || (duration > 0 && currentTime >= max(0, duration - 0.5))
         let needsRecovery: Bool
         if case .failed = engine.status {
             needsRecovery = true
@@ -5832,12 +5845,17 @@ final class TVStore {
               let limit = spokenWordSmartRewindLimit else { return nil }
         let position = currentTime
         let away = Date().timeIntervalSince(stopped.at)
-        let target = SpokenWordSmartRewindPolicy.resumePosition(
+        let rewound = SpokenWordSmartRewindPolicy.resumePosition(
             from: position,
             away: away,
             limit: limit,
             floor: currentPlaybackRange?.start ?? 0
         )
+        let target = library.song(id: songID).flatMap { song in
+            spokenWordIntroOutro(for: song).flatMap {
+                SpokenWordIntroOutroPolicy.startPosition(resume: rewound, duration: song.duration, skip: $0)
+            }
+        } ?? rewound
         guard position - target >= 1 else { return nil }
         plog("🎧 TV spoken word: smart rewind \(Int(position - target))s after \(Int(away))s away")
         return target
@@ -5913,7 +5931,7 @@ final class TVStore {
         lastServerSpokenWordPositionPush = 0
         spokenWordLocalTouchAt = nil
         currentSpokenWordIntroOutro = nil
-        if serverOutroHandledSongID != song.id { serverOutroHandledSongID = nil }
+        serverOutroHandledSongID = nil
         // 有声内容才读章节标记。
         engine.wantsChapters = isSpokenWord
         // 听书有自己的语速(按书记,与 iPhone / Mac 同步);音乐回到 1×。
@@ -5926,7 +5944,7 @@ final class TVStore {
         }
         guard isSpokenWord else { return requested }
         noteSpokenWordItemSelected(song.id)
-        if let raw = library.song(id: song.id) { currentSpokenWordIntroOutro = serverSpokenWordIntroOutro(for: raw) }
+        if let raw = library.song(id: song.id) { currentSpokenWordIntroOutro = spokenWordIntroOutro(for: raw) }
         if let override = pendingSpokenWordStartOverride {
             pendingSpokenWordStartOverride = nil
             if override.songID == song.id, requested <= 0, !isRecovery {
@@ -6097,8 +6115,17 @@ final class TVStore {
         persistPlaybackSession()
     }
 
-    /// 服务端给这一条所在那本书设的片头 / 片尾秒数(Ting Reader);没有就是 nil。
-    private func serverSpokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
+    func spokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
+        guard SpokenWordStore.shared.kind(for: song) == .spokenWord,
+              song.appliedPlaybackRange == nil, !isMedleyActive,
+              let bookID = spokenWordBookID(forSongID: song.id) else { return nil }
+        if currentSongID == song.id, currentPlaybackRange != nil { return nil }
+        return SpokenWordIntroOutroPreferences.shared.settings(
+            forBookID: bookID, server: serverSpokenWordIntroOutro(for: song)
+        )
+    }
+
+    func serverSpokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
         guard let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
         return SpokenWordServerIntroOutroCache.settings(sourceID: song.sourceID, bookID: reference.bookID)
     }
@@ -6111,18 +6138,20 @@ final class TVStore {
     /// 开始播一条时从哪里起:续播位置,再按这本书的片头往后挪。
     private func spokenWordResumeTarget(for song: Song) -> Double? {
         let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: spokenWordResumeRewind)
-        guard let skip = serverSpokenWordIntroOutro(for: song) else { return stored }
+        guard let skip = spokenWordIntroOutro(for: song) else { return stored }
         return SpokenWordIntroOutroPolicy.startPosition(resume: stored, duration: song.duration, skip: skip)
     }
 
     /// 开播后按这本书现取一次片头 / 片尾(网页端刚改过的也跟上);片头变长、还停在新片头里没听多久就跳过去。
     private func refreshServerSpokenWordIntroOutro(for song: Song, source: MusicSource, credential: SourceCredential?) async {
         guard source.type == .tingReader,
-              let skip = await TVSourceAssetReader.shared.tingReaderIntroOutro(song: song, source: source, credential: credential),
+              await TVSourceAssetReader.shared.tingReaderIntroOutro(song: song, source: source, credential: credential) != nil,
+              !Task.isCancelled,
               nowPlaying.songID == song.id else { return }
-        let refreshed = skip.isEmpty ? nil : skip
+        let refreshed = spokenWordIntroOutro(for: song)
         guard refreshed != currentSpokenWordIntroOutro else { return }
         currentSpokenWordIntroOutro = refreshed
+        guard let skip = refreshed else { return }
         let intro = Double(skip.introSeconds)
         let current = engine.currentTime
         guard intro > 0, pendingSpokenWordStartOverride == nil,
@@ -6134,19 +6163,24 @@ final class TVStore {
         lastSpokenWordPositionSave = target
     }
 
-    /// 播放监视每秒调:这本书在服务端设了片尾,离结尾不到那么多秒就当这一条听完,接着放下一条。
+    /// 片尾沿用自然结束的队列推进和睡眠定时规则。
     private func applyServerSpokenWordOutroSkipIfNeeded() {
-        guard currentItemIsSpokenWord, hasNowPlaying, let skip = currentSpokenWordIntroOutro,
-              serverOutroHandledSongID != nowPlaying.songID else { return }
+        guard currentItemIsSpokenWord, isPlaying, hasNowPlaying, let skip = currentSpokenWordIntroOutro else { return }
         let songID = nowPlaying.songID
         let total = duration > 0 ? duration : nowPlaying.duration
-        guard SpokenWordIntroOutroPolicy.shouldSkipOutro(position: engine.currentTime, duration: total, skip: skip) else { return }
+        guard SpokenWordIntroOutroPolicy.shouldSkipOutro(position: engine.currentTime, duration: total, skip: skip) else {
+            if serverOutroHandledSongID == songID { serverOutroHandledSongID = nil }
+            return
+        }
+        guard serverOutroHandledSongID != songID else { return }
         serverOutroHandledSongID = songID
         plog("🎧 TV spoken word: skipping the last \(skip.outroSeconds)s of '\(nowPlaying.title)'")
         SpokenWordStore.shared.markFinished(true, songIDs: [songID])
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(songID: songID, position: total, force: true)
+        let requestID = activePlaybackRequestID
         advanceAfterEnd()
+        if activePlaybackRequestID == requestID, isPlaying { pausePlayback() }
     }
 
     private func applySyncedSpokenWordPosition(for song: Song) {

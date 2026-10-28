@@ -65,7 +65,7 @@ extension AudioPlayerService {
         }
         // 播客单集:片头跳过与 feed 里的章节。
         preparePodcastItem(song)
-        currentSpokenWordIntroOutro = serverSpokenWordIntroOutro(for: song)
+        currentSpokenWordIntroOutro = spokenWordIntroOutro(for: song)
         noteSpokenWordItemSelected(song)
         // Arm the resume even when nothing is stored: the seek is skipped, but
         // the flag also tells the position writer to ignore the opening zeroes.
@@ -78,6 +78,11 @@ extension AudioPlayerService {
 
     /// Follows the store when the playing item's kind changes under it.
     func observeSpokenWordClassification() {
+        NotificationCenter.default.addObserver(
+            forName: SpokenWordIntroOutroPreferences.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshCurrentSpokenWordIntroOutro() }
+        }
         for name in [Notification.Name.primuseSpokenWordDidChange, .primuseSpokenWordClassificationDidChange] {
             NotificationCenter.default.addObserver(
                 forName: name,
@@ -101,6 +106,7 @@ extension AudioPlayerService {
     func refreshCurrentItemContentKind() {
         guard let song = currentSong else { return }
         let isSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        currentSpokenWordIntroOutro = isSpokenWord ? spokenWordIntroOutro(for: song) : nil
         guard isSpokenWord != currentItemIsSpokenWord else { return }
         currentItemIsSpokenWord = isSpokenWord
         // Both only make sense for an item that was spoken word when it began.
@@ -194,7 +200,7 @@ extension AudioPlayerService {
                     return
                 }
             }
-            await self.refreshServerSpokenWordIntroOutro(for: song)
+            await self.refreshServerSpokenWordIntroOutro(for: song, allowsIntroSeek: followsServer)
             let chapters = await manager.fetchServerChapters(for: song)
             guard !Task.isCancelled, self.currentSong?.id == songID,
                   !chapters.isEmpty, self.spokenWordChapters.isEmpty else { return }
@@ -349,7 +355,23 @@ extension AudioPlayerService {
         Task { await play(queue: target.songs, startingAt: target.index) }
     }
 
-    // MARK: - Intro and outro set on the server
+    // MARK: - Per-book intro and outro
+
+    func spokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
+        guard SpokenWordStore.shared.kind(for: song) == .spokenWord,
+              song.appliedPlaybackRange == nil, !medleySongIDs.contains(song.id) else { return nil }
+        return SpokenWordIntroOutroPreferences.shared.settings(
+            forBookID: spokenWordBookID(for: song), server: serverSpokenWordIntroOutro(for: song)
+        )
+    }
+
+    func refreshCurrentSpokenWordIntroOutro() {
+        guard currentItemIsSpokenWord, let song = currentSong else {
+            currentSpokenWordIntroOutro = nil
+            return
+        }
+        currentSpokenWordIntroOutro = spokenWordIntroOutro(for: song)
+    }
 
     /// 服务端给这一条所在那本书设的片头 / 片尾秒数(Ting Reader);没有就是 nil。
     func serverSpokenWordIntroOutro(for song: Song) -> SpokenWordIntroOutro? {
@@ -370,19 +392,21 @@ extension AudioPlayerService {
             rewind = .fixed
         }
         let stored = SpokenWordStore.shared.resumePosition(for: song, rewind: rewind)
-        guard let skip = serverSpokenWordIntroOutro(for: song) else { return stored }
+        guard let skip = spokenWordIntroOutro(for: song) else { return stored }
         return SpokenWordIntroOutroPolicy.startPosition(resume: stored, duration: song.duration, skip: skip)
     }
 
     /// 开播后按这本书现取一次片头 / 片尾(网页端刚改过的也跟上)。变了就记下;片头变长、
     /// 而这一条还停在新片头里没听多久,就跳过去。
-    private func refreshServerSpokenWordIntroOutro(for song: Song) async {
+    private func refreshServerSpokenWordIntroOutro(for song: Song, allowsIntroSeek: Bool) async {
         guard let manager = sourceManager,
-              let skip = await manager.fetchServerSpokenWordIntroOutro(for: song),
+              await manager.fetchServerSpokenWordIntroOutro(for: song) != nil,
+              !Task.isCancelled,
               currentSong?.id == song.id else { return }
-        let refreshed = skip.isEmpty ? nil : skip
+        let refreshed = spokenWordIntroOutro(for: song)
         guard refreshed != currentSpokenWordIntroOutro else { return }
         currentSpokenWordIntroOutro = refreshed
+        guard allowsIntroSeek, let skip = refreshed else { return }
         let intro = TimeInterval(skip.introSeconds)
         guard intro > 0, pendingSpokenWordSeekOverride == nil,
               currentTime < min(intro, Self.serverSpokenWordResumeWindow),
@@ -395,28 +419,32 @@ extension AudioPlayerService {
         }
     }
 
-    /// 播放时钟每拍调:这本书在服务端设了片尾,离结尾不到那么多秒就当这一条听完,接着放下一条。
-    func applyServerSpokenWordOutroSkipIfNeeded() {
-        guard isPlaying, let skip = currentSpokenWordIntroOutro, let song = currentSong,
-              PodcastPlaybackState.shared.outroHandledEpisodeID != song.id else { return }
+    /// 片尾通过同一张曲终票据推进，避免解码结束回调再次切章。
+    func applySpokenWordOutroSkipIfNeeded() {
+        guard currentItemIsSpokenWord, isPlaying, let skip = currentSpokenWordIntroOutro,
+              let song = currentSong, let ticket = localPipelineAdvanceTicket else { return }
         let total = duration > 0 ? duration : song.duration
-        guard SpokenWordIntroOutroPolicy.shouldSkipOutro(position: currentTime, duration: total, skip: skip) else { return }
+        if !SpokenWordIntroOutroPolicy.shouldSkipOutro(position: currentTime, duration: total, skip: skip) {
+            if PodcastPlaybackState.shared.outroHandledEpisodeID == song.id {
+                PodcastPlaybackState.shared.outroHandledEpisodeID = nil
+                PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = nil
+            }
+            return
+        }
+        guard PodcastPlaybackState.shared.outroHandledEpisodeID != song.id,
+              automaticAdvanceDecision(for: ticket, trigger: "spoken-word-outro", consume: false,
+                                       transportIsActive: isPlaying) == .accepted else { return }
         PodcastPlaybackState.shared.outroHandledEpisodeID = song.id
         PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
         plog("🎧 Spoken word: skipping the last \(skip.outroSeconds)s of '\(song.title)'")
         SpokenWordStore.shared.markFinished(true, songIDs: [song.id])
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(song: song, position: total, duration: total, force: true)
-        // 定了「播完这一条就停」:片尾就是这一条的结尾,停在这里,不接下一条。
-        if sleepStopAfterSongID == song.id {
-            sleepStopAfterSongID = nil
-            pause()
-            return
-        }
+        let endedPlayID = playID
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let advanced = await self.next(isAutomaticAdvance: true)
-            if !advanced { self.pause() }
+            guard let self, self.currentSong?.id == song.id, self.playID == endedPlayID else { return }
+            await self.handleTrackEnd(advanceTicket: ticket, trigger: "spoken-word-outro",
+                                      transportIsActive: self.isPlaying)
         }
     }
 
@@ -447,7 +475,9 @@ extension AudioPlayerService {
     /// plain file played from the start, a CUE track, a medley slice or a
     /// playback range, which open where their own window says.
     func spokenWordOpeningPosition(for song: Song) -> TimeInterval? {
-        guard pendingSpokenWordResumeSongID == song.id,
+        let skipsIntro = currentItemIsSpokenWord && currentSong?.id == song.id
+            && (spokenWordIntroOutro(for: song)?.introSeconds ?? 0) > 0
+        guard pendingSpokenWordResumeSongID == song.id || skipsIntro,
               song.cueStartTime == nil, song.cueEndTime == nil,
               song.appliedPlaybackRange == nil,
               !medleySongIDs.contains(song.id) else { return nil }
@@ -455,7 +485,15 @@ extension AudioPlayerService {
         guard let target = override ?? spokenWordResumeTarget(for: song),
               target.isFinite, target >= Self.spokenWordOpeningMinimum else { return nil }
         if song.duration > 0, target >= song.duration - 1 { return nil }
+        pendingSpokenWordResumeSongID = song.id
         return target
+    }
+
+    /// 预读下一章时它还不是 currentSong；从零准备的音频不能用于需要跳片头或续播的章节。
+    func spokenWordRequiresOpeningSeek(for song: Song) -> Bool {
+        guard SpokenWordStore.shared.isSpokenWord(song) else { return false }
+        let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
+        return (override ?? spokenWordResumeTarget(for: song) ?? 0) >= Self.spokenWordOpeningMinimum
     }
 
     /// Below this a resume starts from the top and jumps on the first tick:
@@ -655,7 +693,10 @@ extension AudioPlayerService {
         let storedAt = SpokenWordStore.shared.position(forSongID: song.id)?.updatedAt
         guard let lastHeard = [stoppedAt, storedAt].compactMap({ $0 }).max() else { return nil }
         let away = Date().timeIntervalSince(lastHeard)
-        let target = SpokenWordSmartRewindPolicy.resumePosition(from: position, away: away, limit: limit)
+        let rewound = SpokenWordSmartRewindPolicy.resumePosition(from: position, away: away, limit: limit)
+        let target = spokenWordIntroOutro(for: song).flatMap {
+            SpokenWordIntroOutroPolicy.startPosition(resume: rewound, duration: song.duration, skip: $0)
+        } ?? rewound
         guard position - target >= 1 else { return nil }
         plog("🎧 Spoken word: smart rewind \(Int(position - target))s after \(Int(away))s away on '\(song.title)'")
         return target

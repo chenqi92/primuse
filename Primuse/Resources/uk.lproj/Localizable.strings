@@ -6869,3 +6869,6 @@
 "home_filter_style_kinetic" = "Динамічні заголовки";
 "home_filter_style_tuner" = "Шкала налаштування";
 "home_filter_style_sleeves" = "Конверти платівок";
+
+"spoken_word_skip_title" = "Пропуск початку й кінця";
+"spoken_word_skip_use_server" = "Використовувати налаштування сервера";

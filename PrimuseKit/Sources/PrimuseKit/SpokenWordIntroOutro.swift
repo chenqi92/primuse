@@ -1,6 +1,7 @@
 import Foundation
+import Observation
 
-/// 一本书每条开头、结尾各跳过多少秒。Ting Reader 在服务端按书记着(网页端「编辑书籍」里填)。
+/// 一本书每条开头、结尾各跳过多少秒。
 public struct SpokenWordIntroOutro: Codable, Equatable, Hashable, Sendable {
     public static let off = SpokenWordIntroOutro(introSeconds: 0, outroSeconds: 0)
 
@@ -15,9 +16,11 @@ public struct SpokenWordIntroOutro: Codable, Equatable, Hashable, Sendable {
     public var isEmpty: Bool { introSeconds == 0 && outroSeconds == 0 }
 }
 
-/// 跳片头片尾的规则,和 Ting Reader 网页端播放器一致:开播位置落在片头里就从片头结束处开始;
-/// 播到离结尾不到片尾秒数就当这条听完、接下一条,但这条要比「片头 + 片尾 + 10 秒」长才跳。
+/// 开播位置落在片头里就从片头结束处开始，进入片尾则当作听完。
+/// 已知时长的条目须比「片头 + 片尾 + 10 秒」长，避免把短章节的正文跳掉。
 public enum SpokenWordIntroOutroPolicy {
+    public static let choices = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300]
+
     /// 开始播一条时从哪里起。`resume` 是续播位置(没有就是 nil);返回 nil 表示从头。
     public static func startPosition(
         resume: TimeInterval?,
@@ -25,7 +28,10 @@ public enum SpokenWordIntroOutroPolicy {
         skip: SpokenWordIntroOutro
     ) -> TimeInterval? {
         let intro = TimeInterval(skip.introSeconds)
-        guard intro > 0, !(duration.isFinite && duration > 0 && intro >= duration - 1) else { return resume }
+        guard intro > 0 else { return resume }
+        // 短序言、预告等保留正文，不能因为整本书的设置跳到片尾里。
+        if duration.isFinite, duration > 0,
+           duration <= intro + TimeInterval(skip.outroSeconds) + 10 { return resume }
         guard let resume, resume.isFinite, resume >= intro else { return intro }
         return resume
     }
@@ -37,9 +43,63 @@ public enum SpokenWordIntroOutroPolicy {
         skip: SpokenWordIntroOutro
     ) -> Bool {
         let outro = TimeInterval(skip.outroSeconds)
-        guard outro > 0, position.isFinite, duration.isFinite,
+        guard outro > 0, position.isFinite, position >= 0, duration.isFinite,
               duration > TimeInterval(skip.introSeconds) + outro + 10 else { return false }
         return duration - position <= outro
+    }
+}
+
+/// 本机按书覆盖服务端设置。显式的 0/0 表示不跳过，nil 才表示跟随服务端。
+@MainActor
+@Observable
+public final class SpokenWordIntroOutroPreferences {
+    public static let shared = SpokenWordIntroOutroPreferences()
+    public static let didChange = Notification.Name("primuse.spokenWordIntroOutroDidChange")
+    public static let storageKey = "primuse.spokenWord.introOutroOverrides.v1"
+
+    private var overrides: [String: SpokenWordIntroOutro]
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let stored = defaults.dictionary(forKey: Self.storageKey) as? [String: [Int]] ?? [:]
+        overrides = stored.compactMapValues { pair in
+            guard pair.count == 2 else { return nil }
+            return SpokenWordIntroOutro(introSeconds: pair[0], outroSeconds: pair[1])
+        }
+    }
+
+    public func override(forBookID bookID: String) -> SpokenWordIntroOutro? {
+        overrides[bookID]
+    }
+
+    public func settings(forBookID bookID: String, server: SpokenWordIntroOutro?) -> SpokenWordIntroOutro? {
+        overrides[bookID] ?? server
+    }
+
+    public func set(_ settings: SpokenWordIntroOutro?, forBookID bookID: String) {
+        guard !bookID.isEmpty, overrides[bookID] != settings else { return }
+        overrides[bookID] = settings
+        persist()
+    }
+
+    public func carryBookState(renames: [String: String]) {
+        let original = overrides
+        for oldID in renames.keys.sorted() {
+            guard let newID = renames[oldID], !newID.isEmpty,
+                  overrides[newID] == nil, let value = original[oldID] else { continue }
+            overrides[newID] = value
+        }
+        if overrides != original { persist() }
+    }
+
+    private func persist() {
+        if overrides.isEmpty {
+            defaults.removeObject(forKey: Self.storageKey)
+        } else {
+            defaults.set(overrides.mapValues { [$0.introSeconds, $0.outroSeconds] }, forKey: Self.storageKey)
+        }
+        NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 }
 

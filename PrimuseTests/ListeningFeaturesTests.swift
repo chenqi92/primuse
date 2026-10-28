@@ -658,6 +658,113 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertNil(store.serverAdoptedChange(forSongID: "local"))
     }
 
+    private func introOutroChapter() -> Song {
+        let id = UUID().uuidString
+        var chapter = song(id, duration: 1_800, genre: "Audiobook", path: "/Books/\(id)/01.mp3")
+        chapter.albumTitle = id
+        cleanups.append {
+            SpokenWordStore.shared.markFinished(false, songIDs: [id])
+            SpokenWordStore.shared.clearPosition(forSongID: id)
+        }
+        return chapter
+    }
+
+    func testBookIntroAppliesAcrossChaptersAndPreservesExplicitBookmark() throws {
+        let player = try makePlayer()
+        let chapter = introOutroChapter()
+        var second = chapter
+        second.id = UUID().uuidString
+        second.filePath = chapter.filePath.replacingOccurrences(of: "01.mp3", with: "02.mp3")
+        let bookID = player.spokenWordBookID(for: chapter)
+        let preferences = SpokenWordIntroOutroPreferences.shared
+        cleanups.append { preferences.set(nil, forBookID: bookID) }
+        preferences.set(SpokenWordIntroOutro(introSeconds: 30, outroSeconds: 20), forBookID: bookID)
+
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 30)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: second), 30)
+        XCTAssertTrue(player.spokenWordRequiresOpeningSeek(for: second), "the next chapter cannot adopt audio prepared from zero")
+        XCTAssertNil(player.pendingSpokenWordResumeSongID)
+        player.currentSong = chapter
+        XCTAssertEqual(player.spokenWordOpeningPosition(for: chapter), 30)
+        player.pendingSpokenWordSeekOverride = (chapter.id, 8)
+        XCTAssertEqual(player.spokenWordOpeningPosition(for: chapter), 8)
+        player.pendingSpokenWordSeekOverride = (chapter.id, 0)
+        XCTAssertFalse(player.spokenWordRequiresOpeningSeek(for: chapter), "an explicit start at zero takes priority")
+        player.pendingSpokenWordSeekOverride = nil
+        player.pendingSpokenWordResumeSongID = nil
+        XCTAssertEqual(player.spokenWordOpeningPosition(for: chapter), 30, "restarting the same item still skips its intro")
+        SpokenWordStore.shared.rememberPosition(600, duration: chapter.duration, forSongID: chapter.id)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter, rewinding: false), 600)
+        var short = second
+        short.duration = 60
+        XCTAssertNil(player.spokenWordResumeTarget(for: short))
+        var music = second
+        music.genre = "Rock"
+        XCTAssertNil(player.spokenWordIntroOutro(for: music))
+    }
+
+    func testLocalBookOverrideWinsOverServerAndCanBeDisabledOrReset() throws {
+        let player = try makePlayer()
+        var chapter = introOutroChapter()
+        let serverBookID = UUID().uuidString
+        chapter.filePath = "/tingreader/books/\(serverBookID)/chapters/chapter.mp3"
+        let bookID = player.spokenWordBookID(for: chapter)
+        let preferences = SpokenWordIntroOutroPreferences.shared
+        cleanups.append {
+            preferences.set(nil, forBookID: bookID)
+            SpokenWordServerIntroOutroCache.update(.off, sourceID: chapter.sourceID, bookID: serverBookID)
+        }
+        SpokenWordServerIntroOutroCache.update(SpokenWordIntroOutro(introSeconds: 45, outroSeconds: 20),
+                                              sourceID: chapter.sourceID, bookID: serverBookID)
+        player.currentSong = chapter
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 45)
+        preferences.set(.off, forBookID: bookID)
+        XCTAssertNil(player.spokenWordResumeTarget(for: chapter))
+        XCTAssertEqual(player.currentSpokenWordIntroOutro, .off)
+        preferences.set(SpokenWordIntroOutro(introSeconds: 15, outroSeconds: 10), forBookID: bookID)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 15)
+        XCTAssertEqual(player.currentSpokenWordIntroOutro?.outroSeconds, 10)
+        preferences.set(nil, forBookID: bookID)
+        XCTAssertEqual(player.spokenWordResumeTarget(for: chapter), 45)
+    }
+
+    func testSmartRewindStopsAtBookIntroBoundary() throws {
+        let player = try makePlayer()
+        let chapter = introOutroChapter()
+        let bookID = player.spokenWordBookID(for: chapter)
+        cleanups.append { SpokenWordIntroOutroPreferences.shared.set(nil, forBookID: bookID) }
+        SpokenWordIntroOutroPreferences.shared.set(SpokenWordIntroOutro(introSeconds: 30, outroSeconds: 20), forBookID: bookID)
+        player.currentSong = chapter
+        player.spokenWordStoppedAt = (chapter.id, Date().addingTimeInterval(-3_600))
+        XCTAssertEqual(player.spokenWordSmartRewindTarget(for: chapter, from: 40, seeksInPlace: true), 30)
+    }
+
+    func testBookOutroHonorsSleepAndCannotAdvanceTwice() async throws {
+        let chapter = introOutroChapter()
+        let player = try makeQueuedPlayer([chapter, song(UUID().uuidString)])
+        let bookID = player.spokenWordBookID(for: chapter)
+        cleanups.append { SpokenWordIntroOutroPreferences.shared.set(nil, forBookID: bookID) }
+        SpokenWordIntroOutroPreferences.shared.set(SpokenWordIntroOutro(introSeconds: 30, outroSeconds: 20), forBookID: bookID)
+        player.pendingSpokenWordResumeSongID = nil
+        player.playID = UUID()
+        player.registerPlayIntent()
+        let ticket = player.beginAutomaticAdvanceTransport(itemID: chapter.id, reason: "test")
+        player.duration = chapter.duration
+        player.currentTime = 1_780
+        player.sleepStopAfterSongID = chapter.id
+        player.isPlaying = true
+        player.applySpokenWordOutroSkipIfNeeded()
+        player.applySpokenWordOutroSkipIfNeeded()
+        for _ in 0..<20 where player.isPlaying { await Task.yield() }
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertTrue(SpokenWordStore.shared.isFinished(songID: chapter.id))
+        XCTAssertNil(player.sleepStopAfterSongID)
+        XCTAssertEqual(player.currentSong?.id, chapter.id)
+        await player.handleTrackEnd(advanceTicket: ticket, trigger: "decoder-ended", transportIsActive: true)
+        XCTAssertEqual(player.currentSong?.id, chapter.id)
+        XCTAssertEqual(player.currentIndex, 0)
+    }
+
     func testServerIntroMovesTheStartPastItButNotAnEarlierPosition() throws {
         let player = try makePlayer()
         let bookID = "book-\(UUID().uuidString)"

@@ -906,6 +906,10 @@ struct SpokenWordShelfContent: View {
 
     @ViewBuilder
     private func bookMenu(_ book: SpokenWordBook, songs: [Song], entries: [SpokenWordLibrarySnapshot.Entry] = []) -> some View {
+        if let song = songs.first, store.kind(for: song) == .spokenWord {
+            SpokenWordIntroOutroMenu(bookID: book.id, song: song)
+            Divider()
+        }
         if entries.count > 1 {
             Section {
                 Button("home_edit_move_up", systemImage: "arrow.up") { moveBook(book.id, by: -1, entries: entries) }
@@ -1467,6 +1471,11 @@ struct SpokenWordBookDetailView: View {
                 }
                 .padding(.top, 6)
                 if collection == .books {
+                    if let song = songs.first {
+                        SpokenWordIntroOutroMenu(bookID: book.id, song: song)
+                            .font(.system(size: 12.5))
+                            .fixedSize()
+                    }
                     SpokenWordBookOfflineRow(book: book, songs: songs)
                         .frame(maxWidth: 380, alignment: .leading)
                         .padding(.top, 4)
@@ -1547,6 +1556,10 @@ struct SpokenWordBookDetailView: View {
             Text(SpokenWordBookSupport.summary(book))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            if collection == .books, let song = songs.first {
+                SpokenWordIntroOutroMenu(bookID: book.id, song: song)
+                    .font(.caption)
+            }
             if book.lastListenedAt != nil {
                 // 撑满右栏:右缘和下面章节的时长对齐。
                 ProgressView(value: book.fractionComplete)
