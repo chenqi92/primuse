@@ -2285,6 +2285,8 @@ struct ServerPlaylist: Sendable {
     /// 服务端歌单 ID, 用来派生稳定的本地镜像歌单 ID。
     let id: String
     let name: String
+    /// nil 表示此来源没有提供简介；空字符串表示服务器已清空简介。
+    let descriptionText: String?
     /// Source-owned playlist image reference. It remains source-relative or
     /// connector-rewritable so credentials and routes can be refreshed later.
     let coverArtReference: String?
@@ -2313,10 +2315,12 @@ struct ServerPlaylist: Sendable {
         reportedTrackCount: Int? = nil,
         isReadOnly: Bool = false,
         isSmartPlaylist: Bool = false,
-        playableSongs: [String: Song] = [:]
+        playableSongs: [String: Song] = [:],
+        descriptionText: String? = nil
     ) {
         self.id = id
         self.name = name
+        self.descriptionText = descriptionText
         self.coverArtReference = coverArtReference
         self.trackIDs = trackIDs
         self.tracks = tracks
@@ -2336,9 +2340,14 @@ struct ServerPlaylist: Sendable {
             reportedTrackCount: reportedTrackCount,
             isReadOnly: isReadOnly,
             isSmartPlaylist: isSmartPlaylist,
-            playableSongs: playableSongs
+            playableSongs: playableSongs,
+            descriptionText: descriptionText
         )
     }
+}
+
+protocol ServerPlaylistDescriptionConnector: MusicSourceConnector {
+    func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist
 }
 
 /// 一次服务端歌单同步所见到的快照。

@@ -5383,7 +5383,7 @@ final class TVStore {
 
     /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。
     /// 与 iPhone、Mac 用同一份 `ServerPlaylistMirror`:歌单 ID 由 sourceID 派生,
-    /// 每次扫描后以服务端内容为准覆盖,电视这边的改动不回写服务端。
+    /// 扫描以服务端内容为准；简介写入确认后再刷新本地镜像。
     private func syncServerLibrary(
         source: MusicSource,
         credential: SourceCredential?,
@@ -5399,7 +5399,8 @@ final class TVStore {
                 }
             ) else { return }
             guard isCurrentScan(source: source, generation: generation) else { return }
-            _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+            _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library,
+                                           descriptionReadRevision: applier.descriptionReadRevision)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
             // 歌单镜像是扫描的附加步骤,失败不能把已经成功的扫描算作失败。
@@ -6795,6 +6796,34 @@ final class TVStore {
     @discardableResult
     func renamePlaylist(id: String, to name: String) -> Bool {
         library.renamePlaylist(id: id, to: name)
+    }
+
+    func canEditPlaylistDescription(_ playlist: TVPlaylist) -> Bool {
+        guard let stored = library.playlist(id: playlist.id), !stored.isDeleted else { return false }
+        if !MirrorPlaylistIdentity.isMirrorPlaylist(stored.id) { return MusicLibrary.allowsRename(stored) }
+        return descriptionSource(playlist.id) != nil && !ServerPlaylistMirror.readOnlyPlaylistIDs.contains(stored.id)
+    }
+
+    private func descriptionSource(_ playlistID: String) -> MusicSource? {
+        sourcesStore.sources.first {
+            $0.isEnabled && !$0.isDeleted && PlaylistDescriptionPolicy.supportsServerWriteback($0.type)
+                && ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: playlistID, sourceID: $0.id) != nil
+        }
+    }
+
+    func savePlaylistDescription(_ text: String, playlist: TVPlaylist) async throws {
+        guard canEditPlaylistDescription(playlist) else { throw ServerPlaylistAppendError.readOnly }
+        if let source = descriptionSource(playlist.id),
+           let id = ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: playlist.id, sourceID: source.id) {
+            let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+            let refreshed = try await scanner.updatePlaylistDescription(
+                source: source, credential: credential, id: id, description: text
+            )
+            guard let current = descriptionSource(playlist.id), current == source else { throw CancellationError() }
+            ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
+        } else {
+            guard library.updatePlaylistDescription(id: playlist.id, description: text) else { throw CancellationError() }
+        }
     }
 
     /// 播放歌单**自身**的曲目:用歌单全部歌曲建队列、从首曲开始,续播留在歌单内

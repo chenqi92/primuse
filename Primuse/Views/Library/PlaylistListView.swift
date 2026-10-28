@@ -672,7 +672,7 @@ struct PlaylistListView: View {
                     showNewPlaylist = false
                 },
                 onCreate: { name in
-                    _ = library.createPlaylist(name: name)
+                    _ = library.createPlaylist(name: name, descriptionText: newPlaylistDescription)
                     newPlaylistName = ""
                     newPlaylistDescription = ""
                     showNewPlaylist = false

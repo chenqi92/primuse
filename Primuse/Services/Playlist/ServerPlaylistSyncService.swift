@@ -8,7 +8,7 @@ import PrimuseKit
 /// `/items/<id>.<ext>`), 所以歌单曲目能按 ID 精确命中。
 ///
 /// 镜像语义(与 Apple Music 资料库镜像一致): 歌单 ID 由 sourceID + 服务端歌单
-/// ID 派生, 每次扫描后用服务端内容覆盖, 用户在 Primuse 侧的改动不回写服务端。
+/// ID 派生；扫描读取服务端内容，简介和加歌操作回写后以服务端回读结果更新镜像。
 @MainActor
 enum ServerPlaylistSyncService {
     typealias SyncResult = ServerPlaylistMirror.SyncResult
@@ -64,7 +64,8 @@ enum ServerPlaylistSyncService {
             return result
         }
 
-        result = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library)
+        result = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library,
+                                            descriptionReadRevision: applier.descriptionReadRevision)
         return result
     }
 }
@@ -940,5 +941,46 @@ final class ServerMirrorRefreshCoordinator {
         guard !sourceManager.unreachablePlaybackSourceIDs.contains(source.id) else { return false }
         guard let last = lastRefreshStartedAt[source.id] else { return true }
         return now.timeIntervalSince(last) >= Self.cooldown
+    }
+}
+
+@MainActor
+enum PlaylistDescriptionService {
+    static func serverSource(for playlist: Playlist, sourcesStore: SourcesStore) -> MusicSource? {
+        sourcesStore.sources.first { source in
+            source.isEnabled && !source.isDeleted
+                && PlaylistDescriptionPolicy.supportsServerWriteback(source.type)
+                && ServerPlaylistWritebackPolicy.serverPlaylistID(
+                    fromMirrorPlaylistID: playlist.id, sourceID: source.id
+                ) != nil
+        }
+    }
+
+    static func canEdit(_ playlist: Playlist, sourcesStore: SourcesStore) -> Bool {
+        guard !playlist.isDeleted else { return false }
+        if !MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) { return MusicLibrary.allowsRename(playlist) }
+        return serverSource(for: playlist, sourcesStore: sourcesStore) != nil
+            && !ServerPlaylistMirror.readOnlyPlaylistIDs.contains(playlist.id)
+    }
+
+    static func save(
+        _ description: String, playlist: Playlist, library: MusicLibrary,
+        sourcesStore: SourcesStore, sourceManager: SourceManager
+    ) async throws {
+        guard canEdit(playlist, sourcesStore: sourcesStore) else { throw ServerPlaylistAppendError.readOnly }
+        if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            guard let source = serverSource(for: playlist, sourcesStore: sourcesStore),
+                  let id = ServerPlaylistWritebackPolicy.serverPlaylistID(
+                    fromMirrorPlaylistID: playlist.id, sourceID: source.id
+                  ) else { throw ServerPlaylistAppendError.readOnly }
+            let refreshed = try await sourceManager.updateServerPlaylistDescription(
+                id: id, description: description, source: source
+            )
+            ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
+        } else {
+            guard library.updatePlaylistDescription(id: playlist.id, description: description) else {
+                throw CancellationError()
+            }
+        }
     }
 }

@@ -14,6 +14,16 @@ enum ServerPlaylistMirror {
     /// 最近一次同步判定为当前账户不能加歌的镜像歌单。只放内存: 冷启动后几秒
     /// 就会重新同步一次, 在那之前宁可让用户试一次、由服务端拒绝。
     private(set) static var readOnlyPlaylistIDs: Set<String> = []
+    private static var descriptionRevision: UInt64 = 0
+    private static var confirmedDescriptionRevisions: [String: UInt64] = [:]
+
+    private static func applyDescription(_ playlist: ServerPlaylist, localID: String,
+                                         library: MusicLibrary, readRevision: UInt64?) {
+        if let readRevision, (confirmedDescriptionRevisions[localID] ?? 0) > readRevision { return }
+        if let description = playlist.descriptionText {
+            library.updatePlaylistDescription(id: localID, description: description, fromServer: true)
+        }
+    }
 
     /// 服务端曲目 → 本地歌曲的对照结果。只由值算出(这个源的歌 + 服务端快照),
     /// 可以在主线程外算好, 主线程只做落地。
@@ -36,7 +46,8 @@ enum ServerPlaylistMirror {
     static func apply(
         snapshot: ServerPlaylistSnapshot,
         source: MusicSource,
-        library: MusicLibrary
+        library: MusicLibrary,
+        descriptionReadRevision: UInt64? = nil
     ) -> SyncResult {
         let prepared = prepare(
             snapshot: snapshot,
@@ -45,7 +56,8 @@ enum ServerPlaylistMirror {
             songs: library.songs,
             matchingSongs: library.visibleSongs
         )
-        return apply(prepared, snapshot: snapshot, source: source, library: library)
+        return apply(prepared, snapshot: snapshot, source: source, library: library,
+                     descriptionReadRevision: descriptionReadRevision)
     }
 
     /// 整库建索引、逐首对照放到主线程外: 几万首的曲库加上几十个歌单, 在主线程上
@@ -151,7 +163,8 @@ enum ServerPlaylistMirror {
         _ prepared: PreparedSnapshot,
         snapshot: ServerPlaylistSnapshot,
         source: MusicSource,
-        library: MusicLibrary
+        library: MusicLibrary,
+        descriptionReadRevision: UInt64? = nil
     ) -> SyncResult {
         var result = SyncResult()
         let context = logContext(sourceID: source.id, sourceType: source.type)
@@ -178,6 +191,7 @@ enum ServerPlaylistMirror {
             }
 
             library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
+            applyDescription(serverPlaylist, localID: localID, library: library, readRevision: descriptionReadRevision)
             keepIDs.insert(localID)
             result.syncedPlaylistCount += 1
 
@@ -245,12 +259,14 @@ enum ServerPlaylistMirror {
     final class ProgressiveApplier {
         private let source: MusicSource
         private let library: MusicLibrary
+        let descriptionReadRevision: UInt64
         /// 同步期间曲库不会因为这一步变化, 建一次给整轮用; 漏掉的新歌由收尾的 `apply` 补上。
         private lazy var index = ServerPlaylistMirror.serverItemIndex(sourceID: source.id, library: library)
 
         init(source: MusicSource, library: MusicLibrary) {
             self.source = source
             self.library = library
+            self.descriptionReadRevision = ServerPlaylistMirror.descriptionRevision
         }
 
         func apply(_ serverPlaylist: ServerPlaylist) {
@@ -267,6 +283,8 @@ enum ServerPlaylistMirror {
                 readOnlyPlaylistIDs.remove(localID)
             }
             library.ensurePlaylist(id: localID, name: ServerPlaylistMirror.resolvedName(serverPlaylist.name, localID: localID, library: library))
+            ServerPlaylistMirror.applyDescription(serverPlaylist, localID: localID, library: library,
+                                                  readRevision: descriptionReadRevision)
             if entry.memberIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) {
                 library.updateMirrorPlaylistArtwork(
                     playlistID: localID,
@@ -297,6 +315,12 @@ enum ServerPlaylistMirror {
         source: MusicSource,
         library: MusicLibrary
     ) {
+        if serverPlaylist.descriptionText != nil {
+            descriptionRevision &+= 1
+            confirmedDescriptionRevisions[ServerPlaylistIdentity.playlistID(
+                sourceID: source.id, serverPlaylistID: serverPlaylist.id
+            )] = descriptionRevision
+        }
         ProgressiveApplier(source: source, library: library).apply(serverPlaylist)
     }
 
@@ -312,6 +336,9 @@ enum ServerPlaylistMirror {
             serverPlaylistID: serverPlaylist.id
         )
         library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
+        if let description = serverPlaylist.descriptionText {
+            library.updatePlaylistDescription(id: localID, description: description, fromServer: true)
+        }
     }
 
     /// 自报数量与实际给出的条目, 任一说有就算有: 自报数量缺省、写成 0 或比实际少时,

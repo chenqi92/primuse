@@ -1,6 +1,8 @@
 import Foundation
 import PrimuseKit
 import XCTest
+import SwiftUI
+import UIKit
 @testable import Primuse
 
 final class SubsonicRatingTests: XCTestCase {
@@ -406,6 +408,258 @@ private final class AirsonicTagHTTPProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}
+
+@MainActor
+final class ServerPlaylistDescriptionTests: XCTestCase {
+    func testLiveNavidromeDescriptionRoundTrip() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_QA_PLAYLIST_SERVER"] == "1" else {
+            throw XCTSkip("Requires the isolated local Navidrome QA server")
+        }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let (credentials, _) = try await session.data(from: URL(string: "http://127.0.0.1:14537/bootstrap")!)
+        let account = try JSONDecoder().decode([String: String].self, from: credentials)
+        let username = try XCTUnwrap(account["username"])
+        let password = try XCTUnwrap(account["password"])
+        let sourceID = UUID().uuidString
+        let connector = SubsonicSource(sourceID: sourceID, sourceType: .navidrome, host: "127.0.0.1",
+            port: 14536, useSsl: false, basePath: nil, username: username, password: password, session: session)
+        let source = MusicSource(id: sourceID, name: "Navidrome QA", type: .navidrome, host: "127.0.0.1",
+                                 port: 14536, useSsl: false,
+                                 connectionConfiguration: SourceConnectionConfiguration(
+                                    localEndpoint: SourceConnectionEndpoint(host: "127.0.0.1", port: 14536, useSsl: false),
+                                    publicEndpoint: SourceConnectionEndpoint(host: "localhost", port: 14536, useSsl: false)))
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: root)
+        let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        sources.add(source)
+        func api(_ method: String, _ items: [URLQueryItem]) async throws -> [String: Any] {
+            var url = URLComponents(string: "http://127.0.0.1:14536/rest/\(method).view")!
+            url.queryItems = [URLQueryItem(name: "u", value: username), URLQueryItem(name: "p", value: password),
+                URLQueryItem(name: "v", value: "1.16.1"), URLQueryItem(name: "c", value: "Primuse-QA"),
+                URLQueryItem(name: "f", value: "json")] + items
+            let data: Data
+            do { (data, _) = try await session.data(from: FormSafeQueryURLBuilder.url(from: url)!) }
+            catch { throw URLError(.cannotConnectToHost) }
+            let response = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["subsonic-response"] as? [String: Any]
+            guard let response, response["status"] as? String == "ok" else { throw URLError(.badServerResponse) }
+            return response
+        }
+        let created = try await connector.createServerPlaylist(named: "Primuse 简介 QA " + String(UUID().uuidString.prefix(8)))
+        do {
+            let id = ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: created.id)
+            _ = try await api("updatePlaylist", [URLQueryItem(name: "playlistId", value: created.id),
+                URLQueryItem(name: "comment", value: "服务器修改\n中文 & + =")])
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(library.playlist(id: id)?.descriptionText, "服务器修改\n中文 & + =")
+            let playlist = try XCTUnwrap(library.playlist(id: id))
+            try await capturePlaylist(playlist, library: library, manager: manager, sources: sources)
+            try await PlaylistDescriptionService.save("App 修改\n保留换行 & + =", playlist: playlist,
+                library: library, sourcesStore: sources, sourceManager: manager)
+            let server = try await api("getPlaylist", [URLQueryItem(name: "id", value: created.id)])
+            XCTAssertEqual((server["playlist"] as? [String: Any])?["comment"] as? String, "App 修改\n保留换行 & + =")
+            try await PlaylistDescriptionService.save("", playlist: playlist, library: library,
+                sourcesStore: sources, sourceManager: manager)
+            XCTAssertEqual(library.playlist(id: id)?.descriptionText, "")
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(library.playlist(id: id)?.descriptionText, "")
+            _ = try await api("deletePlaylist", [URLQueryItem(name: "id", value: created.id)])
+            await connector.disconnect()
+        } catch {
+            _ = try? await api("deletePlaylist", [URLQueryItem(name: "id", value: created.id)])
+            await connector.disconnect()
+            throw error
+        }
+    }
+
+    private func capturePlaylist(_ playlist: Playlist, library: MusicLibrary,
+                                 manager: SourceManager, sources: SourcesStore) async throws {
+        let services = AppServices.shared
+        let player = services.playerService
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let original = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView:
+            NavigationStack { PlaylistDetailView(playlist: playlist) }
+                .environment(player).environment(library).environment(manager).environment(sources)
+                .environment(services.metadataBackfill).environment(services.scraperService)
+                .environment(services.scraperSettingsStore).environment(services.themeService)
+                .environment(services.coverTintProvider).environment(services.playbackSettingsStore)
+                .environment(services.scanService).environment(services.appleMusic).environment(services.dlnaRenderer)
+                .environment(services.audioCacheSync).environment(services.batchRemoval)
+                .environment(services.duplicateCleanup).environment(services.serverListeningStats)
+                .environment(services.serverCatalogAutoRefresh).environment(services.cloudSync)
+                .environment(services.appleMusicLibrary).environment(services.musicIntelligence)
+                .environment(services.radioStationsStore).environment(services.updateChecker)
+                .environment(player.audioEngine).environment(player.equalizerService)
+                .environment(player.audioEffectsService).environment(services.visualizer))
+        window.windowLevel = .alert
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            original?.makeKeyAndVisible()
+        }
+        try await Task.sleep(for: .seconds(2))
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "navidrome-playlist-description"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testSubsonicFamilyImportsUpdatesAndClearsOnlyComment() async throws {
+        for type: MusicSourceType in [.navidrome, .subsonic, .airsonic, .gonic] {
+            let fixture = PlaylistDescriptionHTTPFixture()
+            let (source, session) = makeSource(fixture, type: type)
+            defer { session.invalidateAndCancel() }
+            let before = try await source.fetchServerPlaylists()
+            XCTAssertEqual(before.playlists.first?.descriptionText, "服务器简介")
+            let text = "第一行 & = +\n第二行"
+            let updated = try await source.updateServerPlaylistDescription(id: "list.a-42", description: text)
+            XCTAssertEqual(updated.descriptionText, text)
+            XCTAssertEqual(updated.trackIDs, ["song.a-1", "song.a-2"])
+            let cleared = try await source.updateServerPlaylistDescription(id: "list.a-42", description: "")
+            XCTAssertEqual(cleared.descriptionText, "")
+            let writes = fixture.requests.filter { $0.url?.lastPathComponent == "updatePlaylist.view" }
+            XCTAssertEqual(writes.count, 2)
+            XCTAssertEqual(fixture.query(writes[0])["comment"], text)
+            XCTAssertEqual(fixture.query(writes[1])["comment"], "")
+            for request in writes {
+                let query = fixture.query(request)
+                XCTAssertEqual(query["playlistId"], "list.a-42")
+                for key in ["name", "public", "songIdToAdd", "songIndexToRemove"] { XCTAssertNil(query[key]) }
+            }
+        }
+    }
+
+    func testFailedOrUnconfirmedWritesDoNotReportSuccess() async throws {
+        for mode in [PlaylistDescriptionHTTPFixture.Mode.rejected, .mismatch, .readOnly, .smart] {
+            let fixture = PlaylistDescriptionHTTPFixture(mode: mode)
+            let (source, session) = makeSource(fixture)
+            defer { session.invalidateAndCancel() }
+            do {
+                _ = try await source.updateServerPlaylistDescription(id: "list.a-42", description: "Changed")
+                XCTFail("Expected failure for \(mode)")
+            } catch {}
+            if mode == .readOnly || mode == .smart {
+                XCTAssertFalse(fixture.requests.contains { $0.url?.lastPathComponent == "updatePlaylist.view" })
+            }
+        }
+    }
+
+    func testEmptyDetailCommentOverridesStaleListComment() async throws {
+        let fixture = PlaylistDescriptionHTTPFixture(mode: .emptyDetail)
+        let (source, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let snapshot = try await source.fetchServerPlaylists()
+        XCTAssertEqual(snapshot.playlists.first?.descriptionText, "")
+    }
+
+    func testMirrorRefreshClearAndReloadKeepDescriptionSeparateFromMembership() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: root)
+        let source = MusicSource(id: UUID().uuidString, name: "Server", type: .navidrome)
+        let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "list")
+        func snapshot(_ text: String?) -> ServerPlaylistSnapshot {
+            ServerPlaylistSnapshot(playlists: [ServerPlaylist(id: "list", name: "List", trackIDs: ["missing"],
+                descriptionText: text)])
+        }
+        _ = ServerPlaylistMirror.apply(snapshot: snapshot("Remote"), source: source, library: library)
+        XCTAssertEqual(library.playlist(id: id)?.descriptionText, "Remote")
+        _ = ServerPlaylistMirror.apply(snapshot: snapshot(nil), source: source, library: library)
+        XCTAssertEqual(library.playlist(id: id)?.descriptionText, "Remote", "Unsupported snapshots must not clear text")
+        let cleared = try XCTUnwrap(snapshot("").playlists.first)
+        ServerPlaylistMirror.ProgressiveApplier(source: source, library: library).apply(cleared)
+        XCTAssertEqual(library.playlist(id: id)?.descriptionText, "")
+        let staleRead = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+        ServerPlaylistMirror.applyAppended(snapshot("Changed remotely").playlists[0], source: source, library: library)
+        staleRead.apply(snapshot("Old snapshot").playlists[0])
+        _ = ServerPlaylistMirror.apply(snapshot: snapshot("Old snapshot"), source: source, library: library,
+                                       descriptionReadRevision: staleRead.descriptionReadRevision)
+        XCTAssertEqual(library.playlist(id: id)?.descriptionText, "Changed remotely")
+        let local = library.createPlaylist(name: "Local", descriptionText: "Created with description")
+        XCTAssertTrue(library.updatePlaylistDescription(id: local.id, description: "Local edit"))
+        XCTAssertFalse(library.updatePlaylistDescription(id: id, description: "Unconfirmed local edit"))
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persist failed") }
+        let reloaded = MusicLibrary(storageDirectory: root)
+        XCTAssertEqual(reloaded.playlist(id: id)?.descriptionText, "Changed remotely")
+        XCTAssertEqual(reloaded.playlist(id: local.id)?.descriptionText, "Local edit")
+    }
+
+    private func makeSource(_ fixture: PlaylistDescriptionHTTPFixture, type: MusicSourceType = .navidrome)
+        -> (SubsonicSource, URLSession) {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        PlaylistDescriptionHTTPProtocol.register(fixture, host: host)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [PlaylistDescriptionHTTPProtocol.self]
+        let session = URLSession(configuration: config)
+        return (SubsonicSource(sourceID: host, sourceType: type, host: host, port: nil, useSsl: true,
+                               basePath: nil, username: "qa", password: "qa", session: session), session)
+    }
+}
+
+private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
+    enum Mode { case success, rejected, mismatch, readOnly, smart, emptyDetail }
+    let mode: Mode
+    private let lock = NSLock()
+    private var recorded: [URLRequest] = []
+    private var comment = "服务器简介"
+    var requests: [URLRequest] { lock.withLock { recorded } }
+    init(mode: Mode = .success) { self.mode = mode }
+    func query(_ request: URLRequest) -> [String: String] {
+        var parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
+        return Dictionary((parts.queryItems ?? [])
+            .compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { _, rhs in rhs })
+    }
+    func response(_ request: URLRequest) -> Data {
+        lock.withLock {
+            recorded.append(request)
+            var body: [String: Any] = ["status": "ok", "version": "1.16.1", "type": "navidrome", "openSubsonic": true]
+            var playlist: [String: Any] = ["id": "list.a-42", "name": "List", "comment": comment,
+                "owner": mode == .readOnly ? "another-user" : "qa", "readonly": mode == .smart, "songCount": 2,
+                "entry": [["id": "song.a-1"], ["id": "song.a-2"]]]
+            switch request.url!.lastPathComponent {
+            case "ping.view": break
+            case "getPlaylists.view": body["playlists"] = ["playlist": [playlist]]
+            case "getPlaylist.view":
+                if mode == .emptyDetail { playlist["comment"] = "" }
+                body["playlist"] = playlist
+            case "getStarred2.view": body["starred2"] = [:] as [String: String]
+            case "getUser.view": body["user"] = ["adminRole": false]
+            case "updatePlaylist.view":
+                if mode == .rejected { body = ["status": "failed", "error": ["code": 50, "message": "Denied"]] }
+                else if mode != .mismatch { comment = query(request)["comment"] ?? comment }
+            default: body = ["status": "failed", "error": ["code": 70, "message": "Unknown method"]]
+            }
+            return try! JSONSerialization.data(withJSONObject: ["subsonic-response": body])
+        }
+    }
+}
+
+private final class PlaylistDescriptionHTTPProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: PlaylistDescriptionHTTPFixture] = [:]
+    static func register(_ fixture: PlaylistDescriptionHTTPFixture, host: String) { lock.withLock { fixtures[host] = fixture } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: fixture.response(request))
+        client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }

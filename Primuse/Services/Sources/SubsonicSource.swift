@@ -20,7 +20,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
-    ServerPlaylistConnector, ServerPlaylistCreatingConnector,
+    ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
     ServerLibraryListingConnector {
@@ -1386,6 +1386,26 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return refreshed
     }
 
+    func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
+        guard !id.isEmpty, id != Self.starredPlaylistID else {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        try await connect()
+        let current = try await serverPlaylistDetail(id: id, summary: nil)
+        if current.isSmartPlaylist { throw ServerPlaylistAppendError.readOnly }
+        if current.isReadOnly, await !currentUserIsAdmin() { throw ServerPlaylistAppendError.readOnly }
+        let text = PlaylistDescriptionPolicy.normalized(description)
+        let _: EmptyContainer = try await requestJSON("updatePlaylist", query: [
+            URLQueryItem(name: "playlistId", value: id),
+            URLQueryItem(name: "comment", value: text)
+        ])
+        let refreshed = try await serverPlaylistDetail(id: id, summary: nil)
+        guard PlaylistDescriptionPolicy.normalized(refreshed.descriptionText ?? "") == text else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+        }
+        return refreshed
+    }
+
     /// `createPlaylist` 只带名字, 建一个空歌单。OpenSubsonic 与 API 1.14 起响应里带着新歌单;
     /// 更老的实现只回 ok, 这时到歌单列表里找刚才还没有、名字对得上的那一个。
     func createServerPlaylist(named name: String) async throws -> ServerPlaylist {
@@ -1439,7 +1459,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             tracks: entries.compactMap { $0?.playlistTrack },
             reportedTrackCount: playlist.songCount ?? summary?.songCount,
             isReadOnly: isSmart || ownedByOther,
-            isSmartPlaylist: isSmart
+            isSmartPlaylist: isSmart,
+            descriptionText: playlist.comment ?? summary?.comment ?? ""
         )
     }
 
@@ -2067,7 +2088,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let url = ProxyPrefixedBasePathPolicy.appending("rest/\(method).view", to: baseURL)
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         components.queryItems = authQueryItems() + query
-        return components.url
+        return FormSafeQueryURLBuilder.url(from: components)
     }
 
     private func authQueryItems() -> [URLQueryItem] {
@@ -2528,17 +2549,19 @@ private struct PlaylistList: Decodable {
 private struct PlaylistSummary: Decodable {
     let id: String?
     let name: String?
+    let comment: String?
     let songCount: Int?
     let coverArt: String?
     let owner: String?
     let readonly: Bool?
 
-    enum CodingKeys: String, CodingKey { case id, name, songCount, coverArt, owner, readonly }
+    enum CodingKeys: String, CodingKey { case id, name, comment, songCount, coverArt, owner, readonly }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = SubsonicLenientValue.string(container, .id)
         name = SubsonicLenientValue.string(container, .name)
+        comment = try? container.decode(String.self, forKey: .comment)
         songCount = SubsonicLenientValue.int(container, .songCount)
         coverArt = SubsonicLenientValue.string(container, .coverArt)
         owner = SubsonicLenientValue.string(container, .owner)
@@ -2665,18 +2688,20 @@ private struct PlaylistWithEntries: Decodable {
     /// 只有 `createPlaylist` 的响应要靠它找回新歌单; `getPlaylist` 调用方本来就知道 id。
     let id: String?
     let name: String?
+    let comment: String?
     let songCount: Int?
     let coverArt: String?
     let owner: String?
     let readonly: Bool?
     let entry: SubsonicLenientList<PlaylistEntryRef>?
 
-    enum CodingKeys: String, CodingKey { case id, name, songCount, coverArt, owner, readonly, entry }
+    enum CodingKeys: String, CodingKey { case id, name, comment, songCount, coverArt, owner, readonly, entry }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = SubsonicLenientValue.string(container, .id)
         name = SubsonicLenientValue.string(container, .name)
+        comment = try? container.decode(String.self, forKey: .comment)
         songCount = SubsonicLenientValue.int(container, .songCount)
         coverArt = SubsonicLenientValue.string(container, .coverArt)
         owner = SubsonicLenientValue.string(container, .owner)

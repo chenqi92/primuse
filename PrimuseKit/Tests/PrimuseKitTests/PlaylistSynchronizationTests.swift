@@ -140,7 +140,9 @@ struct PlaylistSynchronizationTests {
             operation: "delete",
             deleteOperation: "delete-5"
         )
-        let envelope = PlaylistCloudSyncEnvelope(playlist: tombstone, songIdentities: [])
+        var described = tombstone
+        described.descriptionText = "简介\nLine & <two>"
+        let envelope = PlaylistCloudSyncEnvelope(playlist: described, songIdentities: [])
         let roundTrip = try JSONDecoder().decode(
             PlaylistCloudSyncEnvelope.self,
             from: JSONEncoder().encode(envelope)
@@ -167,15 +169,17 @@ struct PlaylistSynchronizationTests {
             try PlaylistDatabaseMigration.migrate(db)
 
             let legacy = try Playlist.fetchOne(db, key: "legacy")
+            #expect(legacy?.descriptionText == "")
             #expect(legacy?.isDeleted == false)
             #expect(legacy?.syncRevision == 0)
             #expect(legacy?.hasDedicatedCoverArt == false)
             #expect(legacy?.folderBinding == nil)
             #expect(legacy?.sortOrder == PlaylistManualOrderPolicy.unordered)
 
-            let positioned = Playlist(id: "positioned", name: "Positioned", sortOrder: 2)
+            let positioned = Playlist(id: "positioned", name: "Positioned", sortOrder: 2, descriptionText: "简介")
             try positioned.save(db)
             #expect(try Playlist.fetchOne(db, key: "positioned")?.sortOrder == 2)
+            #expect(try Playlist.fetchOne(db, key: "positioned")?.descriptionText == "简介")
 
             let binding = PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
                 sourceID: "source", kind: .folder, normalizedRelativePath: "/music/live"

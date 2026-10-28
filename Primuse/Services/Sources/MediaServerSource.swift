@@ -2502,7 +2502,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             baseQueryItems: [
                 URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
                 URLQueryItem(name: "Recursive", value: "true"),
-                URLQueryItem(name: "Fields", value: "ImageTags")
+                URLQueryItem(name: "Fields", value: "ImageTags,Overview")
             ],
             maximumCount: Self.maximumPlaylistCount,
             deduplicatesItems: true,
@@ -2539,7 +2539,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     coverArtReference: playlistCoverArtReference(for: summary.entry, id: summary.id),
                     trackIDs: trackIDs,
                     tracks: itemsResponse.items.compactMap(\.playlistTrack),
-                    reportedTrackCount: itemsResponse.totalCount
+                    reportedTrackCount: itemsResponse.totalCount,
+                    descriptionText: summary.entry.overview ?? ""
                 )
                 result.append(playlist)
                 await progress(playlist)
@@ -2653,7 +2654,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             coverArtReference: playlistCoverArtReference(for: summary, id: id),
             trackIDs: response.items.compactMap(\.id),
             tracks: response.items.compactMap(\.playlistTrack),
-            reportedTrackCount: response.totalCount
+            reportedTrackCount: response.totalCount,
+            descriptionText: summary.overview ?? ""
         )
     }
 
@@ -2710,7 +2712,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             tracks: items.items.compactMap(\.playlistTrack),
             reportedTrackCount: items.totalCount,
             isReadOnly: summary.isSmart,
-            isSmartPlaylist: summary.isSmart
+            isSmartPlaylist: summary.isSmart,
+            descriptionText: summary.summary ?? ""
         )
     }
 
@@ -2869,7 +2872,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     tracks: itemsResponse.items.compactMap(\.playlistTrack),
                     reportedTrackCount: itemsResponse.totalCount,
                     isReadOnly: summary.isSmart,
-                    isSmartPlaylist: summary.isSmart
+                    isSmartPlaylist: summary.isSmart,
+                    descriptionText: summary.summary ?? ""
                 )
                 result.append(playlist)
                 await progress(playlist)
@@ -3935,7 +3939,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         components.queryItems = queryItems
-        return components.url ?? url
+        return FormSafeQueryURLBuilder.url(from: components) ?? url
     }
 
     private func validate(_ response: URLResponse) throws {
@@ -4761,6 +4765,7 @@ private struct MediaServerItemPage<Item: Decodable>: Decodable {
 private struct MediaServerPlaylistEntry: MediaServerPagedItem {
     let id: String?
     let name: String?
+    let overview: String?
     let imageTags: [String: String]?
     let artists: [String]
     let album: String?
@@ -4769,6 +4774,7 @@ private struct MediaServerPlaylistEntry: MediaServerPagedItem {
     enum CodingKeys: String, CodingKey {
         case id = "Id"
         case name = "Name"
+        case overview = "Overview"
         case imageTags = "ImageTags"
         case artists = "Artists"
         case artistItems = "ArtistItems"
@@ -4780,6 +4786,7 @@ private struct MediaServerPlaylistEntry: MediaServerPagedItem {
         let container = try? decoder.container(keyedBy: CodingKeys.self)
         id = container.flatMap(Self.flexibleID)
         name = (try? container?.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        overview = try? container?.decode(String.self, forKey: .overview)
         imageTags = (try? container?.decodeIfPresent([String: String].self, forKey: .imageTags)) ?? nil
         let names = (try? container?.decode([String].self, forKey: .artists)) ?? []
         let items = (try? container?.decode([NameIDPair].self, forKey: .artistItems)) ?? []
@@ -5490,6 +5497,7 @@ private struct PlexPlaylistContainer: Decodable {
 private struct PlexPlaylistSummary: Decodable {
     let ratingKey: String?
     let title: String?
+    let summary: String?
     let playlistType: String?
     let thumb: String?
     /// 智能歌单按规则生成,不能手动加歌。JSON 里是布尔值,老版本也见过写成 0/1。
@@ -5498,6 +5506,7 @@ private struct PlexPlaylistSummary: Decodable {
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case title
+        case summary
         case playlistType
         case thumb
         case smart
@@ -5507,6 +5516,7 @@ private struct PlexPlaylistSummary: Decodable {
         let container = try? decoder.container(keyedBy: CodingKeys.self)
         ratingKey = container.flatMap { PlexFlexibleKey.decode($0, .ratingKey) }
         title = (try? container?.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        summary = try? container?.decode(String.self, forKey: .summary)
         playlistType = (try? container?.decodeIfPresent(String.self, forKey: .playlistType)) ?? nil
         thumb = (try? container?.decodeIfPresent(String.self, forKey: .thumb)) ?? nil
         if let flag = (try? container?.decodeIfPresent(Bool.self, forKey: .smart)) ?? nil {
@@ -5827,5 +5837,38 @@ private actor MediaRequestRecovery {
         guard !used else { return false }
         used = true
         return true
+    }
+}
+
+extension MediaServerSource: ServerPlaylistDescriptionConnector {
+    func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
+        guard !id.isEmpty, !id.contains("/"), id != ".", id != ".." else {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        try await connect()
+        let text = PlaylistDescriptionPolicy.normalized(description)
+        let refreshed: ServerPlaylist
+        switch kind {
+        case .plex:
+            let current = try await plexPlaylistDetail(id: id)
+            guard !current.isReadOnly else { throw ServerPlaylistAppendError.readOnly }
+            _ = try await performRequest(path: "/playlists/\(id)", method: "PUT",
+                queryItems: [URLQueryItem(name: "summary", value: text)])
+            refreshed = try await plexPlaylistDetail(id: id)
+        case .jellyfin, .emby:
+            guard let userID else { throw SourceError.authenticationFailed }
+            var item = try await jellyfinOrEmbyItem(id)
+            guard (item["Type"] as? String)?.caseInsensitiveCompare("Playlist") == .orderedSame else {
+                throw ServerPlaylistAppendError.readOnly
+            }
+            item["Overview"] = text
+            _ = try await performRequest(path: "/Items/\(id)", method: "POST",
+                body: SafeJSONSerialization.data(withJSONObject: item))
+            refreshed = try await jellyfinOrEmbyPlaylistDetail(id: id, userID: userID)
+        }
+        guard PlaylistDescriptionPolicy.normalized(refreshed.descriptionText ?? "") == text else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+        }
+        return refreshed
     }
 }

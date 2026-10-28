@@ -2273,7 +2273,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
     ServerPlaylistCreatingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
     ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector {
@@ -2510,6 +2510,16 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
             return await provider.readServerLyrics(for: path)
         }) ?? .unavailable
     }
+
+    func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistDescriptionConnector else {
+                throw ServerPlaylistAppendError.readOnly
+            }
+            return try await provider.updateServerPlaylistDescription(id: id, description: description)
+        }
+    }
+
 }
 
 private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
@@ -2996,7 +3006,7 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
 }
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistCreatingConnector,
+    MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector, ServerPlaylistCreatingConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
@@ -3220,6 +3230,15 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
             }
             return await provider.readServerLyrics(for: path)
         }) ?? .unavailable
+    }
+
+    func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistDescriptionConnector else {
+                throw ServerPlaylistAppendError.readOnly
+            }
+            return try await provider.updateServerPlaylistDescription(id: id, description: description)
+        }
     }
 
 }
@@ -14836,6 +14855,24 @@ final class SourceManager {
             throw CancellationError()
         }
         return playlist
+    }
+
+    func updateServerPlaylistDescription(
+        id: String, description: String, source: MusicSource
+    ) async throws -> ServerPlaylist {
+        guard PlaylistDescriptionPolicy.supportsServerWriteback(source.type) else {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
+              let provider = connector(for: source) as? any ServerPlaylistDescriptionConnector else {
+            throw CancellationError()
+        }
+        let refreshed = try await provider.updateServerPlaylistDescription(id: id, description: description)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return refreshed
     }
 
     func serverMediaSharingAvailability(

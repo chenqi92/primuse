@@ -57,6 +57,8 @@ struct PlaylistDetailView: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var showCopyToServer = false
+    @State private var showsDescriptionEditor = false
+    @State private var descriptionExpanded = false
     /// 「⋯」里点了「重命名」。
     @State private var renamingPlaylist: Playlist?
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放、加入队列、导出照旧按整张歌单。
@@ -390,6 +392,9 @@ struct PlaylistDetailView: View {
             Button("ok", role: .cancel) {}
         }
         .playlistRenameAlert($renamingPlaylist)
+        .sheet(isPresented: $showsDescriptionEditor) {
+            PlaylistDescriptionEditor(playlist: currentPlaylist ?? playlist)
+        }
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
         }
@@ -694,6 +699,11 @@ struct PlaylistDetailView: View {
                 }
                 .disabled(songs.count < 2)
             }
+            if PlaylistDescriptionService.canEdit(currentPlaylist ?? playlist, sourcesStore: sourcesStore) {
+                Button { showsDescriptionEditor = true } label: {
+                    Label("library_insight_editor_summary", systemImage: "text.alignleft")
+                }
+            }
             PlaylistRenameButton(playlist: currentPlaylist ?? playlist) {
                 renamingPlaylist = currentPlaylist ?? playlist
             }
@@ -827,6 +837,23 @@ struct PlaylistDetailView: View {
         #endif
     }
 
+    @ViewBuilder
+    private var playlistDescription: some View {
+        let text = (currentPlaylist ?? playlist).descriptionText
+        if !text.isEmpty {
+            Button { descriptionExpanded.toggle() } label: {
+                Text(verbatim: text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(descriptionExpanded ? nil : 3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("playlist.description")
+        }
+    }
+
     /// 竖屏是「居中大封面 + 标题 + 计数 + 操作行」的竖排; 手机横屏纵向只剩三百多点,
     /// 同一批视图换成「左封面 + 右信息与操作」的矮横带, 曲目表才进得了首屏。
     ///
@@ -883,6 +910,8 @@ struct PlaylistDetailView: View {
                     .pmFadeTransition(motion: .list)
             }
 
+            playlistDescription
+                .padding(.horizontal)
             playlistActionButtons
                 .padding(.horizontal)
                 .padding(.top, 4)
@@ -923,6 +952,9 @@ struct PlaylistDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                playlistDescription
+                    .padding(.horizontal, rowHorizontalPadding)
 
                 if isCurrentPlaylistScraping {
                     batchScrapeProgressCard
@@ -1331,6 +1363,7 @@ struct PlaylistDetailView: View {
                     )
 
                     VStack(alignment: .leading, spacing: PMSpace.l) {
+                        playlistDescription
                         LibraryReviewSection(subject: .playlist(playlist.id))
 
                         if showsNetworkNotice && hasSongsFromUnreachableSources {
@@ -1524,6 +1557,11 @@ struct PlaylistDetailView: View {
 
         var middle: [MacHeaderMoreMenu.Item] = []
         let shownPlaylist = currentPlaylist ?? playlist
+        if PlaylistDescriptionService.canEdit(shownPlaylist, sourcesStore: sourcesStore) {
+            middle.append(.init(icon: "text.alignleft", title: String(localized: "library_insight_editor_summary")) {
+                showsDescriptionEditor = true
+            })
+        }
         if MusicLibrary.allowsRename(shownPlaylist) {
             middle.append(.init(icon: "pencil", title: String(localized: "playlist_rename")) {
                 renamingPlaylist = shownPlaylist
@@ -2652,5 +2690,60 @@ private final class PlaylistSortedSongsCache {
         cachedDuration = make()
         durationKey = key
         return cachedDuration
+    }
+}
+
+private struct PlaylistDescriptionEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
+    let playlist: Playlist
+    @State private var text: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    init(playlist: Playlist) {
+        self.playlist = playlist
+        _text = State(initialValue: playlist.descriptionText)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(playlist.name).font(.headline)
+                TextEditor(text: $text)
+                    .frame(minHeight: 180)
+                    .accessibilityLabel(Text("library_insight_editor_summary"))
+                if let errorMessage { Text(errorMessage).foregroundStyle(.red).font(.callout) }
+            }
+            .padding()
+            .navigationTitle("library_insight_editor_summary")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }.disabled(saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("save") {
+                        saving = true
+                        errorMessage = nil
+                        Task {
+                            do {
+                                try await PlaylistDescriptionService.save(text, playlist: playlist, library: library,
+                                    sourcesStore: sourcesStore, sourceManager: sourceManager)
+                                dismiss()
+                            } catch {
+                                errorMessage = SourceErrorPresentation.userFacingDescription(error)
+                            }
+                            saving = false
+                        }
+                    }.disabled(saving)
+                }
+            }
+            .interactiveDismissDisabled(saving)
+        }
+        #if os(macOS)
+        .frame(width: 520, height: 360)
+        #endif
     }
 }

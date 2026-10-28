@@ -8977,8 +8977,8 @@ final class MusicLibrary {
         plog("Mirror playlist source=\(LogRedactionPolicy.digest(suppression.key.sourceID)) playlist=\(LogRedactionPolicy.digest(suppression.key.remotePlaylistID)) action=restore result=complete")
     }
 
-    func createPlaylist(name: String) -> Playlist {
-        createPlaylist(name: name, songIDs: [])
+    func createPlaylist(name: String, descriptionText: String = "") -> Playlist {
+        createPlaylist(name: name, songIDs: [], descriptionText: descriptionText)
     }
 
     /// Create a playlist with its initial contents in one observable mutation,
@@ -8988,9 +8988,11 @@ final class MusicLibrary {
     func createPlaylist(
         name: String,
         songIDs: [String],
-        folderBinding: PlaylistFolderBinding? = nil
+        folderBinding: PlaylistFolderBinding? = nil,
+        descriptionText: String = ""
     ) -> Playlist {
-        let playlist = stampedPlaylist(Playlist(name: name, folderBinding: folderBinding))
+        let playlist = stampedPlaylist(Playlist(name: name, folderBinding: folderBinding,
+            descriptionText: PlaylistDescriptionPolicy.normalized(descriptionText)))
         // S2: 返回值必须当场给出 (调用方拿着它继续加歌 / 跳转), 所以只把插入
         // 排队 —— 重放用的是同一个 playlist 值, id 与时间戳都不会变。成员过滤
         // 也留到重放: 空库上 `validUniqueSongIDs` 会把每一首都滤掉。
@@ -9184,6 +9186,30 @@ final class MusicLibrary {
         playlist.name = name
         allPlaylists[index] = stampedPlaylist(playlist)
         commitPlaylistEdits([id])
+        return true
+    }
+
+    @discardableResult
+    func updatePlaylistDescription(id: String, description: String, fromServer: Bool = false) -> Bool {
+        if deferringUntilReady({ [weak self] in
+            _ = self?.updatePlaylistDescription(id: id, description: description, fromServer: fromServer)
+        }) { return true }
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id && !$0.isDeleted }) else { return false }
+        let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(id)
+        guard fromServer ? isMirror : Self.allowsRename(allPlaylists[index]) else { return false }
+        let text = PlaylistDescriptionPolicy.normalized(description)
+        guard allPlaylists[index].descriptionText != text else { return true }
+        var playlist = allPlaylists[index]
+        playlist.descriptionText = text
+        if isMirror {
+            playlist.updatedAt = Date()
+            allPlaylists[index] = playlist
+            persistSnapshot(after: Self.mirrorPlaylistSnapshotDelay)
+            notifyPlaylistsChanged([id])
+        } else {
+            allPlaylists[index] = stampedPlaylist(playlist)
+            commitPlaylistEdits([id])
+        }
         return true
     }
 

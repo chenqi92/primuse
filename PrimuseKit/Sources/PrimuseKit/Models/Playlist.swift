@@ -4,6 +4,7 @@ import GRDB
 public struct Playlist: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
+    public var descriptionText: String
     public var createdAt: Date
     public var updatedAt: Date
     public var coverArtPath: String?
@@ -59,10 +60,12 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         restoredDeleteOperationID: String? = nil,
         isPurged: Bool = false,
         folderBinding: PlaylistFolderBinding? = nil,
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        descriptionText: String = ""
     ) {
         self.id = id
         self.name = name
+        self.descriptionText = descriptionText
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.coverArtPath = coverArtPath
@@ -83,6 +86,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decode(String.self, forKey: .name)
+        self.descriptionText = try c.decodeIfPresent(String.self, forKey: .descriptionText) ?? ""
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         self.coverArtPath = try c.decodeIfPresent(String.self, forKey: .coverArtPath)
@@ -454,6 +458,23 @@ public enum PlaylistDatabaseMigration {
             if !names.contains("sortOrder") {
                 table.add(column: "sortOrder", .integer).notNull().defaults(to: 0)
             }
+            if !names.contains("descriptionText") {
+                table.add(column: "descriptionText", .text).notNull().defaults(to: "")
+            }
         }
+    }
+}
+
+public enum PlaylistDescriptionPolicy {
+    public static func supportsServerWriteback(_ type: MusicSourceType) -> Bool {
+        switch type {
+        case .subsonic, .navidrome, .airsonic, .gonic, .jellyfin, .emby, .plex: true
+        default: false
+        }
+    }
+
+    public static func normalized(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

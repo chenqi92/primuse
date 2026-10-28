@@ -246,6 +246,7 @@ struct TVPlaylistCard: View {
     let playlist: TVPlaylist
     @State private var pendingMedleyIDs: [String]?
     @State private var showsRename = false
+    @State private var showsDescription = false
     var width: CGFloat = 300
     var action: () -> Void = {}
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
@@ -312,6 +313,12 @@ struct TVPlaylistCard: View {
                 pendingMedleyIDs = store.medleyPlaylistSongIDs(playlist)
             }
             .disabled(!store.canPlayMedley(playlist: playlist))
+            if store.canEditPlaylistDescription(playlist)
+                || !(store.library.playlist(id: playlist.id)?.descriptionText ?? "").isEmpty {
+                Button("library_insight_editor_summary", systemImage: "text.alignleft") {
+                    showsDescription = true
+                }
+            }
             // 自己建的歌单能改名(看板 PRIM-35);镜像、文件夹歌单和「我喜欢」的名字不归这里管。
             if store.canRename(playlist) {
                 Button("playlist_rename", systemImage: "pencil") {
@@ -323,9 +330,14 @@ struct TVPlaylistCard: View {
             TVPlaylistNameView(mode: .rename(playlist))
                 .environment(store)
         }
+        .fullScreenCover(isPresented: $showsDescription) {
+            TVPlaylistDescriptionView(playlist: playlist)
+                .environment(store)
+        }
+        .onChange(of: showsDescription) { _, shows in onModalPresentationChanged(shows) }
         .onChange(of: showsRename) { _, shows in onModalPresentationChanged(shows) }
         .onDisappear {
-            if showsRename { onModalPresentationChanged(false) }
+            if showsRename || showsDescription { onModalPresentationChanged(false) }
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(playlist.name))
@@ -575,3 +587,50 @@ private struct TVPlaylistArtworkView: View {
     }
 }
 #endif
+
+private struct TVPlaylistDescriptionView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let playlist: TVPlaylist
+    @State private var text = ""
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text(playlist.name).tvFont(.sectionTitle)
+                ScrollView {
+                    Text(verbatim: text).tvFont(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 300)
+                if store.canEditPlaylistDescription(playlist) {
+                    TVTextFieldBox {
+                        TextField(String(localized: "library_insight_editor_summary"), text: $text)
+                    }
+                }
+                if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                HStack(spacing: 18) {
+                    if store.canEditPlaylistDescription(playlist) {
+                        TVPillButton(title: String(localized: "save"), systemImage: "checkmark", style: .solid) {
+                            saving = true
+                            errorMessage = nil
+                            Task {
+                                do {
+                                    try await store.savePlaylistDescription(text, playlist: playlist)
+                                    dismiss()
+                                } catch { errorMessage = SourceErrorPresentation.userFacingDescription(error) }
+                                saving = false
+                            }
+                        }.disabled(saving)
+                    }
+                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") { dismiss() }
+                        .disabled(saving)
+                }
+            }.padding(40).frame(width: 1000).tvPanel(radius: 22)
+        }
+        .onAppear { text = store.library.playlist(id: playlist.id)?.descriptionText ?? "" }
+        .onExitCommand { if !saving { dismiss() } }
+    }
+}

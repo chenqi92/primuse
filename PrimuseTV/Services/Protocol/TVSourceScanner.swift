@@ -2292,6 +2292,20 @@ final class TVSourceScanner {
     }
 
     /// 媒体服务器 / Subsonic 系 / Songloft / 群晖 Audio Station / 道理鱼的服务端歌单。
+    func updatePlaylistDescription(
+        source: MusicSource, credential: SourceCredential?, id: String, description: String
+    ) async throws -> ServerPlaylist {
+        let connector: any ServerPlaylistDescriptionConnector = try await withRoutedSource(source) { routed in
+            guard let connector = TVServerCatalogConnectorFactory.make(source: routed, credential: credential)
+                as? any ServerPlaylistDescriptionConnector else { throw ServerPlaylistAppendError.readOnly }
+            try await connector.connect()
+            return connector
+        }
+        defer { Task { await connector.disconnect() } }
+        // 路由选择只重试连接；已经发出的简介写入不在另一地址重放。
+        return try await connector.updateServerPlaylistDescription(id: id, description: description)
+    }
+
     /// 连接器与 iPhone、Mac 是同一份;Audio Station 与道理鱼电视端直接用 Kit 客户端,
     /// 镜像规则同样是三端共用的那一份。
     /// 返回 nil 表示该类型没有歌单能力,调用方不要动本地任何歌单。

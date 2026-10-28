@@ -287,3 +287,107 @@ private final class FakeCatalogServer: @unchecked Sendable {
         return (data, response)
     }
 }
+
+final class MediaServerPlaylistDescriptionTests: XCTestCase {
+    func testMediaServersImportEditAndClearDescriptions() async throws {
+        for kind: MediaServerSource.Kind in [.jellyfin, .emby, .plex] {
+            let fixture = DescriptionMediaServer(kind: kind)
+            let source = fixture.makeSource()
+            let imported = try await source.fetchServerPlaylists()
+            XCTAssertEqual(imported.playlists.first?.descriptionText, "Remote overview")
+            let edited = try await source.updateServerPlaylistDescription(id: "list", description: "简介 & +\n第二行")
+            XCTAssertEqual(edited.descriptionText, "简介 & +\n第二行")
+            let cleared = try await source.updateServerPlaylistDescription(id: "list", description: "")
+            XCTAssertEqual(cleared.descriptionText, "")
+            XCTAssertEqual(fixture.writeCount, 2)
+            if kind != .plex {
+                XCTAssertEqual(fixture.lastWrittenItem?["Name"] as? String, "List")
+                XCTAssertEqual(fixture.lastWrittenItem?["Tags"] as? [String], ["Keep me"])
+                XCTAssertEqual(fixture.lastWrittenItem?["LockedFields"] as? [String], ["Name"])
+            }
+            await source.disconnect()
+        }
+    }
+
+    func testMediaServerUnconfirmedWriteFails() async throws {
+        for kind: MediaServerSource.Kind in [.jellyfin, .emby, .plex] {
+            let fixture = DescriptionMediaServer(kind: kind, ignoresWrites: true)
+            let source = fixture.makeSource()
+            do {
+                _ = try await source.updateServerPlaylistDescription(id: "list", description: "New")
+                XCTFail("Ignored update must not succeed")
+            } catch {
+                guard case SourceError.connectionFailed = error else {
+                    XCTFail("Expected readback mismatch, got \(type(of: error))"); continue
+                }
+                XCTAssertEqual(fixture.writeCount, 1)
+            }
+            await source.disconnect()
+        }
+    }
+}
+
+private final class DescriptionMediaServer: @unchecked Sendable {
+    let kind: MediaServerSource.Kind
+    let ignoresWrites: Bool
+    let host = UUID().uuidString.lowercased() + ".invalid"
+    private let lock = NSLock()
+    private var text = "Remote overview"
+    private(set) var writeCount = 0
+    private(set) var lastWrittenItem: [String: Any]?
+    init(kind: MediaServerSource.Kind, ignoresWrites: Bool = false) {
+        self.kind = kind
+        self.ignoresWrites = ignoresWrites
+    }
+    func makeSource() -> MediaServerSource {
+        MediaServerSource(sourceID: host, kind: kind, host: host, port: nil, useSsl: true, basePath: nil,
+            username: "qa", secret: "token", authType: .apiKey,
+            requestDataLoader: { [self] request in try respond(request) })
+    }
+    func respond(_ request: URLRequest) throws -> (Data, URLResponse) {
+        try lock.withLock {
+            let url = try XCTUnwrap(request.url)
+            var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+            parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
+            let query = Dictionary((parts.queryItems ?? [])
+                .map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
+            let isWrite = request.httpMethod == "POST" || request.httpMethod == "PUT"
+            if isWrite {
+                writeCount += 1
+                if kind == .plex {
+                    XCTAssertEqual(url.path, "/playlists/list")
+                    XCTAssertEqual(request.httpMethod, "PUT")
+                    XCTAssertEqual(Set(query.keys.filter { !$0.hasPrefix("X-Plex-") }), ["summary"])
+                    if !ignoresWrites { text = query["summary"] ?? "" }
+                } else {
+                    XCTAssertEqual(url.path, "/Items/list")
+                    let item = try JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any]
+                    lastWrittenItem = item
+                    if !ignoresWrites { text = item?["Overview"] as? String ?? "" }
+                }
+            }
+            let item: [String: Any] = ["Id": "list", "Name": "List", "Type": "Playlist", "Overview": text,
+                "Tags": ["Keep me"], "LockedFields": ["Name"]]
+            let plexItem: [String: Any] = ["ratingKey": "list", "title": "List", "playlistType": "audio", "summary": text, "smart": false]
+            let body: Any
+            switch url.path {
+            case "", "/": body = ["MediaContainer": ["machineIdentifier": "server", "version": "1.0"]]
+            case "/Users/Me": body = ["Id": "user"]
+            case "/Users/user/Views": body = ["Items": []]
+            case "/Users/user/Items": body = ["Items": (Int(query["StartIndex"] ?? "0") ?? 0) == 0 ? [item] : [], "TotalRecordCount": 1]
+            case "/Items/list", "/Users/user/Items/list": body = item
+            case "/Playlists/list/Items": body = ["Items": [], "TotalRecordCount": 0]
+            case "/playlists":
+                let rows = (Int(query["X-Plex-Container-Start"] ?? "0") ?? 0) == 0 ? [plexItem] : []
+                body = ["MediaContainer": ["Metadata": rows, "size": rows.count, "totalSize": 1]]
+            case "/playlists/list": body = ["MediaContainer": ["Metadata": [plexItem], "size": 1]]
+            case "/playlists/list/items": body = ["MediaContainer": ["Metadata": [], "size": 0, "totalSize": 0]]
+            default:
+                XCTFail("Unexpected endpoint \(kind): \(url.path)")
+                throw URLError(.unsupportedURL)
+            }
+            return (try JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: url,
+                statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
+        }
+    }
+}
