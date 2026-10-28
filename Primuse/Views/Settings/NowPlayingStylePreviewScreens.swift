@@ -699,10 +699,20 @@ struct AudiobookPreviewScreen: View {
             }
             .frame(width: 5, height: 40)
             .padding(.top, style.isNocturne ? 26 : 20)
-            Text(verbatim: SpokenWordPlayerText.bookFraction(0.18))
-                .font(.caption2)
-                .foregroundStyle(style.tertiary)
-                .padding(.top, 10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: SpokenWordPlayerText.bookFraction(0.18))
+                if let remaining = SpokenWordPlayerText.bookRemaining(
+                    SpokenWordNowPlayingSummary(bookRemaining: 18 * 3_600), rate: 1
+                ) {
+                    Text(verbatim: remaining)
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(style.tertiary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 10)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, style.isNocturne ? 0 : 20)

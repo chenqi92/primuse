@@ -157,7 +157,13 @@ struct AudiobookHeroRowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? (columnWidth + spacing + maxSide)
-        return CGSize(width: width, height: coverSide(width: width, height: proposal.height))
+        let columnHeight = subviews.first?.sizeThatFits(
+            ProposedViewSize(width: columnWidth, height: nil)
+        ).height ?? 0
+        return CGSize(
+            width: width,
+            height: max(columnHeight, coverSide(width: width, height: proposal.height))
+        )
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -168,7 +174,7 @@ struct AudiobookHeroRowLayout: Layout {
         subviews[0].place(
             at: CGPoint(x: columnX, y: bounds.minY),
             anchor: .topLeading,
-            proposal: ProposedViewSize(width: columnWidth, height: side)
+            proposal: ProposedViewSize(width: columnWidth, height: bounds.height)
         )
         subviews[1].place(
             at: CGPoint(x: coverX, y: bounds.minY),
@@ -231,10 +237,11 @@ struct AudiobookChapterColumn: View {
             .frame(width: 5, height: 40)
             .padding(.top, style.isNocturne ? 26 : 20)
 
-            Group {
+            VStack(alignment: .leading, spacing: 4) {
                 if hasParts {
                     Text(verbatim: SpokenWordPlayerText.bookFraction(fraction))
-                } else if let remaining = SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate) {
+                }
+                if let remaining = SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate) {
                     Text(verbatim: remaining)
                 }
             }
@@ -242,6 +249,7 @@ struct AudiobookChapterColumn: View {
             .foregroundStyle(style.tertiary)
             .lineLimit(2)
             .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 10)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
