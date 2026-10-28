@@ -963,7 +963,8 @@ final class MetadataBackfillService {
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
         pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
         sourceFileName: @escaping (Song) -> String? = { _ in nil },
-        playbackIsActive: @escaping () -> Bool = { false }
+        playbackIsActive: @escaping () -> Bool = { false },
+        storageDirectory: URL? = nil
     ) {
         self.playbackIsActive = playbackIsActive
         self.library = library
@@ -979,7 +980,7 @@ final class MetadataBackfillService {
         self.sourceFileName = sourceFileName
         self.scrollActivityMonitor = .shared
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        let directory = storageDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.failedURL = directory.appendingPathComponent("backfill-failed.json")
         self.incompleteURL = directory.appendingPathComponent("backfill-incomplete.json")
@@ -7082,18 +7083,32 @@ final class MetadataBackfillService {
 
     private func registerPeerCoverMember(_ songID: String, key: String) {
         if let existingKey = peerCoverKeyBySongID[songID] {
-            if existingKey == key { return }
+            if existingKey == key {
+                if peerCoverGroups[key]?.representative == songID {
+                    reopenPeerCoverRepresentative(songID)
+                }
+                return
+            }
             removePeerCoverMember(songID)
         }
         peerCoverKeyBySongID[songID] = key
         var group = peerCoverGroups[key] ?? PeerCoverGroup()
         if group.localContentKey == nil, group.representative == nil || group.representative == songID {
             group.representative = songID
+            reopenPeerCoverRepresentative(songID)
         } else {
             group.waiting.insert(songID)
             artworkGivenUpIDs.insert(songID)
         }
         peerCoverGroups[key] = group
+    }
+
+    private func reopenPeerCoverRepresentative(_ songID: String) {
+        // 其他设备确认有封面后，旧的「没读到」不能继续挡住整组唯一的读取者。
+        guard artworkGivenUpIDs.remove(songID) != nil else { return }
+        lastProcessedSnapshotIDs.remove(songID)
+        markQueueDirty()
+        saveArtworkGivenUp()
     }
 
     private func removePeerCoverMember(_ songID: String) {
@@ -7273,7 +7288,12 @@ final class MetadataBackfillService {
         peerCoverGroups = state.coverGroups
         peerLyricsPendingIDs = Set(state.lyricsPending)
         for (key, group) in state.coverGroups {
-            if let representative = group.representative { peerCoverKeyBySongID[representative] = key }
+            if let representative = group.representative {
+                peerCoverKeyBySongID[representative] = key
+                if group.localContentKey == nil {
+                    reopenPeerCoverRepresentative(representative)
+                }
+            }
             for id in group.waiting { peerCoverKeyBySongID[id] = key }
         }
     }

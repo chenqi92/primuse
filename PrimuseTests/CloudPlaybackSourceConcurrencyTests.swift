@@ -1648,6 +1648,112 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testPeerCoverAdoptionReopensAnEarlierArtworkMissAndReadsOnlyOneMember() async throws {
+        try await assertPeerCoverRecovery(restoringLegacyState: false)
+    }
+
+    @MainActor
+    func testRestoredPeerCoverGroupReopensItsSuppressedRepresentative() async throws {
+        try await assertPeerCoverRecovery(restoringLegacyState: true)
+    }
+
+    @MainActor
+    private func assertPeerCoverRecovery(restoringLegacyState: Bool) async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceID = "peer-cover-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Peer cover fixture", type: .local, basePath: directory.path)
+        let coverData = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        let uncovered = Self.makeWaveFixture(middleCover: nil)
+        let covered = Self.makeWaveFixture(middleCover: coverData)
+        let paths = ["/chapter-1.wav", "/chapter-2.wav"]
+        let urls = paths.map { directory.appendingPathComponent(String($0.dropFirst())) }
+        for url in urls { try uncovered.write(to: url) }
+        let connector = CompleteArtworkFixtureConnector(
+            sourceID: sourceID,
+            payloads: Dictionary(uniqueKeysWithValues: paths.map { ($0, uncovered) }),
+            localURLs: Dictionary(uniqueKeysWithValues: zip(paths, urls))
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let songs = paths.enumerated().map { index, path in
+            Song(id: "\(sourceID)-\(index)", title: "Chapter \(index + 1)", artistName: "Narrator",
+                 duration: 1, fileFormat: .wav, filePath: path, sourceID: sourceID,
+                 fileSize: Int64(uncovered.count))
+        }
+        library.addSongs(songs, affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        let defaults = UserDefaults.standard
+        let modeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousMode = defaults.object(forKey: modeKey)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: modeKey)
+        defer {
+            if let previousMode { defaults.set(previousMode, forKey: modeKey) }
+            else { defaults.removeObject(forKey: modeKey) }
+        }
+        var backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            offlineReadableSourceIDs: { [sourceID] }, localFileSourceIDs: { [sourceID] },
+            directFileSourceIDs: { [sourceID] }, storageDirectory: directory.appendingPathComponent("state")
+        )
+        defer { backfill.stop() }
+        backfill.refreshStatusSnapshot()
+        backfill.start()
+        await backfill.waitUntilIdle()
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+        for song in songs { XCTAssertNil(library.song(id: song.id)?.coverArtFileName) }
+
+        // A peer's positive cover result must supersede an older local miss.
+        for url in urls { try covered.write(to: url) }
+        let peerContentKey = String(repeating: "ab", count: 32)
+        if restoringLegacyState {
+            backfill.stop()
+            let restoredDirectory = directory.appendingPathComponent("restored-state")
+            try FileManager.default.createDirectory(at: restoredDirectory, withIntermediateDirectories: true)
+            let ids = songs.map(\.id)
+            for name in ["artwork-givenup", "title-checked", "album-artist-checked", "album-artist-rechecked", "artist-checked"] {
+                try JSONEncoder().encode(ids).write(to: restoredDirectory.appendingPathComponent("backfill-\(name).json"))
+            }
+            let legacyState: [String: Any] = [
+                "coverGroups": [peerContentKey: ["representative": songs[0].id, "waiting": [songs[1].id]]],
+                "lyricsPending": [String]()
+            ]
+            try JSONSerialization.data(withJSONObject: legacyState)
+                .write(to: restoredDirectory.appendingPathComponent("backfill-peer-seeds.json"))
+            backfill = MetadataBackfillService(
+                library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+                offlineReadableSourceIDs: { [sourceID] }, localFileSourceIDs: { [sourceID] },
+                directFileSourceIDs: { [sourceID] }, storageDirectory: restoredDirectory
+            )
+        } else {
+            let adoptions = songs.map {
+                PeerScanSeedAdoption(songID: $0.id, cover: .pending(peerContentKey), cachedLyrics: false)
+            }
+            backfill.acknowledgePeerSeedAdoptions(adoptions)
+            backfill.acknowledgePeerSeedAdoptions(adoptions)
+        }
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 1)
+        backfill.start()
+        await backfill.waitUntilIdle()
+        await library.waitForPendingIndex()
+
+        for song in songs {
+            let result = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id)
+            XCTAssertEqual(result, coverData)
+            XCTAssertNotNil(library.song(id: song.id)?.coverArtFileName)
+        }
+        let firstReads = await connector.localURLRequestCount(for: paths[0])
+        let secondReads = await connector.localURLRequestCount(for: paths[1])
+        XCTAssertEqual(firstReads, 2)
+        XCTAssertEqual(secondReads, 1, "Waiting chapters reuse the representative's cover without another file read")
+    }
+
+    @MainActor
     func testOpaqueCloudFileTitleSurvivesFirstReadAndRepeatedTagReads() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
