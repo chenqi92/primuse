@@ -7452,9 +7452,11 @@ final class AudioPlayerService {
         // 随机时连着放的两首(#335)照无缝接上: 没开无缝、开着淡入淡出时也一样,
         // 淡入淡出到这一首让开(见 `checkCrossfade`)。
         let joinsShuffleLink = nextJoinsCurrentAsShuffleLink(next)
-        guard settings.gaplessEnabled || joinsShuffleLink,
-              !shouldUseCrossfade(settings) || joinsShuffleLink,
-              repeatMode != .one else { return .restart }
+        let repeatsCurrentSong = repeatMode == .one
+        let usesCrossfade = shouldUseCrossfade(settings)
+        // 单曲循环不交叉混合自身；开启淡入淡出时也直接接上下一遍。
+        guard settings.gaplessEnabled || joinsShuffleLink || (repeatsCurrentSong && usesCrossfade),
+              !usesCrossfade || joinsShuffleLink || repeatsCurrentSong else { return .restart }
 
         // Spoken word forces the effects graph (`outputMode(for:)`); a book
         // next to music on the bit-exact graph needs the graph rebuilt.

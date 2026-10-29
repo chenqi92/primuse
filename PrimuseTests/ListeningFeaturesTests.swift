@@ -543,6 +543,59 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart)
     }
 
+    func testRepeatOneUsesContinuousPlaybackWhenGaplessOrCrossfadeIsEnabled() throws {
+        let player = try makeQueuedPlayer([song("current"), song("next")])
+        player.repeatMode = .one
+        let entryID = player.queueEntries[0].id
+        var settings = player.playbackSettings.snapshot()
+        settings.outputMode = .effects
+        settings.gaplessEnabled = true
+        settings.crossfadeEnabled = false
+
+        XCTAssertEqual(player.nextQueueEntryInQueue()?.id, entryID)
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .seamless)
+        settings.gaplessEnabled = false
+        settings.crossfadeEnabled = true
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .seamless)
+
+        settings.crossfadeEnabled = false
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart)
+        player.repeatMode = .off
+        settings.crossfadeEnabled = true
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart,
+                       "Different songs still use the crossfade path.")
+    }
+
+    func testSingleEntryRepeatAllCanUseTheSameFileContinuously() throws {
+        let player = try makeQueuedPlayer([song("current")])
+        player.repeatMode = .all
+        var settings = player.playbackSettings.snapshot()
+        settings.gaplessEnabled = true
+        settings.crossfadeEnabled = false
+
+        XCTAssertEqual(player.nextQueueEntryInQueue()?.id, player.queueEntries[0].id)
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .seamless)
+    }
+
+    func testRepeatOneKeepsUnsupportedPipelinesOutOfContinuousPlayback() throws {
+        let player = try makeQueuedPlayer([song("current")])
+        player.repeatMode = .one
+        var settings = player.playbackSettings.snapshot()
+        settings.gaplessEnabled = true
+        settings.crossfadeEnabled = false
+        for decoder: AudioPlayerService.DecoderKind in [.streaming, .assetReader] {
+            player.activeDecoderKind = decoder
+            XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart)
+        }
+        player.activeDecoderKind = .native
+        var appleMusic = song("apple-music")
+        appleMusic.sourceID = AppleMusicLibraryService.systemSourceID
+        player.setQueue([appleMusic])
+        player.currentSong = appleMusic
+        player.repeatMode = .one
+        XCTAssertEqual(player.continuousTransitionPlan(settings: settings), .restart)
+    }
+
     // MARK: - Medley
 
     func testMedleySlicesCarryTheirWindowAndSkipWhatCannotBeSliced() throws {

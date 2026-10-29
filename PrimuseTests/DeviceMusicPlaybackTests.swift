@@ -18,7 +18,162 @@ private final class PlaylistInspectionWindow: UIWindow {
     }
 }
 
+private final class RepeatPlaybackAudioProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames = 0
+    private var silentFrames = 0
+    private var longestSilence = 0
+    private var sampleRate = 1.0
+
+    func install(on node: AVAudioNode) {
+        node.installTap(onBus: 0, bufferSize: 512, format: nil) { [self] buffer, _ in
+            append(buffer)
+        }
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        guard let channels = buffer.floatChannelData else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        sampleRate = buffer.format.sampleRate
+        for frame in 0..<Int(buffer.frameLength) {
+            var peak: Float = 0
+            for channel in 0..<Int(buffer.format.channelCount) {
+                peak = max(peak, abs(channels[channel][frame]))
+            }
+            silentFrames = peak < 0.00001 ? silentFrames + 1 : 0
+            longestSilence = max(longestSilence, silentFrames)
+        }
+        frames += Int(buffer.frameLength)
+    }
+
+    func snapshot() -> (duration: Double, silence: Double) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (Double(frames) / sampleRate, Double(longestSilence) / sampleRate)
+    }
+}
+
 final class DeviceMusicPlaybackTests: XCTestCase {
+    @MainActor
+    func testPhysicalRepeatPlaybackKeepsOutputContinuous() async throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Requires a physical audio output device.")
+        #else
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_REPEAT_QA"] == "1" else {
+            throw XCTSkip("Opt-in test requiring six-second music clips in RepeatLoopValidation.")
+        }
+        let root = try XCTUnwrap(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+            .appendingPathComponent("RepeatLoopValidation", isDirectory: true)
+        let suite = "repeat-playback-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let modes = ListeningPlayModeStore.shared.ledger
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        let idleWasDisabled = UIApplication.shared.isIdleTimerDisabled
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        UIApplication.shared.isIdleTimerDisabled = true
+        AppServices.shared.playerService.pause()
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+            UIApplication.shared.isIdleTimerDisabled = idleWasDisabled
+        }
+
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.outputMode = .effects
+        settings.prewarmQueueCount = 0
+        settings.audioCacheEnabled = false
+        settings.skipLeadingSilenceEnabled = false
+        settings.skipTrailingSilenceEnabled = false
+        settings.replayGainEnabled = false
+        let sessionURL = root.appendingPathComponent("repeat-test-session.json")
+        let player = AudioPlayerService(playbackSettings: settings,
+            playbackSessionStore: PlaybackSessionStore(url: sessionURL))
+        defer {
+            player.stop()
+            player.persistPlaybackSession(flushImmediately: true)
+            try? FileManager.default.removeItem(at: sessionURL)
+        }
+
+        let cases: [(String, AudioFormat, Bool)] = [
+            ("native-gapless", .flac, false),
+            ("native-crossfade", .flac, true),
+            ("ffmpeg-gapless", .mka, false),
+        ]
+        for (name, format, crossfade) in cases {
+            player.stop()
+            settings.gaplessEnabled = !crossfade
+            settings.crossfadeEnabled = crossfade
+            let url = root.appendingPathComponent("loop.\(format.rawValue)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+            let song = Song(id: "repeat-\(name)", title: "Repeat music clip", duration: 6,
+                            fileFormat: format, filePath: url.path, sourceID: "repeat-test")
+            var next = song
+            next.id = "next-\(name)"
+            player.setQueue([song, next])
+            player.shuffleEnabled = false
+            player.repeatMode = .one
+            await player.play(song: song)
+            let started = await waitUntil {
+                player.isPlaying && player.currentTime > 0.3 && player.audioEngine.isActuallyPlaying
+            }
+            XCTAssertTrue(started, player.lastPlaybackError ?? name)
+            guard started else { return }
+            XCTAssertEqual(player.activeDecoderKind, format == .mka ? .ffmpeg : .native)
+            let playID = try XCTUnwrap(player.playID)
+            let entryID = player.queueEntries[0].id
+            let node = try XCTUnwrap(player.audioEngine.visualizerTapNode)
+            let probe = RepeatPlaybackAudioProbe()
+            probe.install(on: node)
+            do {
+                defer { node.removeTap(onBus: 0) }
+                var ticket = player.playbackAdvancePolicy.activeTicket?.id
+                var boundaries = 0
+                var renderedFrame = player.audioEngine.primaryRenderedFrame ?? 0
+                let deadline = Date().addingTimeInterval(25)
+                while boundaries < 3, Date() < deadline {
+                    try await Task.sleep(for: .milliseconds(50))
+                    XCTAssertEqual(player.playID, playID, "\(name): loop must keep its running transport")
+                    XCTAssertEqual(player.currentSong?.id, song.id)
+                    XCTAssertEqual(player.currentIndex, 0)
+                    XCTAssertEqual(player.queueEntries[0].id, entryID)
+                    let frame = player.audioEngine.primaryRenderedFrame ?? 0
+                    XCTAssertGreaterThanOrEqual(frame, renderedFrame, "The output node must not restart.")
+                    renderedFrame = frame
+                    let currentTicket = player.playbackAdvancePolicy.activeTicket?.id
+                    if currentTicket != ticket {
+                        boundaries += 1
+                        ticket = currentTicket
+                    }
+                    if player.playID != playID || !player.isPlaying { break }
+                }
+                try await Task.sleep(for: .milliseconds(300))
+                let sample = probe.snapshot()
+                print("REPEAT_OUTPUT case=\(name) boundaries=\(boundaries) capturedSeconds=\(sample.duration) longestSilence=\(sample.silence)")
+                XCTAssertEqual(boundaries, 3)
+                XCTAssertGreaterThan(sample.duration, 12)
+                XCTAssertLessThan(sample.silence, 0.08, "No inserted silence at a repeat boundary.")
+            }
+
+            if crossfade {
+                player.sleepStopAfterSongID = song.id
+                let stopped = await waitUntil(timeout: 9) { !player.isPlaying && player.isAtTrackEnd }
+                XCTAssertTrue(stopped, "Stop after this song must still win over repeat-one.")
+                XCTAssertEqual(player.currentSong?.id, song.id)
+            } else {
+                await player.next()
+                let skipped = await waitUntil { player.currentSong?.id == next.id && player.currentTime > 0.2 }
+                XCTAssertTrue(skipped, "Manual next must leave repeat-one's current queue entry.")
+                XCTAssertEqual(player.currentIndex, 1)
+            }
+        }
+        #endif
+    }
+
     @MainActor
     func testPhysicalFeiniuPlaylistRecovery() async throws {
         try await physicalPlaylistRecovery(type: .fnMusic)

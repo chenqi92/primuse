@@ -503,7 +503,12 @@ extension AudioPlayerService {
               shouldAttemptGapless(settings: playbackSettings.snapshot()),
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = songApplyingPlaybackRange(nextEntry.song)
-        guard nextSong.id != currentSong?.id else { return }
+        // 同一文件可以用独立解码器接续；正在写入的流式缓存仍须串行重播，
+        // 并在解析地址前拦下，避免解析过程结束当前缓存会话。
+        if nextSong.id == currentSong?.id,
+           activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream {
+            return
+        }
         // 播客单集换集时要先探音频文件的真实大小,走正常起播,不提前接续。
         guard !PodcastPlaybackSong.isEpisode(nextSong), !spokenWordRequiresOpeningSeek(for: nextSong) else { return }
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
