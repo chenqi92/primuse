@@ -11151,8 +11151,8 @@ final class MusicLibrary {
     /// fills in afterwards rather than dropping permanently.
     ///
     /// When `identities` is nil (legacy records from older clients), the
-    /// raw `songIDs` are stored as-is — `songs(forPlaylist:)` already
-    /// filters at display time.
+    /// raw `songIDs` retain their first occurrence — `songs(forPlaylist:)`
+    /// filters unavailable songs at display time.
     @discardableResult
     func applyRemotePlaylist(
         _ playlist: Playlist,
@@ -11188,7 +11188,8 @@ final class MusicLibrary {
                 plog("PendingIdentity: playlist \(playlist.id.prefix(8)) matched \(resolved.count)/\(identities.count), \(unresolved.count) waiting for this device's songs")
             }
         } else {
-            playlistSongIDs[playlist.id] = songIDs
+            var seen = Set<String>()
+            playlistSongIDs[playlist.id] = songIDs.filter { seen.insert($0).inserted }
         }
         if playlist.isPurged {
             playlistSongIDs[playlist.id] = nil
@@ -11374,13 +11375,15 @@ final class MusicLibrary {
         let resolutionIndex = makeIdentityResolutionIndex(for: identities)
         var resolved: [String] = []
         var unresolved: [SongIdentity] = []
+        // 不同设备的记录可能落到本机同一首歌；重复 ID 会让懒加载列表留下空白行。
+        var seen = Set<String>()
         for identity in identities {
             if let songID = resolveIdentity(identity, using: resolutionIndex) {
-                resolved.append(songID)
+                if seen.insert(songID).inserted { resolved.append(songID) }
             } else if let entry = PlaylistPendingEntry(syncIdentity: identity) {
                 // 别的设备上置灰的条目: 原位保留成本机的占位, 由本机曲库去点亮。
                 if playlistPendingEntries[entry.id] == nil { playlistPendingEntries[entry.id] = entry }
-                resolved.append(entry.id)
+                if seen.insert(entry.id).inserted { resolved.append(entry.id) }
             } else {
                 unresolved.append(identity)
             }
@@ -13448,8 +13451,10 @@ final class MusicLibrary {
         }
         mutating func cleanPlaylistEntries() {
             for id in playlistSongIDs.keys {
+                var seen = Set<String>()
                 playlistSongIDs[id] = playlistSongIDs[id]?.filter {
-                    songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil
+                    (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil)
+                        && seen.insert($0).inserted
                 }
             }
             playlistPendingEntries = MusicLibrary.referencedPendingEntries(
@@ -15939,8 +15944,10 @@ final class MusicLibrary {
         defer { verifiedPlaylistCleanupInputs = playlistCleanupInputs }
         for playlistID in playlistSongIDs.keys {
             let current = playlistSongIDs[playlistID] ?? []
+            var seen = Set<String>()
             let kept = current.filter {
-                songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil
+                (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil)
+                    && seen.insert($0).inserted
             }
             // 没变就别写: 每写一次都会让观察者以为成员变了。
             if kept.count != current.count { playlistSongIDs[playlistID] = kept }

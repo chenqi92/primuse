@@ -2047,3 +2047,116 @@ final class LibraryRowPatchDisabledSourceTests: XCTestCase {
         XCTAssertEqual(library.visibleSongs.count, 10)
     }
 }
+
+@MainActor
+final class MusicLibraryPlaylistIdentityTests: XCTestCase {
+    func testLegacyRemoteMembershipKeepsFirstOccurrenceAndDistinctSongIDs() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let songs = [makeSong("a"), makeSong("b")]
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let playlist = Playlist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked", syncRevision: 100)
+
+        library.applyRemotePlaylist(playlist, songIDs: ["b", "a", "b", "waiting", "a", "waiting"])
+
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["b", "a", "waiting"])
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["b", "a"])
+        XCTAssertEqual(library.entries(forPlaylist: playlist.id).map(\.id), ["b", "a"])
+        XCTAssertTrue(library.isLiked(songID: "a"))
+        XCTAssertTrue(library.isLiked(songID: "b"))
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Playlist fixture persistence failed")
+        }
+    }
+
+    func testDifferentRemoteIdentitiesResolvingToOneSongDoNotDuplicateRows() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let songs = [makeSong("a"), makeSong("b")]
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        library.sourceIdentityResolver = { _ in "account" }
+        let pending = PlaylistPendingEntry(id: "pending:unmatched", title: "Unmatched", artists: [])
+        func identity(_ remoteID: String, path: String) -> SongIdentity {
+            SongIdentity(songID: remoteID, title: "Same title", artistName: "Artist", duration: 180,
+                         cloudAccountID: "account", filePath: path)
+        }
+        let playlist = Playlist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked", syncRevision: 100)
+        library.applyRemotePlaylist(playlist, songIDs: [], identities: [
+            identity("remote-a-1", path: songs[0].filePath),
+            identity("b", path: songs[1].filePath),
+            identity("remote-a-2", path: songs[0].filePath),
+            pending.syncIdentity, pending.syncIdentity,
+        ])
+
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "b", pending.id])
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["a", "b"])
+        XCTAssertEqual(library.entries(forPlaylist: playlist.id).map(\.id), ["a", "b", pending.id])
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlist.id), 1)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Playlist fixture persistence failed")
+        }
+    }
+
+    func testExistingDuplicateMembershipIsRepairedOnBothStartupPaths() async throws {
+        struct LegacySnapshot: Encodable {
+            let songs: [Song]
+            let playlists: [Playlist]
+            let playlistSongIDs: [String: [String]]
+            let playlistPendingEntries: [String: PlaylistPendingEntry]
+        }
+        for prepared in [false, true] {
+            let directory = temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var hidden = makeSong("hidden")
+            hidden.sourceID = "disabled-source"
+            let playlist = Playlist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked")
+            let pending = PlaylistPendingEntry(id: "pending:unmatched", title: "Unmatched", artists: [])
+            let snapshot = LegacySnapshot(
+                songs: [makeSong("a"), makeSong("b"), hidden], playlists: [playlist],
+                playlistSongIDs: [playlist.id: ["b", "a", "b", pending.id, "hidden", "a", pending.id, "hidden"]],
+                playlistPendingEntries: [pending.id: pending]
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(snapshot).write(to: directory.appendingPathComponent("library-cache.json"))
+            let library: MusicLibrary
+            if prepared {
+                let startup = await MusicLibrary.prepareStartup(
+                    disabledSourceIDs: [hidden.sourceID], storageDirectory: directory
+                )
+                library = MusicLibrary(disabledSourceIDs: [hidden.sourceID], storageDirectory: directory,
+                                       preparedStartup: startup, deferredMaintenanceAllowed: { false })
+            } else {
+                library = MusicLibrary(disabledSourceIDs: [hidden.sourceID], storageDirectory: directory,
+                                       deferredMaintenanceAllowed: { false })
+            }
+            let expected = ["b", "a", pending.id, "hidden"]
+            XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), expected)
+            XCTAssertEqual(library.entries(forPlaylist: playlist.id).map(\.id), ["b", "a", pending.id])
+            XCTAssertEqual(library.songs.count, 3)
+            library.updateDisabledSourceIDs([])
+            await library.waitForPendingIndex()
+            XCTAssertEqual(library.entries(forPlaylist: playlist.id).map(\.id), expected)
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("Repaired playlist persistence failed")
+            }
+            let reloaded = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+            XCTAssertEqual(reloaded.songIDs(forPlaylist: playlist.id), expected)
+            XCTAssertEqual(reloaded.entries(forPlaylist: playlist.id).map(\.id), expected)
+        }
+    }
+
+    private func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("PrimusePlaylistIdentity-\(UUID().uuidString)")
+    }
+
+    private func makeSong(_ id: String) -> Song {
+        Song(id: id, title: "Same title", artistName: "Artist", duration: 180,
+             fileFormat: .mp3, filePath: "/music/\(id).mp3", sourceID: "source")
+    }
+}
