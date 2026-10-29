@@ -1023,7 +1023,10 @@ struct ArtistArtworkView: View {
             CachedArtworkView(
                 artistID: currentArtist.id,
                 artistName: currentArtist.name,
-                artworkReference: currentArtist.thumbnailPath,
+                artworkReference: SubsonicArtistArtworkRequest.contextualReference(
+                    artist: currentArtist,
+                    song: library.scopedPreferredArtworkSong(forArtistID: currentArtist.id)
+                ),
                 size: side,
                 cornerRadius: 0,
                 showsPlaceholder: false,

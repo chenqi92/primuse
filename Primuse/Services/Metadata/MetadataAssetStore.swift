@@ -838,13 +838,20 @@ actor MetadataAssetStore {
         let fileURL = artistArtworkDirectory.appendingPathComponent(fileName)
         do {
             try writeContentAddressed(data, refURL: fileURL)
+            try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
             return fileName
         } catch { return nil }
     }
 
-    func cachedArtistImage(forArtistID artistID: String) -> Data? {
+    func cachedArtistImage(forArtistID artistID: String, maximumAge: TimeInterval? = nil) -> Data? {
         let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
-        return readContentAddressed(refURL: artistArtworkDirectory.appendingPathComponent(fileName))
+        let url = artistArtworkDirectory.appendingPathComponent(fileName)
+        if let maximumAge {
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modified = values.contentModificationDate,
+                  Date().timeIntervalSince(modified) < maximumAge else { return nil }
+        }
+        return readContentAddressed(refURL: url)
     }
 
     nonisolated func hasArtistImage(forArtistID artistID: String) -> Bool {

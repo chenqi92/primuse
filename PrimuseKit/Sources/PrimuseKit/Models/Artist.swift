@@ -257,3 +257,69 @@ public struct SourceArtistArtworkCatalog: Codable, Equatable, Sendable {
         return AutomaticArtistArtworkReference.make(entries: entries)
     }
 }
+
+/// Keeps an artist's opaque server ID and one related song together, without
+/// merging the local identities of track artists and album artists.
+public struct SubsonicArtistArtworkRequest: Codable, Equatable, Sendable {
+    public let artistID: String?
+    public let artistName: String?
+    public let songPath: String?
+    private static let prefix = "subsonic-artist-context/"
+    public static let legacyPrefix = "subsonic-artist/"
+    public static let refreshInterval: TimeInterval = 6 * 60 * 60
+
+    public init(artistID: String?, artistName: String? = nil, songPath: String? = nil) {
+        self.artistID = artistID
+        self.artistName = artistName
+        self.songPath = songPath
+    }
+
+    public static func resolve(_ reference: String) -> Self? {
+        if reference.hasPrefix(legacyPrefix) {
+            let id = String(reference.dropFirst(legacyPrefix.count))
+            return id.isEmpty ? nil : Self(artistID: id)
+        }
+        guard reference.hasPrefix(prefix),
+              let data = Data(base64Encoded: String(reference.dropFirst(prefix.count))),
+              let request = try? JSONDecoder().decode(Self.self, from: data),
+              request.artistID?.isEmpty == false || request.songPath?.hasPrefix("/songs/") == true else { return nil }
+        return request
+    }
+
+    public var reference: String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(self)).map { Self.prefix + $0.base64EncodedString() }
+    }
+
+    public static func contextualReference(artist: Artist, song: Song?) -> String? {
+        let owned = SourceOwnedArtworkReference.resolve(artist.thumbnailPath)
+        guard let song, song.filePath.hasPrefix("/songs/"),
+              owned.map({ $0.sourceID == song.sourceID }) ?? true else { return artist.thumbnailPath }
+        let songReference = song.artistArtworkFileName ?? ""
+        let songIsSubsonic = resolve(songReference) != nil
+            || AutomaticArtistArtworkReference.resolve(songReference)?.entries.contains {
+                resolve($0.reference) != nil
+            } == true
+        guard let request = owned.flatMap({ resolve($0.reference) })
+                ?? (owned == nil && songIsSubsonic ? Self(artistID: nil) : nil),
+              let reference = Self(artistID: request.artistID, artistName: artist.name, songPath: song.filePath).reference
+        else { return artist.thumbnailPath }
+        return SourceOwnedArtworkReference.make(
+            sourceID: song.sourceID, reference: reference, cacheDiscriminator: owned?.cacheDiscriminator
+        )
+    }
+
+    public static func isServerArtist(_ reference: String?) -> Bool {
+        SourceOwnedArtworkReference.resolve(reference).flatMap { resolve($0.reference) } != nil
+    }
+
+    public static func cacheID(artistID: String, reference: String) -> String {
+        let version = isServerArtist(reference) ? "server-artist-v2\u{1F}" : ""
+        return version + artistID + "\u{1F}" + reference
+    }
+
+    public static func refreshToken(reference: String?, now: Date = Date()) -> String {
+        isServerArtist(reference) ? "v2-\(Int(now.timeIntervalSince1970 / refreshInterval))" : ""
+    }
+}

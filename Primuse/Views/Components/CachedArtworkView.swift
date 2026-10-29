@@ -681,7 +681,7 @@ struct CachedArtworkView: View {
         let suffix = "@\(bucket.rawValue)"
         if let albumID { return "album_\(albumID)\(suffix)" }
         if let artistID {
-            return "artist_\(artistID)#\(coverRef ?? "")\(suffix)"
+            return "artist_\(artistID)#\(coverRef ?? "")#\(SubsonicArtistArtworkRequest.refreshToken(reference: coverRef))\(suffix)"
         }
         let songIdentity = ArtworkSourceRequestIdentity.key(
             songID: songID,
@@ -1714,10 +1714,14 @@ struct CachedArtworkView: View {
             let data: Data?
             let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
             let sourceCacheID = owned.map { _ in
-                "\(artistID)\u{1F}\(effectiveRef ?? "")"
+                SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: effectiveRef ?? "")
             }
             if let sourceCacheID,
-               let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: sourceCacheID) {
+               let cached = await MetadataAssetStore.shared.cachedArtistImage(
+                forArtistID: sourceCacheID,
+                maximumAge: SubsonicArtistArtworkRequest.isServerArtist(effectiveRef)
+                    ? SubsonicArtistArtworkRequest.refreshInterval : nil
+               ) {
                 data = cached
             } else if let owned,
                       let sourceData = await sourceManager.artworkData(
@@ -1732,7 +1736,14 @@ struct CachedArtworkView: View {
                     )
                 }
                 data = sourceData
-            } else if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID) {
+            } else if let sourceCacheID,
+                      let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: sourceCacheID),
+                      !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) {
+                // Keep a known photo available when revalidation is offline.
+                data = cached
+            } else if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID),
+                      !SubsonicArtistArtworkRequest.isServerArtist(effectiveRef)
+                        || !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) {
                 data = cached
             } else {
                 data = nil

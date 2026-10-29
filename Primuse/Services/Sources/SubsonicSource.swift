@@ -1914,7 +1914,111 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// 取图层经 SourceManager.imageURL 回调 —— 把封面引用还原成带当前凭据的
     /// 实时 getCoverArt URL。同样兜底处理历史上落盘的完整 URL(老快照里直接
     /// 存了 https://.../getCoverArt 的情况), 直接放行。
+    func fetchArtworkData(
+        for reference: String, maximumBytes: Int, purpose: ArtworkFetchPurpose
+    ) async throws -> Data? {
+        guard let request = SubsonicArtistArtworkRequest.resolve(reference) else {
+            return try await defaultArtworkData(for: reference, maximumBytes: maximumBytes, purpose: purpose)
+        }
+        guard maximumBytes > 0 else { return nil }
+        try await connect()
+        let context = try await resolveArtistArtworkContext(request)
+        guard let artistID = context.id else { return nil }
+        if let data = try await artistImageData(id: artistID, maximumBytes: maximumBytes) { return data }
+
+        // Borrow artwork only from a single credited album artist on an album
+        // whose tracks all credit this artist. Compilation/guest credits do not
+        // establish that relationship, and never change either artist identity.
+        let song: SubsonicChild?
+        if let known = context.song { song = known }
+        else if let path = request.songPath, let id = songID(from: path) {
+            let response: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
+            song = response.song
+        } else { song = nil }
+        guard let song, creditIDs(song) == [artistID],
+              let candidates = song.albumArtists, candidates.count == 1,
+              let candidate = candidates.first, let fallbackID = candidate.id, fallbackID != artistID,
+              let name = candidate.name, !PlaceholderArtistPolicy.isPlaceholder(name),
+              let albumID = song.albumId else { return nil }
+        let response: AlbumContainer = try await requestJSON("getAlbum", query: [URLQueryItem(name: "id", value: albumID)])
+        guard let album = response.album, album.isCompilation != true,
+              album.artistId == fallbackID,
+              let songs = album.song, !songs.isEmpty,
+              songs.allSatisfy({ creditIDs($0) == [artistID] }) else { return nil }
+        pdiag("🖼️ Subsonic artist artwork fallback artist=\(artistID) albumArtist=\(fallbackID)")
+        return try await artistImageData(id: fallbackID, maximumBytes: maximumBytes)
+    }
+
+    private func creditIDs(_ song: SubsonicChild) -> Set<String> {
+        let ids = song.artists?.compactMap(\.id).filter { !$0.isEmpty } ?? []
+        return Set(ids.isEmpty ? [song.artistId].compactMap { $0 } : ids)
+    }
+
+    private func resolveArtistArtworkContext(
+        _ request: SubsonicArtistArtworkRequest
+    ) async throws -> (id: String?, song: SubsonicChild?) {
+        if let id = request.artistID { return (id, nil) }
+        guard let path = request.songPath, let id = songID(from: path),
+              let name = request.artistName else { return (nil, nil) }
+        let response: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
+        guard let song = response.song else { return (nil, nil) }
+        let key = ArtistIdentityPolicy.groupingKey(name)
+        let matches = ((song.artists ?? []) + (song.albumArtists ?? [])).filter {
+            $0.name.map { ArtistIdentityPolicy.groupingKey($0) == key } == true
+        }
+        let ids = Set(matches.compactMap(\.id).filter { !$0.isEmpty })
+        return (ids.count == 1 ? ids.first : nil, song)
+    }
+
+    private func artistImageData(id: String, maximumBytes: Int) async throws -> Data? {
+        let response: ArtistContainer = try await requestJSON("getArtist", query: [URLQueryItem(name: "id", value: id)])
+        var visited: Set<URL> = []
+        let cover = response.artist?.coverArt.flatMap { id in
+            id.isEmpty ? nil : buildRESTURL(method: "getCoverArt", query: [
+                URLQueryItem(name: "id", value: id), URLQueryItem(name: "size", value: "480")
+            ])
+        }
+        for url in [cover, response.artist?.artistImageURL.flatMap(URL.init(string:))].compactMap({ $0 }) {
+            guard visited.insert(url).inserted else { continue }
+            if let data = try await readArtistImage(url, maximumBytes: maximumBytes) { return data }
+        }
+        let info: ArtistInfoContainer? = try? await requestJSON("getArtistInfo2", query: [
+            URLQueryItem(name: "id", value: id), URLQueryItem(name: "count", value: "0")
+        ])
+        try Task.checkCancellation()
+        for value in [info?.artistInfo2?.largeImageUrl, info?.artistInfo2?.mediumImageUrl, info?.artistInfo2?.smallImageUrl] {
+            guard let url = value.flatMap(URL.init(string:)), visited.insert(url).inserted else { continue }
+            if let data = try await readArtistImage(url, maximumBytes: maximumBytes) { return data }
+        }
+        // Navidrome can omit both fields until the first artwork request has
+        // populated its image index. Its own artist artwork key works then.
+        if sourceType == .navidrome,
+           let url = buildRESTURL(method: "getCoverArt", query: [
+            URLQueryItem(name: "id", value: "ar-" + id), URLQueryItem(name: "size", value: "480")
+           ]), visited.insert(url).inserted {
+            return try await readArtistImage(url, maximumBytes: maximumBytes)
+        }
+        return nil
+    }
+
+    private func readArtistImage(_ url: URL, maximumBytes: Int) async throws -> Data? {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue("image/*", forHTTPHeaderField: "Accept")
+        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: maximumBytes)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              !data.isEmpty, SourceArtworkDataValidator.isRecognizedImage(data),
+              !SourceArtworkDataValidator.isDefaultArtistPlaceholder(data) else { return nil }
+        return data
+    }
+
     func imageURL(for path: String) async throws -> URL? {
+        if let request = SubsonicArtistArtworkRequest.resolve(path), !path.hasPrefix(Self.artistRefPrefix) {
+            try await connect()
+            guard let id = try await resolveArtistArtworkContext(request).id else { return nil }
+            return try await imageURL(for: Self.artistRefPrefix + id)
+        }
         if path.hasPrefix(Self.artistRefPrefix) {
             try await connect()
             let artistID = String(path.dropFirst(Self.artistRefPrefix.count))
@@ -2451,6 +2555,18 @@ private struct SearchResult3: Decodable {
     let song: [SubsonicChild]?
 }
 
+private struct ArtistInfoContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let artistInfo2: ArtistInfo?
+}
+
+private struct ArtistInfo: Decodable {
+    let largeImageUrl: String?
+    let mediumImageUrl: String?
+    let smallImageUrl: String?
+}
+
 private struct ArtistContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
@@ -2459,6 +2575,8 @@ private struct ArtistContainer: SubsonicResponseContainer {
 
 private struct AlbumWithSongs: Decodable, Sendable {
     let song: [SubsonicChild]?
+    let artistId: String?
+    let isCompilation: Bool?
 }
 
 private struct LegacyAlbumResult: Sendable {

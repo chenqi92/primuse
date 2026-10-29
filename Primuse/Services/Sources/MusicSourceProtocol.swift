@@ -1529,6 +1529,14 @@ extension MusicSourceConnector {
         maximumBytes: Int,
         purpose: ArtworkFetchPurpose
     ) async throws -> Data? {
+        try await defaultArtworkData(for: reference, maximumBytes: maximumBytes, purpose: purpose)
+    }
+
+    func defaultArtworkData(
+        for reference: String,
+        maximumBytes: Int,
+        purpose: ArtworkFetchPurpose
+    ) async throws -> Data? {
         guard maximumBytes > 0 else { return nil }
 
         let data: Data
@@ -1854,7 +1862,48 @@ private enum SourceArtworkDataTransport {
     }()
 }
 
-private enum SourceArtworkDataValidator {
+enum SourceArtworkDataValidator {
+    /// Navidrome's light grey square with a white five-point star is a valid
+    /// image response, but it must not mask a real fallback or become an avatar.
+    static func isDefaultArtistPlaceholder(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 16
+              ] as CFDictionary), image.width == 16, image.height == 16 else { return false }
+        var pixels = [UInt8](repeating: 0, count: 16 * 16 * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: 16, height: 16, bitsPerComponent: 8,
+                bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.interpolationQuality = .high
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+            return true
+        }
+        guard rendered else { return false }
+        let background = [0, 15, 240, 255].map { Int(pixels[$0 * 4]) }.reduce(0, +) / 4
+        guard (210...248).contains(background) else { return false }
+        let mask: [Int] = [0, 0, 0, 0, 0x0180, 0x0180, 0x0bc0, 0x0ff0,
+                           0x07e0, 0x03c0, 0x07e0, 0x0420, 0, 0, 0, 0]
+        var differences = 0
+        var brightest = 0
+        for index in 0..<256 {
+            let red = Int(pixels[index * 4])
+            let green = Int(pixels[index * 4 + 1])
+            let blue = Int(pixels[index * 4 + 2])
+            guard pixels[index * 4 + 3] >= 250,
+                  max(red, green, blue) - min(red, green, blue) <= 8,
+                  red >= background - 8 else { return false }
+            brightest = max(brightest, red)
+            let foreground = red > (background + 255) / 2
+            let expected = mask[index / 16] & (1 << (index % 16)) != 0
+            if foreground != expected { differences += 1 }
+        }
+        return brightest >= 250 && differences <= 8
+    }
+
     static func isRecognizedImage(_ data: Data) -> Bool {
         ArtworkImageCompatibility.isCompleteImage(data)
             && !ArtworkImageCompatibility.hasRedundantJPEGSampling(data)

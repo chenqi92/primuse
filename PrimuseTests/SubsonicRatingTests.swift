@@ -2,7 +2,8 @@ import Foundation
 import PrimuseKit
 import XCTest
 import SwiftUI
-import UIKit
+import CoreGraphics
+import ImageIO
 @testable import Primuse
 
 final class SubsonicRatingTests: XCTestCase {
@@ -405,6 +406,251 @@ private final class AirsonicTagHTTPProtocol: URLProtocol, @unchecked Sendable {
         do {
             let (status, headers, data) = try fixture.response(request)
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}
+
+@MainActor
+final class SubsonicArtistArtworkTests: XCTestCase {
+    func testLiveNavidromeArtworkKeepsDistinctArtistIdentities() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["PRIMUSE_QA_ARTIST_SERVER"] == "1" else {
+            throw XCTSkip("Requires the isolated local Navidrome artist fixture")
+        }
+        let username = try XCTUnwrap(environment["PRIMUSE_QA_ARTIST_USERNAME"])
+        let password = try XCTUnwrap(environment["PRIMUSE_QA_ARTIST_PASSWORD"])
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let connector = SubsonicSource(
+            sourceID: UUID().uuidString, sourceType: .navidrome, host: "127.0.0.1",
+            port: 14536, useSsl: false, basePath: nil, username: username, password: password, session: session
+        )
+        var songs: [String: Song] = [:]
+        for try await scanned in try await connector.scanSongs(from: "/") {
+            songs[scanned.song.title] = scanned.song
+        }
+        let english = try XCTUnwrap(songs["English"])
+        let chinese = try XCTUnwrap(songs["Chinese"])
+        let mixed = try XCTUnwrap(songs["Mixed"])
+        XCTAssertEqual(english.artistName, "Tsai Chin")
+        XCTAssertEqual(chinese.artistName, "蔡琴")
+        XCTAssertEqual(mixed.artistName, "蔡琴")
+        XCTAssertEqual(mixed.albumArtistName, "Tsai Chin")
+        let englishRef = try XCTUnwrap(english.artistArtworkFileName)
+        let chineseRef = try XCTUnwrap(chinese.artistArtworkFileName)
+        XCTAssertNotEqual(englishRef, chineseRef)
+        XCTAssertEqual(mixed.artistArtworkFileName, chineseRef)
+        let photo = try await connector.fetchArtworkData(for: englishRef, maximumBytes: 8_388_608, purpose: .thumbnail)
+        let missing = try await connector.imageURL(for: chineseRef)
+        XCTAssertGreaterThan(try XCTUnwrap(photo).count, 1_024)
+        XCTAssertEqual(photo?.prefix(2), Data([0xff, 0xd8]))
+        XCTAssertNil(missing)
+        let artist = Artist(id: "local-chinese", name: "蔡琴", thumbnailPath: SourceOwnedArtworkReference.make(
+            sourceID: await connector.sourceID, reference: chineseRef
+        ))
+        let contextual = try XCTUnwrap(SubsonicArtistArtworkRequest.contextualReference(artist: artist, song: mixed))
+        let owned = try XCTUnwrap(SourceOwnedArtworkReference.resolve(contextual))
+        let fallback = try await connector.fetchArtworkData(for: owned.reference, maximumBytes: 8_388_608, purpose: .thumbnail)
+        XCTAssertEqual(fallback, photo)
+        let placeholder = try await connector.fetchArtworkData(for: chineseRef, maximumBytes: 8_388_608, purpose: .thumbnail)
+        XCTAssertNil(placeholder)
+        await connector.disconnect()
+    }
+}
+
+@MainActor
+final class SubsonicArtistArtworkRecoveryTests: XCTestCase {
+    func testPrimaryImageWinsWithoutBorrowingAnotherArtist() async throws {
+        let fixture = try ArtistArtworkFixture(mode: .primary)
+        let connector = source(fixture)
+        let data = try await connector.fetchArtworkData(for: request(), maximumBytes: 1_048_576, purpose: .thumbnail)
+        XCTAssertEqual(data, fixture.photo)
+        XCTAssertFalse(fixture.paths.contains("getSong.view"))
+        await connector.disconnect()
+    }
+
+    func testMissingPrimaryUsesVerifiedSingleAlbumArtist() async throws {
+        let fixture = try ArtistArtworkFixture(mode: .alias)
+        let connector = source(fixture)
+        let data = try await connector.fetchArtworkData(for: request(), maximumBytes: 1_048_576, purpose: .thumbnail)
+        XCTAssertEqual(data, fixture.photo)
+        XCTAssertTrue(fixture.paths.contains("getAlbum.view"))
+        await connector.disconnect()
+    }
+
+    func testCompilationCollaborationAndUnrelatedSongsDoNotBorrowArtistImage() async throws {
+        for mode in [ArtistArtworkFixture.Mode.compilation, .collaboration, .unrelated, .mixedAlbum] {
+            let fixture = try ArtistArtworkFixture(mode: mode)
+            let connector = source(fixture)
+            let data = try await connector.fetchArtworkData(for: request(), maximumBytes: 1_048_576, purpose: .thumbnail)
+            XCTAssertNil(data, "Unexpected artwork for \(mode)")
+            XCTAssertFalse(fixture.imageIDs.contains("english"))
+            await connector.disconnect()
+        }
+    }
+
+    func testMissingFieldsAndBrokenCoverHaveImageFallbacks() async throws {
+        for mode in [ArtistArtworkFixture.Mode.cold, .info, .broken] {
+            let fixture = try ArtistArtworkFixture(mode: mode)
+            let connector = source(fixture)
+            let data = try await connector.fetchArtworkData(for: "subsonic-artist/chinese", maximumBytes: 1_048_576, purpose: .thumbnail)
+            XCTAssertEqual(data, fixture.photo)
+            await connector.disconnect()
+        }
+    }
+
+    func testAlbumOnlyArtistResolvesItsOwnServerID() async throws {
+        let fixture = try ArtistArtworkFixture(mode: .alias)
+        let connector = source(fixture)
+        let reference = try XCTUnwrap(SubsonicArtistArtworkRequest(
+            artistID: nil, artistName: "Tsai Chin", songPath: "/songs/mixed.mp3"
+        ).reference)
+        let data = try await connector.fetchArtworkData(for: reference, maximumBytes: 1_048_576, purpose: .thumbnail)
+        XCTAssertEqual(data, fixture.photo)
+        XCTAssertEqual(fixture.imageIDs, ["english"])
+        await connector.disconnect()
+    }
+
+    func testDefaultStarIsRejectedAcrossImageEncodingWithoutRejectingOtherPictures() throws {
+        let fixture = try ArtistArtworkFixture(mode: .alias)
+        XCTAssertTrue(SourceArtworkDataValidator.isDefaultArtistPlaceholder(ArtistArtworkFixture.star))
+        let imageSource = try XCTUnwrap(CGImageSourceCreateWithData(ArtistArtworkFixture.star as CFData, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
+        for quality in [0.4, 0.8] {
+            let data = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            XCTAssertTrue(SourceArtworkDataValidator.isDefaultArtistPlaceholder(data as Data))
+        }
+        XCTAssertFalse(SourceArtworkDataValidator.isDefaultArtistPlaceholder(fixture.photo))
+        XCTAssertFalse(SourceArtworkDataValidator.isDefaultArtistPlaceholder(Data("not an image".utf8)))
+    }
+
+    func testServerCacheExpiresAndRevalidationRefreshesUnchangedBytes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let bytes = try ArtistArtworkFixture(mode: .primary).photo
+        let stored = await store.storeArtistImage(bytes, forArtistID: "server-test")
+        let name = try XCTUnwrap(stored)
+        let url = root.appendingPathComponent("artwork/artist/" + name)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: url.path)
+        let expired = await store.cachedArtistImage(forArtistID: "server-test", maximumAge: 21_600)
+        let manual = await store.cachedArtistImage(forArtistID: "server-test")
+        XCTAssertNil(expired)
+        XCTAssertEqual(manual, bytes)
+        _ = await store.storeArtistImage(bytes, forArtistID: "server-test")
+        let renewed = await store.cachedArtistImage(forArtistID: "server-test", maximumAge: 21_600)
+        XCTAssertEqual(renewed, bytes)
+    }
+
+    func testContextUsesMatchingSourceAndInvalidatesLegacyCache() throws {
+        let reference = try XCTUnwrap(SourceOwnedArtworkReference.make(sourceID: "s", reference: "subsonic-artist/chinese"))
+        let artist = Artist(id: "local", name: "蔡琴", thumbnailPath: reference)
+        var song = Song(id: "song", title: "song", fileFormat: .mp3, filePath: "/songs/song.mp3", sourceID: "s")
+        song.artistArtworkFileName = "subsonic-artist/chinese"
+        let enriched = try XCTUnwrap(SubsonicArtistArtworkRequest.contextualReference(artist: artist, song: song))
+        let owned = try XCTUnwrap(SourceOwnedArtworkReference.resolve(enriched))
+        XCTAssertEqual(SubsonicArtistArtworkRequest.resolve(owned.reference)?.artistID, "chinese")
+        XCTAssertEqual(SubsonicArtistArtworkRequest.resolve(owned.reference)?.songPath, song.filePath)
+        XCTAssertNotEqual(SubsonicArtistArtworkRequest.cacheID(artistID: artist.id, reference: enriched), artist.id + "\u{1F}" + reference)
+        XCTAssertNotEqual(SubsonicArtistArtworkRequest.refreshToken(reference: enriched, now: Date(timeIntervalSince1970: 0)),
+                          SubsonicArtistArtworkRequest.refreshToken(reference: enriched, now: Date(timeIntervalSince1970: 21_600)))
+        song.sourceID = "other"
+        XCTAssertEqual(SubsonicArtistArtworkRequest.contextualReference(artist: artist, song: song), reference)
+    }
+
+    private func request() -> String {
+        SubsonicArtistArtworkRequest(artistID: "chinese", artistName: "蔡琴", songPath: "/songs/mixed.mp3").reference!
+    }
+
+    private func source(_ fixture: ArtistArtworkFixture) -> SubsonicSource {
+        ArtistArtworkProtocol.register(fixture)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtistArtworkProtocol.self]
+        return SubsonicSource(sourceID: fixture.host, sourceType: .navidrome, host: fixture.host,
+            port: nil, useSsl: true, basePath: nil, username: "qa", password: "qa", session: URLSession(configuration: configuration))
+    }
+}
+
+private final class ArtistArtworkFixture: @unchecked Sendable {
+    enum Mode { case primary, alias, compilation, collaboration, unrelated, mixedAlbum, cold, info, broken }
+    let mode: Mode
+    let host = "artist-" + UUID().uuidString.lowercased() + ".invalid"
+    let photo: Data
+    private let lock = NSLock()
+    private var recordedPaths: [String] = []
+    private var recordedImageIDs: [String] = []
+    var paths: [String] { lock.withLock { recordedPaths } }
+    var imageIDs: [String] { lock.withLock { recordedImageIDs } }
+    static let star = Data(base64Encoded: "UklGRhoCAABXRUJQVlA4IA4CAACQJwCdASosASwBPlEmkkajoiGhIrCYiHAKCWlu4XYBG/OHo3T52aYAUCQEgJASAkBICQEgJASAkBICQEgJASAkBICQEgI/RnpUoKRArX5cS4lnieXz2JER/wmkw8S4lxLRNVp/Z/hv0n8+a/LiXEuJDSopmxP5wF0WCRjrHWLBTcmltiCJyL2jvgqzeOsJzjmoRPIBTSVhGLIt4Ns9WUlxLiPD3I0JcFLJcR5aSh9hbzwAoEfaECxoC9QvEuJcR8dec3NBX2oJ+WpyyXEuJcIK9oI+8LnqMDdGWzPvC6J9uy3uA7p5c/GzVK+FlW27M+8LM/OXmzBzxahSxYvwAmEYWWUqG0HxtCQEgIwia1MgK8UoeKGulX87LnTqUP0p3R+JcS4l1NCQEgJASAkBICQEgJASAkBICQEgJASAkBICQEgJAR+AAP7/uxAAEBoF5HMK7FSIWLuyfH0ZrT/1nTA5pTUt/X9cAWesMYoWJPo/E6b9WCmelO0rNp+OH6f7qh99s6E6+XVETeYumt0xZ8w8Vij6fqFlnSnahtY1d2vxfqMwY0EDztCmFWhHZOLWHdTSV7e4/k14wThpM5vYMacfKNVsCKkeOBXwJ/KhKTDkMBkYdMe/COwSe9Pz58Xyr9F02CbC8wfegSKgkZZw7DweKiCo4aFOBX1Bhg4j63TOP7ha//496+yfNQAAAAAA")!
+
+    init(mode: Mode) throws {
+        self.mode = mode
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.15, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        photo = data as Data
+    }
+
+    func response(_ request: URLRequest) throws -> (Int, String, Data) {
+        let url = try XCTUnwrap(request.url)
+        let method = url.lastPathComponent
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let id = query.first { $0.name == "id" }?.value ?? ""
+        lock.withLock { recordedPaths.append(method) }
+        if url.path.hasPrefix("/image/") { return (200, "image/png", photo) }
+        if method == "getCoverArt.view" {
+            lock.withLock { recordedImageIDs.append(id) }
+            if mode == .broken && id == "chinese" { return (404, "text/plain", Data()) }
+            let real = id == "english" || mode == .primary || (mode == .cold && id == "ar-chinese")
+            return (200, real ? "image/png" : "image/webp", real ? photo : Self.star)
+        }
+        var body: [String: Any] = ["status": "ok", "version": "1.16.1", "type": "navidrome"]
+        let artist: [String: Any] = ["id": "chinese", "name": "蔡琴"]
+        var song: [String: Any] = ["id": "mixed", "artistId": "chinese", "artists": [artist],
+            "albumArtists": [["id": "english", "name": "Tsai Chin"]], "albumId": "album"]
+        if mode == .collaboration { song["artists"] = [artist, ["id": "guest", "name": "Guest"]] }
+        if mode == .unrelated { song["artists"] = [["id": "unrelated", "name": "Other"]] }
+        switch method {
+        case "getArtist.view":
+            var result: [String: Any] = ["id": id, "name": id == "english" ? "Tsai Chin" : "蔡琴"]
+            if mode != .cold && mode != .info { result["coverArt"] = id }
+            if mode == .broken { result["artistImageUrl"] = "https://\(host)/image/photo" }
+            body["artist"] = result
+        case "getArtistInfo2.view":
+            body["artistInfo2"] = mode == .info ? ["largeImageUrl": "https://\(host)/image/photo"] : [:]
+        case "getSong.view": body["song"] = song
+        case "getAlbum.view":
+            var songs = [song]
+            if mode == .mixedAlbum { songs.append(["id": "other", "artists": [["id": "other", "name": "Other"]]]) }
+            body["album"] = ["id": "album", "artistId": "english", "isCompilation": mode == .compilation, "song": songs]
+        default: break
+        }
+        return (200, "application/json", try JSONSerialization.data(withJSONObject: ["subsonic-response": body]))
+    }
+}
+
+private final class ArtistArtworkProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: ArtistArtworkFixture] = [:]
+    static func register(_ fixture: ArtistArtworkFixture) { lock.withLock { fixtures[fixture.host] = fixture } }
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasPrefix("artist-") == true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else { return }
+        do {
+            let (status, type, data) = try fixture.response(request)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type])!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }

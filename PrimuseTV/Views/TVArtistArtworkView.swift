@@ -10,7 +10,11 @@ struct TVArtistArtworkView: View {
     @State private var cacheRevision = 0
 
     /// 只随这个艺人自己的封面字段失效, 扫描入库时别的艺人变化不牵动这一格。
-    private var reference: String? { store.library.scopedVisibleArtist(id: artist.id)?.thumbnailPath }
+    private var reference: String? {
+        let current = store.library.scopedVisibleArtist(id: artist.id)
+            ?? PrimuseKit.Artist(id: artist.id, name: artist.name)
+        return SubsonicArtistArtworkRequest.contextualReference(artist: current, song: fallbackSong)
+    }
     private var resolution: LibraryArtworkOverrideResolution {
         store.library.artworkPresentation(for: .init(kind: .artist, id: artist.id)).resolution
     }
@@ -20,7 +24,7 @@ struct TVArtistArtworkView: View {
     private var identity: String {
         let fallback = fallbackSong.map { "\($0.id)|\($0.coverArtFileName ?? "")" } ?? ""
         return "\(artist.id)#\(reference ?? "")#\(fallback)#\(resolution)#\(store.library.artworkOverrideRevision)"
-            + "#\(store.recommendationRevision)#\(cacheRevision)"
+            + "#\(store.recommendationRevision)#\(cacheRevision)#\(SubsonicArtistArtworkRequest.refreshToken(reference: reference))"
     }
 
     var body: some View {
@@ -75,7 +79,7 @@ struct TVArtistArtworkView: View {
         }
 
         if let reference, !reference.isEmpty {
-            let cacheID = artist.id + "\u{1F}" + reference
+            let cacheID = SubsonicArtistArtworkRequest.cacheID(artistID: artist.id, reference: reference)
             let owned = SourceOwnedArtworkReference.resolve(reference)
             let source = owned.flatMap { store.source(id: $0.sourceID) }
             // 源停用或删了就不再读它给的头像,往下用名字缓存和歌曲封面。
@@ -85,7 +89,10 @@ struct TVArtistArtworkView: View {
                 }
             }
         }
-        return await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artist.id)
+        let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artist.id)
+        if SubsonicArtistArtworkRequest.isServerArtist(reference), let cached,
+           SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) { return nil }
+        return cached
     }
 
     private func sourceImageData(
@@ -94,7 +101,11 @@ struct TVArtistArtworkView: View {
         owned: SourceOwnedArtworkReference.Resolved?,
         source: MusicSource?
     ) async -> Data? {
-        if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: cacheID) { return data }
+        if let data = await MetadataAssetStore.shared.cachedArtistImage(
+            forArtistID: cacheID,
+            maximumAge: SubsonicArtistArtworkRequest.isServerArtist(reference)
+                ? SubsonicArtistArtworkRequest.refreshInterval : nil
+        ) { return data }
         let credential = source.flatMap { TVCredentialStore.credential(for: $0, bundle: store.credentialBundle) }
         if let source, source.type == .fnMusic,
            let client = store.fnMusicClient(for: source.id),
@@ -109,6 +120,8 @@ struct TVArtistArtworkView: View {
             _ = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
             return data
         }
+        if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: cacheID),
+           !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) { return cached }
         return nil
     }
 }
