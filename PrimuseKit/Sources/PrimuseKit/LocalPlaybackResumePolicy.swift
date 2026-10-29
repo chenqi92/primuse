@@ -68,6 +68,47 @@ public enum DecodedBufferHealthAction: Equatable, Sendable {
     case stopPlayback
 }
 
+public enum RemotePlaybackBufferingAction: Equatable, Sendable {
+    case none
+    case begin
+    case wait
+    case resume
+    case stop
+}
+
+/// An empty remote PCM queue can mean the decoder is still waiting for a
+/// Range response. Keep that request alive instead of downloading the entire
+/// source file, which may contain many CUE tracks.
+public enum RemotePlaybackBufferingPolicy {
+    public static let maximumWait: TimeInterval = 30
+
+    public static func action(
+        isEligible: Bool,
+        engineIsPlaying: Bool,
+        decoderFinished: Bool,
+        bufferedDuration: TimeInterval,
+        bufferCount: Int,
+        bufferingElapsed: TimeInterval?,
+        producerIsBackpressured: Bool = false
+    ) -> RemotePlaybackBufferingAction {
+        guard isEligible else { return .none }
+        guard let elapsed = bufferingElapsed else {
+            return engineIsPlaying && !decoderFinished && bufferCount == 0
+                && bufferedDuration <= 0.05 ? .begin : .none
+        }
+        // The final buffer is scheduled outside the gate. A finished decoder
+        // must be allowed to play that tail even when its snapshot is empty.
+        if decoderFinished { return .resume }
+        // Byte/count limits may prevent high-rate audio from accumulating a
+        // whole second. Do not deadlock a paused node behind that backpressure.
+        if bufferCount > 0, bufferedDuration > 0,
+           bufferedDuration >= 1 || producerIsBackpressured {
+            return .resume
+        }
+        return elapsed >= maximumWait ? .stop : .wait
+    }
+}
+
 /// Decides whether a local decoded-audio pipeline has genuinely stopped
 /// feeding the output node. Requiring consecutive unhealthy samples filters
 /// the normal hand-off between two PCM buffers; finished decoders are left to

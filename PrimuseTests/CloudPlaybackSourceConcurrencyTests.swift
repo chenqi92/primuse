@@ -8,6 +8,271 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
+    func testDeviceLargeWebDAVMusicSurvivesNetworkStalls() async throws {
+        guard let address = ProcessInfo.processInfo.environment["PRIMUSE_LARGE_AUDIO_QA_URL"],
+              let base = URL(string: address), let host = base.host else {
+            throw XCTSkip("Requires the controlled Range server and a real music WAV larger than 1 GB")
+        }
+        #if targetEnvironment(simulator)
+        throw XCTSkip("This opt-in regression exercises a physical iPhone")
+        #else
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        func request(_ path: String, stall: Double? = nil) async throws -> [String: Any] {
+            var request = URLRequest(url: base.appendingPathComponent(path))
+            if let stall {
+                request.httpMethod = "POST"
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["stall_seconds": stall])
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+            let (data, response) = try await session.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        func waitFor(_ label: String, timeout: Double, _ predicate: () -> Bool) async throws {
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
+            while !predicate(), ProcessInfo.processInfo.systemUptime < deadline {
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            guard predicate() else {
+                XCTFail("Large WebDAV music timed out: \(label)")
+                throw URLError(.timedOut)
+            }
+        }
+        let manifest = try await request("manifest")
+        let size = try XCTUnwrap(manifest["size"] as? NSNumber).int64Value
+        XCTAssertGreaterThan(size, 1_000_000_000)
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "LargeWebDAVMusicTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.prewarmQueueCount = 0
+        settings.skipLeadingSilenceEnabled = false
+        settings.skipTrailingSilenceEnabled = false
+        settings.gaplessEnabled = false
+        settings.crossfadeEnabled = false
+        settings.audioCacheEnabled = true
+        let source = MusicSource(id: "large-music-qa-\(UUID().uuidString)", name: "Large music QA",
+                                 type: .webdav, host: host, port: base.port, useSsl: false)
+        let connector = WebDAVSource(sourceID: source.id, host: host, port: base.port, useSsl: false,
+                                     username: "", password: "")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let song = Song(id: UUID().uuidString, title: "林俊杰 · 一千年以后（演唱会大文件测试）",
+                        duration: 900, fileFormat: .wav, filePath: "/music.wav", sourceID: source.id,
+                        fileSize: size, cueStartTime: 270.64, cueEndTime: 1170.64)
+        let player = AudioPlayerService(sourceManager: manager, playbackSettings: settings,
+                                        playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        player.playbackMetadataSourceType = { _ in .webdav }
+        defer {
+            player.stop()
+            manager.deleteAudioCache(for: song)
+        }
+        player.audioEngine.setVolume(0.12, persist: false)
+        player.setQueue([song])
+        let url = try await manager.resolveURL(for: song)
+        XCTAssertEqual(url.scheme, SourceManager.cloudStreamingScheme)
+        await player.play(song: song, from: url, bypassSystemMediaPlayback: true, shouldRecordPlaybackStart: false)
+        try await waitFor("initial playback", timeout: 30) { player.currentTime > 2 && player.audioEngine.isActuallyPlaying }
+        XCTAssertEqual(player.activeDecoderKind, .cloudStream)
+        print("LARGE_MUSIC_QA started bytes=\(size) position=\(player.currentTime)")
+        try await waitFor("continuous playback past original failure position", timeout: 115) { player.currentTime > 100 }
+        let originalID = player.playID
+        let originalNode = try XCTUnwrap(player.audioEngine.visualizerTapNode)
+        _ = try await request("control", stall: 25)
+        try await waitFor("first buffering", timeout: 20) { player.isRemotePlaybackBuffering }
+        let frozen = player.currentTime
+        try await Task.sleep(for: .seconds(4))
+        XCTAssertEqual(player.currentTime, frozen, accuracy: 0.1)
+        XCTAssertTrue(player.isPlaybackActive)
+        XCTAssertFalse(player.isLoading)
+        XCTAssertEqual(originalNode.engine?.isRunning, true)
+        try await waitFor("automatic refill", timeout: 30) { !player.isRemotePlaybackBuffering && player.currentTime > frozen + 3 }
+        XCTAssertEqual(player.playID, originalID)
+        XCTAssertTrue(player.audioEngine.visualizerTapNode === originalNode)
+        XCTAssertEqual(player.decodedBufferRecoveryAttempts, 0)
+        print("LARGE_MUSIC_QA same-stream-refill frozen=\(frozen) resumed=\(player.currentTime)")
+
+        _ = try await request("control", stall: 25)
+        try await waitFor("second buffering", timeout: 20) { player.isRemotePlaybackBuffering }
+        player.togglePlayPause()
+        let paused = player.currentTime
+        try await Task.sleep(for: .seconds(27))
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertFalse(player.interruptionResumePolicy.playbackIsIntended)
+        XCTAssertEqual(player.currentTime, paused, accuracy: 0.1)
+        player.resume()
+        try await waitFor("manual resume", timeout: 15) { player.currentTime > paused + 3 }
+        print("LARGE_MUSIC_QA manual-pause-resume position=\(player.currentTime)")
+
+        _ = try await request("control", stall: 65)
+        try await waitFor("timeout buffering", timeout: 20) { player.isRemotePlaybackBuffering }
+        let beforeTimeout = player.currentTime
+        try await waitFor("bounded timeout", timeout: 40) { !player.isPlaying && !player.isLoading }
+        XCTAssertEqual(player.currentSong?.id, song.id)
+        XCTAssertEqual(player.currentTime, beforeTimeout, accuracy: 0.5)
+        XCTAssertTrue(player.needsPlaybackRecovery)
+        _ = try await request("control", stall: 0)
+        let metrics = try await request("metrics")
+        XCTAssertEqual((metrics["full_requests"] as? NSNumber)?.intValue, 0)
+        XCTAssertLessThan(try XCTUnwrap(metrics["bytes_sent"] as? NSNumber).int64Value, size / 4)
+        print("LARGE_MUSIC_QA complete position=\(player.currentTime) metrics=\(metrics)")
+        #endif
+    }
+
+    @MainActor
+    func testRemoteBufferingKeepsPositionAndTransportAvailable() throws {
+        try withBufferingPlayer { player in
+            let empty = DecodedBufferGate.Snapshot(
+                bufferedDuration: 0, bufferedBytes: 0, bufferCount: 0, decodingFinished: false
+            )
+            XCTAssertTrue(player.handleRemotePlaybackBuffering(snapshot: empty, now: 112.6))
+            XCTAssertEqual(player.currentTime, 92)
+            XCTAssertTrue(player.isPlaybackActive)
+            XCTAssertFalse(player.isPlaybackActuallyActive)
+            XCTAssertFalse(player.isLoading)
+            XCTAssertEqual(player.decodedBufferRecoveryAttempts, 0)
+            XCTAssertNil(player.localPlaybackClockDecision(isTransitioning: false).visibleTime)
+            XCTAssertFalse(player.localPlaybackClockDecision(isTransitioning: false).shouldRunTrackEndWatchdog)
+            player.resume()
+            XCTAssertTrue(player.isRemotePlaybackBuffering)
+            XCTAssertEqual(player.remotePlaybackBufferingStartedAt, 100)
+
+            player.togglePlayPause()
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.interruptionResumePolicy.playbackIsIntended)
+            let refilled = DecodedBufferGate.Snapshot(
+                bufferedDuration: 8, bufferedBytes: 2_822_400, bufferCount: 43, decodingFinished: false
+            )
+            XCTAssertFalse(player.handleRemotePlaybackBuffering(snapshot: refilled, now: 113))
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertNil(player.remotePlaybackBufferingStartedAt)
+        }
+    }
+
+    @MainActor
+    func testRemoteBufferingResumesSameAudioNodeAfterSlowRefill() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_BUFFERING_MUSIC_FIXTURE"] else {
+            throw XCTSkip("Requires an ordinary music WAV fixture for the muted audio-node test")
+        }
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.processingFormat.sampleRate * 4)
+        ))
+        try file.read(into: buffer)
+        XCTAssertGreaterThan(buffer.frameLength, AVAudioFrameCount(file.processingFormat.sampleRate * 2))
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "RemotePlaybackBufferingAudioTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        )
+        defer { player.stop() }
+        player.audioEngine.setVolume(0, persist: false)
+        try AudioSessionManager.shared.requirePlaybackSession()
+        try player.audioEngine.configure(outputMode: .highFidelity, directSourceFormat: file.processingFormat)
+        (player.audioEngine.visualizerTapNode as? AVAudioPlayerNode)?.volume = 0
+        player.currentSong = Song(id: UUID().uuidString, title: "Music refill fixture", fileFormat: .wav,
+                                  filePath: path, sourceID: "buffering-fixture")
+        player.activeDecoderKind = .cloudStream
+        player.playID = UUID()
+        let originalID = player.playID
+        player.registerPlayIntent()
+        player.hasPreparedLocalPlayback = true
+        player.audioEngine.scheduleBuffer(buffer)
+        XCTAssertTrue(player.audioEngine.play())
+        player.isPlaying = true
+        try await Task.sleep(for: .milliseconds(250))
+        let originalNode = try XCTUnwrap(player.audioEngine.visualizerTapNode)
+        let empty = DecodedBufferGate.Snapshot(
+            bufferedDuration: 0, bufferedBytes: 0, bufferCount: 0, decodingFinished: false
+        )
+        XCTAssertTrue(player.handleRemotePlaybackBuffering(snapshot: empty, now: 100))
+        let frozenTime = player.currentTime
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertEqual(originalNode.engine?.isRunning, true)
+        XCTAssertNil(player.audioEngine.currentTime)
+        XCTAssertTrue(player.handleRemotePlaybackBuffering(snapshot: empty, now: 112.6))
+        XCTAssertEqual(player.currentTime, frozenTime)
+        let refilled = DecodedBufferGate.Snapshot(
+            bufferedDuration: 3, bufferedBytes: 1_058_400, bufferCount: 17, decodingFinished: false
+        )
+        XCTAssertTrue(player.handleRemotePlaybackBuffering(snapshot: refilled, now: 113))
+        XCTAssertTrue(player.audioEngine.isActuallyPlaying)
+        XCTAssertTrue(player.audioEngine.visualizerTapNode === originalNode)
+        XCTAssertEqual(player.playID, originalID)
+        XCTAssertEqual(player.decodedBufferRecoveryAttempts, 0)
+        XCTAssertFalse(player.isLoading)
+        try await Task.sleep(for: .milliseconds(150))
+        let resumedTime = try XCTUnwrap(player.audioEngine.currentTime)
+        XCTAssertGreaterThan(resumedTime, frozenTime)
+        XCTAssertLessThan(resumedTime - frozenTime, 0.5)
+    }
+
+    @MainActor
+    func testRemoteBufferingTimeoutPreservesCuePositionWithoutLoadingEntireFile() throws {
+        try withBufferingPlayer { player in
+            let songID = player.currentSong?.id
+            let empty = DecodedBufferGate.Snapshot(
+                bufferedDuration: 0, bufferedBytes: 0, bufferCount: 0, decodingFinished: false
+            )
+            XCTAssertTrue(player.handleRemotePlaybackBuffering(snapshot: empty, now: 130))
+            XCTAssertEqual(player.currentSong?.id, songID)
+            XCTAssertEqual(player.currentTime, 92)
+            XCTAssertEqual(player.pendingRecoveryTime, 92)
+            XCTAssertTrue(player.needsPlaybackRecovery)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+            XCTAssertNil(player.remotePlaybackBufferingStartedAt)
+        }
+    }
+
+    @MainActor
+    func testNewDecodedGateDiscardsPreviousBufferingWait() throws {
+        try withBufferingPlayer { player in
+            let replacementID = UUID()
+            player.playID = replacementID
+            player.installDecodedBufferGate(
+                DecodedBufferGate(maxBufferedDuration: 8, maxBufferedBytes: 32_000_000, maxBufferCount: 384),
+                playID: replacementID
+            )
+            XCTAssertNil(player.remotePlaybackBufferingStartedAt)
+            XCTAssertFalse(player.isRemotePlaybackBuffering)
+        }
+    }
+
+    @MainActor
+    private func withBufferingPlayer(_ body: (AudioPlayerService) throws -> Void) throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "RemotePlaybackBufferingTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Buffer-health tests must not start an audio session") }
+        )
+        defer { player.stop() }
+        player.currentSong = Song(id: UUID().uuidString, title: "Remote CUE track", fileFormat: .wav,
+                                  filePath: "album.wav", sourceID: "buffering-fixture", fileSize: 682_103_954,
+                                  cueStartTime: 270.64, cueEndTime: 557.47)
+        player.currentTime = 92
+        player.duration = 287
+        player.playID = UUID()
+        player.activeDecoderKind = .cloudStream
+        player.hasPreparedLocalPlayback = true
+        player.registerPlayIntent()
+        player.isPlaying = true
+        player.remotePlaybackBufferingStartedAt = 100
+        try body(player)
+    }
+
+    @MainActor
     func testSearchSelectionReusesRangeStreamingWithoutFullDownload() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

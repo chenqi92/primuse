@@ -34,6 +34,11 @@ extension AudioPlayerService {
                     }
                     return
                 }
+                if !self.isCrossfading {
+                    await self.sampleDecodedBufferHealth(clockTicket: clockTicket)
+                    guard self.playbackClockTickGate.isCurrent(clockTicket),
+                          self.remotePlaybackBufferingStartedAt == nil else { return }
+                }
                 let transitionWasActive = self.isCrossfading
                 let clockDecision = self.localPlaybackClockDecision(
                     isTransitioning: transitionWasActive
@@ -101,8 +106,6 @@ extension AudioPlayerService {
                     self.runSpokenWordClockTick()
                 }
                 if !transitionWasActive {
-                    await self.sampleDecodedBufferHealth(clockTicket: clockTicket)
-                    guard self.playbackClockTickGate.isCurrent(clockTicket) else { return }
                     // Check if crossfade should start
                     self.checkCrossfade()
                 }

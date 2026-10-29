@@ -1858,6 +1858,17 @@ final class AudioEngine {
         pauseImmediately()
     }
 
+    /// A short Range refill must keep the render graph alive in the
+    /// background, while the paused node preserves its sample position.
+    func pauseForBuffering() {
+        cancelTransportFade(restoreVolume: true)
+        cancelEngineIdleShutdown()
+        #if os(macOS)
+        cancelExclusiveOutputIdleRelease()
+        #endif
+        pauseImmediately(releasingHardware: false)
+    }
+
     /// Manual transport pauses use a short, cancellable envelope so a quick
     /// Play/Pause reversal never leaves a stale task muting or pausing the new
     /// command. The node's program volume (including ReplayGain) is restored
@@ -1893,7 +1904,7 @@ final class AudioEngine {
         }
     }
 
-    private func pauseImmediately() {
+    private func pauseImmediately(releasingHardware: Bool = true) {
         playbackClockReadsSuspended = true
         playerNode?.pause()
         crossfadePlayerNode?.pause()
@@ -1901,9 +1912,9 @@ final class AudioEngine {
         // keeps rendering, so the effect chain drains its own tail instead of
         // freezing it. The idle timer releases the hardware once the pause
         // turns out not to be a quick one.
-        scheduleEngineIdleShutdown()
+        if releasingHardware { scheduleEngineIdleShutdown() }
         #if os(macOS)
-        scheduleExclusiveOutputIdleRelease()
+        if releasingHardware { scheduleExclusiveOutputIdleRelease() }
         #endif
         isPlaying = false
     }

@@ -54,14 +54,17 @@ struct DecodedBufferGateTests {
         )
         await gate.acquire(duration: 0.1, byteCount: 700)
         await gate.acquire(duration: 0.1, byteCount: 300)
+        #expect(await gate.snapshot().producerIsBackpressured == false)
 
         let blocked = Task { await gate.acquire(duration: 0.1, byteCount: 300) }
         await Self.settle()
         #expect(await gate.snapshot().bufferedBytes == 1_000)
+        #expect(await gate.snapshot().producerIsBackpressured)
 
         gate.release(duration: 0.1, byteCount: 700)
         await blocked.value
         #expect(await gate.snapshot().bufferedBytes == 600)
+        #expect(await gate.snapshot().producerIsBackpressured == false)
     }
 
     @Test("The count window blocks the next acquire until a release")

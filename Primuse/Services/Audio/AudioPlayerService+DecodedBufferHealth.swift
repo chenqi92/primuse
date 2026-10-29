@@ -26,6 +26,7 @@ extension AudioPlayerService {
         decodedBufferRecoveryInProgress = false
         lastDecodedBufferSampleUptime = nil
         decodedBufferDiagnosticUnderflowStartedAt = nil
+        remotePlaybackBufferingStartedAt = nil
         if resetRecoveryAttempts {
             decodedBufferRecoveryAttempts = 0
             lastDecodedBufferRecoveryAt = nil
@@ -40,6 +41,7 @@ extension AudioPlayerService {
         decodedBufferUnhealthySampleCount = 0
         decodedBufferHealthySampleCount = 0
         decodedBufferRecoveryInProgress = false
+        remotePlaybackBufferingStartedAt = nil
     }
 
     func sampleDecodedBufferHealth(clockTicket: UInt64) async {
@@ -64,6 +66,7 @@ extension AudioPlayerService {
         let isUnhealthy = !snapshot.decodingFinished
             && (!audioEngine.isActuallyPlaying || queueIsEmpty)
         recordDecodedBufferDiagnostic(snapshot: snapshot, isUnhealthy: isUnhealthy, playID: gatePlayID)
+        if handleRemotePlaybackBuffering(snapshot: snapshot) { return }
         if isUnhealthy {
             decodedBufferUnhealthySampleCount += 1
             decodedBufferHealthySampleCount = 0
@@ -112,6 +115,59 @@ extension AudioPlayerService {
         case .stopPlayback:
             stopAfterRepeatedDecodedBufferUnderflow(snapshot: snapshot, playID: gatePlayID)
         }
+    }
+
+    @discardableResult
+    func handleRemotePlaybackBuffering(
+        snapshot: DecodedBufferGate.Snapshot,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> Bool {
+        let action = RemotePlaybackBufferingPolicy.action(
+            isEligible: (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream)
+                && isPlaying && interruptionResumePolicy.playbackIsIntended
+                && hasPreparedLocalPlayback && !isLoading && !isCrossfading,
+            engineIsPlaying: audioEngine.isActuallyPlaying,
+            decoderFinished: snapshot.decodingFinished,
+            bufferedDuration: snapshot.bufferedDuration,
+            bufferCount: snapshot.bufferCount,
+            bufferingElapsed: remotePlaybackBufferingStartedAt.map { max(0, now - $0) },
+            producerIsBackpressured: snapshot.producerIsBackpressured
+        )
+        switch action {
+        case .none:
+            remotePlaybackBufferingStartedAt = nil
+            return false
+        case .begin:
+            syncPlaybackProgressFromEngine()
+            audioEngine.pauseForBuffering()
+            remotePlaybackBufferingStartedAt = now
+            decodedBufferUnhealthySampleCount = 0
+            decodedBufferHealthySampleCount = 0
+            nearEndStallSampleCount = 0
+            plog("Remote playback buffering at \(String(format: "%.2f", currentTime))s; retaining Range stream")
+            updateNowPlayingInfo()
+        case .wait:
+            // A route/configuration callback can restart the node while the
+            // read is still pending. Keep the audio clock paused until refill.
+            if audioEngine.isActuallyPlaying { audioEngine.pauseForBuffering() }
+        case .resume:
+            let elapsed = remotePlaybackBufferingStartedAt.map { max(0, now - $0) } ?? 0
+            remotePlaybackBufferingStartedAt = nil
+            decodedBufferUnhealthySampleCount = 0
+            lastEngineProgressSample = nil
+            if audioEngine.resume() {
+                plog("Remote playback buffer refilled after \(String(format: "%.2f", elapsed))s; resumed existing stream")
+                updateNowPlayingInfo()
+            } else {
+                suspendPlaybackPreservingSelection(reason: "remote-buffering-resume-failed", resumeTime: currentTime)
+                showPlaybackError(String(localized: "playback_error_connection"))
+            }
+        case .stop:
+            plog("Remote playback buffering timed out; preserving position without complete-file download")
+            suspendPlaybackPreservingSelection(reason: "remote-buffering-timeout", resumeTime: currentTime)
+            showPlaybackError(String(localized: "playback_error_connection"))
+        }
+        return true
     }
 
     private func recordDecodedBufferDiagnostic(

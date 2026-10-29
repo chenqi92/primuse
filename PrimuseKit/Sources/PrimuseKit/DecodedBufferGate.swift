@@ -21,17 +21,20 @@ public actor DecodedBufferGate {
         public let bufferedBytes: Int
         public let bufferCount: Int
         public let decodingFinished: Bool
+        public let producerIsBackpressured: Bool
 
         public init(
             bufferedDuration: TimeInterval,
             bufferedBytes: Int,
             bufferCount: Int,
-            decodingFinished: Bool
+            decodingFinished: Bool,
+            producerIsBackpressured: Bool = false
         ) {
             self.bufferedDuration = bufferedDuration
             self.bufferedBytes = bufferedBytes
             self.bufferCount = bufferCount
             self.decodingFinished = decodingFinished
+            self.producerIsBackpressured = producerIsBackpressured
         }
     }
 
@@ -145,7 +148,8 @@ public actor DecodedBufferGate {
             bufferedDuration: inFlightDuration,
             bufferedBytes: inFlightBytes,
             bufferCount: inFlightCount,
-            decodingFinished: decodingFinished
+            decodingFinished: decodingFinished,
+            producerIsBackpressured: !waiters.isEmpty
         )
     }
 

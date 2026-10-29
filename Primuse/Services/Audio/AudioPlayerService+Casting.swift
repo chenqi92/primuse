@@ -554,7 +554,7 @@ extension AudioPlayerService {
             isPlaybackActuallyActive ? pause() : resume()
             return
         }
-        if isPlaybackActuallyActive { pause() } else { resume() }
+        if isPlaybackActive { pause() } else { resume() }
     }
 
     func setCastingPlayback(shouldPlay: Bool) {

@@ -180,7 +180,7 @@ extension AudioPlayerService {
     private func handleRemotePlayCommand() -> MPRemoteCommandHandlerStatus {
         let action = RemotePlayCommandPolicy.action(
             hasCurrentItem: currentSong != nil,
-            isPlaybackActuallyActive: isPlaybackActuallyActive,
+            isPlaybackActuallyActive: isPlaybackActive,
             isLoading: isLoading,
             playbackIsIntended: interruptionResumePolicy.playbackIsIntended
         )
@@ -221,7 +221,7 @@ extension AudioPlayerService {
     }
 
     private func handleRemoteToggleCommand() -> MPRemoteCommandHandlerStatus {
-        isPlaybackActuallyActive ? handleRemotePauseCommand() : handleRemotePlayCommand()
+        isPlaybackActive ? handleRemotePauseCommand() : handleRemotePlayCommand()
     }
 
     private func retryLoadingPlaybackFromRemote() {

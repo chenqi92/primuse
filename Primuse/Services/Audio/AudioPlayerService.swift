@@ -987,10 +987,13 @@ final class AudioPlayerService {
         }
         return isPlaying && audioEngine.isActuallyPlaying
     }
-    /// Canonical state for in-app controls, widgets and system transport UI.
-    /// `isPlaying` is retained as the mirrored backend flag; this additionally
-    /// verifies local engine output so a stopped engine cannot show Pause.
-    var isPlaybackActive: Bool { isPlaybackActuallyActive }
+    var isRemotePlaybackBuffering: Bool {
+        remotePlaybackBufferingStartedAt != nil && isPlaying
+            && interruptionResumePolicy.playbackIsIntended
+    }
+    /// Buffering retains the user's play intent, so Pause remains available
+    /// while the audio node and the system playback clock are stopped.
+    var isPlaybackActive: Bool { isPlaybackActuallyActive || isRemotePlaybackBuffering }
     var appleMusicPlaybackTask: Task<Void, Never>?
     var appleMusicTimeoutTask: Task<Void, Never>?
     var activeAppleMusicRequestID: UUID?
@@ -1443,6 +1446,7 @@ final class AudioPlayerService {
     var decodedBufferDiagnosticUnderflowStartedAt: TimeInterval?
     var decodedBufferDiagnosticEpisodeCount = 0
     var lastDecodedBufferRecoveryAt: Date?
+    var remotePlaybackBufferingStartedAt: TimeInterval?
 
     private var errorDismissTask: Task<Void, Never>?
     @ObservationIgnored var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
@@ -3169,6 +3173,9 @@ final class AudioPlayerService {
     func localPlaybackClockDecision(
         isTransitioning: Bool
     ) -> CrossfadePlaybackClockDecision {
+        guard remotePlaybackBufferingStartedAt == nil else {
+            return CrossfadePlaybackClockDecision(visibleTime: nil, shouldRunTrackEndWatchdog: false)
+        }
         let primaryNodeTime: TimeInterval?
         let incomingNodeTime: TimeInterval?
         switch PlaybackClockReadPolicy.target(isTransitioning: isTransitioning) {
@@ -7736,6 +7743,9 @@ final class AudioPlayerService {
     }
 
     private func resumeCurrentPlayback(registeringUserIntent: Bool) {
+        // Play is idempotent while the existing Range request is refilling.
+        // Restarting an empty node would advance its clock through silence.
+        guard !isRemotePlaybackBuffering else { return }
         // Repeated Play while the same MV request is still resolving is an
         // idempotent no-op. Clearing its pending token here would strand the
         // visible item in loading state with no resolver left to finish it.
